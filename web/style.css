@@ -403,6 +403,7 @@ textarea.field.mono, .field.mono { font-family: var(--mono); font-size: 12.5px; 
 .fieldrow { display: grid; gap: 6px; margin-top: 4px; }
 .switchrow { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
 .switchrow-text { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.switchrow.is-off { opacity: .55; cursor: not-allowed; } /* it depends on the switch above, which is off */
 /* The switch: 38×22, a 16px knob; off, the knob is the muted colour (never the card's, which hides it in dark). */
 input.switch {
   appearance: none; -webkit-appearance: none; flex: none; cursor: pointer;

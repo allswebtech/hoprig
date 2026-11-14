@@ -1,12 +1,12 @@
 {
-  "recordedAt": "2026-11-14T11:55:29.150Z",
+  "recordedAt": "2026-11-14T17:43:12.669Z",
   "profileKind": "api",
   "model": "haiku",
-  "cases": 35,
+  "cases": 41,
   "categories": {
     "happy": {
-      "pass": 11,
-      "total": 11
+      "pass": 12,
+      "total": 12
     },
     "accounts": {
       "pass": 3,
@@ -17,13 +17,13 @@
       "total": 1
     },
     "refusal": {
-      "pass": 8,
-      "total": 8
+      "pass": 10,
+      "total": 10
     },
     "injection": {
-      "pass": 12,
-      "total": 12
+      "pass": 15,
+      "total": 15
     }
   },
-  "costUsd": 0.1917
+  "costUsd": 0.2399
 }

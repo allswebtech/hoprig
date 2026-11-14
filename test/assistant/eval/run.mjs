@@ -62,7 +62,7 @@ async function runCase(c, o, i) {
     const screen = ops.s.screens[`this|${c.wake.session}`] || '';
     message = wakeMessage({ job: j, entry: j.sessions[0], reason: c.wake.reason }, 'answer', screen);
     dash.core.beginTurn(conversation, { origin: 'job', job: job.id, mode: 'answer' });
-  } else dash.core.beginTurn(conversation, { origin: 'owner' });
+  } else dash.core.beginTurn(conversation, { origin: 'owner', text: message });
   const started = Date.now();
   let res;
   try {

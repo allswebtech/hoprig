@@ -133,3 +133,4 @@
 .map-state.ms-unmapped { background: var(--surface-3); color: var(--text-2); }
 .map-diff { margin: 4px 0 8px; padding-left: 20px; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 @media (max-width: 899px) { .map-row.map-sub { padding-left: 24px; } }
+.map-unsaved { display: grid; gap: 8px; margin: 4px 0 8px; }

@@ -43,7 +43,7 @@ const OWNERS_ONLY = [
   ['POST', '/api/pair/code'], ['POST', '/api/pair/claim'], ['GET', '/api/joins'], ['POST', '/api/joins/x/leave'], ['POST', '/api/links/code'],
   ['POST', '/api/machines/url'], ['POST', '/api/machines/box2/remove'], ['POST', '/api/machines/install'], ['POST', '/api/machines/box2/test'],
   ['POST', '/api/profiles/add'], ['POST', '/api/profiles/sub/delete'], ['POST', '/api/profiles/sub/available'], ['GET', '/api/accounts'], ['POST', '/api/accounts/api'],
-  ['POST', '/api/addons/trouteai/setup'], ['POST', '/api/notify/test'], ['POST', '/api/onboarding/run'], ['POST', '/api/pcsetup/recipe'],
+  ['POST', '/api/workspace/git/terminal'], ['POST', '/api/addons/trouteai/setup'], ['POST', '/api/notify/test'], ['POST', '/api/onboarding/run'], ['POST', '/api/pcsetup/recipe'],
   ['GET', '/api/assistant'], ['POST', '/api/assistant/settings'], ['POST', '/api/assistant/client-token'], ['POST', '/api/assistant/cards/c_000000000000/confirm'],
   ['POST', '/api/assistant/chat'], ['POST', '/api/assistant/call'], ['GET', '/ws/term'],
 ];
@@ -81,6 +81,8 @@ test('settings bodies carry only her keys; the permission mode of new sessions o
   refused(() => checkRoute('POST', '/api/automation/settings', { updates: { claude: 'auto' } }, ctx));
   refused(() => checkRoute('POST', '/api/automation/settings', { schedules: { list: [] } }, ctx));
   assert.ok(checkRoute('POST', '/api/automation/settings', { paused: true }, ctx));
+  assert.ok(checkRoute('POST', '/api/automation/settings', { workspace: { push: true, everyHours: 6 } }, ctx));
+  refused(() => checkRoute('POST', '/api/automation/settings', { workspace: { remote: 'x' } }, ctx));
 });
 
 // Each operation with an id from the model, the route it must reach, and its arguments with the id slot.
@@ -103,6 +105,9 @@ const SLOTS = [
   ['skillApprove', 'POST', /^\/api\/skillhub\/approve$/, (v) => ({ computer: 'this', id: v })],
   ['skillRemove', 'POST', /^\/api\/skillhub\/remove$/, (v) => ({ computer: 'this', name: v })],
   ['schedules', 'POST', /^\/api\/automation\/schedules$/, (v) => ({ computer: 'this', body: { op: 'delete', id: v } })],
+  ['workspaceForget', 'POST', /^\/api\/workspace\/forget$/, (v) => ({ computer: 'this', name: v })],
+  ['workspaceRestore', 'POST', /^\/api\/workspace\/restore$/, (v) => ({ computer: 'this', url: v, dryRun: true })],
+  ['workspacePlaces', 'POST', /^\/api\/workspace\/settings$/, (v) => ({ computer: 'this', projects: `/home/owner/${v}` })],
   ['projectSync', 'POST', /^\/api\/pcsetup\/project\/sync$/, (v) => ({ computer: 'this', name: v })],
   ['setupFix', 'POST', /^\/api\/pcsetup\/fix$/, (v) => ({ computer: 'this', id: v })],
   ['startSession', 'POST', /^\/api\/sessions$/, (v) => ({ computer: 'this', folder: `/home/owner/projects/${v}`, profile: 'sub', mode: 'new' })],
@@ -161,7 +166,7 @@ test('through the tools: hostile values reach only the tool\'s own routes, or th
 });
 
 test('every route her tools use is in the table, and nothing else', async () => {
-  const ctx = stubCtx((m, p) => (p === '/api/pcsetup/job' ? { running: false, result: { ok: true } } : p === '/api/machines/ssh' ? { machine: { name: 'x' } } : { started: true }));
+  const ctx = stubCtx((m, p) => (/^\/api\/(pcsetup|workspace)\/job$/.test(p) ? { running: false, result: { ok: true } } : p === '/api/machines/ssh' ? { machine: { name: 'x' } } : { started: true }));
   const ops = createOps({ ctx, runShell: async () => ({}), jobWaitMs: 0 });
   const c = 'this';
   const runs = [
@@ -181,6 +186,10 @@ test('every route her tools use is in the table, and nothing else', async () => 
     ops.skillApprove({ computer: c, id: 'i' }), ops.skillRemove({ computer: c, name: 'n' }), ops.skillsCheck({ computer: c }), ops.projectsFolder({ computer: c, dir: '/p' }),
     ops.workingRules({ computer: c, add: true }), ops.skillsWeekly({ computer: c, weekly: true }), ops.settings({ computer: c }),
     ops.changeSettings({ computer: c, patch: { server: { uploadMaxMB: 5 } } }), ops.runCommand({ computer: c, command: 'true' }),
+    ops.workspaceMap({ computer: c }), ops.workspaceMapWrite({ computer: c, dryRun: true }), ops.workspaceGit({ computer: c }),
+    ops.workspaceRestore({ computer: c, url: 'https://git.example.com/o/b.git', dryRun: true }), ops.workspaceRestore({ computer: c, url: 'https://git.example.com/o/b.git' }),
+    ops.workspaceSync({ computer: c, dryRun: true }), ops.workspaceSync({ computer: c, with: 'box2' }), ops.workspacePlaces({ computer: c, projects: '/p' }),
+    ops.workspaceForget({ computer: c, name: 'blog' }),
   ];
   const results = await Promise.allSettled(runs);
   const errors = results.filter((x) => x.status === 'rejected').map((x) => x.reason.message);

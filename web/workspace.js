@@ -57,9 +57,12 @@ export function workspaceLine(map, job) {
   if (missing.length) parts.push(`${plural(missing.length, 'project')} in your map ${missing.length === 1 ? 'is' : 'are'} not on this computer`);
   if (parts.length) return { text: parts.join(' · '), warn: true, missing, todo };
   if (!map || !map.exists) return { text: 'No workspace map yet: Settings → Workspace makes one', warn: false, missing, todo, noMap: true };
+  if (map.saved && map.saved.unsaved) return { text: UNSAVED, warn: false, missing, todo, unsaved: true };
   if (sync && !sync.todo) return { text: 'In step with git', warn: false, missing, todo };
   return { text: 'Not synced from here yet', warn: false, missing, todo };
 }
+
+const UNSAVED = 'The map changed and is not saved in the AI brain\'s history yet';
 
 /** The label → folder of each repository the map knows (for "Ask Claude to sort it out"). */
 const dirsOf = (map) => new Map(((map && map.entries) || []).map((e) => [e.label, e.path]));
@@ -387,26 +390,48 @@ function peerPanel() {
   return panel({ icon: 'swap', title: 'Sync with another computer', desc: 'For a repository without a git server, or one this computer cannot reach. Pull only: this computer gets the other one\'s commits; nothing is written there.' }, box);
 }
 
-/** Keep it in step by itself: the automation setting { sync, push, everyHours }. */
+/**
+ * By itself: the automation setting workspace { map, commitMap, sync, push, everyHours }. Saving the map in the
+ * brain's history needs the map kept up to date; uploading applies to that commit and to the sync.
+ */
 function autoPanel() {
   const box = h('div', busyLine('…'));
-  api('/api/automation').then((st) => {
-    const w = (st.settings && st.settings.workspace) || { sync: false, push: false, everyHours: 6 };
-    const save = (patch) => api('/api/automation/settings', { workspace: patch }).catch((e) => {
+  let w = null;
+  const save = async (patch) => {
+    try {
+      await api('/api/automation/settings', { workspace: patch });
+      Object.assign(w, patch);
+      return true;
+    } catch (e) {
       toast(`${e.message}. Nothing was changed.`, { kind: 'error', ms: 6000 });
       return false;
-    });
+    }
+  };
+  const paint = () => {
     const hours = h('input.field', { type: 'number', min: 1, max: 168, value: String(w.everyHours || 6), style: { maxWidth: '110px' } });
+    const commit = toggle('Save a change of the map in the AI brain\'s history', !!w.commitMap, (v) => save({ commitMap: v }),
+      w.map ? 'Commits that one file, workspace.json, when the map changed; nothing else in the brain.' : 'Needs the map kept up to date (above).');
+    commit.querySelector('input').disabled = !w.map;
+    commit.classList.toggle('is-off', !w.map);
     fill(box,
-      toggle('Keep the workspace in step by itself', !!w.sync, (v) => save({ sync: v }), 'Gets what is new for every repository of the map now and then, and moves a repository forward only when nothing is in the way. What needs a decision is told once, in a notification.'),
+      toggle('Keep the map up to date', !!w.map, async (v) => { const ok = await save({ map: v }); if (ok) paint(); return ok; },
+        'Adds what is new on this computer to the map; written only when something changed, and only where a map exists.'),
+      commit,
+      toggle('Keep the workspace in step', !!w.sync, (v) => save({ sync: v }),
+        'Gets what is new for every repository of the map and moves one forward only when nothing is in the way; what needs a decision is told once.'),
+      toggle('Also upload', !!w.push, (v) => save({ push: v }),
+        'Uploads what is only ahead here: the map\'s commit and, with keeping in step, every repository. Off: nothing leaves this computer by itself.'),
       h('label.fieldrow', h('span.field-label', 'Every how many hours'), h('div.inlineform', hours, btn('small secondary', { label: 'Save', onclick: async () => {
         const n = Number(hours.value);
         if (!Number.isInteger(n) || n < 1 || n > 168) return toast('A whole number of hours, 1 to 168.', { kind: 'error' });
-        if ((await save({ everyHours: n })) !== false) toast('Saved');
-      } }))),
-      toggle('Also upload my saved changes', !!w.push, (v) => save({ push: v }), 'Off: saved changes stay on this computer until you sync with "also upload". On: they are uploaded when nothing is in the way.'));
+        if (await save({ everyHours: n })) toast('Saved');
+      } }))));
+  };
+  api('/api/automation').then((st) => {
+    w = { map: true, commitMap: false, sync: false, push: false, everyHours: 6, ...((st.settings && st.settings.workspace) || {}) };
+    paint();
   }, (e) => fill(box, errorBox(e.message)));
-  return panel({ icon: 'clock', title: 'By itself', desc: 'Off until you turn it on.' }, box);
+  return panel({ icon: 'clock', title: 'By itself', desc: 'What the computer does with the workspace on its own.' }, box);
 }
 
 /** Where the workspace and the projects folder are; changing it moves nothing. */
@@ -433,6 +458,16 @@ function placesPanel(st, refresh) {
     res);
 }
 
+/** The map changed and is not committed in the brain: the command, and Claude to do it. */
+function unsavedBox(m) {
+  if (!m.saved || !m.saved.unsaved) return null;
+  const brain = ((m.entries || []).find((e) => e.kind === 'brain') || {}).path || (m.file || '').replace(/[\\/][^\\/]+$/, '');
+  return h('div.map-unsaved',
+    h('div.banner.warn', icon('alert', { size: 18 }), h('span', `${UNSAVED}.`)),
+    m.saved.command ? commandLine(homeCommand(m.saved.command)) : null,
+    h('div.btnrow', startButton(brain, { label: 'Ask Claude to do it', title: 'Start Claude in the AI brain to commit the map', prompt: 'Commit the workspace map (workspace.json) in this repository with the message "Update the workspace map", then push it if it has a git server.' })));
+}
+
 function mapPanel(m, refresh) {
   const groups = mapGroups(m);
   const counts = m.counts || {};
@@ -440,6 +475,7 @@ function mapPanel(m, refresh) {
   return panel({ icon: 'git', title: 'The map', desc: 'Every repository of your workspace by its address, kept in the AI brain. A new computer gets everything it names.' },
     m.errors ? errorBox(`The map cannot be used: ${m.errors.join('; ')}`) : null,
     !m.exists ? h('p.hint', 'No map yet. Update the map writes the first one from what is on this computer.') : said ? h('p.hint', said) : null,
+    unsavedBox(m),
     groups.map((g) => [h('p.field-label.map-group', g.title), h('div.rows', g.rows.flatMap((e) => [mapRow(e, refresh), ...(e.repos || []).map((r) => mapRow(r, refresh, true))]))]),
     h('div.savebar.start', btn('primary', { icon: 'refresh', label: 'Update the map', onclick: () => updateMapSheet(refresh) }),
       m.exists ? btn('secondary', { icon: 'refresh', label: 'Sync', onclick: () => syncSheet(m, refresh) }) : null));

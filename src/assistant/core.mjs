@@ -37,7 +37,17 @@ const WAKE_OK = new Set(['notify_owner', 'finish_job', 'open_screen', 'watch_ses
 
 /** Turn an id ref from the schema into the ledger key: sessions and pids are per computer. */
 // Everything but a computer, a Claude conversation and a job belongs to one computer: its id is kept with it.
-const GLOBAL_KINDS = new Set(['computer', 'conversation', 'job']);
+const GLOBAL_KINDS = new Set(['computer', 'conversation', 'job', 'address']);
+
+/**
+ * Repository addresses the owner wrote himself (https, ssh, git@host:path, owner/name): his own words, so they may be
+ * used as an address argument (a restore). Text from a tool result never adds one this way.
+ */
+export function addressesIn(text) {
+  const out = new Set();
+  for (const m of String(text || '').matchAll(/(?:https?:\/\/|ssh:\/\/|git@)[^\s<>"'`]+|\b[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}\b/g)) out.add(m[0].replace(/[.,;:!?)\]]+$/, ''));
+  return [...out].slice(0, 50);
+}
 const refKey = (r, args) => (GLOBAL_KINDS.has(r.kind) ? r.value : `${args.computer || LOCAL}|${r.value}`);
 /** A call's usual level: an action tool's depends on its action (toolkit.mjs actionTool). */
 const baseLevel = (tool, args) => (tool.levelOf ? tool.levelOf(args) : tool.level);
@@ -351,6 +361,8 @@ export function createAssistantCore({
     tiaSettings: tiaFor,
     /** The engine marks who started a turn: the owner's message, or a job wake-up. */
     beginTurn(conversation, turn) {
+      // An owner's turn: the addresses he wrote count as shown (see addressesIn).
+      if (turn.origin !== 'job' && turn.text) shown.add(conversation, { address: addressesIn(turn.text) });
       turns.set(conversation, turn.origin === 'job' ? { origin: 'job', job: turn.job, mode: turn.mode } : { origin: 'owner' });
     },
     endTurn(conversation) {

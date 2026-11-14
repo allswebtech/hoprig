@@ -198,7 +198,7 @@ export function assistantFeature(ctx, o = {}) {
           }
         });
       }
-      core.beginTurn(c.id, origin === 'job' ? { origin: 'job', job, mode } : { origin: 'owner' });
+      core.beginTurn(c.id, origin === 'job' ? { origin: 'job', job, mode } : { origin: 'owner', text });
       try {
         const r = await c.engine.send(message);
         const d = r.done;

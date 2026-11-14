@@ -103,12 +103,12 @@ export function createOps(o) {
   const dir = (c, p) => (isLocal(c) ? localPath(p) : p);
 
   /** Follow the setup routes' background job until it ends; { ok, error, data, lines } or { running: true }. */
-  async function followJob(c) {
+  async function followJob(c, jobPath = '/api/pcsetup/job') {
     const until = Date.now() + (o.jobWaitMs ?? JOB_WAIT_MS);
     let lines = [];
     let from = 0;
     for (;;) {
-      const j = await get(c, `/api/pcsetup/job?from=${from}`);
+      const j = await get(c, `${jobPath}?from=${from}`);
       lines = [...lines, ...(j.lines || [])].slice(-40);
       from = j.next || from;
       if (!j.running) return { ...(j.result || { ok: false, error: 'the job left no result' }), lines };
@@ -116,7 +116,8 @@ export function createOps(o) {
       await sleep(500);
     }
   }
-  const withJob = async (c, started) => ({ ...started, job: started && started.started ? await followJob(c) : null });
+  const withJob = async (c, started, jobPath) => ({ ...started, job: started && started.started ? await followJob(c, jobPath) : null });
+  const WS_JOB = '/api/workspace/job';
 
   return {
     // ---- sessions ----
@@ -160,6 +161,18 @@ export function createOps(o) {
     projectInstall: async ({ computer, dir: d }) => withJob(computer, await post(computer, '/api/pcsetup/install', { dir: d })),
     workspace: ({ computer }) => get(computer, '/api/workspace'),
     workspaceSetup: ({ computer, dryRun }) => post(computer, '/api/workspace/setup', { dryRun: dryRun === true }),
+    // The workspace map, restore and sync (src/workspace/feature.mjs). Restore and sync run as background jobs.
+    workspaceMap: ({ computer }) => get(computer, '/api/workspace/map'),
+    workspaceMapWrite: ({ computer, dryRun }) => post(computer, '/api/workspace/map', { dryRun: dryRun === true }),
+    workspaceGit: ({ computer }) => get(computer, '/api/workspace/git'),
+    async workspaceRestore({ computer, url, dryRun }) {
+      const r = await post(computer, '/api/workspace/restore', { url, dryRun: dryRun === true });
+      return dryRun ? r : withJob(computer, r, WS_JOB);
+    },
+    workspaceSync: async ({ computer, push, memory, with: from, dryRun }) =>
+      withJob(computer, await post(computer, '/api/workspace/sync', { ...(from ? { with: from } : { push: push === true, memory: memory === true }), dryRun: dryRun === true }), WS_JOB),
+    workspacePlaces: ({ computer, dir: d, projects: pr }) => post(computer, '/api/workspace/settings', { ...(d ? { dir: dir(computer, d) } : {}), ...(pr ? { projects: dir(computer, pr) } : {}) }),
+    workspaceForget: ({ computer, name }) => post(computer, '/api/workspace/forget', { name }),
 
     // ---- the AI brain (read-only) ----
     brainIndex: ({ computer }) => get(computer, '/api/brain'),

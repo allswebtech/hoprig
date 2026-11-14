@@ -26,10 +26,15 @@ const projectFolder = str({ max: 1024, pattern: /^(\/|~\/)/, oneLine: true, desc
 export const list_projects = {
   name: 'list_projects',
   level: 'L0',
-  description: 'List the projects (each with its code repositories, git state and running sessions), recent folders and the allowed roots, and which workspace folders are missing. With folder: that folder\'s subfolders and its earlier Claude Code conversations (ids for start_session mode "resume").',
-  input: obj({ folder, computer }),
+  description: 'List the projects (each with its code repositories, git state and running sessions), recent folders and the allowed roots, and which workspace folders are missing. With folder: that folder\'s subfolders and its earlier Claude Code conversations (ids for start_session mode "resume"). view "map": the workspace map, each repository here / missing / different / unmapped, and whether the map is saved in the brain\'s history. view "git": commit identity set or not, the GitHub account it is signed in as, the brain\'s remote and whether it is in step.',
+  input: obj({ folder, view: str({ enum: ['map', 'git'], desc: 'The workspace map, or the Git and GitHub state.' }), computer }),
+  check(a) {
+    if (a.folder && a.view) throw toolError('give folder or view, not both', 'leave one out');
+  },
   async run(ops, a, ctx) {
     const c = comp(a);
+    if (a.view === 'map') return mapView(await ops.workspaceMap({ computer: c }), c);
+    if (a.view === 'git') return gitView(await ops.workspaceGit({ computer: c }), c);
     if (a.folder) {
       const [b, convs] = await Promise.all([ops.browse({ computer: c, path: a.folder }).catch((e) => ({ error: e.message })), ops.conversations({ computer: c, folder: a.folder }).catch(() => [])]);
       const list = convs.slice(0, 30);
@@ -58,6 +63,30 @@ export const list_projects = {
     };
   },
 };
+
+/** The workspace map for the model: entries with their state; addresses and names are data (fenced by render). */
+function mapView(m, c) {
+  const entries = (m.entries || []).slice(0, 200).map((e) => ({ kind: e.kind, label: e.label, state: e.state, address: e.url || null, folder: e.path || null }));
+  const names = [...((m.map && m.map.projects) || []).map((p) => p.name), ...((m.map && m.map.others) || []).map((o) => o.dir)].filter((x) => typeof x === 'string');
+  const n = (st) => entries.filter((e) => e.state === st).length;
+  return {
+    summary: m.exists === false
+      ? `There is no workspace map on ${c} yet (manage_project workspace_map makes one).`
+      : `The workspace map of ${c}: ${n('here')} here, ${n('missing')} missing, ${n('different')} different, ${n('unmapped')} not in the map; ${m.saved && m.saved.unsaved ? 'NOT saved in the brain\'s history yet' : 'saved in the brain\'s history'}.`,
+    data: { exists: m.exists !== false, entries, tools: m.tools || [], problems: m.errors || null, saved: m.saved ? !m.saved.unsaved : 'unknown' },
+    shown: { mapped: names.map((x) => `${c}|${x}`), address: entries.map((e) => e.address).filter(Boolean) },
+  };
+}
+
+/** Git and GitHub on a computer: never the e-mail, only whether an identity is set and the account name. */
+function gitView(g, c) {
+  const b = g.brain || {};
+  return {
+    summary: `Git on ${c}: ${g.identity && g.identity.set ? 'a commit identity is set' : 'NO commit identity yet'}; GitHub ${g.gh && g.gh.signedIn ? `signed in as ${String(g.gh.account || 'unknown').slice(0, 40)}` : g.gh && g.gh.installed ? 'not signed in' : 'not installed'}.`,
+    data: { identity_set: !!(g.identity && g.identity.set), github: g.gh ? { installed: !!g.gh.installed, signed_in: !!g.gh.signedIn, account: g.gh.account || null } : 'unknown', git_uses_github_sign_in: g.gitUsesGh ?? 'unknown', brain: b },
+    shown: { address: [b.remote, b.url].filter((x) => typeof x === 'string') },
+  };
+}
 
 // ---- the AI brain (read-only) ----
 
@@ -308,6 +337,20 @@ async function installTarget(ops, a) {
   return { dir: r.rel && r.rel.startsWith('code/') ? `${w.id}/${r.rel}` : w.id, installs: r.installs };
 }
 
+/** A workspace sync's result: what was done, and what needs a decision (never decided by Tia). Git's lines are data. */
+function syncResult(j, what) {
+  if (!j) return { summary: `${what}: nothing was started.`, data: {} };
+  if (j.running) return { summary: `${what} is still running; look again in a minute.`, data: { running: true }, output: { text: (j.lines || []).join('\n') } };
+  const d = (j.result || j).data || j.data || {};
+  const repos = (d.repos || []).map((x) => ({ repo: x.label, did: x.did || [], needs_a_decision: (x.todo || []).map((t) => ({ kind: t.kind || null, why: t.why, command: t.command || null })) }));
+  const todo = repos.reduce((n, x) => n + x.needs_a_decision.length, 0);
+  return {
+    summary: `${what} ${j.ok === false && !todo ? `did not finish: ${short(j.error, 160)}` : 'is done'}.${todo ? ` ${todo} thing(s) need a decision: they were NOT done; tell the owner.` : ''}`,
+    data: { repos, memory: d.memory || [], tools_left_alone: d.tools || [] },
+    output: { text: (j.lines || []).join('\n') },
+  };
+}
+
 const jobResult = (j, what) => {
   if (!j) return { summary: `${what}: nothing was started.`, data: {} };
   if (j.running) return { summary: `${what} is still running; look again with list_projects in a minute.`, data: { running: true }, output: { text: (j.lines || []).join('\n') } };
@@ -316,7 +359,7 @@ const jobResult = (j, what) => {
 
 export const manage_project = actionTool({
   name: 'manage_project',
-  description: 'Act on the projects of a computer: new (a project folder from the template, optionally with a GitHub repository), get (clone an existing project by name, owner/name or Git address), sync (fetch and fast-forward its repositories; what needs a decision is returned to you, never decided), add_repository, install (its dependencies), create_folders (the workspace folders that are missing).',
+  description: 'Act on the projects and the workspace of a computer: new (a project folder from the template, optionally with a GitHub repository), get (clone an existing project by name, owner/name or Git address), sync (fetch and fast-forward one project; what needs a decision is returned to you, never decided), add_repository, install (its dependencies), create_folders (the workspace folders that are missing); the whole workspace: workspace_map (write the map; never commits), workspace_sync (fetch and fast-forward everything; push uploads, a card), workspace_sync_from (get commits from another computer), workspace_restore (bring a workspace to this computer from the brain\'s address), workspace_places (where the workspace and projects folder are), workspace_forget (take an entry out of the map). dry_run says what would happen. Signing in to GitHub is the owner\'s own step (open_screen).',
   fields: {
     project,
     name: str({ max: 100, pattern: NAME, desc: 'new: the project name (letters, digits, ".", "_", "-").' }),
@@ -324,6 +367,13 @@ export const manage_project = actionTool({
     repo: str({ max: 100, pattern: NAME, desc: 'add_repository: the new repository name; install: a repository folder like code/web.' }),
     github: bool({ desc: 'new / add_repository: also make a GitHub repository (the owner must be signed in to gh).' }),
     memory: bool({ desc: 'sync: also commit the project memory.' }),
+    push: bool({ desc: 'workspace_sync: also upload local commits (a card for the owner).' }),
+    dry_run: bool({ desc: 'workspace_map / sync / sync_from / restore: only say what would happen.' }),
+    from_computer: ref('computer', str({ max: 32, pattern: /^[a-z0-9][a-z0-9_-]{0,31}$/, desc: 'workspace_sync_from: the computer to get commits from (get_computer_status).' })),
+    address: ref('address', str({ max: 300, pattern: /^(?!.*:\/\/[^/@\s]*:[^/@\s]*@)[^\s\0]+$/, desc: 'workspace_restore: the brain\'s address, as the owner gave it or a read showed it.' })),
+    workspace_folder: str({ max: 1000, pattern: /^(\/|~\/)/, oneLine: true, desc: 'workspace_places: the new workspace folder.' }),
+    projects_folder: str({ max: 1000, pattern: /^(\/|~\/)/, oneLine: true, desc: 'workspace_places: the new projects folder.' }),
+    mapped: ref('mapped', str({ max: 200, pattern: /^[A-Za-z0-9._/-]{1,200}$/, desc: 'workspace_forget: a name from list_projects view "map".' })),
   },
   actions: {
     new: {
@@ -413,6 +463,91 @@ export const manage_project = actionTool({
         return { summary: `Created ${(r.did || []).length} item(s); ${(r.left || []).length} left as they were.`, data: { did: r.did || [], left: r.left || [] } };
       },
     },
+    workspace_map: {
+      // A dry run only reads; writing puts one file in the brain folder and never commits: low-risk.
+      level: (a) => (a.dry_run ? 'L0' : 'L1'),
+      allow: ['dry_run'],
+      async run(ops, a) {
+        const r = await ops.workspaceMapWrite({ computer: comp(a), dryRun: a.dry_run === true });
+        const d = r.diff || {};
+        return {
+          summary: `${a.dry_run ? 'The map would change' : 'The map was written'} on ${comp(a)}: ${(d.added || []).length} added, ${(d.removed || []).length} removed, ${(d.changed || []).length} changed (not committed).`,
+          data: { added: d.added || [], removed: d.removed || [], changed: d.changed || [], not_here: r.notHere || [], notes: r.notes || [], commit_command: r.commit || null },
+        };
+      },
+    },
+    workspace_sync: {
+      // Fetch and fast-forward only is L1; uploading (push) is the owner's decision: a card with the dry run's list.
+      level: (a) => (a.dry_run ? 'L0' : a.push ? 'L2' : 'L1'),
+      allow: ['push', 'dry_run'],
+      before: async (ops, a) => {
+        const r = await ops.workspaceSync({ computer: comp(a), push: true, dryRun: true });
+        const repos = (r.job && r.job.data && r.job.data.repos) || [];
+        return { uploads: repos.map((x) => `${x.label}: ${(x.did || []).join(', ') || 'nothing'}`) };
+      },
+      cardLines: (a, b) => [`Bring the workspace on ${comp(a)} in step and UPLOAD (push) local commits:`, ...(b.uploads.length ? b.uploads : ['nothing to upload right now'])],
+      async run(ops, a) {
+        const r = await ops.workspaceSync({ computer: comp(a), push: a.push === true, dryRun: a.dry_run === true });
+        return syncResult(r.job, a.dry_run ? 'The sync dry run' : 'The workspace sync');
+      },
+    },
+    workspace_sync_from: {
+      level: (a) => (a.dry_run ? 'L0' : 'L2'),
+      need: ['from_computer'],
+      allow: ['dry_run'],
+      cardLines: (a) => [`Get the commits of the workspace on ${a.from_computer} into ${comp(a)} (pull only; nothing is uploaded)`],
+      async run(ops, a) {
+        const r = await ops.workspaceSync({ computer: comp(a), with: a.from_computer, dryRun: a.dry_run === true });
+        return syncResult(r.job, `${a.dry_run ? 'The dry run of getting' : 'Getting'} from ${a.from_computer}`);
+      },
+    },
+    workspace_restore: {
+      level: (a) => (a.dry_run ? 'L0' : 'L2'),
+      need: ['address'],
+      allow: ['dry_run'],
+      before: async (ops, a) => {
+        const r = await ops.workspaceRestore({ computer: comp(a), url: a.address, dryRun: true });
+        return { plan: (r.plan || []).map((x) => `${x.action || 'clone'} ${x.label}${x.url ? ` (${x.url})` : ''} → ${x.dest}${x.why ? `: ${x.why}` : ''}`) };
+      },
+      cardLines: (a, b) => [`Bring the workspace of ${a.address} to ${comp(a)}:`, ...(b.plan.length ? b.plan : ['nothing to do'])],
+      async run(ops, a) {
+        const r = await ops.workspaceRestore({ computer: comp(a), url: a.address, dryRun: a.dry_run === true });
+        if (a.dry_run) {
+          const plan = (r.plan || []).map((x) => ({ kind: x.kind, label: x.label, address: x.url || null, into: x.dest, action: x.action, why: x.why || null }));
+          return { summary: `The plan on ${comp(a)}: ${plan.length} step(s); nothing was done.`, data: { plan, notes: r.notes || [] }, shown: { address: plan.map((x) => x.address).filter(Boolean) } };
+        }
+        return jobResult(r.job, 'Bringing the workspace here');
+      },
+    },
+    workspace_places: {
+      level: 'L2',
+      allow: ['workspace_folder', 'projects_folder'],
+      check(a) {
+        if (!a.workspace_folder && !a.projects_folder) throw toolError('say what to change: workspace_folder and/or projects_folder', 'add one of them');
+      },
+      before: async (ops, a) => {
+        const st = await ops.workspace({ computer: comp(a) });
+        return { workspace: st.dir || null, projects: st.projectsDir || null };
+      },
+      cardLines: (a, b) => [
+        `Where the workspace lives on ${comp(a)} (nothing is moved; folders are only looked for in the new place):`,
+        ...(a.workspace_folder ? [`Workspace: ${b.workspace} → ${a.workspace_folder}`] : []),
+        ...(a.projects_folder ? [`Projects folder: ${b.projects} → ${a.projects_folder}`] : []),
+      ],
+      async run(ops, a) {
+        const r = await ops.workspacePlaces({ computer: comp(a), dir: a.workspace_folder, projects: a.projects_folder });
+        return { summary: 'The places are changed; nothing was moved.', data: { changed: r.changed || [], notes: r.notes || [] } };
+      },
+    },
+    workspace_forget: {
+      level: 'L2',
+      need: ['mapped'],
+      cardLines: (a) => [`Take "${a.mapped}" out of the workspace map on ${comp(a)} (no file is touched; it is not added back by itself)`],
+      async run(ops, a) {
+        const r = await ops.workspaceForget({ computer: comp(a), name: a.mapped });
+        return { summary: `"${a.mapped}" is out of the map${r.wasInMap ? '' : ' (it was not in it)'}.`, data: { forgotten: a.mapped } };
+      },
+    }
   },
 });
 
@@ -427,6 +562,17 @@ const RULES = {
   close_idle_shells: ['idle', 'shells'],
   stop_idle_gateway: ['idle', 'gateway'],
   claude_update_notice: ['updates', 'claude'],
+  workspace_map_upkeep: ['workspace', 'map'],
+  workspace_commit_map: ['workspace', 'commitMap'],
+  workspace_sync_upkeep: ['workspace', 'sync'],
+  workspace_push: ['workspace', 'push'],
+};
+// What a workspace upkeep switch does by itself from then on, said on its card.
+const UPKEEP_SENTENCE = {
+  workspace_map_upkeep: 'From then on the workspace map is kept up to date by itself (one file in the brain folder; never committed unless "commit map" is on).',
+  workspace_commit_map: 'From then on every change of the workspace map is COMMITTED to the brain\'s history by itself.',
+  workspace_sync_upkeep: 'From then on the workspace is kept in step by itself (fetch and fast-forward; nothing is uploaded unless "push" is on).',
+  workspace_push: 'From then on local commits are UPLOADED (pushed) by itself whenever the workspace is kept in step.',
 };
 const scheduleRef = ref('schedule', str({ max: 32, pattern: /^[a-z0-9]{4,32}$/, desc: 'A schedule id from action list.' }));
 
@@ -467,7 +613,7 @@ const typedLevel = (text, f, tia, base) => {
 
 export const manage_automation = actionTool({
   name: 'manage_automation',
-  description: 'The Automations page: list (settings, rules, schedules with their next run, queued messages, recent activity); add / change / delete a schedule (it starts a session or types into one at a time); turn a rule on or off; pause all automations or resume them; queue a message for a session (typed when it next waits) or clear its queue.',
+  description: 'The Automations page: list (settings, rules, schedules with their next run, queued messages, recent activity); add / change / delete a schedule (it starts a session or types into one at a time); turn a rule on or off (also the workspace upkeep: map, commit map, sync, push); how often the workspace is kept in step; pause all automations or resume them; queue a message for a session (typed when it next waits) or clear its queue.',
   fields: {
     schedule: scheduleRef,
     time: str({ max: 5, pattern: /^([01]\d|2[0-3]):[0-5]\d$/, desc: 'HH:MM, 24-hour.' }),
@@ -480,6 +626,7 @@ export const manage_automation = actionTool({
     text: str({ max: 8000, desc: 'The first message, or the message to type.' }),
     session,
     rule: str({ enum: Object.keys(RULES) }),
+    hours: int({ min: 1, max: 168, desc: 'set_upkeep_hours: how often the workspace is kept in step.' }),
     on: bool(),
   },
   actions: {
@@ -555,13 +702,23 @@ export const manage_automation = actionTool({
         const [sec, key] = RULES[a.rule];
         return { now: st[sec] ? st[sec][key] : null };
       },
-      cardLines: (a, b) => [`Automation rule "${a.rule.replace(/_/g, ' ')}" on ${comp(a)}: turn it ${a.on ? 'ON' : 'OFF'} (now ${JSON.stringify(b.now)})`],
+      cardLines: (a, b) => [`Automation rule "${a.rule.replace(/_/g, ' ')}" on ${comp(a)}: turn it ${a.on ? 'ON' : 'OFF'} (now ${JSON.stringify(b.now)})`, ...(a.on && UPKEEP_SENTENCE[a.rule] ? [UPKEEP_SENTENCE[a.rule]] : [])],
       async run(ops, a) {
         const [sec, key] = RULES[a.rule];
         // The Claude Code update rule only tells (never installs) when Tia turns it on.
         const value = sec === 'updates' ? (a.on ? 'notify' : 'off') : a.on;
         await ops.automationSettings({ computer: comp(a), patch: { [sec]: { [key]: value } } });
         return { summary: `The rule ${a.rule.replace(/_/g, ' ')} is ${a.on ? 'on' : 'off'}.`, data: { rule: a.rule, on: a.on } };
+      },
+    },
+    set_upkeep_hours: {
+      level: 'L2',
+      need: ['hours'],
+      before: async (ops, a) => ({ now: ((((await ops.automation({ computer: comp(a) })).settings || {}).workspace) || {}).everyHours ?? null }),
+      cardLines: (a, b) => [`Keep the workspace on ${comp(a)} in step every ${a.hours} hour(s) (now every ${b.now ?? 'unknown'})`],
+      async run(ops, a) {
+        await ops.automationSettings({ computer: comp(a), patch: { workspace: { everyHours: a.hours } } });
+        return { summary: `The workspace upkeep runs every ${a.hours} hour(s).`, data: { hours: a.hours } };
       },
     },
     pause: {

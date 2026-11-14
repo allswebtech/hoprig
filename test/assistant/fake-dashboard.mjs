@@ -47,7 +47,22 @@ export function baseState() {
         { id: 'hoprig', rel: 'hoprig', dir: '/home/owner/projects/hoprig', branch: 'main', changes: 0, ahead: 0, behind: 0, upstream: true, ok: true, installs: ['npm ci'] },
       ],
     },
-    workspace: { folders: [{ id: 'projects', rel: 'projects', exists: true }, { id: 'ai_brain', rel: 'ai_brain', exists: false }, { id: 'backups', rel: 'backups', exists: false }] },
+    workspaceMap: {
+      exists: true,
+      entries: [
+        { kind: 'project', label: 'shop', url: 'https://git.example.com/owner/shop.git', path: '~/projects/shop', state: 'here' },
+        { kind: 'project', label: 'blog', url: 'https://git.example.com/owner/blog.git', path: '~/projects/blog', state: 'missing' },
+        { kind: 'other', label: 'tools/notes', url: null, path: '~/Workspace/tools/notes', state: 'unmapped' },
+      ],
+      map: { projects: [{ name: 'shop' }, { name: 'blog' }], others: [] },
+      tools: [],
+      saved: { unsaved: true },
+    },
+    mapNotes: ['tools/notes has no online address: it is listed without one'],
+    git: { identity: { set: true, name: 'Owner', email: 'owner@example.com' }, gh: { installed: true, signedIn: true, account: 'owner' }, gitUsesGh: true, brain: { remote: 'https://git.example.com/owner/brain.git', inStep: true } },
+    syncLines: ['shop/code/web  pulled 2', 'brain  2 commits to push'],
+    syncRepos: [{ label: 'shop/code/web', did: ['pulled 2'], todo: [] }, { label: 'brain', did: [], todo: [{ kind: 'push', why: '2 local commits are not uploaded', command: 'git -C ~/Workspace/ai_brain push' }] }],
+    workspace: { dir: '/home/owner/Workspace', projectsDir: '/home/owner/projects', folders: [{ id: 'projects', rel: 'projects', exists: true }, { id: 'ai_brain', rel: 'ai_brain', exists: false }, { id: 'backups', rel: 'backups', exists: false }] },
     brain: { brain: { learnings: { id: 'learnings', title: 'Learnings' }, pending: { id: 'pending', title: 'Pending' } }, projects: [{ id: 'p:shop', title: 'shop memory' }] },
     brainItems: { learnings: { id: 'learnings', title: 'Learnings', file: 'learnings.md', text: 'Use npm ci, not npm install.', size: 28 }, pending: { id: 'pending', title: 'Pending', file: 'PENDING.md', text: 'Finish the checkout page.', size: 25 }, 'p:shop': { id: 'p:shop', title: 'shop memory', file: 'shop/MEMORY.md', text: 'The shop uses Stripe test keys.', size: 30 } },
     setup: { ok: false, checks: [{ id: 'kit:node.node', label: 'Node.js', status: 'ok', detail: 'v26' }, { id: 'kit:tools.gh', label: 'GitHub CLI', status: 'missing', detail: 'missing', fixKit: 'tools' }, { id: 'os.updates', label: 'System updates', status: 'warn', detail: '3 pending', fix: 'sudo apt upgrade' }] },
@@ -197,6 +212,38 @@ export class FakeOps {
   async workspaceSetup(a) {
     if (!a.dryRun) this.#write('workspaceSetup', a);
     return { dryRun: !!a.dryRun, did: this.s.workspace.folders.filter((f) => !f.exists).map((f) => ({ path: `~/Workspace/${f.rel}`, what: 'folder' })), left: [] };
+  }
+  // ---- the workspace map, git, restore, sync ----
+  async workspaceMap() {
+    return clone(this.s.workspaceMap);
+  }
+  async workspaceMapWrite(a) {
+    if (!a.dryRun) this.#write('workspaceMapWrite', a);
+    return { diff: { added: ['tools/notes'], removed: [], changed: [] }, notHere: ['blog'], notes: clone(this.s.mapNotes) };
+  }
+  async workspaceGit() {
+    return clone(this.s.git);
+  }
+  async workspaceRestore(a) {
+    const plan = [
+      { kind: 'brain', label: 'ai_brain', url: a.url, dest: '~/Workspace/ai_brain', action: 'clone' },
+      { kind: 'project', label: 'shop', url: 'https://git.example.com/owner/shop.git', dest: '~/projects/shop', action: 'here' },
+    ];
+    if (a.dryRun) return { ok: true, dryRun: true, plan, notes: [] };
+    this.#write('workspaceRestore', a);
+    return { started: true, job: { ok: true, data: { plan }, lines: ['cloned ai_brain'] } };
+  }
+  async workspaceSync(a) {
+    if (!a.dryRun) this.#write('workspaceSync', a);
+    return { started: true, job: { ok: true, data: { repos: clone(this.s.syncRepos), memory: [], tools: [] }, lines: clone(this.s.syncLines) } };
+  }
+  async workspacePlaces(a) {
+    this.#write('workspacePlaces', a);
+    return { changed: ['projects'], notes: [] };
+  }
+  async workspaceForget(a) {
+    this.#write('workspaceForget', a);
+    return { forgotten: a.name, wasInMap: true };
   }
   async brainIndex() {
     return clone(this.s.brain);

@@ -17,6 +17,8 @@ export const FIRST_CALL = {
   schedule: 'manage_automation action list',
   review: 'manage_skills action review (or update_review)',
   skill: 'manage_skills action installed',
+  mapped: 'list_projects with view "map"',
+  address: 'list_projects with view "map" or "git" (or the owner writes the address himself)',
 };
 
 /** The local computer is always known: tools default to it. */

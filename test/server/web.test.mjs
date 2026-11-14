@@ -497,6 +497,15 @@ test('workspace: one line about it, the map in groups, commands that still work 
   assert.equal(workspaceLine({ exists: true, entries: [] }, { kind: 'sync', result: { data: { todo: 0, repos: [] } } }).text, 'In step with git');
   assert.equal(workspaceLine({ exists: true, entries: [] }, null).text, 'Not synced from here yet', 'never "in step" without a sync');
   assert.equal(workspaceLine({ exists: false, entries: [] }, null).noMap, true);
+  assert.equal(workspaceLine({ exists: true, entries: [], saved: { unsaved: true } }, null).text, 'The map changed and is not saved in the AI brain\'s history yet', 'said when nothing more important is there');
+  assert.equal(workspaceLine({ ...map, saved: { unsaved: true } }, null).text, '1 project in your map is not on this computer');
+  const whole = fs.readFileSync(path.join(WEB, 'workspace.js'), 'utf8');
+  const auto = whole.slice(whole.indexOf('function autoPanel('));
+  const drawn = auto.slice(auto.indexOf('fill(box,'));
+  assert.match(auto, /const commit = toggle\('Save a change of the map/);
+  const order = ['Keep the map up to date', 'commit,', 'Keep the workspace in step', 'Also upload', 'Every how many hours'].map((t) => drawn.indexOf(t));
+  assert.ok(order.every((x, k) => x > 0 && (k === 0 || x > order[k - 1])), 'four switches in that order, then the hours');
+  assert.match(auto, /commit\.querySelector\('input'\)\.disabled = !w\.map/, 'saving the map needs the map kept up to date');
   const g = mapGroups(map);
   assert.deepEqual(g.map((x) => x.id), ['brain', 'project', 'other', 'tool']);
   assert.deepEqual(g[1].rows.map((r) => [r.label, r.repos.map((x) => x.label)]), [['shop', ['shop/code/api']], ['invoices', []]]);

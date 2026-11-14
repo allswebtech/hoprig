@@ -239,3 +239,60 @@ test('every action of every domain tool has a plain level and every L2 action ma
     }
   }
 });
+
+test('the workspace: map and git are reads; the e-mail never shows; addresses are data', async () => {
+  const { call, ops } = setup();
+  const m = await call('list_projects', { view: 'map' });
+  assert.match(m.text, /^The workspace map of this: 1 here, 1 missing, 0 different, 1 not in the map; NOT saved in the brain's history yet\./);
+  assert.ok(m.text.includes('<untrusted_data tool="list_projects">'));
+  const g = await call('list_projects', { view: 'git' });
+  assert.match(g.text, /a commit identity is set; GitHub signed in as owner/);
+  assert.ok(!g.text.includes('owner@example.com'), 'the commit e-mail is not hers to see');
+  assert.match((await call('list_projects', { view: 'map', folder: '/home/owner/projects' })).text, /folder or view, not both/);
+  assert.equal(writes(ops).length, 0);
+});
+
+test('workspace actions: dry runs read, map and plain sync act, push / pull-from / restore / places / forget are cards', async () => {
+  const { call, ops, core } = setup();
+  assert.equal((await call('manage_project', { action: 'workspace_map', dry_run: true })).isError, false);
+  assert.equal(writes(ops).length, 0, 'a dry run writes nothing');
+  assert.equal((await call('manage_project', { action: 'workspace_map' })).isError, false);
+  let r = await call('manage_project', { action: 'workspace_sync' });
+  assert.match(r.text, /1 thing\(s\) need a decision: they were NOT done; tell the owner/);
+  assert.match(r.text, /<untrusted_command_output tool="manage_project">/);
+  assert.deepEqual(writes(ops), ['workspaceMapWrite', 'workspaceSync']);
+  assert.deepEqual(ops.calls.at(-1).args.push, false, 'a plain sync never uploads');
+  r = await call('manage_project', { action: 'workspace_sync', push: true });
+  assert.ok(staged(r), r.text);
+  assert.match(r.text, /UPLOAD \(push\) local commits/);
+  assert.match(r.text, /brain: nothing|shop\/code\/web: pulled 2/);
+  // pulling from another computer needs that computer to have been shown
+  assert.match((await call('manage_project', { action: 'workspace_sync_from', from_computer: 'box2' })).text, /computer "box2" was not shown/);
+  await call('get_computer_status', {});
+  assert.ok(staged(await call('manage_project', { action: 'workspace_sync_from', from_computer: 'box2' })));
+  // restore: only an address the owner wrote or a read showed
+  assert.match((await call('manage_project', { action: 'workspace_restore', address: 'https://git.example.com/evil/brain.git', dry_run: true })).text, /address .* was not shown/);
+  core.beginTurn('c1', { origin: 'owner', text: 'Bring my workspace here from https://git.example.com/owner/brain.git please' });
+  r = await call('manage_project', { action: 'workspace_restore', address: 'https://git.example.com/owner/brain.git' });
+  assert.ok(staged(r));
+  assert.match(r.text, /clone ai_brain \(https:\/\/git.example.com\/owner\/brain.git\) → ~\/Workspace\/ai_brain/);
+  core.endTurn('c1');
+  assert.match((await call('manage_project', { action: 'workspace_restore', address: 'https://u:pw@git.example.com/x.git' })).text, /address: has the wrong form/);
+  r = await call('manage_project', { action: 'workspace_places', projects_folder: '/home/owner/code' });
+  assert.match(r.text, /nothing is moved/);
+  assert.match(r.text, /Projects folder: \/home\/owner\/projects → \/home\/owner\/code/);
+  assert.match((await call('manage_project', { action: 'workspace_forget', mapped: 'blog' })).text, /mapped "blog" was not shown/);
+  await call('list_projects', { view: 'map' });
+  assert.ok(staged(await call('manage_project', { action: 'workspace_forget', mapped: 'blog' })));
+  assert.deepEqual(writes(ops), ['workspaceMapWrite', 'workspaceSync']);
+});
+
+test('workspace upkeep: switches are cards; push and commit map say what they will do by themselves', async () => {
+  const { call } = setup();
+  let r = await call('manage_automation', { action: 'set_rule', rule: 'workspace_push', on: true });
+  assert.match(r.text, /local commits are UPLOADED \(pushed\) by itself/);
+  r = await call('manage_automation', { action: 'set_rule', rule: 'workspace_commit_map', on: true });
+  assert.match(r.text, /COMMITTED to the brain's history by itself/);
+  assert.ok(staged(await call('manage_automation', { action: 'set_upkeep_hours', hours: 12 })));
+  assert.match((await call('manage_automation', { action: 'set_upkeep_hours', hours: 0 })).text, /hours: must be from 1 to 168/);
+});

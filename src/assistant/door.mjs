@@ -20,7 +20,7 @@ const SETTINGS_KEYS = {
   autoSwitch: ['enabled', 'order', 'returnToPreferred', 'prompt', 'cooldownMinutes'],
   sessionDefaults: ['model', 'effort', 'permissionMode'], // permissionMode only unchanged: see settingsBody
 };
-const AUTOMATION_SECTIONS = { paused: true, queue: ['enabled'], schedules: ['enabled'], restore: ['enabled'], retry: ['enabled'], idle: ['shells', 'gateway'], updates: ['claude'] };
+const AUTOMATION_SECTIONS = { paused: true, queue: ['enabled'], schedules: ['enabled'], restore: ['enabled'], retry: ['enabled'], idle: ['shells', 'gateway'], updates: ['claude'], workspace: ['map', 'commitMap', 'sync', 'push', 'everyHours'] };
 
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
@@ -78,6 +78,14 @@ export const ALLOW = [
   r('GET', '/api/pcsetup/job', 'manage_project (job result)'),
   r('GET', '/api/workspace', 'list_projects'),
   r('POST', '/api/workspace/setup', 'manage_project create_folders'),
+  r('GET', '/api/workspace/map', 'list_projects (map)'),
+  r('POST', '/api/workspace/map', 'manage_project workspace_map'),
+  r('GET', '/api/workspace/git', 'list_projects (git)'),
+  r('POST', '/api/workspace/restore', 'manage_project workspace_restore'),
+  r('POST', '/api/workspace/sync', 'manage_project workspace_sync, workspace_sync_from'),
+  r('GET', '/api/workspace/job', 'manage_project (workspace job result)'),
+  r('POST', '/api/workspace/settings', 'manage_project workspace_places'),
+  r('POST', '/api/workspace/forget', 'manage_project workspace_forget'),
   r('GET', '/api/brain', 'read_brain'),
   r('GET', '/api/brain/item', 'read_brain (item)'),
   r('GET', '/api/machines', 'get_computer_status, manage_computer'),
@@ -137,6 +145,7 @@ export const NEVER = [
   /^\/api\/notify(\/|$)/,
   /^\/api\/onboarding(\/|$)/,
   /^\/api\/pcsetup\/recipe$/,
+  /^\/api\/workspace\/git\/terminal$/, // signing in to GitHub is the person's own step
   /^\/api\/assistant(?!\/run$)(\/|$)/,
   /^\/ws(\/|$)/,
 ];

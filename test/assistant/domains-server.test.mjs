@@ -139,6 +139,13 @@ test('Tia\'s page tools go through the page\'s own routes', { timeout: 120_000, 
   assert.equal(r.isError, false, r.text);
   assert.match(r.text, /The brain index of this/);
 
+  // The workspace map: read through its route; writing it (one file, never committed) is L1.
+  r = await call('list_projects', { view: 'map' });
+  assert.equal(r.isError, false, r.text);
+  r = await call('manage_project', { action: 'workspace_map', dry_run: true });
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.text, /would change/);
+
   // Skills: what is installed, through the skills route.
   assert.equal((await call('manage_skills', { action: 'installed' })).isError, false);
 });
