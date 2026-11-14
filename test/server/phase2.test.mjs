@@ -234,7 +234,8 @@ test(`settings, notifications, auto-switch safety net, password change (${kind})
   });
   assert.deepEqual(autoCard.profile, { name: 'auto', label: 'Auto', kind: 'auto' });
   assert.equal(autoCard.autoOn.label, 'Backup');
-  assert.ok((await call(`/api/sessions/${an}/history?lines=100`, { cookie: A })).json.text.includes('FAKE-LAUNCH profile=auto args=[]'));
+  // The card's state and the terminal's screen arrive on separate paths: wait for the line, as the steps below do.
+  await until('the Auto launch line', async () => (await call(`/api/sessions/${an}/history?lines=100`, { cookie: A })).json.text.includes('FAKE-LAUNCH profile=auto args=[]'));
   assert.equal((await call(`/api/sessions/${an}/switch`, { cookie: A, body: { profile: 'work' } })).status, 200);
   await until('pinned to work', async () => (await call(`/api/sessions/${an}/history?lines=100`, { cookie: A })).json.text.includes(`FAKE-LAUNCH profile=work args=["--verbose","--resume","${SID}"]`));
   await until('the pinned card', async () => (await call('/api/state', { cookie: A })).json.sessions.find((x) => x.name === an && x.profile && x.profile.name === 'work' && x.status === 'waiting'));

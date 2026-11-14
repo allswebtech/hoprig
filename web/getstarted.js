@@ -4,6 +4,7 @@
 // server (server.getStartedDismissed), so it stays closed on the phone too.
 import { icon } from './icons.js';
 import { api, fill, h, link, toast } from './lib.js';
+import { gitDone, gitRows, openGitSetup } from './gitsetup.js';
 import { store } from './store.js';
 
 /** Where a "page" action leads. */
@@ -37,6 +38,19 @@ export function hubOnboarding(onb, { https, joined }) {
 }
 
 /** True when this dashboard is a hub: marked by its setup, or (an older setup) no Claude Code here and others linked. */
+/**
+ * The coding checklist with the Git and GitHub step added (GET /api/workspace/git `g`; null: an older computer, the
+ * list as the server gave it). It comes after the server's steps; its button opens the guided terminal step.
+ */
+export function withGitStep(onb, g) {
+  if (!onb || !Array.isArray(onb.steps) || !g || onb.steps.some((s) => s.id === 'git')) return onb;
+  const done = gitDone(g);
+  const step = { id: 'git', title: 'Git and GitHub set up', optional: false, done,
+    detail: done ? `signed in as ${g.gh.account}` : gitRows(g).filter((r) => !r.ok).map((r) => `${r.title.toLowerCase()}: ${r.text.toLowerCase()}`).join('; '),
+    action: done ? null : { kind: 'git' } };
+  return { ...onb, steps: [...onb.steps, step], done: (onb.done ?? onb.steps.filter((s) => !s.optional && s.done).length) + (done ? 1 : 0), total: (onb.total ?? onb.steps.filter((s) => !s.optional).length) + 1 };
+}
+
 export function isHub(own, onb, computers) {
   if (own && own.hub) return true;
   const claude = onb && Array.isArray(onb.steps) ? onb.steps.find((s) => s.id === 'claude') : null;
@@ -66,6 +80,7 @@ export function planGetStarted(onb, { dismissed = false } = {}) {
 export function actionLabel(a) {
   if (!a) return null;
   if (a.kind === 'terminal') return a.label || 'Open a terminal';
+  if (a.kind === 'git') return 'Set up git and GitHub';
   if (a.kind === 'request') return 'Do it';
   return 'Open';
 }
@@ -73,7 +88,8 @@ export function actionLabel(a) {
 /** Run a step's action: open a part of the page, a terminal session, or call a route. */
 export async function runAction(a, after) {
   try {
-    if (a.kind === 'page') location.hash = link(TARGETS[a.target] || '#/settings');
+    if (a.kind === 'git') await openGitSetup();
+    else if (a.kind === 'page') location.hash = link(TARGETS[a.target] || '#/settings');
     else if (a.kind === 'terminal') {
       const r = await api('~/api/onboarding/run', { run: a.run });
       location.hash = `#/s/${encodeURIComponent(r.session)}`;
@@ -146,7 +162,8 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
   const dismissed = () => !!(own() && own().getStartedDismissed);
   const hub = () => isHub(own(), onb, store.all.length);
   // On a hub the checklist is the hub's own (hubOnboarding); elsewhere the coding one from the server.
-  const steps = () => (onb && hub() ? hubOnboarding(onb, { https: location.protocol === 'https:', joined: store.all.length > 1 }) : onb);
+  let git = null; // GET /api/workspace/git, for the Git and GitHub step
+  const steps = () => (onb && hub() ? hubOnboarding(onb, { https: location.protocol === 'https:', joined: store.all.length > 1 }) : withGitStep(onb, git));
   const paint = () => {
     fill(el, getStartedCard(steps(), {
       dismissed: dismissed(),
@@ -174,7 +191,7 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
   async function load() {
     clearTimeout(timer);
     try {
-      onb = await api('~/api/onboarding');
+      [onb, git] = await Promise.all([api('~/api/onboarding'), api('~/api/workspace/git').catch(() => null)]);
     } catch {
       onb = null; // another dashboard's token, an old server: no checklist
     }

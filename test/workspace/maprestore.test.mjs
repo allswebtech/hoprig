@@ -46,6 +46,14 @@ test('computer A: the map lists the brain, a project with its code repositories,
   const secret = w.clone((urls.secret = w.bare('secret')), path.join(A.projects, 'secret'));
   w.sh(secret, 'remote', 'set-url', 'origin', `https://alex:${TOKEN}@git.example.test/team/secret.git`);
   w.clone((urls.tool = w.bare('tool')), path.join(A.ws, 'git', 'tool'));
+  // A toolchain checkout under development/, on its "stable" channel: a tool, not the owner's work.
+  urls.sdk = w.bare('sdk');
+  const seed = w.clone(urls.sdk, path.join(w.root, 'sdk-seed'));
+  w.sh(seed, 'switch', '-q', '-c', 'stable');
+  w.commit(seed, 'VERSION', '1.0\n');
+  w.sh(seed, 'push', '-q', 'origin', 'stable');
+  const sdkA = w.clone(urls.sdk, path.join(A.ws, 'development', 'sdk', 'kit'));
+  w.sh(sdkA, 'switch', '-q', 'stable');
   fs.mkdirSync(path.join(A.ws, 'credentials', 'x'), { recursive: true });
   w.sh(path.join(A.ws, 'credentials', 'x'), 'init', '-q');
 
@@ -61,7 +69,12 @@ test('computer A: the map lists the brain, a project with its code repositories,
   assert.deepEqual(map.projects[1].repos, [
     { dir: 'code/local-only', url: null }, { dir: 'code/shop-api', url: urls['shop-api'] }, { dir: 'code/shop-docs', url: urls['shop-docs'] }, { dir: 'code/shop-web', url: urls['shop-web'] },
   ]);
-  assert.deepEqual(map.others, [{ dir: 'git/tool', url: urls.tool }], 'credentials/ is never looked into');
+  assert.deepEqual(map.others, [{ dir: 'development/sdk/kit', url: urls.sdk, branch: 'stable', sync: false }, { dir: 'git/tool', url: urls.tool, branch: 'main' }], 'credentials/ is never looked into');
+  assert.deepEqual(r.tools, ['development/sdk/kit'], 'everything under development/ is a tool: restored, never synced');
+  assert.deepEqual(map.projects[1].memories, { '.': 'ai_brain/claude-memory' }, 'the memory links travel with the map');
+  assert.equal(map.config, undefined, 'the default projects folder is not written');
+  const st = await M.mapStatus({ dir: A.ws, projects: A.projects });
+  assert.deepEqual(st.entries.filter((e) => e.tool).map((e) => e.label), ['development/sdk/kit']);
   assert.ok(r.notes.some((n) => /local-only: not on a git server yet/.test(n)));
   assert.deepEqual(r.manifests, [{ project: 'shop', added: ['code/shop-docs'] }], 'project.json gets the repository it lacked');
   assert.ok(JSON.parse(fs.readFileSync(path.join(shop, 'project.json'), 'utf8')).repos.some((x) => x.dir === 'code/shop-docs'));
@@ -113,7 +126,7 @@ test('restore --dry-run on a fresh computer: the whole plan, nothing written', a
   const { ui } = await quietUi();
   const p = await restoreWorkspace(urls.brain, { ui, dryRun: true, dir: C.ws, projects: C.projects });
   assert.deepEqual(p.plan.map((e) => [e.label, e.action]), [
-    ['ai_brain', 'clone'], ['shop', 'clone'], ['shop/code/local-only', 'no-address'], ['shop/code/shop-api', 'clone'], ['shop/code/shop-docs', 'clone'], ['shop/code/shop-web', 'clone'], ['git/gone', 'clone'], ['git/tool', 'clone'],
+    ['ai_brain', 'clone'], ['shop', 'clone'], ['shop/code/local-only', 'no-address'], ['shop/code/shop-api', 'clone'], ['shop/code/shop-docs', 'clone'], ['shop/code/shop-web', 'clone'], ['development/sdk/kit', 'clone'], ['git/gone', 'clone'], ['git/tool', 'clone'],
   ]);
   assert.ok(p.folders.length >= 5);
   assert.equal(fs.existsSync(C.ws), false);
@@ -140,6 +153,8 @@ test('restore into an empty home: the tree, every repository with its commits, t
   const link = path.join(B.claude, 'projects', path.join(B.projects, 'shop').replace(/[^A-Za-z0-9]/g, '-'), 'memory');
   assert.equal(fs.realpathSync(link), fs.realpathSync(path.join(B.projects, 'shop', 'ai_brain', 'claude-memory')));
   assert.ok(!fs.existsSync(path.join(B.projects, 'secret')), 'a forgotten project is not restored');
+  assert.equal(result['development/sdk/kit'], 'cloned', 'a tool is restored like any other repository');
+  assert.equal(w.sh(path.join(B.ws, 'development', 'sdk', 'kit'), 'branch', '--show-current'), 'stable', 'on its mapped branch');
 
   const before = listing(B.ws);
   const again = await restoreWorkspace(urls.brain, { ui, dir: B.ws, projects: B.projects });
@@ -168,8 +183,14 @@ test('sync: behind → fast-forward; ahead → listed, pushed only with --push; 
   w.sh(path.join(A.projects, 'shop'), 'push', '-q');
   w.commit(path.join(A.ws, 'ai_brain'), 'learnings.md', 'from A');
   w.sh(path.join(A.ws, 'ai_brain'), 'push', '-q');
+  // A new release of the tool on its server: sync must not fetch it, let alone move to it.
+  const seed = path.join(w.root, 'sdk-seed');
+  w.commit(seed, 'VERSION', '2.0\n');
+  w.sh(seed, 'push', '-q', 'origin', 'stable');
   // B: a commit of its own in shop-api (ahead), one in the parent (diverged), an unsaved change in the brain (dirty).
   B.use();
+  const kitB = path.join(B.ws, 'development', 'sdk', 'kit');
+  const kitBefore = w.sh(kitB, 'for-each-ref');
   const api = path.join(B.projects, 'shop', 'code', 'shop-api');
   w.commit(api, 'b.md', 'from B');
   const parentB = w.commit(path.join(B.projects, 'shop'), 'notes.md', 'from B');
@@ -192,7 +213,10 @@ test('sync: behind → fast-forward; ahead → listed, pushed only with --push; 
   assert.equal(head(path.join(B.ws, 'ai_brain')), brainB, 'dirty: not touched');
   assert.equal(fs.readFileSync(path.join(B.ws, 'ai_brain', 'BRAIN.md'), 'utf8'), 'unsaved');
   assert.deepEqual(byLabel(r, 'git/gone').todo[0].kind, 'missing');
+  assert.deepEqual(r.tools, ['development/sdk/kit']);
+  assert.equal(byLabel(r, 'development/sdk/kit'), undefined, 'a tool is not fetched or fast-forwarded');
 
+  assert.equal(w.sh(kitB, 'for-each-ref'), kitBefore, 'the tool was not even fetched');
   const pushed = await syncAll({ dir: B.ws, projects: B.projects, push: true });
   assert.deepEqual(byLabel(pushed, 'shop/code/shop-api').did, ['pushed 1']);
   assert.equal(w.sh(path.join(w.server, 'team', 'shop-api.git'), 'rev-parse', 'main'), head(api));
@@ -218,6 +242,8 @@ test('sync --with another computer over SSH: pull only, the other side is never 
     assert.match(byLabel(r, 'shop/code/shop-api').notes[0], /here that box2 does not have/);
     assert.equal(byLabel(r, 'shop').todo[0].why.includes('both moved'), true);
     assert.equal(w.sh(webA, 'for-each-ref'), refsA, 'nothing was written on the other computer');
+    assert.deepEqual(r.tools, ['development/sdk/kit']);
+    assert.equal(byLabel(r, 'development/sdk/kit'), undefined, 'tools are not synced from another computer either');
   } finally {
     delete process.env.GIT_SSH_COMMAND;
     delete process.env.GIT_SSH_VARIANT;
@@ -268,4 +294,52 @@ test('restore after setup: the untouched starting brain is kept aside, an edited
   fs.appendFileSync(path.join(F.ws, 'ai_brain', 'learnings.md'), '- my own line\n');
   await assert.rejects(restoreWorkspace(urls.brain, { ui, dir: F.ws, projects: F.projects }), (e) => e.status === 409);
   assert.match(fs.readFileSync(path.join(F.ws, 'ai_brain', 'learnings.md'), 'utf8'), /my own line/);
+});
+
+test('a person can make a tool syncable again: map keeps "sync": true; a bad value is refused', async () => {
+  A.use();
+  const m = M.readMap(A.ws).map;
+  m.others.find((o) => o.dir === 'development/sdk/kit').sync = true;
+  M.writeMap(m, A.ws);
+  const r = await M.updateMap({ dir: A.ws, projects: A.projects });
+  assert.equal(r.map.others.find((o) => o.dir === 'development/sdk/kit').sync, true);
+  assert.deepEqual(r.tools, []);
+  const bad = { version: 1, others: [{ dir: 'development/x', url: null, sync: 'no' }] };
+  assert.equal(M.validateMap(bad).ok, false);
+});
+
+test('the workspace config in the map: the projects folder relative to the workspace, memory links; restore applies them', async () => {
+  // Computer G keeps its projects in <workspace>/code and has a project without project.json, memory in mem/.
+  const G = w.computer('gus');
+  G.use();
+  const brainUrl = w.bare('brain-g');
+  w.clone(brainUrl, path.join(G.ws, 'ai_brain'));
+  const code = path.join(G.ws, 'code');
+  const plain = w.clone(w.bare('plain'), path.join(code, 'plain'));
+  const scan = await M.scanWorkspace({ dir: G.ws, projects: code, previous: M.emptyMap() });
+  assert.deepEqual(scan.map.config, { projectsDir: 'code' });
+  const outside = await M.scanWorkspace({ dir: G.ws, projects: path.join(G.home, 'elsewhere'), previous: M.emptyMap() });
+  assert.equal(outside.map.config, undefined);
+  assert.ok(outside.notes.some((n) => /outside the workspace/.test(n)), 'never a machine path');
+  const m = { ...scan.map, projects: [{ name: 'plain', url: w.url('plain'), repos: [], memories: { '.': 'mem' } }] };
+  M.writeMap(m, G.ws);
+  const text = fs.readFileSync(M.mapFile(G.ws), 'utf8');
+  assert.ok(!text.includes(G.home), 'no absolute path in the map');
+  w.sh(path.join(G.ws, 'ai_brain'), 'add', 'workspace.json');
+  w.sh(path.join(G.ws, 'ai_brain'), 'commit', '-q', '-m', 'map');
+  w.sh(path.join(G.ws, 'ai_brain'), 'push', '-q', 'origin', 'HEAD:main');
+  assert.ok(plain);
+  for (const bad of [{ projectsDir: '../out' }, { projectsDir: '/abs' }, { projectsDir: 'credentials' }, { other: 1 }]) assert.equal(M.validateMap({ version: 1, config: bad }).ok, false, JSON.stringify(bad));
+  assert.equal(M.validateMap({ version: 1, projects: [{ name: 'p', url: null, repos: [], memories: { '.': '../../.ssh' } }] }).ok, false);
+
+  // A fresh computer with no projects folder chosen: restore puts the projects where the map says and links memory.
+  const H = w.computer('hal');
+  H.use();
+  const { ui } = await quietUi();
+  const r = await restoreWorkspace(brainUrl, { ui, dir: H.ws });
+  assert.equal(r.projectsDir, path.join(H.ws, 'code'));
+  assert.ok(fs.existsSync(path.join(H.ws, 'code', 'plain', '.git')));
+  const link = path.join(H.claude, 'projects', path.join(H.ws, 'code', 'plain').replace(/[^A-Za-z0-9]/g, '-'), 'memory');
+  assert.equal(fs.realpathSync(link), fs.realpathSync(path.join(H.ws, 'code', 'plain', 'mem')), 'the map\'s memory link, not a guess');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(H.env.HOPRIG_CONFIG_DIR, 'config.json'), 'utf8')).projectsDir, path.join(H.ws, 'code'));
 });

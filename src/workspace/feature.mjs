@@ -118,7 +118,8 @@ export function workspaceFeature(sctx, opts = {}) {
       keys(b, ['url', 'dryRun']);
       if (typeof b.url !== 'string' || !b.url.trim() || b.url.length > 300) throw fail(400, 'give the address of your AI brain');
       const restore = opts.restore || restoreWorkspace;
-      const p = places();
+      // The projects folder is restore's to decide (this computer's choice, else the map's): only the workspace here.
+      const p = { dir: places().dir, ...(opts.projectsDir ? { projects: opts.projectsDir() } : {}) };
       if (bool(b.dryRun, 'dryRun')) return restore(b.url.trim(), { ui: jobUi(() => {}).ui, dryRun: true, ...p });
       return startJob('restore', (onLine) => restore(b.url.trim(), { ui: jobUi(onLine).ui, ...p }));
     }],

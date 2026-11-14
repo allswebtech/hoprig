@@ -6,7 +6,7 @@ import { APP_NAME, COMMAND } from './brand.js';
 import { icon } from './icons.js';
 import { api, btn, fill, h, link, machine, openSheet, promptSheet, toast } from './lib.js';
 import { fold } from './shell.js';
-import { workspaceFolders } from './brain.js';
+import { gitPanel } from './gitsetup.js';
 
 const MARK = { ok: '✓', fail: '✗', warn: '!', info: '·' };
 const STATE = { ok: '✓', missing: '✗', old: '!' };
@@ -174,7 +174,11 @@ export function setupSection() {
   fill(root,
     h('section.card.panel.cp-resultcard', head, h('div.cp-recheck', checked, btn('small ghost', { icon: 'refresh', label: 'Check again', onclick: load }))),
     fixBox, fineBox,
-    workspaceFolders(),
+    gitPanel(),
+    // The workspace's folders, its map and syncing live in Settings → Workspace.
+    h('div.rows.ws-link', h('a.row', { href: link('#/settings/workspace') }, h('span.row-icon', icon('folder')),
+      h('span.row-main', h('span.row-title', 'Workspace folders and the map'), h('span.row-sub', 'Settings → Workspace: the folder tree, every repository by its address, keeping it in step')),
+      h('span.row-end', icon('chevronRight', { size: 18 })))),
     h('h2.section-title', 'Recipe'),
     h('p.hint', 'Make your next computer like this one: save what is installed here, then use it there.'),
     recipeActions);

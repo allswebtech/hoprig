@@ -58,21 +58,33 @@ the AI brain because the brain is the one repository every computer has.
 ```json
 {
   "version": 1,
+  "config": { "projectsDir": "code" },
   "brain": { "url": "https://github.com/example/ai_brain.git" },
   "projects": [
     { "name": "shop", "url": "https://github.com/example/shop.git",
+      "memories": { ".": "ai_brain/claude-memory" },
       "repos": [ { "dir": "code/shop-api", "url": "https://github.com/example/shop-api.git" },
                  { "dir": "code/shop-web", "url": "git@gitlab.example.com:example/shop-web.git", "branch": "main" },
                  { "dir": "code/sketches", "url": null } ] }
   ],
-  "others": [ { "dir": "git/tool", "url": "https://github.com/example/tool.git" } ],
+  "others": [
+    { "dir": "development/flutter/flutter", "url": "https://github.com/flutter/flutter.git", "branch": "stable", "sync": false },
+    { "dir": "git/tool", "url": "https://github.com/example/tool.git", "branch": "main" }
+  ],
   "skip": [ "old-project" ]
 }
 ```
 
-- `hoprig workspace map` writes it from what is on the computer and shows what changed (added, removed, a changed
-  address). It never commits: it prints the `git add` and `git commit` to run in the brain. `project new`,
-  `project clone` and `project add` keep it up to date by themselves when there is a brain.
+- **The map is the union of your workspace across your computers**, not a picture of one disk. `hoprig workspace
+  map` adds and updates what is on this computer (addresses, branches, tool flags, memory links, code
+  repositories); what the map has and this computer does not **stays as it is** and is listed as "in the map, not
+  on this computer" (never as removed). A computer without a brain remote, or with a projects folder the map cannot
+  describe, never blanks what the map says. Only `forget` takes something out. The one exception: a project that
+  IS on this computer and whose own `project.json` no longer names one of its code repositories (whose folder is not
+  here either): its `project.json` is the truth for it, so that repository is "taken out of <project> by its
+  project.json". `map` shows what changed (added, taken out, a changed address), never commits, and prints the
+  `git add` and `git commit` to run in the brain. `project new`, `project clone` and `project add` keep it up to
+  date by themselves when there is a brain.
 - A project's own `project.json` stays the truth for its code repositories. The map repeats them so that one file
   is enough to rebuild everything, and `map` adds a code repository found on disk to a `project.json` that lacks it
   (commit that in the project).
@@ -82,6 +94,19 @@ the AI brain because the brain is the one repository every computer has.
   guessed. Folders named `no-ai`, `ignore`, `ai-ignore-dir`, `credentials`, `node_modules` and dot-folders are
   never looked into. `others` are git repositories elsewhere in the workspace (up to three folders deep), never in
   `ai_brain/` or the projects folder.
+- **Tools: `"sync": false`.** A git repository that is a toolchain or SDK (by default everything under
+  `development/`, such as a Flutter or nvm checkout) is restored on a fresh computer on its mapped branch, because
+  that is how such a tool is installed, but `sync` (also `--with` and the automation) never fetches or moves it: that
+  would be an upgrade nobody asked for. `map` says so ("tools: restored on a fresh computer, never synced"), `sync`
+  counts them as "tools, left alone", and `status` shows them in their own group. Change it by editing the field:
+  `"sync": true` makes a tool synced like the rest, `"sync": false` on any entry (a project, a code repository,
+  another repository) makes it a tool; `map` keeps what you set.
+- **The workspace's own settings**, so a fresh computer becomes the same place: `config.projectsDir` (the projects
+  folder relative to the workspace, written only when it is not `projects`; a projects folder outside the workspace
+  is not written: the map never holds a machine path) and each project's `memories` (which folder's Claude Code
+  memory lives where, as in its `project.json`). Restore puts the projects there unless this computer chose a
+  projects folder before, and links each project's memory as `project.json` says, or as the map says when the
+  project has no `project.json`. Nothing from `credentials/`, no host names, no tokens.
 - `forget` takes a project or folder out of the map and adds it to `skip`, so `map` does not add it back.
 - A map read from a repository is checked strictly (unknown keys, names and folders that would lead out of the
   workspace, bad addresses or branch names): a map that fails is not used, and nothing is changed.
@@ -106,7 +131,7 @@ the missing folders of the tree, and finishes each project like `project clone`:
 ## Sync: every repository in step
 
 `hoprig workspace sync` goes through every repository of the map, the brain first, with the same engine as
-`project sync`: fetch; fast-forward a clean branch that is only behind; push a branch that is only ahead **only
+`project sync`, leaving tools alone: fetch; fast-forward a clean branch that is only behind; push a branch that is only ahead **only
 with `--push`**. It never merges, rebases, forces or stashes. Whatever needs a decision (both sides moved,
 something to pull but uncommitted changes, no upstream, a push that failed, a repository not on this computer) is
 listed with the exact command. `--memory` first commits the memory folders (the brain's `claude-memory/` and each

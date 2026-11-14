@@ -19,6 +19,7 @@ import './automation.js';
 import './sessiondefaults.js';
 import './skillhub.js';
 import './brain.js';
+import './workspace.js';
 import './tia.js';
 import './addons.js';
 import './settings.js';
@@ -39,7 +40,7 @@ export const PAGE_ADDRESSES = [
   '#/skills', '#/skills/installed', '#/skills/suggested', '#/skills/find',
   '#/brain',
   '#/tia', '#/tia/jobs', '#/tia/activity',
-  '#/settings', '#/settings/new-sessions', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/tia', '#/settings/addons', '#/settings/about',
+  '#/settings', '#/settings/new-sessions', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/tia', '#/settings/addons', '#/settings/about',
 ];
 
 /** Old addresses (and the screens Tia links to) → where that lives now. */

@@ -395,12 +395,12 @@ export async function commitMemory(root, memories, run = capture) {
 }
 
 /** Sync the parent (after committing the memory, when asked) and every child. */
-export async function syncWorkspace(root, { memory = false, run = capture, push = true, dryRun = false } = {}) {
+export async function syncWorkspace(root, { memory = false, run = capture, push = true, dryRun = false, skip = [] } = {}) {
   const { manifest } = await readManifest(root, run);
   const out = { memory: null, repos: [] };
   if (memory && manifest) out.memory = dryRun ? { committed: false, why: 'dry run: would commit the memory folders when they changed' } : await commitMemory(root, manifest.memories, run);
   out.repos.push(await syncRepo(root, '.', run, { push, dryRun }));
-  for (const r of (manifest && manifest.repos) || []) out.repos.push(await syncRepo(path.join(root, r.dir), r.dir, run, { push, dryRun }));
+  for (const r of (manifest && manifest.repos) || []) if (!skip.includes(r.dir)) out.repos.push(await syncRepo(path.join(root, r.dir), r.dir, run, { push, dryRun }));
   return out;
 }
 

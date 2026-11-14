@@ -21,6 +21,8 @@ const P = {
   settings: ['M4 7h10', 'M18 7h2', 'M4 17h4', 'M12 17h8', 'M16 5v4', 'M10 15v4'],
   user: ['M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M4.5 20a7.5 7.5 0 0 1 15 0'],
   swap: ['M7 7h12', 'M15 3l4 4-4 4', 'M17 17H5', 'M9 13l-4 4 4 4'],
+  // A branch: two commits on a line and one off it (git).
+  git: ['M6 3v12', 'M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M18 9a9 9 0 0 1-9 9'],
   zap: ['M13 3L5 14h6l-1 7 8-11h-6z'],
   stop: ['M7 7h10v10H7z'],
   send: ['M12 19V5', 'M6 11l6-6 6 6'],

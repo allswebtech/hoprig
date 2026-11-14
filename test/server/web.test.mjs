@@ -144,7 +144,7 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   }
   const settingsPages = [...fs.readdirSync(WEB).filter((f) => f.endsWith('.js')).map(src).join('\n').matchAll(/registerSettingsPage\(\{\s*id: '([a-z-]+)', title: ([^,]+), icon: '[a-z]+', order: (\d+)/g)]
     .sort((a, b) => a[3] - b[3]).map((m) => m[1]);
-  assert.deepEqual(settingsPages, ['new-sessions', 'notifications', 'appearance', 'security', 'tia', 'addons', 'about']);
+  assert.deepEqual(settingsPages, ['new-sessions', 'workspace', 'notifications', 'appearance', 'security', 'tia', 'addons', 'about']);
   const app = src('app.js');
   for (const [from, to] of [['/pc', '/computer'], ['/pc/projects', '/workspace'], ['/settings/accounts', '/providers'], ['/settings/computers', '/computers'], ['/settings/skills', '/skills'], ['/settings/signin', '/settings/security'], ['/settings/auto', '/providers'], ['/tia-settings', '/settings/tia']]) {
     assert.ok(app.includes(`'${from}': '${to}'`), `${from} → ${to}`);
@@ -480,4 +480,51 @@ test('session view: the short placeholder on a narrow screen', () => {
   const src = fs.readFileSync(path.join(WEB, 'session.js'), 'utf8');
   assert.match(src, /matchMedia\('\(max-width: 599px\)'\)/);
   assert.match(src, /: 'Message Claude'\)/);
+});
+
+// ---------- the workspace through git ----------
+test('workspace: one line about it, the map in groups, commands that still work when pasted', async () => {
+  const { workspaceLine, mapGroups, homeCommand } = await import('../../web/workspace.js');
+  const map = { exists: true, entries: [
+    { kind: 'brain', label: 'ai_brain', state: 'here' },
+    { kind: 'project', label: 'shop', state: 'here' }, { kind: 'repo', label: 'shop/code/api', state: 'here' },
+    { kind: 'project', label: 'invoices', state: 'missing' },
+    { kind: 'other', label: 'git/tool', state: 'here' }, { kind: 'other', label: 'development/flutter', state: 'here', tool: true },
+  ], map: { others: [] } };
+  assert.equal(workspaceLine(map, null).text, '1 project in your map is not on this computer');
+  const job = { kind: 'sync', result: { data: { todo: 2, repos: [{ label: 'a', todo: [{ kind: 'diverged' }] }, { label: 'b', todo: [{ kind: 'to-push' }] }, { label: 'invoices', todo: [{ kind: 'missing' }] }] } } };
+  assert.equal(workspaceLine({ ...map, entries: map.entries.filter((e) => e.state !== 'missing') }, job).text, '2 repositories have changes to look at', '"not here" is not a change to look at');
+  assert.equal(workspaceLine({ exists: true, entries: [] }, { kind: 'sync', result: { data: { todo: 0, repos: [] } } }).text, 'In step with git');
+  assert.equal(workspaceLine({ exists: true, entries: [] }, null).text, 'Not synced from here yet', 'never "in step" without a sync');
+  assert.equal(workspaceLine({ exists: false, entries: [] }, null).noMap, true);
+  const g = mapGroups(map);
+  assert.deepEqual(g.map((x) => x.id), ['brain', 'project', 'other', 'tool']);
+  assert.deepEqual(g[1].rows.map((r) => [r.label, r.repos.map((x) => x.label)]), [['shop', ['shop/code/api']], ['invoices', []]]);
+  assert.deepEqual(g[3].rows.map((r) => r.label), ['development/flutter'], 'a tool has a group of its own');
+  assert.equal(homeCommand('git -C "/h/me/Workspace/ai_brain" add workspace.json', '/h/me'), 'git -C ~/"Workspace/ai_brain" add workspace.json');
+  const { notHereLine } = await import('../../web/workspace.js');
+  const texts = (n) => (!n ? [] : n instanceof FakeText ? [n.text] : n.children.flatMap(texts));
+  const line = notHereLine({ notHere: ['invoices', 'invoices/code/api'], map: { projects: [{ name: 'invoices', url: 'https://git.example.com/x/invoices.git' }], others: [] } });
+  assert.deepEqual(texts(line), ['Stays in the map, not on this computer: invoices', 'Get invoices'], 'a project once, its repositories come with it');
+  assert.equal(notHereLine({ notHere: [] }), null);
+  const src = fs.readFileSync(path.join(WEB, 'workspace.js'), 'utf8');
+  assert.doesNotMatch(src, /Writing removes it from the map/, 'only Forget takes something out of the map');
+  assert.match(src, /import \{ startButton, syncRows \} from '\.\/projects\.js'/, 'the same result rows as a project\'s Sync');
+  assert.match(src, /no password is typed into this dashboard|Nothing was moved/);
+  assert.match(fs.readFileSync(path.join(WEB, 'gitsetup.js'), 'utf8'), /no password is typed into this dashboard/);
+});
+
+test('Git and GitHub: three rows, done only when all are; a step of Get started', async () => {
+  const { gitRows, gitDone } = await import('../../web/gitsetup.js');
+  const good = { git: true, identity: { set: true, name: 'A', email: 'a@example.invalid' }, gh: { installed: true, signedIn: true, account: 'a' }, brain: { exists: true, git: true, remote: 'https://git.example.com/a/b.git', upstream: 'origin/main', ahead: 0, behind: 0, changes: 0 } };
+  assert.equal(gitDone(good), true);
+  const out = { ...good, gh: { installed: true, signedIn: false, account: null }, brain: { exists: true, git: true, remote: null } };
+  assert.deepEqual(gitRows(out).map((r) => [r.ok, r.text]), [[true, 'A · a@example.invalid'], [false, 'Not signed in'], [false, 'Not on a git server yet']]);
+  assert.match(gitRows({ ...good, brain: { ...good.brain, ahead: 2 } })[2].text, /2 to upload/);
+  const { withGitStep, actionLabel } = await import('../../web/getstarted.js');
+  const onb = { steps: [{ id: 'claude', done: true }], done: 1, total: 1 };
+  const w = withGitStep(onb, out);
+  assert.deepEqual([w.done, w.total, w.steps[1].id, w.steps[1].action.kind], [1, 2, 'git', 'git']);
+  assert.equal(withGitStep(onb, null), onb, 'an older computer: the list as it came');
+  assert.equal(actionLabel({ kind: 'git' }), 'Set up git and GitHub');
 });

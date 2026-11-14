@@ -16,6 +16,7 @@ import { add, ago, api, btn, fill, h, link, needsYouFirst, openSheet, promptShee
 import { groupOf } from './home.js';
 import { sessionRow } from './sessionitem.js';
 import { projectBrain } from './brain.js';
+import { freshFork, missingCard, workspaceStrip } from './workspace.js';
 import { registerPage } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, listRow, okBox, radioCards, skeletonRows as skeleton, stepHeader } from './shell.js';
 import { store } from './store.js';
@@ -82,7 +83,7 @@ async function startIn(dir, { mode = 'new', sessionId = null, prompt = null } = 
 }
 
 /** A button that starts a session and says so while it does; an error stays next to it until the next press. */
-function startButton(dir, { cls = 'small secondary', label = 'Start', title = 'Start Claude here', ...how } = {}) {
+export function startButton(dir, { cls = 'small secondary', label = 'Start', title = 'Start Claude here', ...how } = {}) {
   const b = btn(cls, { icon: 'play', label, title });
   b.addEventListener('click', async (e) => {
     e.preventDefault();
@@ -187,6 +188,8 @@ function otherFolders(sessions, profiles) {
 
 function viewList(frame) {
   pastOf.clear();
+  // The workspace's state through git (workspace.js): drawn again when its answer arrives.
+  const strip = workspaceStrip(() => paint());
   const body = h('div.pj-page', skeleton(4));
   const advanced = h('div');
   frame({
@@ -195,21 +198,26 @@ function viewList(frame) {
     intro: 'Your projects and the sessions in each. Open a session, or start a new one in a project.',
     primary: { label: 'New project', icon: 'plus', href: link('#/new-project') },
     actions: [h('a.btn.secondary.pj-get', { href: link('#/get-project') }, icon('download', { size: 16 }), h('span', 'Get an existing project'))],
-    body: [body, fold('projects', 'Advanced', advanced)],
+    body: [strip.el, body, fold('projects', 'Advanced', advanced)],
   });
   let alive = true;
   let data = null;
   const paint = () => {
     if (!data) return;
     const list = projectsOf(data);
+    const map = strip.map();
+    // Projects of the workspace map that are not on this computer: quiet cards with "Get it".
+    const away = map ? map.entries.filter((e) => e.kind === 'project' && e.state === 'missing') : [];
     const sessions = (store.data && store.data.sessions) || [];
     const profiles = (store.data && store.data.profiles) || [];
     const of = new Map(list.map((p) => [p, sessions.filter((s) => inside(p.dir, s.cwd))]));
     // Sessions in the product's own folders (Tia's working folders, `own`) are no folder of the owner's.
     const others = sessions.filter((s) => !s.own && !list.some((p) => inside(p.dir, s.cwd)));
     const ordered = [...list].sort((a, b) => projectRank(of.get(a)) - projectRank(of.get(b)) || lastUse(of.get(b)) - lastUse(of.get(a)) || a.name.localeCompare(b.name));
-    fill(body, list.length
-      ? h('div.ws-list', ordered.map((p) => projectCard(p, of.get(p), profiles, data.home)))
+    fill(body, list.length || away.length
+      ? h('div.ws-list', ordered.map((p) => projectCard(p, of.get(p), profiles, data.home)), away.map(missingCard))
+      // A fresh computer (no projects, no map): bring the workspace from git, or start a new project.
+      : map && !map.exists ? freshFork(() => { strip.load(); load(); })
       : emptyState('folder', 'No projects yet. A project is a folder with your code: start a new one, or get one you already have on GitHub.',
         h('div.pj-empty-actions',
           h('a.btn.primary', { href: link('#/new-project') }, icon('plus', { size: 16 }), h('span', 'New project')),
@@ -262,33 +270,48 @@ function folderLine(d, reload) {
 
 // ======================= one project =======================
 
-/** What a sync did and what it left, in words: the server's kinds (src/pcsetup/feature.mjs todoKind). */
-const TODO = {
+/**
+ * What a sync did and what it left, in words: the server's kinds (src/pcsetup/feature.mjs todoKind; the workspace's
+ * sync adds to-push and missing). One wording for a project's Sync and the workspace's.
+ */
+export const TODO = {
+  'to-push': () => 'Changes saved here are not uploaded yet: Sync with "also upload my saved changes" does it.',
   'not-online': () => 'Not on GitHub yet, so there is no online copy to sync with. Claude can put it there for you: ask in a session.',
   diverged: () => 'Changed here and online at the same time. This needs a decision: Claude can bring the two together.',
   'pull-blocked': () => 'There are new changes online, but changes here are not saved to git yet. Save (commit) them first, then sync again.',
   uncommitted: (t) => `${(/^(\d+)/.exec(t.why) || [, 'Some'])[1]} change${/^1 /.test(t.why) ? ' is' : 's are'} not saved to git yet; sync leaves ${/^1 /.test(t.why) ? 'it' : 'them'} alone.`,
   'fetch-failed': () => 'Could not reach the online copy. Check the internet connection and the GitHub sign-in.',
   'push-failed': () => 'Could not upload the saved changes. Check the GitHub sign-in and that you may write there.',
-  missing: () => 'Not downloaded to this computer yet.',
+  missing: () => 'Not on this computer yet.',
   other: (t) => t.why,
 };
 const DID = { pulled: (n) => `Downloaded ${plural(n, 'new change')}.`, pushed: (n) => `Uploaded ${plural(n, 'saved change')}.` };
 
-function syncResult(p, data) {
-  // Code repositories without an online address are not synced at all: say so instead of leaving them out.
-  const skipped = p.repos.filter((r) => !data.repos.some((x) => x.rel === r.rel)).map((r) => ({ rel: r.rel, did: [], todo: [{ kind: r.ok ? 'not-online' : 'missing', why: '', command: '' }] }));
-  return h('div.rows.pj-sync', [...data.repos, ...skipped].map((x) => {
-    const repo = p.repos.find((r) => r.rel === x.rel);
-    const lines = [...x.did.map((d) => (DID[d.kind] ? DID[d.kind](d.count) : d.text)), ...x.todo.map((t) => (TODO[t.kind] || TODO.other)(t))];
+/**
+ * The result of a sync, one row per repository: what it did, what it left in words, "Ask Claude to sort it out" where
+ * a decision is needed (in `dir`, the repository's folder when known) and the git command under "Show the git
+ * command". `items`: [{ label, did: [{ kind, count } | string], todo: [{ kind, why, command }], dir }].
+ */
+export function syncRows(items) {
+  return h('div.rows.pj-sync', items.map((x) => {
+    const lines = [...x.did.map((d) => (typeof d === 'string' ? d : DID[d.kind] ? DID[d.kind](d.count) : d.text)), ...x.todo.map((t) => (TODO[t.kind] || TODO.other)(t))];
     const fine = !x.todo.length;
-    const decide = x.todo.find((t) => t.kind === 'diverged' || t.kind === 'pull-blocked');
+    const decide = x.dir && x.todo.find((t) => t.kind === 'diverged' || t.kind === 'pull-blocked');
     return h('div.row.static.col.mrow',
       h('div.mrow-top',
         h(`span.row-icon.pj-mark${fine ? '.ok' : '.warn'}`, icon(fine ? 'check' : 'alert')),
-        h('span.row-main', h('span.row-title', repo ? repo.label : x.rel), h('span.row-sub.pj-wrap', lines.length ? lines.join(' ') : 'Already up to date.'))),
-      decide ? h('div.mrow-actions', startButton(p.dir, { label: 'Ask Claude to sort it out', prompt: `The repository ${x.rel === '.' ? 'in this folder' : x.rel} and its online copy have both changed. Show me what differs, then ask me before you merge or rebase.` })) : null,
+        h('span.row-main', h('span.row-title', x.label), h('span.row-sub.pj-wrap', lines.length ? lines.join(' ') : 'Already up to date.'))),
+      decide ? h('div.mrow-actions', startButton(x.dir, { label: 'Ask Claude to sort it out', prompt: `The repository ${x.label} and its online copy have both changed. Show me what differs, then ask me before you merge or rebase.` })) : null,
       x.todo.some((t) => t.command) ? h('details.pj-cmd', h('summary', 'Show the git command'), h('code.mono', x.todo.filter((t) => t.command).map((t) => t.command).join('\n'))) : null);
+  }));
+}
+
+function syncResult(p, data) {
+  // Code repositories without an online address are not synced at all: say so instead of leaving them out.
+  const skipped = p.repos.filter((r) => !data.repos.some((x) => x.rel === r.rel)).map((r) => ({ rel: r.rel, did: [], todo: [{ kind: r.ok ? 'not-online' : 'missing', why: '', command: '' }] }));
+  return syncRows([...data.repos, ...skipped].map((x) => {
+    const repo = p.repos.find((r) => r.rel === x.rel);
+    return { label: repo ? repo.label : x.rel, did: x.did, todo: x.todo, dir: p.dir };
   }));
 }
 
@@ -638,12 +661,16 @@ function viewNewProject({ frame, sub }) {
 /** The folder name a project spec gets (as the server's parseProjectSpec): the last part, without ".git". */
 const specName = (s) => s.trim().replace(/\.git$/, '').split(/[/:]/).filter(Boolean).pop() || '';
 
-function viewGetProject({ frame }) {
+function viewGetProject({ frame, sub }) {
   store.viewing = null;
   const box = h('div.pj-wizard');
   frame({ title: 'Get an existing project', page: 'get-project', back: link('#/workspace'), backLabel: 'Workspace', intro: 'Download a project you already have on GitHub (or another git server) to this computer.', body: [box] });
   let alive = true;
+  // "#/get-project/<address>": a project of the workspace map that is not on this computer yet ("Get it").
   let spec = '';
+  try {
+    spec = decodeURIComponent(sub || '').trim().slice(0, 300);
+  } catch {}
   let folder = null; // { projectsDir, home }
   api('/api/pcsetup/projects').then((d) => (folder = d), () => {});
 

@@ -255,6 +255,115 @@ function workspace(projects) {
   }
 }
 
+/**
+ * The workspace's map, sync, restore and the Git and GitHub state, as sample data (the workspace feature's stand-ins,
+ * src/workspace/feature.mjs). Made-up addresses on git.example.com; nothing reaches a network. The main computer
+ * has a map with the brain, two projects here, one project that is not on this computer and one tool; the second
+ * computer has no map and is not signed in to GitHub.
+ */
+function demoWorkspaceMore(home, secondary) {
+  const ws = path.join(home, 'Workspace');
+  const at = (p) => `https://git.example.com/demo/${p}.git`;
+  if (!secondary) {
+    const tool = path.join(ws, 'development', 'flutter');
+    fs.mkdirSync(tool, { recursive: true });
+    fs.writeFileSync(path.join(tool, 'README.md'), '# A toolchain checkout (sample)\n');
+    gitInit(tool);
+    const map = {
+      version: 1,
+      brain: { url: at('ai_brain') },
+      projects: [
+        { name: 'bookshop', url: at('bookshop'), repos: [{ dir: 'code/bookshop-api', url: at('bookshop-api') }, { dir: 'code/bookshop-web', url: at('bookshop-web') }] },
+        { name: 'shop-frontend', url: at('shop-frontend'), repos: [] },
+        { name: 'invoices', url: at('invoices'), repos: [{ dir: 'code/invoices-api', url: at('invoices-api') }] },
+      ],
+      others: [{ dir: 'development/flutter', url: 'https://git.example.com/tools/flutter.git', sync: false }],
+    };
+    fs.writeFileSync(path.join(ws, 'ai_brain', 'workspace.json'), `${JSON.stringify(map, null, 2)}\n`);
+  }
+  // Every sample repository gets a made-up https address, so the map, its notes and the pages show those and never
+  // a folder of this computer. git reaches the address through `url.<local>.insteadOf`: a bare copy next to the
+  // demo's home (made here when the repository has none yet), so a project's Sync still works without a network.
+  const remotes = path.join(path.dirname(home), 'remotes');
+  const own = (dir, url) => {
+    if (!fs.existsSync(path.join(dir, '.git'))) return;
+    let local = null;
+    try {
+      local = execFileSync('git', ['config', '--get', 'remote.origin.url'], { cwd: dir, encoding: 'utf8', env: gitEnv() }).trim();
+    } catch {
+      /* no remote yet */
+    }
+    try {
+      if (!local) {
+        local = path.join(remotes, `${path.basename(dir)}-${crypto.randomBytes(3).toString('hex')}.git`);
+        fs.mkdirSync(remotes, { recursive: true });
+        execFileSync('git', ['clone', '-q', '--bare', dir, local], { stdio: 'ignore', timeout: 10_000, env: gitEnv() });
+        git(dir, 'remote', 'add', 'origin', url);
+      } else git(dir, 'remote', 'set-url', 'origin', url);
+      git(dir, 'config', `url.${local}.insteadOf`, url);
+      git(dir, 'fetch', '-q', 'origin');
+      git(dir, 'branch', '-q', '--set-upstream-to', 'origin/main');
+    } catch {
+      /* the demo works without it */
+    }
+  };
+  const projectsDir = path.join(ws, 'projects');
+  for (const f of fs.readdirSync(projectsDir)) {
+    own(path.join(projectsDir, f), at(f));
+    const code = path.join(projectsDir, f, 'code');
+    if (fs.existsSync(code)) for (const c of fs.readdirSync(code)) if (!c.startsWith('.')) own(path.join(code, c), at(c));
+  }
+  own(path.join(ws, 'ai_brain'), at(secondary ? 'laptop-brain' : 'ai_brain'));
+  if (!secondary) own(path.join(ws, 'development', 'flutter'), 'https://git.example.com/tools/flutter.git');
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const P = (rel) => path.join(ws, 'projects', rel);
+  return {
+    gitState: async () => (secondary
+      ? { git: true, identity: { name: '', email: '' }, gh: { installed: true, signedIn: false, account: null }, helper: false, brain: { exists: true, git: true, remote: null, branch: 'main', upstream: null, ahead: 0, behind: 0, changes: 0 } }
+      : { git: true, identity: { name: 'Demo', email: 'demo@example.invalid' }, gh: { installed: true, signedIn: true, account: 'demo-user' }, helper: true, brain: { exists: true, git: true, remote: at('ai_brain'), branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, changes: 0 } }),
+    // One thing to decide (both sides changed), one to upload unless uploading was chosen, one not on this computer.
+    sync: async ({ memory = false, push = false, onLine = () => {} } = {}) => {
+      const repos = [
+        { label: 'ai_brain', did: memory ? ['saved the memory'] : [], todo: [] },
+        { label: 'bookshop', did: ['pulled 1'], todo: [] },
+        { label: 'bookshop/code/bookshop-api', did: [], todo: [{ why: 'changed here and on the server', command: `git -C ${P('bookshop/code/bookshop-api')} pull --rebase`, kind: 'diverged' }] },
+        { label: 'bookshop/code/bookshop-web', did: [], todo: [] },
+        push ? { label: 'shop-frontend', did: ['pushed 1'], todo: [] } : { label: 'shop-frontend', did: [], todo: [{ why: '1 commit to push', command: `git -C ${P('shop-frontend')} push`, kind: 'to-push' }] },
+        { label: 'invoices', did: [], todo: [{ why: 'not on this computer', command: 'hoprig workspace restore <brain address>', kind: 'missing' }] },
+      ];
+      for (const r of repos) {
+        await wait(250);
+        onLine(`${r.todo.length ? '!' : '✓'} ${r.label}${r.did.length ? `  ${r.did.join(', ')}` : r.todo.length ? '' : '  in step'}${r.todo.map((t) => `\n    ${t.why}  →  ${t.command}`).join('')}`);
+      }
+      return { fromMap: !secondary, memory: memory ? [{ label: 'ai_brain', committed: true }] : [], repos, tools: secondary ? [] : ['development/flutter'], done: repos.filter((r) => !r.todo.length).length, todo: repos.reduce((n, r) => n + r.todo.length, 0) };
+    },
+    syncWith: async (name, { onLine = () => {} } = {}) => {
+      await wait(400);
+      onLine('✓ blog  pulled 2');
+      return { peer: name, repos: [{ label: 'blog', did: ['pulled 2'], todo: [], notes: [] }] };
+    },
+    // A fresh computer bringing its workspace: everything cloned but one repository that cannot be reached.
+    restore: async (url, { ui, dryRun = false } = {}) => {
+      const plan = [
+        { kind: 'brain', label: 'ai_brain', url: at('ai_brain'), dest: path.join(ws, 'ai_brain'), action: 'clone' },
+        { kind: 'project', label: 'bookshop', url: at('bookshop'), dest: P('bookshop'), action: 'clone' },
+        { kind: 'repo', label: 'bookshop/code/bookshop-api', url: at('bookshop-api'), dest: P('bookshop/code/bookshop-api'), action: 'clone' },
+        { kind: 'project', label: 'invoices', url: at('invoices'), dest: P('invoices'), action: 'clone' },
+        { kind: 'repo', label: 'invoices/code/invoices-api', url: at('invoices-api'), dest: P('invoices/code/invoices-api'), action: 'clone' },
+        { kind: 'other', label: 'development/flutter', url: 'https://git.example.com/tools/flutter.git', dest: path.join(ws, 'development', 'flutter'), action: 'clone' },
+      ];
+      if (dryRun) return { ok: true, dryRun, brain: String(url), plan, folders: ['credentials', 'backups'], notes: [], projectsDir: P('') };
+      for (const e of plan) {
+        await wait(300);
+        ui.out(`  git clone ${e.url}`);
+        e.result = e.label === 'invoices/code/invoices-api' ? 'failed: remote: Repository not found.' : 'cloned';
+        ui.line(e.result === 'cloned' ? 'ok' : 'fail', `${e.label}: ${e.result}`);
+      }
+      return { ok: false, dryRun, brain: String(url), plan, folders: ['credentials', 'backups'], notes: [], projectsDir: P('').replace(/[\\/]$/, '') };
+    },
+  };
+}
+
 // Past Claude Code conversations, as Claude Code keeps them: a project's page lists them to continue.
 const PAST = {
   'shop-frontend': ['Make the checkout page work on small phones', 'Add a test for the cart total'],
@@ -506,7 +615,8 @@ export async function main(args = [], hooks = {}) {
       addons: { addons: [addon] },
       onboarding: { facts: DEMO_FACTS },
       pcsetup: { status: async () => DEMO_CHECKS },
-      workspace: demoWorkspace(home, o.secondary), // the workspace tree and the AI brain (sample files)
+      // The workspace tree and the AI brain (sample files), then the map, sync, restore and git state samples.
+      workspace: { ...demoWorkspace(home, o.secondary), ...demoWorkspaceMore(home, o.secondary) },
       system: demoSystem(o.secondary),
       // The list of computers: the sample version, not "not installed". The join line: what a hub with its own
       // certificate answers (the address in server.publicUrl below; a made-up fingerprint), so the page shows it whole.

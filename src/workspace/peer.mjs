@@ -79,7 +79,10 @@ export async function pullFrom(dir, url, peer, run = capture, { dryRun = false }
 /** Pull every repository of the map from the other computer. → { peer, repos: [{ label, did, todo, notes }] } */
 export async function syncWith(name, { dir = workspaceDir(), projects = projectsIn(), run = capture, info, dryRun = false, onLine = () => {} } = {}) {
   const p = info || (await peerInfo(name));
-  const { targets } = await syncTargets({ dir, projects, run });
+  const all = (await syncTargets({ dir, projects, run })).targets;
+  const tools = all.filter((t) => t.tool).map((t) => t.label);
+  const targets = all.filter((t) => !t.tool); // tools are never synced, not from another computer either
+  if (tools.length) onLine(`· tools, left alone: ${tools.join(', ')}`);
   const there = (t) => {
     if (t.kind === 'brain') return path.posix.join(p.dir, 'ai_brain');
     if (t.kind === 'other') return path.posix.join(p.dir, t.label);
@@ -94,5 +97,5 @@ export async function syncWith(name, { dir = workspaceDir(), projects = projects
     repos.push(e);
     onLine(`${e.todo.length ? '!' : '✓'} ${e.label}  ${e.did.join(', ') || (e.todo.length ? '' : 'in step')}${e.todo.map((x) => `\n    ${x.why}${x.command ? `  →  ${x.command}` : ''}`).join('')}${e.notes.map((n) => `\n    ${n}`).join('')}`);
   }
-  return { peer: p.name, repos };
+  return { peer: p.name, repos, tools };
 }

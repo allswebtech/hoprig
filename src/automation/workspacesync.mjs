@@ -1,5 +1,6 @@
 // Keep the workspace in step (off by default): every few hours, every repository of the workspace map is fetched and
-// a clean branch that is only behind is fast-forwarded, with the same engine as `hoprig workspace sync`. It pushes
+// a clean branch that is only behind is fast-forwarded, with the same engine as `hoprig workspace sync` (tools,
+// "sync": false in the map, are left alone). It pushes
 // only when the owner turned pushing on separately. It never merges, rebases, forces or stashes: what needs a
 // decision is told once (the same list is not told again until it changes).
 //
@@ -24,7 +25,8 @@ export async function apply(actions, ctx) {
   }
   const did = r.repos.flatMap((x) => x.did.map((d) => `${x.label}: ${d}`));
   const todo = r.repos.flatMap((x) => x.todo.map((t) => `${x.label}: ${t.why}`));
-  ctx.record({ automation: 'workspace', did: `kept the workspace in step${did.length ? ` (${did.join('; ')})` : ''}`, outcome: todo.length ? `${todo.length} to decide` : 'ok' });
+  const tools = (r.tools || []).length;
+  ctx.record({ automation: 'workspace', did: `kept the workspace in step${did.length ? ` (${did.join('; ')})` : ''}${tools ? `; ${tools} tool${tools > 1 ? 's' : ''} left alone` : ''}`, outcome: todo.length ? `${todo.length} to decide` : 'ok' });
   const print = todo.join('\n');
   if (todo.length && print !== (ctx.data && ctx.data.told)) {
     ctx.notify({ title: `Workspace: ${todo.length} thing${todo.length > 1 ? 's' : ''} to decide`, message: todo.slice(0, 5).join('\n'), session: '' });

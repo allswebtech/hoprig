@@ -14,11 +14,22 @@ import path from 'node:path';
 import { tilde } from '../paths.mjs';
 import { finishProject } from '../pcsetup/project.mjs';
 import { cloneRepo, parseRepo, rememberDir } from '../pcsetup/projects.mjs';
-import { git, readManifest, stamp } from '../pcsetup/workspace.mjs';
+import { MANIFEST, git, readManifest, stamp } from '../pcsetup/workspace.mjs';
 import { capture, stream } from '../setup/system.mjs';
+import { loadConfig } from '../config.mjs';
 import { isDir, isGitRepo, projectsIn, workspaceDir } from './layout.mjs';
 import { MAP_FILE, readMap, sameUrl } from './map.mjs';
 import { brainScaffold, workspaceSetup } from './setup.mjs';
+
+/** The projects folder this computer chose before (config "projectsDir"), or null. */
+function chosenProjectsDir() {
+  try {
+    const c = loadConfig();
+    return typeof c.projectsDir === 'string' && path.isAbsolute(c.projectsDir) ? c.projectsDir : null;
+  } catch {
+    return null;
+  }
+}
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const lastLine = (text) => String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).pop() || '';
@@ -86,7 +97,7 @@ async function planFrom(map, { dir, projects, brainUrl, run }) {
  * url, dest, action, why?, result? }], folders: [what the tree step made], notes }. `result` (after a real run):
  * cloned | here | failed: <git's reason> | skipped: <why> | left alone: <why>.
  */
-export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspaceDir(), projects = projectsIn(), runner = stream, run = capture } = {}) {
+export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspaceDir(), projects: given = null, runner = stream, run = capture } = {}) {
   const repo = parseRepo(spec);
   if (!repo) throw fail(400, `"${String(spec).slice(0, 80)}" is not a git address of a brain (https or SSH, or owner/name on GitHub)`);
   const brainDir = path.join(dir, 'ai_brain');
@@ -128,12 +139,15 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
     if (!m.exists) throw fail(404, `the brain has no ${MAP_FILE}: on the computer that has your workspace run  hoprig workspace map, commit and push the brain, then restore again`);
     const notes = setAside ? [`the unused starting brain ${dryRun ? 'would be' : 'was'} kept as ${tilde(setAside)}`] : [];
     if (m.map.brain.url && !sameUrl(m.map.brain.url, repo.url)) notes.push(`the map names the brain as ${m.map.brain.url}; it was restored from ${repo.url}`);
+    // The projects folder: one chosen on this computer before wins; else where the map says (relative to the
+    // workspace); else <workspace>/projects.
+    const projects = given || chosenProjectsDir() || (m.map.config && m.map.config.projectsDir ? path.join(dir, ...m.map.config.projectsDir.split('/')) : projectsIn({ workspaceDir: dir }));
     const plan = await planFrom(m.map, { dir, projects, brainUrl: repo.url, run });
     plan[0] = { ...plan[0], action: brainHere.action, why: setAside ? `the unused starting brain is kept as ${tilde(setAside)} first` : plan[0].why };
     if (!plan[0].why) delete plan[0].why;
     // The brain comes from git, never from the scaffold: only the other folders of the tree are listed.
     const folders = (await workspaceSetup({ dryRun: true, cfg: { workspaceDir: dir, projectsDir: projects } })).did.filter((d) => !/ai_brain$/.test(d.path));
-    if (dryRun) return { ok: true, dryRun, brain: repo.url, plan, folders, notes };
+    if (dryRun) return { ok: true, dryRun, brain: repo.url, projectsDir: projects, plan, folders, notes };
 
     // ---- the real run ----
     const made = await workspaceSetup({ cfg: { workspaceDir: dir, projectsDir: projects } });
@@ -165,8 +179,11 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
     }
     // A project's own project.json may name code repositories the map does not have yet: clone those too.
     for (const p of plan.filter((x) => x.kind === 'project' && isGitRepo(x.dest))) {
-      const { manifest } = await readManifest(p.dest, run);
+      const { manifest, source } = await readManifest(p.dest, run);
       if (!manifest) continue;
+      // Memory links: the project's own project.json says; without one, the map does (never a guess when it knows).
+      const fromMap = (m.map.projects.find((x) => x.name === p.label) || {}).memories;
+      if (source !== MANIFEST && fromMap) manifest.memories = fromMap;
       for (const r of manifest.repos) {
         if (plan.some((x) => x.kind === 'repo' && x.dest === path.join(p.dest, r.dir))) continue;
         const e = { kind: 'repo', project: p.label, label: `${p.label}/${r.dir}`, url: r.url, branch: r.branch, dest: path.join(p.dest, r.dir), ...(await placeState(path.join(p.dest, r.dir), r.url, run)) };
@@ -178,7 +195,7 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
     rememberDir(projects);
     const ok = plan.every((e) => !String(e.result).startsWith('failed'));
     for (const e of plan) if (e.why && e.action === 'different') said(`${e.label}: ${e.why}`);
-    return { ok, dryRun, brain: repo.url, plan, folders: made.did, notes };
+    return { ok, dryRun, brain: repo.url, projectsDir: projects, plan, folders: made.did, notes };
   } finally {
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   }

@@ -14,7 +14,10 @@ import { readMap, scanWorkspace } from './map.mjs';
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const kindOf = (why) => (/commits? to push$/.test(why) ? 'to-push' : todoKind(why));
 
-/** The repositories to sync, in order: [{ label, dir, kind, project? }]. Missing ones are kept (reported). */
+/**
+ * The repositories to sync, in order: [{ label, dir, kind, project?, tool? }]. Missing ones are kept (reported).
+ * `tool`: the map says sync false (an SDK or tool checkout): restore gets it, sync leaves it alone.
+ */
 export async function syncTargets({ dir = workspaceDir(), projects = projectsIn(), run = capture } = {}) {
   const m = readMap(dir);
   if (m.errors) throw fail(409, `the workspace map was refused: ${m.errors.join('; ')}`);
@@ -22,10 +25,11 @@ export async function syncTargets({ dir = workspaceDir(), projects = projectsIn(
   const out = [{ label: 'ai_brain', dir: path.join(dir, 'ai_brain'), kind: 'brain' }];
   for (const p of map.projects) {
     const root = path.join(projects, p.name);
-    out.push({ label: p.name, dir: root, kind: 'project', project: p.name });
-    for (const r of p.repos) out.push({ label: `${p.name}/${r.dir}`, dir: path.join(root, r.dir), kind: 'repo', project: p.name });
+    const tool = p.sync === false;
+    out.push({ label: p.name, dir: root, kind: 'project', project: p.name, tool });
+    for (const r of p.repos) out.push({ label: `${p.name}/${r.dir}`, rel: r.dir, dir: path.join(root, r.dir), kind: 'repo', project: p.name, tool: tool || r.sync === false });
   }
-  for (const o of map.others) out.push({ label: o.dir, dir: path.join(dir, o.dir), kind: 'other' });
+  for (const o of map.others) out.push({ label: o.dir, dir: path.join(dir, o.dir), kind: 'other', tool: o.sync === false });
   return { targets: out, fromMap: m.exists };
 }
 
@@ -33,11 +37,16 @@ const notHere = (t) => ({ label: t.label, did: [], todo: [{ why: 'not on this co
 
 /**
  * Sync everything. → { fromMap, memory: [{ label, committed, why? }], repos: [{ label, did, todo: [{ why, command,
- * kind }], state? }], done, todo }.
+ * kind }], state? }], tools: [label: left alone], done, todo }.
  */
 export async function syncAll({ dir = workspaceDir(), projects = projectsIn(), memory = false, push = false, dryRun = false, run = capture, onLine = () => {} } = {}) {
-  const { targets, fromMap } = await syncTargets({ dir, projects, run });
-  const out = { fromMap, memory: [], repos: [] };
+  const all = await syncTargets({ dir, projects, run });
+  const { fromMap } = all;
+  // Tools are never fetched or fast-forwarded: that would be an upgrade nobody asked for (and slow).
+  const tools = all.targets.filter((t) => t.tool).map((t) => t.label);
+  const targets = all.targets.filter((t) => !t.tool);
+  const out = { fromMap, memory: [], repos: [], tools };
+  if (tools.length) onLine(`· tools, left alone: ${tools.join(', ')}`);
   const add = (label, r) => {
     const e = { label, did: r.did, todo: r.todo.map((t) => ({ ...t, kind: t.kind || kindOf(t.why) })), ...(r.state ? { state: r.state } : {}) };
     out.repos.push(e);
@@ -56,7 +65,8 @@ export async function syncAll({ dir = workspaceDir(), projects = projectsIn(), m
       continue;
     }
     // A project: its parent and the code repositories its project.json names, as `project sync` does.
-    const r = await syncWorkspace(t.dir, { memory, run, push, dryRun });
+    const skip = all.targets.filter((x) => x.kind === 'repo' && x.project === t.project && x.tool).map((x) => x.rel);
+    const r = await syncWorkspace(t.dir, { memory, run, push, dryRun, skip });
     if (r.memory) out.memory.push({ label: t.label, ...r.memory });
     for (const x of r.repos) {
       const full = x.rel === '.' ? t.dir : path.join(t.dir, x.rel);
@@ -65,7 +75,7 @@ export async function syncAll({ dir = workspaceDir(), projects = projectsIn(), m
     }
   }
   // Code repositories the map has but project.json does not, and the other repositories.
-  for (const t of targets.filter((x) => x.kind !== 'project' && x.kind !== 'brain' && !covered.has(x.dir))) {
+  for (const t of targets.filter((x) => x.kind !== 'project' && x.kind !== 'brain' && !covered.has(x.dir) && !all.targets.some((p) => p.kind === 'project' && p.tool && p.project === x.project))) {
     if (!fs.existsSync(t.dir)) add(t.label, notHere(t));
     else add(t.label, await syncRepo(t.dir, t.label, run, { push, dryRun }));
   }

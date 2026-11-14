@@ -24,25 +24,34 @@ export const GIT_USAGE = `  hoprig workspace map [--dry-run] [--json]   write th
   hoprig workspace git                         git's name and e-mail, the GitHub sign-in, your workspace on GitHub`;
 
 const MARK = { here: 'ok', missing: 'warn', different: 'warn', unmapped: 'info' };
-const SAY = { here: '', missing: 'not on this computer: get it with  hoprig workspace restore', different: 'another folder is where the map puts it', unmapped: 'not in the map: add it with  hoprig workspace map' };
+const SAY = { here: '', missing: 'in the map, not on this computer: get it with  hoprig workspace restore', different: 'another folder is where the map puts it', unmapped: 'not in the map: add it with  hoprig workspace map' };
 
 /** The map against this computer (status). */
 export function printMapStatus(ui, ms) {
   if (ms.errors) return ui.line('fail', `the workspace map was refused: ${ms.errors.join('; ')}`);
   ui.out(`\n${bold('Map')}  ${ms.exists ? dim('ai_brain/workspace.json') : dim('none yet: hoprig workspace map')}`);
-  for (const e of ms.entries) ui.line(MARK[e.state], `${e.label}${e.url ? dim(`  ${e.url}`) : dim('  not on a git server yet')}${SAY[e.state] ? `  ${SAY[e.state]}` : ''}`);
+  const line = (e) => ui.line(MARK[e.state], `${e.label}${e.url ? dim(`  ${e.url}`) : dim('  not on a git server yet')}${SAY[e.state] ? `  ${SAY[e.state]}` : ''}`);
+  ms.entries.filter((e) => !e.tool).forEach(line);
+  const tools = ms.entries.filter((e) => e.tool);
+  if (tools.length) {
+    ui.out(`  ${bold('Tools')}  ${dim('restored on a fresh computer, never synced ("sync": false in the map)')}`);
+    tools.forEach(line);
+  }
 }
 
 function printMap(ui, r) {
   const d = r.diff;
   if (d.created) ui.line('ok', `${r.dryRun ? 'would write' : 'wrote'} the map: ${r.map.projects.length} project${r.map.projects.length === 1 ? '' : 's'}, ${r.map.others.length} other repositor${r.map.others.length === 1 ? 'y' : 'ies'}`);
   for (const a of d.added) ui.line('ok', `added: ${a}`);
-  for (const a of d.removed) ui.line('warn', `removed: ${a} (no longer on this computer; use forget to keep it out, or restore to get it back)`);
+  for (const t of r.takenOut) ui.line('warn', `taken out of ${t.project} by its project.json: ${t.dir} (the project's own project.json is the truth for a project on this computer)`);
+  if (r.notHere.length) ui.note(`in the map, not on this computer (kept; only forget takes something out): ${r.notHere.join(', ')}`);
   for (const c of d.changed) ui.line('info', `changed address: ${c.label}: ${c.from || 'none'} → ${c.to || 'none'}`);
-  if (d.same && !d.created) ui.line('ok', 'the map is up to date');
+  if (d.same && !d.created && !r.otherChanges) ui.line('ok', 'the map is up to date');
+  if (r.otherChanges) ui.line('info', `${r.dryRun ? 'would update' : 'updated'}: the projects folder, memory links or which entries are tools`);
+  if (r.tools.length) ui.note(`tools: restored on a fresh computer, never synced: ${r.tools.join(', ')}`);
   for (const n of r.notes) ui.note(n);
   for (const m of r.manifests) ui.note(`${m.project}/project.json ${r.dryRun ? 'would get' : 'got'} ${m.added.join(', ')} (commit it in that project)`);
-  if (!r.dryRun && !(d.same && !d.created)) ui.note(`commit it:  ${r.commit}`);
+  if (!r.dryRun && !(d.same && !d.created && !r.otherChanges)) ui.note(`commit it:  ${r.commit}`);
 }
 
 export async function gitMain(sub, args, { ui, write, usage }) {
