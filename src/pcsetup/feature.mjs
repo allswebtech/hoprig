@@ -62,7 +62,7 @@ export function tildeText(s, home = os.homedir()) {
  * A command-line ui for a background job: it never asks (no terminal: every question takes its safe "no"), its lines
  * go to the job's output without colours, and the first failure is kept as the job's error in plain words.
  */
-function jobUi(onLine) {
+export function jobUi(onLine) {
   const failures = [];
   const ui = makeUi({ interactive: false, write: (s) => String(s).replace(/\n$/, '').split('\n').forEach((l) => onLine(plain(l))) });
   const line = ui.line;

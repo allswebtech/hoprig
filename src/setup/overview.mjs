@@ -46,15 +46,12 @@ export async function overview({ sys, offline = false, hub = false, parts = {} }
   if (hub) return phrased(own);
   const pc = parts.pc || (async () => (await import('../pcsetup/index.mjs')).pcStatus({ offline }));
   const skills = parts.skills || (async () => (await import('../skillhub/hub.mjs')).skillsStatus({ check: !offline }));
-  // The workspace in one line, first in Projects (src/workspace; reading folders only).
-  const ws = parts.workspace || (async () => {
-    const { workspaceLine, workspaceStatus } = await import('../workspace/layout.mjs');
-    return { id: 'workspace', label: 'Workspace', ...workspaceLine(workspaceStatus()) };
-  });
+  // The workspace first in Projects: the tree, the brain's git server, the map (src/workspace/doctor.mjs; no fetch).
+  const ws = parts.workspace || (async () => (await import('../workspace/doctor.mjs')).workspaceChecks());
   const [pcList, sk, wsLine] = await Promise.all([
     pc().catch((e) => [{ id: 'pc', label: 'This computer for coding', status: 'warn', detail: `could not be checked: ${e.message}`, fix: 'hoprig pc status', group: 'system' }]),
     skills().catch((e) => ({ error: e.message })),
-    ws().catch((e) => ({ id: 'workspace', label: 'Workspace', status: 'warn', detail: `could not be checked: ${e.message}`, fix: 'hoprig workspace status' })),
+    ws().catch((e) => [{ id: 'workspace', label: 'Workspace', status: 'warn', detail: `could not be checked: ${e.message}`, fix: 'hoprig workspace status' }]),
   ]);
   const fromPc = pcList
     .map((c) => ({ ...c, group: pcGroup(c) }))
@@ -63,7 +60,7 @@ export async function overview({ sys, offline = false, hub = false, parts = {} }
   const fromSkills = sk.error
     ? [{ id: 'skills', label: 'Skills', status: 'warn', detail: `could not be checked: ${sk.error}`, fix: 'hoprig skills list', group: 'Skills' }]
     : skillChecks(sk).map((c) => ({ ...c, group: 'Skills' }));
-  return phrased([...own, { ...wsLine, group: 'Projects' }, ...fromPc, ...fromSkills]);
+  return phrased([...own, ...[].concat(wsLine).map((c) => ({ ...c, group: 'Projects' })), ...fromPc, ...fromSkills]);
 }
 
 /** The checks in display order, grouped: [{ title, checks }]. */

@@ -321,12 +321,11 @@ export async function pcSetup(args, { ui, sys, runner = stream, ghList } = {}) {
     recipe = r.recipe;
   }
   ui.out(`\n${bold('hoprig pc setup')}`);
-  // The workspace first: on a new computer the projects folder asked for below is inside it.
+  const r = await runPcSetup({ ui, yes: o.yes, dryRun: o.dryRun, kits: o.kits, recipe, projects: o.projects && !o.kits && ui.interactive && !o.yes, rules: o.rules, hold: o.hold, sys, runner, ghList });
+  // Then git and GitHub (gh is there now), which may restore a workspace from GitHub, then the workspace itself.
   if (!o.kits && !recipe) {
-    ui.yes = ui.yes || o.yes;
-    ui.dryRun = ui.dryRun || o.dryRun;
+    await (await import('../workspace/gitstep.mjs')).runGitStep({ ui });
     await (await import('../workspace/step.mjs')).runWorkspaceStep({ ui });
   }
-  const r = await runPcSetup({ ui, yes: o.yes, dryRun: o.dryRun, kits: o.kits, recipe, projects: o.projects && !o.kits && ui.interactive && !o.yes, rules: o.rules, hold: o.hold, sys, runner, ghList });
   return r.code;
 }

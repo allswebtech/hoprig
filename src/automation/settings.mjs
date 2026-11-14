@@ -11,6 +11,8 @@
 //   retry      { enabled, max, firstMinutes, prompt }    default off
 //   updates    { claude: off|notify|auto }               default off
 //   idle       { shells, shellHours, gateway, gatewayMinutes } default off
+//   workspace  { sync, push, everyHours }                 default off: keep the workspace in step (fetch and
+//                                                         fast-forward); pushing is a second switch of its own
 import path from 'node:path';
 import { NAME_RE } from '../profiles.mjs';
 
@@ -26,6 +28,7 @@ export const DEFAULTS = Object.freeze({
   retry: { enabled: false, max: 3, firstMinutes: 1, prompt: 'Continue from where you stopped.' },
   updates: { claude: 'off' },
   idle: { shells: false, shellHours: 12, gateway: false, gatewayMinutes: 30 },
+  workspace: { sync: false, push: false, everyHours: 6 },
 });
 
 // For each section: key → check(value) returning the clean value or throwing.
@@ -70,6 +73,11 @@ const SECTIONS = {
     shellHours: int('the hours before an idle shell is closed', 1, 720),
     gateway: bool('stopping an unused gateway'),
     gatewayMinutes: int('the minutes before an unused gateway is stopped', 5, 1440),
+  },
+  workspace: {
+    sync: bool('keeping the workspace in step'),
+    push: bool('pushing when keeping the workspace in step'),
+    everyHours: int('how often the workspace is kept in step (hours)', 1, 168),
   },
 };
 

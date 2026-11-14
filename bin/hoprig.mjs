@@ -39,7 +39,7 @@ const HELP = `Hoprig — Claude Code under several profiles, with one shared ses
   hoprig project clone <name> get an existing project with all its code repositories and its AI memory
   hoprig project status|sync  the state of a project's repositories; pull and push what is safe
   hoprig workspace            the one folder tree for your coding: AI brain, projects, credentials
-                                 (workspace status | setup | link)
+                                 (workspace status | setup | link | map | restore | sync | set | forget | git)
 
   hoprig setup                install what is missing and set everything up, step by step
   hoprig doctor               check that everything works

@@ -186,14 +186,14 @@ export function listRepos(dir) {
  * Clone `url` into `<dir>/<name>`. Never into a folder that already exists. With `quiet`, git may not ask for a
  * password on the terminal (the dashboard has none). Resolves { ok, dest, skipped?, output }.
  */
-export async function cloneRepo(repo, dir, { onLine = () => {}, quiet = false, run = stream, name } = {}) {
+export async function cloneRepo(repo, dir, { onLine = () => {}, quiet = false, run = stream, name, env: extra = {} } = {}) {
   const dest = path.join(dir, name || repo.name);
   if (fs.existsSync(dest)) {
     onLine(`${dest} is already there: left as it is.`);
     return { ok: true, dest, skipped: true };
   }
   fs.mkdirSync(dir, { recursive: true });
-  const env = quiet ? { ...process.env, GIT_TERMINAL_PROMPT: '0' } : process.env;
+  const env = { ...process.env, ...(quiet ? { GIT_TERMINAL_PROMPT: '0' } : {}), ...extra };
   const r = await run(['git', 'clone', '--', repo.url, dest], { env, onLine, interactive: false });
   return { ok: r.ok, dest, output: r.output };
 }

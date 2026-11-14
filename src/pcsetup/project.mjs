@@ -114,7 +114,8 @@ export async function projectNew(args, { ui, run = stream }) {
   }
   // The first commit needs a name and an e-mail. Find out BEFORE anything is written, so a failure does not leave
   // a half-made project folder behind.
-  const who = await Promise.all(['user.name', 'user.email'].map((k) => capture(['git', 'config', '--get', k], { timeout: 10_000 }).then((r) => (r.stdout || '').trim(), () => '')));
+  // Asked outside any repository: the folder hoprig runs in may be one, and its own name would not apply to the new one.
+  const who = await Promise.all(['user.name', 'user.email'].map((k) => capture(['git', 'config', '--get', k], { timeout: 10_000, cwd: os.tmpdir() }).then((r) => (r.stdout || '').trim(), () => '')));
   if (!who[0] || !who[1]) {
     return fail(ui, 'git does not know your name and e-mail yet, and a commit needs them. Set them once, then run this again:\n'
       + '    git config --global user.name "Your Name"\n    git config --global user.email "you@example.com"');
@@ -130,6 +131,7 @@ export async function projectNew(args, { ui, run = stream }) {
   const wantGithub = o.github || (!o.remote && !o['no-github'] && ui.interactive && !ui.yes && (await githubOwners()).length && (await ui.confirm('Create a private GitHub repository for it and push?', true)));
   await publish(ui, root, name, { ...o, github: wantGithub }, run);
   if (o.template && o.template !== cfg.projectTemplate && fs.existsSync(o.template) === false && parseRepo(o.template)) saveConfig({ projectTemplate: parseRepo(o.template).url });
+  await mapNote(ui, `new project ${name}`);
   ui.out(`\nNext: ${bold(`hoprig project add ${name} <stack>`)}  ${dim('(a code repository in code/)')}`);
   return 0;
 }
@@ -159,6 +161,7 @@ export async function projectAdd(args, { ui, run = stream }) {
     const c = await git(root, ['commit', '-q', '-m', `Add ${repoName}`, '--', MANIFEST]);
     if (c.ok) ui.line('ok', 'recorded in project.json and committed');
   }
+  await mapNote(ui, `added ${repoName} to ${project}`);
   return 0;
 }
 
@@ -179,9 +182,10 @@ async function resolveSpec(spec, ui) {
 }
 
 /** Clone a project: the parent, every child, memory links, hooks, installs. Exported for recipes. */
-export async function cloneProject(spec, { ui, dir = projectsDir(), runner = stream } = {}) {
+export async function cloneProject(spec, { ui, dir = projectsDir(), runner = stream, name = null } = {}) {
   const p = await resolveSpec(spec, ui);
   if (!p) return 1;
+  if (name) p.name = name; // the folder the workspace map names (it may differ from the repository's name)
   const root = path.join(dir, p.name);
   ui.out(`\n${bold(p.name)}  ${dim(p.url)}`);
   if (ui.dryRun) {
@@ -218,16 +222,31 @@ export async function cloneProject(spec, { ui, dir = projectsDir(), runner = str
     if (r.branch && !cr.skipped) await git(dest, ['checkout', '-q', r.branch]);
     ui.line('ok', `${r.dir}${cr.skipped ? ' (was already there)' : ''}`);
   }
+  await finishProject(root, manifest, { ui, dir, runner });
+  rememberDir(dir);
+  await mapNote(ui, `cloned ${p.name}`);
+  return failed ? 1 : 0;
+}
+
+/**
+ * After a project's repositories are there: link its memory folders, use its git hooks, copy .env.example and offer
+ * the dependency installs. Shared by `project clone` and `workspace restore`.
+ */
+export async function finishProject(root, manifest, { ui, dir, runner = stream }) {
   report(ui, linkMemories(root, manifest.memories));
   for (const d of [root, ...manifest.repos.map((r) => path.join(root, r.dir))]) if (await useHooks(d)) ui.line('ok', `${path.relative(dir, d)}: git hooks from .githooks`);
-  rememberDir(dir);
   const sys = await sysFacts();
   for (const d of [root, ...manifest.repos.map((r) => path.join(root, r.dir))]) {
     if (!fs.existsSync(d)) continue;
     prepareEnv(d, (l) => ui.line('info', l));
     await offerInstall(ui, d, runner, sys);
   }
-  return failed ? 1 : 0;
+}
+
+/** Keep the workspace map in step after a project changed (only when there is an AI brain to keep it in). */
+async function mapNote(ui, what) {
+  const note = await (await import('../workspace/map.mjs')).refreshMapAfter(what);
+  if (note) ui.note(note);
 }
 
 const pick = (name) => {

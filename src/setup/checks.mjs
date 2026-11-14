@@ -373,6 +373,9 @@ export async function allChecks({ sys = sysInfo(), offline = false } = {}) {
   list.push(term, forHub(await ptyCheck(sys, { tmux: !term.detail.startsWith('built-in') })), await passwordCheck(), await serviceCheck(sys));
   list.push(await portCheck(cfg.server.host || DEFAULT_HOST, cfg.server.port || DEFAULT_PORT));
   list.push(accessCheck(cfg, await tailscaleState(sys)), ...dirsCheck(sys.platform));
+  // The command in every shell, also `ssh <computer> hoprig …` (localbin.mjs).
+  const cmd = (await import('./localbin.mjs')).commandCheck({ home: sys.env.HOME || undefined, platform: sys.platform });
+  list.push(result('command', 'The hoprig command', cmd.status, cmd.detail, cmd.fix || undefined));
   return list;
 }
 

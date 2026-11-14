@@ -345,10 +345,11 @@ export function listWorkspaces(projectsDir) {
 
 /**
  * Sync one repository without ever deciding for the user: fetch; fast-forward when clean and only behind; push
- * when only ahead and there is an upstream. Anything else is reported with the exact command.
+ * when only ahead and there is an upstream (unless `push` is false: then it is reported). Anything else is
+ * reported with the exact command. One engine for `project sync` and `workspace sync`.
  * Resolves { rel, did: [..], todo: [{ why, command }] }.
  */
-export async function syncRepo(dir, rel, run = capture) {
+export async function syncRepo(dir, rel, run = capture, { push = true, dryRun = false } = {}) {
   const did = [];
   const todo = [];
   if (!isRepo(dir)) return { rel, did, todo: [{ why: 'not cloned', command: `hoprig project clone …` }] };
@@ -363,11 +364,16 @@ export async function syncRepo(dir, rel, run = capture) {
   if (s.ahead && s.behind) todo.push({ why: `${s.branch} and its upstream have both moved (${s.ahead} ahead, ${s.behind} behind)`, command: `git -C "${dir}" pull --rebase   (or: git -C "${dir}" merge ${s.upstream})` });
   else if (s.behind) {
     if (s.changes) todo.push({ why: `${s.behind} to pull, but there are ${s.changes} uncommitted changes`, command: `git -C "${dir}" stash && git -C "${dir}" pull --ff-only && git -C "${dir}" stash pop` });
+    else if (dryRun) did.push(`would pull ${s.behind}`);
     else {
       const p = await git(dir, ['merge', '--ff-only', '--quiet', '@{u}'], run);
       if (p.ok) did.push(`pulled ${s.behind}`);
       else todo.push({ why: 'fast-forward failed', command: `git -C "${dir}" pull --ff-only` });
     }
+  } else if (s.ahead && !push) {
+    todo.push({ why: `${s.ahead} commit${s.ahead > 1 ? 's' : ''} to push`, command: `git -C "${dir}" push` });
+  } else if (s.ahead && dryRun) {
+    did.push(`would push ${s.ahead}`);
   } else if (s.ahead) {
     const p = await git(dir, ['push', '--quiet'], run, { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
     if (p.ok) did.push(`pushed ${s.ahead}`);
@@ -389,12 +395,12 @@ export async function commitMemory(root, memories, run = capture) {
 }
 
 /** Sync the parent (after committing the memory, when asked) and every child. */
-export async function syncWorkspace(root, { memory = false, run = capture } = {}) {
+export async function syncWorkspace(root, { memory = false, run = capture, push = true, dryRun = false } = {}) {
   const { manifest } = await readManifest(root, run);
   const out = { memory: null, repos: [] };
-  if (memory && manifest) out.memory = await commitMemory(root, manifest.memories, run);
-  out.repos.push(await syncRepo(root, '.', run));
-  for (const r of (manifest && manifest.repos) || []) out.repos.push(await syncRepo(path.join(root, r.dir), r.dir, run));
+  if (memory && manifest) out.memory = dryRun ? { committed: false, why: 'dry run: would commit the memory folders when they changed' } : await commitMemory(root, manifest.memories, run);
+  out.repos.push(await syncRepo(root, '.', run, { push, dryRun }));
+  for (const r of (manifest && manifest.repos) || []) out.repos.push(await syncRepo(path.join(root, r.dir), r.dir, run, { push, dryRun }));
   return out;
 }
 

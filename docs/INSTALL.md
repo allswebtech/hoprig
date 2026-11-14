@@ -41,10 +41,20 @@ missing it says so in one line and asks nothing.
    lists the exact commands for what is missing, asks once ([PC-SETUP.md](PC-SETUP.md)). In a terminal it also
    offers working rules for Claude Code (a file in `~/.claude/rules/`, yours to edit; your own `CLAUDE.md` is
    never touched).
-3. **A project.** When you have none: type a new name, `owner/repo` or a Git address, or press Enter to skip.
-4. **Skills for it.** The skill that comes with Hoprig first, then what fits the project, each shown before it
+3. **Git and GitHub.** The GitHub sign-in in the terminal (`gh auth login`, then `gh auth setup-git` so plain git
+   uses it), git's name and e-mail when missing (GitHub's no-reply address suggested), and *is there a workspace
+   of yours on GitHub already?*: restore it, start a new one in a private repository, or later
+   ([WORKSPACE.md](WORKSPACE.md#git-and-github)).
+4. **The workspace.** On a new computer, `~/Workspace` with its AI brain ([WORKSPACE.md](WORKSPACE.md)); where
+   it is there, only a report.
+5. **A project.** When you have none: type a new name, `owner/repo` or a Git address, or press Enter to skip.
+6. **Skills for it.** The skill that comes with Hoprig first, then what fits the project, each shown before it
    is added ([SKILLS.md](SKILLS.md)).
-5. **A QR code.** Scan it with your phone to sign in.
+7. **A QR code.** Scan it with your phone to sign in.
+
+Before all of it, setup makes the `hoprig` and `hop` commands work in every shell, also `ssh <computer> hoprig …`
+where nvm's Node.js is not loaded: two small scripts in `~/.local/bin` and that folder on PATH in your shell's start
+files, added once ([WORKSPACE.md](WORKSPACE.md#the-command-in-every-shell)).
 
 One part that fails does not stop the next ones: at the end, setup names it with the command to try again.
 
@@ -68,6 +78,8 @@ Run one part again later:
 ```sh
 hoprig setup --only base       # Claude Code and the dashboard
 hoprig setup --only pc         # this computer for coding (the same as: hoprig pc setup)
+hoprig setup --only git        # git's name and e-mail, the GitHub sign-in, your workspace from GitHub
+hoprig setup --only workspace  # the workspace folders
 hoprig setup --only project    # a project
 hoprig setup --only skills     # skills
 hoprig setup --dry-run         # the whole plan, nothing changed

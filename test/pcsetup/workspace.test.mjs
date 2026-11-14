@@ -209,6 +209,6 @@ test('project new without a git name and e-mail stops before anything is written
   const r = spawnSync(process.execPath, [binFile(), 'project', 'new', 'shop', '--no-github'], { env, encoding: 'utf8' });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout + r.stderr, /git config --global user\.name/);
-  assert.equal(fsx.existsSync(pathx.join(home, 'projects', 'shop')), false, 'no half-made project folder is left behind');
+  for (const where of [['projects'], ['Workspace', 'projects']]) assert.equal(fsx.existsSync(pathx.join(home, ...where, 'shop')), false, 'no half-made project folder is left behind');
   fsx.rmSync(home, { recursive: true, force: true });
 });

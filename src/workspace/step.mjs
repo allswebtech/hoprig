@@ -1,5 +1,5 @@
-// The workspace as one step of `hoprig setup` and `hoprig pc setup`. On a new computer it says in one sentence
-// what it creates and asks once (default yes); where any of the tree is there already, it only reports.
+// The workspace as one step of `hoprig setup` and `hoprig pc setup`. On a new computer (no AI brain yet) it says in
+// one sentence what it creates and asks once (default yes); where the brain is there already, it only reports.
 import { bold } from '../setup/ui.mjs';
 import { printSetup } from './cli.mjs';
 import { workspaceLine, workspaceStatus } from './layout.mjs';
@@ -9,7 +9,8 @@ import { workspaceSetup } from './setup.mjs';
 export async function runWorkspaceStep({ ui }) {
   ui.out(`\n${bold('Workspace')}`);
   const st = workspaceStatus();
-  const fresh = st.folders.every((f) => f.kind === 'missing');
+  // New = no AI brain: a projects folder made earlier (pc setup asks for one) does not make a workspace.
+  const fresh = st.folders.find((f) => f.id === 'ai_brain').kind === 'missing';
   if (!fresh) {
     const l = workspaceLine(st);
     ui.line(l.status, l.detail);

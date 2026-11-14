@@ -28,6 +28,10 @@ Setup also shows the workspace folders). It shows the status with a **Fix**
 button where a fix exists, and **Set up this computer** lets you tick kits. Anything that may need the administrator password opens in a
 terminal session of the dashboard, where you type it. This works for another computer through the hub too.
 
+After the kits, `pc setup` runs the **Git and GitHub** step (the GitHub sign-in with `gh`, `gh auth setup-git`,
+git's name and e-mail, and restoring or starting your workspace) and then the workspace step: see
+[WORKSPACE.md](WORKSPACE.md#git-and-github).
+
 ## Kits
 
 | Kit | Items | How |

@@ -1,4 +1,5 @@
 // The parts of `hoprig setup` after the dashboard's own steps, in the same run:
+//   git       git's name and e-mail, the GitHub sign-in, and a workspace of yours from GitHub (src/workspace)
 //   workspace the one folder tree (src/workspace): made on a new computer, only reported where it is there
 //   pc        this computer for coding (src/pcsetup: kits, and the working rules as their opt-in)
 //   project   a new or an existing project, skippable with Enter
@@ -6,16 +7,17 @@
 // Each part first shows what is there, proposes only what is missing, asks once, and says nothing more when nothing
 // is missing. One part failing never stops the next: every result is collected and named at the end.
 //
-// `parts` lets tests (and nothing else) replace the real work: { workspace, pc, projectNew, cloneProject, projectSkills,
+// `parts` lets tests (and nothing else) replace the real work: { git, workspace, pc, projectNew, cloneProject, projectSkills,
 // userSkills } with the same signatures as the functions below.
 import fs from 'node:fs';
 import path from 'node:path';
 import { bold, dim } from './ui.mjs';
 
-export const PARTS = ['base', 'workspace', 'pc', 'project', 'skills'];
+export const PARTS = ['base', 'pc', 'git', 'workspace', 'project', 'skills'];
 
 const real = {
   workspace: async (o) => (await import('../workspace/step.mjs')).runWorkspaceStep(o),
+  git: async (o) => (await import('../workspace/gitstep.mjs')).runGitStep(o),
   pc: async (o) => (await import('../pcsetup/index.mjs')).runPcSetup(o),
   projectNew: async (args, o) => (await import('../pcsetup/project.mjs')).projectNew(args, o),
   cloneProject: async (spec, o) => (await import('../pcsetup/project.mjs')).cloneProject(spec, o),
@@ -72,6 +74,17 @@ export async function partWorkspace(ui, opts, p = real) {
   } catch (e) {
     ui.line('fail', `Workspace: ${e.message}`);
     return { part: 'workspace', ok: false, note: e.message, retry: 'hoprig workspace setup' };
+  }
+}
+
+/** "Git and GitHub": after the computer's tools (gh), before the workspace (it may restore one from GitHub). */
+export async function partGit(ui, opts, p = real) {
+  try {
+    const r = await p.git({ ui });
+    return { part: 'git', ok: r.ok, retry: r.ok ? undefined : 'hoprig workspace git' };
+  } catch (e) {
+    ui.line('fail', `Git and GitHub: ${e.message}`);
+    return { part: 'git', ok: false, note: e.message, retry: 'hoprig workspace git' };
   }
 }
 
@@ -155,8 +168,9 @@ export async function runParts(ui, opts, { only = null, parts = real } = {}) {
   const want = (x) => !only || only === x;
   const results = [];
   let project = null;
-  if (want('workspace')) results.push(await partWorkspace(ui, opts, p));
   if (want('pc')) results.push(await partPc(ui, opts, p));
+  if (want('git')) results.push(await partGit(ui, opts, p));
+  if (want('workspace')) results.push(await partWorkspace(ui, opts, p));
   if (want('project')) {
     const r = await partProject(ui, { ...opts, askProject: only === 'project' }, p);
     project = r.dir;
@@ -171,5 +185,5 @@ export function reportParts(ui, results) {
   const failed = results.filter((r) => !r.ok);
   if (!failed.length) return;
   ui.out();
-  for (const r of failed) ui.line('warn', `${{ workspace: 'Workspace', pc: 'This computer for coding', project: 'A project', skills: 'Skills' }[r.part]}: not finished${r.note ? ` (${r.note})` : ''}${r.retry ? dim(`  retry: ${r.retry}`) : ''}`);
+  for (const r of failed) ui.line('warn', `${{ git: 'Git and GitHub', workspace: 'Workspace', pc: 'This computer for coding', project: 'A project', skills: 'Skills' }[r.part]}: not finished${r.note ? ` (${r.note})` : ''}${r.retry ? dim(`  retry: ${r.retry}`) : ''}`);
 }

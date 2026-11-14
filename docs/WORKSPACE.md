@@ -21,14 +21,144 @@ the environment variable `HOPRIG_WORKSPACE_DIR` wins over both. A project's pare
 [PC-SETUP.md](PC-SETUP.md#project-workspaces).
 
 ```sh
-hoprig workspace status [--json]           # every folder: there or not, what it is for; the brain and projects: git or not
+hoprig workspace status [--json]           # every folder: there or not, what it is for; the map against this computer
 hoprig workspace setup [--dry-run] [--yes] # create only what is missing
 hoprig workspace link [--dry-run] [--yes]  # let Claude Code read its global rules, skills and home memory from the brain
+hoprig workspace map [--dry-run]           # write the map of every git repository (ai_brain/workspace.json)
+hoprig workspace restore <brain address>   # a fresh computer: the brain, then everything its map names
+hoprig workspace sync [--memory] [--push] [--with <computer>]   # every repository in step
+hoprig workspace set --dir <folder> --projects <folder>         # where things are, for future work (nothing moves)
+hoprig workspace forget <project or folder>                     # out of the map (no file is touched)
+hoprig workspace git                       # git's name and e-mail, the GitHub sign-in, your workspace on GitHub
 ```
 
-`hoprig setup` and `hoprig pc setup` offer the workspace as one step: on a new computer they say in one sentence
-what it creates and ask once (default yes); where any part of the tree is there already, they only report it.
-`hoprig doctor` shows it in one line under Projects.
+Every one of them takes `--json`; the ones that change something take `--dry-run`, which shows exactly what would
+happen. `hoprig setup` and `hoprig pc setup` offer the workspace as one step: on a new computer (no AI brain yet)
+they say in one sentence what it creates and ask once (default yes); where the brain is there already, they only
+report. Before that comes the **Git and GitHub** step (below). `hoprig doctor` shows the workspace under Projects:
+the tree, whether the brain is on a git server and in step (as of the last fetch; the doctor does not fetch), and
+whether the map matches this computer.
+
+## A fresh computer in three commands
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh   # Hoprig, git, gh, …
+hoprig workspace git                                  # name and e-mail, the GitHub sign-in (any other git server: skip)
+hoprig workspace restore example/ai_brain             # or any git address of your brain
+```
+
+The installer's own setup already asks the second and third question in a terminal; the commands are for doing it
+later or again. Then `hoprig workspace link` makes Claude Code use the brain's rules, skills and home memory.
+
+## The map: every repository in one file
+
+`<workspace>/ai_brain/workspace.json` lists what makes up the workspace, by address, never by content. It lives in
+the AI brain because the brain is the one repository every computer has.
+
+```json
+{
+  "version": 1,
+  "brain": { "url": "https://github.com/example/ai_brain.git" },
+  "projects": [
+    { "name": "shop", "url": "https://github.com/example/shop.git",
+      "repos": [ { "dir": "code/shop-api", "url": "https://github.com/example/shop-api.git" },
+                 { "dir": "code/shop-web", "url": "git@gitlab.example.com:example/shop-web.git", "branch": "main" },
+                 { "dir": "code/sketches", "url": null } ] }
+  ],
+  "others": [ { "dir": "git/tool", "url": "https://github.com/example/tool.git" } ],
+  "skip": [ "old-project" ]
+}
+```
+
+- `hoprig workspace map` writes it from what is on the computer and shows what changed (added, removed, a changed
+  address). It never commits: it prints the `git add` and `git commit` to run in the brain. `project new`,
+  `project clone` and `project add` keep it up to date by themselves when there is a brain.
+- A project's own `project.json` stays the truth for its code repositories. The map repeats them so that one file
+  is enough to rebuild everything, and `map` adds a code repository found on disk to a `project.json` that lacks it
+  (commit that in the project).
+- Addresses are kept without a user name or password (`https://user:token@host/…` becomes `https://host/…`), and
+  an address that still looks like it holds a secret is refused. Only https and SSH git addresses are accepted.
+- A repository with no remote is listed with `"url": null` ("not on a git server yet") and reported; nothing is
+  guessed. Folders named `no-ai`, `ignore`, `ai-ignore-dir`, `credentials`, `node_modules` and dot-folders are
+  never looked into. `others` are git repositories elsewhere in the workspace (up to three folders deep), never in
+  `ai_brain/` or the projects folder.
+- `forget` takes a project or folder out of the map and adds it to `skip`, so `map` does not add it back.
+- A map read from a repository is checked strictly (unknown keys, names and folders that would lead out of the
+  workspace, bad addresses or branch names): a map that fails is not used, and nothing is changed.
+
+## Restore: everything the map names
+
+`hoprig workspace restore <address>` clones the brain into `<workspace>/ai_brain`, reads the map, shows the whole
+plan (every repository and where it goes), asks once, then clones each project's parent and its code repositories
+(and any code repository its `project.json` names that the map does not have yet), the other repositories, makes
+the missing folders of the tree, and finishes each project like `project clone`: memory folders linked, git hooks,
+`.env.example` copied, the dependency installs offered.
+
+- Run it again and it only gets what is missing. What is there is never overwritten or moved: the same repository
+  counts as done; a folder that is something else is reported and left alone.
+- A repository that cannot be cloned (no access, deleted) is listed with git's own reason, and the rest goes on.
+- A brain folder that is another repository stops it before anything changes. The one exception is the starting
+  brain `workspace setup` made and nobody changed (only its own files and first commit, no remote): it is kept
+  aside as `ai_brain.unused-<time>`, so restoring after setup works.
+- In the dashboard (no terminal) git may not ask for a password and ssh may not ask about a host key: such a
+  repository fails with the reason instead of waiting.
+
+## Sync: every repository in step
+
+`hoprig workspace sync` goes through every repository of the map, the brain first, with the same engine as
+`project sync`: fetch; fast-forward a clean branch that is only behind; push a branch that is only ahead **only
+with `--push`**. It never merges, rebases, forces or stashes. Whatever needs a decision (both sides moved,
+something to pull but uncommitted changes, no upstream, a push that failed, a repository not on this computer) is
+listed with the exact command. `--memory` first commits the memory folders (the brain's `claude-memory/` and each
+project's), and only them. `--dry-run` fetches and says what it would pull and push.
+
+**Keep it in step by itself** (off by default): the automation setting `workspace: { sync, push, everyHours }`
+fetches and fast-forwards every few hours; pushing is a second switch of its own. What needs a decision is told
+once, in a notification.
+
+## Between your computers, without a git server
+
+`hoprig workspace sync --with <computer>` gets the commits straight from another computer of yours, over SSH, for
+a repository that has no git server or a server this computer cannot reach. Only a computer added by SSH (`hoprig
+machines`) is used, at the address stored there; its own Hoprig says where its workspace and projects are.
+
+It is **pull only**, on purpose: `git fetch` over SSH runs git-upload-pack there, which never writes on the other
+computer. Pushing into its repository would change a branch that may be checked out there. What is fetched lands
+under `refs/hoprig-peer/<computer>/<branch>` (not a branch, not a remote), and the branch here is fast-forwarded
+only when it is clean and only behind. The other computer gets this one's commits the same way, by running
+`sync --with` itself.
+
+## Git and GitHub
+
+One step of `hoprig setup` and `hoprig pc setup`, and `hoprig workspace git` on its own (the dashboard's Setup
+starts it in a terminal session, because signing in is yours to do):
+
+1. The GitHub sign-in: `gh auth login` in the terminal (you confirm a code in the browser), then
+   `gh auth setup-git`, so plain git uses that sign-in too. Only the account name is ever kept or shown.
+2. git's name and e-mail when they are missing. Once signed in, GitHub's no-reply address is suggested (it keeps
+   your own address out of commits); nothing is made up.
+3. *Is there a workspace of yours on GitHub already?* Repositories of your account and your organisations whose
+   name has "brain" in it are offered (one with a `workspace.json` first): restore it. Or start a new one: the
+   brain goes into a new **private** repository (never public), the map is committed in it and pushed. Or later.
+   A brain with another name: `hoprig workspace restore <its address>`.
+
+Other git servers (GitLab, your own SSH server) work for map, restore and sync through plain git with your own
+sign-in (SSH key or credential helper). Only this sign-in help and creating a repository are GitHub's.
+
+## Changing where things are
+
+`hoprig workspace set --dir <folder> --projects <folder>` changes where the workspace and the projects folder are
+for everything from now on. Nothing is moved: the `mv` that would move the files is shown, to run yourself.
+
+## The command in every shell
+
+Node.js installed with nvm is only on PATH in an interactive shell, so `ssh <computer> hoprig doctor` used to say
+"command not found". `hoprig setup` (the installer runs it) writes two small scripts, `~/.local/bin/hoprig` and
+`~/.local/bin/hop`, that start Hoprig with the full path of its Node.js, and puts `~/.local/bin` on PATH in
+`~/.profile` (and `~/.bash_profile` when there is one), at the **top** of `~/.bashrc` (before the line that stops a
+non-interactive shell), in `~/.zshenv`, and for fish in `~/.config/fish/conf.d/hoprig.fish`. Each line is added
+once. A new Node.js version: run `hoprig setup` again (the doctor says when the scripts point to one that is gone).
+A file of npm's own in `~/.local/bin` is left alone.
 
 ## What setup creates, and what it never touches
 
@@ -77,10 +207,18 @@ places (no `..`, no absolute path, no link that leads out), folders named `no-ai
 text (`.md`, `.txt`). Text that looks like a secret is masked before it leaves the computer; an item is cut at
 200 KB.
 
-Routes (behind the login): `GET /api/workspace`, `POST /api/workspace/setup { dryRun? }`, `GET /api/brain`,
-`GET /api/brain/item?id=<id>`.
+Routes (behind the login; another computer's through the hub): `GET /api/workspace`, `POST /api/workspace/setup`,
+`GET /api/brain`, `GET /api/brain/item?id=<id>`, `GET|POST /api/workspace/map`, `POST /api/workspace/restore`,
+`POST /api/workspace/sync`, `GET /api/workspace/job`, `POST /api/workspace/settings`, `POST /api/workspace/forget`,
+`GET /api/workspace/git`, `POST /api/workspace/git/terminal` (the list with what each takes is at the top of
+`src/workspace/feature.mjs`).
 
 ## What is checked where
 
-Run on macOS and in tests on temporary folders (status, setup, adopting an existing tree, linking with merge and
-backup, every refusal of the brain view). Linux was not run separately for this part; Windows was **not run**.
+Tests on temporary folders with local bare repositories as the git server: status, setup, adopting an existing
+tree, linking with merge and backup, every refusal of the brain view, the map (a token stripped, private folders
+unseen, a repository without a remote), restore (twice, with an unreachable repository, after setup), sync
+(behind, ahead, both moved, uncommitted), `--with` between two temporary homes, and the Git and GitHub step with a
+stand-in for `gh`. End to end in two fresh Ubuntu 24.04 containers (`tools/e2e-workspace.sh`): install from a
+tarball, a workspace built and mapped on one, restored on the other from the brain's address, a change synced, the
+command found over ssh. The real GitHub sign-in needs a person and was not run. Windows was **not run**.

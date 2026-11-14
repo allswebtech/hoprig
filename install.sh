@@ -210,16 +210,15 @@ main() {
     # shellcheck disable=SC2086
     npm install -g $NPM_ALLOW --prefix "$HOME/.local" --no-audit --no-fund --no-update-notifier --loglevel=error "$SOURCE" >/dev/null
     BIN="$HOME/.local/bin/hoprig"
-    case ":$PATH:" in
-      *":$HOME/.local/bin:"*) ;;
-      *) say "Note: add ~/.local/bin to your PATH so the hoprig command is found." ;;
-    esac
   fi
   [ -x "$BIN" ] || BIN=$(command -v hoprig || true)
   [ -n "$BIN" ] && [ -x "$BIN" ] || die "hoprig was installed but its command is not found."
   say "✓ hoprig $("$BIN" version)"
 
   # ---- setup ------------------------------------------------------------------------------------------------------
+  # Its first step makes the command work in every shell, not only an interactive one: ~/.local/bin/hoprig and hop
+  # start Hoprig with this Node.js (nvm's lines in ~/.bashrc are not read by `ssh <computer> hoprig …`), and
+  # ~/.local/bin goes on PATH in ~/.profile, the top of ~/.bashrc and ~/.zshenv, once (src/setup/localbin.mjs).
   exec "$BIN" setup "$@"
 }
 

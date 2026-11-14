@@ -2,6 +2,7 @@
 // never moved, renamed, overwritten or "fixed"; it is reported. Claude Code's own folder (~/.claude) is never
 // touched here: linking it into the brain is the separate, explicit `workspace link` (link.mjs).
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tilde } from '../paths.mjs';
@@ -113,7 +114,7 @@ export async function workspaceSetup({ dryRun = false, cfg, projectsDir, run = c
 
 /** git init and a first commit for a new brain, only when git knows a name and an e-mail (a commit needs them). */
 async function brainGit(dir, { dryRun, run }) {
-  const who = await Promise.all(['user.name', 'user.email'].map((k) => run(['git', 'config', '--get', k], { timeout: 10_000 }).then((r) => (r.ok ? (r.stdout || '').trim() : ''), () => '')));
+  const who = await Promise.all(['user.name', 'user.email'].map((k) => run(['git', 'config', '--get', k], { timeout: 10_000, cwd: os.tmpdir() }).then((r) => (r.ok ? (r.stdout || '').trim() : ''), () => '')));
   if (!who[0] || !who[1]) return { done: false, why: `git does not know your name and e-mail yet: set them (git config --global user.name / user.email), then: git -C "${dir}" init -b main && git -C "${dir}" add -A && git -C "${dir}" commit -m "Start the AI brain"` };
   if (dryRun) return { done: false, why: 'dry run: would run git init and make a first commit' };
   if (!isDir(dir)) return { done: false, why: 'no brain folder' };

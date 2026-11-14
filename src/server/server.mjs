@@ -144,6 +144,7 @@ export function createServer(opts = {}) {
   // The Computer tab's view of the system and its actions on it; the demo passes stand-ins, so it never shows or
   // touches the real computer.
   let loginTimer = null; // the half-hourly sign-in check started in listen()
+  let firstLoginCheck = null; // its first run, a few seconds after start
   const system = { snapshot, killProcess, power, ...opts.system };
   const notifyFetch = opts.fetch || fetch;
   const watcher = new Watcher({
@@ -204,7 +205,7 @@ export function createServer(opts = {}) {
     pcsetupFeature(ctx, opts.pcsetup), // PC → Setup: system status, set up this computer, projects, recipes
     skillhubFeature(ctx, opts.skillhub), // Settings → Skills: installed, suggested for a project, find, review → approve, updates
     onboardingFeature(ctx, opts.onboarding), // Home → Get started: the steps a new user goes through, done or not
-    workspaceFeature(ctx, opts.workspace), // Workspace: the tree (setup makes only what is missing) and the AI brain (read-only)
+    workspaceFeature(ctx, opts.workspace), // Workspace: the tree, its map, restore and sync, Git and GitHub, the AI brain (read-only)
   ];
   const trusted = (req) => features.some((f) => f.trusted && f.trusted(req));
 
@@ -853,7 +854,10 @@ export function createServer(opts = {}) {
           // tests bring their own facts), and it is never in the way of a request: it is a program start.
           if (opts.loginCheck === true) {
             const ask = () => import('../claudecode.mjs').then((m) => m.claudeLoginStatus()).catch(() => {});
-            ask();
+            // A few seconds after start, not at once: starting the dashboard stays quick, and a server that lives
+            // only a moment (a test of `serve`, a quick `--help`) never starts another program.
+            firstLoginCheck = setTimeout(ask, 5000);
+            firstLoginCheck.unref();
             loginTimer = setInterval(ask, 30 * 60_000);
             loginTimer.unref();
           }
@@ -880,6 +884,7 @@ export function createServer(opts = {}) {
         }
       }
       removeDashboardFile();
+      clearTimeout(firstLoginCheck);
       clearInterval(loginTimer);
       watcher.stop();
       for (const ws of wss.clients) ws.terminate();

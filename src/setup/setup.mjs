@@ -25,6 +25,7 @@ import {
 import { publicAddresses } from './https.mjs';
 import { stepHttps, stepHttpsVerify } from './hubsetup.mjs';
 import { PARTS, reportParts, runParts } from './firstrun.mjs';
+import { ensureCommand } from './localbin.mjs';
 import { qrText } from './qr.mjs';
 import { tmuxNewEnough } from '../server/backends/tmuxversion.mjs';
 import { capture, forThisUser, installCommands, npmMajor, osName, showCommand, showCommands, stream, which } from './system.mjs';
@@ -446,7 +447,7 @@ export async function setup(args = [], { ui: givenUi, sys = sysInfo(), parts: pa
   try {
     opts = parseSetupArgs(args);
   } catch (e) {
-    process.stderr.write(`${APP} setup: ${e.message}\nusage: ${APP} setup [--yes] [--dry-run] [--only base|workspace|pc|project|skills] [--hub [--domain D] [--ip A] [--tls-internal]] [--access local|network|tailscale] [--no-service] [--password-file FILE]\n`);
+    process.stderr.write(`${APP} setup: ${e.message}\nusage: ${APP} setup [--yes] [--dry-run] [--only base|pc|git|workspace|project|skills] [--hub [--domain D] [--ip A] [--tls-internal]] [--access local|network|tailscale] [--no-service] [--password-file FILE]\n`);
     return 2;
   }
   const ui = givenUi || makeUi({ yes: opts.yes, dryRun: opts.dryRun });
@@ -457,6 +458,11 @@ export async function setup(args = [], { ui: givenUi, sys = sysInfo(), parts: pa
   if (node.status !== 'ok') {
     ui.note(node.fix);
     return 1;
+  }
+  // The command in every shell (also over ssh and in a non-interactive login shell), before anything else.
+  {
+    const c = ensureCommand({ dryRun: opts.dryRun, home: sys.env.HOME || undefined, platform: sys.platform, shell: sys.env.SHELL || '' });
+    for (const l of [...c.did, ...c.kept]) ui.line('ok', l);
   }
   // A hub only shows and relays other computers: no Claude Code, no account and no terminal are needed on it.
   const hub = opts.hub || loadConfig().hubOnly === true;

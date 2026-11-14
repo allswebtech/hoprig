@@ -36,6 +36,7 @@ const noQuestions = async (q) => {
 // The parts after the dashboard's steps (computer, project, skills) are tested in firstrun.test.mjs: here they do nothing.
 const NOPARTS = {
   workspace: async () => ({ ok: true, changed: false }),
+  git: async () => ({ ok: true, changed: false }),
   pc: async () => ({ ok: true, changed: false, missing: [], code: 0 }),
   projects: async () => ({ dir: '/nowhere', names: ['demo'] }),
   projectSkills: async () => ({ ok: true, added: [], skipped: [] }),

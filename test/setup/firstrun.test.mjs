@@ -30,6 +30,7 @@ const PROJECTS = path.join(s.tmp, 'projects');
 function fakes(log, over = {}) {
   return {
     workspace: async () => ({ ok: true, changed: false }), // its own tests: test/workspace
+    git: async () => ({ ok: true, changed: false }),
     pc: async (o) => {
       log.push(['pc', { yes: o.yes, dryRun: o.dryRun, rules: o.rules }]);
       return { ok: true, changed: false, missing: [], code: 0 };
@@ -66,7 +67,7 @@ const ui = (o = {}) => {
 test('--only takes one part; anything else is refused', () => {
   assert.equal(SU.parseSetupArgs(['--only', 'pc']).only, 'pc');
   assert.equal(SU.parseSetupArgs(['--only=skills']).only, 'skills');
-  assert.throws(() => SU.parseSetupArgs(['--only', 'all']), /--only must be one of: base, workspace, pc, project, skills/);
+  assert.throws(() => SU.parseSetupArgs(['--only', 'all']), /--only must be one of: base, pc, git, workspace, project, skills/);
 });
 
 test('the whole run, in order: dashboard steps, this computer, a project, skills, then the summary', async () => {
@@ -139,7 +140,7 @@ test('a failing part does not stop the next ones; it is named at the end with it
   assert.match(rec.text, /This computer for coding: not finished \(apt is locked by another program\)\s+retry: hoprig pc setup/);
   const failedSkills = fakes([], { userSkills: async () => ({ ok: false, added: [], skipped: [{ id: 'x', why: 'offline' }] }) });
   const r = await FR.runParts(ui({ yes: true }).ui, { yes: true }, { parts: failedSkills });
-  assert.deepEqual(r.map((x) => [x.part, x.ok]), [['workspace', true], ['pc', true], ['project', true], ['skills', false]]);
+  assert.deepEqual(r.map((x) => [x.part, x.ok]), [['pc', true], ['git', true], ['workspace', true], ['project', true], ['skills', false]]);
 });
 
 test('a project: a new name is created and its skills are offered for it', async () => {
@@ -173,7 +174,7 @@ test('a project from GitHub is cloned; an answer that is no project is refused a
   const { ui: u, rec } = ui({ answers: ['not a project!'] });
   const r = await FR.runParts(u, {}, { parts: fakes(log2) });
   assert.match(rec.text, /"not a project!" is not a project name/);
-  assert.deepEqual(r.map((x) => [x.part, x.ok]), [['workspace', true], ['pc', true], ['project', false], ['skills', true]]);
+  assert.deepEqual(r.map((x) => [x.part, x.ok]), [['pc', true], ['git', true], ['workspace', true], ['project', false], ['skills', true]]);
   assert.equal(log2.at(-1)[0], 'userSkills');
 });
 

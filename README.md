@@ -117,6 +117,13 @@ hop workspace setup         # create only what is missing; nothing that exists i
 hop workspace link          # let Claude Code read its global rules, skills and home memory from the brain
 ```
 
+**A fresh computer gets all of it from git.** `hop workspace map` writes one file in the brain that lists every
+git repository of the workspace (addresses only, never a token). On the next computer,
+`hop workspace restore <address of your brain>` clones the brain and everything its map names, where it belongs;
+`hop workspace sync` keeps every repository in step (fast-forward only; pushing only with `--push`; `--with
+<computer>` straight from another computer over SSH). Setup signs in to GitHub with `gh` and offers to restore your
+workspace or start one in a private repository.
+
 `hoprig setup` offers the workspace as one step on a new computer. The **AI brain** page shows, read-only, what
 the AI knows on a computer: the global rules, the brain's notes and daily logs, the skills, the memory (for
 everywhere and for each project) and each project's own notes. It never shows anything outside those places,
@@ -356,7 +363,7 @@ hop add | profiles | rm          providers (each one is a profile)
 hop setup | doctor | update      set everything up, check everything, update Hoprig
 hop pc setup | status | clone    this computer for coding;  hop pc recipe save: a recipe for the next one
 hop project new | add | clone | status | sync   projects
-hop workspace status | setup | link   the workspace folder tree and the AI brain
+hop workspace status | setup | link | map | restore | sync | git   the workspace, its map, the AI brain
 hop skills suggest | find | add | list | update  skills
 hop serve | passwd | link        the dashboard, its password, a one-time sign-in link
 hop service install              run the dashboard in the background
