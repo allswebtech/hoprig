@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "reviewed": "2026-11-14",
+  "about": "Skills a person opened and read before they were listed here. A GitHub entry is pinned to the commit that was read (repo, path, commit). A bundled entry ships inside Hoprig (bundled: a folder of this package); its integrity is the installed package and its version is Hoprig's. Signals say when a project needs one: <ecosystem>:<dependency> (npm, pub, pypi, go, cargo), stack:<name>, artifact:<kind>, file:<kind>, or always.",
+  "entries": [
+    {
+      "id": "hoprig",
+      "skill": "hoprig",
+      "for": "Teaches Claude Code to use Hoprig itself: check the setup, providers, limits, computers, projects and skills, read-only first, the user decides changes.",
+      "bundled": "templates/skills/hoprig",
+      "scope": "user",
+      "license": "same as Hoprig (bundled)",
+      "signals": [
+        "always"
+      ]
+    },
+    {
+      "id": "security-audit",
+      "skill": "security-audit",
+      "for": "A defensive security audit of a codebase: reconnaissance, coverage-led hunting, independent validation, a findings report.",
+      "repo": "cloudflare/security-audit-skill",
+      "path": "skills/security-audit",
+      "commit": "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8",
+      "license": "MIT",
+      "signals": [
+        "stack:web",
+        "stack:server",
+        "stack:mobile",
+        "stack:mcp"
+      ],
+      "notes": "Ships two zero-dependency Node validators (validate-findings.cjs, validate-coverage-ledger.cjs) and their tests; it asks for a sandbox before running any target code."
+    },
+    {
+      "id": "reverse-engineer-anything",
+      "skill": "reverse-engineer-anything",
+      "for": "Inspect shipped artefacts you own (APK, IPA, Electron/ASAR, native binaries) with the REA tool: what the built app really contains.",
+      "repo": "morluto/rea",
+      "path": ".agents/skills/reverse-engineer-anything",
+      "commit": "5b158b2d1d39468c5b17ef9072ca24179d9117fd",
+      "license": "MIT",
+      "signals": [
+        "artifact:apk",
+        "artifact:aab",
+        "artifact:ipa",
+        "artifact:asar",
+        "artifact:desktop",
+        "stack:electron",
+        "stack:flutter",
+        "stack:react-native"
+      ],
+      "notes": "Instructions only; the analysis needs the rea command-line tool (npm package rea-agents), which Hoprig checks and updates separately.",
+      "tool": {
+        "id": "rea",
+        "bin": "rea",
+        "npm": "rea-agents",
+        "versionArgs": [
+          "--version"
+        ],
+        "homepage": "https://github.com/morluto/rea"
+      }
+    },
+    {
+      "id": "react-best-practices",
+      "skill": "vercel-react-best-practices",
+      "for": "React and Next.js performance rules from Vercel Engineering for writing and reviewing components.",
+      "repo": "vercel-labs/agent-skills",
+      "path": "skills/react-best-practices",
+      "commit": "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
+      "license": "MIT",
+      "signals": [
+        "npm:next",
+        "npm:react"
+      ]
+    },
+    {
+      "id": "react-native-skills",
+      "skill": "vercel-react-native-skills",
+      "for": "React Native and Expo practices: list performance, animations, native modules.",
+      "repo": "vercel-labs/agent-skills",
+      "path": "skills/react-native-skills",
+      "commit": "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
+      "license": "MIT",
+      "signals": [
+        "npm:react-native",
+        "npm:expo"
+      ]
+    },
+    {
+      "id": "next-bundle-optimizer",
+      "skill": "next-bundle-optimizer",
+      "for": "From the Next.js team: audit and cut what the browser loads first (big client bundles, duplicate dependencies).",
+      "repo": "vercel/next.js",
+      "path": "skills/next-bundle-optimizer",
+      "commit": "cbd8159c02ea96064457f7b654bbb9d4eab45137",
+      "license": "MIT",
+      "signals": [
+        "npm:next"
+      ]
+    },
+    {
+      "id": "next-dev-loop",
+      "skill": "next-dev-loop",
+      "for": "From the Next.js team: check that a change really works in the running app (next dev's MCP view plus a browser), not only that it compiles.",
+      "repo": "vercel/next.js",
+      "path": "skills/next-dev-loop",
+      "commit": "cbd8159c02ea96064457f7b654bbb9d4eab45137",
+      "license": "MIT",
+      "signals": [
+        "npm:next"
+      ]
+    },
+    {
+      "id": "flutter-architecture",
+      "skill": "flutter-apply-architecture-best-practices",
+      "for": "From the Flutter team: structure a Flutter app in the recommended layers (UI, logic, data).",
+      "repo": "flutter/agent-plugins",
+      "path": "skills/flutter-apply-architecture-best-practices",
+      "commit": "e5a88d2be19cbf7ba1ef974375e5846492aca2ac",
+      "license": "BSD-3-Clause",
+      "signals": [
+        "pub:flutter"
+      ]
+    },
+    {
+      "id": "flutter-widget-test",
+      "skill": "flutter-add-widget-test",
+      "for": "From the Flutter team: write widget tests with WidgetTester (rendering, taps, scrolling, text input).",
+      "repo": "flutter/agent-plugins",
+      "path": "skills/flutter-add-widget-test",
+      "commit": "e5a88d2be19cbf7ba1ef974375e5846492aca2ac",
+      "license": "BSD-3-Clause",
+      "signals": [
+        "pub:flutter"
+      ]
+    },
+    {
+      "id": "postgres-best-practices",
+      "skill": "supabase-postgres-best-practices",
+      "for": "From Supabase: Postgres rules for schemas, column types, indexes, queries and connections, for Postgres anywhere.",
+      "repo": "supabase/agent-skills",
+      "path": "skills/supabase-postgres-best-practices",
+      "commit": "c9be0e931b7930f7d02126d04774d904c381e7d7",
+      "license": "MIT",
+      "signals": [
+        "stack:postgres"
+      ]
+    },
+    {
+      "id": "docker-build-strategies",
+      "skill": "docker-build-strategies",
+      "for": "From Docker: write and review Dockerfiles (multi-stage builds, layer caching, smaller and hardened images).",
+      "repo": "docker/skills",
+      "path": "skills/docker-build-strategies",
+      "commit": "a65ae5b65d22f0613375d6c3e5ea8bb287698cc0",
+      "license": "Apache-2.0",
+      "signals": [
+        "file:docker"
+      ],
+      "notes": "Includes scripts/verify-build.sh, which builds an image when the agent runs it."
+    },
+    {
+      "id": "webapp-testing",
+      "skill": "webapp-testing",
+      "for": "From Anthropic: test a local web app with Playwright (check pages, click through, screenshots, browser logs).",
+      "repo": "anthropics/skills",
+      "path": "skills/webapp-testing",
+      "commit": "2c5958ecac7cee2b583967a2c4981d0f4a75c579",
+      "license": "Apache-2.0",
+      "signals": [
+        "stack:web-ui",
+        "npm:@playwright/test",
+        "pypi:playwright"
+      ],
+      "notes": "Ships Python helper scripts that start your dev server and drive a browser."
+    },
+    {
+      "id": "frontend-design",
+      "skill": "frontend-design",
+      "for": "From Anthropic: deliberate visual design for new or reworked UI (direction, typography, avoiding template looks).",
+      "repo": "anthropics/skills",
+      "path": "skills/frontend-design",
+      "commit": "2c5958ecac7cee2b583967a2c4981d0f4a75c579",
+      "license": "Apache-2.0",
+      "signals": [
+        "stack:web-ui"
+      ]
+    },
+    {
+      "id": "mcp-builder",
+      "skill": "mcp-builder",
+      "for": "From Anthropic: build good MCP servers (tool design, TypeScript or Python SDK, evaluations).",
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder",
+      "commit": "2c5958ecac7cee2b583967a2c4981d0f4a75c579",
+      "license": "Apache-2.0",
+      "signals": [
+        "stack:mcp"
+      ]
+    }
+  ]
+}

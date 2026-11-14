@@ -1,0 +1,80 @@
+/* Styles of the computers pages only. Shared parts (sidebar, page head, list rows, folds, radio cards) live in style.css:
+   use them first, and keep every class here prefixed so it cannot touch another page. */
+
+/* ---- the list ---- */
+.cp-row .row-title .badge { vertical-align: 1px; }
+.cp-row .row-sub { display: flex; align-items: center; gap: 6px; }
+.cp-row .cp-claude { display: block; }
+.cp-off .row-title { color: var(--text-2); }
+.cp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; display: inline-block; }
+.cp-dot.on { background: var(--ok); }
+.cp-ghost .row-title, .cp-ghost .row-sub { color: var(--muted); }
+.cp-ghost .row-sub:empty::after, .cp-ghost .row-title:empty::after { content: '\00a0'; }
+
+/* ---- Add a computer ---- */
+.cp-how { margin-top: 12px; }
+.cp-how:empty { display: none; }
+.cp-how .panel { gap: 12px; }
+.cp-how .inlineform { margin-top: 2px; }
+.cp-wait { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: var(--fs-sm); margin: 4px 0 0; }
+.radiocards + .cp-how { margin-top: 14px; }
+
+/* ---- one computer: the parts ---- */
+.cp-parttext { font-size: var(--fs-sm); color: var(--muted); margin: 10px 2px 4px; }
+.cp-part { min-height: 60vh; } /* the page keeps its height while a part loads: no jump */
+.cp-wrap .row-title, .cp-wrap .row-sub { white-space: normal; overflow-wrap: anywhere; }
+
+/* Overview */
+.cp-status { display: flex; align-items: center; margin: 12px 2px 0; color: var(--text-2); font-size: var(--fs-sm); min-height: 22px; }
+.cp-ghost.tile .tile-value { color: transparent; background: var(--surface-2); border-radius: 6px; }
+.cp-offline .cp-warn { background: var(--warn-soft); color: var(--warn); }
+.cp-next { margin: 0; padding-left: 20px; display: grid; gap: 4px; color: var(--text-2); font-size: var(--fs-sm); }
+
+/* Setup */
+.cp-resultcard { margin-top: 12px; }
+.cp-result { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cp-result-icon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); flex: none; }
+.cp-result-icon.ok { background: var(--ok-soft); color: var(--ok); }
+.cp-result-icon.warn { background: var(--warn-soft); color: var(--warn); }
+.cp-result-text { flex: 1 1 220px; min-width: 0; display: grid; gap: 2px; }
+.cp-result-text strong { font-size: var(--fs-lg); }
+.cp-recheck { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 32px; }
+.cp-check { align-items: flex-start; }
+.cp-check .row-title .badge { font-weight: 600; }
+.cp-mark { width: 1.4em; flex: none; text-align: center; font-weight: 700; padding-top: 1px; }
+.cp-mark.ok { color: var(--ok); }
+.cp-mark.fail { color: var(--danger); }
+.cp-mark.warn { color: var(--warn); }
+.cp-mark.info { color: var(--muted); }
+.pcsetup .rows + div .fold, .pcsetup .fold { margin-top: 12px; }
+
+/* Advanced: tables that become rows on a phone */
+.cp-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.cp-bar .hint { flex: 1 1 240px; }
+.cp-table { border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-1); overflow: hidden; }
+.cp-tr { display: grid; align-items: center; gap: 4px 16px; padding: 10px 14px; border-top: 1px solid var(--border); min-height: 52px; }
+.cp-tr:first-child { border-top: 0; }
+.cp-th { min-height: 0; padding-top: 8px; padding-bottom: 8px; background: var(--surface-2); font-size: var(--fs-xs); font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.cp-procs .cp-tr { grid-template-columns: minmax(0, 1fr) 72px 84px 40px; }
+.cp-ports .cp-tr { grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr); }
+.cp-name { min-width: 0; }
+.cp-args { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-n { text-align: right; font-variant-numeric: tabular-nums; font-size: var(--fs-sm); }
+.cp-act { display: flex; justify-content: flex-end; }
+.cp-stop-none { width: 40px; height: 1px; }
+.cp-danger .row-icon { color: var(--danger); }
+.cp-danger .row-title { color: var(--danger); }
+
+@media (max-width: 620px) {
+  .cp-th { display: none; }
+  .cp-procs .cp-tr { grid-template-columns: auto auto minmax(0, 1fr) 40px; }
+  .cp-procs .cp-name { grid-column: 1 / -2; grid-row: 1; }
+  .cp-procs .cp-act { grid-column: -2 / -1; grid-row: 1 / span 2; }
+  .cp-procs .cp-n { grid-row: 2; text-align: left; color: var(--text-2); }
+  .cp-ports .cp-tr { grid-template-columns: 70px minmax(0, 1fr); }
+  .cp-ports .cp-tr > span:nth-child(3) { grid-column: 2; }
+  .cp-tr [data-label]::before { content: attr(data-label) ' '; color: var(--muted); font-size: var(--fs-xs); }
+}
+.cp-nometer { visibility: hidden; }
+.cp-how .bigcode { margin-bottom: 4px; }
+.cp-status { gap: 8px; }

@@ -1,0 +1,175 @@
+// The parts of `hoprig setup` after the dashboard's own steps, in the same run:
+//   workspace the one folder tree (src/workspace): made on a new computer, only reported where it is there
+//   pc        this computer for coding (src/pcsetup: kits, and the working rules as their opt-in)
+//   project   a new or an existing project, skippable with Enter
+//   skills    skills for that project (src/skillhub; the bundled hoprig skill first)
+// Each part first shows what is there, proposes only what is missing, asks once, and says nothing more when nothing
+// is missing. One part failing never stops the next: every result is collected and named at the end.
+//
+// `parts` lets tests (and nothing else) replace the real work: { workspace, pc, projectNew, cloneProject, projectSkills,
+// userSkills } with the same signatures as the functions below.
+import fs from 'node:fs';
+import path from 'node:path';
+import { bold, dim } from './ui.mjs';
+
+export const PARTS = ['base', 'workspace', 'pc', 'project', 'skills'];
+
+const real = {
+  workspace: async (o) => (await import('../workspace/step.mjs')).runWorkspaceStep(o),
+  pc: async (o) => (await import('../pcsetup/index.mjs')).runPcSetup(o),
+  projectNew: async (args, o) => (await import('../pcsetup/project.mjs')).projectNew(args, o),
+  cloneProject: async (spec, o) => (await import('../pcsetup/project.mjs')).cloneProject(spec, o),
+  projectSkills: async (o) => (await import('../skillhub/hub.mjs')).runSkillsStep(o),
+  userSkills: (o) => userSkills(o),
+  projects: async () => {
+    const { projectsDir, listRepos } = await import('../pcsetup/projects.mjs');
+    const dir = projectsDir();
+    return { dir, names: listRepos(dir).map((d) => path.basename(d)) };
+  },
+};
+
+/** The skills meant for the user (the bundled `hoprig` skill): added when there is no project to suggest for. */
+export async function userSkills({ ui, yes = false, dryRun = false }) {
+  const hub = await import('../skillhub/hub.mjs');
+  const st = await hub.skillsStatus({ check: false });
+  const todo = st.user.suggested;
+  const added = [];
+  const skipped = [];
+  if (!todo.length) {
+    ui.say('Skills: the ones that come with Hoprig are installed.');
+    return { ok: true, added, skipped };
+  }
+  for (const x of todo) {
+    ui.say(`  ${x.id} (for you): ${x.for}`);
+    if (dryRun) {
+      skipped.push({ id: x.id, why: 'dry run' });
+      continue;
+    }
+    try {
+      const review = await hub.prepare(x.id, {});
+      const go = !review.counts.block && review.pinned && (yes || (await ui.confirm(`Add "${review.name}" for you?`)));
+      if (!go) {
+        hub.cancel(review.id);
+        skipped.push({ id: x.id, why: review.counts.block ? 'the review found a blocking problem' : 'not approved' });
+        continue;
+      }
+      added.push(hub.approve(review.id).name);
+    } catch (e) {
+      skipped.push({ id: x.id, why: e.message });
+      return { ok: false, added, skipped };
+    }
+  }
+  return { ok: true, added, skipped };
+}
+
+const heading = (ui, title) => ui.out(`\n${bold(title)}`);
+
+/** "Workspace": the folder tree, before the projects folder is chosen (a new install keeps projects in it). */
+export async function partWorkspace(ui, opts, p = real) {
+  try {
+    const r = await p.workspace({ ui, yes: opts.yes, dryRun: opts.dryRun });
+    return { part: 'workspace', ok: r.ok };
+  } catch (e) {
+    ui.line('fail', `Workspace: ${e.message}`);
+    return { part: 'workspace', ok: false, note: e.message, retry: 'hoprig workspace setup' };
+  }
+}
+
+/** "This computer for coding". */
+export async function partPc(ui, opts, p = real) {
+  // runPcSetup prints its own heading ("This computer" and the OS).
+  try {
+    // --yes: the default kits, no working rules (they are an opt-in, asked for in a terminal).
+    const r = await p.pc({ ui, yes: opts.yes, dryRun: opts.dryRun, rules: opts.yes ? false : null, projects: false });
+    return { part: 'pc', ok: r.ok, note: r.ok ? (r.missing && r.missing.length ? `still missing: ${r.missing.join(', ')}` : '') : 'some installs failed (the retry commands are above)' };
+  } catch (e) {
+    ui.line('fail', `This computer for coding: ${e.message}`);
+    return { part: 'pc', ok: false, note: e.message, retry: 'hoprig pc setup' };
+  }
+}
+
+/** "A project": show what is in the projects folder; a new name, owner/repo or a Git address; Enter skips. */
+export async function partProject(ui, opts, p = real) {
+  heading(ui, 'A project');
+  const { dir, names } = await p.projects();
+  if (names.length && !opts.askProject) {
+    // Projects are there: nothing is missing, nothing is asked.
+    ui.line('ok', `${dir}: ${names.slice(0, 6).join(', ')}${names.length > 6 ? ` and ${names.length - 6} more` : ''}`);
+    ui.note('Another one: hoprig project new <name>   or   hoprig project clone <owner/repo>');
+    return { part: 'project', ok: true, dir: null };
+  }
+  ui.line('info', `${dir}: no project yet`);
+  if (opts.dryRun) {
+    ui.note('(dry run) would ask for a project: a new name, owner/repo or a Git address (Enter skips)');
+    return { part: 'project', ok: true, dir: null };
+  }
+  if (opts.yes || !ui.interactive) {
+    ui.note('Later: hoprig project new <name>   or   hoprig project clone <owner/repo>');
+    return { part: 'project', ok: true, dir: null };
+  }
+  const a = await ui.ask(`  A project to work on: ${names.length ? 'one of the above, ' : ''}a new name, owner/repo or a Git address (Enter to skip): `);
+  const answer = (a || '').trim();
+  if (!answer) return { part: 'project', ok: true, dir: null };
+  if (names.includes(answer)) {
+    ui.line('ok', `${answer}: already here`);
+    return { part: 'project', ok: true, dir: path.join(dir, answer) };
+  }
+  const { parseProjectSpec } = await import('../pcsetup/workspace.mjs');
+  const spec = parseProjectSpec(answer);
+  if (!spec) {
+    ui.line('fail', `"${answer}" is not a project name, owner/repo or a Git address. Later: hoprig project new <name>`);
+    return { part: 'project', ok: false, dir: null, retry: 'hoprig project new <name>' };
+  }
+  try {
+    const code = spec.url ? await p.cloneProject(answer, { ui, dir }) : await p.projectNew([answer], { ui });
+    const target = path.join(dir, spec.name);
+    const ok = code === 0;
+    return { part: 'project', ok, dir: ok && fs.existsSync(target) ? target : null, retry: ok ? undefined : spec.url ? `hoprig project clone ${answer}` : `hoprig project new ${answer}` };
+  } catch (e) {
+    ui.line('fail', `A project: ${e.message}`);
+    return { part: 'project', ok: false, dir: null, retry: `hoprig project new ${answer}` };
+  }
+}
+
+/** "Skills": for the project chosen above, else the ones for the user. */
+export async function partSkills(ui, opts, project, p = real) {
+  heading(ui, 'Skills');
+  const sui = { say: (l) => ui.out(`  ${l}`), confirm: (q) => ui.confirm(q, true) };
+  try {
+    const r = project
+      ? await p.projectSkills({ ui: sui, project, yes: opts.yes, dryRun: opts.dryRun })
+      : await p.userSkills({ ui: sui, yes: opts.yes, dryRun: opts.dryRun });
+    if (r.added.length) ui.line('ok', `added: ${r.added.join(', ')}`);
+    const real_ = r.skipped.filter((s) => s.why !== 'dry run');
+    for (const s of real_) ui.note(`not added: ${s.id} (${s.why})`);
+    return { part: 'skills', ok: r.ok, note: r.ok ? '' : 'a skill could not be added', retry: r.ok ? undefined : 'hoprig skills suggest' };
+  } catch (e) {
+    ui.line('fail', `Skills: ${e.message}`);
+    return { part: 'skills', ok: false, note: e.message, retry: 'hoprig skills suggest' };
+  }
+}
+
+/** Run the chosen parts in order; a failure is recorded and the next part still runs. */
+export async function runParts(ui, opts, { only = null, parts = real } = {}) {
+  const p = { ...real, ...parts };
+  const want = (x) => !only || only === x;
+  const results = [];
+  let project = null;
+  if (want('workspace')) results.push(await partWorkspace(ui, opts, p));
+  if (want('pc')) results.push(await partPc(ui, opts, p));
+  if (want('project')) {
+    const r = await partProject(ui, { ...opts, askProject: only === 'project' }, p);
+    project = r.dir;
+    results.push(r);
+  }
+  if (want('skills')) results.push(await partSkills(ui, opts, project, p));
+  return results;
+}
+
+/** One line per part that did not finish, with its retry command. */
+export function reportParts(ui, results) {
+  const failed = results.filter((r) => !r.ok);
+  if (!failed.length) return;
+  ui.out();
+  for (const r of failed) ui.line('warn', `${{ workspace: 'Workspace', pc: 'This computer for coding', project: 'A project', skills: 'Skills' }[r.part]}: not finished${r.note ? ` (${r.note})` : ''}${r.retry ? dim(`  retry: ${r.retry}`) : ''}`);
+}

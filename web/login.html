@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e1014" media="(prefers-color-scheme: dark)">
+  <title>Log in</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="alternate icon" href="favicon.ico">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="login.js"></script>
+</head>
+<body class="login-page">
+  <main class="login">
+    <div id="mark" class="brandmark" aria-hidden="true"></div>
+    <h1 id="name"></h1>
+    <p class="login-sub">Your Claude Code sessions, on this computer and the ones linked to it</p>
+    <div id="insecure" class="banner muted hidden">Not encrypted. Use only on a network you trust, or put it behind HTTPS.</div>
+    <form id="form">
+      <label class="fieldrow"><span class="field-label">Password</span>
+        <input id="password" class="field" type="password" name="password" autocomplete="current-password" required autofocus>
+      </label>
+      <button class="btn primary block" type="submit">Log in</button>
+      <p id="error" class="form-error" role="alert"></p>
+    </form>
+  </main>
+</body>
+</html>

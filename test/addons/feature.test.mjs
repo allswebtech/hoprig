@@ -1,0 +1,93 @@
+// Settings → Add-ons on the server: list with state, actions as background jobs with live output, one job at a
+// time per add-on, and "set up as an account" as a terminal session (the key never goes through the page).
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import { Readable } from 'node:stream';
+import test from 'node:test';
+import { addonsFeature } from '../../src/addons/feature.mjs';
+
+function fakeAddon() {
+  const a = {
+    id: 'gw', title: 'Gateway', summary: 'A gateway.', homepage: 'https://example.invalid',
+    state: { installed: false, version: null, running: false, url: 'http://localhost:1' },
+    release: null,
+    async status() { return { ...a.state }; },
+    async install({ onLine }) {
+      onLine('fetching…');
+      await new Promise((r) => (a.release = r));
+      onLine('installed');
+      a.state.installed = true;
+      return { ok: true };
+    },
+    async update({ onLine }) { onLine('up to date'); return { ok: true }; },
+    async start() { a.state.running = true; return { ok: true, url: a.state.url }; },
+    async stop() { a.state.running = false; return { ok: true }; },
+  };
+  return a;
+}
+
+function harness() {
+  const created = [];
+  const sctx = {
+    readJson: async (req) => { for await (const _ of req) { /* drain */ } return {}; },
+    backend: { list: async () => [{ session: 'setup-gw' }], create: async (o) => { created.push(o); return { name: o.name }; } },
+    deck: { launcher: () => ['node', '/app/bin/hoprig.mjs'] },
+    config: () => ({ server: { roots: [os.tmpdir()] } }),
+  };
+  const addon = fakeAddon();
+  const f = addonsFeature(sctx, { addons: [addon] });
+  const call = async (method, p) => {
+    const u = new URL(p, 'http://x');
+    for (const [m, re, fn] of f.routes) {
+      const match = re.exec(u.pathname);
+      if (match && m === method) return fn(Readable.from([]), match, u.searchParams);
+    }
+    throw new Error(`no route ${method} ${p}`);
+  };
+  return { f, addon, call, created };
+}
+
+const settle = () => new Promise((r) => setImmediate(r));
+
+test('add-ons: state, an install with live output, one job at a time', async () => {
+  const { addon, call } = harness();
+  let list = (await call('GET', '/api/addons')).addons;
+  assert.deepEqual(list.map((a) => [a.id, a.installed, a.running, a.job]), [['gw', false, false, null]]);
+  assert.deepEqual(await call('POST', '/api/addons/gw/install'), { started: true });
+  await settle();
+  await assert.rejects(call('POST', '/api/addons/gw/update'), (e) => e.status === 409 && /busy/.test(e.message));
+  let job = await call('GET', '/api/addons/gw/job?from=0');
+  assert.deepEqual([job.running, job.lines], [true, ['fetching…']]);
+  addon.release();
+  await settle();
+  await settle();
+  job = await call('GET', `/api/addons/gw/job?from=${job.next}`);
+  assert.deepEqual([job.running, job.lines, job.result.ok], [false, ['installed'], true]);
+  await call('POST', '/api/addons/gw/start');
+  await settle();
+  list = (await call('GET', '/api/addons')).addons;
+  assert.equal(list[0].running, true);
+  await call('POST', '/api/addons/gw/stop');
+  await settle();
+  assert.equal((await call('GET', '/api/addons')).addons[0].running, false);
+});
+
+test('add-ons: unknown add-on or action; setup opens a terminal that runs the setup command', async () => {
+  const { call, created } = harness();
+  await assert.rejects(call('POST', '/api/addons/nope/start'), (e) => e.status === 404);
+  await assert.rejects(call('GET', '/api/addons/nope/job'), (e) => e.status === 404);
+  await assert.rejects(call('POST', '/api/addons/gw/uninstall'), /no route/);
+  const r = await call('POST', '/api/addons/gw/setup');
+  assert.equal(r.name, 'setup-gw-2', 'a free name');
+  assert.deepEqual(created, [{ name: 'setup-gw-2', dir: fs.realpathSync(os.tmpdir()), argv: ['node', '/app/bin/hoprig.mjs', 'addons', 'setup', 'gw'] }]);
+});
+
+test('add-ons: a failing action is reported, not thrown', async () => {
+  const { addon, call } = harness();
+  addon.start = async () => ({ ok: false, error: 'it is not installed' });
+  await call('POST', '/api/addons/gw/start');
+  await settle();
+  const job = await call('GET', '/api/addons/gw/job');
+  assert.deepEqual([job.result.ok, job.result.error, job.lines], [false, 'it is not installed', ['it is not installed']]);
+});

@@ -1,0 +1,6 @@
+.git
+node_modules
+no-ai
+test
+docs
+*.log

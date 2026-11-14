@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 184 64" role="img" aria-label="hoprig">
+  <title>hoprig</title>
+  <rect width="64" height="64" rx="15" fill="#4f46e5"/>
+  <path d="M32 32C28 26 25.2 23 21 23a9 9 0 0 0 0 18c4.2 0 7-3 11-9" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>
+  <path d="M32 32c4 6 6.8 9 11 9a9 9 0 0 0 0-18c-4.2 0-7 3-11 9" fill="none" stroke="#a5f3d0" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="32" cy="32" r="4" fill="#ffffff"/>
+  <text x="80" y="44" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="34" font-weight="700" letter-spacing="-0.6" fill="#6b7180">hop<tspan fill="#15171c">rig</tspan></text>
+</svg>

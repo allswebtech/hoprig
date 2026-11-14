@@ -1,0 +1,62 @@
+/* Styles of the session pages only. Shared parts (sidebar, page head, list rows, folds, radio cards) live in style.css:
+   use them first, and keep every class here prefixed so it cannot touch another page. */
+
+/* ---------- the session view (session.js) ---------- */
+body.term-mode { overflow: hidden; }
+.term-wrap { position: fixed; inset: 0 0 auto 0; height: var(--vvh, 100dvh); display: flex; flex-direction: column; background: var(--bg); }
+.sessbar { display: flex; align-items: center; gap: 4px; min-height: 56px; padding: calc(4px + env(safe-area-inset-top)) 6px 4px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.titlebtn { position: relative; max-width: 100%; min-width: 0; display: inline-flex; align-items: center; gap: 4px; min-height: 30px; padding: 0 6px; border: 0; border-radius: var(--r); background: transparent; cursor: pointer; }
+.titlebtn:hover { background: var(--surface-2); }
+.titlebtn-name { font-size: var(--fs-lg); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--warn); color: #fff; font-size: 11px; font-weight: 700; display: inline-grid; place-items: center; }
+.sessbar-end { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.profilebtn { display: inline-flex; align-items: center; gap: 6px; max-width: 46vw; min-height: 38px; padding: 0 10px; border-radius: 999px; border: 1px solid transparent; background: var(--accent-soft); color: var(--accent-soft-text); font-weight: 650; font-size: var(--fs-sm); cursor: pointer; }
+.profilebtn:hover { border-color: var(--accent); }
+.profilebtn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-wrap .limitbox { margin: 0; border-radius: 0; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.term-box { flex: 1; min-height: 100px; position: relative; background: var(--term-bg, #0f1115); }
+.term-el { position: absolute; inset: 6px 4px 2px 8px; }
+.term-box .xterm-viewport { background-color: var(--term-bg, #0f1115) !important; }
+.term-overlay { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; text-align: center; background: rgb(10 12 18 / 72%); color: #fff; font-weight: 600; }
+.live { position: absolute; right: 12px; bottom: 12px; z-index: 2; box-shadow: var(--shadow-2); }
+.quick { flex: 1; min-width: 0; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.quick::-webkit-scrollbar { display: none; }
+.keybar { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 6px; padding: 8px 10px; background: var(--surface); }
+@media (max-width: 700px) { .keybar { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.key {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  min-width: 0; height: 40px; padding: 0 4px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface-2); color: var(--text); font: 600 13px var(--mono); cursor: pointer; white-space: nowrap; overflow: hidden;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.key:active { background: var(--accent-soft); border-color: var(--accent); }
+.key span { font-family: var(--font); }
+.upload-status { padding: 4px 12px; background: var(--surface); font-size: var(--fs-sm); color: var(--muted); }
+.composer { display: flex; align-items: flex-end; gap: 6px; padding: 6px 8px calc(8px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--border); }
+textarea.msg { flex: 1; min-width: 0; min-height: var(--tap); max-height: 30vh; padding: 11px 14px; resize: none; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--bg); color: var(--text); line-height: 1.35; }
+textarea.msg:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+.btn.send { border-radius: 50%; }
+
+@media (max-width: 899px) { body.term-mode .toasts { bottom: calc(180px + env(safe-area-inset-bottom)); } }
+textarea.history { flex: 1; min-height: 50dvh; resize: none; font: 12px/1.4 var(--mono); white-space: pre; overflow: auto; }
+/* The header: the name (tap: another session) over its state; the account; one "more" button. */
+.sess-title { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.sess-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; max-width: 100%; padding: 0 6px; }
+.sess-state { min-width: 0; overflow: hidden; }
+.sess-state .pill { padding: 1px 8px 1px 6px; white-space: normal; } /* a long state wraps under the name instead of being cut */
+.sesswhere { display: inline; font-weight: 500; color: var(--muted); }
+/* A limit, or a question waiting for your OK: above the terminal, one main action. */
+.sess-need:empty { display: none; }
+.sess-ok { padding: 10px 12px; background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--border); }
+.sess-ok-head { display: flex; align-items: center; gap: 8px; }
+.sess-ok-text { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-2); overflow-wrap: anywhere; }
+.sess-ok-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+/* Quick messages scroll sideways in one row; the key bar's switch stays at its end. */
+.quick-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px 0; background: var(--surface); min-width: 0; }
+.quick-row.no-quick .quick { flex: 1; }
+.keys-toggle { flex: none; }
+.keys-toggle[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); border-color: transparent; }
+@media (max-width: 480px) {
+  .profilebtn { max-width: 38vw; padding: 0 8px; }
+  .sessbar { padding-left: 2px; padding-right: 2px; gap: 2px; }
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://installer.allsweb.net/sixpanel/sixpanel.schema.json",
+  "version": 1,
+  "kind": "node",
+  "name": "hoprig hub",
+  "runtime": {
+    "node": "24"
+  },
+  "build": {
+    "install": "npm ci --omit=dev --omit=optional --no-audit --no-fund"
+  },
+  "start": "node bin/hoprig.mjs serve --password-file data/dashboard-password.txt",
+  "node": {
+    "mode": "server",
+    "processes": 1,
+    "memoryMb": 256
+  },
+  "health": {
+    "path": "/healthz"
+  },
+  "keep": [
+    "data/"
+  ],
+  "env": {
+    "defaults": {
+      "HOPRIG_HUB": "1",
+      "HOPRIG_CONFIG_DIR": "data/config",
+      "HOPRIG_STATE_DIR": "data/state",
+      "HOPRIG_PUBLIC_URL": "${SITE_URL}"
+    }
+  },
+  "releases": {
+    "keep": 3
+  },
+  "web": {
+    "maxBodyMb": 30
+  }
+}

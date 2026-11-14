@@ -1,0 +1,686 @@
+// The session view (#/s/<name>): the terminal gets the room. The header holds the way back, the session's name
+// (tap: another session) with its state, the account it runs on (tap: move to another account) and one "more"
+// button; everything else is in the sheet behind it, the destructive one last. A limit or a question waiting for
+// your OK shows above the terminal with its one main action, in the words Home uses. Below: quick messages (one row
+// that scrolls sideways), the key bar (keys a phone lacks; it folds away and remembers) and the message box.
+// History: with tmux the session's terminal owns the screen, so xterm.js keeps no scrollback; wheel and touch
+// scrolling are sent to the server, which scrolls the session's own history (tmux copy mode). With the built-in
+// backend (capabilities.nativeScrollback) the browser's own scrollback is the history and nothing is sent.
+import { Terminal } from './vendor/xterm/lib/xterm.mjs';
+import { FitAddon } from './vendor/addon-fit/lib/addon-fit.mjs';
+import { Unicode11Addon } from './vendor/addon-unicode11/lib/addon-unicode11.mjs';
+import { icon } from './icons.js';
+import {
+  KIND, api, btn, bytes, chooseSheet, confirmSheet, fill, h, limitBox, needsYouFirst, openSheet,
+  link, machine, prefs, profileIcon, profileState, profileText, promptSheet, stateOf, statusPill, switchProfile, toast, url, wsUrl,
+} from './lib.js';
+import { pageNotify, store } from './store.js';
+import { registeredSessionActions } from './registry.js';
+import { isStarting, markStarting, startingPill } from './newsession.js';
+
+// Claude Code draws for a dark terminal by default, so the terminal is dark unless the user picks otherwise.
+export const TERM_THEMES = {
+  dark: {
+    background: '#0f1115', foreground: '#e3e6ec', cursor: '#9aa8ff', cursorAccent: '#0f1115', selectionBackground: '#33416b',
+    black: '#1b1e25', red: '#ff7b72', green: '#7ee787', yellow: '#e3b341', blue: '#79a8ff', magenta: '#d2a8ff', cyan: '#56d4dd', white: '#c9d1d9',
+    brightBlack: '#6e7681', brightRed: '#ffa198', brightGreen: '#aff5b4', brightYellow: '#f2cc60', brightBlue: '#a5c3ff', brightMagenta: '#e2c5ff', brightCyan: '#8ee8ef', brightWhite: '#ffffff',
+  },
+  light: {
+    background: '#fbfbfd', foreground: '#1f2328', cursor: '#4f46e5', cursorAccent: '#fbfbfd', selectionBackground: '#c9d4ff',
+    black: '#24292f', red: '#cf222e', green: '#116329', yellow: '#7d4e00', blue: '#0550ae', magenta: '#8250df', cyan: '#1b7c83', white: '#6e7781',
+    brightBlack: '#57606a', brightRed: '#a40e26', brightGreen: '#1a7f37', brightYellow: '#633c01', brightBlue: '#218bff', brightMagenta: '#a475f9', brightCyan: '#3192aa', brightWhite: '#8c959f',
+  },
+};
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+export const termTheme = () => {
+  const t = prefs.get('term.theme', 'dark');
+  return TERM_THEMES[t === 'system' ? (darkQuery.matches ? 'dark' : 'light') : t] || TERM_THEMES.dark;
+};
+export const termFont = () => prefs.get('term.font', innerWidth < 600 ? 13 : 14);
+const finePointer = matchMedia('(pointer: fine)').matches; // desktop: Enter sends; phone: Enter is a new line
+
+const KEYS = [
+  ['Esc', '\x1b', 'Escape'], ['Tab', '\t', 'Tab'], ['⇧Tab', '\x1b[Z', 'Shift+Tab: switch mode'], ['Ctrl C', '\x03', 'Ctrl+C'],
+  ['/', '/', 'Slash'], ['Enter', '\r', 'Enter'],
+  ['←', 'left', 'Left'], ['↑', 'up', 'Up'], ['↓', 'down', 'Down'], ['→', 'right', 'Right'],
+];
+
+/** Copy text; works without HTTPS too (the Clipboard API needs a secure context, execCommand does not). */
+async function copyText(text, fallbackEl) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    if (!fallbackEl) return false;
+    fallbackEl.focus();
+    fallbackEl.select();
+    return document.execCommand('copy');
+  }
+}
+
+/** Open the session view in `app`. Returns the cleanup function. */
+export function openSession(app, name) {
+  document.body.classList.add('term-mode');
+  store.viewing = name;
+  pageNotify.setTitleBase(name);
+  const base = `/api/sessions/${encodeURIComponent(name)}`;
+  let session = null;
+  let profiles = [];
+  let disposed = false;
+
+  // ---------- layout ----------
+  const otherBadge = h('span.count.hidden');
+  // On another computer, say which one, next to the name (one line, cut before the name is).
+  const where = h('span.sesswhere');
+  const titleBtn = h('button.titlebtn', { type: 'button', 'aria-label': 'Switch to another session', onclick: () => switcher() },
+    h('span.titlebtn-name', name, where), icon('chevronDown', { size: 16 }), otherBadge);
+  const profileBtn = h('button.profilebtn.hidden', { type: 'button', title: 'Move to another provider', onclick: () => moveAccount() },
+    icon('user', { size: 16 }), h('span.profilebtn-label', '…'), icon('chevronDown', { size: 14 }));
+  const statusSlot = h('div.sess-state');
+  const needSlot = h('div.sess-need'); // a limit, or a question waiting for your OK: above the terminal
+  const overlay = h('div.term-overlay', h('div.spinner', { 'aria-hidden': 'true' }), h('span', 'Connecting…'));
+  const liveBtn = h('button.btn.small.primary.live.hidden', { type: 'button', onclick: () => scroller.exit() }, icon('down', { size: 16 }), h('span', 'Back to live'));
+  const termEl = h('div.term-el');
+  const box = h('div.term-box', termEl, overlay, liveBtn);
+  const quick = h('div.quick', { role: 'toolbar', 'aria-label': 'Quick messages' });
+  // The key bar folds away (more room for the terminal on a phone); the choice is kept on this device.
+  let keysOn = prefs.get('session.keys', true);
+  const keysBtn = h('button.chip.keys-toggle', { type: 'button', 'aria-pressed': String(keysOn), title: 'Show or hide the key bar', onpointerdown: (e) => e.preventDefault(), onclick: () => {
+    keysOn = !keysOn;
+    prefs.set('session.keys', keysOn);
+    paintKeys();
+  } }, icon('grid', { size: 14 }), h('span', 'Keys'));
+  const keybar = h('div.keybar', { role: 'toolbar', 'aria-label': 'Keys' },
+    KEYS.map(([label, seq, title]) => h('button.key', { type: 'button', dataset: { seq }, title, 'aria-label': title }, label)),
+    h('button.key', { type: 'button', dataset: { act: 'paste' }, title: 'Paste into the terminal' }, icon('clipboard', { size: 16 }), h('span', 'Paste')));
+  const textarea = h('textarea.msg', {
+    rows: 1,
+    'aria-label': 'Message', autocapitalize: 'sentences', enterkeyhint: finePointer ? 'send' : 'enter',
+  });
+  // The full hint only where it fits on one line; a narrow screen (a phone, a split window) gets the short one.
+  const narrow = matchMedia('(max-width: 599px)');
+  const placeholder = () => (textarea.placeholder = !narrow.matches && finePointer ? 'Message Claude — Enter sends, Shift+Enter new line' : 'Message Claude');
+  placeholder();
+  narrow.addEventListener('change', placeholder);
+  const fileInput = h('input.hidden', { type: 'file', multiple: true });
+  const sendBtn = h('button.btn.primary.icon.send', { type: 'button', 'aria-label': 'Send', title: 'Send', onclick: () => sendMessage() }, icon('send', { size: 20 }));
+  const attachBtn = h('button.btn.icon.ghost', { type: 'button', 'aria-label': 'Attach a file', title: 'Attach a file (it goes into the session folder)', onclick: () => fileInput.click() }, icon('paperclip'));
+  const status = h('div.upload-status.hidden', { role: 'status' });
+
+  const quickRow = h('div.quick-row', quick, keysBtn);
+  const paintKeys = () => {
+    keybar.classList.toggle('hidden', !keysOn);
+    keysBtn.setAttribute('aria-pressed', String(keysOn));
+  };
+  paintKeys();
+  const wrap = h('div.term-wrap',
+    h('header.sessbar',
+      h('a.btn.icon.ghost', { href: '#/', 'aria-label': 'Back to Home' }, icon('back')),
+      h('div.sess-title', titleBtn, h('div.sess-sub', statusSlot)),
+      h('div.sessbar-end', profileBtn, btn('icon ghost', { icon: 'more', title: 'More for this session', onclick: () => menu() }))),
+    needSlot,
+    box,
+    quickRow,
+    keybar,
+    status,
+    h('div.composer', attachBtn, textarea, sendBtn, fileInput),
+  );
+  fill(app, wrap);
+
+  // Height follows the *visual* viewport, so the message box stays above an open phone keyboard (iOS does not
+  // resize the layout for the keyboard; Android does with interactive-widget=resizes-content).
+  const vv = window.visualViewport;
+  const onViewport = () => {
+    if (!vv) return;
+    wrap.style.setProperty('--vvh', `${vv.height}px`);
+    wrap.style.transform = vv.offsetTop ? `translateY(${vv.offsetTop}px)` : '';
+  };
+  vv?.addEventListener('resize', onViewport);
+  vv?.addEventListener('scroll', onViewport);
+  onViewport();
+
+  // ---------- terminal ----------
+  const term = new Terminal({
+    allowProposedApi: true, // needed by the Unicode 11 addon
+    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+    fontSize: termFont(),
+    lineHeight: 1.1,
+    scrollback: 0, // set to 5000 below when the backend has no history of its own
+    cursorBlink: false,
+    macOptionIsMeta: true,
+    theme: termTheme(),
+  });
+  const fit = new FitAddon();
+  term.loadAddon(fit);
+  term.loadAddon(new Unicode11Addon());
+  term.unicode.activeVersion = '11';
+  term.open(termEl);
+  const applyTerm = () => {
+    term.options.theme = termTheme();
+    term.options.fontSize = termFont();
+    box.style.setProperty('--term-bg', term.options.theme.background);
+    refit();
+  };
+  darkQuery.addEventListener('change', applyTerm);
+
+  // Desktop: Ctrl/Cmd+C copies when text is selected (instead of sending ^C).
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && e.key === 'c' && term.hasSelection()) {
+      copyText(term.getSelection());
+      term.clearSelection();
+      return false;
+    }
+    return true;
+  });
+
+  // ---------- WebSocket ----------
+  let ws = null;
+  let retry = 0;
+  let retryTimer = null;
+  const sendWs = (obj) => {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+  };
+  async function input(d) {
+    if (scroller.offset > 0) await scroller.exit(); // typing goes to the program, not to the history view
+    sendWs({ t: 'in', d });
+  }
+  term.onData((d) => input(d));
+
+  const showOverlay = (...kids) => {
+    fill(overlay, kids);
+    overlay.classList.remove('hidden');
+  };
+
+  function connect() {
+    if (disposed) return;
+    fit.fit();
+    ws = new WebSocket(wsUrl(`/ws/term?${new URLSearchParams({ name, cols: term.cols, rows: term.rows })}`));
+    let opened = false;
+    ws.onopen = () => {
+      opened = true;
+      retry = 0;
+      term.reset(); // the server redraws the whole screen on attach
+      overlay.classList.add('hidden');
+      sendWs({ t: 'resize', cols: term.cols, rows: term.rows });
+    };
+    ws.onmessage = (e) => term.write(e.data);
+    ws.onclose = async (e) => {
+      if (disposed) return;
+      const exists = await api(base).then(() => true, (err) => err.status !== 404);
+      if (!exists || e.code === 4000) {
+        showOverlay(icon('check', { size: 28 }), h('p', 'This session has ended.'), h('a.btn.primary', { href: '#/' }, 'Back to sessions'));
+        return;
+      }
+      const wait = Math.min(10_000, 500 * 2 ** retry++);
+      showOverlay(h('div.spinner', { 'aria-hidden': 'true' }), h('span', opened ? 'Connection lost — reconnecting…' : 'Reconnecting…'));
+      retryTimer = setTimeout(connect, wait);
+    };
+  }
+
+  // Size: refit whenever the box changes (rotation, phone keyboard opening or closing, window resize).
+  let fitTimer = null;
+  function refit() {
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(() => {
+      const before = `${term.cols}x${term.rows}`;
+      fit.fit();
+      if (`${term.cols}x${term.rows}` !== before) sendWs({ t: 'resize', cols: term.cols, rows: term.rows });
+    }, 60);
+  }
+  const ro = new ResizeObserver(refit);
+  ro.observe(box);
+
+  // ---------- history scrolling (wheel and touch) ----------
+  const scroller = {
+    offset: 0,
+    pending: 0,
+    busy: false,
+    queue(lines) {
+      if (!lines) return;
+      if (lines < 0 && this.offset <= 0 && this.pending <= 0) return; // already live
+      this.pending += lines;
+      this.flush();
+    },
+    async flush() {
+      if (this.busy || !this.pending) return;
+      this.busy = true;
+      const n = this.pending;
+      this.pending = 0;
+      try {
+        await api(`${base}/scroll`, { action: n > 0 ? 'up' : 'down', lines: Math.abs(n) });
+        this.offset = Math.max(0, this.offset + n);
+      } catch {
+        /* the next gesture tries again */
+      }
+      liveBtn.classList.toggle('hidden', this.offset <= 0);
+      this.busy = false;
+      if (this.pending) this.flush();
+    },
+    async exit() {
+      this.pending = 0;
+      this.offset = 0;
+      liveBtn.classList.add('hidden');
+      await api(`${base}/scroll`, { action: 'exit' }).catch(() => {});
+    },
+  };
+  const cellHeight = () => Math.max(8, box.clientHeight / Math.max(1, term.rows));
+  let nativeScroll = false; // set from the backend's capabilities in the first state update
+  let wheelAcc = 0;
+  term.attachCustomWheelEventHandler((e) => {
+    if (nativeScroll) return true; // xterm.js scrolls its own buffer
+    wheelAcc += e.deltaMode === 1 ? e.deltaY * cellHeight() : e.deltaY;
+    const lines = Math.trunc(wheelAcc / cellHeight());
+    if (lines) {
+      wheelAcc -= lines * cellHeight();
+      scroller.queue(-lines);
+    }
+    e.preventDefault();
+    return false;
+  });
+  let touchY = null;
+  let touchAcc = 0;
+  box.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      touchY = e.touches[0].clientY;
+      touchAcc = 0;
+    }
+  }, { passive: true, capture: true });
+  box.addEventListener('touchmove', (e) => {
+    if (nativeScroll || touchY === null || e.touches.length !== 1) return;
+    const y = e.touches[0].clientY;
+    touchAcc += y - touchY;
+    touchY = y;
+    const lines = Math.trunc(touchAcc / cellHeight());
+    if (lines) {
+      touchAcc -= lines * cellHeight();
+      scroller.queue(lines); // finger down = older lines
+    }
+    e.preventDefault();
+  }, { passive: false, capture: true });
+  box.addEventListener('touchend', () => (touchY = null), { capture: true });
+
+  // ---------- key bar ----------
+  keybar.addEventListener('pointerdown', (e) => e.preventDefault()); // keep focus (and the phone keyboard) where it is
+  keybar.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.act === 'paste') return pasteIntoTerminal();
+    let seq = b.dataset.seq;
+    const arrows = { up: 'A', down: 'B', right: 'C', left: 'D' };
+    if (arrows[seq]) seq = (term.modes.applicationCursorKeysMode ? '\x1bO' : '\x1b[') + arrows[seq];
+    input(seq);
+  });
+
+  async function pasteIntoTerminal() {
+    let text = null;
+    try {
+      text = await navigator.clipboard.readText(); // HTTPS (or localhost) and the user's permission
+    } catch {
+      text = await promptSheet({ title: 'Paste', text: 'Long-press in the box, choose Paste, then send it to the terminal.', ok: 'Send to terminal', multiline: true });
+    }
+    if (text) {
+      if (scroller.offset > 0) await scroller.exit();
+      term.paste(text); // bracketed paste when the program asked for it
+    }
+  }
+
+  async function stop() {
+    try {
+      await api(`${base}/key`, { key: 'Escape' });
+      toast('Asked Claude to stop');
+    } catch (e) {
+      toast(e.message, { kind: 'error' });
+    }
+  }
+
+  // ---------- text of the session (select and copy on a phone) ----------
+  async function showText() {
+    let text = '';
+    try {
+      ({ text } = await api(`${base}/history?lines=2000`));
+    } catch (e) {
+      return toast(e.message, { kind: 'error' });
+    }
+    await openSheet({ title: 'Text of this session', subtitle: 'Select what you need, or copy everything.', wide: true }, (close) => {
+      const area = h('textarea.history', { readOnly: true, value: `${text.replace(/\s+$/, '')}\n`, spellcheck: 'false' });
+      setTimeout(() => (area.scrollTop = area.scrollHeight), 0);
+      return [
+        area,
+        h('div.sheet-actions',
+          h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Close'),
+          h('button.btn.primary', {
+            type: 'button',
+            onclick: async () => toast((await copyText(area.value, area)) ? 'Copied' : 'Copy did not work — select and copy by hand', { kind: 'info' }),
+          }, icon('copy', { size: 18 }), h('span', 'Copy all'))),
+      ];
+    });
+  }
+
+  // ---------- message box ----------
+  const draftKey = `draft:${name}`;
+  textarea.value = prefs.get(draftKey, '');
+  const grow = () => {
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight + 2, innerHeight * 0.3)}px`;
+  };
+  textarea.addEventListener('input', () => {
+    prefs.set(draftKey, textarea.value);
+    grow();
+  });
+  textarea.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing && ((finePointer && !e.shiftKey) || e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+  grow();
+
+  async function sendText(text) {
+    await api(`${base}/send`, { text });
+    scroller.offset = 0;
+    liveBtn.classList.add('hidden');
+  }
+
+  async function sendMessage() {
+    const text = textarea.value.replace(/\s+$/, '');
+    if (!text) return textarea.focus();
+    sendBtn.disabled = true;
+    try {
+      await sendText(text);
+      textarea.value = '';
+      prefs.set(draftKey, '');
+      grow();
+    } catch (e) {
+      toast(`Not sent: ${e.message}`, { kind: 'error' });
+    } finally {
+      sendBtn.disabled = false;
+      textarea.focus();
+    }
+  }
+
+  // ---------- quick actions ----------
+  let quickKey = '';
+  function renderQuick(actions) {
+    const key = JSON.stringify(actions);
+    if (key === quickKey) return;
+    quickKey = key;
+    fill(quick, actions.map((a) =>
+      h('button.chip', {
+        type: 'button',
+        title: a.text,
+        onpointerdown: (e) => e.preventDefault(),
+        onclick: async () => {
+          try {
+            await sendText(a.text);
+            toast(`Sent “${a.label}”`);
+          } catch (e) {
+            toast(e.message, { kind: 'error' });
+          }
+        },
+      }, a.label)),
+    h('a.chip.ghost', { href: link('#/settings/appearance'), title: 'Edit quick messages' }, icon('pencil', { size: 14 }), h('span', 'Edit')));
+    quickRow.classList.toggle('no-quick', !actions.length);
+  }
+
+  // ---------- uploads ----------
+  const insertText = (t) => {
+    const s = textarea.selectionStart ?? textarea.value.length;
+    const before = textarea.value.slice(0, s);
+    const sep = before && !/\s$/.test(before) ? ' ' : '';
+    textarea.value = `${before}${sep}${t} ${textarea.value.slice(textarea.selectionEnd ?? s)}`;
+    prefs.set(draftKey, textarea.value);
+    grow();
+  };
+  function upload(file) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest(); // XHR, not fetch: it reports upload progress
+      xhr.open('POST', url(`${base}/upload`));
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name || 'upload'));
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) status.textContent = `Uploading ${file.name}: ${Math.round((e.loaded / e.total) * 100)}% of ${bytes(e.total)}`;
+      };
+      xhr.onload = () => {
+        let body = {};
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch {
+          /* not JSON */
+        }
+        if (xhr.status === 200) resolve(body);
+        else reject(new Error(body.error || `Upload failed (${xhr.status})`));
+      };
+      xhr.onerror = () => reject(new Error('Upload failed: connection lost'));
+      xhr.send(file);
+    });
+  }
+  fileInput.addEventListener('change', async () => {
+    const files = [...fileInput.files];
+    fileInput.value = '';
+    status.classList.remove('hidden');
+    for (const f of files) {
+      try {
+        const r = await upload(f);
+        insertText(r.path);
+        toast(`${f.name} is in the session folder; its path is in your message`);
+      } catch (e) {
+        toast(e.message, { kind: 'error' });
+      }
+    }
+    status.classList.add('hidden');
+    textarea.focus();
+  });
+
+  // ---------- state from the shared poller ----------
+  let infoKey = '';
+  const unsubscribe = store.subscribe((d) => {
+    if (!d) return;
+    fill(where, machine.current && store.multi ? ` · ${d.machineLabel}` : null);
+    profiles = d.profiles;
+    const caps = (d.backend && d.backend.capabilities) || {};
+    if (caps.nativeScrollback && !nativeScroll) {
+      nativeScroll = true;
+      term.options.scrollback = 5000;
+    }
+    renderQuick(d.quickActions || []);
+    const s = d.sessions.find((x) => x.name === name);
+    const others = d.sessions.filter((x) => x.name !== name && stateOf(x).rank <= 2).length;
+    otherBadge.textContent = String(others);
+    otherBadge.classList.toggle('hidden', !others);
+    otherBadge.title = `${others} other session${others === 1 ? '' : 's'} need${others === 1 ? 's' : ''} you`;
+    if (!s) return;
+    session = s;
+    const key = JSON.stringify([s, profiles]);
+    if (key === infoKey) return;
+    infoKey = key;
+    // Started from this page a moment ago, and Claude has not reported yet: "Starting", not "Terminal".
+    const starting = isStarting(s, machine.current);
+    profileBtn.classList.toggle('hidden', s.kind !== 'claude');
+    fill(profileBtn, icon(profileIcon(s.profile), { size: 16 }), h('span.profilebtn-label', profileText(s)), icon('chevronDown', { size: 14 }));
+    fill(statusSlot, starting ? startingPill() : statusPill(s, { time: false }));
+    const before = needSlot.offsetHeight;
+    fill(needSlot, limitBox(s, profiles, moved) || (stateOf(s).key === 'attention' ? needsOk(s) : null));
+    if (needSlot.offsetHeight !== before) refit();
+  });
+
+  // ---------- jump to another session ----------
+  async function switcher() {
+    const d = store.data;
+    if (!d) return;
+    const pick = await chooseSheet({
+      title: 'Sessions',
+      items: [...d.sessions].sort(needsYouFirst).map((x) => ({
+        value: x.name,
+        label: x.name,
+        sub: `${stateOf(x).text}${x.profile ? ` · ${x.profile.label}` : ''}`,
+        icon: x.kind === 'claude' ? 'sparkle' : 'terminal',
+        current: x.name === name,
+        badge: x.name !== name && stateOf(x).rank <= 2 ? '●' : '',
+      })),
+    });
+    if (pick && pick !== name) location.hash = link(`#/s/${encodeURIComponent(pick)}`);
+  }
+
+  // ---------- terminal look (per device) ----------
+  async function terminalLook() {
+    await openSheet({ title: 'Terminal look', subtitle: 'Saved on this device' }, () => {
+      const seg = h('div.segmented', { role: 'radiogroup', 'aria-label': 'Terminal colours' });
+      const size = h('span.fontsize', `${termFont()} px`);
+      const paint = () => {
+        const cur = prefs.get('term.theme', 'dark');
+        fill(seg, [['dark', 'Dark', 'moon'], ['light', 'Light', 'sun'], ['system', 'System', 'refresh']].map(([v, label, ic]) =>
+          h('button.seg', { type: 'button', role: 'radio', 'aria-checked': String(cur === v), onclick: () => { prefs.set('term.theme', v); paint(); applyTerm(); } }, icon(ic, { size: 16 }), h('span', label))));
+        size.textContent = `${termFont()} px`;
+      };
+      const step = (d) => {
+        prefs.set('term.font', Math.min(22, Math.max(9, termFont() + d)));
+        paint();
+        applyTerm();
+      };
+      paint();
+      return [
+        h('div.field-label', 'Colours'), seg,
+        h('div.field-label', 'Text size'),
+        h('div.stepper-inline', btn('icon secondary', { icon: 'minus', title: 'Smaller', onclick: () => step(-1) }), size, btn('icon secondary', { icon: 'plus', title: 'Larger', onclick: () => step(1) })),
+      ];
+    });
+  }
+
+  // ---------- a question waiting for your OK: its one main answer above the terminal ----------
+  // Claude Code's permission question has "Yes" first: Enter takes it, Esc says no.
+  function needsOk(s) {
+    const answer = (key, said) => async () => {
+      try {
+        await api(`${base}/key`, { key });
+        toast(said);
+        store.refresh();
+      } catch (e) {
+        toast(e.message, { kind: 'error' });
+      }
+    };
+    return h('div.sess-ok', { role: 'alert' },
+      h('div.sess-ok-head', icon('alert', { size: 18 }), h('strong', 'Needs your OK')),
+      s.note ? h('p.sess-ok-text', s.note) : null,
+      h('div.sess-ok-actions',
+        h('button.btn.small.primary', { type: 'button', onclick: answer('Enter', 'Allowed') }, icon('check', { size: 16 }), h('span', 'Allow')),
+        h('button.btn.small.secondary', { type: 'button', onclick: answer('Escape', 'Not allowed') }, icon('x', { size: 16 }), h('span', 'Do not allow'))));
+  }
+
+  // Moved to another account: Claude restarts in the same terminal; until it reports, it reads "Starting".
+  function moved() {
+    markStarting(machine.current, name);
+    store.refresh();
+  }
+
+  // ---------- the account: move to another one ----------
+  async function moveAccount() {
+    const s = session;
+    if (!s) return;
+    if (!s.canSwitch) return toast('Claude has not reported its session yet. Try again in a moment.', { kind: 'error' });
+    const pick = await chooseSheet({
+      title: 'Move to another provider',
+      subtitle: 'The conversation continues where it is.',
+      items: profiles.map((p) => ({
+        value: p.name,
+        label: p.label,
+        sub: p.virtual ? profileState(p).text : `${KIND[p.kind] || p.kind} · ${profileState(p).text}`,
+        icon: profileIcon(p),
+        current: s.profile && p.name === s.profile.name,
+        // One that is not signed in is shown with why, and cannot be picked (Providers signs it in).
+        disabled: (s.profile && p.name === s.profile.name) || p.signedIn === false,
+      })),
+    });
+    const p = profiles.find((x) => x.name === pick);
+    if (p && (await switchProfile(s, p))) moved();
+  }
+
+  // ---------- more: everything else, each with a word; ending the session last ----------
+  async function menu() {
+    const s = session;
+    const working = s && s.kind === 'claude' && s.status === 'working';
+    const pref = s && s.preferred && !s.limit && profiles.find((p) => p.name === s.preferred);
+    // Rows features add (registry.js registerSessionAction, e.g. the queue), with their state if it comes quickly.
+    const me = { name, machine: machine.current };
+    const quick = (p) => Promise.race([Promise.resolve().then(() => p), new Promise((r) => setTimeout(() => r({}), 700))]);
+    const extra = (await Promise.all(registeredSessionActions().map(async (a) => {
+      const d = a.describe ? await quick(a.describe(me)).catch(() => ({})) : {};
+      return d === null ? null : { value: `action:${a.id}`, label: d.label || a.label, sub: d.sub ?? a.sub, icon: a.icon };
+    }))).filter(Boolean);
+    const what = await chooseSheet({
+      title: name,
+      items: [
+        working ? { value: 'stop', label: 'Stop Claude', sub: 'Interrupts the reply it is writing (Esc)', icon: 'stop' } : null,
+        pref ? { value: 'back', label: `Move back to ${pref.label}`, sub: 'It is free again', icon: 'swap' } : null,
+        ...extra,
+        { value: 'attach', label: 'Attach a file', sub: 'Upload into this folder; its path goes into your message', icon: 'paperclip' },
+        { value: 'text', label: 'Text of this session', sub: 'Select and copy', icon: 'copy' },
+        { value: 'look', label: 'Terminal look', sub: 'Colours and text size', icon: 'sun' },
+        { value: 'rename', label: 'Rename', sub: 'The name shown everywhere', icon: 'pencil' },
+        { value: 'kill', label: 'End session', sub: 'Stops everything running in it', icon: 'trash', danger: true },
+      ].filter(Boolean),
+    });
+    const action = what && what.startsWith('action:') && registeredSessionActions().find((a) => `action:${a.id}` === what);
+    if (action) return action.run(me);
+    if (what === 'stop') stop();
+    else if (what === 'back') (await switchProfile(s, pref)) && moved();
+    else if (what === 'attach') fileInput.click();
+    else if (what === 'text') showText();
+    else if (what === 'look') terminalLook();
+    else if (what === 'rename') {
+      const next = await promptSheet({
+        title: 'Rename session', value: name, ok: 'Rename',
+        check: (v) => (/^[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$/.test(v) ? '' : 'Letters, digits, - and _ only (up to 40), not starting with -.'),
+      });
+      if (next && next !== name) {
+        try {
+          await api(`${base}/rename`, { name: next });
+          toast(`Renamed to ${next}`);
+          store.refresh();
+          location.replace(link(`#/s/${encodeURIComponent(next)}`));
+        } catch (e) {
+          toast(e.message, { kind: 'error' });
+        }
+      }
+    } else if (what === 'kill') {
+      const ok = await confirmSheet({
+        title: `End "${name}"?`,
+        text: 'Everything running in this session stops. A Claude conversation can be continued later from its folder.',
+        ok: 'End session',
+        danger: true,
+      });
+      if (ok) {
+        try {
+          await api(`${base}/kill`, {});
+          toast(`${name} ended`);
+          store.refresh();
+          location.hash = '#/';
+        } catch (e) {
+          toast(e.message, { kind: 'error' });
+        }
+      }
+    }
+  }
+
+  applyTerm();
+  connect();
+  if (finePointer) term.focus();
+
+  return () => {
+    disposed = true;
+    unsubscribe();
+    store.viewing = null;
+    clearTimeout(retryTimer);
+    clearTimeout(fitTimer);
+    ro.disconnect();
+    narrow.removeEventListener('change', placeholder);
+    vv?.removeEventListener('resize', onViewport);
+    vv?.removeEventListener('scroll', onViewport);
+    darkQuery.removeEventListener('change', applyTerm);
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+    }
+    term.dispose();
+    document.body.classList.remove('term-mode');
+  };
+}

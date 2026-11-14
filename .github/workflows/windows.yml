@@ -1,0 +1,33 @@
+name: windows
+
+# Windows is written for but does not pass yet: this runs on demand (and on branches named windows/…) until it
+# does, then Windows joins the matrix in test.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: Test folders or files to run (empty = all)
+        required: false
+        default: ''
+  push:
+    branches: ['windows/**']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: windows-latest · node ${{ matrix.node }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: node tools/test.mjs ${{ github.event.inputs.files }}

@@ -1,0 +1,1224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://installer.allsweb.net/sixpanel/sixpanel.schema.json",
+  "title": "sixpanel.json",
+  "description": "A website's setup on SixPanel, read from the root of its files at every deploy. Holds no secret.",
+  "type": "object",
+  "required": [
+    "version"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "description": "The file's version: 1."
+    },
+    "kind": {
+      "enum": [
+        "static",
+        "node",
+        "php",
+        "wordpress",
+        "python",
+        "java"
+      ],
+      "description": "The kind of website the file is written for. A website is never converted to another kind."
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "type": "string",
+          "pattern": "^\\d{1,2}(\\.\\d{1,3}){0,2}$",
+          "examples": [
+            "24"
+          ],
+          "description": "The Node.js line, as the website's page offers it. One this server lacks is installed (Software → Node.js) after one yes from the server's owner, or at once with autoInstall."
+        },
+        "php": {
+          "type": "string",
+          "pattern": "^\\d\\.\\d{1,2}$",
+          "examples": [
+            "8.4"
+          ],
+          "description": "The PHP version of a PHP or WordPress website. One this server lacks is installed (Software → PHP) after one yes, or at once with autoInstall."
+        },
+        "python": {
+          "type": "string",
+          "pattern": "^\\d(\\.\\d{1,2}){0,2}$",
+          "examples": [
+            "3.13"
+          ],
+          "description": "The Python a Python app expects: the server's own, or one installed on Software → Python (after one yes, or at once with autoInstall)."
+        },
+        "java": {
+          "type": "string",
+          "pattern": "^\\d{1,2}$",
+          "examples": [
+            "21"
+          ],
+          "description": "The Java a Java app builds and runs with: at least this version. None installed that new: the oldest long-term OpenJDK at least it is installed (Software → Java) after one yes, or at once with autoInstall."
+        },
+        "autoInstall": {
+          "type": "boolean",
+          "default": false,
+          "description": "true: a runtime named here that this server lacks is installed at the deploy without asking (a deploy the server's owner starts, or a push to the owner's own website; an account's website, and a deploy Tia or an MCP client starts, still wait for the owner's yes). Only versions the server's Software page offers are ever installed, with or without it."
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "install": {
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^[^\\r\\n]*$",
+          "description": "The install command (Node.js, Python)."
+        },
+        "command": {
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^[^\\r\\n]*$",
+          "description": "The build command (static, Node.js, Java)."
+        },
+        "output": {
+          "type": "string",
+          "pattern": "^(?:\\./)?[A-Za-z0-9._@+-]+(?:/[A-Za-z0-9._@+-]+)*/?$",
+          "description": "The folder that is served or started from (a Java app: its JAR)."
+        },
+        "memoryMb": {
+          "type": "integer",
+          "minimum": 512,
+          "maximum": 65536,
+          "description": "What the build needs, in MB (a Node.js build, and a static website's): the panel plans the build's swap and heap for it instead of what the last build took. It is not a limit: past the memory the server can give, the build swaps and slows down."
+        },
+        "env": {
+          "type": "object",
+          "maxProperties": 50,
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "description": "Variables for the build only (its install and build commands), never the running app's, like {\"NEXT_BUILD_WORKERS\": \"1\"}. The website's own variable of the same name wins. A name the panel sets for a build (PATH, HOME, USER, LOGNAME, SHELL, TMPDIR, NODE_OPTIONS, NODE_ENV and its caches, like npm_config_cache, COMPOSER_HOME and COREPACK_HOME), a name the loader reads (LD_*, GCONV_PATH, GLIBC_TUNABLES, MALLOC_*…), a name that reads like a secret and a value that is plainly a key are left out, each with its reason; none of them is ever a reason to refuse the file."
+        }
+      }
+    },
+    "start": {
+      "type": "string",
+      "maxLength": 500,
+      "pattern": "^[^\\r\\n]*$",
+      "description": "The start command (Node.js, Python)."
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 80,
+      "pattern": "^[^\\r\\n]*$",
+      "description": "What a website made from this file is called (Projects → Create → From a sixpanel.json). Read when it is made, never at a deploy."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where a website made from this file takes its files: a repository (\"git\") or an npm package (\"npm\"). Read when it is made. A deploy never changes the website's branch from here: a branch other than the one it deploys is said in the deploy's log and in the Update dialog, which offers the switch. Never a token: a private repository's or package's is typed in the Create dialog.",
+      "properties": {
+        "npm": {
+          "type": "string",
+          "maxLength": 214,
+          "pattern": "^(?:@[A-Za-z0-9._~!*'()-]+/[A-Za-z0-9_~!*'()-][A-Za-z0-9._~!*'()-]*|[A-Za-z0-9~!*'()][A-Za-z0-9._~!*'()-]*)$",
+          "description": "An npm package's name, like \"my-app\" or \"@scope/my-app\". Each deploy installs the version below, prebuilt — no git, no build."
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 256,
+          "examples": [
+            "latest",
+            "^1.0.0",
+            "1.0.5"
+          ],
+          "description": "With \"npm\": a tag (\"latest\"), a range (\"^1.0.0\") or an exact version. Each deploy resolves it to one exact version, which the release records — a rollback goes back to that exact version."
+        },
+        "registry": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^https://[^\\s?#@]+$",
+          "description": "With \"npm\": the registry, https only (default https://registry.npmjs.org). A private package's token is typed in the Create dialog, never written here."
+        },
+        "git": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^(?:https:\\/\\/[A-Za-z0-9.-]+(?::\\d{1,5})?\\/[A-Za-z0-9._~\\/-]+|[A-Za-z0-9._-]{1,64}@[A-Za-z0-9.-]+:[A-Za-z0-9._~\\/-]+)$",
+          "description": "The repository's address, https:// (a token is typed when it is private) or git@host:owner/repo.git (read with a deploy key)."
+        },
+        "branch": {
+          "type": "string",
+          "maxLength": 120,
+          "examples": [
+            "main"
+          ]
+        },
+        "autoDeploy": {
+          "type": "boolean",
+          "description": "A repository: deploy at every push (the forge is given the address and secret the panel makes). An npm package: deploy each new version the registry publishes that \"version\" accepts."
+        },
+        "wp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dir": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,120}$"
+            },
+            "activate": {
+              "type": "boolean"
+            }
+          },
+          "description": "A WordPress theme or plugin: its folder, and whether each deploy turns it on."
+        }
+      }
+    },
+    "keep": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "string",
+        "maxLength": 512
+      },
+      "description": "Files and folders kept between deploys (PHP, Node.js, Python, Java), like \"storage/\"."
+    },
+    "wordpress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "xmlrpc": {
+              "type": "boolean"
+            },
+            "userEnum": {
+              "type": "boolean"
+            },
+            "loginLimit": {
+              "type": "boolean"
+            },
+            "fileEdit": {
+              "type": "boolean"
+            }
+          },
+          "description": "WordPress's own switches, as its Settings page offers them."
+        }
+      }
+    },
+    "root": {
+      "type": "string",
+      "pattern": "^(?:\\./)?(?:\\.|[A-Za-z0-9._@+-]+(?:/[A-Za-z0-9._@+-]+)*)/?$",
+      "description": "The folder the web server serves (PHP, static)."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "type": "array",
+          "maxItems": 200,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+          },
+          "description": "Variable names the app needs. Their values are typed on the website's Environment page."
+        },
+        "defaults": {
+          "type": "object",
+          "maxProperties": 100,
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "description": "Non-secret values, set only where the website has no value yet. A name that reads like a secret (*_SECRET, *_KEY, *_TOKEN, *PASSWORD*, *_PRIVATE*, DATABASE_URL), and a value that is plainly a key (-----BEGIN, sk_live_, sk_test_, ghp_, xox?-, AKIA…), are refused here. A Node.js, Python or Java app's value may hold ${SITE_URL} (https:// and the website's primary address) or ${SITE_HOST} (the address alone), filled by the panel at every build and start (unless the app defines that name itself); another variable's value is never put in, and any other ${…} is given as written (an unknown ${SITE_…} is warned about). A PHP website's value is written into its .env as it is. In a Node.js, Python or Java app, a name the panel sets during a build or one the loader reads (HOME, TMPDIR, npm_config_cache, LD_PRELOAD…) is given to the app, and its build has the panel's value: your value applies to the app only."
+        },
+        "generate": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+          },
+          "description": "Secrets the panel makes fresh where the website has no value (APP_KEY, SESSION_SECRET, CRON_SECRET…): 32 random bytes, made on the server, never in a file or a log."
+        },
+        "optional": {
+          "type": "array",
+          "maxItems": 50,
+          "description": "Variables a feature reads only when they are filled (a Turnstile pair: empty, the feature is off; filled, on). Never a deploy stop. Their values are typed on the website's Environment page, never in this file. Members of one \"group\" are set together: a group partly filled is a warning.",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  },
+                  "about": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[^\\r\\n]*$",
+                    "description": "One line: what it turns on."
+                  },
+                  "group": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$",
+                    "description": "Variables set together, like \"turnstile\"."
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "A regular expression a filled value must match (a warning when it does not; the value is never shown)."
+                  },
+                  "link": {
+                    "type": "string",
+                    "maxLength": 512,
+                    "pattern": "^https://",
+                    "description": "Where the value is made, or its manual."
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "cron": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "schedule"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,40}$",
+            "description": "Unique in the file."
+          },
+          "schedule": {
+            "type": "string",
+            "description": "Five cron fields (minute hour day-of-month month day-of-week), or @hourly, @daily, @weekly, @monthly, @yearly — or @always for a command that keeps running (started at boot, started again when it exits, never stopped by a time limit; not for a path)."
+          },
+          "command": {
+            "type": "string",
+            "maxLength": 2000,
+            "pattern": "^[^\\r\\n]*$",
+            "description": "Run as the website's account in its live release."
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^/(?!/)[A-Za-z0-9._~!$&()*+,;=:@%/-]*(\\?[A-Za-z0-9._~!$&()*+,;=:@%/?-]*)?$",
+            "maxLength": 500,
+            "description": "GET this path of the website's own address (the live release), with Authorization: Bearer $CRON_SECRET when the website has CRON_SECRET."
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "command"
+            ]
+          },
+          {
+            "required": [
+              "path"
+            ]
+          }
+        ]
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "afterBuild": {
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^[^\\r\\n]*$",
+          "description": "Run as the website's account in the new release after the build, before it goes live."
+        },
+        "deploy": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 500,
+            "pattern": "^[^\\r\\n]*$",
+            "description": "A deploy command."
+          },
+          "description": "The Settings page's deploy commands, a line each: run as the website after the files are in place (PHP) or before the new release goes live (Node.js, Python, Java)."
+        }
+      }
+    },
+    "php": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "memory_limit": {
+              "type": "string",
+              "pattern": "^(?:\\d{1,5}[KMGkmg]?|-1)$",
+              "examples": [
+                "512M"
+              ]
+            },
+            "upload_max_filesize": {
+              "type": "string",
+              "pattern": "^(?:\\d{1,5}[KMGkmg]?|-1)$",
+              "examples": [
+                "512M"
+              ]
+            },
+            "post_max_size": {
+              "type": "string",
+              "pattern": "^(?:\\d{1,5}[KMGkmg]?|-1)$",
+              "examples": [
+                "512M"
+              ]
+            },
+            "max_execution_time": {
+              "type": "integer"
+            },
+            "max_input_time": {
+              "type": "integer"
+            },
+            "max_input_vars": {
+              "type": "integer"
+            },
+            "display_errors": {
+              "type": "boolean"
+            },
+            "short_open_tag": {
+              "type": "boolean"
+            },
+            "timezone": {
+              "type": "string"
+            },
+            "allow_url_fopen": {
+              "type": "boolean"
+            },
+            "session_lifetime": {
+              "type": "integer"
+            }
+          }
+        },
+        "extensions": {
+          "type": "array",
+          "maxItems": 60,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_]{0,40}$"
+          }
+        },
+        "mail": {
+          "type": "boolean",
+          "description": "false turns PHP mail() off. true asks the server's owner once (class B): it lets any code of the website send mail as any address."
+        },
+        "sessions": {
+          "enum": [
+            "files",
+            "redis"
+          ],
+          "description": "Where PHP keeps its sessions, as the PHP page's switch: redis needs the website's own Redis. A switch signs every visitor out once."
+        },
+        "pool": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The PHP workers, as the PHP page sets them.",
+          "properties": {
+            "pm": {
+              "enum": [
+                "ondemand",
+                "dynamic",
+                "static"
+              ]
+            },
+            "max_children": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "idle_timeout": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 600
+            },
+            "max_requests": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 100000
+            }
+          }
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A Node.js app's process.",
+      "properties": {
+        "memoryMb": {
+          "type": "integer",
+          "minimum": 128,
+          "maximum": 65536,
+          "description": "Its memory limit in MB (the heap is three quarters of it)."
+        },
+        "pageCache": {
+          "type": "boolean",
+          "description": "Keep a page the app marked public for 10 seconds and hand it to the next visitor who carries no cookie (the 6amMart storefront's cache). Off for a page that changes by the browser's language or device without saying so."
+        },
+        "processes": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16
+            },
+            {
+              "const": "auto"
+            }
+          ],
+          "description": "How many copies of the app serve its visitors on the website's port: 1 (the default), up to 16, or \"auto\" — one a core, at most 8, each with its share of memoryMb. Keep 1 for an app that holds sessions, websockets or timers in its own memory."
+        },
+        "mode": {
+          "enum": [
+            "server",
+            "static"
+          ],
+          "description": "A server (its start command runs) or a static build nginx serves."
+        }
+      }
+    },
+    "python": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A Python app's process.",
+      "properties": {
+        "memoryMb": {
+          "type": "integer",
+          "minimum": 128,
+          "maximum": 65536
+        },
+        "workers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "description": "gunicorn or uvicorn workers."
+        },
+        "startTimeoutSec": {
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 900
+        },
+        "server": {
+          "enum": [
+            "gunicorn",
+            "uvicorn",
+            "custom"
+          ],
+          "description": "gunicorn (WSGI), uvicorn (ASGI) or custom (the start command)."
+        },
+        "appModule": {
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^[^\\r\\n]*$",
+          "description": "The app module, like mysite.wsgi:application."
+        },
+        "settingsModule": {
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^[^\\r\\n]*$",
+          "description": "Django's settings module, like mysite.settings."
+        },
+        "collectstatic": {
+          "type": "boolean",
+          "description": "false: a Django build runs no collectstatic."
+        },
+        "workerClass": {
+          "enum": [
+            "sync",
+            "gthread"
+          ],
+          "description": "How a gunicorn worker answers: \"sync\" (the default — one request at a time per worker) or \"gthread\" (threads — several at once, the connection from nginx kept open; the app must be thread-safe). uvicorn and a start command of your own ignore it."
+        },
+        "threads": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 16,
+          "description": "Threads per worker with \"gthread\" (4 unless set); workers × threads is at most 32."
+        }
+      }
+    },
+    "java": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A Java app's process.",
+      "properties": {
+        "memoryMb": {
+          "type": "integer",
+          "minimum": 128,
+          "maximum": 65536,
+          "description": "The heap (-Xmx) follows it."
+        },
+        "jvmOptions": {
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^[^\\r\\n]*$",
+          "description": "JVM options, without -Xmx."
+        },
+        "args": {
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^[^\\r\\n]*$",
+          "description": "The app's arguments."
+        },
+        "startTimeoutSec": {
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 900
+        },
+        "mainClass": {
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^[^\\r\\n]*$",
+          "description": "The main class, like com.example.App."
+        }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/[\\x21-\\x7e]{0,200}$",
+          "description": "The path a new release must answer (below 500) before it goes live."
+        }
+      }
+    },
+    "releases": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "keep": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "How many releases stay on disk, the live one among them — the others are ready for a rollback (3 unless set)."
+        }
+      }
+    },
+    "web": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxBodyMb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096,
+          "description": "The largest request nginx takes, in MB (a PHP website: php.settings.upload_max_filesize)."
+        },
+        "spa": {
+          "type": "boolean",
+          "description": "A single-page app: paths with no file serve index.html (static)."
+        },
+        "notFound": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512,
+          "description": "The page served for a path with no file, like 404.html (static, while spa is off)."
+        },
+        "headers": {
+          "type": "array",
+          "maxItems": 10,
+          "description": "Response headers, as Web Rules takes them. Never Set-Cookie, never one of the security headers the panel sends.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,63}$"
+              },
+              "value": {
+                "type": "string",
+                "maxLength": 1024,
+                "pattern": "^[^\\r\\n\"\\\\$]*$"
+              },
+              "remove": {
+                "type": "boolean"
+              },
+              "paths": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "false: kept, switched off."
+              },
+              "always": {
+                "type": "boolean",
+                "description": "false: sent on a 2xx or 3xx answer only."
+              }
+            }
+          }
+        },
+        "redirects": {
+          "type": "array",
+          "maxItems": 25,
+          "description": "Redirects, as Web Rules takes them.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "to": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "status": {
+                "enum": [
+                  301,
+                  302,
+                  307,
+                  308
+                ]
+              },
+              "match": {
+                "enum": [
+                  "exact",
+                  "prefix",
+                  "regex"
+                ]
+              },
+              "keepQuery": {
+                "type": "boolean"
+              },
+              "when": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type"
+                ],
+                "description": "When the rule applies, as Web Rules' condition.",
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "uri",
+                      "query",
+                      "host",
+                      "country",
+                      "device"
+                    ]
+                  },
+                  "op": {
+                    "enum": [
+                      "eq",
+                      "ne",
+                      "re",
+                      "nre"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "description": "A query argument's name (type query)."
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "rewrites": {
+          "type": "array",
+          "maxItems": 25,
+          "description": "Rewrites, as Web Rules takes them: the address stays, another path of the website answers (at most 25 with the redirects).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "to": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "match": {
+                "enum": [
+                  "exact",
+                  "prefix",
+                  "regex"
+                ]
+              },
+              "keepQuery": {
+                "type": "boolean"
+              },
+              "when": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type"
+                ],
+                "description": "When the rule applies, as Web Rules' condition.",
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "uri",
+                      "query",
+                      "host",
+                      "country",
+                      "device"
+                    ]
+                  },
+                  "op": {
+                    "enum": [
+                      "eq",
+                      "ne",
+                      "re",
+                      "nre"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "description": "A query argument's name (type query)."
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "blockPaths": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "pattern": "^/[A-Za-z0-9._~\\-/]{1,200}$"
+          },
+          "description": "Addresses a PHP website answers 404 for before PHP sees them, like \"/install\"."
+        },
+        "frontController": {
+          "type": "boolean",
+          "description": "A PHP website: true sends an address with no file to index.php, false answers 404."
+        },
+        "server": {
+          "enum": [
+            "nginx",
+            "apache"
+          ],
+          "description": "What serves a PHP website's PHP (class B: the server's owner says yes once)."
+        },
+        "nginx": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The Vhost page's own directives, a line each (class B: the server's owner says yes once).",
+          "properties": {
+            "server": {
+              "type": "array",
+              "maxItems": 300,
+              "items": {
+                "type": "string"
+              }
+            },
+            "locations": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "root": {
+                  "type": "array",
+                  "maxItems": 300,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "php": {
+                  "type": "array",
+                  "maxItems": 300,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "app": {
+                  "type": "array",
+                  "maxItems": 300,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "page": {
+          "type": "boolean",
+          "description": "WordPress's page cache."
+        },
+        "brotli": {
+          "type": "boolean",
+          "description": "Brotli for this website, while the server has it on."
+        },
+        "varnish": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Class B."
+            },
+            "ttl": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400
+            },
+            "purgeOnDeploy": {
+              "type": "boolean",
+              "description": "Cleared at every deploy (true unless set)."
+            }
+          }
+        },
+        "memcached": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "memoryMb": {
+                  "type": "integer",
+                  "minimum": 16
+                }
+              }
+            }
+          ],
+          "description": "The website's own Memcached (class B)."
+        }
+      }
+    },
+    "domains": {
+      "type": "array",
+      "maxItems": 50,
+      "description": "Class B. Each domain with its HTTPS, the panel's own way.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+          },
+          "primary": {
+            "type": "boolean"
+          },
+          "redirectTo": {
+            "type": "string",
+            "description": "The primary domain this name sends visitors to."
+          },
+          "www": {
+            "type": "boolean",
+            "description": "Also www.<name>, sent to it."
+          }
+        }
+      }
+    },
+    "databases": {
+      "type": "array",
+      "maxItems": 11,
+      "description": "Class B. Made with a user and a password the panel generates; the connection goes into the variable named. No password is ever in this file.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "engine",
+          "name",
+          "env"
+        ],
+        "properties": {
+          "engine": {
+            "enum": [
+              "mariadb",
+              "postgres",
+              "mongodb",
+              "mssql"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]{0,15}$"
+          },
+          "env": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+          },
+          "locale": {
+            "type": "string",
+            "pattern": "^icu:[A-Za-z]{2,3}(?:-[A-Za-z]{4})?-[A-Za-z]{2}$",
+            "description": "PostgreSQL only. The ICU locale the database sorts and compares text by, like \"icu:en-US\" — set when the database is MADE (a database that exists keeps its own: export, a new database, import to change it). The sort is ICU's; the server's matching POSIX locale (en_US.UTF-8) is used for LC_COLLATE/LC_CTYPE where it has it, C.UTF-8 where it does not."
+          },
+          "extensions": {
+            "type": "array",
+            "maxItems": 30,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^(?:btree_gin|btree_gist|citext|cube|dict_int|fuzzystrmatch|hstore|intarray|isn|lo|ltree|pg_trgm|pgcrypto|seg|tablefunc|tcn|tsm_system_rows|tsm_system_time|unaccent|uuid-ossp|autoinc|bloom|earthdistance|insert_username|moddatetime|refint|postgis|postgis_raster|postgis_sfcgal|postgis_topology)(?:@[a-z_][a-z0-9_]{0,62})?$"
+            },
+            "description": "PostgreSQL only. Extensions the panel makes as the superuser, IF NOT EXISTS, on every deploy: name, or name@schema (default: extensionSchema, else public). postgis installs the distribution's postgresql-<major>-postgis-3 the first time. Never pg_stat_statements (the server's own)."
+          },
+          "extensionSchema": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_]{0,62}$",
+            "description": "PostgreSQL only. The schema the panel makes (owned by the database owner) and puts extensions in, like \"extensions\"."
+          },
+          "apiRoles": {
+            "enum": [
+              "supabase"
+            ],
+            "description": "PostgreSQL only. \"supabase\": the server-wide roles anon, authenticated and service_role (made if missing, never dropped), granted to the database owner (and the app role), with USAGE on the extension schema and default privileges to service_role."
+          },
+          "app": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "env"
+            ],
+            "description": "PostgreSQL only. A second LOGIN role, <owner>_app, NOINHERIT and with no table privileges of its own (it SET ROLEs to the API roles); its address goes into env, its password the panel's own.",
+            "properties": {
+              "env": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+              },
+              "statementTimeout": {
+                "type": "string",
+                "pattern": "^(?:0|[1-9][0-9]{0,8}(?:ms|s|min|h)?)$"
+              },
+              "lockTimeout": {
+                "type": "string",
+                "pattern": "^(?:0|[1-9][0-9]{0,8}(?:ms|s|min|h)?)$"
+              }
+            }
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "timezone": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "search_path": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "statement_timeout": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "lock_timeout": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "idle_in_transaction_session_timeout": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "default_text_search_config": {
+                "type": "string",
+                "maxLength": 200
+              }
+            },
+            "description": "PostgreSQL only. ALTER DATABASE … SET for these names; each value is checked (no quote, no semicolon)."
+          },
+          "rlsAutoEnable": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z_][a-z0-9_]{0,62}$"
+                }
+              }
+            ],
+            "description": "PostgreSQL only. Every new table in these schemas (true: public) gets row-level security, by the panel's own event trigger — made after the deploy's commands, kept on every deploy after."
+          }
+        }
+      }
+    },
+    "redis": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "env": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+            },
+            "memoryMb": {
+              "type": "integer",
+              "minimum": 16,
+              "maximum": 1024,
+              "description": "How much memory it may use, as its Redis page sets it — the server owner's yes."
+            }
+          }
+        }
+      ],
+      "description": "Class B. The website's own Redis; its address goes into the variable named (REDIS_URL unless set)."
+    },
+    "saas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domains"
+      ],
+      "description": "Class B (the server owner's). The domains the website's own customers connect: each with its own certificate and server blocks, reached by the app through a unix socket only its account can open (SIXPANEL_SAAS_SOCKET in its environment). Node.js, Python and Java apps. false never turns it off — its SaaS domains page does.",
+      "properties": {
+        "domains": {
+          "type": "boolean",
+          "description": "true: the app may connect its customers' domains."
+        },
+        "maxDomains": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20000,
+          "description": "At most this many (1000 unless set)."
+        },
+        "cloudflare": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Class B (the server owner's). Cloudflare for SaaS on the Cloudflare zone of the website's primary domain, with the token the panel holds for it: saas-fallback.<zone> (this server) as the zone's fallback origin and <target>.<zone> for businesses to point a CNAME at — every record proxied.",
+          "properties": {
+            "target": {
+              "type": "string",
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+              "description": "The label businesses point at: <target>.<zone> (customers unless set)."
+            }
+          }
+        }
+      }
+    },
+    "supabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "use"
+      ],
+      "description": "Class B (the server owner's). Connect the website to a Supabase app on this server: its URL, publishable (anon) key, service_role key and database address go into the variables named, read from that app now and kept in step with it. No key is ever in this file. Supabase Cloud is connected on the website's Environment page.",
+      "properties": {
+        "use": {
+          "type": "string",
+          "pattern": "^(?:new|[a-z][a-z0-9-]{1,40})$",
+          "description": "The short name of the Supabase app on this server (\"new\" is read and listed for the owner: a Supabase is made from Projects → Create → Docker app)."
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string",
+              "pattern": "^(?:|[A-Za-z_][A-Za-z0-9_]{0,127})$"
+            },
+            "anon": {
+              "type": "string",
+              "pattern": "^(?:|[A-Za-z_][A-Za-z0-9_]{0,127})$"
+            },
+            "service": {
+              "type": "string",
+              "pattern": "^(?:|[A-Za-z_][A-Za-z0-9_]{0,127})$"
+            },
+            "db": {
+              "type": "string",
+              "pattern": "^(?:|[A-Za-z_][A-Za-z0-9_]{0,127})$"
+            }
+          },
+          "description": "The variable names (defaults NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_URL; \"\" leaves one out). The service key and the database never take a browser prefix."
+        }
+      }
+    }
+  }
+}
