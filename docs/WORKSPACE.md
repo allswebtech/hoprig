@@ -30,6 +30,7 @@ hoprig workspace sync [--memory] [--push] [--with <computer>]   # every reposito
 hoprig workspace set --dir <folder> --projects <folder>         # where things are, for future work (nothing moves)
 hoprig workspace forget <project or folder>                     # out of the map (no file is touched)
 hoprig workspace git                       # git's name and e-mail, the GitHub sign-in, your workspace on GitHub
+hoprig workspace auto [--map|--commit|--sync|--push on|off] [--every <hours>]   # the upkeep's switches
 ```
 
 Every one of them takes `--json`; the ones that change something take `--dry-run`, which shows exactly what would
@@ -137,9 +138,29 @@ something to pull but uncommitted changes, no upstream, a push that failed, a re
 listed with the exact command. `--memory` first commits the memory folders (the brain's `claude-memory/` and each
 project's), and only them. `--dry-run` fetches and says what it would pull and push.
 
-**Keep it in step by itself** (off by default): the automation setting `workspace: { sync, push, everyHours }`
-fetches and fast-forwards every few hours; pushing is a second switch of its own. What needs a decision is told
-once, in a notification.
+## The upkeep the dashboard does by itself
+
+While the dashboard runs (`hoprig serve`, or the background service), right after it starts and then every few
+hours. Five switches, the automation setting `workspace` (the same in the dashboard and in
+`hoprig workspace auto`):
+
+| Switch | Default | What it does |
+|---|---|---|
+| `map` | on | **The map keeps building itself.** It looks at the workspace as `map` does (the union rule) and writes `workspace.json` only when something would change: a new project or code repository, a new address. Nothing changed: no write and no message. It never makes the first map (that is your `hoprig workspace map`), and it leaves `project.json` files alone. |
+| `commitMap` | off | A change of the map is saved in the brain's history: `workspace.json` is added and committed alone ("Update the workspace map"), with the brain's own git name and e-mail. Never while the brain has other staged changes: then the map is written, not committed, and you are told why. |
+| `sync` | off | Every repository of the map is fetched and fast-forwarded, as `workspace sync` does (tools left alone). |
+| `push` | off | Uploads what is purely ahead: sync's pushes, and the map's commit (only when the brain is ahead and not behind its git server). |
+| `everyHours` | 6 | How often (1 to 168). |
+
+```sh
+hoprig workspace auto                                   # show the switches
+hoprig workspace auto --commit on --push on --every 3   # set them: --map --commit --sync --push on|off, --every <hours>
+```
+
+Each real change is one line in the activity log ("The map gained shop/code/shop-admin"). A notification comes
+only when something needs you (a repository with no address, the brain's staged changes in the way, the brain and
+its git server both moved), and the same list is not told twice. `hoprig workspace status` (and the dashboard)
+says when the map on disk is not saved in the brain's history yet, with the command that saves it.
 
 ## Between your computers, without a git server
 

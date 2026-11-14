@@ -10,7 +10,7 @@ import { setPlaces } from './places.mjs';
 import { restoreWorkspace } from './restore.mjs';
 import { syncAll } from './sync.mjs';
 
-export const GIT_COMMANDS = ['map', 'restore', 'sync', 'set', 'forget', 'git'];
+export const GIT_COMMANDS = ['map', 'restore', 'sync', 'set', 'forget', 'git', 'auto'];
 export const GIT_USAGE = `  hoprig workspace map [--dry-run] [--json]   write the map of every git repository of the workspace
                                                (ai_brain/workspace.json; shows what changed; never commits)
   hoprig workspace restore <brain address> [--dry-run] [--yes] [--json]
@@ -21,7 +21,9 @@ export const GIT_USAGE = `  hoprig workspace map [--dry-run] [--json]   write th
   hoprig workspace set [--dir <folder>] [--projects <folder>] [--json]
                                                where the workspace and the projects folder are (nothing is moved)
   hoprig workspace forget <project or folder> [--json]   take it out of the map (no file is deleted)
-  hoprig workspace git                         git's name and e-mail, the GitHub sign-in, your workspace on GitHub`;
+  hoprig workspace git                         git's name and e-mail, the GitHub sign-in, your workspace on GitHub
+  hoprig workspace auto [--map on|off] [--commit on|off] [--sync on|off] [--push on|off] [--every <hours>] [--json]
+                                               the upkeep the dashboard does by itself: show or set its switches`;
 
 const MARK = { here: 'ok', missing: 'warn', different: 'warn', unmapped: 'info' };
 const SAY = { here: '', missing: 'in the map, not on this computer: get it with  hoprig workspace restore', different: 'another folder is where the map puts it', unmapped: 'not in the map: add it with  hoprig workspace map' };
@@ -37,6 +39,42 @@ export function printMapStatus(ui, ms) {
     ui.out(`  ${bold('Tools')}  ${dim('restored on a fresh computer, never synced ("sync": false in the map)')}`);
     tools.forEach(line);
   }
+  if (ms.saved && ms.saved.unsaved) ui.line('warn', `the map changed and is not saved in the brain's history yet:  ${ms.saved.command}`);
+}
+
+const ONOFF = { on: true, off: false };
+/** `workspace auto`: the switches of the workspace automation (the setting the dashboard uses: automation.workspace). */
+async function auto(args, { ui, json, failed, usage }) {
+  const o = flags(args, { map: 'v', commit: 'v', sync: 'v', push: 'v', every: 'v', json: 'bool' });
+  if (o.errors.length || o._.length) return usage();
+  const { loadConfig, saveConfig } = await import('../config.mjs');
+  const { cleanSettingsPatch, readSettings } = await import('../automation/settings.mjs');
+  const cur = readSettings(loadConfig().automation);
+  const patch = {};
+  for (const [flag, key] of [['map', 'map'], ['commit', 'commitMap'], ['sync', 'sync'], ['push', 'push']]) {
+    if (o[flag] === undefined) continue;
+    if (!(o[flag] in ONOFF)) return failed(new Error(`--${flag} is on or off`));
+    patch[key] = ONOFF[o[flag]];
+  }
+  if (o.every !== undefined) patch.everyHours = o.every;
+  let next = cur;
+  if (Object.keys(patch).length) {
+    try {
+      next = cleanSettingsPatch({ workspace: patch }, cur);
+    } catch (e) {
+      return failed(e);
+    }
+    saveConfig({ automation: next });
+  }
+  const w = next.workspace;
+  if (o.json) return json(w);
+  const say = (on, text) => ui.line(on ? 'ok' : 'info', `${on ? 'on ' : 'off'}  ${text}`);
+  say(w.map, 'map: the map keeps building itself (only where a map exists; written only when something changed)');
+  say(w.commitMap, 'commit: a change of the map is saved in the brain\'s history (that one file only)');
+  say(w.sync, 'sync: every repository is fetched and fast-forwarded (tools are left alone)');
+  say(w.push, 'push: what is purely ahead is uploaded (the map\'s commit, and sync)');
+  ui.note(`every ${w.everyHours} hour${w.everyHours === 1 ? '' : 's'}, and right after the dashboard starts${next.paused ? ' (all automations are paused now)' : ''}. The dashboard runs it: hoprig serve / service.`);
+  return 0;
 }
 
 function printMap(ui, r) {
@@ -137,6 +175,7 @@ export async function gitMain(sub, args, { ui, write, usage }) {
     ui.line('ok', `${r.forgotten} ${r.wasInMap ? 'is out of the map' : 'was not in the map; it stays out'} (no file was touched; the map keeps it out from now on). Commit the brain to share that.`);
     return 0;
   }
+  if (sub === 'auto') return auto(args, { ui, json, failed, usage });
   if (sub === 'git') {
     if (args.length) return usage();
     const r = await runGitStep({ ui });

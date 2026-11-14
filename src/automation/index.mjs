@@ -6,7 +6,7 @@
 //   retry      after a server error, wait and send "continue" (1, 2, 4 … minutes)      ./retry.mjs
 //   updates    look for a new Claude Code; tell, or update it while nothing works      ./updates.mjs
 //   idle       close idle plain shells, stop an unused gateway add-on                  ./idle.mjs
-//   workspace  keep the workspace in step: fetch, fast-forward (push only if chosen)   ./workspacesync.mjs
+//   workspace  the map keeps building itself; keep the workspace in step (if chosen)   ./workspacesync.mjs
 //
 // Each automation is a pair: decide(state, now) → actions (pure, tested without a server) and apply(actions, ctx)
 // (does them). One tick: read the sessions once, let every automation that is on decide and save what it
@@ -25,7 +25,7 @@
 // Optional (real ones are used when left out; tests pass fakes):
 //   saveConfig(patch), stateDir (hoprig's state folder), now(), updates { claudeInfo, claudeUpdate }, addons [{ id, title,
 //   profile, status(), stop() }], autoOrder() → profile names, conversationExists(cwd, id), checks { dirOk(dir),
-//   profileOk(name) } for schedules, workspaceSync({ push }) (the workspace rule's engine).
+//   profileOk(name) } for schedules, workspaceSync({ push }) and workspaceMap({ commit, push }) (the workspace rule's engines).
 import path from 'node:path';
 import { saveConfig as realSaveConfig } from '../config.mjs';
 import { stateDir as realStateDir } from '../paths.mjs';
@@ -168,8 +168,8 @@ export function createAutomation(ctx) {
         store.write('updates', d.data);
         plan.push(['updates', d.actions]);
       }
-      if (s.workspace.sync) {
-        const d = workspaceRule.decide({ data: store.read('workspace', {}), now: t, settings: s.workspace });
+      if (s.workspace.sync || s.workspace.map) {
+        const d = workspaceRule.decide({ data: store.read('workspace', {}), now: t, boot, settings: s.workspace });
         store.write('workspace', d.data);
         plan.push(['workspace', d.actions]);
       }
@@ -184,7 +184,7 @@ export function createAutomation(ctx) {
           else if (name === 'schedules') await schedules.apply(actions, { ...common, enqueue });
           else if (name === 'idle') await idleCare.apply(actions, { ...common, addons });
           else if (name === 'workspace') {
-            await workspaceRule.apply(actions, { ...common, workspaceSync: ctx.workspaceSync || workspaceRule.realWorkspaceSync, data: store.read('workspace', {}), save: (d) => store.write('workspace', d) });
+            await workspaceRule.apply(actions, { ...common, workspaceSync: ctx.workspaceSync || workspaceRule.realWorkspaceSync, workspaceMap: ctx.workspaceMap || workspaceRule.realWorkspaceMap, data: store.read('workspace', {}), save: (d) => store.write('workspace', d) });
           } else if (name === 'updates') {
             await updates.apply(actions, { ...common, updates: updatesImpl, settings: s.updates, data: store.read('updates', {}), save: (d) => store.write('updates', d) });
           }

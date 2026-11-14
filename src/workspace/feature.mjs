@@ -4,7 +4,8 @@
 //   POST /api/workspace/setup { dryRun? }   create only what is missing; returns what was done (workspaceSetup)
 //   GET  /api/brain                     what the AI knows: the index (brainIndex)
 //   GET  /api/brain/item?id=<id>        the text of one item of that index (brainRead), size-capped, secrets masked
-//   GET  /api/workspace/map             the map and, per repository, here | missing | different | unmapped
+//   GET  /api/workspace/map             the map and, per repository, here | missing | different | unmapped; saved:
+//                                       { unsaved, command? } (the map differs from the brain's last commit)
 //   POST /api/workspace/map { dryRun? }                 write the map from what is on disk (never commits)
 //   POST /api/workspace/restore { url, dryRun? }        dryRun: the plan at once; else a background job
 //   POST /api/workspace/sync { memory?, push?, with?, dryRun? }   a background job

@@ -29,6 +29,7 @@ import { capture } from '../setup/system.mjs';
 import { isDir, isGitRepo, listProjects, projectsIn, workspaceDir } from './layout.mjs';
 
 export const MAP_FILE = 'workspace.json';
+export const COMMIT_MESSAGE = 'Update the workspace map';
 export const mapFile = (dir = workspaceDir()) => path.join(dir, 'ai_brain', MAP_FILE);
 const NEVER = new Set([...PRIVATE_DIRS, 'credentials', 'node_modules']);
 export const neverLook = (name) => name.startsWith('.') || NEVER.has(name);
@@ -380,7 +381,7 @@ export function mergeMap(cur, scan) {
  * stays the truth for its project). Never commits.
  * → { file, dryRun, diff, map, notHere, takenOut, notes, tools, otherChanges, manifests, commit }
  */
-export async function updateMap({ dir = workspaceDir(), projects = projectsIn(), dryRun = false, run = capture } = {}) {
+export async function updateMap({ dir = workspaceDir(), projects = projectsIn(), dryRun = false, run = capture, manifests: touchManifests = true } = {}) {
   const cur = readMap(dir);
   if (cur.errors) throw Object.assign(new Error(`${MAP_FILE} was not changed: ${cur.errors.join('; ')}`), { status: 409 });
   const scan = await scanWorkspace({ dir, projects, run, previous: cur.map });
@@ -390,7 +391,8 @@ export async function updateMap({ dir = workspaceDir(), projects = projectsIn(),
   const changed = !cur.exists || JSON.stringify(normalizeMap(cur.map)) !== JSON.stringify(normalizeMap(next));
   if (!dryRun) {
     if (changed) writeMap(next, dir);
-    for (const m of scan.manifests) {
+    // (The automatic upkeep leaves project.json files alone: they belong to their projects' own repositories.)
+    for (const m of touchManifests ? scan.manifests : []) {
       const { manifest } = await readManifest(m.root, run);
       if (manifest) writeManifest(m.root, { ...manifest, repos: [...manifest.repos, ...m.add] });
     }
@@ -408,7 +410,7 @@ export async function updateMap({ dir = workspaceDir(), projects = projectsIn(),
     // Besides addresses: the projects folder, memory links, which entries are tools (shown as one line).
     otherChanges: cur.exists && diff.same && changed,
     manifests: scan.manifests.map((m) => ({ project: m.name, added: m.add.map((r) => r.dir) })),
-    commit: `git -C "${brain}" add ${MAP_FILE} && git -C "${brain}" commit -m "Update the workspace map"`,
+    commit: `git -C "${brain}" add ${MAP_FILE} && git -C "${brain}" commit -m "${COMMIT_MESSAGE}"`,
   };
 }
 
@@ -475,5 +477,15 @@ export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(),
   }
   const counts = {};
   for (const e of entries) counts[e.state] = (counts[e.state] || 0) + 1;
-  return { ...base, entries, counts };
+  // The map on disk against the brain's last commit: "changed and not saved in the brain's history yet".
+  return { ...base, entries, counts, saved: await mapSaved({ dir, run }) };
+}
+
+/** Whether workspace.json differs from the brain's last commit: { unsaved, command } (unsaved false when it does not). */
+export async function mapSaved({ dir = workspaceDir(), run = capture } = {}) {
+  const brain = path.join(dir, 'ai_brain');
+  if (!isGitRepo(brain)) return { unsaved: false };
+  const r = await run(['git', '-C', brain, 'status', '--porcelain', '--', MAP_FILE], { timeout: 10_000 });
+  const unsaved = r.ok && r.stdout.trim() !== '';
+  return { unsaved, ...(unsaved ? { command: `git -C "${brain}" add ${MAP_FILE} && git -C "${brain}" commit -m "${COMMIT_MESSAGE}"` } : {}) };
 }
