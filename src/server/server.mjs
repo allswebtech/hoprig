@@ -410,9 +410,10 @@ export function createServer(opts = {}) {
       if (mode === 'resume') {
         sid = v.sessionId(b.sessionId);
         if (!sid || !sessionsIn(dir).some((s) => s.id === sid)) throw bad('that conversation is not in this folder');
-        // One conversation runs in one place only.
-        if (chat.running(sid)) throw new HttpError(409, 'this conversation is open as a chat right now; open it in a terminal from the chat');
       }
+      // One conversation runs in one place only. "continue" (-c) is the folder's newest conversation.
+      const runs = mode === 'resume' ? sid : mode === 'continue' ? (sessionsIn(dir)[0] || {}).id : null;
+      if (runs && chat.running(runs)) throw new HttpError(409, 'this conversation is open as a chat right now; open it in a terminal from the chat');
       // An optional first message (Tia's start_session; one line, see deck.mjs promptArgs).
       let prompt = null;
       if (b.prompt !== undefined && b.prompt !== null) {

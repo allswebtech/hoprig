@@ -322,3 +322,96 @@ test('notifications: a chat is named by its title and links to its page', async 
   assert.equal(sent[0].session, 'chat:abc');
   assert.equal(sent[1].url, 'https://dash.example/#/s/shop');
 });
+
+// ---- found in review ----
+
+test('a chat closed while its provider is still getting ready never starts Claude Code', async () => {
+  let ready;
+  const c = newChat();
+  c.o.resolveEnv = () => new Promise((r) => (ready = () => r({ ...process.env, FAKE_CLAUDE_ARGS: c.argsFile })));
+  const sent = c.send('hello');
+  await until('the start to wait for the provider', () => ready);
+  await c.close();
+  ready();
+  await sent;
+  assert.equal(c.child, null, 'nothing runs');
+  assert.ok(!fs.existsSync(c.argsFile), 'Claude Code was never started');
+  assert.equal(c.status(), 'waiting');
+  // Stop while it gets ready does the same, and the chat can be used again after it.
+  const d = newChat();
+  let go;
+  d.o.resolveEnv = () => new Promise((r) => (go = () => r({ ...process.env, FAKE_CLAUDE_ARGS: d.argsFile })));
+  const s1 = d.send('one');
+  await until('waiting for the provider', () => go);
+  assert.equal(d.interrupt(), true);
+  go();
+  await s1;
+  assert.ok(!fs.existsSync(d.argsFile));
+  d.o.resolveEnv = async () => ({ ...process.env, FAKE_CLAUDE_ARGS: d.argsFile });
+  const done = turnEnd(d);
+  await d.send('two');
+  await done;
+  assert.equal(d.events.filter((e) => e.kind === 'text').at(-1).text, 'echo: two');
+  await d.stopAndWait();
+});
+
+test('a dashboard restart: the page\'s numbering is not the new one, so it starts over', async () => {
+  const a = newChat();
+  let done = turnEnd(a);
+  await a.send('one');
+  await done;
+  done = turnEnd(a);
+  await a.send('two');
+  await done;
+  await a.stopAndWait();
+  const b = new Chat({ ...a.o }); // the same conversation in a new dashboard process
+  assert.notEqual(b.epoch, a.epoch);
+  assert.equal(b.window(a.next, a.epoch).reset, true);
+  // Even with the same numbering, a page further on than the newest event starts over.
+  assert.equal(b.window(b.next + 3, b.epoch).reset, true);
+  assert.equal(b.window(b.next, b.epoch).reset, false);
+});
+
+test('more new events than one answer carries: the page starts over instead of missing some', () => {
+  const c = newChat();
+  const from = c.next;
+  for (let i = 0; i < 450; i++) c.push({ kind: 'notice', text: `n${i}` });
+  const w = c.window(from, c.epoch);
+  assert.equal(w.reset, true);
+  assert.equal(w.events.at(-1).text, 'n449');
+  const near = c.window(c.next - 10, c.epoch);
+  assert.equal(near.reset, false);
+  assert.equal(near.events.length, 10);
+});
+
+test('a long reply right before the process exits: its result is not lost', async () => {
+  for (let i = 0; i < 5; i++) {
+    const c = newChat();
+    await c.send('big');
+    await until('the turn to end', () => !c.child && c.status() === 'waiting');
+    const d = c.events.filter((e) => e.kind === 'done').at(-1);
+    assert.equal(d.ok, false);
+    assert.match(d.error, /usage limit/, 'the turn\'s own result, not "Claude Code stopped (1)"');
+    assert.equal(c.events.find((e) => e.kind === 'text').text.length, 200_000);
+    assert.ok(c.limit, 'the limit is known, so the page offers another provider');
+    await until('the process to end', () => !c.child);
+    assert.equal(c.events.filter((e) => e.kind === 'done').length, 1, 'one end of the turn, not a second "stopped"');
+  }
+});
+
+test('a new process starts only after the old one ended; one that ignores SIGTERM gets SIGKILL', async (t) => {
+  const c = newChat({ termMs: 100, killMs: 500 });
+  c.o.resolveEnv = async () => ({ ...process.env, FAKE_CLAUDE_ARGS: c.argsFile, FAKE_CLAUDE_STUBBORN: '1' });
+  t.after(() => c.stopAndWait(1000));
+  let done = turnEnd(c);
+  await c.send('one');
+  await done;
+  const old = c.child;
+  c.setNext({ model: 'haiku' }); // stops the idle process
+  done = turnEnd(c);
+  await c.send('two'); // at once, while the old one is still stopping
+  assert.ok(old.exitCode !== null || old.signalCode !== null, 'the old process had ended before the new one started');
+  assert.equal(old.signalCode, 'SIGKILL');
+  await done;
+  assert.equal(starts(c).length, 2);
+});

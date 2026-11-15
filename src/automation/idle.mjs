@@ -25,7 +25,10 @@ export function decide({ cards, data, now, settings, addons = [], autoOrder = []
   if (settings.gateway) {
     for (const a of addons) {
       const g = { lastUsedAt: now, stoppedFor: null, ...((data && data.gateways && data.gateways[a.id]) || {}) };
-      const used = cards.some((c) => c.kind === 'claude' && c.profile && (c.profile.name === a.profile || (c.profile.name === 'auto' && autoOrder.includes(a.profile))));
+      // A chat whose process runs counts too: that process does not run the provider's PRERUN again, so a gateway
+      // stopped under it would fail its next message. Once its process stops (after a quiet while), it does not.
+      const using = (c) => c.kind === 'claude' || (c.kind === 'chat' && c.running === true);
+      const used = cards.some((c) => using(c) && c.profile && (c.profile.name === a.profile || (c.profile.name === 'auto' && autoOrder.includes(a.profile))));
       if (used) g.lastUsedAt = now;
       else if (g.stoppedFor !== g.lastUsedAt && now - g.lastUsedAt > settings.gatewayMinutes * 60_000) {
         actions.push({ type: 'stop-gateway', addon: a.id, idleMs: now - g.lastUsedAt });

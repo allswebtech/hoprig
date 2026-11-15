@@ -175,6 +175,10 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   assert.equal((await owner('POST', `/api/chats/${id}/next`, { effort: 'enormous' })).status, 400);
   await owner('POST', `/api/chats/${id}/send`, { text: 'sleep' });
   await until('the long command', async () => (await view()).events.some((e) => e.kind === 'tool' && e.name === 'Bash'));
+  // "continue" (-c) means the folder's newest conversation: this one, which the chat works on right now.
+  const cont = await owner('POST', '/api/sessions', { dir: proj, profile: 'sub', mode: 'continue' });
+  assert.equal(cont.status, 409);
+  assert.match(cont.json.error, /open as a chat/);
   assert.equal((await owner('POST', `/api/chats/${id}/stop`, {})).json.stopped, true);
   await until('stopped', async () => (await view()).status === 'waiting');
 

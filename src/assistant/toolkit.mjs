@@ -6,7 +6,8 @@
 import { obj, ref, str } from './schema.mjs';
 import { LOCAL } from './shown.mjs';
 
-export const SESSION = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,39}$/;
+// A terminal session's name, or a chat's (src/chat: "chat:<conversation id>", 41 characters).
+export const SESSION = /^([A-Za-z0-9_][A-Za-z0-9_.-]{0,39}|chat:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 export const ACCOUNT = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 export const COMPUTER = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -14,7 +15,7 @@ export const ABS = /^(\/|~\/|~$|[A-Za-z]:[\\/])/;
 export const NAME = /^[A-Za-z0-9._-]{1,100}$/; // a project or repository name, as the setup routes take it
 
 export const computer = ref('computer', str({ max: 32, pattern: COMPUTER, desc: `Computer name from get_computer_status; omit for this computer ("${LOCAL}").` }));
-export const session = ref('session', str({ max: 40, pattern: SESSION, desc: 'Session name exactly as list_sessions showed it.' }));
+export const session = ref('session', str({ max: 41, pattern: SESSION, desc: 'Session name exactly as list_sessions showed it.' }));
 export const account = str({ max: 32, pattern: ACCOUNT, desc: 'Provider name from get_accounts, or "auto" while Auto mode is on.' });
 export const folder = str({ max: 1024, pattern: ABS, oneLine: true, desc: 'Absolute folder path (or ~/...) inside the folders the dashboard allows.' });
 
@@ -44,7 +45,7 @@ export const minsAgo = (t, now) => (Number.isFinite(t) && t > 0 ? Math.max(0, Ma
 
 /** A session card as the dashboard keeps it → its status in the words the model sees. */
 export function statusOf(c) {
-  if (c.kind !== 'claude') return 'shell';
+  if (c.kind !== 'claude' && c.kind !== 'chat') return 'shell';
   if (c.limit || c.runLimit) return 'limit';
   if (c.status === 'attention') return 'needs_ok';
   return ['starting', 'working', 'waiting', 'ended'].includes(c.status) ? c.status : 'unknown';
@@ -60,10 +61,17 @@ export const toolError = (message, next) => new ToolError(message, next);
 
 export const tool = (def) => def;
 
-export async function findSession(ops, a) {
+/**
+ * The session card `a.session` names. A chat (kind "chat") has no terminal: only a tool that says it can read one
+ * (`chatOk`) gets it; the others get a plain error that sends the owner to its page.
+ */
+export async function findSession(ops, a, { chatOk = false } = {}) {
   const list = await ops.listSessions({ computer: comp(a) });
   const c = list.find((x) => x.name === a.session && (x.computer || LOCAL) === comp(a));
   if (!c) throw toolError(`there is no session "${a.session}" on ${comp(a)} any more`, 'call list_sessions to see the current ones');
+  if (c.kind === 'chat' && !chatOk) {
+    throw toolError(`"${a.session}" is a chat in the dashboard page, not a terminal session: this tool cannot act on it`, 'tell the owner to open it on Home (it answers its own questions there); read_session shows its status');
+  }
   return c;
 }
 

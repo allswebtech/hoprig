@@ -6,8 +6,10 @@
 //   "write <file>"   Write: asks for the OK (can_use_tool) unless the permission mode lets it; writes on "allow"
 //   "sleep"          Bash that runs until an interrupt arrives
 //   "task <words>"   TaskCreate → "Task #1 created successfully"
+//   "big"            a 200 KB reply, then a usage-limit result, then it exits at once (code 1)
 //   anything else    "echo: <message>"
-// $FAKE_CLAUDE_ARGS: a file that gets one line per start with the arguments it was given.
+// $FAKE_CLAUDE_ARGS: a file that gets one line per start with the arguments it was given (and the answers to OK cards).
+// $FAKE_CLAUDE_STUBBORN=1: it keeps running when its input ends and ignores SIGTERM (only SIGKILL ends it).
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -82,6 +84,14 @@ async function turn(text) {
     user([{ type: 'text', text: '[Request interrupted by user for tool use]' }]);
     return result(false);
   }
+  if (text === 'big') {
+    assistant([{ type: 'text', text: 'x'.repeat(200_000) }]);
+    // As Claude Code does: its output is written out to the pipe, then it exits at once. Whether the reader has
+    // read it all by the time it sees the exit is the reader's business.
+    const last = JSON.stringify({ type: 'result', subtype: 'success', is_error: true, result: "You've hit your usage limit · resets 5pm", session_id: sessionId, total_cost_usd: cost, num_turns: 1 }) + '\n';
+    process.stdout.write(last, () => process.exit(1));
+    return new Promise(() => {});
+  }
   if ((m = /^task (.+)/.exec(text))) {
     const id = tool('TaskCreate', { subject: m[1], activeForm: `Doing ${m[1]}` });
     user([{ type: 'tool_result', tool_use_id: id, content: `Task #1 created successfully: ${m[1]}` }]);
@@ -113,4 +123,10 @@ readline.createInterface({ input: process.stdin }).on('line', (l) => {
     out({ type: 'control_response', response: { subtype: 'success', request_id: m.request_id, response: { still_queued: [] } } });
     onInterrupt?.();
   }
-}).on('close', () => process.exit(0));
+}).on('close', () => {
+  if (!process.env.FAKE_CLAUDE_STUBBORN) process.exit(0);
+});
+if (process.env.FAKE_CLAUDE_STUBBORN) {
+  process.on('SIGTERM', () => {});
+  setInterval(() => {}, 1000);
+}
