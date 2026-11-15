@@ -50,6 +50,7 @@
 .au-act .row-icon { width: 32px; height: 32px; color: var(--ok); }
 .au-act.bad .row-icon { color: var(--danger); background: var(--danger-soft); }
 .au-act-title { font-weight: 600; overflow-wrap: anywhere; }
+.au-act-n { margin-left: 8px; vertical-align: 1px; font-weight: 600; }
 .au-act-problem { color: var(--danger); font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .au-act .row-sub { white-space: normal; }
 

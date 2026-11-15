@@ -37,7 +37,7 @@ globalThis.document ??= {
   visibilityState: 'visible',
 };
 
-const { whenText, whatText, scheduleSentence, activityLine } = await import('../../web/automation.js');
+const { whenText, whatText, scheduleSentence, activityLine, foldActivity } = await import('../../web/automation.js');
 const { plainCard, EXAMPLES, boldText } = await import('../../web/tia.js');
 
 test('a schedule reads as one sentence', () => {
@@ -128,4 +128,20 @@ test('both pages: styles in their own prefixed file, the shared words, no typed 
   for (const rule of css.split('}').map((r) => r.split('{')[0].trim()).filter((s) => s && !s.startsWith('@') && !/^\d|^(from|to)$/.test(s))) {
     assert.match(rule, /\.(au|tia)-/, `every rule names an au- or tia- class: ${rule}`);
   }
+});
+
+test('Activity: no setting key reaches the page, and the same entry in a row is one row with a count', async () => {
+  const rule = await import('../../src/automation/workspacesync.mjs');
+  const records = [];
+  const ctx = { record: (e) => records.push(e), notify: () => {}, data: {}, save: () => {}, workspaceMap: async () => ({ changed: true, lines: ['The map gained api-server'], needs: [] }) };
+  await rule.apply([{ type: 'map', commit: false, push: false }], ctx);
+  const line = activityLine(records[0]);
+  assert.doesNotMatch(`${line.title} ${line.sub}`, /commitMap/);
+  assert.match(line.sub, /not saved in the AI brain's history \(Settings → Workspace: "Save a change of the map" is off\)/);
+  // An entry written by an older version still reads plainly.
+  const old = activityLine({ automation: 'workspace', did: 'The map gained x', outcome: 'written (not saved in the brain\'s history: the commitMap switch is off)' });
+  assert.doesNotMatch(old.sub, /commitMap/);
+  const e = (did, time) => ({ automation: 'workspace', did, outcome: 'written', time });
+  const folded = foldActivity([e('The map gained a', '3'), e('The map gained a', '2'), e('The map gained b', '1'), e('The map gained a', '0')]);
+  assert.deepEqual(folded.map((x) => [x.e.did, x.n, x.e.time]), [['The map gained a', 2, '3'], ['The map gained b', 1, '1'], ['The map gained a', 1, '0']], 'only neighbours fold; the newest time is kept');
 });

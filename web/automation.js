@@ -62,13 +62,29 @@ const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a re
 export function activityLine(e) {
   const did = String(e.did || '').trim();
   const title = `${cap(did)}${/[.!?]$/.test(did) ? '' : '.'}`;
-  const o = String(e.outcome || 'ok');
+  // Lines written before the wording was plain named a setting by its key; said in the page's words instead.
+  const o = String(e.outcome || 'ok').replace(/\(not saved in the brain's history: the commitMap switch is off\)/, 'not saved in the AI brain\'s history (Settings → Workspace: "Save a change of the map" is off)');
   const problem = /^failed/.test(o) ? `It did not work${o.slice(6) ? `: ${o.replace(/^failed:?\s*/, '')}` : ''}.`
     : /^gave up/.test(o) ? 'It gave up; open the session to see why.'
       : /^missed/.test(o) ? `Missed: ${o.replace(/^missed:?\s*/, '')}.`
         : null;
   const note = problem || o === 'ok' ? null : cap(o.replace(/:\s*/, ': '));
   return { title, sub: [WHO[e.automation] || cap(e.automation), e.session || null, note].filter(Boolean).join(' · '), problem };
+}
+
+/**
+ * Entries that say the same thing one after another (the same automation, session, sentence and outcome) as one
+ * row: [{ e: the newest, n: how many }]. The log is newest first, so `e` carries the newest time.
+ */
+export function foldActivity(entries) {
+  const out = [];
+  const same = (a, b) => a.automation === b.automation && (a.session || '') === (b.session || '') && a.did === b.did && a.outcome === b.outcome;
+  for (const e of entries) {
+    const last = out[out.length - 1];
+    if (last && same(last.e, e)) last.n++;
+    else out.push({ e, n: 1 });
+  }
+  return out;
 }
 
 // ---------- the data of the open computer: kept per computer, so a part draws at once when it was seen before ----------
@@ -483,14 +499,14 @@ async function activityPart(box, isAlive) {
   }
   fill(box, h('div.au-activity',
     groupHead('Newest first', r.entries.length),
-    h('div.rows', r.entries.map((e) => {
+    h('div.rows', foldActivity(r.entries).map(({ e, n }) => {
       const l = activityLine(e);
       return h(`div.row.static.au-act${l.problem ? '.bad' : ''}`,
         h('span.row-icon', icon(l.problem ? 'alert' : 'check', { size: 18 })),
         h('span.row-main',
-          h('span.au-act-title', l.title),
+          h('span.au-act-title', l.title, n > 1 ? h('span.badge.soft.au-act-n', `${n} times`) : null),
           l.problem ? h('span.au-act-problem', l.problem) : null,
-          h('span.row-sub', `${l.sub} · ${ago(Date.parse(e.time))}`)));
+          h('span.row-sub', `${l.sub} · ${n > 1 ? 'last ' : ''}${ago(Date.parse(e.time))}`)));
     })),
     h('div.au-foot-row', h('p.hint', 'The newest 50, kept on this computer.'), refresh)));
 }

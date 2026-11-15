@@ -51,7 +51,7 @@ export async function apply(actions, ctx) {
     if (r.error) ctx.record({ automation: 'workspace', did: 'could not look at the workspace map', outcome: `failed: ${r.error}` });
     // Nothing changed: no line, no noise.
     for (const l of r.lines || []) {
-      const saved = r.commit ? (r.commit.done ? `saved in the brain${r.pushed ? (r.pushed.done ? ' and uploaded' : `; not uploaded: ${r.pushed.why}`) : ''}` : `not saved: ${r.commit.why}`) : 'written (not saved in the brain\'s history: the commitMap switch is off)';
+      const saved = r.commit ? (r.commit.done ? `saved in the brain${r.pushed ? (r.pushed.done ? ' and uploaded' : `; not uploaded: ${r.pushed.why}`) : ''}` : `not saved: ${r.commit.why}`) : 'written, not saved in the AI brain\'s history (Settings → Workspace: "Save a change of the map" is off)';
       ctx.record({ automation: 'workspace', did: l, outcome: saved });
     }
     const print = (r.needs || []).join('\n');
