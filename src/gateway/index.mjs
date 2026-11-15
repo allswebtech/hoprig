@@ -53,6 +53,29 @@ const VIA_RE = /\/gateway\/m\/([a-z0-9][a-z0-9_-]{0,31})\/([a-z][a-z0-9-]{0,30})
 const DIRECT_RE = /^(.*)\/gateway\/([a-z][a-z0-9-]{0,30})$/;
 const MODELS_RE = /^\*=[A-Za-z0-9._:/@+\-[\]]{1,120}$/;
 
+/**
+ * True when a request path could reach somewhere else once a server decodes it: an encoded slash or backslash
+ * (%2f, %5c), a backslash, a "." or ".." segment, or an encoding that does not decode. Checked at every level of
+ * decoding (%252f is %2f after one), in any case. The URL parser removes plain and %2e dot segments but keeps %2f, so
+ * "/v1/..%2fadmin" would pass a check for "/v1/" and reach the gateway's own pages if it decodes before routing.
+ */
+export function unsafePath(path) {
+  let s = String(path);
+  for (let i = 0; i < 4; i++) {
+    if (/%2f|%5c|\\/i.test(s)) return true;
+    if (s.split('/').some((seg) => seg === '.' || seg === '..')) return true;
+    let next;
+    try {
+      next = decodeURIComponent(s);
+    } catch {
+      return true;
+    }
+    if (next === s) return false;
+    s = next;
+  }
+  return true; // still changing after several decodings: no API path looks like that
+}
+
 /** The gateway key an API client sends: as a bearer token (ANTHROPIC_AUTH_TOKEN) or as x-api-key (ANTHROPIC_API_KEY). */
 export function presentedKey(req) {
   const m = /^Bearer\s+(\S+)\s*$/i.exec(String(req.headers.authorization || ''));
@@ -323,6 +346,12 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       return false;
     }
     const p = url.pathname;
+    // Before anything else, on both paths: the path as sent and as parsed (Claude's API paths have none of these).
+    if (unsafePath(req.url.split(/[?#]/)[0]) || unsafePath(p)) {
+      req.resume();
+      apiError(res, 404, 'not_found_error', 'This path is not allowed through a shared gateway.');
+      return true;
+    }
     const linked = /^\/gateway\/m\/([a-z0-9][a-z0-9_-]{0,31})\/([a-z][a-z0-9-]{0,30})(\/.*)?$/.exec(p);
     if (linked) {
       await via(req, res, linked[1], linked[2], linked[3] || '/', url.search);
