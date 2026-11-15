@@ -557,3 +557,27 @@ test('Git and GitHub: three rows, done only when all are; a step of Get started'
   assert.equal(withGitStep(onb, null), onb, 'an older computer: the list as it came');
   assert.equal(actionLabel({ kind: 'git' }), 'Set up git and GitHub');
 });
+
+// ---------- every helper of lib.js that a page module calls is imported there ----------
+// A module that calls one without importing it throws only when that code runs: the page then draws nothing (Setup was
+// blank once because `link` was missing from pcsetup.js's import). Checked from the source, without a browser.
+test('web modules import every lib.js helper they call', () => {
+  const lib = fs.readFileSync(path.join(WEB, 'lib.js'), 'utf8');
+  const helpers = [...lib.matchAll(/^export (?:async )?(?:function|const|class|let) ([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]);
+  assert.ok(helpers.includes('link') && helpers.includes('api'), 'lib.js exports were read');
+  const missing = [];
+  for (const f of fs.readdirSync(WEB).filter((x) => x.endsWith('.js') && x !== 'lib.js')) {
+    const raw = fs.readFileSync(path.join(WEB, f), 'utf8');
+    const imported = new Set();
+    for (const m of raw.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/lib\.js'/g)) for (const n of m[1].split(',')) imported.add(n.trim().split(/\s+as\s+/).pop());
+    // Code only: no comments, no quoted text (a template's ${…} stays, it is code).
+    const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\\])\/\/.*$/gm, '$1').replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"/g, "''");
+    for (const n of helpers) {
+      if (imported.has(n)) continue;
+      const esc = n.replace(/\$/g, '\\$');
+      if (new RegExp(`\\b(?:const|let|var|function|class)\\s+${esc}\\b|[({,]\\s*${esc}\\s*[,)=]|\\(${esc}\\)\\s*=>`).test(code)) continue; // its own name
+      if (new RegExp(`(?<![\\w$.])${esc}\\(`).test(code)) missing.push(`${f}: ${n}`);
+    }
+  }
+  assert.deepEqual(missing, [], 'called without being imported from ./lib.js');
+});

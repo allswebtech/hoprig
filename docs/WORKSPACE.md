@@ -177,8 +177,11 @@ only when it is only behind (uncommitted work stays, as in `sync`). The other co
 
 ## Git and GitHub
 
-One step of `hoprig setup` and `hoprig pc setup`, and `hoprig workspace git` on its own (the dashboard's Setup
-starts it in a terminal session, because signing in is yours to do):
+One step of `hoprig setup` and `hoprig pc setup`, and `hoprig workspace git` on its own. The dashboard's Setup
+does the same in the page, without a terminal: a small form for the name and e-mail; **Sign in** shows the
+one-time code from `gh auth login --web` with a copy button and a link to github.com/login/device, you confirm it
+there and gh finishes by itself (then `gh auth setup-git`); **Keep on GitHub** puts the brain into a new private
+repository as a job. No GitHub password or token goes through the dashboard:
 
 1. The GitHub sign-in: `gh auth login` in the terminal (you confirm a code in the browser), then
    `gh auth setup-git`, so plain git uses that sign-in too. Only the account name is ever kept or shown.
@@ -257,7 +260,8 @@ text (`.md`, `.txt`). Text that looks like a secret is masked before it leaves t
 Routes (behind the login; another computer's through the hub): `GET /api/workspace`, `POST /api/workspace/setup`,
 `GET /api/brain`, `GET /api/brain/item?id=<id>`, `GET|POST /api/workspace/map`, `POST /api/workspace/restore`,
 `POST /api/workspace/sync`, `GET /api/workspace/job`, `POST /api/workspace/settings`, `POST /api/workspace/forget`,
-`GET /api/workspace/git`, `POST /api/workspace/git/terminal` (the list with what each takes is at the top of
+`GET /api/workspace/git`, `POST /api/workspace/git/identity`, `GET|POST /api/workspace/git/signin`,
+`POST /api/workspace/git/signin/cancel`, `POST /api/workspace/git/brain` (the list with what each takes is at the top of
 `src/workspace/feature.mjs`).
 
 ## What is checked where

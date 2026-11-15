@@ -12,7 +12,9 @@
 //                                       "pc/setup" | "pc/projects" | "settings/skills" | "settings/signin-device"
 //                                       | "settings/accounts" | "settings/computers"
 //                        | { kind: "terminal", run: string, label: string }   POST /api/onboarding/run { run } opens a
-//                                       terminal session with that command ("setup" | "claude-login" | "pc-setup")
+//                                       terminal session with that command ("claude-login": Claude Code's own sign-in)
+//                        | { kind: "install-claude", label: string }   POST /api/onboarding/install-claude installs
+//                                       Claude Code as a background job in the page (GET /api/onboarding/job)
 //                        | { kind: "request", method: "POST", path: string, body: object }   a route the page calls
 //                        | { kind: "claude-login", label: string }   the page signs Claude Code in itself
 //                                       (src/server/claudelogin.mjs; "claude-login" above stays its terminal way)
@@ -21,6 +23,9 @@
 //       checkedAt: number              when the slow parts (Claude Code, the coding tools) were last looked at
 //     }
 //   POST /api/onboarding/run { run }           → { session }: the command in a new terminal session (owner only)
+//   POST /api/onboarding/install-claude        → { started: true }: Claude Code with its official installer, and the
+//                                              first provider ("sub"), as a background job (owner only)
+//   GET  /api/onboarding/job?from=N            that job: { running, lines, next, result: { ok, version } }
 //
 // The slow parts (running `claude`, looking for every coding tool) are cached for a minute; the rest are file reads.
 import fs from 'node:fs';
@@ -32,13 +37,20 @@ import { uniqueName } from '../server/validate.mjs';
 
 const CACHE_MS = 60_000;
 
-// The terminal commands the page may ask for: argv built here, never from the request.
+// The terminal commands the page may ask for: argv built here, never from the request. Only Claude Code's own
+// sign-in is left here; installing it and the coding tools run in the page.
 export function runCommands(launcher, claudeBin) {
   return {
-    setup: { label: 'Set up Claude Code', argv: [...launcher, 'setup', '--only', 'base'] },
     'claude-login': { label: 'Sign in to Claude', argv: [claudeBin, 'auth', 'login'] },
-    'pc-setup': { label: 'Install the tools for coding', argv: [...launcher, 'pc', 'setup'] },
   };
+}
+
+/** Install Claude Code (the official installer) and make the first provider, like `hoprig setup` does. */
+async function installClaude({ onLine }) {
+  const cc = await import('../claudecode.mjs');
+  const r = await cc.claudeInstall({ onLine });
+  if (r.ok) (await import('../menu.mjs')).ensureFirstProfile();
+  return r;
 }
 
 /** Live browser sessions of the dashboard (a count; the file holds only hashes and expiry times). */
@@ -89,7 +101,7 @@ export function onboardingSteps(f) {
     {
       id: 'claude', title: 'Claude Code installed and signed in', optional: false, done: claudeDone,
       detail: !f.claude.installed ? 'Claude Code is not installed' : claudeDone ? `Claude Code ${f.claude.installed}` : 'not signed in yet',
-      action: claudeDone ? null : !f.claude.installed ? { kind: 'terminal', run: 'setup', label: 'Set up Claude Code' } : { kind: 'claude-login', label: 'Sign in to Claude' },
+      action: claudeDone ? null : !f.claude.installed ? { kind: 'install-claude', label: 'Install Claude Code' } : { kind: 'claude-login', label: 'Sign in to Claude' },
     },
     {
       id: 'tools', title: 'Tools for coding', optional: false, done: !f.tools.missing.length,
@@ -134,6 +146,7 @@ export function onboardingFeature(sctx, opts = {}) {
   const src = { ...real, ...(opts.facts || {}) };
   const now = opts.now || Date.now;
   let slow = null; // { at, claude, tools }
+  const job = { running: false, lines: [], result: null };
 
   const owner = (req) => {
     if (!sctx.authed(req)) throw Object.assign(new Error('only the owner of this dashboard can see this'), { status: 403 });
@@ -180,6 +193,30 @@ export function onboardingFeature(sctx, opts = {}) {
       await sctx.backend.create({ name, dir: (await import('node:os')).homedir(), argv: cmd.argv });
       slow = null; // look again next time: the user is about to change something
       return { session: name };
+    }],
+    ['POST', /^\/api\/onboarding\/install-claude$/, async (req) => {
+      owner(req);
+      await sctx.readJson(req);
+      if (job.running) throw Object.assign(new Error('Claude Code is being installed already'), { status: 409 });
+      Object.assign(job, { running: true, lines: [], result: null });
+      const onLine = (l) => job.lines.length < 3000 && job.lines.push(String(l).slice(0, 500));
+      Promise.resolve()
+        .then(() => (opts.installClaude || installClaude)({ onLine }))
+        .then((r) => (job.result = { ok: Boolean(r && r.ok), version: (r && r.version) || null }))
+        .catch((e) => {
+          onLine(e.message);
+          job.result = { ok: false, version: null };
+        })
+        .finally(() => {
+          job.running = false;
+          slow = null;
+        });
+      return { started: true };
+    }],
+    ['GET', /^\/api\/onboarding\/job$/, async (req, m, q) => {
+      owner(req);
+      const from = Math.max(0, Math.min(job.lines.length, Number(q && q.get('from')) || 0));
+      return { running: job.running, lines: job.lines.slice(from), next: job.lines.length, result: job.result };
     }],
   ];
   return { name: 'onboarding', routes };

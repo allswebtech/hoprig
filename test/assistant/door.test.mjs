@@ -43,7 +43,7 @@ const OWNERS_ONLY = [
   ['POST', '/api/pair/code'], ['POST', '/api/pair/claim'], ['GET', '/api/joins'], ['POST', '/api/joins/x/leave'], ['POST', '/api/links/code'],
   ['POST', '/api/machines/url'], ['POST', '/api/machines/box2/remove'], ['POST', '/api/machines/install'], ['POST', '/api/machines/box2/test'],
   ['POST', '/api/profiles/add'], ['POST', '/api/profiles/sub/delete'], ['POST', '/api/profiles/sub/available'], ['GET', '/api/accounts'], ['POST', '/api/accounts/api'],
-  ['POST', '/api/workspace/git/terminal'], ['POST', '/api/addons/trouteai/setup'], ['POST', '/api/notify/test'], ['POST', '/api/onboarding/run'], ['POST', '/api/pcsetup/recipe'],
+  ['POST', '/api/workspace/git/terminal'], ['POST', '/api/workspace/git/identity'], ['POST', '/api/workspace/git/signin'], ['POST', '/api/workspace/git/brain'], ['POST', '/api/addons/trouteai/setup'], ['POST', '/api/notify/test'], ['POST', '/api/onboarding/run'], ['POST', '/api/pcsetup/recipe'],
   ['GET', '/api/assistant'], ['POST', '/api/assistant/settings'], ['POST', '/api/assistant/client-token'], ['POST', '/api/assistant/cards/c_000000000000/confirm'],
   ['POST', '/api/assistant/chat'], ['POST', '/api/assistant/call'], ['GET', '/ws/term'],
 ];
@@ -220,4 +220,12 @@ test('the other computer decides too: its gate refuses a hub token on the owner-
   }
   // What a hub may call there (the same owner): the door here is what keeps these from Tia.
   for (const p of ['/api/profiles/add', '/api/notify/test', '/api/pcsetup/recipe', '/api/settings', '/api/assistant/run']) assert.equal(tokenMayReach(p), true, p);
+});
+
+test('setup and fix: Tia sends the kits or the check, never a password and never the terminal fallback', () => {
+  assert.equal(checkRoute('POST', '/api/pcsetup/setup', { kits: ['basics'] }, stubCtx()).tool, 'manage_computer set_up');
+  assert.equal(checkRoute('POST', '/m/box2/api/pcsetup/fix', { id: 'extras.tmux' }, stubCtx()).computer, 'box2');
+  for (const [p, b] of [['/api/pcsetup/setup', { kits: ['basics'], password: 'x' }], ['/api/pcsetup/setup', { kits: ['basics'], terminal: true }], ['/api/pcsetup/fix', { id: 'x', password: 'x' }], ['/api/pcsetup/fix', 'x']]) {
+    refused(() => checkRoute('POST', p, b, stubCtx()));
+  }
 });

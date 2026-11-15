@@ -164,16 +164,21 @@ export async function runQuiet(argv, { env = process.env, cwd, log } = {}) {
 /**
  * Run a command and pass each output line to onLine as it comes. With `interactive` the command gets this
  * terminal (stdin and output) instead, so sudo, a browser sign-in or a prompt can talk to the user directly;
- * its output is then not collected. Resolves to { ok, code, output }.
+ * its output is then not collected. `input` (text) is written to the command's input, which is then closed: how
+ * `sudo -S` gets a password without a terminal (pcsetup/admin.mjs). Resolves to { ok, code, output }.
  */
-export function stream(argv, { env = process.env, cwd, onLine = () => {}, interactive = false } = {}) {
+export function stream(argv, { env = process.env, cwd, onLine = () => {}, interactive = false, input = null } = {}) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(argv[0], argv.slice(1), { env, cwd, stdio: interactive ? 'inherit' : ['ignore', 'pipe', 'pipe'], windowsHide: true });
+      child = spawn(argv[0], argv.slice(1), { env, cwd, stdio: interactive ? 'inherit' : [input === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], windowsHide: true });
     } catch (e) {
       resolve({ ok: false, code: null, output: e.message });
       return;
+    }
+    if (!interactive && input !== null) {
+      child.stdin.on('error', () => {}); // a command that exits without reading its input
+      child.stdin.end(input);
     }
     const lines = [];
     const feed = (stream) => {

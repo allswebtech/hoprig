@@ -1,7 +1,6 @@
 // Settings → Add-ons on the server: list with state, actions as background jobs with live output, one job at a
 // time per add-on, and "set up as an account" as a terminal session (the key never goes through the page).
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import os from 'node:os';
 import { Readable } from 'node:stream';
 import test from 'node:test';
@@ -73,14 +72,13 @@ test('add-ons: state, an install with live output, one job at a time', async () 
   assert.equal((await call('GET', '/api/addons')).addons[0].running, false);
 });
 
-test('add-ons: unknown add-on or action; setup opens a terminal that runs the setup command', async () => {
+test('add-ons: unknown add-on or action; no terminal route (a provider is made on the Providers page)', async () => {
   const { call, created } = harness();
   await assert.rejects(call('POST', '/api/addons/nope/start'), (e) => e.status === 404);
   await assert.rejects(call('GET', '/api/addons/nope/job'), (e) => e.status === 404);
   await assert.rejects(call('POST', '/api/addons/gw/uninstall'), /no route/);
-  const r = await call('POST', '/api/addons/gw/setup');
-  assert.equal(r.name, 'setup-gw-2', 'a free name');
-  assert.deepEqual(created, [{ name: 'setup-gw-2', dir: fs.realpathSync(os.tmpdir()), argv: ['node', '/app/bin/hoprig.mjs', 'addons', 'setup', 'gw'] }]);
+  await assert.rejects(call('POST', '/api/addons/gw/setup'), /no route/);
+  assert.deepEqual(created, []);
 });
 
 test('add-ons: a failing action is reported, not thrown', async () => {

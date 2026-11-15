@@ -1,5 +1,5 @@
-// "Git and GitHub": one step of `hoprig setup` and `hoprig pc setup`, and `hoprig workspace git` on its own (the
-// dashboard opens that in a terminal session, because signing in is something a person does).
+// "Git and GitHub": one step of `hoprig setup` and `hoprig pc setup`, and `hoprig workspace git` on its own. The
+// dashboard does the same in the page (workspace/feature.mjs: the sign-in by gh's device flow, ghsignin.mjs).
 //   1. git's name and e-mail when they are missing (once signed in, GitHub's no-reply address is suggested; an
 //      address is never made up)
 //   2. the GitHub sign-in: `gh auth login` in the terminal (the person does it in the browser), then
@@ -160,8 +160,11 @@ export async function runGitStep({ ui, run = capture, term = stream, has = (c) =
   return { ok: r.ok, changed: true, state: await gitState({ run, has, dir }) };
 }
 
-/** A new private repository for the brain (made first when there is none), the map in it, pushed. */
-async function startNew(ui, { st, run, term, dir }) {
+/**
+ * A new private repository for the brain (made first when there is none), the map in it, pushed. With `owner` and
+ * `name` (the dashboard, where the owner already said yes) nothing is asked.
+ */
+export async function startNew(ui, { st, run, term, dir, owner: wantOwner = null, name: wantName = null }) {
   const brain = path.join(dir, 'ai_brain');
   if (!st.brain.exists) {
     const r = await workspaceSetup({ cfg: { workspaceDir: dir } });
@@ -173,14 +176,17 @@ async function startNew(ui, { st, run, term, dir }) {
   }
   const owners = await githubOwners(run);
   let owner = owners[0];
-  if (owners.length > 1) {
+  if (wantOwner) {
+    if (!owners.includes(wantOwner)) return ui.line('fail', `${wantOwner} is not your GitHub account or one of its organisations`) ?? false;
+    owner = wantOwner;
+  } else if (owners.length > 1) {
     const k = await ui.choose('Which GitHub account keeps it?', owners.map((o, i) => ({ key: String(i + 1), label: o })), '1');
     owner = k ? owners[Number(k) - 1] : null;
   }
   if (!owner) return false;
-  const name = ((ui.interactive && !ui.yes ? await ui.ask('  Its name on GitHub (ai_brain): ') : '') || '').trim() || 'ai_brain';
+  const name = wantName || ((ui.interactive && !ui.yes ? await ui.ask('  Its name on GitHub (ai_brain): ') : '') || '').trim() || 'ai_brain';
   if (!/^[A-Za-z0-9._-]{1,100}$/.test(name)) return ui.line('fail', 'a repository name is letters, digits, ".", "_" and "-"') ?? false;
-  if (!(await ui.confirm(`Create the PRIVATE repository ${owner}/${name} and push your AI brain to it?`, true))) return false;
+  if (!wantName && !(await ui.confirm(`Create the PRIVATE repository ${owner}/${name} and push your AI brain to it?`, true))) return false;
   const lines = [];
   const r = await createGithubRepo(brain, owner, name, { onLine: (l) => lines.push(l), run: term });
   if (!r.ok) return ui.line('fail', `gh repo create failed: ${lines.filter(Boolean).pop() || ''} — retry: gh repo create ${owner}/${name} --private --source "${brain}" --remote origin --push`) ?? false;

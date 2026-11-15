@@ -1,8 +1,8 @@
 // `hoprig pc setup`: from a fresh computer to one that is ready for coding, in one guided, repeatable run.
 //   1. what is there and what is missing, per kit
 //   2. ONE confirmation with the exact commands
-//   3. the installs, with their output as it comes; sudo / Windows ask for the password themselves (hoprig
-//      never sees, keeps or types one)
+//   3. the installs, with their output as it comes; in a terminal sudo / Windows ask for the password themselves
+//      (hoprig never sees it); the dashboard's setup job asks in the page instead and hands it to sudo (admin.mjs)
 //   4. git name and e-mail, GitHub sign-in (only when there is a terminal to ask in)
 //   5. the projects folder and the repositories to clone, each with its dependency install offered
 //   6. what was installed, what failed with the exact command to retry, and what needs a new login or shell
@@ -73,27 +73,34 @@ export function parseArgs(args) {
 
 /**
  * Run the plan's steps in order. A failed step skips the rest of its kit (they build on it). Returns
- * [{ step, ok, skipped }].
+ * [{ step, ok, skipped }]. `onStep(index, step, state)` hears each step's state (waiting, running, ok, fail,
+ * skipped): the dashboard marks its steps with it.
  */
-export async function runSteps(steps, { ui, interactive, runner = stream, env = process.env }) {
+export async function runSteps(steps, { ui, interactive, runner = stream, env = process.env, onStep = () => {} }) {
   const results = [];
   const failedKits = new Set();
-  for (const step of steps) {
+  steps.forEach((s, i) => onStep(i, s, 'waiting'));
+  for (const [i, step] of steps.entries()) {
     if (step.kit && failedKits.has(step.kit)) {
       results.push({ step, ok: false, skipped: true });
+      onStep(i, step, 'skipped');
       continue;
     }
+    onStep(i, step, 'running');
     ui.out(`\n  ${bold('→')} ${step.why ? `${step.why}: ` : ''}${showCommand(step.argv)}`);
     const live = interactive || step.interactive;
     // Without a terminal the package manager's long output is kept back and shown only when the step fails: the
-    // run stays readable (with a terminal the command has it, so sudo can ask for its password).
+    // run stays readable (with a terminal the command has it, so sudo can ask for its password). The dashboard's
+    // job (ui.page) shows every line as it comes: the page folds the output itself.
     const kept = [];
-    const r = await runner(step.argv, { env: { ...env, PATH: freshPath(env) }, interactive: live, onLine: (l) => kept.push(l) });
+    const onLine = ui.page ? (l) => ui.out(`    ${l}`) : (l) => kept.push(l);
+    const r = await runner(step.argv, { env: { ...env, PATH: freshPath(env) }, interactive: live, onLine });
     if (!r.ok) {
       for (const l of kept.slice(-15)) ui.out(`    ${dim(l)}`);
       ui.line('fail', `that failed (exit ${r.code ?? '?'})`);
       if (step.kit) failedKits.add(step.kit);
     }
+    onStep(i, step, r.ok ? 'ok' : 'fail');
     results.push({ step, ok: r.ok, skipped: false });
   }
   return results;
@@ -115,7 +122,8 @@ async function github(ui, sys, found, recipe, runner) {
       if (email && /^[^\s@<>"\\]{1,64}@[A-Za-z0-9.-]{1,190}$/.test(email)) await runner(['git', 'config', '--global', 'user.email', email], {});
       ui.line('ok', 'commit name set' + (email ? ' and e-mail set' : ''));
       res.push('identity');
-    } else ui.line('warn', 'commit name and e-mail not set: git config --global user.name "Your Name" && git config --global user.email you@example.com');
+    } else if (ui.page) ui.line('warn', 'commit name and e-mail not set yet: set them under Git and GitHub on this page');
+    else ui.line('warn', 'commit name and e-mail not set: git config --global user.name "Your Name" && git config --global user.email you@example.com');
   }
   if (items.signin && items.signin.state !== 'ok') {
     if (!sys.has('gh')) ui.line('warn', 'GitHub sign-in: gh is not installed (choose the GitHub kit)');
@@ -123,7 +131,8 @@ async function github(ui, sys, found, recipe, runner) {
       const r = await runner(['gh', 'auth', 'login', '--hostname', 'github.com'], { interactive: true });
       ui.line(r.ok ? 'ok' : 'warn', r.ok ? 'signed in to GitHub' : 'GitHub sign-in did not finish: run gh auth login');
       if (r.ok) res.push('signin');
-    } else ui.line('warn', `GitHub sign-in: run ${bold('gh auth login')}${ui.interactive ? '' : ' in a terminal'}`);
+    } else if (ui.page) ui.line('warn', 'not signed in to GitHub yet: use Sign in under Git and GitHub on this page');
+    else ui.line('warn', `GitHub sign-in: run ${bold('gh auth login')}${ui.interactive ? '' : ' in a terminal'}`);
   }
   return res;
 }
@@ -221,7 +230,7 @@ async function rulesStep(ui, want) {
  * `ui` is setup/ui.mjs makeUi(); `kits` a list of kit ids (default: the kits that miss something);
  * `missing` lists "kit.item" still missing afterwards; `changed` is true when anything was installed or set.
  */
-export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null, recipe = null, projects = false, rules = null, hold = false, sys: sysOver, runner = stream, ghList } = {}) {
+export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null, recipe = null, projects = false, rules = null, hold = false, sys: sysOver, runner = stream, ghList, onStep } = {}) {
   ui.yes = ui.yes || yes;
   ui.dryRun = ui.dryRun || dryRun;
   const sys = sysOver || (await sysFacts());
@@ -248,10 +257,10 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
       ui.line('fail', 'run the "as root" commands as root (or install sudo first), then run this again');
       return { ok: false, changed: false, missing: [], code: 1 };
     }
-    ui.out(`\n${bold('Will run')}${plan.admin ? dim('  (sudo asks for your password itself; Hoprig never sees it)') : ''}`);
+    ui.out(`\n${bold('Will run')}${plan.admin && !ui.page ? dim('  (sudo asks for your password itself; Hoprig never sees it)') : ''}`);
     for (const s of plan.steps) ui.out(`    ${showCommand(s.argv)}`);
     const go = await ui.confirm(`Install ${plan.steps.length === 1 ? 'this' : `these ${plan.steps.length} steps`} now?`, true);
-    if (go) results = await runSteps(plan.steps, { ui, interactive: ui.interactive, runner });
+    if (go) results = await runSteps(plan.steps, { ui, interactive: ui.interactive, runner, onStep });
     else if (!ui.dryRun) ui.note('Nothing installed.');
   }
   let changed = results.some((x) => x.ok);

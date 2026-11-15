@@ -23,7 +23,7 @@ test('each step done or not, with what to open', () => {
   const e = byId(ON.onboardingSteps(empty));
   assert.deepEqual(Object.keys(e), ['claude', 'tools', 'rules', 'project', 'skills', 'phone', 'account2', 'computer']);
   for (const x of Object.values(e)) assert.equal(x.done, false, x.id);
-  assert.deepEqual(e.claude.action, { kind: 'terminal', run: 'setup', label: 'Set up Claude Code' });
+  assert.deepEqual(e.claude.action, { kind: 'install-claude', label: 'Install Claude Code' });
   assert.deepEqual(e.tools.action, { kind: 'page', target: 'pc/setup' });
   assert.deepEqual(e.rules.action, { kind: 'request', method: 'POST', path: '/api/pcsetup/rules', body: { action: 'add' } });
   assert.deepEqual(e.project.action, { kind: 'page', target: 'pc/projects' });
@@ -49,7 +49,7 @@ test('browser sessions are counted from the file, expired ones not', () => {
   assert.equal(ON.browserSessions(path.join(s.tmp, 'none.json')), 0);
 });
 
-function harness({ authed = true, facts = full, seen = null } = {}) {
+function harness({ authed = true, facts = full, seen = null, installClaude } = {}) {
   const calls = { claude: 0, tools: 0 };
   const created = [];
   let clock = 1_000_000;
@@ -62,9 +62,10 @@ function harness({ authed = true, facts = full, seen = null } = {}) {
     readJson: async (req) => req.body || {},
     backend: { list: async () => [], create: async (o) => created.push(o) },
     deck: { launcher: () => ['node', '/app/bin/hoprig.mjs'] },
-  }, { facts: src, now: () => clock, loginSeen: () => (typeof seen === 'function' ? seen(clock) : seen) });
+  }, { facts: src, now: () => clock, loginSeen: () => (typeof seen === 'function' ? seen(clock) : seen), installClaude });
   const call = (method, p, body) => {
-    for (const [m, re, fn] of f.routes) if (m === method && re.test(p)) return fn({ body, headers: {} });
+    const u = new URL(p, 'http://x');
+    for (const [m, re, fn] of f.routes) if (m === method && re.test(u.pathname)) return fn({ body, headers: {} }, null, u.searchParams);
     throw new Error('no route');
   };
   return { call, calls, created, tick: (ms) => (clock += ms) };
@@ -91,13 +92,31 @@ test('owner only: without the login cookie (another dashboard\'s token, say) it 
   await assert.rejects(h.call('POST', '/api/onboarding/run', { run: 'setup' }), (e) => e.status === 403);
 });
 
-test('run: only the commands named here, in a terminal session; anything else refused', async () => {
+test('run: only Claude Code\'s own sign-in is a terminal; installing runs in the page; anything else refused', async () => {
   const h = harness();
-  assert.match((await h.call('POST', '/api/onboarding/run', { run: 'pc-setup' })).session, /^get-started-pc-setup/);
-  assert.deepEqual(h.created[0].argv, ['node', '/app/bin/hoprig.mjs', 'pc', 'setup']);
   await h.call('POST', '/api/onboarding/run', { run: 'claude-login' });
-  assert.deepEqual(h.created[1].argv, ['claude', 'auth', 'login']);
-  for (const bad of ['rm -rf ~', '__proto__', 1, null]) await assert.rejects(h.call('POST', '/api/onboarding/run', { run: bad }), (e) => e.status === 400);
+  assert.deepEqual(h.created[0].argv, ['claude', 'auth', 'login']);
+  for (const bad of ['setup', 'pc-setup', 'rm -rf ~', '__proto__', 1, null]) await assert.rejects(h.call('POST', '/api/onboarding/run', { run: bad }), (e) => e.status === 400);
+  assert.equal(h.created.length, 1);
+});
+
+test('install Claude Code: a job in the page with its lines and result; owner only; one at a time', async () => {
+  let release;
+  const h = harness({ installClaude: async ({ onLine }) => {
+    onLine('Downloading the installer');
+    await new Promise((r) => (release = r));
+    return { ok: true, version: '2.1.330' };
+  } });
+  assert.deepEqual(await h.call('POST', '/api/onboarding/install-claude', {}), { started: true });
+  await assert.rejects(h.call('POST', '/api/onboarding/install-claude', {}), (e) => e.status === 409);
+  let j = await h.call('GET', '/api/onboarding/job?from=0');
+  assert.deepEqual([j.running, j.lines], [true, ['Downloading the installer']]);
+  release();
+  await new Promise((r) => setTimeout(r, 10));
+  j = await h.call('GET', '/api/onboarding/job?from=1');
+  assert.deepEqual([j.running, j.lines, j.result], [false, [], { ok: true, version: '2.1.330' }]);
+  assert.equal(h.created.length, 0, 'no terminal');
+  await assert.rejects(harness({ authed: false }).call('POST', '/api/onboarding/install-claude', {}), (e) => e.status === 403);
 });
 
 test('a sign-in checked after the cached answer (the page signed Claude Code in) counts at once', async () => {

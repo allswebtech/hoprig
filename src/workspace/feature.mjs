@@ -13,18 +13,25 @@
 //   POST /api/workspace/settings { dir?, projects? }    where the workspace and the projects folder are (nothing moves)
 //   POST /api/workspace/forget { name }                 out of the map (no file is touched)
 //   GET  /api/workspace/git             git name and e-mail set?, gh installed?, the GitHub account, the brain's remote
-//   POST /api/workspace/git/terminal    opens a terminal session running `hoprig workspace git` (signing in is the
-//                                       person's to do; the page never sees a code or a token)
+//   POST /api/workspace/git/identity { name, email }   the name and e-mail on commits (git config --global)
+//   POST /api/workspace/git/signin      the GitHub sign-in without a terminal (gh's device flow, ghsignin.mjs):
+//                                       { state, code, url }: the page shows the one-time code, the owner confirms it
+//                                       on GitHub's own page, gh finishes by itself (then gh auth setup-git)
+//   GET  /api/workspace/git/signin      how far it is: { state: idle | starting | code | done | failed | expired |
+//                                       cancelled, code, url, account, error }
+//   POST /api/workspace/git/signin/cancel   stop waiting for the code
+//   POST /api/workspace/git/brain { owner?, name? }   the AI brain into a new PRIVATE GitHub repository, pushed with
+//                                       its map (a background job, GET /api/workspace/job)
+// No GitHub password and no token ever goes through these: GitHub asks on its own page, the token stays in gh.
 //
 // Behind the owner's login like every /api route, or another dashboard's machine token (the relay: the same owner
 // looking at this computer). Tia's token is refused here. The page never sends a path for the brain view (only an
 // id from the index); folders it sends for settings are checked like any typed folder.
-import fs from 'node:fs';
-import os from 'node:os';
 import { jobUi, tildeText } from '../pcsetup/feature.mjs';
-import { uniqueName } from '../server/validate.mjs';
 import { brainIndex, brainRead } from './brain.mjs';
-import { gitState } from './gitstep.mjs';
+import { capture, stream } from '../setup/system.mjs';
+import { githubSignin } from './ghsignin.mjs';
+import { gitState, startNew } from './gitstep.mjs';
 import { projectsIn, workspaceDir, workspaceStatus } from './layout.mjs';
 import { forget, mapStatus, updateMap } from './map.mjs';
 import { syncWith } from './peer.mjs';
@@ -59,6 +66,9 @@ export function workspaceFeature(sctx, opts = {}) {
     if (/^Bearer\s+tia_/i.test(String((req.headers && req.headers.authorization) || ''))) throw fail(403, 'the workspace is the owner\'s only');
   };
 
+  const signin = opts.signin || githubSignin();
+  const NAME_OK = /^[^\0-\x1f\x7f"\\<>]{1,100}$/;
+  const EMAIL_OK = /^[^\s@<>"\\]{1,64}@[A-Za-z0-9.-]{1,190}$/;
   let job = null; // one background job at a time: { kind, running, lines, result }
   function startJob(kind, fn) {
     if (job && job.running) throw fail(409, `${job.kind} is still running; wait until it finishes`);
@@ -166,18 +176,52 @@ export function workspaceFeature(sctx, opts = {}) {
         gh: { installed: s.gh.installed, signedIn: s.gh.signedIn, account: s.gh.account },
         gitUsesGh: s.helper,
         brain: s.brain,
-        start: { method: 'POST', path: '/api/workspace/git/terminal' },
       };
     }],
-    ['POST', /^\/api\/workspace\/git\/terminal$/, async (req) => {
+    ['POST', /^\/api\/workspace\/git\/identity$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['name', 'email']);
+      const name = typeof b.name === 'string' ? b.name.trim() : '';
+      const email = typeof b.email === 'string' ? b.email.trim() : '';
+      if (!NAME_OK.test(name)) throw fail(400, 'a name is 1 to 100 characters, without quotes or < >');
+      if (!EMAIL_OK.test(email)) throw fail(400, 'that does not look like an e-mail address');
+      const run = opts.run || capture;
+      for (const [k, val] of [['user.name', name], ['user.email', email]]) {
+        const r = await run(['git', 'config', '--global', k, val]);
+        if (!r.ok) throw fail(500, `git could not save it: ${(r.stderr || r.error || '').trim().split('\n').pop()}`);
+      }
+      return { name, email };
+    }],
+    ['POST', /^\/api\/workspace\/git\/signin$/, async (req) => {
+      ownerOnly(req);
+      keys(await sctx.readJson(req), []);
+      return signin.start();
+    }],
+    ['GET', /^\/api\/workspace\/git\/signin$/, async (req) => {
+      ownerOnly(req);
+      return signin.state();
+    }],
+    ['POST', /^\/api\/workspace\/git\/signin\/cancel$/, async (req) => {
       ownerOnly(req);
       await sctx.readJson(req);
-      if (!sctx.backend || !sctx.deck) throw fail(503, 'no terminals here');
-      const taken = (await sctx.backend.list()).map((t) => t.session);
-      const name = uniqueName('git-setup', taken);
-      const dir = fs.existsSync(places().dir) ? places().dir : os.homedir();
-      await sctx.backend.create({ name, dir, argv: [...sctx.deck.launcher(), 'workspace', 'git'] });
-      return { session: name };
+      return signin.cancel();
+    }],
+    ['POST', /^\/api\/workspace\/git\/brain$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['owner', 'name']);
+      if (b.owner !== undefined && (typeof b.owner !== 'string' || !/^[A-Za-z0-9-]{1,39}$/.test(b.owner))) throw fail(400, 'owner is a GitHub account name');
+      if (b.name !== undefined && (typeof b.name !== 'string' || !/^[A-Za-z0-9._-]{1,100}$/.test(b.name))) throw fail(400, 'a repository name is letters, digits, ".", "_" and "-"');
+      const dir = places().dir;
+      const st = await (opts.gitState || gitState)({ dir });
+      if (!st.gh.signedIn) throw fail(409, 'sign in to GitHub first');
+      if (st.brain.remote) throw fail(409, 'the AI brain is on a git server already');
+      return startJob('brain', async (onLine) => {
+        const { ui } = jobUi(onLine);
+        const ok = await (opts.startNew || startNew)(ui, { st, run: opts.run || capture, term: opts.stream || stream, dir, owner: b.owner || null, name: b.name || 'ai_brain' });
+        return { ok: ok === true };
+      });
     }],
   ];
   return { name: 'workspace', routes };
