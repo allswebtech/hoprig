@@ -37,7 +37,7 @@ globalThis.document ??= {
   visibilityState: 'visible',
 };
 
-const { whenText, whatText, scheduleSentence, activityLine } = await import('../../web/automation.js');
+const { whenText, whatText, scheduleSentence, activityLine, foldActivity } = await import('../../web/automation.js');
 const { plainCard, EXAMPLES, boldText } = await import('../../web/tia.js');
 
 test('a schedule reads as one sentence', () => {
@@ -128,4 +128,27 @@ test('both pages: styles in their own prefixed file, the shared words, no typed 
   for (const rule of css.split('}').map((r) => r.split('{')[0].trim()).filter((s) => s && !s.startsWith('@') && !/^\d|^(from|to)$/.test(s))) {
     assert.match(rule, /\.(au|tia)-/, `every rule names an au- or tia- class: ${rule}`);
   }
+});
+
+test('Activity: no setting key reaches the page, and the same entry in a row is one row with a count', async () => {
+  const rule = await import('../../src/automation/workspacesync.mjs');
+  const records = [];
+  const ctx = { record: (e) => records.push(e), notify: () => {}, data: {}, save: () => {}, workspaceMap: async () => ({ changed: true, lines: ['The map gained api-server'], needs: [] }) };
+  await rule.apply([{ type: 'map', commit: false, push: false }], ctx);
+  const line = activityLine(records[0]);
+  assert.doesNotMatch(`${line.title} ${line.sub}`, /commitMap/);
+  assert.match(line.sub, /not saved in the AI brain's history \(Settings → Workspace: "Save a change of the map" is off\)/);
+  // An entry written by an older version still reads plainly.
+  const old = activityLine({ automation: 'workspace', did: 'The map gained x', outcome: 'written (not saved in the brain\'s history: the commitMap switch is off)' });
+  assert.doesNotMatch(old.sub, /commitMap/);
+  const e = (did, time) => ({ automation: 'workspace', did, outcome: 'written', time });
+  const t = (s) => new Date(Date.UTC(2026, 10, 15, 10, 0, s)).toISOString();
+  const run = ['mobile-app', 'landing-page', 'docs-site'].map((x, i) => e(`The map gained ${x}`, t(30 - i)));
+  const one = foldActivity([...run, { automation: 'queue', did: 'sent x', outcome: 'ok', time: t(0) }]);
+  assert.deepEqual(one.map((x) => [x.e.did, x.n]), [['The map gained docs-site, landing-page and mobile-app', 1], ['sent x', 1]], 'one round is one sentence');
+  assert.equal(one[0].e.time, t(30), 'the newest time');
+  const same = foldActivity([e('stopped x', t(9)), e('stopped x', t(8)), e('stopped x', t(7)), e('stopped y', t(6))]);
+  assert.deepEqual(same.map((x) => [x.e.did, x.n]), [['stopped x', 3], ['stopped y', 1]], 'the same sentence again: one row with a count');
+  const apart = foldActivity([e('The map gained a', t(0)), e('The map gained b', new Date(Date.UTC(2026, 10, 15, 4)).toISOString())]);
+  assert.equal(apart.length, 2, 'two rounds hours apart stay two rows');
 });

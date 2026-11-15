@@ -50,6 +50,7 @@
 .au-act .row-icon { width: 32px; height: 32px; color: var(--ok); }
 .au-act.bad .row-icon { color: var(--danger); background: var(--danger-soft); }
 .au-act-title { font-weight: 600; overflow-wrap: anywhere; }
+.au-act-n { margin-left: 8px; vertical-align: 1px; font-weight: 600; }
 .au-act-problem { color: var(--danger); font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .au-act .row-sub { white-space: normal; }
 
@@ -61,6 +62,9 @@
 
 /* The chat fills the window (frame fillWindow, style.css): messages scroll above, the message box stays at the bottom
    (above the bottom bar and the on-screen keyboard on a phone). */
+/* Chat / Jobs / Activity: kept under the page head (its height in --tia-head, tia.js), on the page's colour edge to edge. */
+.tia-tabs { position: sticky; z-index: 15; top: var(--tia-head, 0px); margin: -18px -16px 14px; padding: 4px 16px 0; background: var(--bg); }
+@media (min-width: 900px) { .tia-tabs { margin: -26px -36px 14px; padding: 4px 36px 0; } }
 .tia-body { display: flex; flex-direction: column; min-width: 0; }
 .page.fill .tia-body { flex: 1; }
 .tia-chatwrap { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -159,6 +163,14 @@ textarea.field.tia-input { flex: 1; min-width: 0; min-height: 46px; max-height: 
 @media (max-width: 899px) {
   .tia-launch { display: none; }
   .tia-box { position: fixed; inset: 0; z-index: 70; padding-top: env(safe-area-inset-top); }
+}
+/* A desktop: the round button (52 px, 24 px from the right edge) must never cover a switch, a button or the end of a
+   row, also on a short page and in Settings' split pane. So while it shows, the page's content stops 92 px from the
+   window's right edge: a lane the button sits in. The page head keeps its full width (its tools stay at the edge,
+   above the button). From 1500 px the column (sidebar 232 + at most 1200) ends left of the button by itself. */
+@media (min-width: 900px) and (max-width: 1499px) {
+  body.tia-fab:not(.term-mode):not(.chat-mode) .page { padding-right: 92px; }
+  body.tia-fab:not(.term-mode):not(.chat-mode) .pagehead { margin-right: -92px; }
 }
 @media (min-width: 900px) {
   .tia-headbtn { display: none; }

@@ -62,13 +62,44 @@ const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a re
 export function activityLine(e) {
   const did = String(e.did || '').trim();
   const title = `${cap(did)}${/[.!?]$/.test(did) ? '' : '.'}`;
-  const o = String(e.outcome || 'ok');
+  // Lines written before the wording was plain named a setting by its key; said in the page's words instead.
+  const o = String(e.outcome || 'ok').replace(/\(not saved in the brain's history: the commitMap switch is off\)/, 'not saved in the AI brain\'s history (Settings → Workspace: "Save a change of the map" is off)');
   const problem = /^failed/.test(o) ? `It did not work${o.slice(6) ? `: ${o.replace(/^failed:?\s*/, '')}` : ''}.`
     : /^gave up/.test(o) ? 'It gave up; open the session to see why.'
       : /^missed/.test(o) ? `Missed: ${o.replace(/^missed:?\s*/, '')}.`
         : null;
   const note = problem || o === 'ok' ? null : cap(o.replace(/:\s*/, ': '));
   return { title, sub: [WHO[e.automation] || cap(e.automation), e.session || null, note].filter(Boolean).join(' · '), problem };
+}
+
+const GAINED = /^The map gained (.+)$/;
+const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0]);
+
+/**
+ * Entries one after another as one row: [{ e, n }], `e` the newest (the log is newest first). The same sentence
+ * again is one row with how many times (n). Several "The map gained …" of one round (the same outcome, within a
+ * minute) are one sentence: "The map gained api-server, docs-site and mobile-app".
+ */
+export function foldActivity(entries) {
+  const out = [];
+  const kin = (a, b) => a.automation === b.automation && (a.session || '') === (b.session || '') && a.outcome === b.outcome;
+  for (const e of entries) {
+    const last = out[out.length - 1];
+    if (last && kin(last.e, e) && last.e.did === e.did && !last.gained) {
+      last.n++;
+      continue;
+    }
+    const g = GAINED.exec(String(e.did || ''));
+    const near = last && Math.abs(Date.parse(last.at) - Date.parse(e.time)) <= 60_000;
+    if (g && last && last.gained && kin(last.e, e) && near) {
+      if (!last.gained.includes(g[1])) last.gained.push(g[1]);
+      last.e = { ...last.e, did: `The map gained ${and([...last.gained].reverse())}` };
+      last.at = e.time;
+      continue;
+    }
+    out.push({ e, n: 1, ...(g ? { gained: [g[1]], at: e.time } : {}) });
+  }
+  return out.map(({ e, n }) => ({ e, n }));
 }
 
 // ---------- the data of the open computer: kept per computer, so a part draws at once when it was seen before ----------
@@ -483,14 +514,14 @@ async function activityPart(box, isAlive) {
   }
   fill(box, h('div.au-activity',
     groupHead('Newest first', r.entries.length),
-    h('div.rows', r.entries.map((e) => {
+    h('div.rows', foldActivity(r.entries).map(({ e, n }) => {
       const l = activityLine(e);
       return h(`div.row.static.au-act${l.problem ? '.bad' : ''}`,
         h('span.row-icon', icon(l.problem ? 'alert' : 'check', { size: 18 })),
         h('span.row-main',
-          h('span.au-act-title', l.title),
+          h('span.au-act-title', l.title, n > 1 ? h('span.badge.soft.au-act-n', `${n} times`) : null),
           l.problem ? h('span.au-act-problem', l.problem) : null,
-          h('span.row-sub', `${l.sub} · ${ago(Date.parse(e.time))}`)));
+          h('span.row-sub', `${l.sub} · ${n > 1 ? 'last ' : ''}${ago(Date.parse(e.time))}`)));
     })),
     h('div.au-foot-row', h('p.hint', 'The newest 50, kept on this computer.'), refresh)));
 }

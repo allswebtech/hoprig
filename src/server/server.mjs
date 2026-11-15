@@ -51,6 +51,7 @@ import {
 import { createBackend } from './backends/index.mjs';
 import { Deck, launchArgv } from './deck.mjs';
 import { browse, insideRoots, recentFolders, resolveRoots } from './folders.mjs';
+import { alwaysOption } from './prompts.mjs';
 import { killProcess, power, snapshot } from './platform.mjs';
 import { machinesFeature } from '../machines/index.mjs';
 import { assistantFeature } from '../assistant/feature.mjs';
@@ -379,7 +380,7 @@ export function createServer(opts = {}) {
     }],
     ['GET', /^\/api\/profiles$/, async () => ({ profiles: profileStates(await cards()), autoSwitch: autoswitch.getAutoSwitch() })],
     ['GET', /^\/api\/folders\/recent$/, async () => {
-      const live = (await backend.list()).map((t) => t.cwd);
+      const live = (await backend.list()).map((t) => ({ cwd: t.cwd, session: t.session }));
       const r = roots();
       return { folders: recentFolders(live, r), roots: r.map((p) => ({ path: p, short: tilde(p) })) };
     }],
@@ -456,6 +457,12 @@ export function createServer(opts = {}) {
       // Escape / C-c interrupt; Enter, arrows, Tab and a digit answer a menu or a permission question.
       if (!['Escape', 'C-c', 'Enter', 'Up', 'Down', 'Tab', '1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(b.key)) throw bad('bad key');
       const { term } = await sessionOr404(decodeURIComponent(m[1]));
+      // "Always allow" from the page: the number is typed only while the question on screen still has that answer
+      // with the same words, so a question that changed since the page looked is never answered blind.
+      if (b.expect !== undefined) {
+        const now = alwaysOption(await backend.capture(term.id, 40));
+        if (typeof b.expect !== 'string' || !now || now.key !== b.key || now.text !== b.expect) throw new HttpError(409, 'the question on the screen changed; look at the session and answer there');
+      }
       if (/^[1-9]$/.test(b.key)) await backend.sendText(term.id, b.key);
       else await backend.sendKey(term.id, b.key);
       return { ok: true };

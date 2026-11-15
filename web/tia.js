@@ -16,7 +16,7 @@ const A = '~/api/assistant';
 
 // What she did, in plain words (the chips under her answer and the Activity list).
 const TOOL_WORDS = {
-  list_sessions: 'looked at the sessions', read_session: 'read a session', list_folders: 'looked at the folders', list_conversations: 'looked at earlier conversations',
+  list_sessions: 'looked at the sessions', read_session: 'read a session', list_projects: 'looked at the projects', list_conversations: 'looked at earlier conversations',
   get_accounts: 'looked at the providers', get_computer_status: 'looked at the computers', get_settings: 'read the settings', find_skill: 'looked up how to do it',
   start_session: 'start a session', send_to_session: 'type into a session', press_key: 'press a key in a session', rename_session: 'rename a session',
   watch_session: 'watch a session', finish_job: 'finish the job', notify_owner: 'notify you', open_screen: 'open a screen',
@@ -26,7 +26,7 @@ const TOOL_WORDS = {
 };
 // What she is doing right now (the line while she works).
 const DOING = {
-  list_sessions: 'looking at the sessions', read_session: 'reading a session', list_folders: 'looking at your folders', list_conversations: 'looking at earlier conversations',
+  list_sessions: 'looking at the sessions', read_session: 'reading a session', list_projects: 'looking at your projects', list_conversations: 'looking at earlier conversations',
   get_accounts: 'checking the providers', get_computer_status: 'checking the computers', get_settings: 'reading the settings', find_skill: 'looking up how to do it',
   start_session: 'starting a session', send_to_session: 'typing into a session', press_key: 'pressing a key in a session', rename_session: 'renaming a session',
   watch_session: 'watching a session', finish_job: 'finishing the job', notify_owner: 'writing to you', open_screen: 'opening a screen',
@@ -252,7 +252,18 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
   const decidedCards = new Map(); // card id → { question, how, outcome, at }
   const known = new Map(); // card id → its question, for the line in the chat once it is decided
 
-  const toBottom = () => requestAnimationFrame(() => (scrollEl ? (scrollEl.scrollTop = scrollEl.scrollHeight) : window.scrollTo(0, document.documentElement.scrollHeight)));
+  // To the newest message; but a card waiting for an OK is never left with its question out of sight: when the chat
+  // ends below its top (a tall card, a short phone screen), the view moves up to the card's top, under the head and
+  // the tabs that stay at the top.
+  const toBottom = () => requestAnimationFrame(() => {
+    if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+    else window.scrollTo(0, document.documentElement.scrollHeight);
+    const card = [...cardsBox.querySelectorAll('.tia-card:not(.decided)')].pop();
+    if (!card) return;
+    const covered = scrollEl ? scrollEl.getBoundingClientRect().top : Math.max(0, ...[...document.querySelectorAll('.pagehead, .tia-tabs')].map((x) => x.getBoundingClientRect().bottom));
+    const gap = card.getBoundingClientRect().top - covered - 8;
+    if (gap < 0) (scrollEl || document.scrollingElement || document.documentElement).scrollTop += gap;
+  });
   const busy = (text) => {
     working.hidden = !text;
     fill(working, text ? [h('span.tia-dots', { 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), h('span', `${NAME} is ${text}…`)] : null);
@@ -478,6 +489,8 @@ function paintBox() {
     box.head.count.classList.toggle('hidden', !n);
     box.head.setAttribute('aria-expanded', String(box.open));
   }
+  // While the round button shows, the page keeps the lane under it clear (page-automations.css, body.tia-fab).
+  document.body.classList.toggle('tia-fab', on && !here && !terminal);
   if (!on || here || (terminal && !box.forced)) {
     if (box.root) box.root.classList.add('hidden');
     if (box.chat && (!on || here)) {
@@ -527,6 +540,7 @@ function viewTia({ frame, sub }) {
   const top = h('div.tia-top');
   const body = h('div.tia-body');
   const tabs = tabBar(`Parts of ${NAME}`, VIEWS.map(([v, label, ic]) => ({ id: v, label, icon: ic, href: v ? `#/tia/${v}` : '#/tia' })), sub);
+  tabs.classList.add('tia-tabs');
   const newChat = btn('secondary small', { icon: 'plus', label: 'New chat', onclick: () => {
     convSet('');
     if (sub) location.hash = '#/tia';
@@ -540,6 +554,14 @@ function viewTia({ frame, sub }) {
     body: [top, tabs, body],
     fillWindow: !sub, // the chat: messages above, the message box kept at the bottom
   });
+  // The tabs stay right under the sticky page head while the messages scroll (page-automations.css .tia-tabs); the
+  // head's height changes with the width, so it is measured.
+  const head = document.querySelector('.pagehead');
+  if (head && typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => tabs.style.setProperty('--tia-head', `${head.offsetHeight}px`));
+    ro.observe(head);
+    cleanups.push(() => ro.disconnect());
+  }
 
   /** On or off, ready or not: off shows one sentence and the way to the setting instead of the page. */
   function paintState(o) {

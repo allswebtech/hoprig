@@ -230,6 +230,9 @@ export function stateOf(s) {
   }
 }
 
+/** What Home groups as "Needs you": a question waiting for an OK, or a limit. Every count of it uses this. */
+export const needsYou = (s) => ['attention', 'limit'].includes(stateOf(s).key);
+
 export const needsYouFirst = (a, b) =>
   stateOf(a).rank - stateOf(b).rank || (b.statusAt || b.activity || 0) - (a.statusAt || a.activity || 0);
 
@@ -425,6 +428,40 @@ export function limitBox(s, profiles, after) {
         }, icon('swap', { size: 16 }), h('span', `Continue on ${p.label}`))))
       : null,
   );
+}
+
+// ---------- a question waiting for your OK (the session page's banner, Home's card, Workspace's row) ----------
+
+/**
+ * The answers to Claude Code's permission question: Allow (Enter takes its first answer, "Yes"), the "Yes, and don't
+ * ask again …" answer when the question on screen has one (s.always, read by the server from the screen; picked by
+ * its number), and Do not allow (Esc). `after` runs once an answer was sent. Null unless the session needs an OK.
+ */
+export function permissionActions(s, after) {
+  if (stateOf(s).key !== 'attention' || s.kind === 'chat') return null;
+  const answer = (body, said) => async (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // on a card: answer, do not open the session
+    const b = e.currentTarget;
+    b.disabled = true;
+    try {
+      await api(atOf(s, `/api/sessions/${encodeURIComponent(s.name)}/key`), body);
+      toast(said);
+      after?.();
+    } catch (err) {
+      toast(err.message, { kind: 'error' });
+    } finally {
+      b.disabled = false;
+    }
+  };
+  const a = s.always && /^[1-9]$/.test(s.always.key) ? s.always : null;
+  // Claude's own words without "Yes, (and)": "Allow all edits during this session", "Allow, and don't ask again for …".
+  const always = a ? (/^allow\b/i.test(a.label) ? a.label : `Allow, and ${a.label.charAt(0).toLowerCase()}${a.label.slice(1)}`) : '';
+  return h('div.ok-actions',
+    h('button.btn.small.primary', { type: 'button', onclick: answer({ key: 'Enter' }, 'Allowed') }, icon('check', { size: 16 }), h('span', 'Allow')),
+    a ? h('button.btn.small.secondary', { type: 'button', title: a.text, onclick: answer({ key: a.key, expect: a.text }, 'Allowed, and Claude will not ask again') },
+      icon('checkAll', { size: 16 }), h('span', always)) : null,
+    h('button.btn.small.secondary', { type: 'button', onclick: answer({ key: 'Escape' }, 'Not allowed') }, icon('x', { size: 16 }), h('span', 'Do not allow')));
 }
 
 // ---------- Auto mode: several subscriptions in the order ----------

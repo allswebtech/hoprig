@@ -41,6 +41,18 @@ async function call(name, args) {
   return text;
 }
 const say = (text) => out({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
+// A tool's answer is a summary for the model and its data, fenced (src/assistant/fence.mjs). Tia's replies are
+// written from the data, in her words: the summary ("you are woken when …") is never shown to the owner.
+const dataOf = (text) => {
+  const m = /<untrusted_data[^>]*>([\s\S]*?)<\/untrusted_data>/.exec(String(text));
+  try {
+    return m ? JSON.parse(m[1]) : null;
+  } catch {
+    return null;
+  }
+};
+const PROVIDERS = { auto: 'Auto mode', max: 'Claude Max', team: 'Team plan', pro: 'Claude Pro', api: 'the API provider' };
+const providerName = (name) => PROVIDERS[name] || name;
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
 await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'demo-tia', version: '1' } });
@@ -60,11 +72,15 @@ async function turn(text) {
   } else if (/move docs-site/i.test(text)) {
     await call('list_sessions', {}); // Tia may only name sessions a tool showed her
     const r = await call('switch_account', { session: 'docs-site', account: 'api' });
-    say(/card/i.test(r) ? 'The API provider is paid per use, so I need your OK: tap **Confirm** on the card and docs-site continues there.' : r.split('\n')[0]);
+    say(/card/i.test(r) ? 'The API provider is paid per use, so I need your OK: tap **Confirm** on the card and docs-site continues there.' : 'Done: **docs-site** continues on the API provider.');
   } else if (start) {
-    await call('list_folders', {});
-    const r = await call('start_session', { folder: start[1], message: 'Add a dark mode toggle to the header and remember the choice', goal: 'the toggle works and the choice is remembered' });
-    say(`${r.split('\n')[0]} I will tell you when it is done.`);
+    await call('list_projects', {});
+    // The goal is the job's title on the Jobs list: written as one.
+    const r = await call('start_session', { folder: start[1], message: 'Add a dark mode toggle to the header and remember the choice', goal: 'Dark mode toggle in the header, the choice remembered' });
+    const d = dataOf(r);
+    say(d && d.session
+      ? `I started **${d.session}** on ${providerName(d.account)} with the task. I will tell you when the toggle works and remembers the choice.`
+      : 'Starting it needs your OK first: tap **Confirm** on the card.');
   } else if (/^\[job (j_[0-9a-f]{10})\][^\n]*finished its turn/.test(text)) {
     const job = /^\[job (j_[0-9a-f]{10})\]/.exec(text)[1];
     const session = /Session (\S+) on/.exec(text)[1];
@@ -72,7 +88,10 @@ async function turn(text) {
     await call('finish_job', { job, state: 'done', report: `${session} added the dark mode toggle; the choice is kept across visits.` });
     say(`Done: **${session}** added the dark mode toggle and it remembers the choice.`);
   } else {
-    say((await call('list_sessions', {})).split('\n')[0]);
+    const d = dataOf(await call('list_sessions', {}));
+    const list = (d && d.sessions) || [];
+    const needs = list.filter((x) => ['needs_ok', 'waiting', 'limit'].includes(x.status)).map((x) => `**${x.session}**`);
+    say(`You have ${list.length} session${list.length === 1 ? '' : 's'}${needs.length ? `; ${needs.join(', ')} ${needs.length === 1 ? 'waits' : 'wait'} for you` : ', and none waits for you'}. Tell me what to get done.`);
   }
   out({ type: 'result', subtype: 'success', is_error: false, result: 'ok', session_id: sessionId, total_cost_usd: 0, num_turns: 1, usage: { input_tokens: 0, output_tokens: 0 } });
 }

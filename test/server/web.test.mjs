@@ -581,3 +581,44 @@ test('web modules import every lib.js helper they call', () => {
   }
   assert.deepEqual(missing, [], 'called without being imported from ./lib.js');
 });
+
+test('a question waiting for an OK: the same answers on the card and the banner; "always" only when Claude offers it', async () => {
+  const { permissionActions, needsYou } = await import('../../web/lib.js');
+  const ask = { name: 'mobile-app', kind: 'claude', status: 'attention', machine: null };
+  assert.deepEqual(texts(permissionActions(ask)), ['Allow', 'Do not allow'], 'no third button without one on the screen');
+  const always = { key: '2', text: "Yes, and don't ask again for npm install commands", label: "Don't ask again for npm install commands" };
+  assert.deepEqual(texts(permissionActions({ ...ask, always })), ['Allow', "Allow, and don't ask again for npm install commands", 'Do not allow']);
+  const edits = { key: '2', text: 'Yes, allow all edits during this session (shift+tab)', label: 'Allow all edits during this session' };
+  assert.deepEqual(texts(permissionActions({ ...ask, always: edits })), ['Allow', 'Allow all edits during this session', 'Do not allow']);
+  assert.equal(permissionActions({ ...ask, always: { ...always, key: 'Enter' } }).children.length, 2, 'a key that is not a number is never sent');
+  assert.equal(permissionActions({ ...ask, status: 'waiting' }), null);
+  assert.equal(permissionActions({ ...ask, kind: 'chat' }), null, 'a chat answers on its own cards');
+  // The card and the row use it; the session page's banner too (one code path).
+  for (const f of ['sessionitem.js', 'session.js']) assert.match(fs.readFileSync(path.join(WEB, f), 'utf8'), /permissionActions\(/, f);
+  // "Needs you" means what Home's group means: an OK or a limit, never "waiting for your next message".
+  assert.equal(needsYou(ask), true);
+  assert.equal(needsYou({ ...ask, status: 'waiting', limit: { text: 'x' } }), true);
+  assert.equal(needsYou({ ...ask, status: 'waiting' }), false);
+  const { GROUPS } = await import('../../web/home.js');
+  assert.deepEqual(GROUPS.find(([id]) => id === 'needs')[2], ['attention', 'limit'], 'the same two states as Home');
+  assert.doesNotMatch(fs.readFileSync(path.join(WEB, 'session.js'), 'utf8'), /rank <= 2/);
+});
+
+test('new session: a folder where a session runs opens that session', () => {
+  const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
+  assert.match(src, /f\.live && f\.session\s*\?\s*row\(f, f\.short, \(\) => \(location\.hash = link\(`#\/s\/\$\{encodeURIComponent\(f\.session\)\}`/);
+});
+
+test('workspace strip: a project that is not here gets a button that says so, not only "Sync"', async () => {
+  const { stripActions, workspaceLine } = await import('../../web/workspace.js');
+  const p = (label, state, url = `https://git.example.com/demo/${label}.git`) => ({ kind: 'project', label, state, url });
+  const map = { exists: true, entries: [p('bookshop', 'here'), p('invoices', 'missing')] };
+  const a = stripActions(map, workspaceLine(map, null));
+  assert.deepEqual(texts(a), ['Get invoices', 'Sync']);
+  assert.match(a.children[0].attrs.href || '', /^#\/get-project\/https%3A%2F%2Fgit\.example\.com%2Fdemo%2Finvoices\.git$/, 'what the card\'s Get it does');
+  const three = { exists: true, entries: [p('a', 'missing'), p('b', 'missing'), p('c', 'missing')] };
+  assert.deepEqual(texts(stripActions(three, workspaceLine(three, null))), ['Get 3 projects', 'Sync']);
+  const none = { exists: true, entries: [p('bookshop', 'here')] };
+  assert.deepEqual(texts(stripActions(none, workspaceLine(none, null))), ['Sync']);
+  assert.equal(stripActions({ exists: false, entries: [] }, {}), null, 'no map: no buttons');
+});

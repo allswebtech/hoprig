@@ -137,12 +137,17 @@ export function viewNew() {
   }
 
   // ---------- the projects ----------
-  const row = (f, sub, onclick, end = null) =>
+  const row = (f, sub, onclick, end = null, go = 'play') =>
     h('button.row', { type: 'button', onclick },
       h('span.row-icon', icon('folder')),
       h('span.row-main', h('span.row-title', f.name), h('span.row-sub', sub)),
       end,
-      h('span.row-end', icon('play', { size: 18 })));
+      h('span.row-end', icon(go, { size: 18 })));
+  // A folder where a session runs: the tap opens that session (a second one in the same folder is what nobody
+  // tapping a "running" project means). Another one starts from "Another folder" → Start here.
+  const recentRow = (f) => (f.live && f.session
+    ? row(f, f.short, () => (location.hash = link(`#/s/${encodeURIComponent(f.session)}`, st.m)), h('span.badge.soft', 'running'), 'chevronRight')
+    : row(f, f.short, () => start(f), f.live ? h('span.badge.soft', 'running') : null));
 
   async function projects() {
     const m = where();
@@ -185,7 +190,7 @@ export function viewNew() {
       : [];
     fill(body,
       recent.folders.length || more.length ? null : h('p.muted', 'No projects yet. Open a folder below, or add a project under Workspace.'),
-      recent.folders.length ? [groupHead('Recent'), h('div.rows', recent.folders.map((f) => row(f, f.short, () => start(f), f.live ? h('span.badge.soft', 'running') : null)))] : null,
+      recent.folders.length ? [groupHead('Recent'), h('div.rows', recent.folders.map(recentRow))] : null,
       more.length ? [groupHead('Projects'), h('div.rows', more.map((f) => row(f, 'project', () => start({ ...f, short: f.name }))))] : null,
       groupHead('Somewhere else'),
       h('div.rows', recent.roots.map((r) => h('button.row', { type: 'button', onclick: () => browse(r.path) },
