@@ -24,7 +24,8 @@
 //   GET  /api/gateways/all                        this computer's and every linked computer's, and the providers here
 //                                                 that use another computer's gateway, with their state
 //   POST /api/gateways/<id>/share { on }   token  sharing on or off (on: with the key of its provider here)
-//   POST /api/gateways/<id>/keys { name }  token  a new key: { key, … } shown once. Only while sharing is on.
+//   POST /api/gateways/<id>/keys { name }  token  a new key: { key, … } shown once. Only while sharing is on. Made
+//                                                 with a machine token, it ends when that token is revoked (keys.mjs).
 //   POST /api/gateways/keys/<keyId>/remove token
 //   POST /api/gateways/use { machine, gateway, share? }  one click: ask that computer for a key (turning its sharing
 //                                                 on first with share: true), write the provider here
@@ -37,6 +38,7 @@ import { ADDONS } from '../addons/index.mjs';
 import { loadConfig } from '../config.mjs';
 import { callJson } from '../machines/relay.mjs';
 import { dashboardUrl, slug } from '../machines/names.mjs';
+import { tokenIdOf } from '../machines/index.mjs';
 import { getMachine, loadMachines } from '../machines/store.mjs';
 import { listProfiles, readProfile, writeProfile } from '../profiles.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
@@ -452,7 +454,8 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       const provider = sharedProvider(g.id);
       const p = provider ? readProfile(provider) : null;
       if (!p || !upstreamAuth(p, g.port)) throw fail(409, `Sharing of ${g.title} is turned off on ${label()}. Turn it on there first: Providers → Gateways on your computers.`);
-      const { id, key } = createKey(g.id, typeof b.name === 'string' ? b.name : '');
+      // Asked by a linked hub with its machine token: the key ends when that token is revoked. The owner's login: never.
+      const { id, key } = createKey(g.id, typeof b.name === 'string' ? b.name : '', { token: tokenIdOf(req) });
       const cfg = loadConfig().server;
       return {
         key, keyId: id, gateway: g.id, title: g.title, computer: label(), path: `/gateway/${g.id}`,
