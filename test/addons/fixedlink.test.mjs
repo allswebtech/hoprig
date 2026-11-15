@@ -324,7 +324,7 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   const leaky = await service(true, { openApi: true }); // a login page at /, but its API answers without a key
   try {
     const p3 = leaky.address().port;
-    const q = await act('fixed-add-service', { port: p3, hostname: 'leaky-pc2.example.com' });
+    const q = await act('fixed-add-service', { port: p3, hostname: 'leaky-office.example.com' });
     assert.equal(q.ok, false);
     assert.equal(q.confirm, `Port ${p3} answers its API (/v1/models) without a key: anyone who has its address can use it, with whatever keys the service holds.`);
     assert.equal(F.fixedStatus().extra.length, 0, 'nothing made before the confirm');
