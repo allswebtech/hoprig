@@ -5,7 +5,11 @@ import { h, limitBox, link, machinePill, profileIcon, profileText, stateOf, stat
 import { isStarting, markStarting, startingPill } from './newsession.js';
 import { registeredCardBadges } from './registry.js';
 
-const open = (s) => (location.hash = link(`#/s/${encodeURIComponent(s.name)}`, s.machine));
+// A chat (chat.js) has its own page; every other session is a terminal.
+export const sessionHref = (s) => link(s.kind === 'chat' ? `#/chat/${s.chatId}` : `#/s/${encodeURIComponent(s.name)}`, s.machine);
+const open = (s) => (location.hash = sessionHref(s));
+const nameOf = (s) => s.display || s.name;
+const chatTag = (s) => (s.kind === 'chat' ? h('span.badge.soft', icon('text', { size: 13 }), 'Chat') : null);
 const chip = (s) => (isStarting(s) ? startingPill() : statusPill(s));
 // A plain terminal has no provider; its chip already says "Terminal".
 const provider = (s) => (s.profile
@@ -45,14 +49,15 @@ export function sessionCard(s, profiles, refresh, multi) {
   const st = stateOf(s);
   const after = moved(s, refresh);
   const back = backButton(s, profiles, after);
-  return h(`article.card.st-${st.key}`, linkProps(s, `${s.name}${multi ? ` on ${s.machineLabel}` : ''}: ${st.text}`),
-    h('div.card-top', h('h3.card-name', s.name), chip(s)),
+  return h(`article.card.st-${st.key}`, linkProps(s, `${nameOf(s)}${multi ? ` on ${s.machineLabel}` : ''}: ${st.text}`),
+    h('div.card-top', h('h3.card-name', nameOf(s)), chip(s)),
     h('div.card-meta',
+      chatTag(s),
       multi ? machinePill(s.machineLabel) : null,
       provider(s),
       h('span.card-path', icon('folder', { size: 14 }), s.short),
       registeredCardBadges().map((b) => b(s))),
-    s.lastMessage ? h('p.card-msg', s.lastMessage) : s.title ? h('p.card-msg.title', s.title) : null,
+    s.lastMessage ? h('p.card-msg', s.lastMessage) : s.title && s.kind !== 'chat' ? h('p.card-msg.title', s.title) : null,
     st.key === 'attention' && s.note ? h('p.card-note', s.note) : null,
     limitBox(s, profiles, after),
     back ? h('div.card-actions', back) : null);
@@ -62,10 +67,10 @@ export function sessionCard(s, profiles, refresh, multi) {
 export function sessionRow(s, profiles, refresh, { where = null } = {}) {
   const st = stateOf(s);
   const after = moved(s, refresh);
-  return h(`div.row.static.si-row.st-${st.key}`, linkProps(s, `${s.name}: ${st.text}`),
-    h('span.row-icon', icon('terminal')),
+  return h(`div.row.static.si-row.st-${st.key}`, linkProps(s, `${nameOf(s)}: ${st.text}`),
+    h('span.row-icon', icon(s.kind === 'chat' ? 'text' : 'terminal')),
     h('span.row-main',
-      h('span.si-top', h('span.row-title', s.name), chip(s)),
+      h('span.si-top', h('span.row-title', nameOf(s)), chip(s)),
       h('span.si-meta', provider(s), where ? h('span.si-where', icon('folder', { size: 13 }), where) : null),
       s.lastMessage ? h('span.row-sub.si-msg', s.lastMessage) : null,
       st.key === 'attention' && s.note ? h('span.si-note', s.note) : null,

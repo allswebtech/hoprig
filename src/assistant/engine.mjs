@@ -42,10 +42,11 @@ import { resolveWindowsBin, windowsSpawnPlan } from '../winspawn.mjs';
 export const ISOLATION_ENV = Object.freeze({ CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
 
 /**
- * The environment for Tia's engine on profile `name` ("auto" or a profile file). Runs the profile's PRERUN (a
- * gateway that starts on demand) first. Throws with a plain message when the account cannot be used.
+ * The environment Claude Code gets on profile `name` ("auto" or a profile file), as the launcher would build it but
+ * without a run file or terminal of its own. Runs the profile's PRERUN (a gateway that starts on demand) first.
+ * Throws with a plain message when the account cannot be used. The coding chat (src/chat) uses it as it is.
  */
-export async function engineEnv(name, base = process.env) {
+export async function providerEnv(name, base = process.env) {
   let p;
   if (name === 'auto') {
     const { autoProfile } = await import('../launch.mjs');
@@ -61,7 +62,12 @@ export async function engineEnv(name, base = process.env) {
     const r = spawnSync(p.prerun, { shell: true, stdio: ['ignore', 'ignore', 'pipe'], env, timeout: 60_000 });
     if (r.status !== 0) throw new Error(`the provider's start command failed (${r.status ?? r.signal})`);
   }
-  return { ...env, ...ISOLATION_ENV };
+  return env;
+}
+
+/** The environment for Tia's engine: the provider's, with the switches that keep the owner's instructions out. */
+export async function engineEnv(name, base = process.env) {
+  return { ...(await providerEnv(name, base)), ...ISOLATION_ENV };
 }
 
 /** How to start Claude Code: claudeBin from the config; on Windows through windowsSpawnPlan (a .cmd shim). */

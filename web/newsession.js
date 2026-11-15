@@ -37,13 +37,15 @@ export function viewNew() {
   const opts = h('div.newopts');
   const body = h('div');
   const computers = h('div.ns-computers');
+  // How to work with Claude: in the terminal (the default, Claude Code as it is) or in a chat (chat.js).
+  const asRow = h('div.ns-as');
   frame({
     title: 'New session',
     page: 'home',
     back: '#/',
     backLabel: 'Home',
     intro: 'Pick a project: Claude starts there on your default provider. Change that under Options.',
-    body: [computers, body, fold('new-options', 'Options', opts)],
+    body: [computers, asRow, body, fold('new-options', 'Options', opts)],
   });
   const st = {
     m: machine.current,
@@ -54,8 +56,18 @@ export function viewNew() {
     models: null, // the computer's list (GET /api/settings sessionChoices), null until known
     conversation: 'new',
     run: 'claude',
+    as: 'terminal',
     hidden: false,
   };
+  function paintAs() {
+    const opt = (v, ic, label) => h('button.seg', { type: 'button', role: 'radio', 'aria-checked': String(st.as === v), onclick: () => {
+      st.as = v;
+      paintAs();
+    } }, icon(ic, { size: 15 }), h('span', label));
+    fill(asRow, h('div.segmented', { role: 'radiogroup', 'aria-label': 'Work in' }, opt('terminal', 'terminal', 'Terminal'), opt('chat', 'text', 'Chat')),
+      h('p.hint', st.as === 'chat' ? 'Claude Code without the terminal: messages, tool calls and Allow / Deny cards. Works well on a phone.' : 'Claude Code in a terminal, as you know it.'));
+  }
+  paintAs();
   let alive = true;
   let projectsDir = null; // the computer's projects folder, from the list of projects (null: not known)
   const where = () => store.all.find((x) => x.machine === st.m) || null;
@@ -233,6 +245,23 @@ export function viewNew() {
         sessionId = await chooseSheet({ title: 'Pick a conversation', subtitle: f.name, items: convs.map((c) => ({ value: c.id, label: c.title, sub: ago(c.at), icon: 'text' })) });
         if (!sessionId) return;
       }
+    }
+    if (st.as === 'chat') {
+      if (mode === 'continue') {
+        const { sessions: convs } = await api(at(st.m, `/api/folders/sessions?${new URLSearchParams({ path: f.path })}`)).catch(() => ({ sessions: [] }));
+        sessionId = convs.length ? convs[0].id : null;
+      }
+      busy(`Opening a chat in ${f.name}…`);
+      try {
+        const { id } = await api(at(st.m, '/api/chats'), {
+          dir: f.path, profile, sessionId, permissionMode: st.permissionMode || undefined, effort: st.effort || undefined, model: st.model || undefined,
+        });
+        store.refresh();
+        location.hash = link(`#/chat/${id}`, st.m);
+      } catch (e) {
+        failed(e, projects);
+      }
+      return;
     }
     busy(`Starting Claude in ${f.name}…`);
     try {
