@@ -100,9 +100,11 @@ export function claudeSignIn({ done = () => {} } = {}) {
       steps(
         [h('p', opened ? 'Sign in and allow access in the tab that opened.' : 'Open the sign-in page and allow access.'), openButton(r.codeUrl, opened ? 'Open it again' : 'Open the sign-in page')],
         [h('p', 'The page then shows a code. Copy it and paste it here.'), code]),
-      h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'), go),
-      out);
-      fill(body, form, h('p.hint', 'The sign-in stays open for 10 minutes.'), terminal());
+      out,
+      h('p.hint', 'The sign-in stays open for 10 minutes.'), terminal(),
+      // The sticky action bar is the sheet's last part (style.css .sheet-actions): nothing may sit under it.
+      h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'), go));
+      fill(body, form);
       code.focus();
     }
 
@@ -117,8 +119,8 @@ export function claudeSignIn({ done = () => {} } = {}) {
           if (w) w.location.href = r.codeUrl;
           codeStep(r, Boolean(w));
         } }, 'Use the code instead'), '.'),
-        h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel')),
-        terminal());
+        terminal(),
+        h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel')));
     }
 
     async function start() {
