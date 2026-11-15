@@ -1,6 +1,6 @@
 // Settings → Add-ons: optional companions hoprig installs, starts and stops for you (src/addons), each with
-// what it is, its state, and Install / Start / Stop / Update with their output live. "Set up as an account"
-// opens a terminal session where the owner types the key: a key never goes through this page.
+// what it is, its state, and Install / Start / Stop / Update with their output live. "Set up as a provider" leads to
+// Providers, where Add provider makes one of the gateway in the page.
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
 import { add, api, btn, confirmSheet, fill, h, link, qrSvg, toast } from './lib.js';
@@ -102,14 +102,7 @@ function render({ isAlive }) {
         a.installed && !a.running ? start() : null,
         a.running ? b('stop', 'Stop', 'stop') : null,
         a.installed ? b('refresh', 'Update', 'update') : null,
-        !v.showAccount ? null : btn('small ghost', { icon: 'user', label: 'Set up as a provider', title: 'Opens a terminal where you type its key', onclick: async () => {
-          try {
-            const { name } = await api(`/api/addons/${a.id}/setup`, {});
-            location.hash = link(`#/s/${encodeURIComponent(name)}`);
-          } catch (e) {
-            toast(e.message, { kind: 'error' });
-          }
-        } }),
+        !v.showAccount ? null : h('a.btn.small.ghost', { href: link('#/providers'), title: 'Providers → Add provider makes one of this gateway' }, icon('user', { size: 18 }), h('span', 'Set up as a provider')),
         a.running && a.url && !v.showAddress ? h('a.btn.small.ghost', { href: a.url, target: '_blank', rel: 'noopener' }, icon('chevronRight', { size: 18 }), h('span', 'Open its dashboard')) : null,
         a.homepage ? h('a.btn.small.ghost', { href: a.homepage, target: '_blank', rel: 'noopener' }, h('span', 'About')) : null),
       v.notes.length && !a.running ? h('ul.addon-notes', v.notes.map((n) => h('li', n))) : null,

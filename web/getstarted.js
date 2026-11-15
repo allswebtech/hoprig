@@ -3,7 +3,8 @@
 // wait under "Later". Once every required step is done it shrinks to one line; closing it is remembered on the
 // server (server.getStartedDismissed), so it stays closed on the phone too.
 import { icon } from './icons.js';
-import { api, fill, h, link, toast } from './lib.js';
+import { add, api, btn, fill, h, link, openSheet, toast } from './lib.js';
+import { errorBox, okBox } from './shell.js';
 import { gitDone, gitRows, openGitSetup } from './gitsetup.js';
 import { store } from './store.js';
 
@@ -81,14 +82,52 @@ export function actionLabel(a) {
   if (!a) return null;
   if (a.kind === 'terminal') return a.label || 'Open a terminal';
   if (a.kind === 'git') return 'Set up git and GitHub';
+  if (a.kind === 'install-claude') return a.label || 'Install Claude Code';
   if (a.kind === 'request') return 'Do it';
   return 'Open';
 }
 
-/** Run a step's action: open a part of the page, a terminal session, or call a route. */
+/** Install Claude Code in the page (POST /api/onboarding/install-claude), its output live in a sheet. */
+function installClaude(after) {
+  let alive = true;
+  openSheet({ title: 'Install Claude Code', subtitle: 'With its official installer, for you only (no administrator rights).', wide: true }, (close) => {
+    const out = h('pre.output', { 'aria-live': 'polite' });
+    const state = h('div', h('div.inline-busy', h('div.spinner.small', { 'aria-hidden': 'true' }), h('span', 'Installing…')));
+    (async () => {
+      try {
+        await api('~/api/onboarding/install-claude', {});
+      } catch (e) {
+        return fill(state, errorBox(e.message));
+      }
+      let from = 0;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 800));
+        if (!alive) return;
+        const j = await api(`~/api/onboarding/job?from=${from}`).catch(() => null);
+        if (!j) continue;
+        if (j.lines.length) add(out, `${j.lines.join('\n')}\n`);
+        out.scrollTop = out.scrollHeight;
+        from = j.next;
+        if (!j.running) {
+          const ok = j.result && j.result.ok;
+          return fill(state, ok ? okBox(`Claude Code ${j.result.version || ''} is installed. Next: sign in to Claude.`) : errorBox('It did not install: see the output, then try again.'),
+            h('div.sheet-actions', btn('primary', { label: 'Close', onclick: () => close() })));
+        }
+      }
+    })();
+    return [out, state];
+  }).then(() => {
+    alive = false;
+    after?.();
+  });
+}
+
+/** Run a step's action: open a part of the page, install in the page, a terminal session, or call a route. */
 export async function runAction(a, after) {
   try {
-    if (a.kind === 'git') await openGitSetup();
+    if (a.kind === 'git') {
+      if (await openGitSetup()) after?.();
+    } else if (a.kind === 'install-claude') installClaude(after);
     else if (a.kind === 'page') location.hash = link(TARGETS[a.target] || '#/settings');
     else if (a.kind === 'terminal') {
       const r = await api('~/api/onboarding/run', { run: a.run });

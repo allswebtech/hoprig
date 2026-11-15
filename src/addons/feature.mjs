@@ -5,11 +5,8 @@
 //   POST /api/addons/<id>/<action>           install | update | start | stop: runs in the background, one at a time
 //                                            per add-on; answers { started: true }
 //   GET  /api/addons/<id>/job?from=N         that job's output: { running, lines, next, result }
-//   POST /api/addons/<id>/setup              opens a terminal session that runs `hoprig addons setup <id>`: the
-//                                            key is typed there by the owner, never through the page. { name }
-import os from 'node:os';
-import { resolveRoots } from '../server/folders.mjs';
-import { uniqueName } from '../server/validate.mjs';
+// Making a provider of a gateway is done on the Providers page (Add provider), in the page; `hoprig addons setup <id>`
+// does the same in a terminal.
 import { ADDONS } from './index.mjs';
 
 const ACTIONS = ['install', 'update', 'start', 'stop'];
@@ -71,15 +68,6 @@ export function addonsFeature(sctx, opts = {}) {
       const job = jobs.get(a.id) || { running: false, lines: [], result: null };
       const from = Math.max(0, Math.min(job.lines.length, Number(q && q.get('from')) || 0));
       return { running: job.running, lines: job.lines.slice(from), next: job.lines.length, result: job.result };
-    }],
-    ['POST', /^\/api\/addons\/([^/]+)\/setup$/, async (req, m) => {
-      await sctx.readJson(req);
-      const a = addonOf(m);
-      const taken = (await sctx.backend.list()).map((t) => t.session);
-      const name = uniqueName(`setup-${a.id}`.slice(0, 30), taken);
-      const dir = resolveRoots(sctx.config().server.roots)[0] || os.homedir();
-      await sctx.backend.create({ name, dir, argv: [...sctx.deck.launcher(), 'addons', 'setup', a.id] });
-      return { name };
     }],
   ];
 
