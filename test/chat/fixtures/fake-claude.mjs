@@ -105,6 +105,7 @@ readline.createInterface({ input: process.stdin }).on('line', (l) => {
     queue.push(m.message.content[0].text);
     pump();
   } else if (m.type === 'control_response') {
+    if (process.env.FAKE_CLAUDE_ARGS) fs.appendFileSync(process.env.FAKE_CLAUDE_ARGS, JSON.stringify({ answer: m.response.response }) + '\n');
     const r = waiting.get(m.response.request_id);
     waiting.delete(m.response.request_id);
     r?.(m.response.response);

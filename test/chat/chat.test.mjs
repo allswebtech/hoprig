@@ -40,7 +40,9 @@ function newChat(o = {}) {
 }
 const turnEnd = (c) => new Promise((r) => c.once('turn', r));
 const kinds = (c) => c.events.map((e) => e.kind);
-const starts = (c) => fs.readFileSync(c.argsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+const logged = (c) => fs.readFileSync(c.argsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+const starts = (c) => logged(c).filter(Array.isArray);
+const answers = (c) => logged(c).filter((x) => !Array.isArray(x)).map((x) => x.answer);
 
 test('a turn: the message, Claude\'s answer, and what the turn cost', async (t) => {
   const c = newChat();
@@ -101,6 +103,7 @@ test('a permission card: allowed writes the file, denied does not', async (t) =>
   assert.equal(ask.tool, 'Write');
   assert.equal(ask.input.file_path, path.join(c.cwd, 'out.txt'));
   assert.equal(ask.canAlways, true, 'Claude Code offered a rule for this session');
+  assert.equal(ask.always, 'edits', 'its suggestion is "accept edits", and the page says so');
   assert.equal(ask.suggestions, undefined, 'Claude Code\'s rule suggestions stay on the server');
   assert.equal(ask.full, undefined);
   assert.ok(!fs.existsSync(path.join(c.cwd, 'out.txt')), 'nothing happens before the OK');
@@ -116,11 +119,19 @@ test('a permission card: allowed writes the file, denied does not', async (t) =>
   const ask2 = c.events.filter((e) => e.kind === 'ask').at(-1);
   c.answer(ask2.request, { allow: false, message: 'not now' });
   await done;
+  assert.equal(answers(c)[0].updatedPermissions, undefined, 'a plain allow changes no rule');
+
   assert.ok(!fs.existsSync(path.join(c.cwd, 'no.txt')));
   const res = c.events.filter((e) => e.kind === 'result').at(-1);
   assert.equal(res.isError, true);
   assert.match(res.text, /said no to this Write call in the dashboard: not now/);
   assert.equal(c.status(), 'waiting');
+  done = turnEnd(c);
+  await c.send('write always.txt');
+  await until('the third card', () => c.status() === 'attention');
+  c.answer(c.events.filter((e) => e.kind === 'ask').at(-1).request, { allow: true, always: true });
+  await done;
+  assert.deepEqual(answers(c)[2].updatedPermissions, [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }], 'only the session\'s own suggestion');
 });
 
 test('the permission mode decides: bypassPermissions asks nothing', async (t) => {
@@ -298,4 +309,16 @@ test('page words: a tool call in one line, an edit as a small diff', () => {
   assert.deepEqual(T.lineDiff('', 'new'), [['-', ''], ['+', 'new']]);
   assert.equal(T.askTitle('Bash', {}), 'Claude wants to run a command');
   assert.equal(T.turnLine({ turnCostUsd: 0.0123, usage: { input: 100, output: 2000, cacheRead: 900 }, durationMs: 4200 }), '$0.01 · 1.0k tokens in · 2.0k out · 4 s');
+});
+
+test('notifications: a chat is named by its title and links to its page', async () => {
+  const { Watcher } = await import('../../src/server/watcher.mjs');
+  const sent = [];
+  const w = new Watcher({ cards: async () => [], deck: {}, auto: {}, settings: () => ({ notify: { url: 'http://x' }, publicUrl: 'https://dash.example/' }), send: async (n, ev) => sent.push(ev) });
+  w.emit('attention', 'chat:abc', 'Allow Write?', 'Fix the login bug');
+  w.emit('waiting', 'shop', '');
+  assert.equal(sent[0].url, 'https://dash.example/#/chat/abc');
+  assert.match(sent[0].title, /^Fix the login bug /);
+  assert.equal(sent[0].session, 'chat:abc');
+  assert.equal(sent[1].url, 'https://dash.example/#/s/shop');
 });

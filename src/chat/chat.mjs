@@ -227,7 +227,10 @@ export class Chat extends EventEmitter {
         // The page gets the input to show and whether "allow in this chat" exists; Claude Code's rule suggestions
         // and the full input stay here (an answer needs them).
         const { full, suggestions, ...shown } = ev;
-        this.push({ ...shown, canAlways: suggestions.some((x) => x && x.destination === 'session') });
+        // What "allow in this chat" would do: Claude Code's own suggestion for this session (never a settings file).
+        const session = suggestions.filter((x) => x && x.destination === 'session');
+        const always = !session.length ? null : session.every((x) => x.type === 'setMode' && x.mode === 'acceptEdits') ? 'edits' : 'rule';
+        this.push({ ...shown, canAlways: !!always, always });
         this.#setState(this.state);
         return;
       }

@@ -180,7 +180,8 @@ function viewChat({ sub }) {
     const body = h('div.chat-ask-body');
     const el = h('section.chat-item.chat-ask', { 'aria-label': askTitle(ev.tool, ev.input) },
       h('div.chat-ask-head', icon(ev.tool === 'AskUserQuestion' ? 'info' : 'alert', { size: 18 }), h('strong', askTitle(ev.tool, ev.input))),
-      ev.description && ev.tool !== 'Bash' ? h('p.chat-hint', ev.description) : null,
+      // For a file the description is its name, which the path below already shows.
+      ev.description && !['Bash', 'Edit', 'MultiEdit', 'Write', 'Read', 'NotebookEdit'].includes(ev.tool) ? h('p.chat-hint', ev.description) : null,
       body, buttons, status);
     el.status = status;
     el.buttons = buttons;
@@ -222,7 +223,9 @@ function viewChat({ sub }) {
       fill(body, inputView(ev.tool, ev.input));
       fill(buttons,
         h('button.btn.primary', { type: 'button', onclick: () => answer(true) }, icon('check', { size: 16 }), h('span', ev.tool === 'ExitPlanMode' ? 'Start with this plan' : 'Allow')),
-        ev.canAlways ? h('button.btn.secondary', { type: 'button', title: 'Claude does not ask again for this in this chat', onclick: () => answer(true, { always: true }) }, 'Allow in this chat') : null,
+        ev.canAlways ? h('button.btn.secondary', { type: 'button',
+          title: ev.always === 'edits' ? 'Claude changes files without asking for the rest of this chat' : 'Claude does not ask again for this in this chat',
+          onclick: () => answer(true, { always: true }) }, ev.always === 'edits' ? 'Allow all edits in this chat' : 'Allow in this chat') : null,
         h('button.btn.secondary.danger-text', { type: 'button', onclick: () => answer(false) }, icon('x', { size: 16 }), h('span', ev.tool === 'ExitPlanMode' ? 'Keep planning' : 'Deny')));
     }
     return el;
@@ -240,7 +243,10 @@ function viewChat({ sub }) {
     const s = v;
     fill(titleEl, s.title || 'New chat');
     pageNotify.setTitleBase(s.title || 'Chat');
-    fill(subEl, statusPill({ status: s.status, statusAt: null }, { time: false }), h('span.chat-where', ` · ${s.short}`), s.liveModel || s.model ? h('span.chat-where', ` · ${s.liveModel || s.model}`) : null,
+    const pill = statusPill({ status: s.status, statusAt: null }, { time: false });
+    // A narrow screen cuts the words of the state, not the pill: they go in a span that can end in "…".
+    fill(pill, [...pill.childNodes].map((n) => (n.nodeType === 3 ? h('span.chat-pill-text', n.textContent) : n)));
+    fill(subEl, pill, h('span.chat-where', ` · ${s.short}`), s.liveModel || s.model ? h('span.chat-where', ` · ${s.liveModel || s.model}`) : null,
       Number.isFinite(s.costTotal) && s.costTotal > 0 ? h('span.chat-where', ` · ${money(s.costTotal)} so far`) : null);
     fill(provBtn.querySelector('.profilebtn-label'), s.profile.label);
     const ro = !!s.terminal;
@@ -314,7 +320,10 @@ function viewChat({ sub }) {
       fill(list, draw(r.events));
       epoch = r.epoch;
       first = r.first;
-    } else add(list, draw(r.events));
+    } else if (r.events.length) {
+      list.querySelector('.chat-empty')?.remove();
+      add(list, draw(r.events));
+    }
     next = r.next;
     v = r;
     if (r.reset) paintMore(r.older);
