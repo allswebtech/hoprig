@@ -61,16 +61,25 @@ export function isHttps(req, { trustProxy = false } = {}) {
   return typeof p === 'string' && p.split(',')[0].trim().toLowerCase() === 'https';
 }
 
-/** Client address for the rate limit. Behind a trusted proxy: the last X-Forwarded-For entry (the one it added). */
+/** A connection from this computer itself: 127.0.0.0/8 or ::1, also written as an IPv4-mapped IPv6 address. */
+export const loopbackPeer = (addr) => typeof addr === 'string' && (addr === '::1' || /^(::ffff:)?127\./i.test(addr));
+
+/**
+ * Client address for the rate limit. Behind a trusted proxy: the last X-Forwarded-For entry (the one it added), but
+ * only when the connection itself comes from this computer, where that proxy runs (cloudflared for the public link,
+ * Caddy or nginx for a hub). From anywhere else the header is the sender's own words: with the dashboard also open
+ * to the network, a computer there could send a new one with every login try and get a fresh rate-limit bucket.
+ */
 export function clientIp(req, { trustProxy = false } = {}) {
-  if (trustProxy) {
+  const peer = (req.socket && req.socket.remoteAddress) || 'unknown';
+  if (trustProxy && loopbackPeer(peer)) {
     const fwd = first(req.headers['x-forwarded-for']);
     if (typeof fwd === 'string' && fwd.trim()) {
       const list = fwd.split(',').map((s) => s.trim()).filter(Boolean);
       if (list.length) return list[list.length - 1];
     }
   }
-  return (req.socket && req.socket.remoteAddress) || 'unknown';
+  return peer;
 }
 
 export const isLoopback = (host) => host === '127.0.0.1' || host === '::1' || host === 'localhost' || /^127\./.test(host);

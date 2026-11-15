@@ -228,19 +228,36 @@ test('another service: its port, and whether it has a sign-in of its own', async
     if (status === 'down') throw new Error('ECONNREFUSED');
     return { status, headers: new Headers(location ? { location } : {}), text: async () => body };
   };
-  // TRouteAI: / → /dashboard → /login, as it answered on this computer.
-  assert.deepEqual(await L.serviceLogin(20017, { fetchImpl: site({ '/': [307, 'http://127.0.0.1:20017/dashboard'], '/dashboard': [307, '/login'] }) }), { answers: true, login: true });
-  assert.deepEqual(await L.serviceLogin(1, { fetchImpl: site({ '/': [200, null, '<form><input type="password" name="p"></form>'] }) }), { answers: true, login: true });
-  assert.deepEqual(await L.serviceLogin(1, { fetchImpl: site({ '/': [401] }) }), { answers: true, login: true });
-  assert.deepEqual(await L.serviceLogin(1, { fetchImpl: site({ '/': [200, null, '<h1>Files</h1>'] }) }), { answers: true, login: false });
-  assert.deepEqual(await L.serviceLogin(1, { fetchImpl: site({ '/': ['down'] }) }), { answers: false, login: false });
+  // TRouteAI: / → /dashboard → /login, and /v1/models answers 401 without a key, as it answered on this computer.
+  const trouteai = { '/': [307, 'http://127.0.0.1:20017/dashboard'], '/dashboard': [307, '/login'], '/v1/models': [401], '/api/v1/models': [401] };
+  const look = await L.serviceLogin(20017, { fetchImpl: site(trouteai) });
+  assert.deepEqual(look, { answers: true, login: true, openApi: null });
+  assert.equal(L.exposureQuestion(20017, look), null, 'a sign-in page and a closed API: no question');
+  assert.deepEqual(await L.serviceLogin(1, { fetchImpl: site({ '/': [200, null, '<form><input type="password" name="p"></form>'] }) }), { answers: true, login: true, openApi: null });
+  assert.deepEqual(await L.serviceLogin(1, { fetchImpl: site({ '/': [401] }) }), { answers: true, login: true, openApi: null });
+  assert.deepEqual(await L.serviceLogin(1, { fetchImpl: site({ '/': [200, null, '<h1>Files</h1>'] }) }), { answers: true, login: false, openApi: null });
+  assert.deepEqual(await L.serviceLogin(1, { fetchImpl: site({ '/': ['down'] }) }), { answers: false, login: false, openApi: null });
+  // A login page at / but an API that answers without a key: always a question, saying so.
+  for (const p of L.API_PATHS) {
+    const open = await L.serviceLogin(20017, { fetchImpl: site({ ...trouteai, [p]: [200, null, '{"data":[]}'] }) });
+    assert.deepEqual(open, { answers: true, login: true, openApi: p }, p);
+    assert.equal(L.exposureQuestion(20017, open), `Port 20017 answers its API (${p}) without a key: anyone who has its address can use it, with whatever keys the service holds.`);
+  }
+  // An API that sends a stranger to its login is not open (redirects are not followed).
+  assert.equal((await L.serviceLogin(1, { fetchImpl: site({ ...trouteai, '/v1/models': [302, '/login'] }) })).openApi, null);
+  // No key is ever sent: the requests carry no headers.
+  const sent = [];
+  await L.serviceLogin(1, { fetchImpl: async (url, o) => (sent.push([new URL(url).pathname, o.headers]), { status: 401, headers: new Headers(), text: async () => '' }) });
+  assert.deepEqual(sent, [['/', undefined], ['/v1/models', undefined], ['/api/v1/models', undefined], ['/api/models', undefined]]);
+  assert.match(L.exposureQuestion(1, { login: false, openApi: '/v1/models' }), /^Port 1 shows no sign-in page of its own and answers its API \(\/v1\/models\) without a key/);
 });
 
 // ---------- the whole flow, against the stand-in ----------
 
-/** A local service on a free port: with a sign-in page (redirects to /login) or without. */
-function service(withLogin) {
+/** A local service on a free port: with a sign-in page (redirects to /login) or without; `openApi`: /v1/models answers without a key. */
+function service(withLogin, { openApi = false } = {}) {
   const s = http.createServer((req, res) => {
+    if (openApi && req.url === '/v1/models') return res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"data":[]}');
     if (withLogin && req.url !== '/login') return res.writeHead(302, { Location: '/login' }).end();
     res.writeHead(200, { 'Content-Type': 'text/html' }).end(withLogin ? '<input type="password">' : '<h1>Open</h1>');
   });
@@ -304,7 +321,13 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   // 5. Another service: with a sign-in of its own it is added; without, only after a confirm.
   const withLogin = await service(true);
   const open = await service(false);
+  const leaky = await service(true, { openApi: true }); // a login page at /, but its API answers without a key
   try {
+    const p3 = leaky.address().port;
+    const q = await act('fixed-add-service', { port: p3, hostname: 'leaky-pc2.example.com' });
+    assert.equal(q.ok, false);
+    assert.equal(q.confirm, `Port ${p3} answers its API (/v1/models) without a key: anyone who has its address can use it, with whatever keys the service holds.`);
+    assert.equal(F.fixedStatus().extra.length, 0, 'nothing made before the confirm');
     const p1 = withLogin.address().port;
     assert.match((await act('fixed-add-service', { port: 7433, hostname: 'x.example.com' })).error, /dashboard itself/);
     assert.match((await act('fixed-add-service', { port: p1, hostname: 'office.example.com' })).error, /in use already/);
@@ -324,6 +347,7 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   } finally {
     withLogin.close();
     open.close();
+    leaky.close();
   }
 
   // 6. Off: it stops and the settings go back; on again: the same address.
@@ -351,6 +375,37 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   assert.equal(F.fixedStatus().state, 'none');
   assert.deepEqual(raw().server, beforeOn, 'settings exactly as before');
   assert.notDeepEqual(before, beforeOn); // (only the password was added in between)
+});
+
+test('state files are written whole or not at all: a temporary file in the same folder, then a rename', () => {
+  const dir = path.join(tmp, 'atomic');
+  const file = path.join(dir, 'fixed.json');
+  C.writeAtomic(file, '{"mode":"named"}');
+  assert.equal(fs.readFileSync(file, 'utf8'), '{"mode":"named"}');
+  assert.equal(mode(file), '600');
+  const renames = [];
+  const orig = fs.renameSync;
+  fs.renameSync = (from, to) => (renames.push([path.dirname(from), to]), orig(from, to));
+  try {
+    C.writeAtomic(file, '{"mode":"token"}');
+  } finally {
+    fs.renameSync = orig;
+  }
+  assert.deepEqual(renames, [[dir, file]], 'renamed from the same folder');
+  assert.equal(fs.readFileSync(file, 'utf8'), '{"mode":"token"}');
+  // A write that fails half way leaves the old file as it was and no temporary file behind.
+  const write = fs.writeFileSync;
+  fs.writeFileSync = (f, d, o) => { write(f, String(d).slice(0, 3), o); throw new Error('disk full'); };
+  try {
+    assert.throws(() => C.writeAtomic(file, '{"mode":"broken"}'), /disk full/);
+  } finally {
+    fs.writeFileSync = write;
+  }
+  assert.equal(fs.readFileSync(file, 'utf8'), '{"mode":"token"}');
+  assert.deepEqual(fs.readdirSync(dir), ['fixed.json']);
+  // The add-on's own state goes through it (no plain write of a tunnel's details is left).
+  const src = ['fixedlink.mjs', 'publiclink.mjs'].map((f) => fs.readFileSync(new URL(`../../src/addons/${f}`, import.meta.url), 'utf8')).join('\n');
+  assert.deepEqual([...src.matchAll(/fs\.writeFileSync\(([^,]+),/g)].map((m) => m[1]), ['file'], 'only the downloaded program itself');
 });
 
 test('a name outside the domain picked at sign-in: nothing is left half-made', async () => {

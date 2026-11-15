@@ -29,8 +29,8 @@ import path from 'node:path';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { hostName } from '../paths.mjs';
 import { capture } from '../setup/system.mjs';
-import { alive, cloudflaredEnv, dashboardPort, findBin, fixedDir, fixedStateFile, hasPassword, patchFor, quickRestore, readFixed, restoreFor } from './cloudflared.mjs';
-import { checkPort, serviceLogin } from './localservice.mjs';
+import { alive, cloudflaredEnv, dashboardPort, findBin, fixedDir, fixedStateFile, hasPassword, patchFor, quickRestore, readFixed, restoreFor, writeAtomic } from './cloudflared.mjs';
+import { checkPort, exposureQuestion, serviceLogin } from './localservice.mjs';
 
 const homeDir = () => path.join(fixedDir(), 'home');
 const emptyDir = () => path.join(fixedDir(), 'empty');
@@ -251,16 +251,13 @@ export function makeSupervisor({ spawnFn = spawn, setTimer = setTimeout, clearTi
 
 // ---------- the add-on's part ----------
 
-const writeState = (st) => {
-  fs.mkdirSync(fixedDir(), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(fixedStateFile(), JSON.stringify(st), { mode: 0o600 });
-};
+const writeState = (st) => writeAtomic(fixedStateFile(), JSON.stringify(st));
 const fail = (error) => ({ ok: false, error });
 const env = () => cloudflaredEnv(homeDir(), emptyDir());
 
 function prepare() {
   for (const d of [fixedDir(), homeDir(), emptyDir()]) fs.mkdirSync(d, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(baseFile(), BASE_CONFIG, { mode: 0o600 });
+  writeAtomic(baseFile(), BASE_CONFIG);
 }
 
 /**
@@ -399,7 +396,7 @@ function useToken({ token, hostname } = {}) {
   if (!hasPassword()) return fail('Set a dashboard password first (Settings → Security): the address leads to the sign-in page.');
   if (readFixed()?.mode) return fail('The fixed address is set up already.');
   prepare();
-  fs.writeFileSync(tokenFile(), t.token, { mode: 0o600 });
+  writeAtomic(tokenFile(), t.token);
   writeState({ mode: 'token', hostname: host, tunnelId: t.tunnelId, extra: [], enabled: false });
   return turnOn();
 }
@@ -421,7 +418,7 @@ function startRunner() {
   const yml = st.mode === 'token'
     ? '# Written by Hoprig: a tunnel run by its token; its names are set in the Cloudflare dashboard.\nno-autoupdate: true\n'
     : configYaml({ tunnelId: st.tunnelId, creds: credsFile(), hostname: st.hostname, port: dashboardPort(), extra: st.extra || [] });
-  fs.writeFileSync(configFile(), yml, { mode: 0o600 });
+  writeAtomic(configFile(), yml);
   supervisor().run(st.mode === 'token' ? runTokenArgv(bin, configFile(), tokenFile()) : runArgv(bin, configFile(), st.tunnelId), env());
 }
 
@@ -489,7 +486,8 @@ async function addService({ port, hostname, confirmed } = {}, { onLine = () => {
   if ((st.extra || []).length >= 5) return fail('At most 5 other services.');
   const look = await serviceLogin(p.port, { fetchImpl });
   if (!look.answers) return fail(`Nothing answers on port ${p.port} on this computer. Start that service first.`);
-  if (!look.login && confirmed !== true) return { ok: false, confirm: `Port ${p.port} shows no sign-in page of its own: anyone who has the address ${host} can use it.` };
+  const question = exposureQuestion(p.port, look);
+  if (question && confirmed !== true) return { ok: false, confirm: question };
   const bin = findBin();
   if (!bin || !fs.existsSync(certFile())) return fail('cloudflared or its sign-in is missing: stop using the fixed address and set it up again.');
   prepare();

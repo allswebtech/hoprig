@@ -27,7 +27,25 @@ test('HTTPS detection and client address', () => {
   assert.equal(isHttps(fakeReq({ 'x-forwarded-proto': 'https' }), { trustProxy: true }), true);
   assert.equal(isHttps(fakeReq({}, { encrypted: true })), true);
   assert.equal(clientIp(fakeReq({ 'x-forwarded-for': '1.1.1.1' })), '10.0.0.5');
-  assert.equal(clientIp(fakeReq({ 'x-forwarded-for': '6.6.6.6, 1.1.1.1' }), { trustProxy: true }), '1.1.1.1');
+});
+
+test('client address: X-Forwarded-For only from a proxy on this computer, never from a peer on the network', () => {
+  const lan = (h) => fakeReq(h, { remoteAddress: '192.168.1.50' });
+  const local = (addr, h) => fakeReq(h, { remoteAddress: addr });
+  // A computer on the network with a header it made up: its own address, whatever it claims, try after try.
+  for (const forged of ['1.1.1.1', '6.6.6.6, 2.2.2.2', '127.0.0.1']) {
+    assert.equal(clientIp(lan({ 'x-forwarded-for': forged }), { trustProxy: true }), '192.168.1.50', forged);
+  }
+  assert.equal(clientIp(fakeReq({ 'x-forwarded-for': '6.6.6.6, 1.1.1.1' }), { trustProxy: true }), '10.0.0.5');
+  assert.equal(clientIp(local('::ffff:192.168.1.50', { 'x-forwarded-for': '1.1.1.1' }), { trustProxy: true }), '::ffff:192.168.1.50');
+  // cloudflared or Caddy on this computer: the entry it added (the last one).
+  assert.equal(clientIp(local('127.0.0.1', { 'x-forwarded-for': '6.6.6.6, 203.0.113.9' }), { trustProxy: true }), '203.0.113.9');
+  assert.equal(clientIp(local('::1', { 'x-forwarded-for': '203.0.113.9' }), { trustProxy: true }), '203.0.113.9');
+  assert.equal(clientIp(local('::ffff:127.0.0.1', { 'x-forwarded-for': '203.0.113.9' }), { trustProxy: true }), '203.0.113.9');
+  // From this computer but trustProxy off, or no header: the connection's own address.
+  assert.equal(clientIp(local('127.0.0.1', { 'x-forwarded-for': '203.0.113.9' })), '127.0.0.1');
+  assert.equal(clientIp(local('127.0.0.1', {}), { trustProxy: true }), '127.0.0.1');
+  assert.equal(clientIp({ headers: {}, socket: {} }, { trustProxy: true }), 'unknown');
 });
 
 test('Host header validation and headers', () => {

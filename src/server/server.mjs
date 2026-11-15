@@ -8,6 +8,7 @@
 //   backend         "auto" | "tmux" | "pty"                  default "auto"
 //   tmuxSocket      tmux -L socket name                      default "" = your normal tmux server (tmux attach works)
 //   trustProxy      true behind a reverse proxy: believe X-Forwarded-Proto/-Host/-For   default false
+//                   (-For only from a proxy on this computer: see clientIp in security.mjs)
 //   allowedOrigins  extra origins allowed to send requests   default []  (e.g. ["https://deck.example.net"])
 //   uploadsDir      folder, inside the session's folder, that uploaded files go to   default ".uploads"
 //   uploadMaxMB     largest upload                           default 25
