@@ -6,7 +6,8 @@
 //   on this computer     `code <folder>` opens the desktop VS Code on this computer's own screen
 //   on another device    a vscode://vscode-remote/ssh-remote+<target><folder> link (the page builds it) for a device
 //                        whose VS Code has Remote-SSH and reaches this computer by SSH
-// Only for this computer: the relay to another computer (/m/<name>/…) carries the API and the terminals, not VS Code.
+// Only for this computer: the relay to another computer (/m/<name>/…) carries the API and the terminals, not VS Code,
+// and these routes refuse another computer's token.
 //
 // config.json key "vscode" (all optional):
 //   enabled            true: VS Code in the browser may start           default false (it runs programs)
@@ -162,9 +163,18 @@ export function vscodeFeature(sctx, opts = {}) {
     return { opened: true };
   }
 
+  // Only this dashboard's own login (or the owner's in-process call): another computer that controls this one with
+  // its token may not accept a license here or open windows on this screen. The relay names the refusal as such.
+  const own = (req) => {
+    if (!sctx.authed(req)) throw fail(403, 'VS Code is opened from this computer\'s own dashboard', 'token-forbidden');
+  };
   const routes = [
-    ['GET', /^\/api\/vscode$/, async () => view()],
+    ['GET', /^\/api\/vscode$/, async (req) => {
+      own(req);
+      return view();
+    }],
     ['POST', /^\/api\/vscode\/settings$/, async (req) => {
+      own(req);
       const b = await sctx.readJson(req);
       const next = cleanVscodePatch(b, settings(), { installed: installed() });
       sctx.saveConfig({ vscode: next });
@@ -172,6 +182,7 @@ export function vscodeFeature(sctx, opts = {}) {
       return view();
     }],
     ['POST', /^\/api\/vscode\/desktop$/, async (req) => {
+      own(req);
       const b = await sctx.readJson(req);
       return openOnDesktop(folderOf(b.dir));
     }],
