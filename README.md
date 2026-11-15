@@ -227,7 +227,7 @@ still works), otherwise inside the dashboard's own service (the built-in termina
 | One computer, phone on the same Wi-Fi | `hoprig setup`, scan the QR |
 | Two or more computers on one network | On one of them: **Computers → Add a computer**, then pick how it is reached. No server |
 | Computers at home, a server on the internet | `hoprig setup --hub` on the server; `hoprig join https://your-hub <code>` on each computer |
-| Computers at home, no server, you are elsewhere | the public link add-on (a free tunnel, the address changes), or Tailscale |
+| Computers at home, no server, you are elsewhere | the public link add-on: a fixed address on your own domain through Cloudflare, or a free temporary one ([how](docs/COMPUTERS.md#a-public-link-through-cloudflare)); or Tailscale |
 | Servers only | one is the hub; add the others by their SSH name |
 
 Two computers behind routers cannot find each other without a third one both can reach. Here that is your

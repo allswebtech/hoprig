@@ -145,3 +145,50 @@ test('the command line explains and asks before it starts', async () => {
   assert.match(text, /through Cloudflare/);
   assert.match(text, /hub .* or Tailscale/);
 });
+
+test('each new temporary address is sent through the owner\'s notifications, as the plain address', async () => {
+  const { buildRequest } = await import('../../src/server/notify.mjs');
+  const ev = P.newAddressEvent('https://stem-wonder-lucky-hung.trycloudflare.com');
+  assert.deepEqual(ev, { status: 'link', force: true, session: '', title: 'New public link for this dashboard', message: 'https://stem-wonder-lucky-hung.trycloudflare.com', url: 'https://stem-wonder-lucky-hung.trycloudflare.com' });
+  const req = buildRequest({ url: 'https://ntfy.sh/a-long-random-topic' }, ev);
+  assert.deepEqual([req.headers.Title, req.headers.Click, req.headers.Tags, req.body], ['New public link for this dashboard', ev.url, 'link', ev.url]);
+  // Sent when a push address is set, whatever events were chosen (force); nothing when there is none.
+  const sent = [];
+  const send = async (n, e) => (sent.push([n.url, e.title]), { sent: true });
+  assert.deepEqual(await P.notifyNewAddress(ev.url, 'port 20017', { send, config: () => ({ server: { notify: { url: 'https://ntfy.sh/t', events: ['limit'] } } }) }), { sent: true });
+  assert.deepEqual(sent, [['https://ntfy.sh/t', 'New public link for port 20017']]);
+  assert.deepEqual(await P.notifyNewAddress(ev.url, 'x', { send, config: () => ({ server: {} }) }), { sent: false });
+  assert.deepEqual(await P.notifyNewAddress(ev.url, 'x', { send: async () => { throw new Error('down'); }, config: () => ({ server: { notify: { url: 'https://ntfy.sh/t' } } }) }), { sent: false }, 'never throws');
+  // At a start, with the real sendNotification and a stand-in receiver.
+  const { sendNotification } = await import('../../src/server/notify.mjs');
+  const got = [];
+  const fetchImpl = async (url, o) => (got.push({ url, title: o.headers.Title, body: o.body }), { ok: true, status: 200 });
+  const notify = (url, what) => P.notifyNewAddress(url, what, { send: (n, e) => sendNotification(n, e, { fetchImpl }) });
+  saveConfig({ server: { notify: { url: 'https://ntfy.sh/a-long-random-topic', events: ['waiting'] } } });
+  const a = findAddon('public-link');
+  const r = await a.start({ waitMs: 10_000, notify });
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(got, [{ url: 'https://ntfy.sh/a-long-random-topic', title: 'New public link for this dashboard', body: r.url }]);
+  assert.equal((await a.start({ notify })).already, true);
+  assert.equal(got.length, 1, 'not sent again while the same address runs');
+  assert.equal((await a.stop()).ok, true);
+  saveConfig({ server: { notify: undefined } });
+});
+
+test('a temporary address for another local service: asked first when it has no sign-in of its own', async () => {
+  const a = findAddon('public-link');
+  const look = (login) => async () => ({ status: login ? 401 : 200, headers: new Headers(), text: async () => '<h1>open</h1>' });
+  const sent = [];
+  const notify = async (url, what) => (sent.push([url, what]), { sent: true });
+  assert.match((await a.actions['quick-service-start']({ port: 7655 }, { notify })).error, /dashboard itself/);
+  const ask = await a.actions['quick-service-start']({ port: 20017 }, { notify, fetchImpl: look(false) });
+  assert.deepEqual([ask.ok, /no sign-in page of its own/.test(ask.confirm)], [false, true]);
+  const r = await a.actions['quick-service-start']({ port: 20017 }, { notify, fetchImpl: look(true), waitMs: 10_000 });
+  assert.equal(r.ok, true, r.error);
+  assert.equal(fs.readFileSync(path.join(tmp, 'args.txt'), 'utf8').trim(), 'tunnel --no-autoupdate --url http://127.0.0.1:20017');
+  assert.deepEqual(sent, [[r.url, 'port 20017']]);
+  assert.deepEqual((await a.status()).service, { port: 20017, url: r.url });
+  assert.match((await a.actions['quick-service-start']({ port: 20018, confirmed: true }, { notify })).error, /stop it first/);
+  assert.equal((await a.actions['quick-service-stop']()).ok, true);
+  assert.equal((await a.status()).service, null);
+});

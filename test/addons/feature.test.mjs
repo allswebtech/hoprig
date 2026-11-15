@@ -91,3 +91,50 @@ test('add-ons: a failing action is reported, not thrown', async () => {
   const job = await call('GET', '/api/addons/gw/job');
   assert.deepEqual([job.result.ok, job.result.error, job.lines], [false, 'it is not installed', ['it is not installed']]);
 });
+
+test('add-ons: an add-on\'s own actions run as a job with the body; a question comes back as `confirm`', async () => {
+  const { addon, call } = harness();
+  const seen = [];
+  addon.actions = {
+    'ask-first': async (body, { onLine }) => {
+      seen.push(body);
+      onLine('looking');
+      return body.confirmed ? { ok: true, url: 'https://x.example.com' } : { ok: false, confirm: 'It has no sign-in page of its own.' };
+    },
+  };
+  // The body is what the page sent (readJson in this harness answers {}).
+  assert.deepEqual(await call('POST', '/api/addons/gw/do/ask-first'), { started: true });
+  await settle();
+  let job = await call('GET', '/api/addons/gw/job');
+  assert.deepEqual([job.result.ok, job.result.confirm, job.lines], [false, 'It has no sign-in page of its own.', ['looking']]);
+  await assert.rejects(call('POST', '/api/addons/gw/do/nope'), (e) => e.status === 404);
+  await assert.rejects(call('POST', '/api/addons/gw/do/constructor'), (e) => e.status === 404, 'only its own actions, not inherited names');
+  await assert.rejects(call('POST', '/api/addons/gw/do/BAD_NAME'), /no route/);
+  assert.deepEqual(seen, [{}]);
+  delete addon.actions;
+  await assert.rejects(call('POST', '/api/addons/gw/do/ask-first'), (e) => e.status === 404);
+  job = await call('GET', '/api/addons/gw/job');
+  assert.equal(job.running, false);
+});
+
+test('add-ons: attach() when the dashboard starts, detach() when it stops; one that throws does not stop the others', async () => {
+  const { addon, f } = harness();
+  const log = [];
+  addon.attach = () => log.push('attach');
+  addon.detach = async () => log.push('detach');
+  f.start();
+  await settle();
+  await f.close();
+  assert.deepEqual(log, ['attach', 'detach']);
+  addon.attach = () => { throw new Error('boom'); };
+  const errors = [];
+  const orig = console.error;
+  console.error = (m) => errors.push(m);
+  try {
+    f.start();
+    await settle();
+  } finally {
+    console.error = orig;
+  }
+  assert.deepEqual(errors, ['add-on gw: boom']);
+});

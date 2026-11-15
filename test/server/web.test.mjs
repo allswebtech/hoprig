@@ -383,6 +383,26 @@ test('add-ons: no "Set up as a provider" for the public link, notes before Start
   assert.match(src, /changes each time it starts and is not for permanent use/);
 });
 
+test('add-ons: the public link\'s fixed address in plain words; what "Stop using it" does is said first', async () => {
+  const { fixedPill, needsPoll, forgetText } = await import('../../web/publiclink.js');
+  assert.deepEqual(fixedPill({ state: 'none' }), ['ended', 'Not set up']);
+  assert.deepEqual(fixedPill({ state: 'signing-in' }), ['starting', 'Waiting for Cloudflare']);
+  assert.deepEqual(fixedPill({ state: 'ready', enabled: true, connected: true }), ['waiting', 'Connected']);
+  assert.deepEqual(fixedPill({ state: 'ready', enabled: true, connected: false, error: 'x', nextTryAt: 1 }), ['attention', 'Trying again']);
+  assert.deepEqual(fixedPill({ state: 'ready', enabled: false }), ['ended', 'Off']);
+  assert.equal(needsPoll({ installed: true, fixed: { state: 'signing-in' } }), true);
+  assert.equal(needsPoll({ installed: true, fixed: { state: 'ready', enabled: true, connected: false } }), true);
+  assert.equal(needsPoll({ installed: true, fixed: { state: 'ready', enabled: true, connected: true } }), false);
+  assert.equal(needsPoll({ id: 'trouteai', installed: true }), false);
+  const named = forgetText({ mode: 'named', url: 'https://pc2.example.com', hostname: 'pc2.example.com', extra: [{ hostname: 'trouteai-pc2.example.com' }] });
+  assert.match(named, /deletes its tunnel in your Cloudflare account/);
+  assert.match(named, /DNS records for pc2\.example\.com, trouteai-pc2\.example\.com stay in Cloudflare/);
+  assert.match(forgetText({ mode: 'token', url: 'https://pc2.example.com' }), /stay in your Cloudflare dashboard/);
+  assert.match(forgetText({ mode: null }), /Nothing was made in your Cloudflare account/);
+  const { addonView } = await import('../../web/addons.js');
+  assert.equal(addonView({ id: 'public-link', account: false, fixed: { state: 'none' } }).parts, true);
+});
+
 // ---------- wording ----------
 test('wording: "provider" and "computer" in everything a visitor reads; Auto mode promises "without stopping" only for API', async () => {
   for (const f of fs.readdirSync(WEB).filter((x) => x.endsWith('.js') || x.endsWith('.html'))) {

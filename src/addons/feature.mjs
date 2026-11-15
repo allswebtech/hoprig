@@ -7,6 +7,11 @@
 //   GET  /api/addons/<id>/job?from=N         that job's output: { running, lines, next, result }
 //   POST /api/addons/<id>/setup              opens a terminal session that runs `hoprig addons setup <id>`: the
 //                                            key is typed there by the owner, never through the page. { name }
+//   POST /api/addons/<id>/do/<action>        one of the add-on's own `actions` (the public link: its fixed address,
+//                                            another service) with the JSON body, as a job like the ones above. Its
+//                                            result may carry `confirm`: a question the page asks before it is sent
+//                                            again with { confirmed: true }.
+// An add-on's attach() runs when the dashboard starts and detach() when it stops (the fixed address runs with it).
 import os from 'node:os';
 import { resolveRoots } from '../server/folders.mjs';
 import { uniqueName } from '../server/validate.mjs';
@@ -28,21 +33,23 @@ export function addonsFeature(sctx, opts = {}) {
     return a;
   };
 
-  function run(a, action) {
+  function run(a, action, body = {}) {
     const job = { running: true, lines: [], result: null };
     jobs.set(a.id, job);
     const onLine = (l) => {
       job.lines.push(String(l));
       if (job.lines.length > LINES_MAX) job.lines.splice(0, job.lines.length - LINES_MAX);
     };
-    const go = action === 'install' || action === 'update' ? a[action]({ onLine }) : a[action]();
+    const go = ACTIONS.includes(action)
+      ? (action === 'install' || action === 'update' ? a[action]({ onLine }) : a[action]())
+      : a.actions[action](body, { onLine });
     return Promise.resolve(go)
       .then((r) => {
-        job.result = { ok: Boolean(r && r.ok), error: (r && r.error) || null, url: (r && r.url) || null };
+        job.result = { ok: Boolean(r && r.ok), error: (r && r.error) || null, url: (r && r.url) || null, confirm: (r && typeof r.confirm === 'string' && r.confirm) || null };
         if (r && r.error) onLine(r.error);
       })
       .catch((e) => {
-        job.result = { ok: false, error: e.message, url: null };
+        job.result = { ok: false, error: e.message, url: null, confirm: null };
         onLine(e.message);
       })
       .finally(() => {
@@ -66,6 +73,15 @@ export function addonsFeature(sctx, opts = {}) {
       run(a, m[2]);
       return { started: true };
     }],
+    ['POST', /^\/api\/addons\/([^/]+)\/do\/([a-z-]{1,40})$/, async (req, m) => {
+      const body = await sctx.readJson(req);
+      const a = addonOf(m);
+      if (!a.actions || !Object.hasOwn(a.actions, m[2])) throw fail(404, 'no such action');
+      if (body !== null && body !== undefined && (typeof body !== 'object' || Array.isArray(body))) throw fail(400, 'send a JSON object');
+      if (jobs.get(a.id)?.running) throw fail(409, `${a.title} is busy with something else; wait until it finishes`);
+      run(a, m[2], body || {});
+      return { started: true };
+    }],
     ['GET', /^\/api\/addons\/([^/]+)\/job$/, async (req, m, q) => {
       const a = addonOf(m);
       const job = jobs.get(a.id) || { running: false, lines: [], result: null };
@@ -83,5 +99,10 @@ export function addonsFeature(sctx, opts = {}) {
     }],
   ];
 
-  return { name: 'addons', routes, jobs };
+  const each = (fn) => Promise.all(list().map((a) => Promise.resolve().then(() => fn(a)).catch((e) => console.error(`add-on ${a.id}: ${e.message}`))));
+  return {
+    name: 'addons', routes, jobs,
+    start: () => { each((a) => a.attach?.()); },
+    close: () => each((a) => a.detach?.()),
+  };
 }

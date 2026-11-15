@@ -13,7 +13,7 @@ are free except the server you may already rent.
 | --- | --- | --- |
 | **One PC** | Nothing more: its own dashboard is all you need. For your phone on the same Wi-Fi, setup's "devices on my network" is enough. | `hoprig setup` |
 | **Two or more PCs on the same network** | No server needed: on one of them, add the others. | On the one you open: **Computers → Add a computer →** "It has an address: Tailscale, HTTPS or the same network"; on each other PC: `hoprig pair` |
-| **PCs at home, and you want them from elsewhere, no server** | Something both sides can reach is needed. Either a free quick public link (through Cloudflare, the address changes every time, for now and then), or Tailscale (a private network of your own devices, for always). | Quick: `hoprig addons start public-link`. Always: [situation 3](#3-no-server-at-all-tailscale) |
+| **PCs at home, and you want them from elsewhere, no server** | Something both sides can reach is needed. Either a public link through Cloudflare ([below](#a-public-link-through-cloudflare): a fixed address on your own domain, or a free temporary one that changes every time), or Tailscale (a private network of your own devices, for always). | **Settings → Add-ons → Public link**. Always: [situation 3](#3-no-server-at-all-tailscale) |
 | **PCs at home plus one or more servers** | Make one server the hub; every PC joins it; the other servers join too or are added by SSH. | On the server: `hoprig setup --hub` (see [HUB.md](HUB.md)). On each PC: `hoprig join https://<hub> <code>`. Other servers: `hoprig join …` the same way, or on the hub `hoprig machines add user@server` |
 | **Servers only** | The same: one is the hub, the others join it or are added by SSH. | As above |
 
@@ -100,10 +100,46 @@ devices that works through any router. Its Personal plan costs nothing; on 14 No
 Two computers that are both behind routers cannot find each other on their own: neither one can be called, so
 some third computer that both can reach has to be in the middle. RustDesk, for example, uses its public servers
 for that. Here it is your own hub: the PCs connect out to it, and nobody else's server sees your sessions. With no
-such computer at all, Tailscale (situation 3) plays that part, or, now and then, a quick public link
-(`hoprig addons start public-link`): Cloudflare's free quick tunnel gives this dashboard an `https://…trycloudflare.com`
-address. That address changes every time, anyone who has it reaches the login page (so the password matters),
-and the traffic passes through Cloudflare: it is meant for trying things out, not as a permanent way in.
+such computer at all, Tailscale (situation 3) plays that part, or a public link through Cloudflare (next section).
+
+## A public link through Cloudflare
+
+**Settings → Add-ons → Public link** makes this dashboard reachable from anywhere, with no server of your own and
+nothing opened on your router: Cloudflare's program `cloudflared` connects out to Cloudflare and visitors arrive
+through it. **Install** fetches `cloudflared` into Hoprig's own folder. Anyone who has the address reaches the
+sign-in page, so a dashboard password is required (use a long random one: `hoprig passwd --generate FILE`), and
+your traffic passes through Cloudflare. There are two kinds:
+
+**A fixed address** stays the same, such as `https://pc2.example.com`. It needs a free Cloudflare account with a
+domain on it (a domain you own, added to Cloudflare). To set it up:
+
+1. Press **Set it up**, then **Open Cloudflare**. Sign in, pick the domain for this address and press **Authorize**.
+   You can do this in any browser, also on your phone; the page goes on by itself.
+2. Type the address (a name under that domain; the computer's name is suggested) and press **Make it**. Hoprig
+   makes a tunnel named `hoprig-<address>` in your Cloudflare account and a DNS record for the address.
+3. Done. It runs with the dashboard: it starts when the dashboard starts and again by itself when it stops (after
+   2 seconds, then waiting longer each time, at most 5 minutes). **Turn off** stops it until you turn it on again.
+
+Everything cloudflared keeps for it (the sign-in to Cloudflare, the tunnel's key, its settings) stays in Hoprig's
+state folder, readable only by you; your own `~/.cloudflared` is never read or changed.
+
+Under **Advanced**:
+
+- **Another service on this computer**: one more local service under a name of its own, such as TRouteAI's own
+  dashboard on port 20017 at `trouteai-pc2.example.com`. Hoprig looks whether the service has a sign-in page of
+  its own and asks first when it has none, because then anyone with the address can use it.
+- **Use a tunnel token instead**: for a tunnel made in the Cloudflare dashboard (Networks → Tunnels). Give it a
+  public hostname there that leads to `http://127.0.0.1:7433` (the dashboard's port), then paste its install
+  command or token.
+- **Stop using it**: Hoprig deletes the tunnel in your Cloudflare account and removes every file of it from this
+  computer. The DNS records stay in Cloudflare, because cloudflared cannot remove DNS records: delete them under
+  your domain → DNS → Records. Until then the address shows a Cloudflare error page (1016).
+
+**A temporary address** needs no account: Cloudflare's free quick tunnel gives this dashboard an
+`https://…trycloudflare.com` address until you stop it (also from the command line: `hoprig addons start
+public-link`). That address changes at every start, so it is meant for now and then. Each new address is sent to
+your phone when **Settings → Notifications** has a push address. Under **Advanced**, one more local service (such
+as TRouteAI's dashboard) can get a temporary address of its own.
 
 ## Put the hub behind HTTPS
 

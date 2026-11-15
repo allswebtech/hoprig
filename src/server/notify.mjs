@@ -10,6 +10,9 @@
 // Events: "waiting" (Claude finished and waits for you), "attention" (Claude asks for your OK), "limit" (a usage
 // limit was reached), "ended" (Claude exited), "switched" (the server moved a session to another profile),
 // "automation" (an automation needs you: a retry gave up, a schedule failed, an update; see src/automation).
+// One more is sent whenever a push address is set, whatever events are chosen: "link", the new address of a
+// temporary public link (src/addons/publiclink.mjs), which changes at every start; without it the phone could not
+// find the dashboard again. It holds the plain address only, never a sign-in link.
 //
 // The request, format "json":
 //   POST <url>   Content-Type: application/json
@@ -25,7 +28,7 @@
 // times out after 5 s and never blocks or fails the server; errors are logged as one line.
 
 export const EVENTS = ['waiting', 'attention', 'limit', 'ended', 'switched', 'automation'];
-const TAGS = { waiting: 'hourglass', attention: 'raising_hand', limit: 'warning', ended: 'checkered_flag', switched: 'twisted_rightwards_arrows', automation: 'gear' };
+const TAGS = { waiting: 'hourglass', attention: 'raising_hand', limit: 'warning', ended: 'checkered_flag', switched: 'twisted_rightwards_arrows', automation: 'gear', link: 'link' };
 const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
 const FORBIDDEN_HEADERS = new Set(['host', 'content-length', 'content-type', 'connection', 'transfer-encoding']);
 
