@@ -190,6 +190,10 @@ docker exec hoprig-hub cat /data/dashboard-password.txt   # your password
 Put HTTPS in front on the host (`hoprig setup --hub` does not run inside the container; Caddy on the host with
 `hub.example.com { reverse_proxy 127.0.0.1:7433 }` does it), and set the address the hub is reached at:
 `-e HOPRIG_PUBLIC_URL=https://hub.example.com`. The image answers `/healthz` for Docker's health check.
+The login's rate limit counts the visitor's address from the proxy's `X-Forwarded-For` only when the proxy
+connects from the same computer (127.0.0.1 or ::1). Inside a container the proxy on the host connects from Docker's
+own network instead, so there every visitor counts as one: too many wrong passwords from anyone pause sign-in for
+everyone for a while.
 
 Any other process manager works the same way: `PORT` and `HOST` choose where it listens, `HOPRIG_CONFIG_DIR` and
 `HOPRIG_STATE_DIR` where it keeps its data, `HOPRIG_HUB=1` makes it a hub, and
