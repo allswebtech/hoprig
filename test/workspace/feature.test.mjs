@@ -63,11 +63,15 @@ test('routes: login needed, setup, index, one item; ids only; secrets masked', a
   }
 });
 
-test('the git routes: input checked, one background job at a time with its lines and result, the terminal for signing in, nothing secret back', async () => {
+test('the git routes: input checked, one background job at a time with its lines and result, sign-in and the name in the page, nothing secret back', async () => {
   const { Readable } = await import('node:stream');
   const { workspaceFeature } = await import('../../src/workspace/feature.mjs');
   const created = [];
+  const gitRuns = [];
+  const brainRuns = [];
   let release;
+  const signin = { start: async () => ({ state: 'code', code: 'AB12-CD34', url: 'https://github.com/login/device', account: null, error: null }), state: () => ({ state: 'code' }), cancel: () => ({ state: 'cancelled' }) };
+  let gitStateNow = { git: true, identity: { name: 'Alex', email: 'alex@example.invalid' }, gh: { installed: true, signedIn: true, account: 'alex' }, helper: true, brain: { exists: true, git: true, remote: 'https://git.example.test/alex/ai_brain.git' } };
   const sctx = {
     config: () => ({}),
     readJson: async (req) => req.body || {},
@@ -80,7 +84,10 @@ test('the git routes: input checked, one background job at a time with its lines
       await new Promise((r) => (release = r));
       return { repos: [{ label: 'ai_brain', did: ['pulled 1'], todo: [] }], done: 1, todo: 0 };
     },
-    gitState: async () => ({ git: true, identity: { name: 'Alex', email: 'alex@example.invalid' }, gh: { installed: true, signedIn: true, account: 'alex' }, helper: true, brain: { exists: true, git: true, remote: 'https://git.example.test/alex/ai_brain.git' } }),
+    gitState: async () => gitStateNow,
+    signin,
+    run: async (argv) => (gitRuns.push(argv), { ok: true, stdout: '', stderr: '' }),
+    startNew: async (ui, o) => (brainRuns.push([o.owner, o.name]), ui.line('ok', 'private repository alex/ai_brain created and pushed'), true),
   });
   const call = async (method, p, body, headers = {}) => {
     const u = new URL(p, 'http://x');
@@ -114,10 +121,31 @@ test('the git routes: input checked, one background job at a time with its lines
 
   const git = await call('GET', '/api/workspace/git');
   assert.deepEqual(git.gh, { installed: true, signedIn: true, account: 'alex' });
-  assert.deepEqual(git.start, { method: 'POST', path: '/api/workspace/git/terminal' });
-  const term = await call('POST', '/api/workspace/git/terminal', {});
-  assert.equal(term.session, 'git-setup-2');
-  assert.deepEqual(created[0].argv, ['node', 'hoprig.mjs', 'workspace', 'git']);
+  assert.equal('start' in git, false, 'no terminal to start');
+  await assert.rejects(call('POST', '/api/workspace/git/terminal', {}), /no route/);
+  assert.deepEqual(created, [], 'no terminal session');
+  // The name and e-mail: checked, then git config with arrays.
+  await refused('/api/workspace/git/identity', { name: 'A "quoted" <x>', email: 'a@example.invalid' }, 400);
+  await refused('/api/workspace/git/identity', { name: 'Alex', email: 'not an address' }, 400);
+  await refused('/api/workspace/git/identity', { name: 'Alex', email: 'a@example.invalid', extra: 1 }, 400);
+  assert.deepEqual(await call('POST', '/api/workspace/git/identity', { name: ' Alex Doe ', email: 'alex@example.invalid' }), { name: 'Alex Doe', email: 'alex@example.invalid' });
+  assert.deepEqual(gitRuns, [['git', 'config', '--global', 'user.name', 'Alex Doe'], ['git', 'config', '--global', 'user.email', 'alex@example.invalid']]);
+  // The sign-in: the code, never a token; owner only.
+  assert.deepEqual(await call('POST', '/api/workspace/git/signin', {}), { state: 'code', code: 'AB12-CD34', url: 'https://github.com/login/device', account: null, error: null });
+  await refused('/api/workspace/git/signin', { token: 'x' }, 400);
+  await assert.rejects(call('POST', '/api/workspace/git/signin', {}, { authorization: 'Bearer tia_0123456789abcdef' }), (e) => e.status === 403);
+  assert.deepEqual(await call('POST', '/api/workspace/git/signin/cancel', {}), { state: 'cancelled' });
+  // The brain into a new private repository: only when signed in and not on a server yet; a job.
+  await refused('/api/workspace/git/brain', {}, 409);
+  await refused('/api/workspace/git/brain', { name: '../x' }, 400);
+  gitStateNow = { ...gitStateNow, brain: { exists: true, git: true, remote: null } };
+  assert.deepEqual(await call('POST', '/api/workspace/git/brain', {}), { started: true, kind: 'brain' });
+  await new Promise((r) => setTimeout(r, 20));
+  const bj = await call('GET', '/api/workspace/job?from=0');
+  assert.deepEqual([bj.kind, bj.running, bj.result.ok], ['brain', false, true]);
+  assert.deepEqual(brainRuns, [[null, 'ai_brain']]);
+  gitStateNow = { ...gitStateNow, gh: { installed: true, signedIn: false, account: null } };
+  await refused('/api/workspace/git/brain', {}, 409);
 
   const map = await call('GET', '/api/workspace/map');
   assert.equal(map.exists, false);
