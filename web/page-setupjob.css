@@ -1,0 +1,14 @@
+/* Setup jobs in the page (web/setupjob.js) and the GitHub sign-in (web/gitsetup.js): the steps with their marks,
+   the output, the one-time code. */
+.sj-card { margin-top: 12px; }
+.sj-state { margin: 4px 0 8px; }
+.sj-steps:empty { display: none; }
+.sj-step { align-items: flex-start; }
+.sj-mark { width: 1.4em; flex: none; text-align: center; font-weight: 700; padding-top: 1px; }
+.sj-mark.ok { color: var(--ok); }
+.sj-mark.fail { color: var(--danger); }
+.sj-mark.info { color: var(--muted); }
+.sj-cmd { white-space: normal; overflow-wrap: anywhere; }
+.sj-out:empty { display: none; }
+.sj-code { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 14px; margin: 8px 0; border-radius: var(--r); background: var(--surface-2); }
+.sj-code code { font: 700 28px/1.2 var(--mono); letter-spacing: 0.12em; }

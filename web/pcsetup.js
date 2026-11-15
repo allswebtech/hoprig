@@ -1,20 +1,17 @@
 // A computer's Setup (#/computer/setup): the system status of the computer shown (this one, or another one through
-// the hub), "Set up this computer", and recipes (the projects have their own page: projects.js). Anything that may
-// need the administrator password runs in a terminal session of the dashboard, where the owner types it: no
-// password ever goes through this page.
-import { APP_NAME, COMMAND } from './brand.js';
+// the hub), "Set up this computer", and recipes (the projects have their own page: projects.js). Installs run as a
+// job in the page (setupjob.js): its steps and output show on Setup, and when sudo needs the computer's password
+// the page asks for it once, for that job (the rule and why: src/pcsetup/admin.mjs). The terminal is the fallback.
+import { COMMAND } from './brand.js';
 import { icon } from './icons.js';
-import { api, btn, fill, h, link, machine, openSheet, promptSheet, toast } from './lib.js';
+import { api, btn, fill, h, machine, openSheet, promptSheet, toast } from './lib.js';
 import { fold } from './shell.js';
 import { gitPanel } from './gitsetup.js';
+import { setupJobCard, startSetup } from './setupjob.js';
 
 const MARK = { ok: '✓', fail: '✗', warn: '!', info: '·' };
 const STATE = { ok: '✓', missing: '✗', old: '!' };
 const GROUP_TITLES = { system: 'This computer', 'kit:basics': 'Basics', 'kit:node': 'Node.js', 'kit:python': 'Python', 'kit:github': 'GitHub', 'kit:extras': 'Terminal extras', 'kit:docker': 'Docker', claude: 'Claude Code', projects: 'Projects' };
-const goSession = (name) => {
-  location.hash = link(`#/s/${encodeURIComponent(name)}`);
-};
-
 async function post(path, body) {
   try {
     return await api(path, body);
@@ -24,8 +21,8 @@ async function post(path, body) {
   }
 }
 
-/** "Set up this computer": kits with checkboxes, the exact commands, ONE confirmation, then a terminal session. */
-async function setupSheet() {
+/** "Set up this computer": kits with checkboxes, the exact commands, ONE confirmation, then the job on this page. */
+async function setupSheet(started) {
   let d;
   try {
     d = await api('/api/pcsetup/kits');
@@ -43,7 +40,7 @@ async function setupSheet() {
         h('h3.section-title', 'Will run'),
         list.length ? h('pre', { style: { fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', background: 'var(--surface-2)', padding: '8px 10px', borderRadius: '8px' } }, list.join('\n')) : h('p.hint', 'Nothing to install for these; sign-in steps still run.'),
         // The commands are the server's own (with sudo, or as root where there is none): the page adds no wording of its own.
-        admin ? h('p.hint', `It opens in a terminal session: when it asks for a password, type it there. ${APP_NAME} never sees it.`) : null);
+        admin ? h('p.hint', 'Some steps need administrator rights: if they need your password, it is asked for next.') : null);
     };
     paint();
     return [
@@ -61,8 +58,7 @@ async function setupSheet() {
     ];
   });
   if (!kits || !kits.length) return;
-  const r = await post('/api/pcsetup/setup', { kits });
-  if (r) goSession(r.session);
+  await startSetup('/api/pcsetup/setup', { kits }, { started });
 }
 
 async function recipeDownload() {
@@ -81,12 +77,11 @@ async function recipeDownload() {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
-async function recipeApply() {
+async function recipeApply(started) {
   const text = await promptSheet({ title: 'Set up from a recipe', text: 'Paste the recipe, or an https address of one. It is checked first: only known kits and Git addresses.', multiline: true, ok: 'Check and set up', check: (v) => (v.trim() ? '' : 'Paste a recipe or an address') });
   if (!text) return;
   const t = text.trim();
-  const r = await post('/api/pcsetup/recipe', /^https:\/\//.test(t) ? { url: t } : { text: t });
-  if (r) goSession(r.session);
+  await startSetup('/api/pcsetup/recipe', /^https:\/\//.test(t) ? { url: t } : { text: t }, { started });
 }
 
 export const isFine = (c) => c.status === 'ok' || (c.status === 'info' && !c.fixKit && !c.action);
@@ -114,6 +109,8 @@ export function setupSection() {
   const fineBox = h('div');
   const checked = h('span.hint', { role: 'status' });
   const root = h('section.pcsetup.cp-part', { id: 'setup' });
+  const job = setupJobCard({ onEnd: () => load() });
+  const started = () => job.start();
 
   const fixRow = (c) => h('div.row.static.cp-check',
     h(`span.cp-mark.${c.status}`, { 'aria-label': c.status === 'fail' ? 'Missing' : c.status === 'warn' ? 'Old' : 'Optional' }, MARK[c.status] || '·'),
@@ -122,11 +119,9 @@ export function setupSection() {
       h('span.row-sub', c.detail),
       c.fix && !c.fixKit ? h('span.row-sub.mono', c.fix) : null),
     c.fixKit ? btn('small secondary', { icon: 'download', label: c.status === 'info' ? 'Install' : 'Fix', title: c.fix || `Install ${c.label}`, onclick: async (e) => {
-      e.currentTarget.disabled = true;
-      toast(`Opening a session that installs ${c.label}…`);
-      const r = await post('/api/pcsetup/fix', { id: c.id });
-      if (r) goSession(r.session);
-      else e.currentTarget.disabled = false;
+      const b = e.currentTarget;
+      b.disabled = true;
+      if (!(await startSetup('/api/pcsetup/fix', { id: c.id }, { started }))) b.disabled = false;
     } }) : null,
     c.action === 'rules' ? btn('small secondary', { icon: 'plus', label: 'Add', title: 'Copy the working rules and import them from your CLAUDE.md', onclick: async () => {
       const r = await post('/api/pcsetup/rules', { action: 'add' });
@@ -141,7 +136,7 @@ export function setupSection() {
     fill(head,
       h(`span.cp-result-icon.${s.fix.length ? 'warn' : 'ok'}`, icon(s.fix.length ? 'alert' : 'check')),
       h('div.cp-result-text', h('strong', s.text), h('span.hint', s.fix.length ? 'Fix installs one thing; Set up this computer installs everything that is missing.' : `This computer has what is needed for coding with Claude Code.${s.optional.length ? ` ${s.optional.length} optional extra${s.optional.length === 1 ? ' is' : 's are'} below, if you want ${s.optional.length === 1 ? 'it' : 'them'}.` : ''}`)),
-      btn('primary', { icon: 'download', label: 'Set up this computer', onclick: setupSheet }));
+      btn('primary', { icon: 'download', label: 'Set up this computer', onclick: () => setupSheet(started) }));
     fill(fixBox, s.fix.length ? h('div.rows', s.fix.map(fixRow)) : null);
     // Optional extras: closed until opened, each with its own button; they never make the result "to fix".
     fill(optionalBox, s.optional.length ? fold('computer-optional', `Optional · ${s.optional.length}`, h('div.rows', s.optional.map(fixRow))) : null);
@@ -173,12 +168,13 @@ export function setupSection() {
 
   const recipeActions = h('div.mrow-actions',
     btn('secondary', { icon: 'download', label: 'Save as recipe', onclick: recipeDownload }),
-    btn('ghost', { icon: 'text', label: 'Set up from a recipe', onclick: recipeApply }));
+    btn('ghost', { icon: 'text', label: 'Set up from a recipe', onclick: () => recipeApply(started) }));
 
   if (setupCache.has(key)) paint(setupCache.get(key));
   else fill(head, h('span.cp-result-icon', h('div.spinner.small', { 'aria-hidden': 'true' })), h('div.cp-result-text', h('strong', 'Checking this computer…'), h('span.hint', 'What it has for coding, and what is missing.')));
   fill(root,
     h('section.card.panel.cp-resultcard', head, h('div.cp-recheck', checked, btn('small ghost', { icon: 'refresh', label: 'Check again', onclick: load }))),
+    job.el,
     fixBox, optionalBox, fineBox,
     gitPanel(),
     // The workspace's folders, its map and syncing live in Settings → Workspace.
