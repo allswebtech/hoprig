@@ -25,8 +25,20 @@ alone, never reinstalled or downgraded.
 
 The same is on the dashboard: **Computers**, open the computer, **Setup** (next to **Overview** and **Advanced**;
 Setup also shows the workspace folders). It shows the status with a **Fix**
-button where a fix exists, and **Set up this computer** lets you tick kits. Anything that may need the administrator password opens in a
-terminal session of the dashboard, where you type it. This works for another computer through the hub too.
+button where a fix exists, and **Set up this computer** lets you tick kits. The installs run as a job on the
+Setup page itself: each step with ✓ or ✗, the output as it comes, the result and **Check again**. The job goes on
+when you leave the page and shows again when you come back. This works for another computer through the hub too.
+
+**The administrator password in the page.** When a step needs sudo and sudo wants a password (`sudo -n true` is
+refused; root and passwordless sudo need nothing), the page asks for your computer's password once, for that job:
+it is used for these installs and not saved. The server checks it first (a wrong one installs nothing and the page
+asks again), runs each admin step as `sudo -S -k -p '' -- <command>` with the password on sudo's input (never on
+a command line; `-k` leaves no cached sign-in behind), keeps it in memory for that job only, and scrubs it from
+every output line. It is never written, logged or sent back. On a plain `http://` page that is not this computer
+the password would cross the network unencrypted: the page says so and offers **Use the terminal instead**. The
+terminal session is also used for a step that needs you at the computer (macOS's install window, Windows' own
+prompts). This replaced the earlier rule that a password never goes through the page: setup belongs on the page
+it was started from, and the password goes the way the dashboard's own password already does.
 
 After the kits, `pc setup` runs the **Git and GitHub** step (the GitHub sign-in with `gh`, `gh auth setup-git`,
 git's name and e-mail, and restoring or starting your workspace) and then the workspace step: see
