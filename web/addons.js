@@ -167,7 +167,7 @@ registerSettingsPage({
   id: 'addons', title: 'Add-ons', icon: 'plus', order: 60, desc: `Optional companions ${APP_NAME} installs and runs for you.`, render,
   summary: async () => {
     const { addons } = await api('/api/addons');
-    const on = addons.filter((a) => a.running).length;
+    const on = addons.filter((a) => a.running || (a.fixed && a.fixed.enabled)).length;
     const inst = addons.filter((a) => a.installed).length;
     return inst ? `${inst} installed${on ? ` · ${on} running` : ''}` : 'None installed';
   },

@@ -160,7 +160,7 @@ export const NOTES = [
   'The address changes every time it starts, and stops working when it stops.',
   'Anyone who has the address reaches the sign-in page: use a long random password (hoprig passwd --generate FILE).',
   'Your traffic passes through Cloudflare.',
-  'For a while, not for every day: for that, use a hub (docs/HUB.md) or Tailscale.',
+  'For a while, not for every day: for that, use the fixed address, a hub (docs/HUB.md) or Tailscale.',
 ];
 
 async function download(url, file) {
@@ -344,7 +344,7 @@ export const publicLink = {
   id: ID,
   title: 'Public link',
   summary: 'Open this dashboard from anywhere, without a server of your own, through Cloudflare: a fixed address on your own domain, or a temporary one that changes at every start.',
-  homepage: 'https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/',
+  homepage: 'https://github.com/allswebtech/hoprig/blob/main/docs/COMPUTERS.md#a-public-link-through-cloudflare',
   status,
   install,
   update,
