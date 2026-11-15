@@ -58,10 +58,17 @@ test('Overview: whether the computer can be reached from anywhere, in plain word
   assert.equal(reachOf(s('0.0.0.0')).level, 'network');
   assert.match(reachOf(s('0.0.0.0')).text, /port 7433/);
   assert.equal(reachOf(s('127.0.0.1', 'https://pc.example.net')).level, 'anywhere');
-  const link = reachOf(s('127.0.0.1'), [{ id: 'publiclink', running: true, url: 'https://a-b.trycloudflare.com' }, { id: 'trouteai', running: true, url: 'http://localhost:20017' }]);
+  // The add-on's real id is "public-link" (an older check looked for "publiclink" and never matched it).
+  const link = reachOf(s('127.0.0.1'), [{ id: 'public-link', running: true, url: 'https://a-b.trycloudflare.com' }, { id: 'trouteai', running: true, url: 'http://localhost:20017' }]);
   assert.equal(link.level, 'anywhere');
   assert.match(link.text, /a-b\.trycloudflare\.com/);
-  assert.equal(reachOf(s('127.0.0.1'), [{ id: 'publiclink', running: false }]).level, 'local');
+  assert.match(link.text, /temporary/);
+  assert.equal(reachOf(s('127.0.0.1'), [{ id: 'public-link', running: false }]).level, 'local');
+  // The fixed address comes first, and says whether it is connected yet.
+  const fixed = (o) => [{ id: 'public-link', running: true, url: 'https://a-b.trycloudflare.com', fixed: { url: 'https://pc.example.com', enabled: true, connected: true, ...o } }];
+  assert.deepEqual(reachOf(s('127.0.0.1'), fixed({})), { level: 'anywhere', text: 'Yes, at its fixed address https://pc.example.com.' });
+  assert.match(reachOf(s('127.0.0.1'), fixed({ connected: false })).text, /once it is connected/);
+  assert.match(reachOf(s('127.0.0.1'), fixed({ enabled: false })).text, /a-b\.trycloudflare\.com/, 'turned off: the temporary one, when it runs');
   assert.equal(upFor(3 * 86400 + 5 * 3600 + 120), '3 d 5 h');
   assert.equal(upFor(3600 + 120), '1 h 2 min');
   assert.equal(upFor(NaN), '');

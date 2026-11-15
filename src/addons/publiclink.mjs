@@ -22,25 +22,37 @@
 //
 // While it runs: server.trustProxy is on (cloudflared passes the visitor's https as X-Forwarded-Proto, so the login
 // cookie is marked secure) and its address is an allowed origin. Stop puts both back as they were.
+//
+// Because the address is new at each start, it is sent through the owner's notifications (Settings → Notifications,
+// the event "link"), so his phone gets the new link. One more local service (such as TRouteAI's own dashboard) can
+// get a temporary address of its own the same way.
+//
+// The same add-on also gives the dashboard a fixed address, through a Cloudflare named tunnel: fixedlink.mjs.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, saveConfig } from '../config.mjs';
-import { stateDir } from '../paths.mjs';
+import { sendNotification } from '../server/notify.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 import { capture, showCommand, stream, which } from '../setup/system.mjs';
+import { addonsDir, alive, binDir, dashboardPort, findBin, fixedRestore, hasPassword, patchFor, quickStateFile, restoreFor } from './cloudflared.mjs';
+import { attach, detach, fixedActions, fixedStatus } from './fixedlink.mjs';
+import { checkPort, serviceLogin } from './localservice.mjs';
+
+export { findBin, patchFor, restoreFor };
 
 export const ID = 'public-link';
 /** The release we install: a few weeks old, so it is not a fresh, unproven one. */
 export const CLOUDFLARED_VERSION = '2026.10.1';
 const RELEASES = 'https://github.com/cloudflare/cloudflared/releases/download';
 
-const dir = () => path.join(stateDir(), 'addons');
-const binDir = () => path.join(dir(), 'bin');
-const stateFile = () => path.join(dir(), 'public-link.json');
+const dir = addonsDir;
+const stateFile = quickStateFile;
 const logFile = () => path.join(dir(), 'public-link.log');
-const DEFAULT_PORT = 7433;
+// The second temporary address, for one more local service.
+const serviceFile = () => path.join(dir(), 'public-link-service.json');
+const serviceLog = () => path.join(dir(), 'public-link-service.log');
 
 /** The address in a cloudflared output line, or null. "api.trycloudflare.com" (the service it asks) is not one. */
 export function parseTunnelUrl(text) {
@@ -86,50 +98,37 @@ export function installPlan({ platform = process.platform, arch = process.arch, 
 /** The command line that starts the quick tunnel to the dashboard on `port`. */
 export const tunnelArgv = (bin, port) => [bin, 'tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`];
 
-/** The config change while it runs: { server: { trustProxy, allowedOrigins } } plus what to put back on stop. */
-export function patchFor(server, origin) {
-  const origins = Array.isArray(server.allowedOrigins) ? server.allowedOrigins : [];
-  return {
-    patch: { server: { trustProxy: true, allowedOrigins: origins.includes(origin) ? origins : [...origins, origin] } },
-    restore: { hadTrustProxy: Object.hasOwn(server, 'trustProxy'), trustProxy: server.trustProxy, hadOrigin: origins.includes(origin), origin },
-  };
-}
-
-/** The config change on stop: trustProxy as it was (absent stays absent), the origin removed unless it was there. */
-export function restoreFor(server, restore) {
-  const origins = (Array.isArray(server.allowedOrigins) ? server.allowedOrigins : []).filter((o) => restore.hadOrigin || o !== restore.origin);
-  return { server: { trustProxy: restore.hadTrustProxy ? restore.trustProxy : undefined, allowedOrigins: origins.length ? origins : undefined } };
-}
-
-const readState = () => {
+const readJson = (file) => {
   try {
-    return JSON.parse(fs.readFileSync(stateFile(), 'utf8'));
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {
     return null;
   }
 };
-const alive = (pid) => {
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return e.code === 'EPERM';
-  }
-};
-// The port of the dashboard that runs now (it may have been started with --port or PORT), else the configured one.
-const port = () => runningDashboard()?.port || Number(loadConfig().server.port) || DEFAULT_PORT;
+const readState = () => readJson(stateFile());
+const port = dashboardPort;
 
-/** cloudflared on PATH, else the one this add-on downloaded. */
-export function findBin(env = process.env, platform = process.platform) {
-  return which('cloudflared', env, platform) || which(path.join(binDir(), platform === 'win32' ? 'cloudflared.exe' : 'cloudflared'), env, platform);
-}
-
-/** Put the config back as it was before start, once. */
+/** Put the config back as it was before start, once. While the fixed address is on, trustProxy stays on for it. */
 function undoConfig(st) {
   if (!st || !st.restore || st.restored) return;
-  saveConfig(restoreFor(loadConfig().server, st.restore));
+  saveConfig(restoreFor(loadConfig().server, st.restore, { keepTrust: !!fixedRestore() }));
   fs.writeFileSync(stateFile(), JSON.stringify({ ...st, restored: true }), { mode: 0o600 });
+}
+
+/** The push for a new temporary address: the address itself, so tapping it opens the page there. */
+export function newAddressEvent(url, what = 'this dashboard') {
+  return { status: 'link', force: true, session: '', title: `New public link for ${what}`, message: url, url };
+}
+
+/** Send it through the owner's notifications when he chose them (and the event "link"). Never throws. */
+export function notifyNewAddress(url, what, { send = sendNotification, config = loadConfig } = {}) {
+  try {
+    const n = config().server.notify;
+    if (!n || !n.url) return Promise.resolve({ sent: false });
+    return Promise.resolve(send(n, newAddressEvent(url, what))).catch(() => ({ sent: false }));
+  } catch {
+    return Promise.resolve({ sent: false });
+  }
 }
 
 async function status() {
@@ -143,6 +142,7 @@ async function status() {
   const running = !!(st && alive(st.pid) && st.url);
   // It ended by itself (crash, reboot): its settings go back now, so they never outlive the tunnel.
   if (st && !running && !st.restored) undoConfig(st);
+  const sv = readJson(serviceFile());
   return {
     installed: Boolean(bin),
     version,
@@ -150,6 +150,9 @@ async function status() {
     url: running ? st.url : null,
     account: false, // nothing to "set up as an account": it is not an AI provider
     notes: NOTES,
+    // The second temporary address, for one more local service: { port, url } while it runs.
+    service: sv && alive(sv.pid) && sv.url ? { port: sv.port, url: sv.url } : null,
+    fixed: fixedStatus(),
   };
 }
 
@@ -204,42 +207,86 @@ async function update({ onLine = () => {} } = {}) {
   return install({ onLine });
 }
 
+/**
+ * Start `cloudflared tunnel --url http://127.0.0.1:<port>` in the background, its output in `log`, and wait until it
+ * is connected. { ok, pid, url } or { ok: false, error }.
+ */
+async function quickTunnel(bin, toPort, log, waitMs) {
+  fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
+  const fd = fs.openSync(log, 'w', 0o600);
+  const argv = tunnelArgv(bin, toPort);
+  const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: ['ignore', fd, fd], windowsHide: true });
+  child.unref();
+  fs.closeSync(fd);
+  let seen = { url: null, registered: false, errors: [] };
+  for (let waited = 0; waited < waitMs && !seen.registered; waited += 500) {
+    await new Promise((r) => setTimeout(r, 500));
+    seen = tunnelState(fs.readFileSync(log, 'utf8'));
+    if (!alive(child.pid)) break;
+  }
+  if (seen.url && seen.registered) return { ok: true, pid: child.pid, url: seen.url };
+  try { process.kill(child.pid, 'SIGTERM'); } catch { /* gone */ }
+  const text = fs.readFileSync(log, 'utf8');
+  let why = seen.errors.length ? seen.errors.join(' ') : text.trim().split('\n').slice(-1).join('');
+  if (/x509: certificate signed by unknown authority/.test(text)) why = 'this system has no root certificates: install its "ca-certificates" package, then start again';
+  return { ok: false, error: `${seen.url ? 'cloudflared got an address but could not connect to Cloudflare' : 'cloudflared gave no address'}${why ? `: ${why}` : ''} (its log: ${log})` };
+}
+
 /** Start the tunnel in the background and wait for its address. Never called by itself: only by the owner. */
-async function start({ waitMs = 60_000 } = {}) {
+async function start({ waitMs = 60_000, notify = notifyNewAddress } = {}) {
   const st = readState();
   if (st && alive(st.pid) && st.url) return { ok: true, url: st.url, already: true };
   if (st && !st.restored) undoConfig(st);
   const bin = findBin();
   if (!bin) return { ok: false, error: 'cloudflared is not installed (hoprig addons install public-link)' };
-  const server = loadConfig().server;
-  if (typeof server.passwordHash !== 'string' || !server.passwordHash.startsWith('scrypt$')) {
+  if (!hasPassword()) {
     return { ok: false, error: 'Set a dashboard password first (hoprig passwd --generate FILE): the address leads to the sign-in page.' };
   }
   if (!runningDashboard()) return { ok: false, error: 'The dashboard is not running: start it first (hoprig serve, or hoprig service install).' };
-  fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
-  const log = fs.openSync(logFile(), 'w', 0o600);
-  const child = spawn(tunnelArgv(bin, port())[0], tunnelArgv(bin, port()).slice(1), { detached: true, stdio: ['ignore', log, log], windowsHide: true });
-  child.unref();
-  fs.closeSync(log);
-  fs.writeFileSync(stateFile(), JSON.stringify({ pid: child.pid, url: null, restored: true }), { mode: 0o600 });
-  let seen = { url: null, registered: false, errors: [] };
-  for (let waited = 0; waited < waitMs && !seen.registered; waited += 500) {
-    await new Promise((r) => setTimeout(r, 500));
-    seen = tunnelState(fs.readFileSync(logFile(), 'utf8'));
-    if (!alive(child.pid)) break;
-  }
-  const url = seen.url;
-  if (!url || !seen.registered) {
-    try { process.kill(child.pid, 'SIGTERM'); } catch { /* gone */ }
-    const log = fs.readFileSync(logFile(), 'utf8');
-    let why = seen.errors.length ? seen.errors.join(' ') : log.trim().split('\n').slice(-1).join('');
-    if (/x509: certificate signed by unknown authority/.test(log)) why = 'this system has no root certificates: install its "ca-certificates" package, then start again';
-    return { ok: false, error: `${url ? 'cloudflared got an address but could not connect to Cloudflare' : 'cloudflared gave no address'}${why ? `: ${why}` : ''} (its log: ${logFile()})` };
-  }
-  const { patch, restore } = patchFor(loadConfig().server, url);
+  const t = await quickTunnel(bin, port(), logFile(), waitMs);
+  if (!t.ok) return t;
+  // The fixed address may be on: then the owner's own trustProxy is in its record, not in the config.
+  const { patch, restore } = patchFor(loadConfig().server, t.url, { inherit: fixedRestore() });
   saveConfig(patch);
-  fs.writeFileSync(stateFile(), JSON.stringify({ pid: child.pid, url, restore, restored: false, started: Date.now() }), { mode: 0o600 });
-  return { ok: true, url, already: false };
+  fs.writeFileSync(stateFile(), JSON.stringify({ pid: t.pid, url: t.url, restore, restored: false, started: Date.now() }), { mode: 0o600 });
+  await notify(t.url, 'this dashboard');
+  return { ok: true, url: t.url, already: false };
+}
+
+/**
+ * A temporary address for one more local service. Without a sign-in of its own it starts only after a confirm.
+ * `fetchImpl`: for tests (the look at the service).
+ */
+async function startService({ port: p, confirmed } = {}, { waitMs = 60_000, notify = notifyNewAddress, fetchImpl } = {}) {
+  const want = checkPort(p, port());
+  if (want.error) return { ok: false, error: want.error };
+  const sv = readJson(serviceFile());
+  if (sv && alive(sv.pid) && sv.url) return { ok: false, error: `Port ${sv.port} has a temporary address already: stop it first.` };
+  const bin = findBin();
+  if (!bin) return { ok: false, error: 'cloudflared is not installed: press Install first.' };
+  const look = await serviceLogin(want.port, { fetchImpl });
+  if (!look.answers) return { ok: false, error: `Nothing answers on port ${want.port} on this computer. Start that service first.` };
+  if (!look.login && confirmed !== true) return { ok: false, confirm: `Port ${want.port} shows no sign-in page of its own: anyone who has its address can use it.` };
+  const t = await quickTunnel(bin, want.port, serviceLog(), waitMs);
+  if (!t.ok) return t;
+  fs.writeFileSync(serviceFile(), JSON.stringify({ pid: t.pid, url: t.url, port: want.port }), { mode: 0o600 });
+  await notify(t.url, `port ${want.port}`);
+  return { ok: true, url: t.url };
+}
+
+async function stopPid(pid) {
+  if (!alive(pid)) return true;
+  try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ }
+  for (let i = 0; i < 20 && alive(pid); i++) await new Promise((r) => setTimeout(r, 250));
+  if (alive(pid)) try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+  return !alive(pid);
+}
+
+async function stopService() {
+  const sv = readJson(serviceFile());
+  const ok = sv ? await stopPid(sv.pid) : true;
+  if (ok) fs.rmSync(serviceFile(), { force: true });
+  return { ok };
 }
 
 async function stop() {
@@ -248,11 +295,9 @@ async function stop() {
     if (st) undoConfig(st);
     return { ok: true, already: true };
   }
-  try { process.kill(st.pid, 'SIGTERM'); } catch { /* gone */ }
-  for (let i = 0; i < 20 && alive(st.pid); i++) await new Promise((r) => setTimeout(r, 250));
-  if (alive(st.pid)) try { process.kill(st.pid, 'SIGKILL'); } catch { /* gone */ }
+  const ok = await stopPid(st.pid);
   undoConfig(st);
-  return { ok: !alive(st.pid) };
+  return { ok };
 }
 
 /** For `hoprig addons start public-link`: say what it means, and ask, before anything starts. */
@@ -298,7 +343,7 @@ async function afterStart(r, { out = (s) => console.log(s) } = {}) {
 export const publicLink = {
   id: ID,
   title: 'Public link',
-  summary: 'Open this dashboard from anywhere, without a server: a temporary https address through Cloudflare\'s free quick tunnel. The address changes every time; for testing, not for every day.',
+  summary: 'Open this dashboard from anywhere, without a server of your own, through Cloudflare: a fixed address on your own domain, or a temporary one that changes at every start.',
   homepage: 'https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/',
   status,
   install,
@@ -307,5 +352,14 @@ export const publicLink = {
   stop,
   beforeStart,
   afterStart,
+  // The page's other actions: POST /api/addons/public-link/do/<name> (feature.mjs).
+  actions: {
+    ...fixedActions,
+    'quick-service-start': (b, o) => startService(b, o),
+    'quick-service-stop': () => stopService(),
+  },
+  // The fixed address runs with the dashboard (feature.mjs calls these when it starts and stops).
+  attach,
+  detach,
   profile: null,
 };

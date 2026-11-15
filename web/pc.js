@@ -41,8 +41,13 @@ export function processList(d, sort = 'cpu') {
 
 /** Can the computer's dashboard be opened from anywhere? From its settings and add-ons: { level, text }. */
 export function reachOf(settings, addons = []) {
-  const pub = addons.find((a) => a.id === 'publiclink' && a.running && a.url);
-  if (pub) return { level: 'anywhere', text: `Yes, through the public link ${pub.url} (temporary: the address changes each time it starts).` };
+  // The public link add-on (id "public-link"): its fixed address first, then the temporary one.
+  const link = addons.find((a) => a.id === 'public-link') || {};
+  const fixed = link.fixed;
+  if (fixed && fixed.enabled && fixed.url) {
+    return { level: 'anywhere', text: fixed.connected ? `Yes, at its fixed address ${fixed.url}.` : `At its fixed address ${fixed.url}, once it is connected (it is connecting now).` };
+  }
+  if (link.running && link.url) return { level: 'anywhere', text: `Yes, through the public link ${link.url} (temporary: the address changes each time it starts).` };
   const s = (settings && settings.server) || {};
   if (s.publicUrl) return { level: 'anywhere', text: `Yes, at ${s.publicUrl}.` };
   const n = (settings && settings.network) || {};

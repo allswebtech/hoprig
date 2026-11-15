@@ -4,6 +4,7 @@
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
 import { add, api, btn, confirmSheet, fill, h, link, qrSvg, toast } from './lib.js';
+import { needsPoll, publicLinkParts } from './publiclink.js';
 import { registerSettingsPage } from './registry.js';
 
 /**
@@ -18,6 +19,8 @@ export function addonView(a) {
     notes,
     confirmStart: notes.length > 0,
     showAddress: !!(a.running && a.url && a.account === false),
+    // The public link: a fixed and a temporary address, each with its own part (publiclink.js).
+    parts: !!(a.fixed && typeof a.fixed === 'object'),
   };
 }
 
@@ -25,8 +28,11 @@ const STATE = (a) => (a.job && a.job.running ? ['working', 'Busy…'] : !a.insta
 
 function render({ isAlive }) {
   const box = h('div.rows', h('div.row.static', h('span.row-main', h('span.row-sub', 'Looking at the add-ons…'))));
+  let timer = null;
+  let acting = false;
 
   async function paint() {
+    clearTimeout(timer);
     let r;
     try {
       r = await api('/api/addons');
@@ -36,31 +42,49 @@ function render({ isAlive }) {
     }
     if (!isAlive()) return;
     fill(box, r.addons.map(row));
+    // While Cloudflare's approval or the first connection is awaited, look again soon (not while a job's output shows).
+    if (r.addons.some(needsPoll)) timer = setTimeout(() => isAlive() && !acting && paint(), 3000);
   }
 
-  /** Run an action and show its output under the add-on until it ends. */
-  async function act(a, action, out) {
+  /**
+   * Run an action and show its output under the add-on until it ends; resolves the job's result. `body`: one of
+   * the add-on's own actions (POST …/do/<action>). A result that asks a question is asked, then sent again.
+   */
+  async function act(a, action, out, body) {
     try {
-      await api(`/api/addons/${a.id}/${action}`, {});
+      await api(body ? `/api/addons/${a.id}/do/${action}` : `/api/addons/${a.id}/${action}`, body || {});
     } catch (e) {
       toast(e.message, { kind: 'error' });
-      return;
+      return null;
     }
+    acting = true;
     out.hidden = false;
     fill(out);
     let from = 0;
-    for (;;) {
-      const j = await api(`/api/addons/${a.id}/job?from=${from}`).catch(() => null);
-      if (!j || !isAlive()) return;
-      if (j.lines.length) add(out, `${j.lines.join('\n')}\n`);
-      out.scrollTop = out.scrollHeight;
-      from = j.next;
-      if (!j.running) {
-        toast(j.result && j.result.ok ? `${a.title}: done` : `${a.title}: ${(j.result && j.result.error) || 'that did not work'}`, { kind: j.result && j.result.ok ? 'info' : 'error' });
-        paint();
-        return;
+    try {
+      for (;;) {
+        const j = await api(`/api/addons/${a.id}/job?from=${from}`).catch(() => null);
+        if (!j || !isAlive()) return null;
+        if (j.lines.length) add(out, `${j.lines.join('\n')}\n`);
+        out.scrollTop = out.scrollHeight;
+        from = j.next;
+        if (!j.running) {
+          const res = j.result || {};
+          if (res.confirm && body) {
+            acting = false;
+            if (await confirmSheet({ title: 'Make it reachable anyway?', text: `${res.confirm} Make it reachable from anywhere anyway?`, ok: 'Yes, make it reachable', danger: true })) return act(a, action, out, { ...body, confirmed: true });
+            out.hidden = true;
+            return res;
+          }
+          toast(res.ok ? `${a.title}: done` : `${a.title}: ${res.error || 'that did not work'}`, { kind: res.ok ? 'info' : 'error' });
+          acting = false;
+          paint();
+          return res;
+        }
+        await new Promise((r) => setTimeout(r, 1000));
       }
-      await new Promise((res) => setTimeout(res, 1000));
+    } finally {
+      acting = false;
     }
   }
 
@@ -79,6 +103,23 @@ function render({ isAlive }) {
         act(a, 'start', out);
       },
     });
+    if (v.parts) {
+      // The public link: its fixed and temporary addresses, then Install / Update / About and the job's output.
+      const t = { busy, run: (action, body) => act(a, action, out, body) };
+      return h('div.row.static.col.mrow',
+        h('div.mrow-top',
+          h('span.row-icon', icon('external')),
+          h('span.row-main',
+            h('span.row-title', a.title, a.version ? h('span.badge.soft', a.version) : null),
+            h('span', h(`span.pill.st-${key}`, h('span.dot'), a.installed && !busy ? 'Installed' : text)))),
+        h('p.hint', a.summary),
+        a.installed ? publicLinkParts(a, t) : h('p.hint', 'It uses Cloudflare\'s program cloudflared: Install fetches it into Hoprig\'s own folder.'),
+        h('div.mrow-actions',
+          !a.installed ? b('download', 'Install', 'install') : null,
+          a.installed ? b('refresh', 'Update', 'update') : null,
+          a.homepage ? h('a.btn.small.ghost', { href: a.homepage, target: '_blank', rel: 'noopener' }, h('span', 'About')) : null),
+        out);
+    }
     const address = v.showAddress ? h('div.addon-address') : null;
     if (address) {
       // A sign-in QR made for THAT address: a phone scanning it lands signed in on the public page.
