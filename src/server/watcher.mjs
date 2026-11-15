@@ -56,7 +56,8 @@ export function transitions(prev, cards) {
     else if (s === 'shell' && before !== 'shell') events.push({ status: 'ended', card: c });
   }
   for (const [name, s] of prev) {
-    if (!next.has(name) && s !== 'shell') events.push({ status: 'ended', card: { name } });
+    // A chat (src/chat) leaves the list only when the owner closed it or opened it in a terminal: nothing to tell.
+    if (!next.has(name) && s !== 'shell' && !name.startsWith('chat:')) events.push({ status: 'ended', card: { name } });
   }
   return { events, next };
 }

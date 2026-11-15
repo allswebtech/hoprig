@@ -120,7 +120,8 @@ export function createAssistantCore({
       if (c) f.session = { status: statusOf(c), note: c.note || '', account: c.profile ? c.profile.name : null, cwd: c.cwd || null, screen: '' };
       // What a permission prompt asks is on the screen, not in the notification: read it, so policy.mjs can judge
       // the request itself (deterministically, not by the model).
-      if (f.session && f.session.status === 'needs_ok') {
+      // A chat (src/chat) has no screen: its question is in its card's note.
+      if (f.session && f.session.status === 'needs_ok' && c.kind !== 'chat') {
         try {
           f.session.screen = String(await ops.capture({ computer: args.computer || LOCAL, session: args.session, lines: 15 })).split('\n').slice(-15).join('\n');
         } catch {

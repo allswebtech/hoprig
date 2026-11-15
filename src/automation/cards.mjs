@@ -2,7 +2,8 @@
 // automation agrees on what "busy", "idle" and "in trouble" mean.
 //
 // A card (see the ctx interface in ./index.mjs):
-//   name, kind ('claude' | 'shell'), cwd, command, attached, activity (ms)
+//   name, kind ('claude' | 'shell' | 'chat'), cwd, command, attached, activity (ms)
+//   chat (src/chat: a conversation in the page, no terminal): profile { name }, status, running (its process runs)
 //   claude only: profile { name }, status, statusAt, sessionId, runId, stopAt, limit (seen on screen),
 //                runLimit (reported by Claude Code), failure { at, error, text } (the last reply ended in an
 //                API error), attentionKind (the Notification's type, e.g. 'permission_prompt', 'idle_prompt')
@@ -15,8 +16,8 @@ export const atLimit = (c) => Boolean(c.limit || c.runLimit);
 /** The last reply ended in an API error (StopFailure) and nobody sent anything since. */
 export const failed = (c) => Boolean(c.failure && typeof c.failure === 'object');
 
-/** Claude is thinking or still starting: never type into it, never update under it. */
-export const busy = (c) => isClaude(c) && (c.status === 'working' || c.status === 'starting');
+/** Claude is thinking or still starting, in a terminal or in a chat: never type into it, never update under it. */
+export const busy = (c) => (isClaude(c) || (Boolean(c) && c.kind === 'chat')) && (c.status === 'working' || c.status === 'starting');
 
 /**
  * Claude finished and waits for the next message, with nothing in the way: no permission question, no limit, no
