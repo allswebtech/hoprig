@@ -127,7 +127,7 @@ export function setupSection() {
     h('span.row-main.cp-wrap',
       h('span.row-title', c.label, h('span.badge.soft', GROUP_TITLES[c.group] || c.group)),
       h('span.row-sub', c.detail),
-      c.fix && !c.fixKit ? h('span.row-sub.mono', c.fix) : null),
+      c.fix && !c.fixKit && c.action !== 'claude-login' ? h('span.row-sub.mono', c.fix) : null), // the sign-in has its own button: no command to type
     c.group === 'kit:github' && ASKED[c.id] ? askedButton(c) : c.fixKit ? btn('small secondary', { icon: 'download', label: c.status === 'info' ? 'Install' : 'Fix', title: c.fix || `Install ${c.label}`, onclick: async (e) => {
       const b = e.currentTarget;
       b.disabled = true;
