@@ -65,11 +65,12 @@ export async function pullFrom(dir, url, peer, run = capture, { dryRun = false }
   const c = await git(dir, ['rev-list', '--left-right', '--count', `HEAD...${ref}`], run);
   const [ahead, behind] = c.stdout.trim().split(/\s+/).map(Number);
   if (ahead && behind) todo.push({ why: `${s.branch} here and on ${peer} have both moved (${ahead} here, ${behind} there)`, command: `git -C "${dir}" merge ${ref}   (or: git -C "${dir}" rebase ${ref})` });
-  else if (behind && s.changes) todo.push({ why: `${behind} to get from ${peer}, but there are ${s.changes} uncommitted changes here`, command: `git -C "${dir}" stash && git -C "${dir}" merge --ff-only ${ref} && git -C "${dir}" stash pop` });
-  else if (behind && dryRun) did.push(`would get ${behind} from ${peer}`);
+  else if (behind && dryRun) did.push(`would get ${behind} from ${peer}${s.changes ? `, unless they touch your ${s.changes} uncommitted change${s.changes > 1 ? 's' : ''}` : ''}`);
   else if (behind) {
+    // As in syncRepo: uncommitted work stays; git refuses, changing nothing, only when the same files are touched.
     const m = await git(dir, ['merge', '--ff-only', '--quiet', ref], run);
-    if (m.ok) did.push(`got ${behind} from ${peer}`);
+    if (m.ok) did.push(`got ${behind} from ${peer}${s.changes ? ` (your ${s.changes} uncommitted change${s.changes > 1 ? 's' : ''} stay${s.changes > 1 ? '' : 's'})` : ''}`);
+    else if (s.changes) todo.push({ why: `${behind} to get from ${peer}, but there are ${s.changes} uncommitted changes in the same files here`, command: `git -C "${dir}" stash && git -C "${dir}" merge --ff-only ${ref} && git -C "${dir}" stash pop` });
     else todo.push({ why: 'fast-forward failed', command: `git -C "${dir}" merge --ff-only ${ref}` });
   }
   if (ahead && !behind) notes.push(`${ahead} commit${ahead > 1 ? 's' : ''} here that ${peer} does not have: it gets them by running  hoprig workspace sync --with <this computer>  there`);

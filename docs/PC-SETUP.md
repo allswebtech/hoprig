@@ -93,7 +93,8 @@ hoprig project sync [shop] [--memory]
   folder that already has files is merged in first (a file with the same name is kept under a new name, never
   overwritten) and the old folder is kept as a dated backup. On Windows without links, `autoMemoryDirectory` is
   set in that folder's `.claude/settings.local.json` instead.
-- **Sync** fetches, fast-forwards a clean branch that is only behind, and pushes a branch that is only ahead. It
+- **Sync** fetches, fast-forwards a branch that is only behind (uncommitted work stays; it stops the pull only
+  where the new commits touch the same files), and pushes a branch that is only ahead. It
   never merges, rebases, forces or stashes by itself: anything that needs a decision is listed with the exact
   command. `--memory` first commits the memory folders (and only them).
 - **Without project.json** a parent is understood from what is there: the repositories in `code/` and

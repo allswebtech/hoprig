@@ -344,7 +344,8 @@ export function listWorkspaces(projectsDir) {
 }
 
 /**
- * Sync one repository without ever deciding for the user: fetch; fast-forward when clean and only behind; push
+ * Sync one repository without ever deciding for the user: fetch; fast-forward when only behind (uncommitted work
+ * stays, and stops it only where the incoming commits touch the same files); push
  * when only ahead and there is an upstream (unless `push` is false: then it is reported). Anything else is
  * reported with the exact command. One engine for `project sync` and `workspace sync`.
  * Resolves { rel, did: [..], todo: [{ why, command }] }.
@@ -363,11 +364,14 @@ export async function syncRepo(dir, rel, run = capture, { push = true, dryRun = 
   }
   if (s.ahead && s.behind) todo.push({ why: `${s.branch} and its upstream have both moved (${s.ahead} ahead, ${s.behind} behind)`, command: `git -C "${dir}" pull --rebase   (or: git -C "${dir}" merge ${s.upstream})` });
   else if (s.behind) {
-    if (s.changes) todo.push({ why: `${s.behind} to pull, but there are ${s.changes} uncommitted changes`, command: `git -C "${dir}" stash && git -C "${dir}" pull --ff-only && git -C "${dir}" stash pop` });
-    else if (dryRun) did.push(`would pull ${s.behind}`);
+    // Uncommitted work does not stop a fast-forward: git refuses, changing nothing, only when the incoming commits
+    // touch a changed (or untracked) file. Then it is the user's to decide, with the exact command.
+    const dirty = s.changes ? ` (your ${s.changes} uncommitted change${s.changes > 1 ? 's' : ''} stay${s.changes > 1 ? '' : 's'})` : '';
+    if (dryRun) did.push(`would pull ${s.behind}${s.changes ? `, unless they touch your ${s.changes} uncommitted change${s.changes > 1 ? 's' : ''}` : ''}`);
     else {
       const p = await git(dir, ['merge', '--ff-only', '--quiet', '@{u}'], run);
-      if (p.ok) did.push(`pulled ${s.behind}`);
+      if (p.ok) did.push(`pulled ${s.behind}${dirty}`);
+      else if (s.changes) todo.push({ why: `${s.behind} to pull, but there are ${s.changes} uncommitted changes in the same files`, command: `git -C "${dir}" stash && git -C "${dir}" pull --ff-only && git -C "${dir}" stash pop` });
       else todo.push({ why: 'fast-forward failed', command: `git -C "${dir}" pull --ff-only` });
     }
   } else if (s.ahead && !push) {

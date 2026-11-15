@@ -132,9 +132,10 @@ the missing folders of the tree, and finishes each project like `project clone`:
 ## Sync: every repository in step
 
 `hoprig workspace sync` goes through every repository of the map, the brain first, with the same engine as
-`project sync`, leaving tools alone: fetch; fast-forward a clean branch that is only behind; push a branch that is only ahead **only
-with `--push`**. It never merges, rebases, forces or stashes. Whatever needs a decision (both sides moved,
-something to pull but uncommitted changes, no upstream, a push that failed, a repository not on this computer) is
+`project sync`, leaving tools alone: fetch; fast-forward a branch that is only behind; push a branch that is only ahead **only
+with `--push`**. Uncommitted work stays where it is and does not stop a fast-forward, unless the new commits touch
+the same files: then git refuses and nothing is changed. It never merges, rebases, forces or stashes. Whatever needs
+a decision (both sides moved, something to pull into files with uncommitted changes, no upstream, a push that failed, a repository not on this computer) is
 listed with the exact command. `--memory` first commits the memory folders (the brain's `claude-memory/` and each
 project's), and only them. `--dry-run` fetches and says what it would pull and push.
 
@@ -171,7 +172,7 @@ machines`) is used, at the address stored there; its own Hoprig says where its w
 It is **pull only**, on purpose: `git fetch` over SSH runs git-upload-pack there, which never writes on the other
 computer. Pushing into its repository would change a branch that may be checked out there. What is fetched lands
 under `refs/hoprig-peer/<computer>/<branch>` (not a branch, not a remote), and the branch here is fast-forwarded
-only when it is clean and only behind. The other computer gets this one's commits the same way, by running
+only when it is only behind (uncommitted work stays, as in `sync`). The other computer gets this one's commits the same way, by running
 `sync --with` itself.
 
 ## Git and GitHub

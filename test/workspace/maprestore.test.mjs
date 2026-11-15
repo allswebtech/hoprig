@@ -174,7 +174,7 @@ test('restore refuses a brain folder that is another repository, and changes not
   await assert.rejects(restoreWorkspace('not an address', { ui, dir: C.ws }), (e) => e.status === 400);
 });
 
-test('sync: behind → fast-forward; ahead → listed, pushed only with --push; diverged and dirty → listed with the command, nothing changed', async () => {
+test('sync: behind → fast-forward, unsaved work stays; ahead → listed, pushed only with --push; diverged, or unsaved work in the same file → listed with the command, nothing changed', async () => {
   // A changes things and pushes them.
   A.use();
   w.commit(path.join(A.projects, 'shop', 'code', 'shop-web'), 'a.md', 'from A');
@@ -187,7 +187,8 @@ test('sync: behind → fast-forward; ahead → listed, pushed only with --push; 
   const seed = path.join(w.root, 'sdk-seed');
   w.commit(seed, 'VERSION', '2.0\n');
   w.sh(seed, 'push', '-q', 'origin', 'stable');
-  // B: a commit of its own in shop-api (ahead), one in the parent (diverged), an unsaved change in the brain (dirty).
+  // B: a commit of its own in shop-api (ahead), one in the parent (diverged), an unsaved change in the brain in the
+  // very file A changed (in the way), and an unsaved file in shop-web that A's commit does not touch (stays).
   B.use();
   const kitB = path.join(B.ws, 'development', 'sdk', 'kit');
   const kitBefore = w.sh(kitB, 'for-each-ref');
@@ -195,23 +196,27 @@ test('sync: behind → fast-forward; ahead → listed, pushed only with --push; 
   w.commit(api, 'b.md', 'from B');
   const parentB = w.commit(path.join(B.projects, 'shop'), 'notes.md', 'from B');
   const brainB = head(path.join(B.ws, 'ai_brain'));
-  fs.writeFileSync(path.join(B.ws, 'ai_brain', 'BRAIN.md'), 'unsaved');
+  fs.writeFileSync(path.join(B.ws, 'ai_brain', 'learnings.md'), 'unsaved');
+  fs.writeFileSync(path.join(B.projects, 'shop', 'code', 'shop-web', 'scratch.md'), 'unsaved');
 
   const dry = await syncAll({ dir: B.ws, projects: B.projects, dryRun: true });
-  assert.deepEqual(byLabel(dry, 'shop/code/shop-web').did, ['would pull 1']);
+  assert.deepEqual(byLabel(dry, 'shop/code/shop-web').did, ['would pull 1, unless they touch your 1 uncommitted change']);
   assert.notEqual(head(path.join(B.projects, 'shop', 'code', 'shop-web')), head(path.join(A.projects, 'shop', 'code', 'shop-web')), 'a dry run changes nothing');
 
   const r = await syncAll({ dir: B.ws, projects: B.projects });
   assert.equal(r.repos[0].label, 'ai_brain', 'the brain first');
-  assert.deepEqual(byLabel(r, 'shop/code/shop-web').did, ['pulled 1']);
+  assert.deepEqual(byLabel(r, 'shop/code/shop-web').did, ['pulled 1 (your 1 uncommitted change stays)']);
   assert.equal(head(path.join(B.projects, 'shop', 'code', 'shop-web')), head(path.join(A.projects, 'shop', 'code', 'shop-web')));
+  assert.equal(fs.readFileSync(path.join(B.projects, 'shop', 'code', 'shop-web', 'scratch.md'), 'utf8'), 'unsaved', 'unsaved work is still there after the fast-forward');
+  assert.equal(byLabel(r, 'shop/code/shop-web').todo[0].kind, 'uncommitted');
   assert.equal(byLabel(r, 'shop/code/shop-api').todo[0].kind, 'to-push');
   assert.equal(byLabel(r, 'shop').todo[0].kind, 'diverged');
   assert.match(byLabel(r, 'shop').todo[0].command, /pull --rebase/);
   assert.equal(head(path.join(B.projects, 'shop')), parentB, 'diverged: not touched');
   assert.equal(byLabel(r, 'ai_brain').todo[0].kind, 'pull-blocked');
-  assert.equal(head(path.join(B.ws, 'ai_brain')), brainB, 'dirty: not touched');
-  assert.equal(fs.readFileSync(path.join(B.ws, 'ai_brain', 'BRAIN.md'), 'utf8'), 'unsaved');
+  assert.match(byLabel(r, 'ai_brain').todo[0].command, /stash && .* pull --ff-only && .* stash pop/);
+  assert.equal(head(path.join(B.ws, 'ai_brain')), brainB, 'unsaved work in the same file: not touched');
+  assert.equal(fs.readFileSync(path.join(B.ws, 'ai_brain', 'learnings.md'), 'utf8'), 'unsaved');
   assert.deepEqual(byLabel(r, 'git/gone').todo[0].kind, 'missing');
   assert.deepEqual(r.tools, ['development/sdk/kit']);
   assert.equal(byLabel(r, 'development/sdk/kit'), undefined, 'a tool is not fetched or fast-forwarded');
@@ -235,9 +240,11 @@ test('sync --with another computer over SSH: pull only, the other side is never 
   try {
     const info = { name: 'box2', target: 'alex@box2', dir: A.ws, projectsDir: A.projects };
     const dry = await syncWith('box2', { info, dir: B.ws, projects: B.projects, dryRun: true });
-    assert.deepEqual(byLabel(dry, 'shop/code/shop-web').did, ['would get 1 from box2']);
+    // B's shop-web still has the unsaved scratch.md of the test above: it stays, and does not stop the pull.
+    assert.deepEqual(byLabel(dry, 'shop/code/shop-web').did, ['would get 1 from box2, unless they touch your 1 uncommitted change']);
     const r = await syncWith('box2', { info, dir: B.ws, projects: B.projects });
-    assert.deepEqual(byLabel(r, 'shop/code/shop-web').did, ['got 1 from box2']);
+    assert.deepEqual(byLabel(r, 'shop/code/shop-web').did, ['got 1 from box2 (your 1 uncommitted change stays)']);
+    assert.equal(fs.readFileSync(path.join(B.projects, 'shop', 'code', 'shop-web', 'scratch.md'), 'utf8'), 'unsaved');
     assert.equal(head(path.join(B.projects, 'shop', 'code', 'shop-web')), newA);
     assert.match(byLabel(r, 'shop/code/shop-api').notes[0], /here that box2 does not have/);
     assert.equal(byLabel(r, 'shop').todo[0].why.includes('both moved'), true);
