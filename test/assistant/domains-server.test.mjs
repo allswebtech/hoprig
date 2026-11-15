@@ -54,6 +54,7 @@ test('Tia\'s page tools go through the page\'s own routes', { timeout: 120_000, 
   const { hashPassword } = await import('../../src/server/auth.mjs');
   const { createServer } = await import('../../src/server/server.mjs');
   const { stateDir } = await import('../../src/paths.mjs');
+  const setupRuns = [];
   saveConfig({ launcher: [process.execPath, FAKE_SESSION], server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' } });
   writeProfile('sub', { label: 'Main' });
   const app = createServer({
@@ -61,6 +62,11 @@ test('Tia\'s page tools go through the page\'s own routes', { timeout: 120_000, 
     claudecode: { claudeInfo: async () => ({ installed: '2.1.325', latest: '2.1.330', updateAvailable: true }) },
     pcsetup: {
       projectsDir: () => projects,
+      sudoNeedsPassword: async () => false,
+      runPcSetup: async (o) => {
+        setupRuns.push(o.kits);
+        return { ok: true, missing: [], changed: true };
+      },
       status: async () => [{ group: 'kit:tools', id: 'kit:tools.gh', label: 'GitHub CLI', status: 'missing', detail: 'missing', fix: '', fixKit: 'tools' }],
       projectNew: async ([name]) => {
         fs.mkdirSync(path.join(projects, name, '.git'), { recursive: true });
@@ -94,23 +100,20 @@ test('Tia\'s page tools go through the page\'s own routes', { timeout: 120_000, 
   await assert.rejects(ops.startSession({ computer: 'this', folder: '/not/allowed', profile: 'sub', mode: 'new' }), /choose a folder inside the allowed roots/);
   await assert.rejects(ops.accounts({ computer: 'nope' }), (e) => e.status >= 400);
 
-  // Computers → setup: the check, then a fix that opens a terminal session running the setup part.
+  // Computers → setup: the check, then a fix that runs the setup part as a job (no terminal).
   let r = await call('get_computer_status', { computer: 'this', setup: true });
   assert.match(r.text, /Setup check of this: 1 check\(s\) not ok/);
   r = await call('manage_computer', { action: 'setup_fix', check: 'kit:tools.gh' });
   assert.match(r.text, /Waiting for the owner's OK/);
   const fixed = await confirm(r.text);
   assert.equal(fixed.status, 200, JSON.stringify(fixed.json));
-  const sessions = await until('the fix session', async () => {
-    const st = await ops.listSessions({ computer: 'this' });
-    return st.find((s) => s.name.startsWith('fix-tools')) ? st : null;
+  const fixJob = await until('the fix job', async () => {
+    const j = (await request(base, 'GET', '/api/pcsetup/job?from=0', { headers: { Cookie: cookie } })).json;
+    return j.kind === 'fix' && !j.running ? j : null;
   });
-  const fix = sessions.find((s) => s.name.startsWith('fix-tools'));
-  const screen = await until('its command', async () => {
-    const text = await ops.capture({ computer: 'this', session: fix.name, lines: 20 });
-    return /FAKE-SESSION/.test(text) ? text : null;
-  });
-  assert.match(screen, /profile=pc args=\["setup","--yes","--hold","--no-projects","--kits","tools"\]/);
+  assert.equal(fixJob.result.ok, true);
+  assert.deepEqual(setupRuns, [['tools']]);
+  assert.equal((await ops.listSessions({ computer: 'this' })).some((s) => s.name.startsWith('fix-')), false, 'no terminal session');
 
   // Workspace → a new project (card, then the background job), and a sync whose decisions come back undone.
   r = await call('manage_project', { action: 'new', name: 'blog' });

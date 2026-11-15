@@ -54,6 +54,16 @@ function automationBody(b) {
   return null;
 }
 
+/**
+ * POST /api/pcsetup/fix and /setup: only what her tools send. Never a password (the administrator password is the
+ * owner's to type on Setup) and never `terminal` (she runs the setup as a job, she opens no terminal for it).
+ */
+const onlyKeys = (allowed) => (b) => {
+  if (!isObj(b)) return 'the body must be an object';
+  const k = Object.keys(b).find((x) => !allowed.includes(x));
+  return k ? `"${k}" is the owner's to send` : null;
+};
+
 /** Every route her tools use: method, route, the tool (or tools) behind it. */
 export const ALLOW = [
   r('GET', '/api/state', 'list_sessions, get_accounts'),
@@ -93,8 +103,8 @@ export const ALLOW = [
   r('GET', '/api/claude', 'get_computer_status'),
   r('GET', '/api/pcsetup/status', 'get_computer_status (setup), manage_computer setup_fix'),
   r('GET', '/api/pcsetup/kits', 'get_computer_status (setup), manage_computer set_up'),
-  r('POST', '/api/pcsetup/fix', 'manage_computer setup_fix'),
-  r('POST', '/api/pcsetup/setup', 'manage_computer set_up'),
+  r('POST', '/api/pcsetup/fix', 'manage_computer setup_fix', onlyKeys(['id'])),
+  r('POST', '/api/pcsetup/setup', 'manage_computer set_up', onlyKeys(['kits'])),
   r('POST', '/api/claude/update', 'manage_computer update_claude_code'),
   r('POST', '/api/pc/kill', 'manage_computer end_process'),
   r('POST', '/api/pc/power', 'manage_computer reboot, power_off'),
@@ -145,7 +155,7 @@ export const NEVER = [
   /^\/api\/notify(\/|$)/,
   /^\/api\/onboarding(\/|$)/,
   /^\/api\/pcsetup\/recipe$/,
-  /^\/api\/workspace\/git\/terminal$/, // signing in to GitHub is the person's own step
+  /^\/api\/workspace\/git\/.+$/, // signing in to GitHub, the commit name, the brain's repository: the owner's own steps
   /^\/api\/assistant(?!\/run$)(\/|$)/,
   /^\/ws(\/|$)/,
 ];

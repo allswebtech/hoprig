@@ -262,11 +262,11 @@ export class FakeOps {
   }
   async setupFix(a) {
     this.#write('setupFix', a);
-    return { session: 'fix-tools' };
+    return { started: true };
   }
   async setUp(a) {
     this.#write('setUp', a);
-    return { session: 'setup' };
+    return { started: true };
   }
   async renameComputer(a) {
     this.#write('renameComputer', a);

@@ -169,6 +169,18 @@ export function proceduresTool(toolNames) {
 // ---- Computers ----
 
 const KIT = /^[a-z0-9][a-z0-9-]{0,30}$/;
+
+/**
+ * What a setup or fix route answered, for Tia: the job started (its output is on that computer's Setup page), or it
+ * waits for the owner there: the administrator password (Tia never sends one) or a step that needs a person at the
+ * computer (macOS's install window).
+ */
+function setupAnswer(c, what, r) {
+  if (r && r.started) return { summary: `${what} started on ${c} as a job; its output and result are on that computer's Setup page.`, data: { started: true } };
+  if (r && r.needsPassword) return { summary: `Nothing started: ${what} needs the administrator password of ${c}. Tell the owner to open that computer's Setup page and run it there; the page asks for the password.`, data: { started: false, needs: 'password' } };
+  if (r && r.needsTerminal) return { summary: `Nothing started: ${what} needs someone at ${c} (${r.why}). Tell the owner to run it from that computer's Setup page.`, data: { started: false, needs: 'person' } };
+  return { summary: `${what} on ${c} did not start.`, data: { started: false } };
+}
 const ADDON = /^[a-z0-9][a-z0-9-]{0,30}$/;
 
 async function computerRow(ops, c) {
@@ -180,7 +192,7 @@ async function computerRow(ops, c) {
 
 export const manage_computer = actionTool({
   name: 'manage_computer',
-  description: 'Act on a computer: add one by SSH (user@host), rename it, update Claude Code, fix one setup check or set it up (a terminal session runs the setup; an admin password is typed there by the owner), end a process, install / start / stop / update an add-on, reboot or power off. Removing a computer or adding one by pairing code is the owner\'s own step (open_screen).',
+  description: 'Act on a computer: add one by SSH (user@host), rename it, update Claude Code, fix one setup check or set it up (it runs as a job, output on that computer\'s Setup page; when it needs the administrator password nothing starts and the owner runs it there), end a process, install / start / stop / update an add-on, reboot or power off. Removing a computer or adding one by pairing code is the owner\'s own step (open_screen).',
   fields: {
     ssh_target: str({ max: 300, pattern: /^(?:ssh:\/\/)?(?:[A-Za-z0-9._][A-Za-z0-9._+-]{0,63}@)?[A-Za-z0-9_[][A-Za-z0-9._:\]-]{0,252}$/, desc: 'add: user@host.' }),
     name: str({ max: 32, pattern: /^[a-z0-9][a-z0-9_-]{0,31}$/, desc: 'add: the short name to use.' }),
@@ -238,10 +250,9 @@ export const manage_computer = actionTool({
         if (!c.fixKit) throw toolError(`the check "${a.check}" has no fix Hoprig can run`, 'tell the owner what it needs');
         return { check: c.id, title: c.label || c.id, kit: c.fixKit };
       },
-      cardLines: (a, b) => [`Fix "${b.title}" on ${comp(a)}`, `A terminal session opens there and runs the "${b.kit}" part of the computer setup; if it needs admin rights, you type the password in that terminal.`],
+      cardLines: (a, b) => [`Fix "${b.title}" on ${comp(a)}`, `It runs the "${b.kit}" part of the computer setup as a job; its output is on that computer's Setup page. If it needs the administrator password, nothing starts and you type it there.`],
       async run(ops, a) {
-        const r = await ops.setupFix({ computer: comp(a), id: a.check });
-        return { summary: `The fix runs in the session ${r.session} on ${comp(a)}; watch it there.`, data: { session: r.session }, shown: { session: [sessKey(comp(a), r.session)] } };
+        return setupAnswer(comp(a), `the fix of "${a.check}"`, await ops.setupFix({ computer: comp(a), id: a.check }));
       },
     },
     set_up: {
@@ -256,12 +267,11 @@ export const manage_computer = actionTool({
       },
       cardLines: (a, b) => [
         `Set up ${comp(a)}: ${b.kits.map((k) => k.title).join(', ')}`,
-        'A terminal session opens there and installs what is missing; an admin password is typed there by you.',
+        'It installs what is missing as a job; its output is on that computer\'s Setup page. If it needs the administrator password, nothing starts and you type it there.',
         ...b.kits.flatMap((k) => k.commands.slice(0, 6).map((cmd) => `${k.title}: ${cmd}`)),
       ],
       async run(ops, a) {
-        const r = await ops.setUp({ computer: comp(a), kits: a.kits });
-        return { summary: `The setup runs in the session ${r.session} on ${comp(a)}; watch it there.`, data: { session: r.session }, shown: { session: [sessKey(comp(a), r.session)] } };
+        return setupAnswer(comp(a), 'the setup', await ops.setUp({ computer: comp(a), kits: a.kits }));
       },
     },
     end_process: {

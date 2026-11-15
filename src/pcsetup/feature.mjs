@@ -2,10 +2,17 @@
 //
 //   GET  /api/pcsetup/status              every status check: { ok, checks, projectsDir }
 //   GET  /api/pcsetup/kits                kits with what is there and the commands setup would run
-//   POST /api/pcsetup/setup { kits }      opens a terminal session that runs `pc setup --yes --kits …`: sudo (or
-//                                         Windows) asks for the password there, typed by the owner, never through the page
-//   POST /api/pcsetup/fix { id }          the same for one status check that has a fix (looked up here, never sent)
-//   POST /api/pcsetup/recipe { recipe | url }   validated, then `pc setup --yes --recipe <file>` in a terminal session
+//   POST /api/pcsetup/setup { kits, password?, terminal? }   installs the kits as a background job (output and each
+//                                         step's ✓ / ✗ in GET …/job). Answers one of:
+//                                           { started: true }                      the job runs
+//                                           { needsPassword: true, wrong?, notAllowed? }   sudo needs the computer's
+//                                                                                  password: send it again with it
+//                                           { needsTerminal: true, why }           a step that is interactive by nature
+//                                                                                  (macOS's xcode-select window, Windows)
+//                                           { session }                            terminal: true, the fallback: a
+//                                                                                  terminal session runs `pc setup`
+//   POST /api/pcsetup/fix { id, password?, terminal? }   the same for one status check that has a fix (looked up here)
+//   POST /api/pcsetup/recipe { recipe | url, password?, terminal? }   validated, then the same with the recipe
 //   GET  /api/pcsetup/recipe?email=1      this computer's recipe (no keys, no tokens; the e-mail only when asked)
 //   GET  /api/pcsetup/github              { signedIn, repos: [{ name, url, private }] } from `gh repo list`
 //   POST /api/pcsetup/clone { repos }     clone into the projects folder (background job, live output)
@@ -19,10 +26,14 @@
 //                                                        done and what needs a decision ({ kind, why, command })
 //   POST /api/pcsetup/projects-dir { dir }               change the projects folder (made when missing)
 //   POST /api/pcsetup/rules { action }   add | remove the opt-in working rules for Claude Code (no admin rights needed)
-//   GET  /api/pcsetup/job?from=N          the background job's output: { running, lines, next, result }
+//   GET  /api/pcsetup/job?from=N          the background job's output: { kind, running, lines, next, steps, result,
+//                                         startedAt, endedAgo }; steps (setup, fix, recipe): [{ label, command, state:
+//                                         waiting | running | ok | fail | skipped }]
 //
 // A hub that controls this computer may reach all of these (it can already open terminals here); none of them
-// ever returns a key, a token or a password, and every input is validated here again.
+// ever returns a key, a token or a password, and every input is validated here again. The administrator password
+// (admin.mjs has the rule and why) lives only in the closure of its one job: never in the job's state, a file or a
+// log, and every output line is scrubbed of it.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -40,6 +51,14 @@ import { showCommand } from '../setup/system.mjs';
 import { loadConfig } from '../config.mjs';
 import { makeUi } from '../setup/ui.mjs';
 import { addRules, removeRules } from './rules.mjs';
+import { adminRunner, checkPassword, scrubber, sudoNeedsPassword } from './admin.mjs';
+import { runPcSetup } from './setup.mjs';
+
+/** The password as sent by the page: text of 1 to 512 characters without a line break (it is sent to sudo as one line). */
+function passwordOf(v) {
+  if (typeof v !== 'string' || !v.length || v.length > 512 || /[\r\n\0]/.test(v)) throw fail(400, 'that password cannot be used here');
+  return v;
+}
 
 const LINES_MAX = 3000;
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -90,26 +109,75 @@ export function todoKind(why) {
 export function pcsetupFeature(sctx, opts = {}) {
   const facts = () => (opts.sys ? Promise.resolve(opts.sys) : sysFacts());
   const pdir = () => (opts.projectsDir ? opts.projectsDir() : projectsDir());
-  let job = null; // one background job at a time: { kind, running, lines, result }
-
-  function startJob(kind, fn) {
+  let job = null; // one background job at a time: { kind, running, lines, steps, result }
+  const busy = () => {
     if (job && job.running) throw fail(409, 'another setup job is still running; wait until it finishes');
-    const j = { kind, running: true, lines: [], result: null, data: null, error: null };
+  };
+
+  /** `secret`: a text that must never be kept (the administrator password): scrubbed from every line and error. */
+  function startJob(kind, fn, { secret = null } = {}) {
+    busy();
+    const clean = scrubber(secret);
+    const j = { kind, running: true, lines: [], steps: null, result: null, data: null, error: null, startedAt: Date.now(), endedAt: null };
     job = j;
     const onLine = (l) => {
-      j.lines.push(tildeText(l));
+      j.lines.push(tildeText(clean(l)));
       if (j.lines.length > LINES_MAX) j.lines.splice(0, j.lines.length - LINES_MAX);
     };
     // fn may set j.data (what the page shows as the result) and j.error (why it did not work, in plain words).
     Promise.resolve()
       .then(() => fn(onLine, j))
-      .then((r) => (j.result = { ok: r !== false, error: r === false && j.error ? tildeText(j.error) : null, data: j.data }))
+      .then((r) => (j.result = { ok: r !== false, error: r === false && j.error ? tildeText(clean(j.error)) : null, data: j.data }))
       .catch((e) => {
-        j.result = { ok: false, error: tildeText(e.message), data: j.data };
+        j.result = { ok: false, error: tildeText(clean(e.message)), data: j.data };
         onLine(e.message);
       })
-      .finally(() => (j.running = false));
+      .finally(() => {
+        j.running = false;
+        j.endedAt = Date.now();
+      });
     return { started: true };
+  }
+
+  /**
+   * Set up `kits` (and a recipe's repositories) as a job in the page. Before it starts: a step that needs a person at
+   * the computer sends the page to the terminal, and sudo's password is asked for (and checked) only when sudo needs
+   * one. `b.terminal` is the fallback: the same run in a terminal session (`args`).
+   */
+  async function setupJob(kind, kits, b, args, { recipe = null } = {}) {
+    if (b.terminal === true) return terminal(kind === 'fix' ? `fix-${kits[0]}` : kind, args);
+    busy();
+    const sys = await facts();
+    const plan = buildPlan(kits, await detectKits(sys), sys);
+    const hands = plan.steps.find((s) => s.interactive);
+    if (hands) return { needsTerminal: true, why: hands.why || showCommand(hands.argv) };
+    let password = null;
+    if (plan.admin && (await (opts.sudoNeedsPassword || sudoNeedsPassword)(sys))) {
+      if (b.password === undefined) return { needsPassword: true };
+      password = passwordOf(b.password);
+      const c = await checkPassword(password, opts.stream || stream);
+      if (!c.ok) return { needsPassword: true, wrong: !c.notAllowed, notAllowed: c.notAllowed };
+    }
+    return startJob(kind, async (onLine, j) => {
+      const { ui, failures } = jobUi(onLine);
+      ui.page = true; // setup's wording: "on this page", not "run … in a terminal"
+      j.steps = [];
+      const r = await (opts.runPcSetup || runPcSetup)({
+        ui, yes: true, kits, recipe, sys, runner: adminRunner(password, opts.stream || stream),
+        onStep: (i, s, state) => {
+          j.steps[i] = { label: s.why || (s.items && s.items.length ? `install ${s.items.join(', ')}` : 'install'), command: showCommand(s.argv), state };
+        },
+      });
+      // What is still missing afterwards, by name: a sign-in, or what needs a new login before it is found.
+      const nameOf = (id) => {
+        const [k, i] = String(id).split('.');
+        const it = ((KITS.find((x) => x.id === k) || {}).items || []).find((x) => x.id === i);
+        return it ? it.name : String(id);
+      };
+      j.data = { kits, missing: (r.missing || []).map(nameOf), changed: Boolean(r.changed) };
+      j.error = failures[0] || null;
+      return r.ok;
+    }, { secret: password });
   }
 
   async function terminal(base, args) {
@@ -155,14 +223,14 @@ export function pcsetupFeature(sctx, opts = {}) {
     ['POST', /^\/api\/pcsetup\/setup$/, async (req) => {
       const b = await sctx.readJson(req);
       const kits = kitsOf(b.kits);
-      return terminal('setup', ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', kits.join(',')]);
+      return setupJob('setup', kits, b, ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', kits.join(',')]);
     }],
     ['POST', /^\/api\/pcsetup\/fix$/, async (req) => {
       const b = await sctx.readJson(req);
       const checks = await (opts.status ? opts.status() : pcStatus({ sys: await facts(), offline: true, projects: pdir() }));
       const c = checks.find((x) => x.id === b.id);
       if (!c || !c.fixKit) throw fail(400, 'that check has no fix Hoprig can run');
-      return terminal(`fix-${c.fixKit}`, ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', c.fixKit]);
+      return setupJob('fix', [c.fixKit], b, ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', c.fixKit]);
     }],
     ['GET', /^\/api\/pcsetup\/recipe$/, async (req, m, q) => {
       const { currentRecipe } = await import('./cli.mjs');
@@ -178,7 +246,7 @@ export function pcsetupFeature(sctx, opts = {}) {
       fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
       const file = path.join(stateDir(), 'pcsetup-recipe.json');
       fs.writeFileSync(file, JSON.stringify(v.recipe, null, 2) + '\n', { mode: 0o600 });
-      return { ...(await terminal('recipe', ['pc', 'setup', '--yes', '--hold', '--recipe', file])), recipe: v.recipe };
+      return { ...(await setupJob('recipe', v.recipe.kits, b, ['pc', 'setup', '--yes', '--hold', '--recipe', file], { recipe: v.recipe })), recipe: v.recipe };
     }],
     ['GET', /^\/api\/pcsetup\/github$/, async () => {
       const sys = await facts();
@@ -364,9 +432,9 @@ export function pcsetupFeature(sctx, opts = {}) {
       return b.action === 'add' ? (opts.rules || addRules)() : (opts.unrules || removeRules)();
     }],
     ['GET', /^\/api\/pcsetup\/job$/, async (req, m, q) => {
-      const j = job || { kind: null, running: false, lines: [], result: null };
+      const j = job || { kind: null, running: false, lines: [], steps: null, result: null, startedAt: null, endedAt: null };
       const from = Math.max(0, Math.min(j.lines.length, Number(q && q.get('from')) || 0));
-      return { kind: j.kind, running: j.running, lines: j.lines.slice(from), next: j.lines.length, result: j.result };
+      return { kind: j.kind, running: j.running, lines: j.lines.slice(from), next: j.lines.length, steps: j.steps, result: j.result, startedAt: j.startedAt, endedAgo: j.endedAt ? Date.now() - j.endedAt : null };
     }],
   ];
 

@@ -116,7 +116,8 @@ test('manage_computer: rename is L1; setup fix and set up show what runs; add-on
   assert.match(st.text, /Setup check of this: 2 check\(s\) not ok/);
   let r = await call('manage_computer', { action: 'setup_fix', check: 'kit:tools.gh' });
   assert.match(r.text, /Fix \\"GitHub CLI\\" on this|Fix "GitHub CLI" on this/);
-  assert.match(r.text, /you type the password in that terminal/);
+  assert.match(r.text, /runs the \\?"tools\\?" part of the computer setup as a job/);
+  assert.match(r.text, /administrator password, nothing starts and you type it there/);
   assert.match((await call('manage_computer', { action: 'setup_fix', check: 'os.updates' })).text, /has no fix Hoprig can run/);
   r = await call('manage_computer', { action: 'set_up', kits: ['tools'] });
   assert.match(r.text, /Developer tools: apt install gh/);

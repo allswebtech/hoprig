@@ -1,4 +1,4 @@
-// The server routes (terminal sessions for anything that may ask a password, strict input, nothing secret in
+// The server routes (setup as a job in the page, the terminal only when asked for, strict input, nothing secret in
 // any answer), the working rules (never rewriting the user's CLAUDE.md), and the setup flow with a fake runner.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -31,7 +31,13 @@ function harness(over = {}) {
     { group: 'system', id: 'clock', label: 'Clock', status: 'ok', detail: 'in sync', fix: '' },
   ];
   const sys = { platform: 'linux', pm: 'apt', root: false, user: 'dev', arch: 'x64', tmp: '/tmp', home: process.env.HOME, env: process.env, has: (b) => b === 'gh', exists: () => false, clt: true, run: async (argv) => (argv[0] === 'gh' && argv[1] === 'auth' ? { ok: true, stdout: `  ✓ Logged in to github.com account octo (keyring)\n  - Token: ${TOKEN}\n`, stderr: '' } : argv[0] === 'gh' ? { ok: true, stdout: JSON.stringify([{ nameWithOwner: 'octo/app', url: 'https://github.com/octo/app', isPrivate: true }, { nameWithOwner: 'x/evil', url: 'file:///etc', isPrivate: false }]) } : { ok: false, stdout: '', stderr: '' }) };
-  const f = pcsetupFeature(sctx, { sys, status: async () => checks, projectsDir: () => path.join(tmp, 'projects'), run: sys.run, rules: () => ({ ok: true, said: ['x'] }), ...over });
+  const runs = [];
+  const runPcSetup = async (o) => {
+    runs.push({ kits: o.kits, recipe: o.recipe });
+    o.onStep(0, { why: 'refresh the package lists', argv: ['sudo', 'apt-get', 'update'] }, 'ok');
+    return { ok: true, missing: [], changed: true };
+  };
+  const f = pcsetupFeature(sctx, { sys, status: async () => checks, projectsDir: () => path.join(tmp, 'projects'), run: sys.run, rules: () => ({ ok: true, said: ['x'] }), runPcSetup, sudoNeedsPassword: async () => false, ...over });
   const call = async (method, p, body) => {
     const u = new URL(p, 'http://x');
     for (const [m, re, fn] of f.routes) {
@@ -40,18 +46,44 @@ function harness(over = {}) {
     }
     throw new Error(`no route ${method} ${p}`);
   };
-  return { call, created };
+  return { call, created, runs };
 }
+const settle = async (call) => {
+  for (let i = 0; i < 50; i++) {
+    const j = await call('GET', '/api/pcsetup/job?from=0');
+    if (!j.running) return j;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error('the job did not end');
+};
 
-test('setup and fix open a terminal session with fixed arguments (the password is typed there, never through the page)', async () => {
-  const { call, created } = harness();
-  assert.deepEqual(await call('POST', '/api/pcsetup/setup', { kits: ['basics', 'extras'] }), { session: 'setup' });
-  assert.deepEqual(created[0].argv, ['node', '/app/bin/hoprig.mjs', 'pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', 'basics,extras']);
+test('setup and fix run as a job in the page; the terminal only when asked for, with fixed arguments', async () => {
+  const { call, created, runs } = harness();
+  assert.deepEqual(await call('POST', '/api/pcsetup/setup', { kits: ['basics', 'extras'] }), { started: true });
+  const j = await settle(call);
+  assert.deepEqual([j.kind, j.result.ok, j.steps], ['setup', true, [{ label: 'refresh the package lists', command: 'sudo apt-get update', state: 'ok' }]]);
+  assert.deepEqual(runs[0].kits, ['basics', 'extras']);
+  assert.equal(created.length, 0, 'no terminal');
   await assert.rejects(call('POST', '/api/pcsetup/setup', { kits: ['basics', '; rm -rf ~'] }), /kits must be/);
   await assert.rejects(call('POST', '/api/pcsetup/setup', { kits: 'basics' }), /kits must be/);
-  await call('POST', '/api/pcsetup/fix', { id: 'extras.tmux' });
-  assert.deepEqual(created[1].argv.slice(2), ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', 'extras']);
+  assert.deepEqual(await call('POST', '/api/pcsetup/fix', { id: 'extras.tmux' }), { started: true });
+  await settle(call);
+  assert.deepEqual(runs[1].kits, ['extras']);
   await assert.rejects(call('POST', '/api/pcsetup/fix', { id: 'clock' }), /no fix/);
+  // The fallback: the same in a terminal session.
+  assert.deepEqual(await call('POST', '/api/pcsetup/setup', { kits: ['basics', 'extras'], terminal: true }), { session: 'setup' });
+  assert.deepEqual(created[0].argv, ['node', '/app/bin/hoprig.mjs', 'pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', 'basics,extras']);
+  await call('POST', '/api/pcsetup/fix', { id: 'extras.tmux', terminal: true });
+  assert.deepEqual(created[1].argv.slice(2), ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', 'extras']);
+});
+
+test('a step that needs a person at the computer (macOS\'s install window) sends the page to the terminal', async () => {
+  const mac = { platform: 'darwin', pm: 'brew', root: false, user: 'dev', arch: 'arm64', tmp: '/tmp', home: process.env.HOME, env: process.env, has: (b) => b === 'brew', exists: () => false, clt: false, run: async () => ({ ok: false, stdout: '', stderr: '' }) };
+  const { call, runs } = harness({ sys: mac });
+  const r = await call('POST', '/api/pcsetup/setup', { kits: ['basics'] });
+  assert.equal(r.needsTerminal, true);
+  assert.match(r.why, /Apple opens a window/);
+  assert.equal(runs.length, 0);
 });
 
 test('recipes from the page are validated before anything runs', async () => {
@@ -59,11 +91,16 @@ test('recipes from the page are validated before anything runs', async () => {
   await assert.rejects(call('POST', '/api/pcsetup/recipe', { text: '{"hoprigRecipe":1,"kits":["basics"],"run":"curl x|sh"}' }), /refused: unknown key "run"/);
   await assert.rejects(call('POST', '/api/pcsetup/recipe', { url: 'http://insecure.example/r.json' }), /https/);
   assert.equal(created.length, 0);
-  const r = await call('POST', '/api/pcsetup/recipe', { recipe: { hoprigRecipe: 1, kits: ['node'], repos: ['octo/app'] } });
+  const r = await call('POST', '/api/pcsetup/recipe', { recipe: { hoprigRecipe: 1, kits: ['node'], repos: ['octo/app'] }, terminal: true });
   assert.equal(r.session, 'recipe');
   const file = created[0].argv.at(-1);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { hoprigRecipe: 1, kits: ['node'], repos: ['https://github.com/octo/app.git'] });
   assert.equal(fs.statSync(file).mode & 0o077, 0);
+  const { call: call2, runs } = harness();
+  const j = await call2('POST', '/api/pcsetup/recipe', { recipe: { hoprigRecipe: 1, kits: ['node'], repos: ['octo/app'] } });
+  assert.equal(j.started, true);
+  await settle(call2);
+  assert.deepEqual([runs[0].kits, runs[0].recipe.repos], [['node'], ['https://github.com/octo/app.git']]);
 });
 
 test('GitHub list: the account name and safe addresses only; never the token', async () => {
