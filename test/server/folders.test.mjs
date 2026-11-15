@@ -53,6 +53,9 @@ test('recent folders come from live sessions and Claude transcripts', () => {
   assert.equal(claudeFolders()[0].path, cwd);
   const rec = recentFolders([path.join(root, 'proj'), outside], roots);
   assert.deepEqual(rec.map((f) => [path.basename(f.path), f.live]), [['proj', true], ['src', false]]);
+  // A live folder names the session that runs there, so the picker opens it instead of starting a second one.
+  const named = recentFolders([{ cwd: path.join(root, 'proj'), session: 'proj' }, { cwd: path.join(root, 'proj'), session: 'proj-2' }], roots);
+  assert.deepEqual(named.map((f) => [path.basename(f.path), f.live, f.session]), [['proj', true, 'proj'], ['src', false, undefined]], 'the first session in a folder; none for history');
 });
 
 test('the product\'s own folders (Tia\'s working folders) are never offered as recent folders', () => {

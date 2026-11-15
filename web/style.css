@@ -274,6 +274,12 @@ article.card:hover { box-shadow: var(--shadow-2); }
 .card-msg.title { font-style: italic; }
 .card-note { margin-top: 8px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-sm); }
 .card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+/* The answers to a question waiting for an OK (lib.js permissionActions): wrap, never wider than the card. */
+.ok-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.ok-actions .btn { max-width: 100%; white-space: normal; text-align: left; line-height: 1.25; padding-top: 6px; padding-bottom: 6px; }
+.card .ok-actions { margin-top: 10px; }
+.si-row .ok-actions { margin-top: 8px; }
+.si-row .ok-actions .btn { margin-top: 0; }
 .card.skeleton { cursor: default; display: grid; gap: 10px; }
 .sk { height: 12px; border-radius: 6px; background: var(--surface-3); animation: pulse 1.6s ease-in-out infinite; }
 .sk.w40 { width: 40%; height: 16px; } .sk.w70 { width: 70%; } .sk.w90 { width: 90%; }

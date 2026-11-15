@@ -14,7 +14,7 @@ import { FitAddon } from './vendor/addon-fit/lib/addon-fit.mjs';
 import { Unicode11Addon } from './vendor/addon-unicode11/lib/addon-unicode11.mjs';
 import { icon } from './icons.js';
 import {
-  KIND, api, btn, bytes, chooseSheet, confirmSheet, fill, h, limitBox, needsYouFirst, openSheet,
+  KIND, api, btn, bytes, chooseSheet, confirmSheet, fill, h, limitBox, needsYou, needsYouFirst, openSheet, permissionActions,
   link, machine, prefs, profileIcon, profileState, profileText, promptSheet, stateOf, statusPill, switchProfile, toast, url, wsUrl,
 } from './lib.js';
 import { pageNotify, store } from './store.js';
@@ -555,7 +555,8 @@ export function openSession(app, name) {
     }
     renderQuick(d.quickActions || []);
     const s = d.sessions.find((x) => x.name === name);
-    const others = d.sessions.filter((x) => x.name !== name && stateOf(x).rank <= 2).length;
+    // What Home calls "Needs you" (home.js GROUPS): needs your OK, or at a limit. Waiting for a message is not it.
+    const others = d.sessions.filter((x) => x.name !== name && needsYou(x)).length;
     otherBadge.textContent = String(others);
     otherBadge.classList.toggle('hidden', !others);
     otherBadge.title = `${others} other session${others === 1 ? '' : 's'} need${others === 1 ? 's' : ''} you`;
@@ -586,7 +587,7 @@ export function openSession(app, name) {
         sub: `${stateOf(x).text}${x.profile ? ` · ${x.profile.label}` : ''}`,
         icon: x.kind === 'chat' ? 'text' : x.kind === 'claude' ? 'sparkle' : 'terminal',
         current: x.name === name,
-        badge: x.name !== name && stateOf(x).rank <= 2 ? '●' : '',
+        badge: x.name !== name && needsYou(x) ? '●' : '',
       })),
     });
     const chat = pick && d.sessions.find((x) => x.name === pick && x.kind === 'chat');
@@ -619,24 +620,12 @@ export function openSession(app, name) {
     });
   }
 
-  // ---------- a question waiting for your OK: its one main answer above the terminal ----------
-  // Claude Code's permission question has "Yes" first: Enter takes it, Esc says no.
+  // ---------- a question waiting for your OK: its answers above the terminal (lib.js permissionActions) ----------
   function needsOk(s) {
-    const answer = (key, said) => async () => {
-      try {
-        await api(`${base}/key`, { key });
-        toast(said);
-        store.refresh();
-      } catch (e) {
-        toast(e.message, { kind: 'error' });
-      }
-    };
     return h('div.sess-ok', { role: 'alert' },
       h('div.sess-ok-head', icon('alert', { size: 18 }), h('strong', 'Needs your OK')),
       s.note ? h('p.sess-ok-text', s.note) : null,
-      h('div.sess-ok-actions',
-        h('button.btn.small.primary', { type: 'button', onclick: answer('Enter', 'Allowed') }, icon('check', { size: 16 }), h('span', 'Allow')),
-        h('button.btn.small.secondary', { type: 'button', onclick: answer('Escape', 'Not allowed') }, icon('x', { size: 16 }), h('span', 'Do not allow'))));
+      permissionActions({ ...s, machine: machine.current }, () => store.refresh()));
   }
 
   // Moved to another account: Claude restarts in the same terminal; until it reports, it reads "Starting".

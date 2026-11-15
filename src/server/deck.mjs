@@ -8,6 +8,7 @@ import { listRuns } from '../runs.mjs';
 import { sessionTitle, sessionsIn } from '../sessions.mjs';
 import { isOwnFolder } from './folders.mjs';
 import { detectLimit } from './limits.mjs';
+import { alwaysOption } from './prompts.mjs';
 import { descendsFrom, parentLookup, procParent } from './platform.mjs';
 import { safeSessionName, uniqueName } from './validate.mjs';
 
@@ -141,7 +142,10 @@ export class Deck {
           limit: null,
         });
         try {
-          card.limit = detectLimit(await this.backend.capture(t.id, 40));
+          const screen = await this.backend.capture(t.id, 40);
+          card.limit = detectLimit(screen);
+          // Needs your OK: the "Yes, and don't ask again …" answer when Claude's question has one (prompts.mjs).
+          if (run.status === 'attention') card.always = alwaysOption(screen);
         } catch {
           /* the terminal went away between list and capture */
         }

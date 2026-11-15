@@ -557,3 +557,30 @@ test('Git and GitHub: three rows, done only when all are; a step of Get started'
   assert.equal(withGitStep(onb, null), onb, 'an older computer: the list as it came');
   assert.equal(actionLabel({ kind: 'git' }), 'Set up git and GitHub');
 });
+
+test('a question waiting for an OK: the same answers on the card and the banner; "always" only when Claude offers it', async () => {
+  const { permissionActions, needsYou } = await import('../../web/lib.js');
+  const ask = { name: 'mobile-app', kind: 'claude', status: 'attention', machine: null };
+  assert.deepEqual(texts(permissionActions(ask)), ['Allow', 'Do not allow'], 'no third button without one on the screen');
+  const always = { key: '2', text: "Yes, and don't ask again for npm install commands", label: "Don't ask again for npm install commands" };
+  assert.deepEqual(texts(permissionActions({ ...ask, always })), ['Allow', "Allow, and don't ask again for npm install commands", 'Do not allow']);
+  const edits = { key: '2', text: 'Yes, allow all edits during this session (shift+tab)', label: 'Allow all edits during this session' };
+  assert.deepEqual(texts(permissionActions({ ...ask, always: edits })), ['Allow', 'Allow all edits during this session', 'Do not allow']);
+  assert.equal(permissionActions({ ...ask, always: { ...always, key: 'Enter' } }).children.length, 2, 'a key that is not a number is never sent');
+  assert.equal(permissionActions({ ...ask, status: 'waiting' }), null);
+  assert.equal(permissionActions({ ...ask, kind: 'chat' }), null, 'a chat answers on its own cards');
+  // The card and the row use it; the session page's banner too (one code path).
+  for (const f of ['sessionitem.js', 'session.js']) assert.match(fs.readFileSync(path.join(WEB, f), 'utf8'), /permissionActions\(/, f);
+  // "Needs you" means what Home's group means: an OK or a limit, never "waiting for your next message".
+  assert.equal(needsYou(ask), true);
+  assert.equal(needsYou({ ...ask, status: 'waiting', limit: { text: 'x' } }), true);
+  assert.equal(needsYou({ ...ask, status: 'waiting' }), false);
+  const { GROUPS } = await import('../../web/home.js');
+  assert.deepEqual(GROUPS.find(([id]) => id === 'needs')[2], ['attention', 'limit'], 'the same two states as Home');
+  assert.doesNotMatch(fs.readFileSync(path.join(WEB, 'session.js'), 'utf8'), /rank <= 2/);
+});
+
+test('new session: a folder where a session runs opens that session', () => {
+  const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
+  assert.match(src, /f\.live && f\.session\s*\?\s*row\(f, f\.short, \(\) => \(location\.hash = link\(`#\/s\/\$\{encodeURIComponent\(f\.session\)\}`/);
+});

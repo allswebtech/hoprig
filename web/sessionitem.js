@@ -1,7 +1,7 @@
 // A session as Home and Workspace show it: one part, so the words, the state chip and the action are the same on
 // both pages. Home draws it as a card (sessionCard); Workspace as a row under its project (sessionRow).
 import { icon } from './icons.js';
-import { h, limitBox, link, machinePill, profileIcon, profileText, stateOf, statusPill, switchProfile } from './lib.js';
+import { h, limitBox, link, machinePill, permissionActions, profileIcon, profileText, stateOf, statusPill, switchProfile } from './lib.js';
 import { isStarting, markStarting, startingPill } from './newsession.js';
 import { registeredCardBadges } from './registry.js';
 
@@ -59,6 +59,8 @@ export function sessionCard(s, profiles, refresh, multi) {
       registeredCardBadges().map((b) => b(s))),
     s.lastMessage ? h('p.card-msg', s.lastMessage) : s.title && s.kind !== 'chat' ? h('p.card-msg.title', s.title) : null,
     st.key === 'attention' && s.note ? h('p.card-note', s.note) : null,
+    // Answered right here, the same answers as the session page's banner.
+    permissionActions(s, refresh),
     limitBox(s, profiles, after),
     back ? h('div.card-actions', back) : null);
 }
@@ -74,6 +76,7 @@ export function sessionRow(s, profiles, refresh, { where = null } = {}) {
       h('span.si-meta', provider(s), where ? h('span.si-where', icon('folder', { size: 13 }), where) : null),
       s.lastMessage ? h('span.row-sub.si-msg', s.lastMessage) : null,
       st.key === 'attention' && s.note ? h('span.si-note', s.note) : null,
+      permissionActions(s, refresh),
       limitBox(s, profiles, after),
       backButton(s, profiles, after)),
     h('span.row-end', icon('chevronRight', { size: 18 })));
