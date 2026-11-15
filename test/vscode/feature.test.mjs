@@ -1,6 +1,6 @@
 // VS Code in the dashboard, against a stand-in VS Code server (fixtures/fake-code.mjs) inside the real dashboard
-// server: the login, the connection token added on the server and never in an answer, the WebSocket upgrade, which
-// folders may be opened, the license and the switch, the idle stop, and "open on this computer".
+// server: the login, the private socket, the dashboard's cookie never passed on, the WebSocket upgrade, which folders
+// may be opened, the license and the switch, the idle stop, "open on this computer", and another computer's token.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,7 +16,7 @@ const FAKE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures',
 const { saveConfig, loadConfig } = await import('../../src/config.mjs');
 const { hashPassword } = await import('../../src/server/auth.mjs');
 const { createServer } = await import('../../src/server/server.mjs');
-const { cleanLocation, upstreamCookie } = await import('../../src/vscode/proxy.mjs');
+const { upstreamCookie } = await import('../../src/vscode/proxy.mjs');
 const { cleanVscodePatch, desktopAvailable, vscodeSettings } = await import('../../src/vscode/feature.mjs');
 
 const projects = path.join(box.root, 'projects');
@@ -69,40 +69,36 @@ test('vscode: off until the license is accepted and it is turned on; then settin
   assert.equal(lines().length, 0, 'turning it on starts nothing yet');
 });
 
-test('vscode: the login is needed; the token is added on the server and never reaches the browser', async () => {
+test('vscode: the login is needed; VS Code listens only on a private socket and never sees the dashboard login', async () => {
   let r = await fetch(base + folderUrl(proj), { redirect: 'manual', headers: { Accept: 'text/html' } });
   assert.deepEqual([r.status, r.headers.get('location')], [302, '/login']);
   r = await fetch(base + '/vscode/static/x.js', { redirect: 'manual' });
   assert.equal(r.status, 401);
+  r = await fetch(base + folderUrl(proj), { redirect: 'manual', headers: { Cookie: 'sid=forged' } });
+  assert.equal(r.status, 401, 'a made-up login cookie');
   assert.equal(lines().length, 0, 'nothing started for a stranger');
 
-  r = await get(folderUrl(proj), { Cookie: `${cookie}; vscode-tkn=guessed` });
+  r = await get(folderUrl(proj), { Cookie: `${cookie}; theme=dark` });
   const body = await r.text();
   assert.equal(r.status, 200);
   assert.match(body, new RegExp(`workbench /vscode/ folder=${proj}`));
-  const token = feature.vscode.server.token;
-  assert.match(token, /^[0-9a-f]{64}$/);
-  const all = JSON.stringify([...r.headers]) + body;
-  assert.ok(!all.includes(token), 'the token is in no header and not in the page');
-  assert.deepEqual(r.headers.getSetCookie(), ['vscode-other=1; Path=/'], 'its token cookie is taken out, others pass');
+  assert.deepEqual(r.headers.getSetCookie(), ['vscode-other=1; Path=/'], 'its own cookies pass');
   assert.equal(r.headers.get('content-security-policy'), "script-src 'self' 'unsafe-eval'", 'VS Code keeps its own policy');
   assert.equal(r.headers.get('x-frame-options'), 'SAMEORIGIN');
   assert.equal(r.headers.get('cross-origin-opener-policy'), null);
 
   const seen = lines().filter((l) => l.url);
   const last = seen[seen.length - 1];
-  assert.equal(last.cookie, `vscode-tkn=${token}`, 'only the token: no dashboard login, no guessed token');
+  assert.equal(last.cookie, 'theme=dark', 'the dashboard login cookie is not passed on');
   assert.equal(last.host, `127.0.0.1:${port}`, 'VS Code writes links to the address the browser uses');
   const start = lines().find((l) => l.started);
   assert.deepEqual(start.env, [], 'no provider variable reaches VS Code');
-  assert.ok(start.args.includes('--accept-server-license-terms') && start.args.includes('/vscode'));
-  assert.ok(!start.args.includes(token), 'the token is in a file, not on the command line');
-
-  r = await get('/vscode/redirect');
-  assert.deepEqual([r.status, r.headers.get('location')], [302, '/vscode/?folder=/x'], 'no token in a redirect');
-  r = await get(`/vscode/static/a.js?tkn=${token}&v=1`);
-  assert.equal(r.status, 200);
-  assert.equal(lines().filter((l) => l.url).pop().url, '/vscode/static/a.js?v=1', 'a token in the address is not passed on');
+  assert.equal(start.umask, 0o077, 'every file and socket it makes is private');
+  assert.ok(start.args.includes('--accept-server-license-terms') && start.args.includes('/vscode') && start.args.includes('--without-connection-token'));
+  assert.ok(!start.args.includes('--host') && !start.args.includes('--port'), 'no network port');
+  const sock = start.args[start.args.indexOf('--socket-path') + 1];
+  assert.equal(fs.statSync(path.dirname(sock)).mode & 0o777, 0o700, 'its folder is this user\'s only');
+  assert.deepEqual(feature.vscode.server.target, { socketPath: sock });
 });
 
 test('vscode: only folders inside the roots, no workspace files', async () => {
@@ -130,6 +126,7 @@ test('vscode: WebSocket upgrades need this site and the login, then pass both wa
   assert.equal(feature.vscode.openCount(), 1);
   ws.send('hi');
   assert.equal(String(await new Promise((r) => ws.once('message', r))), 'echo:hi');
+  assert.equal(lines().filter((l) => l.upgrade).pop().cookie, '', 'the login cookie stays with the dashboard');
   assert.equal(feature.vscode.idleCheck(Date.now() + 10 * 3600_000), false, 'an open VS Code tab keeps it running');
   ws.close();
   await new Promise((r) => ws.once('close', r));
@@ -163,10 +160,19 @@ test('vscode: turned off stops it; on this computer opens the folder with `code 
   assert.equal((await get(folderUrl(proj))).status, 403);
 });
 
+test('vscode: another computer\'s token reaches neither the routes nor VS Code', async () => {
+  const { createToken } = await import('../../src/machines/tokens.mjs');
+  const { token } = createToken('hub');
+  const auth = { Authorization: `Bearer ${token}` };
+  assert.equal((await fetch(base + '/api/vscode', { headers: auth })).status, 403);
+  const r = await fetch(base + '/api/vscode/desktop', { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ dir: proj }) });
+  assert.equal(r.status, 403);
+  assert.equal((await fetch(base + folderUrl(proj), { headers: auth, redirect: 'manual' })).status, 403);
+});
+
 test('vscode: the pieces', () => {
-  assert.equal(upstreamCookie('sid=abc; theme=dark; vscode-tkn=x', 'T'), 'theme=dark; vscode-tkn=T');
-  assert.equal(cleanLocation('/vscode/?tkn=abc&folder=/a#x'), '/vscode/?folder=/a#x');
-  assert.equal(cleanLocation('/vscode/?tkn=abc'), '/vscode/');
+  assert.equal(upstreamCookie('sid=abc; theme=dark'), 'theme=dark');
+  assert.equal(upstreamCookie('sid=abc'), null);
   assert.equal(desktopAvailable({}, 'linux'), false);
   assert.equal(desktopAvailable({ WAYLAND_DISPLAY: 'wayland-0' }, 'linux'), true);
   assert.equal(desktopAvailable({}, 'darwin'), true);

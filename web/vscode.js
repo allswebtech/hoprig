@@ -29,6 +29,8 @@ function sheetBody(st, dir, close) {
     const rows = [];
     if (!st.installed) {
       rows.push(h('div.banner.warn', icon('alert', { size: 18 }), h('span', 'VS Code is not installed on this computer. ', st.install.text, ' ', external(st.install.url, 'Download VS Code'))));
+    } else if (st.browser === false) {
+      // Windows: not offered yet (src/vscode/process.mjs says why); the other ways below still are.
     } else if (st.enabled && st.license.accepted) {
       rows.push(h('a.choice', { href: browserUrl(dir), target: '_blank', rel: 'noopener', onclick: () => close() },
         h('span.choice-icon', icon('code')),
@@ -126,7 +128,7 @@ function settingsBody() {
     fill(box,
       st.installed ? null : panel({ icon: 'alert', title: 'VS Code is not installed', desc: st.install.text },
         h('div.btnrow', h('a.btn.secondary', { href: st.install.url, target: '_blank', rel: 'noopener noreferrer' }, icon('download', { size: 18 }), h('span', 'Download VS Code')))),
-      panel({ icon: 'code', title: 'VS Code in the browser', desc: 'VS Code\'s browser version runs on this computer and opens in a tab of this page, wherever you reach it: at home or through the public link.' },
+      st.browser === false ? panel({ icon: 'code', title: 'VS Code in the browser', desc: 'Not offered on Windows yet. Open in VS Code still offers this computer\'s screen and SSH.' }) : panel({ icon: 'code', title: 'VS Code in the browser', desc: 'VS Code\'s browser version runs on this computer and opens in a tab of this page, wherever you reach it: at home or through the public link.' },
         st.license.accepted
           ? [toggle('VS Code in the browser', st.enabled, async (v) => {
             try {

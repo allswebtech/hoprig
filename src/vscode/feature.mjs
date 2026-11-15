@@ -2,7 +2,8 @@
 //
 // Three ways, each for a folder inside the dashboard's roots (server.roots):
 //   in the browser       VS Code's own browser version (`code serve-web`, process.mjs), behind the dashboard's login at
-//                        /vscode/ (proxy.mjs), so it works wherever the dashboard works: the network or a public link
+//                        /vscode/ (proxy.mjs), so it works wherever the dashboard works: the network or a public link.
+//                        Not on Windows yet (process.mjs says why).
 //   on this computer     `code <folder>` opens the desktop VS Code on this computer's own screen
 //   on another device    a vscode://vscode-remote/ssh-remote+<target><folder> link (the page builds it) for a device
 //                        whose VS Code has Remote-SSH and reaches this computer by SSH
@@ -24,7 +25,7 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
 import { requestHost } from '../server/security.mjs';
-import { BASE, VscodeServer, childEnv, findCode, spawnPlan } from './process.mjs';
+import { BASE, VscodeServer, browserSupported, childEnv, findCode, spawnPlan } from './process.mjs';
 import { proxyHttp, proxyUpgrade, refuseUpgrade } from './proxy.mjs';
 
 export const LICENSE_URL = 'https://aka.ms/vscode-server-license';
@@ -65,7 +66,7 @@ export function vscodeSettings(cfg) {
 }
 
 /** A settings patch from the browser, checked; the full new "vscode" object. */
-export function cleanVscodePatch(b, cur, { installed }) {
+export function cleanVscodePatch(b, cur, { installed, supported = true }) {
   if (!b || typeof b !== 'object' || Array.isArray(b)) throw fail(400, 'send an object');
   const next = { ...cur };
   for (const [k, v] of Object.entries(b)) {
@@ -87,6 +88,7 @@ export function cleanVscodePatch(b, cur, { installed }) {
   }
   if (next.enabled && !next.licenseAcceptedAt) throw fail(409, 'accept the VS Code Server license first', 'license');
   if (next.enabled && !cur.enabled && !installed) throw fail(409, 'VS Code is not installed on this computer', 'not-installed');
+  if (next.enabled && !cur.enabled && !supported) throw fail(409, 'VS Code in the browser is not offered on Windows yet', 'not-supported');
   return next;
 }
 
@@ -136,6 +138,7 @@ export function vscodeFeature(sctx, opts = {}) {
     const s = settings();
     return {
       installed: installed(),
+      browser: browserSupported(platform), // false: the page offers only the other ways
       enabled: s.enabled,
       license: { accepted: Boolean(s.licenseAcceptedAt), at: s.licenseAcceptedAt, url: LICENSE_URL, privacy: PRIVACY_URL },
       idleMinutes: s.idleMinutes,
@@ -176,7 +179,7 @@ export function vscodeFeature(sctx, opts = {}) {
     ['POST', /^\/api\/vscode\/settings$/, async (req) => {
       own(req);
       const b = await sctx.readJson(req);
-      const next = cleanVscodePatch(b, settings(), { installed: installed() });
+      const next = cleanVscodePatch(b, settings(), { installed: installed(), supported: browserSupported(platform) });
       sctx.saveConfig({ vscode: next });
       if (!next.enabled) await stop();
       return view();
@@ -193,14 +196,8 @@ export function vscodeFeature(sctx, opts = {}) {
     res.end(body);
   };
 
-  /** The request line VS Code gets: the browser's path without a token it may carry. Null when it is not ours. */
-  function upstreamPath(url) {
-    if (!OURS.test(url.pathname) || url.pathname.includes('\0')) return null;
-    if (!url.searchParams.has('tkn')) return `${url.pathname}${url.search}`;
-    url.searchParams.delete('tkn');
-    const q = url.searchParams.toString();
-    return `${url.pathname}${q ? `?${q}` : ''}`;
-  }
+  /** The request line VS Code gets: the browser's own path and query. */
+  const upstreamPath = (url) => `${url.pathname}${url.search}`;
 
   /** What may be opened: the page's ?folder= only inside the roots, no ?workspace= file. A message, or null. */
   function pageRefusal(url) {
@@ -255,7 +252,7 @@ export function vscodeFeature(sctx, opts = {}) {
       }
     }
     lastUse = Date.now();
-    await proxyHttp(req, res, vs.target, { token: vs.token, host: requestHost(req, proxyOpts()), path: p });
+    await proxyHttp(req, res, vs.target, { host: requestHost(req, proxyOpts()), path: p });
     lastUse = Date.now();
     return true;
   }
@@ -273,7 +270,7 @@ export function vscodeFeature(sctx, opts = {}) {
     else if (!settings().enabled || !vs.running) refuseUpgrade(socket, 503, 'Service Unavailable');
     else {
       await proxyUpgrade(req, socket, head, vs.target, {
-        token: vs.token, host: requestHost(req, proxyOpts()), path: upstreamPath(url),
+        host: requestHost(req, proxyOpts()), path: upstreamPath(url),
         onOpen: () => {
           open++;
           lastUse = Date.now();

@@ -1,9 +1,12 @@
 // The VS Code server behind the dashboard: `code serve-web`, started when a folder is first opened and stopped when
-// no browser has had it open for a while (feature.mjs decides when). It listens only where this process can reach it
-// (a Unix socket in a private temporary folder; on Windows 127.0.0.1 on a free port), and every request must carry a
-// connection token that only the dashboard knows. The proxy (proxy.mjs) adds that token, so no browser ever sees it.
+// no browser has had it open for a while (feature.mjs decides when).
+//
+// Why without a connection token: VS Code's page reads its token in JavaScript and sends it inside its own WebSocket
+// messages, so a proxy cannot keep it from the browser. Instead it listens only on a Unix socket in a folder only this
+// user can open (mkdtemp: 0700), and runs under umask 077, so the socket VS Code makes for its inner server is private
+// too. Nobody but this user (who can run anything anyway) reaches it directly; from a browser the only way in is the
+// dashboard with its login (proxy.mjs). Windows would need a TCP port that every local user can reach: not offered there.
 import { execFileSync, spawn } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -38,6 +41,9 @@ export function childEnv(base = process.env) {
   return env;
 }
 
+/** True where VS Code in the browser can be served privately (see the header). */
+export const browserSupported = (platform = process.platform) => platform !== 'win32';
+
 /** Start `argv` the right way for this system (a .cmd on Windows goes through cmd.exe, escaped). */
 export function spawnPlan(argv, platform = process.platform, env = process.env) {
   const [cmd, ...args] = argv;
@@ -47,10 +53,10 @@ export function spawnPlan(argv, platform = process.platform, env = process.env) 
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** True once something accepts a connection at `target` ({ socketPath } or { port }). */
-function reachable(target) {
+/** True once something accepts a connection on the Unix socket `socketPath`. */
+function reachable(socketPath) {
   return new Promise((resolve) => {
-    const s = target.socketPath ? net.connect(target.socketPath) : net.connect(target.port, '127.0.0.1');
+    const s = net.connect(socketPath);
     s.once('connect', () => {
       s.destroy();
       resolve(true);
@@ -83,9 +89,8 @@ export class VscodeServer {
     this.child = null;
     this.readyP = null;
     this.ready = false;
-    this.target = null; // { socketPath } | { port }
-    this.token = null;
-    this.lines = []; // the newest lines it printed, with the token taken out
+    this.target = null; // { socketPath }
+    this.lines = []; // the newest lines it printed
     this.error = null; // why the last start failed, in its own words
   }
 
@@ -112,19 +117,16 @@ export class VscodeServer {
     if (this.readyP) return this.readyP;
     const prog = this.program();
     if (!prog) return Promise.reject(new Error('VS Code is not installed on this computer.'));
-    const win = this.platform === 'win32';
-    // A private folder (mkdtemp makes it 0700) for the socket and the token file: no other user can reach either.
+    if (!browserSupported(this.platform)) return Promise.reject(new Error('VS Code in the browser is not offered on Windows yet.'));
+    // A private folder (mkdtemp makes it 0700) for the socket: no other user can reach it.
     const run = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-vscode-'));
-    const token = crypto.randomBytes(32).toString('hex');
-    const tokenFile = path.join(run, 'token');
-    fs.writeFileSync(tokenFile, token, { mode: 0o600 });
     const data = this.dataDir();
     fs.mkdirSync(data, { recursive: true, mode: 0o700 });
-    const socketPath = win ? null : path.join(run, 'vs.sock');
+    const socketPath = path.join(run, 'vs.sock');
     const args = [
       'serve-web',
-      ...(win ? ['--host', '127.0.0.1', '--port', '0'] : ['--socket-path', socketPath]),
-      '--connection-token-file', tokenFile,
+      '--socket-path', socketPath,
+      '--without-connection-token', // see the header: the private socket and the dashboard's login stand for it
       // Only ever started after the owner accepted the license in the page (feature.mjs checks it first).
       '--accept-server-license-terms',
       '--server-base-path', BASE,
@@ -132,18 +134,18 @@ export class VscodeServer {
       '--cli-data-dir', path.join(data, 'cli'),
       '--server-data-dir', path.join(data, 'server'),
     ];
-    const plan = spawnPlan([...prog, ...args], this.platform, this.env);
+    // umask 077 through sh, so every socket and file it makes (its inner server's socket in the temporary folder too)
+    // is this user's only. The program and its arguments reach sh as "$@" (an array), never as a line sh would parse.
     let child;
     try {
-      child = spawn(plan.command, plan.args, {
-        ...plan.options, env: childEnv(this.env), cwd: os.homedir(), stdio: ['ignore', 'pipe', 'pipe'], detached: !win, windowsHide: true,
+      child = spawn('/bin/sh', ['-c', 'umask 077 && exec "$@"', 'hoprig-vscode', ...prog, ...args], {
+        env: childEnv(this.env), cwd: os.homedir(), stdio: ['ignore', 'pipe', 'pipe'], detached: true,
       });
     } catch (e) {
       fs.rmSync(run, { recursive: true, force: true });
       return Promise.reject(e);
     }
-    Object.assign(this, { child, token, ready: false, target: socketPath ? { socketPath } : null, lines: [], error: null });
-    let port = null;
+    Object.assign(this, { child, ready: false, target: { socketPath }, lines: [], error: null });
     const keep = (stream) => {
       let rest = '';
       stream.on('data', (c) => {
@@ -151,11 +153,8 @@ export class VscodeServer {
         const parts = all.split(/\r?\n/);
         rest = parts.pop();
         for (const line of parts) {
-          // In port mode it prints its address with ?tkn=<token>: read the port, keep the line without the token.
-          const m = /https?:\/\/127\.0\.0\.1:(\d+)/.exec(line);
-          if (m) port = Number(m[1]);
           if (!line.trim()) continue;
-          this.lines.push(line.split(token).join('***').slice(0, 500));
+          this.lines.push(line.slice(0, 500));
           if (this.lines.length > 40) this.lines.shift();
         }
       });
@@ -178,8 +177,7 @@ export class VscodeServer {
       (async () => {
         const until = Date.now() + this.readyMs;
         while (!exited && Date.now() < until) {
-          if (!this.target && port) this.target = { port };
-          if (this.target && (await reachable(this.target))) return resolve();
+          if (await reachable(socketPath)) return resolve();
           await sleep(200);
         }
         if (!exited) reject(new Error(`VS Code did not answer within ${Math.round(this.readyMs / 1000)} s: ${lastWords()}`));
@@ -190,11 +188,11 @@ export class VscodeServer {
     const cleanup = (started) => {
       if (cleaned) return;
       cleaned = true;
-      if (this.child === child) Object.assign(this, { child: null, readyP: null, ready: false, target: null, token: null });
+      if (this.child === child) Object.assign(this, { child: null, readyP: null, ready: false, target: null });
       fs.rmSync(run, { recursive: true, force: true });
       this.removePid(child.pid);
       // A part that ignored the first signal is not left behind (the group is ours: its leader just ended).
-      if (started && !win) setTimeout(() => killTree(child.pid, 'SIGKILL', this.platform), 3000).unref();
+      if (started) setTimeout(() => killTree(child.pid, 'SIGKILL', this.platform), 3000).unref();
     };
     child.once('exit', () => cleanup(true));
     child.once('error', () => cleanup(false));

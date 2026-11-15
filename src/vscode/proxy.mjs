@@ -1,6 +1,5 @@
-// Passing requests between the browser and the VS Code server (process.mjs), HTTP and WebSocket. The server wants its
-// connection token with every request; it is added here as the `vscode-tkn` cookie and taken out of every answer
-// (cookies, redirects), so it never reaches a browser. The dashboard's own cookie never reaches VS Code.
+// Passing requests between the browser and the VS Code server (process.mjs), HTTP and WebSocket. The feature has
+// checked the dashboard's login before anything gets here; the dashboard's own cookie never reaches VS Code.
 import http from 'node:http';
 
 // Request headers never passed on: the browser's credentials and what a proxy in front of the dashboard added.
@@ -11,57 +10,39 @@ const HOP = /^(connection|keep-alive|proxy-connection|te|trailer|transfer-encodi
 // and nonces, its editors and previews are frames of this same site).
 const OWN_HEADERS = ['Content-Security-Policy', 'X-Frame-Options', 'Cross-Origin-Opener-Policy', 'Cross-Origin-Resource-Policy'];
 
-/** The Cookie header for VS Code: the browser's cookies without the dashboard's login and any token, plus ours. */
-export function upstreamCookie(header, token, ownCookie = 'sid') {
-  const keep = String(header || '').split(';').map((c) => c.trim()).filter((c) => {
-    const name = c.split('=')[0].trim();
-    return c && name !== ownCookie && name !== 'vscode-tkn';
-  });
-  return [...keep, `vscode-tkn=${token}`].join('; ');
+/** The Cookie header for VS Code: the browser's cookies without the dashboard's login (null when none are left). */
+export function upstreamCookie(header, ownCookie = 'sid') {
+  const keep = String(header || '').split(';').map((c) => c.trim()).filter((c) => c && c.split('=')[0].trim() !== ownCookie);
+  return keep.length ? keep.join('; ') : null;
 }
 
 /** The headers to send VS Code. `host` is the address the browser uses, so the links VS Code writes lead back here. */
-export function upstreamHeaders(reqHeaders, { token, host, upgrade = false }) {
+export function upstreamHeaders(reqHeaders, { host, upgrade = false }) {
   const out = {};
   for (const [k, v] of Object.entries(reqHeaders)) {
     if (v === undefined || DROP_REQ.test(k) || (HOP.test(k) && !(upgrade && (k === 'connection' || k === 'upgrade')))) continue;
     out[k] = v;
   }
   out.host = host || 'localhost';
-  out.cookie = upstreamCookie(reqHeaders.cookie, token);
+  const cookie = upstreamCookie(reqHeaders.cookie);
+  if (cookie) out.cookie = cookie;
   return out;
 }
 
-/** A Location without the token VS Code may have put into it. */
-export function cleanLocation(loc) {
-  if (typeof loc !== 'string' || !/[?&]tkn=/.test(loc)) return loc;
-  const [rest, hash = ''] = loc.split('#');
-  const [p, q = ''] = rest.split('?');
-  const kept = q.split('&').filter((x) => x && !x.startsWith('tkn='));
-  return `${p}${kept.length ? `?${kept.join('&')}` : ''}${hash ? `#${hash}` : ''}`;
-}
-
-/** VS Code's answer headers as the browser gets them: no token cookie, no hop-by-hop headers, no token in a redirect. */
+/** VS Code's answer headers as the browser gets them: without the hop-by-hop ones. */
 export function downstreamHeaders(upHeaders) {
   const out = {};
-  for (const [k, v] of Object.entries(upHeaders)) {
-    if (HOP.test(k)) continue;
-    if (k === 'set-cookie') {
-      const list = (Array.isArray(v) ? v : [v]).filter((c) => !/^\s*vscode-tkn=/i.test(c));
-      if (list.length) out[k] = list;
-    } else if (k === 'location') out[k] = cleanLocation(v);
-    else out[k] = v;
-  }
+  for (const [k, v] of Object.entries(upHeaders)) if (!HOP.test(k)) out[k] = v;
   return out;
 }
 
-/** Where the server listens, as options for http.request: { socketPath } or { host, port }. */
-const where = (target) => (target.socketPath ? { socketPath: target.socketPath } : { host: '127.0.0.1', port: target.port });
+/** Where the server listens, as options for http.request. */
+const where = (target) => ({ socketPath: target.socketPath });
 
 /** Pass one HTTP request to VS Code and its answer back, streaming both ways. Resolves when it is over. */
-export function proxyHttp(req, res, target, { token, host, path }) {
+export function proxyHttp(req, res, target, { host, path }) {
   return new Promise((resolve) => {
-    const out = http.request({ ...where(target), method: req.method, path, headers: upstreamHeaders(req.headers, { token, host }), agent: false });
+    const out = http.request({ ...where(target), method: req.method, path, headers: upstreamHeaders(req.headers, { host }), agent: false });
     out.on('error', () => {
       if (!res.headersSent) {
         for (const h of OWN_HEADERS) res.removeHeader(h);
@@ -98,9 +79,9 @@ export function refuseUpgrade(socket, status, text) {
  * Pass a WebSocket upgrade to VS Code. Once it answers 101 the two sockets are joined byte for byte. `onOpen` and
  * `onClose` let the caller count open connections (the idle stop waits for none). Resolves true when joined.
  */
-export function proxyUpgrade(req, socket, head, target, { token, host, path, onOpen = () => {}, onClose = () => {} }) {
+export function proxyUpgrade(req, socket, head, target, { host, path, onOpen = () => {}, onClose = () => {} }) {
   return new Promise((resolve) => {
-    const headers = upstreamHeaders(req.headers, { token, host, upgrade: true });
+    const headers = upstreamHeaders(req.headers, { host, upgrade: true });
     const out = http.request({ ...where(target), method: 'GET', path, headers, agent: false });
     out.on('error', () => {
       refuseUpgrade(socket, 502, 'Bad Gateway');
