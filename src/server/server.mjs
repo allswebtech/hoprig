@@ -56,6 +56,7 @@ import { assistantFeature } from '../assistant/feature.mjs';
 import { automationFeature } from '../automation/feature.mjs';
 import { addonsFeature } from '../addons/feature.mjs';
 import { accountsFeature } from './accounts.mjs';
+import { gatewayFeature } from '../gateway/index.mjs';
 import { pcsetupFeature } from '../pcsetup/feature.mjs';
 import { skillhubFeature } from '../skillhub/feature.mjs';
 import { workspaceFeature } from '../workspace/feature.mjs';
@@ -196,12 +197,14 @@ export function createServer(opts = {}) {
   };
   // ---- the features: one line each ----
   const machines = machinesFeature(ctx, opts.machines);
+  const gateway = gatewayFeature(ctx, { hub: machines.machines.hub, ...opts.gateway });
   const features = [
     assistantFeature(ctx, { hub: machines.machines.hub, ...opts.assistant }), // Tia; first, so her own token is checked before the machines gate
+    gateway, // /gateway/…: a gateway shared with a gateway key (before the machines gate, which takes any bearer as its own)
     machines, // other computers: relay, pairing, bearer tokens
     automationFeature(ctx, { tick: opts.watch !== false, ...opts.automation }), // queue, schedules, restore, retry, updates, idle care
     addonsFeature(ctx, opts.addons), // Settings → Add-ons: install, start, stop, update, set up as an account
-    accountsFeature(ctx, opts.accounts), // Providers: add a subscription, an API key or a TRouteAI gateway in the page
+    accountsFeature(ctx, { remote: gateway.states, removing: gateway.forget, ...opts.accounts }), // Providers: add a subscription, an API key or a TRouteAI gateway in the page
     pcsetupFeature(ctx, opts.pcsetup), // PC → Setup: system status, set up this computer, projects, recipes
     skillhubFeature(ctx, opts.skillhub), // Settings → Skills: installed, suggested for a project, find, review → approve, updates
     onboardingFeature(ctx, opts.onboarding), // Home → Get started: the steps a new user goes through, done or not

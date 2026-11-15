@@ -131,6 +131,8 @@ export const trouteai = {
   title: 'TRouteAI',
   summary: 'A self-hosted AI gateway. Add any provider in its dashboard (OpenAI, Gemini, OpenRouter, local models…) and Claude Code can use them all as one more provider.',
   homepage: 'https://github.com/allswebtech/trouteai',
+  // An AI gateway with Claude's API on this port: src/gateway finds it on every computer and can share it.
+  gateway: { port },
   status,
   install,
   update,
