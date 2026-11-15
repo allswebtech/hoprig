@@ -231,12 +231,14 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
     };
     const g = gateways().find((x) => x.id === id);
     if (!g) return deny(404, 'not_found_error', `There is no gateway "${id}" on ${label()}.`);
+    // The key is checked before the limit, and only a key that fails counts: behind a tunnel or cloudflared every
+    // caller has the same address, so a stranger sending wrong keys must not lock out the computers that hold one.
     const ip = ctx.clientIp(req);
-    const wait = failures.retryAfter(ip);
-    if (wait > 0) return deny(429, 'rate_limit_error', 'Too many wrong gateway keys. Wait a few minutes.', { 'Retry-After': String(Math.ceil(wait / 1000)) });
     const key = presentedKey(req);
     const entry = key ? verifyKey(key, g.id) : null;
     if (!entry) {
+      const wait = failures.retryAfter(ip);
+      if (wait > 0) return deny(429, 'rate_limit_error', 'Too many wrong gateway keys. Wait a few minutes.', { 'Retry-After': String(Math.ceil(wait / 1000)) });
       failures.fail(ip);
       return deny(401, 'authentication_error', key
         ? `This gateway key is not valid on ${label()}: it was removed or belongs to another gateway.`
@@ -286,10 +288,11 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       req.resume();
       apiError(res, status, type, message);
     };
+    // As in share(): a key held here always passes; only a key that fails counts toward the limit.
     const ip = ctx.clientIp(req);
-    if (failures.retryAfter(ip) > 0) return deny(429, 'rate_limit_error', 'Too many wrong gateway keys. Wait a few minutes.');
     const key = presentedKey(req);
     if (!heldBy(key, name, id)) {
+      if (failures.retryAfter(ip) > 0) return deny(429, 'rate_limit_error', 'Too many wrong gateway keys. Wait a few minutes.');
       failures.fail(ip);
       return deny(401, 'authentication_error', 'This address is only for the providers of this computer.');
     }
