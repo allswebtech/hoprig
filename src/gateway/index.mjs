@@ -61,13 +61,19 @@ export function presentedKey(req) {
   return typeof x === 'string' && x ? x.trim() : null;
 }
 
+/** The gateway key a provider here holds (written as ANTHROPIC_AUTH_TOKEN; "Change model" may keep it as an API key). */
+export const gatewayKeyOf = (profile) => {
+  const env = (profile && profile.env) || {};
+  return env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
+};
+
 /**
  * Whether a provider uses another computer's gateway, from its address and key: { kind: 'linked', machine, gateway }
  * (through this dashboard) or { kind: 'address', url, gateway } (straight to that dashboard), else null.
  */
 export function remoteUse(profile) {
   const env = (profile && profile.env) || {};
-  if (!env.ANTHROPIC_BASE_URL || !looksLikeKey(env.ANTHROPIC_AUTH_TOKEN)) return null;
+  if (!env.ANTHROPIC_BASE_URL || !looksLikeKey(gatewayKeyOf(profile))) return null;
   let u;
   try {
     u = new URL(env.ANTHROPIC_BASE_URL);
@@ -201,7 +207,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
         const t = await targetOf(use, 2500);
         if (t.gone) return void map.set(p.name, { ...base, state: 'offline', text: t.gone });
         base.computer = t.who;
-        const r = await callJson(t.ep, { machine: t.who, path: `${t.path}/__status`, headers: { Authorization: `Bearer ${p.env.ANTHROPIC_AUTH_TOKEN}` }, timeoutMs: 2500 });
+        const r = await callJson(t.ep, { machine: t.who, path: `${t.path}/__status`, headers: { Authorization: `Bearer ${gatewayKeyOf(p)}` }, timeoutMs: 2500 });
         if (r.status === 200 && r.json && r.json.hoprig === 'gateway') return void map.set(p.name, { ...base, title: String(r.json.title || use.gateway).slice(0, 60), state: 'online', text: `On ${t.who}` });
         const said = r.json && r.json.error && r.json.error.message;
         map.set(p.name, { ...base, state: 'refused', text: typeof said === 'string' ? said.slice(0, 200) : `${t.who} refused it (HTTP ${r.status})` });
@@ -269,7 +275,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
     let found = null;
     for (const p of listProfiles()) {
       const use = remoteUse(p);
-      if (use && use.kind === 'linked' && use.machine === name && use.gateway === id && sameSecret(p.env.ANTHROPIC_AUTH_TOKEN, key) && !found) found = p;
+      if (use && use.kind === 'linked' && use.machine === name && use.gateway === id && sameSecret(gatewayKeyOf(p), key) && !found) found = p;
     }
     return found;
   }
@@ -486,7 +492,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
     if (!use || (use.kind === 'linked' && !hub)) return;
     try {
       const t = await targetOf(use, 3000);
-      if (!t.gone) await callJson(t.ep, { machine: t.who, method: 'POST', path: `${t.path}/__revoke`, body: {}, headers: { Authorization: `Bearer ${profile.env.ANTHROPIC_AUTH_TOKEN}` }, timeoutMs: 3000 });
+      if (!t.gone) await callJson(t.ep, { machine: t.who, method: 'POST', path: `${t.path}/__revoke`, body: {}, headers: { Authorization: `Bearer ${gatewayKeyOf(profile)}` }, timeoutMs: 3000 });
     } catch {
       /* offline: the key stays listed there, with "remove" */
     }
