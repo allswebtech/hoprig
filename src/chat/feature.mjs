@@ -132,13 +132,13 @@ export function chatFeature(ctx, o = {}) {
       cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), status, statusAt: c.statusAt, activity: c.statusAt,
       created: c.openedAt, attached: false, panes: 0, sessionId: c.id, canSwitch: false,
       lastMessage: c.lastText.replace(/\s+/g, ' ').trim().slice(0, 300),
+      running: !!c.child, // its process runs on the provider now (idle care keeps that provider's gateway up)
       note: ask ? `Allow ${ask.title}${ask.description ? `: ${ask.description}` : ''}?` : '',
       limit: c.limit ? { text: c.limit.text } : null,
     };
   }
   async function view(c, { from, epoch }) {
-    const reset = epoch !== c.epoch || from < c.base;
-    const events = reset ? c.since(0, 300) : c.since(from);
+    const { reset, events } = c.window(from, epoch);
     return {
       id: c.id, epoch: c.epoch, reset, events, next: c.next, first: events.length ? events[0].i : c.next, older: (events.length ? events[0].i : c.next) > c.base,
       status: c.status(), running: !!c.child, pending: [...c.pending.keys()], todos: c.todos.list,
@@ -203,6 +203,7 @@ export function chatFeature(ctx, o = {}) {
         const old = [...chats.values()].filter((c) => !c.child).sort((a, b2) => a.statusAt - b2.statusAt)[0];
         if (!old) throw new HttpError(409, `${OPEN_MAX} chats are open; close one first`);
         chats.delete(old.id);
+        old.close();
       }
       const c = make({
         id, cwd: dir, profile: b.profile,
@@ -324,14 +325,20 @@ export function chatFeature(ctx, o = {}) {
       if (c.state !== 'idle') throw new HttpError(409, 'Claude is working. Wait until the reply ends, or press Stop first.');
       const profile = c.profile === AUTO.name ? (autoOn() ? { name: AUTO.name, env: {} } : null) : readProfile(c.profile);
       if (!profile) throw bad('the provider of this chat is gone; choose another one first');
-      await c.stopAndWait();
+      chats.delete(c.id);
+      await c.close();
       const flags = [
         ...(c.permissionMode ? ['--permission-mode', c.permissionMode] : []),
         ...(c.effort ? ['--effort', c.effort] : []),
         ...(c.model ? ['--model', c.model] : []),
       ];
-      const name = await ctx.deck.start({ dir: c.cwd, profile, mode: 'resume', sessionId: c.id, flags });
-      chats.delete(c.id);
+      let name;
+      try {
+        name = await ctx.deck.start({ dir: c.cwd, profile, mode: 'resume', sessionId: c.id, flags });
+      } catch (e) {
+        make(c.record()); // the terminal did not start: the chat stays open
+        throw e;
+      }
       save();
       ctx.poke?.();
       return { name };
@@ -355,9 +362,9 @@ export function chatFeature(ctx, o = {}) {
     ['POST', new RegExp(`^/api/chats/${ID}/close$`), async (req, m) => {
       const c = chatOr404(m[1]);
       await ctx.readJson(req);
-      await c.stopAndWait();
       chats.delete(c.id);
       save();
+      await c.close();
       ctx.poke?.();
       return { ok: true };
     }],
@@ -371,13 +378,14 @@ export function chatFeature(ctx, o = {}) {
       load();
       return [...chats.values()].map(card);
     },
-    /** True when a chat's process runs conversation `id` right now. */
+    /** True when a chat runs conversation `id` right now: its process, or one getting ready for a message. */
     running(id) {
+      load();
       const c = chats.get(id);
-      return !!(c && c.child);
+      return !!(c && (c.child || c.state !== 'idle'));
     },
     async close() {
-      await Promise.all([...chats.values()].map((c) => c.stopAndWait(3000)));
+      await Promise.all([...chats.values()].map((c) => c.close(3000)));
     },
   };
 }

@@ -6,6 +6,7 @@
 // without this process (a terminal ran the conversation meanwhile), the list is read again from the transcript and
 // `epoch` changes, so the page starts over.
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,6 +18,10 @@ import { allowLine, chatArgs, denyLine, interruptLine, newTodos, parseLine, todo
 export const EVENTS_MAX = 5000; // kept in memory; the page asks for the last few hundred at a time
 export const IDLE_MS = 20 * 60_000; // a process with nothing to do is stopped after this (the next message resumes)
 const STOP_GRACE_MS = 8000; // after Stop, how long Claude Code gets to end the turn itself
+const TERM_MS = 3000; // after its input ends, how long a process gets to exit before SIGTERM
+const KILL_MS = 8000; // … and before SIGKILL
+const DRAIN_MS = 2000; // after it exits, how long its output may take to arrive (a child that holds the pipe open)
+export const WINDOW_MAX = 400; // the most events one answer to the page carries without starting over
 // Errors that mean "this provider cannot serve now" (Claude Code's error categories, headless docs "api_retry").
 const LIMIT_ERRORS = new Set(['rate_limit', 'billing_error']);
 const LIMIT_TEXT = /usage limit|limit reached|rate.?limit|out of (credit|quota)|credit balance/i;
@@ -43,7 +48,9 @@ export class Chat extends EventEmitter {
     this.costTotal = Number.isFinite(o.costTotal) ? o.costTotal : null; // what Claude Code reported last (a running total)
     this.events = [];
     this.base = 0; // the number of the first event in `events`
-    this.epoch = 1;
+    // The numbering of `events`: a page that saw another numbering (an earlier dashboard process, or before the
+    // transcript was read again) starts over. Random at the start, so a restart never reuses the old one.
+    this.epoch = crypto.randomInt(1, 2 ** 40);
     this.todos = newTodos();
     this.pending = new Map(); // request id → the ask event (with the full input)
     this.state = 'idle'; // idle | working
@@ -57,6 +64,9 @@ export class Chat extends EventEmitter {
     this.knownSize = -1;
     this.idleTimer = null;
     this.stopTimer = null;
+    this.gen = 0; // goes up with every stop(): a start that was under way when it came does not go on
+    this.closed = false;
+    this.ending = null; // the previous process's exit, while it is still stopping
     // Goes up with every change, so a page that waits for news (a long poll) knows when to ask again.
     this.version = 0;
     const bump = () => this.version++;
@@ -125,6 +135,16 @@ export class Chat extends EventEmitter {
     return out.length > max ? out.slice(-max) : out;
   }
 
+  /**
+   * What a page that has events up to `from` (in numbering `epoch`) gets next: { reset, events }. It starts over
+   * (the newest 300) when the numbering changed, when `from` is not in the kept events (before them, or after the
+   * newest: a numbering of an earlier process), or when more is new than one answer carries.
+   */
+  window(from, epoch) {
+    const reset = epoch !== this.epoch || from < this.base || from > this.next || this.next - from > WINDOW_MAX;
+    return { reset, events: reset ? this.since(0, 300) : this.since(from, WINDOW_MAX) };
+  }
+
   /** Up to `n` events before number `before`. */
   before(before, n = 300) {
     const end = Math.max(0, before - this.base);
@@ -146,10 +166,16 @@ export class Chat extends EventEmitter {
 
   // ---------- the process ----------
 
+  /** Start Claude Code. Resolves false when a stop() came while it was getting ready (nothing started then). */
   async #spawn() {
+    const gen = this.gen;
+    // The same conversation must not run twice: a process that is still stopping ends first.
+    if (this.ending) await this.ending;
+    // The provider's environment may take a while (its PRERUN starts a gateway, Auto mode starts the router).
+    const env = await (this.o.resolveEnv || providerEnv)(this.profile);
+    if (gen !== this.gen || this.closed) return false;
     const resume = fs.existsSync(this.file());
     if (!resume) this.costTotal = 0; // a new conversation starts at nothing
-    const env = await (this.o.resolveEnv || providerEnv)(this.profile);
     // A provider that names its own model (ANTHROPIC_MODEL) says what its endpoint can serve: no --model then.
     // A resume otherwise starts on the model named in the transcript, which another provider may not know.
     const own = !!env.ANTHROPIC_MODEL;
@@ -175,7 +201,17 @@ export class Chat extends EventEmitter {
     child.stderr.on('data', (d) => {
       err = (err + d).slice(-2000);
     });
+    // The end is handled once its output is read to the end ('close'), not at 'exit': a long reply right before
+    // the process exits would otherwise be cut off, its result with it. A child that keeps the pipe open (a command
+    // it left running) cannot hold that up for more than DRAIN_MS.
+    let finished = false;
+    let drain = null;
     const gone = (code) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(drain);
+      if (buf.trim() && this.child === child) for (const ev of parseLine(buf)) this.#on(ev);
+      buf = '';
       // What it wrote last is ours: no reason to read the transcript again because of it.
       try {
         this.knownSize = fs.statSync(this.file()).size;
@@ -194,12 +230,17 @@ export class Chat extends EventEmitter {
       }
       this.emit('status');
     };
-    child.on('exit', (code, signal) => gone(code ?? signal));
+    child.on('exit', (code, signal) => {
+      drain = setTimeout(() => gone(code ?? signal), this.o.drainMs ?? DRAIN_MS);
+      drain.unref?.();
+    });
+    child.on('close', (code, signal) => gone(code ?? signal));
     child.on('error', (e) => {
       err = e.code === 'ENOENT' ? 'Claude Code was not found on this computer' : e.message;
       gone(127);
     });
     child.stdin.on('error', () => {}); // a process that died early must not take the dashboard with it
+    return true;
   }
 
   #write(line) {
@@ -293,7 +334,7 @@ export class Chat extends EventEmitter {
     this.#setState('working');
     if (!this.child) {
       try {
-        await this.#spawn();
+        if (!(await this.#spawn())) return; // stopped (or closed) while it got ready
       } catch (e) {
         this.push({ kind: 'done', ok: false, subtype: 'start', error: `Claude Code could not start: ${e.message}` });
         this.lastError = e.message;
@@ -326,7 +367,11 @@ export class Chat extends EventEmitter {
 
   /** Stop: Claude Code ends the turn (and the tool it runs). If it does not, the process is stopped. */
   interrupt() {
-    if (!this.child || this.state === 'idle') return false;
+    if (this.state === 'idle') return false;
+    if (!this.child) {
+      this.stop(); // still getting ready: it does not start
+      return true;
+    }
     this.#write(interruptLine(`stop-${Date.now().toString(36)}`));
     this.#cancelAsks();
     this.#setState(this.state);
@@ -343,52 +388,71 @@ export class Chat extends EventEmitter {
 
   /** End the process (the conversation stays in its transcript). */
   stop() {
+    this.gen++; // a start that is still getting ready does not go on
     clearTimeout(this.idleTimer);
     clearTimeout(this.stopTimer);
     const child = this.child;
-    if (!child) return;
     this.child = null;
     if (this.state !== 'idle') {
       this.#cancelAsks();
       this.push({ kind: 'notice', text: 'Stopped.' });
       this.#setState('idle');
     }
-    try {
-      child.stdin.end(); // Claude Code cancels a waiting permission prompt when its input ends
-    } catch {
-      /* gone */
-    }
-    const t = setTimeout(() => {
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        /* gone */
-      }
-    }, 3000);
-    t.unref?.();
-    child.once('exit', () => clearTimeout(t));
+    if (child) this.#end(child);
     this.emit('status');
   }
 
-  /** stop(), and resolve once the process has really ended: nothing else may run the conversation before. */
+  /** End `child`: its input first (Claude Code cancels a waiting permission prompt then), SIGTERM, then SIGKILL. */
+  #end(child) {
+    const kill = (sig) => {
+      try {
+        child.kill(sig);
+      } catch {
+        /* gone */
+      }
+    };
+    const term = setTimeout(() => kill('SIGTERM'), this.o.termMs ?? TERM_MS);
+    const hard = setTimeout(() => kill('SIGKILL'), this.o.killMs ?? KILL_MS);
+    term.unref?.();
+    hard.unref?.();
+    const ended = new Promise((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) return resolve();
+      child.once('exit', resolve);
+    }).then(() => {
+      clearTimeout(term);
+      clearTimeout(hard);
+      if (this.ending === ended) this.ending = null;
+    });
+    this.ending = ended;
+    try {
+      child.stdin.end();
+    } catch {
+      /* gone */
+    }
+  }
+
+  /** stop(), and resolve once the process has really ended (SIGKILL after `ms`): nothing else may run it before. */
   async stopAndWait(ms = 6000) {
     const child = this.child;
     this.stop();
-    if (!child || child.exitCode !== null || child.signalCode !== null) return;
-    await new Promise((resolve) => {
-      const t = setTimeout(() => {
-        try {
-          child.kill('SIGKILL');
-        } catch {
-          /* gone */
-        }
-        resolve();
-      }, ms);
-      child.once('exit', () => {
-        clearTimeout(t);
-        resolve();
-      });
-    });
+    if (!this.ending) return;
+    let t;
+    await Promise.race([this.ending, new Promise((r) => (t = setTimeout(r, ms)))]);
+    clearTimeout(t);
+    if (this.ending && child) {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        /* gone */
+      }
+      await this.ending;
+    }
+  }
+
+  /** Close the chat for good: what is still getting ready never starts, what runs ends. */
+  close(ms) {
+    this.closed = true;
+    return this.stopAndWait(ms);
   }
 
   /** Model and effort for the next turn: a new process with --resume, after the current turn if one runs. */
