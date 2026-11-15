@@ -875,3 +875,9 @@ body.has-nav .page.fill { padding-bottom: calc(59px + env(safe-area-inset-bottom
 .md-code { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--console-bg); color: var(--console-text); font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-x: auto; }
 /* Rows inside a card sit in a hairline frame, not in a second floating card. */
 .panel .rows, .card .rows { box-shadow: none; border: 1px solid var(--border); border-radius: var(--r); }
+
+/* Open in VS Code (vscode.js): a choice that is a link looks like the others; the card that turns it on. */
+a.choice { color: inherit; }
+.vs-setup { display: grid; gap: 8px; padding: 12px; }
+.vs-setup .choice-label { margin: 0; }
+.mrow-actions:empty { display: none; }
