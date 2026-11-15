@@ -4,6 +4,7 @@
 // server (server.getStartedDismissed), so it stays closed on the phone too.
 import { icon } from './icons.js';
 import { api, fill, h, link, toast } from './lib.js';
+import { claudeSignIn } from './claudelogin.js';
 import { gitDone, gitRows, openGitSetup } from './gitsetup.js';
 import { store } from './store.js';
 
@@ -79,16 +80,17 @@ export function planGetStarted(onb, { dismissed = false } = {}) {
 /** The label of a step's one button. */
 export function actionLabel(a) {
   if (!a) return null;
-  if (a.kind === 'terminal') return a.label || 'Open a terminal';
+  if (a.kind === 'terminal' || a.kind === 'claude-login') return a.label || 'Open a terminal';
   if (a.kind === 'git') return 'Set up git and GitHub';
   if (a.kind === 'request') return 'Do it';
   return 'Open';
 }
 
-/** Run a step's action: open a part of the page, a terminal session, or call a route. */
+/** Run a step's action: open a part of the page, a terminal session, Claude Code's sign-in, or call a route. */
 export async function runAction(a, after) {
   try {
     if (a.kind === 'git') await openGitSetup();
+    else if (a.kind === 'claude-login') await claudeSignIn({ done: after }); // in the page, no terminal
     else if (a.kind === 'page') location.hash = link(TARGETS[a.target] || '#/settings');
     else if (a.kind === 'terminal') {
       const r = await api('~/api/onboarding/run', { run: a.run });

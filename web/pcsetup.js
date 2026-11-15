@@ -7,6 +7,7 @@ import { icon } from './icons.js';
 import { api, btn, fill, h, link, machine, openSheet, promptSheet, toast } from './lib.js';
 import { fold } from './shell.js';
 import { gitPanel } from './gitsetup.js';
+import { claudeLoginButton } from './claudelogin.js';
 
 const MARK = { ok: '✓', fail: '✗', warn: '!', info: '·' };
 const STATE = { ok: '✓', missing: '✗', old: '!' };
@@ -134,7 +135,8 @@ export function setupSection() {
         toast(r.said.join(' · '), { ms: 8000 });
         load();
       }
-    } }) : null);
+    } }) : null,
+    c.action === 'claude-login' ? claudeLoginButton(load) : null);
 
   function paint(d) {
     const s = setupSummary(d.checks);
