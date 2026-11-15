@@ -115,7 +115,9 @@ function sharing(g, reload) {
       keys.length
         ? h('div.rows', keys.map((k) => h('div.row.static.gw-row',
           h('span.row-icon', icon('key')),
-          h('span.row-main', h('span.row-title', k.name), h('span.row-sub', k.created ? `Made ${ago(k.created)}` : 'A gateway key')),
+          h('span.row-main', h('span.row-title', k.name), h('span.row-sub', [
+            k.linked ? 'Linked computer · stops working when that computer is no longer allowed here' : 'Made here for a computer that is not linked',
+            k.created ? `made ${ago(k.created)}` : null].filter(Boolean).join(' · '))),
           btn('small secondary gw-act', { label: 'Remove', onclick: async () => {
             if (!(await confirmSheet({ title: `Remove the key of ${k.name}?`, text: `${k.name} can no longer use ${g.title} on this computer.`, ok: 'Remove', danger: true }))) return;
             try {

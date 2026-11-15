@@ -48,11 +48,21 @@ export function verifyToken(token, list = storedTokens()) {
   return found;
 }
 
-/** Revoke by id, or every token with that name. Returns the entries removed. */
+/**
+ * Revoke by id, or every token with that name. Returns the entries removed. The gateway keys a token made (a hub's
+ * "Use here", src/gateway/keys.mjs) end with it, in the same write: every way of revoking comes through here.
+ */
 export function revokeToken(idOrName) {
-  const list = storedTokens();
+  const cfg = loadConfig();
+  const list = storedTokens(cfg);
   const gone = list.filter((t) => t.id === idOrName || t.name === idOrName);
-  if (gone.length) saveConfig({ server: { tokens: list.filter((t) => !gone.includes(t)) } });
+  if (gone.length) {
+    const ids = new Set(gone.map((t) => t.id));
+    const patch = { server: { tokens: list.filter((t) => !gone.includes(t)) } };
+    const g = cfg.gateways;
+    if (g && typeof g === 'object' && Array.isArray(g.keys)) patch.gateways = { ...g, keys: g.keys.filter((k) => !(k && ids.has(k.token))) };
+    saveConfig(patch);
+  }
   return gone.map(publicToken);
 }
 

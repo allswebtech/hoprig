@@ -48,6 +48,8 @@ const TOKEN = Symbol('hoprig.token');
 const TOKEN_FORBIDDEN = [/^\/api\/assistant(?!\/run$)(\/|$)/, /^\/api\/machine\/label$/, /^\/api\/(login|logout|me)(\/|$)/, /^\/api\/settings\/password$/, /^\/api\/pair(\/|$)/, /^\/api\/tokens(\/|$)/, /^\/api\/machines(\/|$)/, /^\/api\/joins(\/|$)/, /^\/api\/links?(\/|$)/, /^\/api\/accounts(\/|$)/];
 // The one token-list change a token may make: revoke itself (a hub that removes this computer gives its right back).
 export const SELF_REVOKE = '/api/tokens/self/revoke';
+/** The id of the machine token a request came with (after the gate let it in), or null: the owner's own login. */
+export const tokenIdOf = (req) => (req && req[TOKEN] ? req[TOKEN].id : null);
 export const tokenMayReach = (p) => p === SELF_REVOKE || (p.startsWith('/api/') && !TOKEN_FORBIDDEN.some((re) => re.test(p)));
 
 function send(res, status, body, headers = {}) {

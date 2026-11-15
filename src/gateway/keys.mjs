@@ -2,12 +2,15 @@
 //
 //   shared   { <gateway id>: { provider } }   sharing is on for that gateway and uses the key of that provider on
 //                                            this computer; a missing entry means off (the safe default)
-//   keys     [{ id, gateway, name, hash, created }]
+//   keys     [{ id, gateway, name, hash, created, token? }]
 //            gateway keys this computer made for other computers. Only a key's SHA-256 is kept, as for the machine
-//            tokens (src/machines/tokens.mjs), so a copy of the config cannot be used to call the gateway.
+//            tokens (src/machines/tokens.mjs), so a copy of the config cannot be used to call the gateway. `token` is
+//            the id (never the value) of the machine token a linked hub made the key with: the key ends with that
+//            token. revokeToken() removes it, and a key whose token is gone is never accepted, whatever removed it.
 import crypto from 'node:crypto';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { tokenName } from '../machines/names.mjs';
+import { storedTokens } from '../machines/tokens.mjs';
 import { validName } from '../profiles.mjs';
 
 export const KEY_PREFIX = 'hop_gw_';
@@ -46,16 +49,22 @@ export function setShared(id, provider) {
 /** The stored entries that look right; anything else in the list is ignored, never trusted. */
 export function storedKeys() {
   const list = Array.isArray(raw().keys) ? raw().keys : [];
-  return list.filter((k) => k && ID_RE.test(k.id) && GATEWAY_ID_RE.test(k.gateway) && /^[0-9a-f]{64}$/.test(k.hash) && typeof k.name === 'string');
+  const live = new Set(storedTokens().map((t) => t.id));
+  return list.filter((k) => k && ID_RE.test(k.id) && GATEWAY_ID_RE.test(k.gateway) && /^[0-9a-f]{64}$/.test(k.hash) && typeof k.name === 'string'
+    && (k.token === undefined || k.token === null || (ID_RE.test(String(k.token)) && live.has(k.token))));
 }
 
-/** A new key for the computer called `name`. Returns { id, key }: the key is shown once and never stored. */
-export function createKey(gateway, name, { now = Date.now() } = {}) {
+/**
+ * A new key for the computer called `name`. Returns { id, key }: the key is shown once and never stored. `token`: the
+ * id of the machine token the request came with (a linked hub), null for the owner's own login.
+ */
+export function createKey(gateway, name, { now = Date.now(), token = null } = {}) {
   if (!GATEWAY_ID_RE.test(gateway)) throw new Error('not a gateway');
+  if (token !== null && !ID_RE.test(String(token))) throw new Error('not a token id');
   const clean = tokenName(name) || 'another computer';
   const key = KEY_PREFIX + crypto.randomBytes(32).toString('base64url');
   const id = crypto.randomBytes(6).toString('hex');
-  save({ keys: [...storedKeys(), { id, gateway, name: clean, hash: sha256(key), created: now }] });
+  save({ keys: [...storedKeys(), { id, gateway, name: clean, hash: sha256(key), created: now, ...(token ? { token } : {}) }] });
   return { id, key };
 }
 
@@ -81,5 +90,5 @@ export function removeKey(id) {
 }
 
 /** What a page may see of a key: never the hash. */
-export const publicKey = (k) => ({ id: k.id, gateway: k.gateway, name: k.name, created: k.created || null });
+export const publicKey = (k) => ({ id: k.id, gateway: k.gateway, name: k.name, created: k.created || null, linked: Boolean(k.token) });
 export const listKeys = (gateway) => storedKeys().filter((k) => k.gateway === gateway).map(publicKey);
