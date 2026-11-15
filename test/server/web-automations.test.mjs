@@ -142,6 +142,13 @@ test('Activity: no setting key reaches the page, and the same entry in a row is 
   const old = activityLine({ automation: 'workspace', did: 'The map gained x', outcome: 'written (not saved in the brain\'s history: the commitMap switch is off)' });
   assert.doesNotMatch(old.sub, /commitMap/);
   const e = (did, time) => ({ automation: 'workspace', did, outcome: 'written', time });
-  const folded = foldActivity([e('The map gained a', '3'), e('The map gained a', '2'), e('The map gained b', '1'), e('The map gained a', '0')]);
-  assert.deepEqual(folded.map((x) => [x.e.did, x.n, x.e.time]), [['The map gained a', 2, '3'], ['The map gained b', 1, '1'], ['The map gained a', 1, '0']], 'only neighbours fold; the newest time is kept');
+  const t = (s) => new Date(Date.UTC(2026, 10, 15, 10, 0, s)).toISOString();
+  const run = ['mobile-app', 'landing-page', 'docs-site'].map((x, i) => e(`The map gained ${x}`, t(30 - i)));
+  const one = foldActivity([...run, { automation: 'queue', did: 'sent x', outcome: 'ok', time: t(0) }]);
+  assert.deepEqual(one.map((x) => [x.e.did, x.n]), [['The map gained docs-site, landing-page and mobile-app', 1], ['sent x', 1]], 'one round is one sentence');
+  assert.equal(one[0].e.time, t(30), 'the newest time');
+  const same = foldActivity([e('stopped x', t(9)), e('stopped x', t(8)), e('stopped x', t(7)), e('stopped y', t(6))]);
+  assert.deepEqual(same.map((x) => [x.e.did, x.n]), [['stopped x', 3], ['stopped y', 1]], 'the same sentence again: one row with a count');
+  const apart = foldActivity([e('The map gained a', t(0)), e('The map gained b', new Date(Date.UTC(2026, 10, 15, 4)).toISOString())]);
+  assert.equal(apart.length, 2, 'two rounds hours apart stay two rows');
 });

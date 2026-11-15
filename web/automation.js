@@ -72,19 +72,34 @@ export function activityLine(e) {
   return { title, sub: [WHO[e.automation] || cap(e.automation), e.session || null, note].filter(Boolean).join(' · '), problem };
 }
 
+const GAINED = /^The map gained (.+)$/;
+const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0]);
+
 /**
- * Entries that say the same thing one after another (the same automation, session, sentence and outcome) as one
- * row: [{ e: the newest, n: how many }]. The log is newest first, so `e` carries the newest time.
+ * Entries one after another as one row: [{ e, n }], `e` the newest (the log is newest first). The same sentence
+ * again is one row with how many times (n). Several "The map gained …" of one round (the same outcome, within a
+ * minute) are one sentence: "The map gained api-server, docs-site and mobile-app".
  */
 export function foldActivity(entries) {
   const out = [];
-  const same = (a, b) => a.automation === b.automation && (a.session || '') === (b.session || '') && a.did === b.did && a.outcome === b.outcome;
+  const kin = (a, b) => a.automation === b.automation && (a.session || '') === (b.session || '') && a.outcome === b.outcome;
   for (const e of entries) {
     const last = out[out.length - 1];
-    if (last && same(last.e, e)) last.n++;
-    else out.push({ e, n: 1 });
+    if (last && kin(last.e, e) && last.e.did === e.did && !last.gained) {
+      last.n++;
+      continue;
+    }
+    const g = GAINED.exec(String(e.did || ''));
+    const near = last && Math.abs(Date.parse(last.at) - Date.parse(e.time)) <= 60_000;
+    if (g && last && last.gained && kin(last.e, e) && near) {
+      if (!last.gained.includes(g[1])) last.gained.push(g[1]);
+      last.e = { ...last.e, did: `The map gained ${and([...last.gained].reverse())}` };
+      last.at = e.time;
+      continue;
+    }
+    out.push({ e, n: 1, ...(g ? { gained: [g[1]], at: e.time } : {}) });
   }
-  return out;
+  return out.map(({ e, n }) => ({ e, n }));
 }
 
 // ---------- the data of the open computer: kept per computer, so a part draws at once when it was seen before ----------
