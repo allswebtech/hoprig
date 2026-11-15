@@ -165,10 +165,10 @@ function notice(sessions) {
       if (pageNotify.browser === 'granted' && !seen) {
         try {
           const where = s.machine ? ` on ${s.machineLabel}` : '';
-          const n = new Notification(`${s.name}${where} ${EVENT_TEXT[k]}`, { body: s.lastMessage || '', tag: `${keyOf(s)}:${k}`, icon: 'icon-192.png' });
+          const n = new Notification(`${s.display || s.name}${where} ${EVENT_TEXT[k]}`, { body: s.lastMessage || '', tag: `${keyOf(s)}:${k}`, icon: 'icon-192.png' });
           n.onclick = () => {
             window.focus();
-            location.hash = link(`#/s/${encodeURIComponent(s.name)}`, s.machine);
+            location.hash = link(s.kind === 'chat' ? `#/chat/${s.chatId}` : `#/s/${encodeURIComponent(s.name)}`, s.machine);
             n.close();
           };
         } catch {

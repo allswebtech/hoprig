@@ -511,14 +511,16 @@ export function openSession(app, name) {
       title: 'Sessions',
       items: [...d.sessions].sort(needsYouFirst).map((x) => ({
         value: x.name,
-        label: x.name,
+        label: x.display || x.name,
         sub: `${stateOf(x).text}${x.profile ? ` · ${x.profile.label}` : ''}`,
-        icon: x.kind === 'claude' ? 'sparkle' : 'terminal',
+        icon: x.kind === 'chat' ? 'text' : x.kind === 'claude' ? 'sparkle' : 'terminal',
         current: x.name === name,
         badge: x.name !== name && stateOf(x).rank <= 2 ? '●' : '',
       })),
     });
-    if (pick && pick !== name) location.hash = link(`#/s/${encodeURIComponent(pick)}`);
+    const chat = pick && d.sessions.find((x) => x.name === pick && x.kind === 'chat');
+    if (chat) location.hash = link(`#/chat/${chat.chatId}`);
+    else if (pick && pick !== name) location.hash = link(`#/s/${encodeURIComponent(pick)}`);
   }
 
   // ---------- terminal look (per device) ----------

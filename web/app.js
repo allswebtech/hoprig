@@ -21,6 +21,7 @@ import './skillhub.js';
 import './brain.js';
 import './workspace.js';
 import './tia.js';
+import './chat.js';
 import './addons.js';
 import './settings.js';
 
