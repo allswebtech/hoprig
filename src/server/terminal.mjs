@@ -1,5 +1,6 @@
 // The browser terminal: one WebSocket = one attach stream from the session backend.
-// Browser → server messages are JSON: {t:"in", d:"keys"} and {t:"resize", cols, rows}.
+// Browser → server messages are JSON: {t:"in", d:"keys"}, {t:"bin", d:"bytes as latin1"} (mouse reports in the oldest
+// encoding, where a byte above 127 is not a character) and {t:"resize", cols, rows}.
 // Server → browser messages are the terminal output as text.
 
 const MAX_IN = 64 * 1024;
@@ -47,6 +48,7 @@ export function attachTerminal(ws, { backend, name, cols, rows }) {
       return;
     }
     if (m && m.t === 'in' && typeof m.d === 'string') stream.write(m.d);
+    else if (m && m.t === 'bin' && typeof m.d === 'string' && !/[^\x00-\xff]/.test(m.d)) stream.write(Buffer.from(m.d, 'latin1'));
     else if (m && m.t === 'resize') {
       const c = clamp(m.cols, 2, 500, 0);
       const r = clamp(m.rows, 2, 300, 0);

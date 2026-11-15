@@ -173,10 +173,14 @@ export function openSession(app, name) {
   };
   darkQuery.addEventListener('change', applyTerm);
 
-  // Your last press on this page (a mouse button, a finger, a key): only right after one may the program copy.
-  let lastGesture = 0;
-  const gesture = () => (lastGesture = Date.now());
-  for (const ev of ['pointerdown', 'pointerup', 'keydown']) wrap.addEventListener(ev, gesture, { capture: true });
+  // Your last presses: only right after one may the program copy. A press in the terminal (a mouse selection) always
+  // counts; a key (Claude Code's /copy) only while the program has the mouse and draws everything itself, so a file a
+  // plain shell prints after Enter cannot replace what you copied.
+  let lastPointer = 0;
+  let lastKey = 0;
+  for (const ev of ['pointerdown', 'pointerup']) box.addEventListener(ev, () => (lastPointer = Date.now()), { capture: true });
+  wrap.addEventListener('keydown', () => (lastKey = Date.now()), { capture: true });
+  const mayCopy = () => Date.now() - lastPointer < 5000 || (appScrolls() && Date.now() - lastKey < 5000);
   // Desktop: Ctrl/Cmd+C copies when text is selected (instead of sending ^C).
   term.attachCustomKeyEventHandler((e) => {
     if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && e.key === 'c' && term.hasSelection()) {
@@ -192,7 +196,7 @@ export function openSession(app, name) {
   // only within a few seconds of your own press in the terminal: output alone cannot replace what you copied.
   term.parser.registerOscHandler(52, (data) => {
     const b64 = data.slice(data.indexOf(';') + 1);
-    if (!data.includes(';') || !b64 || b64 === '?' || b64.length > 4_000_000 || Date.now() - lastGesture > 5000) return true;
+    if (!data.includes(';') || !b64 || b64 === '?' || b64.length > 4_000_000 || !mayCopy()) return true;
     let text = '';
     try {
       text = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
@@ -200,10 +204,13 @@ export function openSession(app, name) {
       return true;
     }
     if (text) {
+      // The copy may take the focus (the plain-http fallback selects a hidden box): it goes back where it was.
+      const before = document.activeElement;
       clipEl.value = text;
       copyText(text, clipEl).then((ok) => {
         clipEl.value = '';
-        if (finePointer) term.focus();
+        if (before && before !== clipEl && before !== document.body && before.isConnected && typeof before.focus === 'function') before.focus({ preventScroll: true });
+        else if (finePointer) term.focus();
         return ok;
       }).then((ok) => (ok
         ? toast('Copied', { ms: 1500 })
@@ -224,6 +231,11 @@ export function openSession(app, name) {
     sendWs({ t: 'in', d });
   }
   term.onData((d) => input(d));
+  // Mouse reports in the oldest encoding are bytes (a column past 95 is above 127): sent as such, not as UTF-8.
+  term.onBinary((d) => {
+    if (scroller.offset > 0) scroller.exit();
+    sendWs({ t: 'bin', d });
+  });
 
   const showOverlay = (...kids) => {
     fill(overlay, kids);
@@ -247,6 +259,7 @@ export function openSession(app, name) {
       if (disposed) return;
       const exists = await api(base).then(() => true, (err) => err.status !== 404);
       if (!exists || e.code === 4000) {
+        forgetHere();
         showOverlay(icon('check', { size: 28 }), h('p', 'This session has ended.'), h('a.btn.primary', { href: way.hash }, way.hash === '#/' ? 'Back to sessions' : `Back to ${way.label}`));
         return;
       }
@@ -274,6 +287,7 @@ export function openSession(app, name) {
     offset: 0,
     pending: 0,
     busy: false,
+    gen: 0, // one more each time the view goes back to live: an answer from before that changes nothing
     queue(lines) {
       if (!lines) return;
       if (lines < 0 && this.offset <= 0 && this.pending <= 0) return; // already live
@@ -284,10 +298,12 @@ export function openSession(app, name) {
       if (this.busy || !this.pending) return;
       this.busy = true;
       const n = this.pending;
+      const g = this.gen;
       this.pending = 0;
       try {
         await api(`${base}/scroll`, { action: n > 0 ? 'up' : 'down', lines: Math.abs(n) });
-        this.offset = Math.max(0, this.offset + n);
+        if (g === this.gen) this.offset = Math.max(0, this.offset + n);
+        else if (n > 0) await api(`${base}/scroll`, { action: 'exit' }).catch(() => {}); // back to live meanwhile: tmux too
       } catch {
         /* the next gesture tries again */
       }
@@ -296,6 +312,7 @@ export function openSession(app, name) {
       if (this.pending) this.flush();
     },
     async exit() {
+      this.gen++;
       this.pending = 0;
       this.offset = 0;
       liveBtn.classList.add('hidden');
@@ -448,6 +465,7 @@ export function openSession(app, name) {
 
   async function sendText(text) {
     await api(`${base}/send`, { text });
+    scroller.gen++;
     scroller.offset = 0;
     liveBtn.classList.add('hidden');
   }

@@ -200,8 +200,8 @@ test('attach: a program that took the mouse with SGR reports gets them again aft
   assert.ok(!(await snapshot()).includes('\x1b[?1006h'), 'turned off again');
   p.emit('\x1b[?1006h\x1bcready');
   assert.ok(!(await snapshot()).includes('\x1b[?1006h'), 'a full reset ends it');
-  p.emit('\x1b[?1006hready');
-  assert.ok(!(await snapshot()).includes('\x1b[?1006h'), 'no mouse mode: nothing to encode');
+  p.emit('\x1b[?1000l\x1b[?1006hready');
+  assert.ok((await snapshot()).includes('\x1b[?1006h'), 'asked for before tracking: kept for when the program turns it on');
 });
 
 test('the headless terminal answers queries only while no browser is attached', async () => {

@@ -126,7 +126,7 @@ export function frame({ title, place = null, intro = null, page = null, back: pa
   endFrame();
   // The way back is the page that sent you here (trail.js); without one, the page's own parent. `place` is what a
   // link back to this page says, when the title alone would not ("Setup" for a computer's Setup part).
-  named(place || (typeof title === 'string' ? title : ''));
+  named(place || (typeof title === 'string' ? title : Array.isArray(title) && typeof title[0] === 'string' ? title[0] : ''));
   const way = page === 'home' && !parent ? null : wayBack(parent); // Home is where every trail starts
   const back = way ? way.hash : parent;
   const backLabel = way ? way.label : parentLabel;

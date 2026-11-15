@@ -360,6 +360,7 @@ function viewChat({ sub }) {
   }
 
   function gone() {
+    forgetHere(); // a chat that is not open any more is never a way back
     fill(wrap, bar, h('div.chat-mid', h('div.empty', icon('text', { size: 32 }),
       h('p', 'This chat is not open any more: it was closed, or opened in a terminal.'),
       h('a.btn.primary', { href: way.hash }, icon(way.label === 'Home' ? 'home' : 'back', { size: 18 }), h('span', way.label === 'Home' ? 'Home' : `Back to ${way.label}`)))));

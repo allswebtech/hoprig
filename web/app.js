@@ -123,6 +123,19 @@ function onHub(hash) {
   return false;
 }
 
+// The address just left, unless the router only sent it on (an old address): a way back must never lead to one.
+function leftFrom(e) {
+  if (!e || !e.oldURL) return null;
+  let old;
+  try {
+    old = new URL(e.oldURL).hash || '#/';
+  } catch {
+    return null;
+  }
+  const p = old.replace(/^#\/m\/[a-z0-9][a-z0-9_-]{0,31}/, '#').slice(1) || '/';
+  return ALIASES[p] || renamed(p) ? null : old;
+}
+
 function route(e) {
   hubWait();
   hubWait = () => {};
@@ -143,7 +156,7 @@ function route(e) {
   const page = p && allPages().find((x) => x.id === p[1]);
   if (page && !mm && CODING_PAGES.includes(page.id) && onHub(hash)) return;
   if (!s && !page && !['/new', '/new/here', '/more'].includes(path) && (mm || path !== '/')) return location.replace('#/');
-  arrive(location.hash || '#/', e && e.oldURL ? new URL(e.oldURL).hash || '#/' : null);
+  arrive(location.hash || '#/', leftFrom(e));
   let stop;
   if (s) {
     document.body.classList.remove('has-nav');

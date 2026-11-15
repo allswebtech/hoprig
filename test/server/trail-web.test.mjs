@@ -125,6 +125,38 @@ test('a chat is a place of its own; a closed one is never a way back; Home start
   assert.deepEqual(wayBack(), { hash: '#/', label: 'Home' }, 'Home: a new trail');
 });
 
+test('the session switcher: back at a session on the way takes off what came after it; never a link to itself', () => {
+  resetTrail();
+  open('#/computer/setup', 'Setup');
+  open('#/s/one', 'one');
+  open('#/chat/c', 'Chat');
+  open('#/s/term', 'term');
+  open('#/s/one', 'one'); // picked in the switcher
+  assert.deepEqual(wayBack(), { hash: '#/computer/setup', label: 'Setup' }, 'not back to itself, not to the chat');
+  open('#/s/two', 'two');
+  open('#/s/one', 'one');
+  assert.deepEqual(wayBack(), { hash: '#/computer/setup', label: 'Setup' });
+});
+
+test('another computer: its page is a place of its own', () => {
+  resetTrail();
+  open('#/m/laptop/computer/setup', 'Setup · laptop');
+  open('#/m/desk/computer', 'desk');
+  assert.deepEqual(wayBack('#/computers'), { hash: '#/m/laptop/computer/setup', label: 'Setup · laptop' });
+  open('#/m/laptop/s/fix', 'fix');
+  open('#/m/desk/s/fix', 'fix');
+  assert.deepEqual(wayBack(), { hash: '#/m/laptop/s/fix', label: 'fix' }, 'a session of the same name on another computer');
+});
+
+test('a session that ended by itself is never a way back', () => {
+  resetTrail();
+  open('#/computer/setup', 'Setup');
+  open('#/s/gone', 'gone');
+  forgetHere(); // the "This session has ended" screen
+  open('#/providers', 'Providers');
+  assert.deepEqual(wayBack(), { hash: '#/computer/setup', label: 'Setup' });
+});
+
 test('at most eight places, and labels are short', () => {
   resetTrail();
   for (let i = 0; i < 12; i++) open(i % 2 ? `#/s/s${i}` : `#/page${i}`, `${'x'.repeat(80)}${i}`);

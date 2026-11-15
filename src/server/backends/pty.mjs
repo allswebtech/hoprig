@@ -360,7 +360,7 @@ export class PtyBackend {
       pending = [];
       this.#settled(t).then(() => {
         if (ended) return;
-        deliver(t.ser.serialize({ scrollback: this.scrollback }) + (t.sgrMouse && t.vt.modes.mouseTrackingMode !== 'none' ? '\x1b[?1006h' : ''));
+        deliver(t.ser.serialize({ scrollback: this.scrollback }) + (t.sgrMouse ? '\x1b[?1006h' : '')); // also before tracking is on
         for (const d of pending) deliver(d);
         pending = [];
         ready = true;
