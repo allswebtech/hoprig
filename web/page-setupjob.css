@@ -1,6 +1,7 @@
 /* Setup jobs in the page (web/setupjob.js) and the GitHub sign-in (web/gitsetup.js): the steps with their marks,
    the output, the one-time code. */
 .sj-card { margin-top: 12px; }
+.sj-card[hidden] { display: none; } /* .panel is a grid: without this the empty card would show */
 .sj-state { margin: 4px 0 8px; }
 .sj-steps:empty { display: none; }
 .sj-step { align-items: flex-start; }
@@ -12,3 +13,6 @@
 .sj-out:empty { display: none; }
 .sj-code { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 14px; margin: 8px 0; border-radius: var(--r); background: var(--surface-2); }
 .sj-code code { font: 700 28px/1.2 var(--mono); letter-spacing: 0.12em; }
+/* The kits list in "Set up this computer": a .rows list clips (overflow: hidden), so in the sheet's flex column it
+   would shrink and its rows run into each other; it keeps its height and the sheet scrolls instead. */
+.sj-kits { flex: none; }

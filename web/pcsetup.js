@@ -6,7 +6,7 @@ import { COMMAND } from './brand.js';
 import { icon } from './icons.js';
 import { api, btn, fill, h, link, machine, openSheet, promptSheet, toast } from './lib.js';
 import { fold } from './shell.js';
-import { gitPanel } from './gitsetup.js';
+import { gitPanel, identitySheet, signinSheet } from './gitsetup.js';
 import { setupJobCard, startSetup } from './setupjob.js';
 
 const MARK = { ok: '✓', fail: '✗', warn: '!', info: '·' };
@@ -44,7 +44,7 @@ async function setupSheet(started) {
     };
     paint();
     return [
-      h('div.rows', d.kits.map((k) =>
+      h('div.rows.sj-kits', d.kits.map((k) =>
         h('label.row.static', { style: { cursor: 'pointer', alignItems: 'flex-start' } },
           h('input', { type: 'checkbox', checked: chosen.has(k.id), style: { width: '20px', height: '20px', marginTop: '2px', accentColor: 'var(--accent)' }, onchange: (e) => { if (e.target.checked) chosen.add(k.id); else chosen.delete(k.id); paint(); } }),
           h('span.row-main',
@@ -110,15 +110,24 @@ export function setupSection() {
   const checked = h('span.hint', { role: 'status' });
   const root = h('section.pcsetup.cp-part', { id: 'setup' });
   const job = setupJobCard({ onEnd: () => load() });
+  const git = gitPanel();
   const started = () => job.start();
 
+  // The commit name and the GitHub sign-in are not installs: their button opens the same sheet as Git and GitHub.
+  const ASKED = { identity: { label: 'Set', icon: 'pencil', open: () => identitySheet({}) }, signin: { label: 'Sign in', icon: 'git', open: () => signinSheet() } };
+  const askedButton = (c) => btn('small secondary', { icon: ASKED[c.id].icon, label: ASKED[c.id].label, onclick: async () => {
+    if (await ASKED[c.id].open()) {
+      load();
+      git.refresh();
+    }
+  } });
   const fixRow = (c) => h('div.row.static.cp-check',
     h(`span.cp-mark.${c.status}`, { 'aria-label': c.status === 'fail' ? 'Missing' : c.status === 'warn' ? 'Old' : 'Optional' }, MARK[c.status] || '·'),
     h('span.row-main.cp-wrap',
       h('span.row-title', c.label, h('span.badge.soft', GROUP_TITLES[c.group] || c.group)),
       h('span.row-sub', c.detail),
       c.fix && !c.fixKit ? h('span.row-sub.mono', c.fix) : null),
-    c.fixKit ? btn('small secondary', { icon: 'download', label: c.status === 'info' ? 'Install' : 'Fix', title: c.fix || `Install ${c.label}`, onclick: async (e) => {
+    c.group === 'kit:github' && ASKED[c.id] ? askedButton(c) : c.fixKit ? btn('small secondary', { icon: 'download', label: c.status === 'info' ? 'Install' : 'Fix', title: c.fix || `Install ${c.label}`, onclick: async (e) => {
       const b = e.currentTarget;
       b.disabled = true;
       if (!(await startSetup('/api/pcsetup/fix', { id: c.id }, { started }))) b.disabled = false;
@@ -176,7 +185,7 @@ export function setupSection() {
     h('section.card.panel.cp-resultcard', head, h('div.cp-recheck', checked, btn('small ghost', { icon: 'refresh', label: 'Check again', onclick: load }))),
     job.el,
     fixBox, optionalBox, fineBox,
-    gitPanel(),
+    git,
     // The workspace's folders, its map and syncing live in Settings → Workspace.
     h('div.rows.ws-link', h('a.row', { href: link('#/settings/workspace') }, h('span.row-icon', icon('folder')),
       h('span.row-main', h('span.row-title', 'Workspace folders and the map'), h('span.row-sub', 'Settings → Workspace: the folder tree, every repository by its address, keeping it in step')),

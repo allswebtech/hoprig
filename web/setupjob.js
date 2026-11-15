@@ -107,6 +107,8 @@ export function setupJobCard({ onEnd = () => {} } = {}) {
   let watched = false; // seen running here: its end checks again
   let timer = null;
   let polls = 0;
+  let inFlight = false; // one request at a time: start() during a poll asks again after it, never a second loop
+  let again = false;
 
   const hide = () => {
     el.hidden = true;
@@ -129,6 +131,23 @@ export function setupJobCard({ onEnd = () => {} } = {}) {
   }
 
   async function poll() {
+    if (inFlight) {
+      again = true;
+      return;
+    }
+    inFlight = true;
+    try {
+      await pollOnce();
+    } finally {
+      inFlight = false;
+      if (again) {
+        again = false;
+        poll();
+      }
+    }
+  }
+
+  async function pollOnce() {
     clearTimeout(timer);
     // Setup was drawn again or left: this card stops (a new one follows the job).
     if (polls++ > 0 && !el.isConnected) return;
@@ -145,7 +164,10 @@ export function setupJobCard({ onEnd = () => {} } = {}) {
       id = j.startedAt;
       from = 0;
       fill(out);
-      if (j.lines.length && j.next !== j.lines.length) return poll();
+      if (j.lines.length && j.next !== j.lines.length) {
+        again = true;
+        return;
+      }
     }
     if (j.lines.length) {
       const end = out.scrollHeight - out.scrollTop - out.clientHeight < 30;

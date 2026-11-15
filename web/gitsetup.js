@@ -190,5 +190,7 @@ export function gitPanel() {
       actionOf(r))));
   }, (e) => fill(body, h('div.row.static', h('span.row-sub', `Could not look: ${e.message}`))));
   load();
-  return panel({ icon: 'git', title: 'Git and GitHub', desc: 'So your projects and the AI brain are kept on a git server and come back on any computer.' }, body);
+  const el = panel({ icon: 'git', title: 'Git and GitHub', desc: 'So your projects and the AI brain are kept on a git server and come back on any computer.' }, body);
+  el.refresh = load; // Setup's own rows change the same things
+  return el;
 }
