@@ -32,7 +32,9 @@ curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh 
   session belongs to its folder, not to a provider. One tap moves it to another provider, or Auto mode does it
   for you.
 - **Code from anywhere, phone included.** A self-hosted dashboard with the real terminal, built for one thumb.
-  It shows which session is working, which is waiting for your next message and which needs you.
+  It shows which session is working, which is waiting for your next message and which needs you. Prefer no
+  terminal? The same Claude Code as a chat, with Allow and Deny buttons. A project opens in VS Code in the
+  browser too.
 - **Several computers in one place.** Home PC, office PC, servers: one page shows every session and starts
   work on any of them. Computers behind a router connect out by themselves. No VPN, no third-party service.
 - **It keeps going without you.** Queue the next messages, schedule work, reopen sessions after a restart.
@@ -75,7 +77,10 @@ hop project clone acme/shop   # an existing one, with all its code repositories 
 hop skills suggest            # skills that fit this project; you read each one before it is added
 ```
 
-In the dashboard: **Computers**, open the computer, **Setup**.
+In the dashboard: **Computers**, open the computer, **Setup**. Everything there runs in the page, no terminal:
+**Set up this computer**, a check's **Fix**, a recipe, the commit name, the GitHub sign-in (with a one-time code)
+and Claude Code's own sign-in. When a step needs the administrator password, the page asks for it once; it goes
+to `sudo` only, is never saved, and is masked in the output.
 
 - **Tools**: git, a build toolchain, Node.js, Python, the GitHub CLI and more, with the commands each tool's
   own documentation gives. Save a computer as a small recipe and make the next one the same.
@@ -199,7 +204,17 @@ Good to know:
 - **New session**: pick a project and Claude starts there on your default provider; the computer, the provider
   and more are under **Options**.
 - **Session**: the real terminal, a key bar, a message box that works with dictation, quick messages, and a
-  file attached straight into the project.
+  file attached straight into the project. Scroll back with the wheel or a finger, also in Claude Code's
+  full-screen view, and select with the mouse to copy. A question waiting for your OK can be answered from
+  the card on Home, including Claude's own "Yes, and don't ask again".
+- **Chat**: the same Claude Code without the terminal (**New session**: Terminal or Chat, or **Open as chat** in
+  a session's menu): messages, each tool call on one line with its diff, Allow and Deny buttons, its to-do list,
+  Stop. A conversation runs in one place at a time, and **Open in terminal** takes it back.
+- **VS Code**: **Open in VS Code** on a project, a repository or a session opens the folder in VS Code in the
+  browser, behind the dashboard's own sign-in (off until you accept VS Code Server's license), or on this
+  computer's own screen.
+- **The way back**: a page another page sent you to links back to it (Setup → the session its Fix opened →
+  back to Setup), not only to its parent.
 - **The menu**: Home, **Workspace** (your projects, each with its sessions under it), **Providers**,
   **Computers**, then under **More**: Automations, Skills, AI brain, Tia and Settings.
 - **A computer's page**: **Overview** (load, memory, disks, Claude Code and its sessions), **Setup** (what it
@@ -227,13 +242,18 @@ still works), otherwise inside the dashboard's own service (the built-in termina
 | One computer, phone on the same Wi-Fi | `hoprig setup`, scan the QR |
 | Two or more computers on one network | On one of them: **Computers → Add a computer**, then pick how it is reached. No server |
 | Computers at home, a server on the internet | `hoprig setup --hub` on the server; `hoprig join https://your-hub <code>` on each computer |
-| Computers at home, no server, you are elsewhere | the public link add-on: a fixed address on your own domain through Cloudflare, or a free temporary one ([how](docs/COMPUTERS.md#a-public-link-through-cloudflare)); or Tailscale |
+| Computers at home, no server, you are elsewhere | the public link add-on: a fixed address on your own domain through Cloudflare (a free account with a domain), or a free temporary one that changes at every start and is sent to your phone when notifications are set up ([how](docs/COMPUTERS.md#a-public-link-through-cloudflare)); or Tailscale |
 | Servers only | one is the hub; add the others by their SSH name |
 
 Two computers behind routers cannot find each other without a third one both can reach. Here that is your
 own hub: every other computer keeps one connection out to it, so nothing has to be opened on a router. A hub
 is small: about 80 MB of memory, measured with 20 computers and 20 open terminals; 512 MB RAM and one core
 are enough. Guides: [docs/COMPUTERS.md](docs/COMPUTERS.md), [docs/HUB.md](docs/HUB.md).
+
+**One gateway for every computer.** **Providers → Gateways on your computers** lists every gateway (such as
+TRouteAI) on every linked computer. **Use here** makes it a provider of this computer in one step. A gateway can
+be shared through its computer's dashboard: the other computer gets a key of its own, the gateway keeps its own
+key and stays on 127.0.0.1, and a key a linked computer made ends when that computer's token is revoked.
 
 <p align="center">
   <img src="docs/screenshots/add-computer-desktop-light.webp" alt="Add a computer: choose how it is reached" width="760">
@@ -331,6 +351,11 @@ The dashboard is a remote control for your computer, and it is built that way:
   cookies, an Origin check on every change, a strict content security policy.
 - Another computer gets a token you can revoke. A token cannot change the password, pair, or relay further.
 - The router listens on 127.0.0.1 under a secret path and keeps no request or answer text.
+- VS Code in the browser listens on a private socket only and is reached through the dashboard's sign-in; a
+  file of a project shown as a page runs in a sandbox. A shared gateway's keys are kept as hashes, and only
+  `/v1/` paths pass.
+- The administrator password for a setup step is asked in the page when `sudo` needs it, given to `sudo` on
+  its input, and never saved or shown.
 - Provider files (sign-ins and keys), tokens and passwords are readable by your user only and are never printed, logged or sent
   to a browser. Found a problem? See [SECURITY.md](SECURITY.md).
 
