@@ -10,6 +10,7 @@
 //   install({ onLine }) → { ok }      update({ onLine }) → { ok }
 //   start()             → { ok, url, already }     stop() → { ok }
 //   profile             → what `addons setup` writes: { name, label, env, prerun, tokenVar, tokenHint }
+//   gateway (optional)  { port() }: an AI gateway with Claude's API on 127.0.0.1:<port> (src/gateway)
 import { publicLink } from './publiclink.mjs';
 import { trouteai } from './trouteai.mjs';
 

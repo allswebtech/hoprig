@@ -456,6 +456,8 @@ export function accountsFeature(ctx, opts = {}) {
   }
 
   async function list() {
+    // Providers that use another computer's gateway: whether that computer answers (src/gateway).
+    const remote = opts.remote ? await opts.remote().catch(() => new Map()) : new Map();
     const st = await ctx.state();
     const order = auto.getAutoSwitch().order || [];
     return listProfiles().map((p) => {
@@ -470,6 +472,7 @@ export function accountsFeature(ctx, opts = {}) {
       return {
         name: p.name, label: p.label, kind: p.kind, host, model: p.kind === 'api' ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
         viaTrouteai: Boolean(p.prerun && /addons start trouteai/.test(p.prerun)),
+        remote: remote.has(p.name) ? (({ computer, title, state, text }) => ({ computer, title: title || null, state, text }))(remote.get(p.name)) : null,
         limited: s.limited || null, usage: s.usage || null, inUse: s.inUse || 0, inAuto: order.includes(p.name),
         // providers that sign in: is the sign-in there, its plan, and whether that plan reports usage at all
         ...('signedIn' in s ? { signedIn: s.signedIn, plan: s.plan ?? null, usageReported: s.usageReported ?? null } : {}),
@@ -571,6 +574,7 @@ export function accountsFeature(ctx, opts = {}) {
     ['POST', /^\/api\/accounts\/([^/]+)\/delete$/, async (req, m) => {
       const prof = accountOr404(m);
       await ctx.readJson(req);
+      if (opts.removing) await opts.removing(prof); // another computer's gateway: its key there is given up
       deleteProfile(prof.name);
       try {
         const a = auto.getAutoSwitch();

@@ -563,6 +563,10 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); border-ra
 .acct .row-sub.state { color: var(--text-2); }
 .acct.ps-limit .row-sub.state { color: var(--danger); }
 .acct.ps-signin .row-sub.state { color: var(--warn); font-weight: 600; }
+.acct.gw-off .row-sub.state { color: var(--warn); }
+.gw-row .gw-act { flex: none; align-self: center; }
+.gw-row .row-title, .gw-row .row-sub { white-space: normal; overflow-wrap: anywhere; }
+.gw-row .row-title .mpill { margin-left: 6px; vertical-align: 1px; }
 .acct { cursor: pointer; }
 .acct-signin { flex: none; align-self: center; }
 .mini-switch { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; font-size: var(--fs-xs); color: var(--muted); cursor: pointer; flex: none; }
