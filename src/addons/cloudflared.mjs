@@ -5,6 +5,7 @@
 // link is already on, that value is taken from the other's record (the current one is the other link's change), and
 // a link that ends while the other one is still on leaves trustProxy on. So the last one to end puts back exactly
 // what the owner had.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from '../config.mjs';
@@ -18,6 +19,23 @@ export const quickStateFile = () => path.join(addonsDir(), 'public-link.json');
 export const fixedDir = () => path.join(addonsDir(), 'fixed-link');
 export const fixedStateFile = () => path.join(fixedDir(), 'fixed.json');
 const DEFAULT_PORT = 7433;
+
+/**
+ * Write a state file whole or not at all: a new temporary file (mode 0600) in the same folder, then a rename over the
+ * old one. A crash, or a read at the same moment, never sees half a file: readFixed() would take that for "not set
+ * up", and the next start of the dashboard would leave the fixed address off.
+ */
+export function writeAtomic(file, data, mode = 0o600) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(tmp, data, { mode, flag: 'wx' });
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    fs.rmSync(tmp, { force: true });
+    throw e;
+  }
+}
 
 /** cloudflared on PATH, else the one this add-on downloaded. */
 export function findBin(env = process.env, platform = process.platform) {

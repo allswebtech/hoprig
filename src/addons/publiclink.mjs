@@ -36,9 +36,9 @@ import { loadConfig, saveConfig } from '../config.mjs';
 import { sendNotification } from '../server/notify.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 import { capture, showCommand, stream, which } from '../setup/system.mjs';
-import { addonsDir, alive, binDir, dashboardPort, findBin, fixedRestore, hasPassword, patchFor, quickStateFile, restoreFor } from './cloudflared.mjs';
+import { addonsDir, alive, binDir, dashboardPort, findBin, fixedRestore, hasPassword, patchFor, quickStateFile, restoreFor, writeAtomic } from './cloudflared.mjs';
 import { attach, detach, fixedActions, fixedStatus } from './fixedlink.mjs';
-import { checkPort, serviceLogin } from './localservice.mjs';
+import { checkPort, exposureQuestion, serviceLogin } from './localservice.mjs';
 
 export { findBin, patchFor, restoreFor };
 
@@ -112,7 +112,7 @@ const port = dashboardPort;
 function undoConfig(st) {
   if (!st || !st.restore || st.restored) return;
   saveConfig(restoreFor(loadConfig().server, st.restore, { keepTrust: !!fixedRestore() }));
-  fs.writeFileSync(stateFile(), JSON.stringify({ ...st, restored: true }), { mode: 0o600 });
+  writeAtomic(stateFile(), JSON.stringify({ ...st, restored: true }));
 }
 
 /** The push for a new temporary address: the address itself, so tapping it opens the page there. */
@@ -248,7 +248,7 @@ async function start({ waitMs = 60_000, notify = notifyNewAddress } = {}) {
   // The fixed address may be on: then the owner's own trustProxy is in its record, not in the config.
   const { patch, restore } = patchFor(loadConfig().server, t.url, { inherit: fixedRestore() });
   saveConfig(patch);
-  fs.writeFileSync(stateFile(), JSON.stringify({ pid: t.pid, url: t.url, restore, restored: false, started: Date.now() }), { mode: 0o600 });
+  writeAtomic(stateFile(), JSON.stringify({ pid: t.pid, url: t.url, restore, restored: false, started: Date.now() }));
   await notify(t.url, 'this dashboard');
   return { ok: true, url: t.url, already: false };
 }
@@ -266,10 +266,11 @@ async function startService({ port: p, confirmed } = {}, { waitMs = 60_000, noti
   if (!bin) return { ok: false, error: 'cloudflared is not installed: press Install first.' };
   const look = await serviceLogin(want.port, { fetchImpl });
   if (!look.answers) return { ok: false, error: `Nothing answers on port ${want.port} on this computer. Start that service first.` };
-  if (!look.login && confirmed !== true) return { ok: false, confirm: `Port ${want.port} shows no sign-in page of its own: anyone who has its address can use it.` };
+  const question = exposureQuestion(want.port, look);
+  if (question && confirmed !== true) return { ok: false, confirm: question };
   const t = await quickTunnel(bin, want.port, serviceLog(), waitMs);
   if (!t.ok) return t;
-  fs.writeFileSync(serviceFile(), JSON.stringify({ pid: t.pid, url: t.url, port: want.port }), { mode: 0o600 });
+  writeAtomic(serviceFile(), JSON.stringify({ pid: t.pid, url: t.url, port: want.port }));
   await notify(t.url, `port ${want.port}`);
   return { ok: true, url: t.url };
 }
