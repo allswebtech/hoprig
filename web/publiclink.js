@@ -60,7 +60,7 @@ async function phoneSheet(url) {
 
 function fixedNone(f, t) {
   return [
-    h('p.hint', 'An address on your own domain that stays the same, such as pc2.example.com. It needs a free Cloudflare account with a domain on it.'),
+    h('p.hint', 'An address on your own domain that stays the same, such as office.example.com. It needs a free Cloudflare account with a domain on it.'),
     f.loginError ? h('p.mrow-error', f.loginError) : null,
     h('div.mrow-actions', btn('small primary', { icon: 'play', label: 'Set it up', disabled: t.busy, onclick: () => t.run('fixed-sign-in', {}) })),
     fold('addon-fixed-token', 'Advanced',
@@ -69,7 +69,7 @@ function fixedNone(f, t) {
         h('span.hint', `For a tunnel made in the Cloudflare dashboard (Networks → Tunnels). There, give it a public hostname that leads to http://127.0.0.1:${f.port}; then paste its install command or its token here.`),
         h('div.addon-form',
           input('token', { type: 'password', placeholder: 'cloudflared service install eyJ…', 'aria-label': 'Tunnel token' }),
-          input('tokenHost', { placeholder: 'pc2.example.com', 'aria-label': 'Its address' }),
+          input('tokenHost', { placeholder: 'office.example.com', 'aria-label': 'Its address' }),
           btn('small secondary', { label: 'Use it', disabled: t.busy, onclick: async () => {
             const r = await t.run('fixed-token', { token: draft.token, hostname: draft.tokenHost });
             if (r && r.ok) draft.token = draft.tokenHost = '';

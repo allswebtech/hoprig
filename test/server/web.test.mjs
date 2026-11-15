@@ -394,10 +394,10 @@ test('add-ons: the public link\'s fixed address in plain words; what "Stop using
   assert.equal(needsPoll({ installed: true, fixed: { state: 'ready', enabled: true, connected: false } }), true);
   assert.equal(needsPoll({ installed: true, fixed: { state: 'ready', enabled: true, connected: true } }), false);
   assert.equal(needsPoll({ id: 'trouteai', installed: true }), false);
-  const named = forgetText({ mode: 'named', url: 'https://pc2.example.com', hostname: 'pc2.example.com', extra: [{ hostname: 'trouteai-pc2.example.com' }] });
+  const named = forgetText({ mode: 'named', url: 'https://office.example.com', hostname: 'office.example.com', extra: [{ hostname: 'trouteai-office.example.com' }] });
   assert.match(named, /deletes its tunnel in your Cloudflare account/);
-  assert.match(named, /DNS records for pc2\.example\.com, trouteai-pc2\.example\.com stay in Cloudflare/);
-  assert.match(forgetText({ mode: 'token', url: 'https://pc2.example.com' }), /stay in your Cloudflare dashboard/);
+  assert.match(named, /DNS records for office\.example\.com, trouteai-office\.example\.com stay in Cloudflare/);
+  assert.match(forgetText({ mode: 'token', url: 'https://office.example.com' }), /stay in your Cloudflare dashboard/);
   assert.match(forgetText({ mode: null }), /Nothing was made in your Cloudflare account/);
   const { addonView } = await import('../../web/addons.js');
   assert.equal(addonView({ id: 'public-link', account: false, fixed: { state: 'none' } }).parts, true);

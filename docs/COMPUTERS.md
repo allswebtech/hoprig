@@ -110,7 +110,7 @@ through it. **Install** fetches `cloudflared` into Hoprig's own folder. Anyone w
 sign-in page, so a dashboard password is required (use a long random one: `hoprig passwd --generate FILE`), and
 your traffic passes through Cloudflare. There are two kinds:
 
-**A fixed address** stays the same, such as `https://pc2.example.com`. It needs a free Cloudflare account with a
+**A fixed address** stays the same, such as `https://office.example.com`. It needs a free Cloudflare account with a
 domain on it (a domain you own, added to Cloudflare). To set it up:
 
 1. Press **Set it up**, then **Open Cloudflare**. Sign in, pick the domain for this address and press **Authorize**.
@@ -126,7 +126,7 @@ state folder, readable only by you; your own `~/.cloudflared` is never read or c
 Under **Advanced**:
 
 - **Another service on this computer**: one more local service under a name of its own, such as TRouteAI's own
-  dashboard on port 20017 at `trouteai-pc2.example.com`. Hoprig looks whether the service has a sign-in page of
+  dashboard on port 20017 at `trouteai-office.example.com`. Hoprig looks whether the service has a sign-in page of
   its own and asks first when it has none, because then anyone with the address can use it.
 - **Use a tunnel token instead**: for a tunnel made in the Cloudflare dashboard (Networks → Tunnels). Give it a
   public hostname there that leads to `http://127.0.0.1:7433` (the dashboard's port), then paste its install

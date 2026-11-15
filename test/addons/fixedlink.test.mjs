@@ -13,7 +13,7 @@ import { test } from 'node:test';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-fixedlink-'));
 process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
-process.env.HOPRIG_HOSTNAME = 'Dev-PC2.home.example';
+process.env.HOPRIG_HOSTNAME = 'Dev-Office.home.example';
 
 // Things a test does to the stand-in: approve the sign-in, make the next run crash, say a tunnel name is taken.
 const mark = (name) => path.join(tmp, name);
@@ -103,26 +103,26 @@ test.after(async () => {
 });
 
 test('names: what the owner types becomes a clean address; the suggestion comes from the computer\'s name', () => {
-  assert.equal(F.cleanHostname(' https://PC2.Example.com/ '), 'pc2.example.com');
-  assert.equal(F.cleanHostname('trouteai-pc2.example.com.'), 'trouteai-pc2.example.com');
-  for (const bad of ['', 'pc2', 'pc2 .example.com', '-a.example.com', 'a_b.example.com', '1.2.3.4', 'a.example.com;rm', `${'a'.repeat(64)}.example.com`]) {
+  assert.equal(F.cleanHostname(' https://Office.Example.com/ '), 'office.example.com');
+  assert.equal(F.cleanHostname('trouteai-office.example.com.'), 'trouteai-office.example.com');
+  for (const bad of ['', 'office', 'office .example.com', '-a.example.com', 'a_b.example.com', '1.2.3.4', 'a.example.com;rm', `${'a'.repeat(64)}.example.com`]) {
     assert.throws(() => F.cleanHostname(bad), Error, bad);
   }
   assert.throws(() => F.cleanHostname('x.trycloudflare.com'), /your own domain/);
-  assert.equal(F.suggestName('Dev-PC2.home.example'), 'dev-pc2');
+  assert.equal(F.suggestName('Dev-Office.home.example'), 'dev-office');
   assert.equal(F.suggestName('my_mac (2)'), 'my-mac-2');
   assert.equal(F.suggestName('...'), 'my-computer');
-  assert.equal(F.tunnelName('pc2.example.com'), 'hoprig-pc2-example-com');
+  assert.equal(F.tunnelName('office.example.com'), 'hoprig-office-example-com');
 });
 
 test('cloudflared\'s output: the sign-in link, the tunnel made, the DNS record, a name already taken', () => {
   const login = 'Please open the following URL and log in with your Cloudflare account:\n\nhttps://dash.cloudflare.com/argotunnel?aud=&callback=https%3A%2F%2Flogin.cloudflareaccess.org%2Fabc\n\nLeave cloudflared running to download the cert automatically.';
   assert.equal(F.parseLoginUrl(login), 'https://dash.cloudflare.com/argotunnel?aud=&callback=https%3A%2F%2Flogin.cloudflareaccess.org%2Fabc');
   assert.equal(F.parseLoginUrl('see https://evil.example.com/dash.cloudflare.com'), null, 'only a cloudflare.com address');
-  assert.deepEqual(F.parseCreated(`Tunnel credentials written to /x.json.\n\nCreated tunnel hoprig-pc2 with id ${ID.toUpperCase()}`), { name: 'hoprig-pc2', id: ID });
+  assert.deepEqual(F.parseCreated(`Tunnel credentials written to /x.json.\n\nCreated tunnel hoprig-office with id ${ID.toUpperCase()}`), { name: 'hoprig-office', id: ID });
   assert.equal(F.parseCreated('failed to create tunnel'), null);
-  assert.deepEqual(F.parseRoute(`2026-11-15T17:43:10Z INF Added CNAME pc2.example.com which will route to this tunnel tunnelID=${ID}`), { added: 'pc2.example.com' });
-  assert.deepEqual(F.parseRoute('INF pc2.example.com is already configured to route to your tunnel tunnelID=x'), { already: 'pc2.example.com' });
+  assert.deepEqual(F.parseRoute(`2026-11-15T17:43:10Z INF Added CNAME office.example.com which will route to this tunnel tunnelID=${ID}`), { added: 'office.example.com' });
+  assert.deepEqual(F.parseRoute('INF office.example.com is already configured to route to your tunnel tunnelID=x'), { already: 'office.example.com' });
   assert.deepEqual(F.parseRoute('ERR Failed to add route: code: 1003, reason: An A, AAAA, or CNAME record with that host already exists.'), { taken: true });
   assert.equal(F.parseRoute('something else'), null);
 });
@@ -137,8 +137,8 @@ test('a tunnel token: alone or inside the install command the Cloudflare dashboa
 test('the command lines: arrays, our own files, never ~/.cloudflared or the computer\'s config', () => {
   const f = { cert: '/s/fixed-link/home/.cloudflared/cert.pem', base: '/s/fixed-link/base.yml' };
   assert.deepEqual(F.loginArgv('/b/cf', f), ['/b/cf', 'tunnel', '--config', f.base, 'login']);
-  assert.deepEqual(F.createArgv('/b/cf', f, '/s/t.json', 'hoprig-pc2'), ['/b/cf', 'tunnel', '--config', f.base, '--origincert', f.cert, 'create', '--cred-file', '/s/t.json', 'hoprig-pc2']);
-  assert.deepEqual(F.routeArgv('/b/cf', f, ID, 'pc2.example.com'), ['/b/cf', 'tunnel', '--config', f.base, '--origincert', f.cert, 'route', 'dns', ID, 'pc2.example.com']);
+  assert.deepEqual(F.createArgv('/b/cf', f, '/s/t.json', 'hoprig-office'), ['/b/cf', 'tunnel', '--config', f.base, '--origincert', f.cert, 'create', '--cred-file', '/s/t.json', 'hoprig-office']);
+  assert.deepEqual(F.routeArgv('/b/cf', f, ID, 'office.example.com'), ['/b/cf', 'tunnel', '--config', f.base, '--origincert', f.cert, 'route', 'dns', ID, 'office.example.com']);
   assert.deepEqual(F.deleteArgv('/b/cf', f, ID), ['/b/cf', 'tunnel', '--config', f.base, '--origincert', f.cert, 'delete', '-f', ID]);
   assert.deepEqual(F.runArgv('/b/cf', '/s/config.yml', ID), ['/b/cf', 'tunnel', '--no-autoupdate', '--config', '/s/config.yml', 'run', ID]);
   assert.deepEqual(F.runTokenArgv('/b/cf', '/s/config.yml', '/s/token'), ['/b/cf', 'tunnel', '--no-autoupdate', '--config', '/s/config.yml', 'run', '--token-file', '/s/token']);
@@ -148,10 +148,10 @@ test('the command lines: arrays, our own files, never ~/.cloudflared or the comp
 });
 
 test('the config file: the dashboard first, each other service, then nothing', () => {
-  const y = F.configYaml({ tunnelId: ID, creds: '/s/tunnel.json', hostname: 'pc2.example.com', port: 7433, extra: [{ hostname: 'trouteai-pc2.example.com', port: 20017 }] });
+  const y = F.configYaml({ tunnelId: ID, creds: '/s/tunnel.json', hostname: 'office.example.com', port: 7433, extra: [{ hostname: 'trouteai-office.example.com', port: 20017 }] });
   assert.equal(y, `# Written by Hoprig for the fixed address; it is written again at each start.\ntunnel: "${ID}"\ncredentials-file: "/s/tunnel.json"\ningress:\n`
-    + '  - hostname: "pc2.example.com"\n    service: "http://127.0.0.1:7433"\n'
-    + '  - hostname: "trouteai-pc2.example.com"\n    service: "http://127.0.0.1:20017"\n'
+    + '  - hostname: "office.example.com"\n    service: "http://127.0.0.1:7433"\n'
+    + '  - hostname: "trouteai-office.example.com"\n    service: "http://127.0.0.1:20017"\n'
     + '  - service: "http_status:404"\n');
 });
 
@@ -209,11 +209,11 @@ test('both links at once: the last one to end puts back exactly what the owner h
   const owner = { allowedOrigins: ['https://deck.example.net'] }; // no trustProxy of his own
   const q = C.patchFor(owner, 'https://a-b.trycloudflare.com');
   const s1 = { ...owner, ...q.patch.server };
-  const f = C.patchFor(s1, 'https://pc2.example.com', { inherit: q.restore });
+  const f = C.patchFor(s1, 'https://office.example.com', { inherit: q.restore });
   const s2 = { ...s1, ...f.patch.server };
-  assert.deepEqual(s2, { trustProxy: true, allowedOrigins: ['https://deck.example.net', 'https://a-b.trycloudflare.com', 'https://pc2.example.com'] });
+  assert.deepEqual(s2, { trustProxy: true, allowedOrigins: ['https://deck.example.net', 'https://a-b.trycloudflare.com', 'https://office.example.com'] });
   const s3 = { ...s2, ...C.restoreFor(s2, q.restore, { keepTrust: true }).server }; // the temporary one ends first
-  assert.deepEqual(s3, { trustProxy: true, allowedOrigins: ['https://deck.example.net', 'https://pc2.example.com'] });
+  assert.deepEqual(s3, { trustProxy: true, allowedOrigins: ['https://deck.example.net', 'https://office.example.com'] });
   const s4 = JSON.parse(JSON.stringify({ ...s3, ...C.restoreFor(s3, f.restore).server }));
   assert.deepEqual(s4, owner);
 });
@@ -258,7 +258,7 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   assert.equal(s1.ok, true, s1.error);
   assert.match(s1.url, /^https:\/\/dash\.cloudflare\.com\/argotunnel\?/);
   let st = F.fixedStatus();
-  assert.deepEqual([st.state, st.loginUrl, st.suggested], ['signing-in', s1.url, 'dev-pc2']);
+  assert.deepEqual([st.state, st.loginUrl, st.suggested], ['signing-in', s1.url, 'dev-office']);
   assert.equal((await act('fixed-sign-in')).url, s1.url, 'a second press shows the same link');
   fs.writeFileSync(mark('approve'), '');
   assert.ok(await until(() => F.fixedStatus().state === 'signed-in'), 'the certificate arrived');
@@ -269,27 +269,27 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   assert.ok(!login.keys.some((k) => /^(TUNNEL_|ANTHROPIC_)/.test(k)), login.keys.join(' '));
 
   // 2. Make it: without a password, no.
-  assert.match((await act('fixed-create', { hostname: 'pc2.example.com' })).error, /password/);
+  assert.match((await act('fixed-create', { hostname: 'office.example.com' })).error, /password/);
   saveConfig({ server: { passwordHash: 'scrypt$x' } });
   const beforeOn = raw().server;
-  assert.match((await act('fixed-create', { hostname: 'pc2' })).error, /not an address/);
-  const made = await act('fixed-create', { hostname: 'PC2.example.com' });
+  assert.match((await act('fixed-create', { hostname: 'office' })).error, /not an address/);
+  const made = await act('fixed-create', { hostname: 'Office.example.com' });
   assert.equal(made.ok, true, made.error);
-  assert.equal(made.url, 'https://pc2.example.com');
-  assert.ok(made.lines.some((l) => /Created tunnel hoprig-pc2-example-com with id/.test(l)), made.lines.join('\n'));
+  assert.equal(made.url, 'https://office.example.com');
+  assert.ok(made.lines.some((l) => /Created tunnel hoprig-office-example-com with id/.test(l)), made.lines.join('\n'));
   for (const f of ['tunnel.json', 'config.yml', 'fixed.json', 'base.yml']) assert.equal(mode(path.join(fixedDir, f)), '600', f);
   assert.equal(mode(fixedDir), '700');
   const create = calls().find((c) => c.a.includes('create'));
-  assert.deepEqual(create.a.slice(-3), ['--cred-file', path.join(fixedDir, 'tunnel.json'), 'hoprig-pc2-example-com']);
-  assert.deepEqual(calls().find((c) => c.a.includes('route')).a.slice(-3), ['dns', ID, 'pc2.example.com']);
+  assert.deepEqual(create.a.slice(-3), ['--cred-file', path.join(fixedDir, 'tunnel.json'), 'hoprig-office-example-com']);
+  assert.deepEqual(calls().find((c) => c.a.includes('route')).a.slice(-3), ['dns', ID, 'office.example.com']);
 
   // 3. It runs, connects, and the settings are as for the quick tunnel.
   assert.ok(await until(() => F.fixedStatus().connected), 'connected');
   st = F.fixedStatus();
-  assert.deepEqual([st.state, st.mode, st.url, st.enabled, st.running, st.error], ['ready', 'named', 'https://pc2.example.com', true, true, null]);
+  assert.deepEqual([st.state, st.mode, st.url, st.enabled, st.running, st.error], ['ready', 'named', 'https://office.example.com', true, true, null]);
   assert.equal(loadConfig().server.trustProxy, true);
-  assert.deepEqual(loadConfig().server.allowedOrigins, ['https://deck.example.net', 'https://pc2.example.com']);
-  assert.match(fs.readFileSync(mark('last-config.yml'), 'utf8'), /hostname: "pc2\.example\.com"\n {4}service: "http:\/\/127\.0\.0\.1:7433"/);
+  assert.deepEqual(loadConfig().server.allowedOrigins, ['https://deck.example.net', 'https://office.example.com']);
+  assert.match(fs.readFileSync(mark('last-config.yml'), 'utf8'), /hostname: "office\.example\.com"\n {4}service: "http:\/\/127\.0\.0\.1:7433"/);
   assert.ok(!JSON.stringify(await publicLink.status()).includes('c2VjcmV0'), 'no secret in the status');
 
   // 4. cloudflared dies: it is started again by itself.
@@ -307,18 +307,18 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   try {
     const p1 = withLogin.address().port;
     assert.match((await act('fixed-add-service', { port: 7433, hostname: 'x.example.com' })).error, /dashboard itself/);
-    assert.match((await act('fixed-add-service', { port: p1, hostname: 'pc2.example.com' })).error, /in use already/);
-    const added = await act('fixed-add-service', { port: p1, hostname: 'trouteai-pc2.example.com' });
+    assert.match((await act('fixed-add-service', { port: p1, hostname: 'office.example.com' })).error, /in use already/);
+    const added = await act('fixed-add-service', { port: p1, hostname: 'trouteai-office.example.com' });
     assert.equal(added.ok, true, added.error);
-    assert.deepEqual(F.fixedStatus().extra, [{ hostname: 'trouteai-pc2.example.com', port: p1, url: 'https://trouteai-pc2.example.com' }]);
-    assert.ok(await until(() => F.fixedStatus().connected && /trouteai-pc2/.test(fs.readFileSync(mark('last-config.yml'), 'utf8'))), 'runs again with the new rule');
+    assert.deepEqual(F.fixedStatus().extra, [{ hostname: 'trouteai-office.example.com', port: p1, url: 'https://trouteai-office.example.com' }]);
+    assert.ok(await until(() => F.fixedStatus().connected && /trouteai-office/.test(fs.readFileSync(mark('last-config.yml'), 'utf8'))), 'runs again with the new rule');
     const p2 = open.address().port;
-    const ask = await act('fixed-add-service', { port: p2, hostname: 'files-pc2.example.com' });
+    const ask = await act('fixed-add-service', { port: p2, hostname: 'files-office.example.com' });
     assert.deepEqual([ask.ok, /no sign-in page of its own/.test(ask.confirm)], [false, true]);
     assert.equal(F.fixedStatus().extra.length, 1, 'nothing made before the confirm');
-    assert.equal((await act('fixed-add-service', { port: p2, hostname: 'files-pc2.example.com', confirmed: true })).ok, true);
+    assert.equal((await act('fixed-add-service', { port: p2, hostname: 'files-office.example.com', confirmed: true })).ok, true);
     assert.match((await act('fixed-add-service', { port: p2, hostname: 'taken.example.com', confirmed: true })).error, /already a DNS record/);
-    const gone = await act('fixed-remove-service', { hostname: 'files-pc2.example.com' });
+    const gone = await act('fixed-remove-service', { hostname: 'files-office.example.com' });
     assert.match(gone.lines.join(' '), /DNS record stays in Cloudflare/);
     assert.equal(F.fixedStatus().extra.length, 1);
   } finally {
@@ -329,7 +329,7 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   // 6. Off: it stops and the settings go back; on again: the same address.
   assert.equal((await act('fixed-off')).ok, true);
   st = F.fixedStatus();
-  assert.deepEqual([st.enabled, st.running, st.url], [false, false, 'https://pc2.example.com']);
+  assert.deepEqual([st.enabled, st.running, st.url], [false, false, 'https://office.example.com']);
   assert.deepEqual(raw().server, beforeOn);
   assert.equal((await act('fixed-on')).ok, true);
   assert.ok(await until(() => F.fixedStatus().connected));
@@ -345,8 +345,8 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   assert.equal(forget.ok, true);
   assert.deepEqual(calls().filter((c) => c.a.includes('delete')).at(-1).a.slice(-3), ['delete', '-f', ID]);
   const said = forget.lines.join('\n');
-  assert.match(said, /Deleted the tunnel "hoprig-pc2-example-com" in your Cloudflare account/);
-  assert.match(said, /DNS records for pc2\.example\.com, trouteai-pc2\.example\.com stay in Cloudflare/);
+  assert.match(said, /Deleted the tunnel "hoprig-office-example-com" in your Cloudflare account/);
+  assert.match(said, /DNS records for office\.example\.com, trouteai-office\.example\.com stay in Cloudflare/);
   assert.equal(fs.existsSync(fixedDir), false);
   assert.equal(F.fixedStatus().state, 'none');
   assert.deepEqual(raw().server, beforeOn, 'settings exactly as before');
@@ -357,9 +357,9 @@ test('a name outside the domain picked at sign-in: nothing is left half-made', a
   fs.mkdirSync(path.dirname(F.certFile()), { recursive: true });
   fs.writeFileSync(F.certFile(), 'stand-in', { mode: 0o600 });
   const n = calls().length;
-  const r = await act('fixed-create', { hostname: 'pc2.other.net' });
+  const r = await act('fixed-create', { hostname: 'office.other.net' });
   assert.equal(r.ok, false);
-  assert.match(r.error, /made the record pc2\.other\.net\.example\.com instead/);
+  assert.match(r.error, /made the record office\.other\.net\.example\.com instead/);
   assert.ok(calls().slice(n).some((c) => c.a.includes('delete')), 'the tunnel made a moment ago is deleted again');
   assert.equal(F.fixedStatus().state, 'signed-in');
   assert.equal(fs.existsSync(path.join(fixedDir, 'tunnel.json')), false);
@@ -396,8 +396,8 @@ test('when cloudflared keeps failing, the page says why and when it tries again'
 
 test('Advanced: a tunnel token from the Cloudflare dashboard; it is kept in a file and never shown', async () => {
   const token = Buffer.from(JSON.stringify({ a: 'acc', t: ID, s: 'c2VjcmV0LXNlY3JldA==' })).toString('base64');
-  assert.match((await act('fixed-token', { token: 'nope', hostname: 'pc2.example.com' })).error, /not a tunnel token/);
-  const r = await act('fixed-token', { token: `cloudflared service install ${token}`, hostname: 'pc2.example.com' });
+  assert.match((await act('fixed-token', { token: 'nope', hostname: 'office.example.com' })).error, /not a tunnel token/);
+  const r = await act('fixed-token', { token: `cloudflared service install ${token}`, hostname: 'office.example.com' });
   assert.equal(r.ok, true, r.error);
   assert.equal(fs.readFileSync(path.join(fixedDir, 'token'), 'utf8'), token);
   assert.equal(mode(path.join(fixedDir, 'token')), '600');
