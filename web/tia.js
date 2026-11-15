@@ -16,7 +16,7 @@ const A = '~/api/assistant';
 
 // What she did, in plain words (the chips under her answer and the Activity list).
 const TOOL_WORDS = {
-  list_sessions: 'looked at the sessions', read_session: 'read a session', list_folders: 'looked at the folders', list_conversations: 'looked at earlier conversations',
+  list_sessions: 'looked at the sessions', read_session: 'read a session', list_projects: 'looked at the projects', list_conversations: 'looked at earlier conversations',
   get_accounts: 'looked at the providers', get_computer_status: 'looked at the computers', get_settings: 'read the settings', find_skill: 'looked up how to do it',
   start_session: 'start a session', send_to_session: 'type into a session', press_key: 'press a key in a session', rename_session: 'rename a session',
   watch_session: 'watch a session', finish_job: 'finish the job', notify_owner: 'notify you', open_screen: 'open a screen',
@@ -26,7 +26,7 @@ const TOOL_WORDS = {
 };
 // What she is doing right now (the line while she works).
 const DOING = {
-  list_sessions: 'looking at the sessions', read_session: 'reading a session', list_folders: 'looking at your folders', list_conversations: 'looking at earlier conversations',
+  list_sessions: 'looking at the sessions', read_session: 'reading a session', list_projects: 'looking at your projects', list_conversations: 'looking at earlier conversations',
   get_accounts: 'checking the providers', get_computer_status: 'checking the computers', get_settings: 'reading the settings', find_skill: 'looking up how to do it',
   start_session: 'starting a session', send_to_session: 'typing into a session', press_key: 'pressing a key in a session', rename_session: 'renaming a session',
   watch_session: 'watching a session', finish_job: 'finishing the job', notify_owner: 'writing to you', open_screen: 'opening a screen',
