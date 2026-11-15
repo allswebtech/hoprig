@@ -101,7 +101,7 @@ test('vscode: the login is needed; VS Code listens only on a private socket and 
   assert.deepEqual(feature.vscode.server.target, { socketPath: sock });
 });
 
-test('vscode: only folders inside the roots, no workspace files', async () => {
+test('vscode: the landing page opens only folders inside the roots, no workspace files (what it offers, not a limit)', async () => {
   for (const p of [folderUrl(outside), folderUrl(`${proj}/../../elsewhere`), folderUrl('/'), `/vscode/?workspace=${encodeURIComponent(`${proj}/x.code-workspace`)}`, folderUrl(path.join(proj, 'missing'))]) {
     const r = await get(p);
     assert.equal(r.status, 403, p);
@@ -147,6 +147,48 @@ test('vscode: stopped when idle; the next page opens it again', async () => {
   assert.equal((await get('/vscode/static/a.js')).status, 503, 'its files do not start it');
   assert.equal((await get(folderUrl(proj))).status, 200, 'its page does');
   assert.notEqual(vs.child.pid, pid);
+});
+
+test('vscode: a project file shown as a page or a frame is sandboxed; VS Code\'s own pages and what it loads are not', async () => {
+  const evil = path.join(proj, 'evil.html');
+  fs.writeFileSync(evil, '<script>fetch("/api/state")</script>');
+  const commit = `stable-${'a'.repeat(40)}`;
+  const file = (p) => `/vscode/${commit}/vscode-remote-resource?path=${encodeURIComponent(p)}`;
+  const answer = async (p, dest) => {
+    const r = await get(p, dest ? { 'Sec-Fetch-Dest': dest } : {});
+    await r.arrayBuffer();
+    return { csp: r.headers.get('content-security-policy') || '', nosniff: r.headers.get('x-content-type-options') };
+  };
+  // As a page, a frame, an object or embed, or from a browser that does not say: no script, an opaque origin.
+  for (const dest of ['document', 'iframe', 'frame', 'object', 'embed', null]) {
+    for (const p of [file(evil), `/vscode/vscode-remote-resource?path=${encodeURIComponent(evil)}`]) {
+      const a = await answer(p, dest);
+      assert.match(a.csp, /(^|, )sandbox$/, `${p} as ${dest}`);
+      assert.equal(a.nosniff, 'nosniff');
+    }
+  }
+  // What the workbench loads keeps working: images, scripts, styles, fonts, workers, fetches.
+  for (const dest of ['image', 'script', 'style', 'font', 'worker', 'empty']) assert.doesNotMatch((await answer(file(evil), dest)).csp, /sandbox/, dest);
+  // VS Code's own pages: the workbench, its sign-in callback, the files of its install (the extension host's frame).
+  for (const p of [folderUrl(proj), '/vscode/callback', `/vscode/${commit}/static/out/vs/workbench/services/extensions/worker/webWorkerExtensionHostIframe.html`]) {
+    assert.doesNotMatch((await answer(p, 'document')).csp, /sandbox/, p);
+  }
+  assert.equal((await answer(folderUrl(proj), 'document')).csp, "script-src 'self' 'unsafe-eval'", 'its own policy, unchanged');
+  // A path that only looks like an install file is not one.
+  for (const p of [`/vscode/${commit}/static/..%2Fvscode-remote-resource?path=${encodeURIComponent(evil)}`, `/vscode/${commit}/static/%2e%2e/x.html`]) {
+    assert.match((await answer(p, 'document')).csp, /sandbox$/, p);
+  }
+});
+
+test('vscode: VS Code cannot set the dashboard\'s login cookie, and gets no key header', async () => {
+  const r = await get('/vscode/cookies');
+  assert.deepEqual(r.headers.getSetCookie(), ['vscode-other=1; Path=/']);
+  // (A bearer token is refused before it gets here: the machines feature checks it.)
+  const r2 = await get('/vscode/static/a.js', { 'X-Api-Key': 'k-123', 'X-Hoprig-Link': 'l-123' });
+  await r2.arrayBuffer();
+  assert.equal(r2.status, 200);
+  const last = lines().filter((l) => l.url).pop();
+  assert.deepEqual([last.url, last.apiKey, last.link], ['/vscode/static/a.js', null, null]);
 });
 
 test('vscode: turned off stops it; on this computer opens the folder with `code <folder>`', async () => {

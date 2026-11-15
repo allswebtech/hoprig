@@ -2,6 +2,7 @@
 // token, which the dashboard does not use) and answers with what it was sent, so a test can see what got through.
 import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
 import { WebSocketServer } from 'ws';
 
 const args = process.argv.slice(2);
@@ -15,7 +16,21 @@ note({ started: true, args, umask: process.umask(), env: Object.keys(process.env
 
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
-  note({ url: req.url, cookie: req.headers.cookie || '', host: req.headers.host, auth: req.headers.authorization || null });
+  note({ url: req.url, cookie: req.headers.cookie || '', host: req.headers.host, auth: req.headers.authorization || null, apiKey: req.headers['x-api-key'] || null, link: req.headers['x-hoprig-link'] || null });
+  // A project file, typed by its extension and WITHOUT a sandbox of its own (as a VS Code version may serve it).
+  if (u.pathname.endsWith('/vscode-remote-resource')) {
+    const f = u.searchParams.get('path') || '';
+    const type = { '.html': 'text/html', '.svg': 'image/svg+xml', '.png': 'image/png', '.js': 'text/javascript' }[path.extname(f)] || 'application/octet-stream';
+    try {
+      const body = fs.readFileSync(f);
+      res.writeHead(200, { 'Content-Type': type });
+      return res.end(body);
+    } catch {
+      return res.writeHead(404).end();
+    }
+  }
+  // Cookies VS Code might set, the dashboard's own login among them.
+  if (u.pathname === '/vscode/cookies') return res.writeHead(200, { 'Set-Cookie': ['sid=evil; Path=/', 'SID=evil2; Path=/', ' sid =evil3; Path=/', 'vscode-other=1; Path=/'] }).end('ok');
   res.writeHead(200, {
     'Content-Type': 'text/html',
     'Content-Security-Policy': "script-src 'self' 'unsafe-eval'",

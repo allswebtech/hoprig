@@ -1,6 +1,8 @@
 // VS Code for the project folders, as a server feature: { name, routes, handle, upgrade, start, close }.
 //
-// Three ways, each for a folder inside the dashboard's roots (server.roots):
+// Three ways to open a folder. The dashboard offers only folders inside its roots (server.roots), but that is a choice
+// of what to offer, not a limit: VS Code runs as this user, and inside it Open Folder, its file links and its
+// terminal reach every file this user can. Turning it on gives the dashboard's login that reach (as a session does).
 //   in the browser       VS Code's own browser version (`code serve-web`, process.mjs), behind the dashboard's login at
 //                        /vscode/ (proxy.mjs), so it works wherever the dashboard works: the network or a public link.
 //                        Not on Windows yet (process.mjs says why).
@@ -127,7 +129,7 @@ export function vscodeFeature(sctx, opts = {}) {
     return true;
   }
 
-  /** The folder from the browser: an existing folder inside the roots, else a 400 the page shows. */
+  /** The folder to open: one the dashboard offers (inside the roots), else a 400 the page shows. Not a limit (header). */
   const folderOf = (dir) => {
     const real = insideRoots(dir, roots());
     if (!real) throw fail(400, 'choose a folder inside the folders this dashboard may show');
@@ -199,7 +201,10 @@ export function vscodeFeature(sctx, opts = {}) {
   /** The request line VS Code gets: the browser's own path and query. */
   const upstreamPath = (url) => `${url.pathname}${url.search}`;
 
-  /** What may be opened: the page's ?folder= only inside the roots, no ?workspace= file. A message, or null. */
+  /**
+   * The landing page opens only a folder the dashboard offers (inside the roots) and no ?workspace= file, so a link
+   * cannot start VS Code somewhere unexpected. Not a limit: inside VS Code every file of this user is reachable.
+   */
   function pageRefusal(url) {
     if (url.pathname !== BASE && url.pathname !== `${BASE}/`) return null;
     if (url.searchParams.has('workspace')) return 'Open a folder from the dashboard instead of a workspace file.';
