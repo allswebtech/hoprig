@@ -14,6 +14,8 @@
 //                        | { kind: "terminal", run: string, label: string }   POST /api/onboarding/run { run } opens a
 //                                       terminal session with that command ("setup" | "claude-login" | "pc-setup")
 //                        | { kind: "request", method: "POST", path: string, body: object }   a route the page calls
+//                        | { kind: "claude-login", label: string }   the page signs Claude Code in itself
+//                                       (src/server/claudelogin.mjs; "claude-login" above stays its terminal way)
 //       }],
 //       done: number, total: number,   required steps done / required steps
 //       checkedAt: number              when the slow parts (Claude Code, the coding tools) were last looked at
@@ -24,6 +26,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from '../config.mjs';
+import { loginSeen } from '../routerstate.mjs';
 import { stateDir } from '../paths.mjs';
 import { uniqueName } from '../server/validate.mjs';
 
@@ -86,7 +89,7 @@ export function onboardingSteps(f) {
     {
       id: 'claude', title: 'Claude Code installed and signed in', optional: false, done: claudeDone,
       detail: !f.claude.installed ? 'Claude Code is not installed' : claudeDone ? `Claude Code ${f.claude.installed}` : 'not signed in yet',
-      action: claudeDone ? null : !f.claude.installed ? { kind: 'terminal', run: 'setup', label: 'Set up Claude Code' } : { kind: 'terminal', run: 'claude-login', label: 'Sign in to Claude' },
+      action: claudeDone ? null : !f.claude.installed ? { kind: 'terminal', run: 'setup', label: 'Set up Claude Code' } : { kind: 'claude-login', label: 'Sign in to Claude' },
     },
     {
       id: 'tools', title: 'Tools for coding', optional: false, done: !f.tools.missing.length,
@@ -126,7 +129,7 @@ export function onboardingSteps(f) {
   ];
 }
 
-/** The server feature. `opts.facts` replaces the fact sources (tests); `opts.now` the clock. */
+/** The server feature. `opts.facts` replaces the fact sources (tests), `opts.loginSeen` the last sign-in check; `opts.now` the clock. */
 export function onboardingFeature(sctx, opts = {}) {
   const src = { ...real, ...(opts.facts || {}) };
   const now = opts.now || Date.now;
@@ -141,6 +144,9 @@ export function onboardingFeature(sctx, opts = {}) {
       const [claude, tools] = await Promise.all([src.claude().catch(() => ({ installed: null, loggedIn: null })), src.tools().catch(() => ({ missing: [] }))]);
       slow = { at: now(), claude, tools };
     }
+    // A sign-in checked since (the page's own sign-in, a session start, doctor) is newer than the cached answer.
+    const seen = (opts.loginSeen || loginSeen)();
+    if (seen && seen.at > slow.at && typeof seen.loggedIn === 'boolean') slow = { ...slow, claude: { ...slow.claude, loggedIn: seen.loggedIn } };
     const safe = (fn, d) => fn().catch(() => d);
     const [rules, projects, skills, profiles, machines, sessions] = await Promise.all([
       safe(src.rules, {}), safe(src.projects, []), safe(src.skills, []), safe(src.profiles, []), safe(src.machines, []), safe(src.sessions, 0),

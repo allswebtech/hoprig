@@ -39,6 +39,8 @@ test('login check: needed only when a profile uses the stored login (or none exi
   assert.equal(K.loginCheck({ loggedIn: false }, api).status, 'warn');
   assert.equal(K.loginCheck({ loggedIn: null, reason: 'old' }, login).status, 'warn');
   assert.match(K.loginCheck({ loggedIn: false }, login).fix, /claude auth login/);
+  assert.equal(K.loginCheck({ loggedIn: false }, login).action, 'claude-login', 'the page signs in from the row');
+  assert.equal(K.loginCheck({ loggedIn: true }, login).action, undefined);
 });
 
 test('profiles check shows names and kinds only', () => {

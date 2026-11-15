@@ -126,7 +126,8 @@ export function loginCheck(status, profiles) {
   const needsLogin = !profiles.length || profiles.some((p) => p.kind === 'login');
   if (status.loggedIn === true) return result('login', 'Claude login', 'ok', `logged in (${status.method || 'account'})`);
   const fix = 'claude   (then type /login; or: claude auth login)';
-  if (status.loggedIn === false) return result('login', 'Claude login', needsLogin ? 'fail' : 'warn', 'not logged in', fix);
+  // `action`: the page signs in from the row itself (src/server/claudelogin.mjs); the fix stays for the terminal.
+  if (status.loggedIn === false) return { ...result('login', 'Claude login', needsLogin ? 'fail' : 'warn', 'not logged in', fix), action: 'claude-login' };
   return result('login', 'Claude login', needsLogin ? 'warn' : 'info', `unknown: ${status.reason || 'no answer'}`, status.reason === 'Claude Code is not installed' ? '' : fix);
 }
 
@@ -360,7 +361,7 @@ export async function allChecks({ sys = sysInfo(), offline = false } = {}) {
   // On a hub (it only shows and relays other computers) Claude Code, an account and a terminal are not needed:
   // whatever those checks find is information there, never a problem.
   const hub = cfg.hubOnly === true || sys.env.HOPRIG_HUB === '1';
-  const forHub = (r) => (hub && r.status !== 'ok' ? { ...r, status: 'info', detail: `${r.detail} (not needed on a hub)`, fix: undefined } : r);
+  const forHub = (r) => (hub && r.status !== 'ok' ? { ...r, status: 'info', detail: `${r.detail} (not needed on a hub)`, fix: undefined, action: undefined } : r);
   list.push(forHub(claudeCheck(info, { onPath })));
   let profiles = [];
   try {

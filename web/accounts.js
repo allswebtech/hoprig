@@ -7,6 +7,7 @@
 // "Use the terminal instead" stays for when the page flow does not work. Accounts are added on the computer whose
 // page this is (this dashboard's own): a key or a sign-in never travels to another computer through this page.
 import { COMMAND } from './brand.js';
+import { claudeSignIn } from './claudelogin.js';
 import { icon } from './icons.js';
 import {
   KIND, add, ago, api, at, btn, confirmSheet, copyText, fill, h, insecure, link, machine, openSheet, profileState, promptSheet,
@@ -35,6 +36,9 @@ async function terminalWay() {
     toast(e.message, { kind: 'error' });
   }
 }
+// A provider that uses Claude Code's stored login is signed in with Claude Code's own sign-in (`claude auth login`), and
+// stays such a provider; one with its own token gets a new token (`claude setup-token`, the wizard).
+const signInAgain = (a, data, done) => (a.kind === 'login' ? claudeSignIn({ done }) : addWizard(data, done, { signIn: a }));
 const terminalLink = () => h('p.hint', 'Not working? ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); terminalWay(); } }, 'Use the terminal instead'), ' — it runs the same steps in a terminal on the computer.');
 
 // ======================= the page =======================
@@ -190,7 +194,7 @@ function viewAccounts({ frame, sub }) {
       limitPanel(auto, data.accounts, refresh, flash),
       groupHead('Providers', accounts.length),
       accounts.length
-        ? h('div.rows', accounts.map((a) => accountRow(a, order.indexOf(a.name) + 1, auto.enabled, here ? (x) => addWizard(data, refresh, { signIn: x }) : null)))
+        ? h('div.rows', accounts.map((a) => accountRow(a, order.indexOf(a.name) + 1, auto.enabled, here ? (x) => signInAgain(x, data, refresh) : null)))
         : emptyState('user', here ? 'No providers yet. Add the Claude subscription or API key Claude should use.' : `No providers on ${openLabel()} yet. Add one on that computer's own page.`,
           here ? btn('primary', { icon: 'plus', label: 'Add provider', onclick: () => addWizard(data, refresh) }) : null),
       here ? null : h('p.hint', `Providers of ${openLabel()} are added on that computer's own page: a key or a sign-in never travels through this one.`),
@@ -238,7 +242,7 @@ function viewAccount(frame, name) {
         h(`p.acct-state.ps-${ps.key}`, h('span.dot'), ps.text),
         ps.key === 'signin'
           ? h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Claude Code cannot use this provider until you sign in again.'),
-            d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: () => addWizard(d, refresh, { signIn: a }) }) : null)
+            d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: () => signInAgain(a, d, refresh) }) : null)
           : usageBars(a.usage, a.usageReported, a.inUse > 0) || h('p.hint', 'No usage figures yet: they appear after the first answer on this provider.'),
         d.full ? toggle('Use in Auto mode', a.inAuto, async (on) => {
           try {
