@@ -59,6 +59,7 @@ import { accountsFeature } from './accounts.mjs';
 import { pcsetupFeature } from '../pcsetup/feature.mjs';
 import { skillhubFeature } from '../skillhub/feature.mjs';
 import { workspaceFeature } from '../workspace/feature.mjs';
+import { vscodeFeature } from '../vscode/feature.mjs';
 import { onboardingFeature } from '../setup/onboarding.mjs';
 import { removeDashboardFile, writeDashboardFile } from './dashboardfile.mjs';
 import { createLoginLink, loginLinkStatus, qrRows, useLoginLink } from './loginlink.mjs';
@@ -199,6 +200,7 @@ export function createServer(opts = {}) {
   const features = [
     assistantFeature(ctx, { hub: machines.machines.hub, ...opts.assistant }), // Tia; first, so her own token is checked before the machines gate
     machines, // other computers: relay, pairing, bearer tokens
+    vscodeFeature(ctx, opts.vscode), // VS Code for a project folder: in the browser at /vscode/ (after machines: a bearer token never reaches it)
     automationFeature(ctx, { tick: opts.watch !== false, ...opts.automation }), // queue, schedules, restore, retry, updates, idle care
     addonsFeature(ctx, opts.addons), // Settings → Add-ons: install, start, stop, update, set up as an account
     accountsFeature(ctx, opts.accounts), // Providers: add a subscription, an API key or a TRouteAI gateway in the page
