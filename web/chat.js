@@ -15,6 +15,7 @@ import { registerPage, registerSessionAction } from './registry.js';
 import { EFFORT, MODELS } from './sessiondefaults.js';
 import { pageNotify, store } from './store.js';
 import { askTitle, lineDiff, money, toolLine, turnLine } from './chattext.js';
+import { forgetHere, named, wayBack } from './trail.js';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const finePointer = typeof matchMedia !== 'undefined' && matchMedia('(pointer: fine)').matches; // desktop: Enter sends
@@ -72,6 +73,9 @@ function viewChat({ sub }) {
   document.body.classList.remove('has-nav');
   document.body.classList.add('chat-mode');
   store.viewing = `chat:${id}`;
+  // The way back is the page you came from (trail.js), as in a terminal session; else Home.
+  named('Chat');
+  const way = wayBack() || { hash: link('#/'), label: 'Home' };
   let alive = true;
   let v = null; // the last view from the server
   let epoch = 0;
@@ -87,7 +91,7 @@ function viewChat({ sub }) {
   const provBtn = h('button.profilebtn', { type: 'button', title: 'Move to another provider', onclick: () => moveProvider() },
     icon('user', { size: 16 }), h('span.profilebtn-label', '…'), icon('chevronDown', { size: 14 }));
   const bar = h('header.chat-bar',
-    h('a.btn.icon.ghost', { href: link('#/'), 'aria-label': 'Back to Home' }, icon('back')),
+    h('a.btn.ghost.chatback', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.chatback-label', way.label)),
     h('div.chat-head', h('h1.chat-title', titleEl), subEl),
     h('div.chat-bar-end', provBtn, h('button.btn.icon.ghost', { type: 'button', title: 'More for this chat', 'aria-label': 'More for this chat', onclick: () => menu() }, icon('more'))));
   const notes = h('div.chat-notes'); // a terminal runs it, a limit, the connection
@@ -243,6 +247,7 @@ function viewChat({ sub }) {
     const s = v;
     fill(titleEl, s.title || 'New chat');
     pageNotify.setTitleBase(s.title || 'Chat');
+    named(s.title || 'Chat');
     const pill = statusPill({ status: s.status, statusAt: null }, { time: false });
     // A narrow screen cuts the words of the state, not the pill: they go in a span that can end in "…".
     fill(pill, [...pill.childNodes].map((n) => (n.nodeType === 3 ? h('span.chat-pill-text', n.textContent) : n)));
@@ -357,7 +362,7 @@ function viewChat({ sub }) {
   function gone() {
     fill(wrap, bar, h('div.chat-mid', h('div.empty', icon('text', { size: 32 }),
       h('p', 'This chat is not open any more: it was closed, or opened in a terminal.'),
-      h('a.btn.primary', { href: link('#/') }, icon('home', { size: 18 }), h('span', 'Home')))));
+      h('a.btn.primary', { href: way.hash }, icon(way.label === 'Home' ? 'home' : 'back', { size: 18 }), h('span', way.label === 'Home' ? 'Home' : `Back to ${way.label}`)))));
   }
 
   async function follow() {
@@ -475,6 +480,7 @@ function viewChat({ sub }) {
     try {
       const { name } = await api(`${A}/terminal`, {});
       store.refresh();
+      forgetHere(); // the chat closes: the terminal goes back to where the chat would have
       location.hash = link(`#/s/${encodeURIComponent(name)}`);
     } catch (e) {
       toast(e.message, { kind: 'error' });
@@ -503,7 +509,8 @@ function viewChat({ sub }) {
       try {
         await api(`${A}/close`, {});
         store.refresh();
-        location.hash = link('#/');
+        forgetHere();
+        location.hash = way.hash;
       } catch (e) {
         toast(e.message, { kind: 'error' });
       }

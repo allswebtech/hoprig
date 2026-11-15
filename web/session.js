@@ -20,7 +20,7 @@ import {
 import { pageNotify, store } from './store.js';
 import { registeredSessionActions } from './registry.js';
 import { isStarting, markStarting, startingPill } from './newsession.js';
-import { named, wayBack } from './trail.js';
+import { forgetHere, named, wayBack } from './trail.js';
 
 // Claude Code draws for a dark terminal by default, so the terminal is dark unless the user picks otherwise.
 export const TERM_THEMES = {
@@ -726,6 +726,7 @@ export function openSession(app, name) {
           await api(`${base}/kill`, {});
           toast(`${name} ended`);
           store.refresh();
+          forgetHere();
           location.hash = way.hash;
         } catch (e) {
           toast(e.message, { kind: 'error' });

@@ -5,6 +5,13 @@ body.chat-mode { overflow: hidden; }
 /* As over a terminal: Tia's round button would sit on the message box. */
 body.chat-mode .tia-boxroot { display: none; }
 .chat-wrap { position: fixed; inset: 0 0 auto 0; height: var(--vvh, 100dvh); display: flex; flex-direction: column; background: var(--bg); }
+/* The way back names the page it opens; on a narrow screen only the arrow, the name is its label. */
+.chatback { flex: none; max-width: 28vw; padding: 0 10px 0 6px; gap: 4px; }
+.chatback-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 600; }
+@media (max-width: 599px) {
+  .chatback { width: var(--tap); padding: 0; }
+  .chatback-label { display: none; }
+}
 .chat-bar { display: flex; align-items: center; gap: 4px; min-height: 56px; padding: calc(4px + env(safe-area-inset-top)) 6px 4px; background: var(--surface); border-bottom: 1px solid var(--border); }
 .chat-head { flex: 1; min-width: 0; padding: 0 4px; }
 .chat-title { margin: 0; font-size: var(--fs-lg); font-weight: 700; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

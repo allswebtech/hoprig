@@ -2,7 +2,7 @@
 // it is driven here address by address, as the router would; the pages themselves are driven in a headless browser.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { arrive, cameFrom, named, placeOf, resetTrail, startOver, wayBack } from '../../web/trail.js';
+import { arrive, cameFrom, forgetHere, named, placeOf, resetTrail, startOver, wayBack } from '../../web/trail.js';
 
 /** The router opens `hash` (coming from `from`), and the page names itself `label`. */
 function open(hash, label, from = null) {
@@ -97,6 +97,32 @@ test('another session from the switcher keeps where the first one came from', ()
   assert.deepEqual(wayBack(), { hash: '#/computer/setup', label: 'Setup' });
   open('#/providers', 'Providers');
   assert.deepEqual(wayBack(), { hash: '#/s/two', label: 'two' }, 'the session you were in');
+});
+
+test('a chat is a place of its own; a closed one is never a way back; Home starts a new trail', () => {
+  resetTrail();
+  open('#/computer/setup', 'Setup');
+  open('#/chat/a', 'Fix the build');
+  assert.deepEqual(wayBack(), { hash: '#/computer/setup', label: 'Setup' });
+  open('#/chat/b', 'Another chat');
+  assert.deepEqual(wayBack(), { hash: '#/computer/setup', label: 'Setup' }, 'chat to chat keeps where the first came from, like sessions');
+  open('#/s/one', 'one');
+  assert.deepEqual(wayBack(), { hash: '#/chat/b', label: 'Another chat' }, 'a session opened from a chat goes back to it');
+  open('#/chat/b', 'Another chat');
+  assert.deepEqual(wayBack(), { hash: '#/computer/setup', label: 'Setup' }, 'back at the chat: the session is gone from the way');
+  resetTrail();
+  open('#/new', 'New session');
+  open('#/chat/c', 'New chat');
+  assert.equal(wayBack(), null, 'New session hands its way back on to the chat it starts');
+  resetTrail();
+  open('#/computer/setup', 'Setup');
+  open('#/chat/d', 'Chat');
+  forgetHere(); // "Open in terminal": the chat closes
+  open('#/s/term', 'term');
+  assert.deepEqual(wayBack(), { hash: '#/computer/setup', label: 'Setup' }, 'not back to the closed chat');
+  open('#/', 'Home');
+  open('#/providers', 'Providers');
+  assert.deepEqual(wayBack(), { hash: '#/', label: 'Home' }, 'Home: a new trail');
 });
 
 test('at most eight places, and labels are short', () => {

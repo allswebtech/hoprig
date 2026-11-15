@@ -5,8 +5,10 @@
 
 const KEY = 'trail';
 const MAX = 8;
-// Pages that only start something: the session they open goes back to where you were before them.
+// Pages that only start something: the session or chat they open goes back to where you were before them.
 const STARTERS = new Set(['new', 'new-project', 'get-project']);
+// Pages where each address is a place of its own (one session, one chat), not a part of one page.
+const EACH = new Set(['session', 'chat']);
 
 let trail = { stack: [], here: null };
 let fresh = false;
@@ -44,8 +46,8 @@ export function placeOf(hash) {
   return p ? p[1] : 'home';
 }
 
-// The same place: the same page, and for a session the same session.
-const samePlace = (p, page, hash) => p.page === page && (page !== 'session' || p.hash === hash);
+// The same place: the same page, and for a session or a chat the same one.
+const samePlace = (p, page, hash) => p.page === page && (!EACH.has(page) || p.hash === hash);
 
 /**
  * The router draws `hash` (after its redirects); `from` is the address just left (a page's tabs change it in place,
@@ -55,14 +57,15 @@ export function arrive(hash, from = null) {
   const page = placeOf(hash);
   let here = trail.here;
   if (here && from && placeOf(from) === here.page) here.hash = from;
-  if (fresh) {
+  if (fresh || page === 'home') {
+    // A press in the navigation, or Home (where every trail starts): the new trail starts at this page.
     fresh = false;
     trail.stack = [];
-    here = null; // the new trail starts at this page
+    here = here && page === 'home' && here.page === 'home' ? here : null;
   } else if (here && here.page !== page) {
     const back = trail.stack.findLastIndex((p) => samePlace(p, page, hash));
     if (back >= 0) trail.stack = trail.stack.slice(0, back); // back at a place on the way: what came after it goes
-    else if (here.label && !(STARTERS.has(here.page) && page === 'session')) trail.stack = [...trail.stack, here].slice(-MAX);
+    else if (here.label && !(STARTERS.has(here.page) && EACH.has(page))) trail.stack = [...trail.stack, here].slice(-MAX);
   }
   // Another part of the same page (a tab, an item of its list, another session) keeps where the page was entered.
   trail.here = here && here.page === page ? { ...here, hash } : { hash, page, entry: hash, label: null };
@@ -74,6 +77,13 @@ export function named(label) {
   const text = typeof label === 'string' ? label.trim() : '';
   if (!trail.here || !text) return;
   trail.here.label = text.slice(0, 60);
+  save();
+}
+
+/** The place being shown is about to end (a session ended, a chat closed): no way back may lead to it. */
+export function forgetHere() {
+  if (!trail.here) return;
+  trail.here.label = null;
   save();
 }
 
