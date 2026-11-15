@@ -12,6 +12,7 @@ import {
   KIND, add, ago, api, at, btn, confirmSheet, copyText, fill, h, insecure, link, machine, openSheet, profileState, promptSheet,
   subscriptionsNote, toast, until,
 } from './lib.js';
+import { gatewaysPanel } from './gateways.js';
 import { registerPage } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, openLabel, panel, radioCards, saveBar, savedMark, steps, toggle } from './shell.js';
 import { store } from './store.js';
@@ -25,6 +26,8 @@ const kindIcon = (k) => (k === 'api' ? 'key' : 'user');
 // What a provider is, in words: a sign-in reads "Subscription" whether the computer's stored sign-in or its own
 // (after "Sign in again" the kind changes from one to the other: the row must not change), with its plan.
 const PLAN = (p) => p.charAt(0).toUpperCase() + p.slice(1);
+// A provider that uses another computer's gateway: where it is, or why it cannot be used now (src/gateway).
+const remoteText = (a) => (!a.remote ? null : a.remote.state === 'online' ? `${a.remote.title || 'Gateway'} on ${a.remote.computer}` : a.remote.text);
 const kindText = (a) => [a.kind === 'login' || a.kind === 'subscription' ? 'Subscription' : KIND[a.kind] || a.kind, a.plan ? PLAN(a.plan) : null].filter(Boolean).join(' · ');
 
 async function terminalWay() {
@@ -143,7 +146,7 @@ function accountRow(a, place, autoOn, signIn) {
   const ps = profileState(a);
   const page = link(`#/providers/${encodeURIComponent(a.name)}`);
   // A row with its own button is not a link element (a button inside a link is not allowed): it opens on a tap.
-  return h(`div.row.acct.ps-${ps.key}`, {
+  return h(`div.row.acct.ps-${ps.key}${a.remote && a.remote.state !== 'online' ? '.gw-off' : ''}`, {
     tabindex: 0, role: 'link', 'aria-label': `${a.label}: ${ps.text}`,
     onclick: () => (location.hash = page),
     onkeydown: (e) => { if (e.key === 'Enter' && e.target === e.currentTarget) location.hash = page; },
@@ -151,7 +154,7 @@ function accountRow(a, place, autoOn, signIn) {
   h('span.row-icon', icon(kindIcon(a.kind))),
   h('span.row-main',
     h('span.row-title', a.label, autoOn && place ? h('span.badge.soft', `${ORDINAL(place)} in the order`) : null),
-    h('span.row-sub.state', `${kindText(a)} · ${ps.text}`),
+    h('span.row-sub.state', [kindText(a), remoteText(a), ps.text].filter(Boolean).join(' · ')),
     ps.key === 'signin' ? null : usageBars(a.usage, a.usageReported, a.inUse > 0)),
   ps.key === 'signin' && signIn ? h('button.btn.small.primary.acct-signin', { type: 'button', onclick: (e) => { e.stopPropagation(); signIn(a); } }, icon('user', { size: 15 }), h('span', 'Sign in')) : null,
   h('span.row-end', icon('chevronRight', { size: 18 })));
@@ -194,6 +197,7 @@ function viewAccounts({ frame, sub }) {
         : emptyState('user', here ? 'No providers yet. Add the Claude subscription or API key Claude should use.' : `No providers on ${openLabel()} yet. Add one on that computer's own page.`,
           here ? btn('primary', { icon: 'plus', label: 'Add provider', onclick: () => addWizard(data, refresh) }) : null),
       here ? null : h('p.hint', `Providers of ${openLabel()} are added on that computer's own page: a key or a sign-in never travels through this one.`),
+      here ? gatewaysPanel({ useLocal: () => addWizard(data, refresh, { start: 'trouteai' }), changed: () => refresh() }) : null,
       fold('accounts', 'Advanced', fixedPanel(settings.autoSwitch)));
   }
   load();
@@ -224,7 +228,7 @@ function viewAccount(frame, name) {
     const a = d.accounts.find((x) => x.name === name);
     if (!a) return fill(body, emptyState('user', 'There is no such provider on this computer.', h('a.btn.secondary', { href: link('#/providers') }, 'All providers')));
     const ps = profileState(a);
-    const what = [kindText(a), a.viaTrouteai ? 'via TRouteAI' : a.host || '', a.model ? `model ${a.model}` : ''].filter(Boolean).join(' · ');
+    const what = [kindText(a), a.remote ? remoteText(a) : a.viaTrouteai ? 'via TRouteAI' : a.host || '', a.model ? `model ${a.model}` : ''].filter(Boolean).join(' · ');
     draw(a.label, what);
     const act = (ic, label, sub, fn) => h('button.row', { type: 'button', onclick: async () => {
       try {
@@ -357,7 +361,7 @@ function modelPicker(probe, current = '', currentSmall = '') {
 // ======================= Add account =======================
 
 /** Add a provider; with `signIn` (a provider), sign that one in again: straight to the sign-in link. */
-function addWizard(data, done, { signIn = null } = {}) {
+function addWizard(data, done, { signIn = null, start = null } = {}) {
   let cleanup = null;
   openSheet(signIn ? { title: `Sign in again to ${signIn.label}`, subtitle: 'With the Claude account this provider uses. Until the code is accepted, nothing changes.' } : { title: 'Add provider', subtitle: 'Choose what you want to add' }, (close) => {
     const panel = h('div.wizard');
@@ -571,6 +575,7 @@ function addWizard(data, done, { signIn = null } = {}) {
     }
 
     if (signIn) again();
+    else if (start === 'trouteai') trouteai(); // "Use here" on this computer's gateway: straight to its steps
     else choose();
     return panel;
   }).then(() => cleanup?.());
