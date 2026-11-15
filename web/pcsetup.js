@@ -4,7 +4,7 @@
 // the page asks for it once, for that job (the rule and why: src/pcsetup/admin.mjs). The terminal is the fallback.
 import { COMMAND } from './brand.js';
 import { icon } from './icons.js';
-import { api, btn, fill, h, machine, openSheet, promptSheet, toast } from './lib.js';
+import { api, btn, fill, h, link, machine, openSheet, promptSheet, toast } from './lib.js';
 import { fold } from './shell.js';
 import { gitPanel } from './gitsetup.js';
 import { setupJobCard, startSetup } from './setupjob.js';
