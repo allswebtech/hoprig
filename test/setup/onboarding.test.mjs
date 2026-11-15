@@ -37,7 +37,8 @@ test('each step done or not, with what to open', () => {
     assert.equal(x.action, null, x.id);
   }
   // installed but not signed in: the sign-in; an API account counts as signed in
-  assert.equal(byId(ON.onboardingSteps({ ...empty, claude: { installed: '2.1.300', loggedIn: false } })).claude.action.run, 'claude-login');
+  // installed but not signed in: the page's own sign-in (no terminal)
+  assert.deepEqual(byId(ON.onboardingSteps({ ...empty, claude: { installed: '2.1.300', loggedIn: false } })).claude.action, { kind: 'claude-login', label: 'Sign in to Claude' });
   assert.equal(byId(ON.onboardingSteps({ ...empty, claude: { installed: '2.1.300', loggedIn: false }, profiles: [{ name: 'api', kind: 'api' }] })).claude.done, true);
 });
 
@@ -48,7 +49,7 @@ test('browser sessions are counted from the file, expired ones not', () => {
   assert.equal(ON.browserSessions(path.join(s.tmp, 'none.json')), 0);
 });
 
-function harness({ authed = true, facts = full } = {}) {
+function harness({ authed = true, facts = full, seen = null } = {}) {
   const calls = { claude: 0, tools: 0 };
   const created = [];
   let clock = 1_000_000;
@@ -61,7 +62,7 @@ function harness({ authed = true, facts = full } = {}) {
     readJson: async (req) => req.body || {},
     backend: { list: async () => [], create: async (o) => created.push(o) },
     deck: { launcher: () => ['node', '/app/bin/hoprig.mjs'] },
-  }, { facts: src, now: () => clock });
+  }, { facts: src, now: () => clock, loginSeen: () => (typeof seen === 'function' ? seen(clock) : seen) });
   const call = (method, p, body) => {
     for (const [m, re, fn] of f.routes) if (m === method && re.test(p)) return fn({ body, headers: {} });
     throw new Error('no route');
@@ -97,6 +98,19 @@ test('run: only the commands named here, in a terminal session; anything else re
   await h.call('POST', '/api/onboarding/run', { run: 'claude-login' });
   assert.deepEqual(h.created[1].argv, ['claude', 'auth', 'login']);
   for (const bad of ['rm -rf ~', '__proto__', 1, null]) await assert.rejects(h.call('POST', '/api/onboarding/run', { run: bad }), (e) => e.status === 400);
+});
+
+test('a sign-in checked after the cached answer (the page signed Claude Code in) counts at once', async () => {
+  const out = { ...full, claude: { installed: '2.1.300', loggedIn: false }, profiles: [{ name: 'sub', kind: 'login' }] };
+  let at = 0;
+  const h = harness({ facts: out, seen: () => (at ? { loggedIn: true, plan: 'max', at } : null) });
+  const step = async () => (await h.call('GET', '/api/onboarding')).steps.find((x) => x.id === 'claude');
+  assert.equal((await step()).done, false);
+  at = 999_999; // older than the cached answer: ignored
+  assert.equal((await step()).done, false);
+  at = 1_000_001;
+  assert.equal((await step()).done, true);
+  assert.deepEqual(h.calls, { claude: 1, tools: 1 }, 'without asking Claude Code again');
 });
 
 test('nothing secret in the answer', async () => {
