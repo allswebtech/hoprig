@@ -11,7 +11,8 @@
 //   node tools/test.mjs --test-only     arguments starting with "-" go to `node --test` unchanged
 
 import { spawn } from 'node:child_process';
-import { readdirSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,5 +43,32 @@ if (!files.length) {
 const [major, minor] = process.versions.node.split('.').map(Number);
 const limit = flags.some((f) => f.startsWith('--test-timeout')) || (major === 20 && minor < 11) ? [] : ['--test-timeout=180000'];
 
-const child = spawn(process.execPath, ['--test', ...limit, ...flags, ...files], { cwd: root, stdio: 'inherit' });
-child.on('exit', (code, signal) => process.exit(signal ? 1 : (code ?? 1)));
+// Every test runs in a home of its own: HOME, the settings, state and Claude folders and the workspace point into a
+// fresh temporary folder, and git has a test identity. A test that forgets to set up its own folders then still never
+// reads or changes the real ones (one rewrote the real workspace map once, 15 Nov 2026). What a session of Claude Code
+// or Hoprig puts in the environment (a provider's address and key, the run file) is left out for the same reason.
+const sandbox = mkdtempSync(join(tmpdir(), 'hoprig-tests-'));
+const home = join(sandbox, 'home');
+mkdirSync(home);
+const gitconfig = join(sandbox, 'gitconfig');
+writeFileSync(gitconfig, '[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n');
+const env = { ...process.env };
+for (const k of Object.keys(env)) {
+  if (/^(ANTHROPIC_|CLAUDE_CODE_|CLAUDECODE$|CLAUDE_CONFIG_DIR$|HOPRIG_|XDG_(CONFIG|STATE|DATA|CACHE)_HOME$|GIT_CONFIG)/.test(k)) delete env[k];
+}
+Object.assign(env, {
+  HOME: home,
+  USERPROFILE: home,
+  HOPRIG_CONFIG_DIR: join(sandbox, 'config'),
+  HOPRIG_STATE_DIR: join(sandbox, 'state'),
+  CLAUDE_CONFIG_DIR: join(home, '.claude'),
+  GIT_CONFIG_GLOBAL: gitconfig,
+  GIT_CONFIG_NOSYSTEM: '1',
+});
+if (process.platform === 'win32') Object.assign(env, { APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local') });
+
+const child = spawn(process.execPath, ['--test', ...limit, ...flags, ...files], { cwd: root, stdio: 'inherit', env });
+child.on('exit', (code, signal) => {
+  rmSync(sandbox, { recursive: true, force: true });
+  process.exit(signal ? 1 : (code ?? 1));
+});

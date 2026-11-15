@@ -68,6 +68,9 @@ export function fakeCtx({ deck, automation = {}, persistent = false, now, stateD
     updates: { claudeInfo: async () => ({ installed: '1.0.0', latest: '1.0.0', updateAvailable: false }), claudeUpdate: async () => ({ ok: true }) },
     addons: [],
     autoOrder: () => [],
+    // The workspace rule's engines: never the real ones, which look at the real workspace.
+    workspaceSync: async () => ({ repos: [], tools: [] }),
+    workspaceMap: async () => ({ lines: [], needs: [] }),
     ...rest,
   };
   return { ctx, notes, lines, config: () => cfg };

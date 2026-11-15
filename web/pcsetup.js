@@ -90,14 +90,17 @@ async function recipeApply() {
 }
 
 export const isFine = (c) => c.status === 'ok' || (c.status === 'info' && !c.fixKit && !c.action);
+/** An optional extra (Docker, the working rules): offered with its button, never counted as something to fix. */
+export const isOptional = (c) => c.status === 'info' && Boolean(c.fixKit || c.action);
 
-/** The one sentence on top of Setup, from the checks: { fix, fine, text }. */
+/** The one sentence on top of Setup, from the checks: { fix, optional, fine, text }. */
 export function setupSummary(checks) {
   const list = checks.filter((c) => c.group !== 'projects'); // the Workspace page shows those
-  const fix = list.filter((c) => !isFine(c));
+  const fix = list.filter((c) => !isFine(c) && !isOptional(c));
+  const optional = list.filter(isOptional);
   const fine = list.filter(isFine);
   const text = fix.length ? `${fix.length} thing${fix.length === 1 ? '' : 's'} to fix` : 'Everything needed is installed';
-  return { fix, fine, text };
+  return { fix, optional, fine, text };
 }
 
 const setupCache = new Map(); // computer → its last checks, so Setup draws at once when it is opened again
@@ -107,17 +110,18 @@ export function setupSection() {
   const key = machine.current || '~';
   const head = h('div.cp-result');
   const fixBox = h('div');
+  const optionalBox = h('div');
   const fineBox = h('div');
   const checked = h('span.hint', { role: 'status' });
   const root = h('section.pcsetup.cp-part', { id: 'setup' });
 
   const fixRow = (c) => h('div.row.static.cp-check',
-    h(`span.cp-mark.${c.status}`, { 'aria-label': c.status === 'fail' ? 'Missing' : c.status === 'warn' ? 'Old' : 'Suggested' }, MARK[c.status] || '·'),
+    h(`span.cp-mark.${c.status}`, { 'aria-label': c.status === 'fail' ? 'Missing' : c.status === 'warn' ? 'Old' : 'Optional' }, MARK[c.status] || '·'),
     h('span.row-main.cp-wrap',
       h('span.row-title', c.label, h('span.badge.soft', GROUP_TITLES[c.group] || c.group)),
       h('span.row-sub', c.detail),
       c.fix && !c.fixKit ? h('span.row-sub.mono', c.fix) : null),
-    c.fixKit && c.status !== 'info' ? btn('small secondary', { icon: 'download', label: 'Fix', title: c.fix || `Install ${c.label}`, onclick: async (e) => {
+    c.fixKit ? btn('small secondary', { icon: 'download', label: c.status === 'info' ? 'Install' : 'Fix', title: c.fix || `Install ${c.label}`, onclick: async (e) => {
       e.currentTarget.disabled = true;
       toast(`Opening a session that installs ${c.label}…`);
       const r = await post('/api/pcsetup/fix', { id: c.id });
@@ -136,9 +140,11 @@ export function setupSection() {
     const s = setupSummary(d.checks);
     fill(head,
       h(`span.cp-result-icon.${s.fix.length ? 'warn' : 'ok'}`, icon(s.fix.length ? 'alert' : 'check')),
-      h('div.cp-result-text', h('strong', s.text), h('span.hint', s.fix.length ? 'Fix installs one thing; Set up this computer installs everything that is missing.' : 'This computer has what is needed for coding with Claude Code.')),
+      h('div.cp-result-text', h('strong', s.text), h('span.hint', s.fix.length ? 'Fix installs one thing; Set up this computer installs everything that is missing.' : `This computer has what is needed for coding with Claude Code.${s.optional.length ? ` ${s.optional.length} optional extra${s.optional.length === 1 ? ' is' : 's are'} below, if you want ${s.optional.length === 1 ? 'it' : 'them'}.` : ''}`)),
       btn('primary', { icon: 'download', label: 'Set up this computer', onclick: setupSheet }));
     fill(fixBox, s.fix.length ? h('div.rows', s.fix.map(fixRow)) : null);
+    // Optional extras: closed until opened, each with its own button; they never make the result "to fix".
+    fill(optionalBox, s.optional.length ? fold('computer-optional', `Optional · ${s.optional.length}`, h('div.rows', s.optional.map(fixRow))) : null);
     // What is fine, by group, folded: one line per group.
     const groups = [...new Set(s.fine.map((c) => c.group))];
     fill(fineBox, s.fine.length ? fold('computer-fine', `${s.fine.length} thing${s.fine.length === 1 ? ' is' : 's are'} fine`,
@@ -173,7 +179,7 @@ export function setupSection() {
   else fill(head, h('span.cp-result-icon', h('div.spinner.small', { 'aria-hidden': 'true' })), h('div.cp-result-text', h('strong', 'Checking this computer…'), h('span.hint', 'What it has for coding, and what is missing.')));
   fill(root,
     h('section.card.panel.cp-resultcard', head, h('div.cp-recheck', checked, btn('small ghost', { icon: 'refresh', label: 'Check again', onclick: load }))),
-    fixBox, fineBox,
+    fixBox, optionalBox, fineBox,
     gitPanel(),
     // The workspace's folders, its map and syncing live in Settings → Workspace.
     h('div.rows.ws-link', h('a.row', { href: link('#/settings/workspace') }, h('span.row-icon', icon('folder')),

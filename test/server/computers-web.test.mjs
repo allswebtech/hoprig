@@ -74,8 +74,10 @@ test('Setup: one sentence of result, what to fix first, the fine ones counted', 
   assert.equal(r.text, '2 things to fix');
   assert.deepEqual(r.fix.map((x) => x.id), ['b', 'c']);
   assert.deepEqual(r.fine.map((x) => x.id), ['a', 'd'], 'an "info" without anything to do is fine; projects are not part of Setup');
-  r = setupSummary([c('a', 'ok'), c('rules', 'info', { action: 'rules' })]);
-  assert.equal(r.text, '1 thing to fix', 'a suggestion with a button counts');
+  r = setupSummary([c('a', 'ok'), c('rules', 'info', { action: 'rules' }), c('docker', 'info', { fixKit: 'docker', label: 'Docker' })]);
+  assert.equal(r.text, 'Everything needed is installed', 'an optional extra is never something to fix');
+  assert.deepEqual(r.optional.map((x) => x.id), ['rules', 'docker'], 'it is offered apart, with its button');
+  assert.deepEqual(r.fix, []);
   assert.equal(setupSummary([c('a', 'ok')]).text, 'Everything needed is installed');
 });
 
