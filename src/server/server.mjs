@@ -59,6 +59,7 @@ import { accountsFeature } from './accounts.mjs';
 import { pcsetupFeature } from '../pcsetup/feature.mjs';
 import { skillhubFeature } from '../skillhub/feature.mjs';
 import { workspaceFeature } from '../workspace/feature.mjs';
+import { chatFeature } from '../chat/feature.mjs';
 import { onboardingFeature } from '../setup/onboarding.mjs';
 import { removeDashboardFile, writeDashboardFile } from './dashboardfile.mjs';
 import { createLoginLink, loginLinkStatus, qrRows, useLoginLink } from './loginlink.mjs';
@@ -196,6 +197,7 @@ export function createServer(opts = {}) {
   };
   // ---- the features: one line each ----
   const machines = machinesFeature(ctx, opts.machines);
+  const chat = chatFeature(ctx, opts.chat);
   const features = [
     assistantFeature(ctx, { hub: machines.machines.hub, ...opts.assistant }), // Tia; first, so her own token is checked before the machines gate
     machines, // other computers: relay, pairing, bearer tokens
@@ -206,6 +208,7 @@ export function createServer(opts = {}) {
     skillhubFeature(ctx, opts.skillhub), // Settings → Skills: installed, suggested for a project, find, review → approve, updates
     onboardingFeature(ctx, opts.onboarding), // Home → Get started: the steps a new user goes through, done or not
     workspaceFeature(ctx, opts.workspace), // Workspace: the tree, its map, restore and sync, Git and GitHub, the AI brain (read-only)
+    chat, // coding without the terminal: a Claude Code conversation as a chat (its cards are among the sessions)
   ];
   const trusted = (req) => features.some((f) => f.trusted && f.trusted(req));
 
@@ -254,7 +257,8 @@ export function createServer(opts = {}) {
       const now = c.sessionId && serving[c.sessionId];
       c.autoOn = now && now.profile ? { name: now.profile, label: names.get(now.profile) || now.profile, at: now.at || null } : null;
     }
-    return list;
+    // Open chats are sessions too (kind "chat"): Home lists them, the watcher notifies about them.
+    return [...list, ...chat.cards()];
   };
 
   /** Move a session to another profile; "auto" is not a profile file, so it is built here. */
@@ -397,6 +401,8 @@ export function createServer(opts = {}) {
       if (mode === 'resume') {
         sid = v.sessionId(b.sessionId);
         if (!sid || !sessionsIn(dir).some((s) => s.id === sid)) throw bad('that conversation is not in this folder');
+        // One conversation runs in one place only.
+        if (chat.running(sid)) throw new HttpError(409, 'this conversation is open as a chat right now; open it in a terminal from the chat');
       }
       // An optional first message (Tia's start_session; one line, see deck.mjs promptArgs).
       let prompt = null;

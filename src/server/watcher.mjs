@@ -159,13 +159,15 @@ export class Watcher {
 
   #link(name) {
     const base = this.settings().publicUrl;
-    return base ? `${base.replace(/\/+$/, '')}/#/s/${encodeURIComponent(name)}` : '';
+    // A chat (src/chat) is "chat:<id>" among the sessions; its page is #/chat/<id>.
+    const page = name.startsWith('chat:') ? `chat/${name.slice(5)}` : `s/${encodeURIComponent(name)}`;
+    return base ? `${base.replace(/\/+$/, '')}/#/${page}` : '';
   }
 
-  emit(status, name, message = '') {
+  emit(status, name, message = '', label = name) {
     const { notify } = this.settings();
     if (!notify || !notify.url) return;
-    const d = describe(status, name, message);
+    const d = describe(status, label, message);
     // Not awaited: a slow receiver never holds up the loop.
     this.send(notify, { ...d, status, session: name, url: this.#link(name) }).catch(() => {});
   }
@@ -178,7 +180,7 @@ export class Watcher {
     for (const e of events) {
       const c = e.card;
       const msg = e.status === 'limit' ? (c.limit && c.limit.text) || (c.runLimit && c.runLimit.error) || '' : c.lastMessage || c.note || '';
-      this.emit(e.status, c.name, msg);
+      this.emit(e.status, c.name, msg, c.display || c.name);
     }
   }
 
