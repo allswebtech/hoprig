@@ -181,6 +181,29 @@ test('attach: a later browser gets the current screen first, then live output; s
   one.close();
 });
 
+test('attach: a program that took the mouse with SGR reports gets them again after a reload', async () => {
+  const { b, procs } = backend('linux');
+  await b.create({ name: 'm', dir: '/w' });
+  const p = procs[0];
+  const snapshot = async () => {
+    const s = b.attach('m', {});
+    let d = '';
+    s.onData((x) => (d += x));
+    await waitFor(() => d.includes('ready'), 'the snapshot');
+    s.close();
+    return d;
+  };
+  p.emit('\x1b[?1049h\x1b[?1003h\x1b[?1006hready');
+  const one = await snapshot();
+  assert.ok(one.includes('\x1b[?1003h') && one.includes('\x1b[?1006h'), 'the mouse mode and its encoding');
+  p.emit('\x1b[?1006l');
+  assert.ok(!(await snapshot()).includes('\x1b[?1006h'), 'turned off again');
+  p.emit('\x1b[?1006h\x1bcready');
+  assert.ok(!(await snapshot()).includes('\x1b[?1006h'), 'a full reset ends it');
+  p.emit('\x1b[?1006hready');
+  assert.ok(!(await snapshot()).includes('\x1b[?1006h'), 'no mouse mode: nothing to encode');
+});
+
 test('the headless terminal answers queries only while no browser is attached', async () => {
   const { b, procs } = backend('linux');
   await b.create({ name: 'q', dir: '/w' });

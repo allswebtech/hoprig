@@ -14,6 +14,7 @@ import { icon } from './icons.js';
 import { MACHINE_STATE, applyPageTheme, fill, h, link, machine, prefs } from './lib.js';
 import { navPages, pageById, registeredHeadTools } from './registry.js';
 import { store } from './store.js';
+import { cameFrom, named, startOver, wayBack } from './trail.js';
 
 const app = typeof document !== 'undefined' ? document.getElementById('app') : null;
 
@@ -26,7 +27,7 @@ const currentItem = (pageId) => (pageById(pageId) || {}).navAs || pageId;
 const hrefOf = (p) => (p.id === 'home' ? '#/' : p.perComputer ? link(`#/${p.id}`) : `#/${p.id}`);
 
 function navItem(p, current, cls) {
-  return h(`a.${cls}`, { href: hrefOf(p), 'aria-current': current === p.id ? 'page' : null },
+  return h(`a.${cls}`, { href: hrefOf(p), 'aria-current': current === p.id ? 'page' : null, onclick: startOver },
     icon(p.icon, { size: cls === 'side-item' ? 18 : 22 }),
     h('span', p.title),
     p.count ? h('span.nav-badge', { 'aria-label': `${p.count} waiting for you` }, String(p.count)) : null);
@@ -37,14 +38,14 @@ function paintNav(side, bottom, pageId) {
   const main = [HOME, ...navPages('main')];
   const more = navPages('more');
   fill(side,
-    h('a.side-brand', { href: '#/' }, h('img.side-mark', { src: 'icon.svg', alt: '', width: 36, height: 36 }), h('span.side-name', APP_NAME)),
+    h('a.side-brand', { href: '#/', onclick: startOver }, h('img.side-mark', { src: 'icon.svg', alt: '', width: 36, height: 36 }), h('span.side-name', APP_NAME)),
     h('div.side-group', main.map((p) => navItem(p, current, 'side-item'))),
     h('div.side-group', h('div.side-group-title', 'More'), more.map((p) => navItem(p, current, 'side-item'))));
   const inMore = current === 'more' || more.some((p) => p.id === current);
   const waiting = more.reduce((n, p) => n + p.count, 0);
   fill(bottom,
     main.map((p) => navItem(p, current, 'tab')),
-    h('a.tab', { href: '#/more', 'aria-current': inMore ? 'page' : null }, icon('grid', { size: 22 }), h('span', 'More'),
+    h('a.tab', { href: '#/more', 'aria-current': inMore ? 'page' : null, onclick: startOver }, icon('grid', { size: 22 }), h('span', 'More'),
       waiting ? h('span.nav-badge', { 'aria-label': `${waiting} waiting for you` }, String(waiting)) : null));
 }
 
@@ -121,8 +122,18 @@ export function endFrame() {
  * stays at the bottom (Tia's chat). The page head holds, on the right, the page's tools, its main action, the
  * computer pill (a page of one computer, with several) and the light/dark button.
  */
-export function frame({ title, intro = null, page = null, back = null, backLabel = 'Back', backOnPhoneOnly = false, introOnPhone = true, actions = [], primary = null, body, extra = [], wide = false, fillWindow = false }) {
+export function frame({ title, place = null, intro = null, page = null, back: parent = null, backLabel: parentLabel = 'Back', backOnPhoneOnly: parentOnPhoneOnly = false, introOnPhone = true, actions = [], primary = null, body, extra = [], wide = false, fillWindow = false }) {
   endFrame();
+  // The way back is the page that sent you here (trail.js); without one, the page's own parent. `place` is what a
+  // link back to this page says, when the title alone would not ("Setup" for a computer's Setup part).
+  named(place || (typeof title === 'string' ? title : ''));
+  const way = page === 'home' && !parent ? null : wayBack(parent); // Home is where every trail starts
+  const back = way ? way.hash : parent;
+  const backLabel = way ? way.label : parentLabel;
+  const backOnPhoneOnly = way ? false : parentOnPhoneOnly;
+  // A page whose parent is a list beside it on a desktop (Settings): there the way back stays the page you came from.
+  const from = !way && parentOnPhoneOnly ? cameFrom() : null;
+  const backLink = (href, label, cls) => h(`a.pagehead-back${cls}`, { href, 'aria-label': `Back to ${label}` }, icon('back', { size: 16 }), h('span.pagehead-back-label', label));
   const reg = page ? pageById(page) : null;
   const switcher = h('div.switcher-slot');
   // Drawn again only when the computers or their names change, so an open list is not closed by the next poll.
@@ -150,7 +161,8 @@ export function frame({ title, intro = null, page = null, back = null, backLabel
     : () => null;
   const head = h('header.pagehead',
     h('div.pagehead-text',
-      back ? h(`a.pagehead-back${backOnPhoneOnly ? '.phone-only' : ''}`, { href: back, 'aria-label': backLabel }, icon('back', { size: 16 }), h('span.pagehead-back-label', backLabel)) : null,
+      back ? backLink(back, backLabel, backOnPhoneOnly ? '.phone-only' : '') : null,
+      from ? backLink(from.hash, from.label, '.desktop-only') : null,
       h('div.pagehead-title-row',
         back ? null : h('img.pagehead-mark', { src: 'icon.svg', alt: '', width: 26, height: 26 }),
         h('h1.page-title', title)),

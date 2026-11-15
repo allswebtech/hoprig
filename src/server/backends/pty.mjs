@@ -201,7 +201,19 @@ export class PtyBackend {
     vt.loadAddon(ser);
     vt.loadAddon(new unicode11.Unicode11Addon());
     vt.unicode.activeVersion = '11'; // measure emoji and wide characters as the browser does
-    const t = { name, id, dir, cols, rows, vt, ser, proc: null, clients: new Set(), waiters: new Set(), disposed: false, created: Date.now(), activity: Date.now(), closing: false };
+    const t = { name, id, dir, cols, rows, vt, ser, sgrMouse: false, proc: null, clients: new Set(), waiters: new Set(), disposed: false, created: Date.now(), activity: Date.now(), closing: false };
+    // The snapshot a browser gets on attach has the mouse modes but not their encoding: a program that asked for SGR
+    // reports (Claude Code's full-screen view) would get the old encoding after a reload and misread every wheel turn.
+    const sgr = (on) => (params) => {
+      if (params.includes(1006)) t.sgrMouse = on;
+      return false; // the terminal's own handler runs too
+    };
+    vt.parser.registerCsiHandler({ prefix: '?', final: 'h' }, sgr(true));
+    vt.parser.registerCsiHandler({ prefix: '?', final: 'l' }, sgr(false));
+    vt.parser.registerEscHandler({ final: 'c' }, () => {
+      t.sgrMouse = false;
+      return false;
+    });
     // Programs ask the terminal questions (cursor position, device attributes) and may wait for the answer. With a
     // browser attached the browser's terminal answers; with none, the headless one does, as tmux would.
     vt.onData((reply) => {
@@ -348,7 +360,7 @@ export class PtyBackend {
       pending = [];
       this.#settled(t).then(() => {
         if (ended) return;
-        deliver(t.ser.serialize({ scrollback: this.scrollback }));
+        deliver(t.ser.serialize({ scrollback: this.scrollback }) + (t.sgrMouse && t.vt.modes.mouseTrackingMode !== 'none' ? '\x1b[?1006h' : ''));
         for (const d of pending) deliver(d);
         pending = [];
         ready = true;

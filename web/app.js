@@ -7,6 +7,7 @@ import { applyPageTheme, h, link, machine } from './lib.js';
 import { allPages, navPages } from './registry.js';
 import { connectionBanner, endFrame, frame, listRow } from './shell.js';
 import { openSession } from './session.js';
+import { arrive } from './trail.js';
 import { viewHome } from './home.js';
 import { viewNew } from './newsession.js';
 import { hubStandIn, store } from './store.js';
@@ -120,7 +121,7 @@ function onHub(hash) {
   return false;
 }
 
-function route() {
+function route(e) {
   hubWait();
   hubWait = () => {};
   stopView();
@@ -139,6 +140,8 @@ function route() {
   const p = /^\/([a-z][a-z0-9-]*)(?:\/(.*))?$/.exec(path);
   const page = p && allPages().find((x) => x.id === p[1]);
   if (page && !mm && CODING_PAGES.includes(page.id) && onHub(hash)) return;
+  if (!s && !page && !['/new', '/new/here', '/more'].includes(path) && (mm || path !== '/')) return location.replace('#/');
+  arrive(location.hash || '#/', e && e.oldURL ? new URL(e.oldURL).hash || '#/' : null);
   let stop;
   if (s) {
     document.body.classList.remove('has-nav');
@@ -146,10 +149,7 @@ function route() {
   } else if (path === '/new' || path === '/new/here') stop = viewNew();
   else if (path === '/more') stop = viewMore();
   else if (page) stop = page.render({ frame, connectionBanner, sub: p[2] || '' });
-  else {
-    if (mm || path !== '/') return location.replace('#/');
-    stop = viewHome();
-  }
+  else stop = viewHome();
   stopView = typeof stop === 'function' ? stop : () => {};
   window.scrollTo(0, 0);
 }

@@ -5,7 +5,10 @@
 // that scrolls sideways), the key bar (keys a phone lacks; it folds away and remembers) and the message box.
 // History: with tmux the session's terminal owns the screen, so xterm.js keeps no scrollback; wheel and touch
 // scrolling are sent to the server, which scrolls the session's own history (tmux copy mode). With the built-in
-// backend (capabilities.nativeScrollback) the browser's own scrollback is the history and nothing is sent.
+// backend (capabilities.nativeScrollback) the browser's own scrollback is the history and nothing is sent. A program
+// that takes the mouse (Claude Code's full-screen view) keeps its history itself: then wheel and touch go to it as
+// wheel reports, and what it copies (OSC 52) goes to this device's clipboard.
+// The way back is the page you came from (trail.js): Setup, when its Fix opened this session; else Home.
 import { Terminal } from './vendor/xterm/lib/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit/lib/addon-fit.mjs';
 import { Unicode11Addon } from './vendor/addon-unicode11/lib/addon-unicode11.mjs';
@@ -17,6 +20,7 @@ import {
 import { pageNotify, store } from './store.js';
 import { registeredSessionActions } from './registry.js';
 import { isStarting, markStarting, startingPill } from './newsession.js';
+import { named, wayBack } from './trail.js';
 
 // Claude Code draws for a dark terminal by default, so the terminal is dark unless the user picks otherwise.
 export const TERM_THEMES = {
@@ -38,6 +42,7 @@ export const termTheme = () => {
 };
 export const termFont = () => prefs.get('term.font', innerWidth < 600 ? 13 : 14);
 const finePointer = matchMedia('(pointer: fine)').matches; // desktop: Enter sends; phone: Enter is a new line
+const onMac = /Mac/.test(navigator.userAgent);
 
 const KEYS = [
   ['Esc', '\x1b', 'Escape'], ['Tab', '\t', 'Tab'], ['⇧Tab', '\x1b[Z', 'Shift+Tab: switch mode'], ['Ctrl C', '\x03', 'Ctrl+C'],
@@ -63,6 +68,8 @@ export function openSession(app, name) {
   document.body.classList.add('term-mode');
   store.viewing = name;
   pageNotify.setTitleBase(name);
+  named(name);
+  const way = wayBack() || { hash: '#/', label: 'Home' };
   const base = `/api/sessions/${encodeURIComponent(name)}`;
   let session = null;
   let profiles = [];
@@ -81,7 +88,9 @@ export function openSession(app, name) {
   const overlay = h('div.term-overlay', h('div.spinner', { 'aria-hidden': 'true' }), h('span', 'Connecting…'));
   const liveBtn = h('button.btn.small.primary.live.hidden', { type: 'button', onclick: () => scroller.exit() }, icon('down', { size: 16 }), h('span', 'Back to live'));
   const termEl = h('div.term-el');
-  const box = h('div.term-box', termEl, overlay, liveBtn);
+  // Where a copy goes on plain http, where the browser has no clipboard API (execCommand needs a selection).
+  const clipEl = h('textarea.term-clip', { readOnly: true, tabindex: '-1', 'aria-hidden': 'true' });
+  const box = h('div.term-box', termEl, overlay, liveBtn, clipEl);
   const quick = h('div.quick', { role: 'toolbar', 'aria-label': 'Quick messages' });
   // The key bar folds away (more room for the terminal on a phone); the choice is kept on this device.
   let keysOn = prefs.get('session.keys', true);
@@ -115,7 +124,7 @@ export function openSession(app, name) {
   paintKeys();
   const wrap = h('div.term-wrap',
     h('header.sessbar',
-      h('a.btn.icon.ghost', { href: '#/', 'aria-label': 'Back to Home' }, icon('back')),
+      h('a.btn.ghost.sessback', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.sessback-label', way.label)),
       h('div.sess-title', titleBtn, h('div.sess-sub', statusSlot)),
       h('div.sessbar-end', profileBtn, btn('icon ghost', { icon: 'more', title: 'More for this session', onclick: () => menu() }))),
     needSlot,
@@ -148,6 +157,7 @@ export function openSession(app, name) {
     scrollback: 0, // set to 5000 below when the backend has no history of its own
     cursorBlink: false,
     macOptionIsMeta: true,
+    macOptionClickForcesSelection: true, // Option+drag selects on a Mac while the program has the mouse (Shift elsewhere)
     theme: termTheme(),
   });
   const fit = new FitAddon();
@@ -163,12 +173,41 @@ export function openSession(app, name) {
   };
   darkQuery.addEventListener('change', applyTerm);
 
+  // Your last press on this page (a mouse button, a finger, a key): only right after one may the program copy.
+  let lastGesture = 0;
+  const gesture = () => (lastGesture = Date.now());
+  for (const ev of ['pointerdown', 'pointerup', 'keydown']) wrap.addEventListener(ev, gesture, { capture: true });
   // Desktop: Ctrl/Cmd+C copies when text is selected (instead of sending ^C).
   term.attachCustomKeyEventHandler((e) => {
     if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && e.key === 'c' && term.hasSelection()) {
       copyText(term.getSelection());
       term.clearSelection();
       return false;
+    }
+    return true;
+  });
+
+  // Copy from the program: Claude Code's full-screen view copies what you select with the mouse as OSC 52 (inside
+  // tmux it hands it to tmux, which passes it on). Only writes are taken, a program never reads this clipboard, and
+  // only within a few seconds of your own press in the terminal: output alone cannot replace what you copied.
+  term.parser.registerOscHandler(52, (data) => {
+    const b64 = data.slice(data.indexOf(';') + 1);
+    if (!data.includes(';') || !b64 || b64 === '?' || b64.length > 4_000_000 || Date.now() - lastGesture > 5000) return true;
+    let text = '';
+    try {
+      text = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+    } catch {
+      return true;
+    }
+    if (text) {
+      clipEl.value = text;
+      copyText(text, clipEl).then((ok) => {
+        clipEl.value = '';
+        if (finePointer) term.focus();
+        return ok;
+      }).then((ok) => (ok
+        ? toast('Copied', { ms: 1500 })
+        : toast(`Not copied: the browser refused. Hold ${onMac ? 'Option' : 'Shift'} while you select, then copy.`, { kind: 'error', ms: 6000 })));
     }
     return true;
   });
@@ -208,7 +247,7 @@ export function openSession(app, name) {
       if (disposed) return;
       const exists = await api(base).then(() => true, (err) => err.status !== 404);
       if (!exists || e.code === 4000) {
-        showOverlay(icon('check', { size: 28 }), h('p', 'This session has ended.'), h('a.btn.primary', { href: '#/' }, 'Back to sessions'));
+        showOverlay(icon('check', { size: 28 }), h('p', 'This session has ended.'), h('a.btn.primary', { href: way.hash }, way.hash === '#/' ? 'Back to sessions' : `Back to ${way.label}`));
         return;
       }
       const wait = Math.min(10_000, 500 * 2 ** retry++);
@@ -265,14 +304,42 @@ export function openSession(app, name) {
   };
   const cellHeight = () => Math.max(8, box.clientHeight / Math.max(1, term.rows));
   let nativeScroll = false; // set from the backend's capabilities in the first state update
+  // The program asked for the mouse with wheel reports (Claude Code's full-screen view): it scrolls its own history.
+  // (X10, the oldest mode, has no wheel: xterm.js would turn a wheel into arrow keys there.)
+  const appScrolls = () => ['vt200', 'drag', 'any'].includes(term.modes.mouseTrackingMode);
+  let replaying = false;
+  /**
+   * `n` lines of wheel (negative: up, to older lines) for the program, at the point (x, y). They go through xterm.js
+   * as wheel events of one line each, so it encodes them as the program asked; xterm.js alone would send one report
+   * per wheel event, one line for a whole notch.
+   */
+  function wheelToApp(n, x, y) {
+    const screen = term.element && term.element.querySelector('.xterm-screen');
+    if (!screen) return;
+    const r = screen.getBoundingClientRect();
+    const clientX = Math.min(Math.max(x, r.left + 1), r.right - 1);
+    const clientY = Math.min(Math.max(y, r.top + 1), r.bottom - 1);
+    replaying = true;
+    try {
+      for (let i = 0; i < Math.min(Math.abs(n), 30); i++) {
+        term.element.dispatchEvent(new WheelEvent('wheel', { deltaY: Math.sign(n), deltaMode: WheelEvent.DOM_DELTA_LINE, clientX, clientY, bubbles: true, cancelable: true }));
+      }
+    } finally {
+      replaying = false;
+    }
+  }
   let wheelAcc = 0;
   term.attachCustomWheelEventHandler((e) => {
-    if (nativeScroll) return true; // xterm.js scrolls its own buffer
+    if (replaying) return true; // ours, from wheelToApp
+    const app = appScrolls();
+    if (nativeScroll && !app) return true; // xterm.js scrolls its own buffer
+    if (app && scroller.offset > 0) scroller.exit();
     wheelAcc += e.deltaMode === 1 ? e.deltaY * cellHeight() : e.deltaY;
     const lines = Math.trunc(wheelAcc / cellHeight());
     if (lines) {
       wheelAcc -= lines * cellHeight();
-      scroller.queue(-lines);
+      if (app) wheelToApp(lines, e.clientX, e.clientY);
+      else scroller.queue(-lines);
     }
     e.preventDefault();
     return false;
@@ -286,14 +353,18 @@ export function openSession(app, name) {
     }
   }, { passive: true, capture: true });
   box.addEventListener('touchmove', (e) => {
-    if (nativeScroll || touchY === null || e.touches.length !== 1) return;
-    const y = e.touches[0].clientY;
-    touchAcc += y - touchY;
-    touchY = y;
+    if (touchY === null || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const app = appScrolls();
+    if (nativeScroll && !app) return;
+    if (app && scroller.offset > 0) scroller.exit();
+    touchAcc += t.clientY - touchY;
+    touchY = t.clientY;
     const lines = Math.trunc(touchAcc / cellHeight());
     if (lines) {
       touchAcc -= lines * cellHeight();
-      scroller.queue(lines); // finger down = older lines
+      if (app) wheelToApp(-lines, t.clientX, t.clientY); // finger down = older lines = wheel up
+      else scroller.queue(lines);
     }
     e.preventDefault();
   }, { passive: false, capture: true });
@@ -653,7 +724,7 @@ export function openSession(app, name) {
           await api(`${base}/kill`, {});
           toast(`${name} ended`);
           store.refresh();
-          location.hash = '#/';
+          location.hash = way.hash;
         } catch (e) {
           toast(e.message, { kind: 'error' });
         }

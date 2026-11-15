@@ -10,6 +10,14 @@ body.term-mode { overflow: hidden; }
 .titlebtn-name { font-size: var(--fs-lg); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--warn); color: #fff; font-size: 11px; font-weight: 700; display: inline-grid; place-items: center; }
 .sessbar-end { display: flex; align-items: center; gap: 2px; min-width: 0; }
+/* The way back names the page it opens ("Setup"); on a narrow screen only the arrow, the name is its label. */
+.sessback { flex: none; max-width: 28vw; padding: 0 10px 0 6px; gap: 4px; }
+.sessback-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 600; }
+@media (max-width: 599px) {
+  .sessback { width: var(--tap); padding: 0; }
+  .sessback-label { display: none; }
+}
+.term-clip { position: absolute; left: 0; top: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; font-size: 16px; pointer-events: none; }
 .profilebtn { display: inline-flex; align-items: center; gap: 6px; max-width: 46vw; min-height: 38px; padding: 0 10px; border-radius: 999px; border: 1px solid transparent; background: var(--accent-soft); color: var(--accent-soft-text); font-weight: 650; font-size: var(--fs-sm); cursor: pointer; }
 .profilebtn:hover { border-color: var(--accent); }
 .profilebtn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

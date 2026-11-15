@@ -361,7 +361,9 @@ function viewPc({ frame, connectionBanner, sub }) {
   };
   const tabs = tabBar('Parts of this page', PARTS.map((p) => ({ id: p.id, label: p.title, href: link(p.id ? `#/computer/${p.id}` : '#/computer') })), part.id);
   const content = part.id === 'setup' ? setupSection() : part.id === 'advanced' ? advanced(ctx) : overview(ctx);
-  const draw = () => frame({ title: label(), page: 'computer', back: '#/computers', backLabel: 'Computers', intro: 'One computer: how it is doing, what is set up on it, and its controls.', body: [tabs, h('p.cp-parttext', part.text), content] });
+  // A link back here names the part ("Setup"), and the computer once there are several.
+  const place = () => (part.id ? (store.multi ? `${part.title} · ${label()}` : part.title) : label());
+  const draw = () => frame({ title: label(), place: place(), page: 'computer', back: '#/computers', backLabel: 'Computers', intro: 'One computer: how it is doing, what is set up on it, and its controls.', body: [tabs, h('p.cp-parttext', part.text), content] });
   draw();
   const tell = () => listeners.forEach((fn) => fn());
   // The name may arrive after the first paint (and changes after Rename).
