@@ -584,3 +584,17 @@ test('new session: a folder where a session runs opens that session', () => {
   const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
   assert.match(src, /f\.live && f\.session\s*\?\s*row\(f, f\.short, \(\) => \(location\.hash = link\(`#\/s\/\$\{encodeURIComponent\(f\.session\)\}`/);
 });
+
+test('workspace strip: a project that is not here gets a button that says so, not only "Sync"', async () => {
+  const { stripActions, workspaceLine } = await import('../../web/workspace.js');
+  const p = (label, state, url = `https://git.example.com/demo/${label}.git`) => ({ kind: 'project', label, state, url });
+  const map = { exists: true, entries: [p('bookshop', 'here'), p('invoices', 'missing')] };
+  const a = stripActions(map, workspaceLine(map, null));
+  assert.deepEqual(texts(a), ['Get invoices', 'Sync']);
+  assert.match(a.children[0].attrs.href || '', /^#\/get-project\/https%3A%2F%2Fgit\.example\.com%2Fdemo%2Finvoices\.git$/, 'what the card\'s Get it does');
+  const three = { exists: true, entries: [p('a', 'missing'), p('b', 'missing'), p('c', 'missing')] };
+  assert.deepEqual(texts(stripActions(three, workspaceLine(three, null))), ['Get 3 projects', 'Sync']);
+  const none = { exists: true, entries: [p('bookshop', 'here')] };
+  assert.deepEqual(texts(stripActions(none, workspaceLine(none, null))), ['Sync']);
+  assert.equal(stripActions({ exists: false, entries: [] }, {}), null, 'no map: no buttons');
+});

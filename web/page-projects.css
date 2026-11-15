@@ -118,7 +118,7 @@
 .ws-strip-icon { display: inline-flex; color: var(--ok); }
 .ws-strip.warn .ws-strip-icon { color: var(--warn); }
 .ws-strip-text { flex: 1; min-width: 12em; font-weight: 550; }
-.ws-strip .btn { margin-left: auto; }
+.ws-strip-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 .ws-missing { box-shadow: none; border: 1px dashed var(--border-strong); background: var(--surface-2); }
 .ws-missing .ws-title, .ws-missing .row-icon { color: var(--muted); }
 .ws-missing .row-sub { overflow-wrap: anywhere; }

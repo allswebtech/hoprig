@@ -136,11 +136,29 @@ export function workspaceStrip(onMap = () => {}) {
     fill(el,
       h('span.ws-strip-icon', icon(s.warn ? 'alert' : s.noMap ? 'info' : 'check', { size: 16 })),
       h('span.ws-strip-text', s.noMap ? h('a', { href: link('#/settings/workspace') }, s.text) : s.text),
-      map.exists ? btn('small secondary', { icon: 'refresh', label: 'Sync', onclick: () => syncSheet(map, load) }) : null);
+      stripActions(map, s, load));
     onMap(map);
   }
   load();
   return { el, load, map: () => map };
+}
+
+/**
+ * The strip's buttons, each named for what it does. A project of the map that is not here: "Get invoices" (what its
+ * card's Get it does), or "Get 3 projects", which leads to their cards. Sync stays beside it: it brings what is here
+ * up to date and gets nothing that is not, so it never stands alone under "not on this computer".
+ */
+export function stripActions(map, s, load = () => {}) {
+  if (!map || !map.exists) return null;
+  const missing = s.missing || [];
+  const one = missing.length === 1 && missing[0].url ? missing[0] : null;
+  const get = one
+    ? h('a.btn.small.secondary', { href: link(`#/get-project/${encodeURIComponent(one.url)}`) }, icon('download', { size: 16 }), h('span', `Get ${one.label}`))
+    : missing.length
+      ? btn('small secondary', { icon: 'download', label: `Get ${plural(missing.length, 'project')}`, onclick: () => document.querySelector('.ws-missing')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) })
+      : null;
+  const sync = btn('small secondary', { icon: 'refresh', label: 'Sync', title: 'Bring the repositories on this computer up to date', onclick: () => syncSheet(map, load) });
+  return h('span.ws-strip-actions', get, sync);
 }
 
 /** A project of the map that is not on this computer: a quiet card with "Get it". */
