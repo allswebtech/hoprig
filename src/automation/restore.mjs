@@ -16,7 +16,7 @@
 // Stored: { lastTickAt, sessions: { [name]: { name, cwd, profile, sessionId, carryArgs, goneAt, shellSince } } }
 //
 // Claude Code's sessions only: a Codex or OpenCode session is not reopened after a restart (yet).
-import { isClaudeCard } from './cards.mjs';
+import { isClaudeCard, toolOf } from './cards.mjs';
 
 export const GONE_WINDOW_MS = 2 * 60_000;
 /** A session that has been a plain shell this long had Claude exit in it: not a Claude session any more. */
@@ -34,13 +34,16 @@ export function decide({ cards, data, now, boot, enabled }) {
   const sessions = {};
   const actions = [];
   const present = new Map(cards.map((c) => [c.name, c]));
+  // "Continue here" in a chat leaves its terminal a plain shell and the conversation in the chat: a terminal that
+  // became a shell while an open chat has its conversation lost it to that chat, and is not reopened on it.
+  const toChat = (s) => cards.some((c) => c.kind === 'chat' && toolOf(c) === 'claude' && c.sessionId === s.sessionId);
 
   for (const [name, s] of Object.entries(prev.sessions || {})) {
     const c = present.get(name);
     if (boot && !c) {
       // Gone at start: reopen what the service lost; forget what had been closed before it stopped.
       const lostAtStop = !s.goneAt || prev.lastTickAt - s.goneAt <= GONE_WINDOW_MS;
-      if (lostAtStop && s.sessionId) {
+      if (lostAtStop && s.sessionId && !(s.shellSince && toChat(s))) {
         actions.push({ type: 'reopen', session: { name, cwd: s.cwd, profile: s.profile, sessionId: s.sessionId, carryArgs: s.carryArgs || [] } });
         sessions[name] = { ...s, goneAt: null, shellSince: null };
       }
@@ -52,6 +55,7 @@ export function decide({ cards, data, now, boot, enabled }) {
       continue;
     }
     if (!isClaudeCard(c)) {
+      if (toChat(s)) continue; // its conversation went on in a chat
       // A shell: Claude is still starting (just reopened), or it exited. Wait a little before deciding.
       const shellSince = s.shellSince || now;
       if (now - shellSince <= SHELL_FORGET_MS) sessions[name] = { ...s, goneAt: null, shellSince };

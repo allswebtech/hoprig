@@ -68,6 +68,24 @@ test('restore: Claude exited (a shell for a while) is forgotten; a just-reopened
   assert.deepEqual(r.data.sessions, {});
 });
 
+test('restore: a terminal whose conversation went on in a chat ("Continue here": a shell now) is not reopened on it', () => {
+  const chat = { name: `chat:${SID}`, kind: 'chat', cwd: '/w', sessionId: SID, profile: { name: 'sub' }, status: 'waiting' };
+  let r = restore.decide({ cards: [claude('w', { sessionId: SID }), chat], data: null, now: 0, boot: true, enabled: true });
+  assert.ok(r.data.sessions.w, 'read along: the terminal runs it, the chat only reads');
+  r = restore.decide({ cards: [shell('w'), chat], data: r.data, now: 1000, boot: false, enabled: true });
+  assert.deepEqual(r.data.sessions, {}, 'forgotten at once');
+  // Stopped right after the take-over (the shell was seen before the chat's card was): not reopened at the start.
+  r = restore.decide({ cards: [claude('w', { sessionId: SID })], data: null, now: 0, boot: true, enabled: true });
+  r = restore.decide({ cards: [shell('w')], data: r.data, now: 1000, boot: false, enabled: true });
+  r = restore.decide({ cards: [chat], data: r.data, now: 9000, boot: true, enabled: true });
+  assert.deepEqual(r.actions, []);
+  // Without a chat on it, a session that became a shell just before the stop comes back as before.
+  r = restore.decide({ cards: [claude('w', { sessionId: SID })], data: null, now: 0, boot: true, enabled: true });
+  r = restore.decide({ cards: [shell('w')], data: r.data, now: 1000, boot: false, enabled: true });
+  r = restore.decide({ cards: [], data: r.data, now: 9000, boot: true, enabled: true });
+  assert.deepEqual(r.actions.map((a) => a.session.name), ['w']);
+});
+
 test('restore: follows a new session id (/clear); a session with no conversation on disk (nobody typed into it) comes back fresh under its id', async () => {
   let r = restore.decide({ cards: [claude('w')], data: null, now: 0, boot: true, enabled: true });
   r = restore.decide({ cards: [claude('w', { sessionId: SID, cwd: '/p', profile: { name: 'api' }, carryArgs: ['--model', 'opus'] })], data: r.data, now: 1, boot: false, enabled: true });
