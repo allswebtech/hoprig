@@ -252,12 +252,16 @@ export async function addProfile(nameArg) {
   out(`  ${bold('2')}  an Anthropic API key`);
   out(`  ${bold('3')}  an API through a proxy or gateway (base URL + token)`);
   out(`  ${bold('4')}  the Claude account this machine is logged in with (claude /login)`);
+  out(`  ${bold('5')}  an OpenAI API key, or a service that speaks OpenAI's API (for Codex and OpenCode)`);
+  out(`  ${bold('6')}  the ChatGPT account Codex signs in to on this computer (for Codex)`);
   const kind = await ask('> ');
   if (kind === null || kind === '') return null;
 
   const env = {};
   let prerun = '';
   let defaultLabel = '';
+  let models = '';
+  let signin = '';
   if (kind === '1') {
     out();
     out('A browser sign-in starts now. Sign in with THE ACCOUNT FOR THIS PROFILE (check which account the');
@@ -304,13 +308,37 @@ export async function addProfile(nameArg) {
     defaultLabel = `API via ${url.replace(/^https?:\/\//, '')}`;
   } else if (kind === '4') {
     defaultLabel = 'Claude account (stored login)';
+  } else if (kind === '5') {
+    const key = await askHidden('API key (it is not shown): ');
+    if (!key) return null;
+    const url = await ask('Base URL (Enter for https://api.openai.com): ');
+    if (url === null) return null;
+    if (url && !/^https?:\/\/\S+$/.test(url)) {
+      out('That is not an http(s) URL. Nothing was saved.');
+      return null;
+    }
+    const model = await ask('Model (Enter for the coding tool\'s own default): ');
+    if (model === null) return null;
+    if (model && !/^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/.test(model)) {
+      out('That is not a model id. Nothing was saved.');
+      return null;
+    }
+    env.OPENAI_API_KEY = key;
+    if (url && !/^https:\/\/api\.openai\.com\/?(v1\/?)?$/.test(url)) env.OPENAI_BASE_URL = url.replace(/\/+$/, '').replace(/\/v1$/, '');
+    if (model) models = `*=${model}`;
+    defaultLabel = env.OPENAI_BASE_URL ? `OpenAI API via ${env.OPENAI_BASE_URL.replace(/^https?:\/\//, '')}` : 'OpenAI API';
+  } else if (kind === '6') {
+    signin = 'codex';
+    defaultLabel = 'Codex sign-in';
   } else {
     out('Nothing was saved.');
     return null;
   }
   const label = await ask(`Label shown in menus [${defaultLabel}]: `);
   if (label === null) return null;
-  writeProfile(name, { label: label || defaultLabel, prerun, env });
-  out(`Saved. Start it with: hoprig ${name}`);
-  return name;
+  const saved = writeProfile(name, { label: label || defaultLabel, prerun, models, signin, env });
+  if (kind === '5') out(`Saved. Start Codex with: hoprig codex ${name}  (or OpenCode: hoprig opencode ${name}). The dashboard's Test on the provider finds out whether Claude Code can use it too.`);
+  else if (kind === '6') out(`Saved. Sign Codex in first: hoprig codex login --device-auth  Then start it with: hoprig codex ${name}`);
+  else out(`Saved. Start it with: hoprig ${name}`);
+  return saved ? name : null;
 }

@@ -140,12 +140,12 @@ export function toolsPart({ after = () => {}, prefix = '' } = {}) {
       return h(`div.row.static.bl-tool-row.bl-${t.state}`,
         h('span.row-icon.bl-mark', icon(ic, { size: 15 })),
         h('span.row-main', h('span.row-title', t.name),
-          h('span.row-sub', text || `${t.todo} to link${t.left ? `, ${t.left} in the way` : ''}`)));
+          h('span.row-sub', text || `Not linked yet: ${t.todo} link${t.todo === 1 ? '' : 's'} to make (rules, skills, memory)${t.left ? `, ${t.left} in the way` : ''}`)));
     });
     fill(box,
       groupHead('Coding tools', plan.tools.length),
       h('div.rows', rows),
-      plan.todo ? h('div.savebar.start', btn('primary', { icon: 'check', label: 'Link', onclick: async () => {
+      plan.todo ? h('div.savebar.start', h('span.hint', 'Link shows each link before it is made.'), btn('primary', { icon: 'check', label: 'Link', onclick: async () => {
         if (await linkBrainSheet(() => {}, { prefix })) {
           await load();
           after();

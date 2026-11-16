@@ -10,9 +10,11 @@ import path from 'node:path';
 import { claudeInfo, claudeLoginStatus } from '../claudecode.mjs';
 import { loadConfig } from '../config.mjs';
 import { binFile, configDir, configFile, profilesDir, stateDir, tilde } from '../paths.mjs';
+import { enabledToolIds, findTool } from '../codetools/index.mjs';
 import { hiddenProfiles, listProfiles } from '../profiles.mjs';
 import { ensureSpawnHelper } from '../server/backends/pty-helper.mjs';
 import { tmuxNewEnough } from '../server/backends/tmuxversion.mjs';
+import { brainDir } from '../workspace/layout.mjs';
 import { capture, compareVersions, detectPackageManager, installCommands, isRoot, npmArgv, npmMajor, showCommands, which } from './system.mjs';
 
 export const APP = 'hoprig';
@@ -140,6 +142,27 @@ export function profilesCheck(profiles, hidden = []) {
   }
   if (!profiles.length) return result('profiles', 'Profiles', 'warn', 'none yet (the first start creates "sub" for your login)', `${APP} setup   (or: ${APP} add)`);
   return result('profiles', 'Profiles', 'ok', profiles.map((p) => `${p.name} (${p.kind})`).join(', '));
+}
+
+/**
+ * The shared rules file reaches every coding tool, but only Claude Code follows its "@path" import lines: Codex and
+ * OpenCode read the line as text, so what it points to never reaches them. Said when another coding tool is on and
+ * the file has such lines; nothing otherwise (no brain, only Claude Code).
+ */
+export function sharedRulesCheck({ tools = [], file = path.join(brainDir(), 'claude', 'CLAUDE.md') } = {}) {
+  const others = tools.filter((id) => id !== 'claude').map((id) => (findTool(id) || { name: id }).name);
+  if (!others.length) return null;
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+  const imports = text.split('\n').filter((l) => /^\s*@[\w./~-]/.test(l)).map((l) => l.trim());
+  if (!imports.length) return result('rules', 'Shared rules', 'ok', `one file for Claude Code and ${others.join(' and ')}`);
+  return result('rules', 'Shared rules', 'warn',
+    `${imports.length} import line${imports.length === 1 ? '' : 's'} (${imports.slice(0, 2).join(', ')}${imports.length > 2 ? ', …' : ''}) in ${tilde(file)}: only Claude Code follows them, ${others.join(' and ')} do not`,
+    'Put what every coding tool needs into the file itself; keep imports for what only Claude Code needs.');
 }
 
 /** Which terminal the dashboard uses: tmux when it is installed and new enough (sessions survive a dashboard
@@ -380,6 +403,8 @@ export async function allChecks({ sys = sysInfo(), offline = false } = {}) {
   list.push(term, forHub(await ptyCheck(sys, { tmux: !term.detail.startsWith('built-in') })), await passwordCheck(), await serviceCheck(sys));
   list.push(await portCheck(cfg.server.host || DEFAULT_HOST, cfg.server.port || DEFAULT_PORT));
   list.push(accessCheck(cfg, await tailscaleState(sys)), ...dirsCheck(sys.platform));
+  const rules = sharedRulesCheck({ tools: enabledToolIds(cfg) });
+  if (rules) list.push(rules);
   // The command in every shell, also `ssh <computer> hoprig …` (localbin.mjs).
   const cmd = (await import('./localbin.mjs')).commandCheck({ home: sys.env.HOME || undefined, platform: sys.platform });
   list.push(result('command', 'The hoprig command', cmd.status, cmd.detail, cmd.fix || undefined));

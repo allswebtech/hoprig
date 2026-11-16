@@ -446,9 +446,9 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
         h('div.choice-list',
           choice('user', 'Claude subscription', 'Another Claude Pro or Max account. You sign in through a link; nothing to install.', () => subscription()),
           choice('key', 'Claude API key', 'A key from console.anthropic.com, or a gateway that speaks Claude\'s API.', () => apiForm({ via: 'api' })),
-          choice('key', 'OpenAI API key', 'A key from platform.openai.com, or a service that speaks OpenAI\'s API. For Codex and OpenCode.', () => apiForm({ via: 'openai' })),
+          choice('key', 'OpenAI API key', 'For Codex and OpenCode: a key from platform.openai.com, or a service that speaks OpenAI\'s API.', () => apiForm({ via: 'openai' })),
           choice('user', 'Codex sign-in', 'The ChatGPT account Codex signs in to on this computer. For Codex only.', () => codexSignin()),
-          choice('sparkle', 'OpenAI, Gemini, OpenRouter or another provider', 'Through TRouteAI, a free gateway on this computer that translates them for Claude Code.', () => trouteai())),
+          choice('sparkle', 'Other providers through TRouteAI (for Claude Code)', 'OpenAI, Gemini, OpenRouter or a local model, translated for Claude Code by TRouteAI, a free gateway on this computer.', () => trouteai())),
         terminalLink());
     const back = () => signIn ? null : h('button.btn.ghost.small.backlink', { type: 'button', onclick: async () => { await cleanup?.(); cleanup = null; choose(); } }, icon('back', { size: 16 }), h('span', 'Other ways'));
 

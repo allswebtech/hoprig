@@ -98,7 +98,7 @@ export function workspaceFolders() {
  * that it does not load yet on a line of their own, with the button that links them. An older server sends only
  * `count`. `after()` runs once linked.
  */
-export function skillsPart(sk, after = () => {}) {
+export function skillsPart(sk, after = () => {}, { linkHere = true } = {}) {
   const used = sk.used ?? sk.count;
   const only = sk.brainOnly || 0;
   const n = (k) => `${k} skill${k === 1 ? '' : 's'}`;
@@ -107,7 +107,8 @@ export function skillsPart(sk, after = () => {}) {
     h('div.rows', h('a.row', { href: link('#/skills') },
       h('span.row-main', h('span.row-title', `${n(used)} Claude Code uses`), h('span.row-sub', 'See them, and find more, under Skills')),
       h('span.row-end', icon('chevronRight', { size: 18 })))),
-    only ? h('div.bl-inline', h('p.hint.brain-none', `${n(only)} in the AI brain ${only === 1 ? 'is' : 'are'} not used by Claude Code yet. Link the brain's skills folder so Claude Code reads it.`),
+    only && !linkHere ? h('p.hint.brain-none', `${n(only)} in the AI brain ${only === 1 ? 'is' : 'are'} not used by Claude Code yet: Link under Coding tools connects the brain's skills folder.`) : null,
+    only && linkHere ? h('div.bl-inline', h('p.hint.brain-none', `${n(only)} in the AI brain ${only === 1 ? 'is' : 'are'} not used by Claude Code yet. Link the brain's skills folder so Claude Code reads it.`),
       btn('small secondary', { icon: 'check', label: 'Link now', onclick: async () => {
         if (await linkBrainSheet()) after();
       } })) : null,
@@ -131,8 +132,8 @@ export const indexOrder = (text) => [...String(text || '').matchAll(/\]\(([^)\s]
 export function brainGroups(b, { memoryOrder = [] } = {}) {
   const row = (item, title, sub = '', chip = null) => (item ? { item, title: title || item.title, sub, chip } : null);
   const groups = [];
-  const rules = [row(b.global.rules, 'The rules Claude gets everywhere', b.global.linked ? 'linked into Claude Code' : 'not linked into Claude Code yet'), ...(b.global.more || []).map((x) => row(x))].filter(Boolean);
-  groups.push({ id: 'rules', title: 'What Claude is told everywhere', rows: rules, none: 'No global rules file yet.' });
+  const rules = [row(b.global.rules, 'The rules every coding tool gets', b.global.linked ? 'linked into Claude Code' : 'not linked into Claude Code yet'), ...(b.global.more || []).map((x) => row(x))].filter(Boolean);
+  groups.push({ id: 'rules', title: 'What your coding tools are told everywhere', rows: rules, none: 'No global rules file yet.' });
   const base = (m) => String(m.file || '').split('/').pop();
   const place = (m) => (m.type === 'index' ? -1 : memoryOrder.includes(base(m)) ? memoryOrder.indexOf(base(m)) : memoryOrder.length);
   const mem = [...(b.memory.home.items || [])].sort((x, y) => place(x) - place(y))
@@ -186,7 +187,7 @@ function viewBrain({ frame, sub }) {
   frame({
     title: 'AI brain',
     page: 'brain',
-    intro: 'What Claude knows on this computer: the rules it always gets, what it remembered, notes and logs. Read-only here.',
+    intro: 'What your coding tools know on this computer: the rules they always get, what they remembered, notes and logs.',
     back: id ? link('#/brain') : null,
     backLabel: 'AI brain',
     backOnPhoneOnly: true,
@@ -205,7 +206,7 @@ function viewBrain({ frame, sub }) {
     if (!alive) return;
     if (!b.brain.exists) {
       fill(list);
-      return fill(pane, emptyState('book', 'The AI brain is one folder with what Claude should know in every project: rules, memory, notes and logs. It is not set up on this computer yet.',
+      return fill(pane, emptyState('book', 'The AI brain is one folder with what your coding tools should know in every project: rules, memory, notes and logs. It is not set up on this computer yet.',
         h('button.btn.primary', { type: 'button', onclick: () => setUpWorkspace(load) }, icon('plus', { size: 16 }), h('span', 'Set up the workspace'))));
     }
     const index = (b.memory.home.items || []).find((m) => m.type === 'index');
@@ -219,9 +220,9 @@ function viewBrain({ frame, sub }) {
         g.rows.length ? h('div.rows', g.rows.map((r) => itemRow(r, r.item.id === (id || (first && first.item.id))))) : h('p.hint.brain-none', g.none),
         g.count > g.rows.length ? h('p.hint.brain-none', `The newest ${g.rows.length} of ${g.count}.`) : null,
       ]),
-      skillsPart(b.skills, load),
+      skillsPart(b.skills, load, { linkHere: false }),
       toolsPart({ after: load }),
-      h('p.hint.brain-none', 'Your coding tools and you change these files in a session; this page only shows them.'));
+      h('p.hint.brain-none', 'You and your coding tools change these files in a session. This page shows them, and Link connects them to each coding tool; it never edits them.'));
     const show = id || (first && first.item.id);
     if (show) showItem(pane, show);
     else fill(pane, emptyState('book', 'Nothing to show yet.'));

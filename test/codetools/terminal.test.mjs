@@ -72,6 +72,15 @@ test('OpenCode in a terminal attaches to the server on one conversation; "ask" a
 });
 
 test('status from the servers\' events: working, needs your OK, waiting; an error is kept until the next turn', () => {
+  // Codex's finished items: the model's message, and the owner's first words as a title (its threads have no name).
+  const got = [];
+  const to = { message: (t) => got.push(['message', t]), title: (t) => got.push(['title', t]) };
+  T.codexItem({ type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'Fix the\n login page', text_elements: [] }, { type: 'image', url: 'x' }] }, to);
+  T.codexItem({ type: 'agentMessage', id: 'm', text: ' DONE ' }, to);
+  T.codexItem({ type: 'agentMessage', id: 'm', text: '  ' }, to);
+  T.codexItem({ type: 'commandExecution', id: 'c' }, to);
+  T.codexItem(null, to);
+  assert.deepEqual(got, [['title', 'Fix the login page'], ['message', 'DONE']]);
   assert.deepEqual(T.codexStatus({ type: 'active', activeFlags: [] }), { status: 'working' });
   assert.equal(T.codexStatus({ type: 'active', activeFlags: ['waitingOnApproval'] }).status, 'attention');
   assert.equal(T.codexStatus({ type: 'active', activeFlags: ['waitingOnUserInput'] }).status, 'attention');

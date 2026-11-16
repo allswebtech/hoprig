@@ -25,7 +25,7 @@ import { providerModels } from './providers.mjs';
 import { cleanEnv, ensureServer, serverProviders, stopIfUnused } from './servers.mjs';
 import { isToolSessionId } from './stores.mjs';
 
-export { codexStatus, codexTuiArgs, opencodeStatus, opencodeTuiArgs } from './attach.mjs';
+export { codexItem, codexStatus, codexTuiArgs, opencodeStatus, opencodeTuiArgs } from './attach.mjs';
 
 const VALUE_FLAGS = new Set(['--permission-mode', '--effort', '--model', '--resume']);
 

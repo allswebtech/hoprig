@@ -162,6 +162,8 @@ export async function codexPlan(server, { profile, model, cwd, o, base, report }
   const args = codexTuiArgs({ port: server.port, prov, model, cwd, resume, o });
   if (resume) report.title((codexSessions(cwd).find((x) => x.id === resume) || {}).title || '');
   let mine = resume;
+  // Codex names a thread only when asked to: until then the card's title is the first thing the owner said.
+  let named = Boolean(resume);
   let unlock = resume ? null : await folderLock(cwd);
   // Codex makes the thread when its screen opens; after a first start in a folder it asks first whether to trust
   // the folder. The next new session of the folder waits at most this long for this one to find its thread.
@@ -179,13 +181,31 @@ export async function codexPlan(server, { profile, model, cwd, o, base, report }
     }
     if (!mine || p.threadId !== mine) return;
     if (method === 'thread/status/changed') report(codexStatus(p.status));
-    else if (method === 'thread/name/updated' && typeof p.threadName === 'string') report.title?.(p.threadName);
+    else if (method === 'thread/name/updated' && typeof p.threadName === 'string') {
+      named = true;
+      report.title?.(p.threadName);
+    } else if (method === 'item/completed') {
+      codexItem(p.item, { message: (t) => report.message?.(t), title: (t) => { if (!named) report.title?.(t); named = true; } });
+    }
   };
   return {
     args, env, sessionId: resume,
     cleanup: () => { if (unlock) unlock(); },
     follow: () => watchCodex(client, server, onNote, report, Boolean(resume)),
   };
+}
+
+/**
+ * A finished item of a Codex thread (item/completed, checked against the protocol schema Codex 0.169 writes): the
+ * model's message is the card's last message, and the owner's first message stands in for a title.
+ */
+export function codexItem(item, { message, title }) {
+  if (!item || typeof item !== 'object') return;
+  if (item.type === 'agentMessage' && typeof item.text === 'string' && item.text.trim()) message(item.text.trim());
+  else if (item.type === 'userMessage' && Array.isArray(item.content)) {
+    const text = item.content.filter((c) => c && c.type === 'text' && typeof c.text === 'string').map((c) => c.text).join(' ').trim();
+    if (text) title(text.replace(/\s+/g, ' '));
+  }
 }
 
 // `known`: the thread is known from the start (a resume). A new one is "starting" until Codex has made it: on a
