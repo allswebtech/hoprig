@@ -28,7 +28,7 @@ function chatAsking(s, { subject = '', note = '', waiting = false, last = 'I wil
   s.sessions.push({
     computer: 'this', name: `chat:${CHAT}`, kind: 'chat', chatId: CHAT, byTia: true, title: 'Fix the router test', status: waiting ? 'waiting' : 'attention',
     profile: { name: 'sub', label: 'Main', kind: 'subscription' }, cwd: '/home/owner/projects/hoprig', lastMessage: last, note: waiting ? '' : note,
-    ask: waiting ? null : { request: 'req-1', type: 'permission', tool: 'Bash', subject, owner: false, canAlways: false },
+    ask: waiting ? null : { request: 'req-1', type: 'permission', tool: 'Bash', known: true, subject, owner: false, canAlways: false },
     limit: null, sessionId: CHAT, statusAt: Date.now() - 30_000,
   });
   s.screens[`this|chat:${CHAT}`] = [waiting ? '' : note, last].filter(Boolean).join('\n');

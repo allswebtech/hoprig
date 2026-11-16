@@ -31,9 +31,9 @@ export function clipText(s, max = TEXT_MAX) {
 /** A tool's input with long strings and lists cut, for the page. */
 export function clipInput(v, depth = 0) {
   if (typeof v === 'string') return clipText(v, INPUT_MAX);
+  if (v && typeof v === 'object' && depth > 4) return '…'; // lists too: a deeply nested input must not overflow the stack
   if (Array.isArray(v)) return v.slice(0, 50).map((x) => clipInput(x, depth + 1));
   if (v && typeof v === 'object') {
-    if (depth > 4) return '…';
     const out = {};
     for (const [k, x] of Object.entries(v).slice(0, 40)) out[k] = clipInput(x, depth + 1);
     return out;
@@ -74,6 +74,7 @@ const ASK_VERBS = { Bash: 'run', Write: 'write', Edit: 'change', MultiEdit: 'cha
 export function askNote(ask, cwd) {
   if (ask.type === 'question') return 'Claude asks you a question';
   if (ask.type === 'plan') return 'Claude has a plan for you to approve';
+  if (ask.known === false) return `Claude wants to use ${oneLine(ask.subject, 300)}`; // its subject: the tool's name and its input
   const base = String(cwd || '').replace(/\/+$/, '');
   let s = String(ask.subject || '');
   if (base && s.startsWith(`${base}/`)) s = s.slice(base.length + 1);

@@ -16,6 +16,7 @@
 //   "reads <a> <b>"  two Reads outside the project at once: two asks are open together
 //   "sleep"          Bash that runs until an interrupt arrives
 //   "task <words>"   TaskCreate → "Task #1 created successfully"
+//   "call <base64>"  any tool with any input (base64 of {"name", "input"}): asks for the OK
 //   "big"            a 200 KB reply, then a usage-limit result, then it exits at once (code 1)
 //   anything else    "echo: <message>"
 // What asks in every mode, bypassPermissions too, as Claude Code does:
@@ -176,6 +177,16 @@ async function turn(text, content = [{ type: 'text', text }]) {
   record('user', content, current ? { uuid: current } : {});
   images = content.filter((c) => c.type === 'image').length;
   let m;
+  if ((m = /^call (\S+)/.exec(text))) {
+    // Any tool with any input, base64 of {"name", "input"}: what an MCP tool or an unknown input asks.
+    const q = JSON.parse(Buffer.from(m[1], 'base64').toString('utf8'));
+    const id = tool(q.name, q.input);
+    const answer = await ask(id, q.name, q.input);
+    if (answer.behavior === 'allow') user([{ type: 'tool_result', tool_use_id: id, content: 'ran' }]);
+    else refused(id, answer);
+    assistant([{ type: 'text', text: answer.behavior === 'allow' ? 'Done.' : 'I did not run it.' }]);
+    return result(true);
+  }
   if ((m = /^read (\S+)/.exec(text))) {
     const id = tool('Read', { file_path: path.resolve(m[1]) });
     user([{ type: 'tool_result', tool_use_id: id, content: fs.readFileSync(m[1], 'utf8') }]);
