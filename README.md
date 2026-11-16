@@ -119,7 +119,7 @@ rules, memory and code repositories sit together.
 ```sh
 hop workspace status        # every folder: there or not, and what it is for
 hop workspace setup         # create only what is missing; nothing that exists is changed
-hop workspace link          # let Claude Code read its global rules, skills and home memory from the brain
+hop workspace link          # let your coding tools read the same rules, skills and memory from the brain
 ```
 
 **A fresh computer gets all of it from git.** `hop workspace map` writes one file in the brain that lists every

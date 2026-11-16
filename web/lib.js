@@ -251,7 +251,17 @@ export function statusPill(s, { time = true, text = true } = {}) {
   return h(`span.pill.st-${st.key}`, h('span.dot'), st.text, when ? h('span.pill-time', { dataset: { at } }, ` · ${when}`) : null);
 }
 
-export const KIND = { login: 'Subscription', subscription: 'Subscription', api: 'API', auto: 'Auto mode', unknown: 'Provider' };
+export const KIND = { login: 'Subscription', subscription: 'Subscription', api: 'API', openai: 'OpenAI API', chatgpt: 'Codex sign-in', auto: 'Auto mode', unknown: 'Provider' };
+
+/** The coding tools by id, as the page names them. */
+export const TOOL_NAMES = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
+/** "Claude Code · OpenCode": the coding tools a provider serves (src/profiles.mjs servesTools), or '' when unknown. */
+export const toolsText = (p) => (Array.isArray(p.tools) ? p.tools.map((t) => TOOL_NAMES[t] || t).join(' · ') : '');
+/**
+ * Providers a Claude Code session or chat may use: the ones that serve it. A computer too old to say (no `tools`)
+ * has only Claude Code providers; Auto mode is Claude Code's.
+ */
+export const servesClaude = (p) => Boolean(p) && (p.virtual || !Array.isArray(p.tools) || p.tools.includes('claude'));
 
 /** How a session's account reads: "Auto · now on Work" for Auto sessions, else the account's name. */
 export const profileText = (s) =>
@@ -401,7 +411,7 @@ export async function chooseProfileFor(s, profiles) {
   const pick = await chooseSheet({
     title: 'Run this session on…',
     subtitle: 'The conversation continues where it is.',
-    items: profiles.map((p) => ({
+    items: profiles.filter(servesClaude).map((p) => ({
       value: p.name,
       label: p.label,
       sub: p.virtual ? profileState(p).text : `${KIND[p.kind] || p.kind} · ${profileState(p).text}`,
@@ -424,7 +434,7 @@ export const isPaid = (p) => p.paid === true || (p.paid === undefined && p.kind 
  */
 export function startOrder(accounts, payPerUse = false) {
   const rank = (a) => (SUBSCRIPTION_KINDS.has(a.kind) ? 0 : isPaid(a) ? 2 : 1);
-  return accounts.filter((a) => payPerUse || !isPaid(a)).map((a, i) => [rank(a), i, a.name]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map((x) => x[2]);
+  return accounts.filter((a) => servesClaude(a) && (payPerUse || !isPaid(a))).map((a, i) => [rank(a), i, a.name]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map((x) => x[2]);
 }
 
 /**
@@ -435,7 +445,7 @@ export function limitBox(s, profiles, after) {
   if (!s.limit && !s.runLimit) return null;
   const text = (s.limit && s.limit.text) || (s.runLimit && s.runLimit.error) || '';
   // Not one that is not signed in: the session would stop there at once.
-  const others = profiles.filter((p) => (!s.profile || p.name !== s.profile.name) && p.signedIn !== false);
+  const others = profiles.filter((p) => (!s.profile || p.name !== s.profile.name) && p.signedIn !== false && servesClaude(p));
   // Outside the order (Auto off, or not taking part): subscriptions before gateways, as Auto's own order starts.
   const place = (p) => (Number.isInteger(p.autoPlace) ? p.autoPlace : 1000 + (SUBSCRIPTION_KINDS.has(p.kind) ? 0 : 1));
   const free = others.filter((p) => !p.virtual && !p.limited).sort((a, b) => place(a) - place(b));

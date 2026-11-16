@@ -2,7 +2,7 @@
 // account. Everything else waits under a closed "Options": the computer, the account, what Claude may do without
 // asking, how hard it thinks, which conversation, or a plain terminal instead. Another folder is one row away.
 import { icon } from './icons.js';
-import { KIND, ago, api, at, chooseSheet, fill, h, link, machine, prefs, profileState, tildePath, toast } from './lib.js';
+import { KIND, ago, api, at, chooseSheet, fill, h, link, machine, prefs, profileState, servesClaude, tildePath, toast } from './lib.js';
 import { fold, frame, groupHead } from './shell.js';
 import { runsSessions, store } from './store.js';
 
@@ -139,7 +139,7 @@ export function viewNew() {
       hint ? h('span.hint', hint) : null);
   function paintOptions() {
     const m = where();
-    const profiles = m ? [...m.profiles] : [];
+    const profiles = m ? m.profiles.filter(servesClaude) : []; // these sessions are Claude Code's
     const rec = m && m.recommended;
     const recLabel = (profiles.find((p) => p.name === rec) || {}).label;
     fill(opts,

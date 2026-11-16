@@ -229,6 +229,9 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
   assert.deepEqual(tags(v).filter((t) => !['div', 'p', 'ul', 'li', 'code', 'strong', 'h2', 'pre'].includes(t)), [], 'only the formatting it makes itself');
   assert.ok(texts(v).includes('<script>alert(1)</script>'), 'markup in the file is text');
   assert.ok(texts(v).includes('<b>x</b>'));
+  const c = texts(mdView('Rules.\n<!-- hoprig: memory -->\n## Memory\nKeep it.\n<!-- /hoprig: memory --> trailing'));
+  assert.ok(!c.some((t) => t.includes('<!-- hoprig: memory -->')), 'a marker line is not shown');
+  assert.ok(c.some((t) => t.includes('<!-- /hoprig: memory --> trailing')), 'a comment with text after it stays text');
   const { brainGroups } = await import('../../web/brain.js');
   const item = (id, extra = {}) => ({ id, title: id, file: `~/${id}`, size: 1, modified: 0, ...extra });
   const g = brainGroups({

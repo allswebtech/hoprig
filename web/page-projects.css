@@ -150,3 +150,8 @@
 .bl-what { font-weight: 600; }
 .bl-path { color: var(--muted); overflow-wrap: anywhere; }
 .bl-words { color: var(--text-2); overflow-wrap: anywhere; }
+.bl-tool { margin: 14px 0 6px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); }
+.bl-tool:first-child { margin-top: 4px; }
+.bl-tool-row .bl-mark { margin-top: 0; }
+.bl-tool-row.bl-linked .bl-mark { background: var(--ok-soft); color: var(--ok); }
+.bl-tool-row.bl-left .bl-mark { background: var(--surface-3); color: var(--muted); }

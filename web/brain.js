@@ -5,7 +5,7 @@
 // (mdtext.js), never as HTML from the file.
 // Also here: "Workspace folders" (the tree the product sets up, GET /api/workspace) for a computer's Setup tab, and
 // the one way to create what is missing (POST /api/workspace/setup: the dry run first, then the real run).
-import { linkBrainNote, linkBrainSheet } from './brainlink.js';
+import { linkBrainNote, linkBrainSheet, toolsPart } from './brainlink.js';
 import { icon } from './icons.js';
 import { ago, api, btn, bytes, fill, h, link, openSheet, toast } from './lib.js';
 import { mdView } from './mdtext.js';
@@ -214,14 +214,14 @@ function viewBrain({ frame, sub }) {
     const groups = brainGroups(b, { memoryOrder });
     const first = groups.flatMap((g) => g.rows)[0];
     fill(list,
-      linkBrainNote({ only: ['rules', 'memory'], after: load }),
       groups.map((g) => [
         groupHead(g.title, g.count ?? (g.rows.length || undefined)),
         g.rows.length ? h('div.rows', g.rows.map((r) => itemRow(r, r.item.id === (id || (first && first.item.id))))) : h('p.hint.brain-none', g.none),
         g.count > g.rows.length ? h('p.hint.brain-none', `The newest ${g.rows.length} of ${g.count}.`) : null,
       ]),
       skillsPart(b.skills, load),
-      h('p.hint.brain-none', 'Claude and you change these files in a session; this page only shows them.'));
+      toolsPart({ after: load }),
+      h('p.hint.brain-none', 'Your coding tools and you change these files in a session; this page only shows them.'));
     const show = id || (first && first.item.id);
     if (show) showItem(pane, show);
     else fill(pane, emptyState('book', 'Nothing to show yet.'));

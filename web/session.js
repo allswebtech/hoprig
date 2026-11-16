@@ -15,7 +15,7 @@ import { Unicode11Addon } from './vendor/addon-unicode11/lib/addon-unicode11.mjs
 import { icon } from './icons.js';
 import {
   KIND, api, btn, bytes, chooseSheet, confirmSheet, fill, h, limitBox, needsYou, needsYouFirst, openSheet, permissionActions,
-  link, machine, prefs, profileIcon, profileState, profileText, promptSheet, stateOf, statusPill, switchProfile, toast, url, wsUrl,
+  link, machine, prefs, profileIcon, profileState, profileText, promptSheet, servesClaude, stateOf, statusPill, switchProfile, toast, url, wsUrl,
 } from './lib.js';
 import { pageNotify, store } from './store.js';
 import { registeredSessionActions } from './registry.js';
@@ -566,7 +566,7 @@ export function openSession(app, name) {
   const unsubscribe = store.subscribe((d) => {
     if (!d) return;
     fill(where, machine.current && store.multi ? ` · ${d.machineLabel}` : null);
-    profiles = d.profiles;
+    profiles = d.profiles.filter(servesClaude); // a terminal session here is Claude Code's
     const caps = (d.backend && d.backend.capabilities) || {};
     if (caps.nativeScrollback && !nativeScroll) {
       nativeScroll = true;
