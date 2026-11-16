@@ -20,7 +20,6 @@ import { freshFork, missingCard, workspaceStrip } from './workspace.js';
 import { registerPage } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, listRow, okBox, radioCards, skeletonRows as skeleton, stepHeader } from './shell.js';
 import { store } from './store.js';
-import { vscodeButton } from './vscode.js';
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const enc = encodeURIComponent;
@@ -172,7 +171,6 @@ function projectCard(p, sessions, profiles, home) {
           h(`span.row-sub.pj-git${needsLook(p) ? '.attn' : ''}`, projectWords(p)))),
       h('span.ws-tools',
         startButton(p.dir, { label: 'New session', title: `Start Claude in ${p.name} on the default provider` }),
-        vscodeButton(p.dir, { name: p.name, compact: true }),
         h('a.btn.icon.ghost.small', { href: page, title: `Open ${p.name}`, 'aria-label': `Open ${p.name}` }, icon('chevronRight', { size: 18 })))),
     sessions.length
       ? h('div.ws-sessions', [...sessions].sort(needsYouFirst).map((s) => sessionRow(s, profiles, () => store.refresh(), { where: repoOf(p, s) })))
@@ -392,7 +390,6 @@ function viewProject(frame, id) {
             h('span.row-title', r.label, r.rel === '.' && p.workspace ? h('span.badge.soft', 'the project itself') : null),
             h(`span.row-sub.pj-wrap${!r.ok || r.changes || r.behind ? '.attn' : ''}`, gitWords(r)))),
         h('div.mrow-actions',
-          vscodeButton(r.dir || p.dir, { name: r.label }),
           r.ok && r.installs && r.installs.length ? btn('small secondary', { icon: 'download', label: `Install what it needs (${r.installs[0]})`, onclick: (e) => job(e.currentTarget, '/api/pcsetup/install', { dir: installDir(r) }, 'Installing…') }) : null)))),
       h('div.pj-actions',
         btn('secondary', { icon: 'refresh', label: 'Sync', title: 'Download new changes and upload saved ones; never merges, rebases or overwrites', onclick: (e) => sync(e.currentTarget, false) }),

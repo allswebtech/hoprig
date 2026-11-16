@@ -8,10 +8,11 @@ export function securityHeaders(host) {
   const ws = host && HOST_RE.test(host) ? ` ws://${host} wss://${host}` : '';
   return {
     // Scripts only from this server, never inline. Styles allow 'unsafe-inline' because xterm.js injects <style>
-    // elements for its theme and cell sizes at run time; inline styles cannot run code.
+    // elements for its theme and cell sizes at run time; inline styles cannot run code. Fonts also from data: URLs,
+    // because the code editor (monaco) carries its icon font inside its style sheet; a font cannot run code.
     'Content-Security-Policy':
       `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; ` +
-      `connect-src 'self'${ws}; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; ` +
+      `connect-src 'self'${ws}; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; ` +
       `frame-ancestors 'none'; manifest-src 'self'`,
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',

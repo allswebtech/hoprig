@@ -63,13 +63,13 @@ import { gatewayFeature } from '../gateway/index.mjs';
 import { pcsetupFeature } from '../pcsetup/feature.mjs';
 import { skillhubFeature } from '../skillhub/feature.mjs';
 import { workspaceFeature } from '../workspace/feature.mjs';
-import { vscodeFeature } from '../vscode/feature.mjs';
+import { editorFeature } from '../editor/feature.mjs';
 import { chatFeature } from '../chat/feature.mjs';
 import { onboardingFeature } from '../setup/onboarding.mjs';
 import { removeDashboardFile, writeDashboardFile } from './dashboardfile.mjs';
 import { createLoginLink, loginLinkStatus, qrRows, useLoginLink } from './loginlink.mjs';
 import { clientIp, isHttps, originOk, requestHost, securityHeaders } from './security.mjs';
-import { resolveStatic, sendFile } from './static.mjs';
+import { monacoManifest, resolveStatic, sendFile } from './static.mjs';
 import { attachTerminal } from './terminal.mjs';
 import { EVENTS, sendNotification } from './notify.mjs';
 import { AUTO, DEFAULT_QUICK_ACTIONS, cleanServerPatch } from './settings.mjs';
@@ -103,6 +103,9 @@ class HttpError extends Error {
   }
 }
 const bad = (msg = 'bad request') => new HttpError(400, msg);
+
+/** An error as the page gets it: its message, plus the facts a deliberate refusal carries (e.g. a newer version). */
+const errorBody = (e) => ({ ...(Number.isInteger(e.status) && e.details && typeof e.details === 'object' ? e.details : {}), error: e.message || 'server error' });
 
 function readJson(req) {
   return new Promise((resolve, reject) => {
@@ -208,7 +211,7 @@ export function createServer(opts = {}) {
     assistantFeature(ctx, { hub: machines.machines.hub, ...opts.assistant }), // Tia; first, so her own token is checked before the machines gate
     gateway, // /gateway/…: a gateway shared with a gateway key (before the machines gate, which takes any bearer as its own)
     machines, // other computers: relay, pairing, bearer tokens
-    vscodeFeature(ctx, opts.vscode), // VS Code for a project folder: in the browser at /vscode/ (after machines: a bearer token never reaches it)
+    editorFeature(ctx, opts.editor), // the code editor's files and git under /api/code/ (another computer's token too); removes VS Code Server's leftovers once
     automationFeature(ctx, { tick: opts.watch !== false, ...opts.automation }), // queue, schedules, restore, retry, updates, idle care
     addonsFeature(ctx, opts.addons), // Settings → Add-ons: install, start, stop, update, set up as an account
     accountsFeature(ctx, { remote: gateway.states, removing: gateway.forget, ...opts.accounts }), // Providers: add a subscription, an API key or a TRouteAI gateway in the page
@@ -762,6 +765,8 @@ export function createServer(opts = {}) {
       }
       return send(res, 401, { error: 'log in first' });
     }
+    // Where the code editor's files are and its workers' names (they carry a hash), for the editor page.
+    if (p === '/vendor/monaco.json') return send(res, ...(monacoManifest() ? [200, monacoManifest()] : [404, { error: 'the code editor is not installed' }]));
     const file = resolveStatic(p === '/login' ? '/login.html' : p);
     if (!file) return send(res, 404, { error: 'not found' });
     return sendFile(res, file, method === 'HEAD');
@@ -811,7 +816,7 @@ export function createServer(opts = {}) {
       handle(req, res).catch((e) => {
         status = Number.isInteger(e.status) ? e.status : 500;
         chunks.length = 0;
-        chunks.push(Buffer.from(JSON.stringify({ error: e.message || 'server error' })));
+        chunks.push(Buffer.from(JSON.stringify(errorBody(e))));
         finish();
       });
     });
@@ -822,7 +827,7 @@ export function createServer(opts = {}) {
       const status = Number.isInteger(e.status) ? e.status : e instanceof URIError ? 400 : 500;
       // Log the failure, never the request body or headers.
       if (status === 500) console.error(`${req.method} ${req.url.split('?')[0]}: ${e.message}`);
-      if (!res.headersSent) send(res, status, { error: e.message || 'server error' });
+      if (!res.headersSent) send(res, status, errorBody(e));
       else res.end();
     });
   });
