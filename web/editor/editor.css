@@ -194,7 +194,7 @@ button.ed-st:hover { background: var(--surface-2); color: var(--text); }
 /* ---------- the kit's tap size for a finger: the tools of the panels, the bar and the lists ---------- */
 @media (pointer: coarse) {
   .ed-paneltools .btn.icon, .ed-group-tools .btn.icon, .ed-bar-end .btn.icon { width: var(--tap); min-height: var(--tap); }
-  .ed-savebtn, a.btn.ed-open { min-height: var(--tap); }
+  .ed-wrap .btn.ed-savebtn, a.btn.ed-open { min-height: var(--tap); } /* above .btn.small's 30px */
   a.btn.icon.ed-open { width: var(--tap); }
   .ed-hit, .ed-hitfile-head, .ed-quick-item { min-height: var(--tap); }
 }
