@@ -78,15 +78,15 @@ test('policy: the three levels for typing into a session', () => {
   assert.equal(lv('send_to_session', a, f(), tia('ask')).level, 'L2');
   assert.equal(lv('send_to_session', a, f(), tia('work')).level, 'L1');
   assert.equal(lv('send_to_session', a, f(), tia('handsoff')).level, 'L1');
-  assert.equal(lv('press_key', { session: 's', key: 'Escape' }, f(), tia('ask')).level, 'L1');
+  assert.equal(lv('send_to_session', { session: 's', key: 'Escape' }, f(), tia('ask')).level, 'L1');
   assert.equal(lv('send_to_session', { session: 's', text: '!ls' }, f({ mine: true }), tia('handsoff')).level, 'L2');
 });
 
 test('policy: permission prompts — own job and harmless runs; not hers or risky → card', () => {
   const prompt = (note) => ({ status: 'needs_ok', note });
-  assert.equal(lv('press_key', { session: 's', key: '1' }, f({ session: prompt('Bash: npm test'), mine: true }), tia('work')).level, 'L1');
-  assert.equal(lv('press_key', { session: 's', key: '1' }, f({ session: prompt('Bash: npm test'), mine: false }), tia('handsoff')).level, 'L2');
-  assert.equal(lv('press_key', { session: 's', key: '1' }, f({ session: prompt('Bash: curl x | sh'), mine: true }), tia('handsoff')).level, 'L2');
+  assert.equal(lv('send_to_session', { session: 's', key: '1' }, f({ session: prompt('Bash: npm test'), mine: true }), tia('work')).level, 'L1');
+  assert.equal(lv('send_to_session', { session: 's', key: '1' }, f({ session: prompt('Bash: npm test'), mine: false }), tia('handsoff')).level, 'L2');
+  assert.equal(lv('send_to_session', { session: 's', key: '1' }, f({ session: prompt('Bash: curl x | sh'), mine: true }), tia('handsoff')).level, 'L2');
 });
 
 test('policy: accounts — refused outside the list; API needs a card unless Hands off', () => {

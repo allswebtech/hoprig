@@ -202,7 +202,7 @@ export const manage_computer = actionTool({
     kits: arr(str({ max: 31, pattern: KIT }), { min: 1, max: 12, unique: true, desc: 'set_up: kit ids from get_computer_status with setup: true.' }),
     pid: ref('process', int({ min: 2, max: 2 ** 31 - 1, desc: 'end_process: a pid from get_computer_status.' })),
     force: bool({ desc: 'end_process: SIGKILL instead of SIGTERM.' }),
-    addon: str({ max: 31, pattern: ADDON, desc: 'addon: the add-on id (get_settings shows them).' }),
+    addon: str({ max: 31, pattern: ADDON, desc: 'addon: the add-on id (get_computer_status with settings: true shows them).' }),
     addon_action: str({ enum: ['install', 'update', 'start', 'stop'] }),
     turn: str({ enum: ['on', 'off'], desc: 'public_link: on or off.' }),
     link_kind: str({ enum: ['temporary', 'custom'], desc: 'public_link: temporary (a new address at each start, nothing to set up) or custom (the owner\'s own domain, set up in Settings → Public link); default: the kind chosen before.' }),

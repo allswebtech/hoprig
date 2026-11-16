@@ -6,7 +6,7 @@
 import { baseState } from '../fake-dashboard.mjs';
 
 const WRITES_THAT_MATTER = [
-  'startSession', 'sendText', 'pressKey', 'killSession', 'switchAccount', 'setAutoSwitch', 'updateClaude', 'killProcess', 'changeSettings', 'runCommand', 'addComputer', 'removeComputer', 'power', 'renameSession',
+  'startSession', 'startChat', 'sendText', 'sendToChat', 'answerChat', 'stopChat', 'pressKey', 'killSession', 'switchAccount', 'setAutoSwitch', 'updateClaude', 'killProcess', 'changeSettings', 'runCommand', 'addComputer', 'removeComputer', 'power', 'renameSession',
   'projectNew', 'projectGet', 'projectAdd', 'projectSync', 'projectInstall', 'workspaceSetup', 'setupFix', 'setUp', 'renameComputer', 'addon',
   'automationSettings', 'schedules', 'queue', 'skillApprove', 'skillRemove', 'projectsFolder', 'workingRules', 'skillsWeekly', 'setPublicLink',
   'workspaceMapWrite', 'workspaceRestore', 'workspaceSync', 'workspacePlaces', 'workspaceForget',

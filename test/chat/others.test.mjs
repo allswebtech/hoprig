@@ -33,7 +33,7 @@ function tia() {
   return { ops, call: (tool, args) => core.call(tool, args, { conversation: 'c1' }) };
 }
 
-test('Tia: a chat that waits for an OK needs the owner; her terminal tools say plainly to open it in the page', async () => {
+test('Tia: a chat that waits for an OK needs the owner; her terminal tools send her to send_to_chat', async () => {
   const { ops, call } = tia();
   const list = await call('list_sessions', { status: 'needs_owner' });
   assert.equal(list.isError, false);
@@ -43,11 +43,11 @@ test('Tia: a chat that waits for an OK needs the owner; her terminal tools say p
   const read = await call('read_session', { session: `chat:${ID}` });
   assert.equal(read.isError, false);
   assert.match(read.text, /a chat in the dashboard page/);
-  for (const [tool, args] of [['send_to_session', { text: 'yes' }], ['press_key', { key: 'Enter' }], ['stop_session', {}], ['switch_account', { account: 'sub' }]]) {
+  for (const [tool, args] of [['send_to_session', { text: 'yes' }], ['send_to_session', { key: 'Enter' }], ['stop_session', {}], ['switch_account', { account: 'sub' }]]) {
     const r = await call(tool, { session: `chat:${ID}`, ...args });
     assert.equal(r.isError, true, tool);
     assert.match(r.text, /is a chat in the dashboard page, not a terminal session/, tool);
-    assert.match(r.text, /open it on Home/, tool);
+    assert.match(r.text, /use send_to_chat/, tool);
     assert.ok(!r.card, `${tool}: no card for something that cannot run`);
   }
   assert.equal(ops.calls.length, 0, 'nothing was typed or changed');

@@ -11,18 +11,23 @@
 import { ASSISTANT_NAME, riskyPermission } from './tia.mjs';
 import { typedTextRisk } from './tools.mjs';
 
-// Calls that put text or keystrokes into a Claude Code session.
+// Calls that put text or keystrokes into a Claude Code session (a terminal or a chat), or give an OK in it. Interrupting
+// (Escape, a chat's stop) and saying no to an OK are not: they only hold Claude back.
 const typing = (tool, a) =>
-  (tool === 'send_to_session') || (tool === 'press_key' && a.key !== 'Escape') || (tool === 'start_session' && !!a.message);
+  (tool === 'send_to_session' && a.key !== 'Escape') || (tool === 'send_to_chat' && (a.text !== undefined || (!!a.answer && a.answer !== 'deny')))
+  || ((tool === 'start_session' || tool === 'start_chat') && !!a.message);
+// Calls that would answer (or type over) an OK the session waits for.
+const answering = (tool, a) => (tool === 'send_to_session' && a.key !== 'Escape') || (tool === 'send_to_chat' && (a.text !== undefined || (!!a.answer && a.answer !== 'deny')));
+const STARTS = new Set(['start_session', 'start_chat']);
 
 export function decideLevel(tool, a, f, tia) {
   const base = tool.levelOf ? tool.levelOf(a) : tool.level;
   if (base === 'L0') return { level: 'L0' };
   const name = tool.name;
-  const text = name === 'send_to_session' ? a.text : name === 'start_session' ? a.message : null;
+  const text = name === 'send_to_session' || name === 'send_to_chat' ? a.text : STARTS.has(name) ? a.message : null;
   const risk = text ? typedTextRisk(text) : null;
 
-  if ((name === 'start_session' || name === 'switch_account') && f.account && !f.account.allowed) {
+  if ((STARTS.has(name) || name === 'switch_account') && f.account && !f.account.allowed) {
     return {
       refuse: `provider "${f.account.name}" is not one ${ASSISTANT_NAME} may use (allowed: ${tia.allowed.join(', ') || 'none'})`,
       next: `leave account out to let ${ASSISTANT_NAME} choose among the allowed ones; only the owner can allow more providers (open_screen "settings/tia")`,
@@ -35,11 +40,11 @@ export function decideLevel(tool, a, f, tia) {
     if (own) return own;
   }
   if (typing(name, a) && tia.level === 'ask') return { level: 'L2', why: 'the owner set "Ask me": everything typed into a session needs his OK' };
-  if ((name === 'send_to_session' || name === 'press_key') && a.key !== 'Escape' && f.session && f.session.status === 'needs_ok') {
+  if (answering(name, a) && f.session && f.session.status === 'needs_ok') {
     if (!f.mine) return { level: 'L2', why: `the session is asking for permission and ${ASSISTANT_NAME} did not start it` };
     if (riskyPermission(`${f.session.note || ''}\n${f.session.screen || ''}`, f.session.cwd || null)) return { level: 'L2', why: 'the session asks permission for something risky (fetching and running code, deleting, secrets, the system, the network, or a path outside its folder)' };
   }
-  if (name === 'start_session') {
+  if (STARTS.has(name)) {
     if (tia.level === 'ask') return { level: 'L2', why: 'the owner set "Ask me"' };
     if (f.account && f.account.kind === 'api' && tia.level !== 'handsoff') return { level: 'L2', why: `${f.account.name} is an API provider: it is paid per token` };
     return { level: 'L1' };

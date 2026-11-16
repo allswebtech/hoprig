@@ -147,7 +147,7 @@ for (const kind of kinds) {
     r = await call('send_to_session', { session: name, text: 'hello there' });
     assert.equal(r.isError, false, r.text);
     await until('the echo', async () => /GOT: hello there/.test((await call('read_session', { session: name })).text));
-    assert.equal((await call('press_key', { session: name, key: 'Escape' })).isError, false);
+    assert.equal((await call('send_to_session', { session: name, key: 'Escape' })).isError, false);
     assert.match((await call('get_accounts', {})).text, /3 provider\(s\) on this/);
     assert.match((await call('get_computer_status', { computer: 'this' })).text, /Claude Code 2\.1\.325/);
     assert.match((await call('list_projects', { folder: work })).text, /subfolder/);

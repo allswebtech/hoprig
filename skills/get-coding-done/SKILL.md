@@ -1,7 +1,7 @@
 ---
 name: get-coding-done
 description: "Get a coding task done in a project by a Claude Code session and report back: fix a failing test, build a feature, review code. Use whenever the owner asks for work in a project folder."
-allowed-tools: list_projects list_sessions read_session start_session send_to_session press_key watch_session finish_job switch_account notify_owner get_accounts
+allowed-tools: list_projects list_sessions read_session start_session send_to_session start_chat send_to_chat watch_session finish_job switch_account notify_owner get_accounts
 ---
 
 ## When to use
@@ -12,6 +12,7 @@ The owner asks for coding work in a project ("fix the failing test in X", "add Y
 2. Look for a session already working there: list_sessions. If one is waiting in that folder and the owner said "carry on", use send_to_session on it instead of starting a new one. Never use a session that is working on something else.
 3. Provider: leave the account argument out — the dashboard picks the best provider you are allowed to use and tells you why. Name one only if the owner did (it must be allowed).
 4. start_session with mode "new" (or "continue"/"resume" when he asked to carry on an earlier conversation; list_projects with that folder gives the id), a first message that states the task in his words plus "Run the tests before you say you are done.", and a goal in plain words ("the failing test in X passes and nothing else broke"). That makes a job; you are woken when the session waits, asks, hits a limit or ends. (For a session that already exists: watch_session with the goal.)
+   When the owner asks for a chat (he follows it on Home and in its page), use start_chat the same way: the same message and goal; an earlier conversation goes in `conversation`, there is no mode. In a chat, send_to_chat does what send_to_session does in a terminal: `text` for a message, `answer` (allow, allow_always, deny) for the OK it waits for.
 5. Tell the owner in one line: which session, which folder, which provider and why.
 6. When woken: read_session.
    - It asks a question → answer within the goal (send_to_session), or tell the owner if the answer is his to give.

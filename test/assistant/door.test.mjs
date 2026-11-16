@@ -192,6 +192,8 @@ test('every route her tools use is in the table, and nothing else', async () => 
     ops.workspaceRestore({ computer: c, url: 'https://git.example.com/o/b.git', dryRun: true }), ops.workspaceRestore({ computer: c, url: 'https://git.example.com/o/b.git' }),
     ops.workspaceSync({ computer: c, dryRun: true }), ops.workspaceSync({ computer: c, with: 'box2' }), ops.workspacePlaces({ computer: c, projects: '/p' }),
     ops.workspaceForget({ computer: c, name: 'blog' }),
+    ops.startChat({ computer: c, folder: '/p', profile: 'sub', text: 't' }), ops.sendToChat({ computer: c, id: '44444444-4444-4444-8444-444444444444', text: 't' }),
+    ops.answerChat({ computer: c, id: '44444444-4444-4444-8444-444444444444', request: 'r', allow: true, always: false }), ops.stopChat({ computer: c, id: '44444444-4444-4444-8444-444444444444' }),
   ];
   const results = await Promise.allSettled(runs);
   const errors = results.filter((x) => x.status === 'rejected').map((x) => x.reason.message);

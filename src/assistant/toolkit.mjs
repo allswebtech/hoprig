@@ -17,6 +17,8 @@ export const NAME = /^[A-Za-z0-9._-]{1,100}$/; // a project or repository name, 
 export const computer = ref('computer', str({ max: 32, pattern: COMPUTER, desc: `Computer name from get_computer_status; omit for this computer ("${LOCAL}").` }));
 export const session = ref('session', str({ max: 41, pattern: SESSION, desc: 'Session name exactly as list_sessions showed it.' }));
 export const account = str({ max: 32, pattern: ACCOUNT, desc: 'Provider name from get_accounts, or "auto" while Auto mode is on.' });
+export const job = ref('job', str({ max: 12, pattern: /^j_[0-9a-f]{10}$/, desc: 'Job id from start_session, start_chat, watch_session or list_sessions.' }));
+export const conversation = ref('conversation', str({ max: 36, pattern: UUID, desc: 'Conversation id from list_projects with folder.' }));
 export const folder = str({ max: 1024, pattern: ABS, oneLine: true, desc: 'Absolute folder path (or ~/...) inside the folders the dashboard allows.' });
 
 export const KEYS = ['Enter', 'Escape', 'Up', 'Down', 'Tab', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
@@ -70,7 +72,7 @@ export async function findSession(ops, a, { chatOk = false } = {}) {
   const c = list.find((x) => x.name === a.session && (x.computer || LOCAL) === comp(a));
   if (!c) throw toolError(`there is no session "${a.session}" on ${comp(a)} any more`, 'call list_sessions to see the current ones');
   if (c.kind === 'chat' && !chatOk) {
-    throw toolError(`"${a.session}" is a chat in the dashboard page, not a terminal session: this tool cannot act on it`, 'tell the owner to open it on Home (it answers its own questions there); read_session shows its status');
+    throw toolError(`"${a.session}" is a chat in the dashboard page, not a terminal session: this tool cannot act on it`, 'use send_to_chat to write to it, answer its OK or stop it; read_session shows its status');
   }
   return c;
 }

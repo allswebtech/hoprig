@@ -31,7 +31,7 @@ import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, chooseAccount, freePct, resol
 import { ToolError, TOOL_NAMES, byName, statusOf } from './tools.mjs';
 import { wakeMessage } from './jobs.mjs';
 
-const SESSION_TOOLS = new Set(['send_to_session', 'press_key', 'switch_account', 'stop_session']);
+const SESSION_TOOLS = new Set(['send_to_session', 'send_to_chat', 'switch_account', 'stop_session']);
 // What a job-woken turn may always do: read, tell the owner, finish the job, stage cards (the owner decides).
 const WAKE_OK = new Set(['notify_owner', 'finish_job', 'open_screen', 'watch_session']);
 

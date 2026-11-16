@@ -12,6 +12,7 @@
 // (src/machines/index.mjs TOKEN_FORBIDDEN).
 
 const SEG = '[^/]+';
+const CHAT_ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const r = (method, path, tool, body = null) => ({ method, re: new RegExp(`^${path}$`), path, tool, body });
 
 /** Keys of POST /api/settings her tools may send (change_setting, set_auto_mode). */
@@ -71,10 +72,16 @@ export const ALLOW = [
   r('GET', `/api/sessions/${SEG}/history`, 'read_session'),
   r('POST', '/api/sessions', 'start_session'),
   r('POST', `/api/sessions/${SEG}/send`, 'send_to_session'),
-  r('POST', `/api/sessions/${SEG}/key`, 'press_key'),
+  r('POST', `/api/sessions/${SEG}/key`, 'send_to_session (key)'),
   r('POST', `/api/sessions/${SEG}/rename`, 'rename_session'),
   r('POST', `/api/sessions/${SEG}/kill`, 'stop_session'),
   r('POST', `/api/sessions/${SEG}/switch`, 'switch_account'),
+  // A chat (src/chat): only the fields her tools send. The model, effort, permission mode and provider of a chat, its
+  // plan approvals and questions, its files and rewinds stay the owner's, in the page.
+  r('POST', '/api/chats', 'start_chat', onlyKeys(['dir', 'profile', 'sessionId', 'text'])),
+  r('POST', `/api/chats/${CHAT_ID}/send`, 'send_to_chat (text)', onlyKeys(['text'])),
+  r('POST', `/api/chats/${CHAT_ID}/answer`, 'send_to_chat (answer)', onlyKeys(['request', 'allow', 'always'])),
+  r('POST', `/api/chats/${CHAT_ID}/stop`, 'send_to_chat (stop)', onlyKeys([])),
   r('GET', '/api/folders/recent', 'list_projects'),
   r('GET', '/api/folders/browse', 'list_projects (folder)'),
   r('GET', '/api/folders/sessions', 'list_projects (folder)'),
@@ -129,7 +136,7 @@ export const ALLOW = [
   r('POST', '/api/skillhub/approve', 'manage_skills install'),
   r('POST', '/api/skillhub/remove', 'manage_skills remove'),
   r('POST', '/api/skillhub/settings', 'change_setting skills_weekly_check'),
-  r('GET', '/api/settings', 'get_settings, change_setting'),
+  r('GET', '/api/settings', 'get_computer_status (settings), change_setting'),
   r('POST', '/api/settings', 'change_setting, set_auto_mode', settingsBody),
   r('POST', '/api/pcsetup/projects-dir', 'change_setting projects_folder'),
   r('POST', '/api/pcsetup/rules', 'change_setting claude_working_rules'),
