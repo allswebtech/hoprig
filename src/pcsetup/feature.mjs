@@ -26,7 +26,7 @@
 //                                                        done and what needs a decision ({ kind, why, command })
 //   POST /api/pcsetup/projects-dir { dir }               change the projects folder (made when missing)
 //   POST /api/pcsetup/rules { action }   add | remove the opt-in working rules for Claude Code (no admin rights needed)
-//   POST /api/pcsetup/tool { id }        install Codex or OpenCode into Hoprig's tools folder as a background job, and
+//   POST /api/pcsetup/tool { id }        install an offered coding tool (OpenCode) into Hoprig's tools folder as a background job, and
 //                                        turn it on (src/codetools; no admin rights needed)
 //   GET  /api/pcsetup/job?from=N          the background job's output: { kind, running, lines, next, steps, result,
 //                                         startedAt, endedAgo }; steps (setup, fix, recipe): [{ label, command, state:

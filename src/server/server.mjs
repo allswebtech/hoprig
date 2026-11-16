@@ -82,6 +82,7 @@ import { Watcher, enrich } from './watcher.mjs';
 import { isClaudeCard } from '../automation/cards.mjs';
 import { codetoolsFeature } from '../codetools/feature.mjs';
 import { assertToolReady, toolFlags, toolFromRequest } from '../codetools/start.mjs';
+import { findTool, offeredOnly } from '../codetools/index.mjs';
 import { isToolSessionId, toolSessions } from '../codetools/stores.mjs';
 
 export const DEFAULT_HOST = '127.0.0.1';
@@ -311,8 +312,13 @@ export function createServer(opts = {}) {
       const fromRun = mine.find((c) => c.usage);
       const ru = routerUsage[p.name];
       const l = limited[p.name];
+      const pub = publicProfile(p);
       return {
-        ...publicProfile(p),
+        ...pub,
+        // The coding tools this version offers (src/codetools/index.mjs); a sign-in kind of a tool it does not offer
+        // is kept and shown as not used (src/server/accounts.mjs says the same on the Providers page).
+        tools: offeredOnly(pub.tools),
+        ...(p.kind === 'chatgpt' && !findTool('codex') ? { unusable: true } : {}),
         // signedIn, plan, usageReported for providers that sign in (routerstate.mjs: providerFacts; read from files).
         ...safe(() => (rsCache || {}).providerFacts?.(p)),
         limited: l

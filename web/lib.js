@@ -252,7 +252,9 @@ export function statusPill(s, { time = true, text = true } = {}) {
   return h(`span.pill.st-${st.key}`, h('span.dot'), st.text, when ? h('span.pill-time', { dataset: { at } }, ` · ${when}`) : null);
 }
 
-export const KIND = { login: 'Subscription', subscription: 'Subscription', api: 'API', openai: 'OpenAI API', chatgpt: 'Codex sign-in', auto: 'Auto mode', unknown: 'Provider' };
+// chatgpt: the sign-in Codex keeps itself, a kind not used while Codex is not offered (src/codetools/index.mjs);
+// it reads 'Codex sign-in' again when Codex is.
+export const KIND = { login: 'Subscription', subscription: 'Subscription', api: 'API', openai: 'OpenAI API', chatgpt: 'Sign-in not used here', auto: 'Auto mode', unknown: 'Provider' };
 
 /** The coding tools by id, as the page names them. */
 export const TOOL_NAMES = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
@@ -293,6 +295,8 @@ export function profileState(p) {
   if (p.virtual) return { key: 'free', text: 'Uses your providers in order; never stops at a limit' };
   // A sign-in provider whose sign-in is gone (or never finished): it cannot be used until someone signs in again.
   if (p.signedIn === false) return { key: 'signin', text: 'Not signed in' };
+  // The sign-in kind of a coding tool this version does not offer (src/server/accounts.mjs): kept, never used.
+  if (p.unusable) return { key: 'unusable', text: 'Not used by this version of Hoprig' };
   // A Codex sign-in when Codex is not installed (or does not say whether it is signed in).
   if (p.kind === 'chatgpt' && p.signedIn == null) return { key: 'signin', text: 'Codex is not installed' };
   if (p.limited) {

@@ -10,7 +10,7 @@ import path from 'node:path';
 import { claudeInfo, claudeLoginStatus } from '../claudecode.mjs';
 import { loadConfig } from '../config.mjs';
 import { binFile, configDir, configFile, profilesDir, stateDir, tilde } from '../paths.mjs';
-import { enabledToolIds, findTool } from '../codetools/index.mjs';
+import { anyTool, enabledToolIds } from '../codetools/index.mjs';
 import { hiddenProfiles, listProfiles } from '../profiles.mjs';
 import { ensureSpawnHelper } from '../server/backends/pty-helper.mjs';
 import { tmuxNewEnough } from '../server/backends/tmuxversion.mjs';
@@ -145,12 +145,12 @@ export function profilesCheck(profiles, hidden = []) {
 }
 
 /**
- * The shared rules file reaches every coding tool, but only Claude Code follows its "@path" import lines: Codex and
- * OpenCode read the line as text, so what it points to never reaches them. Said when another coding tool is on and
+ * The shared rules file reaches every coding tool, but only Claude Code follows its "@path" import lines: OpenCode
+ * (and Codex) read the line as text, so what it points to never reaches them. Said when another coding tool is on and
  * the file has such lines; nothing otherwise (no brain, only Claude Code).
  */
 export function sharedRulesCheck({ tools = [], file = path.join(brainDir(), 'claude', 'CLAUDE.md') } = {}) {
-  const others = tools.filter((id) => id !== 'claude').map((id) => (findTool(id) || { name: id }).name);
+  const others = tools.filter((id) => id !== 'claude').map((id) => (anyTool(id) || { name: id }).name); // doctor passes the offered ones
   if (!others.length) return null;
   let text;
   try {

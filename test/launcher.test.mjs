@@ -263,7 +263,7 @@ process.exit(7);
   fs.rmSync(outFile, { force: true });
   const oai = spawnSync(process.execPath, [binFile(), 'oai'], { env: { ...process.env, FAKE_OUT: outFile }, encoding: 'utf8' });
   assert.equal(oai.status, 2);
-  assert.match(oai.stderr, /does not serve Claude Code \(it works with: codex, opencode\)/);
+  assert.match(oai.stderr, /does not serve Claude Code \(it works with: opencode\)/, 'only the offered coding tools are named');
   assert.equal(fs.existsSync(outFile), false, 'Claude Code was not started');
   P.deleteProfile('oai');
   // An unknown profile is an error, not a launch.
@@ -571,7 +571,7 @@ test('hooks: the kind of failure is kept; "waiting for your input" stays plain w
   R.removeRun(file);
 });
 
-test('hoprig add offers an OpenAI key and the Codex sign-in, and saves them as their kinds', async () => {
+test('hoprig add offers an OpenAI key (for OpenCode) and saves it as its kind; no Codex sign-in in this version', async () => {
   const { spawn } = await import('node:child_process');
   const bin = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'hoprig.mjs');
   // Answers each prompt when it shows (a piped stdin: the secret is asked like any line).
@@ -589,14 +589,27 @@ test('hoprig add offers an OpenAI key and the Codex sign-in, and saves them as t
   assert.equal(a.code, 0, a.text);
   const o = P.readProfile('oai2');
   assert.deepEqual([o.kind, o.env, o.models, o.label], ['openai', { OPENAI_API_KEY: 'sk-test-key-123456', OPENAI_BASE_URL: 'https://gw.example' }, '*=gpt-x', 'OpenAI API via gw.example']);
-  assert.deepEqual(P.servesTools(o), ['codex', 'opencode']);
-  assert.match(a.text, /hoprig codex oai2/);
-  const b = await run('cx', [[/^> $/, '6'], [/Label/, '']]);
-  assert.equal(b.code, 0, b.text);
-  const c = P.readProfile('cx');
-  assert.deepEqual([c.kind, c.env, c.label, P.servesTools(c)], ['chatgpt', {}, 'Codex sign-in', ['codex']]);
-  assert.match(b.text, /hoprig codex login --device-auth/);
+  assert.deepEqual(P.servesTools(o), ['codex', 'opencode'], 'the full rule is kept; the pages name the offered tools only');
+  assert.match(a.text, /Start OpenCode with: hoprig opencode oai2\./);
+  assert.doesNotMatch(a.text, /codex|ChatGPT/i, 'the menu does not offer Codex or its sign-in');
+  const b = await run('cx', [[/^> $/, '6']]);
+  assert.match(b.text, /Nothing was saved/);
+  assert.equal(P.readProfile('cx'), null, 'the Codex sign-in kind is not offered');
   const bad = await run('oai3', [[/^> $/, '5'], [/API key/, 'sk-test-key-123456'], [/Base URL/, ''], [/Model/, '--auto']]);
   assert.match(bad.text, /not a model id/);
   assert.equal(P.readProfile('oai3'), null);
+});
+
+test('the command line does not offer Codex: "hoprig codex" is refused in one plain sentence, and the help does not list it', () => {
+  const bin = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'hoprig.mjs');
+  const env = { ...process.env, HOPRIG_WORKSPACE_DIR: path.join(tmp, 'ws') };
+  for (const args of [['codex'], ['codex', 'login', '--device-auth'], ['tools', 'install', 'codex'], ['tools', 'on', 'codex']]) {
+    const r = spawnSync(process.execPath, [bin, ...args], { env, encoding: 'utf8' });
+    assert.equal(r.status, 2, args.join(' '));
+    assert.match(r.stderr, /^(hoprig: )?Codex is not part of this version of Hoprig\.\n$/, args.join(' '));
+  }
+  const help = spawnSync(process.execPath, [bin, '--help'], { env, encoding: 'utf8' });
+  assert.equal(help.status, 0);
+  assert.doesNotMatch(help.stdout + help.stderr, /Codex|hoprig codex/);
+  assert.match(help.stdout, /hoprig opencode \[provider\]/);
 });

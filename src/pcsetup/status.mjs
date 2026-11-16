@@ -213,7 +213,7 @@ export async function claudeChecks(sys, { offline = false } = {}) {
 }
 
 /**
- * Codex and OpenCode, which Hoprig installs into its own tools folder: fine when there, an optional extra with an
+ * The offered coding tools Hoprig installs into its own tools folder (OpenCode): fine when there, an optional extra with an
  * Install button when not (POST /api/pcsetup/tool). `tools`: the descriptors (src/codetools; tests pass stand-ins).
  */
 export async function codingToolChecks(tools = null) {

@@ -187,3 +187,18 @@ test('settings OpenCode keeps in a form Hoprig does not write, and a different C
   assert.match(cx.why, /differs from the brain's/);
   assert.equal(fs.readFileSync(path.join(homes.codex, 'AGENTS.md'), 'utf8'), 'codex only rules\n');
 });
+
+test('the tools that are on come from the offered ones: a config that names Codex links nothing for it', { skip: !posix && 'links need rights on Windows' }, () => {
+  const a = place();
+  const homes = { codex: path.join(a.home, '.codex'), opencode: path.join(a.home, '.config', 'opencode') };
+  saveConfig({ codingTools: ['claude', 'codex', 'opencode'] }); // written by a version that offered Codex
+  try {
+    const plan = planLink({ ...a, homes });
+    assert.deepEqual(plan.map((p) => p.id), ['rules', 'skills', 'memory', 'opencode:rules', 'opencode:skills', 'opencode:instructions', 'memory-note']);
+    assert.ok(plan.every((p) => !p.tools.includes('codex')));
+    assert.doesNotMatch(JSON.stringify(plan.map((p) => [p.what, planWords(p)])), /Codex/);
+    assert.equal(plan.find((p) => p.id === 'opencode:skills').what, 'your skills, for OpenCode');
+  } finally {
+    saveConfig({ codingTools: ['claude'] });
+  }
+});

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { getAutoSwitch, limitedProfiles, recommendedProfile, usableOrder } from './autoswitch.mjs';
+import { findTool } from './codetools/index.mjs';
 import { loadConfig } from './config.mjs';
 import { stateDir, tilde } from './paths.mjs';
 import { AUTH_VARS, listProfiles, readProfile, validName, writeProfile } from './profiles.mjs';
@@ -252,8 +253,10 @@ export async function addProfile(nameArg) {
   out(`  ${bold('2')}  an Anthropic API key`);
   out(`  ${bold('3')}  an API through a proxy or gateway (base URL + token)`);
   out(`  ${bold('4')}  the Claude account this machine is logged in with (claude /login)`);
-  out(`  ${bold('5')}  an OpenAI API key, or a service that speaks OpenAI's API (for Codex and OpenCode)`);
-  out(`  ${bold('6')}  the ChatGPT account Codex signs in to on this computer (for Codex)`);
+  // 6: Codex's own sign-in, only while Codex is offered (src/codetools/index.mjs).
+  const codex = !!findTool('codex');
+  out(`  ${bold('5')}  an OpenAI API key, or a service that speaks OpenAI's API (for ${codex ? 'Codex and ' : ''}OpenCode)`);
+  if (codex) out(`  ${bold('6')}  the ChatGPT account Codex signs in to on this computer (for Codex)`);
   const kind = await ask('> ');
   if (kind === null || kind === '') return null;
 
@@ -327,7 +330,7 @@ export async function addProfile(nameArg) {
     if (url && !/^https:\/\/api\.openai\.com\/?(v1\/?)?$/.test(url)) env.OPENAI_BASE_URL = url.replace(/\/+$/, '').replace(/\/v1$/, '');
     if (model) models = `*=${model}`;
     defaultLabel = env.OPENAI_BASE_URL ? `OpenAI API via ${env.OPENAI_BASE_URL.replace(/^https?:\/\//, '')}` : 'OpenAI API';
-  } else if (kind === '6') {
+  } else if (kind === '6' && codex) {
     signin = 'codex';
     defaultLabel = 'Codex sign-in';
   } else {
@@ -337,7 +340,9 @@ export async function addProfile(nameArg) {
   const label = await ask(`Label shown in menus [${defaultLabel}]: `);
   if (label === null) return null;
   const saved = writeProfile(name, { label: label || defaultLabel, prerun, models, signin, env });
-  if (kind === '5') out(`Saved. Start Codex with: hoprig codex ${name}  (or OpenCode: hoprig opencode ${name}). The dashboard's Test on the provider finds out whether Claude Code can use it too.`);
+  if (kind === '5') {
+    out(`Saved. Start ${codex ? `Codex with: hoprig codex ${name}  (or OpenCode: hoprig opencode ${name})` : `OpenCode with: hoprig opencode ${name}`}. The dashboard's Test on the provider finds out whether Claude Code can use it too.`);
+  }
   else if (kind === '6') out(`Saved. Sign Codex in first: hoprig codex login --device-auth  Then start it with: hoprig codex ${name}`);
   else out(`Saved. Start it with: hoprig ${name}`);
   return saved ? name : null;

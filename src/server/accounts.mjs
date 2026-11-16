@@ -8,10 +8,11 @@
 //                         accepts), tests one tiny request, and saves the profile.
 //   Other providers       through the TRouteAI add-on (it translates OpenAI, Gemini, … to Claude's API): the same as
 //                         above with its address prefilled and PRERUN set so the gateway starts on demand.
-//   OpenAI-compatible     base URL + key for OpenAI's API (or a service that speaks it), for Codex and OpenCode: the
+//   OpenAI-compatible     base URL + key for OpenAI's API (or a service that speaks it), for OpenCode (and Codex): the
 //                         same steps, tested with the Responses API and chat completions; saved as OPENAI_API_KEY.
 //   Codex sign-in         the ChatGPT account Codex keeps itself (`codex login`): a provider file that says so
-//                         (SIGNIN=codex), no key. For Codex only.
+//                         (SIGNIN=codex), no key. For Codex only. Offered only while Codex is (src/codetools/index.mjs);
+//                         until then such a file is listed with `unusable: true` and is not used.
 //
 // Which coding tools a provider serves is profiles.mjs servesTools; "Test" on a provider asks the endpoint which API
 // shapes it answers (probeShapes) and saves them as its API= line.
@@ -24,7 +25,8 @@
 //   POST /api/accounts/probe                   … with via: "openai" for an OpenAI-compatible key (Bearer first)
 //   POST /api/accounts/save                    { probe, name, label, model?, smallModel?, via: "api"|"trouteai"|"openai" }
 //   POST /api/accounts/<name>/test             {} the API shapes the provider answers, saved as API= → { ok, shapes, tools, error? }
-//   POST /api/accounts/codex-signin            { name?, label? } a provider for the sign-in Codex keeps itself
+//   POST /api/accounts/codex-signin            { name?, label? } a provider for the sign-in Codex keeps itself (404
+//                                              while Codex is not offered)
 //   POST /api/accounts/<name>/model            { probe, model, smallModel? }  pin another model
 //   POST /api/accounts/<name>/label            { label }
 //   POST /api/accounts/<name>/auto             { on }  add to / remove from Auto mode's order
@@ -46,6 +48,7 @@ import * as autoswitchModule from '../autoswitch.mjs';
 import { ptySpawn } from './backends/nodepty.mjs';
 import { findAddon } from '../addons/index.mjs';
 import { codexSignedIn } from '../codetools/codexsignin.mjs';
+import { findTool } from '../codetools/index.mjs';
 import { MODEL_RE, listModels, probeShapes, scrub, shapesAfterTest, testModel } from './endpoint.mjs';
 import { AUTH_VARS, deleteProfile, knownShapes, listProfiles, metaOf, readProfile, servesTools, validName, writeProfile } from '../profiles.mjs';
 
@@ -272,6 +275,11 @@ export function accountsFeature(ctx, opts = {}) {
   const auto = opts.autoswitch || autoswitchModule;
   const addon = () => opts.trouteai || findAddon('trouteai');
   const now = opts.now || Date.now;
+  // Codex's own sign-in is a provider kind only while Codex is offered (src/codetools/index.mjs). `opts.findTool`:
+  // tests of the kept Codex parts pass one that knows every built tool.
+  const tool = opts.findTool || findTool;
+  const codexOffered = () => !!tool('codex');
+  const offered = (ids) => ids.filter((id) => tool(id));
   const probes = new Map(); // id → { baseUrl, key, auth, models, at, account }
   let flow = null;
   let lastFlowError = null;
@@ -337,7 +345,9 @@ export function accountsFeature(ctx, opts = {}) {
     const prof = readProfile(name);
     if (!prof) throw fail(404, `There is no provider called "${name}"`);
     if (KEYED.includes(prof.kind)) throw fail(409, `"${name}" uses an API key, not a sign-in: there is nothing to sign in to`);
-    if (prof.kind === 'chatgpt') throw fail(409, `"${name}" is Codex's own sign-in: Sign in on its page, or hoprig codex login in a terminal`);
+    if (prof.kind === 'chatgpt') {
+      throw fail(409, codexOffered() ? `"${name}" is Codex's own sign-in: Sign in on its page, or hoprig codex login in a terminal` : `"${name}" is a sign-in this version of Hoprig cannot use`);
+    }
     return prof;
   }
 
@@ -354,7 +364,7 @@ export function accountsFeature(ctx, opts = {}) {
     const order = auto.getAutoSwitch().order || [];
     // A Codex sign-in: whether Codex is signed in on this computer (null: Codex is not installed or does not say).
     const all = listProfiles();
-    const codexIn = all.some((p) => p.kind === 'chatgpt') ? await (opts.codexSignedIn || codexSignedIn)().catch(() => null) : null;
+    const codexIn = codexOffered() && all.some((p) => p.kind === 'chatgpt') ? await (opts.codexSignedIn || codexSignedIn)().catch(() => null) : null;
     return all.map((p) => {
       const s = st.profiles.find((x) => x.name === p.name) || {};
       const k = stored(p);
@@ -366,13 +376,14 @@ export function accountsFeature(ctx, opts = {}) {
       }
       return {
         name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, host, model: KEYED.includes(p.kind) ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
-        tools: servesTools(p), api: p.api || [],
+        tools: offered(servesTools(p)), api: p.api || [],
         viaTrouteai: Boolean(p.prerun && /addons start trouteai/.test(p.prerun)),
         remote: remote.has(p.name) ? (({ computer, title, state, text }) => ({ computer, title: title || null, state, text }))(remote.get(p.name)) : null,
         limited: s.limited || null, usage: s.usage || null, inUse: s.inUse || 0, inAuto: order.includes(p.name),
         // providers that sign in: is the sign-in there, its plan, and whether that plan reports usage at all
         ...('signedIn' in s ? { signedIn: s.signedIn, plan: s.plan ?? null, usageReported: s.usageReported ?? null } : {}),
-        ...(p.kind === 'chatgpt' ? { signedIn: codexIn } : {}),
+        // A sign-in kind of a coding tool this version does not offer (a file from a version that did): kept, not used.
+        ...(p.kind === 'chatgpt' ? (codexOffered() ? { signedIn: codexIn } : { unusable: true }) : {}),
       };
     });
   }
@@ -393,7 +404,7 @@ export function accountsFeature(ctx, opts = {}) {
           api: { name: freeName('claude-api'), label: 'Claude API', baseUrl: ANTHROPIC_URL },
           trouteai: { name: freeName('api'), label: 'API via TRouteAI', baseUrl: tr ? tr.baseUrl : 'http://localhost:20017' },
           openai: { name: freeName('openai'), label: 'OpenAI API', baseUrl: OPENAI_URL },
-          codex: { name: freeName('chatgpt'), label: 'Codex sign-in' },
+          ...(codexOffered() ? { codex: { name: freeName('chatgpt'), label: 'Codex sign-in' } } : {}),
         },
         trouteai: tr,
         signin: signinState(),
@@ -493,15 +504,16 @@ export function accountsFeature(ctx, opts = {}) {
       }
       if (!model) throw fail(400, 'Pick the model this provider uses first (Change model)');
       const r = await probeShapes(fetchImpl, k.baseUrl, k.key, k.auth || 'x', model);
-      if (!r.ok) return { ok: false, shapes: r.shapes, unsure: r.unsure, tools: servesTools(prof), error: r.error };
+      if (!r.ok) return { ok: false, shapes: r.shapes, unsure: r.unsure, tools: offered(servesTools(prof)), error: r.error };
       const now = readProfile(prof.name);
       const api = shapesAfterTest(knownShapes(now), r);
       writeProfile(prof.name, { ...metaOf(now), api, env: now.env });
       const kept = api.filter((x) => !r.shapes.includes(x));
-      return { ok: true, shapes: api, kept, tools: servesTools(readProfile(prof.name)) };
+      return { ok: true, shapes: api, kept, tools: offered(servesTools(readProfile(prof.name))) };
     }],
     ['POST', /^\/api\/accounts\/codex-signin$/, async (req) => {
       // The ChatGPT account Codex keeps itself: no key here; Codex signs in with `codex login` in a terminal.
+      if (!codexOffered()) throw fail(404, 'Codex is not part of this version of Hoprig.');
       const b = await ctx.readJson(req);
       const name = cleanNewName(b.name, freeName('chatgpt'));
       const label = cleanLabel(b.label, 'Codex sign-in');

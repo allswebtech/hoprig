@@ -33,7 +33,7 @@ function entryList(entries, after) {
   ]));
 }
 
-/** "Claude Code and Codex read": the coding tools of these entries, with the verb that fits. */
+/** "Claude Code and OpenCode read": the coding tools of these entries, with the verb that fits. */
 const whoReads = (entries) => {
   const ids = [...new Set(entries.flatMap(toolsOf))];
   return `${ids.map(toolName).join(', ').replace(/, ([^,]*)$/, ' and $1') || 'Your coding tools'} read${ids.length === 1 ? 's' : ''}`;

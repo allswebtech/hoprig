@@ -266,7 +266,7 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     else if (!ui.dryRun) ui.note('Nothing installed.');
   }
   let changed = results.some((x) => x.ok);
-  // The recipe's coding tools (Codex, OpenCode): into Hoprig's own tools folder, after the kits (they need npm).
+  // The recipe's coding tools (the offered ones Hoprig installs): into Hoprig's own tools folder, after the kits (they need npm).
   const toolsFailed = [];
   for (const t of toolsDue) {
     ui.out(`\n${bold(t.name)}  ${dim("into Hoprig's tools folder")}`);

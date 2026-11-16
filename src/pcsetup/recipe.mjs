@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { ALL_TOOLS, TOOLS } from '../codetools/index.mjs';
 import { KIT_IDS } from './kits.mjs';
 import { parseRepo } from './projects.mjs';
 
@@ -16,8 +17,11 @@ export const RECIPE_VERSION = 1;
 const MAX_BYTES = 64 * 1024;
 const MAX_REPOS = 200;
 const KEYS = ['hoprigRecipe', 'kits', 'tools', 'codingTools', 'projectsDir', 'repos', 'git', 'projectTemplate', 'workspaces'];
-/** The coding tools a recipe may ask for: the ones Hoprig installs into its own tools folder (src/codetools). */
-export const RECIPE_CODING_TOOLS = ['codex', 'opencode'];
+/** The coding tools a recipe may ask for: the offered ones Hoprig installs into its own tools folder (src/codetools). */
+export const RECIPE_CODING_TOOLS = Object.freeze(TOOLS.filter((t) => t.managed).map((t) => t.id));
+// A tool Hoprig has built but this version does not offer: a recipe from a version that offered it is read as if it
+// did not name it (no error, nothing installed).
+const LEFT_OUT = new Set(ALL_TOOLS.filter((t) => t.managed && !RECIPE_CODING_TOOLS.includes(t.id)).map((t) => t.id));
 
 /** A home-relative form of `dir` for another computer ("~/projects"); null when it is outside the home folder. */
 export function homeRelative(dir, home = os.homedir()) {
@@ -66,6 +70,7 @@ export function validateRecipe(input) {
     else {
       out.codingTools = [];
       for (const t of input.codingTools) {
+        if (LEFT_OUT.has(t)) continue;
         if (typeof t !== 'string' || !RECIPE_CODING_TOOLS.includes(t)) errors.push(`"${String(t).slice(0, 40)}" is not a coding tool a recipe installs (${RECIPE_CODING_TOOLS.join(', ')})`);
         else if (!out.codingTools.includes(t)) out.codingTools.push(t);
       }

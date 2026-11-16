@@ -1,6 +1,7 @@
-// Codex and OpenCode on Setup: a row each (fine, or an optional extra with Install), the install as a job in the
-// page that turns the tool on, a recipe that names them, and `pc setup --recipe` installing them. Stand-in tools:
-// nothing is downloaded.
+// The coding tools Hoprig installs (OpenCode) on Setup: a row each (fine, or an optional extra with Install), the
+// install as a job in the page that turns the tool on, a recipe that names them, and `pc setup --recipe` installing
+// them. Codex is not offered in this version: no row, no install, and a recipe that names it is read as if it did
+// not. Stand-in tools: nothing is downloaded.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,11 +14,10 @@ Object.assign(process.env, { HOME: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: pa
 fs.mkdirSync(process.env.HOME, { recursive: true });
 const { pcsetupFeature } = await import('../../src/pcsetup/feature.mjs');
 const { codingToolChecks, GROUPS } = await import('../../src/pcsetup/status.mjs');
-const { makeRecipe, validateRecipe } = await import('../../src/pcsetup/recipe.mjs');
+const { RECIPE_CODING_TOOLS, makeRecipe, validateRecipe } = await import('../../src/pcsetup/recipe.mjs');
 const { runPcSetup } = await import('../../src/pcsetup/setup.mjs');
 const { sysFacts } = await import('../../src/pcsetup/detect.mjs');
 const { makeUi } = await import('../../src/setup/ui.mjs');
-const { withTool } = await import('../../src/codetools/index.mjs');
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 /** Stand-in descriptors with the shape src/codetools gives them. */
@@ -32,22 +32,27 @@ function fakeTools({ ok = true } = {}) {
       return { ok, version: ok ? pin : null, output: '' };
     },
   });
-  const list = [mk('codex', 'Codex', '0.169.0'), mk('opencode', 'OpenCode', '2.3.0')];
+  const list = [mk('opencode', 'OpenCode', '2.3.0'), mk('other', 'Other', '1.0.0')];
   let cfg = {};
   return {
     have, list, cfg: () => cfg,
-    module: { findTool: (id) => list.find((t) => t.id === id) || null, turnOn: (id, o = {}) => (o.save || ((p) => (cfg = { ...cfg, ...p })))({ codingTools: withTool((o.config || (() => cfg))(), id, true) }) },
+    // turnOn as the registry does it, with the stand-ins' ids as the offered ones.
+    module: { findTool: (id) => list.find((t) => t.id === id) || null, turnOn: (id, o = {}) => (o.save || ((p) => (cfg = { ...cfg, ...p })))({ codingTools: [...new Set([...((o.config || (() => cfg))().codingTools || ['claude']), id])] }) },
   };
 }
 
 test('Setup rows: fine when installed, an optional extra with Install when not', async () => {
   const t = fakeTools();
-  t.have.set('codex', '0.169.0');
+  t.have.set('other', '1.0.0');
   const rows = await codingToolChecks(t.list);
   assert.equal(GROUPS.codetools, 'Coding tools');
-  assert.deepEqual(rows.map((r) => [r.id, r.status, r.action || null, r.tool || null]), [['tool.codex', 'ok', null, null], ['tool.opencode', 'info', 'tool-install', 'opencode']]);
-  assert.equal(rows[0].detail, "0.169.0 (Hoprig's tools folder)");
-  assert.equal(rows[1].fix, 'hoprig tools install opencode');
+  assert.deepEqual(rows.map((r) => [r.id, r.status, r.action || null, r.tool || null]), [['tool.opencode', 'info', 'tool-install', 'opencode'], ['tool.other', 'ok', null, null]]);
+  assert.equal(rows[1].detail, "1.0.0 (Hoprig's tools folder)");
+  assert.equal(rows[0].fix, 'hoprig tools install opencode');
+  // The real registry: OpenCode only (Codex is not offered), nothing installed in this test's own folders.
+  const real = await codingToolChecks();
+  assert.deepEqual(real.map((r) => [r.id, r.label || r.name || null]).map(([id]) => id), ['tool.opencode']);
+  assert.doesNotMatch(JSON.stringify(real), /codex/i);
 });
 
 test('POST /api/pcsetup/tool: a job in the page, the tool turned on; strict input', async () => {
@@ -79,16 +84,23 @@ test('POST /api/pcsetup/tool: a job in the page, the tool turned on; strict inpu
   ]);
   assert.deepEqual(cfg.codingTools, ['claude', 'opencode'], 'installing turns it on');
   await assert.rejects(call('POST', '/api/pcsetup/tool', { id: 'opencode' }), (e) => e.status === 409 && /Settings → Updates/.test(e.message));
+  // The real registry refuses Codex: it is not part of this version.
+  const real = pcsetupFeature(sctx, { projectsDir: () => path.join(tmp, 'projects') });
+  const route = real.routes.find(([m, re]) => m === 'POST' && re.test('/api/pcsetup/tool'))[2];
+  await assert.rejects(route(Object.assign(Readable.from([]), { body: { id: 'codex' } }), [], new URLSearchParams()), (e) => e.status === 400);
+  assert.deepEqual(cfg.codingTools, ['claude', 'opencode'], 'unchanged');
 });
 
-test('a recipe names the coding tools Hoprig installs, and nothing else', () => {
-  const r = makeRecipe({ kits: ['basics'], codingTools: ['codex', 'codex'] });
-  assert.deepEqual(r.codingTools, ['codex']);
-  assert.deepEqual(validateRecipe(r), { ok: true, recipe: { hoprigRecipe: 1, kits: ['basics'], codingTools: ['codex'] } });
+test('a recipe names the coding tools Hoprig installs, and nothing else; one that names Codex is read as if it did not', () => {
+  assert.deepEqual(RECIPE_CODING_TOOLS, ['opencode']);
+  const r = makeRecipe({ kits: ['basics'], codingTools: ['opencode', 'opencode'] });
+  assert.deepEqual(r.codingTools, ['opencode']);
+  assert.deepEqual(validateRecipe(r), { ok: true, recipe: { hoprigRecipe: 1, kits: ['basics'], codingTools: ['opencode'] } });
   const bad = validateRecipe({ hoprigRecipe: 1, kits: [], codingTools: ['claude', 'rm -rf /'] });
   assert.equal(bad.ok, false);
-  assert.match(bad.errors.join(' '), /"claude" is not a coding tool a recipe installs/);
-  assert.equal(validateRecipe({ hoprigRecipe: 1, kits: [], codingTools: 'codex' }).ok, false);
+  assert.match(bad.errors.join(' '), /"claude" is not a coding tool a recipe installs \(opencode\)/);
+  assert.equal(validateRecipe({ hoprigRecipe: 1, kits: [], codingTools: 'opencode' }).ok, false);
+  assert.deepEqual(validateRecipe({ hoprigRecipe: 1, kits: [], codingTools: ['codex', 'opencode'] }), { ok: true, recipe: { hoprigRecipe: 1, kits: [], codingTools: ['opencode'] } }, 'a recipe from a version that offered Codex');
 });
 
 test('pc setup with a recipe installs its coding tools after the kits, turns them on, and says what to retry', async () => {
@@ -97,18 +109,18 @@ test('pc setup with a recipe installs its coding tools after the kits, turns the
   const out = [];
   const ui = makeUi({ yes: true, interactive: false, write: (s) => out.push(s) });
   const t = fakeTools();
-  const r = await runPcSetup({ ui, recipe: { hoprigRecipe: 1, kits: [], codingTools: ['codex', 'opencode'] }, sys, runner: async () => ({ ok: true }), codingTools: t.module });
+  const r = await runPcSetup({ ui, recipe: { hoprigRecipe: 1, kits: [], codingTools: ['opencode', 'other'] }, sys, runner: async () => ({ ok: true }), codingTools: t.module });
   assert.equal(r.ok, true, out.join(''));
-  assert.deepEqual([...t.have.keys()], ['codex', 'opencode']);
-  assert.deepEqual(t.cfg().codingTools, ['claude', 'codex', 'opencode']);
+  assert.deepEqual([...t.have.keys()], ['opencode', 'other']);
+  assert.deepEqual(t.cfg().codingTools, ['claude', 'opencode', 'other']);
   out.length = 0;
-  const again = await runPcSetup({ ui, recipe: { hoprigRecipe: 1, kits: [], codingTools: ['codex'] }, sys, runner: async () => ({ ok: true }), codingTools: t.module });
+  const again = await runPcSetup({ ui, recipe: { hoprigRecipe: 1, kits: [], codingTools: ['opencode'] }, sys, runner: async () => ({ ok: true }), codingTools: t.module });
   assert.equal(again.changed, false);
   assert.match(out.join(''), /Nothing to do/);
   const broken = fakeTools({ ok: false });
   out.length = 0;
-  const failed = await runPcSetup({ ui, recipe: { hoprigRecipe: 1, kits: [], codingTools: ['codex'] }, sys, runner: async () => ({ ok: true }), codingTools: broken.module });
+  const failed = await runPcSetup({ ui, recipe: { hoprigRecipe: 1, kits: [], codingTools: ['opencode'] }, sys, runner: async () => ({ ok: true }), codingTools: broken.module });
   assert.equal(failed.ok, false);
-  assert.deepEqual(failed.missing, ['codingTools.codex']);
-  assert.match(out.join(''), /retry:.*hoprig tools install codex/);
+  assert.deepEqual(failed.missing, ['codingTools.opencode']);
+  assert.match(out.join(''), /retry:.*hoprig tools install opencode/);
 });

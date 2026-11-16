@@ -142,7 +142,7 @@ export function setupSection() {
       }
     } }) : null,
     c.action === 'claude-login' ? claudeLoginButton(load) : null,
-    // Codex or OpenCode: into Hoprig's own tools folder, as a job on this page (its card shows the output).
+    // A coding tool Hoprig installs (OpenCode): into Hoprig's own tools folder, as a job on this page (its card shows the output).
     c.action === 'tool-install' ? btn('small secondary', { icon: 'download', label: 'Install', title: `Install ${c.label} into Hoprig's tools folder`, onclick: async (e) => {
       const b = e.currentTarget;
       b.disabled = true;

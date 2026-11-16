@@ -14,7 +14,7 @@ import { workspaceSetup } from './setup.mjs';
 const USAGE = `usage:
   hoprig workspace status [--json]             the workspace: what is there and what each folder is for
   hoprig workspace setup [--dry-run] [--yes]   create only what is missing (nothing that exists is changed)
-  hoprig workspace link [--dry-run] [--yes]    let every coding tool that is on (Claude Code, Codex, OpenCode) read
+  hoprig workspace link [--dry-run] [--yes]    let every coding tool that is on (Claude Code, OpenCode) read
                                                the same rules, skills and memory from the AI brain (backs up what
                                                is there; overwrites nothing)
 ${GIT_USAGE}`;

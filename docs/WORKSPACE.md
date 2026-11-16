@@ -239,21 +239,20 @@ file moves into the brain only when the brain has none; when both exist with dif
 and you are told to keep one. A link that points somewhere else is left alone. Windows: folders become junctions;
 a file link needs the right to make links, and without it the file is put back and the step reports the error.
 
-### Codex and OpenCode: the same brain
+### OpenCode: the same brain
 
-When Codex or OpenCode is on (`hoprig tools on codex`, or installing it), `workspace link` covers them too, so all
+When OpenCode is on (`hoprig tools on opencode`, or installing it), `workspace link` covers it too, so all
 coding tools read the same rules, skills and memory:
 
 | Coding tool | what is linked or named | in the brain |
 |---|---|---|
-| Codex | `~/.codex/AGENTS.md` (`$CODEX_HOME`) | `ai_brain/claude/CLAUDE.md` |
-| Codex and OpenCode | `~/.agents/skills/` | `ai_brain/skills/` |
+| OpenCode | `~/.agents/skills/` | `ai_brain/skills/` |
 | OpenCode | `~/.config/opencode/AGENTS.md` | `ai_brain/claude/CLAUDE.md` |
 | OpenCode | `"instructions"` in `~/.config/opencode/opencode.json`: Claude Code's `rules/*.md` and each project's `ai_brain/claude-memory/MEMORY.md` | (added to the list; the file's other settings stay, the old file is kept as a backup) |
 
-Neither keeps a memory of its own, so the shared rules file gets a short **Memory** section at its end (once,
-between two marker lines, after your own text) that tells them where each project's memory is and to keep it.
-Codex and OpenCode do not read `CLAUDE.md` in a project, only `AGENTS.md`: the projects Hoprig sets up have both.
+It keeps no memory of its own, so the shared rules file gets a short **Memory** section at its end (once,
+between two marker lines, after your own text) that tells it where each project's memory is and to keep it.
+OpenCode does not read `CLAUDE.md` in a project, only `AGENTS.md`: the projects Hoprig sets up have both.
 The **AI brain** page shows, per coding tool, whether it is linked, with one **Link** button.
 
 ## The AI brain in the dashboard
