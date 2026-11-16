@@ -5,7 +5,7 @@
 //   GET  /api/chats                           the open chats, as cards
 //   POST /api/chats                           { dir, profile?, model?, effort?, permissionMode?, ultracode?, sessionId?, text? }
 //                                             → { id }   what is left out: as the last chat in that folder ran
-//                                             (folders.mjs), else the provider recommended now and Settings
+//                                             (folders.mjs), else the folder's default provider and Settings
 //   GET  /api/chats/<id>?from=N&epoch=E&wait=S   the chat: events from N (wait up to S seconds for news)
 //   GET  /api/chats/<id>/older?before=N       earlier events
 //   POST /api/chats/<id>/send                 { text, attachments?: [{ path }] } → { id, queued }   (while a turn
@@ -24,7 +24,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getAutoSwitch, limitedProfiles } from '../autoswitch.mjs';
+import { getAutoSwitch } from '../autoswitch.mjs';
 import { EFFORTS, MODELS, PERMISSION_MODES } from '../config.mjs';
 import { stateDir, tilde } from '../paths.mjs';
 import { assertServes, listProfiles, publicProfile, readProfile, servesTools } from '../profiles.mjs';
@@ -225,10 +225,10 @@ export function chatFeature(ctx, o = {}) {
 
   /**
    * Open a chat (POST /api/chats; the schedules too). b: { dir, profile?, model?, effort?, permissionMode?, ultracode?,
-   * sessionId?, text?, defaults?, byTia? }. What is left out: as the last chat in that folder ran, else the provider
-   * recommended now and Settings. defaults: true (Tia, a schedule) takes Settings → New-session defaults and not the
-   * folder's last chat, as a terminal session they start does: a mode the owner chose for himself (bypass) is not
-   * carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
+   * sessionId?, text?, defaults?, byTia? }. What is left out: as the last chat in that folder ran, else the folder's
+   * default provider (ctx.defaultProvider) and Settings. defaults: true (Tia, a schedule) takes Settings → New-session
+   * defaults and not the folder's last chat, as a terminal session they start does: a mode the owner chose for himself
+   * (bypass) is not carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
    * byTia: true (Tia's start_chat) marks the chat this call creates as hers, and no other: not an open chat it gives
    * back, nor a later chat on the same conversation (the mark goes with this chat when it closes for any reason). A
    * message sent into it by anyone but her (the page, a schedule) takes the mark off for good: from then on the chat
@@ -244,9 +244,11 @@ export function chatFeature(ctx, o = {}) {
     const last = (owners && memory.last(dir)) || {};
     let profile = b.profile;
     if (profile === undefined || profile === null || profile === '') {
-      // As the last chat here ran, while that provider is still there; else the one recommended now.
-      // A provider at its limit is not picked by itself (the owner may still choose it).
-      profile = last.profile && servesChat(last.profile) && !limitedProfiles()[last.profile] ? last.profile : (await ctx.state()).recommended;
+      // The folder's default (src/defaultprovider.mjs), with the last chat here as the folder's own provider while it
+      // serves a chat; without one, the provider the launcher last started on here. Either goes through the same
+      // tests as every other: not at its limit, not a pay-per-use key while another can work (the owner may still
+      // choose one).
+      profile = await ctx.defaultProvider(dir, last.profile && servesChat(last.profile) ? last.profile : null);
       if (!profile) throw bad('there is no provider yet: add one under Providers first');
     }
     if (typeof profile !== 'string' || !profileOk(profile)) throw bad('there is no such provider');

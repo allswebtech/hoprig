@@ -63,7 +63,8 @@ export function rememberFolderProvider(cwd, profile) {
  */
 export function chooseDefault({ profiles = [], auto = {}, autoName = 'auto', last = null }) {
   if (auto.enabled) return autoName;
-  const real = profiles.filter((p) => p && !p.virtual && (!Array.isArray(p.tools) || p.tools.includes('claude')));
+  // `unusable`: no coding tool of this version can use it (profiles.mjs publicProfile); never a default.
+  const real = profiles.filter((p) => p && !p.virtual && !p.unusable && (!Array.isArray(p.tools) || p.tools.includes('claude')));
   const free = (p) => !p.limited;
   // The folder's own provider goes first, under the same two tests as every other: not at its limit, and not a
   // pay-per-use key while that is not allowed and another provider can work.

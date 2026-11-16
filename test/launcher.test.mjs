@@ -303,7 +303,8 @@ test('the start menu offers only providers that serve Claude Code, and never ano
       { env: process.env, encoding: 'utf8', input: '\n' });
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(r.stdout, /aa-cx|ab-oai|Codex/);
-    assert.match(r.stdout, /CHOICE \{"name":"api","extraArgs":\[\]\}/, 'Enter starts on a provider that serves Claude Code');
+    // The default rule (src/defaultprovider.mjs): the Providers page's order, a subscription before an API provider.
+    assert.match(r.stdout, /CHOICE \{"name":"sub","extraArgs":\[\]\}/, 'Enter starts on a provider that serves Claude Code');
     // `hoprig profiles --json` lists every provider, with the offered coding tools only; `unusable` for one that serves none.
     const json = JSON.parse(spawnSync(process.execPath, [binFile(), 'profiles', '--json'], { env: process.env, encoding: 'utf8' }).stdout);
     const of = (n) => json.find((p) => p.name === n);

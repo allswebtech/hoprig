@@ -77,7 +77,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
   });
   const st = {
     m: machine.current,
-    profile: '', // '' = the computer's recommended account
+    profile: '', // '' = the folder's default (the server decides: src/defaultprovider.mjs)
     permissionMode: '',
     effort: '',
     model: '',
@@ -134,6 +134,14 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
   const failed = (e, retry) => fill(body, h('div.empty', icon('alert', { size: 32 }), h('p', e.message), h('button.btn.secondary', { type: 'button', onclick: retry }, 'Try again')));
 
   // ---------- Options ----------
+  // What "nothing chosen" means, in the Provider list. The server decides per folder (src/defaultprovider.mjs): the
+  // provider used last in that folder while it can work, else `recLabel` (the computer's default); Auto mode, when on,
+  // everywhere. A chat first takes what the last chat in the project had (`same`).
+  const defaultWords = (m, recLabel, same) => {
+    if (!recLabel) return same || 'The default';
+    const folder = m && m.recommendedIn && !(m.autoSwitch && m.autoSwitch.enabled) ? `the one used last in the folder, else ${recLabel}` : recLabel;
+    return same ? `${same}, else ${folder}` : `The default: ${folder}`;
+  };
   const select = (label, value, options, onchange, hint) =>
     h('label.fieldrow', h('span.field-label', label),
       h('select.field', { onchange: (e) => onchange(e.target.value) }, options.map(([v, t]) => h('option', { value: v, selected: v === value }, t))),
@@ -153,7 +161,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     // A plain terminal runs no Claude: no provider, mode, model or conversation to choose.
     if (st.run === 'shell') return fill(opts, run);
     fill(opts, run,
-      select('Provider', st.profile, [['', chat ? `${same}${recLabel ? `, else ${recLabel}` : ''}` : recLabel ? `The default: ${recLabel}` : 'The default'], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => (st.profile = v)),
+      select('Provider', st.profile, [['', defaultWords(m, recLabel, chat ? same : null)], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => (st.profile = v)),
       select('What Claude may do without asking', st.permissionMode, [['', same], ...Object.entries(MODES)], (v) => (st.permissionMode = v),
         st.permissionMode === 'bypassPermissions' ? 'Claude can run any command and change any file without asking.' : null),
       select('How hard it thinks', st.effort, [['', same], ...Object.entries(EFFORT)], (v) => (st.effort = v)),
@@ -267,8 +275,10 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
       }
       return;
     }
-    const profile = st.profile || (m && m.recommended);
-    if (!profile) return toast('No provider yet: add one under Providers first.', { kind: 'error', ms: 6000 });
+    // No provider chosen: none is sent, so the server takes the folder's default (the one used there last, else the
+    // Providers page's order: src/defaultprovider.mjs). A computer with no provider at all has no default. An older
+    // computer (no `recommendedIn`) does not choose by itself: it gets its recommended one, as before.
+    if (!st.profile && !(m && m.recommended)) return toast('No provider yet: add one under Providers first.', { kind: 'error', ms: 6000 });
     let mode = st.conversation === 'pick' ? 'resume' : st.conversation;
     let sessionId = null;
     if (mode !== 'new') {
@@ -292,7 +302,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     busy(`Starting Claude in ${f.name}…`);
     try {
       const { name, chat, existing } = await api(at(st.m, '/api/sessions'), {
-        dir: f.path, profile, mode, sessionId, permissionMode: st.permissionMode || null, effort: st.effort || null, model: st.model || null,
+        dir: f.path, profile: st.profile || (m && !m.recommendedIn ? m.recommended : undefined), mode, sessionId, permissionMode: st.permissionMode || null, effort: st.effort || null, model: st.model || null,
       });
       // The conversation runs in a chat already (one conversation, one process): it goes on there.
       if (chat) {
