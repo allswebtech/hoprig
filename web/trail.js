@@ -4,7 +4,7 @@
 // (its link, the browser's Back, the session switcher) takes off what came after it; a press in the navigation and
 // Home start a new trail. A page of another computer is a place of its own.
 
-import { BARE } from './lib.js';
+import { BARE, WINDOW, samePlace as sameAddress } from './lib.js';
 
 const KEY = 'trail';
 const MAX = 8;
@@ -115,6 +115,16 @@ export function cameFrom() {
 export function movedOn(parent) {
   const here = trail.here;
   return Boolean(parent && here && samePage(here, placeOf(parent), parent) && here.hash !== here.entry);
+}
+
+/**
+ * In a window of the desktop (lib.js WINDOW) the way back stays inside the window's app: { hash, label } of the page
+ * the app starts at while the window shows another page, null on that page (no way back: a Terminal window never
+ * turns into another page), undefined outside a window.
+ */
+export function windowWay() {
+  if (!BARE || !WINDOW || !WINDOW.home) return undefined;
+  return sameAddress(location.hash, WINDOW.home) ? null : { hash: WINDOW.home, label: WINDOW.label || 'Back' };
 }
 
 /**

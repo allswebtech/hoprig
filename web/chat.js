@@ -15,7 +15,7 @@ import { registerPage, registerSessionAction } from './registry.js';
 import { EFFORT, MODELS } from './sessiondefaults.js';
 import { pageNotify, store } from './store.js';
 import { askTitle, lineDiff, money, toolLine, turnLine } from './chattext.js';
-import { forgetHere, named, wayBack } from './trail.js';
+import { forgetHere, named, wayBack, windowWay } from './trail.js';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const finePointer = typeof matchMedia !== 'undefined' && matchMedia('(pointer: fine)').matches; // desktop: Enter sends
@@ -75,7 +75,8 @@ function viewChat({ sub }) {
   store.viewing = `chat:${id}`;
   // The way back is the page you came from (trail.js), as in a terminal session; else Home.
   named('Chat');
-  const way = wayBack() || { hash: link('#/'), label: 'Home' };
+  const inWindow = windowWay(); // a window of the desktop: the way back stays in its app, none where it starts
+  const way = inWindow || wayBack() || { hash: link('#/'), label: 'Home' };
   let alive = true;
   let v = null; // the last view from the server
   let epoch = 0;
@@ -91,7 +92,7 @@ function viewChat({ sub }) {
   const provBtn = h('button.profilebtn', { type: 'button', title: 'Move to another provider', onclick: () => moveProvider() },
     icon('user', { size: 16 }), h('span.profilebtn-label', '…'), icon('chevronDown', { size: 14 }));
   const bar = h('header.chat-bar',
-    h('a.btn.ghost.chatback', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.chatback-label', way.label)),
+    inWindow === null ? null : h('a.btn.ghost.chatback', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.chatback-label', way.label)),
     h('div.chat-head', h('h1.chat-title', titleEl), subEl),
     h('div.chat-bar-end', provBtn, h('button.btn.icon.ghost', { type: 'button', title: 'More for this chat', 'aria-label': 'More for this chat', onclick: () => menu() }, icon('more'))));
   const notes = h('div.chat-notes'); // a terminal runs it, a limit, the connection

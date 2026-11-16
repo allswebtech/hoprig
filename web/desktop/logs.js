@@ -163,7 +163,8 @@ function files(view, call) {
   let gen = 0;
   const sel = h('select.field.dapp-select.dapp-file', { 'aria-label': 'Log file', onchange: (e) => open(e.target.value) });
   const info = h('span.dapp-status', { role: 'status' });
-  const text = h('pre.dapp-log.mono', { tabindex: '0' });
+  const EMPTY = 'Choose a log file above to read it.';
+  const text = h('pre.dapp-log.mono', { tabindex: '0' }, EMPTY);
   const err = h('div');
 
   async function list() {
@@ -182,7 +183,10 @@ function files(view, call) {
     next = null;
     text.textContent = '';
     fill(err);
-    if (!path) return;
+    if (!path) {
+      text.textContent = EMPTY;
+      return;
+    }
     text.textContent = 'Reading…';
     try {
       const r = await call(`/api/logs/file?path=${encodeURIComponent(path)}`);

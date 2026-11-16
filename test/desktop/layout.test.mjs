@@ -61,6 +61,12 @@ test('resize from each edge and corner: the opposite side stays, never below the
   assert.equal(big.x + big.w, AREA.w);
   assert.equal(big.y + big.h, AREA.h);
   assert.equal(resizeRect(s, 'nw', -5000, -5000, AREA).x, 0);
+  // A window partly outside the area (only its title bar's grip on the screen) never goes below the minimum, and a
+  // press on its left edge does not pull it in and shrink it.
+  assert.equal(resizeRect({ x: AREA.w - 48, y: 0, w: 600, h: 400 }, 'e', 0, 0, AREA).w, MIN_W);
+  assert.equal(resizeRect({ x: 0, y: AREA.h - 36, w: 600, h: 400 }, 's', 0, 0, AREA).h, MIN_H);
+  assert.deepEqual(resizeRect({ x: -200, y: 0, w: 600, h: 400 }, 'w', 0, 0, AREA), { x: -200, y: 0, w: 600, h: 400 });
+  assert.deepEqual(resizeRect({ x: -200, y: 0, w: 600, h: 400 }, 'w', 50, 0, AREA), { x: -150, y: 0, w: 550, h: 400 });
 });
 
 test('a new window opens inside the area, never exactly on top of another', () => {
@@ -117,7 +123,10 @@ test('the kept layout is read back only where it is sound', () => {
   assert.equal(cleanLayout(many, APP_IDS).windows.length, MAX_WINDOWS);
   // What is kept is the model only: no element, no frame.
   const kept = keepLayout([{ ...good, el: {}, frame: {}, watch: 1 }], 'wabc123');
-  assert.deepEqual(Object.keys(kept.windows[0]).sort(), ['app', 'hash', 'id', 'min', 'rect', 'snap', 'title', 'z']);
+  assert.deepEqual(Object.keys(kept.windows[0]).sort(), ['app', 'hash', 'home', 'id', 'min', 'own', 'rect', 'snap', 'title', 'z']);
+  // Where a window's app starts and whether the desktop started its shell come back too, checked like the rest.
+  const term = cleanLayout({ windows: [{ ...good, app: 'terminal', hash: '#/s/shell-2', home: '#/s/shell-2', own: true }, { ...good, id: 'wx2', home: 'javascript:x', own: 'yes' }] }, APP_IDS).windows;
+  assert.deepEqual(term.map((w) => [w.home, w.own]), [['#/s/shell-2', true], [null, false]]);
   assert.deepEqual(cleanLayout(JSON.parse(JSON.stringify(kept)), APP_IDS).windows[0].rect, good.rect, 'what is kept reads back the same');
   assert.equal(layoutKey(null), 'desktop.~');
   assert.equal(layoutKey('laptop'), 'desktop.laptop');
@@ -146,6 +155,11 @@ test('the catalog: the computer\'s own apps, each with a known icon and an addre
   assert.equal(sessionHash('a b/c', null), '#/s/a%20b%2Fc');
   assert.equal(sessionHash('x', 'laptop'), '#/m/laptop/s/x');
   assert.equal(frameSrc('#/'), '/?bare=1#/');
+  // What a window's page is told about its app: where it starts, its name, its computer (lib.js WINDOW reads it).
+  const src = frameSrc('#/m/laptop/s/x', '/', { home: '#/m/laptop/', label: 'Sessions', only: 'laptop' });
+  const q = new URLSearchParams(src.slice(src.indexOf('?'), src.indexOf('#')));
+  assert.deepEqual([q.get('bare'), q.get('home'), q.get('label'), q.get('only')], ['1', '#/m/laptop/', 'Sessions', 'laptop']);
+  assert.ok(src.endsWith('#/m/laptop/s/x') && !src.slice(0, src.lastIndexOf('#/m/laptop/s/x')).includes('#'), 'the "#" of home is encoded in the query');
   assert.deepEqual(searchApps('term').map((a) => a.id), ['terminal']);
   assert.equal(searchApps('serv')[0].id, 'services');
   assert.equal(searchApps('journal')[0].id, 'logs', 'words besides the title');
@@ -155,7 +169,10 @@ test('the catalog: the computer\'s own apps, each with a known icon and an addre
 });
 
 test('the native apps\' shared words and sorting', async () => {
-  const { duration, errorText, pct, sortBy } = await import('../../web/desktop/native.js');
+  const { duration, errorText, minWidthOf, pct, sortBy } = await import('../../web/desktop/native.js');
+  // A table turns narrow below what its wide columns need: fixed and minmax() tracks, gaps, padding, a scroll bar.
+  assert.equal(minWidthOf(['minmax(150px, 1fr)', '104px', '1fr', 'auto']), 150 + 104 + 3 * 10 + 36);
+  assert.ok(minWidthOf(['minmax(150px, 1.3fr)', 'minmax(120px, 1.6fr)', '104px', '104px', '178px']) > 635, 'a new Services window at 1024 × 600 is narrow');
   const { ApiError } = await import('../../web/lib.js');
   assert.equal(pct(12.34), '12 %');
   assert.equal(pct(3.14), '3.1 %');

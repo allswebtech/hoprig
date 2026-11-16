@@ -40,13 +40,16 @@ export const seen = (root) => root.isConnected && root.offsetParent !== null && 
 
 /**
  * Run `fn` now and then every `ms` while `root` can be seen (a minimised window or a hidden tab asks nothing; it
- * asks again at once when it shows). Never two at a time. Returns { stop(), now() }.
+ * asks again at once when it shows). Never two at a time; now() during one runs again right after it. Returns
+ * { stop(), now() }.
  */
 export function poll(root, fn, ms) {
   let busy = false;
+  let again = false; // asked for now() while one was on its way: one more right after it
   let last = 0;
   let stopped = false;
   const tick = async (force = false) => {
+    if (busy && force) again = true;
     if (stopped || busy || (!force && (!seen(root) || Date.now() - last < ms - 50))) return;
     busy = true;
     try {
@@ -54,6 +57,10 @@ export function poll(root, fn, ms) {
     } finally {
       busy = false;
       last = Date.now();
+      if (again && !stopped) {
+        again = false;
+        tick(true);
+      }
     }
   };
   const timer = setInterval(tick, Math.min(ms, 1000));
@@ -84,27 +91,48 @@ export function choice(label, options, current, onPick) {
 /** A search field that calls onInput(text) as it is typed. */
 export const filterField = (placeholder, onInput) => h('input.field.dapp-filter', { type: 'search', placeholder, 'aria-label': placeholder, autocomplete: 'off', spellcheck: 'false', oninput: (e) => onInput(e.target.value) });
 
-/** Below this width a table shows its narrow columns only (a phone, or a small window). */
-const NARROW_PX = 560;
+/** The width a set of grid tracks needs at least: the px of each fixed or minmax(px, …) track, the gaps, the row's
+ * padding and room for a scroll bar. */
+export function minWidthOf(tracks, { gap = 10, pad = 36 } = {}) {
+  const px = tracks.map((t) => {
+    const m = /^(?:minmax\(\s*)?(\d+)px/.exec(String(t || ''));
+    return m ? Number(m[1]) : 0;
+  });
+  return px.reduce((a, b) => a + b, 0) + gap * Math.max(0, tracks.length - 1) + pad;
+}
 
 /**
  * A table of `cols` [{ key, label, num?, w (a grid track), narrow? (its track when the table is narrow; false: left
  * out then), sort? (false: not sortable) }] in a box that scrolls. Returns { el, draw(rows: [{ key, cells: [node |
- * text…], cls? }]), sort: { key, desc } }. A press on a column head sorts by it (again: the other way) and calls
- * onSort(). How wide the table is decides its columns each time it is drawn, so a window can be any size.
+ * text…], cls? }]), sort: { key, desc }, isNarrow() }. A press on a column head sorts by it (again: the other way) and
+ * calls onSort(). The table turns narrow when it is narrower than its wide columns need, so a window can be any size
+ * and the last column (the actions) never sits past its edge.
+ *
+ * The rows are kept by key and only the cells that changed are replaced: a poll every few seconds must not take the
+ * keyboard's place away from a button, nor swallow a press that spans a redraw. While the keyboard or a press is in
+ * the rows, their order stays as it is (new rows go to the end); it catches up when they leave.
  */
 export function table(label, cols, { sort = null, onSort = () => {} } = {}) {
   const state = { key: sort ? sort.key : null, desc: sort ? sort.desc : false };
   const head = h('div.dapp-tr.dapp-th', { role: 'row' });
   const body = h('div.dapp-tbody', { role: 'rowgroup' });
   const el = h('div.dapp-table', { role: 'table', 'aria-label': label }, head, body);
+  const needs = minWidthOf(cols.map((c) => c.w));
   let last = [];
+  const rowEls = new Map(); // key → row element
+  let headSig = '';
+  let pressing = false;
+  const isNarrow = () => el.clientWidth > 0 && el.clientWidth < needs;
   const layout = () => {
-    const narrow = el.clientWidth > 0 && el.clientWidth < NARROW_PX;
+    const narrow = isNarrow();
+    el.classList.toggle('dapp-narrow', narrow); // words on buttons give way to their icons (desktop.css)
     const idx = cols.map((c, i) => i).filter((i) => !(narrow && cols[i].narrow === false));
-    return { idx, tracks: idx.map((i) => (narrow && cols[i].narrow) || cols[i].w || '1fr').join(' ') };
+    return { narrow, idx, tracks: idx.map((i) => (narrow && cols[i].narrow) || cols[i].w || '1fr').join(' ') };
   };
   const paintHead = ({ idx, tracks }) => {
+    const sig = JSON.stringify([tracks, state.key, state.desc]);
+    if (sig === headSig) return;
+    headSig = sig;
     head.style.gridTemplateColumns = tracks;
     fill(head, idx.map((i) => {
       const c = cols[i];
@@ -117,17 +145,62 @@ export function table(label, cols, { sort = null, onSort = () => {} } = {}) {
       } }, h('span', c.label), on ? icon(state.desc ? 'down' : 'up', { size: 12 }) : null);
     }));
   };
+  const cell = (i, content) => h(`span.dapp-td${cols[i].num ? '.dapp-num' : ''}`, { role: 'cell' }, content);
+  const busy = () => pressing || body.contains(document.activeElement);
   const draw = (rows) => {
     last = rows;
     const l = layout();
     paintHead(l);
-    fill(body, rows.map((r) => h(`div.dapp-tr${r.cls ? `.${r.cls}` : ''}`, { role: 'row', style: { gridTemplateColumns: l.tracks }, dataset: { key: String(r.key) } },
-      l.idx.map((i) => h(`span.dapp-td${cols[i].num ? '.dapp-num' : ''}`, { role: 'cell' }, r.cells[i])))));
+    const wanted = new Map(rows.map((r) => [String(r.key), r]));
+    // Rows that are gone go (the focused one too: what it showed has ended).
+    for (const [k, row] of rowEls) if (!wanted.has(k)) {
+      row.remove();
+      rowEls.delete(k);
+    }
+    for (const r of rows) {
+      const k = String(r.key);
+      const cls = `dapp-tr${r.cls ? ` ${r.cls}` : ''}`;
+      const cells = l.idx.map((i) => cell(i, r.cells[i]));
+      let row = rowEls.get(k);
+      if (!row) {
+        row = h('div', { role: 'row', dataset: { key: k } }, cells);
+        rowEls.set(k, row);
+      } else if (row.children.length !== cells.length) {
+        fill(row, cells);
+      } else {
+        // Same look, same node: a focused or pressed button stays where it is.
+        cells.forEach((c, j) => {
+          const old = row.children[j];
+          if (old.innerHTML !== c.innerHTML) old.replaceWith(c);
+        });
+      }
+      row.className = cls;
+      row.style.gridTemplateColumns = l.tracks;
+    }
+    // The order: the sorted one, unless someone is in the rows (then the old order, new rows at the end).
+    const order = busy()
+      ? [...[...body.children].filter((n) => wanted.has(n.dataset.key)), ...rows.map((r) => rowEls.get(String(r.key))).filter((n) => n.parentNode !== body)]
+      : rows.map((r) => rowEls.get(String(r.key)));
+    order.forEach((row, i) => {
+      if (body.children[i] !== row) body.insertBefore(row, body.children[i] || null);
+    });
   };
+  const settle = () => setTimeout(() => {
+    if (!busy()) draw(last);
+  }, 0);
+  body.addEventListener('pointerdown', () => (pressing = true));
+  const up = () => {
+    if (!pressing) return;
+    pressing = false;
+    settle();
+  };
+  document.addEventListener('pointerup', up, true);
+  document.addEventListener('pointercancel', up, true);
+  body.addEventListener('focusout', settle);
   // A window made narrower or wider: the same rows with the columns that fit.
   let wasNarrow = null;
   const sizer = new ResizeObserver(() => {
-    const n = el.clientWidth > 0 && el.clientWidth < NARROW_PX;
+    const n = isNarrow();
     if (n !== wasNarrow) {
       wasNarrow = n;
       draw(last);
@@ -135,7 +208,12 @@ export function table(label, cols, { sort = null, onSort = () => {} } = {}) {
   });
   sizer.observe(el);
   paintHead(layout());
-  return { el, draw, sort: state, stop: () => sizer.disconnect() };
+  const stop = () => {
+    sizer.disconnect();
+    document.removeEventListener('pointerup', up, true);
+    document.removeEventListener('pointercancel', up, true);
+  };
+  return { el, draw, sort: state, isNarrow, stop };
 }
 
 /** Sort `list` by `key` of each item (numbers, else text), `desc` the other way; nulls last. */

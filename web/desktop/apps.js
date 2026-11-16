@@ -32,8 +32,18 @@ export const appHash = (app, m) => onComputer(app.kind === 'native' ? `#/desktop
 /** The address of a session's page on computer `m`: what a Terminal window shows. */
 export const sessionHash = (name, m) => onComputer(`#/s/${encodeURIComponent(name)}`, m);
 
-/** The frame address of a window showing `hash`: this same page in bare mode. */
-export const frameSrc = (hash, page = '/') => `${page}?bare=1${hash}`;
+/**
+ * The frame address of a window showing `hash`: this same page in bare mode. `home`: the address its app starts at
+ * (the page's way back leads there), `label`: the app's name, `only`: the computer whose sessions it shows (lib.js
+ * WINDOW reads them).
+ */
+export function frameSrc(hash, page = '/', { home = null, label = null, only = null } = {}) {
+  const q = new URLSearchParams({ bare: '1' });
+  if (home) q.set('home', home);
+  if (label) q.set('label', label);
+  if (only) q.set('only', only);
+  return `${page}?${q}${hash}`;
+}
 
 /** The apps that match what was typed in the start menu or the launcher, best first. */
 export function searchApps(q, apps = APPS) {

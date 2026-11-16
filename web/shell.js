@@ -14,7 +14,7 @@ import { icon } from './icons.js';
 import { BARE, MACHINE_STATE, applyPageTheme, fill, h, link, machine, prefs } from './lib.js';
 import { navPages, pageById, registeredHeadTools } from './registry.js';
 import { store } from './store.js';
-import { cameFrom, named, startOver, wayBack } from './trail.js';
+import { cameFrom, named, startOver, wayBack, windowWay } from './trail.js';
 
 const app = typeof document !== 'undefined' ? document.getElementById('app') : null;
 
@@ -162,9 +162,13 @@ export function frame({ title, place = null, intro = null, page = null, back: pa
   // In a window of the desktop (lib.js BARE): no navigation, no floating button and no head icons (the desktop has
   // the theme, Tia and the computer); the window belongs to one computer, so no switcher either.
   if (BARE) {
+    // The way back stays inside the window's app: to the page it starts at, and none on that page (trail.js).
+    const inWindow = windowWay();
+    const winBack = inWindow === undefined ? back : inWindow && inWindow.hash;
+    const winLabel = inWindow ? inWindow.label : backLabel;
     const bareHead = h('header.pagehead',
       h('div.pagehead-text',
-        back ? backLink(back, backLabel, '') : null,
+        winBack ? backLink(winBack, winLabel, '') : null,
         h('div.pagehead-title-row', h('h1.page-title', title)),
         intro ? h(`p.page-intro${introOnPhone ? '' : '.desktop-only'}`, intro) : null),
       h('div.head-tools', actions.length ? h('div.pagehead-actions', actions) : null, go('pagehead-primary')));

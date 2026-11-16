@@ -80,6 +80,23 @@ export const wsUrl = (p) => `${location.protocol === 'https:' ? 'wss:' : 'ws:'}/
 // no head tools and no floating buttons, the trail is not saved, the session poll is the desktop's, and Tia is the
 // desktop's. The desktop is this same page one level up (framing is allowed for this origin only).
 export const BARE = typeof location !== 'undefined' && new URLSearchParams(location.search).get('bare') === '1' && typeof window !== 'undefined' && window.parent !== window;
+const bareQuery = BARE ? new URLSearchParams(location.search) : null;
+const asHash = (v) => (typeof v === 'string' && /^#\/[^\s<>"']{0,500}$/.test(v) ? v : null);
+/**
+ * What a window says about itself in its address (web/desktop/apps.js frameSrc), null outside a window: `home` the
+ * page its app starts at (the way back leads there; on it there is none, so a Terminal window never turns into
+ * another page), `label` the app's name for that way back, `only` the computer whose sessions it shows ('~': this
+ * one; the Sessions app of a computer's desktop).
+ */
+export const WINDOW = BARE
+  ? {
+    home: asHash(bareQuery.get('home')),
+    label: (bareQuery.get('label') || '').replace(/[^\p{L}\p{N} ]/gu, '').slice(0, 40) || null,
+    only: /^(~|[a-z0-9][a-z0-9_-]{0,31})$/.test(bareQuery.get('only') || '') ? bareQuery.get('only') : null,
+  }
+  : null;
+/** Two in-page addresses that show the same place ("#/m/pc/" and "#/m/pc", "" and "#/"). */
+export const samePlace = (a, b) => (a || '#/').replace(/\/+$/, '') === (b || '#/').replace(/\/+$/, '');
 /** The desktop around a bare page, or null: only ever this same site's own page (a frame of another one is not). */
 export function desktopParent() {
   if (!BARE) return null;
@@ -362,12 +379,14 @@ export function confirmSheet({ title, text, ok = 'OK', danger = false }) {
   ]).then((v) => v === true);
 }
 
-/** A form with one field. `check(value)` returns an error message or ''. */
-export function promptSheet({ title, text, value = '', ok = 'OK', placeholder = '', type = 'text', check = () => '', multiline = false }) {
+/** A form with one field. `check(value)` returns an error message or ''. `danger`: the button that does it is red;
+ * `label`: what the field is, for a screen reader (the title by default). */
+export function promptSheet({ title, text, value = '', ok = 'OK', placeholder = '', type = 'text', check = () => '', multiline = false, danger = false, label = null }) {
   return openSheet({ title }, (close) => {
+    const named = { 'aria-label': label || title };
     const input = multiline
-      ? h('textarea.field', { value, placeholder, autofocus: true, rows: 5 })
-      : h('input.field', { type, value, placeholder, autofocus: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+      ? h('textarea.field', { value, placeholder, autofocus: true, rows: 5, ...named })
+      : h('input.field', { type, value, placeholder, autofocus: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', ...named });
     const err = h('p.form-error', { role: 'alert' });
     return h('form', {
       onsubmit: (e) => {
@@ -381,7 +400,7 @@ export function promptSheet({ title, text, value = '', ok = 'OK', placeholder = 
     input, err,
     h('div.sheet-actions',
       h('button.btn.secondary', { type: 'button', onclick: () => close(null) }, 'Cancel'),
-      h('button.btn.primary', { type: 'submit' }, ok)));
+      h(`button.btn.${danger ? 'danger' : 'primary'}`, { type: 'submit' }, ok)));
   });
 }
 

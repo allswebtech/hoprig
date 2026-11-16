@@ -7,12 +7,14 @@ import { add, h } from '../lib.js';
 let open = null;
 let openedAt = 0;
 
-export function closeMenu() {
+/** Close the menu; `back`: the keyboard returns to what had it when the menu opened (Escape, not a choice). */
+export function closeMenu(back = false) {
   if (!open) return;
   const m = open;
   open = null;
   m.cleanup();
   m.el.remove();
+  if (back && m.opener && m.opener.isConnected && m.opener !== document.body) m.opener.focus({ preventScroll: true });
 }
 
 /**
@@ -20,6 +22,7 @@ export function closeMenu() {
  * `label` names the menu for screen readers.
  */
 export function openMenu(x, y, items, label = 'Menu') {
+  const opener = document.activeElement;
   closeMenu();
   openedAt = Date.now();
   const buttons = [];
@@ -44,11 +47,12 @@ export function openMenu(x, y, items, label = 'Menu') {
   const onDown = (e) => {
     if (!el.contains(e.target)) closeMenu();
   };
+  const onBlur = () => closeMenu();
   const onKey = (e) => {
     const i = buttons.indexOf(document.activeElement);
     if (e.key === 'Escape') {
       e.preventDefault();
-      closeMenu();
+      closeMenu(true);
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const n = buttons.length;
@@ -57,15 +61,16 @@ export function openMenu(x, y, items, label = 'Menu') {
   };
   setTimeout(() => {
     document.addEventListener('pointerdown', onDown, true);
-    window.addEventListener('blur', closeMenu);
+    window.addEventListener('blur', onBlur);
   }, 0);
   document.addEventListener('keydown', onKey, true);
   open = {
     el,
+    opener,
     cleanup: () => {
       document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey, true);
-      window.removeEventListener('blur', closeMenu);
+      window.removeEventListener('blur', onBlur);
     },
   };
   if (buttons[0]) buttons[0].focus({ preventScroll: true });

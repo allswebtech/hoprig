@@ -7,12 +7,14 @@
 //
 //   apps.js    the catalog          wm.js     the windows        bar.js     the bars, start menu and launcher
 //   layout.js  the window maths     menu.js   right-click menu   native.js  what the native apps share
+//   moves.js   moving and resizing windows with the pointer
 //   tasks.js, services.js, logs.js  the native apps              desktop.css its look
 import { icon } from '../icons.js';
-import { BARE, api, at, fill, h, link, machine, prefs, tellDesktop, toast } from '../lib.js';
+import { BARE, WINDOW, api, at, fill, h, link, machine, openSheet, prefs, toast } from '../lib.js';
 import { registerHeadTool, registerPage } from '../registry.js';
 import { panel, savedMark } from '../shell.js';
 import { pageNotify, store } from '../store.js';
+import { named } from '../trail.js';
 import { APPS, appById, appHash, onComputer, sessionHash } from './apps.js';
 import { drawBars } from './bar.js';
 import { withMenu } from './menu.js';
@@ -27,18 +29,18 @@ export const deskStyle = () => (prefs.get('desktop.style', 'taskbar') === 'dock'
 /** A new shell on computer `m` in its home folder: its session name. */
 const newShell = (m) => api(at(m, '/api/shells'), {}).then((r) => r.name);
 
-/** The icons on the desktop: the pinned apps. A double click opens one (a tap, or Enter, on its own). */
+/**
+ * The icons on the desktop: the pinned apps. One press opens one, as everywhere else in the dashboard (a double
+ * click, from the habit of other desktops, still opens only one: its second press is let go).
+ */
 function desktopIcons(getDesk) {
-  let pointer = 'mouse';
   return h('div.desk-icons', { role: 'list', 'aria-label': 'Apps on the desktop' },
     APPS.filter((a) => a.pinned).map((a) => {
       const open = () => getDesk().launch(a.id);
-      const b = h('button.desk-icon', { type: 'button', role: 'listitem', dataset: { app: a.id },
-        onpointerdown: (e) => (pointer = e.pointerType),
+      const b = h('button.desk-icon', { type: 'button', role: 'listitem', title: `Open ${a.title}`, dataset: { app: a.id },
         onclick: (e) => {
-          if (e.detail === 0 || pointer !== 'mouse') open();
+          if (e.detail <= 1) open();
         },
-        ondblclick: open,
       }, h('span.desk-icon-img', icon(a.icon, { size: 26 })), h('span.desk-icon-name', a.title));
       withMenu(b, () => [
         { label: 'Open', icon: 'plus', run: open },
@@ -46,6 +48,31 @@ function desktopIcons(getDesk) {
       ].filter(Boolean), a.title);
       return b;
     }));
+}
+
+/**
+ * Before the window of a shell the desktop started closes: end the shell too, or keep it running (it is then in
+ * Sessions). On other desktops closing a terminal ends it, so this is asked rather than assumed either way.
+ * Resolves 'end' (ended), 'close' (kept running) or null (the window stays).
+ */
+async function askCloseShell(v, m) {
+  const name = (/\/s\/([A-Za-z0-9_-]{1,40})$/.exec(v.hash) || [])[1];
+  if (!name) return 'close';
+  const how = await openSheet({ title: `Close ${v.title || name}?`, subtitle: 'The shell this window started' }, (close) => [
+    h('p.sheet-text', 'Closing only the window keeps the shell running on the computer, with whatever runs in it; it stays in Sessions. Ending it stops all of that.'),
+    h('div.sheet-actions',
+      h('button.btn.secondary', { type: 'button', autofocus: true, onclick: () => close(null) }, 'Cancel'),
+      h('button.btn.secondary', { type: 'button', onclick: () => close('close') }, 'Keep it running'),
+      h('button.btn.danger', { type: 'button', onclick: () => close('end') }, 'End the shell')),
+  ]);
+  if (how !== 'end') return how || null;
+  try {
+    await api(at(m, `/api/sessions/${encodeURIComponent(name)}/kill`), {});
+    return 'end';
+  } catch (e) {
+    toast(`The shell was not ended: ${e.message}`, { kind: 'error', ms: 7000 });
+    return null;
+  }
 }
 
 // ---------- the desktop on a wide screen ----------
@@ -65,6 +92,7 @@ function mountDesktop() {
   // Like Home: everything is in view, so a change is not "unread"; the tab says where it is.
   store.viewing = null;
   pageNotify.setTitleBase('Desktop');
+  named('Desktop'); // a page opened from here (Desktop settings) links back to "Desktop", not to its own parent
 
   const desk = {
     machineName,
@@ -72,10 +100,12 @@ function mountDesktop() {
     async launch(id, hash = null) {
       const a = appById(id);
       if (!a) return;
+      // Past the window limit nothing starts: a shell with no window would keep running unseen.
+      if (!desk.wm.canOpen()) return;
       if (a.kind === 'terminal') {
         try {
           const name = await newShell(machineName);
-          desk.wm.open('terminal', sessionHash(name, machineName), { title: name });
+          desk.wm.open('terminal', sessionHash(name, machineName), { title: name, own: true });
         } catch (e) {
           toast(`No terminal: ${e.message}`, { kind: 'error' });
         }
@@ -95,7 +125,7 @@ function mountDesktop() {
     },
   };
   let bars = null;
-  desk.wm = windowManager({ root, area, machineName, onChange: () => bars && bars.paint() });
+  desk.wm = windowManager({ root, area, machineName, onChange: () => bars && bars.paint(), askClose: (v) => askCloseShell(v, machineName) });
   bars = drawBars({ root, top, bottom, style, desk });
 
   function restyle() {
@@ -114,12 +144,12 @@ function mountDesktop() {
     { label: 'New terminal', icon: 'terminal', run: () => desk.launch('terminal') },
     { label: 'Sessions', icon: 'sessions', run: () => desk.launch('sessions') },
     null,
-    { label: 'Arrange the windows', icon: 'grid', run: () => desk.wm.arrange() },
+    { label: 'Arrange the windows', icon: 'square', run: () => desk.wm.arrange() },
     { label: 'Minimise all', icon: 'minus', run: () => desk.wm.minimiseAll() },
     { label: style === 'dock' ? 'Use the Taskbar style' : 'Use the Dock style', icon: 'swap', run: () => desk.setStyle(style === 'dock' ? 'taskbar' : 'dock') },
     { label: 'Desktop settings', icon: 'settings', run: () => (location.hash = '#/settings/appearance') },
     null,
-    { label: 'Back to the dashboard', icon: 'grid', run: () => desk.leave() },
+    { label: 'Back to the dashboard', icon: 'back', run: () => desk.leave() },
   ]), 'Desktop');
 
   // A choice made in a window (Settings there) or in another tab applies here at once.
@@ -187,10 +217,10 @@ function appPage(a, frame) {
 }
 
 function viewDesktop({ frame, sub }) {
-  // A link to the desktop inside one of its windows: the desktop is already there; the window goes back home.
+  // A link to the desktop inside one of its windows: the desktop is already around it; the window goes back to the
+  // page its app starts at.
   if (BARE) {
-    tellDesktop({ type: 'hoprig:desktop' });
-    location.replace(link('#/'));
+    location.replace((WINDOW && WINDOW.home) || link('#/'));
     return () => {};
   }
   const a = sub ? appById(sub) : null;
@@ -223,12 +253,12 @@ registerHeadTool(() => h('a.icon-btn.desk-headbtn', { href: link('#/desktop'), t
 export function desktopSettings() {
   const seg = (key, options, current, mark) => {
     const el = h('div.segmented', { role: 'radiogroup' });
-    const paint = (cur) => fill(el, options.map(([v, label, ic]) => h('button.seg', { type: 'button', role: 'radio', 'aria-checked': String(cur === v), onclick: (e) => {
+    const paint = (cur) => fill(el, options.map(([v, label]) => h('button.seg', { type: 'button', role: 'radio', 'aria-checked': String(cur === v), onclick: (e) => {
       e.preventDefault();
       prefs.set(key, v);
       paint(v);
       mark.show();
-    } }, icon(ic, { size: 16 }), h('span', label))));
+    } }, h('span', label))));
     paint(current);
     return el;
   };
@@ -237,5 +267,5 @@ export function desktopSettings() {
     return h('div.fieldrow', h('span.field-label', label, mark), seg(key, options, current, mark), h('span.hint', hint));
   };
   return panel({ id: 'desktop', icon: 'monitor', title: 'Desktop', desc: 'The apps of a computer as windows, on a screen at least 1024 × 600: Desktop mode at the top right of a page. Saved on this device only.' },
-    group('Desktop style', 'desktop.style', [['taskbar', 'Taskbar', 'down'], ['dock', 'Dock', 'up']], deskStyle(), 'Where the apps and open windows are: a bar at the bottom, or a dock with a bar at the top.'));
+    group('Desktop style', 'desktop.style', [['taskbar', 'Taskbar'], ['dock', 'Dock']], deskStyle(), 'Where the apps and open windows are: a bar at the bottom, or a dock with a bar at the top.'));
 }

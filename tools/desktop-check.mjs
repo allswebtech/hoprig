@@ -5,7 +5,7 @@
 //   TMPDIR=/tmp node tools/desktop-check.mjs [--port 7680] [--out <folder for screenshots>] [--only taskbar,dock,…]
 //
 // Parts, in this order (the first is the one that matters most): taskbar (1440 × 900, light: in from "Desktop
-// mode" in a page head and back from the tray; Sessions, the Task manager and a Terminal as windows, move,
+// mode" in a page head and back from the top right; Sessions, the Task manager and a Terminal as windows, move,
 // resize, snap to a half and a quarter, minimise and restore, maximise, close, the keys, the menu, a reload that
 // brings the layout back, one session poll for the whole desktop, a terminal that is typed into), dock (dark),
 // small (1024 × 600 windows; 390 × 844 the grid of pages with the bottom bar), touch (a long press opens the
@@ -29,13 +29,13 @@ try {
     await click(...center(await rectOf('.pagehead .desk-headbtn')));
     check(P, 'it opens the desktop', await waitFor(`location.hash === '#/desktop' && !!document.querySelector('.desk')`));
     await click(...center(await rectOf('.desk-back')));
-    check(P, '"Dashboard" at the end of the tray leads back', await waitFor(`location.hash === '#/' && !document.querySelector('.desk') && !!document.querySelector('.sidebar')`));
+    check(P, '"Dashboard" at the top right leads back', await waitFor(`location.hash === '#/' && !document.querySelector('.desk') && !!document.querySelector('.sidebar')`));
     await open('#/desktop', { w: 1440, h: 900 });
     check(P, 'the desktop fills the window, Taskbar style, no sidebar', await ev(`!!document.querySelector('.desk[data-desk-style="taskbar"] .desk-taskbar') && !document.querySelector('.sidebar')`));
-    // Sessions from its desktop icon (double click), the Task manager from the start menu, Terminal by search + Enter.
+    // Sessions from its desktop icon (one click), the Task manager from the start menu, Terminal by search + Enter.
     const icon = await rectOf('.desk-icon[data-app="sessions"]');
-    await dblclick(...center(icon));
-    check(P, 'a double click on a desktop icon opens Sessions', await waitFor(`!!document.querySelector('.dwin[data-app="sessions"]')`));
+    await click(...center(icon));
+    check(P, 'a click on a desktop icon opens Sessions', await waitFor(`!!document.querySelector('.dwin[data-app="sessions"]')`));
     await click(...center(await rectOf('.desk-start')));
     check(P, 'the start menu opens with the search field focused', await waitFor(`document.activeElement && document.activeElement.classList.contains('desk-search')`));
     check(P, 'the start menu has the computer\'s apps only', await ev(`[...document.querySelectorAll('.desk-app')].map((b) => b.textContent).join('|') === 'Sessions|Terminal|Task manager|Services|Logs'`), await ev(`[...document.querySelectorAll('.desk-app')].map((b) => b.textContent).join('|')`));

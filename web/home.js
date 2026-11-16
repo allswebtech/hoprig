@@ -4,7 +4,7 @@
 import { APP_NAME } from './brand.js';
 import { getStartedArea } from './getstarted.js';
 import { icon } from './icons.js';
-import { MACHINE_STATE, ago, btn, fill, h, insecure, needsYouFirst, prefs, stateOf, until } from './lib.js';
+import { MACHINE_STATE, WINDOW, ago, btn, fill, h, insecure, needsYouFirst, prefs, stateOf, until } from './lib.js';
 import { isStarting } from './newsession.js';
 import { sessionCard } from './sessionitem.js';
 import { connectionBanner, emptyState, frame, groupHead } from './shell.js';
@@ -67,10 +67,12 @@ export function viewHome() {
   let noSessions = false;
   let paintEmpty = () => {};
   const gs = getStartedArea({ firstRun: () => noSessions, onChange: () => paintEmpty() });
+  // The Sessions app of a desktop (lib.js WINDOW): the sessions of that one computer, under the app's name.
+  const fixed = WINDOW && WINDOW.only;
   frame({
-    title: 'Home',
+    title: fixed && WINDOW.label ? WINDOW.label : 'Home',
     page: 'home',
-    intro: 'Your Claude Code sessions on every computer, the ones that need you first.',
+    intro: fixed ? 'The coding sessions of this computer, the ones that need you first.' : 'Your Claude Code sessions on every computer, the ones that need you first.',
     primary: { label: 'New session', icon: 'plus', href: '#/new' },
     body: [
       insecure() ? h('div.banner.muted', icon('lock', { size: 18 }), h('span', 'Not encrypted. Use only on a network you trust, or put it behind HTTPS.')) : null,
@@ -79,7 +81,7 @@ export function viewHome() {
   });
   let last = '';
   // The filter: 'all', or one computer ('~' is this one). Per device.
-  let only = prefs.get('home.machine', 'all');
+  let only = fixed || prefs.get('home.machine', 'all');
   const keyOf = (m) => (m === null ? '~' : m);
   const unsubscribe = store.subscribe((d, err) => {
     fill(top, connectionBanner(err));
@@ -89,7 +91,7 @@ export function viewHome() {
       return;
     }
     const multi = store.multi;
-    if (!multi || !all.some((m) => keyOf(m.machine) === only)) only = 'all';
+    if (!fixed && (!multi || !all.some((m) => keyOf(m.machine) === only))) only = 'all';
     const key = JSON.stringify([only, all.map((m) => [m.machine, m.machineLabel, m.status, m.error, m.sessions, m.profiles])]);
     if (key === last) {
       for (const el of list.querySelectorAll('[data-at]')) el.textContent = `${el.dataset.bare ? '' : ' · '}${ago(Number(el.dataset.at))}`;
@@ -104,7 +106,7 @@ export function viewHome() {
       store.refresh();
     };
     const count = (m) => m.sessions.length;
-    fill(filters, multi
+    fill(filters, multi && !fixed
       ? [
         h('div.mchips', { role: 'tablist', 'aria-label': 'Computers' },
           h(`button.chip${only === 'all' ? '.on' : ''}`, { type: 'button', role: 'tab', 'aria-selected': String(only === 'all'), onclick: () => setOnly('all') },

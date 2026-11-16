@@ -61,15 +61,17 @@ export function snapZone(px, py, area, { edge = 8, corner = 64 } = {}) {
 /** The rect after dragging edge or corner `dir` ('n', 'se', 'w'…) by (dx, dy) from `start`. */
 export function resizeRect(start, dir, dx, dy, area) {
   let { x, y, w, h } = start;
-  if (dir.includes('e')) w = Math.min(Math.max(start.w + dx, MIN_W), area.w - x);
-  if (dir.includes('s')) h = Math.min(Math.max(start.h + dy, MIN_H), area.h - y);
+  // Never below the minimum, even for a window partly outside the area; its far edge stops at the area's.
+  if (dir.includes('e')) w = Math.max(Math.min(start.w + dx, area.w - x), MIN_W);
+  if (dir.includes('s')) h = Math.max(Math.min(start.h + dy, area.h - y), MIN_H);
   if (dir.includes('w')) {
-    const nx = Math.min(Math.max(start.x + dx, 0), start.x + start.w - MIN_W);
+    // A window already partly out on the left may stay there; it is not pulled in (and shrunk) by the press.
+    const nx = Math.min(Math.max(start.x + dx, Math.min(0, start.x)), start.x + start.w - MIN_W);
     w = start.w + (start.x - nx);
     x = nx;
   }
   if (dir.includes('n')) {
-    const ny = Math.min(Math.max(start.y + dy, 0), start.y + start.h - MIN_H);
+    const ny = Math.min(Math.max(start.y + dy, Math.min(0, start.y)), start.y + start.h - MIN_H);
     h = start.h + (start.y - ny);
     y = ny;
   }
@@ -141,6 +143,8 @@ export function cleanLayout(raw, apps) {
       app: v.app,
       hash: v.hash,
       title: typeof v.title === 'string' ? v.title.slice(0, 80) : '',
+      home: typeof v.home === 'string' && HASH.test(v.home) ? v.home : null,
+      own: v.own === true,
       rect: { x: int(r.x), y: int(r.y), w: int(r.w), h: int(r.h) },
       snap: SNAPS.includes(v.snap) ? v.snap : null,
       min: v.min === true,
@@ -154,7 +158,7 @@ export function cleanLayout(raw, apps) {
 
 /** What is kept of a layout: the windows without anything drawn. */
 export const keepLayout = (windows, focus) => ({
-  windows: windows.map(({ id, app, hash, title, rect, snap, min, z }) => ({ id, app, hash, title, rect, snap, min, z })),
+  windows: windows.map(({ id, app, hash, home, own, title, rect, snap, min, z }) => ({ id, app, hash, home, own, title, rect, snap, min, z })),
   focus,
 });
 

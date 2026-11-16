@@ -1,15 +1,16 @@
 // The window manager of the desktop: windows that move, resize from every edge and corner, snap to halves,
 // quarters and the whole area, minimise, maximise, close and come to the front; one implementation for both
-// styles (desktop.css draws the difference). Pointer Events, so a mouse, a pen and a finger take the same path.
+// styles (desktop.css draws the difference). Moving and resizing with the pointer is in moves.js.
 //
 // A window shows a page of the dashboard in a frame (apps.js frameSrc), or a native app (native.js). While a window
 // is dragged or resized, and over every frame that is not in front, a shield lies over it: a frame would otherwise
 // swallow the pointer, and the first press on a window behind brings it to the front instead of pressing in it.
 // The layout of each computer's desktop is kept in this browser (layout.js) and comes back on a reload.
 import { icon } from '../icons.js';
-import { add, fill, h, prefs, toast } from '../lib.js';
-import { APP_IDS, appById, frameSrc } from './apps.js';
-import { MAX_WINDOWS, clampRect, cleanLayout, gridRects, keepLayout, keySnap, layoutKey, placeNew, resizeRect, snapRect, snapZone } from './layout.js';
+import { add, fill, h, prefs, samePlace, toast } from '../lib.js';
+import { APP_IDS, appById, appHash, frameSrc } from './apps.js';
+import { MAX_WINDOWS, clampRect, cleanLayout, gridRects, keepLayout, keySnap, layoutKey, placeNew, snapRect } from './layout.js';
+import { pointerMoves } from './moves.js';
 import { withMenu } from './menu.js';
 import { nativeBody } from './native.js';
 
@@ -19,15 +20,16 @@ const newId = () => `w${Date.now().toString(36).slice(-6)}${Math.random().toStri
 /**
  * The windows of one desktop. `area` is the element they live in (the part the bars leave free), `root` the
  * desktop, `machineName` the computer (null: this one), `onChange()` is called after every change (the bars draw
- * again). Returns the manager; `stop()` ends its listeners.
+ * again), `askClose(window)` → 'close' | 'end' | null (stay) before a window of a shell the desktop started closes
+ * ('end': the shell was ended too). Returns the manager; `stop()` ends its listeners.
  */
-export function windowManager({ root, area, machineName, onChange = () => {} }) {
+export function windowManager({ root, area, machineName, onChange = () => {}, askClose = async () => 'close' }) {
   const key = layoutKey(machineName);
-  const wins = []; // { id, app, hash, title, rect, snap, min, z, el, frame, titleEl }
+  // { id, app, hash, home (where its app starts), own (a shell the desktop started), title, rect, snap, min, z, el,
+  //   frame, titleEl }
+  const wins = [];
   let focusId = null;
   let zTop = 0;
-  const preview = h('div.desk-preview.hidden', { 'aria-hidden': 'true' });
-  add(area, preview);
 
   const size = () => ({ w: area.clientWidth, h: area.clientHeight });
   const byId = (id) => wins.find((v) => v.id === id) || null;
@@ -88,9 +90,13 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
     const v = byId(id);
     if (v) setSnap(id, v.snap === 'max' ? null : 'max');
   };
-  function close(id) {
-    const i = wins.findIndex((v) => v.id === id);
-    if (i < 0) return;
+  /** Close a window; one of a shell the desktop started asks first whether the shell ends too. */
+  async function close(id) {
+    const w = byId(id);
+    if (!w) return;
+    if (w.own && w.app === 'terminal' && (await askClose(w)) === null) return;
+    const i = wins.indexOf(w);
+    if (i < 0) return; // closed meanwhile
     const [v] = wins.splice(i, 1);
     clearInterval(v.watch);
     if (v.native) v.native.stop();
@@ -105,6 +111,8 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
     if (focusId === id && !v.min) minimise(id);
     else focus(id);
   }
+
+  const moves = pointerMoves({ root, area, size, place, changed });
 
   // ---------- one window ----------
 
@@ -122,7 +130,7 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
     h('span.dwin-icon', icon(app.icon, { size: 15 })), v.titleEl,
     h('div.dwin-ctl', ctl('minus', 'Minimise', () => minimise(v.id)), v.maxBtn, ctl('x', 'Close', () => close(v.id))));
     v.native = app.kind === 'native' ? nativeBody(app, { machine: machineName }) : null;
-    v.frame = v.native ? null : h('iframe.dwin-frame', { src: frameSrc(v.hash, location.pathname), title: v.title || app.title });
+    v.frame = v.native ? null : h('iframe.dwin-frame', { src: frameSrc(v.hash, location.pathname, frameOpts(v)), title: v.title || app.title });
     const shield = h('div.dwin-shield', { 'aria-hidden': 'true' });
     v.el = h('section.dwin', { 'aria-label': v.title || app.title, dataset: { id: v.id, app: v.app, kind: app.kind } },
       bar, h('div.dwin-body', v.native ? v.native.el : v.frame, shield),
@@ -134,8 +142,8 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
     v.el.addEventListener('focusin', () => {
       if (focusId !== v.id) focus(v.id);
     });
-    drag(v, bar);
-    for (const g of v.el.querySelectorAll('.dwin-grip')) resize(v, g);
+    moves.drag(v, bar);
+    for (const g of v.el.querySelectorAll('.dwin-grip')) moves.resize(v, g);
     withMenu(bar, (e) => (e.target.closest && e.target.closest('.dwin-btn') ? null : windowMenu(v)), 'Window');
     // The page in the window names itself and may move on (a session opened from Sessions): kept for the bar, the
     // title and the next reload. Same origin, so it is read directly; a page still loading is read next time.
@@ -151,6 +159,12 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
     add(area, v.el);
   }
 
+  /** What a window's page is told about its app (lib.js WINDOW): where it starts, its name, its computer. */
+  function frameOpts(v) {
+    const app = appById(v.app);
+    return { home: v.home, label: app.kind === 'page' ? app.title : null, only: v.app === 'sessions' ? machineName || '~' : null };
+  }
+
   function sync(v) {
     let title = '';
     let hash = v.hash;
@@ -161,6 +175,10 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
       hash = w.location.hash || '#/';
       const t = doc.querySelector('main .page-title');
       title = ((t && t.textContent) || doc.title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      // A page app on the page it starts at is called by the app's name (Sessions, as on its icon); once it moved on
+      // (a session opened in it), by that page's.
+      const app = appById(v.app);
+      if (app.kind === 'page' && samePlace(hash, v.home)) title = app.title;
     } catch {
       return;
     }
@@ -193,95 +211,7 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
   function reload(id) {
     const v = byId(id);
     if (v && v.native) v.native.reload();
-    else if (v) v.frame.src = frameSrc(v.hash, location.pathname);
-  }
-
-  // ---------- move and resize ----------
-
-  /** Pointer moves on `handle` with the pointer captured; `move(dx, dy, e)` per frame, `end(e)` once. */
-  function track(handle, startFn, move, end) {
-    handle.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || (e.target.closest && e.target.closest('.dwin-btn'))) return;
-      if (startFn(e) === false) return;
-      e.preventDefault();
-      handle.setPointerCapture(e.pointerId);
-      const x0 = e.clientX;
-      const y0 = e.clientY;
-      let raf = 0;
-      let last = e;
-      root.classList.add('desk-busy');
-      const onMove = (ev) => {
-        last = ev;
-        if (!raf) raf = requestAnimationFrame(() => {
-          raf = 0;
-          move(last.clientX - x0, last.clientY - y0, last);
-        });
-      };
-      const onUp = (ev) => {
-        cancelAnimationFrame(raf);
-        handle.removeEventListener('pointermove', onMove);
-        handle.removeEventListener('pointerup', onUp);
-        handle.removeEventListener('pointercancel', onUp);
-        root.classList.remove('desk-busy');
-        move(ev.clientX - x0, ev.clientY - y0, ev);
-        end(ev);
-      };
-      handle.addEventListener('pointermove', onMove);
-      handle.addEventListener('pointerup', onUp);
-      handle.addEventListener('pointercancel', onUp);
-    });
-  }
-
-  function drag(v, bar) {
-    let start = null;
-    let moved = false;
-    let zone = null;
-    track(bar, () => {
-      start = v.snap ? snapRect(v.snap, size()) : { ...v.rect };
-      moved = false;
-      zone = null;
-    }, (dx, dy, e) => {
-      if (!moved && Math.hypot(dx, dy) < 4) return;
-      const a = area.getBoundingClientRect();
-      if (!moved && v.snap) {
-        // Taken out of a snap place: back to its own size, under the pointer where it was held.
-        const px = e.clientX - a.left;
-        const keep = (px - start.x) / start.w;
-        start = { x: Math.round(px - keep * v.rect.w - dx), y: start.y, w: v.rect.w, h: v.rect.h };
-        v.snap = null;
-      }
-      moved = true;
-      v.rect = clampRect({ ...start, x: start.x + dx, y: start.y + dy }, size());
-      zone = snapZone(e.clientX - a.left, e.clientY - a.top, size(), { edge: e.pointerType === 'mouse' ? 8 : 20 });
-      showPreview(zone);
-      place(v);
-    }, () => {
-      showPreview(null);
-      if (!moved) return;
-      if (zone) {
-        v.rect = clampRect(start, size()); // where it goes back to from the snap place
-        v.snap = zone;
-      }
-      place(v);
-      changed();
-    });
-  }
-
-  function resize(v, grip) {
-    let start = null;
-    track(grip, () => {
-      start = v.snap ? snapRect(v.snap, size()) : { ...v.rect };
-      v.snap = null;
-    }, (dx, dy) => {
-      v.rect = resizeRect(start, grip.dataset.dir, dx, dy, size());
-      place(v);
-    }, () => changed());
-  }
-
-  function showPreview(zone) {
-    const r = zone ? snapRect(zone, size()) : null;
-    preview.classList.toggle('hidden', !r);
-    if (r) Object.assign(preview.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+    else if (v) v.frame.src = frameSrc(v.hash, location.pathname, frameOpts(v));
   }
 
   // ---------- keys ----------
@@ -332,14 +262,26 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
 
   // ---------- open and restore ----------
 
-  /** Open a window of `appId` showing `hash`. Returns its id, or null past the limit. */
-  function open(appId, hash, { title = '', rect = null, snap = null } = {}) {
-    if (!APP_IDS.has(appId)) return null;
-    if (wins.length >= MAX_WINDOWS) {
+  /** True when one more window can open; else says so (once, not once per press) and false. */
+  let saidFull = 0;
+  function canOpen() {
+    if (wins.length < MAX_WINDOWS) return true;
+    if (Date.now() - saidFull > 4000) {
+      saidFull = Date.now();
       toast(`At most ${MAX_WINDOWS} windows at once: close one first.`, { kind: 'error' });
-      return null;
     }
-    const v = { id: newId(), app: appId, hash, title, rect: rect || placeNew(wins, size()), snap, min: false, z: zTop + 1 };
+    return false;
+  }
+
+  /**
+   * Open a window of `appId` showing `hash`. `home`: where its app starts (a page app's own address by default; a
+   * Terminal's is its session); `own`: a shell the desktop started for it. Returns its id, or null past the limit.
+   */
+  function open(appId, hash, { title = '', rect = null, snap = null, home = null, own = false } = {}) {
+    if (!APP_IDS.has(appId) || !canOpen()) return null;
+    const app = appById(appId);
+    const start = home || (app.kind === 'page' ? appHash(app, machineName) : app.kind === 'terminal' ? hash : null);
+    const v = { id: newId(), app: appId, hash, home: start, own: own === true, title, rect: rect || placeNew(wins, size()), snap, min: false, z: zTop + 1 };
     wins.push(v);
     build(v);
     focus(v.id);
@@ -349,7 +291,9 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
   // The layout this computer's desktop had in this browser.
   const kept = cleanLayout(prefs.get(key, null), APP_IDS);
   for (const k of kept.windows) {
-    const v = { ...k, rect: clampRect(k.rect, size()) };
+    const app = appById(k.app);
+    const home = k.home || (app.kind === 'page' ? appHash(app, machineName) : app.kind === 'terminal' ? k.hash : null);
+    const v = { ...k, home, rect: clampRect(k.rect, size()) };
     zTop = Math.max(zTop, v.z);
     wins.push(v);
     build(v);
@@ -359,6 +303,7 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
 
   return {
     open,
+    canOpen,
     focus,
     minimise,
     close,
@@ -367,7 +312,7 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
     setSnap,
     reload,
     /** The windows in the order they were opened, for the bars: { id, app, title, min, focused }. */
-    list: () => wins.map((v) => ({ id: v.id, app: v.app, title: v.title || appById(v.app).title, min: v.min, focused: v.id === focusId && !v.min, hash: v.hash })),
+    list: () => wins.map((v) => ({ id: v.id, app: v.app, title: v.title || appById(v.app).title, min: v.min, focused: v.id === focusId && !v.min, hash: v.hash, own: v.own })),
     focused: () => (focusId ? byId(focusId) : null),
     /** The area changed size (the window, or the other style's bars): every window fits it again. */
     relayout: onResize,

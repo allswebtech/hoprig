@@ -62,7 +62,7 @@ body.desk-mode { overflow: hidden; }
 /* ---------- Taskbar style ---------- */
 .desk-taskbar { height: 48px; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-top: 1px solid var(--border); }
 .desk-start, .desk-launch { flex: none; display: grid; place-items: center; padding: 0; border: 1px solid transparent; background: transparent; cursor: pointer; }
-.desk-start { width: 40px; height: 40px; border-radius: var(--r); }
+.desk-start { height: 40px; grid-auto-flow: column; gap: 6px; padding: 0 10px 0 8px; border-radius: var(--r); color: var(--text); font: inherit; font-weight: 650; }
 .desk-start:hover, .desk-start[aria-expanded='true'] { background: var(--accent-soft); }
 .desk-start img { border-radius: 6px; }
 .desk-tasks { flex: 1; min-width: 0; display: flex; gap: 4px; overflow: hidden; }
@@ -157,6 +157,11 @@ body.desk-mode[data-desk-style='dock'] .toasts { top: 42px; }
 /* "Desktop mode" in a page head: only where the desktop has windows. */
 @media (max-width: 1023px), (max-height: 599px) { .desk-headbtn { display: none; } }
 .desk-back { font-weight: 600; color: var(--text); }
+/* Taskbar style: a slim strip at the top with the way back at its right. */
+.desk-strip { height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: color-mix(in srgb, var(--surface) 86%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
+.desk-strip-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.desk-strip-name img { border-radius: 4px; }
+.desk-strip .desk-tray-btn { height: 26px; min-width: 28px; padding: 0 8px; }
 
 /* ---------- native apps: Task manager, Services, Logs (a window's body, or a page of its own) ---------- */
 .dwin[data-kind='native'] .dwin-body { display: flex; background: var(--bg); }
@@ -202,8 +207,14 @@ body.desk-mode[data-desk-style='dock'] .toasts { top: 42px; }
 .dapp-share { display: grid; grid-template-columns: 1fr 48px; align-items: center; gap: 8px; }
 .dapp-picked { background: var(--accent-soft); }
 .dapp-link { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dapp-link:hover { color: var(--accent); text-decoration: underline; }
-.dapp-acts { display: inline-flex; gap: 2px; }
+.dapp-link-text { overflow: hidden; text-overflow: ellipsis; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.dapp-link:hover { color: var(--accent); }
+.dapp-link:hover .dapp-link-text { text-decoration-color: currentColor; }
+.dapp-acts { display: inline-flex; gap: 6px; }
+.dapp-act { height: 28px; padding: 0 10px; gap: 6px; }
+/* A narrow table keeps the buttons' icons; their words are in the tooltip and the screen reader's name. */
+.dapp-narrow .dapp-word { display: none; }
+.dapp-narrow .dapp-act { width: 32px; padding: 0; justify-content: center; }
 .dapp-tr .badge { margin-left: 0; }
 .pill.dapp-st-running { background: var(--ok-soft); color: var(--ok); }
 .pill.dapp-st-failed { background: var(--danger-soft); color: var(--danger); }

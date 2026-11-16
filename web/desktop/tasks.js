@@ -46,9 +46,10 @@ function processes(view, call) {
   ], { sort: { key: 'cpu', desc: true }, onSort: () => draw() });
 
   const endBtn = (p) => {
+    if (p.holdsSessions) return h('span.dapp-lock', { title: 'The server that holds every terminal and coding session: ending it would end them all, so it is not ended from here' }, icon('lock', { size: 14 }));
     if (p.guarded) return h('span.dapp-lock', { title: 'This dashboard, or a program it runs inside: it is not ended from here' }, icon('lock', { size: 14 }));
     if (p.mine === false) return h('span.dapp-lock', { title: 'Started by another user: it cannot be ended from here' }, icon('lock', { size: 14 }));
-    return h('button.dapp-btn.dapp-end', { type: 'button', title: `End ${p.name}`, 'aria-label': `End ${p.name} (${p.pid})`, onclick: () => endIt(p) }, icon('x', { size: 14 }));
+    return h('button.dapp-btn.dapp-end', { type: 'button', title: `End ${p.name}`, 'aria-label': `End ${p.name} (${p.pid})`, onclick: () => endIt(p) }, icon('stop', { size: 14 }));
   };
   function draw() {
     const s = q.trim().toLowerCase();
@@ -80,13 +81,15 @@ function processes(view, call) {
       h('p.sheet-text', 'It is asked to stop, the way closing it would. Work in it that is not saved can be lost. "Force" stops it at once, without asking; use that when it does not stop.'),
       h('p.sheet-text.mono.dapp-cmd-full', proc.args),
       h('div.sheet-actions',
-        h('button.btn.secondary', { type: 'button', onclick: () => close(null) }, 'Cancel'),
+        // The keyboard starts on Cancel: Enter alone never ends a program.
+        h('button.btn.secondary', { type: 'button', autofocus: true, onclick: () => close(null) }, 'Cancel'),
         h('button.btn.secondary', { type: 'button', onclick: () => close('force') }, 'Force'),
-        h('button.btn.danger', { type: 'button', autofocus: true, onclick: () => close('end') }, 'End it')),
+        h('button.btn.danger', { type: 'button', onclick: () => close('end') }, 'End it')),
     ]);
     if (!how) return;
     try {
-      await call('/api/system/processes/end', { pid: proc.pid, force: how === 'force' });
+      // With the name it was shown with: a pid that now belongs to another process is refused by the computer.
+      await call('/api/system/processes/end', { pid: proc.pid, name: proc.name, force: how === 'force' });
       toast(`${proc.name} (${proc.pid}) was asked to stop.`);
       p.now();
     } catch (e) {

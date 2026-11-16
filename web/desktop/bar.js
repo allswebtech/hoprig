@@ -1,9 +1,11 @@
 // The bars of the desktop, in its two styles:
 //   Taskbar  a bar at the bottom: the start button (the product's mark) with the start menu, a button per open
-//            window, and the tray: the computer, the sessions that need you, light or dark, the clock, and at its
-//            end the way back to the dashboard (where "Desktop mode" is in a page head)
-//   Dock     a bar at the top: the launcher button, the front window's name with its menu, and the same tray; a
-//            dock at the bottom with the pinned apps and the open ones (a dot under an app that has a window)
+//            window, and the tray: the computer, the sessions that need you, light or dark, the clock; a slim strip
+//            at the top with the way back to the dashboard at its right
+//   Dock     a bar at the top: the launcher button, the front window's name with its menu, and the same tray with
+//            the way back at its end; a dock at the bottom with the pinned apps and the open ones (a dot under an
+//            app that has a window)
+// In both styles the way back is at the top right, where "Desktop mode" is in a dashboard page's head.
 // The start menu and the launcher are one list: a search field, the apps, and the sessions of this computer that
 // can be opened in a window. Everything here is drawn again when the windows or the sessions change.
 import { icon } from '../icons.js';
@@ -35,9 +37,12 @@ export function drawBars({ root, top, bottom, style, desk }) {
   // ---------- the tray: computer, sessions needing you, light/dark, clock ----------
 
   const own = () => store.all.find((m) => (m.machine || null) === desk.machineName) || null;
-  function computerPill() {
+  const computerName = () => {
     const m = own();
-    const label = m ? m.machineLabel : desk.machineName || 'This computer';
+    return m ? m.machineLabel : desk.machineName || 'This computer';
+  };
+  function computerPill() {
+    const label = computerName();
     const b = h('button.desk-tray-btn.desk-pc', { type: 'button', title: `Computer: ${label}`, 'aria-haspopup': 'menu' }, icon('cpu', { size: 15 }), h('span', label));
     b.addEventListener('click', () => {
       const r = b.getBoundingClientRect();
@@ -61,17 +66,20 @@ export function drawBars({ root, top, bottom, style, desk }) {
       paint();
     } }, icon(dark() ? 'sun' : 'moon', { size: 15 }));
   }
-  const back = () => h('button.desk-tray-btn.desk-back', { type: 'button', title: 'Back to the dashboard', onclick: () => desk.leave() }, icon('grid', { size: 15 }), h('span', 'Dashboard'));
-  const tray = () => h('div.desk-tray', computerPill(), waiting(), themeBtn(), clock, back());
+  // The way back sits where "Desktop mode" sits on a dashboard page: the top right, in both styles.
+  const back = () => h('button.desk-tray-btn.desk-back', { type: 'button', title: 'Back to the dashboard', onclick: () => desk.leave() }, icon('back', { size: 15 }), h('span', 'Dashboard'));
+  const tray = () => h('div.desk-tray', computerPill(), waiting(), themeBtn(), clock, style === 'dock' ? back() : null);
 
   // ---------- the start menu / the launcher ----------
 
   function closePopup() {
-    if (!popup) return;
+    if (!popup) return null;
+    const from = popup.from;
     popup.cleanup();
     popup.el.remove();
     popup = null;
     paint();
+    return from;
   }
   function openPopup(anchor) {
     if (popup) return closePopup();
@@ -115,7 +123,7 @@ export function drawBars({ root, top, bottom, style, desk }) {
         h('button.btn.ghost.small', { type: 'button', onclick: () => {
           closePopup();
           desk.leave();
-        } }, icon('grid', { size: 16 }), h('span', 'Back to the dashboard'))));
+        } }, icon('back', { size: 16 }), h('span', 'Back to the dashboard'))));
     add(root, el);
     const onDown = (e) => {
       if (!el.contains(e.target) && !anchor.contains(e.target)) closePopup();
@@ -123,13 +131,16 @@ export function drawBars({ root, top, bottom, style, desk }) {
     const onKey = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        closePopup();
-        anchor.focus();
+        // The bar was drawn again on close: the keyboard goes back to the new button that opened the menu.
+        const from = closePopup();
+        const again = from && root.querySelector(from);
+        if (again) again.focus();
       }
     };
     document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey, true);
-    popup = { el, cleanup: () => {
+    const from = ['.desk-start', '.desk-launch', '.desk-dock-all'].find((sel) => anchor.matches(sel)) || null;
+    popup = { el, from, cleanup: () => {
       document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey, true);
     } };
@@ -166,13 +177,15 @@ export function drawBars({ root, top, bottom, style, desk }) {
     withMenu(b, () => [
       { label: `New ${app.title} window`, icon: 'plus', run: () => desk.launch(app.id) },
       ...open.map((w) => ({ label: w.title, icon: app.icon, run: () => wm.focus(w.id) })),
-      ...(open.length ? [null, { label: open.length > 1 ? 'Close all its windows' : 'Close', icon: 'x', danger: true, run: () => open.forEach((w) => wm.close(w.id)) }] : []),
+      ...(open.length ? [null, { label: open.length > 1 ? 'Close all its windows' : 'Close', icon: 'x', danger: true, run: async () => {
+        for (const w of open) await wm.close(w.id); // one at a time: a shell's window asks first
+      } }] : []),
     ], app.title);
     return b;
   }
 
-  const mark = (label, cls) => h(`button.${cls}`, { type: 'button', title: label, 'aria-label': label, 'aria-haspopup': 'dialog', 'aria-expanded': String(!!popup), onclick: (e) => openPopup(e.currentTarget) },
-    h('img', { src: 'icon.svg', alt: '', width: 22, height: 22 }));
+  const mark = (label, cls, word = null) => h(`button.${cls}`, { type: 'button', title: label, 'aria-label': label, 'aria-haspopup': 'dialog', 'aria-expanded': String(!!popup), onclick: (e) => openPopup(e.currentTarget) },
+    h('img', { src: 'icon.svg', alt: '', width: 22, height: 22 }), word ? h('span.desk-start-word', word) : null);
 
   // Drawn again only when something it shows changed, so the keyboard's place in the bar survives the next poll.
   let shown = '';
@@ -182,9 +195,10 @@ export function drawBars({ root, top, bottom, style, desk }) {
     if (!force && now === shown) return;
     shown = now;
     if (style === 'taskbar') {
-      fill(top);
+      // A slim strip at the top holds only the way back, where the "Desktop mode" button was on the page.
+      fill(top, h('div.desk-strip', h('span.desk-strip-name', h('img', { src: 'icon.svg', alt: '', width: 16, height: 16 }), h('span', `Desktop · ${computerName()}`)), h('span.desk-grow'), back()));
       fill(bottom, h('nav.desk-taskbar', { 'aria-label': 'Taskbar' },
-        mark('Start', 'desk-start'),
+        mark('Start', 'desk-start', 'Start'),
         h('div.desk-tasks', wins.map(winButton)),
         tray()));
       return;
