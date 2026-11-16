@@ -242,11 +242,11 @@ still works), otherwise inside the dashboard's own service (the built-in termina
 | One computer, phone on the same Wi-Fi | `hoprig setup`, scan the QR |
 | Two or more computers on one network | On one of them: **Computers → Add a computer**, then pick how it is reached. No server |
 | Computers at home, a server on the internet | `hoprig setup --hub` on the server; `hoprig join https://your-hub <code>` on each computer |
-| Computers at home, no server, you are elsewhere | the public link (Settings → Public link, or `hoprig public on`) through Cloudflare: Temporary, a free address that changes at each start and is sent to your phone, or Custom, your own address on a domain in a free Cloudflare account ([how](docs/COMPUTERS.md#a-public-link-through-cloudflare)); or Tailscale |
+| Computers at home, no server, you are elsewhere | the public link on the main one (Settings → Public link, or `hoprig public on`): Temporary, a free address that changes at each start, or Custom, your own address on a domain in a free Cloudflare account; the others: **Computers → Link to my main Hoprig** ([how](docs/COMPUTERS.md#from-anywhere-the-public-link)) |
 | Servers only | one is the hub; add the others by their SSH name |
 
-Two computers behind routers cannot find each other without a third one both can reach. Here that is your
-own hub: every other computer keeps one connection out to it, so nothing has to be opened on a router. A hub
+Every other computer keeps one connection out to the main one (a server, or a computer with its public link
+on), so nothing has to be opened on a router. A hub
 is small: about 80 MB of memory, measured with 20 computers and 20 open terminals; 512 MB RAM and one core
 are enough. Guides: [docs/COMPUTERS.md](docs/COMPUTERS.md), [docs/HUB.md](docs/HUB.md).
 

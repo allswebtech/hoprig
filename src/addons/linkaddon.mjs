@@ -37,7 +37,7 @@ export const publicLink = {
   id: ID,
   title: 'Public link',
   summary: 'Open this dashboard from anywhere, without a server of your own: Settings → Public link.',
-  homepage: 'https://github.com/allswebtech/hoprig/blob/main/docs/COMPUTERS.md#a-public-link-through-cloudflare',
+  homepage: 'https://github.com/allswebtech/hoprig/blob/main/docs/COMPUTERS.md#from-anywhere-the-public-link',
   status: oldStatus,
   install,
   update,

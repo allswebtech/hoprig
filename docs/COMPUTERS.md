@@ -12,8 +12,8 @@ are free except the server you may already rent.
 | You have | What to do | Commands |
 | --- | --- | --- |
 | **One PC** | Nothing more: its own dashboard is all you need. For your phone on the same Wi-Fi, setup's "devices on my network" is enough. | `hoprig setup` |
-| **Two or more PCs on the same network** | No server needed: on one of them, add the others. | On the one you open: **Computers → Add a computer →** "It has an address: Tailscale, HTTPS or the same network"; on each other PC: `hoprig pair` |
-| **PCs at home, and you want them from elsewhere, no server** | Something both sides can reach is needed. Either the public link through Cloudflare ([below](#a-public-link-through-cloudflare): Temporary, a free address that changes at each start, or Custom, your own domain), or Tailscale (a private network of your own devices, for always). | **Settings → Public link** (`hoprig public on`). Always: [situation 3](#3-no-server-at-all-tailscale) |
+| **Two or more PCs on the same network** | No server needed: on one of them, add the others. | On the one you open: **Computers → Add a computer →** "It has an address (the same network, or its public link)"; on each other PC: `hoprig pair` |
+| **PCs at home, and you want them from elsewhere, no server** | Turn on the public link on the main one; the others link themselves to it ([below](#from-anywhere-the-public-link)). | **Settings → Public link** (`hoprig public on`); on each other PC: **Computers → Link to my main Hoprig** |
 | **PCs at home plus one or more servers** | Make one server the hub; every PC joins it; the other servers join too or are added by SSH. | On the server: `hoprig setup --hub` (see [HUB.md](HUB.md)). On each PC: `hoprig join https://<hub> <code>`. Other servers: `hoprig join …` the same way, or on the hub `hoprig machines add user@server` |
 | **Servers only** | The same: one is the hub, the others join it or are added by SSH. | As above |
 
@@ -35,10 +35,10 @@ No extra software: one dashboard on a computer that can be reached (a server or 
 connects **out** to it. Your router stays closed; nothing has to be opened on the PC's side.
 
 1. On the hub: **Computers → Add a computer →** "It is at home or behind a router and cannot be reached from
-   here" **→ Show a code** (or `hoprig machines invite`). The code works once, for 10 minutes.
-2. On the PC: **Computers → Add a computer → Advanced → Show this computer on another dashboard**, type the
-   hub's address (`https://hub.example.com`) and the code, press **Connect**. Or:
-   `hoprig join https://hub.example.com CODE`.
+   here" **→ Show the line to paste** (or `hoprig machines invite`). The line is the hub's address with a code,
+   such as `https://hub.example.com#join=K7QM-4XP2`; it works once, for 10 minutes.
+2. On the PC: **Computers → Link to my main Hoprig** (or **Add a computer → Advanced → Show this computer on
+   another dashboard**), paste the line, press **Link**. Or: `hoprig join 'https://hub.example.com#join=K7QM-4XP2'`.
 
 The PC now shows in the hub's **Computers** list. Its own dashboard keeps the link open and opens it again after
 a restart or a dropped network, so let the dashboard run in the background (`hoprig service install`, which setup
@@ -53,7 +53,8 @@ offers anyway).
   PC's sessions, would otherwise cross the network readable on the way. `--insecure` only means that: it is not
   a way around a certificate.
 - A hub reached by a private IP address, with its own certificate (`hoprig setup --hub --ip … --tls-internal`):
-  the line it shows ends with `--fingerprint sha256:…`. Copy the whole line. The PC then checks the hub against
+  the line it shows carries its fingerprint (`…&fingerprint=sha256:…`, or `--fingerprint sha256:…` in the terminal
+  form). Copy the whole line. The PC then checks the hub against
   that fingerprint, now and on every later connection; a hub that does not match is refused before anything is
   sent. The fingerprint stays the same when the hub's certificate renews. Details:
   [HUB.md](HUB.md#no-public-certificate-possible-the-hubs-own-certificate-a-private-network-a-test).
@@ -77,32 +78,18 @@ under **Computers → Add a computer → Advanced → Show this computer on anot
 what sshd does by default (`GatewayPorts no`); if the server's sshd is set to `GatewayPorts yes`, joining stops with
 a message, because the port would otherwise be open to the whole network.
 
-## 3. No server at all: Tailscale
+## From anywhere: the public link
 
-Put every PC and your phone on [Tailscale](https://tailscale.com/pricing): a private network between your own
-devices that works through any router. Its Personal plan costs nothing; on 14 Nov 2026 its pricing page said
-"free forever", up to 6 users, unlimited devices, for non-commercial use only. Check that page for today's terms.
+- **From anywhere:** Settings → Public link → On. *Temporary* gives a new https address at each start with nothing
+  to set up; *Custom* keeps your own address and needs a domain on a free Cloudflare account.
+- **Another computer:** on it, **Computers → Link to my main Hoprig**, and paste the line the main one shows
+  (**Settings → Public link → Link another computer**). No server, nothing opened on any router.
+- **A server:** add it from the main one by SSH, or link it the same way.
 
-1. Install Tailscale on each PC and on the phone, and sign in to the same account on all of them.
-2. Choose the hub (the PC that is on the most). On it, add each other PC: **Computers → Add a computer →** "I can reach
-   it by SSH from this computer" with its Tailscale name (for example `user@home-pc`), as in situation 2. Without
-   SSH, choose "It has an address: Tailscale, HTTPS or the same network" instead: run `hoprig pair` on that PC and
-   enter its Tailscale address and the code.
-3. Make the hub's page reachable from the phone, only inside your Tailscale network, with HTTPS: on the hub run
-   `tailscale serve 7433` (7433 is the dashboard's port; use yours if you changed it). Tailscale prints the
-   `https://…ts.net` address to open on the phone. Serve needs HTTPS certificates turned on for your Tailscale
-   network: admin console → DNS → turn on MagicDNS, then **Enable HTTPS**.
-4. On the phone, open that address and sign in with the code from **Settings → Security and sign-in → Sign in
-   another device**.
+With Temporary, a linked computer must be linked again when the main one's address changes (after it restarts).
+Computers that should stay linked need Custom on the main one, or a server as the main one.
 
-## Why there has to be a hub that can be reached
-
-Two computers that are both behind routers cannot find each other on their own: neither one can be called, so
-some third computer that both can reach has to be in the middle. RustDesk, for example, uses its public servers
-for that. Here it is your own hub: the PCs connect out to it, and nobody else's server sees your sessions. With no
-such computer at all, Tailscale (situation 3) plays that part, or a public link through Cloudflare (next section).
-
-## A public link through Cloudflare
+### How it works
 
 **Settings → Public link** (or `hoprig public on`) makes this dashboard reachable from anywhere, with no server of
 your own and nothing opened on your router: Cloudflare's program `cloudflared` connects out to Cloudflare and
@@ -176,7 +163,7 @@ computer's own page instead ([PC-SETUP.md](PC-SETUP.md)).
 | "has no Hoprig" | Install Hoprig there (the page shows the line), or press **Install it there for me**. |
 | "that code is wrong or has expired" | Show a new code on the hub; each one works once, for 10 minutes. |
 | "is not encrypted (http://)" | Put the hub behind HTTPS ([HUB.md](HUB.md)), or confirm with `--insecure` on a network you trust. |
-| "certificate was made by the hub itself" | Copy the whole line from the hub, with `--fingerprint sha256:…`: `hoprig machines invite` there, or its page's **Show a code**. Never `--insecure`. |
+| "certificate was made by the hub itself" | Copy the whole line from the hub, with `--fingerprint sha256:…`: `hoprig machines invite` there, or its page's **Show the line to paste**. Never `--insecure`. |
 | "does not match the fingerprint" | Nothing was sent. Check the line was copied whole; if the hub was set up again, show the line there again. |
 | "no longer signed by the authority this computer pinned" | The hub's certificate authority is new (Caddy reinstalled, a new server). Show the line on the hub again and run it on this computer. |
 | "Not allowed any more" | Its right was revoked on that computer. Add it again (**Computers → Add a computer**). |

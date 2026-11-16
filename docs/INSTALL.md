@@ -64,7 +64,7 @@ One part that fails does not stop the next ones: at the end, setup names it with
 - `2` devices on my network, e.g. your phone on the same Wi-Fi *(default; not offered on a server with a public
   address, where it would be the whole internet over plain http)*
 - `3` from anywhere: then *I have a server* (make it the hub: [HUB.md](HUB.md)), *a public link* (free,
-  through Cloudflare, no server: a new address at each start, or your own domain; `hoprig public on`), or *Tailscale* (shown when it is installed and signed in)
+  through Cloudflare, no server: a new address at each start, or your own domain; `hoprig public on`), or *Tailscale* (shown when it is installed and signed in; see Other ways below)
 
 To take the safe defaults and not be asked at all (it installs the default tools, adds no project, and adds only
 skills that come with Hoprig or are pinned in its catalog):
@@ -120,9 +120,10 @@ Setup says so in one line and carries on. Run `claude`, type `/login`, sign in i
 
 - **Same Wi-Fi:** choose `2` in setup, scan the QR code. Plain http is not encrypted: use it only on a network you
   trust (your home), never on public Wi-Fi.
-- **Anywhere:** see [Which setup is mine?](COMPUTERS.md#which-setup-is-mine): a hub on a server, a quick public
-  link, or [Tailscale](https://tailscale.com/download) (`hoprig setup --access tailscale`, an https address only
-  your devices can open).
+- **Anywhere:** **Settings → Public link → On** (`hoprig public on`), or a hub on a server; see
+  [Which setup is mine?](COMPUTERS.md#which-setup-is-mine).
+- **Other ways:** `hoprig setup --access tailscale` serves the page at an https address that only your own
+  [Tailscale](https://tailscale.com/download) devices can open, for when you want no public sign-in page.
 
 Run `hoprig setup` any time to see the QR code again.
 
