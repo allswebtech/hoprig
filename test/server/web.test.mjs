@@ -867,10 +867,14 @@ test('new session: a folder where a session runs opens that session, one where a
 test('new session: repositories by their own name, and a path only where it says more than the name', async () => {
   const { folderSub, repoWords } = await import('../../web/newsession.js');
   assert.deepEqual(repoWords('code/bookshop-api', 'bookshop'), { name: 'bookshop-api', sub: 'repository in bookshop' });
-  assert.deepEqual(repoWords('.', 'bookshop'), { name: 'bookshop', sub: 'project' });
-  assert.equal(folderSub({ name: 'shop', short: '~/Workspace/projects/shop' }, '~/Workspace/projects'), 'project');
+  assert.deepEqual(repoWords('.', 'bookshop'), { name: 'bookshop', sub: null }, 'a project\'s own folder: its name, no second line');
+  assert.equal(folderSub({ name: 'shop', short: '~/Workspace/projects/shop' }, '~/Workspace/projects'), null, 'no "project" under every row');
   assert.equal(folderSub({ name: 'tool', short: '~/src/tool' }, '~/Workspace/projects'), '~/src/tool');
   assert.equal(folderSub({ name: 'x', short: '~/x' }, null), '~/x', 'projects folder not known: the path');
+  const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
+  assert.match(src, /sub \? h\('span\.row-sub', sub\) : null/, 'a row without a second line draws none');
+  // On a phone the computers and the coding tools sit two to a row, so the first project is in the first screen.
+  assert.match(fs.readFileSync(path.join(WEB, 'page-projects.css'), 'utf8'), /@media \(max-width: 520px\) \{\n\s+\.ns-pcs \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
 });
 
 test('Home cards: the pill leaves out what the heading says; the folder only when it is not projects/<name>', async () => {

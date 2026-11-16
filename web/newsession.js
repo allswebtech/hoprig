@@ -153,7 +153,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
   const row = (f, sub, onclick, end = null, go = 'play') =>
     h('button.row', { type: 'button', onclick },
       h('span.row-icon', icon('folder')),
-      h('span.row-main', h('span.row-title', f.name), h('span.row-sub', sub)),
+      h('span.row-main', h('span.row-title', f.name), sub ? h('span.row-sub', sub) : null),
       end,
       h('span.row-end', icon(go, { size: 18 })));
   // A folder where a session runs: the tap opens that session (a second one in the same folder is what nobody
@@ -206,7 +206,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     projectsShort = proj && (proj.projectsShort || (proj.projectsDir && tildePath(proj.projectsDir))) || null;
     const seen = new Set(recent.folders.map((f) => f.path));
     const more = proj
-      ? [...proj.workspaces.flatMap((w) => w.repos.map((r) => ({ path: r.dir, ...repoWords(r.rel, w.name) }))), ...proj.repos.map((r) => ({ path: r.dir, ...repoWords(r.rel, null), sub: 'project' }))].filter((f) => !seen.has(f.path))
+      ? [...proj.workspaces.flatMap((w) => w.repos.map((r) => ({ path: r.dir, ...repoWords(r.rel, w.name) }))), ...proj.repos.map((r) => ({ path: r.dir, ...repoWords(r.rel, null), sub: null }))].filter((f) => !seen.has(f.path))
       : [];
     fill(body,
       recent.folders.length || more.length ? null : h('p.muted', 'No projects yet. Open a folder below, or add a project under Workspace.'),

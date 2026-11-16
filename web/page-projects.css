@@ -3,6 +3,7 @@
    pj-  Projects, a project's page, New project, Get an existing project (projects.js)
    sk-  Skills (skillhub.js)
    ws-  Workspace (projects.js, workspace.js) and Workspace folders (brain.js); brain-  the AI brain page (brain.js)
+   ns-  New session's choices on a phone (newsession.js; the cards themselves are in style.css)
    map-  Settings → Workspace, the map (workspace.js); git-  Git and GitHub (gitsetup.js) */
 
 
@@ -156,3 +157,11 @@
 .bl-tool-row .bl-mark { margin-top: 0; }
 .bl-tool-row.bl-linked .bl-mark { background: var(--ok-soft); color: var(--ok); }
 .bl-tool-row.bl-left .bl-mark { background: var(--surface-3); color: var(--muted); }
+
+/* New session on a phone: the computers and the coding tools two to a row, without their icons, so the first project
+   is in the first screen and not under four full-width cards. */
+@media (max-width: 520px) {
+  .ns-pcs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ns-pc { padding: 8px 10px; }
+  .ns-pc-icon { display: none; }
+}

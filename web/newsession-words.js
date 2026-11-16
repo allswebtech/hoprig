@@ -15,18 +15,19 @@ export function outsideProjects(dir, projectsDir) {
 }
 
 /**
- * The second line of a folder's row: its path only when it says something the name does not, i.e. when the folder is
- * not simply <projects folder>/<name>. `short` is the "~/…" path, `projectsShort` the projects folder written the same way.
+ * The second line of a folder's row: its path only when it says something the name does not; none (null) when the
+ * folder is simply <projects folder>/<name>, as most are ("project" under every row said nothing). `short` is the
+ * "~/…" path, `projectsShort` the projects folder written the same way.
  */
 export function folderSub(f, projectsShort) {
   const norm = (x) => String(x || '').replace(/[\\/]+$/, '').replace(/\\/g, '/');
-  if (projectsShort && norm(f.short) === `${norm(projectsShort)}/${f.name}`) return 'project';
+  if (projectsShort && norm(f.short) === `${norm(projectsShort)}/${f.name}`) return null;
   return f.short;
 }
 
 /** A repository of a project as a person names it: "bookshop-api", "repository in bookshop" (not "code/bookshop-api"). */
 export function repoWords(rel, project) {
-  if (!rel || rel === '.') return { name: project, sub: 'project' };
+  if (!rel || rel === '.') return { name: project, sub: null }; // a project's own folder: its name says it
   const name = rel.split(/[\\/]/).filter(Boolean).pop() || rel;
   return { name, sub: project ? `repository in ${project}` : 'repository' };
 }
