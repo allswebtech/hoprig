@@ -252,9 +252,13 @@ export function statusPill(s, { time = true, text = true } = {}) {
   return h(`span.pill.st-${st.key}`, h('span.dot'), st.text, when ? h('span.pill-time', { dataset: { at } }, ` · ${when}`) : null);
 }
 
-// chatgpt: the sign-in Codex keeps itself, a kind not used while Codex is not offered (src/codetools/index.mjs);
-// it reads 'Codex sign-in' again when Codex is.
-export const KIND = { login: 'Subscription', subscription: 'Subscription', api: 'API', openai: 'OpenAI API', chatgpt: 'Sign-in not used here', auto: 'Auto mode', unknown: 'Provider' };
+export const KIND = { login: 'Subscription', subscription: 'Subscription', api: 'API', openai: 'OpenAI API', chatgpt: 'Codex sign-in', auto: 'Auto mode', unknown: 'Provider' };
+/**
+ * What a provider is, in words. The server's data decides, not a list in the page: a sign-in of a coding tool that
+ * computer's Hoprig does not offer comes with `unusable` (src/profiles.mjs publicProfile) and is named without the
+ * tool; the same kind from a computer that offers it (or an older one, which does not say) keeps its own name.
+ */
+export const kindLabel = (p) => (p.unusable && p.kind === 'chatgpt' ? 'Sign-in of another coding tool' : KIND[p.kind] || p.kind);
 
 /** The coding tools by id, as the page names them. */
 export const TOOL_NAMES = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
@@ -295,7 +299,7 @@ export function profileState(p) {
   if (p.virtual) return { key: 'free', text: 'Uses your providers in order; never stops at a limit' };
   // A sign-in provider whose sign-in is gone (or never finished): it cannot be used until someone signs in again.
   if (p.signedIn === false) return { key: 'signin', text: 'Not signed in' };
-  // The sign-in kind of a coding tool this version does not offer (src/server/accounts.mjs): kept, never used.
+  // A provider that serves no coding tool this computer's Hoprig offers (src/profiles.mjs): kept, never used.
   if (p.unusable) return { key: 'unusable', text: 'Not used by this version of Hoprig' };
   // A Codex sign-in when Codex is not installed (or does not say whether it is signed in).
   if (p.kind === 'chatgpt' && p.signedIn == null) return { key: 'signin', text: 'Codex is not installed' };
@@ -462,7 +466,7 @@ export async function chooseProfileFor(s, profiles) {
     items: profiles.filter((p) => servesTool(p, tool)).map((p) => ({
       value: p.name,
       label: p.label,
-      sub: p.virtual ? profileState(p).text : `${KIND[p.kind] || p.kind} · ${profileState(p).text}`,
+      sub: p.virtual ? profileState(p).text : `${kindLabel(p)} · ${profileState(p).text}`,
       icon: profileIcon(p),
       current: s.profile && p.name === s.profile.name,
       disabled: s.profile && p.name === s.profile.name,
