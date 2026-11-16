@@ -13,7 +13,7 @@ process.env.CLAUDE_CONFIG_DIR = path.join(tmp, 'claude');
 delete process.env.HOPRIG_PROFILES_DIR;
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-const { binFile, profilesDir, runsDir } = await import('../src/paths.mjs');
+const { binFile, hookFile, profilesDir, runsDir } = await import('../src/paths.mjs');
 const P = await import('../src/profiles.mjs');
 const R = await import('../src/runs.mjs');
 const S = await import('../src/sessions.mjs');
@@ -121,13 +121,14 @@ test('session and print flags are recognised', () => {
   assert.equal(L.isPrintMode(['hi']), false);
 });
 
-test('hook settings call this hoprig for the six events; the status line only when a script is given', () => {
+test('hook settings call the small hook program for the six events; the status line only when a script is given', () => {
   const s = L.hookSettings();
   assert.deepEqual(Object.keys(s.hooks).sort(), ['Notification', 'SessionEnd', 'SessionStart', 'Stop', 'StopFailure', 'UserPromptSubmit']);
   assert.equal('statusLine' in s, false);
   assert.deepEqual(L.hookSettings({ statusScript: '/x/y.sh', padding: 1 }).statusLine, { type: 'command', command: process.platform === 'win32' ? 'sh "/x/y.sh"' : "sh '/x/y.sh'", padding: 1 });
   const cmd = s.hooks.Stop[0].hooks[0].command;
-  assert.ok(cmd.includes(binFile()) && cmd.endsWith(' hook'));
+  assert.ok(cmd.includes(process.execPath) && cmd.includes(hookFile()), cmd);
+  assert.ok(fs.existsSync(hookFile()), 'the program the settings name is there');
 });
 
 test('menu choice: number, name, and the c / r suffix; an exact name wins', () => {
@@ -525,7 +526,7 @@ test('hooks: the kind of failure is kept; "waiting for your input" stays plain w
   const hook = (ev) => spawnSync(process.execPath, [binFile(), 'hook'], { input: JSON.stringify({ session_id: id, ...ev }), env: { ...process.env, HOPRIG_RUN_FILE: file }, encoding: 'utf8' });
   hook({ hook_event_name: 'Stop', last_assistant_message: 'done' });
   hook({ hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' });
-  assert.deepEqual([R.readRun(file).status, R.readRun(file).attentionKind], ['waiting', 'idle_prompt']);
+  assert.deepEqual([R.readRun(file).status, R.readRun(file).attentionKind], ['waiting', null]);
   hook({ hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' });
   assert.deepEqual([R.readRun(file).status, R.readRun(file).attentionKind], ['attention', 'permission_prompt']);
   hook({ hook_event_name: 'StopFailure', error: 'overloaded', last_assistant_message: 'API Error: Overloaded' });

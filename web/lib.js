@@ -229,7 +229,8 @@ export function stateOf(s) {
     case 'attention': return { key: 'attention', text: 'Needs your OK', rank: 0 };
     case 'waiting': return { key: 'waiting', text: 'Waiting for your next message', rank: 2 };
     case 'starting': return { key: 'starting', text: 'Starting', rank: 3 };
-    case 'working': return { key: 'working', text: 'Working', rank: 4 };
+    // `background`: the reply ended, but subagents or a workflow go on and Claude continues when they finish.
+    case 'working': return { key: 'working', text: s.background ? 'Working in the background' : 'Working', rank: 4 };
     case 'ended': return { key: 'ended', text: 'Finished', rank: 5 };
     default: return { key: 'shell', text: s.status || 'Unknown', rank: 6 };
   }

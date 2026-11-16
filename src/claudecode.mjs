@@ -96,6 +96,35 @@ export function methodOf(realPath) {
   return 'unknown';
 }
 
+/**
+ * The version of the Claude Code at `realPath`, read from where it lives and without starting it: the native
+ * install names its program by its version (…/claude/versions/2.1.325), an npm install has its package.json a
+ * few folders up. null when the place does not tell.
+ */
+export function versionFromPath(realPath, readFile = (f) => fs.readFileSync(f, 'utf8')) {
+  const p = String(realPath || '').replace(/\\/g, '/');
+  const native = /\/claude\/versions\/(\d+\.\d+\.\d+)(?:\.exe)?(?:\/|$)/.exec(p);
+  if (native) return native[1];
+  const npm = /^(.*\/node_modules\/@anthropic-ai\/claude-code)(?:\/|$)/.exec(p);
+  if (!npm) return null;
+  try {
+    const v = JSON.parse(readFile(`${npm[1]}/package.json`)).version;
+    return typeof v === 'string' && /^\d+\.\d+\.\d+/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The installed Claude Code's version without running it (see versionFromPath), or null. For the launcher. */
+export function claudeVersionQuick({ bin = configuredBin(), env = process.env } = {}) {
+  try {
+    const found = resolveClaude({ bin, env });
+    return found ? versionFromPath(fs.realpathSync(found.path)) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** "2.1.325 (Claude Code)" -> "2.1.325"; null when the text has no version. */
 export function parseClaudeVersion(text) {
   const m = VERSION_RE.exec(String(text || ''));

@@ -166,6 +166,9 @@ if (resumed) {
   promptBox();
 } else {
   story().then(() => {
-    if (!busyMessage) promptBox(folder === 'mobile-app' ? 'Enter to confirm · Esc to exit' : '? for shortcuts');
+    if (busyMessage) return;
+    // A question takes the place of the message box, as in Claude Code: only its key hint stands under it.
+    if (folder === 'mobile-app') w(`  ${c.dim('Enter to confirm · Esc to cancel')}`);
+    else promptBox();
   });
 }

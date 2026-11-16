@@ -9,14 +9,19 @@
 //   tmuxPane   $TMUX_PANE ("%3") when started inside tmux, else null
 //   termId     $HOPRIG_TERM_ID when started in a terminal the dashboard itself holds (no tmux), else null
 //   sessionId  Claude session id, set by the SessionStart hook (also after /clear and /resume)
-//   status     "starting" | "working" | "waiting" | "attention" | "ended"
-//   note       last notification text when status is "attention"
+//   status     "starting" | "working" | "waiting" | "attention" | "ended" (hook.mjs says which event sets which)
+//   note       what Claude waits for when status is "attention" (a permission, a question, an error)
+//   asks       who waits for the owner's answer right now: "main", a subagent's id, or "?" (a notification that
+//              does not say who). "attention" holds while this is not empty; absent or [] otherwise
+//   background ids of the subagents and workflows still running when the last reply ended: Claude goes on by
+//              itself when they finish, so the status stays "working". Absent or [] otherwise
 //   carryArgs  the launch arguments that are kept when the session moves to another profile
 //   limit      { at, error, text } when the last reply ended at a usage limit; null again on the next prompt
 //   lastMessage  the start of what Claude last said (for a preview)
 //   stopAt     when the last reply ended
 //   failure    { at, error, text } when the last reply ended in an API error (any kind); null again on the next prompt
-//   attentionKind  Claude Code's notification type behind the last "attention" (permission_prompt, idle_prompt…)
+//   attentionKind  what is behind the last "attention": permission_prompt, elicitation_dialog… (Claude Code's
+//              notification types); null when nothing waits
 //   fallback   true when the session runs here only because a preferred profile reached its limit
 //   usage      (added when read) how much of the plan's limits is used, from Claude Code's status data:
 //              { fiveHour?: { pct, resetsAt }, week?: { pct, resetsAt }, at }; `at` is when Claude Code wrote it.
@@ -27,6 +32,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runsDir } from './paths.mjs';
 import { rememberUsage } from './routerstate.mjs';
+import { readRun, watchFile, writeRun as write } from './runfile.mjs';
+
+export { readRun };
 
 export function createRun({ profile, cwd, carryArgs = [] }) {
   const runId = `${Date.now().toString(36)}-${process.pid}`;
@@ -49,20 +57,6 @@ export function createRun({ profile, cwd, carryArgs = [] }) {
   fs.mkdirSync(runsDir(), { recursive: true, mode: 0o700 });
   write(file, run);
   return { file, run };
-}
-
-function write(file, run) {
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(run) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, file);
-}
-
-export function readRun(file) {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return null;
-  }
 }
 
 /** Where the launch's status line script saves Claude Code's status data (see statusScript in launch.mjs). */
@@ -126,7 +120,7 @@ export function updateRun(file, patch) {
 }
 
 export function removeRun(file) {
-  for (const f of [file, usageFile(file)]) {
+  for (const f of [file, usageFile(file), watchFile(file)]) {
     try {
       fs.unlinkSync(f);
     } catch {
