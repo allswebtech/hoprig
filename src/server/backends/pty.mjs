@@ -73,7 +73,7 @@ export function defaultShell(platform = process.platform, env = process.env) {
 export function startPlan({ platform = process.platform, dir, argv = null, shell = defaultShell(platform), mark = null }) {
   if (platform === 'win32') {
     if (!argv) return { file: shell.file, args: shell.args, cwd: dir, type: null, then: null };
-    // `mark` (deck.mjs newMark) goes when the command exits: the terminal is back at its own shell then.
+    // `mark` (marks.mjs) goes when the command exits: the terminal is back at its own shell then.
     return { file: argv[0], args: argv.slice(1), cwd: dir, type: null, then: shell, ...(mark ? { mark } : {}) };
   }
   return { file: shell.file, args: shell.args, cwd: dir, type: argv ? shellLine(dir, argv, { mark }) : null, then: null };

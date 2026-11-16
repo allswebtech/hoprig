@@ -68,7 +68,7 @@ export function terminals(ctx, o = {}) {
       const term = await terminalOf(id, tool);
       if (term) return { terminal: term };
       // A chat's process: this dashboard's chats, and every chat record (runs.mjs createChatRun).
-      const chat = (o.chatOf ? o.chatOf(id, tool) : null) || (listRuns({ chats: true }).find((r) => r.kind === 'chat' && r.chat !== self && runsConversation(r, id, tool)) || {}).chat;
+      const chat = (o.chatOf ? o.chatOf(id, tool) : null) || (listRuns({ chats: true, usage: false }).find((r) => r.kind === 'chat' && r.chat !== self && runsConversation(r, id, tool)) || {}).chat;
       if (chat && chat !== self) return { chat };
       // A start on the conversation is noted by the Deck as it creates the terminal (deck.mjs create).
       return { started: await fn() };

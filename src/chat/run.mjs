@@ -3,7 +3,7 @@
 // transcript, so the next start resumes it; nothing but the process is lost.
 import { providerEnv } from '../assistant/engine.mjs';
 import { cancelAsks } from './asks.mjs';
-import { createChatRun, heldBefore, removeRun } from '../runs.mjs';
+import { createChatRun, heldBefore, removeChatLeftovers, removeRun, updateRun } from '../runs.mjs';
 import { hear, lostWork } from './hear.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -20,15 +20,17 @@ export function start(chat) {
     // The record that this chat runs the conversation (runs.mjs createChatRun), first: a launcher in any terminal reads
     // it before it starts the coding tool there. A launcher whose record came first keeps the conversation.
     const hold = createChatRun({ chat: chat.id, conversation: chat.conversationId, tool: chat.engine.id, cwd: chat.cwd, profile: chat.profile });
+    chat.startHold = hold.file; // a stop() while it gets ready removes it at once (stop below)
     let session = null;
     try {
+      removeChatLeftovers(chat.id, hold.run.runId); // no earlier process of this chat runs now (chat.ending above)
       const other = heldBefore(hold.run, chat.conversationId, chat.engine.id);
       if (other) throw fail(409, other.kind === 'chat' ? 'another chat runs this conversation right now' : 'This conversation runs in a terminal now. Continue it here (that terminal stops), or read along.');
-      session = await open(chat, gen);
+      session = await open(chat, gen, hold);
       return !!session;
     } finally {
-      if (session) session.hold = hold.file;
-      else removeRun(hold.file);
+      if (chat.startHold === hold.file) chat.startHold = null;
+      if (!session) removeRun(hold.file);
     }
   })().finally(() => {
     chat.starting = null;
@@ -36,8 +38,8 @@ export function start(chat) {
   return chat.starting;
 }
 
-/** The coding tool's process for chat `chat` (its record is written): the session, or null when a stop() came meanwhile. */
-async function open(chat, gen) {
+/** The coding tool's process for chat `chat` (its record `hold` is written): the session, or null when a stop() came meanwhile. */
+async function open(chat, gen, hold) {
   // The provider's environment may take a while (its PRERUN starts a gateway, Auto mode starts the router).
   const env = await (chat.o.resolveEnv || providerEnv)(chat.profile);
   if (gen !== chat.gen || chat.closed) return null;
@@ -54,6 +56,9 @@ async function open(chat, gen) {
     command: chat.o.command, spawnImpl: chat.o.spawnImpl, termMs: chat.o.termMs, killMs: chat.o.killMs, drainMs: chat.o.drainMs,
     ...(chat.o.engineOpts || {}), // stand-ins of a tool's server (tests)
   });
+  // The record goes with the process from here on (release), and follows it into another conversation (heard).
+  session.hold = hold.file;
+  session.holds = chat.conversationId;
   chat.session = session;
   chat.liveMode = null;
   chat.bypass = false; // until this process says so itself
@@ -67,6 +72,17 @@ function release(session) {
   session.hold = null;
 }
 
+/**
+ * The process of `session` goes on in conversation `id` (a clear in Claude Code; OpenCode names a new chat's
+ * conversation itself): its record says so (runs.mjs runsConversation reads sessionId first), so a launcher on `id`
+ * finds it, and the conversation it left is free at once.
+ */
+function moved(session, id) {
+  if (!session || !session.hold || !id || id === session.holds) return;
+  session.holds = id;
+  updateRun(session.hold, { sessionId: id });
+}
+
 /** The process runs (started for a menu or a rewind, not for a message: the idle timer applies). */
 export async function ensure(chat) {
   if (chat.closed) throw fail(409, 'this chat is closed');
@@ -78,6 +94,7 @@ export async function ensure(chat) {
 
 function heard(chat, session, ev) {
   if (ev.kind === 'exit') release(session);
+  else if (ev.kind === 'conversation' || (ev.kind === 'session-changed' && ev.reason === 'clear')) moved(session, ev.id);
   if (chat.session !== session) {
     if (ev.kind === 'exit') chat.knowSize(); // what it wrote last is ours: no reason to read it again
     return;
@@ -88,6 +105,12 @@ function heard(chat, session, ev) {
 /** End the process (the conversation stays in its transcript). */
 export function stop(chat) {
   chat.gen++; // a start that is still getting ready does not go on
+  // …and holds nothing from now on: its record goes at once, not when its provider's environment is ready (a terminal
+  // the chat is handed to must not find it).
+  if (chat.startHold) {
+    removeRun(chat.startHold);
+    chat.startHold = null;
+  }
   clearTimeout(chat.idleTimer);
   clearTimeout(chat.stopTimer);
   const session = chat.session;

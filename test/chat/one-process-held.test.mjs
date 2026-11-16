@@ -10,6 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { sandbox } from '../server/helpers.mjs';
+import { SESSION_ID, standIn, standInOpts } from './fixtures/opencode-standin.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CHAT = path.join(HERE, 'fixtures', 'fake-claude.mjs');
@@ -57,9 +58,17 @@ test('a chat\'s record sits with the launchers\' records, but only the readers o
   fs.writeFileSync(chat.file, JSON.stringify(b));
   assert.equal(R.heldBefore(b, ID).runId, 'a');
   assert.equal(R.heldBefore(a, ID), null);
-  // A record whose process is dead never counts, nor one that has ended.
+  // A record that has ended never counts, nor one whose process is dead.
+  fs.writeFileSync(term.file, JSON.stringify({ ...a, status: 'ended' }));
+  assert.equal(R.heldBefore(b, ID), null, 'ended');
   fs.writeFileSync(term.file, JSON.stringify({ ...a, pid: 2 ** 22 + 7 }));
-  assert.equal(R.heldBefore(b, ID), null);
+  assert.equal(R.heldBefore(b, ID), null, 'dead');
+  // Who runs it reads no plan usage (each launcher and chat start would write the provider's store).
+  fs.writeFileSync(term.file, JSON.stringify(a));
+  fs.writeFileSync(R.usageFile(term.file), JSON.stringify({ rate_limits: { five_hour: { used_percentage: 40 } } }));
+  assert.equal(R.heldBefore(b, ID).usage, undefined);
+  assert.equal(R.listRuns()[0].usage.fiveHour.pct, 40, 'the cards still read it');
+  R.removeRun(term.file);
   R.removeRun(chat.file);
   // The launcher's own move writes its record anew and keeps when it first held the conversation.
   const first = R.createRun({ profile: 'work', cwd: box.root, conversation: ID });
@@ -162,15 +171,125 @@ test('a chat holds its conversation by a record while its process runs, and star
   clear();
 });
 
+const until = async (what, fn, ms = 10_000) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (fn()) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`timed out waiting for ${what}`);
+};
+const chatOn = (cwd, o = {}) => new Chat({ id: crypto.randomUUID(), cwd, profile: 'p', command: { command: process.execPath, args: [FAKE_CHAT] }, resolveEnv: async () => ({ ...process.env }), ...o });
+const turn = async (c, text) => {
+  const done = new Promise((r) => c.once('turn', r));
+  await c.send(text);
+  await done;
+};
+
+test('a chat\'s record follows its process into another conversation (a clear): the new one is held, the old one is free', async () => {
+  clear();
+  const cwd = fs.realpathSync(fs.mkdtempSync(path.join(box.root, 'proj-')));
+  const c = chatOn(cwd);
+  await turn(c, 'hello');
+  const A = c.conversationId;
+  await turn(c, 'clear'); // Claude Code's /clear: the same process goes on in a new conversation
+  const B = c.conversationId;
+  assert.notEqual(B, A);
+  assert.ok(c.session, 'the same process runs on');
+  const [rec] = R.listRuns({ chats: true });
+  assert.equal(rec.sessionId, B);
+  assert.equal(R.runsConversation(rec, B), true);
+  assert.equal(R.runsConversation(rec, A), false);
+  const onB = R.createRun({ profile: 'p', cwd, conversation: B });
+  assert.equal(R.heldBefore(onB.run, B)?.chat, c.id, 'a launcher on the new conversation is refused');
+  R.removeRun(onB.file);
+  const onA = R.createRun({ profile: 'p', cwd, conversation: A });
+  assert.equal(R.heldBefore(onA.run, A), null, 'nothing runs the old one: a launcher may start on it');
+  R.removeRun(onA.file);
+  // …and so may another chat.
+  const d = chatOn(cwd, { conversationId: A });
+  await turn(d, 'on the old one');
+  assert.ok(d.session, 'a second chat runs the old conversation');
+  await d.close();
+  await c.close();
+  assert.deepEqual(R.listRuns({ chats: true }), []);
+  clear();
+});
+
+test('a chat\'s record goes when its process ends by itself, and a record of its own that is left over never blocks it', async () => {
+  clear();
+  const cwd = fs.realpathSync(fs.mkdtempSync(path.join(box.root, 'proj-')));
+  const c = chatOn(cwd);
+  await turn(c, 'hello');
+  assert.equal(R.listRuns({ chats: true }).length, 1);
+  await c.send('big'); // the stand-in answers, then exits at once (code 1), as Claude Code does at a usage limit
+  await until('the process ended by itself', () => !c.session);
+  await until('its record went with it', () => R.listRuns({ chats: true }).length === 0);
+  // A record of this chat that outlived its process (its pid is the dashboard's: nothing else would remove it).
+  const left = R.createChatRun({ chat: c.id, conversation: c.conversationId, tool: 'claude', cwd, profile: 'p' });
+  await new Promise((r) => setTimeout(r, 5));
+  await turn(c, 'again');
+  assert.ok(c.session, 'the chat starts: its own leftover does not count');
+  assert.equal(fs.existsSync(left.file), false, 'and is gone');
+  assert.equal(R.listRuns({ chats: true }).length, 1);
+  await c.close();
+  assert.deepEqual(R.listRuns({ chats: true }), []);
+  clear();
+});
+
+test('a chat closed while its start waits for the provider holds nothing from that moment ("Open in terminal")', async () => {
+  clear();
+  const cwd = fs.realpathSync(fs.mkdtempSync(path.join(box.root, 'proj-')));
+  let ready;
+  const gate = new Promise((r) => (ready = r));
+  const c = chatOn(cwd, { resolveEnv: async () => { await gate; return { ...process.env }; } }); // a gateway that starts slowly
+  const sent = c.send('hello').catch(() => null);
+  await until('the start\'s record', () => R.listRuns({ chats: true }).length === 1);
+  await c.close();
+  assert.deepEqual(R.listRuns({ chats: true }), [], 'gone at the close, not when the provider is ready');
+  const term = R.createRun({ profile: 'p', cwd, conversation: c.conversationId });
+  assert.equal(R.heldBefore(term.run, c.conversationId), null, 'the terminal it is handed to starts');
+  ready();
+  await sent;
+  assert.equal(c.session, null, 'and the chat started nothing');
+  assert.deepEqual(R.listRuns({ chats: true }).map((r) => r.runId), [term.run.runId]);
+  R.removeRun(term.file);
+  clear();
+});
+
+test('OpenCode: a new chat\'s record names the conversation OpenCode made for it', async (t) => {
+  clear();
+  const ev = (type) => ({ event: { type, data: { sessionID: SESSION_ID } } });
+  const s = await standIn({ turns: [{ text: 'hi', steps: [ev('session.execution.started'), ev('session.execution.succeeded')] }] });
+  t.after(() => s.close());
+  const c = new Chat({ id: crypto.randomUUID(), engine: 'opencode', cwd: '/work/proj', profile: 'gw', turnsDir: fs.mkdtempSync(path.join(box.root, 'oc-')), resolveEnv: async () => ({}), engineOpts: { enabled: () => true, ...standInOpts(s) }, idleMs: 60_000 });
+  if (c.loading) await c.loading;
+  await c.send('hi');
+  await until('OpenCode named the conversation', () => c.conversationId === SESSION_ID);
+  const [rec] = R.listRuns({ chats: true });
+  assert.equal(rec.conversation, c.id, 'written before OpenCode named it');
+  assert.equal(rec.sessionId, SESSION_ID);
+  const term = R.createRun({ profile: 'gw', cwd: '/work/proj', conversation: SESSION_ID, tool: 'opencode' });
+  assert.equal(R.heldBefore(term.run, SESSION_ID, 'opencode')?.chat, c.id, 'a launcher on it from a plain shell is refused');
+  R.removeRun(term.file);
+  await c.close();
+  assert.deepEqual(R.listRuns({ chats: true }), []);
+  clear();
+});
+
 test('the start\'s mark: the shell removes it after the launcher, or when the launcher could not start', { skip: process.platform === 'win32' && 'POSIX shells' }, () => {
   const mark = path.join(box.root, '.start-x');
-  assert.equal(shellLine('/w', ['/n', 'a b'], { mark }), `${CLEAR}; cd /w && /n 'a b'; rm -f ${mark}`);
+  assert.equal(shellLine('/w', ['/n', 'a b'], { mark }), `${CLEAR}; cd /w && /n 'a b'; command rm -f ${mark}`);
   assert.equal(shellLine('/w', ['/n']), `${CLEAR}; cd /w && /n`, 'no mark, the same line as before');
   for (const [dir, argv] of [[box.root, ['true']], [box.root, ['false']], [path.join(box.root, 'gone'), ['true']], [box.root, [path.join(box.root, 'no-such-program')]]]) {
     fs.writeFileSync(mark, '');
     spawnSync('/bin/sh', ['-c', shellLine(dir, argv, { mark })], { stdio: 'ignore' });
     assert.equal(fs.existsSync(mark), false, `${dir} ${argv}`);
   }
+  // A shell whose rm is something else (a function that moves files to a trash): the program itself removes it.
+  fs.writeFileSync(mark, '');
+  spawnSync('bash', ['-c', `rm() { :; }; ${shellLine(box.root, ['true'], { mark })}`], { stdio: 'ignore' });
+  assert.equal(fs.existsSync(mark), false, 'not the shell\'s own rm');
 });
 
 test('the start\'s mark on Windows: the built-in terminal removes it when its command exits', async () => {
@@ -217,6 +336,10 @@ test('the dashboard\'s note of a start ends when the terminal is back at its she
   assert.deepEqual(out.map((o) => o.status), ['fulfilled', 'rejected']);
   assert.equal(out[1].reason.status, 409);
   assert.equal(respawns.length, 1, 'one restart of the terminal, one launcher');
+  // A request that read the same record but asks later (another page, after its own reads): late as well.
+  await new Promise((r) => setImmediate(r));
+  await assert.rejects(deck.move(terms[0], run, 'work'), (e) => e.status === 409);
+  assert.equal(respawns.length, 1);
   const note = deck.launchOf(ID);
   assert.equal(note.mark, respawns[0]);
   assert.equal(fs.existsSync(note.mark), true);
@@ -227,8 +350,8 @@ test('the dashboard\'s note of a start ends when the terminal is back at its she
   assert.equal(deck.launchEnded(note), true);
   await deck.list();
   assert.equal(deck.launchOf(ID), null, 'the next look ends it: no timer');
-  // A move asked for after the last one went through is a move again.
-  await deck.move(terms[0], run, 'backup');
+  // A move of the record the new launcher wrote is a move again.
+  await deck.move(terms[0], { ...run, runId: 'r2' }, 'backup');
   assert.equal(respawns.length, 2);
   deck.launchOf(ID, 'claude', { drop: true });
   assert.equal(fs.existsSync(respawns[1]), false, 'a note that ends takes its mark along');
@@ -238,5 +361,28 @@ test('the dashboard\'s note of a start ends when the terminal is back at its she
   assert.equal(fs.existsSync(deck.launchOf(ID).mark), true);
   deck.launchOf(ID, 'claude', { drop: true });
   assert.deepEqual(fs.readdirSync(path.join(box.state, 'runs')), [], 'no mark is left behind');
+  // A move that failed moved nothing: the same record may be moved again.
+  let broken = true;
+  backend.respawn = async (id, dir, argv, o) => {
+    respawns.push(o.mark);
+    if (broken) throw new Error('the terminal is gone');
+  };
+  await assert.rejects(deck.move(terms[0], { ...run, runId: 'r3' }, 'work'), /the terminal is gone/);
+  broken = false;
+  await deck.move(terms[0], { ...run, runId: 'r3' }, 'work');
+  deck.launchOf(ID, 'claude', { drop: true });
+  assert.deepEqual(fs.readdirSync(path.join(box.state, 'runs')), []);
+  clear();
+});
+
+test('the marks an earlier dashboard left behind go when a dashboard starts', () => {
+  clear();
+  const runs = path.join(box.state, 'runs');
+  fs.mkdirSync(runs, { recursive: true });
+  const hourAgo = new Date(Date.now() - 3_600_000);
+  for (const f of ['.start-old', '.start-new', 'other.json']) fs.writeFileSync(path.join(runs, f), '');
+  for (const f of ['.start-old', 'other.json']) fs.utimesSync(path.join(runs, f), hourAgo, hourAgo);
+  new Deck({ backend: { list: async () => [] }, config: () => ({}), profiles: () => [] });
+  assert.deepEqual(fs.readdirSync(runs).sort(), ['.start-new', 'other.json'], 'a recent mark stays; a record is not a mark');
   clear();
 });

@@ -1,10 +1,10 @@
 // The dashboard's model: sessions of the backend joined with the launcher's run records, plus the actions on
 // them (start, send, switch profile). The HTTP layer validates input and calls these.
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { moveArgs } from '../launch.mjs';
-import { binFile, runsDir, tilde } from '../paths.mjs';
+import { binFile, tilde } from '../paths.mjs';
+import { dropMark, newMark, sweepMarks } from './marks.mjs';
 import { assertServes, publicProfile, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { codexScreenQuestion } from '../codetools/codex.mjs';
@@ -114,19 +114,6 @@ export function queue() {
   };
 }
 
-/**
- * A start's mark (noteLaunch): an empty file the terminal removes when it is back at its own shell, with the launcher
- * ended or never started (backends: the line typed into the shell removes it after the launcher; on Windows the
- * built-in terminal removes it when its command exits). Kept with the run records; listRuns reads only *.json.
- */
-function newMark() {
-  fs.mkdirSync(runsDir(), { recursive: true, mode: 0o700 });
-  const file = path.join(runsDir(), `.start-${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}`);
-  fs.writeFileSync(file, '', { mode: 0o600 });
-  return file;
-}
-const dropMark = (file) => file && fs.rmSync(file, { force: true });
-
 // sessionTitle reads a file; remember results by file and mtime so polling stays cheap.
 const titleCache = new Map();
 function titleOf(cwd, id) {
@@ -165,7 +152,8 @@ export class Deck {
     this.launches = new Map(); // `${tool}:${conversation}` → { name, at, mark }: see noteLaunch
     // The conversation's own queue (handoff.mjs claim, move): one start, take-over or move at a time.
     this.serial = queue();
-    this.moves = new Map(); // terminal id → how many moves it had: a move asked for before the last one is late
+    this.movedFrom = new Map(); // terminal id → the run record it was last moved away from: a move of that record is late
+    sweepMarks();
   }
 
   /**
@@ -327,7 +315,7 @@ export class Deck {
       out.push(card);
     }
     for (const m of [this.idle, this.shown]) for (const k of m.keys()) if (!groups.has(k)) m.delete(k);
-    for (const k of this.moves.keys()) if (!terms.some((t) => t.id === k)) this.moves.delete(k);
+    for (const k of this.movedFrom.keys()) if (!terms.some((t) => t.id === k)) this.movedFrom.delete(k);
     return out.sort((a, b) => (b.statusAt || b.activity || 0) - (a.statusAt || a.activity || 0));
   }
 
@@ -407,19 +395,20 @@ export class Deck {
     // A conversation stays in the coding tool it was started in: only a provider that serves that tool takes it.
     if (!profile) assertServes(target, tool);
     const argv = this.moveArgv(target, run);
-    // One move at a time, in the conversation's own queue (with its starts and take-overs), on every kind of terminal:
-    // of two asked for at the same moment (two pages, a page and the watcher) the second finds the terminal moved
-    // already, and starts no second launcher.
-    const seen = this.moves.get(term.id) || 0;
+    // One move at a time, in the conversation's own queue (with its starts and take-overs), on every kind of terminal.
+    // `run` is the record the caller saw (two pages, a page and the watcher, however late each one asks): once the
+    // terminal was moved away from it, a move of it again is late (409), and starts no second launcher. A move of the
+    // record the new launcher wrote is a move again.
     return this.serial(`${tool}:${run.sessionId}`, async () => {
-      if ((this.moves.get(term.id) || 0) !== seen) throw Object.assign(new Error('This session has just moved to another provider. Look at it again before moving it.'), { status: 409 });
-      this.moves.set(term.id, seen + 1);
+      if (run.runId && this.movedFrom.get(term.id) === run.runId) throw Object.assign(new Error('This session has just moved to another provider. Look at it again before moving it.'), { status: 409 });
+      this.movedFrom.set(term.id, run.runId || null);
       const mark = newMark();
       this.noteLaunch(term.session, run.sessionId, tool, Date.now(), mark);
       try {
         await this.backend.respawn(term.id, run.cwd, argv, { mark });
       } catch (e) {
         if (this.launchOf(run.sessionId, tool)?.mark === mark) this.launchOf(run.sessionId, tool, { drop: true });
+        if (this.movedFrom.get(term.id) === (run.runId || null)) this.movedFrom.delete(term.id); // not moved: it may be asked again
         throw e;
       }
     });

@@ -44,7 +44,8 @@
 //   tmuxSocket the tmux server of its pane (from $TMUX), so another launcher can name that session
 //
 // A chat of the dashboard (src/chat) writes a record of the same kind while its coding tool's process runs on a
-// conversation: kind 'chat', its chat's id (chat), pid the dashboard's own, conversation and tool. It holds no terminal,
+// conversation: kind 'chat', its chat's id (chat), pid the dashboard's own, conversation and tool, and sessionId once
+// the process goes on in another conversation (a clear; OpenCode names a new chat's conversation itself). It holds no terminal,
 // so only the readers of "who runs this conversation" (heldBefore, the dashboard's claim) list it: listRuns({ chats }).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -106,7 +107,18 @@ export const runsConversation = (r, id, tool = 'claude') => (r.tool || 'claude')
  */
 export function heldBefore(mine, id, tool = 'claude') {
   const earlier = (r) => r.startedAt < mine.startedAt || (r.startedAt === mine.startedAt && r.runId < mine.runId);
-  return listRuns({ chats: true }).find((r) => r.runId !== mine.runId && r.status !== 'ended' && runsConversation(r, id, tool) && earlier(r)) || null;
+  return listRuns({ chats: true, usage: false }).find((r) => r.runId !== mine.runId && r.status !== 'ended' && runsConversation(r, id, tool) && earlier(r)) || null;
+}
+
+/**
+ * The records of chat `chat` of this dashboard but `keep`: left over, never counted. A chat starts its process only
+ * once the one before has ended (chat/run.mjs), so a record of its own that is still there belongs to no process; its
+ * pid is the dashboard's, so nothing else would ever remove it.
+ */
+export function removeChatLeftovers(chat, keep) {
+  for (const r of listRuns({ chats: true, usage: false })) {
+    if (r.kind === 'chat' && r.chat === chat && r.pid === process.pid && r.runId !== keep) removeRun(path.join(runsDir(), `${r.runId}.json`));
+  }
 }
 
 /** Where the launch's status line script saves Claude Code's status data (see statusScript in launch.mjs). */
@@ -192,9 +204,11 @@ const alive = (pid) => {
 
 /**
  * Every live run of a launcher. Files whose process is gone are deleted on the way. `chats`: the records of the
- * dashboard's chat processes too (they run a conversation, but in no terminal).
+ * dashboard's chat processes too (they run a conversation, but in no terminal). `usage`: each run's plan usage is read
+ * and kept for its provider (noteUsage); the readers of "who runs this conversation" need none of it, and leave the
+ * provider's store to the dashboard instead of writing it from every launcher and chat start.
  */
-export function listRuns({ chats = false } = {}) {
+export function listRuns({ chats = false, usage: withUsage = true } = {}) {
   let names;
   try {
     names = fs.readdirSync(runsDir());
@@ -216,7 +230,7 @@ export function listRuns({ chats = false } = {}) {
       if (chats) runs.push(run);
       continue;
     }
-    const usage = noteUsage(file, run.profile);
+    const usage = withUsage ? noteUsage(file, run.profile) : null;
     if (usage) run.usage = usage;
     runs.push(run);
   }
