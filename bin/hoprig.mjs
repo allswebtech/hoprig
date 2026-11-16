@@ -3,7 +3,8 @@
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { getAutoSwitch, limitedProfiles, setAutoSwitch } from '../src/autoswitch.mjs';
-import { hasSessionFlag, hookMain, launch } from '../src/launch.mjs';
+import { hookMain } from '../src/hook.mjs';
+import { hasSessionFlag, launch } from '../src/launch.mjs';
 import { routerMain } from '../src/router.mjs';
 import { profileUsage, routerAddress } from '../src/routerstate.mjs';
 import { addProfile, ago, askNext, chooseProfile, clock, menuProfiles, rememberLast } from '../src/menu.mjs';

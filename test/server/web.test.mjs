@@ -301,6 +301,10 @@ test('Home: groups by what the session needs, plain terminals last, and one plai
   assert.equal(groupOf({ kind: 'shell' }), 'terminals');
   const { stateOf, needsYouFirst } = await import('../../web/lib.js');
   assert.equal(stateOf({ kind: 'shell', status: 'waiting' }).text, 'Terminal');
+  // Subagents go on after the reply ended: it is in the Working group and says where the work is.
+  assert.equal(groupOf({ status: 'working', background: 2 }), 'working');
+  assert.deepEqual([stateOf({ status: 'working', background: 2 }).text, stateOf({ status: 'working' }).text], ['Working in the background', 'Working']);
+  assert.match(fs.readFileSync(path.join(WEB, 'sessionitem.js'), 'utf8'), /chip\(s, \{ text: st\.key !== heading \|\| Boolean\(s\.background\) \}\)/, 'the card says so under the Working heading too');
   assert.deepEqual([{ name: 't', kind: 'shell', activity: 9 }, { name: 'c', kind: 'claude', status: 'waiting', activity: 1 }].sort(needsYouFirst).map((s) => s.name), ['c', 't'], 'after the Claude sessions');
   const { markStarting } = await import('../../web/newsession.js');
   markStarting(null, 'fresh');
