@@ -136,6 +136,50 @@ test('a subagent\'s question outlives the main reply\'s end and a new turn; it g
   assert.deepEqual(seen.map((s) => s.split('|')[0]), ['working', 'attention', 'attention', 'attention', 'attention', 'working']);
 });
 
+test('a subagent the owner stopped while it asked: its question goes with the next reply\'s end, and later turns are plain', () => {
+  // As recorded on 2.1.325: the agent asks, the owner presses ctrl+x ctrl+k twice; no PostToolBatch and no
+  // SubagentStop come for it, only a turn that tells about it and that turn's Stop, which no longer lists it.
+  const { seen, run } = play([
+    e('UserPromptSubmit', { prompt: 'zz-agent' }),
+    e('Stop', { background_tasks: [{ id: SUB, type: 'subagent', status: 'running' }] }),
+    e('PermissionRequest', { ...bash, agent_id: SUB }),
+    e('UserPromptSubmit', { prompt: 'Background agent "a sub task" was stopped by the user.' }),
+    e('Stop', { background_tasks: [] }),
+    e('UserPromptSubmit', { prompt: 'hello there' }),
+    e('Stop', { background_tasks: [] }),
+  ]);
+  assert.deepEqual(seen, [
+    'working|', 'working|', 'attention|Claude needs your permission to use Bash', 'attention|Claude needs your permission to use Bash',
+    'waiting|', 'working|', 'waiting|',
+  ]);
+  assert.deepEqual([run.asks, run.background, run.attentionKind], [[], [], null]);
+  // The same when the agent asked before the main reply ended, and when Stop still lists it as stopped.
+  const early = play([e('UserPromptSubmit'), e('PermissionRequest', { ...bash, agent_id: SUB }), e('Stop', { background_tasks: [] })]);
+  assert.deepEqual(early.seen.at(-1), 'waiting|');
+  for (const status of ['killed', 'stopped', 'completed', 'failed']) {
+    const listed = play([e('PermissionRequest', { ...bash, agent_id: SUB }), e('Stop', { background_tasks: [{ id: SUB, type: 'subagent', status }] })]).run;
+    assert.deepEqual([listed.status, listed.asks, listed.background], ['waiting', [], []], status);
+  }
+  // Only the stopped one goes: another subagent that still runs keeps its question.
+  const two = play([
+    e('PermissionRequest', { ...bash, agent_id: SUB }),
+    e('PermissionRequest', { tool_name: 'Write', agent_id: 'other' }),
+    e('Stop', { background_tasks: [{ id: 'other', type: 'subagent', status: 'running' }] }),
+  ]).run;
+  assert.deepEqual([two.status, two.asks, two.note], ['attention', ['other'], 'Claude needs your permission to use Write']);
+  // A workflow's agents are not listed by id: while a workflow runs, a question from one of them stays.
+  const flow = play([e('PermissionRequest', { ...bash, agent_id: SUB }), e('Stop', { background_tasks: [{ id: 'w1', type: 'workflow', status: 'running' }] })]).run;
+  assert.deepEqual([flow.status, flow.asks, flow.background], ['attention', [SUB], ['w1']]);
+  assert.deepEqual(play([e('Stop', { background_tasks: [] })], flow).run.status, 'waiting', 'it goes when the workflow is over');
+  // A new prompt does not drop a subagent's question: after a Stop every question left belongs to an agent that
+  // Stop listed as running, and one asked since (the turn ended by Esc, so no Stop came) may still really wait.
+  // The next Stop's list decides.
+  const esc = play([e('UserPromptSubmit'), e('PermissionRequest', { ...bash, agent_id: SUB }), e('UserPromptSubmit', { prompt: 'next' })]);
+  assert.deepEqual(esc.seen.at(-1), 'attention|Claude needs your permission to use Bash');
+  assert.deepEqual(play([e('Stop', { background_tasks: [{ id: SUB, type: 'subagent', status: 'running' }] })], esc.run).run.asks, [SUB]);
+  assert.deepEqual(play([e('Stop', { background_tasks: [] })], esc.run).run.status, 'waiting');
+});
+
 test('compaction in the middle of a turn does not end it; a new or resumed session waits', () => {
   const { seen } = play([e('UserPromptSubmit'), e('SessionStart', { source: 'compact' }), e('PostToolBatch')]);
   assert.deepEqual(seen, ['working|', 'working|', 'working|']);
@@ -204,6 +248,20 @@ test('the hook writes the run file only when the event changes something, and ke
   assert.equal(fs.existsSync(watchFile(file)), false);
   assert.equal(applyHook(file, { hook_event_name: 'Stop' }), null, 'a run that is gone is left alone');
   assert.deepEqual([wantsToolNews({ status: 'working' }), wantsToolNews({ status: 'working', asks: ['x'] }), wantsToolNews({ status: 'waiting' }), wantsToolNews({ status: 'ended' }), wantsToolNews(null)], [false, true, true, false, false]);
+});
+
+test('after a stopped subagent\'s question the mark for tool news goes with the next plain turn', () => {
+  const { file } = R.createRun({ profile: 'sub', cwd: '/w' });
+  const ev = (hook_event_name, more = {}) => applyHook(file, { hook_event_name, session_id: ID, ...more }, 5000);
+  ev('UserPromptSubmit');
+  ev('Stop', { background_tasks: [{ id: SUB, type: 'subagent', status: 'running' }] });
+  ev('PermissionRequest', { ...bash, agent_id: SUB });
+  ev('UserPromptSubmit', { prompt: 'Background agent "a sub task" was stopped by the user.' });
+  ev('Stop', { background_tasks: [] });
+  assert.deepEqual([readRun(file).status, readRun(file).note, readRun(file).asks], ['waiting', '', []]);
+  ev('UserPromptSubmit', { prompt: 'hello there' });
+  assert.deepEqual([readRun(file).status, fs.existsSync(watchFile(file))], ['working', false]);
+  R.removeRun(file);
 });
 
 test('a record written before these fields existed is read as it is', () => {

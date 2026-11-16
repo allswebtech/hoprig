@@ -12,7 +12,10 @@
 //                      Claude Code says after the owner answered: for a question at once, for an allowed tool
 //                      when that tool has finished, for a subagent's refused tool at once
 //   SubagentStop       a subagent ended
-//   Stop               the main reply ended. `background_tasks` lists what still runs in the background
+//   Stop               the main reply ended. `background_tasks` lists what still runs in the background. The
+//                      owner can stop background agents (ctrl+x ctrl+k), even one that is asking: then no
+//                      PostToolBatch or SubagentStop comes for it, only a turn ("…was stopped by the user") and its
+//                      Stop, which no longer lists it
 //   SessionStart       a session starts, resumes, or is cleared; `source: "compact"` is the middle of a turn when
 //                      Claude Code compacts by itself, so it says nothing about the status
 //   (nothing)          the owner answers "No" to the main agent's question or presses Esc: the turn ends and no
@@ -44,6 +47,12 @@ const REMINDS = new Set(['permission_prompt', 'worker_permission_prompt']);
 // Reasons to carry a session on elsewhere: the profile is out of quota or out of credit. Other failures (a
 // server error, a bad request) would fail the same way on any profile.
 const LIMIT_ERRORS = new Set(['rate_limit', 'billing_error']);
+
+// A background task that Stop lists but that is already over (finished, failed, stopped by the owner): it neither
+// wakes Claude nor can it still ask anything. Only these words count as over; a status this version does not
+// know counts as running, so that a real question is never dropped.
+const OVER = new Set(['completed', 'failed', 'killed', 'stopped', 'cancelled', 'canceled', 'error', 'done']);
+const running = (t) => Boolean(t) && typeof t === 'object' && !OVER.has(t.status);
 
 const oneLine = (s, max = 300) => String(s).replace(/\s+/g, ' ').trim().slice(0, max);
 const names = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x) : []);
@@ -90,9 +99,15 @@ export function hookPatch(run, ev, now = Date.now()) {
       Object.assign(patch, { limit: null, failure: null, background: [] });
       break;
     case 'Stop': {
-      const tasks = Array.isArray(ev.background_tasks) ? ev.background_tasks : [];
-      const background = tasks.filter((t) => t && WAKES.has(t.type) && typeof t.id === 'string').map((t) => t.id.slice(0, 80)).slice(0, 50);
-      settle(without(MAIN, SOMEONE), background.length ? 'working' : 'waiting');
+      const tasks = (Array.isArray(ev.background_tasks) ? ev.background_tasks : []).filter(running);
+      const background = tasks.filter((t) => WAKES.has(t.type) && typeof t.id === 'string').map((t) => t.id.slice(0, 80)).slice(0, 50);
+      // The main reply is over, so its own question is gone; a subagent's question can only still wait while that
+      // subagent runs. One the owner stopped (ctrl+x ctrl+k while it asked) never sends PostToolBatch or
+      // SubagentStop, and without this its question would hold the session on "needs your OK" for good. A
+      // workflow's agents are not listed by id, so while a workflow runs their questions stay.
+      const workflow = tasks.some((t) => t.type === 'workflow');
+      const live = asks.filter((k) => k !== MAIN && k !== SOMEONE && (workflow || background.includes(k)));
+      settle(live, background.length ? 'working' : 'waiting');
       Object.assign(patch, { background, stopAt: now, failure: null });
       if (typeof ev.last_assistant_message === 'string') patch.lastMessage = oneLine(ev.last_assistant_message);
       break;
