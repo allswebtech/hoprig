@@ -258,10 +258,13 @@ test('her own OpenCode chat\'s OK is always the owner\'s, even a harmless comman
     m.feed({ type: 'session.tool.called', data: { sessionID: 'ses_tia', assistantMessageID: `msg_${n}`, id: `call${n}`, name: tool, input } });
     const [a] = m.feed({ type: 'permission.asked', data: { id: `per_${n}`, sessionID: 'ses_tia', action, resources: [], save: [], source: { type: 'tool', id: `call${n}` } } });
     assert.equal(a.owner, null, 'seen whole: not the owner\'s by the engine\'s own rule');
+    // Never "known" and nothing for her allow-list to read: the policy stops at "cannot judge" before the list is asked.
+    assert.deepEqual([a.known === true, a.judged], [false, undefined]);
     Object.assign(card, { status: 'attention', tool: 'opencode', cwd, note: askNote(a, cwd, 'OpenCode'), ask: { request: a.request, type: a.type, tool: a.tool, subject: a.subject, cut: a.subjectCut, owner: !!a.owner, known: a.known === true, canAlways: false } });
     return call('send_to_chat', { session: name, answer: 'allow' });
   };
-  // What she would answer at once in a chat of Claude Code (npm test, a note in the folder) is a card here.
+  // What she would answer at once in a chat of Claude Code (npm test is on her short list; reading a file in the
+  // folder too) is a card here, for the reason that she cannot judge it, not for one of the list's.
   assert.match((await judge('shell', { command: 'npm test', description: 'Run the tests' }, 'shell')).text, cannotJudge);
   assert.match((await judge('write', { path: `${cwd}/notes.txt`, content: 'x' }, 'edit')).text, cannotJudge);
   assert.match((await judge('read', { path: `${cwd}/README.md` }, 'read')).text, cannotJudge);
