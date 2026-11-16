@@ -1,14 +1,17 @@
 // Opening a chat: the one way the dashboard starts coding (New session, Workspace, a new project, a conversation
 // to continue). What is not chosen is left out, so the server uses what the last chat in that folder ran with
 // (src/chat/folders.mjs), else the provider recommended now and Settings → New-session defaults.
-import { api, at, link } from '../lib.js';
+import { api, at, cardTool, isClaudeCard, link, machine } from '../lib.js';
 import { store } from '../store.js';
 
 // The coding tools a chat can run on each computer (GET /api/chats/tools; an older computer: Claude Code only).
 const toolsOf = new Map();
 const CLAUDE_ONLY = [{ id: 'claude', name: 'Claude Code' }];
-/** [{ id, name }] of computer `m` (null: this one), asked once per page load. */
-export function chatTools(m = null) {
+/**
+ * [{ id, name }] of computer `m`, asked once per page load. Left out: the computer whose screen is open (as api()
+ * asks it); null: this one.
+ */
+export function chatTools(m = machine.current) {
   const key = m || '~';
   if (!toolsOf.has(key)) {
     toolsOf.set(key, api(at(m, '/api/chats/tools')).then((r) => (Array.isArray(r && r.tools) && r.tools.length ? r.tools : CLAUDE_ONLY), () => CLAUDE_ONLY).then((list) => {
@@ -20,7 +23,7 @@ export function chatTools(m = null) {
 }
 const known = new Map();
 /** The same, when it is known already (else Claude Code only, and it is asked for). */
-export function knownChatTools(m = null) {
+export function knownChatTools(m = machine.current) {
   const key = m || '~';
   if (!known.has(key)) chatTools(m);
   return known.get(key) || CLAUDE_ONLY;
@@ -34,6 +37,13 @@ export function offersChat(m, tool) {
   }
   return known.get(key).some((t) => t.id === tool);
 }
+
+/**
+ * Whether a terminal session (its card `s`, of computer `m`) offers "Open as chat": Claude Code's always; another
+ * tool's where that computer has a chat for it, and also while its list is not known yet (it is asked for now; the
+ * computer itself refuses a tool that is off), so the first look at a session never hides it.
+ */
+export const opensAsChat = (s, m) => isClaudeCard(s) || offersChat(m, cardTool(s)) !== false;
 
 /**
  * Open a chat in `dir` on computer `m` (null: this one) and go to it. o: { tool (the coding tool; left out: the one

@@ -33,6 +33,28 @@ function request(base, method, p, { body, headers = {} } = {}) {
   });
 }
 
+/** Read a server-sent event stream: { got: [{ event, data }], close() }. */
+function stream(base, p, headers) {
+  const got = [];
+  const req = http.get(new URL(p, base), { headers }, (r) => {
+    let buf = '';
+    r.setEncoding('utf8');
+    r.on('data', (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        const ev = /^event: (.+)$/m.exec(block);
+        const data = /^data: (.+)$/m.exec(block);
+        if (ev && data) got.push({ event: ev[1], data: JSON.parse(data[1]) });
+      }
+    });
+  });
+  req.on('error', () => {});
+  return { got, close: () => req.destroy() };
+}
+
 test('a chat of OpenCode: refused while off or missing; only a provider that serves it; the folder keeps its tool; schedules', { timeout: 60_000, skip: process.platform === 'win32' && 'POSIX paths' }, async (t) => {
   const box = sandbox('chattools');
   const proj = path.join(box.root, 'work', 'proj');
@@ -105,6 +127,15 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
     if (v.events.some((e) => e.kind === 'turn-end')) break;
     await new Promise((res) => setTimeout(res, 50));
   }
+  // A fresh page learns the coding tool with the events, before the first state: it draws them in OpenCode's words.
+  const fresh = stream(base, `/api/chats/${id}/stream`, { Cookie: cookie });
+  for (let i = 0; i < 100 && !fresh.got.some((e) => e.event === 'state'); i++) await new Promise((res) => setTimeout(res, 30));
+  fresh.close();
+  assert.equal(fresh.got[0].event, 'events');
+  assert.equal(fresh.got[0].data.reset, true);
+  assert.equal(fresh.got[0].data.engine.id, 'opencode');
+  assert.equal(fresh.got[0].data.engine.label, 'OpenCode');
+  assert.equal(fresh.got.find((e) => e.event === 'state').data.toolOff, null, 'on: nothing to say');
   const card = (await owner('GET', '/api/chats')).json.chats.find((c) => c.chatId === id);
   assert.equal(card.tool, 'opencode');
   assert.equal(card.sessionId, SESSION_ID);
@@ -158,8 +189,17 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   assert.equal(r.status, 409);
   assert.match(r.json.error, /OpenCode is off on this computer/);
   assert.equal((await owner('GET', `/api/chats/${open}/history`)).status, 409);
+  // A schedule's message to the open chat is refused the same way.
+  const chatOf = app.features.find((f) => f.name === 'chat');
+  await assert.rejects(chatOf.send(open, 'hello from a schedule'), (e) => e.status === 409 && /OpenCode is off on this computer/.test(e.message));
+  // The page is told why the chat runs nothing (in place of an empty chat that invites a message); what OpenCode's
+  // server still runs is shown.
+  v = (await owner('GET', `/api/chats/${open}`)).json;
+  assert.match(v.toolOff, /^OpenCode is off on this computer: turn it on under Settings → Coding tools/);
+  assert.ok(v.events.some((e) => e.kind === 'user'), 'read from the server that runs');
   const prompts = s.calls.filter((x) => x.path.endsWith('/prompt')).length;
   saveConfig({ codingTools: ['claude', 'opencode'] });
+  assert.equal((await owner('GET', `/api/chats/${open}`)).json.toolOff, null);
   assert.equal((await owner('GET', `/api/chats/${open}/history`)).status, 200);
   assert.equal(s.calls.filter((x) => x.path.endsWith('/prompt')).length, prompts, 'nothing was sent while it was off');
   assert.equal((await owner('POST', `/api/chats/${open}/close`, {})).status, 200);

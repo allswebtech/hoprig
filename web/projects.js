@@ -82,7 +82,7 @@ const startIn = (dir, { sessionId = null, prompt = null, tool = null } = {}) => 
 
 /** The earlier conversations of `dir` in every coding tool a chat can run here, newest first, each with its tool. */
 async function conversationsIn(dir) {
-  const tools = await chatTools(machine.current); // the open computer's tools, as its folders are
+  const tools = await chatTools(); // the open computer's tools, as its folders are
   const lists = await Promise.all(tools.map((t) => api(`/api/folders/sessions?${new URLSearchParams({ path: dir, ...(t.id !== 'claude' ? { tool: t.id } : {}) })}`)
     .then((r) => r.sessions.map((c) => ({ ...c, tool: t.id })), (e) => (t.id === 'claude' ? Promise.reject(e) : []))));
   return lists.flat().sort((a, b) => b.at - a.at);

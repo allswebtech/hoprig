@@ -302,7 +302,7 @@ async function scheduleForm(old, preset = null) {
   const [recent, proj, tools] = await Promise.all([
     api('/api/folders/recent').catch(() => ({ folders: [] })),
     api('/api/pcsetup/projects').catch(() => null), // an older computer, or no projects folder
-    chatTools(machine.current), // the coding tools a chat can run on the open computer (Claude Code alone on most)
+    chatTools(), // the coding tools a chat can run on the open computer (Claude Code alone on most)
   ]);
   const folders = [...new Set([
     ...recent.folders.map((f) => f.path),
