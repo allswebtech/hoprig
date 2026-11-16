@@ -63,6 +63,7 @@ function start(name, { port, hub = false, heapMb = 0, server = {}, extra = {} })
     HOPRIG_CONFIG_DIR: path.join(d, 'config'),
     HOPRIG_STATE_DIR: path.join(d, 'state'),
     CLAUDE_CONFIG_DIR: path.join(d, 'claude'),
+    HOPRIG_WORKSPACE_DIR: path.join(d, 'workspace'), // never the real workspace: a dashboard looks after its map
     HOPRIG_PASSWORD_FILE: path.join(d, 'pw.txt'),
     PORT: String(port),
     ...(hub ? { HOPRIG_HUB: '1' } : {}),

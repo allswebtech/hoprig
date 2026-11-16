@@ -46,10 +46,11 @@ const until = async (what, fn, ms = 20_000) => {
 /** A machine: its folders, its config written through the real modules (run in a child with its env). */
 async function machine(root, name, extraEnv = {}) {
   const dir = path.join(root, name);
-  const d = { config: path.join(dir, 'config'), state: path.join(dir, 'state'), profiles: path.join(dir, 'profiles'), claude: path.join(dir, 'claude'), work: path.join(dir, 'work') };
+  // A workspace of its own too: a dashboard looks after its workspace's map a second after it starts.
+  const d = { config: path.join(dir, 'config'), state: path.join(dir, 'state'), profiles: path.join(dir, 'profiles'), claude: path.join(dir, 'claude'), work: path.join(dir, 'work'), workspace: path.join(dir, 'workspace') };
   for (const x of Object.values(d)) fs.mkdirSync(x, { recursive: true });
   const port = await freePort();
-  const env = { ...process.env, HOPRIG_CONFIG_DIR: d.config, HOPRIG_STATE_DIR: d.state, HOPRIG_PROFILES_DIR: d.profiles, CLAUDE_CONFIG_DIR: d.claude, ...extraEnv };
+  const env = { ...process.env, HOPRIG_CONFIG_DIR: d.config, HOPRIG_STATE_DIR: d.state, HOPRIG_PROFILES_DIR: d.profiles, CLAUDE_CONFIG_DIR: d.claude, HOPRIG_WORKSPACE_DIR: d.workspace, ...extraEnv };
   const setup = `
     const { saveConfig } = await import(${JSON.stringify(path.join(REPO, 'src', 'config.mjs'))});
     const { writeProfile } = await import(${JSON.stringify(path.join(REPO, 'src', 'profiles.mjs'))});
@@ -101,7 +102,7 @@ test('two dashboards: pair, see, drive and revoke through the hub', { skip, time
   const b = await machine(root, 'b');
   // The hub's ssh is the fake one; its "remote user" runs B's hoprig, found only in the login shell.
   const ssh = fakeRemote(path.join(root, 'ssh'), {
-    script: `export HOPRIG_CONFIG_DIR='${b.config}' HOPRIG_STATE_DIR='${b.state}' HOPRIG_PROFILES_DIR='${b.profiles}' CLAUDE_CONFIG_DIR='${b.claude}'\nexec "${process.execPath}" "${BIN}" "$@"`,
+    script: `export HOPRIG_CONFIG_DIR='${b.config}' HOPRIG_STATE_DIR='${b.state}' HOPRIG_PROFILES_DIR='${b.profiles}' CLAUDE_CONFIG_DIR='${b.claude}' HOPRIG_WORKSPACE_DIR='${b.workspace}'\nexec "${process.execPath}" "${BIN}" "$@"`,
   });
   const a = await machine(root, 'a', { PATH: ssh.sshEnv.PATH, FAKE_SSH_LOG: ssh.log, FAKE_SSH_SHELL: ssh.sshEnv.FAKE_SSH_SHELL });
   t.after(() => {
@@ -190,7 +191,7 @@ test('a computer behind a router joins the hub by itself: driven from the hub, b
   const a = await machine(root, 'a');
   // B can SSH to A's machine (fake ssh; A's hoprig is found only in the login shell). A cannot reach B at all.
   const toA = fakeRemote(path.join(root, 'ssh-to-a'), {
-    script: `export HOPRIG_CONFIG_DIR='${a.config}' HOPRIG_STATE_DIR='${a.state}' HOPRIG_PROFILES_DIR='${a.profiles}' CLAUDE_CONFIG_DIR='${a.claude}'\nexec "${process.execPath}" "${BIN}" "$@"`,
+    script: `export HOPRIG_CONFIG_DIR='${a.config}' HOPRIG_STATE_DIR='${a.state}' HOPRIG_PROFILES_DIR='${a.profiles}' CLAUDE_CONFIG_DIR='${a.claude}' HOPRIG_WORKSPACE_DIR='${a.workspace}'\nexec "${process.execPath}" "${BIN}" "$@"`,
   });
   const b = await machine(root, 'b', { PATH: toA.sshEnv.PATH, FAKE_SSH_LOG: toA.log, FAKE_SSH_SHELL: toA.sshEnv.FAKE_SSH_SHELL });
   t.after(() => {

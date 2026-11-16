@@ -40,11 +40,12 @@ const until = async (what, fn, ms = 20_000) => {
 
 async function machine(root, name, setupMore = '', gwPort = 1) {
   const dir = path.join(root, name);
-  const d = { config: path.join(dir, 'config'), state: path.join(dir, 'state'), profiles: path.join(dir, 'profiles'), claude: path.join(dir, 'claude') };
+  // A workspace of its own too: a dashboard looks after its workspace's map a second after it starts.
+  const d = { config: path.join(dir, 'config'), state: path.join(dir, 'state'), profiles: path.join(dir, 'profiles'), claude: path.join(dir, 'claude'), workspace: path.join(dir, 'workspace') };
   for (const x of Object.values(d)) fs.mkdirSync(x, { recursive: true });
   const port = await freePort();
   // No `trouteai` on this PATH: the add-on must never start or ask the real one.
-  const env = { ...process.env, PATH: '/usr/bin:/bin', HOPRIG_CONFIG_DIR: d.config, HOPRIG_STATE_DIR: d.state, HOPRIG_PROFILES_DIR: d.profiles, CLAUDE_CONFIG_DIR: d.claude };
+  const env = { ...process.env, PATH: '/usr/bin:/bin', HOPRIG_CONFIG_DIR: d.config, HOPRIG_STATE_DIR: d.state, HOPRIG_PROFILES_DIR: d.profiles, CLAUDE_CONFIG_DIR: d.claude, HOPRIG_WORKSPACE_DIR: d.workspace };
   const setup = `
     const { saveConfig } = await import(${JSON.stringify(path.join(REPO, 'src', 'config.mjs'))});
     const { writeProfile } = await import(${JSON.stringify(path.join(REPO, 'src', 'profiles.mjs'))});

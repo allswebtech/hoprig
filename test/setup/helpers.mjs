@@ -12,6 +12,9 @@ export function scratch() {
     HOPRIG_CONFIG_DIR: path.join(tmp, 'config'),
     HOPRIG_STATE_DIR: path.join(tmp, 'state'),
     CLAUDE_CONFIG_DIR: path.join(tmp, 'claude'),
+    // A dashboard started from here looks after its workspace's map: never the real one (not made: tests see a
+    // computer whose workspace is not set up yet).
+    HOPRIG_WORKSPACE_DIR: path.join(tmp, 'workspace'),
   };
   fs.mkdirSync(env.HOME, { recursive: true });
   Object.assign(process.env, env);
