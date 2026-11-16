@@ -81,9 +81,10 @@ test('worktree entries of an existing map are dropped at the next update; a repo
   m.others.push({ dir: 'git/tool-old', url: urls.tool });
   M.writeMap(m, C.ws);
   const r = await M.updateMap({ dir: C.ws, projects: C.projects, manifests: false });
-  const dropped = ['app-wt', 'app/code/app-web-gone', 'app/code/app-web-wt', 'app/code/ext-wt', 'ext-wt', 'git/ext-wt', 'git/tool-wt'];
-  assert.deepEqual([...r.worktrees].sort(), dropped);
-  assert.deepEqual([...r.diff.removed].sort(), dropped);
+  const linked = ['app-wt', 'app/code/app-web-wt', 'app/code/ext-wt', 'ext-wt', 'git/ext-wt', 'git/tool-wt'];
+  assert.deepEqual([...r.worktrees].sort(), linked);
+  assert.deepEqual(r.twins, [{ label: 'app/code/app-web-gone', same: 'app/code/app-web' }], 'gone: not called a linked worktree');
+  assert.deepEqual([...r.diff.removed].sort(), [...linked, 'app/code/app-web-gone'].sort());
   assert.deepEqual(r.map.projects.find((p) => p.name === 'app').repos.map((x) => x.dir).sort(), ['code/app-api', 'code/app-web', 'code/lib']);
   assert.deepEqual(r.map.projects.map((p) => p.name).sort(), ['app', 'app-old-name', 'elsewhere', 'two']);
   assert.deepEqual(r.map.others.map((o) => o.dir).sort(), ['git/tool', 'git/tool-old']);
@@ -100,7 +101,7 @@ test('a worktree named in a project.json is left out after it was removed, and `
   M.writeMap(m, C.ws);
   const look = await M.updateMap({ dir: C.ws, projects: C.projects, manifests: false });
   assert.deepEqual(look.map.projects.find((p) => p.name === 'two').repos.map((x) => x.dir), ['code/two-web']);
-  assert.deepEqual(look.worktrees, ['two/code/two-web-wt']);
+  assert.deepEqual([look.worktrees, look.twins], [[], [{ label: 'two/code/two-web-wt', same: 'two/code/two-web' }]]);
   assert.ok(!look.notHere.includes('two/code/two-web-wt'), 'dropped, not kept as "not on this computer"');
   const manifest = () => JSON.parse(fs.readFileSync(path.join(two, 'project.json'), 'utf8')).repos.map((x) => x.dir);
   assert.deepEqual(manifest(), ['code/two-web', 'code/two-web-wt'], 'the upkeep leaves project.json alone');

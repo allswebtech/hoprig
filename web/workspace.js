@@ -351,7 +351,7 @@ function updateMapSheet(refresh) {
         list('A changed address', d.changed.map((c) => `${c.label}: ${c.from || 'none'} → ${c.to || 'none'}`)),
         // Only a present project's own project.json takes a code repository out; nothing else is ever removed.
         (r.takenOut || []).length ? list('Taken out by its project\'s project.json', r.takenOut.map((t) => `${t.project}: ${t.dir}`)) : null,
-        (r.worktrees || []).length ? list('Taken out: linked worktrees (second checkouts of a repository the map has)', r.worktrees) : null,
+        (r.worktrees || []).length || (r.twins || []).length ? list('Taken out: second checkouts of a repository the map has', [...(r.worktrees || []).map((l) => `${l} (a linked worktree)`), ...(r.twins || []).map((t) => `${t.label} (not here; ${t.same} has its address)`)]) : null,
         notHereLine(r),
         r.notes && r.notes.length ? h('ul.hint', r.notes.map((n) => h('li', n))) : null,
         h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'),

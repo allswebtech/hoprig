@@ -246,6 +246,7 @@ export async function scanWorkspace({ dir = workspaceDir(), projects = projectsI
   // Entries of the map whose folder here is a linked worktree (a second checkout of another repository, often a
   // session's temporary one): mergeMap drops them.
   const worktrees = new Set();
+  const twins = new Map(); // label → the label of the entry here with the same address (twinsIn)
   for (const p of previous.projects || []) {
     if (isLinkedWorktree(path.join(projects, p.name))) worktrees.add(p.name);
     for (const r of p.repos || []) if (isLinkedWorktree(path.join(projects, p.name, r.dir))) worktrees.add(`${p.name}/${r.dir}`);
@@ -260,23 +261,27 @@ export async function scanWorkspace({ dir = workspaceDir(), projects = projectsI
     const byDir = new Map();
     const listed = (manifest && manifest.repos) || [];
     const kids = (await discoverChildren(p.dir, run)).filter((c) => !c.dir.split('/').some(neverLook));
-    // A worktree an older map wrote into project.json is not one of its repositories: its folder here is a linked
-    // worktree, or its folder is gone while a repository of the project with the same address is here. It is left
-    // out (and `workspace map` takes it out of project.json, which a fresh computer would otherwise clone twice).
-    const isRepoHere = (r) => isGitRepo(path.join(p.dir, r.dir)) && !isLinkedWorktree(path.join(p.dir, r.dir));
-    const urlsHere = [...listed.filter(isRepoHere), ...kids].map((r) => r.url).filter(Boolean);
+    // A project lists each repository once (see twinsIn). An entry of its project.json or of the map that is not a
+    // checkout here while another listed entry with the same address is (a worktree an older map wrote, since
+    // removed) is left out, and `workspace map` takes it out of project.json, which a fresh computer would otherwise
+    // clone twice. A repository found here under a new name whose address an entry not here already has is not added.
+    const prevRepos = ((previous.projects || []).find((x) => x.name === p.name) || {}).repos || [];
+    const tw = twinsIn(p.dir, [...(source === MANIFEST ? listed : []), ...prevRepos], kids);
+    for (const t of tw.gone) twins.set(`${p.name}/${t.dir}`, `${p.name}/${t.same}`);
     const dropFromManifest = [];
     for (const r of listed) {
-      const abs = path.join(p.dir, r.dir);
-      if (isLinkedWorktree(abs) || (!fs.existsSync(abs) && r.url && urlsHere.some((u) => sameUrl(u, r.url)))) {
+      if (tw.notAdded.some((t) => t.dir === r.dir)) continue; // (without a project.json, `listed` is what was found)
+      if (isLinkedWorktree(path.join(p.dir, r.dir)) || tw.gone.some((t) => t.dir === r.dir)) {
         dropFromManifest.push(r.dir);
-        worktrees.add(`${p.name}/${r.dir}`);
+        if (isLinkedWorktree(path.join(p.dir, r.dir))) worktrees.add(`${p.name}/${r.dir}`);
         continue;
       }
       byDir.set(r.dir, { dir: r.dir, url: r.url, ...(r.branch ? { branch: r.branch } : {}) });
     }
+    for (const t of tw.notAdded) notes.push(`${p.name}/${t.dir}: the same repository as ${p.name}/${t.same}, which is listed and not on this computer; a project lists a repository once, so the map keeps ${t.same} (to use this name, list it so in the project's project.json)`);
     const missingFromManifest = [];
     for (const c of kids) {
+      if (tw.notAdded.some((t) => t.dir === c.dir)) continue;
       if (!byDir.has(c.dir)) {
         byDir.set(c.dir, { dir: c.dir, url: c.url });
         if (c.url && source === MANIFEST) missingFromManifest.push({ dir: c.dir, url: c.url });
@@ -298,7 +303,37 @@ export async function scanWorkspace({ dir = workspaceDir(), projects = projectsI
     map.others.push(withSync({ dir: r, url: o.url, ...(branch ? { branch } : {}) }, `other:${r}`, r.split('/')[0] === 'development' ? false : undefined));
   }
   const v = validateMap(map);
-  return { map: v.ok ? v.map : map, notes, manifests, sources, worktrees: [...worktrees] };
+  return { map: v.ok ? v.map : map, notes, manifests, sources, worktrees: [...worktrees], twins: [...twins].map(([label, same]) => ({ label, same })) };
+}
+
+/**
+ * A project lists each repository once. `listed`: the entries of its project.json and of the map ({ dir, url,
+ * branch? }); `kids`: the repositories found in its folder here. An entry that names its own `branch` is a second
+ * checkout someone asked for and is never matched by address. Of two plain entries with one address:
+ *   gone      an entry not here while a listed one with its address is here: a worktree an older map wrote and that
+ *             was removed since, or the same repository under another name on another computer. Left out.
+ *   notAdded  a repository here under a name nothing lists, while a listed entry not here has its address. Not added.
+ * Together they settle on the listed name on every computer: were each computer to keep its own name, each upkeep
+ * would undo the other's map. A person who wants the other name changes it in project.json.
+ * → { gone: [{ dir, same }], notAdded: [{ dir, same }] }
+ */
+export function twinsIn(root, listed, kids) {
+  const plain = (r) => r && r.url && !r.branch;
+  const here = (r) => isGitRepo(path.join(root, r.dir)) && !isLinkedWorktree(path.join(root, r.dir));
+  const absent = (r) => !fs.existsSync(path.join(root, r.dir));
+  const gone = [];
+  for (const r of listed) {
+    if (!plain(r) || !absent(r) || gone.some((g) => g.dir === r.dir)) continue;
+    const twin = listed.find((k) => k.dir !== r.dir && plain(k) && sameUrl(k.url, r.url) && here(k));
+    if (twin) gone.push({ dir: r.dir, same: twin.dir });
+  }
+  const notAdded = [];
+  for (const c of kids) {
+    if (!plain(c) || listed.some((r) => r.dir === c.dir)) continue;
+    const twin = listed.find((r) => plain(r) && sameUrl(r.url, c.url) && absent(r) && !gone.some((g) => g.dir === r.dir));
+    if (twin) notAdded.push({ dir: c.dir, same: twin.dir });
+  }
+  return { gone, notAdded };
 }
 
 /** Entries that are tools (sync false): labels, as `status` and `sync` show them. */
@@ -358,27 +393,28 @@ export function diffMap(before, after) {
  * (and its folder is not here either), that repository is taken out of the project. A brain without a remote here
  * and a projects folder this map cannot describe never blank what the map says.
  *
- * A second exception: a linked worktree (`git worktree add`) is never a repository of the map, so an entry that is
- * one is dropped here, not kept as "not on this computer". It is a second checkout of a repository the map already
- * has (sessions make them for a while and remove them), and restoring it elsewhere would clone that repository
- * twice. It is one when its folder here is a linked worktree (scan.worktrees), or, for a code repository of a project
- * that is here, when its folder is not here and another code repository of that project with the same address is
- * (the worktree is gone, its repository stayed). Projects and other repositories are never dropped by address: one
- * repository may sit under different names on two computers (an older layout), and each computer's upkeep would
- * then keep undoing the other's map.
- * → { map, notHere: [label], takenOut: [{ project, dir }], worktrees: [label] }
+ * A second exception: a linked worktree (`git worktree add`) is never a repository of the map, so an entry whose
+ * folder here is one (scan.worktrees) is dropped, not kept as "not on this computer". It is a second checkout of a
+ * repository the map already has (sessions make them for a while and remove them), and restoring it elsewhere would
+ * clone that repository twice. A third: a project lists each repository once (twinsIn), so a code repository that
+ * is not here while another listed one of that project with the same address is (scan.twins: a worktree that was
+ * removed since, or that repository under another name on another computer) is dropped as well. Projects and other
+ * repositories are never dropped by address.
+ * → { map, notHere: [label], takenOut: [{ project, dir }], worktrees: [label], twins: [{ label, same }] }
  */
 export function mergeMap(cur, scan) {
   const disk = scan.map;
   const out = JSON.parse(JSON.stringify(disk));
-  if (!cur) return { map: out, notHere: [], takenOut: [], worktrees: [] };
+  if (!cur) return { map: out, notHere: [], takenOut: [], worktrees: [], twins: [] };
   const notHere = [];
   const takenOut = [];
   const worktrees = [];
+  const twins = [];
   const wt = new Set(scan.worktrees || []);
-  // `hereList`: only for a code repository of a project that is here, its other repositories (see above).
-  const copyOf = (old, label, hereList = []) => {
-    if (wt.has(label) || (old.url && hereList.some((x) => sameUrl(x.url, old.url)))) return worktrees.push(label), true;
+  const tw = new Map((scan.twins || []).map((t) => [t.label, t.same]));
+  const dropped = (label) => {
+    if (wt.has(label)) return worktrees.push(label), true;
+    if (tw.has(label)) return twins.push({ label, same: tw.get(label) }), true;
     return false;
   };
   const skip = new Set(cur.skip || []);
@@ -388,7 +424,7 @@ export function mergeMap(cur, scan) {
     if (skip.has(old.name)) continue;
     const here = out.projects.find((p) => p.name === old.name);
     if (!here) {
-      if (copyOf(old, old.name)) continue;
+      if (dropped(old.name)) continue;
       out.projects.push(JSON.parse(JSON.stringify(old)));
       notHere.push(old.name, ...old.repos.map((r) => `${old.name}/${r.dir}`));
       continue;
@@ -397,7 +433,7 @@ export function mergeMap(cur, scan) {
     if (!here.memories && old.memories) here.memories = { ...old.memories };
     for (const r of old.repos) {
       if (here.repos.some((x) => x.dir === r.dir)) continue;
-      if (copyOf(r, `${old.name}/${r.dir}`, disk.projects.find((p) => p.name === old.name).repos)) continue;
+      if (dropped(`${old.name}/${r.dir}`)) continue;
       if (scan.sources && scan.sources[old.name] === MANIFEST) takenOut.push({ project: old.name, dir: r.dir });
       else {
         here.repos.push(JSON.parse(JSON.stringify(r)));
@@ -409,20 +445,20 @@ export function mergeMap(cur, scan) {
     if (skip.has(old.dir)) continue;
     const here = out.others.find((o) => o.dir === old.dir);
     if (!here) {
-      if (copyOf(old, old.dir)) continue;
+      if (dropped(old.dir)) continue;
       out.others.push(JSON.parse(JSON.stringify(old)));
       notHere.push(old.dir);
     } else if (!here.url && old.url) here.url = old.url;
   }
   if (cur.skip && cur.skip.length) out.skip = [...cur.skip];
-  return { map: out, notHere, takenOut, worktrees };
+  return { map: out, notHere, takenOut, worktrees, twins };
 }
 
 /**
  * `workspace map`: add or update what is on this computer, keep everything else (mergeMap), show the difference,
  * write it (unless dryRun), and add code repositories found on disk to a project.json that lacks them (that file
  * stays the truth for its project). Never commits.
- * → { file, dryRun, diff, map, notHere, takenOut, worktrees, notes, tools, otherChanges, manifests, commit }
+ * → { file, dryRun, diff, map, notHere, takenOut, worktrees, twins, notes, tools, otherChanges, manifests, commit }
  */
 export async function updateMap({ dir = workspaceDir(), projects = projectsIn(), dryRun = false, run = capture, manifests: touchManifests = true } = {}) {
   const cur = readMap(dir);
@@ -449,6 +485,7 @@ export async function updateMap({ dir = workspaceDir(), projects = projectsIn(),
     notHere: merged.notHere,
     takenOut: merged.takenOut,
     worktrees: merged.worktrees,
+    twins: merged.twins,
     notes: scan.notes,
     tools: toolsOf(next),
     // Besides addresses: the projects folder, memory links, which entries are tools (shown as one line).

@@ -20,6 +20,7 @@ export function changeLines(r) {
     ...r.diff.changed.map((c) => `${c.label} has a new address in the map`),
     ...r.takenOut.map((t) => `${t.dir} was taken out of ${t.project} by its project.json`),
     ...(r.worktrees || []).map((l) => `${l} was taken out of the map: a linked worktree, not a repository of its own`),
+    ...(r.twins || []).map((t) => `${t.label} was taken out of the map: not on this computer, and ${t.same} here is the same repository`),
     ...(r.otherChanges ? ['The map\'s projects folder, memory links or tools changed'] : []),
   ];
 }
