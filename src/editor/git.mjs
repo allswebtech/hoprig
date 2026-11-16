@@ -251,7 +251,8 @@ export async function commit(rootArg, message, amend, roots) {
   const rp = await needRepo(rootArg, roots);
   // A commit takes the whole index. Source Control shows only what is staged in the opened folder, outside private
   // folders and packages: when the index holds more than that, nothing is committed (the owner would not see it).
-  const names = async (args) => new Set((await must(await git(['diff', '--cached', '--name-only', '-z', ...args], { cwd: rp.root }), 'git diff')).out.toString('utf8').split('\0').filter(Boolean));
+  // --no-renames: a staged rename is its two sides, so a source outside the folder (or in a private one) counts too.
+  const names = async (args) => new Set((await must(await git(['diff', '--cached', '--no-renames', '--name-only', '-z', ...args], { cwd: rp.root }), 'git diff')).out.toString('utf8').split('\0').filter(Boolean));
   const all = await names([]);
   const shown = await names(['--', '.', ...PRIVATE_EXCLUDES]);
   const hidden = [...all].filter((p) => !shown.has(p));

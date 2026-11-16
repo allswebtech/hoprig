@@ -46,10 +46,14 @@ put(path.join(box.claude, '.credentials.json'), '{"token":"fake-sign-in-123"}\n'
 put(path.join(box.claude, 'CLAUDE.md'), 'my rules\n');
 put(path.join(claudeP, '.credentials.json'), '{"token":"fake-sign-in-456"}\n');
 put(path.join(box.profiles, 'work.env'), `ANTHROPIC_API_KEY=fake-sign-in-789\nCLAUDE_CONFIG_DIR=${claudeP}\n`);
+// Claude Code's default sign-in in ~/.claude, while CLAUDE_CONFIG_DIR (set by the sandbox) names another folder.
+process.env.HOME = box.home;
+put(path.join(box.home, '.claude', '.credentials.json'), '{"token":"fake-sign-in-000"}\n');
 
 test('a file with a sign-in is never read, listed, found, changed or a folder to open', async () => {
   const c = path.relative(top, box.claude);
-  for (const [root, rel] of [[top, `${c}/.credentials.json`], [box.claude, '.credentials.json'], [top, 'claude-p/.credentials.json'], [top, `${path.relative(top, box.profiles)}/work.env`]]) {
+  const h = path.relative(top, box.home);
+  for (const [root, rel] of [[top, `${c}/.credentials.json`], [box.claude, '.credentials.json'], [top, `${h}/.claude/.credentials.json`], [box.home, '.claude/.credentials.json'], [top, 'claude-p/.credentials.json'], [top, `${path.relative(top, box.profiles)}/work.env`]]) {
     await refused(() => readFile(root, rel, roots), 403);
     await refused(() => writeFile(root, rel, 'x', '0123456789abcdef', roots), 403);
   }
@@ -199,4 +203,35 @@ test('stage, unstage and discard take files, not folders (a folder would take in
   await stage(repo, ['docs/x.md'], roots);
   assert.equal(git(repo, 'diff', '--cached', '--name-only').trim(), 'docs/x.md');
   await refused(() => diffSides(repo, 'docs/no-ai/more.md', false, roots), 403);
+});
+
+test('a staged rename counts by both its names: a source outside the folder or in a private one stops the commit', async () => {
+  const repo = path.join(top, 'renames');
+  fs.mkdirSync(repo);
+  git(repo, 'init', '-q', '-b', 'main');
+  put(path.join(repo, 'outside', 'x.txt'), 'moved from outside\n');
+  put(path.join(repo, 'docs', 'no-ai', 'n.md'), 'mine\n');
+  put(path.join(repo, 'sub', 'keep.txt'));
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-qm', 'first');
+  // (a) Opened on sub/: only "x.txt" is shown, but the commit would also delete outside/x.txt.
+  git(repo, 'mv', 'outside/x.txt', 'sub/x.txt');
+  let e = await refused(() => commit(path.join(repo, 'sub'), 'move in', undefined, roots), 409);
+  assert.equal(status(e).code, 'staged-elsewhere');
+  assert.match(e.message, /1 staged file is not shown here/);
+  git(repo, 'reset', '-q');
+  git(repo, 'checkout', '-q', '--', '.');
+  fs.rmSync(path.join(repo, 'sub', 'x.txt'));
+  // (b) Opened on the top: "moved.md" is shown, but its source is in a private folder.
+  git(repo, 'mv', 'docs/no-ai/n.md', 'moved.md');
+  e = await refused(() => commit(repo, 'move out', undefined, roots), 409);
+  assert.equal(status(e).code, 'staged-elsewhere');
+  assert.match(e.message, /private folder/);
+  // (c) A plain removal from the private folder is refused the same way.
+  git(repo, 'reset', '-q');
+  fs.rmSync(path.join(repo, 'moved.md'));
+  git(repo, 'rm', '-q', '--cached', 'docs/no-ai/n.md');
+  e = await refused(() => commit(repo, 'remove', undefined, roots), 409);
+  assert.match(e.message, /private folder/);
+  assert.equal(git(repo, 'rev-list', '--count', 'HEAD').trim(), '1', 'nothing was committed');
 });

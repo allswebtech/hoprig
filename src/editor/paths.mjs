@@ -76,7 +76,9 @@ let secretCache = { at: 0, list: [] };
  */
 export function secretPaths() {
   if (Date.now() - secretCache.at < 5000) return secretCache.list;
-  const claude = new Set([claudeDir()]);
+  // ~/.claude as well as claudeDir(): with CLAUDE_CONFIG_DIR set, claudeDir() is that folder, yet Claude Code's
+  // default sign-in in ~/.claude is still on the disk.
+  const claude = new Set([claudeDir(), path.join(os.homedir(), '.claude')]);
   try {
     for (const p of listProfiles()) if (p.env && typeof p.env.CLAUDE_CONFIG_DIR === 'string' && path.isAbsolute(p.env.CLAUDE_CONFIG_DIR)) claude.add(p.env.CLAUDE_CONFIG_DIR);
   } catch {
