@@ -378,7 +378,7 @@ export function chatFeature(ctx, o = {}) {
     }],
   ];
 
-  const live = liveRoutes(ctx, { chatOr404, save, bad, models });
+  const live = liveRoutes(ctx, { chatOr404, save, bad, models, folderOf: (c) => uploadsOf(c).cwd });
   routes.push(...live.routes);
 
   return {

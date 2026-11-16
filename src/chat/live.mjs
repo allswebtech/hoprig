@@ -33,8 +33,8 @@ export function stateOf(c) {
   };
 }
 
-/** o: { chatOr404, save, bad, models() } from feature.mjs */
-export function liveRoutes(ctx, { chatOr404, save, bad, models }) {
+/** o: { chatOr404, save, bad, models(), folderOf(chat) (its folder while inside the allowed roots) } from feature.mjs */
+export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf }) {
   const { HttpError } = ctx;
   const pick = (val, list, what) => {
     if (val === undefined) return undefined;
@@ -164,7 +164,7 @@ export function liveRoutes(ctx, { chatOr404, save, bad, models }) {
     ['GET', new RegExp(`^/api/chats/${ID}/files$`), async (req, m, q) => {
       const c = chatOr404(m[1]);
       const query = String(q.get('q') || '').slice(0, 200);
-      return { files: await searchFiles(c.cwd, query) };
+      return { files: await searchFiles(folderOf(c), query) };
     }],
     ['GET', new RegExp(`^/api/chats/${ID}/commands$`), async (req, m) => {
       const c = chatOr404(m[1]);
