@@ -71,6 +71,7 @@ export function fakeCtx({ deck, automation = {}, persistent = false, now, stateD
     // The workspace rule's engines: never the real ones, which look at the real workspace.
     workspaceSync: async () => ({ repos: [], tools: [] }),
     workspaceMap: async () => ({ lines: [], needs: [] }),
+    brainRemote: () => null, // the AI brain's address: never the real brain's
     ...rest,
   };
   return { ctx, notes, lines, config: () => cfg };

@@ -416,10 +416,12 @@ function peerPanel() {
 function autoPanel() {
   const box = h('div', busyLine('…'));
   let w = null;
+  let why = null; // "save a change of the map" never chosen: { on, github } from the brain's address
   const save = async (patch) => {
     try {
       await api('/api/automation/settings', { workspace: patch });
       Object.assign(w, patch);
+      if ('commitMap' in patch) why = null;
       return true;
     } catch (e) {
       toast(`${e.message}. Nothing was changed.`, { kind: 'error', ms: 6000 });
@@ -429,7 +431,7 @@ function autoPanel() {
   const paint = () => {
     const hours = h('input.field', { type: 'number', min: 1, max: 168, value: String(w.everyHours || 6), style: { maxWidth: '110px' } });
     const commit = toggle('Save a change of the map in the AI brain\'s history', !!w.commitMap, (v) => save({ commitMap: v }),
-      w.map ? 'Commits that one file, workspace.json, when the map changed; nothing else in the brain.' : 'Needs the map kept up to date (above).');
+      !w.map ? 'Needs the map kept up to date (above).' : why ? commitMapWhy(why) : 'Commits that one file, workspace.json, when the map changed; nothing else in the brain.');
     commit.querySelector('input').disabled = !w.map;
     commit.classList.toggle('is-off', !w.map);
     fill(box,
@@ -448,10 +450,16 @@ function autoPanel() {
   };
   api('/api/automation').then((st) => {
     w = { map: true, commitMap: false, sync: false, push: false, everyHours: 6, ...((st.settings && st.settings.workspace) || {}) };
+    why = st.commitMap && st.commitMap.chosen === false ? st.commitMap : null;
     paint();
   }, (e) => fill(box, errorBox(e.message)));
   return panel({ icon: 'clock', title: 'By itself', desc: 'What the computer does with the workspace on its own.' }, box);
 }
+
+/** Why "save a change of the map" is on or off when the owner never chose: the brain's git server address. */
+export const commitMapWhy = (c) => (c.on
+  ? `On: the AI brain has a ${c.github ? 'GitHub' : 'git server'} address. It commits only workspace.json when the map changed.`
+  : 'Off: the AI brain has no git server address yet. Turn it on to commit workspace.json when the map changed.');
 
 /** Where the workspace and the projects folder are; changing it moves nothing. */
 function placesPanel(st, refresh) {

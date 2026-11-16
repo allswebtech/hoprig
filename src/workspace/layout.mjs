@@ -94,6 +94,38 @@ const kindOf = (p) => {
 /** A git repository: a .git folder (or a .git file, as a worktree or submodule has). */
 export const isGitRepo = (d) => fs.existsSync(path.join(d, '.git'));
 
+/**
+ * The address of a repository's first remote, read from its git config (no git process: this is read on every
+ * automation round), or null. It may hold a token: it never leaves the server.
+ */
+export function remoteOf(repo) {
+  try {
+    let gitDir = path.join(repo, '.git');
+    if (fs.statSync(gitDir).isFile()) {
+      const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(gitDir, 'utf8'));
+      if (!m) return null;
+      gitDir = path.resolve(repo, m[1].trim());
+      try {
+        gitDir = path.resolve(gitDir, fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim()); // a worktree
+      } catch {
+        /* a submodule, or a plain .git file */
+      }
+    }
+    let inRemote = false;
+    for (const line of fs.readFileSync(path.join(gitDir, 'config'), 'utf8').split(/\r?\n/)) {
+      const t = line.trim();
+      if (t.startsWith('[')) inRemote = /^\[remote\s+"[^"]*"\]$/.test(t);
+      else if (inRemote) {
+        const m = /^url\s*=\s*(\S.*)$/.exec(t);
+        if (m) return m[1].trim();
+      }
+    }
+  } catch {
+    /* not a repository, or unreadable */
+  }
+  return null;
+}
+
 /** Project folders in `dir`: no dot-folders, never a private one. [{ name, dir, git, parent }] */
 export function listProjects(dir) {
   let names = [];

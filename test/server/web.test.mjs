@@ -472,6 +472,13 @@ test('limit card: the main button is the first free provider of the order, never
   assert.deepEqual(onlyPaid, [[false, 'Continue on Claude API (paid per use)']]);
 });
 
+test('Settings → Workspace says why saving the map is on or off when the owner never chose', async () => {
+  const { commitMapWhy } = await import('../../web/workspace.js');
+  assert.match(commitMapWhy({ on: true, github: true }), /^On: the AI brain has a GitHub address\./);
+  assert.match(commitMapWhy({ on: true, github: false }), /^On: the AI brain has a git server address\./);
+  assert.match(commitMapWhy({ on: false }), /^Off: the AI brain has no git server address yet\./);
+});
+
 // ---------- several computers, a hub, providers that sign in ----------
 test('a computer runs sessions only when online, not a hub, with Claude Code and a provider; the reason otherwise', async () => {
   const { runsSessions } = await import('../../web/store.js');
