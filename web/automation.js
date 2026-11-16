@@ -41,17 +41,20 @@ export function whenText(w) {
   return `Once, ${date} at ${w.time}`;
 }
 
-/** "start a session in api-server on Auto mode" / "send a message to data-pipeline". `accountLabel(name)` gives the display name. */
-export function whatText(a, accountLabel = (n) => n) {
+/**
+ * "start a chat in api-server on Auto mode" / "send a message to data-pipeline". `accountLabel(name)` gives a
+ * provider's display name, `sessionLabel(name)` a session's (a chat is "chat:<id>": its title).
+ */
+export function whatText(a, accountLabel = (n) => n, sessionLabel = (n) => (n.startsWith('chat:') ? 'a chat' : n)) {
   if (a.type === 'start') {
     const where = folderName(a.dir);
-    return `start a session${where ? ` in ${where}` : ''}${a.profile ? ` on ${accountLabel(a.profile)}` : ''}`;
+    return `start ${a.in === 'chat' ? 'a chat' : 'a session'}${where ? ` in ${where}` : ''}${a.profile ? ` on ${accountLabel(a.profile)}` : ''}`;
   }
-  return `send a message to ${a.session || 'a session'}`;
+  return `send a message to ${a.session ? sessionLabel(a.session) : 'a session'}`;
 }
 
 /** The whole schedule as one sentence: "Every day at 08:30, start a session in api-server on Auto mode." */
-export const scheduleSentence = (s, accountLabel) => `${whenText(s.when)}, ${whatText(s.action, accountLabel)}.`;
+export const scheduleSentence = (s, accountLabel, sessionLabel) => `${whenText(s.when)}, ${whatText(s.action, accountLabel, sessionLabel)}.`;
 
 const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a restart', retry: 'Try again', updates: 'Updates', idle: 'Housekeeping', hub: 'Another dashboard' };
 
@@ -242,7 +245,7 @@ function schedulesPart(st, { reload, addSchedule }) {
     offBanner,
     groupHead('Schedules', st.schedules.length),
     h('div.rows', list),
-    h('p.hint.au-foot', 'Times are this computer\'s clock. A message waits in the session\'s queue, so it never interrupts Claude. A run missed while the computer was off still runs if it is less than 2 hours late.'),
+    h('p.hint.au-foot', 'Times are this computer\'s clock. A message waits in the session\'s queue (a chat queues it itself), so it never interrupts Claude. A run missed while the computer was off still runs if it is less than 2 hours late.'),
   ];
 }
 
@@ -300,7 +303,11 @@ async function scheduleForm(old, preset = null) {
   ])];
   const accounts = (d.profiles || []).map((p) => [p.name, p.virtual ? 'Auto mode (the next provider at a limit)' : p.label]);
   const firstAccount = d.recommended || (accounts[0] || [''])[0];
-  const claudeSessions = (d.sessions || []).filter(isCodingCard).map((x) => x.name);
+  // Where a message can go: the coding sessions in a terminal and the open chats (by their title).
+  const targets = (d.sessions || []).filter((x) => isCodingCard(x) || x.kind === 'chat')
+    .map((x) => [x.name, x.kind === 'chat' ? `Chat: ${x.title || x.display || 'New chat'}` : x.name]);
+  const claudeSessions = targets.map(([n]) => n);
+  const sessionLabel = (n) => (targets.find(([x]) => x === n) || [null, n.startsWith('chat:') ? 'a chat' : n])[1].replace(/^Chat: (.*)$/, 'the chat "$1"');
   const tomorrow = ymd(new Date(Date.now() + 86_400_000));
   const s = old
     ? JSON.parse(JSON.stringify({ label: old.label || '', when: old.when, action: old.action, enabled: old.enabled }))
@@ -308,12 +315,12 @@ async function scheduleForm(old, preset = null) {
       label: (preset && preset.label) || '',
       enabled: true,
       when: (preset && preset.when) || { kind: 'daily', time: '09:00' },
-      action: { type: 'start', dir: folders[0] || '', profile: firstAccount, prompt: (preset && preset.prompt) || '' },
+      action: { type: 'start', in: 'chat', dir: folders[0] || '', profile: firstAccount, prompt: (preset && preset.prompt) || '' },
     };
   return openSheet({ title: old ? 'Change schedule' : 'New schedule', subtitle: 'Read the sentence: that is what will happen.', wide: true }, (close) => {
     const err = h('p.form-error', { role: 'alert' });
     const sentence = h('p.au-sentence', { 'aria-live': 'polite' });
-    const paintSentence = () => (sentence.textContent = scheduleSentence(s, accountLabel));
+    const paintSentence = () => (sentence.textContent = scheduleSentence(s, accountLabel, sessionLabel));
     const whenBox = h('div.au-form-part');
     const whatBox = h('div.au-form-part');
     const seg = (label, options, cur, pick) => h('div.segmented', { role: 'radiogroup', 'aria-label': label },
@@ -353,12 +360,19 @@ async function scheduleForm(old, preset = null) {
       const a = s.action;
       fill(whatBox,
         seg('What it does', [['start', 'Start a session'], ['send', 'Send a message']], a.type, (t) => {
-          s.action = t === 'start' ? { type: 'start', dir: folders[0] || '', profile: firstAccount, prompt: '' } : { type: 'send', session: claudeSessions[0] || '', text: '' };
+          s.action = t === 'start' ? { type: 'start', in: 'chat', dir: folders[0] || '', profile: firstAccount, prompt: '' } : { type: 'send', session: claudeSessions[0] || '', text: '' };
           paintWhat();
           paintSentence();
         }),
         a.type === 'start'
           ? [
+            h('div.field-label', 'Open in'),
+            seg('Open in', [['chat', 'A chat'], ['terminal', 'A terminal']], a.in === 'chat' ? 'chat' : 'terminal', (v) => {
+              if (v === 'chat') a.in = 'chat';
+              else delete a.in;
+              paintWhat();
+              paintSentence();
+            }),
             folderPick(a),
             h('label.fieldrow', h('span.field-label', 'On the provider'),
               h('select.field', { onchange: (e) => (a.profile = e.target.value) }, accounts.map(([v, t]) => h('option', { value: v, selected: v === a.profile }, t)))),
@@ -368,9 +382,9 @@ async function scheduleForm(old, preset = null) {
           : [
             claudeSessions.length || a.session
               ? h('label.fieldrow', h('span.field-label', 'To the session'),
-                h('select.field', { onchange: (e) => (a.session = e.target.value) },
-                  [...new Set([a.session, ...claudeSessions].filter(Boolean))].map((n) => h('option', { value: n, selected: n === a.session }, n))))
-              : h('p.hint', 'No Claude session is open on this computer. Start one first, or pick "Start a session".'),
+                h('select.field', { onchange: (e) => { a.session = e.target.value; paintSentence(); } },
+                  [...new Set([a.session, ...claudeSessions].filter(Boolean))].map((n) => h('option', { value: n, selected: n === a.session }, (targets.find(([x]) => x === n) || [n, n])[1]))))
+              : h('p.hint', 'No chat or Claude session is open on this computer. Start one first, or pick "Start a session".'),
             h('label.fieldrow', h('span.field-label', 'Message'),
               h('textarea.field', { rows: 2, value: a.text || '', required: true, placeholder: 'run the tests and fix what fails', oninput: (e) => (a.text = e.target.value) })),
           ]);

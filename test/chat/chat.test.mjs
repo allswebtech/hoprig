@@ -1,6 +1,7 @@
-// The coding chat's engine (src/chat/chat.mjs) and protocol (protocol.mjs) against a stand-in Claude Code that
-// speaks stream-json (fixtures/fake-claude.mjs): a turn, a tool call, a permission card allowed and denied, Stop,
-// resume from the transcript, and the next turn's model. Also the page's plain words for tool calls (web/chattext.js).
+// The coding chat (src/chat/chat.mjs) and its Claude Code engine (src/chat/engines/) against a stand-in Claude Code
+// that speaks stream-json (fixtures/fake-claude.mjs): a turn, a tool call, a permission card allowed and denied,
+// Stop, resume from the transcript, and the settings of the next start. chat v2 (streaming, tasks, the queue, live
+// controls) is in v2.test.mjs. Also the page's plain words for tool calls (web/chat/words.js).
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -15,8 +16,8 @@ const box = sandbox('chat');
 test.after(() => box.cleanup());
 
 const { Chat } = await import('../../src/chat/chat.mjs');
-const P = await import('../../src/chat/protocol.mjs');
-const T = await import('../../web/chattext.js');
+const P = await import('./protocol.mjs'); // the Claude Code engine's lines, parser and transcript reader, in one
+const T = await import('../../web/chat/words.js');
 
 const until = async (what, fn, ms = 10_000) => {
   const end = Date.now() + ms;
@@ -42,7 +43,7 @@ const turnEnd = (c) => new Promise((r) => c.once('turn', r));
 const kinds = (c) => c.events.map((e) => e.kind);
 const logged = (c) => fs.readFileSync(c.argsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 const starts = (c) => logged(c).filter(Array.isArray);
-const answers = (c) => logged(c).filter((x) => !Array.isArray(x)).map((x) => x.answer);
+const answers = (c) => logged(c).filter((x) => x.answer).map((x) => x.answer);
 
 test('a turn: the message, Claude\'s answer, and what the turn cost', async (t) => {
   const c = newChat();
@@ -52,7 +53,7 @@ test('a turn: the message, Claude\'s answer, and what the turn cost', async (t) 
   await c.send('hello there');
   assert.equal(c.status(), 'working');
   await done;
-  assert.deepEqual(kinds(c), ['user', 'text', 'done']);
+  assert.deepEqual(kinds(c), ['user', 'text', 'turn-end']);
   assert.equal(c.events[1].text, 'echo: hello there');
   const d = c.events[2];
   assert.equal(d.ok, true);
@@ -67,13 +68,11 @@ test('a turn: the message, Claude\'s answer, and what the turn cost', async (t) 
   assert.equal(a[a.indexOf('--output-format') + 1], 'stream-json');
   assert.equal(a[a.indexOf('--permission-prompt-tool') + 1], 'stdio', 'permission prompts come to us');
   assert.equal(a[a.indexOf('--session-id') + 1], c.id);
+  for (const f of ['--include-partial-messages', '--replay-user-messages', '--allow-dangerously-skip-permissions']) assert.ok(a.includes(f), `${f}: text streams, messages come back with their ids, bypass can be switched on later`);
   for (const f of ['--tools', '--setting-sources', '--system-prompt', '--strict-mcp-config', '--disable-slash-commands']) assert.ok(!a.includes(f), `${f}: none of Tia's restrictions in a coding chat`);
-  await assert.rejects(Promise.resolve().then(async () => {
-    const p = c.send('one');
-    await c.send('two');
-    await p;
-  }), /still working/, 'one message at a time');
-  await until('the queued turn', () => c.status() === 'waiting');
+  assert.equal(c.events[0].messageId.length, 36, 'the message has the id Claude Code echoes');
+  assert.equal(c.events.filter((e) => e.kind === 'user').length, 1, 'its echo is not shown twice');
+  assert.ok(logged(c).some((x) => x.control && x.control.subtype === 'initialize' && x.control.perTaskStopAffordance === true), 'Stop spares background tasks');
 });
 
 test('a tool call: folded into its input and result', async (t) => {
@@ -83,14 +82,14 @@ test('a tool call: folded into its input and result', async (t) => {
   const done = turnEnd(c);
   await c.send('read notes.txt');
   await done;
-  assert.deepEqual(kinds(c), ['user', 'tool', 'result', 'text', 'done']);
+  assert.deepEqual(kinds(c), ['user', 'tool', 'tool-result', 'text', 'turn-end']);
   const tool = c.events[1];
   assert.equal(tool.name, 'Read');
   assert.equal(tool.input.file_path, path.join(c.cwd, 'notes.txt'));
   assert.equal(tool.full, undefined, 'the full input stays on the server');
   assert.equal(c.events[2].id, tool.id);
   assert.equal(c.events[2].text, 'blue whale\n');
-  assert.equal(c.events[2].isError, false);
+  assert.equal(c.events[2].ok, true);
 });
 
 test('a permission card: allowed writes the file, denied does not', async (t) => {
@@ -111,7 +110,7 @@ test('a permission card: allowed writes the file, denied does not', async (t) =>
   assert.throws(() => c.answer(ask.request, { allow: true }), /already answered/);
   await done;
   assert.equal(fs.readFileSync(path.join(c.cwd, 'out.txt'), 'utf8'), 'written by the fake\n');
-  assert.ok(c.events.some((e) => e.kind === 'answer' && e.request === ask.request && e.allow === true));
+  assert.ok(c.events.some((e) => e.kind === 'ask-closed' && e.request === ask.request && e.outcome === 'allowed'));
 
   done = turnEnd(c);
   await c.send('write no.txt');
@@ -122,9 +121,10 @@ test('a permission card: allowed writes the file, denied does not', async (t) =>
   assert.equal(answers(c)[0].updatedPermissions, undefined, 'a plain allow changes no rule');
 
   assert.ok(!fs.existsSync(path.join(c.cwd, 'no.txt')));
-  const res = c.events.filter((e) => e.kind === 'result').at(-1);
-  assert.equal(res.isError, true);
-  assert.match(res.text, /said no to this Write call in the dashboard: not now/);
+  const res = c.events.filter((e) => e.kind === 'tool-result').at(-1);
+  assert.equal(res.ok, false);
+  assert.equal(res.denied, true, 'shown as the owner\'s no, not as a failure');
+  assert.equal(res.text, 'not now', 'with his reason, not the sentence written for Claude');
   assert.equal(c.status(), 'waiting');
   done = turnEnd(c);
   await c.send('write always.txt');
@@ -158,7 +158,7 @@ test('Stop: Claude Code ends the turn and the running tool; the chat waits again
   assert.equal(d.subtype, 'error_during_execution');
   assert.equal(c.status(), 'waiting');
   assert.equal(c.events.filter((e) => e.kind === 'notice' && e.text === 'Stopped.').length, 0, 'the turn\'s end says it; no second line');
-  assert.ok(c.child, 'the process stays for the next message');
+  assert.ok(c.session, 'the process stays for the next message');
   assert.equal(c.interrupt(), false, 'nothing to stop');
   const next = turnEnd(c);
   await c.send('still there?');
@@ -171,12 +171,12 @@ test('resume: a chat opened again shows the transcript and continues it with --r
   let done = turnEnd(a);
   await a.send('task write the tests');
   await done;
-  assert.deepEqual(a.todos.list, [{ id: '1', status: 'pending', content: 'write the tests', activeForm: 'Doing write the tests' }]);
+  assert.deepEqual(a.todos, [{ id: '1', status: 'pending', content: 'write the tests', activeForm: 'Doing write the tests' }]);
   done = turnEnd(a);
   await a.send('first words');
   await done;
   await a.stopAndWait();
-  assert.equal(a.child, null);
+  assert.equal(a.session, null);
 
   const b = new Chat({ ...a.o, title: '' });
   b.argsFile = a.argsFile;
@@ -184,7 +184,7 @@ test('resume: a chat opened again shows the transcript and continues it with --r
   assert.deepEqual(b.events.filter((e) => e.kind === 'user').map((e) => e.text), ['task write the tests', 'first words']);
   assert.equal(b.events.filter((e) => e.kind === 'text').at(-1).text, 'echo: first words');
   assert.equal(b.title, 'task write the tests');
-  assert.equal(b.todos.list.length, 1, 'the to-do list comes back from the transcript');
+  assert.equal(b.todos.length, 1, 'the to-do list comes back from the transcript');
   done = turnEnd(b);
   await b.send('again');
   await done;
@@ -210,14 +210,14 @@ test('a terminal went on with the conversation: the chat reads it again (a new e
   assert.equal(c.events.at(-1).text, 'typed in the terminal');
 });
 
-test('model and effort for the next turn: a new process with --resume and the new flags', async (t) => {
+test('model, effort and ultracode of a chat that does not run: its next start has them, with --resume', async (t) => {
   const c = newChat({ model: 'sonnet' });
   t.after(() => c.stopAndWait());
   let done = turnEnd(c);
   await c.send('one');
   await done;
-  c.setNext({ model: 'haiku', effort: 'low' });
-  await until('the old process to end', () => !c.child);
+  await c.stopAndWait(); // the next start (a quiet while, another provider) has the new flags
+  await c.setSettings({ model: 'haiku', effort: 'low', ultracode: true });
   done = turnEnd(c);
   await c.send('two');
   await done;
@@ -225,6 +225,7 @@ test('model and effort for the next turn: a new process with --resume and the ne
   assert.equal(s0[s0.indexOf('--model') + 1], 'sonnet');
   assert.equal(s1[s1.indexOf('--model') + 1], 'haiku');
   assert.equal(s1[s1.indexOf('--effort') + 1], 'low');
+  assert.equal(JSON.parse(s1[s1.indexOf('--settings') + 1]).ultracode, true, 'ultracode is a setting of its own');
   assert.ok(s1.includes('--resume'));
 });
 
@@ -241,13 +242,14 @@ test('a provider that names its own model gets no --model; one that cannot start
   const broken = newChat({ resolveEnv: async () => { throw new Error('the provider\'s start command failed (1)'); } });
   await broken.send('hi');
   const d = broken.events.at(-1);
-  assert.equal(d.kind, 'done');
+  assert.equal(d.kind, 'turn-end');
   assert.match(d.error, /could not start: the provider's start command failed/);
   assert.equal(broken.status(), 'waiting');
 });
 
 test('protocol: arguments, answers and lines', () => {
   const a = P.chatArgs({ sessionId: 'S', permissionMode: 'manual', effort: 'high', model: 'opus' });
+  assert.deepEqual(a.slice(0, 12), ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--replay-user-messages', '--permission-prompt-tool', 'stdio', '--allow-dangerously-skip-permissions', '--permission-mode']);
   assert.deepEqual(a.slice(-2), ['--session-id', 'S']);
   assert.deepEqual(P.chatArgs({ sessionId: 'S', resume: true }).slice(-2), ['--resume', 'S']);
   assert.throws(() => P.chatArgs({}), /session id/);
@@ -259,9 +261,11 @@ test('protocol: arguments, answers and lines', () => {
   assert.equal(ask.kind, 'ask');
   assert.equal(ask.request, 'R');
   assert.deepEqual(ask.input, { command: 'ls' });
-  assert.deepEqual(P.parseLine({ type: 'assistant', parent_tool_use_id: 'toolu_x', message: { content: [{ type: 'text', text: 'from a helper' }] } }), [], 'a subagent\'s messages stay out');
+  const [sub] = P.parseLine({ type: 'assistant', parent_tool_use_id: 'toolu_x', message: { content: [{ type: 'text', text: 'from a helper' }] } });
+  assert.deepEqual([sub.kind, sub.text, sub.agent], ['text', 'from a helper', 'toolu_x'], 'a subagent\'s messages nest under its call');
   assert.deepEqual(P.parseLine('not json'), []);
-  const [done] = P.parseLine({ type: 'result', subtype: 'error_during_execution', is_error: true, total_cost_usd: 0.5 });
+  const done = P.parseLine({ type: 'result', subtype: 'error_during_execution', is_error: true, total_cost_usd: 0.5 }).find((e) => e.kind === 'turn-end');
+  assert.equal(done.kind, 'turn-end');
   assert.equal(done.error, 'stopped');
   const big = P.clipInput({ s: 'x'.repeat(20_000) });
   assert.ok(big.s.length < 9000 && big.s.includes('more characters'));
@@ -282,14 +286,15 @@ test('protocol: the transcript as the page shows it', () => {
   ];
   fs.writeFileSync(f, lines.map((l) => JSON.stringify(l)).join('\n') + '\n{"type":"user","mess');
   const { events } = P.transcriptEvents(f);
-  assert.deepEqual(events.map((e) => [e.kind, e.text || e.name]), [['user', 'fix the bug'], ['text', 'On it.'], ['tool', 'Bash'], ['result', 'ok'], ['notice', 'Stopped.']]);
+  // A command the owner typed is shown as typed, as the chat showed it live (not the wrapper Claude Code keeps).
+  assert.deepEqual(events.map((e) => [e.kind, e.text || e.name]), [['user', 'fix the bug'], ['user', '/clear'], ['text', 'On it.'], ['tool', 'Bash'], ['tool-result', 'ok'], ['notice', 'Stopped.']]);
   assert.deepEqual(P.transcriptEvents(path.join(box.root, 'none.jsonl')).events, []);
 });
 
 test('protocol: the to-do list from TaskCreate, TaskUpdate and TodoWrite', () => {
   const t = P.newTodos();
   assert.equal(P.todoStep(t, { kind: 'tool', id: 'a', name: 'TaskCreate', input: { subject: 'One' } }), false);
-  assert.equal(P.todoStep(t, { kind: 'result', id: 'a', text: 'Task #7 created successfully: One' }), true);
+  assert.equal(P.todoStep(t, { kind: 'tool-result', id: 'a', ok: true, text: 'Task #7 created successfully: One' }), true);
   assert.equal(P.todoStep(t, { kind: 'tool', id: 'b', name: 'TaskUpdate', input: { taskId: '7', status: 'in_progress' } }), true);
   assert.deepEqual(t.list, [{ id: '7', status: 'in_progress', content: 'One', activeForm: '' }]);
   P.todoStep(t, { kind: 'tool', id: 'c', name: 'TaskUpdate', input: { taskId: '7', status: 'deleted' } });
@@ -334,7 +339,7 @@ test('a chat closed while its provider is still getting ready never starts Claud
   await c.close();
   ready();
   await sent;
-  assert.equal(c.child, null, 'nothing runs');
+  assert.equal(c.session, null, 'nothing runs');
   assert.ok(!fs.existsSync(c.argsFile), 'Claude Code was never started');
   assert.equal(c.status(), 'waiting');
   // Stop while it gets ready does the same, and the chat can be used again after it.
@@ -388,14 +393,17 @@ test('a long reply right before the process exits: its result is not lost', asyn
   for (let i = 0; i < 5; i++) {
     const c = newChat();
     await c.send('big');
-    await until('the turn to end', () => !c.child && c.status() === 'waiting');
-    const d = c.events.filter((e) => e.kind === 'done').at(-1);
+    await until('the turn to end', () => !c.session && c.status() === 'waiting');
+    const d = c.events.filter((e) => e.kind === 'turn-end').at(-1);
     assert.equal(d.ok, false);
-    assert.match(d.error, /usage limit/, 'the turn\'s own result, not "Claude Code stopped (1)"');
+    assert.equal(d.limited, true, 'the turn\'s own result (a usage limit), not "Claude Code stopped (1)"');
+    assert.equal(d.error, null, 'said once, by the limit banner: not again as an error box');
+    assert.match(c.limit.text, /usage limit/);
+    assert.equal(c.lastEnd, 'limit');
     assert.equal(c.events.find((e) => e.kind === 'text').text.length, 200_000);
     assert.ok(c.limit, 'the limit is known, so the page offers another provider');
-    await until('the process to end', () => !c.child);
-    assert.equal(c.events.filter((e) => e.kind === 'done').length, 1, 'one end of the turn, not a second "stopped"');
+    await until('the process to end', () => !c.session);
+    assert.equal(c.events.filter((e) => e.kind === 'turn-end').length, 1, 'one end of the turn, not a second "stopped"');
   }
 });
 
@@ -406,8 +414,8 @@ test('a new process starts only after the old one ended; one that ignores SIGTER
   let done = turnEnd(c);
   await c.send('one');
   await done;
-  const old = c.child;
-  c.setNext({ model: 'haiku' }); // stops the idle process
+  const old = c.session.child;
+  c.stop(); // as after a quiet while
   done = turnEnd(c);
   await c.send('two'); // at once, while the old one is still stopping
   assert.ok(old.exitCode !== null || old.signalCode !== null, 'the old process had ended before the new one started');

@@ -31,10 +31,11 @@ curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh 
 - **Sessions that carry on at a usage limit.** Subscriptions, API keys and gateways are all "providers"; a
   session belongs to its folder, not to a provider. One tap moves it to another provider, or Auto mode does it
   for you.
-- **Code from anywhere, phone included.** A self-hosted dashboard with the real terminal, built for one thumb.
-  It shows which session is working, which is waiting for your next message and which needs you. Prefer no
-  terminal? The same Claude Code as a chat, with Allow and Deny buttons. A project opens in a built-in code
-  editor with its git changes.
+- **Code from anywhere, phone included.** A self-hosted dashboard built for one thumb. One tap on a project
+  opens a chat with Claude Code, set up as your last one there: replies as they are written, each change as a
+  diff, Allow and Deny buttons, its agents and background tasks. The real terminal is one row away. It shows
+  which session is working, which is waiting for your next message and which needs you. A project opens in a
+  built-in code editor with its git changes.
 - **Several computers in one place.** Home PC, office PC, servers: one page shows every session and starts
   work on any of them. Computers behind a router connect out by themselves. No VPN, no third-party service.
 - **It keeps going without you.** Queue the next messages, schedule work, reopen sessions after a restart.
@@ -211,14 +212,17 @@ Good to know:
 
 - **Home**: every session, in three groups: Needs you, Working, Waiting for your next message. Each shows
   what Claude last said, so you can decide without opening it.
-- **New session**: pick a project and Claude starts there on your default provider; the computer, the provider
-  and more are under **Options**.
+- **New session**: pick a project and a chat with Claude opens there, with the provider, mode, model and effort
+  of the last chat in that project (the first time: the provider recommended now and **Settings → New-session
+  defaults**). The computer, the provider and more are under **Options**, and so are Claude Code in a terminal
+  and a plain terminal. A project's **New session** and **Continue** on an earlier conversation open a chat too.
+  From a terminal on that computer, `hop chat [folder]` prints the chat's address and opens it in the browser.
 - **Session**: the real terminal, a key bar, a message box that works with dictation, quick messages, and a
   file attached straight into the project. Scroll back with the wheel or a finger, also in Claude Code's
   full-screen view, and select with the mouse to copy. A question waiting for your OK can be answered from
   the card on Home, including Claude's own "Yes, and don't ask again".
-- **Chat**: the same Claude Code without the terminal (**New session**: Terminal or Chat, or **Open as chat** in
-  a session's menu): messages, each tool call on one line with its diff, Allow and Deny buttons, its to-do list,
+- **Chat**: Claude Code without the terminal, the default way to code here (**Open as chat** in a terminal
+  session's menu brings a conversation over): messages, each tool call on one line with its diff, Allow and Deny buttons, its to-do list,
   Stop. A conversation runs in one place at a time, and **Open in terminal** takes it back. **Allow in this
   chat** stops the asking for that kind of call until the chat is closed (nothing is written to a settings
   file). In the mode "Run anything without asking" the chat never asks for a permission; what it still shows
@@ -288,7 +292,8 @@ key and stays on 127.0.0.1, and a key a linked computer made ends when that comp
 No AI involved, just rules you switch on, on the **Automations** page (Schedules, Queue, Rules, Activity):
 
 - **Queue**: give a session its next messages; each goes in when Claude finishes the one before.
-- **Schedules**: start a session or send a message once, daily or on chosen weekdays.
+- **Schedules**: start a chat (or a session in a terminal) or send a message to one, once, daily or on chosen
+  weekdays. A chat takes the message at its next step; a terminal gets it when Claude is free.
 - **Restore**: after a restart, sessions come back where they were.
 - **Retry**: after a server error that is not a limit, wait and continue, three times.
 - **Updates**: tell you about, or install, a new Claude Code when nothing is working.
@@ -305,8 +310,10 @@ money: her own thinking runs on a provider you choose, and the sessions she star
 What she can do, through the dashboard's own routes (the list is `ALLOW` in
 [src/assistant/door.mjs](src/assistant/door.mjs)):
 
-- sessions: list and read them, start one, type into one, press a key, rename, stop, move one to another
-  provider;
+- sessions: list and read them, start one in a terminal, type into one, press a key, rename, stop, move one to
+  another provider;
+- chats: start one in a project (also on an earlier conversation), send it a message, answer the OK it waits
+  for, stop its reply;
 - projects: list them, start a new one, get one from GitHub, add a code repository, sync, create the missing
   workspace folders;
 - read the AI brain;
@@ -404,7 +411,8 @@ No framework and no build step.
 `hop help` lists them all with their options.
 
 ```
-hop                              choose a provider, start Claude Code
+hop                              choose a provider, start Claude Code in this terminal
+hop chat [folder]                open a chat in the folder (prints its address, opens the browser here)
 hop <profile> [args]             start on that provider (args go to Claude Code)
 hop auto [args]                  Auto mode          hop auto on | off | order … | status
 hop codex | opencode [profile] [args]   Codex or OpenCode in this terminal, on a provider that serves it

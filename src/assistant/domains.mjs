@@ -202,7 +202,7 @@ export const manage_computer = actionTool({
     kits: arr(str({ max: 31, pattern: KIT }), { min: 1, max: 12, unique: true, desc: 'set_up: kit ids from get_computer_status with setup: true.' }),
     pid: ref('process', int({ min: 2, max: 2 ** 31 - 1, desc: 'end_process: a pid from get_computer_status.' })),
     force: bool({ desc: 'end_process: SIGKILL instead of SIGTERM.' }),
-    addon: str({ max: 31, pattern: ADDON, desc: 'addon: the add-on id (get_settings shows them).' }),
+    addon: str({ max: 31, pattern: ADDON, desc: 'addon: the add-on id (get_computer_status with settings: true shows them).' }),
     addon_action: str({ enum: ['install', 'update', 'start', 'stop'] }),
     turn: str({ enum: ['on', 'off'], desc: 'public_link: on or off.' }),
     link_kind: str({ enum: ['temporary', 'custom'], desc: 'public_link: temporary (a new address at each start, nothing to set up) or custom (the owner\'s own domain, set up in Settings → Public link); default: the kind chosen before.' }),
@@ -628,7 +628,7 @@ const scheduleRef = ref('schedule', str({ max: 32, pattern: /^[a-z0-9]{4,32}$/, 
 /** The schedule the page would save, from Tia's plainer fields. */
 function scheduleOf(a) {
   const when = a.days && a.days.length ? { kind: 'weekly', time: a.time, days: a.days.map((d) => DAYS.indexOf(d)) } : a.date ? { kind: 'once', time: a.time, date: a.date } : { kind: 'daily', time: a.time };
-  const action = a.send_to ? { type: 'send', session: a.send_to, text: a.text } : { type: 'start', dir: a.folder, profile: a.account, ...(a.text ? { prompt: a.text } : {}) };
+  const action = a.send_to ? { type: 'send', session: a.send_to, text: a.text } : { type: 'start', dir: a.folder, profile: a.account, ...(a.in === 'chat' ? { in: 'chat' } : {}), ...(a.text ? { prompt: a.text } : {}) };
   return { ...(a.label ? { label: a.label } : {}), enabled: true, when, action };
 }
 
@@ -637,14 +637,14 @@ export function scheduleSentence(s) {
   const w = s.when || {};
   const when = w.kind === 'weekly' ? `every ${w.days.map((d) => DAYS[d]).join(', ')} at ${w.time}` : w.kind === 'once' ? `once on ${w.date} at ${w.time}` : `every day at ${w.time}`;
   const x = s.action || {};
-  const what = x.type === 'send' ? `type into ${x.session}: "${short(x.text, 120)}"` : `start a session in ${x.dir} on ${x.profile}${x.prompt ? ` with: "${short(x.prompt, 120)}"` : ''}`;
+  const what = x.type === 'send' ? `type into ${x.session}: "${short(x.text, 120)}"` : `start a ${x.in === 'chat' ? 'chat' : 'session'} in ${x.dir} on ${x.profile}${x.prompt ? ` with: "${short(x.prompt, 120)}"` : ''}`;
   return `${s.label ? `${s.label}: ` : ''}${when}, ${what}`;
 }
 
-const scheduleFields = ['time', 'days', 'date', 'label', 'folder', 'account', 'send_to', 'text'];
+const scheduleFields = ['time', 'days', 'date', 'label', 'folder', 'account', 'in', 'send_to', 'text'];
 const scheduleCheck = (a) => {
   if (!a.send_to && !(a.folder && a.account)) throw toolError('a schedule either starts a session (folder and account) or types into one (send_to and text)', 'give folder and account, or send_to and text');
-  if (a.send_to && (a.folder || a.account)) throw toolError('give send_to or folder, not both', 'leave one out');
+  if (a.send_to && (a.folder || a.account || a.in)) throw toolError('give send_to or folder, not both', 'leave one out (in is only for a schedule that starts one)');
   if (a.send_to && !a.text) throw toolError('typing into a session needs text', 'add text');
   if (a.days && a.date) throw toolError('give days (weekly) or date (once), not both', 'leave one out');
 };
@@ -662,7 +662,7 @@ const typedLevel = (text, f, tia, base) => {
 
 export const manage_automation = actionTool({
   name: 'manage_automation',
-  description: 'The Automations page: list (settings, rules, schedules with their next run, queued messages, recent activity); add / change / delete a schedule (it starts a session or types into one at a time); turn a rule on or off (also the workspace upkeep: map, commit map, sync, push); how often the workspace is kept in step; pause all automations or resume them; queue a message for a session (typed when it next waits) or clear its queue.',
+  description: 'The Automations page: list (settings, rules, schedules with their next run, queued messages, recent activity); add / change / delete a schedule (it starts a chat or a terminal session, or writes to one, at a time); turn a rule on or off (also the workspace upkeep: map, commit map, sync, push); how often the workspace is kept in step; pause all automations or resume them; queue a message for a session (typed when it next waits) or clear its queue.',
   fields: {
     schedule: scheduleRef,
     time: str({ max: 5, pattern: /^([01]\d|2[0-3]):[0-5]\d$/, desc: 'HH:MM, 24-hour.' }),
@@ -671,6 +671,7 @@ export const manage_automation = actionTool({
     label: str({ max: 60, oneLine: true, pattern: /^[^\0]+$/ }),
     folder,
     account: str({ max: 32, pattern: /^[a-z0-9][a-z0-9_-]{0,31}$/, desc: 'The provider the started session runs on, or "auto".' }),
+    in: str({ enum: ['chat', 'terminal'], desc: 'Where a schedule that starts one runs it: "chat" (followed on Home, answered in its page; it takes Settings → New-session defaults) or "terminal" (the default).' }),
     send_to: session,
     text: str({ max: 8000, desc: 'The first message, or the message to type.' }),
     session,

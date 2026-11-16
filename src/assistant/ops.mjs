@@ -139,6 +139,18 @@ export function createOps(o) {
     renameSession: ({ computer, session, name }) => post(computer, `/api/sessions/${enc(session)}/rename`, { name }),
     killSession: ({ computer, session }) => post(computer, `/api/sessions/${enc(session)}/kill`, {}),
     switchAccount: ({ computer, session, profile }) => post(computer, `/api/sessions/${enc(session)}/switch`, { profile }),
+    // ---- chats (src/chat; a chat is "chat:<id>" among the sessions) ----
+    startChat: ({ computer, folder, profile, sessionId, text }) =>
+      post(computer, '/api/chats', { dir: dir(computer, folder), profile, ...(sessionId ? { sessionId } : {}), ...(text ? { text } : {}), defaults: true }).then((r) => {
+        ctx.poke?.();
+        return r;
+      }),
+    sendToChat: ({ computer, id, text }) => post(computer, `/api/chats/${enc(id)}/send`, { text }).then((r) => {
+      ctx.poke?.();
+      return r;
+    }),
+    answerChat: ({ computer, id, request, allow, always }) => post(computer, `/api/chats/${enc(id)}/answer`, { request, allow, always }),
+    stopChat: ({ computer, id }) => post(computer, `/api/chats/${enc(id)}/stop`, {}),
 
     // ---- folders and projects ----
     async recentFolders({ computer }) {

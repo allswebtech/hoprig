@@ -534,10 +534,14 @@ export function limitBox(s, profiles, after) {
  * The answers to Claude Code's permission question: Allow (Enter takes its first answer, "Yes"), the "Yes, and don't
  * ask again …" answer when the question on screen has one (s.always, read by the server from the screen; picked by
  * its number), and Do not allow (Esc). `after` runs once an answer was sent. Null unless the session needs an OK.
+ * A chat (s.ask, from src/chat/feature.mjs) gets the same: Allow, Allow in this chat, Do not allow; a question or a
+ * plan to approve is answered in the chat itself, so its card leads there.
  */
 export function permissionActions(s, after) {
+  if (stateOf(s).key !== 'attention') return null;
+  if (s.kind === 'chat') return chatAnswers(s, after);
   // The answer keys are Claude Code's: in Codex and OpenCode the owner answers in the terminal.
-  if (stateOf(s).key !== 'attention' || s.kind === 'chat' || !isClaudeCard(s)) return null;
+  if (!isClaudeCard(s)) return null;
   const answer = (body, said) => async (e) => {
     e.preventDefault();
     e.stopPropagation(); // on a card: answer, do not open the session
@@ -561,6 +565,36 @@ export function permissionActions(s, after) {
     a ? h('button.btn.small.secondary', { type: 'button', title: a.text, onclick: answer({ key: a.key, expect: a.text }, 'Allowed, and Claude will not ask again') },
       icon('checkAll', { size: 16 }), h('span', always)) : null,
     h('button.btn.small.secondary', { type: 'button', onclick: answer({ key: 'Escape' }, 'Not allowed') }, icon('x', { size: 16 }), h('span', 'Do not allow')));
+}
+
+function chatAnswers(s, after) {
+  const ask = s.ask;
+  if (!ask || !s.chatId) return null;
+  if (ask.type !== 'permission') {
+    return h('div.ok-actions', h('a.btn.small.primary', { href: link(`#/chat/${s.chatId}`, s.machine ?? machine.current) }, icon('text', { size: 16 }),
+      h('span', ask.type === 'plan' ? 'Read the plan' : 'Answer')));
+  }
+  const answer = (body, said) => async (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // on a card: answer, do not open the chat
+    const b = e.currentTarget;
+    b.disabled = true;
+    try {
+      await api(atOf(s, `/api/chats/${s.chatId}/answer`), { request: ask.request, ...body });
+      toast(said);
+      after?.();
+    } catch (err) {
+      toast(err.message, { kind: 'error' });
+    } finally {
+      b.disabled = false;
+    }
+  };
+  return h('div.ok-actions',
+    h('button.btn.small.primary', { type: 'button', onclick: answer({ allow: true }, 'Allowed') }, icon('check', { size: 16 }), h('span', 'Allow')),
+    // The chat card's words (web/chat/asks.js), so one OK reads the same on Home and in the chat.
+    ask.canAlways ? h('button.btn.small.secondary', { type: 'button', title: ask.always === 'edits' ? 'Claude changes files without asking for the rest of this chat' : ask.alwaysText || 'The same kind of request is allowed for the rest of this chat', onclick: answer({ allow: true, always: true }, 'Allowed for this chat') },
+      icon('checkAll', { size: 16 }), h('span', ask.always === 'edits' ? 'Allow all edits in this chat' : 'Allow in this chat')) : null,
+    h('button.btn.small.secondary', { type: 'button', onclick: answer({ allow: false }, 'Not allowed') }, icon('x', { size: 16 }), h('span', 'Do not allow')));
 }
 
 // ---------- Auto mode: several subscriptions in the order ----------

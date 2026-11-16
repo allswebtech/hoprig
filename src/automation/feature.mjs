@@ -56,7 +56,7 @@ export async function readJson(req, max = BODY_MAX) {
 const profileObject = (name) => (name === 'auto' ? { name: 'auto', env: {} } : readProfile(name));
 
 /** The automation ctx (see ./index.mjs) made from the server's feature ctx. */
-export function serverAdapter(sctx, { log = console.log } = {}) {
+export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
   return {
     deck: {
       async list() {
@@ -82,6 +82,12 @@ export function serverAdapter(sctx, { log = console.log } = {}) {
         await sctx.deck.send(found.term.id, text);
       },
       kill: (name) => sctx.backend.kill(name),
+      // A chat (src/chat): its feature opens it as the page does, with Settings' New-session defaults (as a terminal
+      // a schedule starts), not the folder's last chat: nobody watches a scheduled chat as it starts.
+      ...(chat ? {
+        startChat: async ({ dir, profile, text }) => (await chat.open({ dir, profile, ...(text ? { text } : {}), defaults: true })).id,
+        sendChat: (id, text) => chat.send(id, text),
+      } : {}),
     },
     backend: sctx.backend,
     config: sctx.config,
@@ -187,7 +193,7 @@ export function automationFeature(sctx, opts = {}) {
       return auto;
     },
     start() {
-      auto = createAutomation(opts.ctx || { ...serverAdapter(sctx), ...(opts.now ? { now: opts.now } : {}), ...(opts.updateItems ? { updateItems: opts.updateItems } : {}) });
+      auto = createAutomation(opts.ctx || { ...serverAdapter(sctx, { chat: opts.chat }), ...(opts.now ? { now: opts.now } : {}), ...(opts.updateItems ? { updateItems: opts.updateItems } : {}) });
       if (opts.tick !== false) auto.start();
       return auto;
     },

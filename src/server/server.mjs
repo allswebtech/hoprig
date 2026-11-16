@@ -222,7 +222,7 @@ export function createServer(opts = {}) {
     gateway, // /gateway/…: a gateway shared with a gateway key (before the machines gate, which takes any bearer as its own)
     machines, // other computers: relay, pairing, bearer tokens
     editorFeature(ctx, opts.editor), // the code editor's files and git under /api/code/ (another computer's token too); removes VS Code Server's leftovers once
-    automationFeature(ctx, { tick: opts.watch !== false, ...opts.automation }), // queue, schedules, restore, retry, updates, idle care
+    automationFeature(ctx, { tick: opts.watch !== false, chat, ...opts.automation }), // queue, schedules (also of chats), restore, retry, updates, idle care
     addonsFeature(ctx, opts.addons), // Settings → Add-ons: install, start, stop, update, set up as an account
     accountsFeature(ctx, { remote: gateway.states, removing: gateway.forget, ...opts.accounts }), // Providers: add a subscription, an API key or a TRouteAI gateway in the page
     claudeLoginFeature(ctx, opts.claudeLogin), // Claude Code's own sign-in from the page (Setup, Get started, Providers)
@@ -404,6 +404,8 @@ export function createServer(opts = {}) {
     ['GET', /^\/api\/profiles$/, async () => ({ profiles: profileStates(await cards()), autoSwitch: autoswitch.getAutoSwitch() })],
     ['GET', /^\/api\/folders\/recent$/, async () => {
       const live = (await backend.list()).map((t) => ({ cwd: t.cwd, session: t.session }));
+      // A chat at work counts as running there too: the picker opens it rather than a second one.
+      for (const c of chat.cards()) if (c.status !== 'waiting') live.push({ cwd: c.cwd, chat: c.chatId });
       const r = roots();
       return { folders: recentFolders(live, r), roots: r.map((p) => ({ path: p, short: tilde(p) })) };
     }],

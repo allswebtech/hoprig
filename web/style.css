@@ -278,6 +278,7 @@ article.card:hover { box-shadow: var(--shadow-2); }
 /* The answers to a question waiting for an OK (lib.js permissionActions): wrap, never wider than the card. */
 .ok-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .ok-actions .btn { max-width: 100%; white-space: normal; text-align: left; line-height: 1.25; padding-top: 6px; padding-bottom: 6px; }
+@media (pointer: coarse) { .ok-actions .btn { min-height: 44px; } } /* an OK answered from Home with a finger */
 .card .ok-actions { margin-top: 10px; }
 .si-row .ok-actions { margin-top: 8px; }
 .si-row .ok-actions .btn { margin-top: 0; }

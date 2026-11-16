@@ -108,6 +108,21 @@ test('a confirm card asks in plain words with the accounts\' display names, the 
   assert.equal(start.quote, 'Add a toggle');
   assert.match(start.why, /you chose "Ask me"/);
 
+  // The chat tools say the same in plain words; the terminal's key now goes through send_to_session.
+  const chat = plainCard({ tool: 'start_chat', input: { folder: '/p/landing-page', account: 'max', message: 'Add a toggle' }, lines: [] }, { accounts: ACCOUNTS });
+  assert.equal(chat.question, 'Start a chat in landing-page on Claude Max?');
+  assert.equal(chat.quote, 'Add a toggle');
+  const C = 'chat:44444444-4444-4444-8444-444444444444';
+  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, text: 'run the tests' }, lines: [] }).question, `Send this to the chat ${C}?`);
+  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, answer: 'allow' }, lines: [`The session asks: Allow Bash: npm test?`] }).question, `Allow what the chat ${C} asks?`);
+  assert.deepEqual(plainCard({ tool: 'send_to_chat', input: { session: C, answer: 'allow' }, lines: ['The session asks: Allow Bash: npm test?'] }).notes, ['The session asks: Allow Bash: npm test?']);
+  assert.equal(plainCard({ tool: 'send_to_session', input: { session: 'web', key: '1' }, lines: [] }).question, 'Press 1 in the session web?');
+  assert.equal(plainCard({ tool: 'send_to_session', input: { session: 'web', text: 'yes' }, lines: [] }).question, 'Type this into the session web?');
+  const lbl = (n) => (n === 'max' ? 'Claude Max' : n);
+  assert.equal(whatText({ type: 'start', in: 'chat', dir: '/w/shop', profile: 'max' }, lbl), 'start a chat in shop on Claude Max');
+  assert.equal(whatText({ type: 'send', session: C, text: 'go' }), 'send a message to a chat');
+  assert.equal(whatText({ type: 'send', session: C, text: 'go' }, lbl, () => 'the chat "Fix it"'), 'send a message to the chat "Fix it"');
+
   const other = plainCard({ tool: 'kill_process', input: { pid: 42 }, lines: ['Why a card: risky', 'End process 42 on this', 'Command: node x'] });
   assert.equal(other.question, 'End a process?');
   assert.deepEqual(other.details, ['End process 42 on this', 'Command: node x'], 'other tools keep their own lines under Details');

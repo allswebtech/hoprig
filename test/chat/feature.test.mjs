@@ -101,12 +101,12 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   const view = async (q = '') => (await owner('GET', `/api/chats/${id}${q}`)).json;
   const v1 = await until('the first answer', async () => {
     const x = await view();
-    return x.events.some((e) => e.kind === 'done') && x;
+    return x.events.some((e) => e.kind === 'turn-end') && x;
   });
   assert.equal(v1.permissionMode, 'manual', 'the session defaults apply');
   assert.equal(v1.profile.label, 'Main');
   assert.equal(v1.short.endsWith('proj'), true);
-  assert.deepEqual(v1.events.map((e) => e.kind), ['user', 'text', 'done']);
+  assert.deepEqual(v1.events.map((e) => e.kind), ['user', 'text', 'turn-end']);
   assert.ok(!JSON.stringify(v1).includes('secret-of-the-test'));
 
   // the long poll waits while nothing changes (first the idle process stops: that is news too, `running` changes)
@@ -137,7 +137,8 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   assert.equal(ask.tool, 'Write');
   assert.deepEqual(asking.pending, [ask.request]);
   const needs = await until('Home to see it', async () => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === `chat:${id}` && s.status === 'attention'));
-  assert.match(needs.note, /^Allow Write/);
+  assert.match(needs.note, /^Claude wants to write: out.txt$/, 'the file, inside the folder');
+  assert.equal(needs.ask.subject, path.join(proj, 'out.txt'), 'the whole path, for Tia\'s rules');
   assert.equal((await owner('POST', `/api/chats/${id}/answer`, { request: ask.request })).status, 400, 'allow must be said');
   assert.equal((await owner('POST', `/api/chats/${id}/answer`, { request: ask.request, allow: true })).status, 200);
   assert.equal((await owner('POST', `/api/chats/${id}/answer`, { request: ask.request, allow: true })).status, 409, 'once');
@@ -161,6 +162,13 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   const refused = await owner('POST', `/api/chats/${id}/send`, { text: 'from the chat' });
   assert.equal(refused.status, 409);
   assert.match(refused.json.error, /runs in the terminal session/);
+  // Nothing else starts Claude Code on it either: no rewind, and the / menu from what the chat knew.
+  const firstMsg = vt.events.find((e) => e.kind === 'user');
+  const rw = await owner('POST', `/api/chats/${id}/rewind`, { messageId: firstMsg.messageId, dryRun: true });
+  assert.equal(rw.status, 409, 'a rewind would run a second process on the conversation');
+  assert.match(rw.json.error, /runs in the terminal session/);
+  assert.equal((await owner('GET', `/api/chats/${id}/commands`)).status, 200);
+  assert.equal((await view()).running, false, 'the menu started no process');
   assert.equal((await owner('POST', `/api/chats/${id}/take`, {})).status, 200);
   assert.equal((await view()).terminal, null, 'the terminal stopped Claude');
   const shell = await until('the terminal to be a plain shell', async () => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === term.json.name && s.kind === 'shell'));
@@ -171,8 +179,8 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
 
   // ---- provider, next turn, Stop ----
   assert.equal((await owner('POST', `/api/chats/${id}/provider`, { profile: 'api' })).json.profile.label, 'Gateway');
-  assert.equal((await owner('POST', `/api/chats/${id}/next`, { model: 'haiku', effort: 'low' })).json.model, 'haiku');
-  assert.equal((await owner('POST', `/api/chats/${id}/next`, { effort: 'enormous' })).status, 400);
+  assert.equal((await owner('POST', `/api/chats/${id}/settings`, { model: 'haiku', effort: 'low' })).json.model, 'haiku');
+  assert.equal((await owner('POST', `/api/chats/${id}/settings`, { effort: 'enormous' })).status, 400);
   await owner('POST', `/api/chats/${id}/send`, { text: 'sleep' });
   await until('the long command', async () => (await view()).events.some((e) => e.kind === 'tool' && e.name === 'Bash'));
   // "continue" (-c) means the folder's newest conversation: this one, which the chat works on right now.
@@ -196,6 +204,7 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   const vb = await view();
   assert.ok(vb.terminal, 'read only until "Continue here"');
   assert.ok(vb.events.some((e) => e.kind === 'user' && e.text === 'hello chat'), 'the history comes from the transcript');
+  assert.deepEqual([vb.model, vb.effort], ['haiku', 'low'], 'taken back from the terminal with the model and effort it ran with');
   assert.equal((await owner('POST', `/api/chats/${id}/close`, {})).status, 200);
   assert.deepEqual((await owner('GET', '/api/chats')).json.chats, []);
 

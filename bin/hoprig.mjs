@@ -13,7 +13,9 @@ import { deleteProfile, listProfiles, publicProfile, readProfile, validName } fr
 
 const HELP = `Hoprig — Claude Code under several profiles, with one shared session store
 
-  hoprig                      choose a profile, then start Claude Code
+  hoprig                      choose a profile, then start Claude Code in this terminal
+  hoprig chat [folder]        code in a chat in the dashboard instead: prints its address and opens it
+                                 in your browser (set up as your last chat in that folder)
   hoprig <profile> [args]     start under that profile; args go to Claude Code
                                 hoprig api -c            continue the last session of this folder
                                 hoprig sub2 --resume ID  continue one session
@@ -174,6 +176,10 @@ async function main() {
         return 2;
       }
       return start(rest[0], rest.slice(1));
+    }
+    case 'chat': {
+      const chat = await import('../src/chat/cli.mjs');
+      return chat.main(rest);
     }
     case 'router-url':
       console.log(routerAddress().url.replace(/\/[0-9a-f]{32,}$/, '/<key>'));

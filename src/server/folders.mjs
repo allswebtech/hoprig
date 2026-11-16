@@ -150,20 +150,21 @@ export function claudeFolders(limit = 30) {
 
 /**
  * Recent folders for the picker: live sessions first, then Claude Code's own history; existing and inside roots.
- * `live`: the folders sessions run in, as paths or { cwd, session }; a live folder names its session, so the
- * picker opens it instead of starting a second one there.
+ * `live`: the folders sessions run in, as paths or { cwd, session } (a terminal) or { cwd, chat } (a chat at work); a
+ * live folder names its session or chat, so the picker opens it instead of starting a second one there.
  */
 export function recentFolders(live, roots, limit = 12) {
   const seen = new Set();
   const out = [];
   const own = ownRoots();
-  const add = (p, isLive, session = null) => {
+  const add = (p, isLive, session = null, chat = null) => {
     const real = insideRoots(p, roots);
     if (!real || seen.has(real) || own.some((r) => within(real, r))) return;
     seen.add(real);
-    out.push({ path: real, short: tilde(real), name: path.basename(real) || real, live: isLive, ...(session ? { session } : {}) });
+    out.push({ path: real, short: tilde(real), name: path.basename(real) || real, live: isLive, ...(session ? { session } : {}), ...(chat ? { chat } : {}) });
   };
-  for (const x of live) typeof x === 'string' ? add(x, true) : add(x && x.cwd, true, x && typeof x.session === 'string' ? x.session : null);
+  const str = (x) => (typeof x === 'string' ? x : null);
+  for (const x of live) typeof x === 'string' ? add(x, true) : add(x && x.cwd, true, x && str(x.session), x && str(x.chat));
   for (const f of claudeFolders()) add(f.path, false);
   return out.slice(0, limit);
 }

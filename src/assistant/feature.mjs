@@ -224,7 +224,12 @@ export function assistantFeature(ctx, o = {}) {
     if (!active.length) return;
     const remote = active.some((j) => j.sessions.some((e) => e.computer !== 'this'));
     const list = remote ? await ops.listSessions({ computer: null }) : cards.map((x) => ({ ...x, computer: 'this' }));
-    const wakes = await core.jobTick(list, (e) => ops.capture({ computer: e.computer, session: e.session, lines: 60 }));
+    // A chat has no screen: what it asks and its last reply stand in for it.
+    const chatText = (e) => {
+      const c = list.find((x) => x.name === e.session && (x.computer || 'this') === e.computer && x.kind === 'chat');
+      return c ? [c.note, c.lastMessage].filter(Boolean).join('\n') : null;
+    };
+    const wakes = await core.jobTick(list, async (e) => chatText(e) ?? ops.capture({ computer: e.computer, session: e.session, lines: 60 }));
     // The watcher looks only every 30 s while no Claude session runs: a session that is still starting must be
     // looked at again soon, or a job would miss its first "working".
     if (core.jobs.list({ active: true }).some((j) => j.sessions.some((e) => !e.armed && !e.ended))) setTimeout(() => ctx.poke?.(), 1000).unref?.();

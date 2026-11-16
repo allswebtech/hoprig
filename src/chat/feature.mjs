@@ -3,23 +3,23 @@
 // after a restart (their process starts again with the next message).
 //
 //   GET  /api/chats                           the open chats, as cards
-//   POST /api/chats                           { dir, profile, model?, effort?, permissionMode?, sessionId?, text? } → { id }
-//   POST /api/chats/from-session              { session } → { id }   the conversation of a terminal session, as a chat
+//   POST /api/chats                           { dir, profile?, model?, effort?, permissionMode?, ultracode?, sessionId?, text? }
+//                                             → { id }   what is left out: as the last chat in that folder ran
+//                                             (folders.mjs), else the provider recommended now and Settings
 //   GET  /api/chats/<id>?from=N&epoch=E&wait=S   the chat: events from N (wait up to S seconds for news)
 //   GET  /api/chats/<id>/older?before=N       earlier events
-//   POST /api/chats/<id>/send                 { text }
-//   POST /api/chats/<id>/answer               { request, allow, always?, answers?, message? }   a tool use's OK
-//   POST /api/chats/<id>/stop                 interrupt the turn
-//   POST /api/chats/<id>/next                 { model?, effort? }   for the next turn
+//   POST /api/chats/<id>/send                 { text, attachments?: [{ path }] } → { id, queued }   (while a turn
+//                                             runs the message is queued; attachments: what /upload returned)
+//   POST /api/chats/<id>/answer               { request, allow, always?, answers?, mode?, message? }   a tool use's OK
+//                                             (mode: a plan approved, the permission mode to go on in)
+//   POST /api/chats/<id>/stop                 end the turn (background tasks go on; see live.mjs for one task)
+//                                             → { stopped, back: [{ text, files }] }  (the queued messages, taken back)
 //   POST /api/chats/<id>/provider             { profile }   continue on another provider
-//   POST /api/chats/<id>/take                 the terminal that runs this conversation stops; the chat goes on
-//   POST /api/chats/<id>/terminal             open the conversation in a terminal → { name } (the chat closes)
 //   POST /api/chats/<id>/upload               raw bytes, X-File-Name → { path }   (the uploads folder, as for sessions)
 //   POST /api/chats/<id>/close
-//
-// One conversation never runs in two places at once (the owner's rule). A terminal session runs it when a run record
-// (src/runs.mjs) carries its id: then the chat does not send, and offers to take it over. The other way round,
-// running() tells the session start (server.mjs) that a chat runs it.
+// and the routes of live.mjs (the event stream, mode, settings, queue, task stop, rewind, files, commands, usage) and
+// of handoff.mjs (from a terminal session to a chat and back: one conversation never runs in two places at once).
+// The other way round, running() tells the session start (server.mjs) that a chat runs a conversation.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,14 +27,16 @@ import { getAutoSwitch } from '../autoswitch.mjs';
 import { EFFORTS, MODELS, PERMISSION_MODES } from '../config.mjs';
 import { stateDir, tilde } from '../paths.mjs';
 import { assertServes, listProfiles, publicProfile, readProfile, servesTools } from '../profiles.mjs';
-import { listRuns } from '../runs.mjs';
 import { isSessionId, sessionsIn } from '../sessions.mjs';
-import { matchRuns } from '../server/deck.mjs';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
-import { parentLookup, procParent } from '../server/platform.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from '../server/uploads.mjs';
 import * as v from '../server/validate.mjs';
 import { Chat } from './chat.mjs';
+import { askNote, previewText } from './events.mjs';
+import { gitBranch, readAttachments } from './files.mjs';
+import { folderMemory } from './folders.mjs';
+import { handoffRoutes, terminals } from './handoff.mjs';
+import { liveRoutes, stateOf } from './live.mjs';
 
 const OPEN_MAX = 50;
 const WAIT_MAX_S = 25; // below the relay's 30 s idle limit, so a chat of another computer can wait too
@@ -44,19 +46,22 @@ const AUTO = { name: 'auto', label: 'Auto', kind: 'auto' };
 /** The name a chat has among the sessions (Home, notifications). ":" is never in a terminal's name. */
 export const cardName = (id) => `chat:${id}`;
 
-/** o: { command, resolveEnv, spawnImpl, idleMs, stopGraceMs } (tests), file (where the open chats are kept) */
+/** o: { command, resolveEnv, spawnImpl, idleMs, stopGraceMs, owedMs } (tests), file (where the open chats are kept) */
 export function chatFeature(ctx, o = {}) {
   const { HttpError } = ctx;
   const bad = (msg) => new HttpError(400, msg);
   const cfg = () => ctx.config();
   const roots = () => resolveRoots(cfg().server.roots);
   const file = () => o.file || path.join(stateDir(), 'chats.json');
+  // The settings each folder's chat ran with last: one tap on a project opens a chat with them.
+  const memory = folderMemory(() => o.foldersFile || path.join(path.dirname(file()), 'chat-folders.json'));
+  const remember = (c) => memory.remember(c.record());
   const chats = new Map();
   let loaded = false;
 
   // ---------- the list of open chats ----------
   function make(rec) {
-    const c = new Chat({ ...rec, command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs });
+    const c = new Chat({ ...rec, turnsDir: path.join(path.dirname(file()), 'chat-turns'), command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs, owedMs: o.owedMs });
     c.setMaxListeners(200); // one per page that waits for news
     c.on('status', () => ctx.poke?.()); // Home and the notifications see a new state at once
     c.on('turn', save);
@@ -116,19 +121,8 @@ export function chatFeature(ctx, o = {}) {
     return val;
   };
 
-  // ---------- the one-place rule ----------
-  /** The terminal that runs conversation `id`: { name } (null name: a terminal outside the dashboard), or null. */
-  async function terminalOf(id) {
-    const runs = listRuns().filter((r) => r.sessionId === id && r.status !== 'ended');
-    if (!runs.length) return null;
-    const terms = await ctx.backend.list();
-    const byId = matchRuns(terms, runs, runs.some((r) => r.tmuxPane) ? await parentLookup() : procParent);
-    const t = terms.find((x) => byId.has(x.id));
-    return t ? { name: t.session, termId: t.id, cwd: t.cwd, run: byId.get(t.id) } : { name: null, run: runs[0] };
-  }
-  const inTerminal = (term) => Object.assign(new HttpError(409, term.name
-    ? `This conversation runs in the terminal session "${term.name}". Continue it here (that terminal stops), or read along.`
-    : 'This conversation runs in a terminal outside the dashboard. Continue it here (that terminal stops), or read along.'), { code: 'in-terminal' });
+  // One place at a time (handoff.mjs).
+  const { terminalOf, inTerminal } = terminals(ctx);
 
   // ---------- views ----------
   function card(c) {
@@ -137,25 +131,42 @@ export function chatFeature(ctx, o = {}) {
     return {
       name: cardName(c.id), kind: 'chat', chatId: c.id, display: c.title || 'New chat', title: c.title,
       cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), status, statusAt: c.statusAt, activity: c.statusAt,
-      created: c.openedAt, attached: false, panes: 0, sessionId: c.id, canSwitch: false,
-      lastMessage: c.lastText.replace(/\s+/g, ' ').trim().slice(0, 300),
-      running: !!c.child, // its process runs on the provider now (idle care keeps that provider's gateway up)
-      note: ask ? `Allow ${ask.title}${ask.description ? `: ${ask.description}` : ''}?` : '',
+      created: c.openedAt, attached: false, panes: 0, sessionId: c.conversationId, canSwitch: false,
+      lastMessage: previewText(c.lastText), // plain words: a card shows no Markdown marks
+      running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
+      note: ask ? askNote(ask, c.cwd) : '',
+      // The OK it waits for, so a card can answer it (Allow, Allow in this chat, Do not allow); a question or a plan
+      // is answered in the chat itself. `subject` is what it is really about (the whole command or path; `cut` when it
+      // was too long to carry whole) and `owner` says the chat keeps it for the owner (his settings, a hook or a safety
+      // check ask him): Tia's rules judge all three.
+      ask: ask ? {
+        request: ask.request, type: ask.type, tool: ask.tool, subject: ask.subject || '', cut: !!ask.subjectCut, owner: !!ask.owner,
+        canAlways: !!ask.grant, always: ask.grant ? (ask.grant.edits ? 'edits' : 'rule') : null, alwaysText: ask.grant && !ask.grant.edits ? ask.grant.text : '',
+      } : null,
+      // The turn is over but subagents, shells or a workflow still run (Home: "Working in the background").
+      background: status === 'working' && !c.turn,
       limit: c.limit ? { text: c.limit.text } : null,
       ...(c.limit ? { limitAt: c.limit.at || null } : {}), // since when: the page compares it with the provider's accountAt
     };
   }
+  /** What the page shows beside the chat's state. */
+  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), branch: gitBranch(c.cwd), profile: profileView(c.profile), choices: { models: models(), efforts: EFFORTS, modes: PERMISSION_MODES } });
+  /** The terminal that runs the chat's conversation, as the page names it ({ name }), or null. */
+  const terminalView = async (c) => (c.session && c.busy() ? null : await terminalOf(c.conversationId).then((t) => (t ? { name: t.name } : null)));
   async function view(c, { from, epoch }) {
     const { reset, events } = c.window(from, epoch);
     return {
       id: c.id, epoch: c.epoch, reset, events, next: c.next, first: events.length ? events[0].i : c.next, older: (events.length ? events[0].i : c.next) > c.base,
-      status: c.status(), running: !!c.child, pending: [...c.pending.keys()], todos: c.todos.list,
-      title: c.title, cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile),
-      model: c.model, effort: c.effort, permissionMode: c.permissionMode, liveModel: c.liveModel,
-      costTotal: c.costTotal, lastError: c.lastError, limit: c.limit,
-      terminal: c.child && c.state !== 'idle' ? null : await terminalOf(c.id).then((t) => (t ? { name: t.name } : null)),
-      choices: { models: models(), efforts: EFFORTS },
+      ...stateOf(c), ...about(c), terminal: await terminalView(c),
     };
+  }
+  /** Where the files of a chat's messages are uploaded (inside its folder). */
+  function uploadsOf(c) {
+    const dirName = uploadsDirName(cfg().server.uploadsDir || DEFAULT_UPLOADS_DIR);
+    if (!dirName) throw new HttpError(500, 'server.uploadsDir must be a relative folder name');
+    const cwd = insideRoots(c.cwd, roots());
+    if (!cwd) throw bad('this chat runs outside the allowed folders');
+    return { cwd, dirName, dir: path.join(cwd, dirName) };
   }
   // Wait for news. The response's "close" (not the request's: that one fires as soon as a GET is read) ends the wait
   // when the browser goes away. While a terminal runs the conversation, its transcript is looked at every 1.5 s, so a
@@ -173,11 +184,95 @@ export function chatFeature(ctx, o = {}) {
       };
       const check = () => c.version !== at && done();
       const t = setTimeout(done, ms);
-      const look = setInterval(() => !c.child && c.refresh(), 1500);
+      const look = setInterval(() => !c.session && c.refresh(), 1500);
       c.on('change', check);
       c.on('status', check);
       res.on?.('close', done);
     });
+  }
+
+  /**
+   * Open a chat (POST /api/chats; the schedules too). b: { dir, profile?, model?, effort?, permissionMode?, ultracode?,
+   * sessionId?, text?, defaults? }. What is left out: as the last chat in that folder ran, else the provider
+   * recommended now and Settings. defaults: true (Tia, a schedule) takes Settings → New-session defaults and not the
+   * folder's last chat, as a terminal session they start does: a mode the owner chose for himself (bypass) is not
+   * carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
+   * → { id, sent, existing?, permissionMode? } (sent: false when the first message was not sent because a terminal or
+   * an open chat runs the conversation; existing: true with that open chat's mode)
+   */
+  async function openChat(b) {
+    load();
+    const dir = insideRoots(v.absPath(b.dir), roots());
+    if (!dir) throw bad('choose a folder inside the allowed roots');
+    const owners = b.defaults !== true;
+    const last = (owners && memory.last(dir)) || {};
+    let profile = b.profile;
+    if (profile === undefined || profile === null || profile === '') {
+      // As the last chat here ran, while that provider is still there; else the one recommended now.
+      profile = last.profile && profileOk(last.profile) ? last.profile : (await ctx.state()).recommended;
+      if (!profile) throw bad('there is no provider yet: add one under Providers first');
+    }
+    if (typeof profile !== 'string' || !profileOk(profile)) throw bad('there is no such provider');
+    if (b.ultracode !== undefined && b.ultracode !== null && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
+    const d = cfg().sessionDefaults || {};
+    // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults.
+    const kept = (k, chosen, fallback) => (chosen !== undefined ? chosen : k in last ? last[k] : fallback);
+    const model = kept('model', pick(b.model, models(), 'model'), d.model || null);
+    const effort = kept('effort', pick(b.effort, EFFORTS, 'effort'), d.effort || null);
+    const permissionMode = kept('permissionMode', pick(b.permissionMode, PERMISSION_MODES, 'permission mode'), d.permissionMode || null);
+    const ultracode = kept('ultracode', b.ultracode ?? undefined, false) === true;
+    let id = crypto.randomUUID();
+    let conversationId = null;
+    if (b.sessionId !== undefined && b.sessionId !== null) {
+      conversationId = v.sessionId(b.sessionId);
+      if (!conversationId || !sessionsIn(dir).some((s) => s.id === conversationId)) throw bad('that conversation is not in this folder');
+      const open = openChatOf(conversationId);
+      if (open) {
+        // That chat is someone's already (the owner's, as a rule): it keeps its own settings, and `existing` says so,
+        // so a caller does not take it for a chat it started (Tia's rules let her answer OKs only in her own chats).
+        const mode = chats.get(open).permissionMode || null;
+        if (b.text === undefined || b.text === null) return { id: open, existing: true, permissionMode: mode };
+        return { id: open, existing: true, permissionMode: mode, sent: false, why: 'this conversation is already open in a chat; write to that chat' };
+      }
+      id = freeId(conversationId);
+    }
+    let text = null;
+    if (b.text !== undefined && b.text !== null) {
+      text = v.message(b.text);
+      if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
+    }
+    if (chats.size >= OPEN_MAX) {
+      const old = [...chats.values()].filter((c) => !c.session).sort((a, b2) => a.statusAt - b2.statusAt)[0];
+      if (!old) throw new HttpError(409, `${OPEN_MAX} chats are open; close one first`);
+      chats.delete(old.id);
+      old.close();
+    }
+    const c = make({
+      id, ...(conversationId && conversationId !== id ? { conversationId } : {}), cwd: dir, profile,
+      // a model the computer stopped offering is not forced on a new chat
+      model: model && models().includes(model) ? model : null, effort: EFFORTS.includes(effort) ? effort : null,
+      permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode,
+    });
+    save();
+    if (owners) remember(c); // the folder's last chat is the owner's own choice, not Tia's or a schedule's
+    if (!text) return { id };
+    if (await terminalOf(c.conversationId)) return { id, sent: false, why: 'a terminal session runs this conversation' };
+    await c.send(text);
+    return { id, sent: true };
+  }
+
+  /** A message to an open chat from the dashboard itself (a schedule): queued by the chat while Claude works. */
+  async function sendTo(id, text) {
+    const c = chatOr404(id);
+    const t = v.message(text);
+    if (!t) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
+    if (!c.busy()) {
+      const term = await terminalOf(c.conversationId);
+      if (term) throw inTerminal(term);
+    }
+    const r = await c.send(t);
+    save();
+    return { id: r.id, queued: r.queued };
   }
 
   // ---------- routes ----------
@@ -186,58 +281,7 @@ export function chatFeature(ctx, o = {}) {
       load();
       return { chats: [...chats.values()].map(card) };
     }],
-    ['POST', /^\/api\/chats$/, async (req) => {
-      load();
-      const b = await ctx.readJson(req);
-      const dir = insideRoots(v.absPath(b.dir), roots());
-      if (!dir) throw bad('choose a folder inside the allowed roots');
-      if (typeof b.profile !== 'string' || !profileOk(b.profile)) throw bad('there is no such provider');
-      const d = cfg().sessionDefaults || {};
-      const model = pick(b.model, models(), 'model');
-      const effort = pick(b.effort, EFFORTS, 'effort');
-      const permissionMode = pick(b.permissionMode, PERMISSION_MODES, 'permission mode');
-      let id = crypto.randomUUID();
-      if (b.sessionId !== undefined && b.sessionId !== null) {
-        id = v.sessionId(b.sessionId);
-        if (!id || !sessionsIn(dir).some((s) => s.id === id)) throw bad('that conversation is not in this folder');
-        if (chats.has(id)) return { id };
-      }
-      let text = null;
-      if (b.text !== undefined && b.text !== null) {
-        text = v.message(b.text);
-        if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
-      }
-      if (chats.size >= OPEN_MAX) {
-        const old = [...chats.values()].filter((c) => !c.child).sort((a, b2) => a.statusAt - b2.statusAt)[0];
-        if (!old) throw new HttpError(409, `${OPEN_MAX} chats are open; close one first`);
-        chats.delete(old.id);
-        old.close();
-      }
-      const c = make({
-        id, cwd: dir, profile: b.profile,
-        model: model === undefined ? d.model || null : model,
-        effort: effort === undefined ? d.effort || null : effort,
-        permissionMode: permissionMode === undefined ? d.permissionMode || null : permissionMode,
-      });
-      save();
-      if (text && !(await terminalOf(id))) await c.send(text);
-      return { id };
-    }],
-    ['POST', /^\/api\/chats\/from-session$/, async (req) => {
-      load();
-      const b = await ctx.readJson(req);
-      if (!v.sessionName(b.session)) throw bad('bad session name');
-      const found = await ctx.deck.find(b.session);
-      if (!found) throw new HttpError(404, 'no such session');
-      const run = found.run;
-      if (!run || !isSessionId(run.sessionId)) throw new HttpError(409, 'Claude has not reported its conversation yet; try again in a moment');
-      if (!chats.has(run.sessionId)) {
-        const d = cfg().sessionDefaults || {};
-        make({ id: run.sessionId, cwd: run.cwd, profile: run.profile, model: d.model || null, effort: d.effort || null, permissionMode: d.permissionMode || null });
-        save();
-      }
-      return { id: run.sessionId };
-    }],
+    ['POST', /^\/api\/chats$/, async (req) => openChat(await ctx.readJson(req))],
     ['GET', new RegExp(`^/api/chats/${ID}$`), async (req, m, q, res) => {
       const c = chatOr404(m[1]);
       c.refresh();
@@ -254,19 +298,25 @@ export function chatFeature(ctx, o = {}) {
     ['POST', new RegExp(`^/api/chats/${ID}/send$`), async (req, m) => {
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
-      const text = v.message(b.text);
+      let text = v.message(b.text);
       if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
+      let files = { images: [], mentions: [], attachments: [] };
+      if (b.attachments !== undefined && b.attachments !== null) {
+        const u = uploadsOf(c);
+        files = readAttachments(b.attachments, { cwd: u.cwd, uploadsDir: u.dir });
+        if (files.mentions.length) text = `${text}\n\n${files.mentions.join(' ')}`;
+      }
       // Also while this chat's process waits idle: a terminal may have resumed the conversation meanwhile.
-      if (c.state === 'idle') {
-        const term = await terminalOf(c.id);
+      if (!c.busy()) {
+        const term = await terminalOf(c.conversationId);
         if (term) {
           c.stop();
           throw inTerminal(term);
         }
       }
-      await c.send(text);
+      const r = await c.send(text, { images: files.images, attachments: files.attachments });
       save();
-      return { ok: true };
+      return { ok: true, id: r.id, queued: r.queued };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/answer$`), async (req, m) => {
       const c = chatOr404(m[1]);
@@ -283,81 +333,35 @@ export function chatFeature(ctx, o = {}) {
         }
       }
       const message = typeof b.message === 'string' ? b.message.slice(0, 1000) : '';
-      c.answer(b.request, { allow: b.allow, always: b.always === true, answers, message });
+      const mode = b.mode === undefined || b.mode === null ? null : pick(b.mode, PERMISSION_MODES, 'permission mode');
+      c.answer(b.request, { allow: b.allow, always: b.always === true, answers, mode, message });
+      if (mode) {
+        save();
+        remember(c);
+      }
       return { ok: true };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/stop$`), async (req, m) => {
       await ctx.readJson(req);
-      return { stopped: chatOr404(m[1]).interrupt() };
-    }],
-    ['POST', new RegExp(`^/api/chats/${ID}/next$`), async (req, m) => {
       const c = chatOr404(m[1]);
-      const b = await ctx.readJson(req);
-      c.setNext({ model: pick(b.model, models(), 'model'), effort: pick(b.effort, EFFORTS, 'effort') });
-      save();
-      return { model: c.model, effort: c.effort };
+      // What is queued is taken back first (it goes back into the box): after Stop nothing starts by itself.
+      const back = c.turn ? await c.takeBack() : [];
+      return { stopped: c.interrupt(), back };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/provider$`), async (req, m) => {
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
       if (typeof b.profile !== 'string' || !profileOk(b.profile)) throw bad('there is no such provider');
       c.setProfile(b.profile);
+      c.emit('state'); // a page that streams shows the new provider
       save();
+      remember(c);
       return { profile: profileView(c.profile) };
-    }],
-    ['POST', new RegExp(`^/api/chats/${ID}/take$`), async (req, m) => {
-      const c = chatOr404(m[1]);
-      await ctx.readJson(req);
-      const term = await terminalOf(c.id);
-      if (!term) return { ok: true };
-      if (term.termId) {
-        // The terminal stays, as a plain shell: Claude stops in it, the conversation goes on here.
-        await ctx.backend.respawn(term.termId, term.cwd || c.cwd, [process.execPath, '-e', '']);
-      } else if (v.pid(term.run.pid)) {
-        try {
-          process.kill(term.run.pid, 'SIGTERM'); // the launcher ends Claude Code and removes its run record
-        } catch {
-          /* already gone */
-        }
-      }
-      for (let i = 0; i < 40 && (await terminalOf(c.id)); i++) await new Promise((r) => setTimeout(r, 200));
-      if (await terminalOf(c.id)) throw new HttpError(409, 'the terminal did not stop; stop Claude there and try again');
-      c.refresh();
-      ctx.poke?.();
-      return { ok: true };
-    }],
-    ['POST', new RegExp(`^/api/chats/${ID}/terminal$`), async (req, m) => {
-      const c = chatOr404(m[1]);
-      await ctx.readJson(req);
-      if (!fs.existsSync(c.file())) throw new HttpError(409, 'send a first message: a conversation that has not started cannot be resumed in a terminal');
-      if (c.state !== 'idle') throw new HttpError(409, 'Claude is working. Wait until the reply ends, or press Stop first.');
-      const profile = c.profile === AUTO.name ? (autoOn() ? { name: AUTO.name, env: {} } : null) : readProfile(c.profile);
-      if (!profile) throw bad('the provider of this chat is gone; choose another one first');
-      chats.delete(c.id);
-      await c.close();
-      const flags = [
-        ...(c.permissionMode ? ['--permission-mode', c.permissionMode] : []),
-        ...(c.effort ? ['--effort', c.effort] : []),
-        ...(c.model ? ['--model', c.model] : []),
-      ];
-      let name;
-      try {
-        name = await ctx.deck.start({ dir: c.cwd, profile, mode: 'resume', sessionId: c.id, flags });
-      } catch (e) {
-        make(c.record()); // the terminal did not start: the chat stays open
-        throw e;
-      }
-      save();
-      ctx.poke?.();
-      return { name };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/upload$`), async (req, m) => {
       const c = chatOr404(m[1]);
       const s = cfg().server;
-      const dirName = uploadsDirName(s.uploadsDir || DEFAULT_UPLOADS_DIR);
-      if (!dirName) throw new HttpError(500, 'server.uploadsDir must be a relative folder name');
-      const cwd = insideRoots(c.cwd, roots());
-      if (!cwd) throw bad('this chat runs outside the allowed folders');
+      const { cwd, dirName } = uploadsOf(c);
       let fileName = 'upload';
       try {
         fileName = decodeURIComponent(String(req.headers['x-file-name'] || 'upload'));
@@ -378,9 +382,21 @@ export function chatFeature(ctx, o = {}) {
     }],
   ];
 
+  // The open chat that runs conversation `id` now, or null. By the conversation, never by the chat's own id: a chat
+  // opened on X keeps X as its id after a clear or a rewind gave it conversation Y, and X is then free to continue.
+  const openChatOf = (id) => ([...chats.values()].find((c) => c.conversationId === id) || {}).id || null;
+  // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
+  const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
+  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, auto: { name: AUTO.name, on: autoOn } }));
+  const live = liveRoutes(ctx, { chatOr404, save, remember, bad, models, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
+  routes.push(...live.routes);
+
   return {
     name: 'chat',
     routes,
+    handle: live.handle, // the event stream (server-sent events)
+    open: openChat, // a chat for the dashboard itself (the schedules)
+    send: sendTo,
     /** The open chats as session cards (server.mjs adds them to the sessions: Home, notifications). */
     cards() {
       load();
@@ -389,8 +405,8 @@ export function chatFeature(ctx, o = {}) {
     /** True when a chat runs conversation `id` right now: its process, or one getting ready for a message. */
     running(id) {
       load();
-      const c = chats.get(id);
-      return !!(c && (c.child || c.state !== 'idle'));
+      const c = [...chats.values()].find((x) => x.conversationId === id);
+      return !!(c && (c.session || c.busy()));
     },
     async close() {
       await Promise.all([...chats.values()].map((c) => c.close(3000)));

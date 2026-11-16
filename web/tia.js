@@ -20,6 +20,7 @@ const TOOL_WORDS = {
   list_sessions: 'looked at the sessions', read_session: 'read a session', list_projects: 'looked at the projects', list_conversations: 'looked at earlier conversations',
   get_accounts: 'looked at the providers', get_computer_status: 'looked at the computers', get_settings: 'read the settings', find_skill: 'looked up how to do it',
   start_session: 'start a session', send_to_session: 'type into a session', press_key: 'press a key in a session', rename_session: 'rename a session',
+  start_chat: 'start a chat', send_to_chat: 'act in a chat',
   watch_session: 'watch a session', finish_job: 'finish the job', notify_owner: 'notify you', open_screen: 'open a screen',
   stop_session: 'stop a session', switch_account: 'move a session to another provider', set_auto_mode: 'change Auto mode',
   update_claude_code: 'update Claude Code', kill_process: 'end a process', change_setting: 'change a setting', run_command: 'run a command',
@@ -30,6 +31,7 @@ const DOING = {
   list_sessions: 'looking at the sessions', read_session: 'reading a session', list_projects: 'looking at your projects', list_conversations: 'looking at earlier conversations',
   get_accounts: 'checking the providers', get_computer_status: 'checking the computers', get_settings: 'reading the settings', find_skill: 'looking up how to do it',
   start_session: 'starting a session', send_to_session: 'typing into a session', press_key: 'pressing a key in a session', rename_session: 'renaming a session',
+  start_chat: 'starting a chat', send_to_chat: 'writing to a chat',
   watch_session: 'watching a session', finish_job: 'finishing the job', notify_owner: 'writing to you', open_screen: 'opening a screen',
   stop_session: 'stopping a session', switch_account: 'moving a session to another provider', set_auto_mode: 'changing Auto mode',
   update_claude_code: 'updating Claude Code', kill_process: 'ending a process', change_setting: 'changing a setting', run_command: 'running a command',
@@ -39,6 +41,7 @@ const DOING = {
 const DID = {
   ...Object.fromEntries(Object.entries(TOOL_WORDS).filter(([, v]) => v.startsWith('looked') || v.startsWith('read'))),
   start_session: 'started a session', send_to_session: 'typed into a session', press_key: 'pressed a key', rename_session: 'renamed a session',
+  start_chat: 'started a chat', send_to_chat: 'wrote to a chat',
   watch_session: 'watches a session', finish_job: 'finished the job', notify_owner: 'notified you', open_screen: 'opened a screen',
   stop_session: 'stopped a session', switch_account: 'moved a session', set_auto_mode: 'changed Auto mode', update_claude_code: 'updated Claude Code',
   kill_process: 'ended a process', change_setting: 'changed a setting', run_command: 'ran a command', manage_computer: 'changed a computer', draft_skill: 'added a skill',
@@ -116,15 +119,19 @@ export function plainCard(card, { accounts = [], computerLabel = null } = {}) {
     question = `Move the session ${a.session}${on}${from ? ` from ${label(from)}` : ''} to ${label(target)}?`;
     notes.push('The conversation carries on there where it stopped.');
     if (lines.some((l) => /is itself at a usage limit/.test(l))) notes.push(`${label(target)} is at its usage limit right now too.`);
-  } else if (card.tool === 'start_session') {
+  } else if (card.tool === 'start_session' || card.tool === 'start_chat') {
     target = a.account;
-    question = `Start a session in ${String(a.folder || '').split(/[\\/]/).filter(Boolean).pop() || a.folder}${on}${target ? ` on ${label(target)}` : ''}?`;
+    question = `Start a ${card.tool === 'start_chat' ? 'chat' : 'session'} in ${String(a.folder || '').split(/[\\/]/).filter(Boolean).pop() || a.folder}${on}${target ? ` on ${label(target)}` : ''}?`;
     if (a.message) quote = a.message;
     if (a.goal) notes.push(`Done when: ${a.goal}.`);
-  } else if (card.tool === 'send_to_session') {
+  } else if (card.tool === 'send_to_session' && a.key === undefined) {
     question = `Type this into the session ${a.session}${on}?`;
     quote = a.text;
-  } else if (card.tool === 'press_key') {
+  } else if (card.tool === 'send_to_chat') {
+    const words = { allow: 'Allow', allow_always: 'Allow, and not ask again in this chat,', deny: 'Say no to' };
+    question = a.stop ? `Stop the reply in the chat ${a.session}${on}?` : a.answer ? `${words[a.answer] || a.answer} what the chat ${a.session}${on} asks?` : `Send this to the chat ${a.session}${on}?`;
+    if (a.text !== undefined) quote = a.text;
+  } else if (card.tool === 'press_key' || card.tool === 'send_to_session') {
     question = `Press ${a.key} in the session ${a.session}${on}?`;
   } else if (card.tool === 'stop_session') {
     question = `Stop the session ${a.session}${on}?`;
@@ -147,7 +154,7 @@ export function plainCard(card, { accounts = [], computerLabel = null } = {}) {
         : whyRaw ? `${NAME} asks because ${whyRaw.replace(/\.$/, '')}.`
           : `${NAME} asks before anything risky.`;
   // What the plain words above do not already say (other tools' own lines), for "Details".
-  const said = ['switch_account', 'start_session', 'send_to_session', 'press_key', 'run_command'].includes(card.tool);
+  const said = ['switch_account', 'start_session', 'start_chat', 'send_to_session', 'send_to_chat', 'press_key', 'run_command'].includes(card.tool);
   const details = said ? [] : lines.filter((l) => !l.startsWith('Why a card: ') && !l.startsWith('The session asks: '));
   return { question, quote, notes, why, details };
 }

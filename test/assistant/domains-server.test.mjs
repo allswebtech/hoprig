@@ -129,9 +129,10 @@ test('Tia\'s page tools go through the page\'s own routes', { timeout: 120_000, 
   assert.match(r.text, /need a decision: they were NOT done/);
 
   // Automations: a schedule through its card, then the list says it the page's way.
-  r = await call('manage_automation', { action: 'add_schedule', time: '08:15', folder: path.join(projects, 'shop'), account: 'sub', text: 'run the tests' });
-  assert.match(r.text, /every day at 08:15, start a session in .*shop on sub/);
+  r = await call('manage_automation', { action: 'add_schedule', time: '08:15', folder: path.join(projects, 'shop'), account: 'sub', in: 'chat', text: 'run the tests' });
+  assert.match(r.text, /every day at 08:15, start a chat in .*shop on sub/);
   assert.equal((await confirm(r.text)).status, 200);
+  assert.deepEqual(loadConfig().automation.schedules.list.at(-1).action, { type: 'start', dir: path.join(projects, 'shop'), profile: 'sub', in: 'chat', prompt: 'run the tests' }, 'saved as a chat schedule');
   r = await call('manage_automation', { action: 'list' });
   assert.match(r.text, /1 schedule\(s\)/);
   assert.equal((await call('manage_automation', { action: 'pause' })).isError, false);
