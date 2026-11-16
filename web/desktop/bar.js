@@ -181,7 +181,7 @@ export function drawBars({ root, top, bottom, style, desk }) {
       else desk.launch(app.id);
     } }, icon(app.icon, { size: 22 }), h('span.desk-dock-dot', { 'aria-hidden': 'true' }));
     withMenu(b, () => [
-      app.single && open.length ? null : { label: open.length ? `New ${app.title} window` : `Open ${app.title}`, icon: 'plus', run: () => desk.launch(app.id) },
+      app.single && wm.only(app.id) ? null : { label: open.length && !app.single ? `New ${app.title} window` : `Open ${app.title}`, icon: 'plus', run: () => desk.launch(app.id) },
       ...open.map((w) => ({ label: w.title, icon: app.icon, run: () => wm.raise(w.id) })),
       ...(open.length ? [null, { label: open.length > 1 ? 'Close all its windows' : 'Close', icon: 'x', danger: true, run: async () => {
         for (const w of open) await wm.close(w.id); // one at a time: a shell's window asks first

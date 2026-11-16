@@ -179,7 +179,7 @@ body.bare .pagehead-primary { display: inline-flex; }
 .dwin[data-kind='native'] .dwin-body { display: flex; background: var(--bg); }
 .dwin[data-kind='native'][aria-current='false'] .dwin-shield { display: none; } /* the press goes to the app, which comes forward */
 .desk-busy .dwin[data-kind='native'] .dwin-shield { display: block; }
-.dapp { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: var(--fs-sm); }
+.dapp { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: var(--fs-sm); overflow: auto; } /* a short window scrolls the app instead of squeezing its list to a line */
 .dapp-page { min-height: 70vh; height: calc(100vh - 220px); padding: 0; }
 .dapp-view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 .dapp-bar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -262,9 +262,9 @@ body.bare .pagehead-primary { display: inline-flex; }
 .dapp-loghead { flex: none; display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
 
 /* Logs */
-.dapp-log { flex: 1; min-height: 0; margin: 0; padding: 10px 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; color: var(--text); background: var(--surface); }
+.dapp-log { flex: 1; min-height: 120px; margin: 0; padding: 10px 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; color: var(--text); background: var(--surface); }
 .dapp-logs .dapp-log { border: 1px solid var(--border); border-radius: var(--r); }
-.dapp-journal { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+.dapp-journal { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); font-family: var(--mono); font-size: 12px; line-height: 1.5; }
 .dapp-entry { display: grid; grid-template-columns: 112px minmax(80px, 160px) 64px 1fr; gap: 10px; padding: 2px 12px; }
 .dapp-entry:hover { background: var(--surface-2); }
 .dapp-time, .dapp-unit-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

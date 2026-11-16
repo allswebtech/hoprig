@@ -11,7 +11,7 @@ import { add, api, applyPageTheme, btn, confirmSheet, fill, h, link, machine, pr
 import { registerPage, registerSettingsPage, registeredSettingsPages } from './registry.js';
 import { field, fold, info, openLabel, panel, saveBar, savedMark, toggle } from './shell.js';
 import { pageNotify, store } from './store.js';
-import { desktopSettings, reachSettings } from './desktop/index.js';
+import { deskStyle, desktopSettings, reachSettings } from './desktop/index.js';
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -141,7 +141,7 @@ function terminalsPanel(b) {
     h('p.hint', 'Chosen automatically: tmux when it is installed. To force one, set server.backend to "tmux" or "pty" in the config and restart.'));
 }
 
-const lookSummary = () => `${cap(prefs.get('page.theme', 'system'))} · terminal ${prefs.get('term.theme', 'dark')} · ${termFont()} px`;
+const lookSummary = () => `${cap(prefs.get('page.theme', 'system'))} · terminal ${prefs.get('term.theme', 'dark')} · ${termFont()} px · desktop ${deskStyle() === 'dock' ? 'Dock' : 'Taskbar'}`;
 
 // ---------- Security and sign-in ----------
 function passwordPanel() {

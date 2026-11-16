@@ -121,9 +121,10 @@ function mountDesktop() {
     async launch(id, hash = null) {
       const a = appById(id);
       if (!a) return;
-      // An app whose windows all show the same (Sessions, Task manager…) has one: it comes to the front.
-      const one = a.single && !hash ? desk.wm.list().find((w) => w.app === a.id) : null;
-      if (one) return desk.wm.raise(one.id);
+      // An app whose windows all show the same (the Sessions list, Task manager…) has one: it comes to the front. A
+      // window of a conversation is not the list (wm.only), so the list opens beside it.
+      const one = a.single && !hash ? desk.wm.only(a.id) : null;
+      if (one) return desk.wm.raise(one);
       // Past the window limit nothing starts: a shell with no window would keep running unseen.
       if (!desk.wm.canOpen()) return;
       if (a.kind === 'terminal') {
@@ -144,13 +145,11 @@ function mountDesktop() {
       }
       desk.wm.open(id, to, { title: a.title });
     },
-    /** The Sessions window at its list (the sessions that need you are at its top), opened if there is none. */
-    showSessions() {
-      const w = desk.wm.list().find((x) => x.app === 'sessions');
-      if (!w) return desk.launch('sessions');
-      if (w.home && w.hash !== w.home) desk.wm.navigate(w.id, w.home);
-      desk.wm.raise(w.id);
-    },
+    /**
+     * The Sessions list (the sessions that need you are at its top): its window comes forward, or one opens. A window
+     * that shows a conversation keeps it.
+     */
+    showSessions: () => desk.launch('sessions'),
     openSession(s) {
       desk.wm.open(s.kind === 'shell' ? 'terminal' : 'sessions', sessionHash(s.name, machineName), { title: s.display || s.name });
     },

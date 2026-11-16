@@ -359,6 +359,16 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     /** The windows in the order they were opened, for the bars: { id, app, title, min, focused }. */
     list: () => wins.map((v) => ({ id: v.id, app: v.app, title: v.title || appById(v.app).title, label: labelOf(v), min: v.min, focused: v.id === focusId && !v.min, hash: v.hash, home: v.home, own: v.own })),
     focused: () => (focusId ? byId(focusId) : null),
+    /**
+     * The window that stands for an app with one window (apps.js `single`), or null. For a page app it is one still on
+     * its app's start page (Sessions: the list); a window that moved on to something else (a conversation, opened
+     * from the list or from the start menu) is that thing now and is never reused or sent back.
+     */
+    only(appId) {
+      const app = appById(appId);
+      const v = wins.find((w) => w.app === appId && (app.kind !== 'page' || samePlace(w.hash, w.home)));
+      return v ? v.id : null;
+    },
     /** The area changed size (the window, or the other style's bars): every window fits it again. */
     relayout: onResize,
     /** Every window side by side in a grid, none minimised. */

@@ -2,19 +2,22 @@
 // Dev-only (not in the published package): the desktop's second review settled, proven in a real browser on
 // `hoprig demo` (its own temp folders) and the local Chrome headless.
 //
-//   TMPDIR=/tmp node tools/desktop-fixup-check.mjs [--port 7680] [--out <folder>] [--only desk,files,wide,fit,phone,dock]
+//   TMPDIR=/tmp node tools/desktop-fixup-check.mjs [--port 7680] [--out <folder>] [--only desk,files,far,wide,fit,phone,dock]
 //
 // Parts, the first is the one that matters most (Taskbar style, light, 1440 × 900):
-//   desk   a new window takes the keyboard (Terminal from the start menu, a native app from an icon); Sessions is one
-//          window that the icon and the needs-you count bring forward; the count is this computer's; its window
+//   desk   a new window takes the keyboard (Terminal from the start menu, a native app from an icon); the Sessions
+//          list is one window that the icon and the needs-you count bring forward, and a conversation in a window
+//          is never taken over by them; the count is this computer's; its window
 //          shows "New session" at the size it opens at; the start menu's search finds sessions and marks what Enter
 //          opens; a toast sits above Tia, not over the way back; "Desktop settings" lands on its card; the computer
 //          page has one way to the desktop; the Editor's empty page sends to Files
 //   files  one glyph per action in the bar, Delete with its word; a missing folder says so (not "update"); Type a
 //          path replaces what is there; Undo after a delete; "Save and close" for an Editor window
 //   wide   crossing the 1024 × 600 line keeps Editor windows that hold unsaved changes
-//   fit    a layout from a larger screen, and a smaller browser window, keep every window inside, buttons included
+//   fit    a layout from a larger screen, and a smaller browser window, keep every window inside, buttons included;
+//          twelve windows arranged keep a Logs list to read
 //   phone  390 × 844 with a touch screen: the Task manager's End and the Services' buttons are a finger's size with words
+//   far    a big file on another disk than the trash is offered "Delete for good" (only with HOPRIG_CHECK_FAR_DIR)
 //   dock   Dock style, dark: the window buttons show their glyph, the count of the Laptop's desktop is the Laptop's
 import fs from 'node:fs';
 import path from 'node:path';
@@ -137,6 +140,37 @@ try {
     const apart = (a, b) => !a || !b || a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
     check(P, 'a toast is at the bottom right, clear of the way back and of Tia\'s button', !!t && t.y > 450 && apart(t, back) && apart(t, tia), J({ t, back, tia }));
     await shot('f04-toast');
+    // A conversation in a window is not the Sessions list: the icon and the count never take it over.
+    const listId = await ev(`document.querySelector('.dwin[data-app="sessions"]').dataset.id`);
+    const conv = await ev(`window.__hoprigStore.all.find((x) => !x.machine).sessions.find((s) => s.kind !== 'chat' && s.kind !== 'shell').name`);
+    const hashOf = (id) => ev(`(() => { const f = document.querySelector('.dwin[data-id="${id}"] iframe'); return f ? f.contentWindow.location.hash : null; })()`);
+    const frontId = () => ev(`(document.querySelector('.dwin[aria-current="true"]') || { dataset: {} }).dataset.id || null`);
+    await press('.desk-start');
+    await waitFor(`!!document.querySelector('.desk-search')`);
+    await chrome.send('Input.insertText', { text: conv });
+    await sleep(300);
+    await pressText('.desk-session', conv);
+    await waitFor(`document.querySelectorAll('.dwin[data-app="sessions"]').length === 2`, 6000);
+    const convId = await ev(`[...document.querySelectorAll('.dwin[data-app="sessions"]')].map((w) => w.dataset.id).find((id) => id !== ${J(listId)})`);
+    const convHash = `#/s/${encodeURIComponent(conv)}`;
+    await waitFor(`(() => { const f = document.querySelector('.dwin[data-id="${convId}"] iframe'); return !!f && f.contentWindow.location.hash === ${J(convHash)}; })()`, 6000);
+    await press('.desk-icon[data-app="sessions"]');
+    await sleep(500);
+    check(P, 'with a conversation open in a window, the Sessions icon brings the list forward', (await frontId()) === listId && (await count('sessions')) === 2 && (await hashOf(convId)) === convHash, J({ front: await frontId(), conv: await hashOf(convId) }));
+    await click(...center(await rectOf(`.dwin[data-id="${convId}"] .dwin-bar`)));
+    await sleep(300);
+    await press('.desk-waiting');
+    await sleep(500);
+    check(P, 'and the count brings the list forward, the conversation stays', (await frontId()) === listId && (await hashOf(convId)) === convHash);
+    // With no list window, the count opens one beside the conversation.
+    await press(`.dwin[data-id="${listId}"] .dwin-btn[data-act="x"]`);
+    await waitFor(`document.querySelectorAll('.dwin[data-app="sessions"]').length === 1`, 4000);
+    await press('.desk-waiting');
+    await waitFor(`document.querySelectorAll('.dwin[data-app="sessions"]').length === 2`, 6000);
+    await sleep(800);
+    const newList = await frontId();
+    check(P, 'with only a conversation open, the count opens the list in a new window', newList !== convId && (await hashOf(newList)) === '#/' && (await hashOf(convId)) === convHash, J({ list: await hashOf(newList), conv: await hashOf(convId) }));
+    await shot('f04b-list-and-conversation');
     // The Editor with nothing open sends to Files.
     await press('.desk-icon[data-app="editor"]');
     await waitFor(`(() => { const f = document.querySelector('.dwin[data-app="editor"] iframe'); return !!f && !!f.contentDocument && !!f.contentDocument.querySelector('main .page-title'); })()`, 10000);
@@ -213,6 +247,33 @@ try {
     await finish();
   }
 
+  // ---------- far: a big file on another disk than the trash is offered "Delete for good" ----------
+  // Only with HOPRIG_CHECK_FAR_DIR: a folder on another disk than the demo's own folders (the demo's are in the
+  // temporary folder). Files reaches it with the reach "Everything", set for this part and set back after.
+  if (want('far') && process.env.HOPRIG_CHECK_FAR_DIR) {
+    const P = 'far';
+    const far = fs.mkdtempSync(path.join(process.env.HOPRIG_CHECK_FAR_DIR, 'far-'));
+    const big = path.join(far, 'big.bin');
+    fs.writeFileSync(big, '');
+    fs.truncateSync(big, 600 * 1024 * 1024); // sparse: 600 MB by its size, nothing on the disk
+    try {
+      await open('#/desktop', { w: 1440, h: 900, prefs: fresh });
+      await ev(`(async () => { const m = await import('/lib.js'); await m.api('/api/settings', { server: { reach: 'everything' } }); return true; })()`);
+      const W = await filesAt(far);
+      await click(...center(await rectOf(`${W} .dfiles-name[data-key="big.bin"]`)));
+      await sleep(200);
+      await pressText(`${W} .dfiles-delete`, 'Delete');
+      check(P, 'a 600 MB file on another disk is not copied into the trash: Delete for good is asked', await waitFor(`!!document.querySelector('dialog[open]') && [...document.querySelectorAll('dialog[open] button')].some((b) => b.textContent.trim() === 'Delete for good')`, 8000) && fs.existsSync(big));
+      await shot('f14-delete-for-good');
+      await pressText('dialog[open] button', 'Delete for good');
+      check(P, 'which deletes it and says so', await waitFor(`[...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('for good'))`, 8000) && !fs.existsSync(big));
+      await finish();
+    } finally {
+      await ev(`(async () => { const m = await import('/lib.js'); await m.api('/api/settings', { server: { reach: 'home' } }); return true; })()`).catch(() => {});
+      fs.rmSync(far, { recursive: true, force: true });
+    }
+  }
+
   // ---------- wide: unsaved Editor windows across the 1024 × 600 line ----------
   if (want('wide')) {
     const P = 'wide';
@@ -267,6 +328,21 @@ try {
     await sleep(800);
     check(P, 'making the browser window smaller moves the windows inside it', await inside());
     await shot('f31-live-resize');
+    // Twelve windows arranged side by side: the Logs window keeps a list to read, scrolling the rest of its app.
+    await open('#/desktop', { w: 1440, h: 900, prefs: fresh });
+    for (const a of ['logs', 'tasks', 'services']) await press(`.desk-icon[data-app="${a}"]`);
+    for (let i = 0; i < 9; i++) {
+      await ev(`document.querySelector('.desk-icon[data-app="files"]').click(), true`);
+      await sleep(250);
+    }
+    await waitFor(`document.querySelectorAll('.dwin').length === 12`, 8000);
+    await ev(`(() => { const a = document.querySelector('.desk-area'); const r = a.getBoundingClientRect(); a.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.right - 5, clientY: r.bottom - 5 })); return true; })()`);
+    await waitFor(`!!document.querySelector('.desk-menu')`);
+    await pressText('.desk-menu-item', 'Arrange the windows');
+    await sleep(800);
+    const pane = await ev(`(() => { const w = document.querySelector('.dwin[data-app="logs"]'); const j = w.querySelector('.dapp-journal'); return { win: w.offsetHeight, list: j ? j.offsetHeight : 0 }; })()`);
+    check(P, 'arranged at 12 windows, the Logs list keeps a height to read (the app scrolls to it) instead of one squeezed line', pane.list >= 110, J(pane));
+    await shot('f32-arranged-12');
     await finish();
   }
 
@@ -303,6 +379,34 @@ try {
     check(P, 'the Dock style\'s window buttons show their glyph', !/rgba\(0, 0, 0, 0\)|transparent/.test(glyph), glyph);
     check(P, 'the Services icon is not the power symbol', await ev(`(() => { const s = document.querySelector('.desk-icon[data-app="services"] svg path'); return !!s && !s.getAttribute('d').startsWith('M12 3v9'); })()`));
     await shot('f50-dock-dark');
+    // The Sessions dock item's menu: with only a conversation in a window it still offers the list; with the list
+    // open, no second list.
+    const sessMenu = async () => {
+      await ev(`(() => { const b = document.querySelector('.desk-dock-item[data-app="sessions"]'); const r = b.getBoundingClientRect(); b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.x + 5, clientY: r.y + 5 })); return true; })()`);
+      await waitFor(`!!document.querySelector('.desk-menu')`);
+      const items = await ev(`[...document.querySelectorAll('.desk-menu .desk-menu-item')].map((b) => b.textContent.trim())`);
+      await chrome.send('Input.dispatchKeyEvent', { type: 'keyDown', code: 'Escape', key: 'Escape', windowsVirtualKeyCode: 27 });
+      await chrome.send('Input.dispatchKeyEvent', { type: 'keyUp', code: 'Escape', key: 'Escape', windowsVirtualKeyCode: 27 });
+      await sleep(200);
+      return items;
+    };
+    const conv = await ev(`window.__hoprigStore.all.find((x) => !x.machine).sessions.find((s) => s.kind !== 'chat' && s.kind !== 'shell').name`);
+    await press('.desk-launch');
+    await waitFor(`!!document.querySelector('.desk-search')`);
+    await chrome.send('Input.insertText', { text: conv });
+    await sleep(300);
+    await pressText('.desk-session', conv);
+    await waitFor(`document.querySelectorAll('.dwin[data-app="sessions"]').length === 1`, 6000);
+    const withConv = await sessMenu();
+    check(P, 'with only a conversation open, the Sessions dock menu offers "Open Sessions"', withConv.includes('Open Sessions') && !withConv.some((t) => /New Sessions window/.test(t)), J(withConv));
+    await ev(`(() => { const b = document.querySelector('.desk-dock-item[data-app="sessions"]'); const r = b.getBoundingClientRect(); b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.x + 5, clientY: r.y + 5 })); return true; })()`);
+    await waitFor(`!!document.querySelector('.desk-menu')`);
+    await pressText('.desk-menu-item', 'Open Sessions');
+    await waitFor(`document.querySelectorAll('.dwin[data-app="sessions"]').length === 2`, 6000);
+    await sleep(500);
+    const withList = await sessMenu();
+    check(P, 'with the list open too, the menu offers no second list and names both windows', !withList.some((t) => /^(Open Sessions|New Sessions window)$/.test(t)) && withList.length >= 2, J(withList));
+    await shot('f50b-dock-sessions');
     await open('#/m/laptop/desktop', { w: 1440, h: 900, theme: 'dark' });
     await waitFor(`!!document.querySelector('.desk-tray')`, 8000);
     await sleep(1500);
