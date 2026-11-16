@@ -30,7 +30,7 @@ import { listProfiles, publicProfile, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { isSessionId, sessionsIn } from '../sessions.mjs';
 import { matchRuns } from '../server/deck.mjs';
-import { insideRoots, resolveRoots } from '../server/folders.mjs';
+import { insideRoots, reachRoots } from '../server/folders.mjs';
 import { parentLookup, procParent } from '../server/platform.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from '../server/uploads.mjs';
 import * as v from '../server/validate.mjs';
@@ -49,7 +49,7 @@ export function chatFeature(ctx, o = {}) {
   const { HttpError } = ctx;
   const bad = (msg) => new HttpError(400, msg);
   const cfg = () => ctx.config();
-  const roots = () => resolveRoots(cfg().server.roots);
+  const roots = () => reachRoots(cfg().server);
   const file = () => o.file || path.join(stateDir(), 'chats.json');
   const chats = new Map();
   let loaded = false;

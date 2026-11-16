@@ -87,6 +87,11 @@ export function cleanServerPatch(b) {
   for (const [k, v] of Object.entries(b)) {
     if (k === 'quickActions') out.quickActions = cleanQuickActions(v);
     else if (k === 'roots') out.roots = cleanRoots(v);
+    else if (k === 'reach') {
+      // How far Files, the editor and new sessions reach (folders.mjs reachRoots): the allowed folders, or the whole disk.
+      if (v !== 'home' && v !== 'everything') throw new Error('reach is "home" or "everything"');
+      out.reach = v;
+    }
     else if (k === 'notify') out.notify = cleanNotify(v);
     else if (k === 'publicUrl') out.publicUrl = cleanPublicUrl(v);
     else if (k === 'allowedOrigins') out.allowedOrigins = cleanOrigins(v);

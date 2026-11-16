@@ -25,7 +25,7 @@
 // computer: a session there runs commands as this user already, so the files add no new power). Tia's token is
 // refused: she opens the editor for the owner (a link), she does not read or write files through it.
 import { stateDir } from '../paths.mjs';
-import { resolveRoots } from '../server/folders.mjs';
+import { reachRoots } from '../server/folders.mjs';
 import { cleanupVscode } from './cleanup.mjs';
 import { MAX_BYTES, create, readFile, remove, rename, tree, versions, writeFile } from './files.mjs';
 import { commit, diffSides, discard, gitBranches, gitLog, gitStatus, stage, unstage } from './git.mjs';
@@ -66,7 +66,7 @@ const flag = (q, k) => ['1', 'true', 'yes'].includes(String(q.get(k) || '').toLo
 
 /** `opts` (tests): cleanup (false: skip the one-time cleanup, or its options), searchEnv (PATH without rg). */
 export function editorFeature(sctx, opts = {}) {
-  const roots = () => resolveRoots(sctx.config().server.roots);
+  const roots = () => reachRoots(sctx.config().server);
   const notTia = (req) => {
     if (/^Bearer\s+tia_/i.test(String((req.headers && req.headers.authorization) || ''))) throw fail(403, 'the editor\'s files are the owner\'s; Tia opens the editor with a link');
   };

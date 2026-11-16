@@ -6,13 +6,18 @@
 //   - leads, after symlinks, out of the root or the dashboard's roots, or into the dashboard's own folders;
 //   - passes through a private folder (the same list git status leaves out) or git's own folder (.git, or any folder
 //     that is a git directory: a bare repository, a worktree's separate one), read or write;
-//   - is one of the files that hold a sign-in (Claude Code's stored sign-in, the providers' files).
+//   - is one of the files that hold a sign-in (Claude Code's stored sign-in, the providers' files, the workspace's
+//     credentials folder), or lies in the system's views of processes and devices (/proc, /sys, /dev): what they
+//     hold is not a file (a process's environment, a device without end).
+// Files (the desktop's app, src/desktop/files.mjs) names full paths: locate() turns one into a root and a path
+// inside it, so every rule here holds for it too.
 // On macOS and Windows a disk usually ignores the case of a name, so names are compared there without it.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { claudeDir, profilesDir } from '../paths.mjs';
 import { listProfiles } from '../profiles.mjs';
+import { workspaceDir } from '../workspace/layout.mjs';
 import { FOLD, PRIVATE_DIRS } from '../pcsetup/projects.mjs';
 import { insideRoots, isOwnFolder, ownRoots, within } from '../server/folders.mjs';
 
@@ -83,6 +88,11 @@ export function secretPaths() {
     /* no providers' folder */
   }
   const list = [profilesDir(), path.join(os.homedir(), '.claude.json')];
+  try {
+    list.push(path.join(workspaceDir(), 'credentials')); // keys and passwords for local work (the workspace's layout)
+  } catch {
+    /* no settings to read */
+  }
   for (const c of claude) list.push(path.join(c, '.credentials.json'), path.join(c, '.claude.json'));
   const out = new Set();
   for (const p of list) {
@@ -92,8 +102,10 @@ export function secretPaths() {
   secretCache = { at: Date.now(), list: [...out] };
   return secretCache.list;
 }
-/** True when `p` (a real path) is such a file, or inside the providers' folder. */
-export const isSecret = (p, fold = FOLD) => secretPaths().some((s) => (fold ? within(p.toLowerCase(), s.toLowerCase()) : within(p, s)));
+// The system's views of processes and devices: nothing in them is a file to show or change.
+const PSEUDO = process.platform === 'win32' ? [] : process.platform === 'darwin' ? ['/dev'] : ['/proc', '/sys', '/dev'];
+/** True when `p` (a real path) is such a file, inside the providers' or the credentials folder, or a system view. */
+export const isSecret = (p, fold = FOLD) => PSEUDO.some((s) => within(p, s)) || secretPaths().some((s) => (fold ? within(p.toLowerCase(), s.toLowerCase()) : within(p, s)));
 /** True when `p` (a real path) is a folder that holds such a file at any depth. */
 export const holdsSecret = (p, fold = FOLD) => secretPaths().some((s) => (fold ? within(s.toLowerCase(), p.toLowerCase()) : within(s, p)));
 
@@ -236,4 +248,37 @@ export function mayChangeFolder(abs) {
       stack.push(path.join(dir, d.name));
     }
   }
+}
+
+/**
+ * A full path from Files (the desktop's app) as the editor's (root, path inside it): the reach root it lies in, after
+ * symlinks, then resolveIn() with every rule above. Modes as resolveIn's. Returns { root, abs, rel }. The tops of the
+ * reach (the home folder, the disk) are never changed, renamed or moved.
+ */
+export function locate(p, roots, { mode = 'existing' } = {}) {
+  if (typeof p !== 'string' || !p || p.length > 4096 || p.includes('\0') || !path.isAbsolute(p)) throw fail(400, 'send a full path');
+  const parts = p.split(/[\\/]+/).filter(Boolean);
+  if (parts.includes('..') || parts.includes('.')) throw fail(400, 'a path cannot go up or have empty parts');
+  if (parts.some((s) => isPrivateName(s))) throw fail(403, PRIVATE_MSG);
+  if (parts.some((s) => isGitName(s))) throw fail(403, GIT_MSG);
+  const abs = path.resolve(p);
+  // The real path of what is named ('existing'), or of its folder (the name itself is not followed).
+  const follow = mode === 'existing' ? abs : path.dirname(abs);
+  let real;
+  try {
+    real = fs.realpathSync(follow);
+  } catch {
+    if (!roots.some((r) => within(abs, r))) throw fail(403, 'that folder is not one the dashboard may show');
+    throw fail(404, mode === 'existing' ? 'there is no such file or folder' : 'the folder it would go into does not exist');
+  }
+  if (mode !== 'existing') {
+    if (follow === abs) throw fail(400, 'the top of a disk cannot be changed');
+    real = path.join(real, path.basename(abs));
+  }
+  // The deepest root it lies in, so a root inside another (a second disk mounted in the home folder) is its own.
+  const root = roots.filter((r) => within(real, r)).sort((a, b) => b.length - a.length)[0];
+  if (!root) throw fail(403, 'that folder is not one the dashboard may show');
+  const rel = path.relative(root, real).split(path.sep).filter(Boolean).join('/');
+  if (!rel && mode !== 'existing') throw fail(400, 'the top of what Files reaches cannot be changed here');
+  return resolveIn(root, rel, roots, { mode });
 }

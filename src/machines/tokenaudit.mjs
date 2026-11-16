@@ -76,6 +76,17 @@ export const CHANGES = [
   ['POST', /^\/api\/code\/delete$/, () => 'deleted a file or folder in the code editor'],
   ['POST', /^\/api\/code\/git\/discard$/, () => 'discarded changes in the code editor'],
   ['POST', /^\/api\/code\/git\/commit$/, () => 'made a git commit in the code editor'],
+  // Files on the desktop: what was done, never which file or what was in it.
+  ['POST', /^\/api\/files\/upload$/, () => 'uploaded a file in Files'],
+  ['POST', /^\/api\/files\/new$/, () => 'made a file or folder in Files'],
+  ['POST', /^\/api\/files\/rename$/, () => 'renamed a file or folder in Files'],
+  ['POST', /^\/api\/files\/move$/, () => 'moved files in Files'],
+  ['POST', /^\/api\/files\/copy$/, () => 'copied files in Files'],
+  ['POST', /^\/api\/files\/trash$/, () => 'moved files to the trash in Files'],
+  ['POST', /^\/api\/files\/trash\/restore$/, () => 'put a file back from the trash in Files'],
+  ['POST', /^\/api\/files\/trash\/empty$/, () => 'emptied the trash in Files'],
+  ['POST', /^\/api\/files\/pack$/, () => 'packed files into an archive in Files'],
+  ['POST', /^\/api\/files\/unpack$/, () => 'unpacked an archive in Files'],
 ];
 
 /** { did, asks } for `method p` done by the token called `name`, or null when it is not a change we log. */

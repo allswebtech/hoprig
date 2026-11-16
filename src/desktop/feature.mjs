@@ -1,5 +1,5 @@
-// The desktop's system apps as a server feature: the Task manager, Services and Logs (web/desktop/tasks.js,
-// services.js, logs.js). Every route sits behind the sign-in like its neighbours and works the same for another
+// The desktop's apps as a server feature: the Task manager, Services and Logs (web/desktop/tasks.js, services.js,
+// logs.js), and Files (its routes are in files.mjs). Every route sits behind the sign-in like its neighbours and works the same for another
 // computer through the relay (/m/<computer>/api/…). Live views poll: only the terminal has a socket there.
 //
 //   GET  /api/system/usage                 { cpu: { total, cores[] } (%), mem, load, uptime, cpus, platform }
@@ -34,6 +34,7 @@ import * as darwin from '../server/platform/darwin-system.mjs';
 import * as linux from '../server/platform/linux-system.mjs';
 import * as win32 from '../server/platform/win32-system.mjs';
 import { stream } from '../setup/system.mjs';
+import { filesRoutes } from './files.mjs';
 import { journalQuery, listLogFiles, readLogFile, LINES_MAX } from './logs.mjs';
 import { endProcess, guardedPids, processSampler } from './procs.mjs';
 import { servicesPart } from './services.mjs';
@@ -143,6 +144,7 @@ export function desktopFeature(ctx, opts = {}) {
       if (from !== null && !(Number.isSafeInteger(from) && from >= 0)) throw fail(400, 'from is a byte offset');
       return readLogFile(q.get('path'), dirs(), from);
     }],
+    ...filesRoutes(ctx),
   ];
 
   return { name: 'desktop', routes };

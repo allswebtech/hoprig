@@ -5,6 +5,8 @@
 //   port            port                                    default 7433
 //   passwordHash    scrypt hash of the dashboard password    set by the passwd command
 //   roots           folders the folder picker may show       default [your home directory]
+//   reach           "home": those folders; "everything": the whole disk, for sessions, the editor and Files
+//                   (Hoprig's own folders and sign-in files stay locked)   default "home"
 //   backend         "auto" | "tmux" | "pty"                  default "auto"
 //   tmuxSocket      tmux -L socket name                      default "" = your normal tmux server (tmux attach works)
 //   trustProxy      true behind a reverse proxy: believe X-Forwarded-Proto/-Host/-For   default false
@@ -50,7 +52,7 @@ import {
 } from './auth.mjs';
 import { createBackend } from './backends/index.mjs';
 import { Deck } from './deck.mjs';
-import { browse, insideRoots, recentFolders, resolveRoots } from './folders.mjs';
+import { browse, insideRoots, reachRoots, recentFolders, resolveRoots } from './folders.mjs';
 import { detectLimit } from './limits.mjs';
 import { alwaysOption, menuOpen } from './prompts.mjs';
 import { killProcess, power, snapshot } from './platform.mjs';
@@ -177,7 +179,7 @@ export function createServer(opts = {}) {
     const s = cfg().server;
     return { trustProxy: s.trustProxy === true, allowed: Array.isArray(s.allowedOrigins) ? s.allowedOrigins : [] };
   };
-  const roots = () => resolveRoots(cfg().server.roots);
+  const roots = () => reachRoots(cfg().server);
   // The models one session may start with: the fixed aliases, plus the model saved as the default for new sessions
   // (already checked when it was saved), so the page offers exactly what Settings → New-session defaults offers.
   const sessionModels = () => {
@@ -363,7 +365,8 @@ export function createServer(opts = {}) {
     return {
       server: {
         quickActions: Array.isArray(s.quickActions) ? s.quickActions : DEFAULT_QUICK_ACTIONS,
-        roots: roots(),
+        roots: resolveRoots(s.roots), // the allowed folders as set; roots() is the reach (all of the disk with reach 'everything')
+        reach: s.reach === 'everything' ? 'everything' : 'home',
         notify: s.notify || null,
         publicUrl: s.publicUrl || '',
       },
@@ -806,7 +809,11 @@ export function createServer(opts = {}) {
       if (!viaToken && !authed(req)) return send(res, 401, { error: 'log in first' });
       for (const [m, re, fn] of routes) {
         const match = re.exec(p);
-        if (match && m === method) return send(res, 200, await fn(req, match, url.searchParams, res));
+        if (match && m === method) {
+          const out = await fn(req, match, url.searchParams, res);
+          // A route that answered itself (a file sent as a download) has nothing more to send.
+          return res.headersSent ? undefined : send(res, 200, out);
+        }
       }
       return send(res, 404, { error: 'not found' });
     }
