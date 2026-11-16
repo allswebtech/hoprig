@@ -377,6 +377,7 @@ export class Chat extends EventEmitter {
     // A terminal may have gone on with the conversation meanwhile: read it first, so the page shows it all.
     if (!this.child) this.refresh();
     if (!this.title) this.title = oneLine(text, 80);
+    this.limit = null; // it is tried again (the limit may have reset, or another account signed in); a refusal sets it anew
     this.push({ kind: 'user', text });
     this.#setState('working');
     if (!this.child) {

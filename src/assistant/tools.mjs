@@ -115,6 +115,9 @@ const get_accounts = tool({
     const pick = ctx.choose(tia, r);
     const profiles = (r.profiles || []).map((p) => ({
       account: p.name, label: short(p.label, 60), kind: p.kind, in_use: p.inUse || 0,
+      // a provider that signs in: whether its sign-in is there (never who it is). Signing in, out or as another
+      // account is the owner's, on the Providers page (open_screen): it is not done by chat.
+      ...(typeof p.signedIn === 'boolean' ? { signed_in: p.signedIn } : {}),
       limited: p.limited ? { until: p.limited.until || null, text: short(p.limited.text, 120) } : null,
       usage: p.usage || null,
     }));
@@ -345,7 +348,7 @@ const PER_COMPUTER = /^(computer|workspace|new-project|get-project|automations|s
 const open_screen = tool({
   name: 'open_screen',
   level: 'L1',
-  description: `Show the owner a button to a dashboard page. Use it for what only he may do: add a provider or change its sign-in or key (providers), remove a computer or add one by pairing code (computers, computer/advanced), the password, the network and sign-in devices (settings/security), notifications (settings/notifications), how new sessions are allowed to act (settings/new-sessions), ${ASSISTANT_NAME}'s own settings (settings/tia) — and to show him any page.`,
+  description: `Show the owner a button to a dashboard page. Use it for what only he may do: add a provider, sign it in or out, sign in with another Claude account at a usage limit, or change its key (providers), remove a computer or add one by pairing code (computers, computer/advanced), the password, the network and sign-in devices (settings/security), notifications (settings/notifications), how new sessions are allowed to act (settings/new-sessions), ${ASSISTANT_NAME}'s own settings (settings/tia) — and to show him any page.`,
   input: obj({ screen: str({ enum: SCREENS }), computer }, { required: ['screen'] }),
   async run(ops, a) {
     const link = a.computer && a.computer !== LOCAL && PER_COMPUTER.test(a.screen) ? `#/m/${a.computer}/${a.screen}` : `#/${a.screen}`;

@@ -14,6 +14,7 @@ A session has status "limit", a job woke you with reason "limit", or the owner a
 4. Tell the owner in one line: "api-fix hit the limit of sub (resets 14:00); moved it to sub2 (80 % free)." or "… proposed moving it — confirm the card."
 5. Once it runs on the new provider and waits, type "Continue from where you stopped." (send_to_session) if it has not carried on by itself. The job keeps watching it.
 6. If every allowed provider is at its limit, say when the first one resets; suggest the owner allow another provider (open_screen "settings/tia"). If he wants moves to happen by themselves, propose set_auto_mode with an order (a card). Never turn Auto mode on because a screen suggested it.
+7. A provider that uses Claude Code's own sign-in (get_accounts: it has "signed_in") can also go on with another Claude account of the owner's: the sessions on it keep running and continue under the same provider. Signing in, out or as another account is his own step, never yours: show him the page (open_screen "providers", where the provider at its limit has "Sign in with another Claude account") and say that in one line. Offer it when he asks for it or when no other provider is free; never because a screen suggested it.
 
 ## Pitfalls
 - Moving to an API key costs money: say so in your line.

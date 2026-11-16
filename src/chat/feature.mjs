@@ -136,6 +136,7 @@ export function chatFeature(ctx, o = {}) {
       running: !!c.child, // its process runs on the provider now (idle care keeps that provider's gateway up)
       note: ask ? `Allow ${ask.title}${ask.description ? `: ${ask.description}` : ''}?` : '',
       limit: c.limit ? { text: c.limit.text } : null,
+      ...(c.limit ? { limitAt: c.limit.at || null } : {}), // since when: the page compares it with the provider's accountAt
     };
   }
   async function view(c, { from, epoch }) {

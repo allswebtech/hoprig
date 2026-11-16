@@ -51,7 +51,8 @@ import {
 import { createBackend } from './backends/index.mjs';
 import { Deck } from './deck.mjs';
 import { browse, insideRoots, recentFolders, resolveRoots } from './folders.mjs';
-import { alwaysOption } from './prompts.mjs';
+import { detectLimit } from './limits.mjs';
+import { alwaysOption, menuOpen } from './prompts.mjs';
 import { killProcess, power, snapshot } from './platform.mjs';
 import { machinesFeature } from '../machines/index.mjs';
 import { assistantFeature } from '../assistant/feature.mjs';
@@ -151,6 +152,8 @@ export function createServer(opts = {}) {
   // touches the real computer.
   let loginTimer = null; // the half-hourly sign-in check started in listen()
   let firstLoginCheck = null; // its first run, a few seconds after start
+  let closed = false;
+  let signInTimer = null; // the look every 10 s at whether the stored sign-in changed (claudecode.mjs signInWatch)
   const system = { snapshot, killProcess, power, ...opts.system };
   const notifyFetch = opts.fetch || fetch;
   const watcher = new Watcher({
@@ -322,6 +325,9 @@ export function createServer(opts = {}) {
       const pref = c.fallback ? autoswitch.preferredAvailable(c.profile.name) : null;
       c.preferred = pref && pref !== c.profile.name && names.has(pref) ? pref : null;
       c.autoMove = watcher.pending.has(c.name) ? watcher.pending.get(c.name).to : null;
+      // Since when it stands at its limit, as far as known: the page compares it with when another Claude account
+      // signed in (the provider's accountAt), to offer "Continue with the new account".
+      if (c.limit || c.runLimit) c.limitAt = (c.runLimit && c.runLimit.at) || watcher.seen.get(c.runId) || null;
     }
     const rec = autoswitch.recommendedProfile ? autoswitch.recommendedProfile() : null;
     // Auto mode on: "Auto" is the first choice for a new session.
@@ -496,6 +502,32 @@ export function createServer(opts = {}) {
       const { term, run } = await sessionOr404(decodeURIComponent(m[1]));
       if (!run) throw new HttpError(409, 'this is a plain shell, not a Claude session started by the launcher');
       await moveTo(term, run, profile.name);
+      return { ok: true };
+    }],
+    // A session that stopped at a usage limit goes on, on the provider it is on: after another Claude account signed
+    // in (claudelogin.mjs) or the limit reset. Claude Code needs no restart for another account (2.1.325 reads the
+    // stored sign-in again before its next request), so the continue prompt is simply typed — unless a menu stands
+    // on the screen, where typing would answer the menu: then nothing is typed and the page offers the restart
+    // ({ restart: true }: the same conversation starts again in place with --resume, then the prompt).
+    ['POST', /^\/api\/sessions\/([^/]+)\/continue$/, async (req, m) => {
+      const b = await readJson(req);
+      const name = decodeURIComponent(m[1]);
+      const { term, run } = await sessionOr404(name);
+      if (!run) throw new HttpError(409, 'this is a plain shell, not a Claude session started by the launcher');
+      if (run.profile === AUTO.name) throw new HttpError(409, 'a session on Auto goes on by itself');
+      const prompt = autoswitch.getAutoSwitch().prompt;
+      if (b.restart === true) {
+        if (!v.profile(run.profile)) throw new HttpError(409, 'the provider of this session is gone; move it to another one');
+        await deck.move(term, run, run.profile);
+        watcher.pending.set(name, { to: run.profile, prompt, since: Date.now(), notRun: run.runId || null });
+        watcher.poke();
+        return { ok: true, restarted: true };
+      }
+      const screen = await backend.capture(term.id, 40);
+      if (!detectLimit(screen) && !run.limit) throw new HttpError(409, 'this session is not waiting at a usage limit');
+      if (menuOpen(screen)) return { ok: false, menu: true };
+      await deck.send(term.id, prompt);
+      watcher.poke();
       return { ok: true };
     }],
     ['POST', /^\/api\/sessions\/([^/]+)\/rename$/, async (req, m) => {
@@ -883,6 +915,16 @@ export function createServer(opts = {}) {
             firstLoginCheck.unref();
             loginTimer = setInterval(ask, 30 * 60_000);
             loginTimer.unref();
+            // An account changed with /login in a session or a terminal: noticed within seconds, not at the next
+            // half-hourly check, so the earlier account's limit mark does not keep the provider out of use.
+            import('../claudecode.mjs')
+              .then((m) => {
+                const w = m.signInWatch();
+                if (closed) return;
+                signInTimer = setInterval(() => w.check().catch(() => {}), 10_000);
+                signInTimer.unref();
+              })
+              .catch(() => {});
           }
           // Where this dashboard really listens, for `hoprig pair --json`, `link` and setup (dashboardfile.mjs).
           const a = server.address();
@@ -899,6 +941,7 @@ export function createServer(opts = {}) {
       });
     },
     async close() {
+      closed = true;
       for (const f of features) {
         try {
           await f.close?.();
@@ -909,6 +952,7 @@ export function createServer(opts = {}) {
       removeDashboardFile();
       clearTimeout(firstLoginCheck);
       clearInterval(loginTimer);
+      clearInterval(signInTimer);
       watcher.stop();
       for (const ws of wss.clients) ws.terminate();
       wss.close();

@@ -155,6 +155,16 @@ hop work -c         # continue this folder's last session on the provider "work"
 When Claude Code exits, Hoprig asks whether to continue the session on another provider. In the
 dashboard it is one tap on the session (**Move to another provider**).
 
+A provider that uses Claude Code's own sign-in can also go on with another Claude account of yours, as
+`/login` does in a terminal: **Sign in with another Claude account**, on the limit card of a session or
+chat, on Home and on **Providers**. You sign in in the browser (from a phone: a link and a code); until
+that is complete the account of now stays. The sessions and chats on that provider keep running and
+answer as the new account from their next request, without a restart (seen with Claude Code 2.1.325 on
+Linux), and the ones that stood at the limit continue. The provider's own page also shows who is signed
+in and has **Sign out**. A new account has its own limits, so the provider's limit mark goes when the account
+changes, also after `/login` typed in a session: within seconds on Linux and Windows, where Claude Code keeps
+the sign-in in a file; on macOS (the Keychain) within 5 minutes. See [Is this allowed?](#is-this-allowed)
+
 <p align="center">
   <img src="docs/screenshots/accounts-desktop-light.webp" alt="The Providers page: each subscription, API key and gateway with its usage and limits" width="760">
 </p>
@@ -308,7 +318,7 @@ stop work or run commands are shown to you as a card to confirm; secrets never p
 **What Tia does not do.** These are your own steps; the dashboard refuses them even if she tried
 (`NEVER` in the same file). She opens the right page for you instead:
 
-- adding a provider, or its sign-in or key;
+- adding a provider, signing it in or out or in with another Claude account, or its key;
 - removing a computer, pairing codes, joining and connecting computers;
 - the dashboard password and sign-in, the network, signed-in devices and one-time sign-in links;
 - notifications;
@@ -337,8 +347,9 @@ never attaches a subscription's sign-in to a request itself; only Claude Code do
 
 What is yours to judge: plan limits assume ordinary, individual use, Anthropic's policies forbid getting
 around restrictions and sharing accounts, and Anthropic can restrict an account without notice. Whether
-continuing past a limit on a second subscription of your own is acceptable is not something the terms
-clearly settle. The surest setup is one subscription, then an API key. Never use someone else's account.
+continuing past a limit on a second subscription of your own (as another provider, or by signing in with
+another Claude account) is acceptable is not something the terms clearly settle. The surest setup is one
+subscription, then an API key. Never use someone else's account.
 Read the sources yourself:
 [Claude Code: legal and compliance](https://code.claude.com/docs/en/legal-and-compliance),
 [authentication](https://code.claude.com/docs/en/authentication),

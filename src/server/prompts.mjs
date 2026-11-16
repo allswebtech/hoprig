@@ -14,8 +14,21 @@ const OPTION = /^[\s│┃]*(?:❯\s*)?([1-9])\.\s+(.*?)[\s│┃]*$/;
 const ALWAYS = /^Yes,\s*(?:and\s+)?(?:don't|do not)\s+ask again\b|^Yes,\s*allow all edits during this session\b/i;
 const norm = (s) => s.replace(/[‘’ʼ]/g, "'").replace(/ /g, ' ');
 
+/**
+ * A numbered menu stands at the bottom of `screen` (a permission question, the menu Claude Code shows at a usage
+ * limit, any other choice): what is typed now would answer it instead of reaching Claude as a message.
+ */
+export function menuOpen(screen) {
+  return menuOptions(screen) !== null;
+}
+
 /** The answers of the menu at the bottom of `screen`: [{ n, text }] in order, or null when there is none. */
 export function permissionOptions(screen, lines = 30) {
+  const opts = menuOptions(screen, lines);
+  return opts && /^Yes\b/i.test(opts[0].text) ? opts : null; // a menu, but not a permission question
+}
+
+function menuOptions(screen, lines = 30) {
   if (typeof screen !== 'string' || !screen) return null;
   const tail = screen.split('\n').map((l) => norm(l).replace(/\s+$/, '')).filter((l) => l.replace(/[\s│┃╭╮╰╯─]/g, '')).slice(-lines);
   let last = -1;
@@ -39,7 +52,6 @@ export function permissionOptions(screen, lines = 30) {
     if (m[1] === '1') break;
   }
   if (!opts.length || opts[0].n !== 1 || opts.some((o, i) => o.n !== i + 1)) return null;
-  if (!/^Yes\b/i.test(opts[0].text)) return null; // a menu, but not a permission question
   return opts;
 }
 
