@@ -366,12 +366,13 @@ async function scheduleForm(old, preset = null) {
         }),
         a.type === 'start'
           ? [
-            h('div.fieldrow', h('span.field-label', 'Open in'), seg('Open in', [['chat', 'A chat'], ['terminal', 'A terminal']], a.in === 'chat' ? 'chat' : 'terminal', (v) => {
+            h('div.field-label', 'Open in'),
+            seg('Open in', [['chat', 'A chat'], ['terminal', 'A terminal']], a.in === 'chat' ? 'chat' : 'terminal', (v) => {
               if (v === 'chat') a.in = 'chat';
               else delete a.in;
               paintWhat();
               paintSentence();
-            })),
+            }),
             folderPick(a),
             h('label.fieldrow', h('span.field-label', 'On the provider'),
               h('select.field', { onchange: (e) => (a.profile = e.target.value) }, accounts.map(([v, t]) => h('option', { value: v, selected: v === a.profile }, t)))),
