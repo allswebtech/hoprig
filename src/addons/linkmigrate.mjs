@@ -22,13 +22,17 @@ function commandLine(pid) {
 /**
  * Is `pid` a cloudflared tunnel of ours? Its command line must say so: after a restart of the computer the number in
  * an old record may belong to another program. Where the command line cannot be read, nothing is ours, so nothing is
- * ended or adopted on a number alone.
+ * ended or adopted on a number alone; `unread` is the answer then (null: "cannot tell", for procid.mjs filedProcess).
  */
-export function ours(pid) {
+export function ours(pid, { unread = false } = {}) {
   if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !alive(pid)) return false;
   const cmd = commandLine(pid);
-  return !!cmd && / tunnel /.test(` ${cmd} `) && (cmd.includes(fixedDir()) || cmd.includes('--url http://127.0.0.1:'));
+  if (cmd === null) return unread;
+  return / tunnel /.test(` ${cmd} `) && (cmd.includes(fixedDir()) || cmd.includes('--url http://127.0.0.1:'));
 }
+
+/** ours() as the fact for procid.mjs filedProcess: null where the command line cannot be read. */
+export const tunnelFact = (pid) => ours(pid, { unread: null });
 
 /**
  * The first start of a version with this switch: the older one kept a detached Temporary tunnel and a Custom

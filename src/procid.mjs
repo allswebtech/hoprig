@@ -249,3 +249,21 @@ export function stillOwned(list, ident = system, { after = 0 } = {}) {
     }
   });
 }
+
+/**
+ * A state file that names a process: `rec` = { pid, proc } (proc: its identity, read when our code started it or wrote
+ * the file; none in a file from before identities, or where it could not be read). Whether that process is ours now:
+ *   true   shown: the identities are equal, or (none to compare) `fact(pid)`, what only our process shows (its command
+ *          line), says so and the file is of this boot. Only then may a signal go to it.
+ *   null   cannot be told: no identity to compare, no fact readable here, the file of this boot. It may be said to run
+ *          (a file from before identities, while its process lives); it never gets a signal.
+ *   false  not ours: its pid is gone, the identities differ, the fact says no, or the file is from before this boot.
+ * `fact`: true, false, or null when it cannot be read. `after`: as for stillOwned (before a signal: refresh()'s answer).
+ */
+export function filedProcess(file, rec, { fact = () => null, ident = system, after = 0 } = {}) {
+  const run = { pid: rec?.pid, proc: typeof rec?.proc === 'string' ? rec.proc : null };
+  if (!stillOwned([{ run, file }], ident, { after })[0]) return false;
+  if (run.proc && sameProcess(run.proc, ident.of([run.pid], { after }).get(run.pid)) !== null) return true; // stillOwned compared them
+  const f = fact(run.pid);
+  return f === true || f === false ? f : null;
+}
