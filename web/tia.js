@@ -744,7 +744,8 @@ function tiaSettings({ isAlive }) {
     const nameOf = (n) => (n === 'auto' ? 'Auto mode' : ((choices.find((a) => a.name === n) || {}).label || n));
     const runs = h('select.field', { onchange: (e) => (st.runsOn = e.target.value) },
       h('option', { value: '', selected: !st.runsOn }, `Automatic (now: ${s.runsOn ? nameOf(s.runsOn) : 'none'})`),
-      choices.map((a) => h('option', { value: a.name, selected: st.runsOn === a.name }, nameOf(a.name))));
+      // She thinks through Claude Code: only the providers that serve it (`thinks`; absent from an older computer).
+      choices.filter((a) => a.thinks !== false).map((a) => h('option', { value: a.name, selected: st.runsOn === a.name }, nameOf(a.name))));
     // The same choices as Settings → New-session defaults; a name set earlier by hand stays one of them.
     const models = [...MODELS];
     if (st.model && !models.some(([m]) => m === st.model)) models.push([st.model, st.model]);

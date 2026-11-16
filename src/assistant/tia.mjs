@@ -13,9 +13,9 @@
 //     run_command, ending a process, updating Claude Code, setting up a computer, settings, schedules, skills, power), and secrets stay out (L3).
 //   accounts     null (default) or a list of account names Tia may use (may include "auto")
 //                default: "auto" when Auto mode is on, then every subscription/login account; never an API
-//                account unless the owner lists it
-//   runsOn       null (default) or the profile Tia's own engine runs on; default "auto" when on, else the first
-//                allowed account
+//                account unless the owner lists it; only providers that serve a coding tool of this version
+//   runsOn       null (default) or the profile Tia's own engine runs on (one that serves Claude Code); default
+//                "auto" when on, else the first allowed account that serves Claude Code
 //   maxSteps     answers Tia may give per job                                default 20
 //   maxMinutes   how long one job may run                                    default 240
 //   model        null (default: the account's own) or the model her engine uses, e.g. "haiku"
@@ -46,8 +46,12 @@ export const HELP = {
   client: `Lets your own Claude Code (or another MCP client) use ${ASSISTANT_NAME}'s tools, with the same checks and cards. The token is shown once.`,
 };
 
-/** Validate a Settings → Tia patch from the owner's browser. Throws Error with a plain message. */
-export function cleanTiaPatch(p, knownAccounts = []) {
+/**
+ * Validate a Settings → Tia patch from the owner's browser. Throws Error with a plain message. `knownAccounts`: the
+ * providers she may be allowed (those that serve a coding tool of this version: tiaChoices); `runsOnAccounts`: the
+ * ones she can think on (Claude Code's).
+ */
+export function cleanTiaPatch(p, knownAccounts = [], runsOnAccounts = knownAccounts) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) throw new Error('send an object');
   const out = {};
   for (const [k, v] of Object.entries(p)) {
@@ -65,7 +69,7 @@ export function cleanTiaPatch(p, knownAccounts = []) {
         out.accounts = [...new Set(v)];
       }
     } else if (k === 'runsOn') {
-      if (v !== null && (typeof v !== 'string' || (v !== 'auto' && !knownAccounts.includes(v)))) throw new Error('runsOn must be a provider name or null');
+      if (v !== null && (typeof v !== 'string' || (v !== 'auto' && !runsOnAccounts.includes(v)))) throw new Error(`runsOn must be a provider that serves Claude Code, or null`);
       out.runsOn = v;
     } else if (k === 'maxSteps') {
       if (!Number.isInteger(v) || v < 1 || v > 200) throw new Error('maxSteps must be a whole number from 1 to 200');
@@ -90,12 +94,15 @@ const isSub = (p) => p.kind === 'subscription' || p.kind === 'login';
 export function resolveTia(raw, accounts) {
   const r = { ...DEFAULTS, ...(raw && typeof raw === 'object' ? raw : {}) };
   if (!LEVELS.includes(r.level)) r.level = DEFAULTS.level;
-  const real = (accounts.profiles || []).filter((p) => !p.virtual && p.name !== 'auto');
+  const real = tiaChoices(accounts);
   const autoOn = !!(accounts.autoSwitch && accounts.autoSwitch.enabled);
   let allowed;
   if (Array.isArray(r.accounts)) allowed = r.accounts.filter((n) => (n === 'auto' ? autoOn : real.some((p) => p.name === n)));
   else allowed = [...(autoOn ? ['auto'] : []), ...real.filter(isSub).map((p) => p.name)];
-  const runsOn = r.runsOn && (r.runsOn === 'auto' ? autoOn : real.some((p) => p.name === r.runsOn)) ? r.runsOn : autoOn ? 'auto' : allowed[0] || (real[0] && real[0].name) || null;
+  // She thinks through Claude Code: only a provider that serves it can be the one she runs on.
+  const thinks = real.filter((p) => servesTool(p, 'claude')).map((p) => p.name);
+  const runsOn = r.runsOn && (r.runsOn === 'auto' ? autoOn : thinks.includes(r.runsOn)) ? r.runsOn
+    : autoOn ? 'auto' : allowed.find((n) => thinks.includes(n)) || thinks[0] || null;
   const model = typeof r.model === 'string' && MODEL_RE.test(r.model) ? r.model : null;
   return { enabled: r.enabled !== false, level: r.level, allowed, accountsDefault: !Array.isArray(r.accounts), runsOn, maxSteps: r.maxSteps, maxMinutes: r.maxMinutes, model };
 }
@@ -107,6 +114,14 @@ export function freePct(p) {
   const used = Math.max(u.fiveHour ? u.fiveHour.pct : 0, u.week ? u.week.pct : 0);
   return Math.max(0, 100 - used);
 }
+
+/**
+ * The real providers Tia may be allowed to use: the ones that serve a coding tool of this version (she starts Claude
+ * Code sessions and chats, and moves a session within its coding tool). One that serves none (`unusable`, or an
+ * empty `tools` list: another coding tool's sign-in, a key only Codex could use) is never offered to her.
+ */
+export const tiaChoices = (accounts) => ((accounts && accounts.profiles) || [])
+  .filter((p) => !p.virtual && p.name !== 'auto' && !p.unusable && (!Array.isArray(p.tools) || p.tools.length > 0));
 
 /**
  * Whether a provider (as get_accounts lists it: `tools` = the coding tools it serves; absent on older computers, which
