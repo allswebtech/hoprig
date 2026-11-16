@@ -240,7 +240,7 @@ export function stopIfUnused(tool, { except = null, idleMs = 0, now = Date.now()
  * The tool's server, started when it does not run. `need`: the provider a session wants. Resolves to
  * { ok: true, server: { tool, pid, port, url, secret, providers } } or { ok: false, why }.
  */
-export function ensureServer(tool, { need = null, base = process.env, fetchImpl = globalThis.fetch, profiles = listProfiles(), spawnImpl = spawn } = {}) {
+export function ensureServer(tool, { need = null, base = process.env, fetchImpl = globalThis.fetch, profiles = listProfiles(), spawnImpl = null } = {}) {
   if (!SERVER_TOOLS.includes(tool)) return Promise.resolve({ ok: false, why: `no server for ${tool}` });
   const bin = DESCRIPTOR[tool].binPath();
   if (!fs.existsSync(bin)) return Promise.resolve({ ok: false, why: `${DESCRIPTOR[tool].name} is not installed` });
@@ -287,19 +287,12 @@ async function start(tool, provs, { bin, base, fetchImpl, spawnImpl }) {
     Object.assign(env, { OPENCODE_PASSWORD: secret, OPENCODE_CONFIG: configFile() });
     args = ['serve', '--hostname', '127.0.0.1', '--port', String(port)];
   }
-  const log = fs.openSync(logFile(tool), 'w', 0o600);
-  let child;
-  try {
-    child = spawnImpl(DESCRIPTOR[tool].binPath(), args, { env, detached: true, stdio: ['ignore', log, log], windowsHide: true });
-  } finally {
-    fs.closeSync(log);
-  }
-  child.on?.('error', () => {});
-  child.unref?.();
-  const s = { tool, pid: child.pid, port, secret, providers: provs.map((p) => ({ name: p.name, id: p.id, fp: p.fp })), startedAt: Date.now(), usedAt: Date.now() };
+  fs.writeFileSync(logFile(tool), '', { mode: 0o600 });
+  const pid = await (spawnImpl ? spawnDirect(spawnImpl, DESCRIPTOR[tool].binPath(), args, env, logFile(tool)) : spawnDaemon(DESCRIPTOR[tool].binPath(), args, env, logFile(tool)));
+  const s = { tool, pid, port, secret, providers: provs.map((p) => ({ name: p.name, id: p.id, fp: p.fp })), startedAt: Date.now(), usedAt: Date.now() };
   const until = Date.now() + START_WAIT_MS;
   while (Date.now() < until) {
-    if (!alive(child.pid)) break;
+    if (!alive(pid)) break;
     if (await healthy(tool, s, { fetchImpl })) {
       writeState(tool, s);
       return { ok: true, server: publicServer(tool, s) };
@@ -309,6 +302,43 @@ async function start(tool, provs, { bin, base, fetchImpl, spawnImpl }) {
   writeState(tool, s);
   await stopLocked(tool);
   return { ok: false, why: `${DESCRIPTOR[tool].name}'s server did not start (its log: ${logFile(tool)})` };
+}
+
+// The server belongs to the computer, not to the terminal that happened to start it first: the built-in terminals
+// stop every descendant of a terminal when it closes, so the server is started by a short-lived helper process and
+// is nobody's child afterwards (its own process group too, which stopLocked stops as one).
+const DAEMON = `const { spawn } = require('node:child_process'); const fs = require('node:fs');
+const fd = fs.openSync(process.env.HOPRIG_SERVER_LOG, 'a');
+const env = { ...process.env }; delete env.HOPRIG_SERVER_LOG;
+const c = spawn(process.argv[1], process.argv.slice(2), { detached: true, stdio: ['ignore', fd, fd], env, windowsHide: true });
+c.on('error', (e) => { process.stdout.write('error ' + e.message); process.exit(1); });
+c.on('spawn', () => { process.stdout.write(String(c.pid)); c.unref(); process.exit(0); });`;
+
+function spawnDaemon(bin, args, env, log) {
+  return new Promise((resolve, reject) => {
+    const helper = spawn(process.execPath, ['-e', DAEMON, bin, ...args], { env: { ...env, HOPRIG_SERVER_LOG: log }, detached: true, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    let out = '';
+    helper.stdout.on('data', (d) => { out += d; });
+    helper.on('error', reject);
+    helper.on('close', () => {
+      const pid = Number(out.trim());
+      if (Number.isInteger(pid) && pid > 0) resolve(pid);
+      else reject(new Error(`could not start the server${out ? `: ${out.trim().slice(0, 200)}` : ''}`));
+    });
+  });
+}
+
+/** Tests: a spawn function given directly (no helper process). */
+function spawnDirect(spawnImpl, bin, args, env, log) {
+  const fd = fs.openSync(log, 'a');
+  try {
+    const child = spawnImpl(bin, args, { env, detached: true, stdio: ['ignore', fd, fd], windowsHide: true });
+    child.on?.('error', () => {});
+    child.unref?.();
+    return Promise.resolve(child.pid);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 // providerModels reads a profile's endpoint from its variables: rebuild the few it needs.

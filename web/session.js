@@ -110,7 +110,9 @@ export function openSession(app, name) {
   });
   // The full hint only where it fits on one line; a narrow screen (a phone, a split window) gets the short one.
   const narrow = matchMedia('(max-width: 599px)');
-  const placeholder = () => (textarea.placeholder = !narrow.matches && finePointer ? 'Message Claude — Enter sends, Shift+Enter new line' : 'Message Claude');
+  // "Message Codex" in a Codex session (the card's tool; Claude until the first look at the sessions).
+  const toolName = () => (session && !isClaudeCard(session) && TOOL_NAMES[cardTool(session)]) || 'Claude';
+  const placeholder = () => (textarea.placeholder = !narrow.matches && finePointer ? `Message ${toolName()} — Enter sends, Shift+Enter new line` : `Message ${toolName()}`);
   placeholder();
   narrow.addEventListener('change', placeholder);
   const fileInput = h('input.hidden', { type: 'file', multiple: true });
@@ -583,7 +585,9 @@ export function openSession(app, name) {
     otherBadge.classList.toggle('hidden', !others);
     otherBadge.title = `${others} other session${others === 1 ? '' : 's'} need${others === 1 ? 's' : ''} you`;
     if (!s) return;
+    const toolBefore = cardTool(session);
     session = s;
+    if (cardTool(s) !== toolBefore) placeholder();
     const key = JSON.stringify([s, profiles]);
     if (key === infoKey) return;
     infoKey = key;
