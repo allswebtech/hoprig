@@ -284,6 +284,8 @@ article.card:hover { box-shadow: var(--shadow-2); }
    it (the card's content ends 34 px from the screen's edge), so a button never passes under it while scrolling. */
 @media (max-width: 899px) {
   body.has-fab :is(.card, .si-row) :is(.ok-actions, .limit-actions, .card-actions) { padding-right: max(0px, calc(var(--fab-w, 150px) - 10px)); }
+  /* A long label ("Continue on API (pay as you go)") wraps inside that room instead of running under the button. */
+  body.has-fab :is(.card, .si-row) :is(.limit-actions, .card-actions) .btn { max-width: 100%; white-space: normal; text-align: left; line-height: 1.25; padding-top: 6px; padding-bottom: 6px; }
 }
 .card.skeleton { cursor: default; display: grid; gap: 10px; }
 .sk { height: 12px; border-radius: 6px; background: var(--surface-3); animation: pulse 1.6s ease-in-out infinite; }
