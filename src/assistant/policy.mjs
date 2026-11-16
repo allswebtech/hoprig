@@ -54,9 +54,10 @@ export function decideLevel(tool, a, f, tia) {
     // deny-list cannot judge an input of unknown shape, whatever it says.
     if (f.session.known === false) return { level: 'L2', why: `this tool's input is not one ${ASSISTANT_NAME} can judge` };
     if (f.session.cut) return { level: 'L2', why: 'what the session asks permission for is too long to judge whole' };
-    // A chat's OK of a known call: only what the short allow-list holds (allowlist.mjs); the deny-list below still
-    // looks at what passed it. A terminal has no call to judge, only its screen (known is not set).
-    if (f.session.known === true) {
+    // Her answer "allow" to a chat's OK of a known call: only what the short allow-list holds (allowlist.mjs); the
+    // deny-list below still looks at what passed it. A plain message is not an OK of the call, so it is judged as before
+    // the list came. A terminal has no call to judge, only its screen (known is not set).
+    if (f.session.known === true && name === 'send_to_chat' && a.answer === 'allow') {
       const own = allowsHerself(f.session.tool, f.session.input, f.session.cwd);
       if (!own.ok) return { level: 'L2', why: own.why };
     }

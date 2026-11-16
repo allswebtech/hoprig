@@ -245,6 +245,24 @@ test('the policy reads a chat\'s "known" before the risk check; a terminal sessi
   assert.equal(decideLevel(byName.get('send_to_session'), { session: 'web-ui', text: '1' }, f({}), tia).level, 'L1', 'a terminal\'s screen is judged as before');
 });
 
+test('the allow-list judges only her answer "allow"; a plain message from her is judged as before it came', () => {
+  const tool = byName.get('send_to_chat');
+  const tia = { level: 'handsoff', allowed: ['sub'] };
+  const asking = (command) => ({ mine: true, session: { status: 'needs_ok', note: `Claude wants to run: ${command}`, cwd: '/w/p', screen: command, known: true, tool: 'Bash', input: { command }, owner: false, cut: false, request: 'r' } });
+  const level = (command, a) => decideLevel(tool, { session: `chat:${ID}`, ...a }, asking(command), tia);
+  // Not on the list but harmless: her message goes; her "allow" is the owner's card.
+  assert.equal(level('mkdir build', { text: 'please also run the linter' }).level, 'L1');
+  assert.match(level('mkdir build', { answer: 'allow' }).why, /not on the short list/);
+  // Risky: the deny-list still holds her message back, as it did before the allow-list.
+  assert.match(level('sudo reboot', { text: 'please also run the linter' }).why, /risky/);
+  assert.match(level('sudo reboot', { answer: 'allow' }).why, /not on the short list/);
+  for (const command of ['mkdir build', 'sudo reboot', 'ls']) {
+    assert.equal(level(command, { answer: 'deny' }).level, 'L1', `saying no: ${command}`);
+    assert.equal(level(command, { stop: true }).level, 'L1', `stop: ${command}`);
+  }
+  assert.equal(level('ls', { answer: 'allow' }).level, 'L1');
+});
+
 test('start_chat on a conversation the owner has open: his chat is returned as his, never marked as hers', async () => {
   const { call, ops, core } = setup({ cards: [chatCard({ cwd: '/home/owner/projects/api', permissionMode: 'bypassPermissions', ask: { request: 'o1', type: 'permission', tool: 'Bash', known: true, subject: 'npm test', owner: false } })] });
   ops.s.conversations['/home/owner/projects/api'].push({ id: ID, at: Date.now(), title: 'Fix the footer' });
