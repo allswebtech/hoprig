@@ -150,7 +150,22 @@ export async function startSettings(tool, profile, { base = process.env, fetchIm
  * The model ids the provider itself lists (GET <base>/v1/models), [] when it lists none or cannot be reached. The
  * key goes only to the provider's own address; a redirect is never followed.
  */
-export async function providerModels(profile, { fetchImpl = globalThis.fetch } = {}) {
+export async function providerModels(profile, o = {}) {
+  return (await providerModelList(profile, o)).map((m) => m.id);
+}
+
+const EFFORT_KEYS = ['effort_tiers', 'effortTiers', 'supported_reasoning_efforts', 'supportedReasoningEfforts', 'reasoning_efforts'];
+/** The efforts a model entry of GET /v1/models lists (a gateway says them, also under `capabilities`), as plain words; [] when none. */
+export function modelEfforts(m) {
+  for (const k of EFFORT_KEYS) {
+    const v = m && (m[k] || (m.capabilities && typeof m.capabilities === 'object' ? m.capabilities[k] : null));
+    if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' ? x : x && (x.effort || x.id))).filter((x) => typeof x === 'string' && /^[a-z]{1,20}$/.test(x)).slice(0, 12);
+  }
+  return [];
+}
+
+/** The same as providerModels with what each model says of itself: [{ id, efforts }]. */
+export async function providerModelList(profile, { fetchImpl = globalThis.fetch } = {}) {
   const ep = endpointOf(profile);
   if (!ep || !ep.key) return [];
   for (const auth of ep.auth === 'bearer' ? ['bearer', 'x'] : ['x', 'bearer']) {
@@ -164,7 +179,7 @@ export async function providerModels(profile, { fetchImpl = globalThis.fetch } =
       if (r.status !== 200) return [];
       const j = JSON.parse(await r.text());
       const list = Array.isArray(j && j.data) ? j.data : Array.isArray(j) ? j : [];
-      return list.map((m) => (m && typeof m.id === 'string' ? m.id : typeof m === 'string' ? m : null)).filter((id) => id && MODEL_RE.test(id)).slice(0, 200);
+      return list.map((m) => (m && typeof m.id === 'string' ? { id: m.id, efforts: modelEfforts(m) } : typeof m === 'string' ? { id: m, efforts: [] } : null)).filter((m) => m && MODEL_RE.test(m.id)).slice(0, 200);
     } catch {
       return [];
     }

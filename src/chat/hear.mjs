@@ -27,6 +27,12 @@ export function hear(chat, ev) {
       }
       chat.changed();
       return;
+    case 'conversation': // a coding tool that names its conversations itself made this chat's (engine ownIds)
+      if (ev.id && ev.id !== chat.conversationId) {
+        chat.conversationId = ev.id;
+        chat.emit('record');
+      }
+      return;
     case 'mode': // the coding tool entered or left plan mode, or a switch was confirmed
       chat.liveMode = ev.mode;
       chat.emit('state');

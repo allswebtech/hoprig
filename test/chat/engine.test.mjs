@@ -144,11 +144,15 @@ test('a conversation read back: subagents nested under their call, a workflow, c
   assert.deepEqual([t.tasks[0].model, t.tasks[0].effort], ['sonnet', 'low']);
 });
 
-test('the engine contract: one engine today, found by id, with what it changes live', async () => {
+test('the engine contract: Claude Code and OpenCode, found by id, each with what it changes live', async () => {
   const { engineOf, engineIds } = await import('../../src/chat/engines/index.mjs');
-  assert.deepEqual(engineIds(), ['claude']);
+  assert.deepEqual(engineIds(), ['claude', 'opencode']);
   const e = engineOf('claude');
   assert.equal(engineOf(undefined), e, 'a chat kept from before engines had names');
-  for (const k of ['id', 'label', 'capabilities', 'file', 'exists', 'open', 'transcript', 'sessions']) assert.ok(k in e, k);
-  for (const k of ['liveMode', 'liveModel', 'liveEffort', 'ultracode', 'queue', 'stopTask', 'rewind', 'commands', 'usage']) assert.equal(e.capabilities[k], true, k);
+  for (const x of [e, engineOf('opencode')]) for (const k of ['id', 'label', 'capabilities', 'file', 'exists', 'open', 'transcript', 'sessions', 'history']) assert.ok(k in x, `${x.id} ${k}`);
+  for (const k of ['liveMode', 'liveModel', 'liveEffort', 'ultracode', 'queue', 'stopTask', 'rewind', 'commands', 'compact', 'usage']) assert.equal(e.capabilities[k], true, k);
+  // What is Claude Code's alone is said so by OpenCode's engine (the page shows no button for it).
+  const oc = engineOf('opencode').capabilities;
+  for (const k of ['liveMode', 'liveModel', 'liveEffort', 'ultracode', 'queue', 'rename', 'ownIds']) assert.equal(oc[k], true, k);
+  for (const k of ['stopTask', 'rewind', 'fork', 'commands', 'compact', 'usage']) assert.equal(oc[k], false, k);
 });

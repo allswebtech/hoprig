@@ -5,23 +5,26 @@
 //   POST /api/chats/from-session              { session } → { id }   the conversation of a terminal session, as a chat
 //   POST /api/chats/<id>/take                 the terminal that runs this conversation stops; the chat goes on
 //   POST /api/chats/<id>/terminal             open the conversation in a terminal → { name } (the chat closes)
-import fs from 'node:fs';
-import { EFFORTS, PERMISSION_MODES } from '../config.mjs';
+import crypto from 'node:crypto';
 import { assertServes, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
-import { isSessionId } from '../sessions.mjs';
+import { toolFlags } from '../codetools/start.mjs';
 import { matchRuns } from '../server/deck.mjs';
 import { parentLookup, procParent } from '../server/platform.mjs';
 import * as v from '../server/validate.mjs';
+import { chatTools, choicesOf, conversationIdOk, modeFor } from './tools.mjs';
 
 const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 
-/** terminalOf(id): the terminal that runs conversation `id`: { name } (null name: one outside the dashboard), or null. */
+/**
+ * terminalOf(id, tool): the terminal that runs conversation `id` of coding tool `tool` (Claude Code when left out):
+ * { name } (null name: one outside the dashboard), or null.
+ */
 export function terminals(ctx) {
   const { HttpError } = ctx;
-  async function terminalOf(id) {
-    // Only Claude Code's run records: a chat's conversation is Claude Code's (a record without `tool` is an older one of it).
-    const runs = listRuns().filter((r) => r.sessionId === id && r.status !== 'ended' && (r.tool || 'claude') === 'claude');
+  async function terminalOf(id, tool = 'claude') {
+    // Only the run records of the chat's coding tool (a record without `tool` is an older one of Claude Code).
+    const runs = listRuns().filter((r) => r.sessionId === id && r.status !== 'ended' && (r.tool || 'claude') === tool);
     if (!runs.length) return null;
     const terms = await ctx.backend.list();
     const byId = matchRuns(terms, runs, runs.some((r) => r.tmuxPane) ? await parentLookup() : procParent);
@@ -51,17 +54,20 @@ export function handoffRoutes(ctx, o) {
       const found = await ctx.deck.find(b.session);
       if (!found) throw new HttpError(404, 'no such session');
       const run = found.run;
-      // A chat runs Claude Code: a Codex or OpenCode conversation stays in its terminal.
-      if (run && (run.tool || 'claude') !== 'claude') throw new HttpError(409, 'Open as chat is for Claude Code sessions only: this conversation stays in its terminal');
-      if (!run || !isSessionId(run.sessionId)) throw new HttpError(409, 'Claude has not reported its conversation yet; try again in a moment');
+      // A chat runs the coding tools that have a chat here; another tool's conversation stays in its terminal.
+      const tool = run ? run.tool || 'claude' : 'claude';
+      if (run && !chatTools(cfg()).includes(tool)) throw new HttpError(409, 'Open as chat is not offered for this coding tool: this conversation stays in its terminal');
+      if (!run || !conversationIdOk(tool, run.sessionId)) throw new HttpError(409, 'The coding tool has not reported its conversation yet; try again in a moment');
       const open = openChatOf(run.sessionId);
       if (open) return { id: open };
       const prof = run.profile && run.profile !== auto.name ? readProfile(run.profile) : null;
-      if (prof) assertServes(prof, 'claude'); // says why, as a 400
+      if (prof) assertServes(prof, tool); // says why, as a 400
       // As the terminal ran it (its flags), else as the last chat in that folder, else Settings: a conversation
       // taken back from a terminal keeps its model, effort and mode.
       const d = cfg().sessionDefaults || {};
-      const last = memory.last(run.cwd) || {};
+      const before = memory.last(run.cwd) || {};
+      const last = (before.engine || 'claude') === tool ? before : {};
+      const ch = choicesOf(tool, run.profile, models);
       const args = Array.isArray(run.carryArgs) ? run.carryArgs.filter((x) => typeof x === 'string') : [];
       const flag = (name) => {
         const i = args.indexOf(name);
@@ -69,10 +75,13 @@ export function handoffRoutes(ctx, o) {
         return i >= 0 && i + 1 < args.length ? args[i + 1] : eq ? eq.slice(name.length + 1) : null;
       };
       const one = (name, key, list) => [flag(name), last[key], d[key]].find((x) => typeof x === 'string' && list.includes(x)) || null;
-      const id = freeId(run.sessionId);
+      // OpenCode's terminal words for its modes: "ask" is the chat's "manual".
+      const mode = tool === 'claude' ? one('--permission-mode', 'permissionMode', ch.modes) : modeFor(tool, flag('--permission-mode') === 'ask' ? 'manual' : flag('--permission-mode')) || modeFor(tool, last.permissionMode);
+      const id = tool === 'claude' ? freeId(run.sessionId) : crypto.randomUUID();
       make({
-        id, ...(id !== run.sessionId ? { conversationId: run.sessionId } : {}), cwd: run.cwd, profile: run.profile,
-        model: one('--model', 'model', models()), effort: one('--effort', 'effort', EFFORTS), permissionMode: one('--permission-mode', 'permissionMode', PERMISSION_MODES),
+        id, ...(id !== run.sessionId ? { conversationId: run.sessionId } : {}), engine: tool, cwd: run.cwd, profile: run.profile,
+        model: tool === 'claude' ? one('--model', 'model', ch.models) : flag('--model') || last.model || null,
+        effort: one('--effort', 'effort', ch.efforts), permissionMode: mode,
         ultracode: last.ultracode === true,
       });
       save();
@@ -81,7 +90,7 @@ export function handoffRoutes(ctx, o) {
     ['POST', new RegExp(`^/api/chats/${ID}/take$`), async (req, m) => {
       const c = chatOr404(m[1]);
       await ctx.readJson(req);
-      const term = await terminalOf(c.conversationId);
+      const term = await terminalOf(c.conversationId, c.engine.id);
       if (!term) return { ok: true };
       if (term.termId) {
         // The terminal stays, as a plain shell: Claude stops in it, the conversation goes on here.
@@ -93,9 +102,10 @@ export function handoffRoutes(ctx, o) {
           /* already gone */
         }
       }
-      for (let i = 0; i < 40 && (await terminalOf(c.conversationId)); i++) await new Promise((r) => setTimeout(r, 200));
-      if (await terminalOf(c.conversationId)) throw new HttpError(409, 'the terminal did not stop; stop Claude there and try again');
-      c.refresh();
+      for (let i = 0; i < 40 && (await terminalOf(c.conversationId, c.engine.id)); i++) await new Promise((r) => setTimeout(r, 200));
+      if (await terminalOf(c.conversationId, c.engine.id)) throw new HttpError(409, `the terminal did not stop; stop ${c.engine.label} there and try again`);
+      if (c.engine.stamp) c.load(); // kept by the tool's server: read it again now
+      else c.refresh();
       c.emit('state'); // a page that streams leaves its read-along mode now, not at the next news
       ctx.poke?.();
       return { ok: true };
@@ -103,20 +113,23 @@ export function handoffRoutes(ctx, o) {
     ['POST', new RegExp(`^/api/chats/${ID}/terminal$`), async (req, m) => {
       const c = chatOr404(m[1]);
       await ctx.readJson(req);
-      if (!fs.existsSync(c.file())) throw new HttpError(409, 'send a first message: a conversation that has not started cannot be resumed in a terminal');
-      if (c.busy()) throw new HttpError(409, 'Claude is working. Wait until it is done, or press Stop first.');
+      if (!(await c.engine.exists(c.cwd, c.conversationId, c.o.engineOpts))) throw new HttpError(409, 'send a first message: a conversation that has not started cannot be resumed in a terminal');
+      if (c.busy()) throw new HttpError(409, `${c.engine.id === 'claude' ? 'Claude' : c.engine.label} is working. Wait until it is done, or press Stop first.`);
+      const tool = c.engine.id;
+      if (tool !== 'claude' && !chatTools(cfg()).includes(tool)) throw new HttpError(409, `${c.engine.label} is off on this computer: turn it on to open its conversations in a terminal`);
       const profile = c.profile === auto.name ? (auto.on() ? { name: auto.name, env: {} } : null) : readProfile(c.profile);
       if (!profile) throw bad('the provider of this chat is gone; choose another one first');
       chats.delete(c.id);
       await c.close();
-      const flags = [
+      // OpenCode's terminal has fewer modes: it asks (for edits too) unless the chat allowed everything.
+      const flags = tool === 'claude' ? [
         ...(c.permissionMode ? ['--permission-mode', c.permissionMode] : []),
         ...(c.effort ? ['--effort', c.effort] : []),
         ...(c.model ? ['--model', c.model] : []),
-      ];
+      ] : toolFlags(tool, { permissionMode: c.permissionMode === 'bypassPermissions' ? 'bypassPermissions' : 'ask', effort: c.effort, model: c.model });
       let name;
       try {
-        name = await ctx.deck.start({ dir: c.cwd, profile, mode: 'resume', sessionId: c.conversationId, flags });
+        name = await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: c.conversationId, flags });
       } catch (e) {
         make(c.record()); // the terminal did not start: the chat stays open
         throw e;

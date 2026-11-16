@@ -26,14 +26,16 @@ import { readTurns, withTurns } from './turns.mjs';
 export { EVENTS_MAX, WINDOW_MAX } from './timeline.mjs';
 export const IDLE_MS = 20 * 60_000; // a process with nothing to do is stopped after this (the next message resumes)
 const STOP_GRACE_MS = 8000; // after Stop, how long the coding tool gets to end the turn itself
+const STAMP_MS = 3000; // a conversation kept by a tool's server is looked at no more often than this
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
-const BUSY = 'Claude is working. Wait until it is done, or press Stop first.';
+const busyWords = (chat) => `${chat.engine.id === 'claude' ? 'Claude' : chat.engine.label} is working. Wait until it is done, or press Stop first.`;
 
 export class Chat extends Timeline {
   /**
    * o: { id, conversationId, engine, cwd, profile, model, effort, ultracode, permissionMode, title, openedAt,
-   *      costTotal, grants, fork, turnsDir (where each turn's end is kept), resolveEnv(profile) (tests), command { command, args } and spawnImpl (tests), idleMs,
+   *      costTotal, grants, fork, turnsDir (where each turn's end is kept), resolveEnv(profile) (tests), command { command, args } and spawnImpl (tests),
+   *      engineOpts (stand-ins of a tool's server, tests), idleMs,
    *      stopGraceMs, termMs, killMs, drainMs, owedMs }
    */
   constructor(o) {
@@ -90,16 +92,31 @@ export class Chat extends Timeline {
     this.load();
   }
 
+  /** The conversation's file (null for a tool whose conversations are kept by its server). */
   file() {
     return this.engine.file(this.cwd, this.conversationId);
   }
 
-  /** Read the conversation from its files (the page starts over). A rewound one: the old one up to its message. */
+  /**
+   * Read the conversation from its files (the page starts over). A rewound one: the old one up to its message. A tool
+   * whose store is read through its server answers later: what it read is taken unless a turn started meanwhile.
+   */
   load() {
-    if (this.fork && this.engine.exists(this.cwd, this.conversationId)) this.fork = null;
+    if (this.fork && this.engine.exists(this.cwd, this.conversationId) === true) this.fork = null;
     const f = this.fork;
     const id = f ? f.from : this.conversationId;
-    let t = this.engine.transcript({ cwd: this.cwd, id });
+    const t = this.engine.transcript({ cwd: this.cwd, id }, this.o.engineOpts);
+    if (!t || typeof t.then !== 'function') return this.#loaded(t, f, id);
+    const gen = this.gen;
+    this.loading = t.then((x) => {
+      if (!this.closed && gen === this.gen && !this.session && !this.turn && id === this.conversationId) this.#loaded(x, f, id);
+    }, () => {}).finally(() => {
+      this.loading = null;
+    });
+    return this.loading;
+  }
+
+  #loaded(t, f, id) {
     t = { ...t, events: withTurns(t.events, readTurns(this.o.turnsDir, id)) }; // each turn's cost and time (turns.mjs)
     if (f) t = cutAt(t, f.messageId);
     this.reset(t.events);
@@ -115,11 +132,13 @@ export class Chat extends Timeline {
     for (const e of t.events) if (e.kind === 'user' && e.messageId) this.shown.add(e.messageId);
     this.knownSize = f ? 0 : t.size; // a rewound conversation has no file of its own yet
     this.emit('change');
+    this.emit('state');
   }
 
   /** The transcript changed without us (a terminal ran it): read it again. Cheap when nothing changed. */
   refresh() {
     if (this.session) return false;
+    if (this.engine.stamp) return this.#restamp();
     let size = 0;
     try {
       size = fs.statSync(this.file()).size;
@@ -131,7 +150,24 @@ export class Chat extends Timeline {
     return true;
   }
 
+  // A tool read through its server: when the conversation last changed there, at most every few seconds.
+  #restamp() {
+    if (this.loading || Date.now() - (this.stampAt || 0) < STAMP_MS) return false;
+    this.stampAt = Date.now();
+    Promise.resolve(this.engine.stamp({ cwd: this.cwd, id: this.conversationId }, this.o.engineOpts)).then((n) => {
+      if (n && n !== this.knownSize && !this.session && !this.turn) this.load();
+    }, () => {});
+    return false;
+  }
+
   knowSize() {
+    if (this.engine.stamp) {
+      this.stampAt = 0; // asked again at the next look
+      Promise.resolve(this.engine.stamp({ cwd: this.cwd, id: this.conversationId }, this.o.engineOpts)).then((n) => {
+        if (n) this.knownSize = n;
+      }, () => {});
+      return;
+    }
     try {
       this.knownSize = fs.statSync(this.file()).size;
     } catch {
@@ -215,6 +251,8 @@ export class Chat extends Timeline {
       this.settle();
       return { id: msg.id, queued: false };
     }
+    // A coding tool that could not start at all has said so already (its exit ended the turn).
+    if (!this.session) return { id: msg.id, queued: false };
     this.session.send(msg);
     // What was written while it started goes in behind it.
     if (this.engine.capabilities.queue) this.queue.sendHeld(this.session);
@@ -305,7 +343,7 @@ export class Chat extends Timeline {
     if (files && !caps.rewind) throw fail(409, `${this.engine.label} cannot undo changes`);
     if (conversation && !caps.fork) throw fail(409, `${this.engine.label} cannot go back in a conversation`);
     if (!files && !conversation) throw fail(400, 'say what to rewind: the files, the conversation, or both');
-    if (this.busy()) throw fail(409, BUSY);
+    if (this.busy()) throw fail(409, busyWords(this));
     let point = null;
     if (conversation) {
       point = this.engine.forkPoint(this.cwd, this.fork ? this.fork.from : this.conversationId, messageId);
@@ -387,7 +425,7 @@ export class Chat extends Timeline {
 
   /** Continue on another provider: the next turn starts there with the conversation resumed. */
   setProfile(name) {
-    if (this.busy()) throw fail(409, BUSY);
+    if (this.busy()) throw fail(409, busyWords(this));
     this.stop();
     this.profile = name;
     this.limit = null;

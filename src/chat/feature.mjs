@@ -3,9 +3,10 @@
 // after a restart (their process starts again with the next message).
 //
 //   GET  /api/chats                           the open chats, as cards
-//   POST /api/chats                           { dir, profile?, model?, effort?, permissionMode?, ultracode?, sessionId?, text? }
+//   POST /api/chats                           { dir, tool?, profile?, model?, effort?, permissionMode?, ultracode?, sessionId?, text? }
 //                                             → { id }   what is left out: as the last chat in that folder ran
-//                                             (folders.mjs), else the provider recommended now and Settings
+//                                             (folders.mjs), else the provider recommended now and Settings. tool:
+//                                             the coding tool (absent: Claude Code); the chat stays in it (tools.mjs)
 //   GET  /api/chats/<id>?from=N&epoch=E&wait=S   the chat: events from N (wait up to S seconds for news)
 //   GET  /api/chats/<id>/older?before=N       earlier events
 //   POST /api/chats/<id>/send                 { text, attachments?: [{ path }] } → { id, queued }   (while a turn
@@ -24,29 +25,34 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getAutoSwitch } from '../autoswitch.mjs';
-import { EFFORTS, MODELS, PERMISSION_MODES } from '../config.mjs';
+import { MODELS } from '../config.mjs';
 import { stateDir, tilde } from '../paths.mjs';
-import { assertServes, listProfiles, publicProfile, readProfile, servesTools } from '../profiles.mjs';
-import { isSessionId, sessionsIn } from '../sessions.mjs';
+import { listProfiles, publicProfile } from '../profiles.mjs';
+import { isSessionId } from '../sessions.mjs';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from '../server/uploads.mjs';
 import * as v from '../server/validate.mjs';
 import { Chat } from './chat.mjs';
+import { engineOf } from './engines/index.mjs';
 import { askNote, previewText } from './events.mjs';
 import { gitBranch, readAttachments } from './files.mjs';
 import { folderMemory } from './folders.mjs';
 import { handoffRoutes, terminals } from './handoff.mjs';
 import { liveRoutes, stateOf } from './live.mjs';
+import { chatTool, chatTools, choicesOf, conversationIdOk, defaultProvider, modeFor, modelOk, providerOk, serves } from './tools.mjs';
 
 const OPEN_MAX = 50;
 const WAIT_MAX_S = 25; // below the relay's 30 s idle limit, so a chat of another computer can wait too
 const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 const AUTO = { name: 'auto', label: 'Auto', kind: 'auto' };
 
+/** The coding tool the last chat in a folder ran (folders.mjs), else Claude Code. */
+const lastTool = (last) => (last && typeof last.engine === 'string' ? last.engine : 'claude');
+
 /** The name a chat has among the sessions (Home, notifications). ":" is never in a terminal's name. */
 export const cardName = (id) => `chat:${id}`;
 
-/** o: { command, resolveEnv, spawnImpl, idleMs, stopGraceMs, owedMs } (tests), file (where the open chats are kept) */
+/** o: { command, resolveEnv, spawnImpl, engineOpts, idleMs, stopGraceMs, owedMs } (tests), file (where the open chats are kept) */
 export function chatFeature(ctx, o = {}) {
   const { HttpError } = ctx;
   const bad = (msg) => new HttpError(400, msg);
@@ -61,7 +67,7 @@ export function chatFeature(ctx, o = {}) {
 
   // ---------- the list of open chats ----------
   function make(rec) {
-    const c = new Chat({ ...rec, turnsDir: path.join(path.dirname(file()), 'chat-turns'), command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs, owedMs: o.owedMs });
+    const c = new Chat({ ...rec, turnsDir: path.join(path.dirname(file()), 'chat-turns'), command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, engineOpts: o.engineOpts, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs, owedMs: o.owedMs });
     c.setMaxListeners(200); // one per page that waits for news
     c.on('status', () => ctx.poke?.()); // Home and the notifications see a new state at once
     c.on('turn', save);
@@ -98,15 +104,8 @@ export function chatFeature(ctx, o = {}) {
 
   // ---------- providers, models ----------
   const autoOn = () => getAutoSwitch().enabled === true;
-  // The chat runs Claude Code: a provider that does not serve it (an OpenAI key, a Codex sign-in) is not one to offer.
-  const profileOk = (name) => {
-    if (name === AUTO.name) return autoOn();
-    const p = readProfile(name);
-    if (p && !servesTools(p).includes('claude')) assertServes(p, 'claude'); // says why, as a 400
-    return !!p;
-  };
-  // The same, without the sentence: may a chat fall back on this provider (the folder's last one)?
-  const servesChat = (name) => (name === AUTO.name ? autoOn() : servesTools(readProfile(name)).includes('claude'));
+  // A chat runs on a provider that serves its coding tool (tools.mjs): one that does not says why, as a 400.
+  const profileOk = (name, tool) => providerOk(name, tool);
   function profileView(name) {
     if (name === AUTO.name) return AUTO;
     const p = listProfiles().find((x) => x.name === name);
@@ -120,6 +119,14 @@ export function chatFeature(ctx, o = {}) {
     if (val === undefined) return undefined;
     if (val === null || val === '') return null;
     if (!list.includes(val)) throw bad(`the ${what} must be one of: ${list.join(', ')}`);
+    return val;
+  };
+  /** The chips' choices of chat `c` (its coding tool's, on its provider); a list that comes later is sent then. */
+  const choices = (c) => choicesOf(c.engine.id, c.profile, models, () => c.emit('state'));
+  const pickModel = (val, tool, ch) => {
+    if (val === undefined) return undefined;
+    if (val === null || val === '') return null;
+    if (!modelOk(tool, val, ch)) throw bad(ch.models.length ? `the model must be one of: ${ch.models.join(', ')}` : 'that is no model id');
     return val;
   };
 
@@ -136,7 +143,8 @@ export function chatFeature(ctx, o = {}) {
       created: c.openedAt, attached: false, panes: 0, sessionId: c.conversationId, canSwitch: false,
       lastMessage: previewText(c.lastText), // plain words: a card shows no Markdown marks
       running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
-      note: ask ? askNote(ask, c.cwd) : '',
+      note: ask ? askNote(ask, c.cwd, c.engine.id === 'claude' ? 'Claude' : c.engine.label) : '',
+      tool: c.engine.id, // the coding tool (Home shows its chip when it is not Claude Code)
       // The OK it waits for, so a card can answer it (Allow, Allow in this chat, Do not allow); a question or a plan
       // is answered in the chat itself. `subject` is what it is really about (the whole command or path; `cut` when it
       // was too long to carry whole) and `owner` says the chat keeps it for the owner (his settings, a hook or a safety
@@ -152,9 +160,9 @@ export function chatFeature(ctx, o = {}) {
     };
   }
   /** What the page shows beside the chat's state. */
-  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), branch: gitBranch(c.cwd), profile: profileView(c.profile), choices: { models: models(), efforts: EFFORTS, modes: PERMISSION_MODES } });
+  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), branch: gitBranch(c.cwd), profile: profileView(c.profile), choices: choices(c) });
   /** The terminal that runs the chat's conversation, as the page names it ({ name }), or null. */
-  const terminalView = async (c) => (c.session && c.busy() ? null : await terminalOf(c.conversationId).then((t) => (t ? { name: t.name } : null)));
+  const terminalView = async (c) => (c.session && c.busy() ? null : await terminalOf(c.conversationId, c.engine.id).then((t) => (t ? { name: t.name } : null)));
   async function view(c, { from, epoch }) {
     const { reset, events } = c.window(from, epoch);
     return {
@@ -207,27 +215,34 @@ export function chatFeature(ctx, o = {}) {
     const dir = insideRoots(v.absPath(b.dir), roots());
     if (!dir) throw bad('choose a folder inside the allowed roots');
     const owners = b.defaults !== true;
-    const last = (owners && memory.last(dir)) || {};
+    // The coding tool: chosen, else as the last chat here (while that tool is still offered), else Claude Code.
+    const lastOne = lastTool(owners && memory.last(dir));
+    const tool = chatTool(b.tool === undefined || b.tool === null || b.tool === '' ? (chatTools(cfg()).includes(lastOne) ? lastOne : 'claude') : b.tool, cfg());
+    const before = (owners && memory.last(dir)) || {};
+    // What the last chat here chose counts only for a chat of the same coding tool.
+    const last = (before.engine || 'claude') === tool ? before : {};
     let profile = b.profile;
     if (profile === undefined || profile === null || profile === '') {
       // As the last chat here ran, while that provider is still there; else the one recommended now.
-      profile = last.profile && servesChat(last.profile) ? last.profile : (await ctx.state()).recommended;
-      if (!profile) throw bad('there is no provider yet: add one under Providers first');
+      profile = last.profile && serves(last.profile, tool) ? last.profile : defaultProvider(tool, (await ctx.state()).recommended);
+      if (!profile) throw bad(tool === 'claude' ? 'there is no provider yet: add one under Providers first' : 'there is no provider for this coding tool yet: add one under Providers first');
     }
-    if (typeof profile !== 'string' || !profileOk(profile)) throw bad('there is no such provider');
+    if (typeof profile !== 'string' || !profileOk(profile, tool)) throw bad('there is no such provider');
     if (b.ultracode !== undefined && b.ultracode !== null && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
     const d = cfg().sessionDefaults || {};
-    // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults.
+    const ch = choicesOf(tool, profile, models);
+    // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults (Claude Code's
+    // words: another tool takes what it has of them).
     const kept = (k, chosen, fallback) => (chosen !== undefined ? chosen : k in last ? last[k] : fallback);
-    const model = kept('model', pick(b.model, models(), 'model'), d.model || null);
-    const effort = kept('effort', pick(b.effort, EFFORTS, 'effort'), d.effort || null);
-    const permissionMode = kept('permissionMode', pick(b.permissionMode, PERMISSION_MODES, 'permission mode'), d.permissionMode || null);
+    const model = kept('model', pickModel(b.model, tool, ch), tool === 'claude' ? d.model || null : null);
+    const effort = kept('effort', pick(b.effort, ch.efforts, 'effort'), d.effort || null);
+    const permissionMode = kept('permissionMode', pick(b.permissionMode, ch.modes, 'permission mode'), d.permissionMode || null);
     const ultracode = kept('ultracode', b.ultracode ?? undefined, false) === true;
     let id = crypto.randomUUID();
     let conversationId = null;
     if (b.sessionId !== undefined && b.sessionId !== null) {
-      conversationId = v.sessionId(b.sessionId);
-      if (!conversationId || !sessionsIn(dir).some((s) => s.id === conversationId)) throw bad('that conversation is not in this folder');
+      conversationId = conversationIdOk(tool, b.sessionId) ? b.sessionId : null;
+      if (!conversationId || !(await engineOf(tool).history(dir, o.engineOpts)).some((s) => s.id === conversationId)) throw bad('that conversation is not in this folder');
       const open = openChatOf(conversationId);
       if (open) {
         // That chat is someone's already (the owner's, as a rule): it keeps its own settings, and `existing` says so,
@@ -236,7 +251,7 @@ export function chatFeature(ctx, o = {}) {
         if (b.text === undefined || b.text === null) return { id: open, existing: true, permissionMode: mode };
         return { id: open, existing: true, permissionMode: mode, sent: false, why: 'this conversation is already open in a chat; write to that chat' };
       }
-      id = freeId(conversationId);
+      id = tool === 'claude' ? freeId(conversationId) : crypto.randomUUID(); // a chat's own id is a UUID
     }
     let text = null;
     if (b.text !== undefined && b.text !== null) {
@@ -250,15 +265,15 @@ export function chatFeature(ctx, o = {}) {
       old.close();
     }
     const c = make({
-      id, ...(conversationId && conversationId !== id ? { conversationId } : {}), cwd: dir, profile,
+      id, ...(conversationId && conversationId !== id ? { conversationId } : {}), engine: tool, cwd: dir, profile,
       // a model the computer stopped offering is not forced on a new chat
-      model: model && models().includes(model) ? model : null, effort: EFFORTS.includes(effort) ? effort : null,
-      permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode,
+      model: model && modelOk(tool, model, ch) ? model : null, effort: ch.efforts.includes(effort) ? effort : null,
+      permissionMode: modeFor(tool, permissionMode), ultracode,
     });
     save();
     if (owners) remember(c); // the folder's last chat is the owner's own choice, not Tia's or a schedule's
     if (!text) return { id };
-    if (await terminalOf(c.conversationId)) return { id, sent: false, why: 'a terminal session runs this conversation' };
+    if (await terminalOf(c.conversationId, c.engine.id)) return { id, sent: false, why: 'a terminal session runs this conversation' };
     await c.send(text);
     return { id, sent: true };
   }
@@ -269,7 +284,7 @@ export function chatFeature(ctx, o = {}) {
     const t = v.message(text);
     if (!t) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
     if (!c.busy()) {
-      const term = await terminalOf(c.conversationId);
+      const term = await terminalOf(c.conversationId, c.engine.id);
       if (term) throw inTerminal(term);
     }
     const r = await c.send(t);
@@ -310,7 +325,7 @@ export function chatFeature(ctx, o = {}) {
       }
       // Also while this chat's process waits idle: a terminal may have resumed the conversation meanwhile.
       if (!c.busy()) {
-        const term = await terminalOf(c.conversationId);
+        const term = await terminalOf(c.conversationId, c.engine.id);
         if (term) {
           c.stop();
           throw inTerminal(term);
@@ -335,7 +350,7 @@ export function chatFeature(ctx, o = {}) {
         }
       }
       const message = typeof b.message === 'string' ? b.message.slice(0, 1000) : '';
-      const mode = b.mode === undefined || b.mode === null ? null : pick(b.mode, PERMISSION_MODES, 'permission mode');
+      const mode = b.mode === undefined || b.mode === null ? null : pick(b.mode, choices(c).modes, 'permission mode');
       c.answer(b.request, { allow: b.allow, always: b.always === true, answers, mode, message });
       if (mode) {
         save();
@@ -353,7 +368,7 @@ export function chatFeature(ctx, o = {}) {
     ['POST', new RegExp(`^/api/chats/${ID}/provider$`), async (req, m) => {
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
-      if (typeof b.profile !== 'string' || !profileOk(b.profile)) throw bad('there is no such provider');
+      if (typeof b.profile !== 'string' || !profileOk(b.profile, c.engine.id)) throw bad('there is no such provider');
       c.setProfile(b.profile);
       c.emit('state'); // a page that streams shows the new provider
       save();
@@ -390,7 +405,7 @@ export function chatFeature(ctx, o = {}) {
   // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
   const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
   routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, auto: { name: AUTO.name, on: autoOn } }));
-  const live = liveRoutes(ctx, { chatOr404, save, remember, bad, models, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
+  const live = liveRoutes(ctx, { chatOr404, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
   routes.push(...live.routes);
 
   return {

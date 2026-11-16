@@ -70,15 +70,16 @@ const ASK_VERBS = { Bash: 'run', Write: 'write', Edit: 'change', MultiEdit: 'cha
 /**
  * An OK the chat waits for, in one line for a card (Home, Tia's card, a notification): what it is really about, the
  * command or the file (relative to the chat's folder), never only the model's own label of it. Uses the page's words.
+ * `who`: the coding tool as the line names it.
  */
-export function askNote(ask, cwd) {
-  if (ask.type === 'question') return 'Claude asks you a question';
-  if (ask.type === 'plan') return 'Claude has a plan for you to approve';
+export function askNote(ask, cwd, who = 'Claude') {
+  if (ask.type === 'question') return `${who} asks you a question`;
+  if (ask.type === 'plan') return `${who} has a plan for you to approve`;
   const base = String(cwd || '').replace(/\/+$/, '');
   let s = String(ask.subject || '');
   if (base && s.startsWith(`${base}/`)) s = s.slice(base.length + 1);
   const verb = ASK_VERBS[ask.tool] || `use ${ask.title || ask.tool}`;
-  return `Claude wants to ${verb}${s ? `: ${oneLine(s, 300)}` : ''}${ask.description && ask.tool === 'Bash' ? ` (${oneLine(ask.description, 120)})` : ''}`;
+  return `${who} wants to ${verb}${s ? `: ${oneLine(s, 300)}` : ''}${ask.description && ask.tool === 'Bash' ? ` (${oneLine(ask.description, 120)})` : ''}`;
 }
 
 /**

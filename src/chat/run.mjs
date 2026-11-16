@@ -18,16 +18,18 @@ export function start(chat) {
     // The provider's environment may take a while (its PRERUN starts a gateway, Auto mode starts the router).
     const env = await (chat.o.resolveEnv || providerEnv)(chat.profile);
     if (gen !== chat.gen || chat.closed) return false;
-    const resume = chat.engine.exists(chat.cwd, chat.conversationId);
+    const resume = await chat.engine.exists(chat.cwd, chat.conversationId, chat.o.engineOpts); // a promise for a tool read through its server
+    if (gen !== chat.gen || chat.closed) return false;
     // A conversation rewound to an earlier message goes on as a copy of the old one up to there (a fork): until its
     // first turn has written a file of its own.
     const fork = !resume && chat.fork && chat.fork.at ? { from: chat.fork.from, at: chat.fork.at } : null;
     if (!resume && !fork) chat.costTotal = 0; // a new conversation starts at nothing
     let session = null;
     session = chat.engine.open({
-      cwd: chat.cwd, env, sessionId: chat.conversationId, resume, fork, model: chat.model, effort: chat.effort, ultracode: chat.ultracode,
+      cwd: chat.cwd, env, profile: chat.profile, sessionId: chat.conversationId, resume, fork, model: chat.model, effort: chat.effort, ultracode: chat.ultracode,
       mode: chat.permissionMode, grants: [...chat.grants], emit: (ev) => heard(chat, session, ev),
       command: chat.o.command, spawnImpl: chat.o.spawnImpl, termMs: chat.o.termMs, killMs: chat.o.killMs, drainMs: chat.o.drainMs,
+      ...(chat.o.engineOpts || {}), // stand-ins of a tool's server (tests)
     });
     chat.session = session;
     chat.liveMode = null;
