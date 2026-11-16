@@ -171,11 +171,11 @@ function networkPanel(s) {
   const st = { trustProxy: n.trustProxy, origins: n.allowedOrigins.join('\n') };
   return panel({ icon: 'lock', title: 'Network', desc: 'Where this page can be reached from.' },
     info('Address', `${n.host}:${n.port}`, loopbackOnly(s)
-      ? 'Only this computer can open the page; reach it from elsewhere through Tailscale or an SSH tunnel.'
+      ? 'Only this computer can open the page; turn on Settings → Public link to open it from anywhere.'
       : 'Other devices on the network can open the page.'),
     h('p.hint', `To change it, run on the computer: ${COMMAND} serve --host 0.0.0.0 --port ${n.port} (or set server.host and server.port in the config), then restart the dashboard.`),
     toggle('Behind an HTTPS proxy', st.trustProxy, (v) => { st.trustProxy = v; return false; }, // kept by Save below
-      'Turn on only when a reverse proxy (Caddy, nginx, Tailscale Serve) sits in front; the page then believes the address and protocol it reports.'),
+      'Turn on only when a reverse proxy (Caddy, nginx) sits in front; the page then believes the address and protocol it reports.'),
     field('Other allowed addresses', h('textarea.field.mono', { rows: 2, value: st.origins, placeholder: 'https://pc.example.net', oninput: (e) => (st.origins = e.target.value) }), 'Only needed when the page is opened under a different address than it runs on. One per line.'),
     saveBar('Save', () => api('/api/settings', { server: { trustProxy: st.trustProxy, allowedOrigins: st.origins.split('\n').map((x) => x.trim()).filter(Boolean) } })));
 }

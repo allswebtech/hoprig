@@ -71,3 +71,14 @@ test('a weak password: the turn-on says why and asks for a stronger one; while t
   assert.match(weak.json.error, /public link is on, so the new password must be strong: it has fewer than 12 characters/);
   saveConfig({ publicLink: undefined });
 });
+
+test('off with a kind: that kind is chosen for the next time, nothing starts; an unknown kind is refused', async () => {
+  let r = (await call('/api/public-link', { on: false, kind: 'custom' })).json;
+  assert.deepEqual([r.ok, r.on, r.kind], [true, false, 'custom']);
+  assert.deepEqual(loadConfig().publicLink, { on: false, kind: 'custom' });
+  r = (await call('/api/public-link', { on: false })).json;
+  assert.deepEqual(loadConfig().publicLink, { on: false, kind: 'custom' }, 'off alone keeps the chosen kind');
+  assert.equal((await call('/api/public-link', { on: false, kind: 'both' })).status, 400);
+  r = (await call('/api/public-link', { on: false, kind: 'temporary' })).json;
+  assert.deepEqual([r.on, r.kind, r.state], [false, 'temporary', 'off']);
+});

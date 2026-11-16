@@ -3,6 +3,7 @@
 //   GET  /api/public-link                        the state: { on, kind, state, url, error, progress, password,
 //                                                kinds (each explained), visitor, custom (its set-up), service }
 //   POST /api/public-link { on, kind?, password? }
+//                                                (off with a kind: that kind is chosen for the next time)
 //                                                switch it. On needs a strong dashboard password: when it cannot be
 //                                                turned on the answer is { ok: false, need, error } with a plain reason
 //                                                and what the page asks for in place (need: password, check-password,
@@ -38,7 +39,7 @@ export function linkRoutes(sctx, { run, jobs, addon, limiter = new RateLimiter()
       if (typeof b.on !== 'boolean') throw fail(400, 'send { on: true | false }');
       if (b.kind !== undefined && !KINDS.includes(b.kind)) throw fail(400, 'kind must be "temporary" or "custom"');
       if (b.password !== undefined && (typeof b.password !== 'string' || !b.password || b.password.length > 1024)) throw fail(400, 'password must be a string');
-      if (!b.on) return turnOff();
+      if (!b.on) return turnOff(b.kind ? { kind: b.kind } : {}); // off: the kind (when sent) is kept for the next time
       if (b.password !== undefined) {
         // A password never crosses a plain leg from a hub (as for Setup: src/machines/legs.mjs).
         if (tokenIdOf(req) !== null && !arrivedEncrypted(req)) throw fail(403, 'The password is not sent over this link: it is not encrypted. Type it on this computer\'s own page.');

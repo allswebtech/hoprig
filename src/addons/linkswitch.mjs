@@ -247,9 +247,9 @@ export async function turnOn(kind = readSwitch().kind, { by = null } = {}) {
   return { ok: true, ...status() };
 }
 
-/** Turn it off. The kind stays chosen for the next time. */
-export async function turnOff() {
-  saveConfig({ publicLink: { on: false, kind: readSwitch().kind } });
+/** Turn it off (or keep it off). The kind stays chosen for the next time; `kind` chooses another one for then. */
+export async function turnOff({ kind = readSwitch().kind } = {}) {
+  saveConfig({ publicLink: { on: false, kind: KINDS.includes(kind) ? kind : 'temporary' } });
   await reconcile();
   return { ok: true, ...status() };
 }

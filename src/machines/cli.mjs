@@ -8,6 +8,7 @@ import { qrText } from '../setup/qr.mjs';
 import { configuredInstaller, createHub, defaultHubName } from './hub.mjs';
 import { JoinKeeper, accept, joinByAddress, joinHub, leaveHub, loadJoined, publicJoined } from './join.mjs';
 import { BY_HAND, hubCertificate, joinCommand, pinOf, toX509 } from './hubcert.mjs';
+import { joinLine, parseJoinLine } from './joinline.mjs';
 import { reachableUrl } from '../addons/reach.mjs';
 import { createLinkCode } from './link.mjs';
 import { tokenName } from './names.mjs';
@@ -37,10 +38,10 @@ const USAGE = `usage:
   hoprig machines rename <name> <new-name>
   hoprig machines rm <name>           remove it (by SSH its token there is revoked too)
 
-  hoprig join <https://hub> <CODE>    for a computer the hub cannot reach (a PC at home behind a router): it
-                                         connects OUT to the hub's dashboard and stays connected, also after a
-                                         restart. The code comes from the hub: hoprig machines invite there,
-                                         or Settings → Computers → Add a computer that connects by itself.
+  hoprig join <https://hub#join=CODE> for a computer the hub cannot reach (a computer at home behind a router):
+  hoprig join <https://hub> <CODE>       it connects OUT to the hub's dashboard and stays connected, also after a
+                                         restart. The line comes from the hub: hoprig machines invite there, or
+                                         Computers → Add a computer → "It is at home or behind a router".
           [--fingerprint sha256:…]       for a hub with its own HTTPS certificate (no public authority signed
                                          it, as with an IP address and --tls-internal): the hub shows the whole
                                          line with it. Checked on every connection; never turns checking off.
@@ -168,7 +169,10 @@ async function readStdin() {
 
 async function join(args) {
   const o = parse(args, { leave: 'bool', again: 'bool', json: 'bool', insecure: 'bool', fingerprint: 'value' });
-  const [target, code] = o._;
+  // The one line the main Hoprig shows (address#join=CODE) is read as its address, code and fingerprint.
+  const pasted = o._.length === 1 && String(o._[0]).includes('#join=') ? parseJoinLine(o._[0]) : null;
+  const [target, code] = pasted ? [pasted.url, pasted.code] : o._;
+  if (pasted && pasted.fingerprint && o.fingerprint === undefined) o.fingerprint = pasted.fingerprint;
   if (!target) {
     const hubs = loadJoined().map((h) => publicJoined(h));
     if (o.json) console.log(JSON.stringify(hubs));
@@ -259,14 +263,15 @@ async function machines(args) {
     // The hub's own certificate: the line then carries its authority's fingerprint (hubcert.mjs).
     const cert = base.local ? null : await hubCertificate(base.url);
     const { line, note } = joinCommand(base.local ? 'https://<this dashboard\'s address>' : base.url, c.code, cert);
-    if (args.includes('--json')) console.log(JSON.stringify({ hoprig: 'invite', ...c, url: base.url, certificate: cert ? cert.kind : null, fingerprint: cert && cert.kind === 'own' ? cert.pin : null, command: line }));
+    if (args.includes('--json')) console.log(JSON.stringify({ hoprig: 'invite', ...c, url: base.url, certificate: cert ? cert.kind : null, fingerprint: cert && cert.kind === 'own' ? cert.pin : null, command: line, line: base.local ? null : joinLine(base.url, c.code, cert && cert.kind === 'own' ? cert.pin : null) }));
     else {
       console.log(`\n  Code:  ${c.code}\n`);
       const plain = cert && cert.kind === 'plain';
-      console.log(`On the other computer run:  ${line}`);
+      if (!base.local) console.log(`On the other computer: Computers → Link to my main Hoprig, and paste:\n  ${joinLine(base.url, c.code, cert && cert.kind === 'own' ? cert.pin : null)}\n`);
+      console.log(`Or there in a terminal:  ${line}`);
       if (note) console.log(note);
       if (plain) console.log('This address is not encrypted (http://): what that computer sends, and everything typed into its sessions, crosses the network readable. Put this dashboard behind HTTPS for anything but a network you trust.');
-      console.log(`(or there: Settings → Computers → Connect this computer to another dashboard). The code works once, for ${CODE_TTL_MS / 60000} minutes.`);
+      console.log(`The code works once, for ${CODE_TTL_MS / 60000} minutes.`);
       if (base.local) console.log('This dashboard listens on this computer only; the other computer needs an address it can reach (a reverse proxy with HTTPS, or --host).');
     }
     return 0;

@@ -144,7 +144,7 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   }
   const settingsPages = [...fs.readdirSync(WEB).filter((f) => f.endsWith('.js')).map(src).join('\n').matchAll(/registerSettingsPage\(\{\s*id: '([a-z-]+)', title: ([^,]+), icon: '[a-z]+', order: (\d+)/g)]
     .sort((a, b) => a[3] - b[3]).map((m) => m[1]);
-  assert.deepEqual(settingsPages, ['new-sessions', 'workspace', 'notifications', 'appearance', 'security', 'tia', 'vscode', 'addons', 'about']);
+  assert.deepEqual(settingsPages, ['new-sessions', 'workspace', 'notifications', 'appearance', 'security', 'public-link', 'tia', 'vscode', 'addons', 'about']);
   const app = src('app.js');
   for (const [from, to] of [['/pc', '/computer'], ['/pc/projects', '/workspace'], ['/settings/accounts', '/providers'], ['/settings/computers', '/computers'], ['/settings/skills', '/skills'], ['/settings/signin', '/settings/security'], ['/settings/auto', '/providers'], ['/tia-settings', '/settings/tia']]) {
     assert.ok(app.includes(`'${from}': '${to}'`), `${from} → ${to}`);
@@ -370,39 +370,60 @@ test('Get started: the next step, the count, collapse when done, hidden when clo
   assert.equal(getStartedCard(onb, { dismissed: true }), null);
 });
 
-// ---------- Settings → Add-ons: the public link ----------
-test('add-ons: no "Set up as a provider" for the public link, notes before Start, its own address while it runs', async () => {
-  const { addonView } = await import('../../web/addons.js');
+// ---------- Settings → Add-ons, and Settings → Public link ----------
+const webSrc = (f) => fs.readFileSync(path.join(WEB, f), 'utf8');
+test('add-ons: no "Set up as a provider" for an add-on that is no gateway, notes before Start; the public link is not listed', async () => {
+  const { addonView, shownAddons } = await import('../../web/addons.js');
   const gateway = addonView({ id: 'trouteai', installed: true, running: true, url: 'http://localhost:20017' });
-  assert.deepEqual([gateway.showAccount, gateway.confirmStart, gateway.showAddress], [true, false, false]);
-  const notes = ['The address changes every time it starts, and stops working when it stops.'];
-  const stopped = addonView({ id: 'publiclink', installed: true, running: false, account: false, notes });
-  assert.deepEqual([stopped.showAccount, stopped.confirmStart, stopped.showAddress], [false, true, false]);
-  const running = addonView({ id: 'publiclink', installed: true, running: true, account: false, url: 'https://a-b-c.trycloudflare.com', notes });
-  assert.equal(running.showAddress, true);
-  const src = fs.readFileSync(path.join(WEB, 'addons.js'), 'utf8');
-  assert.match(src, /api\('~\/api\/login\/links', \{ base: a\.url \}\)/, 'the sign-in QR is made for that address');
-  assert.match(src, /changes each time it starts and is not for permanent use/);
+  assert.deepEqual([gateway.showAccount, gateway.confirmStart], [true, false]);
+  const other = addonView({ id: 'x', installed: true, running: false, account: false, notes: ['Read this first.'] });
+  assert.deepEqual([other.showAccount, other.confirmStart], [false, true]);
+  // The public link has its own page; its entry in /api/addons is only for older hubs.
+  assert.deepEqual(shownAddons([{ id: 'trouteai' }, { id: 'public-link' }, null]).map((a) => a.id), ['trouteai']);
+  assert.doesNotMatch(webSrc('addons.js'), /publiclink\.js|fixed\./, 'Add-ons knows nothing of the public link');
 });
 
-test('add-ons: the public link\'s fixed address in plain words; what "Stop using it" does is said first', async () => {
-  const { fixedPill, needsPoll, forgetText } = await import('../../web/publiclink.js');
-  assert.deepEqual(fixedPill({ state: 'none' }), ['ended', 'Not set up']);
-  assert.deepEqual(fixedPill({ state: 'signing-in' }), ['starting', 'Waiting for Cloudflare']);
-  assert.deepEqual(fixedPill({ state: 'ready', enabled: true, connected: true }), ['waiting', 'Connected']);
-  assert.deepEqual(fixedPill({ state: 'ready', enabled: true, connected: false, error: 'x', nextTryAt: 1 }), ['attention', 'Trying again']);
-  assert.deepEqual(fixedPill({ state: 'ready', enabled: false }), ['ended', 'Off']);
-  assert.equal(needsPoll({ installed: true, fixed: { state: 'signing-in' } }), true);
-  assert.equal(needsPoll({ installed: true, fixed: { state: 'ready', enabled: true, connected: false } }), true);
-  assert.equal(needsPoll({ installed: true, fixed: { state: 'ready', enabled: true, connected: true } }), false);
-  assert.equal(needsPoll({ id: 'trouteai', installed: true }), false);
+test('public link: the state in one pill and one line, Off by default; it looks again only while something changes', async () => {
+  const { statePill, linkSummary, needsPoll, makePassword } = await import('../../web/publiclink.js');
+  assert.deepEqual(statePill({ on: false, state: 'off' }), ['ended', 'Off']);
+  assert.deepEqual(statePill({ on: false, state: 'error' }), ['attention', 'Off: it did not start']);
+  assert.deepEqual(statePill({ on: true, state: 'installing' }), ['starting', 'Installing cloudflared…']);
+  assert.deepEqual(statePill({ on: true, state: 'on' }), ['waiting', 'On']);
+  assert.deepEqual(statePill({ on: true, state: 'retrying' }), ['attention', 'Trying again']);
+  assert.equal(linkSummary(null), 'Off');
+  assert.equal(linkSummary({ on: false, kind: 'custom' }), 'Off');
+  assert.equal(linkSummary({ on: true, kind: 'temporary', state: 'on', url: 'https://a-b-c.trycloudflare.com' }), 'Temporary: a-b-c.trycloudflare.com');
+  assert.equal(linkSummary({ on: true, kind: 'custom', state: 'on', url: 'https://pc.example.com' }), 'Custom: pc.example.com');
+  assert.equal(linkSummary({ on: true, kind: 'temporary', state: 'starting', url: null }), 'Temporary: starting…');
+  assert.equal(needsPoll({ on: true, state: 'starting', custom: { state: 'none' } }), true);
+  assert.equal(needsPoll({ on: true, state: 'on', custom: { state: 'none' } }), false);
+  assert.equal(needsPoll({ on: false, state: 'off', custom: { state: 'signing-in' } }), true, 'waiting for Cloudflare\'s approval');
+  assert.equal(needsPoll({ on: false, state: 'off', custom: { state: 'ready' } }), false);
+  // A made password is long, readable, and strong by the server's own rules.
+  const { passwordProblem } = await import('../../src/server/strength.mjs');
+  const pw = makePassword((n) => new Uint8Array(n).map((_, i) => (i * 37 + 11) % 256));
+  assert.match(pw, /^[a-km-z2-9]{5}(-[a-km-z2-9]{5}){3}$/);
+  assert.equal(passwordProblem(pw), null);
+  assert.equal(passwordProblem(makePassword()), null);
+});
+
+test('public link: its own Settings page; refusals are asked for in place; the address with Copy, Open and a QR', async () => {
+  const { forgetText } = await import('../../web/publiclink.js');
   const named = forgetText({ mode: 'named', url: 'https://office.example.com', hostname: 'office.example.com', extra: [{ hostname: 'trouteai-office.example.com' }] });
   assert.match(named, /deletes its tunnel in your Cloudflare account/);
   assert.match(named, /DNS records for office\.example\.com, trouteai-office\.example\.com stay in Cloudflare/);
   assert.match(forgetText({ mode: 'token', url: 'https://office.example.com' }), /stay in your Cloudflare dashboard/);
   assert.match(forgetText({ mode: null }), /Nothing was made in your Cloudflare account/);
-  const { addonView } = await import('../../web/addons.js');
-  assert.equal(addonView({ id: 'public-link', account: false, fixed: { state: 'none' } }).parts, true);
+  const page = webSrc('publiclink.js');
+  assert.match(page, /registerSettingsPage\(\{\s*id: 'public-link', title: 'Public link'/);
+  for (const need of ['password', 'check-password', 'custom-setup']) assert.ok(page.includes(`'${need}'`), need);
+  assert.match(page, /return strongForm\(ui\.error, true\)/, 'a weak password: "Make a strong password" in place, then on');
+  assert.match(page, /api\('\/api\/settings\/password', \{ current: cur\.value, next: next\.value \}\)/);
+  assert.match(page, /api\('~\/api\/login\/links', \{ base: url \}\)/, 'the sign-in QR is made for that address');
+  assert.match(page, /The \$\{other\} address stops working/, 'moving to the other kind says so first');
+  assert.match(page, /api\('~\/api\/links\/code', \{\}\)/, 'the line for another computer');
+  assert.match(page, /must be linked again when this address changes/);
+  assert.match(webSrc('app.js'), /import '\.\/publiclink\.js';/);
 });
 
 // ---------- wording ----------
@@ -537,12 +558,15 @@ test('providers: "Not signed in" with a Sign in button; usage with its age; a pl
   assert.doesNotMatch(src, /h\(`a\.row\.acct/, 'a row with a button inside is no link element');
 });
 
-test('joining: the server\'s whole line when it gives one, its note under it; the fingerprint is sent when typed', () => {
+test('joining: the one line to paste on the main computer, the terminal line too; one paste field on the other', () => {
   const src = fs.readFileSync(path.join(WEB, 'computers.js'), 'utf8');
   assert.match(src, /const cmd = c\.command \|\| /);
   assert.match(src, /c\.note \? h\('span\.hint', c\.note\)/);
-  assert.match(src, /fingerprint \? \{ fingerprint \} : \{\}/);
-  assert.match(src, /Fingerprint \(only when the hub\\'s line has one\)/);
+  assert.match(src, /cmdLine\(c\.line\)/);
+  assert.match(src, /c\.via === 'temporary'/, 'a Temporary address: the other computer must be linked again after a restart');
+  assert.match(src, /api\('~\/api\/joins', \{ line: lineIn\.value\.trim\(\), insecure: insecure\.checked \}\)/);
+  assert.match(src, /label: `Link to my main \$\{APP_NAME\}`/);
+  assert.doesNotMatch(src, /Fingerprint \(only when/, 'the fingerprint travels in the pasted line');
 });
 
 test('session view: the short placeholder on a narrow screen', () => {

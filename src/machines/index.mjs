@@ -11,7 +11,7 @@
 // Routes answered here:
 //   bearer or login  GET  /api/machine                       this computer: host name, OS, versions
 //   bearer           POST /api/tokens/self/revoke            the token gives up its own right
-//   login            GET  /api/joins, POST /api/joins { target } or { url, code, insecure, fingerprint }, POST /api/joins/<id>/leave
+//   login            GET  /api/joins, POST /api/joins { target } or { url, code, insecure, fingerprint } or { line, insecure }, POST /api/joins/<id>/leave
 //                    POST /api/links/code, GET /api/links/code?id=  a code for a computer that connects by itself
 //   link secret      POST /api/link/claim (the code instead), POST /api/link/leave, WebSocket /api/link
 //                                                            this computer connecting by itself to another dashboard
@@ -35,7 +35,8 @@ import { JoinKeeper, joinByAddress, joinHub, leaveHub, loadJoined, publicJoined 
 import { LinkHub, createLinkCode, linkCodeStatus } from './link.mjs';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { hubCertificate, joinCommand } from './hubcert.mjs';
-import { reachableUrl } from '../addons/reach.mjs';
+import { reachable } from '../addons/reach.mjs';
+import { joinLine, parseJoinLine } from './joinline.mjs';
 import { label as cleanLabel, machineName, tokenName } from './names.mjs';
 import { claimCode, codeStatus, createCode, machineInfo } from './pairing.mjs';
 import { errorBody, relayHttp, relayUpgrade, rejectUpgrade } from './relay.mjs';
@@ -185,7 +186,12 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
     ['GET', /^\/api\/joins$/, async () => ({ joined: loadJoined().map((h) => publicJoined(h, joins.status(h.id))) })],
     ['POST', /^\/api\/joins$/, async (req) => {
       const b = await readJson(req);
-      // By address and code (the direct link), or by SSH.
+      // By the one pasted line ("Link to my main Hoprig"), by address and code (the direct link), or by SSH.
+      if (b.line !== undefined) {
+        const p = parseJoinLine(b.line);
+        if (!p) throw new HubError(400, 'paste the whole line your main Hoprig shows, like https://pc.example.com#join=K7QM-4XP2');
+        Object.assign(b, { url: p.url, code: p.code, fingerprint: p.fingerprint });
+      }
       const h = b.url !== undefined
         ? await joinByAddress(b.url, b.code, { keeper: joins, insecure: b.insecure === true, fingerprint: typeof b.fingerprint === 'string' && b.fingerprint.trim() ? b.fingerprint.trim() : null })
         : await joinHub(b.target, { keeper: joins, ssh: joinSsh });
@@ -197,10 +203,12 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
       // With the line to type there: the hub's address and, for a hub with its own certificate, its fingerprint.
       const c = createLinkCode();
       // How this computer is reached from anywhere: the set public address, else the public link's (reach.mjs).
-      const base = reachableUrl() || '';
-      const cert = /^https?:\/\//.test(base) ? await certOf(base) : null;
+      // `via` 'temporary': the address changes after a restart, and a computer linked to it must be linked again.
+      const { url: base, via } = reachable();
+      const cert = base ? await certOf(base) : null;
       const { line, note } = cert ? joinCommand(base, c.code, cert) : { line: null, note: null };
-      return { ...c, url: cert ? base.replace(/\/+$/, '') : null, certificate: cert ? cert.kind : null, fingerprint: cert && cert.kind === 'own' ? cert.pin : null, command: line, note };
+      const pin = cert && cert.kind === 'own' ? cert.pin : null;
+      return { ...c, url: cert ? base : null, via: cert ? via : null, certificate: cert ? cert.kind : null, fingerprint: pin, command: line, line: cert ? joinLine(base, c.code, pin) : null, note };
     }],
     ['GET', /^\/api\/links\/code$/, async (req, m, q) => {
       const st = linkCodeStatus(String(q.get('id') || ''));

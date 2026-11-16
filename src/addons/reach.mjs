@@ -16,19 +16,26 @@ const clean = (u, { origin = false } = {}) => {
 };
 
 /**
- * server.publicUrl when it is set (a hub behind its own proxy; kept with its path), else the Custom address while the
- * public link is on as Custom, else the Temporary address while it runs; null when there is none. No trailing "/".
+ * How this computer is reached from anywhere: { url, via } with via 'set' (server.publicUrl, a hub behind its own
+ * proxy; kept with its path), 'custom' (the Custom address while the public link is on as Custom) or 'temporary'
+ * (the Temporary address while its cloudflared runs); { url: null, via: null } when there is none. No trailing "/".
  */
-export function reachableUrl(cfg = loadConfig()) {
+export function reachable(cfg = loadConfig()) {
+  const none = { url: null, via: null };
   const set = (cfg.server || {}).publicUrl ? clean(cfg.server.publicUrl) : null;
-  if (set) return set;
+  if (set) return { url: set, via: 'set' };
   const p = cfg.publicLink;
-  if (!p || p.on !== true) return null;
+  if (!p || p.on !== true) return none;
   if (p.kind === 'custom') {
     const f = readFixed();
-    return f && f.mode && f.hostname ? clean(`https://${f.hostname}`, { origin: true }) : null;
+    const url = f && f.mode && f.hostname ? clean(`https://${f.hostname}`, { origin: true }) : null;
+    return url ? { url, via: 'custom' } : none;
   }
   // The Temporary address only while its cloudflared runs: after a restart it is a new one.
   const rec = readJsonFile(linkRecordFile()) || {};
-  return rec.kind === 'temporary' && rec.url && alive(rec.pid) ? clean(rec.url, { origin: true }) : null;
+  const url = rec.kind === 'temporary' && rec.url && alive(rec.pid) ? clean(rec.url, { origin: true }) : null;
+  return url ? { url, via: 'temporary' } : none;
 }
+
+/** reachable()'s address alone, or null. */
+export const reachableUrl = (cfg) => reachable(cfg).url;

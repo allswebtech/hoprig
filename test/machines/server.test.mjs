@@ -50,7 +50,8 @@ test('the running dashboard records where it listens; pair and link read it befo
 test('while the public link is on, the join line and `hoprig link` use its address (reachableUrl)', async () => {
   const cookie = await login();
   const joinCode = async () => (await post('/api/links/code', {}, { Cookie: cookie })).json;
-  assert.equal((await joinCode()).url, null, 'off, and no public address set: no line to type elsewhere');
+  const none = await joinCode();
+  assert.deepEqual([none.url, none.line, none.via], [null, null, null], 'off, and no public address set: no line to paste elsewhere');
   const addons = path.join(box.state, 'addons');
   fs.mkdirSync(path.join(addons, 'fixed-link'), { recursive: true });
   fs.writeFileSync(path.join(addons, 'fixed-link', 'fixed.json'), JSON.stringify({ mode: 'named', hostname: 'office.example.com', tunnelId: 'x', extra: [] }));
@@ -61,12 +62,18 @@ test('while the public link is on, the join line and `hoprig link` use its addre
     const c = await joinCode();
     assert.equal(c.url, 'https://office.example.com');
     assert.match(c.command, /https:\/\/office\.example\.com/);
+    // The one line to paste on the other computer, and how the address is had (Custom: it stays).
+    assert.equal(c.line, `https://office.example.com#join=${c.code}`);
+    assert.equal(c.via, 'custom');
     assert.deepEqual(linkBase(), { url: 'https://office.example.com', local: false });
     // Temporary: only while its cloudflared runs (a stopped one's address is dead).
     saveConfig({ publicLink: { on: true, kind: 'temporary' } });
     fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: process.pid }));
     assert.equal(reachableUrl(), 'https://stem-wonder.trycloudflare.com');
-    assert.equal((await joinCode()).url, 'https://stem-wonder.trycloudflare.com');
+    const t = await joinCode();
+    assert.equal(t.url, 'https://stem-wonder.trycloudflare.com');
+    assert.equal(t.via, 'temporary', 'the page then says that the link ends when the address changes');
+    assert.equal(t.line, `https://stem-wonder.trycloudflare.com#join=${t.code}`);
     fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: 2 ** 22 + 7 }));
     assert.equal(reachableUrl(), null);
     saveConfig({ publicLink: { on: false, kind: 'custom' } });
