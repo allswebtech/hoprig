@@ -58,11 +58,12 @@ export function rememberFolderProvider(cwd, profile) {
 
 /**
  * The default provider's name (or null when there is none). `profiles`: the server's provider states ({ name, kind,
- * paid, limited, virtual }); `auto`: { enabled, order, payPerUse }; `last`: the provider used last in the folder.
+ * paid, limited, virtual, tools? }); `auto`: { enabled, order, payPerUse }; `last`: the provider used last in the
+ * folder. Only a provider that serves Claude Code is a candidate (`tools`, where the states carry it).
  */
 export function chooseDefault({ profiles = [], auto = {}, autoName = 'auto', last = null }) {
   if (auto.enabled) return autoName;
-  const real = profiles.filter((p) => p && !p.virtual);
+  const real = profiles.filter((p) => p && !p.virtual && (!Array.isArray(p.tools) || p.tools.includes('claude')));
   const free = (p) => !p.limited;
   const used = last && real.find((p) => p.name === last);
   if (used && free(used)) return used.name;

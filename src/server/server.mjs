@@ -420,10 +420,11 @@ export function createServer(opts = {}) {
     }],
     ['POST', /^\/api\/sessions$/, async (req) => {
       const b = await readJson(req);
+      // No provider chosen for Claude Code: the default for this folder (the one used last there, …: defaultprovider.mjs).
+      if ((b.profile === undefined || b.profile === '') && (b.tool === undefined || b.tool === 'claude')) b.profile = defaultFor(profileStates(await cards()), lastProviderIn(insideRoots(v.absPath(b.dir), roots())));
       const dir = insideRoots(v.absPath(b.dir), roots());
       if (!dir) throw bad('choose a folder inside the allowed roots');
-      // No provider chosen: the server's default for this folder (the one used last there, …: defaultprovider.mjs).
-      const profile = pickProfile(b.profile === undefined || b.profile === '' ? defaultFor(profileStates(await cards()), lastProviderIn(dir)) : b.profile);
+      const profile = pickProfile(b.profile);
       if (!profile) throw bad('there is no such provider');
       const mode = ['new', 'continue', 'resume'].includes(b.mode) ? b.mode : null;
       if (!mode) throw bad('bad mode');

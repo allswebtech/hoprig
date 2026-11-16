@@ -49,6 +49,8 @@ test('Auto mode off, nothing used in the folder (or it is gone, or at its limit)
   assert.equal(D.chooseDefault({ profiles: profiles.map((p) => ({ ...p, limited: {} })), auto: { enabled: false, order: ['gw'] } }), 'gw');
   assert.equal(D.chooseDefault({ profiles: [], auto: { enabled: false } }), null);
   assert.equal(D.chooseDefault({ profiles: [{ name: 'auto', virtual: true }, P('sub')], auto: { enabled: false } }), 'sub', 'never the virtual one');
+  assert.equal(D.chooseDefault({ profiles: [P('openai', { kind: 'api', tools: ['codex'] }), P('sub', { tools: ['claude'] })], auto: { enabled: false } }), 'sub', 'only a provider Claude Code can use');
+  assert.equal(D.chooseDefault({ profiles: [P('openai', { kind: 'api', tools: ['codex'] }), P('sub')], auto: { enabled: false }, last: 'openai' }), 'sub');
 });
 
 test('Claude Code started in a folder (the launcher) makes its provider that folder\'s; the newest 100 are kept', { skip: process.platform === 'win32' && 'a POSIX stand-in for claude' }, async () => {
