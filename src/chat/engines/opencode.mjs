@@ -9,7 +9,7 @@
 // cannot do (capabilities false): stop one task, rewind, a fork, Claude Code's commands, compact, plan usage.
 import { opencodeClient } from '../../codetools/clients.mjs';
 import { isToolSessionId, opencodeSessions } from '../../codetools/stores.mjs';
-import { ensureServer } from '../../codetools/servers.mjs';
+import { ensureServer, readServer } from '../../codetools/servers.mjs';
 import { OpencodeEvents } from './opencode-events.mjs';
 import { readTranscript } from './opencode-transcript.mjs';
 import { modeOf, modeRules, onServer, providerFor, startModel, topEffort } from './served.mjs';
@@ -238,8 +238,15 @@ class OpencodeSession {
   }
 }
 
-/** A client of the running OpenCode server (started when it does not run; no provider needed to read). */
-async function reader(o = {}) {
+/**
+ * A client of the running OpenCode server (started when it does not run; no provider needed to read). start: false
+ * only looks: null when no server runs (then nobody changed a conversation meanwhile, and none is started for that).
+ */
+async function reader(o = {}, { start = true } = {}) {
+  if (!start && !o.ensure) {
+    const s = readServer(TOOL);
+    return s ? (o.client || opencodeClient)({ ...s, fetchImpl: o.fetchImpl }) : null;
+  }
   const r = await (o.ensure || ensureServer)(TOOL);
   if (!r || !r.ok) throw fail(409, (r && r.why) || 'OpenCode\'s server did not start');
   return (o.client || opencodeClient)({ ...r.server, fetchImpl: o.fetchImpl });
@@ -273,7 +280,8 @@ export const opencode = {
   /** When the conversation last changed (the chat reads it again when that moves), or 0. */
   stamp: async ({ id }, o = {}) => {
     if (!isToolSessionId(TOOL, id)) return 0;
-    const r = await (await reader(o)).req('GET', `/api/session/${enc(id)}`).catch(() => null);
+    const c = await reader(o, { start: false });
+    const r = c ? await c.req('GET', `/api/session/${enc(id)}`).catch(() => null) : null;
     return Number(r && r.data && r.data.time && r.data.time.updated) || 0;
   },
   /** The folder's conversations, newest first: [{ id, at, title }]. */
