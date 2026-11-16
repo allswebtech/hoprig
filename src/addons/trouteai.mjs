@@ -138,7 +138,8 @@ async function parentOf(pid) {
 async function startedByUs(rec, onPort) {
   if (!rec) return null;
   const [up, down] = onPort ? await Promise.all([parentOf(onPort), parentOf(rec.pid)]) : [null, null];
-  const related = rec.pid === onPort || up === rec.pid || down === onPort ? true : onPort && up && down ? false : null;
+  // Without the process on the port nothing is related to it (null === null is no relation).
+  const related = !onPort ? null : rec.pid === onPort || up === rec.pid || down === onPort ? true : up && down ? false : null;
   const after = (await system.refresh([rec.pid])) || 0;
   return filedProcess(pidFile(), rec, { fact: () => related, after }) === true ? rec.pid : null;
 }

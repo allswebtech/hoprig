@@ -162,6 +162,31 @@ test('the gateway: stop ends what listens on its port, never another program und
   }
 });
 
+test('the gateway: where the process on its port cannot be found, a file without an identity shows nothing and gets no signal', POSIX, async () => {
+  const none = path.join(box.root, 'nothing');
+  fs.mkdirSync(none, { recursive: true });
+  for (const content of [(pid) => String(pid), (pid) => JSON.stringify({ pid, proc: null })]) {
+    const gw = spawned([path.join(bin, 'trouteai'), '--port', String(GATEWAY_PORT)]);
+    assert.ok(await until(listening), 'the stand-in gateway listens');
+    const pid = stranger();
+    write(gatewayPidFile(), content(pid));
+    const saved = process.env.PATH;
+    process.env.PATH = none; // neither lsof nor ss: what listens on the port is not known
+    let r;
+    try {
+      r = await T.stop();
+    } finally {
+      process.env.PATH = saved;
+    }
+    assert.equal(r.ok, false, 'the gateway still runs, and the caller is told');
+    assert.ok(alive(pid), 'the other program got no signal');
+    assert.ok(await listening(), 'nothing of ours was found to stop');
+    process.kill(gw, 'SIGKILL');
+    assert.ok(await dead(gw));
+    assert.ok(await until(async () => !(await listening())));
+  }
+});
+
 test('the gateway of ours: started, its identity in the file, stopped; an old file of its parent still works in this boot, not after a restart', POSIX, async () => {
   const s = await T.start();
   assert.equal(s.ok, true, s.error);
