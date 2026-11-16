@@ -69,7 +69,7 @@ test('the sign-in check leaves its answer for the page: signedIn, plan, and whet
   const login = { name: 'sub', kind: 'login' };
   fs.rmSync(path.join(box.state, 'claude-login.json'), { force: true });
   fs.rmSync(usageFileOfStore(), { force: true });
-  assert.deepEqual(S.providerFacts(login), { signedIn: null, plan: null, usageReported: null }, 'nobody checked yet');
+  assert.deepEqual(S.providerFacts(login), { signedIn: null, plan: null, usageReported: null, accountAt: null }, 'nobody checked yet');
   // the real check, against a stand-in Claude Code: not signed in
   const bin = path.join(box.root, 'bin');
   fs.mkdirSync(bin);
@@ -77,14 +77,17 @@ test('the sign-in check leaves its answer for the page: signedIn, plan, and whet
   const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin` };
   claude(`echo '{"loggedIn":false,"authMethod":"none"}'; exit 1`);
   await C.claudeLoginStatus({ env });
-  assert.deepEqual(S.providerFacts(login), { signedIn: false, plan: null, usageReported: null });
+  assert.deepEqual(S.providerFacts(login), { signedIn: false, plan: null, usageReported: null, accountAt: null });
   // signed in on a Team plan: Claude Code gives no usage figures to that plan, and the page can say so
   claude(`echo '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"team","email":"someone@example.com","orgName":"Org"}'`);
   await C.claudeLoginStatus({ env });
-  assert.deepEqual(S.providerFacts(login), { signedIn: true, plan: 'team', usageReported: false });
+  assert.deepEqual(S.providerFacts(login), { signedIn: true, plan: 'team', usageReported: false, accountAt: null });
   const kept = fs.readFileSync(path.join(box.state, 'claude-login.json'), 'utf8');
-  assert.doesNotMatch(kept, /someone@example\.com|Org/, 'nothing personal is kept');
-  assert.deepEqual(Object.keys(JSON.parse(kept)).sort(), ['at', 'loggedIn', 'plan']);
+  assert.doesNotMatch(kept, /someone@example\.com|someone|example|Org/i, 'nothing personal is kept');
+  // who it is stays a fingerprint made with a random value of this computer: 16 hex characters that name nobody
+  assert.deepEqual(Object.keys(JSON.parse(kept)).sort(), ['account', 'accountAt', 'at', 'loggedIn', 'plan', 'salt']);
+  assert.match(JSON.parse(kept).account, /^[0-9a-f]{16}$/);
+  assert.equal(JSON.parse(kept).accountAt, null, 'the first account seen is no change');
   // a check that may change nothing leaves the answer alone
   claude(`echo '{"loggedIn":false,"authMethod":"none"}'; exit 1`);
   await C.claudeLoginStatus({ env, remember: false });
@@ -92,7 +95,7 @@ test('the sign-in check leaves its answer for the page: signedIn, plan, and whet
   // Pro, Max and Ultra report usage
   for (const plan of ['pro', 'max', 'ultra']) {
     S.rememberLogin({ loggedIn: true, plan }, Date.now() + 120_000);
-    assert.deepEqual(S.providerFacts(login), { signedIn: true, plan, usageReported: true });
+    assert.deepEqual(S.providerFacts(login), { signedIn: true, plan, usageReported: true, accountAt: null });
   }
   // figures that were seen settle it, whatever the plan says (the router reads them from Anthropic's answers)
   S.rememberLogin({ loggedIn: true, plan: 'team' }, Date.now() + 240_000);
@@ -101,6 +104,90 @@ test('the sign-in check leaves its answer for the page: signedIn, plan, and whet
   // a provider with its own token is signed in by what it is; an API key has none of these fields
   assert.deepEqual(S.providerFacts({ name: 'second', kind: 'subscription' }), { signedIn: true, plan: null, usageReported: null });
   assert.deepEqual(S.providerFacts({ name: 'api', kind: 'api' }), {});
+});
+
+test('another account signs in: the limit marks and figures of the providers on the stored sign-in go; nothing else does', async () => {
+  const A = await import('../src/autoswitch.mjs');
+  for (const f of ['claude-login.json', 'usage.json', 'limits.json']) fs.rmSync(path.join(box.state, f), { force: true });
+  for (const p of P.listProfiles()) P.deleteProfile(p.name);
+  P.writeProfile('sub', { label: 'Stored sign-in' });
+  P.writeProfile('second', { label: 'Own token', env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-not-a-real-token-000000000000' } });
+  const bin = path.join(box.root, 'bin2');
+  fs.mkdirSync(bin);
+  const signedInAs = (email, org) => fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\necho '${JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max', email, orgId: org, orgName: 'Org' })}'\n`, { mode: 0o755 });
+  const signedOut = () => fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\necho '{"loggedIn":false,"authMethod":"none"}'; exit 1\n`, { mode: 0o755 });
+  const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin` };
+  const atLimit = () => {
+    const now = Date.now();
+    A.markLimited('sub', { until: now + 2 * HOUR, text: "You've hit your 5-hour limit" });
+    A.markLimited('second', { until: now + 2 * HOUR, text: "You've hit your 5-hour limit" });
+    for (const n of ['sub', 'second']) S.saveProfileUsage(n, { at: now - 1000, fiveHour: { pct: 100, resetsAt: now + 2 * HOUR }, week: { pct: 60, resetsAt: now + 50 * HOUR } });
+  };
+  signedInAs('first@example.invalid', 'org-1');
+  let a = await C.claudeAccount({ env });
+  assert.deepEqual([a.loggedIn, a.plan, a.email, a.org, a.changed], [true, 'max', 'first@example.invalid', 'Org', false]);
+  assert.equal((await C.claudeLoginStatus({ env })).email, undefined, 'the plain check names nobody');
+  atLimit();
+  // the same account again (a new sign-in of it, a refreshed token): nothing is forgotten
+  a = await C.claudeAccount({ env });
+  assert.equal(a.changed, false);
+  assert.deepEqual(Object.keys(A.limitedProfiles()).sort(), ['second', 'sub']);
+  assert.equal(S.profileUsage().sub.fiveHour.pct, 100);
+  // signed out, and the same account back: still the same account
+  signedOut();
+  assert.deepEqual([(a = await C.claudeAccount({ env })).loggedIn, a.email, a.changed], [false, null, false]);
+  signedInAs('first@example.invalid', 'org-1');
+  assert.equal((await C.claudeAccount({ env })).changed, false);
+  assert.deepEqual(Object.keys(A.limitedProfiles()).sort(), ['second', 'sub']);
+  // another account: the stored sign-in's provider starts fresh; the provider with its own token is not touched
+  signedInAs('second@example.invalid', 'org-1');
+  a = await C.claudeAccount({ env });
+  assert.deepEqual([a.email, a.changed], ['second@example.invalid', true]);
+  assert.deepEqual(Object.keys(A.limitedProfiles()), ['second']);
+  assert.equal(S.profileUsage().sub, undefined, 'the earlier account\'s figures are gone');
+  assert.equal(S.profileUsage().second.fiveHour.pct, 100);
+  const facts = S.providerFacts({ name: 'sub', kind: 'login' });
+  assert.ok(facts.accountAt > Date.now() - 5000, 'when another account was last signed in');
+  assert.equal(facts.usageReported, true, 'Max reports usage; the forgotten figures do not count as seen');
+  // the same address in another organisation is another account too (its limits are that organisation's)
+  signedInAs('second@example.invalid', 'org-2');
+  assert.equal((await C.claudeAccount({ env })).changed, true);
+  // nothing of who it is in the state folder
+  for (const f of fs.readdirSync(box.state)) {
+    if (!fs.statSync(path.join(box.state, f)).isFile()) continue;
+    assert.doesNotMatch(fs.readFileSync(path.join(box.state, f), 'utf8'), /example\.invalid|org-1|org-2/, f);
+  }
+});
+
+test('a session that still shows the earlier account\'s figures does not bring them back', () => {
+  for (const f of ['usage.json']) fs.rmSync(path.join(box.state, f), { force: true });
+  const now = Date.now();
+  const old = { fiveHour: { pct: 100, resetsAt: now + 2 * HOUR }, week: { pct: 60, resetsAt: now + 50 * HOUR } };
+  S.rememberUsage('sub', old, now - 60_000);
+  S.forgetUsage('sub', now);
+  assert.equal(S.profileUsage().sub, undefined);
+  // Claude Code hands its status line the last figures again, with a new time: still the earlier account's
+  assert.equal(S.usageForgotten('sub', old), true);
+  assert.equal(S.rememberUsage('sub', old, now + 5000), false);
+  assert.equal(S.rememberUsage('sub', { fiveHour: old.fiveHour }, now + 6000), false, 'one window of it alone, too');
+  const run = R.createRun({ profile: 'sub', cwd: box.root });
+  fs.writeFileSync(R.usageFile(run.file), JSON.stringify({ rate_limits: { five_hour: { used_percentage: 100, resets_at: Math.round((now + 2 * HOUR) / 1000) }, seven_day: { used_percentage: 60, resets_at: Math.round((now + 50 * HOUR) / 1000) } } }));
+  assert.equal(R.listRuns().find((r) => r.runId === run.run.runId).usage, undefined, 'not on the session\'s card either');
+  // the new account's first figures (other reset times) are taken up, and the old ones still cannot replace them
+  const fresh = { fiveHour: { pct: 4, resetsAt: now + 5 * HOUR }, week: { pct: 1, resetsAt: now + 160 * HOUR } };
+  assert.equal(S.usageForgotten('sub', fresh), false);
+  assert.equal(S.rememberUsage('sub', fresh, now + 7000), true);
+  assert.equal(S.rememberUsage('sub', old, now + 90_000), false);
+  assert.equal(S.profileUsage().sub.fiveHour.pct, 4);
+  // the router's own figures (read from Anthropic's answers) keep the memory of what was forgotten
+  S.saveProfileUsage('sub', { at: now + 100_000, fiveHour: { pct: 6, resetsAt: now + 5 * HOUR } });
+  assert.equal(S.rememberUsage('sub', old, now + 200_000), false);
+  assert.equal(S.profileUsage().sub.fiveHour.pct, 6);
+  // figures without a reset time say nothing about whose they are: the time decides, as before
+  assert.equal(S.usageForgotten('sub', { fiveHour: { pct: 50, resetsAt: null } }), false);
+  // once the forgotten windows have reset, nothing is remembered about them
+  assert.equal(S.usageForgotten('sub', old, now + 60 * HOUR), false);
+  R.removeRun(run.file);
 });
 
 test('the state the page reads carries them: profiles[].signedIn, .plan, .usageReported and .usage.at', async () => {

@@ -140,6 +140,7 @@ export function chatFeature(ctx, o = {}) {
       running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
       note: ask ? `Allow ${ask.title}${ask.description ? `: ${ask.description}` : ''}?` : '',
       limit: c.limit ? { text: c.limit.text } : null,
+      ...(c.limit ? { limitAt: c.limit.at || null } : {}), // since when: the page compares it with the provider's accountAt
     };
   }
   /** What the page shows beside the chat's state. */

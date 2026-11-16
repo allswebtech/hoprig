@@ -18,10 +18,13 @@ const { createToken } = await import('../../src/machines/tokens.mjs');
 const { runningDashboard } = await import('../../src/server/dashboardfile.mjs');
 const { dashboardAddress } = await import('../../src/machines/pairing.mjs');
 const { linkBase } = await import('../../src/machines/cli.mjs');
+const { reachableUrl } = await import('../../src/addons/reach.mjs');
 
 const backend = { kind: 'pty', capabilities: {}, list: async () => [], capture: async () => '', create: async ({ name }) => ({ name }) };
 saveConfig({ server: { passwordHash: await hashPassword('right-password'), port: 1 } });
-const app = createServer({ backend, watch: false, machines: { claudeVersion: async () => null } });
+// No add-ons: the public link is switched in a test below by its files only, and must not start a real cloudflared.
+const app = createServer({ backend, watch: false, addons: { addons: [] }, machines: { claudeVersion: async () => null, // A Temporary address new in DNS: its self-check does not answer yet.
+  certOf: async (u) => (/stem-wonder/.test(u) ? { kind: 'unknown', why: 'its own address did not answer here (getaddrinfo ENOTFOUND)' } : { kind: 'public' }) } });
 const { port } = await app.listen(0, '127.0.0.1');
 const base = `http://127.0.0.1:${port}`;
 test.after(() => app.close());
@@ -43,6 +46,56 @@ test('the running dashboard records where it listens; pair and link read it befo
   const lan = { en0: [{ family: 'IPv4', internal: false, address: '192.168.1.20' }] };
   assert.deepEqual(linkBase({ server: { host: '0.0.0.0', port: 7433 } }, lan, null), { url: 'http://192.168.1.20:7433', local: false }, 'all addresses: the network one');
   assert.deepEqual(linkBase({ server: { host: '0.0.0.0', port: 7433 } }, lan, { host: '0.0.0.0', port }), { url: `http://192.168.1.20:${port}`, local: false }, 'the running port wins');
+});
+
+test('while the public link is on, the join line and `hoprig link` use its address (reachableUrl)', async () => {
+  const cookie = await login();
+  const joinCode = async () => (await post('/api/links/code', {}, { Cookie: cookie })).json;
+  const none = await joinCode();
+  assert.deepEqual([none.url, none.line, none.via], [null, null, null], 'off, and no public address set: no line to paste elsewhere');
+  const addons = path.join(box.state, 'addons');
+  fs.mkdirSync(path.join(addons, 'fixed-link'), { recursive: true });
+  fs.writeFileSync(path.join(addons, 'fixed-link', 'fixed.json'), JSON.stringify({ mode: 'named', hostname: 'office.example.com', tunnelId: 'x', extra: [] }));
+  try {
+    // Custom: its address while it is on.
+    saveConfig({ publicLink: { on: true, kind: 'custom' } });
+    assert.equal(reachableUrl(), 'https://office.example.com');
+    const c = await joinCode();
+    assert.equal(c.url, 'https://office.example.com');
+    assert.match(c.command, /https:\/\/office\.example\.com/);
+    // The one line to paste on the other computer, and how the address is had (Custom: it stays).
+    assert.equal(c.line, `https://office.example.com#join=${c.code}`);
+    assert.equal(c.via, 'custom');
+    assert.deepEqual(linkBase(), { url: 'https://office.example.com', local: false });
+    // The same address in a sign-in QR asked for with no address, and in the click link of a push.
+    const ll = await post('/api/login/links', {}, { Cookie: cookie });
+    assert.ok(ll.json.url.startsWith('https://office.example.com/login#link='), ll.json.url);
+    assert.equal(app.watcher.settings().publicUrl, 'https://office.example.com');
+    // Temporary: only while its cloudflared runs (a stopped one's address is dead).
+    saveConfig({ publicLink: { on: true, kind: 'temporary' } });
+    // While cloudflared starts again (after a crash) the record still holds the old address: not handed out.
+    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: process.pid, connected: false }));
+    assert.equal(reachableUrl(), null, 'not connected: not offered');
+    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: process.pid, connected: true }));
+    assert.equal(reachableUrl(), 'https://stem-wonder.trycloudflare.com');
+    const t = await joinCode();
+    assert.equal(t.url, 'https://stem-wonder.trycloudflare.com');
+    assert.equal(t.via, 'temporary', 'the page then says that the link ends when the address changes');
+    assert.equal(t.line, `https://stem-wonder.trycloudflare.com#join=${t.code}`);
+    // Cloudflare's certificate is publicly trusted: no fingerprint or certificate-authority advice, only plain words.
+    assert.match(t.note, /did not answer here yet/);
+    assert.doesNotMatch(t.note, /fingerprint|caddy|sudo/i);
+    assert.doesNotMatch(t.line, /fingerprint/);
+    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: 2 ** 22 + 7, connected: true }));
+    assert.equal(reachableUrl(), null);
+    saveConfig({ publicLink: { on: false, kind: 'custom' } });
+    assert.equal(reachableUrl(), null, 'off: none');
+    // A public address that is set (a hub behind its own proxy) comes first, with its path.
+    assert.equal(reachableUrl({ server: { publicUrl: 'https://hub.example.net/deck/' }, publicLink: { on: true, kind: 'custom' } }), 'https://hub.example.net/deck');
+  } finally {
+    saveConfig({ publicLink: undefined });
+    fs.rmSync(addons, { recursive: true, force: true });
+  }
 });
 
 test('sign-in link: made by a signed-in page, used once by another browser, which gets a session', async () => {

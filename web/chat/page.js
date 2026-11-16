@@ -190,7 +190,7 @@ function viewChat({ sub }) {
         h('span.chat-banner-actions',
           h('button.btn.small.primary', { type: 'button', onclick: () => act.take() }, 'Continue here'),
           v.terminal.name ? h('a.btn.small.secondary', { href: link(`#/s/${encodeURIComponent(v.terminal.name)}`) }, 'Open the terminal') : null)) : null,
-      limitCard(v, { moveProvider: header.providerMenu }));
+      limitCard(v, { id, moveProvider: header.providerMenu }));
     wrap.classList.toggle('chat-no-rewind', !canRewind());
     composer.paint(v);
     status.paint(v);

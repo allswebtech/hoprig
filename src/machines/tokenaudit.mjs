@@ -31,15 +31,15 @@ const ADDON_NAMES = { 'public-link': 'the public link', trouteai: 'TRouteAI' };
 const addonName = (id) => ADDON_NAMES[id] || (/^[a-z0-9-]{1,40}$/.test(id) ? `the add-on ${id}` : 'an add-on');
 const ADDON_VERBS = { install: 'installed', update: 'updated', start: 'started', stop: 'stopped' };
 const ACTION_WORDS = {
-  'fixed-sign-in': 'started the sign-in to Cloudflare for the fixed address',
-  'fixed-cancel': 'cancelled the sign-in to Cloudflare for the fixed address',
-  'fixed-create': 'set up the fixed address',
-  'fixed-token': 'set up the fixed address with a tunnel token',
-  'fixed-on': 'turned on the fixed address',
-  'fixed-off': 'turned off the fixed address',
-  'fixed-forget': 'stopped using the fixed address',
-  'fixed-add-service': 'added a service to the fixed address',
-  'fixed-remove-service': 'removed a service from the fixed address',
+  'fixed-sign-in': 'started the sign-in to Cloudflare for the Custom public link',
+  'fixed-cancel': 'cancelled the sign-in to Cloudflare for the Custom public link',
+  'fixed-create': 'set up the Custom public link',
+  'fixed-token': 'set up the Custom public link with a tunnel token',
+  'fixed-on': 'turned on the Custom public link',
+  'fixed-off': 'turned off the Custom public link',
+  'fixed-forget': 'stopped using the Custom public link',
+  'fixed-add-service': 'added a service to the Custom public link',
+  'fixed-remove-service': 'removed a service from the Custom public link',
   'quick-service-start': 'gave a service on this computer a temporary address',
   'quick-service-stop': 'stopped the temporary address of a service on this computer',
 };
@@ -52,6 +52,10 @@ const safeId = (s) => (/^[a-z0-9-]{1,40}$/.test(s) ? s : 'a gateway');
 export const CHANGES = [
   ['POST', /^\/api\/addons\/([a-z0-9-]{1,40})\/(install|update|start|stop)$/, (m) => `${ADDON_VERBS[m[2]]} ${addonName(m[1])}`],
   ['POST', /^\/api\/addons\/([a-z0-9-]{1,40})\/do\/([a-z-]{1,40})$/, (m) => ACTION_WORDS[m[2]] || `ran "${m[2]}" of ${addonName(m[1])}`],
+  // The body says on or off; it is not read here, so the line says only that the switch was used.
+  ['POST', /^\/api\/public-link$/, () => 'switched the public link on or off'],
+  ['POST', /^\/api\/public-link\/custom\/([a-z-]{1,20})$/, (m) => ACTION_WORDS[`fixed-${m[1]}`] || 'changed the Custom public link'],
+  ['POST', /^\/api\/public-link\/temporary\/(add-service|remove-service)$/, (m) => ACTION_WORDS[m[1] === 'add-service' ? 'quick-service-start' : 'quick-service-stop']],
   ['POST', /^\/api\/gateways\/([a-z][a-z0-9-]{0,30})\/share$/, (m) => `changed the sharing of the gateway ${safeId(m[1])}`],
   ['POST', /^\/api\/gateways\/([a-z][a-z0-9-]{0,30})\/keys$/, (m) => `made a key for the gateway ${safeId(m[1])}`],
   ['POST', /^\/api\/gateways\/keys\/([0-9a-f]{12})\/remove$/, (m) => `removed the gateway key ${m[1]}`],
@@ -63,6 +67,13 @@ export const CHANGES = [
   ['POST', /^\/api\/workspace\/git\/signin$/, () => 'started the GitHub sign-in'],
   ['POST', /^\/api\/workspace\/git\/brain$/, () => "created the AI brain's repository"],
   ['POST', /^\/api\/workspace\/map\/commit$/, () => "saved the workspace map in the AI brain's history"],
+  // The code editor: what changed, never which file or what was in it (the body is not read).
+  ['POST', /^\/api\/code\/file$/, () => 'saved a file in the code editor'],
+  ['POST', /^\/api\/code\/create$/, () => 'made a file or folder in the code editor'],
+  ['POST', /^\/api\/code\/rename$/, () => 'renamed a file or folder in the code editor'],
+  ['POST', /^\/api\/code\/delete$/, () => 'deleted a file or folder in the code editor'],
+  ['POST', /^\/api\/code\/git\/discard$/, () => 'discarded changes in the code editor'],
+  ['POST', /^\/api\/code\/git\/commit$/, () => 'made a git commit in the code editor'],
 ];
 
 /** { did, asks } for `method p` done by the token called `name`, or null when it is not a change we log. */

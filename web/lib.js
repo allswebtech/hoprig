@@ -204,7 +204,8 @@ export function until(ms) {
   const s = Math.round((ms - Date.now()) / 1000);
   if (s <= 60) return 'any moment';
   if (s < 3600) return `in ${Math.round(s / 60)} min`;
-  if (s < 12 * 3600) return `in ${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
+  const min = Math.round(s / 60); // whole minutes first: 1 h 59.7 min is "2 h 0 min", never "1 h 60 min"
+  if (s < 12 * 3600) return `in ${Math.floor(min / 60)} h ${min % 60} min`;
   const d = new Date(ms);
   const day = d.toLocaleDateString([], { weekday: 'short' });
   return `${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -229,7 +230,8 @@ export function stateOf(s) {
     case 'attention': return { key: 'attention', text: 'Needs your OK', rank: 0 };
     case 'waiting': return { key: 'waiting', text: 'Waiting for your next message', rank: 2 };
     case 'starting': return { key: 'starting', text: 'Starting', rank: 3 };
-    case 'working': return { key: 'working', text: 'Working', rank: 4 };
+    // `background`: the reply ended, but subagents or a workflow go on and Claude continues when they finish.
+    case 'working': return { key: 'working', text: s.background ? 'Working in the background' : 'Working', rank: 4 };
     case 'ended': return { key: 'ended', text: 'Finished', rank: 5 };
     default: return { key: 'shell', text: s.status || 'Unknown', rank: 6 };
   }
@@ -274,6 +276,8 @@ export const insecure = () => location.protocol === 'http:' && !['localhost', '1
 // ---------- sheets (bottom sheets on phones, centered dialogs on wide screens) ----------
 
 let sheetEl = null;
+let sheetNow = null; // the open sheet: { resolve, result }
+let sheetSkip = 0; // close events still to come from sheets that made way for the next one
 function sheetElement() {
   if (!sheetEl) {
     sheetEl = h('dialog.sheet', { 'aria-modal': 'true' });
@@ -281,21 +285,38 @@ function sheetElement() {
     sheetEl.addEventListener('click', (e) => {
       if (e.target === sheetEl) sheetEl.close();
     });
+    // The browser reports a close a moment later. A sheet that made way for another one was answered already: its
+    // report must not end the one that is open now.
+    sheetEl.addEventListener('close', () => {
+      if (sheetSkip > 0) return void sheetSkip--;
+      const s = sheetNow;
+      sheetNow = null;
+      if (s) s.resolve(s.result);
+    });
     document.body.append(sheetEl);
   }
   return sheetEl;
 }
 
 /**
- * Open a sheet. `build(close)` returns its content. Resolves with the value passed to close(), or null.
+ * Open a sheet. `build(close)` returns its content. Resolves with the value passed to close(), or null. A sheet
+ * opened while another is open takes its place: the earlier one resolves (null) at once.
  */
 export function openSheet({ title, subtitle, wide = false }, build) {
   const d = sheetElement();
-  if (d.open) d.close();
+  // The sheet that is open, or was closed a moment ago and not reported yet, is answered now; its report is skipped.
+  const before = sheetNow;
+  if (before) {
+    sheetNow = null;
+    sheetSkip++;
+    if (d.open) d.close();
+    before.resolve(before.result);
+  } else if (d.open) d.close();
   return new Promise((resolve) => {
-    let result = null;
+    const mine = { resolve, result: null };
     const close = (value = null) => {
-      result = value;
+      if (sheetNow !== mine) return; // it made way already
+      mine.result = value;
       d.close();
     };
     d.classList.toggle('wide', wide);
@@ -306,7 +327,7 @@ export function openSheet({ title, subtitle, wide = false }, build) {
         btn('icon ghost', { icon: 'x', title: 'Close', onclick: () => close(null) })),
       h('div.sheet-body', build(close)),
     );
-    d.addEventListener('close', () => resolve(result), { once: true });
+    sheetNow = mine;
     d.showModal();
     const focus = d.querySelector('[autofocus]');
     if (focus) focus.focus();
@@ -427,6 +448,12 @@ export function startOrder(accounts, payPerUse = false) {
 }
 
 /**
+ * More actions for the "limit reached" box, added by the part that owns them (claudeaccount.js: sign in with another
+ * Claude account). Each is fn(session, profiles, after) → buttons or null; a button of class "primary" leads.
+ */
+export const limitActions = [];
+
+/**
  * The red "limit reached" box with one button per other profile. The main button is the first free provider in
  * the order Auto mode uses (`autoPlace`), never a paid one; "Continue on Auto" says where Auto would go next.
  */
@@ -446,21 +473,24 @@ export function limitBox(s, profiles, after) {
   // The main one first, then Auto, then the rest; paid ones last.
   const rank = (p) => (p === main ? 0 : p.virtual ? 1 : isPaid(p) ? 3 : 2);
   const shown = others.map((p, i) => [rank(p), i, p]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map((x) => x[2]);
+  const extra = toNodes(limitActions.map((fn) => fn(s, profiles, after)));
+  const leads = extra.filter((b) => /(^|\s)primary(\s|$)/.test(b.className || ''));
+  const moves = s.canSwitch
+    ? shown.map((p) =>
+      h(`button.btn.small.${p === main && !leads.length ? 'primary' : 'secondary'}`, {
+        type: 'button',
+        onclick: async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (await switchProfile(s, p)) after?.();
+        },
+      }, icon('swap', { size: 16 }), h('span', words(p))))
+    : [];
   return h('div.limitbox', { role: 'alert' },
     h('div.limit-head', icon('alert'), h('strong', 'Limit reached'), s.limit && s.limit.resets && !text.includes(s.limit.resets) ? h('span', ` · resets ${s.limit.resets}`) : null),
     text ? h('p.limit-text', text) : null,
     s.autoMove ? h('p.limit-text', `Moving to ${s.autoMove} automatically…`) : null,
-    s.canSwitch && others.length
-      ? h('div.limit-actions', shown.map((p) =>
-        h(`button.btn.small.${p === main ? 'primary' : 'secondary'}`, {
-          type: 'button',
-          onclick: async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (await switchProfile(s, p)) after?.();
-          },
-        }, icon('swap', { size: 16 }), h('span', words(p)))))
-      : null,
+    moves.length || extra.length ? h('div.limit-actions', leads, moves, extra.filter((b) => !leads.includes(b))) : null,
   );
 }
 

@@ -12,8 +12,8 @@ are free except the server you may already rent.
 | You have | What to do | Commands |
 | --- | --- | --- |
 | **One PC** | Nothing more: its own dashboard is all you need. For your phone on the same Wi-Fi, setup's "devices on my network" is enough. | `hoprig setup` |
-| **Two or more PCs on the same network** | No server needed: on one of them, add the others. | On the one you open: **Computers → Add a computer →** "It has an address: Tailscale, HTTPS or the same network"; on each other PC: `hoprig pair` |
-| **PCs at home, and you want them from elsewhere, no server** | Something both sides can reach is needed. Either a public link through Cloudflare ([below](#a-public-link-through-cloudflare): a fixed address on your own domain, or a free temporary one that changes every time), or Tailscale (a private network of your own devices, for always). | **Settings → Add-ons → Public link**. Always: [situation 3](#3-no-server-at-all-tailscale) |
+| **Two or more PCs on the same network** | No server needed: on one of them, add the others. | On the one you open: **Computers → Add a computer →** "It has an address (the same network, or its public link)"; on each other PC: `hoprig pair` |
+| **PCs at home, and you want them from elsewhere, no server** | Turn on the public link on the main one; the others link themselves to it ([below](#from-anywhere-the-public-link)). | **Settings → Public link** (`hoprig public on`); on each other PC: **Computers → Link to my main Hoprig** |
 | **PCs at home plus one or more servers** | Make one server the hub; every PC joins it; the other servers join too or are added by SSH. | On the server: `hoprig setup --hub` (see [HUB.md](HUB.md)). On each PC: `hoprig join https://<hub> <code>`. Other servers: `hoprig join …` the same way, or on the hub `hoprig machines add user@server` |
 | **Servers only** | The same: one is the hub, the others join it or are added by SSH. | As above |
 
@@ -35,10 +35,10 @@ No extra software: one dashboard on a computer that can be reached (a server or 
 connects **out** to it. Your router stays closed; nothing has to be opened on the PC's side.
 
 1. On the hub: **Computers → Add a computer →** "It is at home or behind a router and cannot be reached from
-   here" **→ Show a code** (or `hoprig machines invite`). The code works once, for 10 minutes.
-2. On the PC: **Computers → Add a computer → Advanced → Show this computer on another dashboard**, type the
-   hub's address (`https://hub.example.com`) and the code, press **Connect**. Or:
-   `hoprig join https://hub.example.com CODE`.
+   here" **→ Show the line to paste** (or `hoprig machines invite`). The line is the hub's address with a code,
+   such as `https://hub.example.com#join=K7QM-4XP2`; it works once, for 10 minutes.
+2. On the PC: **Computers → Link to my main Hoprig** (or **Add a computer → Advanced → Show this computer on
+   another dashboard**), paste the line, press **Link**. Or: `hoprig join 'https://hub.example.com#join=K7QM-4XP2'`.
 
 The PC now shows in the hub's **Computers** list. Its own dashboard keeps the link open and opens it again after
 a restart or a dropped network, so let the dashboard run in the background (`hoprig service install`, which setup
@@ -53,7 +53,8 @@ offers anyway).
   PC's sessions, would otherwise cross the network readable on the way. `--insecure` only means that: it is not
   a way around a certificate.
 - A hub reached by a private IP address, with its own certificate (`hoprig setup --hub --ip … --tls-internal`):
-  the line it shows ends with `--fingerprint sha256:…`. Copy the whole line. The PC then checks the hub against
+  the line it shows carries its fingerprint (`…&fingerprint=sha256:…`, or `--fingerprint sha256:…` in the terminal
+  form). Copy the whole line. The PC then checks the hub against
   that fingerprint, now and on every later connection; a hub that does not match is refused before anything is
   sent. The fingerprint stays the same when the hub's certificate renews. Details:
   [HUB.md](HUB.md#no-public-certificate-possible-the-hubs-own-certificate-a-private-network-a-test).
@@ -77,53 +78,49 @@ under **Computers → Add a computer → Advanced → Show this computer on anot
 what sshd does by default (`GatewayPorts no`); if the server's sshd is set to `GatewayPorts yes`, joining stops with
 a message, because the port would otherwise be open to the whole network.
 
-## 3. No server at all: Tailscale
+## From anywhere: the public link
 
-Put every PC and your phone on [Tailscale](https://tailscale.com/pricing): a private network between your own
-devices that works through any router. Its Personal plan costs nothing; on 14 Nov 2026 its pricing page said
-"free forever", up to 6 users, unlimited devices, for non-commercial use only. Check that page for today's terms.
+- **From anywhere:** Settings → Public link → On. *Temporary* gives a new https address at each start with nothing
+  to set up; *Custom* keeps your own address and needs a domain on a free Cloudflare account.
+- **Another computer:** on it, **Computers → Link to my main Hoprig**, and paste the line the main one shows
+  (**Settings → Public link → Link another computer**). No server, nothing opened on any router.
+- **A server:** add it from the main one by SSH, or link it the same way.
 
-1. Install Tailscale on each PC and on the phone, and sign in to the same account on all of them.
-2. Choose the hub (the PC that is on the most). On it, add each other PC: **Computers → Add a computer →** "I can reach
-   it by SSH from this computer" with its Tailscale name (for example `user@home-pc`), as in situation 2. Without
-   SSH, choose "It has an address: Tailscale, HTTPS or the same network" instead: run `hoprig pair` on that PC and
-   enter its Tailscale address and the code.
-3. Make the hub's page reachable from the phone, only inside your Tailscale network, with HTTPS: on the hub run
-   `tailscale serve 7433` (7433 is the dashboard's port; use yours if you changed it). Tailscale prints the
-   `https://…ts.net` address to open on the phone. Serve needs HTTPS certificates turned on for your Tailscale
-   network: admin console → DNS → turn on MagicDNS, then **Enable HTTPS**.
-4. On the phone, open that address and sign in with the code from **Settings → Security and sign-in → Sign in
-   another device**.
+With Temporary, a linked computer must be linked again when the main one's address changes: whenever Hoprig or the
+computer restarts there (an update of Hoprig restarts it too).
+Computers that should stay linked need Custom on the main one, or a server as the main one.
 
-## Why there has to be a hub that can be reached
+### How it works
 
-Two computers that are both behind routers cannot find each other on their own: neither one can be called, so
-some third computer that both can reach has to be in the middle. RustDesk, for example, uses its public servers
-for that. Here it is your own hub: the PCs connect out to it, and nobody else's server sees your sessions. With no
-such computer at all, Tailscale (situation 3) plays that part, or a public link through Cloudflare (next section).
+**Settings → Public link** (or `hoprig public on`) makes this dashboard reachable from anywhere, with no server of
+your own and nothing opened on your router: Cloudflare's program `cloudflared` connects out to Cloudflare and
+visitors arrive through it. It is one switch, off until you turn it on, with one of two kinds; turning one kind on
+turns the other off. The first time, Hoprig installs `cloudflared` into its own folder. Anyone who has the address
+reaches the sign-in page, so the switch turns on only with a strong dashboard password (at least 12 characters and
+not a common one; `hoprig public on --new-password FILE` makes one), and your traffic passes through Cloudflare.
+The switch is remembered: when it was on, it is on again after the dashboard or the computer restarts.
 
-## A public link through Cloudflare
+**Temporary** (the default) needs nothing: Cloudflare's free quick tunnel gives this dashboard an
+`https://…trycloudflare.com` address. It is new each time the link starts: whenever Hoprig or the computer restarts (an update of Hoprig restarts it too);
+each new address is shown on the page and sent to your phone when **Settings → Notifications** has a push address.
+Under **Advanced**, one more local service (such as TRouteAI's dashboard) can get a temporary address of its own while
+the link is on as Temporary; it stops when the switch goes off or to Custom.
 
-**Settings → Add-ons → Public link** makes this dashboard reachable from anywhere, with no server of your own and
-nothing opened on your router: Cloudflare's program `cloudflared` connects out to Cloudflare and visitors arrive
-through it. **Install** fetches `cloudflared` into Hoprig's own folder. Anyone who has the address reaches the
-sign-in page, so a dashboard password is required (use a long random one: `hoprig passwd --generate FILE`), and
-your traffic passes through Cloudflare. There are two kinds:
-
-**A fixed address** stays the same, such as `https://office.example.com`. It needs a free Cloudflare account with a
+**Custom** keeps your own address, such as `https://office.example.com`. It needs a free Cloudflare account with a
 domain on it (a domain you own, added to Cloudflare). To set it up:
 
-1. Press **Set it up**, then **Open Cloudflare**. Sign in, pick the domain for this address and press **Authorize**.
+1. Press **Set up**, then **Open Cloudflare**. Sign in, pick the domain for this address and press **Authorize**.
    You can do this in any browser, also on your phone; the page goes on by itself.
 2. Type the address (a name under that domain; the computer's name is suggested) and press **Make it**. Hoprig
-   makes a tunnel named `hoprig-<address>` in your Cloudflare account and a DNS record for the address.
-3. Done. It runs with the dashboard: it starts when the dashboard starts and again by itself when it stops (after
-   2 seconds, then waiting longer each time, at most 5 minutes). **Turn off** stops it until you turn it on again.
+   makes a tunnel named `hoprig-<address>` in your Cloudflare account and a DNS record for the address, and turns
+   the public link on as Custom.
+3. Done. It runs with the dashboard and starts again by itself when it stops (after 2 seconds, then waiting longer
+   each time, at most 5 minutes).
 
-Everything cloudflared keeps for it (the sign-in to Cloudflare, the tunnel's key, its settings) stays in Hoprig's
-state folder, readable only by you; your own `~/.cloudflared` is never read or changed.
+Everything cloudflared keeps (the sign-in to Cloudflare, the tunnel's key, its settings) stays in Hoprig's state
+folder, readable only by you; your own `~/.cloudflared` is never read or changed.
 
-Under **Advanced**:
+Under **Advanced** for Custom:
 
 - **Another service on this computer**: one more local service under a name of its own, such as TRouteAI's own
   dashboard on port 20017 at `trouteai-office.example.com`. Hoprig looks whether the service has a sign-in page of
@@ -131,24 +128,28 @@ Under **Advanced**:
 - **Use a tunnel token instead**: for a tunnel made in the Cloudflare dashboard (Networks → Tunnels). Give it a
   public hostname there that leads to `http://127.0.0.1:7433` (the dashboard's port), then paste its install
   command or token.
-- **Stop using it**: Hoprig deletes the tunnel in your Cloudflare account and removes every file of it from this
-  computer. The DNS records stay in Cloudflare, because cloudflared cannot remove DNS records: delete them under
+- **Stop using my domain**: Hoprig deletes the tunnel in your Cloudflare account and removes every file of it from
+  this computer. The DNS records stay in Cloudflare, because cloudflared cannot remove DNS records: delete them under
   your domain → DNS → Records. Until then the address shows a Cloudflare error page (1016).
 
-**A temporary address** needs no account: Cloudflare's free quick tunnel gives this dashboard an
-`https://…trycloudflare.com` address until you stop it (also from the command line: `hoprig addons start
-public-link`). That address changes at every start, so it is meant for now and then. Each new address is sent to
-your phone when **Settings → Notifications** has a push address. Under **Advanced**, one more local service (such
-as TRouteAI's dashboard) can get a temporary address of its own.
+From a terminal: `hoprig public` (on or off, and the address), `hoprig public on [--temporary|--custom]` (it shows
+the address and a QR code that signs a phone in once), `hoprig public off`.
 
-**A hub that runs this computer's add-ons.** A hub this computer is linked to may start and stop the public link,
-the fixed address and their extra services, run Setup and share a gateway here, so one dashboard runs every
+**Signing in from outside.** Failed sign-ins are limited per visitor address (an IPv6 visitor by its /64), and all
+password tries from elsewhere together are limited too, so guessing from many addresses gets nowhere. Someone failing
+on purpose cannot lock you out: a sign-in QR made on a device that is already signed in always works, and so does
+this computer itself. A link that is on never runs with a weak password: until the password is strong it waits, and
+**Settings → Public link** asks for a stronger one in place. (A Custom link that already ran before an update keeps
+running until your next sign-in shows how strong the password is.)
+
+**A hub that runs this computer's add-ons.** A hub this computer is linked to may turn the public link on and off
+and add its extra services, run Setup and share a gateway here, so one dashboard runs every
 computer. Each such change is in this computer's **Automations → Activity** under the hub's name, such as "The hub
 office-pc started the public link"; what the request carried (a password, a key) is never written there. When you
 revoke that hub's right (**Who may control this computer**, `hoprig tokens revoke`, or Remove on the hub), what it
-opened to the network closes with it: its temporary address stops, a fixed address it turned on is turned off and a
-service it added is removed. What you opened yourself stays, and so does a gateway's sharing switch (the keys the hub
-made end with its right).
+opened to the network closes with it: a public link it turned on is turned off and a service it added is removed. What you opened yourself stays, and so does a gateway's sharing switch (the keys the hub
+made end with its right). A hub never checks this computer's password: when the public link asks for the password to be
+typed once, type it on this computer's own page.
 
 ## Put the hub behind HTTPS
 
@@ -168,7 +169,7 @@ computer's own page instead ([PC-SETUP.md](PC-SETUP.md)).
 | "has no Hoprig" | Install Hoprig there (the page shows the line), or press **Install it there for me**. |
 | "that code is wrong or has expired" | Show a new code on the hub; each one works once, for 10 minutes. |
 | "is not encrypted (http://)" | Put the hub behind HTTPS ([HUB.md](HUB.md)), or confirm with `--insecure` on a network you trust. |
-| "certificate was made by the hub itself" | Copy the whole line from the hub, with `--fingerprint sha256:…`: `hoprig machines invite` there, or its page's **Show a code**. Never `--insecure`. |
+| "certificate was made by the hub itself" | Copy the whole line from the hub, with `--fingerprint sha256:…`: `hoprig machines invite` there, or its page's **Show the line to paste**. Never `--insecure`. |
 | "does not match the fingerprint" | Nothing was sent. Check the line was copied whole; if the hub was set up again, show the line there again. |
 | "no longer signed by the authority this computer pinned" | The hub's certificate authority is new (Caddy reinstalled, a new server). Show the line on the hub again and run it on this computer. |
 | "Not allowed any more" | Its right was revoked on that computer. Add it again (**Computers → Add a computer**). |

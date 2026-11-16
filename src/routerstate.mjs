@@ -90,21 +90,74 @@ export function profileUsage(now = Date.now()) {
   return out;
 }
 
+// ---- figures of an account that is no longer signed in ----
+// When another account signs in (claudecode.mjs: a sign-in check that sees another account), the provider's figures
+// are forgotten. A session that still runs keeps writing the last figures it saw (Claude Code hands them to its
+// status line again and again), and those are the earlier account's until its next answer. They are told apart by
+// their reset times, which belong to an account: figures with the forgotten reset times are never taken up again.
+
+const resetOf = (w) => (w && Number.isFinite(w.resetsAt) ? w.resetsAt : null);
+
+/** The forgotten reset times that still lie ahead ({ fiveHour?, week? }), or null. */
+function keptForgot(entry, now) {
+  const f = entry && entry.forgot && typeof entry.forgot === 'object' ? entry.forgot : null;
+  if (!f) return null;
+  const out = {};
+  for (const win of ['fiveHour', 'week']) if (Number.isFinite(f[win]) && f[win] > now) out[win] = f[win];
+  return Object.keys(out).length ? out : null;
+}
+
+function isForgotten(entry, usage, now) {
+  const f = keptForgot(entry, now);
+  if (!f || !usage) return false;
+  let same = false;
+  for (const win of ['fiveHour', 'week']) {
+    const r = resetOf(usage[win]);
+    if (r === null) continue; // no reset time: it says nothing about whose figures these are
+    if (!Number.isFinite(f[win]) || Math.abs(r - f[win]) > 60_000) return false;
+    same = true;
+  }
+  return same;
+}
+
+/** True when `usage` are figures of the account that was signed in before (runs.mjs leaves them out of a card). */
+export function usageForgotten(name, usage, now = Date.now()) {
+  return isForgotten(usageStore()[name], usage, now);
+}
+
 /** The router's figures for one provider (they carry their own `at`). */
-export function saveProfileUsage(name, entry) {
-  writeJson('usage.json', { ...usageStore(), [name]: entry });
+export function saveProfileUsage(name, entry, now = Date.now()) {
+  const all = usageStore();
+  const forgot = keptForgot(all[name], now);
+  writeJson('usage.json', { ...all, [name]: forgot ? { ...entry, forgot } : entry });
+}
+
+/**
+ * Forget a provider's figures: they belong to an account that is no longer the one signed in. What stays is the
+ * time and the reset times of what was forgotten (see above), no figures.
+ */
+export function forgetUsage(name, now = Date.now()) {
+  if (typeof name !== 'string' || !name || name === 'auto') return;
+  const all = usageStore();
+  const prev = all[name] && typeof all[name] === 'object' ? all[name] : {};
+  const forgot = { ...(keptForgot(prev, now) || {}) };
+  for (const win of ['fiveHour', 'week']) if (resetOf(prev[win]) !== null && resetOf(prev[win]) > now) forgot[win] = resetOf(prev[win]);
+  writeJson('usage.json', { ...all, [name]: Object.keys(forgot).length ? { at: now, forgot } : { at: now } });
 }
 
 /**
  * Figures from a session's status data: kept when they are newer than what is stored. `at` is when Claude Code
- * wrote them. Nothing is written for the same figures within a minute, and never for "auto" (not a provider: the
- * router keeps the figures of the accounts behind it). Returns whether the store changed.
+ * wrote them. Nothing is written for the same figures within a minute, never for "auto" (not a provider: the
+ * router keeps the figures of the accounts behind it), and never for figures of an account that is no longer signed
+ * in. Returns whether the store changed.
  */
 export function rememberUsage(name, usage, at = Date.now()) {
   if (typeof name !== 'string' || !name || name === 'auto' || !usage || !(usage.fiveHour || usage.week)) return false;
   const all = usageStore();
   const prev = all[name];
-  const entry = { ...(usage.fiveHour ? { fiveHour: usage.fiveHour } : {}), ...(usage.week ? { week: usage.week } : {}), at };
+  if (isForgotten(prev, usage, at)) return false;
+  const forgot = keptForgot(prev, at);
+  const entry = { ...(usage.fiveHour ? { fiveHour: usage.fiveHour } : {}), ...(usage.week ? { week: usage.week } : {}), at, ...(forgot ? { forgot } : {}) };
   if (prev && Number.isFinite(prev.at)) {
     if (prev.at >= at) return false;
     const same = JSON.stringify([prev.fiveHour, prev.week]) === JSON.stringify([entry.fiveHour, entry.week]);
@@ -118,22 +171,45 @@ export function rememberUsage(name, usage, at = Date.now()) {
 // `claude auth status` is a program start, too slow for every page load. Whoever runs that check (doctor, setup,
 // the Get started list, the launcher) leaves its answer here, and the page reads this.
 
-/** { loggedIn: true | false | null, plan: "pro" | "max" | "team" | … | null, at } or null when never checked. */
+/**
+ * { loggedIn: true | false | null, plan: "pro" | "max" | "team" | … | null, at, accountAt } or null when never
+ * checked. `accountAt` is when another account was last seen signed in (null: never since this was first kept).
+ */
 export function loginSeen() {
   const l = readJson('claude-login.json', null);
-  return l && Number.isFinite(l.at) ? { loggedIn: typeof l.loggedIn === 'boolean' ? l.loggedIn : null, plan: typeof l.plan === 'string' ? l.plan : null, at: l.at } : null;
+  if (!l || !Number.isFinite(l.at)) return null;
+  return {
+    loggedIn: typeof l.loggedIn === 'boolean' ? l.loggedIn : null, plan: typeof l.plan === 'string' ? l.plan : null, at: l.at,
+    accountAt: Number.isFinite(l.accountAt) ? l.accountAt : null,
+  };
 }
 
-/** Keep the answer of a sign-in check (claudecode.mjs: claudeLoginStatus). Only when it differs or is a minute old. */
-export function rememberLogin({ loggedIn = null, plan = null } = {}, now = Date.now()) {
-  const next = { loggedIn: typeof loggedIn === 'boolean' ? loggedIn : null, plan: loggedIn === true && typeof plan === 'string' && plan ? plan : null, at: now };
+/**
+ * Keep the answer of a sign-in check (claudecode.mjs: claudeLoginStatus). Only when it differs or is a minute old.
+ * `account` tells who is signed in (claudecode.mjs: parseAuthAccount). It is never stored: what is kept is a
+ * fingerprint made with a random value of this computer, which says nothing about the account to anyone else. The
+ * last one known stays, also while nobody is signed in, so it shows when ANOTHER account signs in, by the page or
+ * by /login in a terminal. Returns { changed }: true when the account is another one than the last one known.
+ */
+export function rememberLogin({ loggedIn = null, plan = null, account = null } = {}, now = Date.now()) {
+  const raw = readJson('claude-login.json', null) || {};
+  const salt = typeof raw.salt === 'string' && raw.salt.length >= 16 ? raw.salt : crypto.randomBytes(12).toString('hex');
+  const before = typeof raw.account === 'string' && raw.account ? raw.account : null;
+  const key = loggedIn === true && typeof account === 'string' && account ? crypto.createHash('sha256').update(`${salt}\n${account}`).digest('hex').slice(0, 16) : null;
+  const changed = Boolean(before && key && before !== key);
+  const next = {
+    loggedIn: typeof loggedIn === 'boolean' ? loggedIn : null, plan: loggedIn === true && typeof plan === 'string' && plan ? plan : null, at: now,
+    salt, account: key || before,
+    accountAt: changed ? now : Number.isFinite(raw.accountAt) ? raw.accountAt : null,
+  };
   const prev = loginSeen();
-  if (prev && prev.loggedIn === next.loggedIn && prev.plan === next.plan && now - prev.at < 60_000) return;
+  if (prev && prev.loggedIn === next.loggedIn && prev.plan === next.plan && next.account === before && now - prev.at < 60_000) return { changed };
   try {
     writeJson('claude-login.json', next);
   } catch {
     /* a state folder that cannot be written must not break a check */
   }
+  return { changed };
 }
 
 // Claude Code gives the 5-hour and weekly figures to these sign-ins only ("rate_limits: appears only for claude.ai
@@ -148,14 +224,20 @@ const PLANS_WITH_USAGE = new Set(['pro', 'max', 'ultra']);
  *   plan           "login": the plan Claude Code names for the sign-in ("pro", "max", "team", …), else null
  *   usageReported  true: figures were seen for this provider, or its plan reports them; false: its plan does not
  *                  report them (the page says so instead of showing nothing); null: not known yet
+ *   accountAt      "login": when another account was last signed in (epoch ms), else null
  */
 export function providerFacts(profile) {
   if (!profile || (profile.kind !== 'login' && profile.kind !== 'subscription')) return {};
-  const seen = Boolean(usageStore()[profile.name]);
+  const kept = usageStore()[profile.name];
+  const seen = Boolean(kept && (kept.fiveHour || kept.week)); // not what forgetUsage left
   if (profile.kind === 'subscription') return { signedIn: true, plan: null, usageReported: seen ? true : null };
   const login = loginSeen();
   const plan = login && login.loggedIn ? login.plan : null;
-  return { signedIn: login ? login.loggedIn : null, plan, usageReported: seen ? true : plan ? PLANS_WITH_USAGE.has(plan.toLowerCase()) : null };
+  return {
+    signedIn: login ? login.loggedIn : null, plan, usageReported: seen ? true : plan ? PLANS_WITH_USAGE.has(plan.toLowerCase()) : null,
+    // when another account was last signed in here: a limit seen before that moment was the earlier account's
+    accountAt: login ? login.accountAt : null,
+  };
 }
 
 // Anthropic's plan-limit headers → our usage entry (null when the answer carries none).

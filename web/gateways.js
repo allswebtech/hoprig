@@ -92,8 +92,8 @@ async function keySheet(g, done) {
       [h('p', 'On the other computer, open Providers and press "Add a shared gateway".')],
       [h('p', 'Paste this address:'), copyRow(address, 'Address')],
       [h('p', 'Paste this key:'), copyRow(r.key, 'Key')]),
-    local ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', 'This address works only on this computer. Open this page by the computer\'s name on your network, by Tailscale or by the public link, and make the key there, to get an address that works elsewhere.')) : null,
-    !local && address.startsWith('http:') ? h('div.banner.warn', icon('lock', { size: 18 }), h('span', 'This address is not encrypted: requests and the key travel in plain text. Use it only on a network you trust, or use Tailscale or the public link.')) : null,
+    local ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', 'This address works only on this computer. Open this page by the computer\'s name on your network or by its public link, and make the key there, to get an address that works elsewhere.')) : null,
+    !local && address.startsWith('http:') ? h('div.banner.warn', icon('lock', { size: 18 }), h('span', 'This address is not encrypted: requests and the key travel in plain text. Use it only on a network you trust, or use the public link.')) : null,
     h('div.sheet-actions', h('button.btn.primary', { type: 'button', onclick: () => close() }, 'Done'))));
 }
 

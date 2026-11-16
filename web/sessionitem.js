@@ -63,7 +63,7 @@ export function sessionCard(s, profiles, refresh, multi, { heading = null } = {}
   const after = moved(s, refresh);
   const back = backButton(s, profiles, after);
   return h(`article.card.st-${st.key}`, linkProps(s, `${nameOf(s)}${multi ? ` on ${s.machineLabel}` : ''}: ${st.text}`),
-    h('div.card-top', h('h3.card-name', nameOf(s)), chip(s, { text: st.key !== heading })),
+    h('div.card-top', h('h3.card-name', nameOf(s)), chip(s, { text: st.key !== heading || Boolean(s.background) })),
     h('div.card-meta',
       chatTag(s),
       multi ? machinePill(s.machineLabel) : null,

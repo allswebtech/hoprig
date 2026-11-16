@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Stands in for the real launcher in tests, so no real Claude Code session (and no quota) is ever used.
 // It prints how it was called, registers a run record the way the launcher does, then echoes what it is sent.
-// Sending "LIMIT" makes it print a real Claude Code usage-limit line; "SLOW x" makes it "work" for 1.5 s before it
-// answers (status working → waiting, like the hooks report), and every answer becomes the run's lastMessage.
+// Sending "LIMIT" makes it print a real Claude Code usage-limit line ("MENU": with the menu Claude Code may open at a
+// limit under it); "SLOW x" makes it "work" for 1.5 s before it answers (status working → waiting, like the hooks
+// report), and every answer becomes the run's lastMessage.
 // Like Claude Code, it keeps the conversation's file from the first message on (not before): what the dashboard
 // looks for to decide between --resume and --session-id when a session moves to another provider.
 import fs from 'node:fs';
@@ -32,6 +33,7 @@ process.on('SIGTERM', bye);
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   said(line);
   if (line === 'LIMIT') process.stdout.write("  ⎿  You've hit your 5-hour limit · resets 5pm (UTC)\n");
+  else if (line === 'MENU') process.stdout.write("  ⎿  You've hit your 5-hour limit · resets 5pm (UTC)\n\n  What do you want to do?\n  ❯ 1. Stop and wait for limit to reset\n    2. Switch to extra usage\n");
   else if (line.startsWith('SLOW ')) {
     updateRun(file, { status: 'working' });
     setTimeout(() => {

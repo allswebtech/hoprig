@@ -176,6 +176,18 @@ test('Auto mode on: Tia picks auto and says why', async () => {
   assert.match(a.text, /"would_pick":\{"account":"auto"/);
 });
 
+test('get_accounts says whether a sign-in provider is signed in; signing in, out or as another account is not a tool', async () => {
+  const state = baseState();
+  state.profiles[0].signedIn = false;
+  const { call } = setup({ state });
+  const a = await call('get_accounts', {});
+  assert.match(a.text, new RegExp(`"account":"${state.profiles[0].name}"[^}]*"signed_in":false`));
+  assert.equal((a.text.match(/"signed_in"/g) || []).length, 1, 'only where the dashboard says it');
+  const { TOOLS } = await import('../../src/assistant/tools.mjs');
+  assert.deepEqual(TOOLS.map((t) => t.name).filter((n) => /sign|login|logout/i.test(n)), [], 'L3: no tool; open_screen shows the owner the page');
+  assert.match(TOOLS.find((t) => t.name === 'open_screen').description, /sign it in or out, sign in with another Claude account at a usage limit/);
+});
+
 test('"Ask me": everything typed into a session, and starting one, becomes a card', async () => {
   const { call, ops } = setup({ level: 'ask' });
   await call('list_sessions', {});

@@ -51,25 +51,28 @@ import {
 import { createBackend } from './backends/index.mjs';
 import { Deck } from './deck.mjs';
 import { browse, insideRoots, recentFolders, resolveRoots } from './folders.mjs';
-import { alwaysOption } from './prompts.mjs';
+import { detectLimit } from './limits.mjs';
+import { alwaysOption, menuOpen } from './prompts.mjs';
 import { killProcess, power, snapshot } from './platform.mjs';
 import { machinesFeature } from '../machines/index.mjs';
 import { assistantFeature } from '../assistant/feature.mjs';
 import { automationFeature } from '../automation/feature.mjs';
 import { addonsFeature } from '../addons/feature.mjs';
+import { reachableUrl } from '../addons/reach.mjs';
 import { accountsFeature } from './accounts.mjs';
-import { claudeLoginFeature } from './claudelogin.mjs';
+import { claudeLoginFeature, sameComputer } from './claudelogin.mjs';
 import { gatewayFeature } from '../gateway/index.mjs';
 import { pcsetupFeature } from '../pcsetup/feature.mjs';
 import { skillhubFeature } from '../skillhub/feature.mjs';
 import { workspaceFeature } from '../workspace/feature.mjs';
-import { vscodeFeature } from '../vscode/feature.mjs';
+import { editorFeature } from '../editor/feature.mjs';
 import { chatFeature } from '../chat/feature.mjs';
 import { onboardingFeature } from '../setup/onboarding.mjs';
 import { removeDashboardFile, writeDashboardFile } from './dashboardfile.mjs';
 import { createLoginLink, loginLinkStatus, qrRows, useLoginLink } from './loginlink.mjs';
 import { clientIp, isHttps, originOk, requestHost, securityHeaders } from './security.mjs';
-import { resolveStatic, sendFile } from './static.mjs';
+import { notePassword, passwordProblem } from './strength.mjs';
+import { monacoManifest, resolveStatic, sendFile } from './static.mjs';
 import { attachTerminal } from './terminal.mjs';
 import { EVENTS, sendNotification } from './notify.mjs';
 import { AUTO, DEFAULT_QUICK_ACTIONS, cleanServerPatch } from './settings.mjs';
@@ -103,6 +106,9 @@ class HttpError extends Error {
   }
 }
 const bad = (msg = 'bad request') => new HttpError(400, msg);
+
+/** An error as the page gets it: its message, plus the facts a deliberate refusal carries (e.g. a newer version). */
+const errorBody = (e) => ({ ...(Number.isInteger(e.status) && e.details && typeof e.details === 'object' ? e.details : {}), error: e.message || 'server error' });
 
 function readJson(req) {
   return new Promise((resolve, reject) => {
@@ -151,13 +157,16 @@ export function createServer(opts = {}) {
   // touches the real computer.
   let loginTimer = null; // the half-hourly sign-in check started in listen()
   let firstLoginCheck = null; // its first run, a few seconds after start
+  let closed = false;
+  let signInTimer = null; // the look every 10 s at whether the stored sign-in changed (claudecode.mjs signInWatch)
   const system = { snapshot, killProcess, power, ...opts.system };
   const notifyFetch = opts.fetch || fetch;
   const watcher = new Watcher({
     cards: () => cards(),
     deck,
     auto: autoswitch,
-    settings: () => ({ notify: cfg().server.notify || null, publicUrl: cfg().server.publicUrl || '' }),
+    // Click links in a push lead to where this dashboard is reached from anywhere: the set address, else the public link's.
+    settings: () => ({ notify: cfg().server.notify || null, publicUrl: reachableUrl(cfg()) || '' }),
     send: (n, ev) => sendNotification(n, ev, { fetchImpl: notifyFetch }),
     ...(opts.autoSwitchGraceMs !== undefined ? { graceMs: opts.autoSwitchGraceMs } : {}),
     ...(opts.watchTickMs !== undefined ? { tickMs: opts.watchTickMs } : {}),
@@ -208,7 +217,7 @@ export function createServer(opts = {}) {
     assistantFeature(ctx, { hub: machines.machines.hub, ...opts.assistant }), // Tia; first, so her own token is checked before the machines gate
     gateway, // /gateway/…: a gateway shared with a gateway key (before the machines gate, which takes any bearer as its own)
     machines, // other computers: relay, pairing, bearer tokens
-    vscodeFeature(ctx, opts.vscode), // VS Code for a project folder: in the browser at /vscode/ (after machines: a bearer token never reaches it)
+    editorFeature(ctx, opts.editor), // the code editor's files and git under /api/code/ (another computer's token too); removes VS Code Server's leftovers once
     automationFeature(ctx, { tick: opts.watch !== false, ...opts.automation }), // queue, schedules, restore, retry, updates, idle care
     addonsFeature(ctx, opts.addons), // Settings → Add-ons: install, start, stop, update, set up as an account
     accountsFeature(ctx, { remote: gateway.states, removing: gateway.forget, ...opts.accounts }), // Providers: add a subscription, an API key or a TRouteAI gateway in the page
@@ -322,6 +331,9 @@ export function createServer(opts = {}) {
       const pref = c.fallback ? autoswitch.preferredAvailable(c.profile.name) : null;
       c.preferred = pref && pref !== c.profile.name && names.has(pref) ? pref : null;
       c.autoMove = watcher.pending.has(c.name) ? watcher.pending.get(c.name).to : null;
+      // Since when it stands at its limit, as far as known: the page compares it with when another Claude account
+      // signed in (the provider's accountAt), to offer "Continue with the new account".
+      if (c.limit || c.runLimit) c.limitAt = (c.runLimit && c.runLimit.at) || watcher.seen.get(c.runId) || null;
     }
     const rec = autoswitch.recommendedProfile ? autoswitch.recommendedProfile() : null;
     // Auto mode on: "Auto" is the first choice for a new session.
@@ -498,6 +510,32 @@ export function createServer(opts = {}) {
       await moveTo(term, run, profile.name);
       return { ok: true };
     }],
+    // A session that stopped at a usage limit goes on, on the provider it is on: after another Claude account signed
+    // in (claudelogin.mjs) or the limit reset. Claude Code needs no restart for another account (2.1.325 reads the
+    // stored sign-in again before its next request), so the continue prompt is simply typed — unless a menu stands
+    // on the screen, where typing would answer the menu: then nothing is typed and the page offers the restart
+    // ({ restart: true }: the same conversation starts again in place with --resume, then the prompt).
+    ['POST', /^\/api\/sessions\/([^/]+)\/continue$/, async (req, m) => {
+      const b = await readJson(req);
+      const name = decodeURIComponent(m[1]);
+      const { term, run } = await sessionOr404(name);
+      if (!run) throw new HttpError(409, 'this is a plain shell, not a Claude session started by the launcher');
+      if (run.profile === AUTO.name) throw new HttpError(409, 'a session on Auto goes on by itself');
+      const prompt = autoswitch.getAutoSwitch().prompt;
+      if (b.restart === true) {
+        if (!v.profile(run.profile)) throw new HttpError(409, 'the provider of this session is gone; move it to another one');
+        await deck.move(term, run, run.profile);
+        watcher.pending.set(name, { to: run.profile, prompt, since: Date.now(), notRun: run.runId || null });
+        watcher.poke();
+        return { ok: true, restarted: true };
+      }
+      const screen = await backend.capture(term.id, 40);
+      if (!detectLimit(screen) && !run.limit) throw new HttpError(409, 'this session is not waiting at a usage limit');
+      if (menuOpen(screen)) return { ok: false, menu: true };
+      await deck.send(term.id, prompt);
+      watcher.poke();
+      return { ok: true };
+    }],
     ['POST', /^\/api\/sessions\/([^/]+)\/rename$/, async (req, m) => {
       const b = await readJson(req);
       if (!backend.validName(b.name)) throw bad('use letters, digits, - and _ (up to 40)');
@@ -577,16 +615,23 @@ export function createServer(opts = {}) {
       return settingsView();
     }],
     ['POST', /^\/api\/settings\/password$/, async (req, m, q, res) => {
+      // Only a signed-in browser gets here, so the overall cap (which an attacker could fill) does not apply.
       const ip = clientIp(req, proxyOpts());
-      const wait = limiter.retryAfter(ip);
+      const wait = limiter.retryAfter(ip, { overall: false });
       if (wait > 0) throw new HttpError(429, `Too many tries. Wait ${Math.ceil(wait / 60000)} min.`);
       const b = await readJson(req);
       if (typeof b.next !== 'string' || b.next.length < 8 || b.next.length > 1024) throw bad('the new password needs at least 8 characters');
-      limiter.fail(ip); // counted before the slow check, as for the login
+      // While the page can be reached from anywhere, a weak password would open the computer to anyone; `strong: true`
+      // asks the same before the link is turned on (Settings → Public link's "Make a strong password").
+      const weak = cfg().publicLink?.on === true || b.strong === true ? passwordProblem(b.next) : null;
+      if (weak) throw bad(`${b.strong === true && cfg().publicLink?.on !== true ? 'for the public link' : 'the public link is on, so'} the new password must be strong: ${weak}`);
+      limiter.fail(ip, { overall: false }); // counted before the slow check, as for the login
       const ok = typeof b.current === 'string' && b.current.length <= 1024 && (await verifyPassword(b.current, cfg().server.passwordHash));
       if (!ok) throw new HttpError(403, 'the current password is wrong');
-      limiter.succeed(ip);
-      saveConfig({ server: { passwordHash: await hashPassword(b.next) } });
+      limiter.succeed(ip, { overall: false });
+      const hash = await hashPassword(b.next);
+      saveConfig({ server: { passwordHash: hash } });
+      notePassword(b.next, hash);
       // The tag changed with the hash, so every other browser is logged out now; this one gets a new session.
       res.setHeader('Set-Cookie', sessionCookie(sessions.create(passwordTag()), { secure: isHttps(req, proxyOpts()) }));
       return { ok: true };
@@ -655,7 +700,8 @@ export function createServer(opts = {}) {
     // ---- one-time sign-in links (a phone scans the QR instead of typing the password) ----
     ['POST', /^\/api\/login\/links$/, async (req) => {
       const b = await readJson(req);
-      const pub = cfg().server.publicUrl;
+      // The address from anywhere (the set one, else the public link's) first: a phone scans the QR from elsewhere.
+      const pub = reachableUrl(cfg());
       const host = requestHost(req, proxyOpts());
       const own = host ? `${isHttps(req, proxyOpts()) ? 'https' : 'http'}://${host}` : null;
       let base = pub || own;
@@ -672,7 +718,7 @@ export function createServer(opts = {}) {
           }
         };
         const want = originOf(b.base);
-        const known = new Set([own, pub, process.env.HOPRIG_PUBLIC_URL, ...(cfg().server.allowedOrigins || [])].map(originOf).filter(Boolean));
+        const known = new Set([own, pub, cfg().server.publicUrl, process.env.HOPRIG_PUBLIC_URL, ...(cfg().server.allowedOrigins || [])].map(originOf).filter(Boolean));
         if (!want || !known.has(want)) throw bad('that address is not one this dashboard is reached at');
         base = want;
       }
@@ -690,34 +736,46 @@ export function createServer(opts = {}) {
     ...features.flatMap((f) => f.routes || []),
   ];
 
+  // The overall cap of the sign-in limit (auth.mjs RateLimiter) counts every password try from elsewhere, whatever
+  // the password is like: it bounds a guess spread over many addresses and the hashes strangers can make us run.
+  // Left out for this computer itself; a sign-in link (loginByLink) never counts. Those are the owner's ways in.
+  const overallFor = (req) => ({ overall: !sameComputer(req) });
+
   async function login(req, res) {
     const ip = clientIp(req, proxyOpts());
-    const wait = limiter.retryAfter(ip);
+    const lim = overallFor(req);
+    const wait = limiter.retryAfter(ip, lim);
     if (wait > 0) {
       return send(res, 429, { error: `Too many tries. Wait ${Math.ceil(wait / 60000)} min.` }, { 'Retry-After': String(Math.ceil(wait / 1000)) });
     }
     const b = await readJson(req);
     // Count the try BEFORE the slow password check. Counting afterwards would let a burst of parallel guesses all
     // pass the limit above (each waits for scrypt before any is counted) and run that many 32 MiB hashes at once.
-    limiter.fail(ip);
-    const ok = typeof b.password === 'string' && b.password.length <= 1024 && (await verifyPassword(b.password, cfg().server.passwordHash));
+    limiter.fail(ip, lim);
+    const hash = cfg().server.passwordHash;
+    const ok = typeof b.password === 'string' && b.password.length <= 1024 && (await verifyPassword(b.password, hash));
     if (!ok) return send(res, 401, { error: 'Wrong password.' });
-    limiter.succeed(ip);
+    limiter.succeed(ip, lim);
+    notePassword(b.password, hash); // what it is like, for the public link's check (only the result is kept)
     const token = sessions.create(passwordTag());
     return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(token, { secure: isHttps(req, proxyOpts()) }) });
   }
 
-  /** A sign-in link: the token from the link's #fragment, sent once by the login page. Limited like the login. */
+  /**
+   * A sign-in link: the token from the link's #fragment, sent once by the login page. Limited per address like the
+   * login, but never by the overall cap: it is the owner's way in from outside while someone guesses the password.
+   */
   async function loginByLink(req, res) {
     const ip = clientIp(req, proxyOpts());
-    const wait = limiter.retryAfter(ip);
+    const lim = { overall: false };
+    const wait = limiter.retryAfter(ip, lim);
     if (wait > 0) {
       return send(res, 429, { error: `Too many tries. Wait ${Math.ceil(wait / 60000)} min.` }, { 'Retry-After': String(Math.ceil(wait / 1000)) });
     }
     const b = await readJson(req);
-    limiter.fail(ip);
+    limiter.fail(ip, lim);
     if (!useLoginLink(b.token)) return send(res, 401, { error: 'This sign-in link was used already or has expired. Make a new one on a device that is signed in.' });
-    limiter.succeed(ip);
+    limiter.succeed(ip, lim);
     return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(sessions.create(passwordTag()), { secure: isHttps(req, proxyOpts()) }) });
   }
 
@@ -759,6 +817,8 @@ export function createServer(opts = {}) {
       }
       return send(res, 401, { error: 'log in first' });
     }
+    // Where the code editor's files are and its workers' names (they carry a hash), for the editor page.
+    if (p === '/vendor/monaco.json') return send(res, ...(monacoManifest() ? [200, monacoManifest()] : [404, { error: 'the code editor is not installed' }]));
     const file = resolveStatic(p === '/login' ? '/login.html' : p);
     if (!file) return send(res, 404, { error: 'not found' });
     return sendFile(res, file, method === 'HEAD');
@@ -808,7 +868,7 @@ export function createServer(opts = {}) {
       handle(req, res).catch((e) => {
         status = Number.isInteger(e.status) ? e.status : 500;
         chunks.length = 0;
-        chunks.push(Buffer.from(JSON.stringify({ error: e.message || 'server error' })));
+        chunks.push(Buffer.from(JSON.stringify(errorBody(e))));
         finish();
       });
     });
@@ -819,7 +879,7 @@ export function createServer(opts = {}) {
       const status = Number.isInteger(e.status) ? e.status : e instanceof URIError ? 400 : 500;
       // Log the failure, never the request body or headers.
       if (status === 500) console.error(`${req.method} ${req.url.split('?')[0]}: ${e.message}`);
-      if (!res.headersSent) send(res, status, { error: e.message || 'server error' });
+      if (!res.headersSent) send(res, status, errorBody(e));
       else res.end();
     });
   });
@@ -883,6 +943,16 @@ export function createServer(opts = {}) {
             firstLoginCheck.unref();
             loginTimer = setInterval(ask, 30 * 60_000);
             loginTimer.unref();
+            // An account changed with /login in a session or a terminal: noticed within seconds, not at the next
+            // half-hourly check, so the earlier account's limit mark does not keep the provider out of use.
+            import('../claudecode.mjs')
+              .then((m) => {
+                const w = m.signInWatch();
+                if (closed) return;
+                signInTimer = setInterval(() => w.check().catch(() => {}), 10_000);
+                signInTimer.unref();
+              })
+              .catch(() => {});
           }
           // Where this dashboard really listens, for `hoprig pair --json`, `link` and setup (dashboardfile.mjs).
           const a = server.address();
@@ -899,6 +969,7 @@ export function createServer(opts = {}) {
       });
     },
     async close() {
+      closed = true;
       for (const f of features) {
         try {
           await f.close?.();
@@ -909,6 +980,7 @@ export function createServer(opts = {}) {
       removeDashboardFile();
       clearTimeout(firstLoginCheck);
       clearInterval(loginTimer);
+      clearInterval(signInTimer);
       watcher.stop();
       for (const ws of wss.clients) ws.terminate();
       wss.close();

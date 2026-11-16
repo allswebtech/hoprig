@@ -5,7 +5,7 @@ all your other computers on one page, your phone included. It does no work itsel
 terminals run on it. It only relays.
 
 Not sure you need one? Check [Which setup is mine?](COMPUTERS.md#which-setup-is-mine) first: with several PCs on
-one network, or with Tailscale, you need no server at all.
+one network, or with the public link on one of them, you need no server at all.
 
 ## The one command
 
@@ -82,7 +82,7 @@ Step by step:
 
 1. On the hub: `hoprig setup --hub --ip <its address> --tls-internal`. At the end it prints the whole line. For
    the next computer: `hoprig machines invite` on the hub, or on its page **Computers → Add a computer →** "It is
-   at home or behind a router and cannot be reached from here" **→ Show a code**. Each shows the whole line.
+   at home or behind a router and cannot be reached from here" **→ Show the line to paste**. Each shows the whole line.
 2. On the other computer: type (or paste) that whole line. It checks the hub's certificate against the
    fingerprint, then joins. Without the fingerprint it stops and says where to read the line; with a wrong one it
    stops and sends nothing.
@@ -136,7 +136,7 @@ For a hub with its own certificate (`--tls-internal`), the line ends with `--fin
 ([why](#no-public-certificate-possible-the-hubs-own-certificate-a-private-network-a-test)).
 
 For the next PC, make a new code on the hub with `hoprig machines invite` (or on the hub's page: **Computers → Add a
-computer →** "It is at home or behind a router and cannot be reached from here" **→ Show a code**).
+computer →** "It is at home or behind a router and cannot be reached from here" **→ Show the line to paste**).
 The PCs connect out to the hub, so nothing has to be opened at home. Other servers can join the same way, or be
 added by SSH name. All of it is in [COMPUTERS.md](COMPUTERS.md).
 

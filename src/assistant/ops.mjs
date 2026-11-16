@@ -213,6 +213,8 @@ export function createOps(o) {
     renameComputer: ({ computer, label }) => (isLocal(computer) ? post(LOCAL, '/api/machine/label', { label }) : post(LOCAL, `/api/machines/${enc(computer)}/rename`, { label })),
     addons: ({ computer }) => get(computer, '/api/addons'),
     addon: ({ computer, id, action }) => post(computer, `/api/addons/${enc(id)}/${action}`, {}),
+    publicLink: ({ computer }) => get(computer, '/api/public-link'),
+    setPublicLink: ({ computer, on, kind }) => post(computer, '/api/public-link', { on, ...(kind ? { kind } : {}) }),
 
     // ---- automations ----
     automation: ({ computer }) => get(computer, '/api/automation'),

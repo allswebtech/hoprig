@@ -412,6 +412,7 @@ export class Chat extends Timeline {
       this.queue.add(msg, this.engine.capabilities.queue ? this.session : null);
       return { id: msg.id, queued: true };
     }
+    this.limit = null; // it is tried again (the limit may have reset, or another account signed in); a refusal sets it anew
     this.#begin(msg);
     try {
       if (!(await this.#start())) return { id: msg.id, queued: false }; // stopped (or closed) while it got ready

@@ -169,6 +169,20 @@ test('the limit card: its actions are a list, so another part adds one line; non
   assert.equal(L.limitCard({ ...v, limit: null }, {}), null);
 });
 
+test('the limit card on Claude Code\'s stored sign-in: another Claude account, and going on once one signed in', async () => {
+  const v = { limit: { text: 'You\'ve hit your 5-hour limit', at: 2000 }, profile: { name: 'sub', label: 'Claude Max', kind: 'login' } };
+  const shown = (profiles) => {
+    const card = L.limitCard(v, { id: '11111111-2222-4333-8444-555555555555', moveProvider() {}, profiles });
+    return byClass(card, 'btn').map((b) => [/(^|\s)primary(\s|$)/.test(b.className), texts(b).join('')]);
+  };
+  const sub = { name: 'sub', label: 'Claude Max', kind: 'login', signedIn: true, accountAt: null };
+  assert.deepEqual(shown([sub]), [[true, 'Move to another provider'], [false, 'Sign in with another Claude account']]);
+  // another account signed in after the limit: going on here leads, the move steps back
+  assert.deepEqual(shown([{ ...sub, accountAt: 3000 }]), [[true, 'Continue with the new account'], [false, 'Sign in with another Claude account'], [false, 'Move to another provider']]);
+  // a provider with its own token or an API key has no stored sign-in to change
+  assert.deepEqual(shown([{ ...sub, kind: 'subscription' }]), [[true, 'Move to another provider']]);
+});
+
 test('the provider sheet: each provider with its plan usage', async () => {
   globalThis.window = globalThis.window || { addEventListener() {} };
   const { usageWords, editorLink } = await import('../../web/chat/header.js');
