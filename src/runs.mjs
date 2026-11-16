@@ -112,7 +112,9 @@ export const runsConversation = (r, id, tool = 'claude') => (r.tool || 'claude')
  */
 export function heldBefore(mine, id, tool = 'claude') {
   const earlier = (r) => r.startedAt < mine.startedAt || (r.startedAt === mine.startedAt && r.runId < mine.runId);
-  return listRuns({ chats: true, usage: false }).find((r) => r.runId !== mine.runId && r.status !== 'ended' && runsConversation(r, id, tool) && earlier(r)) || null;
+  // Only the records on this conversation are judged: on Windows asking the system about other processes takes most of
+  // a second, and every launcher start asks this.
+  return listRuns({ chats: true, usage: false, only: (r) => r.runId !== mine.runId && r.status !== 'ended' && runsConversation(r, id, tool) && earlier(r) })[0] || null;
 }
 
 /**
@@ -219,8 +221,9 @@ export function stillRuns(run, ident = system) {
  * and kept for its provider (noteUsage); the readers of "who runs this conversation" need none of it, and leave the
  * provider's store to the dashboard instead of writing it from every launcher and chat start. A record counts while
  * the process that wrote it runs (procid.mjs stillOwned), not while its pid does. `ident`: procid.mjs makeIdentity.
+ * `only(run)`: the records asked about; the others are neither judged, removed nor listed.
  */
-export function listRuns({ chats = false, usage: withUsage = true, ident = system } = {}) {
+export function listRuns({ chats = false, usage: withUsage = true, ident = system, only = null } = {}) {
   let names;
   try {
     names = fs.readdirSync(runsDir());
@@ -238,7 +241,7 @@ export function listRuns({ chats = false, usage: withUsage = true, ident = syste
       if (run || old) removeRun(file);
       continue;
     }
-    read.push({ run, file });
+    if (!only || only(run)) read.push({ run, file });
   }
   const owned = stillOwned(read, ident); // all pids at once: on Windows asking the system takes most of a second
   const runs = [];

@@ -106,6 +106,21 @@ test('an identity that is not known never removes a record', (t) => {
   clear();
 });
 
+test('who runs a conversation asks the system only about the records on it', (t) => {
+  clear();
+  const other = sleeper(t);
+  const elsewhere = record({ pid: other.pid, conversation: 'another' });
+  const on = record({ pid: other.pid, proc: system.of([other.pid]).get(other.pid) });
+  const asked = [];
+  const ident = { of: (pids) => (asked.push(pids), system.of(pids)), bootAt: system.bootAt };
+  assert.deepEqual(listed({ ident, only: (r) => r.conversation === ID }), [idOf(on)]);
+  assert.deepEqual(asked, [[other.pid]], 'one call, for the record asked about');
+  assert.equal(fs.existsSync(elsewhere), true, 'the others are left as they are');
+  const mine = R.createChatRun({ chat: 'c3', conversation: ID, tool: 'claude', cwd: box.root, profile: 'work' });
+  assert.equal(R.heldBefore(mine.run, ID).runId, idOf(on), 'the other process\'s own record holds it');
+  clear();
+});
+
 test('a launcher\'s move keeps its identity; a chat\'s record carries the dashboard\'s', () => {
   clear();
   const first = R.createRun({ profile: 'work', cwd: box.root, conversation: ID });
@@ -128,7 +143,7 @@ test('a chat record an earlier dashboard left behind, whose pid this dashboard h
   clear();
   // The dashboard died hard; after a reboot the new one got the same pid. Its leftover names that pid, not its process.
   const left = R.createChatRun({ chat: 'c9', conversation: ID, tool: 'claude', cwd: box.root, profile: 'work' });
-  fs.writeFileSync(left.file, JSON.stringify({ ...left.run, proc: system.self().replace(/:\d+$/, ':1') }));
+  fs.writeFileSync(left.file, JSON.stringify({ ...left.run, startedAt: left.run.startedAt - 60_000, proc: system.self().replace(/:\d+$/, ':1') }));
   const mine = R.createRun({ profile: 'work', cwd: box.root, conversation: ID });
   assert.equal(R.heldBefore(mine.run, ID), null, 'it holds nothing');
   assert.equal(fs.existsSync(left.file), false, 'and goes');
