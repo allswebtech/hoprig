@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 // Dev-only (not in the published package): the README's screenshots, made again after any UI change with
 //
-//   node tools/screenshots.mjs [--out docs/screenshots] [--only name,name] [--no-anim] [--port N] [--chrome-port N]
+//   node tools/screenshots.mjs [--out docs/screenshots] [--only name,name] [--port N] [--chrome-port N]
 //
 // It starts `hoprig demo` in this process (sample data in a temp folder, nothing real), drives the local Chrome
-// headless over the DevTools protocol (tools/chrome.mjs), and writes WebP images (each kept under ~300 KB), an
-// animated WebP of "limit reached → continue on another account" (when img2webp is installed), and the GitHub
-// social preview (assets/social-preview.png, 1280×640). Needs Chrome or Chromium; nothing to install.
-import { execFileSync } from 'node:child_process';
+// headless over the DevTools protocol (tools/chrome.mjs), and writes WebP images (each kept under ~300 KB) and the
+// GitHub social preview (assets/social-preview.png, 1280×640). Needs Chrome or Chromium; nothing to install.
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchChrome } from './chrome.mjs';
@@ -25,8 +22,6 @@ fs.mkdirSync(OUT, { recursive: true });
 const DESKTOP = { width: 1280, height: 800, mobile: false };
 const PHONE = { width: 390, height: 844, mobile: true };
 
-// The demo narrows PATH for what runs inside it; the tools used here (img2webp) are found on the owner's PATH.
-const OWN_ENV = { ...process.env };
 
 // ---------- the demo ----------
 const { main } = await import(path.join(ROOT, 'src/demo/index.mjs'));
@@ -90,7 +85,6 @@ try {
       await setting({ server: { getStartedDismissed: true } });
       await view('#/', DESKTOP, 'light');
     },
-    'home-phone-dark': async () => view('#/', PHONE, 'dark'),
     // The chat: thinking, the to-do list, a file read, an edit with its diff, and a test run waiting for the OK.
     'chat-desktop-light': async () => view(`#/chat/${chatId}`, DESKTOP, 'light', 3500),
     'chat-phone-light': async () => view(`#/chat/${chatId}`, PHONE, 'light', 3500),
@@ -132,7 +126,6 @@ try {
       await sleep(500);
     },
     'computers-desktop-light': async () => view('#/computers', DESKTOP, 'light', 2500),
-    'add-computer-desktop-light': async () => view('#/computers/add', DESKTOP, 'light', 2000),
     'computer-overview-desktop-light': async () => view('#/computer', DESKTOP, 'light', 3500),
     'computer-setup-desktop-light': async () => view('#/computer/setup', DESKTOP, 'light', 4000),
     'tia-desktop-light': async () => view('#/tia', DESKTOP, 'light', 3000),
@@ -183,47 +176,6 @@ try {
     console.log(`  social preview (${Math.round(buf.length / 1024)} KB)`);
   }
 
-  // ---------- animated: a limit is reached → one tap → the same session goes on on another account ----------
-  if (!argv.includes('--no-anim') && want('limit-anim')) {
-    let tool = null;
-    try {
-      execFileSync('img2webp', ['-version'], { stdio: 'ignore', env: OWN_ENV });
-      tool = 'img2webp';
-    } catch {
-      console.log('  (no animation: img2webp is not installed)');
-    }
-    if (tool) {
-      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'anim-'));
-      const frames = [];
-      const frame = async (ms) => {
-        const f = path.join(tmp, `${String(frames.length).padStart(2, '0')}.png`);
-        fs.writeFileSync(f, await chrome.shot({ format: 'png' }));
-        frames.push([f, ms]);
-      };
-      const PH = { width: 390, height: 760, mobile: true };
-      await view('#/', PH, 'light', 2000);
-      await chrome.evaluate(`[...document.querySelectorAll('article.card')].find((c) => c.textContent.includes('docs-site'))?.scrollIntoView({ block: 'center' }); true`);
-      await sleep(400);
-      await frame(1800); // the card: limit reached, with the other accounts as buttons
-      await click('Continue on Team plan', 'button');
-      await sleep(700);
-      await frame(1600); // the confirm sheet
-      await click('Switch', 'dialog button');
-      await sleep(5000); // Claude restarts on the other account and reports itself again
-      await chrome.goto(`${url}/?shot=anim#/s/docs-site`, 3000);
-      await chrome.evaluate(`document.activeElement && document.activeElement.blur(); document.querySelectorAll('.toast').forEach((t) => t.remove()); true`);
-      await sleep(300);
-      await frame(2600); // the same conversation, now on the Team plan
-      await chrome.viewport(PH.width, PH.height, { mobile: true, theme: 'light', scale: 1 });
-      const out = path.join(OUT, 'limit-continue.webp');
-      const args = ['-loop', '0', '-kmin', '0', '-kmax', '1', '-lossy', '-q', '80']; // every frame a key frame: no leftovers of the frame before
-      for (const [f, ms] of frames) args.push('-d', String(ms), f);
-      execFileSync(tool, [...args, '-o', out], { stdio: 'ignore', env: OWN_ENV });
-      fs.rmSync(tmp, { recursive: true, force: true });
-      results.push({ file: path.relative(ROOT, out), kb: Math.round(fs.statSync(out).size / 1024) });
-      console.log('  limit-continue (animated)');
-    }
-  }
 } finally {
   await chrome.close();
   await hooks.stop();

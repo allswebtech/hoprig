@@ -5,8 +5,8 @@
 <h1 align="center">Hoprig</h1>
 
 <p align="center">
-  <b>Take a fresh PC or Linux server, install Hoprig, and it sets up everything else for coding with Claude Code,<br>
-  managed from one dashboard. On a computer that already has things, it checks what is there and adds what is missing.</b>
+  <b>Code with Claude Code and OpenCode from any device: a chat for every project, on every computer you own,<br>
+  that carries on with another provider when one reaches its usage limit. One dashboard, self-hosted, built for a phone too.</b>
 </p>
 
 <p align="center">
@@ -20,30 +20,31 @@ curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh 
 ```
 
 <p align="center">
-  <img src="docs/screenshots/hero.webp" alt="The Hoprig dashboard on a desktop and on a phone: Home with sessions grouped by what needs you, the providers with their usage, and a real terminal" width="900">
+  <img src="docs/screenshots/hero.webp" alt="The Hoprig dashboard on a desktop and on a phone: Home with the chats and sessions that need you, and a chat waiting for an OK to run the tests" width="900">
 </p>
 
 ## What it does
 
-- **A computer ready for coding.** Claude Code, git, Node.js, Python, the GitHub CLI, your projects, skills
-  that fit them, and a starting set of working rules for Claude: one guided run, one confirmation per step.
-  What is already there is left alone.
-- **Sessions that carry on at a usage limit.** Subscriptions, API keys and gateways are all "providers"; a
-  session belongs to its folder, not to a provider. One tap moves it to another provider, or Auto mode does it
-  for you.
-- **Code from anywhere, phone included.** A self-hosted dashboard built for one thumb. One tap on a project
-  opens a chat with Claude Code, set up as your last one there: replies as they are written, each change as a
-  diff, Allow and Deny buttons, its agents and background tasks. The real terminal is one row away. It shows
-  which session is working, which is waiting for your next message and which needs you. A project opens in a
-  built-in code editor with its git changes.
-- **Several computers in one place.** Home PC, office PC, servers: one page shows every session and starts
-  work on any of them. Computers behind a router connect out by themselves. No VPN, no third-party service.
-- **It keeps going without you.** Queue the next messages, schedule work, reopen sessions after a restart.
-- **One folder tree for your coding.** The same workspace on every computer, with a read-only view of what the
-  AI knows.
+- **A chat is the way to code.** One tap on a project opens a chat with its coding tool: Claude Code, or
+  OpenCode as a second one. Replies as they are written, each change as a diff, Allow and Deny buttons, the
+  to-do list, agents and background tasks. The real terminal is one tap away and keeps the conversation.
+- **One AI brain for both tools.** The same working rules, skills and memory, kept in one git repository and
+  linked into each coding tool.
+- **Sessions carry on at a usage limit.** Subscriptions, API keys and gateways are all "providers". A session
+  belongs to its folder, not to a provider: one tap moves it to another provider, or Auto mode does it for you.
+- **A code editor in the page**: VS Code's editor core with Explorer, Search and Source Control.
+- **A desktop in the browser**: windows for a computer's terminal, files, editor, processes, services and logs.
+- **From anywhere**: one switch makes the dashboard reachable from the internet, with no server of your own.
+- **Several computers in one place**: home PC, office PC, servers. Computers behind a router connect out by
+  themselves.
+- **Tia**, an assistant that does the work through the dashboard's own routes; what costs money or changes your
+  computer comes to you as a card first. Off until you turn her on.
+- **Updates** of Hoprig, the coding tools and the tunnel helper on one page, Manual by default.
+- **A computer ready for coding**: git, Node.js, Python, the GitHub CLI, your projects and skills that fit them,
+  installed by one guided run. What is already there is left alone.
 
-Linux and macOS today. Windows is not ready: its code is written, and the first test runs on Windows do not pass yet.
-Not affiliated with Anthropic; "Claude" and "Claude Code" are Anthropic's.
+Linux and macOS today. Windows is not ready: its code is written, and the first test runs on Windows do not pass
+yet. Not affiliated with Anthropic or with OpenCode's makers; "Claude" and "Claude Code" are Anthropic's.
 
 ## Install
 
@@ -51,18 +52,210 @@ Not affiliated with Anthropic; "Claude" and "Claude Code" are Anthropic's.
 curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
 ```
 
-It installs what is missing (Node.js and Claude Code, after asking once), then runs `hoprig setup`, which
-ends with a QR code: scan it and your phone is signed in to the dashboard. Until that is done, Home shows a
+It installs what is missing (Node.js and Claude Code, after asking once), then runs `hoprig setup`, which ends
+with a QR code: scan it and your phone is signed in to the dashboard. Until everything is set up, Home shows a
 Get started checklist.
 
 <p align="center">
-  <img src="docs/screenshots/get-started-desktop-light.webp" alt="Home with Get started: a checklist of what is set up on this computer and what comes next" width="760">
+  <img src="docs/screenshots/get-started-desktop-light.webp" alt="Home with Get started: what is set up on this computer and what comes next, above the chats and sessions" width="760">
 </p>
 
-Just want to look? `hoprig demo` opens the dashboard with sample data: no Claude Code and no Claude account
-needed.
-Everything else: [docs/INSTALL.md](docs/INSTALL.md). Check a computer at any time with `hoprig doctor`.
-The command is `hoprig`, or `hop` for short.
+Just want to look? `hoprig demo` opens the dashboard with sample data: no coding tool and no account needed.
+Everything else: [docs/INSTALL.md](docs/INSTALL.md). Check a computer at any time with `hoprig doctor`. The
+command is `hoprig`, or `hop` for short.
+
+## Code in a chat
+
+<p align="center">
+  <img src="docs/screenshots/chat-desktop-light.webp" alt="A chat: the change to a file as a diff, the to-do list, and Claude Code asking to run the tests, with Allow, Allow in this chat and Do not allow" width="760">
+</p>
+
+**New session** on Home (or a project's **New session**) opens a chat in the project you pick, with the
+provider, mode, model and effort of the last chat there (the first time: **Settings → New-session defaults**).
+From a terminal on that computer, `hop chat [folder]` prints the chat's address and opens it in the browser.
+
+- **What you see**: the reply as it is written, thinking, each tool call on one line with its diff, the to-do
+  list, subagents as a tree under the call that started them, background tasks with their progress.
+- **What you control**: the permission mode, the model, the effort and ultracode are chips over the message box
+  and change without a restart. A message typed while it works is queued, and can be taken back. **Stop** ends
+  the turn; background tasks go on until you stop them. `/` lists the commands and skills, `@` the folder's
+  files; a picture can be pasted or dropped in. The status line says what runs now, the branch, the cost, the
+  context used and the plan's limits where the provider reports them.
+- **Its OKs**: **Allow**, **Allow in this chat** (stops the asking for that kind of call until the chat closes;
+  nothing is written to a settings file) and **Do not allow**, in the chat and on its card on Home. In the mode
+  "Run anything without asking" it never asks; a question to you, a plan to approve and what your own
+  settings insist on still come to you, and a "deny" rule of your settings stays denied in every mode.
+- **One place at a time**: **Open in terminal** takes the conversation to a real terminal, and **Open as chat**
+  in a terminal session's menu brings it back. **Files** and **Changes** in the folder chip open the editor.
+
+<p align="center">
+  <img src="docs/screenshots/chat-phone-light.webp" alt="The same chat on a phone: the diff, the OK card and the message box with its chips" width="250">
+  &nbsp;
+  <img src="docs/screenshots/new-session-phone-light.webp" alt="New session on a phone: the computer, the coding tool (Claude Code or OpenCode) and the recent projects" width="250">
+  &nbsp;
+  <img src="docs/screenshots/session-phone-light.webp" alt="A terminal session on a phone: the real terminal, a key bar and a message box" width="250">
+</p>
+
+### Two coding tools: Claude Code and OpenCode
+
+Claude Code can do everything here. **OpenCode** is the second coding tool: a chat or a terminal session, the
+providers that fit it, the shared AI brain and updates. Turn it on in **Settings → Coding tools**: **Install**
+puts it into Hoprig's own tools folder at the version this Hoprig is tested with (never globally), and its own
+self-update and its makers' free cloud models are switched off. New session then asks which coding tool to
+use; each project opens in the coding tool its last chat used. In a terminal: `hop opencode [provider]`.
+
+OpenCode runs only on a provider that speaks its API: an API key or a gateway, never a Claude subscription (a
+subscription's sign-in is for Claude Code only, always). Auto mode, plan usage and Tia's own thinking are Claude
+Code's only.
+
+<p align="center">
+  <img src="docs/screenshots/coding-tools-desktop-light.webp" alt="Settings, Coding tools: Claude Code and OpenCode, each on, with the providers that serve it" width="760">
+</p>
+
+### One brain for both
+
+`hop workspace link` (or **Link now** on the AI brain page) makes every coding tool that is on read the same
+global rules, skills and memory from your AI brain, a git repository of your own:
+
+| | Rules | Skills | Memory |
+|---|---|---|---|
+| Claude Code | `~/.claude/CLAUDE.md` → the brain | `~/.claude/skills` → the brain | its home memory → the brain |
+| OpenCode | its global `AGENTS.md` → the brain's rules file | `~/.agents/skills` → the brain | none of its own: the shared rules tell it where each project's memory is |
+
+Nothing is overwritten: a file or folder that is already there is merged into the brain and kept as a dated
+backup. Details: [docs/WORKSPACE.md](docs/WORKSPACE.md).
+
+## Hit a usage limit? Continue the same session on another provider
+
+<p align="center">
+  <img src="docs/screenshots/limit-reached-desktop-light.webp" alt="A session at its usage limit, with the other providers as buttons to continue the same conversation" width="760">
+</p>
+
+A provider is a small file of settings (a profile): a Claude subscription, an API key or a gateway. Claude Code
+keeps a session as a file named after its folder, and takes its provider from the environment it starts in, so
+the same conversation can be continued under any provider.
+
+```sh
+hop                 # choose a provider, then start Claude Code
+hop add             # add a provider: a Claude subscription, an API key, or a gateway
+hop work -c         # continue this folder's last session on the provider "work"
+```
+
+At a limit, a chat or a session says so and offers the other providers: one tap and the same conversation goes on
+there (a chat's provider chip, or **Move to another provider** in a session's menu, does the same at any time).
+When Claude Code exits in a terminal, Hoprig asks whether to continue on another provider.
+
+A provider that uses Claude Code's own sign-in can also go on with another Claude account of yours, as `/login`
+does: **Sign in with another Claude account**, on the limit card, on Home and on **Providers**. You sign in in the
+browser (from a phone: a link and a code); until that is complete the account of now stays. The provider's own
+page shows who is signed in and has **Sign out**. A new account has its own limits, so the provider's limit mark
+goes when the account changes. See [Is this allowed?](#is-this-allowed)
+
+<p align="center">
+  <img src="docs/screenshots/accounts-desktop-light.webp" alt="The Providers page: each subscription, API key and gateway with its usage and limits" width="760">
+</p>
+
+### Auto mode (Claude Code)
+
+```sh
+hop auto order sub api      # your subscription first, then an API key
+hop auto on                 # off at first: an API key costs money
+hop auto                    # start a session in Auto mode
+```
+
+In the dashboard: **Providers**, then under **When a provider reaches its limit** choose **Carry on with the next
+provider** and put the providers in order. A chat or a session on the provider "Auto" then talks to a small
+router on your own computer: your subscription answers as long as it can, and the moment it reaches its limit
+the same request is answered by the next provider, with no error on screen and nothing to type. When the
+subscription is free again, requests go back to it.
+
+<p align="center">
+  <img src="docs/screenshots/auto-mode-desktop-light.webp" alt="Providers with &quot;Carry on with the next provider&quot; chosen: the order of providers, each with its usage and limit" width="760">
+</p>
+
+Good to know:
+
+- The first request after a move re-reads the whole conversation on the new provider. On an API key that is paid
+  at full price; `/compact` first keeps it small.
+- When the next provider in the order is another subscription, Claude Code is restarted as that subscription (a
+  few seconds) instead. See [Is this allowed?](#is-this-allowed)
+- Claude Code's own Remote Control does not work through a router or with an API key; the Hoprig dashboard is the
+  remote for those sessions.
+
+## The code editor
+
+<p align="center">
+  <img src="docs/screenshots/editor-desktop-light.webp" alt="The editor on a project: Source Control with one changed file, shown side by side before and after" width="760">
+</p>
+
+**Open code** on a project, a repository, a chat's folder chip or a session's menu opens the folder in VS Code's
+editor core (Monaco), inside the page and behind its sign-in, also for another computer's folders. **Explorer**
+(new, rename, delete), **Search** in files and **Source Control** (the changes side by side, stage, unstage,
+discard, commit, the log); **N changes** on a project goes straight there. Ctrl+S, Ctrl+P, Ctrl+Shift+F and Ctrl+G
+work as in VS Code. A save never overwrites a file that changed on disk without asking. On a phone one pane shows
+at a time, with **Plain text editing** where the code editor cannot be typed into. Text size, tab size and word
+wrap are in **Settings → Editor**; the colours follow the page.
+
+## The desktop
+
+<p align="center">
+  <img src="docs/screenshots/desktop-desktop-light.webp" alt="The desktop: Sessions and the Task manager side by side in windows, a taskbar at the bottom" width="760">
+</p>
+
+On a wide screen, the **Desktop mode** button at the top right of every page (or **Open desktop** on a computer's
+page) opens that computer as a desktop in the browser: windows that move, resize, snap to halves and quarters
+(also Alt+Shift with an arrow), minimise and maximise, a right-click menu, and the layout kept per computer. Its
+apps are the computer's own: **Sessions**, **Terminal**, **Files** (move, copy, a trash folder, upload, download,
+archives), **Editor**, **Task manager** (processes, performance, disks, network), **Services** (start, stop,
+restart with the administrator password) and **Logs**. **Settings → Appearance** chooses the style: **Taskbar**
+(the default) or **Dock**. **Dashboard** at the top right goes back. On a small screen the desktop is a grid of the
+same apps, each opening as a page.
+
+## From anywhere: the public link
+
+<p align="center">
+  <img src="docs/screenshots/public-link-desktop-light.webp" alt="Settings, Public link: one switch, and the two kinds, Temporary and Custom" width="760">
+</p>
+
+**Settings → Public link** (or `hop public on`) makes this dashboard reachable from anywhere through a Cloudflare
+tunnel: no server of your own and nothing opened on your router. It is off until you turn it on, and it is one
+switch with two kinds, never both at once:
+
+- **Temporary**: a new `https://….trycloudflare.com` address each time it starts; nothing to set up.
+- **Custom**: your own address that stays the same, on a domain in a free Cloudflare account (set up once on the
+  page).
+
+The tunnel helper installs itself the first time. Turning the link on needs a strong dashboard password (the page
+asks for one in place), and a visitor sees only the sign-in page. A link that was on comes back after a restart
+(a Temporary one with a new address, which the page shows and sends to your notifications).
+`hop public on --temporary | --custom`, `hop public off`, `hop public status`.
+
+## Several computers in one place
+
+<p align="center">
+  <img src="docs/screenshots/computers-desktop-light.webp" alt="The Computers page: every computer in one list, with its state" width="760">
+</p>
+
+| Your situation | What to do |
+|---|---|
+| One computer, phone on the same Wi-Fi | `hoprig setup`, scan the QR |
+| Two or more computers on one network | On one of them: **Computers → Add a computer**, then pick how it is reached. No server |
+| Computers at home, a server on the internet | `hoprig setup --hub` on the server; `hoprig join https://your-hub <code>` on each computer |
+| Computers at home, no server, you are elsewhere | the public link on the main one; on the others: **Computers → Link to my main Hoprig** ([how](docs/COMPUTERS.md#from-anywhere-the-public-link)). With Temporary, the link ends when its address changes, so computers that should stay linked need Custom or a server |
+| Servers only | one is the hub; add the others by their SSH name |
+
+Every other computer keeps one connection out to the main one, so nothing has to be opened on a router. A hub is
+small: about 80 MB of memory, measured with 20 computers and 20 open terminals. Guides:
+[docs/COMPUTERS.md](docs/COMPUTERS.md), [docs/HUB.md](docs/HUB.md).
+
+**One gateway for every computer.** **Providers → Gateways on your computers** lists every gateway (such as
+TRouteAI) on every linked computer. **Use here** makes it a provider of this computer in one step. A gateway can
+be shared through its computer's dashboard: the other computer gets a key of its own, the gateway keeps its own
+key and stays on 127.0.0.1, and a key a linked computer made ends when that computer's token is revoked.
+
+<p align="center">
+  <img src="docs/screenshots/computer-overview-desktop-light.webp" alt="A computer's page, Overview: load, memory, disks, Claude Code and the sessions on it" width="760">
+</p>
 
 ## A fresh computer, ready for coding
 
@@ -78,39 +271,30 @@ hop project clone acme/shop   # an existing one, with all its code repositories 
 hop skills suggest            # skills that fit this project; you read each one before it is added
 ```
 
-In the dashboard: **Computers**, open the computer, **Setup**. Everything there runs in the page, no terminal:
-**Set up this computer**, a check's **Fix**, a recipe, the commit name, the GitHub sign-in (with a one-time code)
-and Claude Code's own sign-in. When a step needs the administrator password, the page asks for it once; it goes
-to `sudo` only, is never saved, and is masked in the output.
+In the dashboard: **Computers**, open the computer, **Setup**. Everything there runs in the page: **Set up this
+computer**, a check's **Fix**, a recipe, the commit name, the GitHub sign-in (with a one-time code) and Claude
+Code's own sign-in. When a step needs the administrator password, the page asks for it once; it goes to `sudo`
+only, is never saved, and is masked in the output.
 
-- **Tools**: git, a build toolchain, Node.js, Python, the GitHub CLI and more, with the commands each tool's
-  own documentation gives. Save a computer as a small recipe and make the next one the same.
-- **Projects**: one folder holds the rules, the AI memory and the docs, with the code repositories under
-  `code/`. Claude Code's memory lives in the project's git repository, so it follows you to every computer.
-  In the dashboard the projects are under **Workspace**, each with its sessions under it, and each has its own
-  page: its sessions, repositories and skills.
-- **Skills**: suggestions come from what the project is made of. Before anything is installed you see every
-  file and a scan for risky lines; updates show the difference.
-- **Working rules**: a starting set for Claude, such as the right model and effort for the task and "done
-  means proven". Guides: [docs/PC-SETUP.md](docs/PC-SETUP.md), [docs/SKILLS.md](docs/SKILLS.md).
-- **Workspace and AI brain**: one folder tree on every computer, and a view of what the AI knows (below).
+- **Projects**: one folder holds the rules (`AGENTS.md`, and `CLAUDE.md` for Claude Code), the AI memory and the
+  docs, with the code repositories under `code/`. The memory lives in the project's git repository, so it follows
+  you to every computer. The projects are under **Workspace**, each with its own page: its sessions, repositories
+  and skills. Guide: [docs/PC-SETUP.md](docs/PC-SETUP.md).
+- **Skills**: suggestions come from what the project is made of. Before anything is installed you see every file
+  and a scan for risky lines; updates show the difference. Guide: [docs/SKILLS.md](docs/SKILLS.md).
+- **Working rules**: a starting set, such as the right model and effort for the task and "done means proven".
 
 <p align="center">
   <img src="docs/screenshots/projects-desktop-light.webp" alt="The Workspace page: every project, each with its sessions under it" width="760">
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/project-page-desktop-light.webp" alt="A project's page: its sessions, its code repositories and its skills" width="760">
-</p>
+### The workspace and the AI brain
 
-## The workspace and the AI brain
-
-One folder tree, the same on every computer. Coding is best done inside `projects/`: that is where a project's
-rules, memory and code repositories sit together.
+One folder tree, the same on every computer:
 
 ```
 ~/Workspace/
-├── ai_brain/              shared AI knowledge: the rules Claude gets everywhere, skills, memory, notes
+├── ai_brain/              shared AI knowledge: the rules every coding tool gets, skills, memory, notes
 ├── projects/<project>/    one project: its rules, its AI memory and docs, and code/<repo>/ for each repository
 ├── credentials/           keys and passwords for local work: never in git
 ├── development/           toolchains and SDKs
@@ -123,248 +307,153 @@ hop workspace setup         # create only what is missing; nothing that exists i
 hop workspace link          # let your coding tools read the same rules, skills and memory from the brain
 ```
 
-**A fresh computer gets all of it from git.** `hop workspace map` writes one file in the brain that lists every
-git repository of the workspace (addresses only, never a token). On the next computer,
-`hop workspace restore <address of your brain>` clones the brain and everything its map names, where it belongs;
-`hop workspace sync` keeps every repository in step (fast-forward only; pushing only with `--push`; `--with
-<computer>` straight from another computer over SSH). Setup signs in to GitHub with `gh` and offers to restore your
-workspace or start one in a private repository.
-
-`hoprig setup` offers the workspace as one step on a new computer. The **AI brain** page shows, read-only, what
-the AI knows on a computer: the global rules, the brain's notes and daily logs, the skills, the memory (for
-everywhere and for each project) and each project's own notes. It never shows anything outside those places,
-folders named `no-ai`, `ignore` or `ai-ignore-dir`, `credentials` folders, dot-files, `.env` and key files, or
-anything that is not plain text; text that looks like a secret is masked. Details:
-[docs/WORKSPACE.md](docs/WORKSPACE.md).
-
-## Hit a usage limit? Continue the same session on another provider
+**A fresh computer gets all of it from git.** `hop workspace map` writes one file in the brain that lists every git
+repository of the workspace (addresses only, never a token). On the next computer, `hop workspace restore <address
+of your brain>` clones the brain and everything its map names, where it belongs; `hop workspace sync` keeps every
+repository in step (fast-forward only; pushing only with `--push`). The **AI brain** page shows, read-only, what
+the AI knows on a computer, and never anything in folders named `no-ai`, `ignore` or `ai-ignore-dir`,
+`credentials` folders, dot-files, `.env` and key files; text that looks like a secret is masked.
 
 <p align="center">
-  <img src="docs/screenshots/limit-continue.webp" alt="A session reaches its limit and continues on another provider in one tap, with the same conversation" width="760">
-</p>
-
-Claude Code keeps a session as a file named after its folder, and decides which provider to use from its
-environment when it starts. So a provider is just a small file of settings (a profile), and the same session
-can be continued under any of them.
-
-```sh
-hop                 # choose a provider, then start Claude Code
-hop add             # add a provider: a Claude subscription, an API key, or a gateway
-hop work -c         # continue this folder's last session on the provider "work"
-```
-
-When Claude Code exits, Hoprig asks whether to continue the session on another provider. In the
-dashboard it is one tap on the session (**Move to another provider**).
-
-A provider that uses Claude Code's own sign-in can also go on with another Claude account of yours, as
-`/login` does in a terminal: **Sign in with another Claude account**, on the limit card of a session or
-chat, on Home and on **Providers**. You sign in in the browser (from a phone: a link and a code); until
-that is complete the account of now stays. The sessions and chats on that provider keep running and
-answer as the new account from their next request, without a restart (seen with Claude Code 2.1.325 on
-Linux), and the ones that stood at the limit continue. The provider's own page also shows who is signed
-in and has **Sign out**. A new account has its own limits, so the provider's limit mark goes when the account
-changes, also after `/login` typed in a session: within seconds on Linux and Windows, where Claude Code keeps
-the sign-in in a file; on macOS (the Keychain) within 5 minutes. See [Is this allowed?](#is-this-allowed)
-
-<p align="center">
-  <img src="docs/screenshots/accounts-desktop-light.webp" alt="The Providers page: each subscription, API key and gateway with its usage and limits" width="760">
-</p>
-
-### Auto mode
-
-```sh
-hop auto order sub api      # your subscription first, then an API key
-hop auto on                 # off at first: an API key costs money
-hop auto                    # start a session in Auto mode
-```
-
-In the dashboard: **Providers**, then under **When a provider reaches its limit** choose **Carry on with the
-next provider** (that is Auto mode) and put the providers in order.
-
-In Auto mode Claude Code talks to a small router on your own computer. Your subscription answers as long
-as it can. The moment it reaches its limit, the same request is answered by your API key: no error
-on screen, no restart, nothing to type. When the subscription is free again, requests go back to it.
-
-<p align="center">
-  <img src="docs/screenshots/auto-mode-desktop-light.webp" alt="The Providers page with &quot;Carry on with the next provider&quot; chosen: the order of providers, each with its usage and limit" width="760">
-</p>
-
-Good to know:
-
-- The first request after a move re-reads the whole conversation on the new provider. On an API key that
-  is paid at full price; `/compact` first keeps it small.
-- The dashboard shows which provider is answering a session right now, each provider's plan usage and when
-  its limit resets.
-- When the next provider in your order is another subscription, Claude Code is restarted as that
-  subscription (a few seconds) instead. See [Is this allowed?](#is-this-allowed)
-- Claude Code's own Remote Control does not work through a router or with an API key; the Hoprig
-  dashboard is the remote for those sessions.
-
-## Code from anywhere, phone included
-
-<p align="center">
-  <img src="docs/screenshots/home-phone-dark.webp" alt="Home on a phone: sessions in the groups Needs you, Working and Waiting for your next message" width="250">
-  &nbsp;
-  <img src="docs/screenshots/session-phone-light.webp" alt="A session on a phone: terminal, key bar and message box" width="250">
-  &nbsp;
-  <img src="docs/screenshots/new-session-phone-light.webp" alt="New session on a phone: pick a project and Claude starts there" width="250">
-</p>
-
-- **Home**: every session, in three groups: Needs you, Working, Waiting for your next message. Each shows
-  what Claude last said, so you can decide without opening it.
-- **New session**: pick a project and a chat with Claude opens there, with the provider, mode, model and effort
-  of the last chat in that project (the first time: the provider recommended now and **Settings → New-session
-  defaults**). The computer, the provider and more are under **Options**, and so are Claude Code in a terminal
-  and a plain terminal. A project's **New session** and **Continue** on an earlier conversation open a chat too.
-  From a terminal on that computer, `hop chat [folder]` prints the chat's address and opens it in the browser.
-- **Session**: the real terminal, a key bar, a message box that works with dictation, quick messages, and a
-  file attached straight into the project. Scroll back with the wheel or a finger, also in Claude Code's
-  full-screen view, and select with the mouse to copy. A question waiting for your OK can be answered from
-  the card on Home, including Claude's own "Yes, and don't ask again".
-- **Chat**: Claude Code without the terminal, the default way to code here (**Open as chat** in a terminal
-  session's menu brings a conversation over): messages, each tool call on one line with its diff, Allow and Deny buttons, its to-do list,
-  Stop. A conversation runs in one place at a time, and **Open in terminal** takes it back. **Allow in this
-  chat** stops the asking for that kind of call until the chat is closed (nothing is written to a settings
-  file). In the mode "Run anything without asking" the chat never asks for a permission; what it still shows
-  is a question Claude puts to you, a plan to approve, what your own Claude Code settings insist on (an "ask"
-  rule, a hook that says ask) and Claude Code's stop before a delete that could empty the disk. A "deny" rule
-  of your settings stays denied in every mode.
-- **Code editor**: **Open code** on a project, a repository or in a session's menu opens the folder in VS Code's
-  editor core, inside the page and behind its sign-in, also for another computer's folders. **Explorer** (new,
-  rename, delete), **Search** in files, and **Source Control** (the changes side by side, stage, unstage,
-  discard, commit, the log); **N changes** on a project goes straight there. Ctrl+S, Ctrl+P, Ctrl+Shift+F and
-  Ctrl+G work as in VS Code. A save never overwrites a file that changed on disk without asking. On a phone one
-  pane shows at a time, with **Plain text editing** where the code editor cannot be typed into. Text size, tab
-  size and word wrap are in **Settings → Editor**; the colours follow the page.
-- **The way back**: a page another page sent you to links back to it (Setup → the session its Fix opened →
-  back to Setup), not only to its parent.
-- **The menu**: Home, **Workspace** (your projects, each with its sessions under it), **Providers**,
-  **Computers**, then under **More**: Automations, Skills, AI brain, Tia and Settings.
-- **A computer's page**: **Overview** (load, memory, disks, Claude Code and its sessions), **Setup** (what it
-  has for coding, what is missing, and its workspace folders) and **Advanced** (programs, open ports, its name,
-  power).
-- **Settings**: a short list of pages: New-session defaults, Workspace, Notifications, Appearance and terminal,
-  Security and sign-in, Public link, Tia, Editor, Add-ons, Coding tools, Updates, About. Each option has one plain
-  sentence under it.
-- **Notifications**: a push to your phone when a session waits for you, needs your OK or reaches a limit.
-
-Sessions run in tmux when it is installed, 3.2 or newer (they survive a restart, and `tmux attach` over SSH
-still works), otherwise inside the dashboard's own service (the built-in terminals). An older tmux is not used.
-
-<p align="center">
-  <img src="docs/screenshots/settings-desktop-light.webp" alt="Settings: one row per page, each with its current state in one line" width="760">
-</p>
-
-## Several computers in one place
-
-<p align="center">
-  <img src="docs/screenshots/computers-desktop-light.webp" alt="The Computers page: every computer in one list, with its state" width="760">
-</p>
-
-| Your situation | What to do |
-|---|---|
-| One computer, phone on the same Wi-Fi | `hoprig setup`, scan the QR |
-| Two or more computers on one network | On one of them: **Computers → Add a computer**, then pick how it is reached. No server |
-| Computers at home, a server on the internet | `hoprig setup --hub` on the server; `hoprig join https://your-hub <code>` on each computer |
-| Computers at home, no server, you are elsewhere | the public link on the main one (Settings → Public link, or `hoprig public on`): Temporary, a free address that changes at each start, or Custom, your own address on a domain in a free Cloudflare account; the others: **Computers → Link to my main Hoprig** ([how](docs/COMPUTERS.md#from-anywhere-the-public-link)) |
-| Servers only | one is the hub; add the others by their SSH name |
-
-Every other computer keeps one connection out to the main one (a server, or a computer with its public link
-on), so nothing has to be opened on a router. A hub
-is small: about 80 MB of memory, measured with 20 computers and 20 open terminals; 512 MB RAM and one core
-are enough. Guides: [docs/COMPUTERS.md](docs/COMPUTERS.md), [docs/HUB.md](docs/HUB.md).
-
-**One gateway for every computer.** **Providers → Gateways on your computers** lists every gateway (such as
-TRouteAI) on every linked computer. **Use here** makes it a provider of this computer in one step. A gateway can
-be shared through its computer's dashboard: the other computer gets a key of its own, the gateway keeps its own
-key and stays on 127.0.0.1, and a key a linked computer made ends when that computer's token is revoked.
-
-<p align="center">
-  <img src="docs/screenshots/add-computer-desktop-light.webp" alt="Add a computer: choose how it is reached" width="760">
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/computer-overview-desktop-light.webp" alt="A computer's page, Overview: load, memory, disks, Claude Code and the sessions on it" width="760">
+  <img src="docs/screenshots/project-page-desktop-light.webp" alt="A project's page: its sessions, its code repositories and its skills" width="760">
 </p>
 
 ## It keeps going without you
 
 No AI involved, just rules you switch on, on the **Automations** page (Schedules, Queue, Rules, Activity):
 
-- **Queue**: give a session its next messages; each goes in when Claude finishes the one before.
+- **Queue**: give a session its next messages; each goes in when a reply ends.
 - **Schedules**: start a chat (or a session in a terminal) or send a message to one, once, daily or on chosen
-  weekdays. A chat takes the message at its next step; a terminal gets it when Claude is free.
-- **Restore**: after a restart, sessions come back where they were.
-- **Retry**: after a server error that is not a limit, wait and continue, three times.
+  weekdays.
+- **Restore**: after a restart, Claude Code's terminal sessions come back where they were.
+- **Retry**: in a Claude Code session, after a server error that is not a limit, wait and continue, three times.
 
-New versions have a page of their own, **Settings → Updates**: Claude Code, OpenCode, the tunnel helper and
-Hoprig, Manual (it tells you) or Automatic (it installs one when no Claude Code session or chat is working, and
-no OpenCode session is open; Hoprig itself it only tells you about).
+**Pause all automations** is under **Rules → Advanced**; while they are paused, every tab says so with a Resume
+button.
+
+## Updates
+
+<p align="center">
+  <img src="docs/screenshots/updates-desktop-light.webp" alt="Settings, Updates: Manual or Automatic, and one row each for Hoprig, Claude Code, OpenCode and the tunnel helper" width="760">
+</p>
+
+**Settings → Updates** is one page for Hoprig, Claude Code, OpenCode and the tunnel helper: each row shows the
+installed and the newest version, **Check now** and **Update now**, and one sentence on what an update does to
+what is running. One choice for all:
+
+- **Manual** (the default): it looks and shows what is new; nothing is installed until you press **Update now**.
+- **Automatic**: it also installs each update by itself, at a safe moment: Claude Code when none of its sessions
+  is working, OpenCode when none of its sessions is open, the tunnel helper when the public link is off. Hoprig
+  itself is never updated by itself; Automatic tells you, and you choose the moment.
+
+`hop tools` does the same for the coding tools in a terminal (`tools install | update | on | off <tool>`).
 
 ## Tia (experimental, off by default)
 
-An assistant in the dashboard: a chat box at the bottom right of every page, and her own page under **More**.
-She manages what is described above and gets a coding job done by driving sessions for you: she starts a
-session, picks a provider among the ones you allow, sends the task, answers Claude Code's questions, checks the
-result and reports. She is a headless Claude Code that may use only Hoprig's own tools (`hoprig mcp`; your own
-Claude Code can use the same tools). She is off until you turn her on under **Settings → Tia**, and she costs
-money: her own thinking runs on a provider you choose, and the sessions she starts run on yours.
+<p align="center">
+  <img src="docs/screenshots/tia-desktop-light.webp" alt="Tia: a conversation, the work she did, and a card that waits for your OK before a session moves to a provider that costs money" width="760">
+</p>
+
+An assistant in the dashboard: a round button at the bottom right of every page, and her own page under **More**.
+She manages what is described above and gets a coding job done for you: she opens a chat in a project, picks a
+provider among the ones you allow, sends the task, watches it, and reports. She is a headless Claude Code that
+may use only Hoprig's own tools (`hoprig mcp`; your own Claude Code can use the same tools). She is off until you
+turn her on under **Settings → Tia**, and she costs money: her own thinking runs on a provider you choose, and
+the chats she starts run on yours.
 
 What she can do, through the dashboard's own routes (the list is `ALLOW` in
 [src/assistant/door.mjs](src/assistant/door.mjs)):
 
-- sessions: list and read them, start one in a terminal, type into one, press a key, rename, stop, move one to
-  another provider;
-- chats: start one in a project (also on an earlier conversation), send it a message, answer the OK it waits
-  for, stop its reply;
+- chats and sessions: start a chat (Claude Code, or OpenCode when you name it) or a terminal session, send a
+  message, answer an OK by the rules below, stop a reply, rename, end, and move a chat or a session to another
+  provider at a limit;
 - projects: list them, start a new one, get one from GitHub, add a code repository, sync, create the missing
-  workspace folders;
-- read the AI brain;
-- computers: their state and setup check, run a fix, set one up, update Claude Code, end a process, restart or
-  power off, add one by SSH, rename, install, update, start or stop an add-on;
-- automations: rules, pause and resume, schedules, queued messages;
-- skills: find, suggest, review, install, remove, check for updates;
-- a few settings: quick messages, folders, uploads, Auto mode's order, the model and effort of new sessions, the
-  projects folder, the working rules; and one shell command on a computer, for a quick check you asked for.
+  workspace folders; read the AI brain;
+- computers: their state, setup check and coding tools; run a fix, set one up, check for updates, update or
+  install a coding tool, turn a coding tool on or off, end a process, restart or power off, add one by SSH,
+  rename, start or stop an add-on, turn the public link on or off;
+- automations, skills, and a few settings (quick messages, folders, uploads, Auto mode's order, the model and
+  effort of new sessions, the projects folder, the working rules); one shell command on a computer, for a quick
+  check you asked for.
 
-Whatever she reads from a terminal or a file is data to her, never an instruction; actions that cost money,
-stop work or run commands are shown to you as a card to confirm; secrets never pass through her.
+**What she does by herself, and what always comes to you.** In a chat she started, she answers an OK by herself
+only for looking (reading inside the chat's folder, listing, git's reading commands) and for the project's own
+checks (`npm test`, `npm run lint` and the like, `node --test`). Every change to a file, every other command, any
+tool she does not know, and every OK of an OpenCode chat is your card. Whatever costs money, stops work, installs
+or updates something, turns a coding tool on or off or opens the computer to the internet is a card too. A
+terminal session's OK is judged only by the text on its screen against a list of risky things, which is best
+effort. A chat stops being hers as soon as you type into it. What she reads from a chat, a terminal, a page or a
+file is data to her, never an instruction; secrets never pass through her.
 
-**What Tia does not do.** These are your own steps; the dashboard refuses them even if she tried
-(`NEVER` in the same file). She opens the right page for you instead:
+**What Tia does not do.** These are your own steps; the dashboard refuses them even if she tried (`NEVER` in the
+same file). She opens the right page for you instead:
 
-- adding a provider, signing it in or out or in with another Claude account, or its key;
+- adding a provider, signing it in or out, or its key; another coding tool's own sign-in;
 - removing a computer, pairing codes, joining and connecting computers;
-- the dashboard password and sign-in, the network, signed-in devices and one-time sign-in links;
-- notifications;
-- changing the permission mode of new sessions;
+- the dashboard password and sign-in, signed-in devices and one-time sign-in links, the public link's Custom set-up;
+- notifications, and whether updates install by themselves;
 - her own settings (what she may do, which providers she may use, her token).
+
+## The menu and the settings
+
+**Home** (every chat and session, the ones that need you first), **Workspace**, **Providers**, **Computers**, then
+under **More**: Automations, Skills, AI brain, Tia and Settings. **Settings** is a short list of pages:
+New-session defaults, Workspace, Notifications, Appearance and terminal, Security and sign-in, Public link, Tia,
+Editor, Add-ons, Coding tools, Updates, About. Each option has one plain sentence under it. **Notifications**:
+a push to your phone when a session waits for you, needs your OK or reaches a limit.
+
+Terminal sessions run in tmux when it is installed, 3.2 or newer (they survive a restart of the dashboard, and
+`tmux attach` over SSH still works), otherwise inside the dashboard's own service (the built-in terminals).
+
+<p align="center">
+  <img src="docs/screenshots/settings-desktop-light.webp" alt="Settings: one row per page, each with its current state in one line" width="760">
+</p>
+
+## Not built, or not proven yet
+
+Said plainly, so nothing here is a surprise:
+
+- **Codex is not part of this version.** Its code is kept and tested, but it is switched off: no page, command or
+  provider kind offers it.
+- **OpenCode's sessions are not reopened after a restart**; Restore brings back Claude Code's terminal sessions only.
+  Tia cannot continue an earlier OpenCode conversation by its id; she can only continue the folder's newest one.
+- **Other computers report Claude Code's version only**, not OpenCode's, on the Computers page.
+- **Not seen from a real model**: OpenCode's own question forms (the page has them; a real model never asked one in
+  the tests).
+- **Files on the desktop**: dragging between two Files windows is not built.
+- **Run only on Linux**: everything new in this version (the chat, OpenCode, the editor, the desktop, the public
+  link switch, Updates). It was not run on macOS or Windows.
+- **Not proven on real devices**: a phone's on-screen keyboard in the editor and the chat; changing the Claude
+  account of a provider from the page end to end with a real account; a real stop or restart of a service from the
+  desktop.
 
 ## When to use this, and when not
 
 If you use one Claude subscription on one computer, Claude Code's own mobile app and Remote Control are the
 simplest way to reach it from a phone. Hoprig is for when you want more than that:
 
-- a new computer or server set up for coding by one command;
+- a chat for your projects that works the same from a desktop and a phone, on every computer you own;
 - the same session on another provider when a limit is reached, including an API key or a gateway;
-- a remote for sessions that Remote Control cannot serve (API keys, gateways, long-lived tokens);
+- a second coding tool (OpenCode) for providers other than Anthropic, with the same rules, skills and memory;
+- a new computer or server set up for coding by one command;
 - several computers in one place, on your own hardware, with nothing in between that you do not run.
 
 ## Is this allowed?
 
-Hoprig runs the official, unmodified Claude Code and keeps your accounts on your own computers. It has no
-server of its own and never shares an account with anyone.
+Hoprig runs the official, unmodified Claude Code and OpenCode and keeps your accounts on your own computers. It
+has no server of its own and never shares an account with anyone.
 
-What Anthropic's documentation covers: several accounts of your own on one machine; API keys and gateways as
-ways to run Claude Code; and pointing Claude Code at a gateway while it stays signed in with a subscription.
-That last one is what Auto mode's router is: it passes Claude Code's own request on, untouched. Hoprig
-never attaches a subscription's sign-in to a request itself; only Claude Code does.
+What Anthropic's documentation covers: several accounts of your own on one machine; API keys and gateways as ways
+to run Claude Code; and pointing Claude Code at a gateway while it stays signed in with a subscription. That last
+one is what Auto mode's router is: it passes Claude Code's own request on, untouched. Hoprig never attaches a
+subscription's sign-in to a request itself; only Claude Code does. A Claude subscription is never given to
+OpenCode or to any other program: OpenCode runs only on API keys and gateways.
 
-What is yours to judge: plan limits assume ordinary, individual use, Anthropic's policies forbid getting
-around restrictions and sharing accounts, and Anthropic can restrict an account without notice. Whether
-continuing past a limit on a second subscription of your own (as another provider, or by signing in with
-another Claude account) is acceptable is not something the terms clearly settle. The surest setup is one
-subscription, then an API key. Never use someone else's account.
+What is yours to judge: plan limits assume ordinary, individual use, Anthropic's policies forbid getting around
+restrictions and sharing accounts, and Anthropic can restrict an account without notice. Whether continuing past a
+limit on a second subscription of your own (as another provider, or by signing in with another Claude account) is
+acceptable is not something the terms clearly settle. The surest setup is one subscription, then an API key. Never
+use someone else's account. The provider behind an API key or a gateway has terms of its own; read them too.
 Read the sources yourself:
 [Claude Code: legal and compliance](https://code.claude.com/docs/en/legal-and-compliance),
 [authentication](https://code.claude.com/docs/en/authentication),
@@ -376,38 +465,44 @@ Read the sources yourself:
 
 The dashboard is a remote control for your computer, and it is built that way:
 
-- It listens on this computer only until you choose otherwise. On a network it speaks plain HTTP, so use a
-  network you trust; on the internet `hoprig setup --hub` puts it behind HTTPS and refuses plain HTTP.
-- One password stored as a scrypt hash, a login rate limit, one-time sign-in links, HttpOnly SameSite=Strict
-  cookies, an Origin check on every change, a strict content security policy.
+- It listens on this computer only until you choose otherwise. On a network it speaks plain HTTP, so use a network
+  you trust; on the internet use the public link (HTTPS through the tunnel) or `hoprig setup --hub`, which puts it
+  behind HTTPS and refuses plain HTTP.
+- One password stored as a scrypt hash, a sign-in rate limit per visitor, one-time sign-in links, HttpOnly
+  SameSite=Strict cookies, an Origin check on every change, a strict content security policy. The public link asks
+  for a strong password before it turns on.
 - Another computer gets a token you can revoke. A token cannot change the password, pair, or relay further.
 - The router listens on 127.0.0.1 under a secret path and keeps no request or answer text.
-- The editor reads and writes only inside the folders the dashboard may show; every path is checked on the
-  server. Private folders (`no-ai`, `ignore`, `ai-ignore-dir`), git's own folder and sign-in files are never
-  shown, searched or changed, and a folder that holds one is not deleted from the page.
-- A file of a project shown as a page runs in a sandbox. A shared gateway's keys are kept as hashes, and only
-  `/v1/` paths pass.
-- The administrator password for a setup step is asked in the page when `sudo` needs it, given to `sudo` on
-  its input, and never saved or shown.
-- Provider files (sign-ins and keys), tokens and passwords are readable by your user only and are never printed, logged or sent
-  to a browser. Found a problem? See [SECURITY.md](SECURITY.md).
+- The editor and the desktop's Files reach only the folders the dashboard may show (**Settings → Security and
+  sign-in** sets them, or everything your user can open); every path is checked on the server. Private folders
+  (`no-ai`, `ignore`, `ai-ignore-dir`), git's own folder, the dashboard's own folders and sign-in files are never
+  shown, searched or changed.
+- A file of a project shown as a page runs in a sandbox. A shared gateway's keys are kept as hashes, and only `/v1/`
+  paths pass.
+- The administrator password for a setup step or a service is asked in the page when `sudo` needs it, given to
+  `sudo` on its input, and never saved or shown.
+- OpenCode's server, which Hoprig starts for a chat, listens on this computer only and always with a password; its
+  routes that would return a key never reach the browser. A provider's key is given to a coding tool in its
+  environment when it starts, never written into the tool's own files.
+- Provider files (sign-ins and keys), tokens and passwords are readable by your user only and are never printed,
+  logged or sent to a browser. Found a problem? See [SECURITY.md](SECURITY.md).
 
 ## Where it runs
 
 | | Providers, Auto mode | Dashboard | Fresh-computer setup |
 |---|---|---|---|
 | Linux | run and tested | run and tested (tmux and built-in terminals), systemd service | run in clean Ubuntu, Debian and Fedora |
-| macOS | run and tested | run and tested (built-in terminals); the launchd service is written, not yet installed for real | checked read-only; installs not yet run |
+| macOS | run and tested | run and tested (built-in terminals) before this version; what is new in it was not run there (see above); the launchd service is written, not yet installed for real | checked read-only; installs not yet run |
 | Windows | **not ready**: written, the tests do not pass on Windows yet | not ready | not ready |
 
-Requires Node.js 20 or newer. The tests run on Linux and macOS with Node 20, 22 and 24 on every change
-(and natively on macOS with Node 26). On Windows they have been run and do not pass yet, so Windows is not supported. tmux is used from version 3.2 on; with an older one (or none)
-the built-in terminals are used. With npm 12 there is nothing to do yourself: setup builds the one module that
-needs a build (`node-pty`, the only install script Hoprig's `package.json` approves), and `hoprig doctor` names
-the cause when it did not build.
+Requires Node.js 20 or newer. The tests run on Linux and macOS with Node 20, 22 and 24 on every change. On Windows
+they have been run and do not pass yet, so Windows is not supported. tmux is used from version 3.2 on; with an
+older one (or none) the built-in terminals are used. With npm 12 there is nothing to do yourself: setup builds the
+one module that needs a build (`node-pty`, the only install script Hoprig's `package.json` approves), and
+`hoprig doctor` names the cause when it did not build.
 
-Runtime dependencies: `ws`, xterm.js, `qrcode-terminal`, and optionally `node-pty` for the built-in terminals.
-No framework and no build step.
+Runtime dependencies: `ws`, xterm.js, Monaco (VS Code's editor core), `qrcode-terminal`, and optionally `node-pty`
+for the built-in terminals. No framework and no build step.
 
 ## Commands
 
@@ -415,20 +510,21 @@ No framework and no build step.
 
 ```
 hop                              choose a provider, start Claude Code in this terminal
-hop chat [folder]                open a chat in the folder (prints its address, opens the browser here)
+hop chat [folder] [--tool opencode]   open a chat in the folder (prints its address, opens the browser here)
 hop <profile> [args]             start on that provider (args go to Claude Code)
+hop opencode [provider] [args]   OpenCode in this terminal, on a provider that serves it
 hop auto [args]                  Auto mode          hop auto on | off | order … | status
-hop opencode [profile] [args]    OpenCode in this terminal, on a provider that serves it
 hop add | profiles | rm          providers (each one is a profile)
+hop tools                        the coding tools: install | update | on | off <tool>
 hop setup | doctor | update      set everything up, check everything, update Hoprig
-hop pc setup | status | clone    this computer for coding;  hop pc recipe save: a recipe for the next one
-hop project new | add | clone | status | sync   projects
+hop pc setup | status            this computer for coding;  hop pc recipe save: a recipe for the next one
+hop project new | clone | status | sync   projects
 hop workspace status | setup | link | map | restore | sync | git   the workspace, its map, the AI brain
 hop skills suggest | find | add | list | update  skills
 hop serve | passwd | link        the dashboard, its password, a one-time sign-in link
 hop service install              run the dashboard in the background
+hop public on | off | status     the public link (--temporary | --custom)
 hop machines | join | pair | tokens   several computers
-hop public on | off | status     the public link: this dashboard from anywhere, no server needed
 hop addons                       add-ons: a gateway for other AI providers
 hop claude status | update       Claude Code's version
 hop demo                         the dashboard with sample data
@@ -437,8 +533,9 @@ hop mcp                          Hoprig's tools as an MCP server
 
 ## Contributing
 
-`npm install`, `npm test`, `node bin/hoprig.mjs demo`. The rules for working on this repository, for
-people and for AI tools, are in [AGENTS.md](AGENTS.md); see also [CONTRIBUTING.md](CONTRIBUTING.md).
+`npm install`, `npm test`, `node bin/hoprig.mjs demo`. The README's screenshots come from the demo only:
+`node tools/screenshots.mjs`. The rules for working on this repository, for people and for AI tools, are in
+[AGENTS.md](AGENTS.md); see also [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

@@ -10,7 +10,7 @@ git clone https://github.com/allswebtech/hoprig.git
 cd hoprig
 npm install
 npm test            # must pass; the tmux end-to-end test runs where tmux is installed
-node bin/hoprig.mjs demo   # the dashboard with sample data, no Claude Code needed
+node bin/hoprig.mjs demo   # the dashboard with sample data, no coding tool needed
 ```
 
 - One change per pull request, with a test that fails without it.
