@@ -206,6 +206,7 @@ test('start_chat follows the start rules: "Ask me" and a paid provider are cards
 test('the door: a chat\'s start, message, answer and stop with only her fields; the owner\'s chat controls stay closed', () => {
   const ctx = { config: () => ({}) };
   assert.equal(checkRoute('POST', '/api/chats', { dir: '/w', profile: 'sub', text: 'go', defaults: true }, ctx).tool, 'start_chat');
+  assert.equal(checkRoute('POST', '/api/chats', { dir: '/w', profile: 'sub', defaults: true, byTia: true }, ctx).tool, 'start_chat', 'her start marks the chat it creates as hers');
   assert.throws(() => checkRoute('POST', '/api/chats', { dir: '/w', profile: 'sub', text: 'go' }, ctx), /Settings' defaults/, 'her chat never takes the folder\'s last chat (a bypass the owner chose for himself)');
   assert.equal(checkRoute('POST', `/m/box2/api/chats/${ID}/send`, { text: 'hi' }, ctx).computer, 'box2');
   assert.equal(checkRoute('POST', `/api/chats/${ID}/answer`, { request: 'r', allow: true, always: false }, ctx).tool, 'send_to_chat (answer)');
@@ -324,4 +325,89 @@ test('in the real dashboard: Tia starts a chat, answers its OK, writes to it, an
   assert.equal(r.isError, false, r.text);
   // The owner's own chat controls are not hers.
   assert.match((await call('send_to_session', { session: name, key: 'Enter' })).text, /is a chat/);
+});
+
+test('in the real dashboard: "hers" is the chat Tia started, not its id: it holds over a restart, and goes when the chat is closed or pushed out', { timeout: 180_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+  const box = sandbox('tiamark');
+  const work = path.join(box.root, 'work');
+  const proj = path.join(work, 'proj');
+  const other = path.join(work, 'other');
+  for (const d of [proj, other]) fs.mkdirSync(d, { recursive: true });
+  const { saveConfig } = await import('../../src/config.mjs');
+  const { writeProfile } = await import('../../src/profiles.mjs');
+  const { hashPassword } = await import('../../src/server/auth.mjs');
+  const { stateDir } = await import('../../src/paths.mjs');
+  const { createServer } = await import('../../src/server/server.mjs');
+  saveConfig({ server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') }, assistant: { enabled: true, level: 'work' }, sessionDefaults: { permissionMode: 'default' } });
+  writeProfile('sub', { label: 'Main' });
+  let app;
+  let call;
+  let owner;
+  async function start() {
+    // idleMs: a chat's process ends soon after its turn, so a chat can be pushed out (only one with no process is).
+    app = createServer({ watchTickMs: 300, dashboardFile: false, chat: { command: { command: process.execPath, args: [FAKE_CLAUDE] }, resolveEnv: async () => ({ ...process.env }), idleMs: 500 } });
+    const base = `http://127.0.0.1:${(await app.listen(0, '127.0.0.1')).port}`;
+    const tia = fs.readFileSync(path.join(stateDir(), 'assistant-token'), 'utf8').trim();
+    call = async (tool, args) => (await request(base, 'POST', '/api/assistant/call', { body: { tool, args }, headers: { Authorization: `Bearer ${tia}`, 'X-Hoprig-Conversation': 'conv-m' } })).json;
+    const login = (await new Promise((resolve) => {
+      const req = http.request(new URL('/api/login', base), { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base } }, resolve);
+      req.end(JSON.stringify({ password: 'pw-for-tests' }));
+    })).headers['set-cookie'][0].split(';')[0];
+    owner = (method, p, body) => request(base, method, p, { body, headers: { Cookie: login } });
+  }
+  t.after(async () => {
+    await app.close();
+    box.cleanup();
+  });
+  await start();
+  const cardOf = async (id) => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === `chat:${id}`);
+  const status = async (id) => (await owner('GET', `/api/chats/${id}`)).json.status;
+  // The owner writes in the chat; it waits for the OK of that Write; Tia answers it.
+  const tiaAnswers = async (id, file) => {
+    assert.equal((await owner('POST', `/api/chats/${id}/send`, { text: `write ${file}` })).status, 200);
+    await until(`the OK of ${file}`, async () => (await status(id)) === 'attention');
+    await call('list_sessions', {}); // as she does: she acts only on a session she was shown (and a restart forgets that)
+    return call('send_to_chat', { session: `chat:${id}`, answer: 'allow' });
+  };
+  const ownersCard = /Waiting for the owner's OK.*did not start/s;
+
+  // Her chat: she answers its harmless OK at once.
+  let r = await call('start_chat', { folder: proj, message: 'write a.txt' });
+  assert.equal(r.isError, false, r.text);
+  const id = /Started chat chat:([0-9a-f-]{36})/.exec(r.text)[1];
+  await until('the OK', async () => (await status(id)) === 'attention');
+  assert.equal((await call('send_to_chat', { session: `chat:${id}`, answer: 'allow' })).isError, false);
+  await until('a.txt', async () => fs.existsSync(path.join(proj, 'a.txt')) && (await status(id)) === 'waiting');
+  assert.equal((await cardOf(id)).byTia, true);
+
+  // A restart of the dashboard: the same open chat is still hers.
+  await app.close();
+  await start();
+  assert.equal((await cardOf(id)).byTia, true, 'kept with the chat');
+  r = await tiaAnswers(id, 'b.txt');
+  assert.equal(r.isError, false, r.text);
+  await until('b.txt', async () => fs.existsSync(path.join(proj, 'b.txt')) && (await status(id)) === 'waiting');
+
+  // Closed, then the owner opens that conversation himself: his chat gets the same id, and it is not hers.
+  assert.equal((await owner('POST', `/api/chats/${id}/close`, {})).status, 200);
+  const mine = (await owner('POST', '/api/chats', { dir: proj, profile: 'sub', sessionId: id })).json;
+  assert.equal(mine.id, id, 'the id comes back');
+  assert.equal((await cardOf(id)).byTia, false);
+  assert.match((await tiaAnswers(id, 'c.txt')).text, ownersCard);
+  assert.equal(await status(id), 'attention', 'not answered');
+  assert.equal((await owner('POST', `/api/chats/${id}/close`, {})).status, 200);
+
+  // Pushed out when too many chats are open (50): the same, when the owner opens it again.
+  r = await call('start_chat', { folder: proj, message: 'hello' });
+  const id2 = /Started chat chat:([0-9a-f-]{36})/.exec(r.text)[1];
+  await until('her chat idle, with no process', async () => {
+    const c = await cardOf(id2);
+    return c.status === 'waiting' && !c.running && c.byTia === true;
+  });
+  for (let i = 0; i < 50; i++) assert.equal((await owner('POST', '/api/chats', { dir: other, profile: 'sub' })).status, 200);
+  assert.equal((await owner('GET', `/api/chats/${id2}`)).status, 404, 'pushed out');
+  assert.equal((await owner('POST', '/api/chats', { dir: proj, profile: 'sub', sessionId: id2 })).json.id, id2);
+  assert.equal((await cardOf(id2)).byTia, false);
+  assert.match((await tiaAnswers(id2, 'd.txt')).text, ownersCard);
+  assert.ok(!fs.existsSync(path.join(proj, 'c.txt')) && !fs.existsSync(path.join(proj, 'd.txt')), 'neither of his OKs was answered by her');
 });

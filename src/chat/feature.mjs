@@ -125,6 +125,7 @@ export function chatFeature(ctx, o = {}) {
     return {
       name: cardName(c.id), kind: 'chat', chatId: c.id, display: c.title || 'New chat', title: c.title,
       cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), status, statusAt: c.statusAt, activity: c.statusAt,
+      byTia: c.byTia, // Tia started this chat: her rules let her answer its OKs (src/assistant/core.mjs facts)
       created: c.openedAt, attached: false, panes: 0, sessionId: c.conversationId, canSwitch: false,
       lastMessage: previewText(c.lastText), // plain words: a card shows no Markdown marks
       running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
@@ -187,10 +188,12 @@ export function chatFeature(ctx, o = {}) {
 
   /**
    * Open a chat (POST /api/chats; the schedules too). b: { dir, profile?, model?, effort?, permissionMode?, ultracode?,
-   * sessionId?, text?, defaults? }. What is left out: as the last chat in that folder ran, else the provider
+   * sessionId?, text?, defaults?, byTia? }. What is left out: as the last chat in that folder ran, else the provider
    * recommended now and Settings. defaults: true (Tia, a schedule) takes Settings → New-session defaults and not the
    * folder's last chat, as a terminal session they start does: a mode the owner chose for himself (bypass) is not
    * carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
+   * byTia: true (Tia's start_chat) marks the chat this call creates as hers, and no other: not an open chat it gives
+   * back, nor a later chat on the same conversation (the mark goes with this chat when it closes for any reason).
    * → { id, sent, existing?, permissionMode? } (sent: false when the first message was not sent because a terminal or
    * an open chat runs the conversation; existing: true with that open chat's mode)
    */
@@ -208,6 +211,7 @@ export function chatFeature(ctx, o = {}) {
     }
     if (typeof profile !== 'string' || !profileOk(profile)) throw bad('there is no such provider');
     if (b.ultracode !== undefined && b.ultracode !== null && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
+    if (b.byTia !== undefined && typeof b.byTia !== 'boolean') throw bad('byTia is true or false');
     const d = cfg().sessionDefaults || {};
     // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults.
     const kept = (k, chosen, fallback) => (chosen !== undefined ? chosen : k in last ? last[k] : fallback);
@@ -245,7 +249,7 @@ export function chatFeature(ctx, o = {}) {
       id, ...(conversationId && conversationId !== id ? { conversationId } : {}), cwd: dir, profile,
       // a model the computer stopped offering is not forced on a new chat
       model: model && models().includes(model) ? model : null, effort: EFFORTS.includes(effort) ? effort : null,
-      permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode,
+      permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode, byTia: b.byTia === true,
     });
     save();
     if (owners) remember(c); // the folder's last chat is the owner's own choice, not Tia's or a schedule's

@@ -136,7 +136,9 @@ export function createAssistantCore({
           /* gone meanwhile */
         }
       }
-      f.mine = jobs.startedByTia(args.computer || LOCAL, args.session);
+      // Hers: a chat by its own mark (a chat id comes back when the owner opens that conversation later, so a mark
+      // by name would hand her his chat); a terminal session by the jobs' marks.
+      f.mine = c && c.kind === 'chat' ? c.byTia === true : jobs.startedByTia(args.computer || LOCAL, args.session);
     }
     return f;
   }

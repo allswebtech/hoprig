@@ -5,7 +5,7 @@
 //     session:  { status, note, cwd, screen, owner?, request? } | null   the session the call is about, as the
 //               dashboard sees it now (screen: the bottom of its screen, read only while it asks for permission; for
 //               a chat: what its OK is about, the whole command or path; owner: the chat keeps that OK for the owner)
-//     mine:     boolean                       Tia started that session for a job
+//     mine:     boolean                       Tia started that session (a chat: this very chat, by its own mark)
 //     account:  { name, kind, allowed } | null    the account a start or move would use
 //   }
 // Returns { level: "L0" | "L1" | "L2", why } or { refuse, next }.

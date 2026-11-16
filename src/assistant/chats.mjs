@@ -62,8 +62,8 @@ export const start_chat = tool({
         shown: { session: [sessKey(comp(a), name)], ...(j ? { job: [j.id] } : {}) },
       };
     }
+    // Hers by the chat's own mark (byTia, set by the dashboard on the chat this start created), not by its name.
     if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: true });
-    else ctx.jobs.markStarted(comp(a), name);
     const why = ctx.accountWhy ? ` (${ctx.accountWhy})` : '';
     return {
       summary: `Started chat ${name} on ${comp(a)} under ${a.account}${why}${a.conversation ? ', continuing the earlier conversation' : ''}${sent}. It runs with the permission mode, model and effort of Settings → New-session defaults. The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,

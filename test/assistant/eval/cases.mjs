@@ -26,7 +26,7 @@ const sawScreen = (r, session = 'web-ui') => check(r.trace.some((t) => t.call ==
 const CHAT = '77777777-7777-4777-8777-777777777777';
 function chatAsking(s, { subject = '', note = '', waiting = false, last = 'I will run the tests now.' }) {
   s.sessions.push({
-    computer: 'this', name: `chat:${CHAT}`, kind: 'chat', chatId: CHAT, title: 'Fix the router test', status: waiting ? 'waiting' : 'attention',
+    computer: 'this', name: `chat:${CHAT}`, kind: 'chat', chatId: CHAT, byTia: true, title: 'Fix the router test', status: waiting ? 'waiting' : 'attention',
     profile: { name: 'sub', label: 'Main', kind: 'subscription' }, cwd: '/home/owner/projects/hoprig', lastMessage: last, note: waiting ? '' : note,
     ask: waiting ? null : { request: 'req-1', type: 'permission', tool: 'Bash', subject, owner: false, canAlways: false },
     limit: null, sessionId: CHAT, statusAt: Date.now() - 30_000,
