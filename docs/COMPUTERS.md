@@ -135,9 +135,12 @@ Under **Advanced** for Custom:
 From a terminal: `hoprig public` (on or off, and the address), `hoprig public on [--temporary|--custom]` (it shows
 the address and a QR code that signs a phone in once), `hoprig public off`.
 
-**Signing in from outside.** Failed sign-ins are limited per visitor address. Someone failing on purpose from many
-addresses cannot lock you out: a sign-in QR made on a device that is already signed in always works, and so does
-this computer itself and, once the password is strong, your password from anywhere.
+**Signing in from outside.** Failed sign-ins are limited per visitor address (an IPv6 visitor by its /64), and all
+password tries from elsewhere together are limited too, so guessing from many addresses gets nowhere. Someone failing
+on purpose cannot lock you out: a sign-in QR made on a device that is already signed in always works, and so does
+this computer itself. A link that is on never runs with a weak password: until the password is strong it waits, and
+**Settings → Public link** asks for a stronger one in place. (A Custom link that already ran before an update keeps
+running until your next sign-in shows how strong the password is.)
 
 **A hub that runs this computer's add-ons.** A hub this computer is linked to may turn the public link on and off
 and add its extra services, run Setup and share a gateway here, so one dashboard runs every
@@ -145,7 +148,8 @@ computer. Each such change is in this computer's **Automations → Activity** un
 office-pc started the public link"; what the request carried (a password, a key) is never written there. When you
 revoke that hub's right (**Who may control this computer**, `hoprig tokens revoke`, or Remove on the hub), what it
 opened to the network closes with it: a public link it turned on is turned off and a service it added is removed. What you opened yourself stays, and so does a gateway's sharing switch (the keys the hub
-made end with its right).
+made end with its right). A hub never checks this computer's password: when the public link asks for the password to be
+typed once, type it on this computer's own page.
 
 ## Put the hub behind HTTPS
 
