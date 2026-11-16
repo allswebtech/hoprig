@@ -25,7 +25,13 @@
 //     ({"type":"setMode","mode":"acceptEdits","destination":"session"}); for a command, an MCP tool or a web page
 //     they name a settings file ({"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"npm view *"}],
 //     "behavior":"allow","destination":"localSettings"}). Sent back with "destination":"session" they hold for the
-//     running process only and nothing is written; a resumed process has forgotten them.
+//     running process only and nothing is written; a resumed process has forgotten them. Given at the start instead
+//     (--settings '{"permissions":{"allow":["Bash(node -e 1)"]}}', which writes nothing either) they hold from the
+//     first tool call on, with Claude Code's own judgement: a command that chains an allowed one (cd sub && node -e 1,
+//     git status && node -e 1) runs unasked, as in the process where the rule was added, while a chain with a part no
+//     rule covers asks for that part only. An "ask" or "deny" rule of the owner's settings still wins over them.
+//   A chained command asks with "decision_reason_type": "subcommandResults"; its suggestions name the parts that
+//     still need a rule, and are empty where a part needs more than a rule (a sensitive file, "$(…)", a write outside).
 //     A sensitive file (.git/, .claude/, a shell profile) asks with "decision_reason_type": "safetyCheck" in every
 //     mode but bypassPermissions, also after "acceptEdits" was set (which it still suggests in the default mode).
 //   Stop: {"type":"control_request","request_id":X,"request":{"subtype":"interrupt"}}. Claude Code answers with a
@@ -37,12 +43,13 @@
 import fs from 'node:fs';
 
 /** Claude Code's arguments for one coding chat. Its normal tools, CLAUDE.md, settings, MCP servers and skills stay. */
-export function chatArgs({ sessionId, resume = false, permissionMode = null, effort = null, model = null }) {
+export function chatArgs({ sessionId, resume = false, permissionMode = null, effort = null, model = null, settings = null }) {
   if (!sessionId) throw new Error('chatArgs needs a session id');
   return [
     '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
     '--permission-prompt-tool', 'stdio',
     ...(permissionMode ? ['--permission-mode', permissionMode] : []),
+    ...(settings ? ['--settings', settings] : []),
     ...(effort ? ['--effort', effort] : []),
     ...(model ? ['--model', model] : []),
     resume ? '--resume' : '--session-id', sessionId,
@@ -99,6 +106,35 @@ export function sessionGrant(suggestions) {
   }
   if (!updates.length || atoms.length > GRANT_MAX) return null;
   return { updates, atoms, edits: atoms.every((a) => a === 'mode:acceptEdits'), text: clipText(words.join(', '), 300) };
+}
+
+// Characters of the rules and folders in --settings. Windows starts claude.cmd through cmd.exe, whose whole command
+// line may be 8191 characters, quoting included.
+const SETTINGS_MAX = 3000;
+
+/**
+ * What the chat remembers from "allow in this chat" (sessionGrant atoms, oldest first) as Claude Code's --settings
+ * for a new process: the allow rules and folders, so it starts as the process where they were added left off. The
+ * newest are kept when they do not all fit. "All edits" is not a rule: an edit's ask is answered from the atom
+ * (chat.mjs). Returns a JSON string, or null when there is nothing to give.
+ */
+export function grantSettings(atoms) {
+  const allow = [];
+  const dirs = [];
+  let size = 0;
+  for (const a of [...(atoms || [])].reverse()) {
+    let m;
+    if ((m = /^rule:([^:]+):([\s\S]*)$/.exec(a))) {
+      const rule = m[2] ? `${m[1]}(${m[2]})` : m[1];
+      if ((size += JSON.stringify(rule).length + 1) > SETTINGS_MAX) break;
+      allow.unshift(rule);
+    } else if ((m = /^dir:([\s\S]+)$/.exec(a))) {
+      if ((size += JSON.stringify(m[1]).length + 1) > SETTINGS_MAX) break;
+      dirs.unshift(m[1]);
+    }
+  }
+  if (!allow.length && !dirs.length) return null;
+  return JSON.stringify({ permissions: { ...(allow.length ? { allow } : {}), ...(dirs.length ? { additionalDirectories: dirs } : {}) } });
 }
 
 // Claude Code marks these two itself (requires_user_interaction); their names hold where a version does not.

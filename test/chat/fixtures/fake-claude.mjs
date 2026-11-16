@@ -7,7 +7,10 @@
 //   "protect <file>" Write of a sensitive file (.git/, .claude/): asks in every mode but bypassPermissions, also
 //                    where edits need no OK; in the default mode it still suggests "edits without asking"
 //   "run <command>"  Bash: asks unless the mode or a rule of this session lets it; its suggestion names a settings
-//                    file, as Claude Code's does for a command ("npm view x" suggests the rule "npm view *")
+//                    file, as Claude Code's does for a command ("npm view x" suggests the rule "npm view *"). A chain
+//                    ("cd sub && npm view x") is judged part by part ("cd" needs nothing): it asks with
+//                    "subcommandResults" and suggests the rules of the parts no rule covers. The allow rules of
+//                    --settings '{"permissions":{"allow":["Bash(npm view *)"]}}' hold from the start.
 //   "judged <cmd>"   Bash as "run", but asked for a reason no rule is known to settle (decision_reason_type
 //                    "classifier"): asks every time unless the mode is bypassPermissions
 //   "reads <a> <b>"  two Reads outside the project at once: two asks are open together
@@ -40,6 +43,11 @@ const startMode = wanted === 'manual' || (wanted === 'bypassPermissions' && proc
 let mode = startMode;
 const asks = val('--permission-prompt-tool') === 'stdio';
 const sessionRules = new Set(); // "Bash:npm view *": allowed for this process by an answer's updatedPermissions
+// … and by --settings from the start ("Bash(npm view *)" → "Bash:npm view *")
+for (const r of (val('--settings') ? JSON.parse(val('--settings')).permissions?.allow : null) || []) {
+  const m = /^([^(]+)(?:\((.*)\))?$/.exec(r);
+  sessionRules.add(`${m[1]}:${m[2] ?? ''}`);
+}
 const dir = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', process.cwd().replace(/[^A-Za-z0-9]/g, '-'));
 fs.mkdirSync(dir, { recursive: true });
 const transcript = path.join(dir, `${sessionId}.jsonl`);
@@ -144,13 +152,19 @@ async function turn(text) {
     const input = { command, description: 'a command' };
     const id = tool('Bash', input);
     // Claude Code's rule for a command: its first two words and "*", or the command itself when it is that short.
-    const words = command.split(' ');
-    const rule = words.length > 2 ? `${words.slice(0, 2).join(' ')} *` : command;
+    const ruleOf = (c) => {
+      const words = c.split(' ');
+      return words.length > 2 ? `${words.slice(0, 2).join(' ')} *` : c;
+    };
+    const parts = command.split(' && ');
+    const chain = parts.length > 1;
+    const needed = [...new Set(parts.filter((p) => !/^cd( |$)/.test(p)).map(ruleOf))].filter((r) => judged || !sessionRules.has(`Bash:${r}`));
     let answer = { behavior: 'allow', updatedInput: input };
-    if (asks && mode !== 'bypassPermissions' && (judged || !sessionRules.has(`Bash:${rule}`))) {
+    if (asks && mode !== 'bypassPermissions' && needed.length) {
       answer = await ask(id, 'Bash', input, {
-        description: input.description, decision_reason: judged ? 'Auto mode needs your confirmation for this command.' : 'This command requires approval', decision_reason_type: judged ? 'classifier' : 'other',
-        permission_suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: rule }], behavior: 'allow', destination: 'localSettings' }],
+        description: input.description,
+        ...(chain ? { decision_reason_type: 'subcommandResults' } : { decision_reason: judged ? 'Auto mode needs your confirmation for this command.' : 'This command requires approval', decision_reason_type: judged ? 'classifier' : 'other' }),
+        permission_suggestions: [{ type: 'addRules', rules: needed.map((r) => ({ toolName: 'Bash', ruleContent: r })), behavior: 'allow', destination: 'localSettings' }],
       });
     }
     if (answer.behavior === 'allow') {

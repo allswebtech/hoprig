@@ -4,7 +4,8 @@
 //     plan mode on its own. Still the owner's: a question, a plan, an "ask" rule or hook of his setup, and the stop
 //     before a delete that could empty the disk. A deny rule stays denied.
 //   - the other modes: "Allow in this chat" stops the next ask of the same kind (a command too, whose suggestion
-//     names a settings file), holds when the process starts again, and writes no settings file.
+//     names a settings file), holds when the process starts again (a chained command first, too), and writes no
+//     settings file.
 //     Claude Code's check of a sensitive file, and an ask no rule is known to settle, are shown every time.
 //   - Stop while a card is open, two cards at once.
 //   - Home and the notifications hear of a new state at once, also when it comes while the sessions are being read.
@@ -217,7 +218,8 @@ test('"Allow in this chat" holds when the process starts again, and is kept with
   assert.equal(saved, 2, 'the list of open chats is saved with each one');
   assert.deepEqual(c.record().grants, ['rule:Bash:npm view *', 'mode:acceptEdits']);
 
-  // Another effort: a new process (--resume), which has forgotten the session's rules and asks again.
+  // Another effort: a new process (--resume). It gets the rule with its start, so the command is not even asked;
+  // the edit (a mode, not a rule) is asked and answered from what the chat remembers.
   c.setNext({ effort: 'low' });
   await until('the process to stop', () => !c.child);
   const before = asks(c).length;
@@ -225,11 +227,12 @@ test('"Allow in this chat" holds when the process starts again, and is kept with
   await turn(c, 'write e2.txt');
   assert.equal(asks(c).length, before, 'answered from what the owner allowed in this chat: no card');
   assert.ok(fs.existsSync(path.join(c.cwd, 'e2.txt')));
-  const auto = answers(c).slice(-2);
-  assert.deepEqual(auto[0].updatedPermissions, [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm view *' }], behavior: 'allow', destination: 'session' }], 'the new process gets the rule again');
-  assert.deepEqual(auto[1].updatedPermissions, [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }]);
+  const start = logged(c).filter(Array.isArray).at(-1);
+  assert.equal(start[start.indexOf('--settings') + 1], JSON.stringify({ permissions: { allow: ['Bash(npm view *)'] } }), 'the new process starts with the rule');
+  assert.equal(answers(c).length, 3, 'only the edit was asked');
+  assert.deepEqual(answers(c).at(-1).updatedPermissions, [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }], 'the new process gets "all edits" again');
   await turn(c, 'write e3.txt');
-  assert.equal(answers(c).length, 4, 'and from then on Claude Code does not ask at all');
+  assert.equal(answers(c).length, 3, 'and from then on Claude Code does not ask at all');
 
   // A dashboard restart: the chat is made again from its record.
   await c.stopAndWait();
@@ -244,6 +247,43 @@ test('"Allow in this chat" holds when the process starts again, and is kept with
   assert.equal(ask.alwaysText, 'Bash(git push *)');
   again.answer(ask.request, { allow: false });
   await done2;
+});
+
+test('"Allow in this chat" holds for a chained command (cd sub && …) after the process starts again', async (t) => {
+  // Claude Code asks for a chain with "subcommandResults", which no answer from what the chat remembers settles: the
+  // new process must know the rule itself, as the one did where it was allowed.
+  const c = newChat({ permissionMode: 'manual' });
+  t.after(() => c.stopAndWait());
+  fs.mkdirSync(path.join(c.cwd, 'sub'));
+  let done = turnEnd(c);
+  await c.send('run npm view left-pad');
+  c.answer((await card(c)).request, { allow: true, always: true });
+  await done;
+  await turn(c, 'run cd sub && npm view react');
+  assert.equal(asks(c).length, 1, 'the same process: the chain runs unasked');
+
+  c.setNext({ effort: 'low' });
+  await until('the process to stop', () => !c.child);
+  // Without the rule the turn would wait on a card: whichever comes first, the end of the turn or a card.
+  const ended = turnEnd(c);
+  await c.send('run cd sub && npm view vue');
+  const first = await Promise.race([ended.then(() => 'done'), until('a card', () => c.pending.size > 0 && 'card')]);
+  if (first === 'card') c.answer([...c.pending.keys()][0], { allow: false });
+  await ended;
+  assert.equal(first, 'done', 'a new process, a chain first: still unasked');
+  assert.equal(asks(c).length, 1);
+  assert.ok(!c.seen.slice(-3).includes('attention'));
+  assert.equal(c.events.filter((e) => e.kind === 'result').at(-1).text, 'ran: cd sub && npm view vue');
+
+  // A chain with a part no rule covers asks for that part, and only that part is offered.
+  done = turnEnd(c);
+  await c.send('run cd sub && npm view vue && git push origin main');
+  const ask = await card(c, 2);
+  assert.equal(ask.alwaysText, 'Bash(git push *)');
+  assert.equal(c.status(), 'attention');
+  c.answer(ask.request, { allow: false });
+  await done;
+  assert.equal(c.events.filter((e) => e.kind === 'result').at(-1).isError, true);
 });
 
 test('a sensitive file asks every time: no "in this chat" on its card, and "all edits" allowed before does not answer it', async (t) => {
@@ -400,6 +440,21 @@ test('protocol: what an ask says about itself, and who must answer it', () => {
   assert.equal(P.askWhy(ask({ decision_reason_type: 'other', decision_reason: 'This command requires approval' })), '', 'nothing the card does not already say');
   assert.deepEqual(P.parseLine({ type: 'system', subtype: 'status', status: null, permissionMode: 'plan' }), [{ kind: 'mode', permissionMode: 'plan' }]);
   assert.deepEqual(P.parseLine({ type: 'system', subtype: 'status', status: 'compacting' }), []);
+});
+
+test('protocol: what the chat remembers goes to a new process as its --settings, the newest first when it is long', () => {
+  assert.equal(P.grantSettings([]), null);
+  assert.equal(P.grantSettings(['mode:acceptEdits']), null, '"all edits" is not a rule');
+  assert.deepEqual(JSON.parse(P.grantSettings(['rule:Bash:npm view *', 'mode:acceptEdits', 'rule:WebFetch:domain:example.com', 'rule:Read:', 'dir:/srv/a b'])),
+    { permissions: { allow: ['Bash(npm view *)', 'WebFetch(domain:example.com)', 'Read'], additionalDirectories: ['/srv/a b'] } });
+  const many = Array.from({ length: 300 }, (_, i) => `rule:Bash:node -e ${i}`);
+  const allow = JSON.parse(P.grantSettings(many)).permissions.allow;
+  assert.ok(allow.length > 50 && allow.length < 300, `cut to fit (${allow.length})`);
+  assert.equal(allow.at(-1), 'Bash(node -e 299)', 'the newest are kept');
+  assert.ok(P.grantSettings(many).length < 4000);
+  const args = P.chatArgs({ sessionId: 's', settings: '{"permissions":{}}' });
+  assert.equal(args[args.indexOf('--settings') + 1], '{"permissions":{}}');
+  assert.ok(!P.chatArgs({ sessionId: 's' }).includes('--settings'));
 });
 
 test('protocol: "allow in this chat" takes only what asks less, and only for the session', () => {

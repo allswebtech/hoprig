@@ -11,9 +11,11 @@
 //     could empty the disk. A deny rule of his settings stays denied: Claude Code refuses it without asking anyone.
 //     This holds only while Claude Code itself reports the mode (init): where the settings turn it off, cards show.
 //   - every other mode: a card. "Allow in this chat" adds Claude Code's own suggestion for the running process and
-//     is remembered in the chat (grants), so the same ask after the process started again (a quiet while, another
-//     model or provider, a dashboard restart) is answered from it instead of being shown again. Only an ask that
-//     such a rule settles is answered that way (SETTLED_BY_RULE). Claude Code's check of a sensitive file (.git/,
+//     is remembered in the chat (grants). A process started again (a quiet while, another model or provider, a
+//     dashboard restart) gets the rules and folders with its start (--settings, protocol.mjs grantSettings), so
+//     Claude Code does not ask for what they cover, a chained command (cd sub && …) included. An ask that still comes
+//     and that a remembered grant covers ("all edits", or settings Claude Code did not take) is answered from it
+//     instead of being shown again, if a rule settles that kind of ask (SETTLED_BY_RULE). Claude Code's check of a sensitive file (.git/,
 //     .claude/, a shell profile) goes on asking whatever was allowed, so its card offers no "in this chat" and is
 //     always shown.
 //
@@ -28,7 +30,7 @@ import path from 'node:path';
 import { claudeCommand, providerEnv } from '../assistant/engine.mjs';
 import { modelArgs } from '../launch.mjs';
 import { projectDir } from '../sessions.mjs';
-import { allowLine, askWhy, chatArgs, denyLine, interruptLine, newTodos, ownerOnly, parseLine, sessionGrant, todoStep, transcriptEvents, userLine } from './protocol.mjs';
+import { allowLine, askWhy, chatArgs, denyLine, grantSettings, interruptLine, newTodos, ownerOnly, parseLine, sessionGrant, todoStep, transcriptEvents, userLine } from './protocol.mjs';
 
 export const EVENTS_MAX = 5000; // kept in memory; the page asks for the last few hundred at a time
 export const IDLE_MS = 20 * 60_000; // a process with nothing to do is stopped after this (the next message resumes)
@@ -206,7 +208,10 @@ export class Chat extends EventEmitter {
     const own = !!env.ANTHROPIC_MODEL;
     let model = own ? null : this.model;
     if (!model && !own && resume) model = modelArgs({ env: {} }, ['--resume', this.id])[1] || null;
-    const args = chatArgs({ sessionId: this.id, resume, permissionMode: this.permissionMode, effort: this.effort, model });
+    // What "allow in this chat" covered goes in with the start (grantSettings), so Claude Code judges every call by it
+    // as the process did where it was added: a chained command (cd sub && …) included, which no answer of ours could
+    // settle for it.
+    const args = chatArgs({ sessionId: this.id, resume, permissionMode: this.permissionMode, effort: this.effort, model, settings: grantSettings([...this.grants]) });
     const plan = this.o.command ? { command: this.o.command.command, args: [...this.o.command.args, ...args], options: {} } : claudeCommand(args, env);
     const child = (this.o.spawnImpl || spawn)(plan.command, plan.args, { cwd: this.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...plan.options });
     this.child = child;
