@@ -68,6 +68,26 @@ test('demo: free port, own temp folder, one-time sign-in link, sample data, clea
     assert.equal(code.certificate, 'own');
     assert.match(code.command, new RegExp(`^hoprig join https://203\\.0\\.113\\.10 ${code.code} --fingerprint sha256:[A-Za-z0-9_-]{43}$`));
     assert.match(code.note, /fingerprint/);
+    // A chat (src/demo/chat.mjs): it edits a file with a diff and waits for the OK to run the tests; the file really
+    // changed, so the editor's Source Control has it too.
+    const get = async (p) => (await fetch(`${url}${p}`, { headers: auth })).json();
+    let chat = null;
+    for (let i = 0; i < 80 && !(chat && chat.status === 'attention'); i++) {
+      chat = (await get('/api/chats')).chats.find((c) => c.title === 'Fix the cart total with a discount') || null;
+      if (!chat || chat.status !== 'attention') await new Promise((r) => setTimeout(r, 250));
+    }
+    assert.equal(chat && chat.status, 'attention', `the chat waits for an OK: ${JSON.stringify(chat)}`);
+    assert.match(chat.short, /^~\/Workspace\/projects\/shop-frontend$/);
+    const events = (await get(`/api/chats/${chat.chatId}?from=0`)).events;
+    assert.ok(events.some((e) => e.kind === 'tool' && e.name === 'Edit'), 'an edit');
+    assert.ok(events.some((e) => e.kind === 'ask' && /npm test/.test(JSON.stringify(e))), 'the OK it waits for: npm test');
+    const cart = fs.readFileSync(path.join(root, 'home', 'Workspace', 'projects', 'shop-frontend', 'src', 'cart.js'), 'utf8');
+    assert.match(cart, /return Math\.round\(sum \* \(1 - discount\) \* 100\) \/ 100;/, 'the file changed on disk');
+    // OpenCode as a second coding tool: on, its version from the package file; its program runs nothing.
+    const tools = await get('/api/codetools');
+    const oc = (tools.tools || tools).find((t) => t.id === 'opencode');
+    assert.equal(oc.on, true);
+    assert.equal(oc.installed, '2.3.0');
 
     await hooks.stop();
     assert.equal(fs.existsSync(root), false, 'its folder is removed');

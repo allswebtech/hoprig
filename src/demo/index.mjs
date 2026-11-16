@@ -6,11 +6,12 @@
 // written. The server listens on 127.0.0.1 only, on a free port, and the browser is signed in with a one-time
 // link. What it sets up:
 //   five sessions in different states (working with output flowing, waiting for you, needs your OK, limit
-//   reached, waiting with a queue), three accounts with usage, Auto mode on, a second computer ("Laptop", a
+//   reached, waiting with a queue), a chat that changed a file and waits for your OK, three accounts with usage, Auto mode on, a second computer ("Laptop", a
 //   second demo server in its own temp folder), a schedule, a Tia conversation with a confirm card and a finished
-//   job, the TRouteAI add-on (pretend: "installing" it prints lines and installs nothing).
+//   job, the TRouteAI add-on (pretend: "installing" it prints lines and installs nothing), OpenCode as a second coding
+//   tool (pretend: its package file is there, its program only says that it does not run in the demo).
 // The sessions are src/demo/session.mjs (looks like Claude Code, talks to no model); Tia's engine is
-// src/demo/tia.mjs; the sign-in on the Providers page is src/demo/signin.mjs.
+// src/demo/tia.mjs; the chat is src/demo/chat.mjs; the sign-in on the Providers page is src/demo/signin.mjs.
 //
 //   hoprig demo [--port N] [--no-open]
 // Internal (the second computer, and tests): --secondary, --ready-file <file> (writes { url, link, root, … }).
@@ -26,6 +27,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SESSION = path.join(HERE, 'session.mjs');
 const TIA = path.join(HERE, 'tia.mjs');
 const SIGNIN = path.join(HERE, 'signin.mjs');
+const CHAT = path.join(HERE, 'chat.mjs');
 const SELF = fileURLToPath(import.meta.url);
 
 const MAIN_FOLDERS = ['shop-frontend', 'api-server', 'mobile-app', 'docs-site', 'data-pipeline', 'landing-page'];
@@ -370,6 +372,27 @@ function demoWorkspaceMore(home, secondary) {
   };
 }
 
+// shop-frontend's cart: rounded per line before the discount (the bug the demo's chat fixes).
+const CART = `// The cart: what the checkout page shows and charges.
+
+export function cartTotal(items, discount = 0) {
+  const sum = items.reduce((s, i) => s + Math.round(i.price * i.qty * 100) / 100, 0);
+  return sum * (1 - discount);
+}
+
+export function itemCount(items) {
+  return items.reduce((n, i) => n + i.qty, 0);
+}
+`;
+const CART_TEST = `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { cartTotal } from './cart.js';
+
+test('cart total with a discount', () => {
+  assert.equal(cartTotal([{ price: 19.99, qty: 3 }], 0.15), 50.97);
+});
+`;
+
 // Past Claude Code conversations, as Claude Code keeps them: a project's page lists them to continue.
 const PAST = {
   'shop-frontend': ['Make the checkout page work on small phones', 'Add a test for the cart total'],
@@ -415,6 +438,20 @@ async function demoRouterState() {
 // A made-up certificate fingerprint in the shape of a real one: "sha256:" and 43 base64url characters.
 const DEMO_PIN = 'sha256:DemoNotARealFingerprint00000000000000000000';
 
+/**
+ * OpenCode "installed" in Hoprig's tools folder (src/codetools/npmtool.mjs reads the version from the package file),
+ * so Settings → Coding tools, Updates and the new-chat picker show a second coding tool. Its program is a stand-in
+ * that only says the demo does not run it: nothing is downloaded and no model is asked.
+ */
+function demoOpenCode(root) {
+  const mods = path.join(root, 'state', 'tools', 'opencode', 'node_modules');
+  fs.mkdirSync(path.join(mods, '@opencode', 'cli'), { recursive: true });
+  fs.mkdirSync(path.join(mods, '.bin'), { recursive: true });
+  fs.writeFileSync(path.join(mods, '@opencode', 'cli', 'package.json'), JSON.stringify({ name: '@opencode/cli', version: '2.3.0' }));
+  const bin = path.join(mods, '.bin', 'opencode');
+  fs.writeFileSync(bin, '#!/bin/sh\necho "(demo) OpenCode does not run in the demo: nothing is installed." >&2\nexit 1\n', { mode: 0o755 });
+}
+
 /** Settings, accounts and usage for a fresh demo. */
 async function seed(home, { secondary, password }) {
   const { saveConfig } = await import('../config.mjs');
@@ -429,7 +466,13 @@ async function seed(home, { secondary, password }) {
     const dir = path.join(projects, f);
     fs.mkdirSync(dir, { recursive: true });
     // Look like real projects to the Projects block and the skill suggestions: a package file and a git folder.
-    if (f === 'shop-frontend') fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: f, private: true, dependencies: { next: '15.1.0', react: '19.0.0' } }, null, 2));
+    if (f === 'shop-frontend') {
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: f, private: true, scripts: { test: 'node --test' }, dependencies: { next: '15.1.0', react: '19.0.0' } }, null, 2));
+      // The file the demo's chat changes (src/demo/chat.mjs), so its diff is also in the editor's Source Control.
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'src', 'cart.js'), CART);
+      fs.writeFileSync(path.join(dir, 'src', 'cart.test.js'), CART_TEST);
+    }
     if (f === 'api-server') fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: f, private: true, dependencies: { express: '4.21.2', pg: '8.13.1' } }, null, 2));
     if (f === 'data-pipeline') fs.writeFileSync(path.join(dir, 'pyproject.toml'), '[project]\nname = "data-pipeline"\ndependencies = ["pandas"]\n');
     gitInit(dir);
@@ -611,6 +654,7 @@ export async function main(args = [], hooks = {}) {
   };
   try {
     const projects = await seed(home, { secondary: o.secondary, password });
+    if (!o.secondary) demoOpenCode(root);
     const { createServer } = await import('../server/server.mjs');
     const addon = demoAddon();
     app = createServer({
@@ -630,6 +674,7 @@ export async function main(args = [], hooks = {}) {
       // certificate answers (the address in server.publicUrl below; a made-up fingerprint), so the page shows it whole.
       machines: { claudeVersion: async () => CLAUDE_INFO.installed, certOf: async () => ({ kind: 'own', pin: DEMO_PIN }) },
       accounts: { trouteai: addon },
+      chat: { command: { command: process.execPath, args: [CHAT] } }, // the demo's chat talks to no model
       assistant: {
         claudecode: async () => ({ claudeInfo: async () => CLAUDE_INFO }),
         engine: { command: { command: process.execPath, args: [TIA] }, resolveEnv: async () => ({ ...process.env }) },
@@ -666,6 +711,10 @@ export async function main(args = [], hooks = {}) {
         schedule: { label: 'Evening test run', when: { kind: 'weekly', time: '18:00', days: [1, 2, 3, 4, 5] }, action: { type: 'send', session: 'data-pipeline', text: 'Run the full test suite and sum up what fails' } },
       }).catch(() => {});
       await demoActivity();
+
+      await api('/api/codetools/opencode', { on: true }).catch(() => {});
+      // ---- a chat: it changes a file and waits for the OK to run the tests ----
+      await api('/api/chats', { dir: path.join(projects, 'shop-frontend'), profile: 'max', text: 'The cart total is a cent off when there is a discount. Fix it and run the tests.' }).catch(() => {});
 
       // ---- Tia and the second computer come up in the background: the address is shown at once ----
       background = (async () => {

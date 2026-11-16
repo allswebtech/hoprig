@@ -26,7 +26,7 @@ export function demoUpdateItems() {
     item('codex', 'Codex', 'Close its sessions first: the update replaces the program\'s files. Automatic updates wait until no Codex session is open.',
       { installed: '0.169.0', latest: '0.170.1', method: "Hoprig's tools folder", updateAvailable: true, canUpdate: true, note: 'Installs 0.169.0 at first, the version this Hoprig is tested with.' }),
     item('opencode', 'OpenCode', 'Close its sessions first: the update replaces the program\'s files. Automatic updates wait until no OpenCode session is open.',
-      { installed: null, latest: '2.3.0', method: "Hoprig's tools folder", updateAvailable: false, canUpdate: true, note: 'Installs 2.3.0 at first, the version this Hoprig is tested with.' }, { installable: true }),
+      { installed: '2.3.0', latest: '2.3.0', method: "Hoprig's tools folder", updateAvailable: false, canUpdate: true }),
     item('cloudflared', 'Tunnel helper (cloudflared)', 'Turn the public link off first: a Temporary link comes back with a new address. Automatic updates wait until the public link is off.',
       { installed: '2026.10.1', latest: '2026.10.1', method: "Hoprig's add-ons folder", updateAvailable: false, canUpdate: true }),
   ].filter(shown);
