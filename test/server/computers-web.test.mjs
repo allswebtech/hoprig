@@ -121,7 +121,7 @@ test('the pages: one list, Add a computer by situation, Rename/Test/Remove on th
 
 test('Overview: how busy in plain words first, the raw load second; the system disk is the main disk', () => {
   const b = busyFigures([1.8, 1.5, 1.2], 10);
-  assert.deepEqual([b.word, b.value, b.sub], ['Calm', '18%', 'load 1.80 on 10 CPUs']);
+  assert.deepEqual([b.word, b.value, b.sub], ['Calm', '18%', '18% · load 1.80 on 10 CPUs']);
   assert.match(b.title, /1\.80, 1\.50, 1\.20/);
   assert.equal(busyFigures([9.5, 0, 0], 10).word, 'Very busy');
   assert.equal(diskName('/'), 'Main disk');

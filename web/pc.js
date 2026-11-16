@@ -111,11 +111,11 @@ const tile = (label, value, sub, frac) => h('div.tile', h('div.tile-label', labe
 export function busyFigures(load, cpus) {
   const n = Math.max(1, cpus || 1);
   const pct = Math.round((load[0] / n) * 100);
-  return { value: `${pct}%`, word: pct >= 90 ? 'Very busy' : pct >= 50 ? 'Busy' : 'Calm', sub: `load ${load[0].toFixed(2)} on ${n} CPUs`, title: `Load 1, 5 and 15 min: ${load.map((x) => x.toFixed(2)).join(', ')}`, frac: load[0] / n };
+  return { value: `${pct}%`, word: pct >= 90 ? 'Very busy' : pct >= 50 ? 'Busy' : 'Calm', sub: `${pct}% · load ${load[0].toFixed(2)} on ${n} CPUs`, title: `Load 1, 5 and 15 min: ${load.map((x) => x.toFixed(2)).join(', ')}`, frac: load[0] / n };
 }
 const busyTile = (load, cpus) => {
   const b = busyFigures(load, cpus);
-  const t = tile(b.word, b.value, b.sub, b.frac);
+  const t = tile('Load', b.word, b.sub, b.frac); // the heading names the figure, as Memory and Swap do; the word comes first
   t.title = b.title;
   return t;
 };
