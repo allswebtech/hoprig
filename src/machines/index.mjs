@@ -283,7 +283,7 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
       req.resume();
       return send(res, status, body);
     }
-    await relayHttp(leg.req, res, ep, { machine: m.label || name, path: rest + url.search, token: m.token, headers: leg.headers, idleMs: /\/upload$/.test(rest) ? Math.max(120_000, relayIdleMs) : relayIdleMs });
+    await relayHttp(leg.req, res, ep, { machine: m.label || name, path: rest + url.search, token: m.token, headers: leg.headers, idleMs: /\/upload$|^\/api\/code\/git\/(commit|stage|unstage|discard)$/.test(rest) ? Math.max(150_000, relayIdleMs) : relayIdleMs });
     return true;
   }
 

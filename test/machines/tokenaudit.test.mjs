@@ -37,9 +37,15 @@ test('each change a token may make has its plain words; anything else is not log
   assert.equal(said('POST', '/api/workspace/git/signin'), 'The hub office-pc started the GitHub sign-in');
   assert.equal(said('POST', '/api/workspace/git/brain'), "The hub office-pc created the AI brain's repository");
   assert.equal(said('POST', '/api/workspace/map/commit'), "The hub office-pc saved the workspace map in the AI brain's history");
+  assert.equal(said('POST', '/api/code/file'), 'The hub office-pc saved a file in the code editor');
+  assert.equal(said('POST', '/api/code/delete'), 'The hub office-pc deleted a file or folder in the code editor');
+  assert.equal(said('POST', '/api/code/git/discard'), 'The hub office-pc discarded changes in the code editor');
+  assert.equal(said('POST', '/api/code/git/commit'), 'The hub office-pc made a git commit in the code editor');
+  for (const p of ['/api/code/create', '/api/code/rename']) assert.match(said('POST', p), /in the code editor$/);
   // Reads, other routes and odd paths: nothing.
   for (const [m, p] of [['GET', '/api/addons'], ['GET', '/api/addons/public-link/job'], ['GET', '/api/public-link'], ['GET', '/api/public-link/job'], ['POST', '/api/public-link/temporary/x'], ['GET', '/api/pcsetup/recipe'], ['POST', '/api/workspace/git/signin/cancel'],
-    ['POST', '/api/state'], ['POST', '/api/addons/Public%20Link/start'], ['POST', '/api/addons/public-link/start/x']]) assert.equal(said(m, p), null, `${m} ${p}`);
+    ['POST', '/api/state'], ['POST', '/api/addons/Public%20Link/start'], ['POST', '/api/addons/public-link/start/x'],
+    ['GET', '/api/code/file'], ['POST', '/api/code/git/stage'], ['POST', '/api/code/file/x']]) assert.equal(said(m, p), null, `${m} ${p}`);
   assert.equal(CHANGES.every(([m]) => m === 'POST'), true);
 });
 
