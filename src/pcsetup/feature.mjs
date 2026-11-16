@@ -53,6 +53,8 @@ import { makeUi } from '../setup/ui.mjs';
 import { addRules, removeRules } from './rules.mjs';
 import { adminRunner, checkPassword, scrubber, sudoNeedsPassword } from './admin.mjs';
 import { runPcSetup } from './setup.mjs';
+import { tokenIdOf } from '../machines/index.mjs';
+import { arrivedEncrypted } from '../machines/legs.mjs';
 
 /** The password as sent by the page: text of 1 to 512 characters without a line break (it is sent to sudo as one line). */
 function passwordOf(v) {
@@ -144,7 +146,12 @@ export function pcsetupFeature(sctx, opts = {}) {
    * the computer sends the page to the terminal, and sudo's password is asked for (and checked) only when sudo needs
    * one. `b.terminal` is the fallback: the same run in a terminal session (`args`).
    */
-  async function setupJob(kind, kits, b, args, { recipe = null } = {}) {
+  async function setupJob(kind, kits, b, args, { recipe = null, req = null } = {}) {
+    // From another dashboard (a machine token) the password comes only over an encrypted leg (machines/legs.mjs):
+    // over a plain one it is refused unread (no check, no job), and the page is told to ask for it on this computer's
+    // own page instead.
+    const plainLeg = tokenIdOf(req) !== null && !arrivedEncrypted(req);
+    if (plainLeg && b.password !== undefined) return { needsPassword: true, plainLeg: true };
     if (b.terminal === true) return terminal(kind === 'fix' ? `fix-${kits[0]}` : kind, args);
     busy();
     const sys = await facts();
@@ -153,7 +160,7 @@ export function pcsetupFeature(sctx, opts = {}) {
     if (hands) return { needsTerminal: true, why: hands.why || showCommand(hands.argv) };
     let password = null;
     if (plan.admin && (await (opts.sudoNeedsPassword || sudoNeedsPassword)(sys))) {
-      if (b.password === undefined) return { needsPassword: true };
+      if (b.password === undefined) return plainLeg ? { needsPassword: true, plainLeg: true } : { needsPassword: true };
       password = passwordOf(b.password);
       const c = await checkPassword(password, opts.stream || stream);
       if (!c.ok) return { needsPassword: true, wrong: !c.notAllowed, notAllowed: c.notAllowed };
@@ -223,14 +230,14 @@ export function pcsetupFeature(sctx, opts = {}) {
     ['POST', /^\/api\/pcsetup\/setup$/, async (req) => {
       const b = await sctx.readJson(req);
       const kits = kitsOf(b.kits);
-      return setupJob('setup', kits, b, ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', kits.join(',')]);
+      return setupJob('setup', kits, b, ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', kits.join(',')], { req });
     }],
     ['POST', /^\/api\/pcsetup\/fix$/, async (req) => {
       const b = await sctx.readJson(req);
       const checks = await (opts.status ? opts.status() : pcStatus({ sys: await facts(), offline: true, projects: pdir() }));
       const c = checks.find((x) => x.id === b.id);
       if (!c || !c.fixKit) throw fail(400, 'that check has no fix Hoprig can run');
-      return setupJob('fix', [c.fixKit], b, ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', c.fixKit]);
+      return setupJob('fix', [c.fixKit], b, ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', c.fixKit], { req });
     }],
     ['GET', /^\/api\/pcsetup\/recipe$/, async (req, m, q) => {
       const { currentRecipe } = await import('./cli.mjs');
@@ -246,7 +253,7 @@ export function pcsetupFeature(sctx, opts = {}) {
       fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
       const file = path.join(stateDir(), 'pcsetup-recipe.json');
       fs.writeFileSync(file, JSON.stringify(v.recipe, null, 2) + '\n', { mode: 0o600 });
-      return { ...(await setupJob('recipe', v.recipe.kits, b, ['pc', 'setup', '--yes', '--hold', '--recipe', file], { recipe: v.recipe })), recipe: v.recipe };
+      return { ...(await setupJob('recipe', v.recipe.kits, b, ['pc', 'setup', '--yes', '--hold', '--recipe', file], { recipe: v.recipe, req })), recipe: v.recipe };
     }],
     ['GET', /^\/api\/pcsetup\/github$/, async () => {
       const sys = await facts();

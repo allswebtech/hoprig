@@ -32,6 +32,7 @@ import { OneTimeStore } from './onetime.mjs';
 import { CODE_TTL_MS, dashboardAddress, listening, machineInfo, makeCode, normalizeCode } from './pairing.mjs';
 import { callJson, rejectUpgrade } from './relay.mjs';
 import { Mux, dashboardConnector } from './mux.mjs';
+import { LEG_HEADER, noteLinkSocket, upgradeEncrypted } from './legs.mjs';
 import { loadMachines, putMachine, removeMachine, saveMachines } from './store.mjs';
 import { createToken, revokeToken } from './tokens.mjs';
 
@@ -170,15 +171,17 @@ export class LinkHub {
       rejectUpgrade(socket, 401, 'Unauthorized', JSON.stringify({ error: 'unknown link', code: 'link' }));
       return true;
     }
-    this.wss.handleUpgrade(req, socket, head, (ws) => this.#attach(m, ws));
+    // Whether it came over TLS decides whether a Setup job's password may be relayed over it (legs.mjs).
+    const encrypted = upgradeEncrypted(req);
+    this.wss.handleUpgrade(req, socket, head, (ws) => this.#attach(m, ws, encrypted));
     return true;
   }
 
-  #attach(m, ws) {
+  #attach(m, ws, encrypted = false) {
     // One live socket per link: the newer one wins (the old one may be a half-dead connection).
     const old = this.sessions.get(m.linkId);
     if (old) this.#end(m.linkId, old, 4001, 'replaced by a newer connection');
-    const s = { ws, since: this.now(), alive: true, port: m.port };
+    const s = { ws, since: this.now(), alive: true, port: m.port, encrypted };
     s.mux = new Mux({ role: 'hub', send: (b) => ws.readyState === ws.OPEN && ws.send(b, { binary: true }), onError: () => ws.close(1002, 'protocol error') });
     ws.on('message', (d, isBinary) => (isBinary ? s.mux.receive(d) : ws.close(1003, 'binary frames only')));
     ws.on('pong', () => (s.alive = true));
@@ -229,6 +232,12 @@ export class LinkHub {
   drop(linkId) {
     const s = this.sessions.get(linkId);
     if (s) this.#end(linkId, s, 4002, 'removed');
+  }
+
+  /** True while link `linkId` is up over a WebSocket that reached this hub encrypted. */
+  encrypted(linkId) {
+    const s = this.sessions.get(linkId);
+    return !!(s && s.encrypted);
   }
 
   live(linkId) {
@@ -301,7 +310,7 @@ export class LinkClient extends EventEmitter {
     let ws;
     try {
       // A hub joined with a fingerprint: verified against its pinned authority, every time (never without checking).
-      ws = new WebSocket(linkSocketUrl(this.entry.url), { headers: { [LINK_HEADER]: this.entry.secret }, perMessageDeflate: false, handshakeTimeout: 15_000, maxPayload: 1024 * 1024, ...linkTrust(this.entry) });
+      ws = new WebSocket(linkSocketUrl(this.entry.url), { headers: { [LINK_HEADER]: this.entry.secret, [LEG_HEADER]: /^https:/i.test(this.entry.url) ? 'wss' : 'ws' }, perMessageDeflate: false, handshakeTimeout: 15_000, maxPayload: 1024 * 1024, ...linkTrust(this.entry) });
     } catch (e) {
       return this.#failed(e.message);
     }
@@ -321,7 +330,7 @@ export class LinkClient extends EventEmitter {
       this.upSince = upAt;
       this.state = 'up';
       this.lastError = '';
-      mux = new Mux({ role: 'machine', send: (b) => ws.readyState === ws.OPEN && ws.send(b, { binary: true }), connectLocal: dashboardConnector(this.local), onError: () => ws.close(1002, 'protocol error') });
+      mux = new Mux({ role: 'machine', send: (b) => ws.readyState === ws.OPEN && ws.send(b, { binary: true }), connectLocal: () => noteLinkSocket(dashboardConnector(this.local)(), /^https:/i.test(this.entry.url)), onError: () => ws.close(1002, 'protocol error') });
       let alive = true;
       ws.on('pong', () => (alive = true));
       beat = setInterval(() => {

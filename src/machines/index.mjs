@@ -39,6 +39,7 @@ import { label as cleanLabel, machineName, tokenName } from './names.mjs';
 import { claimCode, codeStatus, createCode, machineInfo } from './pairing.mjs';
 import { errorBody, relayHttp, relayUpgrade, rejectUpgrade } from './relay.mjs';
 import { getMachine } from './store.mjs';
+import { legEncrypted, relayLeg } from './legs.mjs';
 import { bearerOf, createToken, listTokens, revokeToken, touchToken, verifyToken } from './tokens.mjs';
 
 const BODY_MAX = 64 * 1024;
@@ -123,7 +124,7 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
   // This hub's own certificate, for the join line: Caddy's authority as the link routes hand it out.
   // `certOf` (the demo, tests): a stand-in for what this hub's certificate is, without looking at a real one.
   const certOf = certStandIn || ((base) => hubCertificate(base, { root: () => links.authorityPem() }));
-  const hub = typeof hubOpt.probe === 'function' ? hubOpt : createHub({ ...hubOpt, onRemove: (m) => m.via === 'link' && links.drop(m.linkId) });
+  const hub = typeof hubOpt.probe === 'function' ? hubOpt : createHub({ ...hubOpt, onRemove: (m) => m.via === 'link' && links.drop(m.linkId), linkEncrypted: (id) => links.encrypted(id) });
   const joinSsh = joinOpt.ssh || hubOpt.ssh || {};
   const joins = new JoinKeeper({ ssh: joinSsh, ...joinOpt });
   const info = async () => ({ ...machineInfo(), claude: await claudeVersion() });
@@ -255,6 +256,9 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
     if (!authed(req)) return send(res, 401, { error: 'log in first' });
     const m = getMachine(name);
     if (!m) return send(res, 404, { error: 'no such computer' });
+    // A Setup job's password never crosses a plain leg (legs.mjs).
+    const leg = await relayLeg(req, m, legEncrypted(m, (id) => links.encrypted(id)), { path: rest });
+    if (leg.refused) return send(res, leg.refused.status, leg.refused.body);
     let ep;
     try {
       ep = await hub.endpoint(m);
@@ -263,7 +267,7 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
       req.resume();
       return send(res, status, body);
     }
-    await relayHttp(req, res, ep, { machine: m.label || name, path: rest + url.search, token: m.token, idleMs: /\/upload$/.test(rest) ? Math.max(120_000, relayIdleMs) : relayIdleMs });
+    await relayHttp(leg.req, res, ep, { machine: m.label || name, path: rest + url.search, token: m.token, headers: leg.headers, idleMs: /\/upload$/.test(rest) ? Math.max(120_000, relayIdleMs) : relayIdleMs });
     return true;
   }
 

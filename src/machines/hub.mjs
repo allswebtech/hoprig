@@ -10,6 +10,7 @@ import { RelayError, callJson } from './relay.mjs';
 import { installHint, installOverSsh, installSource, pairOverSsh, revokeOverSsh } from './ssh.mjs';
 import { getMachine, loadMachines, publicMachine, putMachine, removeMachine, renameMachine, saveMachines } from './store.mjs';
 import { Tunnels } from './tunnels.mjs';
+import { legEncrypted } from './legs.mjs';
 import { hostName } from '../paths.mjs';
 
 export class HubError extends Error {
@@ -63,7 +64,7 @@ const settle = (p, ms, onTimeout) =>
  * @param {number}  [o.probeTimeoutMs]  per machine, for the list and the sessions of all machines
  * @param {number}  [o.tunnelWaitMs]    how long a request waits for a tunnel to come up
  */
-export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(Object.entries({ sshBin: ssh.sshBin, spawnImpl: ssh.spawnImpl, env: ssh.env }).filter(([, v]) => v !== undefined))), hubName = defaultHubName(), hubLabel = defaultHubLabel, onRemove = () => {}, installer = () => configuredInstaller(), probeTimeoutMs = 4000, tunnelWaitMs = 15_000, now = Date.now } = {}) {
+export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(Object.entries({ sshBin: ssh.sshBin, spawnImpl: ssh.spawnImpl, env: ssh.env }).filter(([, v]) => v !== undefined))), hubName = defaultHubName(), hubLabel = defaultHubLabel, onRemove = () => {}, linkEncrypted = () => false, installer = () => configuredInstaller(), probeTimeoutMs = 4000, tunnelWaitMs = 15_000, now = Date.now } = {}) {
   const probeCache = new Map(); // name -> { at, result }
 
   /** Where machine `m`'s dashboard answers. Starts its tunnel when needed. */
@@ -91,7 +92,8 @@ export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(O
   async function probe(m, { fresh = false, timeoutMs = probeTimeoutMs } = {}) {
     const hit = probeCache.get(m.name);
     if (!fresh && hit && now() - hit.at < 5000) return hit.result;
-    const out = { ...publicMachine(m), state: 'offline', error: null, hostname: null, platform: null, version: null, claude: null };
+    // encrypted: whether a Setup job's password may be typed for it on this page (legs.mjs).
+    const out = { ...publicMachine(m), encrypted: legEncrypted(m, linkEncrypted), state: 'offline', error: null, hostname: null, platform: null, version: null, claude: null };
     try {
       const ep = await endpoint(m, timeoutMs);
       const r = await callJson(ep, { machine: m.label || m.name, path: '/api/machine', token: m.token, timeoutMs });

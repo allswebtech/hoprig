@@ -5,9 +5,11 @@
 // The administrator password: asked for in a sheet only when sudo needs one, "used once for these installs, not
 // saved" (the server hands it to sudo and keeps it for that one job only: src/pcsetup/admin.mjs). On a plain-http
 // page that is not this computer it would cross the network unencrypted: the sheet says so and offers the terminal.
+// For another computer reached over a plain leg (http, ws) the sheet has no password field at all: it says the
+// password is asked only on that computer's own page, and links to it when the address is known.
 // The terminal stays as that fallback, and for a step that needs a person at the computer (macOS's install window).
 import { icon } from './icons.js';
-import { add, api, btn, confirmSheet, fill, h, insecure, link, openSheet, toast } from './lib.js';
+import { ApiError, add, api, btn, confirmSheet, fill, h, insecure, link, machine, openSheet, toast } from './lib.js';
 import { errorBox, okBox } from './shell.js';
 
 export const SETUP_KINDS = ['setup', 'fix', 'recipe'];
@@ -43,6 +45,30 @@ export function passwordSheet({ wrong = false } = {}) {
 }
 
 /**
+ * Another computer reached over a plain leg (src/machines/legs.mjs): its password is never typed here. The sheet says
+ * so in one sentence, with that computer's own page as a link when the address is known. Resolves when closed.
+ */
+export function plainLegSheet({ label = 'that computer', page = null } = {}) {
+  return openSheet({ title: 'The computer\'s password', subtitle: 'Some steps need administrator rights (sudo).' }, (close) => [
+    h('p.sheet-text', `The password is asked only on ${label}'s own page, because the connection from this dashboard to ${label} is not encrypted.`),
+    page ? h('p.sheet-text', h('a', { href: page, target: '_blank', rel: 'noopener' }, `Open ${label}'s own page`)) : null,
+    h('div.sheet-actions', h('button.btn.primary', { type: 'button', onclick: () => close(null) }, 'OK')),
+  ]);
+}
+
+/** The computer whose screen is open, as this dashboard knows it: { label, url, encrypted }, or null for this one. */
+async function openComputer() {
+  if (!machine.current) return null;
+  try {
+    const r = await api('~/api/machines');
+    const m = (r.machines || []).find((x) => x.name === machine.current);
+    return m ? { label: m.label || m.name, url: m.url || null, encrypted: m.encrypted !== false } : { label: machine.current, url: null, encrypted: false };
+  } catch {
+    return { label: machine.current, url: null, encrypted: false };
+  }
+}
+
+/**
  * Start a setup job with POST `path` (`body`: { kits } | { id } | { text | url }). Asks for the password when the
  * server says sudo needs it (again after a wrong one), offers the terminal when a step needs a person. `started()`
  * is called once the job runs. Resolves true when something started (a job or a terminal session).
@@ -54,6 +80,11 @@ export async function startSetup(path, body, { started = () => {} } = {}) {
     try {
       r = await api(path, { ...body, ...extra });
     } catch (e) {
+      if (e instanceof ApiError && e.code === 'plain-leg') {
+        const c = await openComputer();
+        await plainLegSheet({ label: c ? c.label : undefined, page: e.data.page || (c && c.url) });
+        return false;
+      }
       toast(e.message, { kind: 'error', ms: 7000 });
       return false;
     }
@@ -76,6 +107,12 @@ export async function startSetup(path, body, { started = () => {} } = {}) {
       return false;
     }
     if (r.needsPassword) {
+      // Another computer over a plain leg: no password field, only where to type it (its own page).
+      const c = await openComputer();
+      if (r.plainLeg || (c && !c.encrypted)) {
+        await plainLegSheet({ label: c ? c.label : undefined, page: c && c.url });
+        return false;
+      }
       const pw = await passwordSheet({ wrong: r.wrong === true });
       if (pw === null) return false;
       extra = pw === 'terminal' ? { terminal: true } : { password: pw };
