@@ -34,6 +34,14 @@ function rawSettings() {
 
 const paidNames = () => new Set(listProfiles().filter((p) => p.paid).map((p) => p.name));
 
+// The default of a choice never made. The profile files are read once, and only when the order is not empty:
+// getAutoSwitch() runs on every state poll.
+function orderHasPaid(order, paid = null) {
+  if (!order.length) return false;
+  const set = paid || paidNames();
+  return order.some((n) => set.has(n));
+}
+
 export function getAutoSwitch() {
   const a = rawSettings();
   const cooldown = Number(a.cooldownMinutes);
@@ -41,7 +49,7 @@ export function getAutoSwitch() {
   return {
     enabled: a.enabled === true,
     order,
-    payPerUse: typeof a.payPerUse === 'boolean' ? a.payPerUse : order.some((n) => paidNames().has(n)),
+    payPerUse: typeof a.payPerUse === 'boolean' ? a.payPerUse : orderHasPaid(order),
     returnToPreferred: a.returnToPreferred === true,
     prompt: typeof a.prompt === 'string' && a.prompt.trim() ? a.prompt.trim().slice(0, 500) : DEFAULTS.prompt,
     cooldownMinutes: Number.isFinite(cooldown) && cooldown >= 1 && cooldown <= 7 * 24 * 60 ? cooldown : DEFAULTS.cooldownMinutes,
@@ -84,7 +92,7 @@ export function setAutoSwitch(patch) {
   }
   const { payPerUse, ...rest } = next;
   saveConfig({ autoSwitch: chosen ? next : rest });
-  return { ...rest, payPerUse: chosen ? payPerUse : rest.order.some((n) => paid.has(n)) };
+  return { ...rest, payPerUse: chosen ? payPerUse : orderHasPaid(rest.order, paid) };
 }
 
 // ---- which profile is at its limit, and until when ----
