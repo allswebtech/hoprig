@@ -32,6 +32,9 @@ setInterval(() => {}, 1 << 30);
 `);
 process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
 const GATEWAY_PORT = 7972;
+// The stand-ins are scripts started by their "#!" line, and a tunnel's command line, the fact that shows an older file's
+// tunnel is ours, is not read on Windows (linkmigrate.mjs): those tests run elsewhere.
+const POSIX = { skip: process.platform === 'win32' };
 const SERVICE_PORT = 7975;
 
 const { saveConfig } = await import('../src/config.mjs');
@@ -92,7 +95,7 @@ const serviceFile = () => path.join(box.state, 'addons', 'public-link-service.js
 const look = async () => ({ status: 401, headers: new Headers(), text: async () => '<form>password</form>' });
 const addService = () => P.temporarySteps['add-service']({ port: SERVICE_PORT, confirmed: true }, { notify: async () => ({ sent: false }), fetchImpl: look, waitMs: 10_000 });
 
-test('the second temporary address: a pid of another program now is not said to run and gets no signal', async () => {
+test('the second temporary address: a pid of another program now is not said to run and gets no signal', POSIX, async () => {
   for (const rec of [
     (pid) => ({ pid, proc: earlier(pid) }), // written with an identity: another process has its pid now
     (pid) => ({ pid }), // written before identities, in this boot: its command line is not a tunnel of ours
@@ -114,7 +117,7 @@ test('the second temporary address: a pid of another program now is not said to 
   await P.stopService();
 });
 
-test('the second temporary address of ours: found running and stopped; a file from before identities still works in this boot, not after a restart', async () => {
+test('the second temporary address of ours: found running and stopped; a file from before identities still works in this boot, not after a restart', POSIX, async () => {
   const r = await addService();
   assert.equal(r.ok, true, r.error);
   const rec = JSON.parse(fs.readFileSync(serviceFile(), 'utf8'));
@@ -146,7 +149,7 @@ test('the second temporary address of ours: found running and stopped; a file fr
 const gatewayPidFile = () => path.join(box.state, 'addons', 'trouteai.pid');
 const listening = () => T.status().then((s) => s.running);
 
-test('the gateway: stop ends what listens on its port, never another program under the file\'s pid', { skip: process.platform === 'win32' }, async () => {
+test('the gateway: stop ends what listens on its port, never another program under the file\'s pid', POSIX, async () => {
   for (const content of [(pid) => String(pid), (pid) => JSON.stringify({ pid, proc: earlier(pid) })]) {
     const gw = spawned([path.join(bin, 'trouteai'), '--port', String(GATEWAY_PORT)]);
     assert.ok(await until(listening), 'the stand-in gateway listens');
@@ -159,7 +162,7 @@ test('the gateway: stop ends what listens on its port, never another program und
   }
 });
 
-test('the gateway of ours: started, its identity in the file, stopped; an old file of its parent still works in this boot, not after a restart', { skip: process.platform === 'win32' }, async () => {
+test('the gateway of ours: started, its identity in the file, stopped; an old file of its parent still works in this boot, not after a restart', POSIX, async () => {
   const s = await T.start();
   assert.equal(s.ok, true, s.error);
   const rec = JSON.parse(fs.readFileSync(gatewayPidFile(), 'utf8'));
@@ -237,7 +240,7 @@ test('a hold of another dashboard process of ours counts while it lives', async 
 const URL_NOW = 'https://live-words.trycloudflare.com';
 const record = (rec) => write(linkRecordFile(), { kind: 'temporary', url: URL_NOW, connected: true, ...rec });
 
-test('the Temporary address: not shown as live when its pid is another program now', async () => {
+test('the Temporary address: not shown as live when its pid is another program now', POSIX, async () => {
   saveConfig({ publicLink: { on: true, kind: 'temporary' } });
   const pid = stranger();
   for (const rec of [{ pid, proc: earlier(pid) }, { pid }]) {
@@ -254,7 +257,7 @@ test('the Temporary address: not shown as live when its pid is another program n
   assert.ok(alive(pid));
 });
 
-test('the Temporary address of ours is live; a record from before identities in this boot too, not one from before it', () => {
+test('the Temporary address of ours is live; a record from before identities in this boot too, not one from before it', POSIX, () => {
   saveConfig({ publicLink: { on: true, kind: 'temporary' } });
   const pid = tunnel(7971);
   record({ pid, proc: identity(pid) });
