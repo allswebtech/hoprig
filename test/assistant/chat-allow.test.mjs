@@ -211,6 +211,7 @@ test('in the real dashboard: in her chat she allows by herself only what the sho
     ['Bash', { command: 'npm run test:unit' }],
     ['Bash', { command: 'node --test' }], // exactly these two words
     ['Read', { file_path: `${proj}/.git/config` }], // reading a place that runs a program later stays allowed
+    ['Write', { file_path: `${proj}/sub/config`, content: '[core]' }], // a plain name; git takes no repository without a HEAD
   ]) {
     const { r, card } = await level(tool, input);
     assert.equal(card.ask.known, true);
@@ -247,6 +248,8 @@ test('in the real dashboard: in her chat she allows by herself only what the sho
     ['Write', { file_path: `${proj}/.git/hooks/pre-commit`, content: 'x' }, /makes a program run later/],
     ['Edit', { file_path: `${proj}/.mcp.json`, old_string: 'a', new_string: 'b' }, /makes a program run later/],
     ['Read', { file_path: `${proj}/.npmrc` }, /a file that may hold secrets/],
+    // A file named HEAD (with objects/, refs/ and a config it makes a folder a repository to git).
+    ['Write', { file_path: `${proj}/sub/HEAD`, content: 'ref: refs/heads/main' }, /makes a program run later/],
   ]) {
     const { r, card } = await level(tool, input);
     assert.equal(card.ask.known, true, `${tool} ${JSON.stringify(input)}`);
@@ -261,6 +264,14 @@ test('in the real dashboard: in her chat she allows by herself only what the sho
     const { r } = await level(tool, input);
     assert.match(r.text, /Waiting for the owner's OK.*not a project's folder/s, `${tool} in a credentials folder`);
   }
+  // A chat in a repository's .github: its own files are work, its workflows (run later on GitHub) the owner's.
+  const gh = path.join(proj, '.github');
+  fs.mkdirSync(gh, { recursive: true });
+  id = await start('hello', gh);
+  let { r } = await level('Write', { file_path: `${gh}/README.md`, content: 'x' });
+  assert.doesNotMatch(r.text, /Waiting for the owner's OK/, 'a plain file in .github');
+  ({ r } = await level('Write', { file_path: `${gh}/workflows/deploy.yml`, content: 'on: push' }));
+  assert.match(r.text, /Waiting for the owner's OK.*makes a program run later/s, 'a workflow below the chat\'s .github');
 });
 
 test('in the real dashboard: her mark comes only from her own door, and goes when her conversation ran in a terminal', { timeout: 240_000, ...POSIX }, async (t) => {

@@ -9,7 +9,8 @@
 //      nor a folder whose own path names secrets or a place that makes a program run later.
 //   a. file tools: every path of the call, resolved against the chat's folder by node:path, lies inside that folder and
 //      is plain ASCII; no path names the home folder by "~" or a variable; below the folder, no path is a file that may
-//      hold secrets, and a write goes to no place that makes a program run later (.git/, .claude/, .vscode/, .mcp.json …).
+//      hold secrets, and a write goes to no place that makes a program run later (.git/, .claude/, .vscode/, .mcp.json,
+//      a file named HEAD, and the workflows/ or actions/ of a .github folder the chat's folder lies in …).
 //   b. Bash: one simple command of plain ASCII (none of ; & | < > ( ) { } $ ` \ ' " ~, no line break, and no * ? [ ]:
 //      the shell would turn those into words nobody judged), no word that starts with "@" or "=" (some programs read
 //      such a word as a file of options; a shell expands it), its first word or two a key of TABLE, every word that
@@ -76,7 +77,7 @@ export const WHY = {
   home: 'a path that names the home folder or a variable',
   notAscii: 'a path with a character outside plain ASCII (a disk that ignores case may read it as another name)',
   secret: 'a file that may hold secrets (a key, a password, a .env)',
-  runsLater: 'a write to a file that makes a program run later (.git, .claude, .vscode, .github, .mcp.json …)',
+  runsLater: 'a write to a file that makes a program run later (.git, a file named HEAD, .claude, .vscode, .github, .mcp.json …)',
   command: `a command that is not on the short list ${ASSISTANT_NAME} may allow herself`,
   option: `an option that is not on the short list ${ASSISTANT_NAME} may allow herself`,
   atWord: 'a word that starts with "@" or "=": a file some programs read their options from, or a word the shell expands',
@@ -89,6 +90,13 @@ export const WHY = {
 // editors' settings and tasks, CI, the MCP servers a coding tool starts, npm's and direnv's start-up files. Compared
 // without case (a Mac's disk does not tell .Git from .git).
 const RUNS_LATER = new Set(['.git', '.claude', '.vscode', '.idea', '.husky', '.github', '.mcp.json', '.npmrc', '.envrc', '.pypirc']);
+// A folder with a file HEAD, objects/ and refs/ is a repository to git, found before the parent's .git: git reads its
+// config (core.fsmonitor, diff.external run a program) on her next "git status" and on the owner's later git calls
+// there. Git needs a valid HEAD first, and a project's own file named HEAD is rare: writing one is the owner's call.
+const GIT_HEAD = 'head';
+// CI that GitHub runs later with the repository's secrets: a chat whose folder lies in a .github folder (the repository's
+// own, or a project named .github) writes no workflows/ or actions/ directly below that .github.
+const CI = new Set(['workflows', 'actions']);
 
 /** The part of `abs` (inside `root`) below the folder, as parts. */
 const below = (abs, root) => (abs === root ? [] : abs.slice(root.length + 1).split('/'));
@@ -107,11 +115,18 @@ function pathWhy(raw, root) {
 }
 const optionalPath = (raw, root) => (raw === undefined ? null : pathWhy(raw, root));
 
-/** A write: a path she may touch, and no part of it below the folder a place in RUNS_LATER. */
+/** A write: a path she may touch; no part of it below the folder a place in RUNS_LATER, its last part not HEAD; and when
+ * the folder's own path has a .github part, not into that .github's workflows/ or actions/. Compared without case. */
 function writeWhy(raw, root) {
   const why = pathWhy(raw, root);
   if (why) return why;
-  return below(P.resolve(root, raw), root).some((part) => RUNS_LATER.has(part.toLowerCase())) ? WHY.runsLater : null;
+  const abs = P.resolve(root, raw).toLowerCase();
+  const parts = below(abs, root.toLowerCase());
+  if (parts.some((part) => RUNS_LATER.has(part)) || parts.at(-1) === GIT_HEAD) return WHY.runsLater;
+  const all = abs.split('/');
+  const own = root.split('/').length;
+  for (let i = 0; i < own; i++) if (all[i] === '.github' && CI.has(all[i + 1])) return WHY.runsLater;
+  return null;
 }
 
 // A glob of the Glob tool: what it can match must stay in the folder. No "..", no element that starts at "/" inside
@@ -234,7 +249,7 @@ const WORKTREE = /\/\.claude\/worktrees\/(?=[^/]+\/)/gi;
  * starts with a dot or is "bin" or "Library", or anything in those (~/.config/x, ~/bin, ~/Library/LaunchAgents):
  * settings, start-up entries and programs on the PATH. Nor a folder whose own path names secrets (a credentials folder,
  * a folder of keys) or lies in a place that makes a program run later (.git/hooks, .claude/agents); a project named
- * .github and a worktree of Claude Code are a project's. */
+ * .github and a worktree of Claude Code are a project's (a write into the CI of a .github it lies in is writeWhy's). */
 function notAProject(root, home) {
   const low = root.toLowerCase();
   if (low === '/' || low === '/home' || low === '/users' || SYSTEM.has(low.split('/')[1])) return true;

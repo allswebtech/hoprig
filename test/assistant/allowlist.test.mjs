@@ -338,6 +338,31 @@ test('the cases of both checks of the list: every option they got through is a c
   for (const p of ['CLAUDE.md', 'package.json']) allowed(allowsHerself('Write', { file_path: `${ROOT}/${p}`, content: 'x' }, ROOT), p);
 });
 
+// What the check of v3 found: four plain-named writes made a folder a repository to git (its config runs a program on
+// the next git call there), and a chat inside a repository's .github wrote CI. Fixed rows: [folder, path written].
+const CHECK_V3_CARD = [
+  ['/home/owner/web/sub', 'HEAD'], ['/home/owner/web', 'pkg/HEAD'], ['/home/owner/web', 'head'], ['/home/owner/web', 'a/Head'],
+  ['/home/owner/web', 'x/../HEAD'], ['/home/owner/code/.github', 'pkg/HEAD'],
+  ['/home/owner/web/.github', 'workflows/deploy.yml'], ['/home/owner/web/.github/workflows', 'deploy.yml'], ['/home/owner/web/.github/actions', 'x/action.yml'],
+  ['/home/owner/web/.github', 'Workflows/x.yml'], ['/home/owner/web/.GitHub/workflows', 'x.yml'], ['/home/owner/web/.github', 'actions/x/action.yml'],
+  ['/home/owner/web/.github/workflows/sub', 'x.yml'], ['/home/owner/code/.github', 'workflows/ci.yml'],
+];
+const CHECK_V3_ALLOWED = [
+  ['/home/owner/web/sub', 'config'], ['/home/owner/web/sub', 'objects/x'], ['/home/owner/web/sub', 'refs/x'], ['/home/owner/web', 'HEADER.md'],
+  ['/home/owner/web', 'head.js'], ['/home/owner/web', 'src/HEAD.txt'], ['/home/owner/web/.github', 'README.md'],
+  ['/home/owner/web/.github', 'ISSUE_TEMPLATE/bug.md'], ['/home/owner/web/.github', 'workflows.md'], ['/home/owner/code/.github', 'src/workflows/a.js'],
+];
+test('the cases of the check of v3: a file named HEAD and the CI of a .github the folder lies in are run-later writes', () => {
+  const home = '/home/owner';
+  for (const [cwd, p] of CHECK_V3_CARD) {
+    for (const tool of ['Write', 'Edit', 'MultiEdit']) card(allowsHerself(tool, { file_path: p, content: 'x' }, cwd, home), WHY.runsLater, `${tool} ${p} in ${cwd}`);
+    card(allowsHerself('NotebookEdit', { notebook_path: `${cwd}/${p}` }, cwd, home), WHY.runsLater, `NotebookEdit ${p} in ${cwd}`);
+    allowed(allowsHerself('Read', { file_path: p }, cwd, home), `Read ${p} in ${cwd}`);
+  }
+  for (const [cwd, p] of CHECK_V3_ALLOWED) allowed(allowsHerself('Write', { file_path: p, content: 'x' }, cwd, home), `Write ${p} in ${cwd}`);
+  for (const cwd of ['/home/owner/web/sub', '/home/owner/web']) allowed(allowsHerself('Bash', { command: 'git status' }, cwd, home), `git status in ${cwd}`);
+});
+
 // What the earlier checks of the deny-list (their lists of paths and command shapes) found it let through, and the rest
 // of those lists: every one is a card now.
 const EARLIER = [
