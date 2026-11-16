@@ -337,8 +337,14 @@ async function scheduleForm(old, preset = null) {
   // A schedule starts Claude Code in a terminal, or a chat in its coding tool: only the providers that serve that tool.
   const toolOf = (a) => (a.in === 'chat' && a.tool ? a.tool : 'claude');
   const accountsFor = (tool) => (d.profiles || []).filter((p) => servesTool(p, tool)).map((p) => [p.name, p.virtual ? 'Auto mode (the next provider at a limit)' : p.label]);
-  const accounts = accountsFor('claude');
-  const firstAccount = d.recommended || (accounts[0] || [''])[0];
+  // The provider a new schedule names first: the computer's default for that coding tool (src/defaultprovider.mjs:
+  // `recommended`, another tool's in `toolDefaults`), else the first that serves it.
+  const firstFor = (tool) => {
+    const list = accountsFor(tool);
+    const rec = tool === 'claude' ? d.recommended : d.toolDefaults && d.toolDefaults[tool] ? d.toolDefaults[tool].recommended : null;
+    return (tool === 'claude' ? rec : list.some(([n]) => n === rec) && rec) || (list[0] || [''])[0];
+  };
+  const firstAccount = firstFor('claude');
   // Where a message can go: the coding sessions in a terminal and the open chats (by their title).
   const targets = (d.sessions || []).filter((x) => isCodingCard(x) || x.kind === 'chat')
     .map((x) => [x.name, x.kind === 'chat' ? `Chat: ${x.title || x.display || 'New chat'}` : x.name]);
@@ -421,8 +427,7 @@ async function scheduleForm(old, preset = null) {
               seg('Coding tool', tools.map((t) => [t.id, t.name]), toolOf(a), (v) => {
                 if (v === 'claude') delete a.tool;
                 else a.tool = v;
-                const list = accountsFor(v);
-                if (!list.some(([n]) => n === a.profile)) a.profile = (list[0] || [''])[0];
+                if (!accountsFor(v).some(([n]) => n === a.profile)) a.profile = firstFor(v);
                 paintWhat();
                 paintSentence();
               }),
