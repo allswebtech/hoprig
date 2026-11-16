@@ -18,6 +18,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { listProfiles, notServedLines, readProfile, servesTools, validName } from '../profiles.mjs';
+import { rememberFolderProvider } from '../defaultprovider.mjs';
 import { createRun, removeRun, updateRun } from '../runs.mjs';
 import { codexPlan, opencodePlan, standalonePlan } from './attach.mjs';
 import { anyTool, findTool, notOffered } from './index.mjs';
@@ -107,6 +108,10 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
     return 2;
   }
   const { file, run } = createRun({ profile: profile.name, cwd, carryArgs: carryOf(o), tool: toolId });
+  // A new conversation started here makes this the folder's provider for this coding tool, as Claude Code's launcher
+  // does for its own (defaultprovider.mjs). A resume or a continue (a move too: it resumes) carries a conversation on
+  // and says nothing about where the next one should start.
+  if (!o.resume && !o.cont) rememberFolderProvider(cwd, profile.name, toolId);
   updateRun(file, { server: true, statusSource: 'server' }); // counted as a user before the server is looked at
   const report = makeReporter(file);
   let follow = null;

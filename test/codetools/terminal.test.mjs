@@ -432,6 +432,7 @@ test('a new session on a provider the running server lacks: when nobody else use
   assert.equal(S.readServer('opencode'), null, 'and stopped when that last session ended');
   const { lastProviderIn } = await import('../../src/defaultprovider.mjs');
   assert.equal(lastProviderIn(tmp), null, 'another coding tool\'s start never becomes the folder\'s provider: that is Claude Code\'s launcher\'s');
+  assert.equal(lastProviderIn(tmp, undefined, 'opencode'), 'late2', 'a new OpenCode session makes it the folder\'s provider for OpenCode');
   P.deleteProfile('late2');
 });
 
