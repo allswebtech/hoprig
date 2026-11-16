@@ -9,14 +9,16 @@
 //   list()                         every terminal: [{ session, id, pid, cwd, command, created, attached, activity,
 //                                  active, dead }]. `session` is the user-visible name; `id` names one terminal
 //                                  (a tmux pane "%3", a pty "pty-…"); `pid` is the process that runs in it.
-//   create({ name, dir, argv })    new session in `dir`, running argv (or a plain shell). Returns { name, id }.
+//   create({ name, dir, argv, mark }) new session in `dir`, running argv (or a plain shell). Returns { name, id }.
+//                                  `mark`: a file the terminal removes once it is back at its own shell, argv ended
+//                                  or never started (src/server/deck.mjs noteLaunch)
 //   attach(name, { cols, rows })   (sync) a live byte stream of the session's screen:
 //                                  { onData(fn), onExit(fn), write(str), resize(c, r), pause(), resume(), close() }
 //   sendText(id, text)             type text (several lines arrive as one paste, not as several submits)
 //   sendKey(id, key)               one key: Enter | Escape | Tab | BTab | C-c | Up | Down | Left | Right
 //   capture(id, lines)             the last `lines` lines of history and screen, as plain text
 //   scroll(id, action, n)          history view: action "up" | "down" (n lines) | "exit" (back to live)
-//   respawn(id, dir, argv)         stop what runs in the terminal and start argv there, same name and id
+//   respawn(id, dir, argv, { mark }) stop what runs in the terminal and start argv there, same name and id
 //   rename(name, next), kill(name)
 //   close()                        the server is stopping (tmux: nothing; pty: ends every session)
 //   validName(name)                (sync) whether a session name is acceptable to this backend

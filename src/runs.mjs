@@ -38,7 +38,15 @@
 //   statusSource  (codex, opencode) 'server': the status comes from the server's events; 'basic': it does not (the
 //              tool runs on its own, or the server cannot be reached), and the card reads the screen's activity only
 //   title      (codex, opencode) the conversation's name as the tool gave it
-//   startedAt, statusAt   epoch milliseconds
+//   startedAt, statusAt   epoch milliseconds. startedAt is when the record first named its conversation: kept when the
+//              launcher writes its record anew for its own move, so who held a conversation first stays known
+//   termName   the dashboard's name of the terminal it runs in ($HOPRIG_TERM_NAME; the built-in terminals set it), or null
+//   tmuxSocket the tmux server of its pane (from $TMUX), so another launcher can name that session
+//
+// A chat of the dashboard (src/chat) writes a record of the same kind while its coding tool's process runs on a
+// conversation: kind 'chat', its chat's id (chat), pid the dashboard's own, conversation and tool. It holds no terminal,
+// so only the readers of "who runs this conversation" (heldBefore, the dashboard's claim) list it: listRuns({ chats }).
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runsDir } from './paths.mjs';
@@ -52,6 +60,7 @@ export function createRun({ profile, cwd, carryArgs = [], tool = 'claude', conve
   const runId = again ? path.basename(again, '.json') : `${Date.now().toString(36)}-${process.pid}`;
   const file = again || path.join(runsDir(), `${runId}.json`);
   const now = Date.now();
+  const before = again ? readRun(again) : null;
   const run = {
     runId,
     pid: process.pid,
@@ -59,18 +68,45 @@ export function createRun({ profile, cwd, carryArgs = [], tool = 'claude', conve
     cwd,
     tmuxPane: process.env.TMUX_PANE || null,
     termId: process.env.HOPRIG_TERM_ID || null,
+    termName: process.env.HOPRIG_TERM_NAME || null,
+    tmuxSocket: process.env.TMUX_PANE && process.env.TMUX ? process.env.TMUX.split(',')[0] : null,
     sessionId: null,
     conversation: conversation || null,
     status: 'starting',
     note: '',
     carryArgs,
     tool,
-    startedAt: now,
+    startedAt: before && Number.isFinite(before.startedAt) ? before.startedAt : now,
     statusAt: now,
   };
   fs.mkdirSync(runsDir(), { recursive: true, mode: 0o700 });
   write(file, run);
   return { file, run };
+}
+
+/** The record of a chat's process on `conversation` (see the top of this file). Removed with removeRun when it ends. */
+export function createChatRun({ chat, conversation, tool = 'claude', cwd, profile }) {
+  const runId = `${Date.now().toString(36)}-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+  const file = path.join(runsDir(), `${runId}.json`);
+  const now = Date.now();
+  const run = { runId, kind: 'chat', chat, pid: process.pid, profile, cwd, sessionId: null, conversation, status: 'working', tool, startedAt: now, statusAt: now };
+  fs.mkdirSync(runsDir(), { recursive: true, mode: 0o700 });
+  write(file, run);
+  return { file, run };
+}
+
+/** Record `r` runs conversation `id` of coding tool `tool`: the tool's own report first, else the id it was started on. */
+export const runsConversation = (r, id, tool = 'claude') => (r.tool || 'claude') === tool && (r.sessionId === id || (!r.sessionId && r.conversation === id));
+
+/**
+ * One conversation, one process, between processes that do not know of each other (a launcher in any terminal, a chat
+ * of the dashboard): each writes its record first and asks this second. The live record (a terminal's or a chat's)
+ * that runs conversation `id` and was there before `mine`, or null. Of two that start at the same moment, each sees
+ * the other or only the later one sees the earlier: the earlier goes on, the later starts nothing.
+ */
+export function heldBefore(mine, id, tool = 'claude') {
+  const earlier = (r) => r.startedAt < mine.startedAt || (r.startedAt === mine.startedAt && r.runId < mine.runId);
+  return listRuns({ chats: true }).find((r) => r.runId !== mine.runId && r.status !== 'ended' && runsConversation(r, id, tool) && earlier(r)) || null;
 }
 
 /** Where the launch's status line script saves Claude Code's status data (see statusScript in launch.mjs). */
@@ -154,8 +190,11 @@ const alive = (pid) => {
   }
 };
 
-/** Every live run. Files whose launcher is gone are deleted on the way. */
-export function listRuns() {
+/**
+ * Every live run of a launcher. Files whose process is gone are deleted on the way. `chats`: the records of the
+ * dashboard's chat processes too (they run a conversation, but in no terminal).
+ */
+export function listRuns({ chats = false } = {}) {
   let names;
   try {
     names = fs.readdirSync(runsDir());
@@ -171,6 +210,10 @@ export function listRuns() {
       // Leave a file that is being written right now (unparsable for a moment) alone unless it is old.
       const old = (() => { try { return Date.now() - fs.statSync(file).mtimeMs > 60_000; } catch { return false; } })();
       if (run || old) removeRun(file);
+      continue;
+    }
+    if (run.kind === 'chat') {
+      if (chats) runs.push(run);
       continue;
     }
     const usage = noteUsage(file, run.profile);

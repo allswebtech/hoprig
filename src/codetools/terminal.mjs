@@ -19,6 +19,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { listProfiles, notServedLines, readProfile, servesTools, validName } from '../profiles.mjs';
 import { rememberFolderProvider } from '../defaultprovider.mjs';
+import { refuseIfHeld } from '../held.mjs';
 import { createRun, removeRun, updateRun } from '../runs.mjs';
 import { codexPlan, opencodePlan, standalonePlan } from './attach.mjs';
 import { anyTool, findTool, notOffered } from './index.mjs';
@@ -82,33 +83,34 @@ async function modelFor(o, profile) {
  */
 export async function launchTool(toolId, profileName, args, { cwd = process.cwd(), base = process.env } = {}) {
   const tool = anyTool(toolId); // toolCommand and the dashboard let only an offered tool through
-  const profile = readProfile(profileName);
-  if (!profile) {
-    console.error(`hoprig: no provider "${profileName}". Add one on the Providers page, or with: hoprig add`);
-    return 2;
-  }
-  if (!servesTools(profile).includes(toolId)) {
-    for (const line of notServedLines(profile, toolId)) console.error(line);
-    return 2;
-  }
-  if (!fs.existsSync(tool.binPath())) {
-    console.error(`hoprig: ${tool.name} is not installed in Hoprig's tools folder. Install it: hoprig tools install ${toolId}`);
-    return 127;
-  }
   let o;
   try {
     o = parseToolArgs(args);
-    tool.flagsFor(o); // refuses an unknown permission mode or effort
   } catch (e) {
     console.error(`hoprig: ${e.message}`);
     return 2;
   }
-  if (o.resume && !isToolSessionId(toolId, o.resume)) {
-    console.error(`hoprig: "${o.resume}" is not a ${tool.name} conversation id.`);
-    return 2;
+  // A resume names its conversation in the run record, written before any check that can refuse the start (one
+  // conversation, one process); a refusal removes it again: a terminal that runs nothing holds nothing.
+  const conversation = o.resume && isToolSessionId(toolId, o.resume) ? o.resume : null;
+  const { file, run } = createRun({ profile: profileName, cwd, carryArgs: carryOf(o), tool: toolId, conversation });
+  const refuse = (code, lines) => {
+    for (const line of lines) console.error(line);
+    removeRun(file);
+    return code;
+  };
+  // A chat or another terminal that runs this conversation already keeps it (held.mjs).
+  if (refuseIfHeld(run, conversation, toolId, tool.name)) return refuse(2, []);
+  const profile = readProfile(profileName);
+  if (!profile) return refuse(2, [`hoprig: no provider "${profileName}". Add one on the Providers page, or with: hoprig add`]);
+  if (!servesTools(profile).includes(toolId)) return refuse(2, notServedLines(profile, toolId));
+  if (!fs.existsSync(tool.binPath())) return refuse(127, [`hoprig: ${tool.name} is not installed in Hoprig's tools folder. Install it: hoprig tools install ${toolId}`]);
+  try {
+    tool.flagsFor(o); // refuses an unknown permission mode or effort
+  } catch (e) {
+    return refuse(2, [`hoprig: ${e.message}`]);
   }
-  // A resume names its conversation in the run record before the coding tool starts (one conversation, one process).
-  const { file, run } = createRun({ profile: profile.name, cwd, carryArgs: carryOf(o), tool: toolId, conversation: o.resume });
+  if (o.resume && !conversation) return refuse(2, [`hoprig: "${o.resume}" is not a ${tool.name} conversation id.`]);
   // A new conversation started here makes this the folder's provider for this coding tool, as Claude Code's launcher
   // does for its own (defaultprovider.mjs). A resume or a continue (a move too: it resumes) carries a conversation on
   // and says nothing about where the next one should start.

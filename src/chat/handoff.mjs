@@ -9,9 +9,9 @@
 //                                             terminal runs it already → { name, existing: true } (the chat stays)
 import crypto from 'node:crypto';
 import { assertServes, readProfile } from '../profiles.mjs';
-import { listRuns } from '../runs.mjs';
+import { listRuns, runsConversation } from '../runs.mjs';
 import { toolFlags } from '../codetools/start.mjs';
-import { matchRuns } from '../server/deck.mjs';
+import { matchRuns, queue } from '../server/deck.mjs';
 import { parentLookup, procParent } from '../server/platform.mjs';
 import * as v from '../server/validate.mjs';
 import { chatTools, choicesOf, conversationIdOk, modeFor, modelOk } from './tools.mjs';
@@ -33,51 +33,45 @@ export function terminals(ctx, o = {}) {
   // when its launcher named it at the start (runs.mjs: conversation; written before the tool starts, so it holds from
   // the first moment, after a restart of the dashboard and for a terminal started outside it). The tool's own report
   // decides once there is one: after /clear it runs another conversation.
-  const runsIt = (r, id) => r.sessionId === id || (!r.sessionId && r.conversation === id);
   async function terminalOf(id, tool = 'claude') {
     // A record without `tool` is an older one of Claude Code's.
     // The note is read before the terminals are listed: one written meanwhile is not judged by an older list.
     const note = ctx.deck?.launchOf?.(id, tool);
     const all = listRuns().filter((r) => r.status !== 'ended');
-    const live = all.filter((r) => (r.tool || 'claude') === tool);
-    const runs = live.filter((r) => runsIt(r, id));
+    const runs = all.filter((r) => runsConversation(r, id, tool));
     const parents = all.some((r) => r.tmuxPane) ? await parentLookup() : procParent;
     const terms = await ctx.backend.list();
     const byId = matchRuns(terms, runs, parents);
     const t = terms.find((x) => byId.has(x.id));
     // The moment before a launcher has written its record (deck.mjs noteLaunch): the terminal it was started in runs
-    // the conversation while it lives and holds no record written since. It ends at the first record seen there (any
-    // record, whatever it runs), or with the terminal: from then on only records say what runs, and a launcher that has
-    // ended leaves a plain shell that runs nothing.
+    // the conversation while it lives, holds no record written since, and has not come back to its own shell. It ends
+    // at the first record seen there (any record, whatever it runs), when the terminal is back at its shell (deck.mjs
+    // launchEnded: a launcher that ended at once, or never ran), or with the terminal: from then on only records say
+    // what runs.
     const nt = note && terms.find((x) => x.session === note.name);
     const written = nt && matchRuns([nt], all.filter((r) => r.startedAt >= note.at), parents).has(nt.id);
-    if (note && (!nt || written) && ctx.deck.launchOf(id, tool) === note) ctx.deck.launchOf(id, tool, { drop: true });
+    const holds = nt && !written && !ctx.deck.launchEnded(note);
+    if (note && !holds && ctx.deck.launchOf(id, tool) === note) ctx.deck.launchOf(id, tool, { drop: true });
     if (t) return { name: t.session, termId: t.id, cwd: t.cwd, run: byId.get(t.id) };
-    if (nt && !written) return { name: nt.session, termId: nt.id, cwd: nt.cwd, run: null };
+    if (holds) return { name: nt.session, termId: nt.id, cwd: nt.cwd, run: null };
     return runs.length ? { name: null, run: runs[0] } : null;
   }
   const inTerminal = (term) => Object.assign(new HttpError(409, term.name
     ? `This conversation runs in the terminal session "${term.name}". Continue it here (that terminal stops), or read along.`
     : 'This conversation runs in a terminal outside the dashboard. Continue it here (that terminal stops), or read along.'), { code: 'in-terminal' });
-  const lines = new Map(); // `${tool}:${id}` → the step in flight on that conversation
-  /** `fn` after every earlier step on conversation `id` (a start, a take-over): one at a time. */
-  function serial(id, fn, tool = 'claude') {
-    const key = `${tool}:${id}`;
-    const p = (lines.get(key) || Promise.resolve()).catch(() => {}).then(fn);
-    lines.set(key, p);
-    p.catch(() => {}).finally(() => lines.get(key) === p && lines.delete(key));
-    return p;
-  }
+  // The conversation's own queue: the Deck's, which its moves to another provider share (deck.mjs move).
+  const own = ctx.deck?.serial ? ctx.deck.serial : queue();
+  /** `fn` after every earlier step on conversation `id` (a start, a take-over, a move): one at a time. */
+  const serial = (id, fn, tool = 'claude') => own(`${tool}:${id}`, fn);
   function claim(id, fn, { tool = 'claude', self = null } = {}) {
     return serial(id, async () => {
       const term = await terminalOf(id, tool);
       if (term) return { terminal: term };
-      const chat = o.chatOf ? o.chatOf(id, tool) : null;
+      // A chat's process: this dashboard's chats, and every chat record (runs.mjs createChatRun).
+      const chat = (o.chatOf ? o.chatOf(id, tool) : null) || (listRuns({ chats: true }).find((r) => r.kind === 'chat' && r.chat !== self && runsConversation(r, id, tool)) || {}).chat;
       if (chat && chat !== self) return { chat };
-      const at = Date.now();
-      const started = await fn();
-      if (started && typeof started.name === 'string') ctx.deck?.noteLaunch?.(started.name, id, tool, at);
-      return { started };
+      // A start on the conversation is noted by the Deck as it creates the terminal (deck.mjs create).
+      return { started: await fn() };
     }, tool);
   }
   /** The terminal of conversation `id` was told to stop (Continue here): what was known of its start goes. */
@@ -134,7 +128,8 @@ export function handoffRoutes(ctx, o) {
       if (!v.sessionName(b.session)) throw bad('bad session name');
       const found = await ctx.deck.find(b.session);
       if (!found) throw new HttpError(404, 'no such session');
-      const run = found.run;
+      // The conversation the terminal runs: the coding tool's own report, else the one its launcher named at the start.
+      const run = found.run && { ...found.run, sessionId: found.run.sessionId || found.run.conversation || null };
       // A chat runs the coding tools that have a chat here; another tool's conversation stays in its terminal.
       const tool = run ? run.tool || 'claude' : 'claude';
       if (run && !chatTools(cfg()).includes(tool)) throw new HttpError(409, 'Open as chat is not offered for this coding tool: this conversation stays in its terminal');

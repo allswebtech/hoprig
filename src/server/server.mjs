@@ -310,10 +310,7 @@ export function createServer(opts = {}) {
 
   /** Move a session to another profile; "auto" is not a profile file, so it is built here. */
   async function moveTo(term, run, name) {
-    if (name !== AUTO.name) return deck.move(term, run, name);
-    const argv = deck.moveArgv({ name: AUTO.name, env: {} }, run);
-    deck.noteLaunch(term.session, run.sessionId, run.tool || 'claude'); // as deck.move does
-    await backend.respawn(term.id, run.cwd, argv);
+    return deck.move(term, run, name, name === AUTO.name ? { profile: { name: AUTO.name, env: {} } } : {});
   }
 
   /**

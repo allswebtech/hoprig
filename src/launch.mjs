@@ -15,6 +15,7 @@ import { listProfiles, notServedLines, profileEnv, readProfile, servesTools } fr
 import { loginSeen, rememberLogin } from './routerstate.mjs';
 import { createRun, noteUsage, readRun, readUsage, removeRun, updateRun, usageFile } from './runs.mjs';
 import { hasConversation, isSessionId } from './sessions.mjs';
+import { refuseIfHeld } from './held.mjs';
 import { compareVersions } from './setup/system.mjs';
 import { AUTO, autoIdentity, ensureRouter } from './router.mjs';
 import { resolveWindowsBin, windowsSpawnPlan } from './winspawn.mjs';
@@ -64,7 +65,7 @@ export function autoMove(current, why) {
   return at(best.name) < at(current) ? best.name : null;
 }
 
-const profileNamed = (name) => (name === AUTO ? autoProfile() : readProfile(name));
+const profileNamed = async (name) => (name === AUTO ? autoProfile() : readProfile(name));
 
 // Flags that choose the session. They are dropped when a session moves to another profile (the move sets its own).
 const SESSION_FLAGS = new Set(['-c', '--continue', '-r', '--resume', '--session-id', '--fork-session', '--from-pr', '--teleport']);
@@ -439,38 +440,58 @@ export async function launch(profileName, args, { askNext = null } = {}) {
   let name = profileName;
   let current = args;
   let fallback = false; // true once a limit moved this session off the profile it was started on
-  let kept = null; // the run record a move of this launcher's own keeps for the next run (runOnce)
+  // This launch's run record: written before anything can refuse the start, and kept by the launcher's own moves.
+  let kept = null;
+  let menu = null; // while a choice of the launcher's own menu starts: { ask (what askNext was given), args, fresh }
   // Whatever ends the launch, no record names a conversation that nothing runs (a record of a launcher that has
   // ended goes by itself too: runs.mjs listRuns).
   const drop = () => {
     if (kept) removeRun(kept);
     kept = null;
   };
+  // The start was refused: the launch ends with `code`, or, from the launcher's own menu, the menu asks again (→ null).
+  const refused = async (code) => {
+    drop();
+    if (!menu) return code;
+    const next = await askNext(menu.ask);
+    const target = next ? await profileNamed(next).catch(() => null) : null;
+    if (!target) return code;
+    name = next;
+    current = moveArgs(target, menu.args, menu.ask.sessionId, { fresh: menu.fresh });
+    return null;
+  };
   for (;;) {
-    const profile = await profileNamed(name);
-    if (!profile && name === AUTO) {
-      console.error('hoprig: Auto mode needs the order of providers first, for example: hoprig auto order sub api');
-      drop();
-      return 2;
+    // The record first, naming the conversation: from here on nothing else starts a process on it. Every check below
+    // that refuses the start removes it again, so a terminal that runs nothing holds nothing.
+    const conversation = conversationOf(current);
+    if (!kept) kept = createRun({ profile: name, cwd: process.cwd(), carryArgs: carryArgs(current), conversation }).file;
+    const mine = readRun(kept);
+    // One conversation, one process: a chat or another terminal that runs it already keeps it (held.mjs).
+    let why = mine && refuseIfHeld(mine, conversation) ? [] : null;
+    let profile = null;
+    if (!why) {
+      profile = await profileNamed(name).catch((e) => {
+        why = [`hoprig: ${e.message}`]; // Auto mode's router did not start
+        return null;
+      });
     }
-    if (!profile) {
-      const known = listProfiles().map((p) => p.name).join(', ') || 'none yet';
-      console.error(`hoprig: no profile "${name}" (profiles: ${known}). Add one with: hoprig add`);
-      drop();
-      return 2;
-    }
-    if (!servesTools(profile).includes('claude')) {
-      // An OpenAI key or another coding tool's sign-in: Claude Code cannot use it (profileEnv refuses it too). Why,
-      // and what to do instead.
-      for (const line of notServedLines(profile, 'claude')) console.error(line);
-      drop();
-      return 2;
+    if (!why && !profile && name === AUTO) why = ['hoprig: Auto mode needs the order of providers first, for example: hoprig auto order sub api'];
+    else if (!why && !profile) why = [`hoprig: no profile "${name}" (profiles: ${listProfiles().map((p) => p.name).join(', ') || 'none yet'}). Add one with: hoprig add`];
+    // An OpenAI key or another coding tool's sign-in: Claude Code cannot use it (profileEnv refuses it too). Why, and
+    // what to do instead.
+    else if (!why && !servesTools(profile).includes('claude')) why = notServedLines(profile, 'claude');
+    if (why) {
+      for (const line of why) console.error(line);
+      const code = await refused(2);
+      if (code !== null) return code;
+      continue;
     }
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !isPrintMode(current);
     if (interactive) console.error(`hoprig: profile ${profile.name} · ${profile.label}`);
     const once = await runOnce(profile, current, cfg, { interactive, fallback, file: kept });
     const { code, sessionId, signalled, auto } = once;
     kept = once.kept;
+    menu = null;
     // A session nobody typed into has nothing on disk to resume: it starts on the next profile under the same id.
     const fresh = Boolean(sessionId) && !hasConversation(process.cwd(), sessionId);
     if (auto && sessionId && !signalled) {
@@ -493,10 +514,12 @@ export async function launch(profileName, args, { askNext = null } = {}) {
     }
     drop();
     if (!interactive || signalled || !askNext || !sessionId) return code;
-    const next = await askNext({ current: profile.name, sessionId, saved: !fresh });
+    const ask = { current: profile.name, sessionId, saved: !fresh };
+    const next = await askNext(ask);
     if (!next) return code;
-    const target = await profileNamed(next);
+    const target = await profileNamed(next).catch(() => null);
     if (!target) return code;
+    menu = { ask, args: current, fresh };
     name = next;
     current = moveArgs(target, current, sessionId, { fresh });
   }
