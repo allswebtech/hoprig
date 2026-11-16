@@ -29,6 +29,21 @@ export function chatTool(v, cfg) {
 /** The coding tools a chat can run on this computer: the ones that are on and have a chat engine. */
 export const chatTools = (cfg) => enabledToolIds(cfg).filter((id) => engineIds().includes(id));
 
+/**
+ * The same for the page's choice: [{ id, name, modes?, modeWords?, efforts? }] of the ones installed too (Claude Code
+ * is always one; another tool brings its own choices, Claude Code's are the page's own words).
+ */
+export function chatToolList(cfg) {
+  return chatTools(cfg).filter((id) => {
+    try {
+      assertToolReady(id, cfg);
+      return true;
+    } catch {
+      return id === 'claude';
+    }
+  }).map((id) => (id === 'claude' ? { id, name: findTool(id).name } : { id, name: findTool(id).name, modes: OC_MODES, modeWords: OC_MODE_WORDS, efforts: OC_EFFORTS }));
+}
+
 /** May a chat of `tool` run on provider `name`? Says why not as a 400; false when there is no such provider. */
 export function providerOk(name, tool) {
   if (name === 'auto') return tool === 'claude' && autoOn();

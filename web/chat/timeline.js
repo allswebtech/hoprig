@@ -14,8 +14,12 @@ import { took, turnLine } from './words.js';
 
 const NEAR_PX = 120;
 
-/** o: { scroll (the scrolling element), A (the chat's API path), cwd(), stopTask(id), after(), canRewind(), rewind({ messageId, text }) } */
+/**
+ * o: { scroll (the scrolling element), A (the chat's API path), cwd(), stopTask(id), after(), canRewind(), rewind({ messageId, text }),
+ *      who() (the coding tool as a sentence names it: "Claude", "OpenCode") }
+ */
 export function createTimeline(o) {
+  const who = () => (o.who ? o.who() : 'Claude');
   const moreSlot = h('div.chat-moreslot');
   const olderBox = h('div.chat-older');
   const list = h('div.chat-list');
@@ -32,7 +36,7 @@ export function createTimeline(o) {
 
   // ---------- where an event goes ----------
   function group(at, { auto = false } = {}) {
-    at.group = h('section.chat-turn', auto ? h('p.chat-auto', icon('refresh', { size: 13 }), h('span', 'Claude went on by itself: a background task ended')) : null);
+    at.group = h('section.chat-turn', auto ? h('p.chat-auto', icon('refresh', { size: 13 }), h('span', `${who()} went on by itself: a background task ended`)) : null);
     add(at.root, at.group);
     return at.group;
   }
@@ -134,7 +138,7 @@ export function createTimeline(o) {
         if (ev.kind === 'thinking') {
           el.ms = Number.isFinite(ev.durationMs) ? ev.durationMs : el.streamedAt ? Date.now() - el.streamedAt : null;
           fill(el.head, thinkHead(el));
-          fill(el.body, el.text || h('span.chat-hint', 'Claude did not show what it thought.'));
+          fill(el.body, el.text || h('span.chat-hint', `${who()} did not show what it thought.`));
           fill(el.peek);
         } else fill(el, mdView(el.text));
         return el;
@@ -154,7 +158,7 @@ export function createTimeline(o) {
         return null;
       case 'ask': {
         // Always in the main conversation, where it is seen, even when an agent asks.
-        const card = askCard(ev, { A: o.A, cwd: o.cwd(), after: o.after });
+        const card = askCard(ev, { A: o.A, cwd: o.cwd(), after: o.after, who: who() });
         card.toolId = ev.toolId || null;
         asks.set(ev.request, card);
         if (ev.toolId) tools.get(ev.toolId)?.quiet(); // the card shows what it would do: not twice
@@ -168,7 +172,7 @@ export function createTimeline(o) {
         const [text, ok] = OUTCOME[ev.outcome] || ['Answered', true];
         const plan = card.classList.contains('chat-ask-plan');
         const question = card.classList.contains('chat-ask-question');
-        card.closed(plan ? (ok ? 'You approved the plan' : ev.outcome === 'denied' ? 'Claude keeps planning' : text) : question && ok ? 'You answered' : text, ok);
+        card.closed(plan ? (ok ? 'You approved the plan' : ev.outcome === 'denied' ? `${who()} keeps planning` : text) : question && ok ? 'You answered' : text, ok);
         if (card.toolId && ev.outcome !== 'cancelled') tools.get(card.toolId)?.answered(ok); // "Wants to write" → "Writing"
         return null;
       }
@@ -177,7 +181,7 @@ export function createTimeline(o) {
         if (ev.ok) {
           const t = turnLine(ev);
           if (t) add(g, h('p.chat-item.chat-turnend', icon('check', { size: 13 }), h('span', t)));
-        } else if (ev.stopped || ev.subtype === 'stopped' || ev.error === 'stopped') add(g, h('p.chat-item.chat-note', 'You stopped Claude.'));
+        } else if (ev.stopped || ev.subtype === 'stopped' || ev.error === 'stopped') add(g, h('p.chat-item.chat-note', `You stopped ${who()}.`));
         // A usage limit is said once, by the limit card at the top with what to do next.
         else if (ev.limited) add(g, h('p.chat-item.chat-note', 'Stopped at the provider\'s usage limit (see above).'));
         else add(g, h('div.chat-item.banner.error-box', { role: 'alert' }, icon('alert', { size: 18 }), h('span', ev.error || 'The reply ended with an error.')));
@@ -206,8 +210,8 @@ export function createTimeline(o) {
     const words = [];
     for (const ev of events) {
       if (ev.agent) continue;
-      if (ev.kind === 'text') words.push(`Claude: ${ev.text.slice(0, 400)}`);
-      else if (ev.kind === 'ask') words.push(`Claude needs your answer: ${ev.title || 'a question'}`);
+      if (ev.kind === 'text') words.push(`${who()}: ${ev.text.slice(0, 400)}`);
+      else if (ev.kind === 'ask') words.push(`${who()} needs your answer: ${ev.title || 'a question'}`);
       else if (ev.kind === 'notice' && (ev.local || ev.level === 'error')) words.push(ev.text.slice(0, 300));
       else if (ev.kind === 'turn-end' && !ev.ok && !ev.stopped) words.push(ev.error || 'The reply ended with an error.');
     }
@@ -228,7 +232,7 @@ export function createTimeline(o) {
   /** Something was added: stay at the bottom when the owner was there, else say there is news. */
   function follow() {
     if (stick) return toBottom();
-    fill(downText, asked ? 'Claude needs your OK' : 'New messages');
+    fill(downText, asked ? `${who()} needs your OK` : 'New messages');
     downBtn.classList.remove('hidden');
   }
   o.scroll.addEventListener('scroll', () => {
@@ -261,7 +265,7 @@ export function createTimeline(o) {
     }
   }
 
-  const empty = () => h('div.chat-empty', icon('text', { size: 26 }), h('p', 'Write what Claude should do in this project. It works here as in the terminal: it reads, edits and runs commands, and asks you before anything that needs your OK.'));
+  const empty = () => h('div.chat-empty', icon('text', { size: 26 }), h('p', `Write what ${who()} should do in this project. It works here as in the terminal: it reads, edits and runs commands, and asks you before anything that needs your OK.`));
 
   return {
     el: h('div.chat-col.chat-timeline', moreSlot, olderBox, list, said),

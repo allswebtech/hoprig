@@ -11,9 +11,9 @@
 // With several computers the switcher picks whose projects these are (#/m/<computer>/workspace). A "project" is a
 // folder in the projects folder: a plain git repository, or a parent repository with its code repositories in
 // code/ (docs/PC-SETUP.md).
-import { startChat } from './chat/start.js';
+import { chatTools, startChat } from './chat/start.js';
 import { icon } from './icons.js';
-import { add, ago, api, btn, fill, h, link, needsYouFirst, openSheet, promptSheet, tildePath, toast } from './lib.js';
+import { add, ago, api, btn, fill, h, link, needsYouFirst, openSheet, promptSheet, tildePath, toast, toolBadge } from './lib.js';
 import { groupOf } from './home.js';
 import { sessionRow } from './sessionitem.js';
 import { projectBrain } from './brain.js';
@@ -75,9 +75,18 @@ const sessionsIn = (dir) => ((store.data && store.data.sessions) || []).filter((
 
 // ---------- starting Claude: a chat, as the New session page opens one ----------
 
-// A chat in `dir`, set up as the last chat there (the server keeps that per folder); `sessionId` continues that
-// conversation (the chat that already runs it opens instead), `prompt` is its first message.
-const startIn = (dir, { sessionId = null, prompt = null } = {}) => startChat(dir, { sessionId, text: prompt });
+// A chat in `dir`, set up as the last chat there (the server keeps that per folder, its coding tool too); `sessionId`
+// continues that conversation of coding tool `tool` (the chat that already runs it opens instead), `prompt` is its
+// first message.
+const startIn = (dir, { sessionId = null, prompt = null, tool = null } = {}) => startChat(dir, { sessionId, text: prompt, tool });
+
+/** The earlier conversations of `dir` in every coding tool a chat can run here, newest first, each with its tool. */
+async function conversationsIn(dir) {
+  const tools = await chatTools();
+  const lists = await Promise.all(tools.map((t) => api(`/api/folders/sessions?${new URLSearchParams({ path: dir, ...(t.id !== 'claude' ? { tool: t.id } : {}) })}`)
+    .then((r) => r.sessions.map((c) => ({ ...c, tool: t.id })), (e) => (t.id === 'claude' ? Promise.reject(e) : []))));
+  return lists.flat().sort((a, b) => b.at - a.at);
+}
 
 /** A button that opens a chat and says so while it does; an error stays next to it until the next press. */
 export function startButton(dir, { cls = 'small secondary', label = 'Start', title = 'Open a chat with Claude here', ...how } = {}) {
@@ -138,7 +147,7 @@ function repoOf(p, s) {
 // Earlier conversations per project folder, read once while the page is open (the page is drawn again often).
 const pastOf = new Map();
 async function pastIn(dir) {
-  if (!pastOf.has(dir)) pastOf.set(dir, api(`/api/folders/sessions?${new URLSearchParams({ path: dir })}`).then((r) => r.sessions, () => []));
+  if (!pastOf.has(dir)) pastOf.set(dir, conversationsIn(dir).catch(() => []));
   return pastOf.get(dir);
 }
 
@@ -150,8 +159,8 @@ function earlier(p) {
     fill(slot, fold(`ws-past-${p.id}`, `Earlier conversations (${list.length})`,
       h('div.rows.ws-pastrows', list.slice(0, 8).map((c) => h('div.row.static',
         h('span.row-icon', icon('text')),
-        h('span.row-main', h('span.row-title', c.title), h('span.row-sub', ago(c.at))),
-        startButton(p.dir, { sessionId: c.id, label: 'Continue', title: 'Continue this conversation in a chat' }))))));
+        h('span.row-main', h('span.row-title', c.title, toolBadge(c.tool)), h('span.row-sub', ago(c.at))),
+        startButton(p.dir, { sessionId: c.id, tool: c.tool, label: 'Continue', title: 'Continue this conversation in a chat' }))))));
   });
   return slot;
 }
@@ -370,7 +379,7 @@ function viewProject(frame, id) {
   async function loadPast() {
     let r;
     try {
-      r = await api(`/api/folders/sessions?${new URLSearchParams({ path: p.dir })}`);
+      r = { sessions: await conversationsIn(p.dir) };
     } catch {
       return fill(pastBox); // a folder outside the dashboard's folders: nothing to continue from here
     }
@@ -380,8 +389,8 @@ function viewProject(frame, id) {
       h('p.field-label.pj-sublabel', 'Earlier conversations: continue one where it stopped'),
       h('div.rows', (all ? r.sessions : r.sessions.slice(0, 4)).map((c) => h('div.row.static.pj-past',
         h('span.row-icon', icon('text')),
-        h('span.row-main', h('span.row-title', c.title), h('span.row-sub', ago(c.at))),
-        startButton(p.dir, { label: 'Continue', title: 'Continue this conversation in a chat', sessionId: c.id })))),
+        h('span.row-main', h('span.row-title', c.title, toolBadge(c.tool)), h('span.row-sub', ago(c.at))),
+        startButton(p.dir, { label: 'Continue', title: 'Continue this conversation in a chat', sessionId: c.id, tool: c.tool })))),
       !all && r.sessions.length > 4 ? h('button.btn.ghost.small.pj-more', { type: 'button', onclick: () => { all = true; paint(); } }, `Show all ${r.sessions.length}`) : null);
     paint();
   }

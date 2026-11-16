@@ -24,6 +24,7 @@
 import path from 'node:path';
 import { getAutoSwitch } from '../autoswitch.mjs';
 import { assertServes, readProfile } from '../profiles.mjs';
+import { chatToolList } from '../chat/tools.mjs';
 import { listRuns } from '../runs.mjs';
 import { launchArgv } from '../server/deck.mjs';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
@@ -71,6 +72,10 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
       async start({ dir, profile, mode = 'new', sessionId = null, carryArgs = [], name = null }) {
         const p = profileObject(profile);
         if (!p) throw new Error(`there is no provider "${profile}"`);
+        // Checked again when it runs (a schedule was saved earlier): the provider must still serve Claude Code, which
+        // this starts, and Auto mode must still be on.
+        if (p.name === 'auto' && getAutoSwitch().enabled !== true) throw new Error('Auto mode is off: choose a provider for this schedule');
+        if (p.name !== 'auto') assertServes(p, 'claude');
         const argv = launchArgv(sctx.deck.launcher(), { profile: p, mode, sessionId, carryArgs });
         const taken = new Set((await sctx.backend.list()).map((t) => t.session));
         const r = await sctx.backend.create({ name: uniqueName(safeSessionName(name || path.basename(dir)), taken), dir, argv });
@@ -85,7 +90,8 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
       // A chat (src/chat): its feature opens it as the page does, with Settings' New-session defaults (as a terminal
       // a schedule starts), not the folder's last chat: nobody watches a scheduled chat as it starts.
       ...(chat ? {
-        startChat: async ({ dir, profile, text }) => (await chat.open({ dir, profile, ...(text ? { text } : {}), defaults: true })).id,
+        // The chat's own checks run here too: the coding tool is on, and the provider still serves it.
+        startChat: async ({ dir, profile, text, tool }) => (await chat.open({ dir, profile, ...(tool ? { tool } : {}), ...(text ? { text } : {}), defaults: true })).id,
         sendChat: (id, text) => chat.send(id, text),
       } : {}),
     },
@@ -98,13 +104,16 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
     log,
     checks: {
       dirOk: (d) => Boolean(insideRoots(d, resolveRoots(sctx.config().server.roots))),
-      // A schedule starts Claude Code (in a terminal or a chat): a provider that does not serve it says why.
-      profileOk: (p) => {
-        if (p === 'auto') return getAutoSwitch().enabled === true;
+      // A schedule starts a coding tool (Claude Code in a terminal; a chat in its tool): a provider that does not
+      // serve it says why.
+      profileOk: (p, tool = 'claude') => {
+        if (p === 'auto') return tool === 'claude' && getAutoSwitch().enabled === true;
         const prof = readProfile(p);
-        if (prof) assertServes(prof, 'claude');
+        if (prof) assertServes(prof, tool);
         return Boolean(prof);
       },
+      // A chat's coding tool: one a chat runs on this computer (on, installed, with a chat).
+      chatToolOk: (tool) => chatToolList(sctx.config()).some((t) => t.id === tool),
     },
   };
 }

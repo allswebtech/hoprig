@@ -7,7 +7,8 @@
 // "Pause all automations" sits above the parts; while it is on, a banner says so on every part.
 // The same file brings the session view's "Queue" button and the "3 queued" badge on Home's session cards.
 import { icon } from './icons.js';
-import { ago, api, at, btn, chooseSheet, confirmSheet, fill, h, isCodingCard, link, machine, needsYouFirst, openSheet, servesClaude, stateOf, tildePath, toast, until } from './lib.js';
+import { TOOL_NAMES, ago, api, at, btn, chooseSheet, confirmSheet, fill, h, isCodingCard, link, machine, needsYouFirst, openSheet, servesTool, stateOf, tildePath, toast, until } from './lib.js';
+import { chatTools } from './chat/start.js';
 import { registerCardBadge, registerPage, registerSessionAction } from './registry.js';
 import { emptyState, errorBox, groupHead, panel, savedMark, tabBar, toggle } from './shell.js';
 import { store } from './store.js';
@@ -48,7 +49,8 @@ export function whenText(w) {
 export function whatText(a, accountLabel = (n) => n, sessionLabel = (n) => (n.startsWith('chat:') ? 'a chat' : n)) {
   if (a.type === 'start') {
     const where = folderName(a.dir);
-    return `start ${a.in === 'chat' ? 'a chat' : 'a session'}${where ? ` in ${where}` : ''}${a.profile ? ` on ${accountLabel(a.profile)}` : ''}`;
+    const tool = a.in === 'chat' && a.tool && a.tool !== 'claude' ? ` with ${TOOL_NAMES[a.tool] || a.tool}` : '';
+    return `start ${a.in === 'chat' ? 'a chat' : 'a session'}${tool}${where ? ` in ${where}` : ''}${a.profile ? ` on ${accountLabel(a.profile)}` : ''}`;
   }
   return `send a message to ${a.session ? sessionLabel(a.session) : 'a session'}`;
 }
@@ -293,16 +295,19 @@ const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 async function scheduleForm(old, preset = null) {
   const d = store.data || { sessions: [], profiles: [] };
   // The projects to pick from, recent first, as New session lists them; "Another folder" types one.
-  const [recent, proj] = await Promise.all([
+  const [recent, proj, tools] = await Promise.all([
     api('/api/folders/recent').catch(() => ({ folders: [] })),
     api('/api/pcsetup/projects').catch(() => null), // an older computer, or no projects folder
+    chatTools(), // the coding tools a chat can run here (Claude Code alone on most computers)
   ]);
   const folders = [...new Set([
     ...recent.folders.map((f) => f.path),
     ...(proj ? [...proj.workspaces.flatMap((w) => w.repos.map((r) => r.dir)), ...proj.repos.map((r) => r.dir)] : []),
   ])];
-  // A schedule starts Claude Code (in a chat or a terminal): only the providers that serve it.
-  const accounts = (d.profiles || []).filter(servesClaude).map((p) => [p.name, p.virtual ? 'Auto mode (the next provider at a limit)' : p.label]);
+  // A schedule starts Claude Code in a terminal, or a chat in its coding tool: only the providers that serve that tool.
+  const toolOf = (a) => (a.in === 'chat' && a.tool ? a.tool : 'claude');
+  const accountsFor = (tool) => (d.profiles || []).filter((p) => servesTool(p, tool)).map((p) => [p.name, p.virtual ? 'Auto mode (the next provider at a limit)' : p.label]);
+  const accounts = accountsFor('claude');
   const firstAccount = d.recommended || (accounts[0] || [''])[0];
   // Where a message can go: the coding sessions in a terminal and the open chats (by their title).
   const targets = (d.sessions || []).filter((x) => isCodingCard(x) || x.kind === 'chat')
@@ -370,15 +375,33 @@ async function scheduleForm(old, preset = null) {
             h('div.field-label', 'Open in'),
             seg('Open in', [['chat', 'A chat'], ['terminal', 'A terminal']], a.in === 'chat' ? 'chat' : 'terminal', (v) => {
               if (v === 'chat') a.in = 'chat';
-              else delete a.in;
+              else {
+                delete a.in;
+                delete a.tool; // a terminal a schedule starts runs Claude Code
+                if (!accountsFor('claude').some(([n]) => n === a.profile)) a.profile = firstAccount;
+              }
               paintWhat();
               paintSentence();
             }),
+            // The coding tool of the chat, where this computer offers more than one.
+            a.in === 'chat' && tools.length > 1 ? [
+              h('div.field-label', 'Coding tool'),
+              seg('Coding tool', tools.map((t) => [t.id, t.name]), toolOf(a), (v) => {
+                if (v === 'claude') delete a.tool;
+                else a.tool = v;
+                const list = accountsFor(v);
+                if (!list.some(([n]) => n === a.profile)) a.profile = (list[0] || [''])[0];
+                paintWhat();
+                paintSentence();
+              }),
+            ] : null,
             folderPick(a),
-            h('label.fieldrow', h('span.field-label', 'On the provider'),
-              h('select.field', { onchange: (e) => (a.profile = e.target.value) }, accounts.map(([v, t]) => h('option', { value: v, selected: v === a.profile }, t)))),
+            accountsFor(toolOf(a)).length
+              ? h('label.fieldrow', h('span.field-label', 'On the provider'),
+                h('select.field', { onchange: (e) => { a.profile = e.target.value; paintSentence(); } }, accountsFor(toolOf(a)).map(([v, t]) => h('option', { value: v, selected: v === a.profile }, t))))
+              : h('p.hint', `No provider serves ${TOOL_NAMES[toolOf(a)] || toolOf(a)} yet: add one under Providers.`),
             h('label.fieldrow', h('span.field-label', 'First message (optional)'),
-              h('textarea.field', { rows: 2, value: a.prompt || '', placeholder: 'What Claude should start with', oninput: (e) => (a.prompt = e.target.value) })),
+              h('textarea.field', { rows: 2, value: a.prompt || '', placeholder: `What ${toolOf(a) === 'claude' ? 'Claude' : TOOL_NAMES[toolOf(a)] || 'it'} should start with`, oninput: (e) => (a.prompt = e.target.value) })),
           ]
           : [
             claudeSessions.length || a.session

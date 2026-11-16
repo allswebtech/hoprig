@@ -3,6 +3,7 @@
 // after a restart (their process starts again with the next message).
 //
 //   GET  /api/chats                           the open chats, as cards
+//   GET  /api/chats/tools                     the coding tools a chat can run here: [{ id, name }] (on and installed)
 //   POST /api/chats                           { dir, tool?, profile?, model?, effort?, permissionMode?, ultracode?, sessionId?, text? }
 //                                             → { id }   what is left out: as the last chat in that folder ran
 //                                             (folders.mjs), else the provider recommended now and Settings. tool:
@@ -39,7 +40,7 @@ import { gitBranch, readAttachments } from './files.mjs';
 import { folderMemory } from './folders.mjs';
 import { handoffRoutes, terminals } from './handoff.mjs';
 import { liveRoutes, stateOf } from './live.mjs';
-import { chatTool, chatTools, choicesOf, conversationIdOk, defaultProvider, modeFor, modelOk, providerOk, serves } from './tools.mjs';
+import { chatTool, chatToolList, chatTools, choicesOf, conversationIdOk, defaultProvider, modeFor, modelOk, providerOk, serves } from './tools.mjs';
 
 const OPEN_MAX = 50;
 const WAIT_MAX_S = 25; // below the relay's 30 s idle limit, so a chat of another computer can wait too
@@ -299,6 +300,7 @@ export function chatFeature(ctx, o = {}) {
       return { chats: [...chats.values()].map(card) };
     }],
     ['POST', /^\/api\/chats$/, async (req) => openChat(await ctx.readJson(req))],
+    ['GET', /^\/api\/chats\/tools$/, async () => ({ tools: chatToolList(cfg()) })],
     ['GET', new RegExp(`^/api/chats/${ID}$`), async (req, m, q, res) => {
       const c = chatOr404(m[1]);
       c.refresh();

@@ -211,7 +211,8 @@ export function cleanWhen(w) {
 /**
  * A schedule from the page. `checks` (optional) lets the server add what only it knows:
  *   dirOk(dir) → bool        the folder exists and is inside the allowed roots
- *   profileOk(name) → bool   the account exists ("auto" included when Auto mode is set up)
+ *   profileOk(name, tool) → bool   the account exists and serves the coding tool ("auto": Claude Code, when set up)
+ *   chatToolOk(tool) → bool  a chat can run that coding tool here
  */
 export function cleanSchedule(s, checks = {}) {
   if (!isObj(s)) throw new Error('send the schedule as an object');
@@ -223,13 +224,16 @@ export function cleanSchedule(s, checks = {}) {
   const a = s.action;
   if (!isObj(a)) throw new Error('say what the schedule does');
   if (a.type === 'start') {
-    strictKeys(a, ['type', 'dir', 'profile', 'prompt', 'in'], 'starting a session');
+    strictKeys(a, ['type', 'dir', 'profile', 'prompt', 'in', 'tool'], 'starting a session');
     if (a.in !== undefined && a.in !== 'chat' && a.in !== 'terminal') throw new Error('a session starts in a chat or in a terminal');
+    // The coding tool of a chat (left out: Claude Code); a terminal a schedule starts runs Claude Code.
+    const tool = a.tool === undefined || a.tool === null || a.tool === '' ? 'claude' : a.tool;
+    if (tool !== 'claude' && (a.in !== 'chat' || typeof tool !== 'string' || !/^[a-z]{1,20}$/.test(tool) || (checks.chatToolOk && !checks.chatToolOk(tool)))) throw new Error('a schedule starts another coding tool only in a chat, and only one this computer offers');
     if (typeof a.dir !== 'string' || !path.isAbsolute(a.dir) || a.dir.includes('\0') || a.dir.length > 4096) throw new Error('choose the folder to start in');
     if (checks.dirOk && !checks.dirOk(a.dir)) throw new Error(`${a.dir} is not a folder the dashboard may use`);
     if (typeof a.profile !== 'string' || (a.profile !== 'auto' && !NAME_RE.test(a.profile))) throw new Error('choose a provider (or Auto)');
-    if (checks.profileOk && !checks.profileOk(a.profile)) throw new Error(`there is no provider "${a.profile}"`);
-    out.action = { type: 'start', dir: a.dir, profile: a.profile, ...(a.in === 'chat' ? { in: 'chat' } : {}) }; // without "in": a terminal, as before
+    if (checks.profileOk && !checks.profileOk(a.profile, tool)) throw new Error(`there is no provider "${a.profile}"`);
+    out.action = { type: 'start', dir: a.dir, profile: a.profile, ...(a.in === 'chat' ? { in: 'chat' } : {}), ...(tool !== 'claude' ? { tool } : {}) }; // without "in": a terminal, as before
     if (a.prompt !== undefined && a.prompt !== '') out.action.prompt = cleanText(a.prompt, 'the first message');
   } else if (a.type === 'send') {
     strictKeys(a, ['type', 'session', 'text'], 'sending a message');

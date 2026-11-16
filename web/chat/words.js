@@ -218,6 +218,12 @@ export function nextMode(now, modes = Object.keys(MODE)) {
 /** The mode the chat runs in: what the running process says, else what is set (null: Claude Code's default, ask first). */
 export const modeOf = (v) => (v.liveMode ? (v.liveMode === 'default' ? 'manual' : v.liveMode) : v.permissionMode || 'manual');
 export const modeChip = (m) => (MODE[m] ? MODE[m].chip : m ? m : 'Ask first');
+/** A mode in the chat's coding tool's words (its own where it has them: what its modes do differs), else Claude Code's. */
+export const modeInfo = (v, m) => (v && v.choices && v.choices.modeWords && v.choices.modeWords[m]) || MODE[m] || null;
+/** How the page names the chat's coding tool in a sentence: "Claude" for Claude Code, else the tool's name. */
+export const toolWord = (v) => (v && v.engine && v.engine.id && v.engine.id !== 'claude' ? v.engine.label || v.engine.id : 'Claude');
+/** What the chat's coding tool can do (its engine's capabilities; before the first state: nothing extra). */
+export const caps = (v) => (v && v.engine && v.engine.capabilities) || {};
 
 const MODEL_NAMES = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' };
 /** "Opus", or the model's own id for one the dashboard does not name. */

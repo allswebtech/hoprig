@@ -14,10 +14,11 @@ const FILE_TOOLS = ['Bash', 'Edit', 'MultiEdit', 'Write', 'Read', 'NotebookEdit'
 const keyed = (n, ...kids) => [h('kbd.chat-key', { 'aria-hidden': 'true' }, String(n)), ...kids];
 
 /**
- * A card for one `ask` event. o: { A (the chat's API path), cwd, after() (the state changed) }.
- * The card has .keys(n) (a number key pressed; true when it took it) and .closed(text, ok).
+ * A card for one `ask` event. o: { A (the chat's API path), cwd, after() (the state changed), who (the coding tool
+ * as a sentence names it) }. The card has .keys(n) (a number key pressed; true when it took it) and .closed(text, ok).
  */
 export function askCard(ev, o) {
+  const who = o.who || 'Claude';
   const status = h('p.chat-ask-status', { role: 'status' });
   const actions = h('div.chat-ask-actions');
   const body = h('div.chat-ask-body');
@@ -132,13 +133,13 @@ export function askCard(ev, o) {
       h('button.btn.secondary', { type: 'button', onclick: keys[2] }, keyed(3, h('span', 'No, keep planning'))));
   } else {
     fill(body, inputView({ ...ev, name: ev.tool, toolKind: kindOf(ev.tool), asking: true }, o.cwd));
-    const deny = () => note('Why not? Claude reads this (optional)', 'Do not allow', (msg) => answer(false, msg ? { message: msg } : {}));
+    const deny = () => note(`Why not? ${who} reads this (optional)`, 'Do not allow', (msg) => answer(false, msg ? { message: msg } : {}));
     keys = [() => answer(true), ev.canAlways ? () => answer(true, { always: true }) : null, deny].filter(Boolean);
     let n = 0;
     fill(actions,
       h('button.btn.primary', { type: 'button', onclick: () => answer(true) }, keyed(++n, icon('check', { size: 16 }), h('span', 'Allow'))),
       ev.canAlways ? h('button.btn.secondary', { type: 'button',
-        title: ev.always === 'edits' ? 'Claude changes files without asking for the rest of this chat' : `Claude does not ask again in this chat for: ${ruleWords(ev.alwaysText) || 'this'}`,
+        title: ev.always === 'edits' ? `${who} changes files without asking for the rest of this chat` : `${who} does not ask again in this chat for: ${ruleWords(ev.alwaysText) || 'this'}`,
         onclick: () => answer(true, { always: true }) }, keyed(++n, h('span', ev.always === 'edits' ? 'Allow all edits in this chat' : 'Allow in this chat'))) : null,
       h('button.btn.secondary.danger-text', { type: 'button', onclick: deny }, keyed(++n, icon('x', { size: 16 }), h('span', 'Do not allow'))));
   }

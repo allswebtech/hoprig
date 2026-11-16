@@ -15,7 +15,8 @@ const HELP = `Hoprig — Claude Code under several profiles, with one shared ses
 
   hoprig                      choose a profile, then start Claude Code in this terminal
   hoprig chat [folder]        code in a chat in the dashboard instead: prints its address and opens it
-                                 in your browser (set up as your last chat in that folder)
+                                 in your browser (set up as your last chat in that folder;
+                                 --tool opencode: a chat with OpenCode, where the dashboard offers it)
   hoprig <profile> [args]     start under that profile; args go to Claude Code
                                 hoprig api -c            continue the last session of this folder
                                 hoprig sub2 --resume ID  continue one session

@@ -100,7 +100,7 @@ export function createMenus(o) {
   async function showCommands() {
     items = commandItems(at.q);
     active = Math.min(active, Math.max(0, items.length - 1));
-    paint(commands ? '' : 'Loading the commands of Claude Code…');
+    paint(commands ? '' : 'Loading the commands…');
     if (commands || asking) return;
     asking = api(`${o.A}/commands`).then((r) => {
       commands = toolCommands(r.commands);
