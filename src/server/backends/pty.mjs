@@ -28,6 +28,7 @@ import serialize from '@xterm/addon-serialize';
 import unicode11 from '@xterm/addon-unicode11';
 import { ptySpawn } from './nodepty.mjs';
 import { parseParents } from '../platform/common.mjs';
+import { sameProcess, system } from '../../procid.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
 import { shellLine } from './shell.mjs';
 
@@ -139,13 +140,15 @@ export class PtyBackend {
    * @param {string} [o.platform]     for tests
    * @param {Function} [o.spawn]      node-pty's spawn, replaceable in tests
    * @param {Function} [o.descendants] pid → its descendants' pids; with a test spawn, none (its pids are not real)
+   * @param {object} [o.ident]        who a process is beyond its pid (procid.mjs), replaceable in tests
    */
-  constructor({ shell, scrollback = 5000, platform = process.platform, spawn = ptySpawn, descendants: below } = {}) {
+  constructor({ shell, scrollback = 5000, platform = process.platform, spawn = ptySpawn, descendants: below, ident = system } = {}) {
     this.platform = platform;
     this.shell = shell || defaultShell(platform);
     this.scrollback = scrollback;
     this.spawn = spawn;
     this.descendants = below || (spawn === ptySpawn ? descendants : async () => []);
+    this.ident = ident;
     if (spawn === ptySpawn) ensureSpawnHelper();
     this.terms = new Map(); // session name → terminal
     this.kind = 'pty';
@@ -317,6 +320,9 @@ export class PtyBackend {
       return;
     }
     const kids = await this.descendants(proc.pid);
+    // Who each one is, where that costs nothing (Linux, /proc): one that ends during the wait below and whose pid is
+    // handed out again gets no signal. Elsewhere, as before: only whether its pid is alive.
+    const ids = this.platform === 'linux' && kids.length ? this.ident.of(kids) : null;
     // SIGHUP, as when a terminal window closes: the shell passes it on to its jobs, and Claude saves and exits.
     try {
       proc.kill('SIGHUP');
@@ -332,7 +338,7 @@ export class PtyBackend {
       }
     }
     for (const pid of kids) {
-      if (!alive(pid)) continue;
+      if (!alive(pid) || (ids && sameProcess(ids.get(pid), this.ident.of([pid]).get(pid)) === false)) continue;
       try {
         process.kill(pid, done ? 'SIGTERM' : 'SIGKILL');
       } catch {

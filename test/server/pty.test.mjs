@@ -340,3 +340,30 @@ test('createBackend: auto picks tmux when it runs, else pty; the kind can be for
   dflt.close();
   assert.throws(() => createBackend({ kind: 'screen' }), /unknown session backend/);
 });
+
+test('the processes a terminal started: a pid that is another process by the time of the signal gets none (Linux)', { skip: process.platform === 'win32' }, async () => {
+  const { spawn } = await import('node:child_process');
+  const kid = () => {
+    const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { stdio: 'ignore' });
+    test.after(() => c.kill('SIGKILL'));
+    return c;
+  };
+  const gone = (c) => new Promise((r) => (c.exitCode !== null || c.signalCode !== null ? r() : c.once('exit', r)));
+  // The system's answer about the pid: the start it had when collected, another one at the signal (its pid handed out
+  // again), as procid.mjs would read them from /proc.
+  const reused = kid();
+  let asked = 0;
+  const ident = { of: (pids) => new Map(pids.map((p) => [p, `L:boot:${asked++ === 0 ? 1000 : 2000}`])) };
+  const { b } = backend('linux', { descendants: async () => [reused.pid], ident });
+  await b.create({ name: 'r', dir: '/w' });
+  await b.kill('r');
+  await tick(200);
+  assert.equal(reused.exitCode ?? reused.signalCode, null, 'another process now: no signal');
+  // The same process at both moments (the real reader): it is ended, as before.
+  const same = kid();
+  const { b: b2 } = backend('linux', { descendants: async () => [same.pid] });
+  await b2.create({ name: 's', dir: '/w' });
+  await b2.kill('s');
+  await gone(same);
+  assert.equal(same.signalCode, 'SIGTERM');
+});
