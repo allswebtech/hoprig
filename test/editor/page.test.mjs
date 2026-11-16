@@ -82,6 +82,8 @@ test('git\'s letters for the Explorer and the lists: conflicts first, then not s
   assert.deepEqual(['M', 'A', 'U', 'D', '!', 'R'].map(markClass), ['mod', 'new', 'new', 'del', 'conflict', 'mod']);
   assert.equal(marksOf({ repo: false }).size, 0);
   assert.equal(marksOf(null).size, 0);
+  // The badge counts files, as Workspace does: staged and changed again (MM) is one, a staged rename is one.
+  assert.equal(marksOf({ repo: true, staged: [{ path: 'a', x: 'M' }, { path: 'n', from: 'o', x: 'R' }], changes: [{ path: 'a', y: 'M' }], untracked: [], conflicts: [] }).size, 2);
 });
 
 test('what it registers: the page (not in the navigation), Settings → Editor in VS Code\'s old place, "Open code" for a session', async () => {

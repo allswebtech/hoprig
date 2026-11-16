@@ -13,15 +13,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { claudeDir, profilesDir } from '../paths.mjs';
 import { listProfiles } from '../profiles.mjs';
-import { PRIVATE_DIRS } from '../pcsetup/projects.mjs';
+import { FOLD, PRIVATE_DIRS } from '../pcsetup/projects.mjs';
 import { insideRoots, isOwnFolder, ownRoots, within } from '../server/folders.mjs';
 
 /** Folders the Explorer and Search never show: git's own data and installed packages. Private folders never at all. */
 export const HIDDEN = ['.git', 'node_modules'];
-export { PRIVATE_DIRS };
+export { FOLD, PRIVATE_DIRS };
 
-/** True where the disk ignores the case of a name (macOS and Windows by default). */
-export const FOLD = process.platform === 'darwin' || process.platform === 'win32';
 const norm = (s, fold) => (fold ? String(s).toLowerCase() : String(s));
 /** A private folder's name, in any case where the disk ignores case. */
 export const isPrivateName = (s, fold = FOLD) => PRIVATE_DIRS.includes(norm(s, fold));

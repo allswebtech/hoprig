@@ -189,10 +189,15 @@ test('status never looks into a private folder (no-ai, ignore, ai-ignore-dir) an
   fs.writeFileSync(path.join(root, 'no-ai', 'notes.md'), 'private');
   fs.writeFileSync(path.join(root, 'code', 'x', 'ai-ignore-dir', 'n.md'), 'private');
   fs.writeFileSync(path.join(root, 'visible.md'), 'x');
+  // Installed packages that .gitignore does not cover are left out as well, as the code editor leaves them out.
+  fs.mkdirSync(path.join(root, 'web', 'node_modules', 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'web', 'node_modules', 'lib', 'a.js'), 'x');
+  fs.writeFileSync(path.join(root, 'web', 'node_modules', 'lib', 'b.js'), 'x');
   const s = await W.repoInfo(root);
   assert.equal(s.changes, 1); // only visible.md
   const { statusArgv, READ_ONLY_GIT } = await import('../../src/pcsetup/projects.mjs');
-  assert.deepEqual(statusArgv('/r').slice(-3), [':(exclude,glob)**/no-ai/**', ':(exclude,glob)**/ignore/**', ':(exclude,glob)**/ai-ignore-dir/**']);
+  const fold = process.platform === 'darwin' || process.platform === 'win32' ? ',icase' : '';
+  assert.deepEqual(statusArgv('/r').slice(-4), ['no-ai', 'ignore', 'ai-ignore-dir', 'node_modules'].map((d) => `:(exclude,glob${fold})**/${d}/**`));
   assert.equal(READ_ONLY_GIT.GIT_OPTIONAL_LOCKS, '0');
 });
 

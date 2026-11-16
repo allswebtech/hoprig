@@ -5,18 +5,18 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { READ_ONLY_GIT } from '../pcsetup/projects.mjs';
+import { READ_ONLY_GIT, STATUS_EXCLUDES, excludes } from '../pcsetup/projects.mjs';
 import { within } from '../server/folders.mjs';
 import { MAX_BYTES, isBinary } from './files.mjs';
-import { FOLD, PRIVATE_DIRS, fail, isHiddenName, isPrivateName, isSecret, resolveIn, rootOf, segments } from './paths.mjs';
+import { fail, isHiddenName, isPrivateName, isSecret, resolveIn, rootOf, segments } from './paths.mjs';
 
 /** `base` without what would point git at another repository than the folder's, and without its locks or prompts. */
 export const gitEnv = (base = process.env) => Object.fromEntries(Object.entries({ ...base, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' })
   .filter(([k]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|CEILING_DIRECTORIES|PREFIX|COMMON_DIR)$/.test(k)));
 const ENV = gitEnv(READ_ONLY_GIT);
-/** Pathspecs that leave out `dirs` at any depth (without regard to case where the disk ignores it). */
-export const excludes = (dirs) => dirs.map((d) => `:(exclude,glob${FOLD ? ',icase' : ''})**/${d}/**`);
-const PRIVATE_EXCLUDES = excludes([...PRIVATE_DIRS, 'node_modules']);
+export { excludes };
+// The same folders Workspace's count leaves out: private folders and packages.
+const PRIVATE_EXCLUDES = STATUS_EXCLUDES;
 const PATHS_MAX = 500;
 
 /** Run git in `cwd`: { ok, code, out (Buffer), err (text), tooLarge }. */

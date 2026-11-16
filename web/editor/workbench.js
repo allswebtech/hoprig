@@ -142,7 +142,8 @@ export function viewCode({ query }, onCurrent) {
 
   let activityKey = '';
   function paintActivity() {
-    const n = status && status.repo ? status.staged.length + status.changes.length + status.untracked.length + status.conflicts.length : 0;
+    // One per file, as Workspace's "N changes" counts: a file staged and changed again is one change, not two.
+    const n = marksOf(status).size;
     // As the Explorer: drawn again only when something on it changed.
     const key = `${view}|${pane}|${n}|${wrap.classList.contains('ed-noside')}`;
     if (key === activityKey) return;

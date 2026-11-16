@@ -143,11 +143,18 @@ export function nodeSatisfies(have, wants) {
 export const PRIVATE_DIRS = ['no-ai', 'ignore', 'ai-ignore-dir'];
 // A status must not change anything: no optional locks, so git does not rewrite the index while it looks.
 export const READ_ONLY_GIT = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' };
+/** True where the disk ignores the case of a name (macOS and Windows by default). */
+export const FOLD = process.platform === 'darwin' || process.platform === 'win32';
+/** Pathspecs that leave out the folders `dirs` at any depth (without regard to case where the disk ignores it). */
+export const excludes = (dirs) => dirs.map((d) => `:(exclude,glob${FOLD ? ',icase' : ''})**/${d}/**`);
+/** What a status leaves out: private folders, and installed packages that .gitignore does not cover. */
+export const STATUS_EXCLUDES = excludes([...PRIVATE_DIRS, 'node_modules']);
 /**
  * `git status` for counts only, never looking into a private folder at any depth. Every new file counts on its own
- * (not a new folder as one), as the code editor's Source Control lists them, so "N changes" is the same number there.
+ * (not a new folder as one) and the same folders are left out as in the code editor's Source Control, so
+ * "N changes" is the same number there.
  */
-export const statusArgv = (dir) => ['git', '-C', dir, 'status', '--porcelain=v1', '-b', '--untracked-files=all', '--', '.', ...PRIVATE_DIRS.map((d) => `:(exclude,glob)**/${d}/**`)];
+export const statusArgv = (dir) => ['git', '-C', dir, 'status', '--porcelain=v1', '-b', '--untracked-files=all', '--', '.', ...STATUS_EXCLUDES];
 
 /** "## main...origin/main [ahead 1, behind 2]" + porcelain lines → { branch, upstream, ahead, behind, changes }. */
 export function parseStatus(text) {
