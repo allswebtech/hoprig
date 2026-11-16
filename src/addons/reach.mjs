@@ -35,9 +35,9 @@ export function reachable(cfg = loadConfig()) {
   }
   // The Temporary address only while its cloudflared runs and is connected: while it starts again after a crash the
   // record still holds the old address, which no longer leads here; after a restart of the computer its pid may be
-  // another program's (procid.mjs filedProcess).
+  // another program's (procid.mjs filedProcess). Read on the way of the dashboard's requests: no waiting for ps.
   const rec = readJsonFile(linkRecordFile()) || {};
-  const url = rec.kind === 'temporary' && rec.url && rec.connected === true && filedProcess(linkRecordFile(), rec, { fact: tunnelFact }) !== false ? clean(rec.url, { origin: true }) : null;
+  const url = rec.kind === 'temporary' && rec.url && rec.connected === true && filedProcess(linkRecordFile(), rec, { fact: (p) => tunnelFact(p, { wait: false }) }) !== false ? clean(rec.url, { origin: true }) : null;
   return url ? { url, via: 'temporary' } : none;
 }
 

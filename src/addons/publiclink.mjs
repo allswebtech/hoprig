@@ -193,7 +193,7 @@ async function startService({ port: p, confirmed } = {}, { waitMs = 60_000, noti
   const want = checkPort(p, port());
   if (want.error) return { ok: false, error: want.error };
   const sv = readJson(serviceFile());
-  if (sv && sv.url && mine(sv) !== false) return { ok: false, error: `Port ${sv.port} has a temporary address already: stop it first.` };
+  if (sv && sv.url && seen(sv) !== false) return { ok: false, error: `Port ${sv.port} has a temporary address already: stop it first.` };
   const bin = findBin();
   if (!bin) return { ok: false, error: 'cloudflared is not installed yet: turn the public link on once, and Hoprig installs it.' };
   const look = await serviceLogin(want.port, { fetchImpl });
@@ -209,11 +209,13 @@ async function startService({ port: p, confirmed } = {}, { waitMs = 60_000, noti
 
 /**
  * Whether the file's cloudflared is ours (procid.mjs filedProcess; its pid may belong to another program after a
- * restart of the computer): true, null (cannot be told: it may be said to run, never signalled) or false.
+ * restart of the computer): true, null (cannot be told: it may be said to run, never signalled) or false. The fact for
+ * a file without an identity: a quick tunnel to its port. `wait` false for a status, which never waits for ps.
  */
-const mine = (sv, after = 0) => filedProcess(serviceFile(), sv, { fact: tunnelFact, after });
+const mine = (sv, { after = 0, wait = true } = {}) => filedProcess(serviceFile(), sv, { fact: (p) => tunnelFact(p, { port: sv.port, wait }), after });
+const seen = (sv) => mine(sv, { wait: false });
 /** mine() with what the system says now: for the moment before a signal. */
-const mineNow = async (sv) => mine(sv, (await system.refresh([sv.pid])) || 0);
+const mineNow = async (sv) => mine(sv, { after: (await system.refresh([sv.pid])) || 0 });
 
 /**
  * Stop the file's cloudflared when it is shown to be ours; the file goes once nothing of ours runs. When it cannot be
@@ -243,13 +245,13 @@ export async function stopService() {
 /** The second temporary address while it runs: { port, url }, else null. */
 export function serviceStatus() {
   const sv = readJson(serviceFile());
-  return sv && sv.url && mine(sv) !== false ? { port: sv.port, url: sv.url } : null;
+  return sv && sv.url && seen(sv) !== false ? { port: sv.port, url: sv.url } : null;
 }
 
 /** A machine token was revoked (`gone(id)`): stop the second temporary address when that token started it. */
 export async function closeServiceOpenedBy(gone) {
   const sv = readJson(serviceFile());
-  if (!(sv && mine(sv) !== false && gone(sv.openedBy))) return [];
+  if (!(sv && seen(sv) !== false && gone(sv.openedBy))) return [];
   const r = await stopIt(sv);
   if (r.error) return [{ by: sv.openedBy, say: (who) => `The temporary address of port ${sv.port} that ${who} started could not be stopped after its token was revoked. ${r.error}` }];
   if (!r.stopped) return [];

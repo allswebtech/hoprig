@@ -46,6 +46,7 @@ const { linkRecordFile, writeAtomic } = await import('../src/addons/cloudflared.
 const { dashboardFile, runningDashboard, writeDashboardFile, removeDashboardFile } = await import('../src/server/dashboardfile.mjs');
 const { serverDir, serverUsers } = await import('../src/codetools/servers.mjs');
 const { reachable } = await import('../src/addons/reach.mjs');
+const { ours } = await import('../src/addons/linkmigrate.mjs');
 const cli = await import('../src/addons/publiccli.mjs');
 const T = findAddon('trouteai');
 
@@ -64,10 +65,12 @@ function stranger() {
   started.push(c);
   return c.pid;
 }
-/** A stand-in cloudflared started as Hoprig starts it (tunnelArgv). */
-function tunnel(port = SERVICE_PORT) {
+/** A stand-in cloudflared started as Hoprig starts it (tunnelArgv), once its command line is the tunnel's (until the
+ * "#!" line has run, it is still this test's). */
+async function tunnel(port = SERVICE_PORT) {
   const c = spawn(path.join(bin, 'cloudflared'), ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`], { stdio: 'ignore' });
   started.push(c);
+  assert.ok(await until(() => ours(c.pid)), 'the stand-in cloudflared runs');
   return c.pid;
 }
 function spawned(argv) {
@@ -130,13 +133,13 @@ test('the second temporary address of ours: found running and stopped; a file fr
   assert.equal(P.serviceStatus(), null);
 
   // As an older version wrote it (no identity), its tunnel still running: still found, still stopped.
-  let pid = tunnel();
+  let pid = await tunnel();
   write(serviceFile(), { pid, url: 'https://kept-words.trycloudflare.com', port: SERVICE_PORT, openedBy: 'tok' });
   assert.deepEqual(P.serviceStatus(), { port: SERVICE_PORT, url: 'https://kept-words.trycloudflare.com' });
   assert.equal((await P.closeServiceOpenedBy((id) => id === 'tok')).length, 1);
   assert.ok(await dead(pid), 'stopped');
   // The same from before this boot: not found, removed, nothing signalled (even a tunnel of ours: not the one it named).
-  pid = tunnel();
+  pid = await tunnel();
   write(serviceFile(), { pid, url: 'https://kept-words.trycloudflare.com', port: SERVICE_PORT });
   beforeBoot(serviceFile());
   assert.equal(P.serviceStatus(), null);
@@ -178,6 +181,44 @@ test('the second temporary address that cannot be told from another program: no 
   assert.ok(await dead(pid));
   assert.equal((await commandLineUnread(() => P.stopService())).ok, true);
   assert.ok(!fs.existsSync(serviceFile()));
+});
+
+test('the second temporary address of an older file: a tunnel of ours to another port (the switch\'s own) is not it', POSIX, async () => {
+  const pid = await tunnel(7971); // the main Temporary address leads to the dashboard's port
+  write(serviceFile(), { pid, url: 'https://old-words.trycloudflare.com', port: SERVICE_PORT, openedBy: 'tok' });
+  assert.equal(P.serviceStatus(), null);
+  assert.equal((await P.stopService()).ok, true);
+  await sleep(300);
+  assert.ok(alive(pid), 'the main public link got no signal');
+  assert.ok(!fs.existsSync(serviceFile()));
+});
+
+test('status of an older file on macOS: the dashboard does not wait for ps to read a command line', POSIX, async () => {
+  // A stand-in ps that only notes it was run; the identities on this system come from /proc, so ps is asked only
+  // for a command line (linkmigrate.mjs).
+  const psDir = path.join(box.root, 'ps-bin');
+  const asked = path.join(box.root, 'ps-asked');
+  fs.mkdirSync(psDir, { recursive: true });
+  fs.writeFileSync(path.join(psDir, 'ps'), `#!/bin/sh\necho "$@" >> '${asked}'\n`, { mode: 0o755 });
+  const saved = process.env.PATH;
+  const real = Object.getOwnPropertyDescriptor(process, 'platform');
+  saveConfig({ publicLink: { on: true, kind: 'temporary' } });
+  const svc = await tunnel();
+  const sw = await tunnel(7971);
+  write(serviceFile(), { pid: svc, url: 'https://kept-words.trycloudflare.com', port: SERVICE_PORT });
+  write(linkRecordFile(), { kind: 'temporary', url: 'https://live-words.trycloudflare.com', connected: true, pid: sw });
+  process.env.PATH = `${psDir}${path.delimiter}${saved}`;
+  Object.defineProperty(process, 'platform', { ...real, value: 'darwin' });
+  try {
+    assert.ok(P.serviceStatus(), 'cannot be told without ps: it may run');
+    assert.equal(reachable().via, 'temporary');
+  } finally {
+    Object.defineProperty(process, 'platform', real);
+    process.env.PATH = saved;
+  }
+  assert.ok(!fs.existsSync(asked), 'ps was not run on the way of a request');
+  fs.rmSync(serviceFile());
+  saveConfig({ publicLink: { on: false, kind: 'temporary' } });
 });
 
 // ---- 2. the gateway's pid file (trouteai.mjs) ----
@@ -317,9 +358,9 @@ test('the Temporary address: not shown as live when its pid is another program n
   assert.ok(alive(pid));
 });
 
-test('the Temporary address of ours is live; a record from before identities in this boot too, not one from before it', POSIX, () => {
+test('the Temporary address of ours is live; a record from before identities in this boot too, not one from before it', POSIX, async () => {
   saveConfig({ publicLink: { on: true, kind: 'temporary' } });
-  const pid = tunnel(7971);
+  const pid = await tunnel(7971);
   record({ pid, proc: identity(pid) });
   assert.deepEqual(reachable(), { url: URL_NOW, via: 'temporary' });
   assert.equal(cli.statusOf().url, URL_NOW);
