@@ -215,9 +215,15 @@ const mine = (sv, after = 0) => filedProcess(serviceFile(), sv, { fact: tunnelFa
 /** mine() with what the system says now: for the moment before a signal. */
 const mineNow = async (sv) => mine(sv, (await system.refresh([sv.pid])) || 0);
 
-/** Stop the file's cloudflared when it is shown to be ours; the file goes once nothing of ours runs. → { ok, stopped } */
+/**
+ * Stop the file's cloudflared when it is shown to be ours; the file goes once nothing of ours runs. When it cannot be
+ * told (Windows, a file of an older version), it gets no signal and the file stays: it may still be our tunnel, open to
+ * everyone. → { ok, stopped, error }
+ */
 async function stopIt(sv) {
-  if (!sv || (await mineNow(sv)) !== true) {
+  const now = sv ? await mineNow(sv) : false;
+  if (now === null) return { ok: false, stopped: false, error: `Hoprig cannot tell whether process ${sv.pid} is the cloudflared of port ${sv.port}'s temporary address: end that cloudflared by hand.` };
+  if (now !== true) {
     fs.rmSync(serviceFile(), { force: true });
     return { ok: true, stopped: false };
   }
@@ -230,8 +236,8 @@ async function stopIt(sv) {
 }
 
 export async function stopService() {
-  const { ok } = await stopIt(readJson(serviceFile()));
-  return { ok };
+  const { ok, error } = await stopIt(readJson(serviceFile()));
+  return error ? { ok, error } : { ok };
 }
 
 /** The second temporary address while it runs: { port, url }, else null. */
@@ -244,7 +250,9 @@ export function serviceStatus() {
 export async function closeServiceOpenedBy(gone) {
   const sv = readJson(serviceFile());
   if (!(sv && mine(sv) !== false && gone(sv.openedBy))) return [];
-  if (!(await stopIt(sv)).stopped) return [];
+  const r = await stopIt(sv);
+  if (r.error) return [{ by: sv.openedBy, say: (who) => `The temporary address of port ${sv.port} that ${who} started could not be stopped after its token was revoked. ${r.error}` }];
+  if (!r.stopped) return [];
   return [{ by: sv.openedBy, say: (who) => `The temporary address of port ${sv.port} that ${who} started was stopped: its token was revoked` }];
 }
 

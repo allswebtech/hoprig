@@ -145,6 +145,41 @@ test('the second temporary address of ours: found running and stopped; a file fr
   assert.ok(!fs.existsSync(serviceFile()));
 });
 
+/** Run `fn` as on a system where a process's command line cannot be read (Windows: linkmigrate.mjs reads none). */
+async function commandLineUnread(fn) {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { ...real, value: 'win32' });
+  try {
+    return await fn();
+  } finally {
+    Object.defineProperty(process, 'platform', real);
+  }
+}
+
+test('the second temporary address that cannot be told from another program: no signal, the file kept, the caller told', POSIX, async () => {
+  // A file of an older version (no identity) of this boot, where the command line cannot be read: it may be our
+  // tunnel, open to everyone, or another program under its pid.
+  const pid = stranger();
+  write(serviceFile(), { pid, url: 'https://unsure-words.trycloudflare.com', port: SERVICE_PORT, openedBy: 'tok' });
+  await commandLineUnread(async () => {
+    assert.deepEqual(P.serviceStatus(), { port: SERVICE_PORT, url: 'https://unsure-words.trycloudflare.com' }, 'it may run');
+    const r = await P.stopService();
+    assert.equal(r.ok, false);
+    assert.match(r.error, /cannot tell .* end that cloudflared by hand/);
+    assert.ok(fs.existsSync(serviceFile()), 'the file stays while it may be ours');
+    const said = await P.closeServiceOpenedBy((id) => id === 'tok');
+    assert.equal(said.length, 1, 'a revoked token: the owner is told');
+    assert.match(said[0].say('the phone'), /could not be stopped/);
+    assert.deepEqual(P.serviceStatus(), { port: SERVICE_PORT, url: 'https://unsure-words.trycloudflare.com' }, 'status and stop agree');
+  });
+  assert.ok(alive(pid), 'no signal');
+  // Once that process has ended, the file goes.
+  process.kill(pid, 'SIGKILL');
+  assert.ok(await dead(pid));
+  assert.equal((await commandLineUnread(() => P.stopService())).ok, true);
+  assert.ok(!fs.existsSync(serviceFile()));
+});
+
 // ---- 2. the gateway's pid file (trouteai.mjs) ----
 const gatewayPidFile = () => path.join(box.state, 'addons', 'trouteai.pid');
 const listening = () => T.status().then((s) => s.running);
