@@ -12,6 +12,7 @@ import { api, applyPageTheme, btn, confirmSheet, fill, h, link, machine, prefs, 
 import { registerPage, registerSettingsPage, registeredSettingsPages } from './registry.js';
 import { field, fold, info, openLabel, panel, saveBar, savedMark, toggle } from './shell.js';
 import { pageNotify, store } from './store.js';
+import { deskStyle, desktopSettings, reachSettings } from './desktop/index.js';
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -141,7 +142,7 @@ function terminalsPanel(b) {
     h('p.hint', 'Chosen automatically: tmux when it is installed. To force one, set server.backend to "tmux" or "pty" in the config and restart.'));
 }
 
-const lookSummary = () => `${cap(prefs.get('page.theme', 'system'))} · terminal ${prefs.get('term.theme', 'dark')} · ${termFont()} px`;
+const lookSummary = () => `${cap(prefs.get('page.theme', 'system'))} · terminal ${prefs.get('term.theme', 'dark')} · ${termFont()} px · desktop ${deskStyle() === 'dock' ? 'Dock' : 'Taskbar'}`;
 
 // ---------- Security and sign-in ----------
 function passwordPanel() {
@@ -187,6 +188,7 @@ function securityPage(ctx) {
   return [
     ctx.here ? panel({ icon: 'user', title: 'Sign in another device', desc: 'A phone or tablet signs in by scanning a code instead of typing the password.' }, ...signIn(ctx)) : null,
     ctx.here ? passwordPanel() : h('p.banner.muted', icon('lock', { size: 18 }), h('span', `The password of ${openLabel()} is changed on that computer.`)),
+    reachSettings(ctx.settings),
     fold('settings-security', 'Advanced', networkPanel(ctx.settings)),
   ];
 }
@@ -228,7 +230,7 @@ function aboutPage({ settings: s, here }) {
 registerSettingsPage({ id: 'notifications', title: 'Notifications', icon: 'bell', order: 20, desc: 'Get told when a session needs you, so you do not have to keep looking.', summary: notifySummary, render: notifyPage });
 registerSettingsPage({
   id: 'appearance', title: 'Appearance and terminal', icon: 'sun', order: 30, desc: 'Colours, text size, and the buttons in a session.', summary: lookSummary,
-  render: ({ settings: s }) => [lookPanel(), quickPanel(s.server.quickActions), fold('settings-appearance', 'Advanced', terminalsPanel(s.backend))],
+  render: ({ settings: s }) => [lookPanel(), desktopSettings(), quickPanel(s.server.quickActions), fold('settings-appearance', 'Advanced', terminalsPanel(s.backend))],
 });
 registerSettingsPage({ id: 'security', title: 'Security and sign-in', icon: 'lock', order: 40, desc: 'The password, signing in a phone, and where this page can be reached from.', summary: securitySummary, render: securityPage });
 registerSettingsPage({ id: 'about', title: 'About', icon: 'info', order: 70, desc: 'Which version this is, and leaving this device.', summary: ({ settings: s }) => `${APP_NAME} ${s.version || ''}`.trim(), render: aboutPage });

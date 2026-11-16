@@ -14,14 +14,14 @@ import { FitAddon } from './vendor/addon-fit/lib/addon-fit.mjs';
 import { Unicode11Addon } from './vendor/addon-unicode11/lib/addon-unicode11.mjs';
 import { icon } from './icons.js';
 import {
-  KIND, TOOL_NAMES, api, btn, bytes, cardTool, chooseSheet, confirmSheet, fill, h, isClaudeCard, isCodingCard, limitBox, liveBasic, needsYou,
-  needsYouFirst, openSheet, permissionActions, link, machine, prefs, profileIcon, profileState, profileText, promptSheet, servesTool,
+  KIND, TOOL_NAMES, api, btn, bytes, cardTool, chooseSheet, closeWindow, confirmSheet, fill, h, isClaudeCard, isCodingCard, limitBox, liveBasic,
+  needsYou, needsYouFirst, openSheet, permissionActions, link, machine, prefs, profileIcon, profileState, profileText, promptSheet, servesTool,
   stateOf, statusPill, switchProfile, toast, toolChip, url, wsUrl,
 } from './lib.js';
 import { pageNotify, store } from './store.js';
 import { registeredSessionActions } from './registry.js';
 import { isStarting, markStarting, startingPill } from './newsession.js';
-import { forgetHere, named, wayBack } from './trail.js';
+import { forgetHere, named, wayBack, windowWay } from './trail.js';
 
 // Claude Code draws for a dark terminal by default, so the terminal is dark unless the user picks otherwise.
 export const TERM_THEMES = {
@@ -70,7 +70,8 @@ export function openSession(app, name) {
   store.viewing = name;
   pageNotify.setTitleBase(name);
   named(name);
-  const way = wayBack() || { hash: '#/', label: 'Home' };
+  const inWindow = windowWay(); // a window of the desktop: the way back stays in its app, none where it starts
+  const way = inWindow || wayBack() || { hash: '#/', label: 'Home' };
   const base = `/api/sessions/${encodeURIComponent(name)}`;
   let session = null;
   let profiles = [];
@@ -113,7 +114,12 @@ export function openSession(app, name) {
   const narrow = matchMedia('(max-width: 599px)');
   // "Message Codex" in a Codex session (the card's tool; Claude until the first look at the sessions).
   const toolName = () => (session && !isClaudeCard(session) && TOOL_NAMES[cardTool(session)]) || 'Claude';
-  const placeholder = () => (textarea.placeholder = !narrow.matches && finePointer ? `Message ${toolName()} — Enter sends, Shift+Enter new line` : `Message ${toolName()}`);
+  // A plain shell (no coding tool in it, e.g. a Terminal window of the desktop): the box types into the terminal,
+  // and the quick messages, which are words for the coding tool, are not offered. A coding tool started in it
+  // brings them back.
+  let plain = false;
+  const placeholder = () => (textarea.placeholder = plain ? 'Type into the terminal'
+    : !narrow.matches && finePointer ? `Message ${toolName()} — Enter sends, Shift+Enter new line` : `Message ${toolName()}`);
   placeholder();
   narrow.addEventListener('change', placeholder);
   const fileInput = h('input.hidden', { type: 'file', multiple: true });
@@ -129,7 +135,7 @@ export function openSession(app, name) {
   paintKeys();
   const wrap = h('div.term-wrap',
     h('header.sessbar',
-      h('a.btn.ghost.sessback', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.sessback-label', way.label)),
+      inWindow === null ? null : h('a.btn.ghost.sessback', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.sessback-label', way.label)),
       h('div.sess-title', h('div.sess-name-row', titleBtn, toolSlot), h('div.sess-sub', statusSlot)),
       h('div.sessbar-end', profileBtn, btn('icon ghost', { icon: 'more', title: 'More for this session', onclick: () => menu() }))),
     needSlot,
@@ -265,7 +271,10 @@ export function openSession(app, name) {
       const exists = await api(base).then(() => true, (err) => err.status !== 404);
       if (!exists || e.code === 4000) {
         forgetHere();
-        showOverlay(icon('check', { size: 28 }), h('p', 'This session has ended.'), h('a.btn.primary', { href: way.hash }, way.hash === '#/' ? 'Back to sessions' : `Back to ${way.label}`));
+        // A window that started on this session has no page to go back to: it offers to close instead.
+        showOverlay(icon('check', { size: 28 }), h('p', 'This session has ended.'), inWindow === null
+          ? h('button.btn.primary', { type: 'button', onclick: () => closeWindow() }, 'Close window')
+          : h('a.btn.primary', { href: way.hash }, way.hash === '#/' ? 'Back to sessions' : `Back to ${way.label}`));
         return;
       }
       const wait = Math.min(10_000, 500 * 2 ** retry++);
@@ -595,6 +604,11 @@ export function openSession(app, name) {
     // Started from this page a moment ago, and Claude has not reported yet: "Starting", not "Terminal".
     const starting = isStarting(s, machine.current);
     profileBtn.classList.toggle('hidden', !isCodingCard(s));
+    if ((s.kind === 'shell') !== plain) {
+      plain = s.kind === 'shell';
+      placeholder();
+      quick.classList.toggle('hidden', plain);
+    }
     fill(profileBtn, icon(profileIcon(s.profile), { size: 16 }), h('span.profilebtn-label', profileText(s)), icon('chevronDown', { size: 14 }));
     fill(statusSlot, starting ? startingPill() : statusPill(s, { time: false }), liveBasic(s));
     fill(toolSlot, toolChip(s));
@@ -763,7 +777,9 @@ export function openSession(app, name) {
           toast(`${name} ended`);
           store.refresh();
           forgetHere();
-          location.hash = way.hash;
+          // In a window started on this session the window closes (else the overlay above stays); never Home.
+          if (inWindow !== null) location.hash = way.hash;
+          else closeWindow();
         } catch (e) {
           toast(e.message, { kind: 'error' });
         }

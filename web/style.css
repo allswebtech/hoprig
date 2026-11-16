@@ -494,6 +494,7 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); border-ra
 @media (min-width: 900px) { .toasts { left: auto; right: 20px; top: 16px; bottom: auto; width: 360px; } }
 .toast { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px; background: var(--surface); color: var(--text); border-left: 4px solid var(--ok-solid, var(--ok)); font-size: var(--fs-sm); font-weight: 600; box-shadow: var(--shadow-2); animation: sheet-up 0.18s ease-out; }
 .toast .icon { color: var(--ok); }
+.toast-action { margin-left: auto; pointer-events: auto; }
 .toast.error { border-left-color: var(--danger-solid, var(--danger)); }
 .toast.error .icon { color: var(--danger); }
 

@@ -1,18 +1,24 @@
 // Every path the editor gets from a browser, checked on the server. A request names a root (the project or repository
 // folder the editor was opened on: an absolute folder inside the dashboard's roots) and paths inside it as relative
 // POSIX paths. A path is refused when it
-//   - holds a NUL, a backslash, an empty, "." or ".." segment, or a segment that starts with "-" (it could be read
-//     as an option by a program; every program also gets "--" before paths);
+//   - holds a NUL, a backslash, an empty, "." or ".." segment. A name that starts with "-" is refused only where it
+//     is typed (a new file, folder or name): it could be read as an option by a program. One that is already on the
+//     disk opens like any other, since every program gets "--" before paths;
 //   - leads, after symlinks, out of the root or the dashboard's roots, or into the dashboard's own folders;
 //   - passes through a private folder (the same list git status leaves out) or git's own folder (.git, or any folder
 //     that is a git directory: a bare repository, a worktree's separate one), read or write;
-//   - is one of the files that hold a sign-in (Claude Code's stored sign-in, the providers' files).
+//   - is one of the files that hold a sign-in (Claude Code's stored sign-in, the providers' files, the workspace's
+//     credentials folder), or lies in the system's views of processes and devices (/proc, /sys, /dev): what they
+//     hold is not a file (a process's environment, a device without end).
+// Files (the desktop's app, src/desktop/files.mjs) names full paths: locate() turns one into a root and a path
+// inside it, so every rule here holds for it too.
 // On macOS and Windows a disk usually ignores the case of a name, so names are compared there without it.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { claudeDir, profilesDir } from '../paths.mjs';
 import { listProfiles } from '../profiles.mjs';
+import { workspaceDir } from '../workspace/layout.mjs';
 import { FOLD, PRIVATE_DIRS } from '../pcsetup/projects.mjs';
 import { insideRoots, isOwnFolder, ownRoots, within } from '../server/folders.mjs';
 
@@ -34,11 +40,18 @@ const PRIVATE_MSG = 'that folder is private: the dashboard never opens it';
 const GIT_MSG = 'git\'s own folder is not opened in the editor';
 const SECRET_MSG = 'that file holds a sign-in: the dashboard never shows it';
 
-/** One file or folder name typed in the page: a plain name, at most 255 bytes. Returns it or throws 400. */
-export function checkName(name) {
-  if (typeof name !== 'string' || !name || name === '.' || name === '..' || BAD_NAME.test(name) || name.startsWith('-') || Buffer.byteLength(name) > 255) {
+/** A name as it may be on the disk: a plain name, at most 255 bytes (it may start with "-"). */
+function checkPart(name) {
+  if (typeof name !== 'string' || !name || name === '.' || name === '..' || BAD_NAME.test(name) || Buffer.byteLength(name) > 255) {
     throw fail(400, 'that is not a usable file name');
   }
+  return name;
+}
+
+/** One file or folder name typed in the page: a plain name, at most 255 bytes, not one that starts with "-". */
+export function checkName(name) {
+  checkPart(name);
+  if (name.startsWith('-')) throw fail(400, 'a new name cannot start with "-"');
   return name;
 }
 
@@ -51,7 +64,7 @@ export function segments(rel) {
   if (typeof rel !== 'string' || rel.length > 4096 || path.posix.isAbsolute(rel) || /^[A-Za-z]:/.test(rel)) throw fail(400, 'paths are relative to the opened folder');
   const segs = rel.split('/');
   if (segs.some((s) => s === '' || s === '.' || s === '..')) throw fail(400, 'a path inside the opened folder cannot go up or have empty parts');
-  for (const s of segs) checkName(s);
+  for (const s of segs) checkPart(s);
   if (segs.some((s) => isPrivateName(s))) throw fail(403, PRIVATE_MSG);
   if (segs.some((s) => isGitName(s))) throw fail(403, GIT_MSG);
   return segs;
@@ -83,6 +96,11 @@ export function secretPaths() {
     /* no providers' folder */
   }
   const list = [profilesDir(), path.join(os.homedir(), '.claude.json')];
+  try {
+    list.push(path.join(workspaceDir(), 'credentials')); // keys and passwords for local work (the workspace's layout)
+  } catch {
+    /* no settings to read */
+  }
   for (const c of claude) list.push(path.join(c, '.credentials.json'), path.join(c, '.claude.json'));
   const out = new Set();
   for (const p of list) {
@@ -92,8 +110,10 @@ export function secretPaths() {
   secretCache = { at: Date.now(), list: [...out] };
   return secretCache.list;
 }
-/** True when `p` (a real path) is such a file, or inside the providers' folder. */
-export const isSecret = (p, fold = FOLD) => secretPaths().some((s) => (fold ? within(p.toLowerCase(), s.toLowerCase()) : within(p, s)));
+// The system's views of processes and devices: nothing in them is a file to show or change.
+const PSEUDO = process.platform === 'win32' ? [] : process.platform === 'darwin' ? ['/dev'] : ['/proc', '/sys', '/dev'];
+/** True when `p` (a real path) is such a file, inside the providers' or the credentials folder, or a system view. */
+export const isSecret = (p, fold = FOLD) => PSEUDO.some((s) => within(p, s)) || secretPaths().some((s) => (fold ? within(p.toLowerCase(), s.toLowerCase()) : within(p, s)));
 /** True when `p` (a real path) is a folder that holds such a file at any depth. */
 export const holdsSecret = (p, fold = FOLD) => secretPaths().some((s) => (fold ? within(s.toLowerCase(), p.toLowerCase()) : within(s, p)));
 
@@ -169,11 +189,14 @@ export function showable(rootReal, rel, cache = new Map()) {
  *   'existing'  (read, write) the path must exist; symlinks are followed and must stay inside
  *   'new'       (create, the target of a rename) the parent must exist (followed), the name itself must not
  *   'entry'     (delete, the source of a rename) the entry itself, a symlink not followed: its parent is checked
+ * `typed` ('new' only, the default there): the new name was typed, so it is held to checkName(); false for a name
+ * that comes from the disk (a move or a copy keeps the name it had).
  * Returns { root (real), abs, rel (POSIX, relative to root) }.
  */
-export function resolveIn(root, rel, roots, { mode = 'existing' } = {}) {
+export function resolveIn(root, rel, roots, { mode = 'existing', typed = mode === 'new' } = {}) {
   const rootReal = rootOf(root, roots);
   const segs = segments(rel);
+  if (typed && segs.length) checkName(segs[segs.length - 1]);
   const lexical = path.join(rootReal, ...segs);
   const out = (abs) => ({ root: rootReal, abs, rel: segs.join('/') });
   if (mode === 'existing') {
@@ -209,31 +232,91 @@ export function resolveIn(root, rel, roots, { mode = 'existing' } = {}) {
 /**
  * A folder that is about to be deleted or moved must not hold a private folder or a file with a sign-in at any depth
  * (the Explorer never shows them, so the owner could not know they would go too). Symlinks are not followed.
+ * mayChangeFolder is the editor's (one folder of a project); Files, which can reach the whole disk, checks with
+ * mayChangeFolderAsync, so the dashboard keeps answering while a large tree is read.
  */
+export const FOLDER_ENTRIES_MAX = 200_000;
 export function mayChangeFolder(abs) {
-  let st;
-  try {
-    st = fs.lstatSync(abs);
-  } catch {
-    return;
-  }
-  if (!st.isDirectory()) return;
-  if (holdsSecret(abs) || ownRoots().some((r) => within(r, abs))) throw fail(403, 'that folder holds the dashboard\'s own files or a file with a sign-in, which are never changed from here', { code: 'holds-protected' });
-  const stack = [abs];
-  let seen = 0;
-  while (stack.length) {
-    const dir = stack.pop();
+  const walk = folderWalk(abs);
+  for (let dir = walk.next(); dir; dir = walk.next()) {
     let list;
     try {
       list = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
-      throw fail(403, 'a folder inside it cannot be read, so it is not changed from here', { code: 'holds-protected' });
+      throw unreadable();
     }
-    for (const d of list) {
-      if (++seen > 200_000) throw fail(409, 'that folder holds too many files to check here: change it in a terminal', { code: 'too-many' });
-      if (!d.isDirectory()) continue;
-      if (isPrivateName(d.name)) throw fail(403, 'that folder holds a private folder, which the dashboard never changes: change it in a terminal', { code: 'holds-protected' });
-      stack.push(path.join(dir, d.name));
-    }
+    walk.take(dir, list);
   }
+}
+export async function mayChangeFolderAsync(abs) {
+  const walk = folderWalk(abs);
+  for (let dir = walk.next(); dir; dir = walk.next()) {
+    let list;
+    try {
+      list = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      throw unreadable();
+    }
+    walk.take(dir, list);
+  }
+}
+const unreadable = () => fail(403, 'a folder inside it cannot be read, so it is not changed from here', { code: 'holds-protected' });
+/** The walk both share: next() → the next folder to read or null; take(dir, its entries) checks them. */
+function folderWalk(abs) {
+  let st;
+  try {
+    st = fs.lstatSync(abs);
+  } catch {
+    st = null;
+  }
+  const stack = [];
+  if (st && st.isDirectory()) {
+    if (holdsSecret(abs) || ownRoots().some((r) => within(r, abs))) throw fail(403, 'that folder holds the dashboard\'s own files or a file with a sign-in, which are never changed from here', { code: 'holds-protected' });
+    stack.push(abs);
+  }
+  let seen = 0;
+  return {
+    next: () => stack.pop() || null,
+    take(dir, list) {
+      for (const d of list) {
+        if (++seen > FOLDER_ENTRIES_MAX) throw fail(409, 'that folder holds too many files to check here: change it in a terminal', { code: 'too-many' });
+        if (!d.isDirectory()) continue;
+        if (isPrivateName(d.name)) throw fail(403, 'that folder holds a private folder, which the dashboard never changes: change it in a terminal', { code: 'holds-protected' });
+        stack.push(path.join(dir, d.name));
+      }
+    },
+  };
+}
+
+/**
+ * A full path from Files (the desktop's app) as the editor's (root, path inside it): the reach root it lies in, after
+ * symlinks, then resolveIn() with every rule above. Modes as resolveIn's. Returns { root, abs, rel }. The tops of the
+ * reach (the home folder, the disk) are never changed, renamed or moved.
+ */
+export function locate(p, roots, { mode = 'existing', typed = mode === 'new' } = {}) {
+  if (typeof p !== 'string' || !p || p.length > 4096 || p.includes('\0') || !path.isAbsolute(p)) throw fail(400, 'send a full path');
+  const parts = p.split(/[\\/]+/).filter(Boolean);
+  if (parts.includes('..') || parts.includes('.')) throw fail(400, 'a path cannot go up or have empty parts');
+  if (parts.some((s) => isPrivateName(s))) throw fail(403, PRIVATE_MSG);
+  if (parts.some((s) => isGitName(s))) throw fail(403, GIT_MSG);
+  const abs = path.resolve(p);
+  // The real path of what is named ('existing'), or of its folder (the name itself is not followed).
+  const follow = mode === 'existing' ? abs : path.dirname(abs);
+  let real;
+  try {
+    real = fs.realpathSync(follow);
+  } catch {
+    if (!roots.some((r) => within(abs, r))) throw fail(403, 'that folder is not one the dashboard may show');
+    throw fail(404, mode === 'existing' ? 'there is no such file or folder' : 'the folder it would go into does not exist');
+  }
+  if (mode !== 'existing') {
+    if (follow === abs) throw fail(400, 'the top of a disk cannot be changed');
+    real = path.join(real, path.basename(abs));
+  }
+  // The deepest root it lies in, so a root inside another (a second disk mounted in the home folder) is its own.
+  const root = roots.filter((r) => within(real, r)).sort((a, b) => b.length - a.length)[0];
+  if (!root) throw fail(403, 'that folder is not one the dashboard may show');
+  const rel = path.relative(root, real).split(path.sep).filter(Boolean).join('/');
+  if (!rel && mode !== 'existing') throw fail(400, 'the top of what Files reaches cannot be changed here');
+  return resolveIn(root, rel, roots, { mode, typed });
 }

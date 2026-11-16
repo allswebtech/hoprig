@@ -2,7 +2,7 @@
 // folder of this computer or of another one (its files go through the hub like every other request; Monaco's own
 // files always come from this dashboard). The server part is src/editor/. Reached from a project on Workspace ("Open
 // code", "Changes"), from a session's menu, and by links: #/code?dir=<folder>&file=<path>&line=<n>&view=changes.
-import { btn, fill, h, link, machine, openSheet, tildePath } from '../lib.js';
+import { WINDOW, btn, fill, h, link, machine, openApp, openSheet, tildePath } from '../lib.js';
 import { icon } from '../icons.js';
 import { registerPage, registerSessionAction, registerSettingsPage } from '../registry.js';
 import { emptyState, listRow, panel, savedMark, toggle } from '../shell.js';
@@ -58,20 +58,33 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// The desktop asks before it closes a window of the editor that holds unsaved changes, and can save them first
+// (web/desktop/wm.js): saveAll() is true when every file was saved.
+if (typeof window !== 'undefined') {
+  window.__hoprigUnsaved = () => (current ? current.dirty() : 0);
+  window.__hoprigSaveAll = async () => (current ? Boolean(await current.saveAll()) : true);
+}
+
 // ---------- the page ----------
 
 /** #/code without a folder: where folders are opened from, and the ones opened lately. */
 function viewLanding({ frame }) {
   const here = machine.current;
   const recent = recentFolders().filter((r) => (r.machine || null) === here);
+  // In a window of the desktop, folders are chosen in Files (the desktop has no Workspace).
+  const fromFiles = () => h('button.btn.primary', { type: 'button', onclick: () => openApp('files', '#/desktop/files') }, icon('folder', { size: 16 }), h('span', 'Open Files'));
   frame({
     title: 'Code editor',
     page: 'code',
-    intro: 'Open a project\'s code from Workspace: the code button (</>) on its row, or Open code on its page.',
+    intro: WINDOW
+      ? 'Open a folder from Files: Open in Editor in a folder\'s menu (⋯), or open a text file there.'
+      : 'Open a project\'s code from Workspace: the code button (</>) on its row, or Open code on its page.',
+    ...(WINDOW && recent.length ? { primary: { label: 'Open Files', icon: 'folder', onclick: () => openApp('files', '#/desktop/files') } } : {}),
     body: [
       recent.length
         ? panel({ icon: 'clock', title: 'Opened lately', desc: 'In this browser.' }, h('div.rows', recent.map((r) => listRow({ href: codeHash(r.dir), icon: 'code', title: folderName(r.dir), sub: tildePath(r.dir) }))))
-        : emptyState('code', 'No folder is open yet.', h('a.btn.primary', { href: link('#/workspace') }, 'Go to Workspace')),
+        : WINDOW ? emptyState('code', 'No folder is open yet.', fromFiles())
+          : emptyState('code', 'No folder is open yet.', h('a.btn.primary', { href: link('#/workspace') }, 'Go to Workspace')),
     ],
   });
 }

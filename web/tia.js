@@ -6,7 +6,7 @@
 // what she is doing; a confirm card asks in plain words (the accounts' display names, what it costs, why she asks)
 // and, once decided, shows what happened. Styles: page-automations.css (every class starts with "tia-").
 import { icon } from './icons.js';
-import { add, api, btn, confirmSheet, copyText, fill, h, prefs, toast, url } from './lib.js';
+import { BARE, add, api, btn, confirmSheet, copyText, fill, h, prefs, toast, url } from './lib.js';
 import { navChanged, registerHeadTool, registerPage, registerSessionAction, registerSettingsPage } from './registry.js';
 import { fold, saveBar, tabBar, toggle } from './shell.js';
 import { MODELS } from './sessiondefaults.js';
@@ -85,7 +85,9 @@ async function pollOverview() {
   paintTab();
   paintBox();
 }
-if (typeof window !== 'undefined' && typeof location !== 'undefined' && !location.pathname.startsWith('/login')) {
+// Not inside a window of the desktop (lib.js BARE): Tia's button there is the desktop's, which polls for itself, and
+// without an overview the box and the head button stay away.
+if (typeof window !== 'undefined' && typeof location !== 'undefined' && !location.pathname.startsWith('/login') && !BARE) {
   pollOverview();
   setInterval(pollOverview, 8000);
   // The frame is drawn again on every route: put the badge back each time.

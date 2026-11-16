@@ -77,6 +77,8 @@ test('recorded when the answer is finished and below 400; never the body; a Setu
     await post('/api/pcsetup/setup', { 'x-answer': JSON.stringify({ needsPassword: true }) });
     await post('/api/pcsetup/setup', { 'x-answer': JSON.stringify({ needsTerminal: true, why: 'x' }) });
     await post('/api/pcsetup/setup', { 'x-answer': JSON.stringify({ started: true }) });
+    // A service action that only got the typed confirmation's question (SSH) did nothing yet.
+    await post('/api/services/action', { 'x-answer': JSON.stringify({ needsConfirm: true, why: 'x' }) });
     await post('/api/state');
     await new Promise((r) => setImmediate(r));
     assert.deepEqual(lines, ["The hub office-pc linked Claude Code's own folder into the AI brain", 'The hub office-pc ran Set up this computer']);

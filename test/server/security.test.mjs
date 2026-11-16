@@ -54,14 +54,14 @@ test('Host header validation and headers', () => {
   const h = securityHeaders('pc:7433');
   assert.match(h['Content-Security-Policy'], /script-src 'self';/);
   assert.match(h['Content-Security-Policy'], /connect-src 'self' ws:\/\/pc:7433 wss:\/\/pc:7433/);
-  assert.match(h['Content-Security-Policy'], /frame-ancestors 'none'/);
-  // The whole policy, so a loosening shows up here: data: fonts are the code editor's icons, nothing else changed.
+  assert.match(h['Content-Security-Policy'], /frame-ancestors 'self';/, 'framed by this same site only (the desktop)');
+  // The whole policy, so a loosening shows up here: data: fonts are the code editor's icons, framing is this site's.
   assert.equal(h['Content-Security-Policy'],
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
     "connect-src 'self' ws://pc:7433 wss://pc:7433; font-src 'self' data:; object-src 'none'; base-uri 'none'; " +
-    "form-action 'self'; frame-ancestors 'none'; manifest-src 'self'");
+    "form-action 'self'; frame-ancestors 'self'; manifest-src 'self'");
   assert.doesNotMatch(securityHeaders(null)['Content-Security-Policy'], /ws:/);
-  assert.equal(h['X-Frame-Options'], 'DENY');
+  assert.equal(h['X-Frame-Options'], 'SAMEORIGIN');
   assert.equal(h['X-Content-Type-Options'], 'nosniff');
   assert.equal(h['Referrer-Policy'], 'no-referrer');
   assert.equal(isLoopback('127.0.0.1'), true);

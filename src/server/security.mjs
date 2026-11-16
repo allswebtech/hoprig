@@ -10,13 +10,16 @@ export function securityHeaders(host) {
     // Scripts only from this server, never inline. Styles allow 'unsafe-inline' because xterm.js injects <style>
     // elements for its theme and cell sizes at run time; inline styles cannot run code. Fonts also from data: URLs,
     // because the code editor (monaco) carries its icon font inside its style sheet; a font cannot run code.
+    // Framing: only by this same site (the desktop shows its pages as windows, web/desktop/); a page of any other
+    // site still cannot frame the dashboard, so it cannot trick a click on it. Nothing a user controls is served as
+    // a document of this site, so no framed page can be someone else's.
     'Content-Security-Policy':
       `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; ` +
       `connect-src 'self'${ws}; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; ` +
-      `frame-ancestors 'none'; manifest-src 'self'`,
+      `frame-ancestors 'self'; manifest-src 'self'`,
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
-    'X-Frame-Options': 'DENY',
+    'X-Frame-Options': 'SAMEORIGIN',
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Cross-Origin-Resource-Policy': 'same-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',

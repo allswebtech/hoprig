@@ -6,7 +6,7 @@
 // It also raises the in-page notifications: a count in the tab title, an optional sound and vibration, and
 // browser notifications where the browser allows them.
 import { APP_NAME } from './brand.js';
-import { api, link, machine, prefs, stateOf } from './lib.js';
+import { BARE, api, desktopParent, link, machine, prefs, stateOf } from './lib.js';
 
 const listeners = new Set();
 let all = null;
@@ -29,26 +29,57 @@ function tag(m) {
   return out;
 }
 
+// A window of the desktop (lib.js BARE) polls nothing itself: it reads the desktop's store, so a desktop with many
+// windows still asks once every few seconds. Its listeners end when the window's page goes.
+const host = (() => {
+  const p = desktopParent();
+  try {
+    return p && p.__hoprigStore ? p.__hoprigStore : null;
+  } catch {
+    return null;
+  }
+})();
+const hosted = new Set();
+if (host) {
+  window.addEventListener('pagehide', () => {
+    for (const off of hosted) off();
+    hosted.clear();
+  });
+}
+
 export const store = {
   /** The state of the computer whose screen is open, or null before the first answer. */
   get data() {
-    if (!all) return null;
+    const list = host ? (host.all.length ? host.all : null) : all;
+    if (!list) return null;
     const cur = machine.current;
-    return all.find((m) => m.machine === cur) || (cur ? { ...EMPTY, machine: cur, machineLabel: cur, status: 'offline', error: 'This computer is not in the list.' } : null);
+    return list.find((m) => m.machine === cur) || (cur ? { ...EMPTY, machine: cur, machineLabel: cur, status: 'offline', error: 'This computer is not in the list.' } : null);
   },
   /** Every computer: [{ machine, machineLabel, status, error, sessions, profiles, ... }], this one first. */
   get all() {
-    return all || [];
+    return host ? host.all : all || [];
   },
   /** More than one computer: the page shows which one each thing belongs to. */
   get multi() {
-    return !!all && all.length > 1;
+    return store.all.length > 1;
   },
   get error() {
-    return error;
+    return host ? host.error : error;
   },
   /** fn(data, error) is called now (if there is data) and after every poll. Returns an unsubscribe function. */
   subscribe(fn) {
+    if (host) {
+      // The desktop's store calls back with its own computer's data: this window's computer is worked out here.
+      const off = host.subscribe(() => {
+        window.__home = window.parent.__home;
+        fn(store.data, store.error);
+      });
+      hosted.add(off);
+      return () => {
+        off();
+        hosted.delete(off);
+      };
+    }
     listeners.add(fn);
     if (all || error) fn(store.data, error);
     if (!timer && !inflight) refresh();
@@ -60,6 +91,7 @@ export const store = {
 };
 
 async function refresh() {
+  if (host) return host.refresh();
   clearTimeout(timer);
   if (inflight) {
     again = true;
@@ -77,14 +109,25 @@ async function refresh() {
       error = e;
     }
     inflight = null;
-    for (const fn of listeners) fn(store.data, error);
+    for (const fn of listeners) {
+      // One listener that fails (a window of the desktop closing as it is called) does not stop the others.
+      try {
+        fn(store.data, error);
+      } catch (e) {
+        setTimeout(() => { throw e; }, 0);
+      }
+    }
     timer = setTimeout(refresh, again ? 0 : document.visibilityState === 'visible' ? 3000 : 15000);
     again = false;
   })();
   return inflight;
 }
 
+// The desktop's windows find this store here (same origin only; see `host` above).
+if (!BARE && typeof window !== 'undefined') window.__hoprigStore = store;
+
 document.addEventListener('visibilitychange', () => {
+  if (host) return;
   if (document.visibilityState === 'visible') {
     unread = 0;
     setTitle();
@@ -126,6 +169,11 @@ export const pageNotify = {
 
 let titleBase = APP_NAME;
 function setTitle() {
+  // A window's title is its page's own name; the count of what changed is the desktop's.
+  if (BARE) {
+    document.title = titleBase;
+    return;
+  }
   document.title = unread ? `(${unread}) ${titleBase}` : titleBase;
 }
 

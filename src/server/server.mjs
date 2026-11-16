@@ -5,6 +5,9 @@
 //   port            port                                    default 7433
 //   passwordHash    scrypt hash of the dashboard password    set by the passwd command
 //   roots           folders the folder picker may show       default [your home directory]
+//   reach           how far Files and the editor reach: "home" = those folders; "everything" = the whole disk
+//                   (Hoprig's own folders and sign-in files stay locked; sessions, Tia and automations keep to roots)
+//                                                            default "home"
 //   backend         "auto" | "tmux" | "pty"                  default "auto"
 //   tmuxSocket      tmux -L socket name                      default "" = your normal tmux server (tmux attach works)
 //   trustProxy      true behind a reverse proxy: believe X-Forwarded-Proto/-Host/-For   default false
@@ -68,6 +71,7 @@ import { workspaceFeature } from '../workspace/feature.mjs';
 import { editorFeature } from '../editor/feature.mjs';
 import { chatFeature } from '../chat/feature.mjs';
 import { onboardingFeature } from '../setup/onboarding.mjs';
+import { desktopFeature } from '../desktop/feature.mjs';
 import { removeDashboardFile, writeDashboardFile } from './dashboardfile.mjs';
 import { createLoginLink, loginLinkStatus, qrRows, useLoginLink } from './loginlink.mjs';
 import { clientIp, isHttps, originOk, requestHost, securityHeaders } from './security.mjs';
@@ -232,6 +236,7 @@ export function createServer(opts = {}) {
     workspaceFeature(ctx, opts.workspace), // Workspace: the tree, its map, restore and sync, Git and GitHub, the AI brain (read-only)
     chat, // coding without the terminal: a Claude Code conversation as a chat (its cards are among the sessions)
     codetoolsFeature(ctx, opts.codetools), // Codex's and OpenCode's servers: stopped when no session uses them
+    desktopFeature(ctx, opts.desktop), // the desktop's Task manager, Services and Logs: processes, usage, services, the journal and log files
   ];
   const trusted = (req) => features.some((f) => f.trusted && f.trusted(req));
 
@@ -375,6 +380,7 @@ export function createServer(opts = {}) {
       server: {
         quickActions: Array.isArray(s.quickActions) ? s.quickActions : DEFAULT_QUICK_ACTIONS,
         roots: roots(),
+        reach: s.reach === 'everything' ? 'everything' : 'home',
         notify: s.notify || null,
         publicUrl: s.publicUrl || '',
       },
@@ -846,7 +852,11 @@ export function createServer(opts = {}) {
       if (!viaToken && !authed(req)) return send(res, 401, { error: 'log in first' });
       for (const [m, re, fn] of routes) {
         const match = re.exec(p);
-        if (match && m === method) return send(res, 200, await fn(req, match, url.searchParams, res));
+        if (match && m === method) {
+          const out = await fn(req, match, url.searchParams, res);
+          // A route that answered itself (a file sent as a download) has nothing more to send.
+          return res.headersSent ? undefined : send(res, 200, out);
+        }
       }
       return send(res, 404, { error: 'not found' });
     }

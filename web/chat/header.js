@@ -20,7 +20,7 @@ export function usageWords(p) {
 /** The editor's address for a folder (another part of the dashboard draws it). */
 export const editorLink = (dir, view = null) => link(`#/code?dir=${encodeURIComponent(dir)}${view ? `&view=${view}` : ''}`);
 
-/** o: { A, way: { hash, label }, act: { stop, compact, clear, close, terminal, moveTo(name), history, rewind, shortcuts } } → { el, paint(v) } */
+/** o: { A, way: { hash, label } | null (a window that started on this chat: no way back), act: { stop, compact, clear, close, terminal, moveTo(name), history, rewind, shortcuts } } → { el, paint(v) } */
 export function createHeader(o) {
   let v = null;
   const titleText = h('span.chat-title-text', 'Chat');
@@ -33,7 +33,7 @@ export function createHeader(o) {
   const provBtn = h('button.chip.chat-hchip', { type: 'button', onclick: () => providerMenu() }, icon('user', { size: 13 }), provLabel, icon('chevronDown', { size: 12 }));
   const histBtn = h('button.btn.icon.ghost.chat-histbtn', { type: 'button', 'aria-label': 'Earlier conversations of this folder', title: 'Earlier conversations of this folder', onclick: () => o.act.history() }, icon('clock', { size: 16 }));
   const el = h('header.chat-bar',
-    h('a.btn.ghost.chatback', { href: o.way.hash, 'aria-label': `Back to ${o.way.label}`, title: `Back to ${o.way.label}` }, icon('back'), h('span.chatback-label', o.way.label)),
+    o.way && h('a.btn.ghost.chatback', { href: o.way.hash, 'aria-label': `Back to ${o.way.label}`, title: `Back to ${o.way.label}` }, icon('back'), h('span.chatback-label', o.way.label)),
     h('div.chat-head', h('div.chat-h1row', h('h1.chat-h1', titleBtn), histBtn), h('div.chat-sub', folderBtn, provBtn)),
     h('button.btn.icon.ghost.chat-morebtn', { type: 'button', title: 'More for this chat', 'aria-label': 'More for this chat', onclick: () => more() }, icon('more')));
 

@@ -72,6 +72,12 @@ export const plainLegRefusal = (label, page) => ({
 
 const BODY_MAX = 1024 * 1024; // no API but an upload takes more than 64 KiB; an upload is raw bytes, never a password
 
+/**
+ * The paths whose body is raw bytes (a file sent from the page: a session's attachment, an upload in Files): the hub
+ * streams it on a plain leg without reading it for a password, and waits longer for its answer (index.mjs).
+ */
+export const RAW_BODY = /\/upload$/;
+
 async function readBody(req, max) {
   const chunks = [];
   let size = 0;
@@ -97,7 +103,7 @@ function replay(req, buf) {
  */
 export async function relayLeg(req, m, encrypted, { path = '' } = {}) {
   if (encrypted) return { req, headers: { [LEG_HEADER]: 'encrypted' } };
-  if (req.method === 'GET' || req.method === 'HEAD' || /\/upload$/.test(path)) return { req, headers: {} };
+  if (req.method === 'GET' || req.method === 'HEAD' || RAW_BODY.test(path.split('?')[0])) return { req, headers: {} };
   const buf = await readBody(req, BODY_MAX);
   if (buf === null) return { refused: { status: 413, body: { error: 'too large' } } };
   if (hasPassword(buf.toString('utf8'))) return { refused: { status: 403, body: plainLegRefusal(m.label || m.name, m.via === 'url' ? m.url : null) } };

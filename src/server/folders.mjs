@@ -22,6 +22,31 @@ export function resolveRoots(roots) {
   return out;
 }
 
+/**
+ * How far Files and the editor reach on this computer. `server.reach` 'everything': the whole disk this user can
+ * open (a terminal can already); else the allowed folders `server.roots` (the home folder unless changed). Hoprig's
+ * own folders and the files that hold a sign-in stay locked either way (src/editor/paths.mjs). New sessions, Tia,
+ * automations, chats and skills keep to the allowed folders (resolveRoots): the setting is about files only.
+ */
+export function reachRoots(server = {}, platform = process.platform) {
+  if (server && server.reach === 'everything') return diskRoots(platform);
+  return resolveRoots(server && server.roots);
+}
+
+/** The tops of every disk: "/" , or on Windows each drive letter that is there. */
+export function diskRoots(platform = process.platform) {
+  if (platform !== 'win32') return ['/'];
+  const out = [];
+  for (const l of 'CDEFGHIJKLMNOPQRSTUVWXYZ') {
+    try {
+      if (fs.statSync(`${l}:\\`).isDirectory()) out.push(`${l}:\\`);
+    } catch {
+      /* no such drive */
+    }
+  }
+  return out.length ? out : resolveRoots(null);
+}
+
 export const within = (p, root) => p === root || p.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
 
 /** The real path of `p` when it is an existing directory inside a root, else null. */

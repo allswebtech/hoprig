@@ -29,6 +29,7 @@ import './editor/index.js';
 import './settings.js';
 import './updates.js';
 import './codingtools.js';
+import './desktop/index.js';
 
 const app = document.getElementById('app');
 let stopView = () => {};

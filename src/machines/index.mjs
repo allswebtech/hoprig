@@ -41,11 +41,13 @@ import { label as cleanLabel, machineName, tokenName } from './names.mjs';
 import { claimCode, codeStatus, createCode, machineInfo } from './pairing.mjs';
 import { errorBody, relayHttp, relayUpgrade, rejectUpgrade } from './relay.mjs';
 import { getMachine } from './store.mjs';
-import { legEncrypted, relayLeg } from './legs.mjs';
+import { RAW_BODY, legEncrypted, relayLeg } from './legs.mjs';
 import { auditToken } from './tokenaudit.mjs';
 import { bearerOf, createToken, listTokens, revokeToken, touchToken, verifyToken } from './tokens.mjs';
 
 const BODY_MAX = 64 * 1024;
+// Changes that can take minutes on the computer (git, and large files in Files): the hub waits longer for them.
+const SLOW = /^\/api\/code\/git\/(commit|stage|unstage|discard)$|^\/api\/files\/(copy|move|trash|delete|pack|unpack)$/;
 const TOKEN = Symbol('hoprig.token');
 
 // Never reachable with a token, even where the server has the route.
@@ -283,7 +285,7 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
       req.resume();
       return send(res, status, body);
     }
-    await relayHttp(leg.req, res, ep, { machine: m.label || name, path: rest + url.search, token: m.token, headers: leg.headers, idleMs: /\/upload$|^\/api\/code\/git\/(commit|stage|unstage|discard)$/.test(rest) ? Math.max(150_000, relayIdleMs) : relayIdleMs });
+    await relayHttp(leg.req, res, ep, { machine: m.label || name, path: rest + url.search, token: m.token, headers: leg.headers, idleMs: RAW_BODY.test(rest) || SLOW.test(rest) ? Math.max(150_000, relayIdleMs) : relayIdleMs });
     return true;
   }
 

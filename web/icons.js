@@ -51,7 +51,21 @@ const P = {
   text: ['M5 6h14', 'M5 10h14', 'M5 14h10', 'M5 18h7'],
   play: ['M8 5l11 7-11 7z'],
   code: ['M8 7l-5 5 5 5', 'M16 7l5 5-5 5', 'M13.5 5l-3 14'],
+  // A screen on a stand (the desktop); one square and two stacked ones (a window's maximise and restore).
+  monitor: ['M3 4.5h18v12H3z', 'M8.5 20.5h7', 'M12 16.5v4'],
+  square: ['M5 5h14v14H5z'],
+  restore: ['M8 8h11v11H8z', 'M5 15V5h10'],
   external: ['M14 4h6v6', 'M20 4l-9 9', 'M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5'],
+  // Files: an upload (the download's arrow the other way) and an eye (hidden files shown).
+  upload: ['M12 15V4', 'M7 9l5-5 5 5', 'M5 20h14'],
+  eye: ['M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z', 'M12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z'],
+  // Files: one glyph per action, so a bar of icons alone never shows the same one twice.
+  folderPlus: ['M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z', 'M12 11v5', 'M9.5 13.5h5'],
+  filePlus: ['M6 3h8l4 4v14H6z', 'M14 3v4h4', 'M12 11v6', 'M9 14h6'],
+  archive: ['M3 4h18v4H3z', 'M5 8v12h14V8', 'M10 12h4'],
+  trashBack: ['M4 7h16', 'M9 7V4h6v3', 'M6 7l1 13h10l1-13', 'M12 17v-6', 'M9.5 13.5L12 11l2.5 2.5'],
+  // Services: a stack of running parts (the power glyph reads as "turn the computer off").
+  stack: ['M12 3l9 4.5-9 4.5-9-4.5z', 'M3 12l9 4.5 9-4.5', 'M3 16.5l9 4.5 9-4.5'],
 };
 
 const NS = 'http://www.w3.org/2000/svg';

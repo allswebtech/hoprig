@@ -71,7 +71,83 @@ export const at = (m, p) => (m ? `/m/${m}${p}` : `~${p}`);
 /** API path of the computer a session (or account) belongs to; items from the shared poller carry `machine`. */
 export const atOf = (item, p) => (item && 'machine' in item ? at(item.machine, p) : p);
 export const url = (p) => (p.startsWith('~/') ? p.slice(1) : p.startsWith('/m/') || p === '/login' || !MACHINE ? p : `/m/${MACHINE}${p}`);
+/** The WebSocket address of path `p` on computer `m` (null: this one), whatever screen is open (native desktop apps). */
+export const wsAt = (m, p) => wsUrl(at(m, p));
 export const wsUrl = (p) => `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${url(p)}`;
+// ---------- bare mode: a page inside a window of the desktop ----------
+
+// "/?bare=1#/…" is a page drawn as an app in a window of the desktop (web/desktop/): the frame has no navigation,
+// no head tools and no floating buttons, the trail is not saved, the session poll is the desktop's, and Tia is the
+// desktop's. The desktop is this same page one level up (framing is allowed for this origin only).
+export const BARE = typeof location !== 'undefined' && new URLSearchParams(location.search).get('bare') === '1' && typeof window !== 'undefined' && window.parent !== window;
+const bareQuery = BARE ? new URLSearchParams(location.search) : null;
+const asHash = (v) => (typeof v === 'string' && /^#\/[^\s<>"']{0,500}$/.test(v) ? v : null);
+/**
+ * What a window says about itself in its address (web/desktop/apps.js frameSrc), null outside a window: `home` the
+ * page its app starts at (the way back leads there; on it there is none, so a Terminal window never turns into
+ * another page), `label` the app's name for that way back, `only` the computer whose sessions it shows ('~': this
+ * one; the Sessions app of a computer's desktop).
+ */
+export const WINDOW = BARE
+  ? {
+    home: asHash(bareQuery.get('home')),
+    label: (bareQuery.get('label') || '').replace(/[^\p{L}\p{N} ]/gu, '').slice(0, 40) || null,
+    only: /^(~|[a-z0-9][a-z0-9_-]{0,31})$/.test(bareQuery.get('only') || '') ? bareQuery.get('only') : null,
+  }
+  : null;
+/** Two in-page addresses that show the same place ("#/m/pc/" and "#/m/pc", "" and "#/"). */
+export const samePlace = (a, b) => (a || '#/').replace(/\/+$/, '') === (b || '#/').replace(/\/+$/, '');
+/** The desktop around a bare page, or null: only ever this same site's own page (a frame of another one is not). */
+export function desktopParent() {
+  if (!BARE) return null;
+  try {
+    return window.parent.location.origin === location.origin ? window.parent : null;
+  } catch {
+    return null;
+  }
+}
+/** Tell the desktop something ({ type: 'hoprig:…' }); a page outside the desktop has nobody to tell. */
+export function tellDesktop(msg) {
+  const p = desktopParent();
+  if (p) p.postMessage(msg, location.origin);
+  return !!p;
+}
+/**
+ * Ask the desktop to close the window this page is in: a session that ended on the window's own start page has no
+ * page left to go back to (trail.js windowWay). False outside a window.
+ */
+export const closeWindow = () => tellDesktop({ type: 'hoprig:close' });
+/** Open app `app` of the desktop at `hash` (on this page's computer, written without it): a window of the desktop
+ * around this page, or the page itself outside the desktop. */
+export function openApp(app, hash) {
+  if (!tellDesktop({ type: 'hoprig:open', app, hash })) location.hash = link(hash);
+}
+if (BARE) {
+  // The desktop gives a window the keyboard (web/desktop/frames.js giveKeys): the page's own place for typing takes
+  // it, as a press into it would (the terminal, the editor). A page still being drawn is waited for a moment.
+  const takeKeys = () => {
+    let n = 0;
+    const take = () => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      const el = document.querySelector('.xterm-helper-textarea, .monaco-editor textarea, [autofocus]');
+      if (el) el.focus();
+      else if (++n < 30 && document.hasFocus()) setTimeout(take, 100);
+    };
+    take();
+  };
+  window.addEventListener('focus', takeKeys);
+  window.addEventListener('message', (e) => {
+    if (e.source === window.parent && e.origin === location.origin && e.data && e.data.type === 'hoprig:keys') takeKeys();
+  });
+  // The desktop's window keys work while the keyboard is inside a window too (web/desktop/wm.js, onKey).
+  window.addEventListener('keydown', (e) => {
+    if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
+    if (!/^(ArrowLeft|ArrowRight|ArrowUp|ArrowDown|KeyW|KeyM)$/.test(e.code)) return;
+    e.preventDefault();
+    tellDesktop({ type: 'hoprig:key', code: e.code });
+  });
+}
+
 /** An in-page link to a screen of computer `m` (default: the open one): "#/s/x" -> "#/m/pc2/s/x". */
 export const link = (hash, m = MACHINE) => (m ? `#/m/${m}${hash.slice(1)}` : hash);
 
@@ -97,7 +173,8 @@ export async function api(path, body, method = body === undefined ? 'GET' : 'POS
     throw new ApiError('Cannot reach the computer. Check the connection.', 0);
   }
   if (r.status === 401 && !path.startsWith('/api/settings/password')) {
-    location.href = url('/login');
+    // Inside a window of the desktop the whole desktop goes to the login, not this one window.
+    if (!tellDesktop({ type: 'hoprig:logged-out' })) location.href = url('/login');
     throw new ApiError('Logged out', 401);
   }
   const data = await r.json().catch(() => ({}));
@@ -182,6 +259,12 @@ export function applyPageTheme() {
   const t = prefs.get('page.theme', 'system');
   if (t === 'system') document.documentElement.removeAttribute('data-theme');
   else document.documentElement.setAttribute('data-theme', t);
+}
+// A choice made in another tab, or in the desktop around this window, applies here at once.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'pref:page.theme') applyPageTheme();
+  });
 }
 
 // ---------- wording ----------
@@ -375,12 +458,14 @@ export function confirmSheet({ title, text, ok = 'OK', danger = false }) {
   ]).then((v) => v === true);
 }
 
-/** A form with one field. `check(value)` returns an error message or ''. */
-export function promptSheet({ title, text, value = '', ok = 'OK', placeholder = '', type = 'text', check = () => '', multiline = false }) {
+/** A form with one field. `check(value)` returns an error message or ''. `danger`: the button that does it is red;
+ * `label`: what the field is, for a screen reader (the title by default). */
+export function promptSheet({ title, text, value = '', ok = 'OK', placeholder = '', type = 'text', check = () => '', multiline = false, danger = false, label = null }) {
   return openSheet({ title }, (close) => {
+    const named = { 'aria-label': label || title };
     const input = multiline
-      ? h('textarea.field', { value, placeholder, autofocus: true, rows: 5 })
-      : h('input.field', { type, value, placeholder, autofocus: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+      ? h('textarea.field', { value, placeholder, autofocus: true, rows: 5, ...named })
+      : h('input.field', { type, value, placeholder, autofocus: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', ...named });
     const err = h('p.form-error', { role: 'alert' });
     return h('form', {
       onsubmit: (e) => {
@@ -394,7 +479,7 @@ export function promptSheet({ title, text, value = '', ok = 'OK', placeholder = 
     input, err,
     h('div.sheet-actions',
       h('button.btn.secondary', { type: 'button', onclick: () => close(null) }, 'Cancel'),
-      h('button.btn.primary', { type: 'submit' }, ok)));
+      h(`button.btn.${danger ? 'danger' : 'primary'}`, { type: 'submit' }, ok)));
   });
 }
 
@@ -412,12 +497,17 @@ export function chooseSheet({ title, subtitle, items }) {
 // ---------- toasts ----------
 
 let toastBox = null;
-export function toast(text, { kind = 'info', ms = 3500 } = {}) {
+export function toast(text, { kind = 'info', ms = 3500, action = null } = {}) {
   if (!toastBox) {
     toastBox = h('div.toasts', { role: 'status', 'aria-live': 'polite' });
     document.body.append(toastBox);
   }
-  const t = h(`div.toast.${kind}`, icon(kind === 'error' ? 'alert' : 'check', { size: 18 }), h('span', text));
+  // `action` { label, run }: one button on the toast (Undo); pressing it runs it and the toast goes.
+  const t = h(`div.toast.${kind}`, icon(kind === 'error' ? 'alert' : 'check', { size: 18 }), h('span', text),
+    action ? h('button.btn.ghost.small.toast-action', { type: 'button', onclick: () => {
+      t.remove();
+      action.run();
+    } }, action.label) : null);
   toastBox.append(t);
   setTimeout(() => t.remove(), ms);
 }

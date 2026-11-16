@@ -6,10 +6,10 @@
 // live.mjs). Files dropped anywhere on the page go with the next message.
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
 import { icon } from '../icons.js';
-import { add, api, confirmSheet, fill, h, isClaudeCard, link, machine, prefs, toast } from '../lib.js';
+import { add, api, closeWindow, confirmSheet, fill, h, isClaudeCard, link, machine, prefs, toast } from '../lib.js';
 import { registerPage, registerSessionAction } from '../registry.js';
 import { pageNotify, store } from '../store.js';
-import { forgetHere, named, wayBack } from '../trail.js';
+import { forgetHere, named, wayBack, windowWay } from '../trail.js';
 import { agentsStrip } from './agents.js';
 import { createComposer } from './composer.js';
 import { createHeader } from './header.js';
@@ -35,7 +35,10 @@ function viewChat({ sub }) {
   document.body.classList.add('chat-mode');
   store.viewing = `chat:${id}`;
   named('Chat');
-  const way = wayBack() || { hash: link('#/'), label: 'Home' }; // the page you came from (trail.js), else Home
+  // The page you came from (trail.js), else Home; in a window of the desktop the way back stays in its app, and a
+  // window that started on this chat has none (null).
+  const inWindow = windowWay();
+  const way = inWindow || wayBack() || { hash: link('#/'), label: 'Home' };
   let v = null; // the chat's state: the first look's, then each new state merged in
 
   // ---------- actions ----------
@@ -87,7 +90,8 @@ function viewChat({ sub }) {
         await api(`${A}/close`, {});
         store.refresh();
         forgetHere();
-        location.hash = way.hash;
+        if (inWindow !== null) location.hash = way.hash;
+        else if (!closeWindow()) gone();
       } catch (e) {
         toast(e.message, { kind: 'error' });
       }
@@ -126,7 +130,7 @@ function viewChat({ sub }) {
   };
 
   // ---------- layout ----------
-  const header = createHeader({ A, way, act });
+  const header = createHeader({ A, way: inWindow === null ? null : way, act });
   const notes = h('div.chat-notes'); // a terminal runs it, a limit
   const conn = h('div.chat-conn'); // the connection
   const scroll = h('div.chat-scroll', { role: 'region', 'aria-label': 'Conversation', tabindex: '-1' });
@@ -219,7 +223,10 @@ function viewChat({ sub }) {
     forgetHere(); // a chat that is not open any more is never a way back
     fill(wrap, header.el, h('div.chat-mid', h('div.empty', icon('text', { size: 32 }),
       h('p', 'This chat is not open any more: it was closed, or opened in a terminal.'),
-      h('a.btn.primary', { href: way.hash }, icon(way.label === 'Home' ? 'home' : 'back', { size: 18 }), h('span', way.label === 'Home' ? 'Home' : `Back to ${way.label}`)))));
+      // A window that started on this chat has no page to go back to: it offers to close instead.
+      inWindow === null
+        ? h('button.btn.primary', { type: 'button', onclick: () => closeWindow() }, icon('x', { size: 18 }), h('span', 'Close window'))
+        : h('a.btn.primary', { href: way.hash }, icon(way.label === 'Home' ? 'home' : 'back', { size: 18 }), h('span', way.label === 'Home' ? 'Home' : `Back to ${way.label}`)))));
   }
   const unfollow = follow({
     A,

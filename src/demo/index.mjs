@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { demoDesktop } from './desktop.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SESSION = path.join(HERE, 'session.mjs');
@@ -620,6 +621,7 @@ export async function main(args = [], hooks = {}) {
       // The workspace tree and the AI brain (sample files), then the map, sync, restore and git state samples.
       workspace: { ...demoWorkspace(home, o.secondary), ...demoWorkspaceMore(home, o.secondary) },
       system: demoSystem(o.secondary),
+      desktop: demoDesktop(root, o.secondary), // the desktop's Task manager, Services and Logs: samples, nothing real
       // The list of computers: the sample version, not "not installed". The join line: what a hub with its own
       // certificate answers (the address in server.publicUrl below; a made-up fingerprint), so the page shows it whole.
       machines: { claudeVersion: async () => CLAUDE_INFO.installed, certOf: async () => ({ kind: 'own', pin: DEMO_PIN }) },

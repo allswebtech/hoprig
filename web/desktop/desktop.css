@@ -1,0 +1,329 @@
+/* The desktop (web/desktop/): windows, the two styles of bars, the start menu and launcher, the right-click menu,
+   the icons, and the grid of apps on a small screen. Only the kit's tokens, so light and dark come with them.
+   One window manager; what differs between "Taskbar" and "Dock" is under .desk[data-desk-style]. */
+
+body.desk-mode { overflow: hidden; }
+.desk {
+  position: fixed; inset: 0; display: flex; flex-direction: column; color: var(--text);
+  background:
+    radial-gradient(1100px 620px at 88% -12%, color-mix(in srgb, var(--accent) var(--mesh-a), transparent), transparent 62%),
+    radial-gradient(900px 520px at -8% 112%, color-mix(in srgb, var(--warm) var(--mesh-b), transparent), transparent 60%),
+    var(--bg);
+}
+.desk-top, .desk-bottom { flex: none; }
+.desk-area { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.desk[data-desk-style='dock'] .desk-area { margin-bottom: 78px; } /* a window maximised stops above the dock */
+.desk-busy, .desk-busy * { user-select: none; }
+.desk-grow { flex: 1; }
+
+/* ---------- icons on the desktop ---------- */
+.desk-icons { position: absolute; z-index: 1; top: 14px; left: 10px; display: flex; flex-direction: column; flex-wrap: wrap; align-content: flex-start; gap: 4px; max-height: calc(100% - 20px); }
+.desk-icon { width: 84px; padding: 8px 4px; display: flex; flex-direction: column; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: var(--r); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-xs); font-weight: 550; cursor: default; }
+.desk-icon:hover { background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.desk-icon:focus-visible { border-color: var(--accent); background: var(--accent-soft); box-shadow: none; }
+.desk-icon-img { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-1); color: var(--accent); }
+
+/* ---------- windows ---------- */
+.dwin { position: absolute; display: flex; flex-direction: column; min-width: 0; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r); box-shadow: var(--shadow-1); overflow: hidden; }
+.dwin[aria-current='true'] { border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong)); box-shadow: var(--shadow-2); }
+.dwin[data-snap='max'] { border-radius: 0; border-width: 0; }
+.dwin-bar { flex: none; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); touch-action: none; user-select: none; }
+.dwin[aria-current='true'] .dwin-bar { background: var(--surface); }
+.dwin-icon { color: var(--muted); display: grid; }
+.dwin[aria-current='true'] .dwin-icon { color: var(--accent); }
+.dwin-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.dwin[aria-current='true'] .dwin-title { color: var(--text); }
+.dwin-ctl { display: flex; align-items: center; gap: 2px; }
+.dwin-btn { width: 32px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.dwin-btn:hover { background: var(--surface-3); color: var(--text); }
+.dwin-btn[data-act='x']:hover { background: var(--danger-solid, var(--danger)); color: var(--on-solid); }
+.dwin-body { position: relative; flex: 1; min-height: 0; }
+.dwin-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
+/* Over a window that is not in front (its first press brings it forward) and over every window while one moves. */
+.dwin-shield { position: absolute; inset: 0; display: none; }
+.dwin[aria-current='false'] .dwin-shield, .desk-busy .dwin-shield { display: block; }
+.dwin-grip { position: absolute; z-index: 2; touch-action: none; --g: 6px; }
+.dwin-grip[data-dir='n'] { top: 0; left: 10px; right: 10px; height: var(--g); cursor: ns-resize; }
+.dwin-grip[data-dir='s'] { bottom: 0; left: 10px; right: 10px; height: var(--g); cursor: ns-resize; }
+.dwin-grip[data-dir='e'] { right: 0; top: 10px; bottom: 10px; width: var(--g); cursor: ew-resize; }
+.dwin-grip[data-dir='w'] { left: 0; top: 10px; bottom: 10px; width: var(--g); cursor: ew-resize; }
+.dwin-grip[data-dir='ne'] { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+.dwin-grip[data-dir='sw'] { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+.dwin-grip[data-dir='nw'] { top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+.dwin-grip[data-dir='se'] { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+.dwin[data-snap='max'] .dwin-grip { display: none; }
+@media (pointer: coarse) {
+  .dwin-grip { --g: 14px; }
+  .dwin-grip[data-dir$='e'][data-dir^='n'], .dwin-grip[data-dir$='w'][data-dir^='n'], .dwin-grip[data-dir$='e'][data-dir^='s'], .dwin-grip[data-dir$='w'][data-dir^='s'] { width: 22px; height: 22px; }
+  .dwin-bar { height: 42px; }
+}
+.desk-preview { position: absolute; z-index: 900; border-radius: var(--r); background: color-mix(in srgb, var(--accent) 14%, transparent); border: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); pointer-events: none; }
+
+/* ---------- Taskbar style ---------- */
+.desk-taskbar { height: 48px; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-top: 1px solid var(--border); }
+.desk-start, .desk-launch { flex: none; display: grid; place-items: center; padding: 0; border: 1px solid transparent; background: transparent; cursor: pointer; }
+.desk-start { height: 40px; grid-auto-flow: column; gap: 6px; padding: 0 10px 0 8px; border-radius: var(--r); color: var(--text); font: inherit; font-weight: 650; }
+.desk-start:hover, .desk-start[aria-expanded='true'] { background: var(--accent-soft); }
+.desk-start img { border-radius: 6px; }
+.desk-tasks { flex: 1; min-width: 0; display: flex; gap: 4px; overflow: hidden; }
+.desk-task { position: relative; flex: 0 1 200px; min-width: 44px; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.desk-task:hover { background: var(--surface-2); border-color: var(--border); }
+.desk-task::after { content: ''; position: absolute; left: 50%; bottom: 2px; width: 14px; height: 3px; margin-left: -7px; border-radius: 99px; background: var(--muted); opacity: .55; }
+.desk-task[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); }
+.desk-task[aria-pressed='true']::after { width: 22px; margin-left: -11px; background: var(--accent); opacity: 1; }
+.desk-task[data-min='1'] { color: var(--muted); }
+.desk-task-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desk-tray { flex: none; display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.desk-tray-btn { height: 34px; min-width: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.desk-tray-btn:hover { background: var(--surface-2); color: var(--text); }
+.desk-pc span { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desk-waiting { color: var(--warn); font-weight: 650; }
+.desk-clock { padding: 0 8px; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; color: var(--text-2); }
+
+/* ---------- Dock style ---------- */
+.desk-topbar { height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: color-mix(in srgb, var(--surface) 86%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
+.desk-topbar .desk-tray-btn { height: 26px; min-width: 28px; padding: 0 6px; }
+.desk-topbar .desk-clock { padding: 0 6px; }
+.desk-launch { width: 28px; height: 26px; border-radius: var(--r-sm); }
+.desk-launch:hover, .desk-launch[aria-expanded='true'] { background: var(--surface-3); }
+.desk-launch img { width: 18px; height: 18px; border-radius: 5px; }
+.desk-appmenu { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); cursor: pointer; min-width: 0; }
+.desk-appmenu:hover { background: var(--surface-3); }
+.desk-appmenu-sub { color: var(--muted); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desk-appmenu-none { padding: 0 8px; font-weight: 700; }
+.desk[data-desk-style='dock'] .desk-bottom { position: absolute; left: 0; right: 0; bottom: 10px; display: flex; justify-content: center; pointer-events: none; }
+.desk-dock { pointer-events: auto; display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: color-mix(in srgb, var(--surface) 82%, transparent); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow-2); }
+.desk-dock-item { position: relative; width: 48px; height: 48px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 12px; background: var(--surface-3); color: var(--text-2); cursor: pointer; transition: transform var(--tick), background var(--tick); }
+.desk-dock-item:hover { transform: translateY(-3px); background: var(--accent-soft); color: var(--accent-soft-text); }
+.desk-dock-all { background: transparent; }
+.desk-dock-dot { position: absolute; bottom: -5px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--text-2); opacity: 0; }
+.desk-dock-item[data-open='1'] .desk-dock-dot { opacity: 1; }
+.desk-dock-sep { width: 1px; height: 36px; margin: 0 2px; background: var(--border-strong); }
+/* Window buttons: on the left, small and round, coloured only while the pointer is over them. */
+.desk[data-desk-style='dock'] .dwin { border-radius: var(--r-lg); }
+.desk[data-desk-style='dock'] .dwin[data-snap='max'] { border-radius: 0; }
+.desk[data-desk-style='dock'] .dwin-bar { padding: 0 12px; }
+.desk[data-desk-style='dock'] .dwin-ctl { order: -1; gap: 8px; margin-right: 4px; }
+.desk[data-desk-style='dock'] .dwin-btn { width: 13px; height: 13px; border-radius: 50%; background: var(--border-strong); color: var(--surface); }
+.desk[data-desk-style='dock'] .dwin-btn .icon { width: 9px; height: 9px; stroke-width: 3; }
+.desk[data-desk-style='dock'] .dwin-btn[data-act='x'] { order: -1; }
+.desk[data-desk-style='dock'] .dwin-ctl:hover .dwin-btn { color: var(--on-solid); }
+.desk[data-desk-style='dock'] .dwin-ctl:hover .dwin-btn[data-act='x'] { background: var(--danger-solid, var(--danger)); }
+.desk[data-desk-style='dock'] .dwin-ctl:hover .dwin-btn[data-act='minus'] { background: var(--warn-solid, var(--warn)); }
+.desk[data-desk-style='dock'] .dwin-ctl:hover .dwin-btn[data-act='square'] { background: var(--ok-solid, var(--ok)); }
+.desk[data-desk-style='dock'] .dwin-title { text-align: center; }
+@media (pointer: coarse) {
+  .desk[data-desk-style='dock'] .dwin-btn { width: 20px; height: 20px; }
+}
+
+/* ---------- start menu and launcher ---------- */
+.desk-pop { position: absolute; z-index: 950; display: flex; flex-direction: column; gap: 14px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-2); overflow: auto; }
+.desk-pop-taskbar { left: 8px; bottom: 56px; width: 440px; max-height: calc(100% - 72px); }
+.desk-pop-dock { left: 50%; top: 46px; transform: translateX(-50%); width: min(720px, calc(100% - 64px)); max-height: calc(100% - 150px); }
+.desk-search { width: 100%; }
+.desk-apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 4px; }
+.desk-app { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border: 0; border-radius: var(--r); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-xs); font-weight: 550; cursor: pointer; }
+.desk-app:hover, .desk-app:focus-visible { background: var(--surface-2); }
+/* What Enter opens while something is typed in the search. */
+.desk-app[data-next='1'], .desk-session[data-next='1'] { background: var(--accent-soft); }
+.desk-app { position: relative; }
+.desk-enter { padding: 0 5px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface); color: var(--muted); font: inherit; font-size: 10.5px; line-height: 16px; }
+.desk-app .desk-enter { position: absolute; top: 4px; right: 4px; }
+.desk-session .desk-enter { margin-left: auto; }
+.desk-app-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--accent-soft); color: var(--accent-soft-text); }
+.desk-pop-head { margin: 0 0 6px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.desk-session { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.desk-session:hover, .desk-session:focus-visible { background: var(--surface-2); }
+.desk-session .icon { color: var(--muted); }
+.desk-session-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desk-session-state { color: var(--muted); font-size: var(--fs-xs); }
+.desk-pop-foot { display: flex; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+
+/* ---------- the right-click menu ---------- */
+.desk-menu { position: fixed; z-index: 10000; min-width: 210px; max-width: 320px; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow-2); }
+.desk-menu-item { width: 100%; min-height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.desk-menu-item:hover, .desk-menu-item:focus { outline: none; box-shadow: none; background: var(--accent-soft); color: var(--accent-soft-text); }
+.desk-menu-item:disabled { opacity: .5; cursor: default; }
+.desk-menu-item.desk-menu-danger { color: var(--danger); }
+.desk-menu-gap { width: 16px; flex: none; }
+.desk-menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
+
+/* ---------- Tia's button and the toasts above the bars ---------- */
+body.desk-mode .tia-boxroot { right: 16px; bottom: 64px; }
+body.desk-mode[data-desk-style='dock'] .tia-boxroot { bottom: 96px; }
+/* Toasts at the bottom right above Tia's button, never over the way back at the top right. */
+body.desk-mode .toasts { top: auto; bottom: 132px; right: 16px; }
+body.desk-mode[data-desk-style='dock'] .toasts { bottom: 164px; }
+
+/* ---------- a page in a window (lib.js BARE) ---------- */
+/* Its main action stays in its head at any window width: a window has no floating button. */
+body.bare .pagehead-primary { display: inline-flex; }
+
+/* ---------- a small screen: the apps as a grid of pages ---------- */
+.desk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px; }
+.desk-tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 8px 14px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); color: var(--text); font: inherit; font-weight: 600; box-shadow: var(--shadow-1); cursor: pointer; text-align: center; }
+.desk-tile:hover { border-color: var(--ring); }
+.desk-tile-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; background: var(--accent-soft); color: var(--accent-soft-text); }
+
+/* ---------- the way in and the way back ---------- */
+/* "Desktop mode" in a page head: only where the desktop has windows. */
+@media (max-width: 1023px), (max-height: 599px) { .desk-headbtn { display: none; } }
+.desk-back { font-weight: 600; color: var(--text); }
+/* Taskbar style: a slim strip at the top with the way back at its right. */
+.desk-strip { height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: color-mix(in srgb, var(--surface) 86%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
+.desk-strip-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.desk-strip-name img { border-radius: 4px; }
+.desk-strip .desk-tray-btn { height: 26px; min-width: 28px; padding: 0 8px; }
+
+/* ---------- native apps: Task manager, Services, Logs (a window's body, or a page of its own) ---------- */
+.dwin[data-kind='native'] .dwin-body { display: flex; background: var(--bg); }
+.dwin[data-kind='native'][aria-current='false'] .dwin-shield { display: none; } /* the press goes to the app, which comes forward */
+.desk-busy .dwin[data-kind='native'] .dwin-shield { display: block; }
+.dapp { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: var(--fs-sm); overflow: auto; } /* a short window scrolls the app instead of squeezing its list to a line */
+.dapp-page { min-height: 70vh; height: calc(100vh - 220px); padding: 0; }
+.dapp-view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.dapp-bar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.dapp-bar .segmented { flex: none; }
+.dapp-filter { flex: 1 1 200px; min-width: 140px; max-width: 360px; height: 34px; }
+.dapp-unit { flex-basis: 180px; }
+.dapp select.dapp-select { width: auto; max-width: 100%; height: 34px; padding-top: 0; padding-bottom: 0; }
+.dapp select.dapp-file { flex: 1 1 260px; max-width: 520px; }
+.dapp-status { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.dapp-note { color: var(--muted); margin: 8px 2px; }
+.dapp-error { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: var(--r); background: var(--danger-soft); color: var(--danger); }
+.dapp-hint { margin: 0; }
+.dapp .banner { margin: 0; }
+.dapp-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.dapp-sub { margin: 6px 2px 0; font-size: var(--fs-sm); color: var(--text-2); }
+
+/* the table: a head that stays, rows that scroll */
+.dapp-table { flex: 1; min-height: 140px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow: auto; }
+.dapp-th { position: sticky; top: 0; z-index: 1; }
+.dapp-tr { display: grid; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px; border-bottom: 1px solid var(--border); }
+.dapp-tbody .dapp-tr:hover { background: var(--surface-2); }
+.dapp-th { flex: none; min-height: 32px; background: var(--surface-2); font-size: var(--fs-xs); font-weight: 650; color: var(--muted); }
+.dapp-sort { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; min-width: 0; }
+.dapp-sort:hover, .dapp-sort[aria-sort='ascending'], .dapp-sort[aria-sort='descending'] { color: var(--text); }
+.dapp-td { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dapp-num { justify-content: flex-end; text-align: right; font-variant-numeric: tabular-nums; }
+.dapp-strong { font-weight: 600; color: var(--text); }
+.dapp-dim { color: var(--text-2); }
+.dapp-cmd { color: var(--text-2); font-size: var(--fs-xs); }
+.dapp-cmd-full { overflow-wrap: anywhere; color: var(--text-2); }
+.dapp-own { color: var(--muted); }
+.dapp-lock { display: inline-grid; place-items: center; width: 32px; color: var(--muted); }
+.dapp-btn { width: 32px; height: 28px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.dapp-btn:hover { background: var(--surface-3); color: var(--text); }
+.dapp-btn:disabled { opacity: .4; cursor: default; }
+.dapp-end:hover { background: var(--danger-solid, var(--danger)); color: var(--on-solid); }
+.dapp-end .dapp-word { display: none; }
+.dapp-share { display: grid; grid-template-columns: 1fr 48px; align-items: center; gap: 8px; }
+.dapp-picked { background: var(--accent-soft); }
+.dapp-link { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dapp-link-text { overflow: hidden; text-overflow: ellipsis; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.dapp-link:hover { color: var(--accent); }
+.dapp-link:hover .dapp-link-text { text-decoration-color: currentColor; }
+.dapp-acts { display: inline-flex; gap: 6px; }
+.dapp-act { height: 28px; padding: 0 10px; gap: 6px; }
+/* A narrow table keeps the buttons' icons; their words are in the tooltip and the screen reader's name. */
+.dapp-narrow .dapp-word { display: none; }
+.dapp-narrow .dapp-act { width: 32px; padding: 0; justify-content: center; }
+/* A finger: the row's buttons a finger's size, with their word, since nothing shows a title on a touch screen. */
+@media (pointer: coarse) {
+  .dapp-table .dapp-btn, .dapp-table .btn.dapp-act, .dapp-table .dapp-lock { min-height: 40px; min-width: 40px; }
+  .dapp-table .dapp-btn.dapp-end { width: auto; grid-auto-flow: column; gap: 6px; padding: 0 10px; color: var(--danger); font: inherit; font-size: var(--fs-xs); font-weight: 600; }
+  .dapp-table .dapp-end .dapp-word, .dapp-table.dapp-narrow .dapp-word { display: inline; }
+  .dapp-table.dapp-narrow .btn.dapp-act { width: auto; padding: 0 10px; }
+}
+.dapp-tr .badge { margin-left: 0; }
+.pill.dapp-st-running { background: var(--ok-soft); color: var(--ok); }
+.pill.dapp-st-failed { background: var(--danger-soft); color: var(--danger); }
+
+/* cards of Performance and Network */
+.dapp-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
+.dapp-card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.dapp-card-head h3 { margin: 0; font-size: var(--fs-sm); color: var(--text-2); }
+.dapp-big { font-size: 22px; font-variant-numeric: tabular-nums; }
+.dapp-strip { height: 56px; display: flex; align-items: flex-end; gap: 2px; padding: 4px; border-radius: var(--r-sm); background: var(--surface-2); }
+.dapp-strip i { flex: 1; max-width: 10px; border-radius: 2px 2px 0 0; background: var(--accent); opacity: .75; }
+.dapp-cores { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; }
+.dapp-core { display: grid; grid-template-columns: 22px 1fr; align-items: center; gap: 6px; }
+.dapp-facts { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px 28px; }
+.dapp-facts > div { display: flex; flex-direction: column; gap: 2px; }
+.dapp-facts strong { font-variant-numeric: tabular-nums; }
+.dapp-ifaces { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.dapp-addrs { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.dapp-addrs li { display: flex; justify-content: space-between; gap: 8px; min-width: 0; }
+.dapp-addrs .mono { overflow: hidden; text-overflow: ellipsis; }
+
+/* Services: the list, with a service's log under it */
+.dapp-split { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.dapp-logpane { flex: 0 0 38%; min-height: 120px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+.dapp-loghead { flex: none; display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+
+/* Logs */
+.dapp-log { flex: 1; min-height: 120px; margin: 0; padding: 10px 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; color: var(--text); background: var(--surface); }
+.dapp-logs .dapp-log { border: 1px solid var(--border); border-radius: var(--r); }
+.dapp-journal { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+.dapp-entry { display: grid; grid-template-columns: 112px minmax(80px, 160px) 64px 1fr; gap: 10px; padding: 2px 12px; }
+.dapp-entry:hover { background: var(--surface-2); }
+.dapp-time, .dapp-unit-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dapp-prio { font-weight: 700; }
+.dapp-msg { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.dapp-p0, .dapp-p1, .dapp-p2, .dapp-p3 { background: var(--danger-soft); }
+.dapp-p0 .dapp-prio, .dapp-p1 .dapp-prio, .dapp-p2 .dapp-prio, .dapp-p3 .dapp-prio { color: var(--danger); }
+.dapp-p4 .dapp-prio { color: var(--warn); }
+.dapp-p7 .dapp-msg { color: var(--muted); }
+.dapp-follow[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); border-color: transparent; }
+
+/* Files */
+.dfiles-path { flex-wrap: nowrap; }
+.dfiles-crumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; padding: 0 4px; height: 34px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); overflow: hidden; }
+.dfiles-crumb { flex: none; max-width: 220px; padding: 3px 6px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.dfiles-crumb:hover { background: var(--surface-3); color: var(--text); }
+.dfiles-crumb[aria-current] { color: var(--text); font-weight: 600; cursor: default; }
+.dfiles-crumbs .dapp-btn { margin-left: auto; flex: none; }
+.dfiles-sep { flex: none; display: inline-grid; color: var(--muted); }
+.dfiles-tool { height: 30px; padding: 0 10px; gap: 6px; }
+.dfiles-tool[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); border-color: transparent; }
+.dfiles-tools { flex-wrap: nowrap; min-height: 34px; overflow-x: auto; scrollbar-width: none; }
+.dfiles-tools > * { flex: none; }
+.dfiles-tools .dapp-filter { flex: 1 1 160px; min-width: 120px; }
+.dfiles-selacts { flex: none; display: inline-flex; align-items: center; gap: 2px; padding: 0 2px; border-radius: var(--r-sm); background: var(--accent-soft); }
+.dfiles-selacts:empty { display: none; }
+.dfiles-chosen { padding: 0 6px 0 8px; color: var(--accent-soft-text); font-weight: 600; white-space: nowrap; }
+.dfiles-act { color: var(--accent-soft-text); }
+.dfiles-tight .dfiles-tool .dapp-word { display: none; }
+.dfiles-tight .dfiles-tool { width: 32px; padding: 0; justify-content: center; }
+.dfiles-delete { height: 28px; margin-left: 2px; padding: 0 10px; gap: 6px; color: var(--danger); }
+.dfiles-delete:hover { background: var(--danger-soft); }
+.dfiles-foot { flex: none; display: flex; align-items: baseline; gap: 12px; min-width: 0; white-space: nowrap; }
+.dfiles-foot > * { flex: none; }
+.dfiles-name { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: default; }
+.dfiles-name svg { flex: none; color: var(--muted); }
+.dfiles-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dfiles-where { flex: 1 1 0; min-width: 0; color: var(--muted); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dfiles-table .dapp-tbody .dapp-tr { cursor: default; user-select: none; }
+.dfiles-table .dapp-tr.dapp-picked { background: var(--accent-soft); }
+.dfiles-table .dapp-tr.dapp-picked .dfiles-name svg { color: var(--accent); }
+.dfiles-more { width: 28px; }
+.dfiles-reach { flex: 1 1 0; min-width: 0; display: flex; gap: 6px; color: var(--muted); font-size: var(--fs-xs); }
+.dfiles-reach-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dfiles-reach a { flex: none; }
+.dapp-files.dfiles-drop { outline: 2px dashed var(--accent); outline-offset: -6px; background: var(--accent-soft); }
+.dfiles-viewer { display: grid; place-items: center; min-height: 200px; max-height: 70vh; overflow: auto; border-radius: var(--r); background: var(--surface-2); }
+.dfiles-viewer img { max-width: 100%; max-height: 68vh; object-fit: contain; }
+.dfiles-pickpath { flex: 1; min-width: 0; margin: 0; color: var(--text-2); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.dfiles-picklist { display: flex; flex-direction: column; max-height: 50vh; min-height: 160px; overflow: auto; margin: 10px 0; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
+.dfiles-pick { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 12px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.dfiles-pick span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dfiles-pick:hover { background: var(--surface-2); }
+.dfiles-pick svg { flex: none; color: var(--muted); }
+
+/* a native app as a page on a small screen */
+@media (max-width: 700px) {
+  .dapp-page { height: calc(100vh - 230px); }
+  .dapp-entry { grid-template-columns: 1fr; gap: 0; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+  .dapp-tr { gap: 6px; padding: 0 6px; }
+  .dapp-st-sub { display: none; }
+}
