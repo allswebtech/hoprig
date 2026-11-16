@@ -1,20 +1,22 @@
 // What Tia may allow by herself when a chat she started asks for an OK: a short allow-list, not a deny-list. A list of
-// what is bad is never whole (a redirection glued to a path, a bare `cd`, `git -C..`, `npm test -- --import=…` …); so
-// she allows only work on files inside the chat's folder and the few commands of TABLE with the few options it names,
-// and everything else is the owner's card with one plain reason. Pure: the call (tool, its input) and the chat's folder
-// in, a verdict out. policy.mjs asks it for her answer "allow" to a chat's OK of a known shape, and runs the deny-list
-// (tia.mjs) after it.
+// what is bad is never whole (a redirection glued to a path, a bare `cd`, `git -C..`, `npm test -- --import=…`, a file
+// written today that a program runs tomorrow …); so she allows only LOOKING inside the chat's folder and RUNNING THE
+// PROJECT'S OWN CHECKS, and everything else is the owner's card with one plain reason. Changing a file is never hers.
+// Pure (it touches no disk): the call (tool, its input), the chat's folder and the home folder in, a verdict out.
+// policy.mjs asks it for her answer "allow" to a chat's OK of a known shape, and runs the deny-list (tia.mjs) after it.
 //
-//   0. the chat's folder is a project's: not the whole disk, a system folder, a home folder or a settings folder in it,
-//      nor a folder whose own path names secrets or a place that makes a program run later.
-//   a. file tools: every path of the call, resolved against the chat's folder by node:path, lies inside that folder and
-//      is plain ASCII; no path names the home folder by "~" or a variable; below the folder, no path is a file that may
-//      hold secrets, and a write goes to no place that makes a program run later (.git/, .claude/, .vscode/, .mcp.json,
-//      a file named HEAD, and the workflows/ or actions/ of a .github folder the chat's folder lies in …).
-//   b. Bash: one simple command of plain ASCII (none of ; & | < > ( ) { } $ ` \ ' " ~, no line break, and no * ? [ ]:
-//      the shell would turn those into words nobody judged), no word that starts with "@" or "=" (some programs read
-//      such a word as a file of options; a shell expands it), its first word or two a key of TABLE, every word that
-//      starts with "-" an option TABLE names for it, and every other word judged as its entry says.
+//   w. Write, Edit, MultiEdit, NotebookEdit: always the owner's.
+//   0. the chat's folder is a project's: not the whole disk, a system folder, a home folder (as written or by its real
+//      path) or a settings folder, bin or Library in it, nor a folder whose own path names secrets or holds a character
+//      outside plain ASCII.
+//   a. Read, Glob, Grep: every path of the call, resolved against the chat's folder by node:path, lies inside that folder
+//      and is plain ASCII; no path names the home folder by "~" or a variable; below the folder, no path is a file that
+//      may hold secrets.
+//   b. Bash: one simple command of plain ASCII (none of ; & | < > ( ) { } $ ` \ ' " ~, no line break, and no * ? [ ] ^ #:
+//      the shell would turn those into words nobody judged; ^ and # are patterns to a shell with extended patterns), no
+//      word that starts with "@" or "=" (some programs read such a word as a file of options; a shell expands it), its
+//      first word or two a key of TABLE, every word that starts with "-" an option TABLE names for it, and every other
+//      word judged as its entry says.
 //   c. any other tool (a page fetch, a web search, a skill, a subagent, a tool added later): the owner's.
 //
 // Its limits, said plainly:
@@ -23,8 +25,7 @@
 // - Paths are judged as text, so a link in the folder that points outside it is not seen.
 // - npm, git and the coding tool's own search look upward and around inside the repository: in a chat whose folder is a
 //   subfolder of one, they can read what the repository holds above it.
-// - A write inside the folder followed by a test run runs what was written (a test file, package.json): that is what
-//   letting her write and test means, and why the level is the owner's choice.
+// - A test run runs the project's own code as it is on the disk: code the owner allowed to be written, or that was there.
 import os from 'node:os';
 import path from 'node:path';
 import { ASSISTANT_NAME, SECRET_FILES } from './tia.mjs';
@@ -71,37 +72,25 @@ const SCRIPT = /^(test|tests|lint|build|typecheck|check|format)(:[A-Za-z0-9_-]+)
 
 export const WHY = {
   noFolder: 'the chat\'s folder is not known',
-  notProject: 'the chat\'s folder is not a project\'s folder (the whole disk, a system folder, a home folder, a settings folder, or one that holds secrets)',
+  notProject: 'the chat\'s folder is not a project\'s folder (the whole disk, a system folder, a home folder, a settings folder, one that holds secrets, or one whose path is not plain ASCII)',
   noPath: 'a call without the path it works on',
   outside: 'a path outside the chat\'s folder',
   home: 'a path that names the home folder or a variable',
   notAscii: 'a path with a character outside plain ASCII (a disk that ignores case may read it as another name)',
   secret: 'a file that may hold secrets (a key, a password, a .env)',
-  runsLater: 'a write to a file that makes a program run later (.git, a file named HEAD, .claude, .vscode, .github, .mcp.json …)',
+  write: 'changing a file is yours to allow; with the permission mode that accepts edits the coding tool does not ask at all',
   command: `a command that is not on the short list ${ASSISTANT_NAME} may allow herself`,
   option: `an option that is not on the short list ${ASSISTANT_NAME} may allow herself`,
   atWord: 'a word that starts with "@" or "=": a file some programs read their options from, or a word the shell expands',
-  tool: `a tool ${ASSISTANT_NAME} does not allow herself (only files inside the folder and a short list of commands)`,
+  tool: `a tool ${ASSISTANT_NAME} does not allow herself (only looking inside the folder and a short list of commands)`,
 };
 
 // ---------- rule a: one path ----------
 
-// Places whose files a program runs or reads its settings from later: git's hooks and config, the coding tool's and the
-// editors' settings and tasks, CI, the MCP servers a coding tool starts, npm's and direnv's start-up files. Compared
-// without case (a Mac's disk does not tell .Git from .git).
-const RUNS_LATER = new Set(['.git', '.claude', '.vscode', '.idea', '.husky', '.github', '.mcp.json', '.npmrc', '.envrc', '.pypirc']);
-// A folder with a file HEAD, objects/ and refs/ is a repository to git, found before the parent's .git: git reads its
-// config (core.fsmonitor, diff.external run a program) on her next "git status" and on the owner's later git calls
-// there. Git needs a valid HEAD first, and a project's own file named HEAD is rare: writing one is the owner's call.
-const GIT_HEAD = 'head';
-// CI that GitHub runs later with the repository's secrets: a chat whose folder lies in a .github folder (the repository's
-// own, or a project named .github) writes no workflows/ or actions/ directly below that .github.
-const CI = new Set(['workflows', 'actions']);
-
 /** The part of `abs` (inside `root`) below the folder, as parts. */
 const below = (abs, root) => (abs === root ? [] : abs.slice(root.length + 1).split('/'));
 
-/** Why `raw` is not a path she may touch by herself in folder `root` (absolute, normalised), or null. The secret rule
+/** Why `raw` is not a path she may look at by herself in folder `root` (absolute, normalised), or null. The secret rule
  * reads from the folder's own name down: what lies above is rule 0's business, and a name that spans the edge
  * (a folder .docker, a file config.json in it) is still seen. */
 function pathWhy(raw, root) {
@@ -114,20 +103,6 @@ function pathWhy(raw, root) {
   return SECRET_FILES.test([P.basename(root), ...below(abs, root)].join('/')) ? WHY.secret : null;
 }
 const optionalPath = (raw, root) => (raw === undefined ? null : pathWhy(raw, root));
-
-/** A write: a path she may touch; no part of it below the folder a place in RUNS_LATER, its last part not HEAD; and when
- * the folder's own path has a .github part, not into that .github's workflows/ or actions/. Compared without case. */
-function writeWhy(raw, root) {
-  const why = pathWhy(raw, root);
-  if (why) return why;
-  const abs = P.resolve(root, raw).toLowerCase();
-  const parts = below(abs, root.toLowerCase());
-  if (parts.some((part) => RUNS_LATER.has(part)) || parts.at(-1) === GIT_HEAD) return WHY.runsLater;
-  const all = abs.split('/');
-  const own = root.split('/').length;
-  for (let i = 0; i < own; i++) if (all[i] === '.github' && CI.has(all[i + 1])) return WHY.runsLater;
-  return null;
-}
 
 // A glob of the Glob tool: what it can match must stay in the folder. No "..", no element that starts at "/" inside
 // braces or a group ({/etc,src}), and an absolute one must start inside the folder.
@@ -147,22 +122,22 @@ function filterWhy(raw) {
   return SECRET_FILES.test(raw) ? WHY.secret : null;
 }
 
-/** The coding tool's file tools and the paths of each call (input: the strings of the call). */
+/** The coding tool's tools that change a file: never hers, wherever the file is (what is written may be run later by
+ * something nobody listed: a hook, a CI file, a package manager's settings, a shell's start-up file). */
+export const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+/** The coding tool's tools that only look, and the paths of each call (input: the strings of the call). */
 export const FILE_TOOLS = {
   Read: (i, root) => pathWhy(i.file_path, root),
-  Write: (i, root) => writeWhy(i.file_path, root),
-  Edit: (i, root) => writeWhy(i.file_path, root),
-  MultiEdit: (i, root) => writeWhy(i.file_path, root),
-  NotebookEdit: (i, root) => writeWhy(i.notebook_path, root),
   Glob: (i, root) => optionalPath(i.path, root) || globWhy(i.pattern, typeof i.path === 'string' ? P.resolve(root, i.path) : root, root),
   Grep: (i, root) => optionalPath(i.path, root) || filterWhy(i.glob),
 };
 
 // ---------- rule b: one command ----------
 
-// Characters that make more than one simple command, redirect, expand or quote, and any that is not plain ASCII: with
-// none of them, the words split on blanks are the words the program gets.
-const NOT_SIMPLE = /[;&|<>(){}$`\\'"~*?[\]]|[^\x20-\x7e\t]/;
+// Characters that make more than one simple command, redirect, expand or quote (^ and # are patterns to a shell with
+// extended patterns), and any that is not plain ASCII: with none of them, the words split on blanks are the words the
+// program gets.
+const NOT_SIMPLE = /[;&|<>(){}$`\\'"~*?[\]^#]|[^\x20-\x7e\t]/;
 const NUMBER = /^[0-9]+$/;
 // The value of a `word` option: a plain word that is not a path (no "/", no "..").
 const isValue = (w) => /^[A-Za-z0-9_][A-Za-z0-9_.:-]*$/.test(w) && !w.includes('..');
@@ -247,19 +222,19 @@ const WORKTREE = /\/\.claude\/worktrees\/(?=[^/]+\/)/gi;
 /** The whole disk, a system folder, a home folder or a folder that holds one is not a project's folder: they hold the
  * system, the shell's start-up files and every account's settings. Nor is a folder directly in a home whose name
  * starts with a dot or is "bin" or "Library", or anything in those (~/.config/x, ~/bin, ~/Library/LaunchAgents):
- * settings, start-up entries and programs on the PATH. Nor a folder whose own path names secrets (a credentials folder,
- * a folder of keys) or lies in a place that makes a program run later (.git/hooks, .claude/agents); a project named
- * .github and a worktree of Claude Code are a project's (a write into the CI of a .github it lies in is writeWhy's). */
-function notAProject(root, home) {
+ * settings, start-up entries and programs on the PATH. A home counts as written and by its real path (the chat's folder
+ * is a real path; a home reached through a link is the same place). Nor a folder whose own path names secrets (a
+ * credentials folder, a folder of keys; a worktree of Claude Code is a project's), or holds a character outside plain
+ * ASCII (a disk that ignores case may read it as another name). */
+function notAProject(root, homes) {
   const low = root.toLowerCase();
   if (low === '/' || low === '/home' || low === '/users' || SYSTEM.has(low.split('/')[1])) return true;
-  const own = `${root}/`.replace(WORKTREE, '/');
-  if (SECRET_FILES.test(own) || own.toLowerCase().split('/').some((part) => part !== '.github' && RUNS_LATER.has(part))) return true;
-  const homes = [];
+  if (/[^\x20-\x7e]/.test(root) || SECRET_FILES.test(`${root}/`.replace(WORKTREE, '/'))) return true;
+  const all = [];
   const m = HOME_AT.exec(low);
-  if (m) homes.push(m[1]);
-  if (typeof home === 'string' && home.startsWith('/')) homes.push(P.resolve(home).toLowerCase());
-  return homes.some((h) => {
+  if (m) all.push(m[1]);
+  for (const h of homes) if (typeof h === 'string' && h.startsWith('/')) all.push(P.resolve(h).toLowerCase());
+  return all.some((h) => {
     if (h === low || h.startsWith(`${low}/`)) return true;
     if (!low.startsWith(`${h}/`)) return false;
     const top = low.slice(h.length + 1).split('/')[0];
@@ -269,14 +244,16 @@ function notAProject(root, home) {
 
 /**
  * May Tia allow this call by herself? tool: the coding tool's name of it; input: the strings of the call (the command,
- * the paths; src/chat/engines/claude-parse.mjs askSubject); cwd: the chat's folder; home: this computer's home folder.
+ * the paths; src/chat/engines/claude-parse.mjs askSubject); cwd: the chat's folder; home: this computer's home folder,
+ * or a list of it as written and by its real path (the caller looks that up: this module touches no disk).
  * → { ok: true } | { ok: false, why }
  */
 export function allowsHerself(tool, input, cwd, home = os.homedir()) {
+  if (WRITE_TOOLS.has(tool)) return { ok: false, why: WHY.write };
   if (typeof cwd !== 'string' || !cwd.startsWith('/')) return { ok: false, why: WHY.noFolder };
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false, why: WHY.tool };
   const root = P.resolve(cwd);
-  if (notAProject(root, home)) return { ok: false, why: WHY.notProject };
+  if (notAProject(root, [].concat(home))) return { ok: false, why: WHY.notProject };
   let why;
   if (tool === 'Bash') why = commandWhy(input.command, root);
   else if (typeof tool === 'string' && Object.hasOwn(FILE_TOOLS, tool)) why = FILE_TOOLS[tool](input, root);

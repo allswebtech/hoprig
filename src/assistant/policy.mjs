@@ -1,5 +1,6 @@
 // The level of one call, decided by the dashboard from the tool, its input, facts the dashboard looked up itself
-// (never from the model) and the owner's Tia level. Pure, so every rule is unit-tested.
+// (never from the model) and the owner's Tia level. Pure but for the home folder's real path, so every rule is
+// unit-tested.
 //
 //   facts: {
 //     session:  { status, note, cwd, screen, owner?, known?, tool?, input?, request? } | null   the session the call is
@@ -11,6 +12,8 @@
 //     account:  { name, kind, allowed } | null    the account a start or move would use
 //   }
 // Returns { level: "L0" | "L1" | "L2", why } or { refuse, next }.
+import fs from 'node:fs';
+import os from 'node:os';
 import { allowsHerself } from './allowlist.mjs';
 import { ASSISTANT_NAME, riskyPermission } from './tia.mjs';
 import { typedTextRisk } from './tools.mjs';
@@ -23,6 +26,16 @@ const typing = (tool, a) =>
 // Calls that would answer (or type over) an OK the session waits for.
 const answering = (tool, a) => (tool === 'send_to_session' && a.key !== 'Escape') || (tool === 'send_to_chat' && (a.text !== undefined || (!!a.answer && a.answer !== 'deny')));
 const STARTS = new Set(['start_session', 'start_chat']);
+// This computer's home folder as written and by its real path: a chat's folder is a real path, so a home reached
+// through a link (HOME=/home/me where /home links elsewhere) is seen only by the second. The allow-list touches no disk.
+function homes() {
+  const home = os.homedir();
+  try {
+    return [home, fs.realpathSync(home)];
+  } catch {
+    return [home];
+  }
+}
 
 export function decideLevel(tool, a, f, tia) {
   const base = tool.levelOf ? tool.levelOf(a) : tool.level;
@@ -58,7 +71,7 @@ export function decideLevel(tool, a, f, tia) {
     // deny-list below still looks at what passed it. A plain message is not an OK of the call, so it is judged as before
     // the list came. A terminal has no call to judge, only its screen (known is not set).
     if (f.session.known === true && name === 'send_to_chat' && a.answer === 'allow') {
-      const own = allowsHerself(f.session.tool, f.session.input, f.session.cwd);
+      const own = allowsHerself(f.session.tool, f.session.input, f.session.cwd, homes());
       if (!own.ok) return { level: 'L2', why: own.why };
     }
     if (riskyPermission(`${f.session.note || ''}\n${f.session.screen || ''}`, f.session.cwd || null)) return { level: 'L2', why: 'the session asks permission for something risky (fetching and running code, deleting, secrets, the system, the network, or a path outside its folder)' };

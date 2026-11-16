@@ -1,9 +1,10 @@
 // Tia's short allow-list for a chat's OK (src/assistant/allowlist.mjs): the table walked option by option (every option
-// it names is allowed, anything else is a card), the commands that left it, each rule's refusals, the chat's folder, the
-// cases the checks of the list found, and every command the earlier checks of the old deny-list found it missing.
+// it names is allowed, anything else is a card), the commands that left it, every change to a file a card, each rule's
+// refusals, the chat's folder, the cases the checks of the list found, and every command the earlier checks of the old
+// deny-list found it missing.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FILE_TOOLS, TABLE, WHY, allowsHerself } from '../../src/assistant/allowlist.mjs';
+import { FILE_TOOLS, TABLE, WHY, WRITE_TOOLS, allowsHerself } from '../../src/assistant/allowlist.mjs';
 
 const ROOT = '/w/proj';
 const bash = (command, cwd = ROOT) => allowsHerself('Bash', { command }, cwd);
@@ -51,7 +52,8 @@ const REMOVED = [
 test('the short list: every entry of the table is allowed in its plain form, and the table is no longer than this', () => {
   assert.deepEqual(Object.keys(TABLE).sort(), Object.keys(PLAIN).sort(), 'a new entry needs its plain forms here');
   for (const [cmd, forms] of Object.entries(PLAIN)) for (const c of forms) allowed(bash(c), `${cmd}: ${c}`);
-  assert.deepEqual(Object.keys(FILE_TOOLS).sort(), ['Edit', 'Glob', 'Grep', 'MultiEdit', 'NotebookEdit', 'Read', 'Write']);
+  assert.deepEqual(Object.keys(FILE_TOOLS).sort(), ['Glob', 'Grep', 'Read'], 'the file tools she may allow only look');
+  assert.deepEqual([...WRITE_TOOLS].sort(), ['Edit', 'MultiEdit', 'NotebookEdit', 'Write']);
   for (const c of REMOVED) card(bash(c), WHY.command, c);
 });
 
@@ -115,8 +117,8 @@ test('npm, pnpm, yarn: "test", or "run" with one of the names on the list (and "
   }
 });
 
-test('one simple command: none of ; & | < > ( ) { } $ ` \\ \' " ~, no line break, no shell pattern', () => {
-  for (const ch of [';', '&', '|', '<', '>', '(', ')', '{', '}', '$', '`', '\\', "'", '"', '~', '\n', '\r', '*', '?', '[', ']']) {
+test('one simple command: none of ; & | < > ( ) { } $ ` \\ \' " ~, no line break, no shell pattern (^ and # too)', () => {
+  for (const ch of [';', '&', '|', '<', '>', '(', ')', '{', '}', '$', '`', '\\', "'", '"', '~', '\n', '\r', '*', '?', '[', ']', '^', '#']) {
     card(bash(`ls src${ch}x`), WHY.command, JSON.stringify(ch));
     card(bash(`git status ${ch}`), WHY.command, JSON.stringify(ch));
   }
@@ -126,6 +128,9 @@ test('one simple command: none of ; & | < > ( ) { } $ ` \\ \' " ~, no line break
     card(bash(c), WHY.command, JSON.stringify(c));
   }
   card(allowsHerself('Bash', { command: ['ls'] }, ROOT), WHY.command, 'not a string');
+  // A shell with extended patterns reads ^ and # as patterns (^*.js, x#, a revision's parent HEAD^).
+  for (const c of ['ls ^x', 'ls src/^a', 'cat a#', 'git diff HEAD^ HEAD', 'git log HEAD^', 'git show HEAD^', 'grep -rn x#y src', 'ls #']) card(bash(c), WHY.command, c);
+  for (const c of ['git diff main..feature', 'git show HEAD']) allowed(bash(c), c);
 });
 
 test('words that are not options: a path inside the folder, a revision or a pattern as a plain word', () => {
@@ -148,42 +153,50 @@ test('the secret rule names .npmrc, .pypirc, .envrc, .netrc, .pgpass, *.pem, *.k
   for (const f of ['keys.js', 'a.keys', 'pem.md', 'docker/config.json']) allowed(allowsHerself('Read', { file_path: `${ROOT}/${f}` }, ROOT), f);
 });
 
-test('a write into a place that makes a program run later is a card; reading it stays allowed', () => {
-  for (const p of ['.git/hooks/pre-commit', '.git/config', '.git', '.claude', '.claude/agents/x.md', '.vscode/tasks.json', '.idea/workspace.xml', '.husky/pre-push',
-    '.github/workflows/ci.yml', '.mcp.json', 'sub/.mcp.json', 'pkg/.git/config', '.GIT/config', '.VSCode/tasks.json', 'src/../.github/x']) {
-    for (const tool of ['Write', 'Edit', 'MultiEdit']) card(allowsHerself(tool, { file_path: `${ROOT}/${p}` }, ROOT), null, `${tool} ${p}`);
-    card(allowsHerself('NotebookEdit', { notebook_path: `${ROOT}/${p}` }, ROOT), null, `NotebookEdit ${p}`);
+// Every tool that changes a file, wherever the file is: what is written may be run later by something nobody listed.
+const WRITES = [
+  ['Write', (p) => ({ file_path: p, content: 'x' })], ['Edit', (p) => ({ file_path: p, old_string: 'a', new_string: 'b' })],
+  ['MultiEdit', (p) => ({ file_path: p, edits: [{ old_string: 'a', new_string: 'b' }] })], ['NotebookEdit', (p) => ({ notebook_path: p, new_source: 'x' })],
+];
+test('changing a file is never hers: each of the four tools, a plain file inside the folder, is the owner\'s card with one reason', () => {
+  assert.match(WHY.write, /^changing a file is yours to allow; with the permission mode that accepts edits the coding tool does not ask at all$/);
+  for (const [tool, input] of WRITES) {
+    for (const p of ['notes.txt', 'src/a.js', `${ROOT}/README.md`, `${ROOT}/n.ipynb`, 'package.json', 'test/a.test.mjs', '.']) {
+      card(allowsHerself(tool, input(p), ROOT), WHY.write, `${tool} ${p}`);
+    }
+    // The same reason wherever the folder is and whatever the call holds: no other rule is asked first.
+    for (const cwd of ['/home/owner/projects/web', '/home/owner/code/.github', '/home/owner/repo/.claude/worktrees/feat', '/', '/home/owner', null, 'proj']) {
+      card(allowsHerself(tool, input('README.md'), cwd, '/home/owner'), WHY.write, `${tool} in ${cwd}`);
+    }
+    for (const bad of [{}, null, { file_path: '../x' }, { file_path: '.env' }, { file_path: 'caf\u00e9' }]) card(allowsHerself(tool, bad, ROOT), WHY.write, `${tool} ${JSON.stringify(bad)}`);
   }
-  for (const p of ['.git/config', '.vscode/tasks.json', '.mcp.json', '.github/workflows/ci.yml']) {
-    card(allowsHerself('Write', { file_path: `${ROOT}/${p}` }, ROOT), WHY.runsLater, p);
-    allowed(allowsHerself('Read', { file_path: `${ROOT}/${p}` }, ROOT), `Read ${p}`);
+  // Looking at those files stays hers, as any file in the folder that holds no secret.
+  for (const p of ['notes.txt', 'package.json', '.git/config', '.git/hooks/pre-commit', '.github/workflows/ci.yml', '.mcp.json', '.vscode/tasks.json', 'HEAD', '.yarnrc.yml']) {
+    allowed(allowsHerself('Read', { file_path: p }, ROOT), `Read ${p}`);
+    allowed(bash(`cat ${p}`), `cat ${p}`);
   }
-  for (const p of ['.npmrc', '.envrc', '.pypirc', 'a/.npmrc']) card(allowsHerself('Write', { file_path: `${ROOT}/${p}` }, ROOT), WHY.secret, p);
-  allowed(bash('cat .git/config'), 'reading .git');
-  for (const p of ['CLAUDE.md', 'package.json', 'src/git/a.js', '.gitignore', '.github-notes.md', 'docs/claude.md']) allowed(allowsHerself('Write', { file_path: `${ROOT}/${p}` }, ROOT), p);
 });
 
 test('file tools: every path inside the folder; outside, the home folder, a secret file, no folder known, any other tool: a card', () => {
   const f = (tool, input, cwd = ROOT) => allowsHerself(tool, input, cwd);
   for (const [tool, input] of [
     ['Read', { file_path: `${ROOT}/src/a.js` }], ['Read', { file_path: 'src/a.js' }], ['Read', { file_path: `${ROOT}/src/./b/../a.js` }], ['Read', { file_path: ROOT }],
-    ['Write', { file_path: `${ROOT}/notes.txt` }], ['Edit', { file_path: `${ROOT}/a.css` }], ['MultiEdit', { file_path: `${ROOT}/a.css` }],
-    ['NotebookEdit', { notebook_path: `${ROOT}/n.ipynb`, cell_id: 'x' }], ['Glob', { pattern: '**/*.{js,ts}' }], ['Glob', { pattern: 'src/*.js', path: `${ROOT}/src` }],
+    ['Read', { file_path: `${ROOT}/n.ipynb` }], ['Glob', { pattern: '**/*.{js,ts}' }], ['Glob', { pattern: 'src/*.js', path: `${ROOT}/src` }],
     ['Glob', { pattern: `${ROOT}/**/*.md` }], ['Grep', { pattern: 'x$', path: 'src', glob: '*.{ts,tsx}' }], ['Grep', { pattern: 'TODO' }],
   ]) allowed(f(tool, input), `${tool} ${JSON.stringify(input)}`);
   allowed(f('Read', { file_path: `${ROOT}/a` }, `${ROOT}/`), 'the folder with a trailing slash');
   for (const [tool, input, why] of [
     ['Read', { file_path: '/etc/shadow' }, WHY.outside], ['Read', { file_path: `${ROOT}/../x` }, WHY.outside], ['Read', { file_path: '/w/projX/a' }, WHY.outside],
-    ['Write', { file_path: `//${ROOT}/../x` }, WHY.outside], ['Read', { file_path: `${ROOT}\\..\\x` }, WHY.outside],
-    ['Read', { file_path: '~/notes' }, WHY.home], ['Write', { file_path: '$HOME/.bashrc' }, WHY.home], ['Read', { file_path: '~root/x' }, WHY.home],
-    ['Write', { file_path: `${ROOT}/.env` }, WHY.secret], ['Read', { file_path: `${ROOT}/keys/id_ed25519` }, WHY.secret], ['Edit', { file_path: `${ROOT}/.claude/settings.json` }, WHY.secret],
-    ['Read', {}, WHY.noPath], ['Write', { file_path: '' }, WHY.noPath], ['NotebookEdit', { file_path: `${ROOT}/n.ipynb` }, WHY.noPath],
+    ['Read', { file_path: `//${ROOT}/../x` }, WHY.outside], ['Read', { file_path: `${ROOT}\\..\\x` }, WHY.outside],
+    ['Read', { file_path: '~/notes' }, WHY.home], ['Read', { file_path: '$HOME/.bashrc' }, WHY.home], ['Read', { file_path: '~root/x' }, WHY.home],
+    ['Read', { file_path: `${ROOT}/.env` }, WHY.secret], ['Read', { file_path: `${ROOT}/keys/id_ed25519` }, WHY.secret], ['Read', { file_path: `${ROOT}/.claude/settings.json` }, WHY.secret],
+    ['Read', {}, WHY.noPath], ['Read', { file_path: '' }, WHY.noPath], ['Read', { notebook_path: `${ROOT}/n.ipynb` }, WHY.noPath], ['Glob', { path: ROOT }, WHY.noPath],
     ['Glob', { pattern: '../**' }, WHY.outside], ['Glob', { pattern: '**/..' }, WHY.outside], ['Glob', { pattern: '{/etc,src}/*' }, WHY.outside],
     ['Glob', { pattern: '/etc/*' }, WHY.outside], ['Glob', { pattern: '*', path: '/etc' }, WHY.outside], ['Glob', { pattern: '**/.env' }, WHY.secret],
     ['Grep', { pattern: 'x', path: '/etc' }, WHY.outside], ['Grep', { pattern: 'x', glob: '../*' }, WHY.outside], ['Grep', { pattern: 'x', glob: '/etc/*' }, WHY.outside],
     // A character outside plain ASCII in a path (a disk that ignores case may fold .g\u0131t into .git, \u212a into K).
-    ['Read', { file_path: `${ROOT}/caf\u00e9.txt` }, WHY.notAscii], ['Write', { file_path: `${ROOT}/.g\u0131t/hooks/pre-commit` }, WHY.notAscii],
-    ['Edit', { file_path: 'src/\u212a.js' }, WHY.notAscii], ['NotebookEdit', { notebook_path: `${ROOT}/n\u00f6.ipynb` }, WHY.notAscii],
+    ['Read', { file_path: `${ROOT}/caf\u00e9.txt` }, WHY.notAscii], ['Read', { file_path: `${ROOT}/.g\u0131t/hooks/pre-commit` }, WHY.notAscii],
+    ['Read', { file_path: 'src/\u212a.js' }, WHY.notAscii], ['Read', { file_path: `${ROOT}/n\u00f6.ipynb` }, WHY.notAscii],
     ['Glob', { pattern: '**/.g\u0131t/*' }, WHY.notAscii], ['Glob', { pattern: '*', path: 'caf\u00e9' }, WHY.notAscii],
     ['Grep', { pattern: 'x', path: 'caf\u00e9' }, WHY.notAscii], ['Grep', { pattern: 'x', glob: '*.j\u0455' }, WHY.notAscii],
     ['WebFetch', { url: 'https://example.org' }, WHY.tool], ['WebSearch', { query: 'x' }, WHY.tool], ['Skill', { skill: 'x' }, WHY.tool],
@@ -194,11 +207,11 @@ test('file tools: every path inside the folder; outside, the home folder, a secr
 });
 
 test('the whole disk, a home folder, what holds one, and a dot folder or bin inside a home are not a project\'s folder', () => {
-  // A chat may be opened in the home folder (the folders the dashboard offers start there): writing a shell start-up
-  // file, an autostart entry or a program in ~/bin, or reading an account's settings, is not work on a project.
+  // A chat may be opened in the home folder (the folders the dashboard offers start there): reading an account's
+  // settings, or running what lies in ~/bin, is not work on a project.
   const home = '/home/owner';
   for (const [tool, input] of [
-    ['Write', { file_path: '/home/owner/.bashrc', content: 'x' }], ['Edit', { file_path: '/home/owner/.profile', old_string: 'a', new_string: 'b' }],
+    ['Read', { file_path: '/home/owner/.bashrc' }], ['Glob', { pattern: '.ssh/*' }],
     ['Read', { file_path: '/home/owner/.config/gh/hosts.yml' }], ['Bash', { command: 'cat .config/gh/hosts.yml' }], ['Bash', { command: 'ls' }],
   ]) {
     for (const cwd of ['/', '/home/owner', '/home/owner/', '/home', '/home/owner/projects/..', '/Users/owner', '/Users', '/root']) {
@@ -207,8 +220,8 @@ test('the whole disk, a home folder, what holds one, and a dot folder or bin ins
   }
   for (const [cwd, tool, input] of [
     ['/home/owner/.config', 'Bash', { command: 'ls' }], ['/home/owner/.local', 'Bash', { command: 'ls' }], ['/home/owner/.local/share/y', 'Bash', { command: 'ls' }],
-    ['/home/owner/.config', 'Write', { file_path: '/home/owner/.config/autostart/x.desktop', content: 'x' }],
-    ['/home/owner/.local', 'Write', { file_path: '/home/owner/.local/bin/git', content: 'x' }], ['/home/owner/bin', 'Write', { file_path: '/home/owner/bin/ls', content: 'x' }],
+    ['/home/owner/.config', 'Read', { file_path: '/home/owner/.config/autostart/x.desktop' }],
+    ['/home/owner/.local', 'Read', { file_path: '/home/owner/.local/bin/git' }], ['/home/owner/bin', 'Bash', { command: 'npm test' }],
     ['/home/other/.config/x', 'Bash', { command: 'ls' }], ['/Users/owner/.ssh', 'Bash', { command: 'ls' }], ['/root/bin', 'Bash', { command: 'ls' }],
     ['/srv/me/.cache/x', 'Bash', { command: 'ls' }], ['/srv/me/bin', 'Bash', { command: 'ls' }],
   ]) card(allowsHerself(tool, input, cwd, cwd.startsWith('/srv') ? '/srv/me' : home), WHY.notProject, `${tool} ${JSON.stringify(input)} in ${cwd}`);
@@ -222,9 +235,30 @@ test('the whole disk, a home folder, what holds one, and a dot folder or bin ins
   allowed(allowsHerself('Bash', { command: 'ls' }, '/home/owner/projects/web'), 'the default home is this computer\'s');
 });
 
-test('a system folder, Library or bin in a home (any case), and a folder whose own path names secrets or a place that runs a program later are not a project\'s folder', () => {
+test('the home folder counts by its real path too: a home reached through a link is the same place', () => {
+  // HOME=/home/owner where /home links to /data/home: the chat's folder is a real path, so only the second sees it.
+  const homes = ['/home/owner', '/data/home/owner'];
+  for (const [cwd, tool, input] of [
+    ['/data/home/owner', 'Bash', { command: 'ls -la' }], ['/data/home/owner', 'Read', { file_path: '.bashrc' }], ['/data/home/owner', 'Grep', { pattern: 'token' }],
+    ['/data/home/owner/.config/autostart', 'Read', { file_path: 'x.desktop' }], ['/data/home/owner/bin', 'Bash', { command: 'npm test' }],
+    ['/data/home/owner/.ssh', 'Read', { file_path: 'authorized_keys' }], ['/data/home/owner/Library/LaunchAgents', 'Bash', { command: 'ls' }],
+    ['/data/home/owner/.local/share/x', 'Bash', { command: 'cat a' }], ['/data/home', 'Bash', { command: 'ls' }], ['/DATA/Home/Owner/.Config', 'Bash', { command: 'ls' }],
+  ]) {
+    card(allowsHerself(tool, input, cwd, homes), WHY.notProject, `${tool} ${JSON.stringify(input)} in ${cwd}`);
+    // as the v3 check had it: only the home as written, and the same folder passed
+    if (!/ssh/.test(cwd)) allowed(allowsHerself(tool, input, cwd, '/home/owner'), `as written only: ${cwd}`);
+  }
+  // A project in it is a project; a list with only one home, or a home that is no absolute path, is read as it is.
+  allowed(allowsHerself('Bash', { command: 'ls' }, '/data/home/owner/web', homes), 'a project in the real home');
+  allowed(allowsHerself('Bash', { command: 'git status' }, '/data/home/owner/projects/.hidden', homes), 'a dot folder deeper down');
+  card(allowsHerself('Bash', { command: 'ls' }, '/home/owner', ['/srv/me']), WHY.notProject, 'the usual place of a home still counts');
+  allowed(allowsHerself('Bash', { command: 'ls' }, '/srv/web', ['/srv/me', 'relative', null, '']), 'nothing that is not an absolute path counts as a home');
+  card(allowsHerself('Bash', { command: 'ls' }, '/srv/me/.config', ['relative', '/srv/me']), WHY.notProject);
+});
+
+test('a system folder, Library or bin in a home (any case), and a folder whose own path names secrets or is not plain ASCII are not a project\'s folder', () => {
   const home = '/home/owner';
-  const calls = [['Bash', { command: 'ls' }], ['Read', { file_path: 'README.md' }], ['Write', { file_path: 'x', content: 'x' }]];
+  const calls = [['Bash', { command: 'ls' }], ['Read', { file_path: 'README.md' }], ['Grep', { pattern: 'x' }]];
   for (const cwd of [
     // the system's own folders, by their first part, without case
     '/etc', '/etc/nginx', '/proc/1', '/sys/x', '/dev/shm', '/usr/local', '/usr/local/bin', '/bin', '/sbin/x', '/lib/x', '/lib64', '/boot', '/tmp', '/tmp/proj',
@@ -235,31 +269,33 @@ test('a system folder, Library or bin in a home (any case), and a folder whose o
     // its own path names secrets: a credentials folder, a folder of keys, .ssh, Claude Code's settings
     '/home/owner/Workspace/credentials', '/home/owner/Workspace/credentials/web', '/home/owner/src/acme.key', '/srv/certs/site.pem', '/srv/x/.ssh',
     '/home/owner/repo/.claude', '/home/owner/repo/.claude/agents', '/home/owner/repo/.claude/worktrees', '/home/owner/repo/.claude/worktrees/feat/.claude',
-    // its own path lies in a place that makes a program run later
-    '/home/owner/repo/.git', '/home/owner/repo/.git/hooks', '/home/owner/repo/.vscode', '/home/owner/repo/.husky', '/home/owner/repo/.IDEA/x',
+    // its own path holds a character outside plain ASCII (a disk that ignores case may fold .v\u017fcode into .vscode)
+    '/home/owner/projets/caf\u00e9', '/home/owner/caf\u00e9/web', '/Users/o/web/.v\u017fcode', '/Users/o/web/.hu\u017fky', '/Users/o/web/.aw\u017f',
+    '/Users/o/Librar\u00ff', '/srv/\u212a', '/home/owner/a\u00a0b', '/home/owner/web\u2028x', '/home/owner/web\nx',
   ]) for (const [tool, input] of calls) card(allowsHerself(tool, input, cwd, home), WHY.notProject, `${tool} in ${cwd}`);
-  // A project elsewhere, a project named .github and a worktree of Claude Code are a project's folder.
+  // A project elsewhere, a project named .github, a worktree of Claude Code, a folder with a blank in its name, and a
+  // folder of a repository's .git or an editor's settings (she only looks there: changing a file is never hers) are a
+  // project's folder.
   for (const cwd of ['/home/owner/projects/web', '/opt/web', '/var/www/site', '/srv/app', '/Users/o/projects/x', '/home/owner/code/.github', '/home/owner/src/.vscode-ext',
-    '/home/owner/repo/.claude/worktrees/feat', '/home/owner/repo/.claude/worktrees/feat/pkg', '/home/owner/binaries', '/home/owner/projects/bin', '/home/owner/projects/Library']) {
+    '/home/owner/repo/.claude/worktrees/feat', '/home/owner/repo/.claude/worktrees/feat/pkg', '/home/owner/binaries', '/home/owner/projects/bin', '/home/owner/projects/Library',
+    '/home/owner/my project', '/home/owner/repo/.git', '/home/owner/repo/.git/hooks', '/home/owner/repo/.vscode', '/home/owner/repo/.husky', '/home/owner/git/x.git']) {
     for (const [tool, input] of calls) allowed(allowsHerself(tool, input, cwd, home), `${tool} in ${cwd}`);
   }
 });
 
-test('the run-later rule and the secret rule judge the path below the chat\'s folder; a name across its edge is still seen', () => {
+test('the secret rule judges the path below the chat\'s folder; a name across its edge is still seen', () => {
   const home = '/home/owner';
   const at = (cwd, tool, input) => allowsHerself(tool, input, cwd, home);
   for (const cwd of ['/home/owner/code/.github', '/home/owner/repo/.claude/worktrees/feat']) {
-    for (const [tool, input] of [['Write', { file_path: 'README.md', content: 'x' }], ['Write', { file_path: `${cwd}/src/a.js`, content: 'x' }], ['Read', { file_path: 'README.md' }],
-      ['Read', { file_path: cwd }], ['Edit', { file_path: `${cwd}/README.md`, old_string: 'a', new_string: 'b' }], ['Bash', { command: 'cat README.md' }],
+    for (const [tool, input] of [['Read', { file_path: 'README.md' }], ['Read', { file_path: `${cwd}/src/a.js` }], ['Read', { file_path: cwd }], ['Bash', { command: 'cat README.md' }],
       ['Bash', { command: `cat ${cwd}/README.md` }], ['Bash', { command: `git log ${cwd}/src` }], ['Bash', { command: 'npm test' }], ['Grep', { pattern: 'x', path: cwd }]]) {
       allowed(at(cwd, tool, input), `${tool} ${JSON.stringify(input)} in ${cwd}`);
     }
     // below the folder the rules hold as anywhere
-    card(at(cwd, 'Write', { file_path: '.github/workflows/ci.yml', content: 'x' }), WHY.runsLater, `.github below ${cwd}`);
-    card(at(cwd, 'Write', { file_path: '.git/config', content: 'x' }), WHY.runsLater, `.git below ${cwd}`);
-    card(at(cwd, 'Write', { file_path: '.claude/settings.json', content: 'x' }), WHY.secret, `.claude below ${cwd}`);
+    card(at(cwd, 'Read', { file_path: '.claude/settings.json' }), WHY.secret, `.claude below ${cwd}`);
     card(at(cwd, 'Read', { file_path: '.env' }), WHY.secret, `.env below ${cwd}`);
     card(at(cwd, 'Bash', { command: 'cat .claude/settings.json' }), WHY.secret, `cat .claude below ${cwd}`);
+    card(at(cwd, 'Write', { file_path: 'README.md', content: 'x' }), WHY.write, `a write in ${cwd}`);
   }
   // A folder .docker with a file config.json in it: the secret name spans the folder's edge.
   card(at('/home/owner/p/.docker', 'Read', { file_path: 'config.json' }), WHY.secret, '.docker/config.json across the edge');
@@ -318,49 +354,60 @@ const CHECKS_FOLDERS_ALLOWED = ['/home/owner/code/.github', '/home/owner/src/.gi
 
 test('the cases of both checks of the list: every option they got through is a card now; the plain calls stay allowed', () => {
   for (const cwd of CHECKS_FOLDERS_CARD) {
-    for (const [tool, input] of [['Write', { file_path: 'x', content: 'x' }], ['Read', { file_path: 'README.md' }], ['Bash', { command: 'grep -rn token .' }], ['Bash', { command: 'git log -p' }]]) {
+    for (const [tool, input] of [['Glob', { pattern: '*' }], ['Read', { file_path: 'README.md' }], ['Bash', { command: 'grep -rn token .' }], ['Bash', { command: 'git log -p' }]]) {
       card(allowsHerself(tool, input, cwd, '/home/owner'), WHY.notProject, `${tool} in ${cwd}`);
     }
   }
   for (const cwd of CHECKS_FOLDERS_ALLOWED) {
-    for (const [tool, input] of [['Write', { file_path: 'README.md', content: 'x' }], ['Read', { file_path: 'README.md' }], ['Bash', { command: 'cat README.md' }], ['Bash', { command: 'npm test' }]]) {
+    for (const [tool, input] of [['Read', { file_path: 'README.md' }], ['Bash', { command: 'cat README.md' }], ['Bash', { command: 'npm test' }]]) {
       allowed(allowsHerself(tool, input, cwd, '/home/owner'), `${tool} in ${cwd}`);
     }
+    card(allowsHerself('Write', { file_path: 'README.md', content: 'x' }, cwd, '/home/owner'), WHY.write, `Write in ${cwd}`);
   }
   for (const c of CHECKS_CARD) card(bash(c), null, c);
   for (const c of CHECKS_SECRET) card(bash(c), WHY.secret, c);
   for (const c of CHECKS_ALLOWED) allowed(bash(c), JSON.stringify(c));
-  for (const p of ['.mcp.json', '.git/config', '.vscode/tasks.json', '.claude', '.git/hooks/pre-commit']) {
-    card(allowsHerself('Write', { file_path: `${ROOT}/${p}`, content: 'x' }, ROOT), WHY.runsLater, p);
+  // Their writes, the harmful and the harmless alike: the owner's, with the one reason.
+  for (const p of ['.mcp.json', '.git/config', '.vscode/tasks.json', '.claude', '.git/hooks/pre-commit', '.npmrc', '.envrc', 'CLAUDE.md', 'package.json']) {
+    card(allowsHerself('Write', { file_path: `${ROOT}/${p}`, content: 'x' }, ROOT), WHY.write, p);
   }
-  card(allowsHerself('Edit', { file_path: `${ROOT}/.git/hooks/pre-commit`, old_string: 'a', new_string: 'b' }, ROOT), WHY.runsLater);
-  for (const p of ['.npmrc', '.envrc']) card(allowsHerself('Write', { file_path: `${ROOT}/${p}`, content: 'x' }, ROOT), WHY.secret, p);
-  for (const p of ['CLAUDE.md', 'package.json']) allowed(allowsHerself('Write', { file_path: `${ROOT}/${p}`, content: 'x' }, ROOT), p);
+  card(allowsHerself('Edit', { file_path: `${ROOT}/.git/hooks/pre-commit`, old_string: 'a', new_string: 'b' }, ROOT), WHY.write);
 });
 
-// What the check of v3 found: four plain-named writes made a folder a repository to git (its config runs a program on
-// the next git call there), and a chat inside a repository's .github wrote CI. Fixed rows: [folder, path written].
-const CHECK_V3_CARD = [
-  ['/home/owner/web/sub', 'HEAD'], ['/home/owner/web', 'pkg/HEAD'], ['/home/owner/web', 'head'], ['/home/owner/web', 'a/Head'],
-  ['/home/owner/web', 'x/../HEAD'], ['/home/owner/code/.github', 'pkg/HEAD'],
+// What the checks of v3 found, all through her writing a file: a file named HEAD that makes a folder a repository to
+// git, the CI of a .github the folder lies in, a bare repository's config and hooks, a package manager's or a hook
+// tool's settings, a shell start-up file in a home reached through a link. Fixed rows [folder, path written]: every
+// one is a card with the one reason now, for each of the four tools; reading them and the plain commands stay hers.
+const CHECKS_V3_WRITES = [
+  ['/home/owner/web/sub', 'HEAD'], ['/home/owner/web', 'pkg/HEAD'], ['/home/owner/web', 'a/Head'], ['/home/owner/web/sub', 'config'], ['/home/owner/web/sub', 'objects/x'],
   ['/home/owner/web/.github', 'workflows/deploy.yml'], ['/home/owner/web/.github/workflows', 'deploy.yml'], ['/home/owner/web/.github/actions', 'x/action.yml'],
-  ['/home/owner/web/.github', 'Workflows/x.yml'], ['/home/owner/web/.GitHub/workflows', 'x.yml'], ['/home/owner/web/.github', 'actions/x/action.yml'],
-  ['/home/owner/web/.github/workflows/sub', 'x.yml'], ['/home/owner/code/.github', 'workflows/ci.yml'],
+  ['/home/owner/code/.github', 'workflows/ci.yml'], ['/home/owner/web/.github', 'README.md'], ['/home/owner/code/.github/ISSUE_TEMPLATE', 'x.md'],
+  ['/home/owner/git/x.git', 'config'], ['/home/owner/git/x.git', 'hooks/post-index-change'], ['/home/owner/projects/web/test/fixtures/repo.git', 'config'],
+  ['/home/owner/web', '.yarnrc.yml'], ['/home/owner/web', 'x.cjs'], ['/home/owner/web', '.yarnrc'], ['/home/owner/web', '.pnpmfile.cjs'], ['/home/owner/web', 'pnpm-workspace.yaml'],
+  ['/home/owner/web', '.pre-commit-config.yaml'], ['/home/owner/web', 'lefthook.yml'], ['/home/owner/web', '.gitlab-ci.yml'], ['/home/owner/web', '.circleci/config.yml'],
+  ['/home/owner/web', '.devcontainer/devcontainer.json'], ['/home/owner/web', '.gitattributes'], ['/home/owner/web', '.gitmodules'], ['/home/owner/web', 'package.json'],
+  ['/home/owner/web', 'HEAD.md'], ['/home/owner/web', 'my file.txt'], ['/home/owner/p/.claude/worktrees/feat', 'src/a.js'], ['/home/owner/my project', 'src/a.js'],
+  ['/data/home/owner', '.bashrc'], ['/data/home/owner', '.zshrc'], ['/data/home/owner/.config/autostart', 'x.desktop'], ['/data/home/owner/bin', 'git'],
 ];
-const CHECK_V3_ALLOWED = [
-  ['/home/owner/web/sub', 'config'], ['/home/owner/web/sub', 'objects/x'], ['/home/owner/web/sub', 'refs/x'], ['/home/owner/web', 'HEADER.md'],
-  ['/home/owner/web', 'head.js'], ['/home/owner/web', 'src/HEAD.txt'], ['/home/owner/web/.github', 'README.md'],
-  ['/home/owner/web/.github', 'ISSUE_TEMPLATE/bug.md'], ['/home/owner/web/.github', 'workflows.md'], ['/home/owner/code/.github', 'src/workflows/a.js'],
-];
-test('the cases of the check of v3: a file named HEAD and the CI of a .github the folder lies in are run-later writes', () => {
-  const home = '/home/owner';
-  for (const [cwd, p] of CHECK_V3_CARD) {
-    for (const tool of ['Write', 'Edit', 'MultiEdit']) card(allowsHerself(tool, { file_path: p, content: 'x' }, cwd, home), WHY.runsLater, `${tool} ${p} in ${cwd}`);
-    card(allowsHerself('NotebookEdit', { notebook_path: `${cwd}/${p}` }, cwd, home), WHY.runsLater, `NotebookEdit ${p} in ${cwd}`);
-    allowed(allowsHerself('Read', { file_path: p }, cwd, home), `Read ${p} in ${cwd}`);
+test('the cases of the checks of v3: every write they got through is the owner\'s card; looking and the plain commands stay hers', () => {
+  const homes = ['/home/owner', '/data/home/owner'];
+  for (const [cwd, p] of CHECKS_V3_WRITES) {
+    for (const [tool, input] of WRITES) {
+      card(allowsHerself(tool, input(p), cwd, homes), WHY.write, `${tool} ${p} in ${cwd}`);
+      card(allowsHerself(tool, input(`${cwd}/${p}`), cwd, homes), WHY.write, `${tool} ${cwd}/${p}`);
+    }
+    if (!cwd.startsWith('/data/')) allowed(allowsHerself('Read', { file_path: p }, cwd, homes), `Read ${p} in ${cwd}`);
   }
-  for (const [cwd, p] of CHECK_V3_ALLOWED) allowed(allowsHerself('Write', { file_path: p, content: 'x' }, cwd, home), `Write ${p} in ${cwd}`);
-  for (const cwd of ['/home/owner/web/sub', '/home/owner/web']) allowed(allowsHerself('Bash', { command: 'git status' }, cwd, home), `git status in ${cwd}`);
+  // The commands the checks ran next to those writes: the plain ones stay hers; a parent revision is a card now (^).
+  for (const cwd of ['/home/owner/git/x.git', '/home/owner/web/sub', '/home/owner/web']) {
+    for (const c of ['git status', 'git diff main HEAD', 'yarn test']) allowed(allowsHerself('Bash', { command: c }, cwd, homes), `${c} in ${cwd}`);
+    card(allowsHerself('Bash', { command: 'git diff HEAD^ HEAD' }, cwd, homes), WHY.command, `git diff HEAD^ HEAD in ${cwd}`);
+  }
+  // A home reached through a link, and a folder whose own path is not plain ASCII: not a project's folder.
+  for (const [cwd, tool, input] of [['/data/home/owner', 'Bash', { command: 'ls -la' }], ['/data/home/owner/.ssh', 'Read', { file_path: 'authorized_keys' }],
+    ['/home/owner/projets/caf\u00e9', 'Read', { file_path: 'README.md' }], ['/Users/o/web/.v\u017fcode', 'Read', { file_path: 'tasks.json' }], ['/Users/o/Librar\u00ff', 'Bash', { command: 'ls' }]]) {
+    card(allowsHerself(tool, input, cwd, homes), WHY.notProject, `${tool} in ${cwd}`);
+  }
 });
 
 // What the earlier checks of the deny-list (their lists of paths and command shapes) found it let through, and the rest
