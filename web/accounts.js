@@ -11,7 +11,7 @@ import { claudeSignIn } from './claudelogin.js';
 import { icon } from './icons.js';
 import {
   KIND, add, ago, api, at, btn, confirmSheet, copyText, fill, h, insecure, link, machine, openSheet, profileState, promptSheet,
-  subscriptionsNote, toast, until,
+  startOrder, subscriptionsNote, toast, until,
 } from './lib.js';
 import { gatewaysPanel } from './gateways.js';
 import { registerPage } from './registry.js';
@@ -120,17 +120,19 @@ function limitPanel(auto, accounts, refresh, flash) {
     radioCards('at-limit', [
       { value: 'stop', title: 'Stop and ask me', sub: 'The session waits at its limit. You pick another provider with one tap, or wait until the limit resets.' },
       { value: 'carry', title: 'Carry on with the next provider', sub: 'Work continues on the next provider in the order below, without you doing anything. This is called Auto mode.' },
-    ], choice, (v) => save({ enabled: v === 'carry', ...(v === 'carry' && !rows.length ? { order: accounts.map((p) => p.name) } : {}) })),
+    ], choice, (v) => save({ enabled: v === 'carry', ...(v === 'carry' && !rows.length ? { order: startOrder(accounts, auto.payPerUse === true) } : {}) })),
     fold('auto-how', 'How it works',
       h('ul.howlist',
         h('li', 'On an API provider the session goes on without stopping.'),
         h('li', 'On another subscription, Claude restarts on that provider and carries on with the same conversation.'),
         h('li', 'Providers lower in the order are used only while the ones above are at their limit.'),
-        h('li', 'API providers cost money for every use.')),
+        h('li', 'An API key straight to Anthropic costs money for every use; Auto mode uses one only when you allow it below.')),
       subscriptionsNote(rows.map((n) => accounts.find((p) => p.name === n)))),
     choice === 'carry' ? [
       h('div.field-label', 'Order of providers'),
       rows.length ? list : h('p.muted', accounts.length ? 'No provider takes part yet: open a provider below and turn on "Use in Auto mode".' : 'Add a provider first.'),
+      toggle('Also use pay-per-use API keys', auto.payPerUse === true, (v) => save({ payPerUse: v }),
+        'API keys billed for every use go at the end of the order; while this is off, Auto mode never uses them.'),
     ] : null);
 }
 

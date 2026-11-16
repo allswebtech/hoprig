@@ -58,6 +58,22 @@ export function kindOf(env) {
   return 'login';
 }
 
+/**
+ * Pay-per-use: an Anthropic API key that goes straight to Anthropic (no address, or Anthropic's own). A key that
+ * goes through a gateway (TRouteAI, a proxy, another computer's gateway) is not: what it costs is the gateway's
+ * business. Auto mode uses pay-per-use providers only when the owner turns that on. The one place of this rule:
+ * the page gets it as `paid` on every provider.
+ */
+export function isPayPerUse(env) {
+  if (kindOf(env) !== 'api' || !(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN)) return false;
+  if (!env.ANTHROPIC_BASE_URL) return true;
+  try {
+    return new URL(env.ANTHROPIC_BASE_URL).hostname === 'api.anthropic.com';
+  } catch {
+    return true; // an address that cannot be read: counted as paid, the safe side
+  }
+}
+
 const DEFAULT_LABEL = { login: 'Claude account (stored login)', subscription: 'Claude subscription', api: 'API' };
 
 function fileOf(name) {
@@ -78,7 +94,7 @@ export function readProfile(name) {
   const env = {};
   for (const [k, v] of Object.entries(all)) if (!META.has(k)) env[k] = v;
   const kind = kindOf(env);
-  return { name, label: all.LABEL || DEFAULT_LABEL[kind], prerun: all.PRERUN || '', models: all.MODELS || '', kind, env };
+  return { name, label: all.LABEL || DEFAULT_LABEL[kind], prerun: all.PRERUN || '', models: all.MODELS || '', kind, paid: isPayPerUse(env), env };
 }
 
 /** All profiles, sorted by name. */
@@ -101,7 +117,7 @@ export function listProfiles() {
 
 /** The only view of a profile that may be shown outside this machine: no values. */
 export function publicProfile(p) {
-  return { name: p.name, label: p.label, kind: p.kind };
+  return { name: p.name, label: p.label, kind: p.kind, paid: p.paid === true };
 }
 
 /** Create or replace a profile. The folder is 700 and the file 600. */

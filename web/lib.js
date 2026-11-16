@@ -413,27 +413,53 @@ export async function chooseProfileFor(s, profiles) {
   return p ? switchProfile(s, p) : false;
 }
 
-/** The red "limit reached" box with one button per other profile. */
+// Paid per use: the server says so (`paid`, src/profiles.mjs isPayPerUse). A computer too old to say it: an API
+// provider counts as paid, the safe side.
+export const isPaid = (p) => p.paid === true || (p.paid === undefined && p.kind === 'api');
+
+/**
+ * The order Auto mode starts with when the owner turns it on: subscriptions, then gateways; pay-per-use keys only
+ * with "also use pay-per-use API keys" on, and then last. Returns the names.
+ */
+export function startOrder(accounts, payPerUse = false) {
+  const rank = (a) => (SUBSCRIPTION_KINDS.has(a.kind) ? 0 : isPaid(a) ? 2 : 1);
+  return accounts.filter((a) => payPerUse || !isPaid(a)).map((a, i) => [rank(a), i, a.name]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map((x) => x[2]);
+}
+
+/**
+ * The red "limit reached" box with one button per other profile. The main button is the first free provider in
+ * the order Auto mode uses (`autoPlace`), never a paid one; "Continue on Auto" says where Auto would go next.
+ */
 export function limitBox(s, profiles, after) {
   if (!s.limit && !s.runLimit) return null;
   const text = (s.limit && s.limit.text) || (s.runLimit && s.runLimit.error) || '';
   // Not one that is not signed in: the session would stop there at once.
   const others = profiles.filter((p) => (!s.profile || p.name !== s.profile.name) && p.signedIn !== false);
+  // Outside the order (Auto off, or not taking part): subscriptions before gateways, as Auto's own order starts.
+  const place = (p) => (Number.isInteger(p.autoPlace) ? p.autoPlace : 1000 + (SUBSCRIPTION_KINDS.has(p.kind) ? 0 : 1));
+  const free = others.filter((p) => !p.virtual && !p.limited).sort((a, b) => place(a) - place(b));
+  const main = free.find((p) => !isPaid(p)) || null;
+  // Auto runs as the first free subscription of its order, else the router uses the first free provider of it.
+  const inAuto = free.filter((p) => Number.isInteger(p.autoPlace));
+  const autoNext = inAuto.find((p) => SUBSCRIPTION_KINDS.has(p.kind)) || inAuto[0] || null;
+  const words = (p) => (p.virtual ? (autoNext ? `Continue on Auto (next: ${autoNext.label})` : 'Continue on Auto') : isPaid(p) ? `Continue on ${p.label} (paid per use)` : `Continue on ${p.label}`);
+  // The main one first, then Auto, then the rest; paid ones last.
+  const rank = (p) => (p === main ? 0 : p.virtual ? 1 : isPaid(p) ? 3 : 2);
+  const shown = others.map((p, i) => [rank(p), i, p]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map((x) => x[2]);
   return h('div.limitbox', { role: 'alert' },
     h('div.limit-head', icon('alert'), h('strong', 'Limit reached'), s.limit && s.limit.resets && !text.includes(s.limit.resets) ? h('span', ` · resets ${s.limit.resets}`) : null),
     text ? h('p.limit-text', text) : null,
     s.autoMove ? h('p.limit-text', `Moving to ${s.autoMove} automatically…`) : null,
     s.canSwitch && others.length
-      ? h('div.limit-actions', others.map((p) =>
-        // One main button: Auto when it is there, else the first account that is free; the others plain.
-        h(`button.btn.small.${p === (others.find((x) => x.virtual) || others.find((x) => !x.limited)) ? 'primary' : 'secondary'}`, {
+      ? h('div.limit-actions', shown.map((p) =>
+        h(`button.btn.small.${p === main ? 'primary' : 'secondary'}`, {
           type: 'button',
           onclick: async (e) => {
             e.preventDefault();
             e.stopPropagation();
             if (await switchProfile(s, p)) after?.();
           },
-        }, icon('swap', { size: 16 }), h('span', `Continue on ${p.label}`))))
+        }, icon('swap', { size: 16 }), h('span', words(p)))))
       : null,
   );
 }

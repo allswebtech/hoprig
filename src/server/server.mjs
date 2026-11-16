@@ -287,6 +287,9 @@ export function createServer(opts = {}) {
   function profileStates(list) {
     const limited = autoswitch.limitedProfiles();
     const routerUsage = safe(() => (rsCache || {}).profileUsage?.());
+    // Where each provider is in the order Auto mode really uses (no pay-per-use key unless allowed): the limit card
+    // offers the first free one, and says where Auto would go.
+    const order = autoswitch.usableOrder ? autoswitch.usableOrder() : [];
     const out = listProfiles().map((p) => {
       const mine = list.filter((c) => c.profile && (c.profile.name === p.name || (c.autoOn && c.autoOn.name === p.name)));
       const fromRun = mine.find((c) => c.usage);
@@ -300,6 +303,7 @@ export function createServer(opts = {}) {
           ? { until: l.until || null, exact: l.exact !== false, reason: l.reason || '', text: String(l.text || '').slice(0, 200) }
           : ru && ru.status === 'rejected' ? { until: null, exact: false, reason: 'router', text: '' } : null,
         inUse: mine.length,
+        autoPlace: order.includes(p.name) ? order.indexOf(p.name) : null,
         // `at`: when the figures were seen (they are kept after the session that showed them ended).
         usage: ru && (ru.fiveHour || ru.week) ? { fiveHour: ru.fiveHour, week: ru.week, status: ru.status, at: ru.at || null } : fromRun ? fromRun.usage : null,
       };

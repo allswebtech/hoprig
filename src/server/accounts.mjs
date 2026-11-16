@@ -470,7 +470,7 @@ export function accountsFeature(ctx, opts = {}) {
         /* bad address in the file */
       }
       return {
-        name: p.name, label: p.label, kind: p.kind, host, model: p.kind === 'api' ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
+        name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, host, model: p.kind === 'api' ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
         viaTrouteai: Boolean(p.prerun && /addons start trouteai/.test(p.prerun)),
         remote: remote.has(p.name) ? (({ computer, title, state, text }) => ({ computer, title: title || null, state, text }))(remote.get(p.name)) : null,
         limited: s.limited || null, usage: s.usage || null, inUse: s.inUse || 0, inAuto: order.includes(p.name),

@@ -434,6 +434,42 @@ test('wording: "provider" and "computer" in everything a visitor reads; Auto mod
   assert.match(note, /Is this allowed\?/);
 });
 
+test('Auto mode: subscriptions first, then gateways; pay-per-use keys only when allowed, and last', async () => {
+  const { startOrder, isPaid } = await import('../../web/lib.js');
+  const accts = [
+    { name: 'key', kind: 'api', paid: true }, { name: 'tr', kind: 'api', paid: false }, { name: 'max', kind: 'subscription' },
+    { name: 'gw', kind: 'api', paid: false }, { name: 'login', kind: 'login' },
+  ];
+  assert.deepEqual(startOrder(accts), ['max', 'login', 'tr', 'gw']);
+  assert.deepEqual(startOrder(accts, true), ['max', 'login', 'tr', 'gw', 'key']);
+  assert.equal(isPaid({ kind: 'api' }), true, 'an older computer that does not say: the safe side');
+  assert.equal(isPaid({ kind: 'api', paid: false }), false);
+});
+
+test('limit card: the main button is the first free provider of the order, never a paid one; Auto says where it goes', async () => {
+  const { limitBox } = await import('../../web/lib.js');
+  const texts = (n) => (n instanceof FakeText ? [n.text] : n.children.flatMap(texts));
+  const buttons = (n) => (n instanceof FakeText ? [] : [...(n.tag === 'button' ? [n] : []), ...n.children.flatMap(buttons)]);
+  const s = { name: 'w', canSwitch: true, limit: { text: 'limit reached' }, profile: { name: 'max' } };
+  const profiles = [
+    { name: 'auto', label: 'Auto', kind: 'auto', virtual: true },
+    { name: 'key', label: 'Claude API', kind: 'api', paid: true, autoPlace: 1 },
+    { name: 'max', label: 'Claude Max', kind: 'subscription', autoPlace: 0, limited: { until: 1 } },
+    { name: 'tr', label: 'API via TRouteAI', kind: 'api', paid: false, autoPlace: 2 },
+    { name: 'team', label: 'Team plan', kind: 'subscription', autoPlace: null },
+  ];
+  const card = (ps) => buttons(limitBox(s, ps)).map((b) => [/primary/.test(b.className), texts(b).join('')]);
+  assert.deepEqual(card(profiles), [
+    [true, 'Continue on API via TRouteAI'],
+    [false, 'Continue on Auto (next: Claude API)'],
+    [false, 'Continue on Team plan'],
+    [false, 'Continue on Claude API (paid per use)'],
+  ], 'Auto with the paid key allowed goes to it; the main button does not');
+  // The paid key is the only free one: no main button at all.
+  const onlyPaid = card([profiles[1], profiles[2]]);
+  assert.deepEqual(onlyPaid, [[false, 'Continue on Claude API (paid per use)']]);
+});
+
 // ---------- several computers, a hub, providers that sign in ----------
 test('a computer runs sessions only when online, not a hub, with Claude Code and a provider; the reason otherwise', async () => {
   const { runsSessions } = await import('../../web/store.js');
