@@ -62,7 +62,11 @@ test('a weak password: the turn-on says why and asks for a stronger one; while t
   const r = (await call('/api/public-link', { on: true, kind: 'temporary' })).json;
   assert.deepEqual([r.ok, r.need], [false, 'stronger-password']);
   assert.match(r.error, /too weak for a public link: it has fewer than 12 characters/);
-  // The page's "Make a strong password": a strong one passes the same check.
+  // The page's "Make a strong password" asks for a strong one while the link is still off: a weak one is refused.
+  const notYet = await call('/api/settings/password', { current: 'weakpass1', next: 'abcabcabcabc', strong: true });
+  assert.equal(notYet.status, 400);
+  assert.match(notYet.json.error, /for the public link the new password must be strong: it repeats a few characters/);
+  // A strong one passes the same check.
   assert.equal((await call('/api/settings/password', { current: 'weakpass1', next: 'a-much-longer-pass' })).status, 200);
   assert.equal((await call('/api/public-link')).json.password.state, 'strong');
   saveConfig({ publicLink: { on: true, kind: 'temporary' } }); // on (no add-on runs here, so nothing starts)

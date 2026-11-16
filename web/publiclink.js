@@ -83,13 +83,16 @@ function render({ here, isAlive }) {
   const ui = { need: null, error: null, busy: false, chosen: null, line: null };
   let s = null;
   let timer = null;
+  let shown = null; // the one line the Settings list showed for it
 
-  async function load() {
+  /** Look at the state and draw the page; `now`: after the owner's own action, even while a field has the focus. */
+  async function load(now = false) {
     clearTimeout(timer);
     if (!isAlive()) return;
     // Someone typing here keeps what they type: look again a little later instead of drawing the page again.
     const a = document.activeElement;
-    if (s && a && root.contains(a) && a.tagName === 'INPUT') {
+    const typing = a && root.contains(a) && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !['checkbox', 'radio'].includes(a.type)));
+    if (!now && s && typing) {
       timer = setTimeout(load, 3000);
       return;
     }
@@ -102,6 +105,10 @@ function render({ here, isAlive }) {
     }
     if (!isAlive()) return;
     if (s.on) ui.chosen = null;
+    // The Settings list beside this page says the state in one line: told to look again when that line changed.
+    const line = linkSummary(s);
+    if (shown !== null && line !== shown) window.dispatchEvent(new Event('saved'));
+    shown = line;
     paint();
     if (!ui.busy) timer = setTimeout(load, needsPoll(s) ? 1500 : s.on ? 10000 : 30000);
   }
@@ -119,7 +126,7 @@ function render({ here, isAlive }) {
     } catch (e) {
       ui.error = e.message;
     }
-    await load();
+    await load(true);
   }
 
   // ---------- the switch ----------
@@ -163,19 +170,20 @@ function render({ here, isAlive }) {
   function strongForm(why, thenOn) {
     const cur = input('current', { type: 'password', autocomplete: 'current-password', 'aria-label': 'Current password' });
     const next = input('next', { type: 'password', autocomplete: 'new-password', 'aria-label': 'New password' });
-    const msg = h('p.form-error', { role: 'alert' });
+    // Its refusal is kept with the page's state, so a look-again that draws the page anew does not lose it.
+    const msg = h('p.form-error', { role: 'alert' }, ui.pwError || '');
     return h('form.stack.pl-need', { onsubmit: async (e) => {
       e.preventDefault();
-      msg.textContent = '';
+      msg.textContent = ui.pwError = '';
       try {
-        await api('/api/settings/password', { current: cur.value, next: next.value });
-        draft.current = draft.next = '';
+        await api('/api/settings/password', { current: cur.value, next: next.value, strong: true });
+        draft.current = draft.next = ui.pwError = '';
         toast('The new password is saved. Other browsers sign in again with it.');
         ui.need = null;
         if (thenOn) await turn(true);
-        else load();
+        else load(true);
       } catch (er) {
-        msg.textContent = er.message;
+        msg.textContent = ui.pwError = er.message;
       }
     } },
       why ? h('p.hint', why) : null,
@@ -235,9 +243,9 @@ function render({ here, isAlive }) {
     if (f.state === 'signing-in') {
       return [need,
         steps(
-          [h('strong', 'Open Cloudflare and sign in.'), h('span.hint', ' A free account is enough.')],
+          [h('strong', 'Open Cloudflare and sign in.'), h('span.hint', 'A free account is enough.')],
           [h('strong', 'Pick the domain for this address and press Authorize.')],
-          [h('strong', 'Come back here.'), h('span.hint', ' This page goes on by itself.')]),
+          [h('strong', 'Come back here.'), h('span.hint', 'This page goes on by itself.')]),
         h('div.mrow-actions',
           f.loginUrl ? ext(f.loginUrl, [icon('external', { size: 16 }), h('span', 'Open Cloudflare')], 'a.btn.small.primary') : null,
           btn('small ghost', { label: 'Cancel', disabled: t.busy, onclick: () => job('custom', 'cancel', {}) }))];
@@ -262,9 +270,9 @@ function render({ here, isAlive }) {
     }
     return [need,
       steps(
-        [h('strong', 'Sign in to Cloudflare'), h('span.hint', ' in this browser and approve one of your domains.')],
-        [h('strong', 'Type the name'), h('span.hint', ', such as office.example.com.')],
-        [h('strong', 'Done.'), h('span.hint', ' The link turns on at that address.')]),
+        [h('strong', 'Sign in to Cloudflare'), h('span.hint', 'In this browser, then approve one of your domains.')],
+        [h('strong', 'Type the name'), h('span.hint', 'Such as office.example.com.')],
+        [h('strong', 'Done.'), h('span.hint', 'The link turns on at that address.')]),
       f.loginError ? h('p.mrow-error', f.loginError) : null,
       h('div.mrow-actions', btn('small primary', { icon: 'play', label: 'Set it up', disabled: t.busy, onclick: () => job('custom', 'sign-in', {}) }))];
   }
@@ -398,12 +406,12 @@ function render({ here, isAlive }) {
           if (res.confirm) {
             if (await confirmSheet({ title: 'Make it reachable anyway?', text: `${res.confirm} Make it reachable from anywhere anyway?`, ok: 'Yes, make it reachable', danger: true })) return job(k, step, { ...body, confirmed: true });
             out.hidden = true;
-            load();
+            load(true);
             return res;
           }
           if (res.need) Object.assign(ui, { need: res.need, error: res.error });
           toast(res.ok ? 'Done' : res.error || 'That did not work', { kind: res.ok ? 'info' : 'error' });
-          load();
+          load(true);
           return res;
         }
         await new Promise((r) => setTimeout(r, 1000));
@@ -417,10 +425,11 @@ function render({ here, isAlive }) {
     if (!s || !isAlive()) return;
     fill(root,
       switchCard(),
+      // While it is on, the address comes first: it is what the page is opened for.
+      addressCard(),
       h('section.card.panel',
         h('div.panel-head', h('div', h('h2.panel-title', 'Kind'), h('p.panel-desc', s.on ? 'Choosing the other one moves the link over.' : 'Used when you turn the switch on.'))),
         h('div.radiocards.pl-kinds', { role: 'radiogroup', 'aria-label': 'Kind' }, s.kinds.map(kindCard))),
-      addressCard(),
       visitorCard(),
       linkCard(),
       advanced(),

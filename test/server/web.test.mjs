@@ -418,7 +418,11 @@ test('public link: its own Settings page; refusals are asked for in place; the a
   assert.match(page, /registerSettingsPage\(\{\s*id: 'public-link', title: 'Public link'/);
   for (const need of ['password', 'check-password', 'custom-setup']) assert.ok(page.includes(`'${need}'`), need);
   assert.match(page, /return strongForm\(ui\.error, true\)/, 'a weak password: "Make a strong password" in place, then on');
-  assert.match(page, /api\('\/api\/settings\/password', \{ current: cur\.value, next: next\.value \}\)/);
+  assert.match(page, /api\('\/api\/settings\/password', \{ current: cur\.value, next: next\.value, strong: true \}\)/);
+  // A field being typed in keeps the page from being drawn anew, but the switch and the kind radios are no such
+  // field (a real click focuses them; the address would never show), and the owner's own action always redraws.
+  assert.match(page, /a\.tagName === 'INPUT' && !\['checkbox', 'radio'\]\.includes\(a\.type\)/);
+  assert.match(page, /await load\(true\);\n  \}/, 'turn() redraws at once');
   assert.match(page, /api\('~\/api\/login\/links', \{ base: url \}\)/, 'the sign-in QR is made for that address');
   assert.match(page, /The \$\{other\} address stops working/, 'moving to the other kind says so first');
   assert.match(page, /api\('~\/api\/links\/code', \{\}\)/, 'the line for another computer');

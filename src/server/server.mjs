@@ -587,9 +587,10 @@ export function createServer(opts = {}) {
       if (wait > 0) throw new HttpError(429, `Too many tries. Wait ${Math.ceil(wait / 60000)} min.`);
       const b = await readJson(req);
       if (typeof b.next !== 'string' || b.next.length < 8 || b.next.length > 1024) throw bad('the new password needs at least 8 characters');
-      // While the page can be reached from anywhere, a weak password would open the computer to anyone.
-      const weak = cfg().publicLink?.on === true ? passwordProblem(b.next) : null;
-      if (weak) throw bad(`the public link is on, so the new password must be strong: ${weak}`);
+      // While the page can be reached from anywhere, a weak password would open the computer to anyone; `strong: true`
+      // asks the same before the link is turned on (Settings → Public link's "Make a strong password").
+      const weak = cfg().publicLink?.on === true || b.strong === true ? passwordProblem(b.next) : null;
+      if (weak) throw bad(`${b.strong === true && cfg().publicLink?.on !== true ? 'for the public link' : 'the public link is on, so'} the new password must be strong: ${weak}`);
       limiter.fail(ip, { overall: false }); // counted before the slow check, as for the login
       const ok = typeof b.current === 'string' && b.current.length <= 1024 && (await verifyPassword(b.current, cfg().server.passwordHash));
       if (!ok) throw new HttpError(403, 'the current password is wrong');

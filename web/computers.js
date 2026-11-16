@@ -353,6 +353,7 @@ function linkToMainSheet() {
       store.refresh();
       close(true);
     }),
+    h('p.hint', 'When the main one\'s public link is Temporary, the link ends when its address changes (after a restart), and this computer must be linked again. To stay linked, the main one needs Custom, or is a server.'),
   ]);
 }
 
