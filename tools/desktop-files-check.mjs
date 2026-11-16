@@ -184,6 +184,23 @@ try {
     }
     check(P, 'Download saves the same bytes as a file', ok);
     check(P, 'the download never leaves the desktop', (await ev('location.href')) === before && await ev(`!!document.querySelector('${W}')`));
+    // A file dropped on the window from the browser's computer is uploaded the same way.
+    const dropped = await ev(`(() => {
+      const el = document.querySelector('${W} .dapp-files');
+      if (!el) return 'no Files body';
+      const dt = new DataTransfer();
+      dt.items.add(new File(['dropped in\\n'], 'dropped.txt', { type: 'text/plain' }));
+      el.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      const shown = el.classList.contains('dfiles-drop');
+      el.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      return shown && !el.classList.contains('dfiles-drop') ? 'ok' : 'no drop mark';
+    })()`);
+    let landed = false;
+    for (let i = 0; i < 40 && !landed; i++) {
+      await sleep(250);
+      landed = fs.existsSync(path.join(tree, 'dropped.txt')) && fs.readFileSync(path.join(tree, 'dropped.txt'), 'utf8') === 'dropped in\n';
+    }
+    check(P, `a file dropped on the window is uploaded there (${dropped})`, dropped === 'ok' && landed);
 
     // Pack into an archive and unpack it.
     await choose('drafts');
