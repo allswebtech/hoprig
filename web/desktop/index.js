@@ -292,6 +292,38 @@ registerPage({ id: 'desktop', title: 'Desktop', icon: 'monitor', perComputer: tr
 // the desktop of the computer whose page is open.
 registerHeadTool(() => h('a.icon-btn.desk-headbtn', { href: link('#/desktop'), title: 'Desktop mode', 'aria-label': 'Desktop mode' }, icon('monitor', { size: 16 })));
 
+// ---------- Settings → Security: how far the dashboard reaches ----------
+
+/**
+ * One setting for every place that opens a folder of this computer (Files, the editor, new sessions): the allowed
+ * folders (New-session defaults → Folders; the home folder unless changed) or everything this user can open.
+ * Hoprig's own folders and the files that hold a sign-in stay locked either way.
+ */
+export function reachSettings(settings) {
+  const s = (settings && settings.server) || {};
+  const tops = Array.isArray(s.roots) ? s.roots : [];
+  const mark = savedMark();
+  const err = h('p.form-error', { role: 'alert' });
+  const seg = h('div.segmented', { role: 'radiogroup', 'aria-label': 'Files reach' });
+  const paint = (cur) => fill(seg, [['home', 'Allowed folders'], ['everything', 'Everything']].map(([v, label]) =>
+    h('button.seg', { type: 'button', role: 'radio', 'aria-checked': String(cur === v), onclick: async () => {
+      if (cur === v) return;
+      err.textContent = '';
+      try {
+        await api('/api/settings', { server: { reach: v } });
+        paint(v);
+        mark.show();
+      } catch (e) {
+        err.textContent = e.message;
+      }
+    } }, label)));
+  paint(s.reach === 'everything' ? 'everything' : 'home');
+  return panel({ id: 'reach', icon: 'folder', title: 'Files reach', desc: 'What Files, the editor and new sessions can open on this computer.' },
+    h('div.fieldrow', h('span.field-label', 'Reach', mark), seg,
+      h('span.hint', `Allowed folders: ${tops.join(', ') || 'your home folder'} (the home folder unless changed in New-session defaults). Everything: every folder your user can open on this computer, as a terminal can. Hoprig's own folders and sign-in files stay locked either way.`)),
+    err);
+}
+
 // ---------- Settings → Appearance ----------
 
 /** The desktop's style, kept on this device like the colours. */

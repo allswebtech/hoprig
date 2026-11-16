@@ -266,7 +266,17 @@ button.dfiles-crumb:hover { background: var(--surface-3); color: var(--text); }
 .dfiles-sep { flex: none; display: inline-grid; color: var(--muted); }
 .dfiles-tool { height: 30px; padding: 0 10px; gap: 6px; }
 .dfiles-tool[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); border-color: transparent; }
-.dfiles-selbar { padding: 6px 8px; border-radius: var(--r); background: var(--accent-soft); }
+.dfiles-tools { flex-wrap: nowrap; min-height: 34px; overflow-x: auto; scrollbar-width: none; }
+.dfiles-tools > * { flex: none; }
+.dfiles-tools .dapp-filter { flex: 1 1 160px; min-width: 120px; }
+.dfiles-selacts { flex: none; display: inline-flex; align-items: center; gap: 2px; padding: 0 2px; border-radius: var(--r-sm); background: var(--accent-soft); }
+.dfiles-selacts:empty { display: none; }
+.dfiles-chosen { padding: 0 6px 0 8px; color: var(--accent-soft-text); font-weight: 600; white-space: nowrap; }
+.dfiles-act { color: var(--accent-soft-text); }
+.dfiles-tight .dfiles-tool .dapp-word { display: none; }
+.dfiles-tight .dfiles-tool { width: 32px; padding: 0; justify-content: center; }
+.dfiles-foot { flex: none; display: flex; align-items: baseline; gap: 12px; min-width: 0; white-space: nowrap; }
+.dfiles-foot > * { flex: none; }
 .dfiles-name { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: default; }
 .dfiles-name svg { flex: none; color: var(--muted); }
 .dfiles-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -275,7 +285,9 @@ button.dfiles-crumb:hover { background: var(--surface-3); color: var(--text); }
 .dfiles-table .dapp-tr.dapp-picked { background: var(--accent-soft); }
 .dfiles-table .dapp-tr.dapp-picked .dfiles-name svg { color: var(--accent); }
 .dfiles-more { width: 28px; }
-.dfiles-reach { flex: none; color: var(--muted); }
+.dfiles-reach { flex: 1 1 0; min-width: 0; display: flex; gap: 6px; color: var(--muted); font-size: var(--fs-xs); }
+.dfiles-reach-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dfiles-reach a { flex: none; }
 .dapp-files.dfiles-drop { outline: 2px dashed var(--accent); outline-offset: -6px; background: var(--accent-soft); }
 .dfiles-viewer { display: grid; place-items: center; min-height: 200px; max-height: 70vh; overflow: auto; border-radius: var(--r); background: var(--surface-2); }
 .dfiles-viewer img { max-width: 100%; max-height: 68vh; object-fit: contain; }

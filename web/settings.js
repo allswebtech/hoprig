@@ -11,7 +11,7 @@ import { add, api, applyPageTheme, btn, confirmSheet, fill, h, link, machine, pr
 import { registerPage, registerSettingsPage, registeredSettingsPages } from './registry.js';
 import { field, fold, info, openLabel, panel, saveBar, savedMark, toggle } from './shell.js';
 import { pageNotify, store } from './store.js';
-import { desktopSettings } from './desktop/index.js';
+import { desktopSettings, reachSettings } from './desktop/index.js';
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -187,6 +187,7 @@ function securityPage(ctx) {
   return [
     ctx.here ? panel({ icon: 'user', title: 'Sign in another device', desc: 'A phone or tablet signs in by scanning a code instead of typing the password.' }, ...signIn(ctx)) : null,
     ctx.here ? passwordPanel() : h('p.banner.muted', icon('lock', { size: 18 }), h('span', `The password of ${openLabel()} is changed on that computer.`)),
+    reachSettings(ctx.settings),
     fold('settings-security', 'Advanced', networkPanel(ctx.settings)),
   ];
 }

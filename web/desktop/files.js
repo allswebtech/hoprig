@@ -25,10 +25,10 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
   let pending = query.get('select'); // a name to choose once the folder is read
   const back = [];
   const note = h('div');
-  const status = h('span.dapp-status', { role: 'status' });
+  const status = h('span.dapp-status.dfiles-count', { role: 'status' });
   const busy = h('span.dapp-status', { role: 'status', 'aria-live': 'polite' });
   const crumbs = h('nav.dfiles-crumbs', { 'aria-label': 'Path' });
-  const reach = h('p.hint.dapp-hint.dfiles-reach');
+  const reach = h('span.dfiles-reach');
   const t = table('Files', [
     { key: 'name', label: 'Name', w: 'minmax(160px, 2fr)', narrow: 'minmax(0, 1fr)' },
     { key: 'size', label: 'Size', w: '84px', num: true, narrow: 'auto' },
@@ -47,7 +47,7 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
   const iconBtn = (ic, label, run) => h('button.dapp-btn', { type: 'button', title: label, 'aria-label': label, onclick: run }, icon(ic, { size: 15 }));
   const backBtn = iconBtn('back', 'Back', () => back.length && go(back.pop(), { push: false }));
   const upBtn = iconBtn('folderUp', 'Up one folder', () => cur && cur.parent && go(cur.parent));
-  const hiddenBtn = tool('search', 'Hidden files', () => {
+  const hiddenBtn = tool('eye', 'Hidden files', () => {
     hidden = !hidden;
     prefs.set('files.hidden', hidden);
     hiddenBtn.setAttribute('aria-pressed', String(hidden));
@@ -58,7 +58,11 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
     fileInput.value = '';
     uploadAll(files);
   } });
-  const selBar = h('div.dapp-bar.dfiles-selbar.hidden');
+  // One bar of tools: what can be made here, or, while something is chosen, what can be done with it. It keeps its
+  // height either way (one line, words giving way to icons in a narrow window), so the rows never move between the
+  // two presses of a double press.
+  const toolsBar = h('div.dapp-bar.dfiles-tools');
+  const selActs = h('span.dfiles-selacts', { role: 'group', 'aria-label': 'What is chosen' });
 
   // ---------- reading ----------
 
@@ -106,9 +110,10 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
     backBtn.disabled = !back.length;
     upBtn.disabled = !cur.parent;
     const tops = cur.reach.tops;
-    fill(reach, cur.reach.kind === 'everything' ? 'Files reaches everything your user can open on this computer.'
-      : `Files reaches ${tops.length === 1 ? 'one folder' : `${tops.length} folders`}: ${tops.join(', ')}.`, ' ',
-    h('a', { href: link('#/settings/security', machine) }, 'Change in Settings'));
+    // The words give way (…) in a narrow window, the link stays whole.
+    const words = cur.reach.kind === 'everything' ? 'Files reaches everything your user can open on this computer.'
+      : `Files reaches ${tops.length === 1 ? 'one folder' : `${tops.length} folders`}: ${tops.join(', ')}.`;
+    fill(reach, h('span.dfiles-reach-text', { title: words }, words), h('a', { href: link('#/settings/security', machine) }, 'Change in Settings'));
   }
 
   async function typePath() {
@@ -149,21 +154,21 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
     paintSelBar();
   }
 
+  /** What can be done with what is chosen: buttons at the end of the bar of tools (words in their menu, ⋯). */
   function paintSelBar() {
-    selBar.classList.toggle('hidden', !sel.size);
-    if (!sel.size) return fill(selBar);
+    if (!sel.size) return fill(selActs);
     const one = sel.size === 1 ? chosen()[0] : null;
-    fill(selBar,
-      h('span.dapp-status', `${sel.size} chosen`),
-      one ? tool(one.kind === 'dir' ? 'folder' : 'external', 'Open', () => openEntry(one)) : null,
-      one && one.kind === 'file' ? tool('download', 'Download', () => download(machine, one.path)) : null,
-      one ? tool('pencil', 'Rename', () => renameIt(one)) : null,
-      tool('copy', 'Copy to…', () => transfer(true)),
-      tool('swap', 'Move to…', () => transfer(false)),
-      isFind() ? null : tool('plus', 'Pack', () => packIt()),
-      tool('trash', 'Delete', () => trashIt()),
-      h('span.desk-grow'),
-      iconBtn('x', 'Choose none', () => {
+    const act = (ic, label, run) => h('button.dapp-btn.dfiles-act', { type: 'button', title: label, 'aria-label': label, onclick: run }, icon(ic, { size: 15 }));
+    fill(selActs,
+      h('span.dapp-status.dfiles-chosen', `${sel.size} chosen`),
+      one ? act(one.kind === 'dir' ? 'folder' : 'external', 'Open', () => openEntry(one)) : null,
+      one && one.kind === 'file' ? act('download', 'Download', () => download(machine, one.path)) : null,
+      one ? act('pencil', 'Rename', () => renameIt(one)) : null,
+      act('copy', 'Copy to…', () => transfer(true)),
+      act('swap', 'Move to…', () => transfer(false)),
+      isFind() ? null : act('plus', 'Pack into an archive', () => packIt()),
+      act('trash', 'Delete', () => trashIt()),
+      act('x', 'Choose none', () => {
         sel = new Set();
         draw();
       }));
@@ -302,7 +307,7 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
   });
   withMenu(t.el, (e) => {
     const row = e.target.closest && e.target.closest('.dapp-tbody [data-key]');
-    return row ? rowMenu(row.dataset.key) : mode === 'folder' ? [{ label: 'New folder', icon: 'folder', run: () => make('dir') }, { label: 'New file', icon: 'plus', run: () => make('file') }, { label: 'Upload files', icon: 'up', run: () => fileInput.click() }] : null;
+    return row ? rowMenu(row.dataset.key) : mode === 'folder' ? [{ label: 'New folder', icon: 'folder', run: () => make('dir') }, { label: 'New file', icon: 'plus', run: () => make('file') }, { label: 'Upload files', icon: 'upload', run: () => fileInput.click() }] : null;
   }, 'Files');
   root.addEventListener('keydown', (e) => {
     if (mode === 'trash' || e.target.closest('input, textarea, .sheet')) return;
@@ -349,12 +354,12 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
 
   // ---------- the window ----------
 
-  const folderBars = [
-    h('div.dapp-bar.dfiles-path', backBtn, upBtn, crumbs),
-    h('div.dapp-bar',
-      tool('folder', 'New folder', () => make('dir')), tool('plus', 'New file', () => make('file')), tool('up', 'Upload', () => fileInput.click()),
-      findField, hiddenBtn, tool('trash', 'Trash', () => toTrash()), h('span.desk-grow'), busy, status),
-  ];
+  fill(toolsBar, tool('folder', 'New folder', () => make('dir')), tool('plus', 'New file', () => make('file')), tool('upload', 'Upload', () => fileInput.click()),
+    findField, hiddenBtn, tool('trash', 'Trash', () => toTrash()), h('span.desk-grow'), selActs);
+  const folderBars = [h('div.dapp-bar.dfiles-path', backBtn, upBtn, crumbs), toolsBar];
+  const foot = h('div.dfiles-foot', status, busy, reach);
+  const sizer = new ResizeObserver(() => root.classList.toggle('dfiles-tight', root.clientWidth > 0 && root.clientWidth < 1100));
+  sizer.observe(root);
   function show() {
     if (stopTrash) stopTrash();
     stopTrash = null;
@@ -363,9 +368,7 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
       stopTrash = trashView(view, machine, { done: () => toFolder(), changed: () => {} });
       return;
     }
-    // The actions of what is chosen sit under the list: shown above it, they would move the rows under the pointer
-    // between the two presses of a double press.
-    fill(view, folderBars, note, t.el, selBar, reach, fileInput);
+    fill(view, folderBars, note, t.el, foot, fileInput);
     draw();
   }
   fill(root, view);
@@ -374,6 +377,7 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
   const live = poll(root, () => (mode === 'folder' ? load() : null), 15000);
   return () => {
     live.stop();
+    sizer.disconnect();
     t.stop();
     if (stopTrash) stopTrash();
   };

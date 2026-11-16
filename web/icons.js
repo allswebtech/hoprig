@@ -56,6 +56,9 @@ const P = {
   square: ['M5 5h14v14H5z'],
   restore: ['M8 8h11v11H8z', 'M5 15V5h10'],
   external: ['M14 4h6v6', 'M20 4l-9 9', 'M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5'],
+  // Files: an upload (the download's arrow the other way) and an eye (hidden files shown).
+  upload: ['M12 15V4', 'M7 9l5-5 5 5', 'M5 20h14'],
+  eye: ['M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z', 'M12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z'],
 };
 
 const NS = 'http://www.w3.org/2000/svg';

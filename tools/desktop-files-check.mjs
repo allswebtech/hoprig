@@ -2,12 +2,14 @@
 // Dev-only (not in the published package): Files and the Editor as apps of the desktop, proven in a real browser on
 // `hoprig demo` (its own temp folders; a small tree of this check's own in the demo's projects folder).
 //
-//   TMPDIR=/tmp node tools/desktop-files-check.mjs [--port 7680] [--out <folder>] [--only files,dock,phone,laptop]
+//   TMPDIR=/tmp node tools/desktop-files-check.mjs [--port 7680] [--out <folder>] [--only files,dock,phone,reach,laptop]
 //
 // Parts, the first is the one that matters most: files (Taskbar style, light, 1440 × 900: browse, open a text file
 // in the Editor window, new folder, rename, copy, move, delete and put back, upload, download, pack and unpack, a
 // refused path, Show in Files from the Editor, the unsaved-changes question), then dock (Dock style, dark,
-// 1024 × 600), phone (390 × 844: the grid, Files as a page) and laptop (another computer's Files through the hub).
+// 1024 × 600), phone (390 × 844: the grid, Files as a page), reach (the setting in Settings → Security; its
+// check opens /usr of this computer, read only, so its screenshots stay where they are written) and laptop (another
+// computer's Files through the hub).
 import fs from 'node:fs';
 import path from 'node:path';
 import { startCheck } from './desktop-check-lib.mjs';
@@ -18,6 +20,7 @@ const {
 
 const W = '.dwin[data-app="files"]';
 const press = async (sel) => click(...center(await rectOf(sel)));
+const pressLabel = (sel, label) => ev(`(() => { const b = document.querySelector(${J(`${sel}[aria-label=${J(label)}]`)}); if (!b) return false; b.click(); return true; })()`);
 const pressText = (sel, text) => ev(`(() => { const b = [...document.querySelectorAll(${J(sel)})].find((x) => x.textContent.trim().includes(${J(text)})); if (!b) return false; b.click(); return true; })()`);
 const toast = (re) => waitFor(`[...document.querySelectorAll('.toast')].some((t) => ${re}.test(t.textContent))`, 8000);
 const enter = async () => {
@@ -36,10 +39,12 @@ const names = (win = W) => ev(`[...document.querySelectorAll(${J(`${win} .dfiles
 const rowSel = (name, win = W) => `${win} .dfiles-name[data-key=${J(name)}]`;
 /** Choose one row by a press on it. */
 const choose = async (name, win = W) => {
+  await waitFor(`!!document.querySelector(${J(rowSel(name, win))})`);
   await press(rowSel(name, win));
   await sleep(200);
 };
 const openRow = async (name, win = W) => {
+  await waitFor(`!!document.querySelector(${J(rowSel(name, win))})`);
   await dblclick(...center(await rectOf(rowSel(name, win))));
   await sleep(600);
 };
@@ -69,10 +74,10 @@ function seedTree() {
 }
 
 try {
+  const tree = seedTree();
   // ---------- 1. Files: Taskbar, light, 1440 × 900 ----------
   if (want('files')) {
     const P = 'files';
-    const tree = seedTree();
     const dl = path.join(OUT, 'downloads');
     fs.mkdirSync(dl, { recursive: true });
     await chrome.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dl });
@@ -124,11 +129,11 @@ try {
     await answer('drafts');
     check(P, 'New folder makes it, and chooses it', fs.existsSync(path.join(tree, 'drafts')) && await waitFor(`!!document.querySelector('${W} .dapp-picked .dfiles-name[data-key="drafts"]')`));
     await choose('todo.txt');
-    await pressText(`${W} .dfiles-selbar button`, 'Rename');
+    await pressLabel(`${W} .dfiles-act`, 'Rename');
     await answer('todo-renamed.txt');
     check(P, 'Rename', fs.existsSync(path.join(tree, 'todo-renamed.txt')) && !fs.existsSync(path.join(tree, 'todo.txt')) && await waitFor(`!!document.querySelector('${rowSel('todo-renamed.txt')}')`));
     await choose('todo-renamed.txt');
-    await pressText(`${W} .dfiles-selbar button`, 'Copy to');
+    await pressLabel(`${W} .dfiles-act`, 'Copy to…');
     check(P, '"Copy to" shows a folder picker', await waitFor(`[...document.querySelectorAll('dialog[open] .dfiles-pick')].some((b) => b.textContent.includes('drafts'))`));
     await shot('3-files-copy-to');
     await pressText('dialog[open] .dfiles-pick', 'drafts');
@@ -136,7 +141,7 @@ try {
     await pressText('dialog[open] button', 'Copy here');
     check(P, 'Copy to a folder', await toast(/Copied todo-renamed\.txt/) && fs.existsSync(path.join(tree, 'drafts', 'todo-renamed.txt')) && fs.existsSync(path.join(tree, 'todo-renamed.txt')));
     await choose('dot.png');
-    await pressText(`${W} .dfiles-selbar button`, 'Move to');
+    await pressLabel(`${W} .dfiles-act`, 'Move to…');
     await waitFor(`[...document.querySelectorAll('dialog[open] .dfiles-pick')].some((b) => b.textContent.includes('drafts'))`);
     await pressText('dialog[open] .dfiles-pick', 'drafts');
     await waitFor(`document.querySelector('dialog[open] .dfiles-pickpath').textContent.endsWith('drafts')`);
@@ -154,7 +159,7 @@ try {
 
     // Delete into the trash, and put it back.
     await choose('old.txt');
-    await pressText(`${W} .dfiles-selbar button`, 'Delete');
+    await pressLabel(`${W} .dfiles-act`, 'Delete');
     check(P, 'Delete moves it to the trash', await toast(/to the trash/) && !fs.existsSync(path.join(tree, 'old.txt')));
     await pressText(`${W} .dfiles-tool`, 'Trash');
     check(P, 'the Trash shows it with where it was', await waitFor(`[...document.querySelectorAll('${W} .dapp-tbody .dapp-tr')].some((r) => r.textContent.includes('old.txt') && r.textContent.includes('notes'))`));
@@ -170,7 +175,7 @@ try {
     check(P, 'Upload puts the file in the folder shown', await toast(/Uploaded upload me\.txt/) && fs.readFileSync(path.join(tree, 'upload me.txt'), 'utf8') === 'sent from the browser\n');
     check(P, 'and chooses it', await waitFor(`!!document.querySelector('${W} .dapp-picked .dfiles-name[data-key="upload me.txt"]')`));
     const before = await ev('location.href');
-    await pressText(`${W} .dfiles-selbar button`, 'Download');
+    await pressLabel(`${W} .dfiles-act`, 'Download');
     const got = path.join(dl, 'upload me.txt');
     let ok = false;
     for (let i = 0; i < 40 && !ok; i++) {
@@ -182,7 +187,7 @@ try {
 
     // Pack into an archive and unpack it.
     await choose('drafts');
-    await pressText(`${W} .dfiles-selbar button`, 'Pack');
+    await pressLabel(`${W} .dfiles-act`, 'Pack into an archive');
     await answer('drafts');
     check(P, 'Pack makes a .tar.gz next to it', await toast(/Packed into drafts\.tar\.gz/) && fs.existsSync(path.join(tree, 'drafts.tar.gz')));
     await openRow('drafts.tar.gz');
@@ -219,8 +224,9 @@ try {
     await openFiles();
     check(P, 'Files in the Dock style, dark', await ev(`document.body.dataset.deskStyle === 'dock' && document.documentElement.getAttribute('data-theme') === 'dark' && !!document.querySelector('${W} .dfiles-name')`));
     await openRow('notes');
+    check(P, 'a double press opens a folder', await waitFor(`(document.querySelector('${W} .dfiles-crumb[aria-current]') || {}).textContent === 'notes'`), await ev(`document.querySelector('${W}').textContent.slice(0, 300)`));
     await choose('old.txt');
-    check(P, 'the chosen row and its actions fit the window', await ev(`(() => { const w = document.querySelector('${W}').getBoundingClientRect(); return [...document.querySelectorAll('${W} .dfiles-selbar button, ${W} .dfiles-more')].every((b) => { const r = b.getBoundingClientRect(); return r.right <= w.right + 1 && r.width > 0; }); })()`));
+    check(P, 'the chosen row and its actions fit the window', await ev(`(() => { const w = document.querySelector('${W}').getBoundingClientRect(); return [...document.querySelectorAll('${W} .dfiles-tools button, ${W} .dfiles-more')].every((b) => { const r = b.getBoundingClientRect(); return r.right <= w.right + 1 && r.width > 0; }); })()`));
     check(P, 'nothing scrolls sideways', await ev(`document.documentElement.scrollWidth <= innerWidth`));
     await shot('9-dock-dark-1024');
     await finish();
@@ -240,7 +246,27 @@ try {
     await finish();
   }
 
-  // ---------- 4. another computer through the hub ----------
+  // ---------- 4. how far Files reaches: Settings → Security ----------
+  if (want('reach')) {
+    const P = 'reach';
+    await open('#/settings/security', { w: 1440, h: 900, prefs: { 'page.theme': 'light' } });
+    check(P, 'Settings → Security has "Files reach", the allowed folders by default', await waitFor(`(() => { const p = document.getElementById('reach'); return !!p && p.querySelector('[aria-checked="true"]').textContent === 'Allowed folders'; })()`));
+    await shot('12-settings-reach');
+    await pressText('#reach .seg', 'Everything');
+    check(P, 'Everything is saved', await waitFor(`document.querySelector('#reach [aria-checked="true"]').textContent === 'Everything'`));
+    await open('#/desktop', { w: 1440, h: 900, prefs: { 'desktop.~': null } });
+    await openFiles();
+    await press(`${W} .dapp-btn[aria-label="Type a path"]`);
+    await answer('/usr');
+    check(P, 'then Files opens folders outside the home folder', await waitFor(`(document.querySelector('${W} .dfiles-crumb[aria-current]') || {}).textContent === 'usr'`) && await ev(`document.querySelector('${W} .dfiles-reach').textContent.includes('everything your user can open')`));
+    await open('#/settings/security', { w: 1440, h: 900 });
+    await waitFor(`!!document.getElementById('reach')`);
+    await pressText('#reach .seg', 'Allowed folders');
+    check(P, 'and back to the allowed folders', await waitFor(`document.querySelector('#reach [aria-checked="true"]').textContent === 'Allowed folders'`));
+    await finish();
+  }
+
+  // ---------- 5. another computer through the hub ----------
   if (want('laptop')) {
     const P = 'laptop';
     await open('#/m/laptop/desktop', { w: 1440, h: 900, prefs: { 'desktop.m.laptop': null, 'desktop.style': null, 'page.theme': 'light' } });
