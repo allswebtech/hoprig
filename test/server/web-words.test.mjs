@@ -196,3 +196,16 @@ test('trust words: what Tia does with OpenCode, her client tools only while she 
   // The AI brain page's button is "Link" (Link now is Get started's and Skills').
   assert.match(readme, /\(or \*\*Link\*\* on the AI brain page\)/);
 });
+
+test('Settings → Workspace: the map is kept by itself only while its switch is on and nothing is paused, and the card follows the switch', async () => {
+  const { mapKept } = await import('../../web/workspace.js');
+  assert.equal(mapKept({ settings: {} }), true, 'on by default');
+  assert.equal(mapKept({ settings: { workspace: { map: false } } }), false);
+  assert.equal(mapKept({ settings: { workspace: { map: true }, paused: true } }), false, 'paused: the upkeep does not run');
+  assert.equal(mapKept({ settings: { workspace: { map: true } } }, false), false, 'the switch as just saved wins');
+  assert.equal(mapKept({ settings: { workspace: { map: false } } }, true), true);
+  assert.equal(mapKept(null), false, 'automations not readable: "Update the map" stays first');
+  const ws = read('web/workspace.js');
+  assert.match(ws, /onMap\(v\); \/\/ the map's own card/, 'switching it repaints the map card without a reload');
+  assert.match(ws, /autoPanel\(paintMap\)/);
+});

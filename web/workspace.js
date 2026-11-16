@@ -412,9 +412,10 @@ function peerPanel() {
 
 /**
  * By itself: the automation setting workspace { map, commitMap, sync, push, everyHours }. Saving the map in the
- * brain's history needs the map kept up to date; uploading applies to that commit and to the sync.
+ * brain's history needs the map kept up to date; uploading applies to that commit and to the sync. onMap(on): "Keep
+ * the map up to date" was switched and saved.
  */
-function autoPanel() {
+function autoPanel(onMap = () => {}) {
   const box = h('div', busyLine('…'));
   let w = null;
   let why = null; // "save a change of the map" never chosen: { on, github } from the brain's address
@@ -436,7 +437,14 @@ function autoPanel() {
     commit.querySelector('input').disabled = !w.map;
     commit.classList.toggle('is-off', !w.map);
     fill(box,
-      toggle('Keep the map up to date', !!w.map, async (v) => { const ok = await save({ map: v }); if (ok) paint(); return ok; },
+      toggle('Keep the map up to date', !!w.map, async (v) => {
+        const ok = await save({ map: v });
+        if (ok) {
+          paint();
+          onMap(v); // the map's own card offers "Update the map" first again, or tucks it away
+        }
+        return ok;
+      },
         'Adds what is new on this computer to the map; written only when something changed, and only where a map exists.'),
       commit,
       toggle('Keep the workspace in step', !!w.sync, (v) => save({ sync: v }),
@@ -547,14 +555,26 @@ function mapPanel(m, refresh, kept = false) {
       rare ? [h('p.hint', 'The map is kept up to date by itself (By itself, below). To write it now:'), h('div.savebar.start', update())] : null) : null);
 }
 
+/**
+ * The map keeps itself up to date: "Keep the map up to date" (By itself) is on, its automation's own default, and
+ * the automations are not paused (then the upkeep does not run). `map`: the switch as just saved on this page.
+ */
+export function mapKept(auto, map) {
+  if (!auto || !auto.settings) return false;
+  if (auto.settings.paused) return false;
+  const on = map === undefined ? (auto.settings.workspace || {}).map : map;
+  return on !== false;
+}
+
 function settingsRender() {
   const box = h('div', busyLine('Reading the workspace…'));
   const draw = async () => {
     try {
       const [st, m, auto] = await Promise.all([api('/api/workspace'), api('/api/workspace/map'), api('/api/automation').catch(() => null)]);
-      // "Keep the map up to date" (By itself): on unless the owner turned it off (automation's own default).
-      const kept = !!auto && ((auto.settings && auto.settings.workspace) || {}).map !== false;
-      fill(box, placesPanel(st, draw), workspaceFolders(), mapPanel(m, draw, kept), peerPanel(), autoPanel());
+      const mapSlot = h('div');
+      const paintMap = (map) => fill(mapSlot, mapPanel(m, draw, mapKept(auto, map)));
+      paintMap();
+      fill(box, placesPanel(st, draw), workspaceFolders(), mapSlot, peerPanel(), autoPanel(paintMap));
     } catch (e) {
       fill(box, errorBox(`The workspace could not be read: ${e.message}`, draw));
     }
