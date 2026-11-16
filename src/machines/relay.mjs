@@ -118,7 +118,8 @@ export function callJson(ep, { machine, method = 'GET', path, body, token, heade
  * Relay one HTTP request, streaming both ways (an upload goes through as it arrives). `path` is the path and
  * query on the machine ("/api/state?x=1"). `idleMs` is how long the connection may sit with nothing moving.
  */
-export function relayHttp(req, res, ep, { machine, path, token, idleMs = 30_000 }) {
+// `headers`: extra headers from the hub itself (legs.mjs: the leg is encrypted), never the browser's.
+export function relayHttp(req, res, ep, { machine, path, token, idleMs = 30_000, headers: extra = {} }) {
   return new Promise((resolve) => {
     let finished = false;
     const fail = (e) => {
@@ -132,7 +133,7 @@ export function relayHttp(req, res, ep, { machine, path, token, idleMs = 30_000 
       req.resume(); // drain what the browser still sends
       resolve();
     };
-    const headers = pick(req.headers, PASS_REQ);
+    const headers = { ...pick(req.headers, PASS_REQ), ...extra };
     headers.authorization = `Bearer ${token}`;
     const out = mod(ep).request({ protocol: ep.protocol, hostname: ep.hostname, port: ep.port, method: req.method, path: `${ep.basePath || ''}${path}`, headers, agent: false });
     out.setTimeout(idleMs, () => out.destroy(Object.assign(new Error('timeout'), { code: 'timeout' })));

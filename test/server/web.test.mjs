@@ -711,3 +711,10 @@ test('workspace strip: a project that is not here gets a button that says so, no
   assert.deepEqual(texts(stripActions(none, workspaceLine(none, null))), ['Sync']);
   assert.equal(stripActions({ exists: false, entries: [] }, {}), null, 'no map: no buttons');
 });
+
+test('Setup on a plain leg: that computer\'s own page is a link only when it is an http or https address', async () => {
+  const { pageHref } = await import('../../web/setupjob.js');
+  assert.equal(pageHref('http://192.168.1.20:7433'), 'http://192.168.1.20:7433/');
+  assert.equal(pageHref('https://pc.example.com/hop'), 'https://pc.example.com/hop');
+  for (const bad of ['javascript:alert(1)', 'data:text/html,x', 'file:///etc/passwd', '//pc.example.com', 'not a url', '', null, 7]) assert.equal(pageHref(bad), null, String(bad));
+});

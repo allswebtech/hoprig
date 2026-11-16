@@ -40,6 +40,11 @@ terminal session is also used for a step that needs you at the computer (macOS's
 prompts). This replaced the earlier rule that a password never goes through the page: setup belongs on the page
 it was started from, and the password goes the way the dashboard's own password already does.
 
+For another computer, the password may be typed on the hub's page only when the leg from the hub to that computer is
+encrypted: SSH, an `https://` address, or a direct link over `wss://` (also with a pinned certificate). Over a plain
+leg the page shows no password field: it says the password is asked only on that computer's own page, with a link
+to it when its address is known, and both the hub and the computer refuse a password sent that way.
+
 After the kits, `pc setup` runs the **Git and GitHub** step (the GitHub sign-in with `gh`, `gh auth setup-git`,
 git's name and e-mail, and restoring or starting your workspace) and then the workspace step: see
 [WORKSPACE.md](WORKSPACE.md#git-and-github).
