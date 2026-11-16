@@ -146,6 +146,10 @@ as TRouteAI's dashboard) can get a temporary address of its own.
 `hoprig setup --hub` does it: Caddy with a certificate for your domain or for the server's IP address, or the
 ready-to-paste block when nginx or Apache are already there. Everything about it is in [HUB.md](HUB.md).
 
+The administrator password of a Setup job crosses only an encrypted leg between the hub and another computer (SSH,
+HTTPS, a direct link over `wss://`). For a computer reached over plain `http://` or `ws://`, type it on that
+computer's own page instead ([PC-SETUP.md](PC-SETUP.md)).
+
 ## When something does not work
 
 | You see | What to do |
