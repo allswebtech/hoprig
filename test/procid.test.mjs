@@ -37,7 +37,7 @@ test('Windows: PowerShell lines, with the carriage return at the end', () => {
   assert.deepEqual([...m], [[101, 1799999990000], [202, 1799999999123]]);
 });
 
-test('the same process: Linux exactly, the others within 3 seconds, and never a guess', () => {
+test('the same process: Linux exactly, the others within 3 seconds or a late start, and never a guess', () => {
   assert.equal(sameProcess('L:b1:500', 'L:b1:500'), true);
   assert.equal(sameProcess('L:b1:500', 'L:b1:501'), false, 'another start');
   assert.equal(sameProcess('L:b1:500', 'L:b2:500'), false, 'the same tick of another boot');
@@ -45,6 +45,11 @@ test('the same process: Linux exactly, the others within 3 seconds, and never a 
   assert.equal(sameProcess('L::500', 'L::501'), false);
   assert.equal(sameProcess('T:1000000', 'T:1002999'), true);
   assert.equal(sameProcess('T:1000000', 'T:1003000'), false);
+  // Node's own start may come after the start of the process behind its pid (a wrapper that execs node, a slow load):
+  // up to a minute later; never earlier than the 3 seconds (a dead writer started before the pid's process now).
+  assert.equal(sameProcess('T:1004000', 'T:1000000'), true, 'started 4 s after its process');
+  assert.equal(sameProcess('T:1059999', 'T:1000000'), true);
+  assert.equal(sameProcess('T:1060000', 'T:1000000'), false);
   for (const [a, b] of [['T:1', 'L:b:1'], ['L:b:1', null], [undefined, 'T:1'], ['L:b:', 'L:b:'], ['T:x', 'T:1'], ['X:1', 'X:1']]) assert.equal(sameProcess(a, b), null, `${a} ${b}`);
 });
 

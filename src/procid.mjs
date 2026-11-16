@@ -5,8 +5,11 @@
 //   Linux           "L:<boot id>:<start>": the start in clock ticks since boot (/proc/<pid>/stat, field 22) and the
 //                   boot it belongs to (/proc/sys/kernel/random/boot_id). Exact, no clock involved, one small read.
 //   macOS, Windows  "T:<epoch milliseconds of the start>": a process knows its own (now - its uptime); another's comes
-//                   from the system (ps's elapsed time; PowerShell's creation time). Two are the same process when
-//                   they are less than 3 seconds apart.
+//                   from the system (ps's elapsed time; PowerShell's creation time). A record's is the same process
+//                   as the system's when it is less than 3 seconds earlier, or less than a minute later: the system
+//                   gives the start of the process behind the pid, Node its own, which may come later (a wrapper
+//                   that execs node keeps its pid; a slow start under load). A dead writer's start is never later
+//                   than that of the process that has its pid now.
 //
 // It never guesses: when the system cannot be asked, says nothing about a pid, or answers wrongly about this process
 // itself, the identity is "not known" (null), and not known is never "another process".
@@ -15,6 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 
 export const SAME_WITHIN = 3000;
+const STARTED_LATE = 60_000;
 // A file written within this much before the boot may still be of this boot: the clock may have been corrected
 // after the machine started.
 const BOOT_SLACK = 10 * 60_000;
@@ -73,7 +77,10 @@ function runProgramLater(cmd, args, timeout) {
   });
 }
 
-/** Whether two identities are the same process: true, false, or null when they cannot be compared. */
+/**
+ * Whether identity `a` (a record's, written by the process itself) and `b` (the system's of its pid now) are the same
+ * process: true, false, or null when they cannot be compared.
+ */
 export function sameProcess(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return null;
   const [ka, ...x] = a.split(':');
@@ -83,7 +90,10 @@ export function sameProcess(a, b) {
     if (x[1] !== y[1]) return false;
     return !x[0] || !y[0] || x[0] === y[0]; // a boot id that could not be read on one side does not decide
   }
-  if (ka === 'T' && x.length === 1 && y.length === 1 && /^\d+$/.test(x[0]) && /^\d+$/.test(y[0])) return Math.abs(Number(x[0]) - Number(y[0])) < SAME_WITHIN;
+  if (ka === 'T' && x.length === 1 && y.length === 1 && /^\d+$/.test(x[0]) && /^\d+$/.test(y[0])) {
+    const late = Number(x[0]) - Number(y[0]);
+    return late > -SAME_WITHIN && late < STARTED_LATE;
+  }
   return null;
 }
 

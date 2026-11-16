@@ -152,12 +152,13 @@ test('a chat record an earlier dashboard left behind, whose pid this dashboard h
 
 /**
  * A macOS or Windows system as the dashboard sees it, on this test's clock: this process started a minute ago, and
- * pid `pid` belongs to the process that started at `holder.start` (changed by the test). Counts its calls.
+ * pid `pid` belongs to the process that started at `holder.start` (two minutes ago, then as the test says). Counts its
+ * calls.
  */
 const askedSystem = (platform, pid) => {
   const clock = { now: Math.floor(Date.now() / 1000) * 1000 }; // whole seconds: ps says no less
   const own = clock.now - 60_000;
-  const holder = { start: clock.now - 30_000 };
+  const holder = { start: clock.now - 120_000 };
   const el = (s) => { const x = Math.round((clock.now - s) / 1000); return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
   const calls = [];
   const run = () => (calls.push(1), platform === 'win32' ? `${process.pid} ${own}\r\n${pid} ${holder.start}\r\n` : `${process.pid} ${el(own)}\n${pid} ${el(holder.start)}\n`);
