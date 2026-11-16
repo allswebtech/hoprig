@@ -223,7 +223,7 @@ export function createComposer(o) {
       if (ro) menus.close();
       const words = ro ? 'Read only while the terminal runs this conversation'
         : v.working ? 'Queue a message…'
-          : finePointer ? 'Message Claude · / commands · @ files · Shift+Tab mode · /help keys' : 'Message Claude. / commands, @ files';
+          : finePointer ? 'Message Claude · / commands · @ files · Shift+Tab mode · /help keys' : 'Message Claude · / commands · @ files';
       if (textarea.placeholder !== words) {
         textarea.placeholder = words;
         grow(); // an empty box is as high as its placeholder

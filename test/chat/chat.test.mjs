@@ -285,7 +285,8 @@ test('protocol: the transcript as the page shows it', () => {
   ];
   fs.writeFileSync(f, lines.map((l) => JSON.stringify(l)).join('\n') + '\n{"type":"user","mess');
   const { events } = P.transcriptEvents(f);
-  assert.deepEqual(events.map((e) => [e.kind, e.text || e.name]), [['user', 'fix the bug'], ['text', 'On it.'], ['tool', 'Bash'], ['tool-result', 'ok'], ['notice', 'Stopped.']]);
+  // A command the owner typed is shown as typed, as the chat showed it live (not the wrapper Claude Code keeps).
+  assert.deepEqual(events.map((e) => [e.kind, e.text || e.name]), [['user', 'fix the bug'], ['user', '/clear'], ['text', 'On it.'], ['tool', 'Bash'], ['tool-result', 'ok'], ['notice', 'Stopped.']]);
   assert.deepEqual(P.transcriptEvents(path.join(box.root, 'none.jsonl')).events, []);
 });
 

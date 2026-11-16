@@ -113,7 +113,7 @@ export function createTimeline(o) {
         // A file sent with the message is named at its end for Claude Code (@path); the chip below says it already.
         const text = files.some((f) => f.type === 'file') ? ev.text.replace(/\n\n(?:@(?:"[^"]+"|\S+)\s*)+$/, '') : ev.text;
         const row = h('div.chat-item.chat-userrow', { dataset: { message: ev.messageId || '' } }, back, h('div.chat-user', text, messageFiles(files, o.A)));
-        row.said = ev.text;
+        row.said = text;
         return add(g, row);
       }
       case 'turn-start':
