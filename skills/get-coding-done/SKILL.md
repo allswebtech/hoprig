@@ -17,7 +17,7 @@ The owner asks for coding work in a project ("fix the failing test in X", "add Y
 5. Tell the owner in one line: which chat, which folder, which provider and why.
 6. When woken: read_session.
    - It asks a question → answer within the goal (send_to_chat `text`), or tell the owner if the answer is his to give.
-   - It asks for an OK → answer it (send_to_chat `answer`); the dashboard lets you allow only looking and running the project's own checks, and makes everything else (changing a file, other commands) a card for the owner by itself. In a chat of another coding tool than Claude Code every OK is the owner's: tell him.
+   - It asks for an OK → answer it (send_to_chat `answer`); the dashboard lets you allow only looking and running the project's own checks, and makes everything else (changing a file, other commands) a card for the owner by itself. In a chat of another coding tool than Claude Code every OK is the owner's: tell him (notify_owner) and keep the job open; it wakes you when the chat goes on.
    - Usage limit → switch_account without naming a provider.
    - It says it is done → ask it to run the tests and show `git diff --stat`, read the result, then finish_job "done" with a two-line report (what changed, test result).
    - It cannot go on → finish_job "stuck" with what is needed.
