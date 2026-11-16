@@ -226,6 +226,7 @@ test('the coding tools for the page: on or off (never none), installed, the prov
     { name: 'gw', kind: 'api', api: ['messages', 'responses', 'chat'], env: {} },
     { name: 'sub', kind: 'subscription', env: {} },
     { name: 'chatgpt', kind: 'chatgpt', signin: 'codex', env: {} },
+    { name: 'oai', kind: 'openai', env: {} },
   ];
   let clock = 1_000_000;
   const f = codetoolsFeature(ctx, { profiles, stop: async (tool, o) => stopped.push([tool, o.idleMs]), now: () => clock });
@@ -237,7 +238,7 @@ test('the coding tools for the page: on or off (never none), installed, the prov
     throw new Error(`no route ${method} ${p}`);
   };
   let v = await call('GET', '/api/codetools');
-  assert.deepEqual(v.tools.map((t) => [t.id, t.on, t.providers.join('+')]), [['claude', true, 'gw+sub'], ['codex', false, 'gw+chatgpt'], ['opencode', false, 'gw']]);
+  assert.deepEqual(v.tools.map((t) => [t.id, t.on, t.providers.join('+')]), [['claude', true, 'gw+sub'], ['codex', false, 'gw+oai+chatgpt'], ['opencode', false, 'gw+oai']]);
   assert.equal(v.tools[1].command, 'hoprig codex <provider>');
   v = await call('POST', '/api/codetools/codex', { on: true });
   assert.deepEqual(cfg.codingTools, ['claude', 'codex']);

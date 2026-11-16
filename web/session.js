@@ -85,6 +85,7 @@ export function openSession(app, name) {
   const profileBtn = h('button.profilebtn.hidden', { type: 'button', title: 'Move to another provider', onclick: () => moveAccount() },
     icon('user', { size: 16 }), h('span.profilebtn-label', '…'), icon('chevronDown', { size: 14 }));
   const statusSlot = h('div.sess-state');
+  const toolSlot = h('span.sess-tool'); // the coding tool's name, beside the session's name (not a line of its own on a phone)
   const needSlot = h('div.sess-need'); // a limit, or a question waiting for your OK: above the terminal
   const overlay = h('div.term-overlay', h('div.spinner', { 'aria-hidden': 'true' }), h('span', 'Connecting…'));
   const liveBtn = h('button.btn.small.primary.live.hidden', { type: 'button', onclick: () => scroller.exit() }, icon('down', { size: 16 }), h('span', 'Back to live'));
@@ -129,7 +130,7 @@ export function openSession(app, name) {
   const wrap = h('div.term-wrap',
     h('header.sessbar',
       h('a.btn.ghost.sessback', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.sessback-label', way.label)),
-      h('div.sess-title', titleBtn, h('div.sess-sub', statusSlot)),
+      h('div.sess-title', h('div.sess-name-row', titleBtn, toolSlot), h('div.sess-sub', statusSlot)),
       h('div.sessbar-end', profileBtn, btn('icon ghost', { icon: 'more', title: 'More for this session', onclick: () => menu() }))),
     needSlot,
     box,
@@ -595,7 +596,8 @@ export function openSession(app, name) {
     const starting = isStarting(s, machine.current);
     profileBtn.classList.toggle('hidden', !isCodingCard(s));
     fill(profileBtn, icon(profileIcon(s.profile), { size: 16 }), h('span.profilebtn-label', profileText(s)), icon('chevronDown', { size: 14 }));
-    fill(statusSlot, starting ? startingPill() : statusPill(s, { time: false }), toolChip(s), liveBasic(s));
+    fill(statusSlot, starting ? startingPill() : statusPill(s, { time: false }), liveBasic(s));
+    fill(toolSlot, toolChip(s));
     const before = needSlot.offsetHeight;
     fill(needSlot, limitBox(s, profiles, moved) || (stateOf(s).key === 'attention' ? needsOk(s) : null));
     if (needSlot.offsetHeight !== before) refit();

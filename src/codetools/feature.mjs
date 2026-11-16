@@ -40,7 +40,8 @@ export function codetoolsFeature(ctx, { stop = stopIfUnused, now = Date.now, pro
       tools: TOOLS.map((t) => ({
         id: t.id, name: t.name, on: on.includes(t.id), managed: !!t.managed, installed: t.installedVersion(),
         about: t.about || null,
-        providers: all.filter((p) => servesTools(p).includes(t.id)).map((p) => p.name),
+        // A Codex sign-in last: the Start form picks the first, and a key provider works without a sign-in step.
+        providers: all.filter((p) => servesTools(p).includes(t.id)).sort((a, b) => (a.kind === 'chatgpt') - (b.kind === 'chatgpt')).map((p) => p.name),
         command: t.id === 'claude' ? 'hoprig <provider>' : `hoprig ${t.id} <provider>`,
       })),
     };

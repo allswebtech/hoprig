@@ -14,7 +14,8 @@ const SCOPE = 'Claude Code can do everything here. Codex and OpenCode: sessions 
 export const summaryOf = (v) => `On: ${v.tools.filter((t) => t.on).map((t) => t.name).join(', ')}`;
 
 function startForm(t, folders) {
-  const dir = h('select.field', { 'aria-label': 'Folder' }, folders.map((f) => h('option', { value: f.path }, f.short)));
+  const group = (label, list) => (list.length ? h('optgroup', { label }, list.map((f) => h('option', { value: f.path }, f.short))) : null);
+  const dir = h('select.field', { 'aria-label': 'Folder' }, group('Recent', folders.recent), group('Your folders', folders.more));
   const prov = h('select.field', { 'aria-label': 'Provider' }, t.providers.map((p) => h('option', { value: p }, p)));
   const go = btn('primary', { icon: 'play', label: `Start ${t.name}`, onclick: async () => {
     go.disabled = true;
@@ -47,7 +48,7 @@ function toolPanel(t, folders, redraw) {
   if (t.id === 'claude') start = h('p.hint', 'New session on Home starts it.');
   else if (!missing && t.on && t.providers.length) {
     start = [
-      folders.length ? startForm(t, folders) : h('p.hint', 'Open a folder once (New session on Home) and it is offered here.'),
+      folders.recent.length || folders.more.length ? startForm(t, folders) : h('p.hint', 'No folder this dashboard may open was found: Settings → Security and sign-in says which folders it opens.'),
       h('p.hint', 'Or in a terminal: ', h('code', t.command), '.'),
     ];
   }
@@ -78,7 +79,7 @@ function toolPanel(t, folders, redraw) {
 
 function codingToolsPage() {
   const body = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading…')));
-  let folders = [];
+  let folders = { recent: [], more: [] };
   let view = null;
   const draw = (v) => {
     if (v) view = v;
@@ -91,8 +92,13 @@ function codingToolsPage() {
   };
   (async () => {
     try {
-      const [v, r] = await Promise.all([api('/api/codetools'), api('/api/folders/recent').catch(() => ({ folders: [] }))]);
-      folders = (r.folders || []).slice(0, 30);
+      // The folders a session was started in, then the folders of the dashboard's first root folder (a fresh
+      // computer has no recent folder yet).
+      const [v, r, b] = await Promise.all([api('/api/codetools'), api('/api/folders/recent').catch(() => ({ folders: [] })), api('/api/folders/browse').catch(() => null)]);
+      const recent = (r.folders || []).slice(0, 30);
+      const seen = new Set(recent.map((f) => f.path));
+      const more = b ? [{ path: b.path, short: b.short }, ...(b.dirs || []).map((d) => ({ path: d.path, short: `${b.short.replace(/\/$/, '')}/${d.name}` }))].filter((f) => !seen.has(f.path)).slice(0, 60) : [];
+      folders = { recent, more };
       draw(v);
     } catch (e) {
       fill(body, h('div.empty', icon('alert', { size: 32 }), h('p', e.message)));
