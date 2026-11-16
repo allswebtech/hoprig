@@ -104,7 +104,9 @@ try {
     check(P, 'your own services are listed first, with their state', await waitFor(`document.querySelectorAll('${W('services')} .dapp-tbody .dapp-tr').length === 3`));
     check(P, 'this dashboard\'s own service is marked and has no buttons', await ev(`(() => { const t = [...document.querySelectorAll('${W('services')} .dapp-tr')].find((x) => x.textContent.includes('hoprig.service')); return t.textContent.includes('this dashboard') && !t.querySelector('.dapp-acts'); })()`));
     await ev(`[...document.querySelectorAll('${W('services')} .dapp-tr')].find((x) => x.textContent.includes('backup.service')).querySelector('button[aria-label^="Restart"]').click()`);
-    check(P, 'one of yours restarts at once, without a password', await toast(/backup\.service restarted/));
+    check(P, 'a restart of one of yours is asked first, naming it', await waitFor(`!!document.querySelector('dialog[open]') && document.querySelector('dialog[open]').textContent.includes('Restart backup.service?')`));
+    await pressText('dialog[open] button', 'Restart');
+    check(P, 'then it restarts, without a password', await toast(/backup\.service restarted/));
     await pressText(`${W('services')} .seg`, 'The system\'s');
     check(P, 'the system\'s services, with a word on the password', await waitFor(`document.querySelectorAll('${W('services')} .dapp-tbody .dapp-tr').length === 6 && document.querySelector('${W('services')}').textContent.includes('asks for this computer\\'s password')`));
     await ev(`[...document.querySelectorAll('${W('services')} .dapp-tr')].find((x) => x.textContent.includes('nginx.service')).querySelector('button[aria-label^="Start"]').click()`);
@@ -113,7 +115,7 @@ try {
     await press('dialog[open] input[type="password"]');
     await chrome.send('Input.insertText', { text: 'demo-password' });
     await enter();
-    check(P, 'with it the service starts, and shows as running', await toast(/nginx\.service started/) && await waitFor(`[...document.querySelectorAll('${W('services')} .dapp-tr')].find((x) => x.textContent.includes('nginx.service')).textContent.includes('active (running)')`));
+    check(P, 'with it the service starts, and shows as running', await toast(/nginx\.service started/) && await waitFor(`[...document.querySelectorAll('${W('services')} .dapp-tr')].find((x) => x.textContent.includes('nginx.service')).querySelector('.dapp-st-word').textContent === 'Running'`));
     await ev(`[...document.querySelectorAll('${W('services')} .dapp-tr')].find((x) => x.textContent.includes('ssh.service')).querySelector('button[aria-label^="Stop"]').click()`);
     check(P, 'stopping SSH asks for its name to be typed first', await waitFor(`!!document.querySelector('dialog[open]') && document.querySelector('dialog[open]').textContent.includes('cut this computer off')`));
     await shot('2-services-ssh-confirm');
