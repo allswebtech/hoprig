@@ -168,7 +168,7 @@ test('the routes of a running chat', { timeout: 120_000, skip: process.platform 
   assert.deepEqual(dry.files, [fs.realpathSync(path.join(proj, 'made.txt'))]);
   assert.equal((await owner('POST', `${A}/rewind`, { messageId: msg.messageId })).json.canRewind, true);
   assert.ok(!fs.existsSync(path.join(proj, 'made.txt')));
-  assert.match((await view()).events.filter((e) => e.kind === 'notice').at(-1).text, /^Files rewound to before a message \(1 file\)/, 'the conversation says so');
+  assert.match((await view()).events.filter((e) => e.kind === 'notice').at(-1).text, /^Files rewound to before your message \(1 file\)\. The conversation itself goes on as it was\./, 'the conversation says so');
   assert.equal((await owner('POST', `${A}/rewind`, { messageId: '../x' })).status, 400);
 
   // ---- the composer's menus ----
@@ -216,4 +216,44 @@ test('the routes of a running chat', { timeout: 120_000, skip: process.platform 
   assert.equal(mine.chat, id);
   assert.equal(mine.title, 'think');
   assert.equal((await owner('POST', '/api/chats', { dir: proj, profile: 'sub', sessionId: mine.id })).json.id, id, 'continuing it opens this chat');
+
+  // ---- rewind of the conversation through the route: the message comes back for the box ----
+  await owner('POST', `${A}/send`, { text: 'first of the new one' });
+  await owner('POST', `${A}/send`, { text: 'second of the new one' });
+  const vr = await until('two turns', async () => {
+    const x = await view();
+    return x.status === 'waiting' && x.events.filter((e) => e.kind === 'user').length >= 2 && x;
+  });
+  const second = vr.events.filter((e) => e.kind === 'user').at(-1);
+  const rd = (await owner('POST', `${A}/rewind`, { messageId: second.messageId, dryRun: true, files: false, conversation: true })).json;
+  assert.deepEqual(rd.conversation, { messages: 1, text: 'second of the new one' });
+  assert.equal((await owner('POST', `${A}/rewind`, { messageId: second.messageId, files: false, conversation: true })).status, 200);
+  assert.ok(!(await view()).events.some((e) => e.kind === 'user' && e.text === 'second of the new one'), 'the conversation went back');
+
+  // ---- after a clear the chat runs another conversation under its old id: the old one is free to continue ----
+  await owner('POST', `${A}/send`, { text: 'clear' });
+  await until('the new conversation', async () => (await owner('GET', '/api/state')).json.sessions.find((x) => x.name === `chat:${id}`).sessionId !== id);
+  const cleared = (await owner('GET', `${A}/history`)).json.conversations;
+  assert.equal(cleared.find((x) => x.id === id).chat, null, 'the chat\'s own id is not the conversation it runs now');
+  assert.equal(cleared.find((x) => x.id === id).current, false);
+  const again = (await owner('POST', '/api/chats', { dir: proj, profile: 'sub', sessionId: id })).json.id;
+  assert.notEqual(again, id, 'the old conversation opens in a chat of its own');
+  assert.equal((await owner('GET', `/api/chats/${again}`)).json.events.find((e) => e.kind === 'user').text, 'think', 'with its history');
+  assert.equal((await owner('POST', '/api/chats', { dir: proj, profile: 'sub', sessionId: id })).json.id, again, 'and only one');
+  await owner('POST', `/api/chats/${again}/close`, {});
+
+  // ---- a folder whose uploads folder is a link out of it (a repository can commit one): nothing is read there ----
+  const evil = path.join(work, 'evil');
+  const outsideDir = path.join(box.root, 'outside');
+  fs.mkdirSync(evil, { recursive: true });
+  fs.mkdirSync(outsideDir, { recursive: true });
+  fs.writeFileSync(path.join(outsideDir, 'secret.txt'), 'not for Claude\n');
+  fs.writeFileSync(path.join(outsideDir, 'shot.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+  fs.symlinkSync(outsideDir, path.join(evil, '.uploads'));
+  const E = `/api/chats/${(await owner('POST', '/api/chats', { dir: evil, profile: 'sub' })).json.id}`;
+  assert.equal((await owner('POST', `${E}/upload`, undefined, { raw: Buffer.from('x'), headers: { Cookie: cookie, 'X-File-Name': 'a.txt' } })).status, 400);
+  const sent = await owner('POST', `${E}/send`, { text: 'x', attachments: [{ path: path.join(outsideDir, 'secret.txt') }] });
+  assert.equal(sent.status, 400, 'a file behind the link is not attached');
+  assert.match(sent.json.error, /not inside the chat's folder/);
+  assert.equal((await owner('GET', `${E}/attachment?name=shot.png`)).status, 404, 'nor served as a picture');
 });

@@ -78,7 +78,8 @@ export const ALLOW = [
   r('POST', `/api/sessions/${SEG}/switch`, 'switch_account'),
   // A chat (src/chat): only the fields her tools send. The model, effort, permission mode and provider of a chat, its
   // plan approvals and questions, its files and rewinds stay the owner's, in the page.
-  r('POST', '/api/chats', 'start_chat', onlyKeys(['dir', 'profile', 'sessionId', 'text'])),
+  // A chat she starts takes Settings → New-session defaults (defaults: true), never the folder's last chat of the owner.
+  r('POST', '/api/chats', 'start_chat', (b) => onlyKeys(['dir', 'profile', 'sessionId', 'text', 'defaults'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)),
   r('POST', `/api/chats/${CHAT_ID}/send`, 'send_to_chat (text)', onlyKeys(['text'])),
   r('POST', `/api/chats/${CHAT_ID}/answer`, 'send_to_chat (answer)', onlyKeys(['request', 'allow', 'always'])),
   r('POST', `/api/chats/${CHAT_ID}/stop`, 'send_to_chat (stop)', onlyKeys([])),

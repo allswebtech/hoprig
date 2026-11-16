@@ -127,7 +127,7 @@ test('the chat is the default: the folder\'s last settings, Home\'s card, the re
     const c = await cardOf(id);
     return c && c.status === 'attention' && c;
   });
-  assert.match(asking.note, /^Allow Write/);
+  assert.match(asking.note, /^Claude wants to write: /);
   assert.equal(asking.ask.type, 'permission');
   assert.equal(typeof asking.ask.request, 'string');
   assert.equal((await owner('POST', `/api/chats/${id}/answer`, { request: asking.ask.request, allow: true })).status, 200, 'the card\'s Allow');
@@ -147,7 +147,7 @@ test('the chat is the default: the folder\'s last settings, Home\'s card, the re
   await until('the follow-up turn and the end', async () => (await cardOf(id)).status === 'waiting', 30_000);
   assert.equal((await cardOf(id)).background, false);
 
-  // ---- a schedule starts a chat (the folder's last settings) and messages an open chat ----
+  // ---- a schedule starts a chat (Settings' defaults) and messages an open chat ----
   const auto = app.features.find((f) => f.name === 'automation').automation;
   const soon = new Date(Date.now() + 120_000);
   const hhmm = `${String(soon.getHours()).padStart(2, '0')}:${String(soon.getMinutes()).padStart(2, '0')}`;
@@ -165,7 +165,7 @@ test('the chat is the default: the folder\'s last settings, Home\'s card, the re
     const x = await view(started.chatId);
     return x.events.some((e) => e.kind === 'text' && e.text === 'echo: hello from a schedule') && x;
   });
-  assert.deepEqual([sv.cwd, sv.profile.name, sv.permissionMode, sv.model, sv.effort], [fs.realpathSync(shop), 'sub', 'acceptEdits', null, 'high'], 'the provider the schedule names, the rest as the last chat there (the "chosen" one)');
+  assert.deepEqual([sv.cwd, sv.profile.name, sv.permissionMode, sv.model, sv.effort], [fs.realpathSync(shop), 'sub', 'manual', null, null], 'the provider the schedule names, the rest as Settings says (not the owner\'s last chat there: nobody watches a scheduled chat start)');
   await until('the message in the open chat', async () => (await view(id)).events.some((e) => e.kind === 'text' && e.text === 'echo: scheduled hello'));
   const log = (await owner('GET', '/api/automation/log')).json.entries.filter((e) => e.automation === 'schedules');
   assert.ok(log.some((e) => /in a chat/.test(e.did) && e.outcome === 'ok'), JSON.stringify(log));

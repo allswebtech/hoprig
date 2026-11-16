@@ -8,7 +8,8 @@
 //   POST /api/chats/<id>/title                    { title }  the owner names the chat
 //   POST /api/chats/<id>/unqueue                  { id }     take a queued message back
 //   POST /api/chats/<id>/tasks/<task>/stop                   stop one background agent, shell or workflow
-//   POST /api/chats/<id>/rewind                   { messageId, dryRun? }   undo the file changes since a message
+//   POST /api/chats/<id>/rewind                   { messageId, dryRun?, files? (default true), conversation? }   go back
+//                                                 to before a message: its files, the conversation, or both
 //   GET  /api/chats/<id>/files?q=                 the @ picker: files of the chat's folder
 //   GET  /api/chats/<id>/commands                 the / menu: the coding tool's commands and skills
 //   GET  /api/chats/<id>/usage                    context and plan usage, asked of the running process
@@ -20,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { EFFORTS, PERMISSION_MODES } from '../config.mjs';
 import { within } from '../server/folders.mjs';
-import { IMAGE_MAX, IMAGE_TYPES, searchFiles } from './files.mjs';
+import { IMAGE_MAX, IMAGE_TYPES, searchFiles, uploadsReal } from './files.mjs';
 import { folderHistory } from './history.mjs';
 
 const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
@@ -32,9 +33,11 @@ const PING_MS = 20_000;
 /** The chat's state for the page: everything but the numbered events. */
 export function stateOf(c) {
   return {
-    status: c.status(), running: !!c.session, working: c.busy(), activity: c.activity, pending: [...c.pending.keys()],
+    // working: a turn or background work runs; turn: a turn runs (only that one Stop ends, and only then is a
+    // message queued). now: this computer's clock, so a page elsewhere counts a tool's seconds right.
+    status: c.status(), running: !!c.session, working: c.busy(), turn: !!c.turn, activity: c.activity, pending: [...c.pending.keys()], now: Date.now(),
     todos: c.todos, tasks: [...c.tasks.values()], queue: c.queue.list(),
-    live: [...c.live.values()], usage: c.usage, limits: c.limits, limit: c.limit, lastError: c.lastError, title: c.title,
+    live: [...c.live.values()], usage: c.usage, limits: c.limits, limit: c.limit, lastError: c.lastError, lastEnd: c.lastEnd, title: c.title,
     engine: { id: c.engine.id, label: c.engine.label, capabilities: c.engine.capabilities, version: c.info.version || null },
     model: c.model, effort: c.effort, ultracode: c.ultracode, permissionMode: c.permissionMode, liveModel: c.liveModel, liveMode: c.liveMode,
     costTotal: c.costTotal,
@@ -54,6 +57,11 @@ export function liveRoutes(ctx, { chatOr404, save, remember, bad, models, folder
     if (!list.includes(val)) throw bad(`the ${what} must be one of: ${list.join(', ')}`);
     return val;
   };
+  /** 409 (code in-terminal) while a terminal runs the chat's conversation. */
+  async function notInTerminal(c) {
+    const t = await terminalOf(c);
+    if (t) throw Object.assign(new HttpError(409, `This conversation runs in ${t.name ? `the terminal session "${t.name}"` : 'a terminal outside the dashboard'}. Continue it here first.`), { code: 'in-terminal' });
+  }
 
   /** The stream: GET only, behind the dashboard's login (a cookie; other computers use the long poll). */
   function handle(req, res) {
@@ -157,7 +165,7 @@ export function liveRoutes(ctx, { chatOr404, save, remember, bad, models, folder
     if (!type || !UPLOAD_NAME.test(name)) return json(400, { error: 'bad picture name' });
     let file;
     try {
-      const dir = fs.realpathSync(uploadsDir(c));
+      const dir = uploadsReal(folderOf(c), uploadsDir(c)); // itself inside the chat's folder, not a symlink out
       file = fs.realpathSync(path.join(dir, name));
       if (!within(file, dir) || file === dir) throw new Error('outside');
       const st = fs.statSync(file);
@@ -221,8 +229,11 @@ export function liveRoutes(ctx, { chatOr404, save, remember, bad, models, folder
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
       if (typeof b.messageId !== 'string' || !/^[A-Za-z0-9-]{1,100}$/.test(b.messageId)) throw bad('bad message id');
-      const r = await c.rewind(b.messageId, { dryRun: b.dryRun === true });
+      // A rewind runs the coding tool on the conversation: never while a terminal runs it (one place at a time).
+      await notInTerminal(c);
+      const r = await c.rewind(b.messageId, { dryRun: b.dryRun === true, files: b.files !== false, conversation: b.conversation === true });
       return {
+        conversation: r && r.conversation ? { messages: r.conversation.messages, text: String(r.conversation.text || '').slice(0, 100_000) } : null,
         canRewind: !!(r && r.canRewind !== false), error: r && r.error ? String(r.error).slice(0, 300) : null,
         files: Array.isArray(r && r.filesChanged) ? r.filesChanged.slice(0, 200).map(String) : [], insertions: r && Number.isFinite(r.insertions) ? r.insertions : null,
         deletions: r && Number.isFinite(r.deletions) ? r.deletions : null,
@@ -235,7 +246,9 @@ export function liveRoutes(ctx, { chatOr404, save, remember, bad, models, folder
     }],
     ['GET', new RegExp(`^/api/chats/${ID}/commands$`), async (req, m) => {
       const c = chatOr404(m[1]);
-      const list = await c.commands();
+      // While a terminal runs the conversation the menu shows what the chat knew last: asking would start a second
+      // process on it.
+      const list = (await terminalOf(c)) ? c.knownCommands || [] : await c.commands();
       return {
         commands: (Array.isArray(list) ? list : []).slice(0, 500).filter((x) => x && typeof x.name === 'string').map((x) => ({
           name: x.name.slice(0, 100), description: typeof x.description === 'string' ? x.description.slice(0, 300) : '',

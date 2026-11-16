@@ -50,8 +50,12 @@ export const CHAT_ENV = { CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1' };
  * Text streams as it is written (partial messages), each message of the owner is echoed with its id when Claude Code
  * takes it (replay), and the switch into bypassPermissions stays possible while it runs.
  */
-export function chatArgs({ sessionId, resume = false, permissionMode = null, effort = null, model = null, settings = null }) {
+export function chatArgs({ sessionId, resume = false, fork = null, permissionMode = null, effort = null, model = null, settings = null }) {
   if (!sessionId) throw new Error('chatArgs needs a session id');
+  // A conversation rewound to an earlier message: a copy of `fork.from` up to the line `fork.at`, under the new id
+  // (Claude Code 2.1.325: --resume <old> --fork-session --session-id <new> --resume-session-at <uuid>).
+  const where = fork ? ['--resume', fork.from, '--fork-session', '--session-id', sessionId, '--resume-session-at', fork.at]
+    : [resume ? '--resume' : '--session-id', sessionId];
   return [
     '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
     '--include-partial-messages', '--replay-user-messages',
@@ -60,7 +64,7 @@ export function chatArgs({ sessionId, resume = false, permissionMode = null, eff
     ...(settings ? ['--settings', settings] : []),
     ...(effort ? ['--effort', effort] : []),
     ...(model ? ['--model', model] : []),
-    resume ? '--resume' : '--session-id', sessionId,
+    ...where,
   ];
 }
 

@@ -77,18 +77,38 @@ export const IMAGE_MAX = 5 * 1024 * 1024; // the Messages API's limit for one im
 const ATTACH_MAX = 10;
 
 /**
+ * The real path of a chat's uploads folder, only while it is still inside the chat's folder (a repository can commit
+ * `.uploads` as a symlink to anywhere; the upload route refuses to write there, and nothing is read from there either).
+ * Throws { status: 404 } when it does not exist, { status: 400 } when it points out of the folder.
+ */
+export function uploadsReal(cwd, uploadsDir) {
+  const fail = (status, msg) => Object.assign(new Error(msg), { status });
+  let dir;
+  let root;
+  try {
+    root = fs.realpathSync(cwd);
+    dir = fs.realpathSync(uploadsDir);
+  } catch {
+    throw fail(404, 'upload the file first');
+  }
+  if (!within(dir, root) || dir === root) throw fail(400, 'the uploads folder is not inside the chat\'s folder');
+  return dir;
+}
+
+/**
  * The files of a message, each a path the upload route returned. Only files inside `uploadsDir` (the chat folder's
- * uploads folder, real path) are taken. → { images: [{ mime, data }], mentions: ["@path"], attachments: [{ type, name, mime }] }
+ * uploads folder, real path, itself inside the folder) are taken. → { images: [{ mime, data }], mentions: ["@path"],
+ * attachments: [{ type, name, mime }] }
  */
 export function readAttachments(list, { cwd, uploadsDir }) {
   const fail = (msg) => Object.assign(new Error(msg), { status: 400 });
   if (!Array.isArray(list) || list.length > ATTACH_MAX) throw fail(`a message takes up to ${ATTACH_MAX} files`);
+  if (!list.length) return { images: [], mentions: [], attachments: [] };
   let dir;
   try {
-    dir = fs.realpathSync(uploadsDir);
-  } catch {
-    if (list.length) throw fail('upload the file first');
-    return { images: [], mentions: [], attachments: [] };
+    dir = uploadsReal(cwd, uploadsDir);
+  } catch (e) {
+    throw fail(e.message);
   }
   const out = { images: [], mentions: [], attachments: [] };
   for (const a of list) {

@@ -52,14 +52,16 @@ export const start_chat = tool({
     if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: true });
     else ctx.jobs.markStarted(comp(a), name);
     const why = ctx.accountWhy ? ` (${ctx.accountWhy})` : '';
+    // The first message is not sent where the conversation already runs elsewhere (a terminal, an open chat).
+    const sent = !a.message ? '' : r.sent === false ? `. The first message was NOT sent: ${r.why || 'the conversation runs elsewhere'}` : ' with the first message';
     return {
-      summary: `Started chat ${name} on ${comp(a)} under ${a.account}${why}${a.conversation ? ', continuing the earlier conversation' : ''}${a.message ? ' with the first message' : ''}. The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
-      data: { session: name, computer: comp(a), account: a.account, account_why: ctx.accountWhy || null, job: j ? j.id : null },
+      summary: `Started chat ${name} on ${comp(a)} under ${a.account}${why}${a.conversation ? ', continuing the earlier conversation' : ''}${sent}. It runs with the permission mode, model and effort of Settings → New-session defaults. The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
+      data: { session: name, computer: comp(a), account: a.account, account_why: ctx.accountWhy || null, job: j ? j.id : null, message_sent: a.message ? r.sent !== false : null },
       shown: { session: [sessKey(comp(a), name)], ...(j ? { job: [j.id] } : {}) },
     };
   },
   cardLines: (a, b) => [
-    `Start a chat in ${a.folder} on ${comp(a)} under ${a.account}${b.kind === 'api' ? ' (paid API provider)' : ''}`,
+    `Start a chat in ${a.folder} on ${comp(a)} under ${a.account}${b.kind === 'api' ? ' (paid API provider)' : ''}, as Settings → New-session defaults say`,
     ...(a.conversation ? [`Continuing conversation ${a.conversation}`] : []),
     ...(a.message ? [`First message: ${a.message}`] : []),
     ...(a.goal ? [`Goal: ${a.goal}`] : []),
@@ -86,7 +88,7 @@ export const send_to_chat = tool({
     if (n !== 1) throw toolError('give exactly one of text, answer or stop: true', 'call send_to_chat again with one of them');
     if (!chatIdOf(a.session)) throw toolError(`"${a.session}" is not a chat`, 'use send_to_session for a terminal session; chats are named chat:<id> in list_sessions');
   },
-  async run(ops, a) {
+  async run(ops, a, ctx = {}) {
     const c = await findChat(ops, a);
     const id = chatIdOf(c.name);
     if (a.stop) {
@@ -94,9 +96,12 @@ export const send_to_chat = tool({
       return { summary: `Stopped the reply in ${a.session}.`, data: { session: a.session, computer: comp(a) } };
     }
     if (a.answer) {
-      // The request is looked up now, by the dashboard: an answer goes to the OK that is open at this moment.
+      // The request is looked up by the dashboard, and it must be the very OK the level was decided on (or the owner
+      // confirmed on the card): another one that came meanwhile, even with the same words, is not answered.
       const ask = c.ask;
       if (statusOf(c) !== 'needs_ok' || !ask) throw toolError(`${a.session} does not wait for an OK now`, 'read_session shows what it does now');
+      const judged = ctx.before ? ctx.before.request : ctx.judged ? ctx.judged.request : null;
+      if (judged && judged !== ask.request) throw toolError(`the OK ${a.session} waits for changed meanwhile`, 'look at it again (list_sessions) and decide anew');
       if (ask.type !== 'permission') throw toolError(`${a.session} asks the owner a ${ask.type === 'plan' ? 'plan to approve' : 'question'}, which is answered in its page`, 'notify_owner with your suggested answer, or send it as text');
       if (a.answer === 'allow_always' && !ask.canAlways) throw toolError('this OK has no "do not ask again" answer', 'answer allow or deny');
       await ops.answerChat({ computer: comp(a), id, request: ask.request, allow: a.answer !== 'deny', always: a.answer === 'allow_always' });
@@ -108,10 +113,15 @@ export const send_to_chat = tool({
   cardLines: (a, b) => [
     a.stop ? `Stop the reply in chat ${a.session} on ${comp(a)}` : a.answer ? `Answer "${a.answer.replace('_', ' ')}" in chat ${a.session} on ${comp(a)}` : `Write to chat ${a.session} on ${comp(a)}:`,
     ...(a.text !== undefined ? [a.text] : []),
-    ...(b.needsOk ? [`The session asks: ${b.asks}`] : []),
+    ...(b.needsOk ? [`The chat asks: ${b.asks}`, ...(b.subject ? [`In full: ${b.subject}`] : [])] : []),
   ],
+  // The OK's request id and subject are part of the state: a card made for one OK goes stale when another one opens.
   before: async (ops, a) => {
     const c = await findChat(ops, a);
-    return { session: c.name, computer: comp(a), sessionId: c.sessionId || null, account: c.profile ? c.profile.name : null, needsOk: statusOf(c) === 'needs_ok', asks: c.note || '' };
+    const ask = c.ask || null;
+    return {
+      session: c.name, computer: comp(a), sessionId: c.sessionId || null, account: c.profile ? c.profile.name : null, needsOk: statusOf(c) === 'needs_ok', asks: c.note || '',
+      request: ask ? ask.request || null : null, subject: ask ? String(ask.subject || '') : '',
+    };
   },
 });

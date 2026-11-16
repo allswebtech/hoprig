@@ -10,7 +10,7 @@ import { modelArgs } from '../../launch.mjs';
 import { projectDir, sessionsIn } from '../../sessions.mjs';
 import { CHAT_ENV, allowLine, chatArgs, controlLine, denyLine, grantSettings, interruptLine, sdkMode, userLine } from './claude-lines.mjs';
 import { ClaudeParser } from './claude-parse.mjs';
-import { readTranscript } from './claude-transcript.mjs';
+import { forkPoint, readTranscript } from './claude-transcript.mjs';
 
 const TERM_MS = 3000; // after its input ends, how long a process gets to exit before SIGTERM
 const KILL_MS = 8000; // … and before SIGKILL
@@ -32,9 +32,9 @@ class ClaudeSession {
     // A resume otherwise starts on the model named in the transcript, which another provider may not know.
     const own = !!(o.env && o.env.ANTHROPIC_MODEL);
     let model = own ? null : o.model;
-    if (!model && !own && o.resume) model = modelArgs({ env: {} }, ['--resume', o.sessionId])[1] || null;
+    if (!model && !own && (o.resume || o.fork)) model = modelArgs({ env: {} }, ['--resume', o.fork ? o.fork.from : o.sessionId])[1] || null;
     const args = chatArgs({
-      sessionId: o.sessionId, resume: o.resume, permissionMode: o.mode, effort: o.effort, model,
+      sessionId: o.sessionId, resume: o.resume, fork: o.fork || null, permissionMode: o.mode, effort: o.effort, model,
       settings: grantSettings(o.grants || [], { ultracode: !!o.ultracode }),
     });
     const env = { ...o.env, ...CHAT_ENV };
@@ -225,17 +225,20 @@ export const claude = {
   id: 'claude',
   label: 'Claude Code',
   // What it changes in a running process (else the chat starts it again with --resume).
-  capabilities: { liveMode: true, liveModel: true, liveEffort: true, ultracode: true, queue: true, stopTask: true, rewind: true, commands: true, usage: true, rename: true },
+  capabilities: { liveMode: true, liveModel: true, liveEffort: true, ultracode: true, queue: true, stopTask: true, rewind: true, fork: true, commands: true, usage: true, rename: true },
   /** Where conversation `id` of folder `cwd` is kept: it exists once a first message was sent. */
   file: (cwd, id) => path.join(projectDir(cwd), `${id}.jsonl`),
   exists: (cwd, id) => fs.existsSync(claude.file(cwd, id)),
   /**
-   * Start the coding tool for one chat. o: { cwd, env, sessionId, resume, model, effort, ultracode, mode, grants,
+   * Start the coding tool for one chat. o: { cwd, env, sessionId, resume, fork ({ from, at }: a copy of conversation
+   * `from` up to its line `at`, as sessionId), model, effort, ultracode, mode, grants,
    * emit(event), command { command, args } and spawnImpl (tests), termMs, killMs, drainMs }.
    */
   open: (o) => new ClaudeSession(o),
   /** The conversation from its files: { events, tasks, todos, title, size }. */
   transcript: ({ cwd, id }) => readTranscript(claude.file(cwd, id)),
+  /** Where conversation `id` goes on from when it is rewound to before the owner's message `messageId`. */
+  forkPoint: (cwd, id, messageId) => forkPoint(claude.file(cwd, id), messageId),
   /** The conversations kept for a folder. */
   sessions: (cwd) => sessionsIn(cwd),
 };

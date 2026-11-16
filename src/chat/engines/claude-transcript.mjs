@@ -11,7 +11,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { plainText } from '../events.mjs';
-import { INTERRUPTED, assistantEvents, localNotice, localOutput, newTodos, ownMessage, todoStep, toolResults, typedCommand, workflowTree } from './claude-parse.mjs';
+import { INTERRUPTED, localNotice, localOutput, newTodos, ownMessage, todoStep, toolResults, typedCommand } from './claude-content.mjs';
+import { assistantEvents, workflowTree } from './claude-parse.mjs';
 
 const KNOWN = ['"type":"user"', '"type":"assistant"', '"compact_boundary"', '"custom-title"', '"local_command"'];
 
@@ -38,7 +39,12 @@ function linesToEvents(text, agent) {
       const out = localOutput(m.content);
       if (out) events.push({ ...localNotice(out), at });
     } else if (!m.message || (!agent && m.isSidechain)) continue;
-    else if (m.type === 'assistant') {
+    else if (m.type === 'assistant' && m.message.model === '<synthetic>') {
+      // An API error Claude Code wrote as a reply (live, the turn's end said it; read back there is no turn end).
+      const t = (m.message.content || []).filter((c) => c && c.type === 'text').map((c) => c.text).join('\n').trim();
+      if (t && (m.isApiErrorMessage || m.error)) events.push({ kind: 'notice', level: 'error', text: plainText(t, 1000), at, agent });
+      else if (t) events.push({ ...localNotice(t), at });
+    } else if (m.type === 'assistant') {
       const id = m.message.id || m.uuid || 'x';
       const thought = Number.isFinite(m.thinkingDurationMs) ? m.thinkingDurationMs : null;
       events.push(...assistantEvents(m.message.content, (i) => `${id}:t${i}:${m.uuid || ''}`, agent).map((e) => ({ ...e, at, ...(e.kind === 'thinking' ? { durationMs: thought } : {}) })));
@@ -155,4 +161,31 @@ export function readTranscript(file) {
   const todos = newTodos();
   for (const e of main.events) todoStep(todos, e);
   return { events, tasks, todos: todos.list, title: main.title, size: st.size, mtimeMs: st.mtimeMs };
+}
+
+/**
+ * Where a conversation goes on from when it is rewound to before the owner's message `messageId` (the uuid of its
+ * line): { at (the uuid of the line before it; null: the message was the first), text (the message, for the
+ * composer) }, or null when the file has no such message of the owner.
+ */
+export function forkPoint(file, messageId) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+  for (const l of text.split('\n')) {
+    if (!l.includes(messageId) || !l.includes('"type":"user"')) continue;
+    let m;
+    try {
+      m = JSON.parse(l);
+    } catch {
+      continue;
+    }
+    if (!m || m.type !== 'user' || m.uuid !== messageId || !m.message || m.isSidechain) continue;
+    const own = ownMessage(m.message.content);
+    return { at: typeof m.parentUuid === 'string' && m.parentUuid ? m.parentUuid : null, text: typedCommand(m.message.content) || (own ? own.text : '') };
+  }
+  return null;
 }

@@ -66,6 +66,21 @@ export const oneLine = (s, max) => {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 };
 
+const ASK_VERBS = { Bash: 'run', Write: 'write', Edit: 'change', MultiEdit: 'change', NotebookEdit: 'change', WebFetch: 'read the page', WebSearch: 'search the web for' };
+/**
+ * An OK the chat waits for, in one line for a card (Home, Tia's card, a notification): what it is really about, the
+ * command or the file (relative to the chat's folder), never only the model's own label of it. Uses the page's words.
+ */
+export function askNote(ask, cwd) {
+  if (ask.type === 'question') return 'Claude asks you a question';
+  if (ask.type === 'plan') return 'Claude has a plan for you to approve';
+  const base = String(cwd || '').replace(/\/+$/, '');
+  let s = String(ask.subject || '');
+  if (base && s.startsWith(`${base}/`)) s = s.slice(base.length + 1);
+  const verb = ASK_VERBS[ask.tool] || `use ${ask.title || ask.tool}`;
+  return `Claude wants to ${verb}${s ? `: ${oneLine(s, 300)}` : ''}${ask.description && ask.tool === 'Bash' ? ` (${oneLine(ask.description, 120)})` : ''}`;
+}
+
 /**
  * A reply written in Markdown as one plain line, for a card's preview (Home, Workspace, Tia): no heading, list or
  * quote marks, no fences, `code`, **bold** or _italic_ marks, a link as its words, a table row as its cells.

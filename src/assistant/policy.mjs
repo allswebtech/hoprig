@@ -2,8 +2,9 @@
 // (never from the model) and the owner's Tia level. Pure, so every rule is unit-tested.
 //
 //   facts: {
-//     session:  { status, note, cwd, screen } | null   the session the call is about, as the dashboard sees it
-//               now (screen: the bottom of its screen, read only while it asks for permission)
+//     session:  { status, note, cwd, screen, owner?, request? } | null   the session the call is about, as the
+//               dashboard sees it now (screen: the bottom of its screen, read only while it asks for permission; for
+//               a chat: what its OK is about, the whole command or path; owner: the chat keeps that OK for the owner)
 //     mine:     boolean                       Tia started that session for a job
 //     account:  { name, kind, allowed } | null    the account a start or move would use
 //   }
@@ -41,6 +42,7 @@ export function decideLevel(tool, a, f, tia) {
   }
   if (typing(name, a) && tia.level === 'ask') return { level: 'L2', why: 'the owner set "Ask me": everything typed into a session needs his OK' };
   if (answering(name, a) && f.session && f.session.status === 'needs_ok') {
+    if (f.session.owner) return { level: 'L2', why: 'the chat keeps this OK for the owner (his permission settings, a hook or a safety check ask him)' };
     if (!f.mine) return { level: 'L2', why: `the session is asking for permission and ${ASSISTANT_NAME} did not start it` };
     if (riskyPermission(`${f.session.note || ''}\n${f.session.screen || ''}`, f.session.cwd || null)) return { level: 'L2', why: 'the session asks permission for something risky (fetching and running code, deleting, secrets, the system, the network, or a path outside its folder)' };
   }

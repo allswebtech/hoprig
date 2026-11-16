@@ -123,7 +123,8 @@ test('a permission card: allowed writes the file, denied does not', async (t) =>
   assert.ok(!fs.existsSync(path.join(c.cwd, 'no.txt')));
   const res = c.events.filter((e) => e.kind === 'tool-result').at(-1);
   assert.equal(res.ok, false);
-  assert.match(res.text, /said no to this Write call in the dashboard: not now/);
+  assert.equal(res.denied, true, 'shown as the owner\'s no, not as a failure');
+  assert.equal(res.text, 'not now', 'with his reason, not the sentence written for Claude');
   assert.equal(c.status(), 'waiting');
   done = turnEnd(c);
   await c.send('write always.txt');
@@ -395,7 +396,10 @@ test('a long reply right before the process exits: its result is not lost', asyn
     await until('the turn to end', () => !c.session && c.status() === 'waiting');
     const d = c.events.filter((e) => e.kind === 'turn-end').at(-1);
     assert.equal(d.ok, false);
-    assert.match(d.error, /usage limit/, 'the turn\'s own result, not "Claude Code stopped (1)"');
+    assert.equal(d.limited, true, 'the turn\'s own result (a usage limit), not "Claude Code stopped (1)"');
+    assert.equal(d.error, null, 'said once, by the limit banner: not again as an error box');
+    assert.match(c.limit.text, /usage limit/);
+    assert.equal(c.lastEnd, 'limit');
     assert.equal(c.events.find((e) => e.kind === 'text').text.length, 200_000);
     assert.ok(c.limit, 'the limit is known, so the page offers another provider');
     await until('the process to end', () => !c.session);

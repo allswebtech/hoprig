@@ -93,7 +93,7 @@ test('what Claude Code answers by itself (/cost, /context) is a notice, live and
   ]);
   assert.deepEqual([live[0].kind, live[0].text], ['user', '/cost']);
   assert.deepEqual({ ...live[1] }, { kind: 'notice', level: 'info', local: true, text: 'Total cost:  $0.0088', agent: null });
-  assert.equal(live[2].kind, 'text', 'an error Claude Code reports stays where it was');
+  assert.equal(live.length, 2, 'an API error Claude Code writes as a reply is said by the turn\'s end (error box or limit banner), not twice');
   const dir = path.join(box.root, 'local');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'c.jsonl'), [
@@ -101,9 +101,11 @@ test('what Claude Code answers by itself (/cost, /context) is a notice, live and
     { type: 'user', uuid: 'k1', message: { content: '<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>sonnet</command-args>' } },
     { type: 'system', subtype: 'local_command', content: '<local-command-stdout>Set model to `Sonnet 5.5`</local-command-stdout>' },
     { type: 'user', uuid: 'k2', message: { content: '<command-name>/context</command-name>\n<command-message>context</command-message>\n<command-args></command-args>' } },
+    { type: 'assistant', isApiErrorMessage: true, error: 'rate_limit', message: { id: 'e1', model: '<synthetic>', content: [{ type: 'text', text: "API Error: Request rejected (429) · You've hit your usage limit" }] } },
   ].map((l) => JSON.stringify(l)).join('\n'));
   const t = P.transcriptEvents(path.join(dir, 'c.jsonl')).events;
-  assert.deepEqual(t.map((e) => [e.kind, e.text, e.local || false]), [['user', '/model sonnet', false], ['notice', 'Set model to `Sonnet 5.5`', true], ['user', '/context', false]]);
+  assert.deepEqual(t.map((e) => [e.kind, e.text, e.local || false]), [['user', '/model sonnet', false], ['notice', 'Set model to `Sonnet 5.5`', true], ['user', '/context', false], ['notice', "API Error: Request rejected (429) · You've hit your usage limit", false]]);
+  assert.equal(t[3].level, 'error', 'read back (no turn end there): the error, once, as a notice');
   assert.equal(t[0].messageId, 'k1');
 });
 

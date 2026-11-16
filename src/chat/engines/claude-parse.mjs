@@ -15,7 +15,8 @@
 //   command_lifecycle {command_uuid, state: queued | started | completed | cancelled} (our messages, by our uuid) ·
 //   tool_progress · rate_limit_event (a subscription sign-in) · control_request can_use_tool · control_cancel_request ·
 //   control_response (the answers to our requests) · result (a turn ended; a background task's end starts another).
-import { clipDiff, clipInput, clipText, plainText } from '../events.mjs';
+import { clipInput, clipText, plainText } from '../events.mjs';
+import { localNotice, localOutput, newTodos, ownMessage, todoStep, toolResults } from './claude-content.mjs';
 import { askWhy, ownerOnly, sessionGrant, settledByRule } from './claude-lines.mjs';
 
 const KINDS = {
@@ -32,6 +33,19 @@ export function toolTitle(input) {
   if (!input || typeof input !== 'object') return '';
   for (const k of TITLE_KEYS) if (typeof input[k] === 'string' && input[k].trim()) return plainText(input[k], 200);
   return '';
+}
+// What an OK is really about: the command it runs, the file it writes, the page it reads. Not `description`: for a
+// command that is the model's own label of it ("Install the helper"), which says nothing of what runs.
+const SUBJECT_KEYS = ['command', 'file_path', 'notebook_path', 'url', 'path', 'pattern', 'query', 'skill'];
+/** The subject of a tool call in full (clipped at 2000 characters): what the owner and Tia's rules judge. */
+export function askSubject(input) {
+  if (!input || typeof input !== 'object') return '';
+  for (const k of SUBJECT_KEYS) if (typeof input[k] === 'string' && input[k].trim()) return input[k].slice(0, 2000);
+  try {
+    return JSON.stringify(input).slice(0, 2000); // an MCP tool's input: all of it
+  } catch {
+    return '';
+  }
 }
 // The same from a tool's input while it still streams (partial JSON): the first of those keys whose string is whole.
 const PARTIAL = new RegExp(`"(${TITLE_KEYS.join('|')})"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`);
@@ -52,59 +66,8 @@ const usageOf = (u) => (u && typeof u === 'object'
 const num = (x) => (Number.isFinite(x) ? x : null);
 const str = (x, max = 300) => (typeof x === 'string' ? x.slice(0, max) : null);
 
-// Turns Claude Code writes as if the user said them: command wrappers, reminders, hook output, task notifications.
-const MACHINE_TURN = /^\s*(<(command-|local-command|system-reminder|bash-|user-memory|task-notification)|Caveat:)/;
-const LOCAL_OUT = /<local-command-(?:stdout|stderr)>([\s\S]*?)<\/local-command-(?:stdout|stderr)>/;
-export const INTERRUPTED = /^\[Request interrupted by user/;
-
-export const textOf = (content) => (typeof content === 'string' ? content : Array.isArray(content) ? content.filter((c) => c && c.type === 'text').map((c) => c.text).join('\n') : '');
-
-/** The owner's own words and pictures in a user message, or null when it is machine-made. */
-export function ownMessage(content) {
-  const text = textOf(content);
-  if (MACHINE_TURN.test(text) || INTERRUPTED.test(text)) return null;
-  const attachments = (Array.isArray(content) ? content : []).filter((c) => c && (c.type === 'image' || c.type === 'document'))
-    .map((c) => ({ type: c.type === 'image' ? 'image' : 'file', name: str(c.title, 200) || '', mime: str(c.source && c.source.media_type, 100) || '' }));
-  if (!text.trim() && !attachments.length) return null;
-  return { text, attachments };
-}
 // The model name of a message Claude Code writes itself (a local command's answer, an error it reports).
 const SYNTHETIC = '<synthetic>';
-/** What a local command answered, as the notice the page shows in a box of its own. */
-export const localNotice = (text) => ({ kind: 'notice', level: 'info', local: true, text: clipText(String(text).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').trim(), 4000), agent: null });
-// A command the owner typed, as Claude Code keeps it in the transcript.
-const COMMAND = /^\s*<command-name>\/?([^<]{1,100})<\/command-name>/;
-const ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
-/** The command line the owner typed ("/model sonnet") from Claude Code's wrapper, or null. */
-export function typedCommand(content) {
-  const text = textOf(content);
-  const m = COMMAND.exec(text);
-  if (!m) return null;
-  const args = (ARGS.exec(text) || [])[1];
-  return `/${m[1].trim()}${args && args.trim() ? ` ${args.trim()}` : ''}`;
-}
-/** What a local command printed (/cost, /model …), or null. */
-export const localOutput = (content) => {
-  const m = LOCAL_OUT.exec(textOf(content));
-  return m ? clipText(m[1].replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').trim(), 4000) : null;
-};
-
-const resultText = (content) => {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content.map((c) => (c && c.type === 'text' ? c.text : c && c.type === 'image' ? '[image]' : '')).filter(Boolean).join('\n');
-};
-
-/** The tool-result events of one user message (tool_use_result: what Claude Code adds, an edit's patch among it). */
-export function toolResults(content, extra, agent) {
-  const out = [];
-  for (const c of Array.isArray(content) ? content : []) {
-    if (!c || c.type !== 'tool_result') continue;
-    const diff = extra && typeof extra === 'object' ? clipDiff(extra.structuredPatch) : null;
-    out.push({ kind: 'tool-result', id: String(c.tool_use_id || ''), ok: c.is_error !== true, text: clipText(resultText(c.content)), ...(diff ? { diff } : {}), agent });
-  }
-  return out;
-}
 
 const BLOCKS = new Set(['text', 'thinking', 'redacted_thinking', 'tool_use']);
 
@@ -223,6 +186,9 @@ export class ClaudeParser {
         const out = assistantEvents(m.message.content, this.#blockId(id), agent);
         // What Claude Code answers by itself (/cost, /context, /model …) is no reply of the model: a notice.
         if (m.message.model === SYNTHETIC && !m.error && !m.isApiErrorMessage) return out.filter((e) => e.kind === 'text').map((e) => localNotice(e.text));
+        // An API error Claude Code writes as a reply (a usage limit, a refusal): the turn's end says it (the limit
+        // banner, or the error box); as a reply too it would be said twice. It used no context either.
+        if (m.message.model === SYNTHETIC) return [];
         for (const e of out) {
           if (e.kind === 'tool') this.#call(e.id, e.name, e.full);
           // How long it thought: Claude Code's own figure where the line has it, else since its first delta.
@@ -234,7 +200,6 @@ export class ClaudeParser {
           this.usageOf = id;
           out.push({ kind: 'usage', contextUsed: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0) });
         }
-        if (typeof m.error === 'string' && m.error) out.push({ kind: 'status', state: 'error', error: m.error.slice(0, 100) });
         return this.#todos(out);
       }
       case 'user': {
@@ -338,6 +303,7 @@ export class ClaudeParser {
         const out = [];
         if (typeof m.permissionMode === 'string') out.push({ kind: 'mode', mode: m.permissionMode });
         if (m.status === 'requesting' || m.status === 'compacting') out.push({ kind: 'status', state: m.status });
+        else if ('status' in m && !m.status) out.push({ kind: 'status', state: null }); // that step is over
         return out;
       }
       case 'thinking_tokens':
@@ -384,7 +350,7 @@ export class ClaudeParser {
     const full = r.input && typeof r.input === 'object' ? r.input : {};
     const a = {
       kind: 'ask', request, tool, title: String(r.title || r.display_name || tool), toolId: r.tool_use_id ? String(r.tool_use_id) : null,
-      description: typeof r.description === 'string' ? r.description.slice(0, 300) : '', input: clipInput(full), full,
+      description: typeof r.description === 'string' ? r.description.slice(0, 300) : '', subject: askSubject(full), input: clipInput(full), full,
       interactive: r.requires_user_interaction === true,
       reasonType: typeof r.decision_reason_type === 'string' ? r.decision_reason_type : null,
       reason: plainText(r.decision_reason, 300),
@@ -419,45 +385,3 @@ export class ClaudeParser {
     return out;
   }
 }
-
-// ---------- the to-do list ----------
-
-/**
- * The to-do list Claude keeps, followed from its tool calls: TaskCreate / TaskUpdate (Claude Code 2.1.3xx) and
- * TodoWrite (older versions). `t` is { list: [{ id, content, status, activeForm }], creating: Map }. Returns true when
- * the list changed.
- */
-export function todoStep(t, ev) {
-  if (ev.kind === 'tool') {
-    const i = ev.full || ev.input || {};
-    if (ev.name === 'TodoWrite' && Array.isArray(i.todos)) {
-      t.list = i.todos.slice(0, 100).map((x, n) => ({ id: String(n + 1), content: String(x.content || ''), status: String(x.status || 'pending'), activeForm: String(x.activeForm || '') }));
-      return true;
-    }
-    if (ev.name === 'TaskCreate' && i.subject) t.creating.set(ev.id, { content: String(i.subject), activeForm: String(i.activeForm || '') });
-    if (ev.name === 'TaskUpdate' && i.taskId !== undefined) {
-      const it = t.list.find((x) => x.id === String(i.taskId));
-      if (!it) return false;
-      if (i.status === 'deleted') t.list = t.list.filter((x) => x !== it);
-      else {
-        if (i.status) it.status = String(i.status);
-        if (i.subject) it.content = String(i.subject);
-        if (i.activeForm) it.activeForm = String(i.activeForm);
-      }
-      return true;
-    }
-    return false;
-  }
-  if (ev.kind === 'tool-result' && t.creating.has(ev.id)) {
-    const c = t.creating.get(ev.id);
-    t.creating.delete(ev.id);
-    const m = /^Task #(\S+) created/.exec(ev.text || '');
-    if (!ev.ok || !m) return false;
-    t.list.push({ id: m[1], status: 'pending', ...c });
-    if (t.list.length > 100) t.list.shift();
-    return true;
-  }
-  return false;
-}
-
-export const newTodos = () => ({ list: [], creating: new Map() });

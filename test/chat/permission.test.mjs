@@ -436,7 +436,8 @@ test('protocol: what an ask says about itself, and who must answer it', () => {
   assert.equal(ask({ decision_reason_type: 'hook', decision_reason: '\u001b[31mlook\u001b[0m\nhere' }).reason, 'look here');
   assert.equal(P.askWhy(ask({ decision_reason_type: 'mode' })), 'Claude is in plan mode, where it asks before it changes anything.');
   assert.equal(P.askWhy(ask({ decision_reason_type: 'other', decision_reason: 'This command requires approval' })), '', 'nothing the card does not already say');
-  assert.deepEqual(P.parseLine({ type: 'system', subtype: 'status', status: null, permissionMode: 'plan' }), [{ kind: 'mode', mode: 'plan' }]);
+  assert.deepEqual(P.parseLine({ type: 'system', subtype: 'status', status: null, permissionMode: 'plan' }), [{ kind: 'mode', mode: 'plan' }, { kind: 'status', state: null }], 'status null: the step (requesting, compacting) is over');
+  assert.deepEqual(P.parseLine({ type: 'system', subtype: 'status', permissionMode: 'plan' }), [{ kind: 'mode', mode: 'plan' }], 'a line with no status says nothing of it');
   assert.deepEqual(P.parseLine({ type: 'system', subtype: 'status', status: 'compacting' }), [{ kind: 'status', state: 'compacting' }]);
 });
 

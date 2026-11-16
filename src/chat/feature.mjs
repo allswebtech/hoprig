@@ -6,7 +6,6 @@
 //   POST /api/chats                           { dir, profile?, model?, effort?, permissionMode?, ultracode?, sessionId?, text? }
 //                                             → { id }   what is left out: as the last chat in that folder ran
 //                                             (folders.mjs), else the provider recommended now and Settings
-//   POST /api/chats/from-session              { session } → { id }   the conversation of a terminal session, as a chat
 //   GET  /api/chats/<id>?from=N&epoch=E&wait=S   the chat: events from N (wait up to S seconds for news)
 //   GET  /api/chats/<id>/older?before=N       earlier events
 //   POST /api/chats/<id>/send                 { text, attachments?: [{ path }] } → { id, queued }   (while a turn
@@ -14,16 +13,13 @@
 //   POST /api/chats/<id>/answer               { request, allow, always?, answers?, mode?, message? }   a tool use's OK
 //                                             (mode: a plan approved, the permission mode to go on in)
 //   POST /api/chats/<id>/stop                 end the turn (background tasks go on; see live.mjs for one task)
+//                                             → { stopped, back: [{ text, files }] }  (the queued messages, taken back)
 //   POST /api/chats/<id>/provider             { profile }   continue on another provider
-//   POST /api/chats/<id>/take                 the terminal that runs this conversation stops; the chat goes on
-//   POST /api/chats/<id>/terminal             open the conversation in a terminal → { name } (the chat closes)
 //   POST /api/chats/<id>/upload               raw bytes, X-File-Name → { path }   (the uploads folder, as for sessions)
 //   POST /api/chats/<id>/close
-// and the routes of live.mjs: the event stream, mode, settings, queue, task stop, rewind, files, commands, usage.
-//
-// One conversation never runs in two places at once (the owner's rule). A terminal session runs it when a run record
-// (src/runs.mjs) carries its id: then the chat does not send, and offers to take it over. The other way round,
-// running() tells the session start (server.mjs) that a chat runs it.
+// and the routes of live.mjs (the event stream, mode, settings, queue, task stop, rewind, files, commands, usage) and
+// of handoff.mjs (from a terminal session to a chat and back: one conversation never runs in two places at once).
+// The other way round, running() tells the session start (server.mjs) that a chat runs a conversation.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,17 +27,15 @@ import { getAutoSwitch } from '../autoswitch.mjs';
 import { EFFORTS, MODELS, PERMISSION_MODES } from '../config.mjs';
 import { stateDir, tilde } from '../paths.mjs';
 import { listProfiles, publicProfile, readProfile } from '../profiles.mjs';
-import { listRuns } from '../runs.mjs';
 import { isSessionId, sessionsIn } from '../sessions.mjs';
-import { matchRuns } from '../server/deck.mjs';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
-import { parentLookup, procParent } from '../server/platform.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from '../server/uploads.mjs';
 import * as v from '../server/validate.mjs';
 import { Chat } from './chat.mjs';
-import { previewText } from './events.mjs';
+import { askNote, previewText } from './events.mjs';
 import { readAttachments } from './files.mjs';
 import { folderMemory } from './folders.mjs';
+import { handoffRoutes, terminals } from './handoff.mjs';
 import { liveRoutes, stateOf } from './live.mjs';
 
 const OPEN_MAX = 50;
@@ -121,37 +115,27 @@ export function chatFeature(ctx, o = {}) {
     return val;
   };
 
-  // ---------- the one-place rule ----------
-  /** The terminal that runs conversation `id`: { name } (null name: a terminal outside the dashboard), or null. */
-  async function terminalOf(id) {
-    const runs = listRuns().filter((r) => r.sessionId === id && r.status !== 'ended');
-    if (!runs.length) return null;
-    const terms = await ctx.backend.list();
-    const byId = matchRuns(terms, runs, runs.some((r) => r.tmuxPane) ? await parentLookup() : procParent);
-    const t = terms.find((x) => byId.has(x.id));
-    return t ? { name: t.session, termId: t.id, cwd: t.cwd, run: byId.get(t.id) } : { name: null, run: runs[0] };
-  }
-  const inTerminal = (term) => Object.assign(new HttpError(409, term.name
-    ? `This conversation runs in the terminal session "${term.name}". Continue it here (that terminal stops), or read along.`
-    : 'This conversation runs in a terminal outside the dashboard. Continue it here (that terminal stops), or read along.'), { code: 'in-terminal' });
+  // One place at a time (handoff.mjs).
+  const { terminalOf, inTerminal } = terminals(ctx);
 
   // ---------- views ----------
   function card(c) {
     const status = c.status();
     const ask = status === 'attention' ? [...c.pending.values()][0] : null;
-    const words = !ask ? '' : ask.type === 'question' ? `${c.engine.label} asks you a question`
-      : ask.type === 'plan' ? `${c.engine.label} has a plan for you to approve`
-        : `Allow ${ask.title}${ask.description ? `: ${ask.description}` : ''}?`;
     return {
       name: cardName(c.id), kind: 'chat', chatId: c.id, display: c.title || 'New chat', title: c.title,
       cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), status, statusAt: c.statusAt, activity: c.statusAt,
       created: c.openedAt, attached: false, panes: 0, sessionId: c.conversationId, canSwitch: false,
       lastMessage: previewText(c.lastText), // plain words: a card shows no Markdown marks
       running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
-      note: words,
-      // The OK it waits for, so a card can answer it (Allow, Allow in this chat, Deny); a question or a plan is
-      // answered in the chat itself.
-      ask: ask ? { request: ask.request, type: ask.type, canAlways: !!ask.grant, alwaysText: ask.grant && !ask.grant.edits ? ask.grant.text : '' } : null,
+      note: ask ? askNote(ask, c.cwd) : '',
+      // The OK it waits for, so a card can answer it (Allow, Allow in this chat, Do not allow); a question or a plan
+      // is answered in the chat itself. `subject` is what it is really about (the whole command or path) and `owner`
+      // says the chat keeps it for the owner (his settings, a hook or a safety check ask him): Tia's rules judge both.
+      ask: ask ? {
+        request: ask.request, type: ask.type, tool: ask.tool, subject: ask.subject || '', owner: !!ask.owner,
+        canAlways: !!ask.grant, always: ask.grant ? (ask.grant.edits ? 'edits' : 'rule') : null, alwaysText: ask.grant && !ask.grant.edits ? ask.grant.text : '',
+      } : null,
       // The turn is over but subagents, shells or a workflow still run (Home: "Working in the background").
       background: status === 'working' && !c.turn,
       limit: c.limit ? { text: c.limit.text } : null,
@@ -202,14 +186,18 @@ export function chatFeature(ctx, o = {}) {
 
   /**
    * Open a chat (POST /api/chats; the schedules too). b: { dir, profile?, model?, effort?, permissionMode?, ultracode?,
-   * sessionId?, text? }. What is left out: as the last chat in that folder ran, else the provider recommended now and
-   * Settings. A conversation an open chat already runs gives that chat. → { id }
+   * sessionId?, text?, defaults? }. What is left out: as the last chat in that folder ran, else the provider
+   * recommended now and Settings. defaults: true (Tia, a schedule) takes Settings → New-session defaults and not the
+   * folder's last chat, as a terminal session they start does: a mode the owner chose for himself (bypass) is not
+   * carried into a chat nobody watches. A conversation an open chat already runs gives that chat.
+   * → { id, sent } (sent: false when the first message was not sent because a terminal runs the conversation)
    */
   async function openChat(b) {
     load();
     const dir = insideRoots(v.absPath(b.dir), roots());
     if (!dir) throw bad('choose a folder inside the allowed roots');
-    const last = memory.last(dir) || {};
+    const owners = b.defaults !== true;
+    const last = (owners && memory.last(dir)) || {};
     let profile = b.profile;
     if (profile === undefined || profile === null || profile === '') {
       // As the last chat here ran, while that provider is still there; else the one recommended now.
@@ -226,10 +214,16 @@ export function chatFeature(ctx, o = {}) {
     const permissionMode = kept('permissionMode', pick(b.permissionMode, PERMISSION_MODES, 'permission mode'), d.permissionMode || null);
     const ultracode = kept('ultracode', b.ultracode ?? undefined, false) === true;
     let id = crypto.randomUUID();
+    let conversationId = null;
     if (b.sessionId !== undefined && b.sessionId !== null) {
-      id = v.sessionId(b.sessionId);
-      if (!id || !sessionsIn(dir).some((s) => s.id === id)) throw bad('that conversation is not in this folder');
-      if (openChatOf(id)) return { id: openChatOf(id) };
+      conversationId = v.sessionId(b.sessionId);
+      if (!conversationId || !sessionsIn(dir).some((s) => s.id === conversationId)) throw bad('that conversation is not in this folder');
+      const open = openChatOf(conversationId);
+      if (open) {
+        if (b.text === undefined || b.text === null) return { id: open };
+        return { id: open, sent: false, why: 'this conversation is already open in a chat; write to that chat' };
+      }
+      id = freeId(conversationId);
     }
     let text = null;
     if (b.text !== undefined && b.text !== null) {
@@ -243,15 +237,17 @@ export function chatFeature(ctx, o = {}) {
       old.close();
     }
     const c = make({
-      id, cwd: dir, profile,
+      id, ...(conversationId && conversationId !== id ? { conversationId } : {}), cwd: dir, profile,
       // a model the computer stopped offering is not forced on a new chat
       model: model && models().includes(model) ? model : null, effort: EFFORTS.includes(effort) ? effort : null,
       permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode,
     });
     save();
-    remember(c);
-    if (text && !(await terminalOf(id))) await c.send(text);
-    return { id };
+    if (owners) remember(c); // the folder's last chat is the owner's own choice, not Tia's or a schedule's
+    if (!text) return { id };
+    if (await terminalOf(c.conversationId)) return { id, sent: false, why: 'a terminal session runs this conversation' };
+    await c.send(text);
+    return { id, sent: true };
   }
 
   /** A message to an open chat from the dashboard itself (a schedule): queued by the chat while Claude works. */
@@ -275,35 +271,6 @@ export function chatFeature(ctx, o = {}) {
       return { chats: [...chats.values()].map(card) };
     }],
     ['POST', /^\/api\/chats$/, async (req) => openChat(await ctx.readJson(req))],
-    ['POST', /^\/api\/chats\/from-session$/, async (req) => {
-      load();
-      const b = await ctx.readJson(req);
-      if (!v.sessionName(b.session)) throw bad('bad session name');
-      const found = await ctx.deck.find(b.session);
-      if (!found) throw new HttpError(404, 'no such session');
-      const run = found.run;
-      if (!run || !isSessionId(run.sessionId)) throw new HttpError(409, 'Claude has not reported its conversation yet; try again in a moment');
-      if (!chats.has(run.sessionId)) {
-        // As the terminal ran it (its flags), else as the last chat in that folder, else Settings: a conversation
-        // taken back from a terminal keeps its model, effort and mode.
-        const d = cfg().sessionDefaults || {};
-        const last = memory.last(run.cwd) || {};
-        const args = Array.isArray(run.carryArgs) ? run.carryArgs.filter((x) => typeof x === 'string') : [];
-        const flag = (name) => {
-          const i = args.indexOf(name);
-          const eq = args.find((x) => x.startsWith(`${name}=`));
-          return i >= 0 && i + 1 < args.length ? args[i + 1] : eq ? eq.slice(name.length + 1) : null;
-        };
-        const one = (name, key, list) => [flag(name), last[key], d[key]].find((x) => typeof x === 'string' && list.includes(x)) || null;
-        make({
-          id: run.sessionId, cwd: run.cwd, profile: run.profile,
-          model: one('--model', 'model', models()), effort: one('--effort', 'effort', EFFORTS), permissionMode: one('--permission-mode', 'permissionMode', PERMISSION_MODES),
-          ultracode: last.ultracode === true,
-        });
-        save();
-      }
-      return { id: run.sessionId };
-    }],
     ['GET', new RegExp(`^/api/chats/${ID}$`), async (req, m, q, res) => {
       const c = chatOr404(m[1]);
       c.refresh();
@@ -365,7 +332,10 @@ export function chatFeature(ctx, o = {}) {
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/stop$`), async (req, m) => {
       await ctx.readJson(req);
-      return { stopped: chatOr404(m[1]).interrupt() };
+      const c = chatOr404(m[1]);
+      // What is queued is taken back first (it goes back into the box): after Stop nothing starts by itself.
+      const back = c.turn ? await c.takeBack() : [];
+      return { stopped: c.interrupt(), back };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/provider$`), async (req, m) => {
       const c = chatOr404(m[1]);
@@ -376,53 +346,6 @@ export function chatFeature(ctx, o = {}) {
       save();
       remember(c);
       return { profile: profileView(c.profile) };
-    }],
-    ['POST', new RegExp(`^/api/chats/${ID}/take$`), async (req, m) => {
-      const c = chatOr404(m[1]);
-      await ctx.readJson(req);
-      const term = await terminalOf(c.conversationId);
-      if (!term) return { ok: true };
-      if (term.termId) {
-        // The terminal stays, as a plain shell: Claude stops in it, the conversation goes on here.
-        await ctx.backend.respawn(term.termId, term.cwd || c.cwd, [process.execPath, '-e', '']);
-      } else if (v.pid(term.run.pid)) {
-        try {
-          process.kill(term.run.pid, 'SIGTERM'); // the launcher ends Claude Code and removes its run record
-        } catch {
-          /* already gone */
-        }
-      }
-      for (let i = 0; i < 40 && (await terminalOf(c.conversationId)); i++) await new Promise((r) => setTimeout(r, 200));
-      if (await terminalOf(c.conversationId)) throw new HttpError(409, 'the terminal did not stop; stop Claude there and try again');
-      c.refresh();
-      c.emit('state'); // a page that streams leaves its read-along mode now, not at the next news
-      ctx.poke?.();
-      return { ok: true };
-    }],
-    ['POST', new RegExp(`^/api/chats/${ID}/terminal$`), async (req, m) => {
-      const c = chatOr404(m[1]);
-      await ctx.readJson(req);
-      if (!fs.existsSync(c.file())) throw new HttpError(409, 'send a first message: a conversation that has not started cannot be resumed in a terminal');
-      if (c.busy()) throw new HttpError(409, 'Claude is working. Wait until it is done, or press Stop first.');
-      const profile = c.profile === AUTO.name ? (autoOn() ? { name: AUTO.name, env: {} } : null) : readProfile(c.profile);
-      if (!profile) throw bad('the provider of this chat is gone; choose another one first');
-      chats.delete(c.id);
-      await c.close();
-      const flags = [
-        ...(c.permissionMode ? ['--permission-mode', c.permissionMode] : []),
-        ...(c.effort ? ['--effort', c.effort] : []),
-        ...(c.model ? ['--model', c.model] : []),
-      ];
-      let name;
-      try {
-        name = await ctx.deck.start({ dir: c.cwd, profile, mode: 'resume', sessionId: c.conversationId, flags });
-      } catch (e) {
-        make(c.record()); // the terminal did not start: the chat stays open
-        throw e;
-      }
-      save();
-      ctx.poke?.();
-      return { name };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/upload$`), async (req, m) => {
       const c = chatOr404(m[1]);
@@ -448,8 +371,12 @@ export function chatFeature(ctx, o = {}) {
     }],
   ];
 
-  // The open chat that runs conversation `id` (its own id, or one whose conversation went on under a new id), or null.
-  const openChatOf = (id) => (chats.has(id) ? id : ([...chats.values()].find((c) => c.conversationId === id) || {}).id || null);
+  // The open chat that runs conversation `id` now, or null. By the conversation, never by the chat's own id: a chat
+  // opened on X keeps X as its id after a clear or a rewind gave it conversation Y, and X is then free to continue.
+  const openChatOf = (id) => ([...chats.values()].find((c) => c.conversationId === id) || {}).id || null;
+  // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
+  const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
+  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, auto: { name: AUTO.name, on: autoOn } }));
   const live = liveRoutes(ctx, { chatOr404, save, remember, bad, models, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
   routes.push(...live.routes);
 
@@ -467,7 +394,7 @@ export function chatFeature(ctx, o = {}) {
     /** True when a chat runs conversation `id` right now: its process, or one getting ready for a message. */
     running(id) {
       load();
-      const c = chats.get(id) || [...chats.values()].find((x) => x.conversationId === id);
+      const c = [...chats.values()].find((x) => x.conversationId === id);
       return !!(c && (c.session || c.busy()));
     },
     async close() {

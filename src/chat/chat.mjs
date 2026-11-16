@@ -8,15 +8,16 @@
 // starts a turn of its own), so the chat is idle only when no turn runs and no background task runs; until then
 // its card says "working" and the idle timer leaves the process alone.
 //
-// Who answers when the coding tool asks for an OK, and how: asks.mjs. What changes live: controls.mjs.
+// The process: run.mjs. What each of its events does: hear.mjs. Who answers when the coding tool asks for an OK, and
+// how: asks.mjs. What changes live: controls.mjs.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { providerEnv } from '../assistant/engine.mjs';
 import { engineOf } from './engines/index.mjs';
-import { allowPending, answerAsk, askArrived, cancelAsks, keepGrants } from './asks.mjs';
-import { applySettings, mergeLimit, renameChat, usageNow } from './controls.mjs';
+import { allowPending, answerAsk, cancelAsks, keepGrants } from './asks.mjs';
+import { applySettings, renameChat, usageNow } from './controls.mjs';
 import { oneLine } from './events.mjs';
 import { MessageQueue } from './queue.mjs';
+import { ensure, start, stop, stopAndWait } from './run.mjs';
 import { LiveBlocks } from './streaming.mjs';
 import { OWED_MS, TaskTable } from './tasks.mjs';
 import { Timeline } from './timeline.mjs';
@@ -24,24 +25,24 @@ import { Timeline } from './timeline.mjs';
 export { EVENTS_MAX, WINDOW_MAX } from './timeline.mjs';
 export const IDLE_MS = 20 * 60_000; // a process with nothing to do is stopped after this (the next message resumes)
 const STOP_GRACE_MS = 8000; // after Stop, how long the coding tool gets to end the turn itself
-// Errors that mean "this provider cannot serve now" (the coding tool's error categories).
-const LIMIT_ERRORS = new Set(['rate_limit', 'billing_error']);
-const LIMIT_TEXT = /usage limit|limit reached|rate.?limit|out of (credit|quota)|credit balance/i;
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
-const strip = ({ full, ...rest }) => rest; // a tool's whole input stays on the server (an answer needs it)
+const BUSY = 'Claude is working. Wait until it is done, or press Stop first.';
 
 export class Chat extends Timeline {
   /**
    * o: { id, conversationId, engine, cwd, profile, model, effort, ultracode, permissionMode, title, openedAt,
-   *      costTotal, grants, resolveEnv(profile) (tests), command { command, args } and spawnImpl (tests), idleMs,
-   *      stopGraceMs, termMs, killMs, drainMs }
+   *      costTotal, grants, fork, resolveEnv(profile) (tests), command { command, args } and spawnImpl (tests), idleMs,
+   *      stopGraceMs, termMs, killMs, drainMs, owedMs }
    */
   constructor(o) {
     super();
     this.o = o;
     this.id = o.id; // the chat's own id: its page and card
-    this.conversationId = o.conversationId || o.id; // the coding tool's conversation (a "clear" gives a new one)
+    this.conversationId = o.conversationId || o.id; // the coding tool's conversation (a clear or a rewind gives a new one)
+    // A rewind to an earlier message: { from (the old conversation), at (the message it goes on after; null: from
+    // the start), messageId (the owner's message it went back to) }, until the new conversation has its own file.
+    this.fork = o.fork && typeof o.fork === 'object' && typeof o.fork.from === 'string' ? o.fork : null;
     this.engine = engineOf(o.engine);
     this.cwd = o.cwd;
     this.profile = o.profile;
@@ -56,6 +57,7 @@ export class Chat extends Timeline {
     this.grants = keepGrants(o.grants); // what "allow in this chat" covered (asks.mjs)
     this.session = null; // the running coding tool
     this.turn = null; // the turn that runs: { messageId, auto, at }
+    this.stopping = false; // Stop was pressed: the turn's end is the owner's, not a failure
     this.pending = new Map(); // request id → the ask event (with the full input)
     this.tasks = new TaskTable(); // subagents, background shells and workflows (tasks.mjs)
     this.queue = new MessageQueue(() => this.emit('state')); // messages written while a turn runs (queue.mjs)
@@ -63,6 +65,7 @@ export class Chat extends Timeline {
     this.shown = new Set(); // ids of the owner's messages shown (the coding tool's echo of one is not shown twice)
     this.todos = [];
     this.info = {}; // what the coding tool says of itself: version, tools, commands, skills
+    this.knownCommands = null; // the / menu as the coding tool gave it last
     this.usage = {}; // contextUsed, contextWindow, costTotal
     this.limits = {}; // window → { status, percent, resetsAt } (controls.mjs)
     this.activity = null; // requesting | compacting | retrying (live, for the status line)
@@ -73,6 +76,7 @@ export class Chat extends Timeline {
     this.lastStatus = 'waiting';
     this.lastText = '';
     this.lastError = null;
+    this.lastEnd = null; // how the last turn ended: ok | stopped | limit | error
     this.limit = null;
     this.restart = false; // a setting the process cannot change live changed: start again once it is idle
     this.knownSize = -1;
@@ -89,9 +93,12 @@ export class Chat extends Timeline {
     return this.engine.file(this.cwd, this.conversationId);
   }
 
-  /** Read the conversation from its files (the page starts over). */
+  /** Read the conversation from its files (the page starts over). A rewound one: the old one up to its message. */
   load() {
-    const t = this.engine.transcript({ cwd: this.cwd, id: this.conversationId });
+    if (this.fork && this.engine.exists(this.cwd, this.conversationId)) this.fork = null;
+    const f = this.fork;
+    let t = this.engine.transcript({ cwd: this.cwd, id: f ? f.from : this.conversationId });
+    if (f) t = cutAt(t, f.messageId);
     this.reset(t.events);
     this.todos = t.todos;
     this.tasks.load(t.tasks);
@@ -103,7 +110,7 @@ export class Chat extends Timeline {
       if (first) this.title = oneLine(first.text, 80);
     }
     for (const e of t.events) if (e.kind === 'user' && e.messageId) this.shown.add(e.messageId);
-    this.knownSize = t.size;
+    this.knownSize = f ? 0 : t.size; // a rewound conversation has no file of its own yet
     this.emit('change');
   }
 
@@ -119,6 +126,14 @@ export class Chat extends Timeline {
     if (size === this.knownSize || (size === 0 && this.knownSize <= 0)) return false;
     this.load();
     return true;
+  }
+
+  knowSize() {
+    try {
+      this.knownSize = fs.statSync(this.file()).size;
+    } catch {
+      /* nothing written */
+    }
   }
 
   /** A turn runs, or background work (tasks.mjs: also the turn the coding tool owes after a background task). */
@@ -147,251 +162,24 @@ export class Chat extends Timeline {
   }
 
   /** Idle now? Then a restart asked for happens, or the idle timer starts. */
-  #settle() {
-    if (!this.turn) this.tasks.waitOwed(this.o.owedMs ?? OWED_MS, () => this.#settle());
+  settle() {
+    if (!this.turn) this.tasks.waitOwed(this.o.owedMs ?? OWED_MS, () => this.settle());
     if (!this.busy() && !this.pending.size) {
       if (this.restart && this.session) {
         this.restart = false;
         this.stop();
         return;
       }
-      this.#idleLater();
+      this.idleLater();
     }
     this.changed();
   }
 
-  #idleLater() {
+  idleLater() {
     clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => !this.busy() && !this.pending.size && this.stop(), this.o.idleMs ?? IDLE_MS);
     this.idleTimer.unref?.();
   }
-
-  // ---------- the process ----------
-
-  /** Start the coding tool (once). Resolves false when a stop() came while it was getting ready. */
-  #start() {
-    if (this.session) return Promise.resolve(true);
-    if (this.starting) return this.starting;
-    const gen = this.gen;
-    this.starting = (async () => {
-      // The same conversation must not run twice: a process that is still stopping ends first.
-      if (this.ending) await this.ending;
-      // The provider's environment may take a while (its PRERUN starts a gateway, Auto mode starts the router).
-      const env = await (this.o.resolveEnv || providerEnv)(this.profile);
-      if (gen !== this.gen || this.closed) return false;
-      const resume = this.engine.exists(this.cwd, this.conversationId);
-      if (!resume) this.costTotal = 0; // a new conversation starts at nothing
-      let session = null;
-      session = this.engine.open({
-        cwd: this.cwd, env, sessionId: this.conversationId, resume, model: this.model, effort: this.effort, ultracode: this.ultracode,
-        mode: this.permissionMode, grants: [...this.grants], emit: (ev) => this.#from(session, ev),
-        command: this.o.command, spawnImpl: this.o.spawnImpl, termMs: this.o.termMs, killMs: this.o.killMs, drainMs: this.o.drainMs,
-      });
-      this.session = session;
-      this.liveMode = null;
-      this.bypass = false; // until this process says so itself
-      return true;
-    })().finally(() => {
-      this.starting = null;
-    });
-    return this.starting;
-  }
-
-  /** The process runs (started for a menu or a rewind, not for a message: the idle timer applies). */
-  async #ensure() {
-    if (this.closed) throw fail(409, 'this chat is closed');
-    if (this.session) return this.session;
-    if (!(await this.#start()) || !this.session) throw fail(409, `${this.engine.label} did not start`);
-    if (!this.busy()) this.#idleLater();
-    return this.session;
-  }
-
-  #from(session, ev) {
-    if (this.session !== session) {
-      if (ev.kind === 'exit') this.#knowSize(); // what it wrote last is ours: no reason to read it again
-      return;
-    }
-    this.#on(ev);
-  }
-
-  #knowSize() {
-    try {
-      this.knownSize = fs.statSync(this.file()).size;
-    } catch {
-      /* nothing written */
-    }
-  }
-
-  #on(ev) {
-    switch (ev.kind) {
-      case 'session':
-        this.info = { version: ev.version, tools: ev.tools, commands: ev.commands, skills: ev.skills, agents: ev.agents };
-        this.liveModel = ev.model;
-        this.liveMode = ev.mode;
-        this.bypass = ev.mode === 'bypassPermissions';
-        this.tasks.turnStarted();
-        // A turn nobody asked for: the coding tool goes on by itself (a background task ended).
-        if (!this.turn) {
-          clearTimeout(this.idleTimer);
-          this.turn = { messageId: null, auto: true, at: Date.now() };
-          this.push({ kind: 'turn-start', auto: true });
-        }
-        this.changed();
-        return;
-      case 'mode': // the coding tool entered or left plan mode, or a switch was confirmed
-        this.liveMode = ev.mode;
-        this.emit('state');
-        return;
-      case 'status':
-        this.activity = ev.state;
-        if (ev.retry) {
-          const e = ev.retry.error;
-          if (LIMIT_ERRORS.has(e)) this.limit = { at: Date.now(), error: e, text: `The provider refused (${e})` };
-          if (ev.retry.attempt === 1 || LIMIT_ERRORS.has(e)) this.push({ kind: 'notice', level: 'warning', text: `The provider did not answer (${e.replace(/_/g, ' ')}); trying again…` });
-        }
-        this.emit('state');
-        return;
-      case 'text-delta':
-      case 'thinking-delta':
-      case 'tool-start':
-      case 'tool-progress':
-        this.live.add(ev);
-        this.emit('live', ev);
-        return;
-      case 'text':
-      case 'thinking':
-      case 'tool':
-      case 'tool-result':
-        this.live.final(ev);
-        if (ev.kind === 'text' && !ev.agent) this.lastText = ev.text;
-        this.push(strip(ev));
-        return;
-      case 'todos':
-        this.todos = ev.list;
-        this.emit('state');
-        return;
-      case 'task':
-        this.#task(ev);
-        return;
-      case 'tasks-running':
-        this.tasks.running(ev.ids);
-        this.emit('state');
-        this.#settle();
-        return;
-      case 'ask':
-        askArrived(this, ev);
-        return;
-      case 'ask-cancelled':
-        if (this.pending.delete(ev.request)) this.push({ kind: 'ask-closed', request: ev.request, outcome: 'cancelled' });
-        this.changed();
-        return;
-      case 'user':
-        this.#taken(ev.messageId, ev);
-        return;
-      case 'queue-state':
-        if (ev.state === 'started') this.#taken(ev.messageId, null);
-        else if (ev.state === 'cancelled') this.queue.take(ev.messageId);
-        return;
-      case 'session-changed':
-        if (ev.reason === 'clear' && ev.id && ev.id !== this.conversationId) {
-          this.conversationId = ev.id;
-          this.emit('record');
-        }
-        this.push(ev);
-        return;
-      case 'usage':
-        for (const k of ['contextUsed', 'contextWindow', 'costTotal']) if (ev[k] !== undefined && ev[k] !== null) this.usage[k] = ev[k];
-        this.emit('state');
-        return;
-      case 'limits':
-        mergeLimit(this.limits, ev.window, { status: ev.status, percent: Number.isFinite(ev.utilization) ? Math.round(ev.utilization * 100) : null, resetsAt: ev.resetsAt });
-        if (ev.status === 'rejected') this.limit = { at: Date.now(), error: 'rate_limit', text: `The plan's limit is reached (${ev.window.replace(/_/g, ' ')})` };
-        this.emit('state');
-        return;
-      case 'title':
-        if (ev.text) this.title = ev.text;
-        this.emit('record');
-        this.emit('state');
-        return;
-      case 'turn-end':
-        this.#turnEnd(ev);
-        return;
-      case 'exit':
-        this.#exit(ev);
-        return;
-      case 'notice':
-        this.push(ev);
-        return;
-      default:
-    }
-  }
-
-  #task(ev) {
-    this.tasks.apply(ev);
-    this.emit('state');
-    this.#settle();
-  }
-
-  /** A message of the owner was taken by the coding tool: shown (once), out of the queue, its turn runs. */
-  #taken(messageId, ev) {
-    const item = messageId ? this.queue.take(messageId) : null;
-    if (!messageId || !this.shown.has(messageId)) {
-      const src = ev || item;
-      if (src) {
-        if (messageId) this.shown.add(messageId);
-        this.push({ kind: 'user', text: src.text, attachments: src.attachments || [], messageId });
-      }
-    }
-    if (!this.turn && (item || ev)) {
-      clearTimeout(this.idleTimer);
-      this.turn = { messageId, auto: false, at: Date.now() };
-      this.changed();
-    }
-  }
-
-  #turnEnd(ev) {
-    clearTimeout(this.stopTimer);
-    let turnCost = null;
-    if (ev.costUsd !== null && this.costTotal !== null && ev.costUsd >= this.costTotal) turnCost = ev.costUsd - this.costTotal;
-    if (ev.costUsd !== null) this.costTotal = ev.costUsd;
-    this.lastError = ev.ok ? null : ev.error;
-    this.limit = !ev.ok && ev.error && LIMIT_TEXT.test(ev.error) ? { at: Date.now(), error: 'rate_limit', text: ev.error.slice(0, 300) } : ev.ok ? null : this.limit;
-    cancelAsks(this);
-    this.live.turnEnded();
-    const stopped = ev.subtype === 'error_during_execution' || ev.error === 'stopped';
-    this.push({ kind: 'turn-end', ok: ev.ok, subtype: ev.subtype, error: ev.ok ? null : ev.error, turnCostUsd: turnCost, usage: ev.usage, durationMs: ev.durationMs, stopped });
-    this.#knowSize();
-    this.turn = null;
-    this.activity = null;
-    this.#nextHeld();
-    this.#settle();
-    this.emit('turn', ev);
-  }
-
-  #exit({ code, why }) {
-    this.session = null;
-    clearTimeout(this.stopTimer);
-    if (this.turn || this.pending.size) {
-      cancelAsks(this);
-      this.push({ kind: 'turn-end', ok: false, subtype: 'exit', error: `${this.engine.label} stopped (${code})${why ? `: ${why}` : ''}`, stopped: false });
-      this.lastError = `${this.engine.label} stopped (${code})`;
-      this.turn = null;
-    }
-    this.#lostWork();
-    this.#knowSize();
-    this.changed();
-  }
-
-  /** The process is gone: what it ran in the background and what was queued in it went with it. */
-  #lostWork() {
-    this.tasks.lost();
-    const lost = this.queue.lose();
-    if (lost) this.push({ kind: 'notice', level: 'warning', text: `${lost === 1 ? 'A queued message was' : `${lost} queued messages were`} not sent.` });
-    this.live.clear();
-    this.activity = null;
-    this.emit('state');
-  }
-
 
   // ---------- what the owner does ----------
 
@@ -415,12 +203,13 @@ export class Chat extends Timeline {
     this.limit = null; // it is tried again (the limit may have reset, or another account signed in); a refusal sets it anew
     this.#begin(msg);
     try {
-      if (!(await this.#start())) return { id: msg.id, queued: false }; // stopped (or closed) while it got ready
+      if (!(await start(this))) return { id: msg.id, queued: false }; // stopped (or closed) while it got ready
     } catch (e) {
       this.push({ kind: 'turn-end', ok: false, subtype: 'start', error: `${this.engine.label} could not start: ${e.message}` });
       this.lastError = e.message;
+      this.lastEnd = 'error';
       this.turn = null;
-      this.#settle();
+      this.settle();
       return { id: msg.id, queued: false };
     }
     this.session.send(msg);
@@ -437,7 +226,7 @@ export class Chat extends Timeline {
   }
 
   /** After a turn: a message held here (the coding tool does not queue) becomes the next turn. */
-  #nextHeld() {
+  nextHeld() {
     const q = this.session ? this.queue.nextHeld() : null;
     if (!q) return;
     this.#begin(q);
@@ -447,6 +236,23 @@ export class Chat extends Timeline {
   /** Take a queued message back. Refused once the coding tool has started on it. */
   unqueue(id) {
     return this.queue.remove(id, this.session, this.engine.label);
+  }
+
+  /**
+   * Before Stop: every queued message the coding tool has not started on is taken back (else it would start on it
+   * the moment the turn ends, and keep working after Stop). → [{ text, files }] for the composer.
+   */
+  async takeBack() {
+    const back = [];
+    for (const q of [...this.queue.items]) {
+      try {
+        await this.queue.remove(q.id, this.session, this.engine.label);
+        back.push({ text: q.text, files: (q.attachments || []).map((a) => a.name) });
+      } catch {
+        /* already taken: it is part of the turn that stops */
+      }
+    }
+    return back;
   }
 
   /** The owner's answer to a tool use that waits for an OK (asks.mjs). */
@@ -461,13 +267,15 @@ export class Chat extends Timeline {
       this.stop(); // still getting ready: it does not start
       return true;
     }
+    this.stopping = true;
     this.session.interrupt();
     cancelAsks(this);
     this.changed();
     clearTimeout(this.stopTimer);
     this.stopTimer = setTimeout(() => {
       if (!this.turn || !this.session) return;
-      this.push({ kind: 'turn-end', ok: false, subtype: 'stopped', error: 'stopped', stopped: true });
+      this.push({ kind: 'turn-end', ok: false, subtype: 'stopped', error: null, stopped: true });
+      this.lastEnd = 'stopped';
       this.turn = null;
       this.stop();
     }, this.o.stopGraceMs ?? STOP_GRACE_MS);
@@ -483,23 +291,59 @@ export class Chat extends Timeline {
     await this.session.stopTask(taskId);
   }
 
-  /** Undo the file changes since message `messageId` (dryRun: only say what they are). */
-  async rewind(messageId, { dryRun = false } = {}) {
-    if (!this.engine.capabilities.rewind) throw fail(409, `${this.engine.label} cannot undo changes`);
-    if (this.busy()) throw fail(409, 'Claude is working. Wait until it is done, or press Stop first.');
-    const s = await this.#ensure();
-    const r = await s.rewind(messageId, { dryRun });
-    const n = r && Array.isArray(r.filesChanged) ? r.filesChanged.length : 0;
-    // The conversation shows it: Claude Code itself is not told, its next message should say so.
-    if (!dryRun && r && r.canRewind !== false && !r.error) this.push({ kind: 'notice', level: 'info', text: `Files rewound to before a message${n ? ` (${n === 1 ? '1 file' : `${n} files`})` : ''}. The conversation itself goes on as it was.` });
-    return r;
+  /**
+   * Go back to before the owner's message `messageId`, as Claude Code's own rewind does: its files (the changes made
+   * since), the conversation (it goes on from before that message; the old one stays in the folder's history), or
+   * both. dryRun: only say what would change. → { canRewind, filesChanged, insertions, deletions, error,
+   * conversation: { messages (of the owner's, from that one on), text (that message, for the composer) } | null }
+   */
+  async rewind(messageId, { dryRun = false, files = true, conversation = false } = {}) {
+    const caps = this.engine.capabilities;
+    if (files && !caps.rewind) throw fail(409, `${this.engine.label} cannot undo changes`);
+    if (conversation && !caps.fork) throw fail(409, `${this.engine.label} cannot go back in a conversation`);
+    if (!files && !conversation) throw fail(400, 'say what to rewind: the files, the conversation, or both');
+    if (this.busy()) throw fail(409, BUSY);
+    let point = null;
+    if (conversation) {
+      point = this.engine.forkPoint(this.cwd, this.fork ? this.fork.from : this.conversationId, messageId);
+      if (!point) throw fail(409, 'that message is not in the conversation\'s file yet; send it again instead');
+    }
+    let r = { canRewind: true, filesChanged: [] };
+    if (files) r = await (await ensure(this)).rewind(messageId, { dryRun });
+    const ok = r && r.canRewind !== false && !r.error;
+    const n = ok && Array.isArray(r.filesChanged) ? r.filesChanged.length : 0;
+    const at = this.events.findIndex((e) => e.kind === 'user' && e.messageId === messageId);
+    const conv = point ? { messages: at < 0 ? 1 : this.events.slice(at).filter((e) => e.kind === 'user').length, text: point.text } : null;
+    if (dryRun) return { ...r, conversation: conv };
+    if (point && (ok || !files)) await this.#forkAt(messageId, point);
+    const fileWords = files && ok ? `Files rewound to before your message${n ? ` (${n === 1 ? '1 file' : `${n} files`})` : ''}.` : '';
+    const convWords = point ? 'The conversation went back to before your message; the earlier one is still in History.' : files && ok ? 'The conversation itself goes on as it was.' : '';
+    if (fileWords || point) this.push({ kind: 'notice', level: 'info', text: [fileWords, convWords].filter(Boolean).join(' ') });
+    return { ...r, conversation: conv };
+  }
+
+  /** The conversation goes on from before message `messageId` as a new one (point: engine.forkPoint). */
+  async #forkAt(messageId, point) {
+    await this.stopAndWait();
+    const from = this.fork ? this.fork.from : this.conversationId;
+    this.fork = { from, at: point.at, messageId };
+    this.conversationId = crypto.randomUUID();
+    this.costTotal = null;
+    this.usage = {};
+    this.lastError = null;
+    this.lastEnd = null;
+    this.load();
+    this.push({ kind: 'session-changed', id: this.conversationId, reason: 'fork' });
+    this.emit('record');
+    this.emit('state');
   }
 
   /** The / menu: the coding tool's commands and skills for this folder. */
   async commands() {
     if (!this.engine.capabilities.commands) return (this.info.commands || []).map((name) => ({ name, description: '' }));
-    const s = await this.#ensure();
-    return s.commands();
+    const s = await ensure(this);
+    this.knownCommands = await s.commands(); // kept for while a terminal runs the conversation (no second process)
+    return this.knownCommands;
   }
 
   /** The owner names the chat (controls.mjs). */
@@ -524,40 +368,12 @@ export class Chat extends Timeline {
 
   /** End the process (the conversation stays in its transcript). */
   stop() {
-    this.gen++; // a start that is still getting ready does not go on
-    clearTimeout(this.idleTimer);
-    clearTimeout(this.stopTimer);
-    const session = this.session;
-    this.session = null;
-    this.restart = false;
-    if (this.turn || this.pending.size) {
-      cancelAsks(this);
-      this.push({ kind: 'notice', level: 'info', text: 'Stopped.' });
-      this.turn = null;
-    }
-    this.#lostWork();
-    this.queue.clear();
-    if (session) {
-      const ended = session.close().then(() => {
-        if (this.ending === ended) this.ending = null;
-      });
-      this.ending = ended;
-      this.endingSession = session;
-    }
-    this.changed();
+    stop(this);
   }
 
   /** stop(), and resolve once the process has really ended (SIGKILL after `ms`): nothing else may run it before. */
-  async stopAndWait(ms = 6000) {
-    this.stop();
-    if (!this.ending) return;
-    let t;
-    await Promise.race([this.ending, new Promise((r) => (t = setTimeout(r, ms)))]);
-    clearTimeout(t);
-    if (this.ending && this.endingSession) {
-      this.endingSession.kill();
-      await this.ending;
-    }
+  stopAndWait(ms) {
+    return stopAndWait(this, ms);
   }
 
   /** Close the chat for good: what is still getting ready never starts, what runs ends. */
@@ -568,7 +384,7 @@ export class Chat extends Timeline {
 
   /** Continue on another provider: the next turn starts there with the conversation resumed. */
   setProfile(name) {
-    if (this.busy()) throw fail(409, 'Claude is working. Wait until it is done, or press Stop first.');
+    if (this.busy()) throw fail(409, BUSY);
     this.stop();
     this.profile = name;
     this.limit = null;
@@ -580,6 +396,16 @@ export class Chat extends Timeline {
       id: this.id, ...(this.conversationId !== this.id ? { conversationId: this.conversationId } : {}), engine: this.engine.id,
       cwd: this.cwd, profile: this.profile, model: this.model, effort: this.effort, ultracode: this.ultracode, permissionMode: this.permissionMode,
       title: this.title, ...(this.named ? { named: true } : {}), openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
+      ...(this.fork ? { fork: this.fork } : {}),
     };
   }
+}
+
+/** A transcript up to (not with) the owner's message `messageId`: the view of a conversation rewound to there. */
+function cutAt(t, messageId) {
+  const at = t.events.findIndex((e) => e.kind === 'user' && e.messageId === messageId);
+  if (at < 0) return t;
+  const events = t.events.slice(0, at);
+  const tools = new Set(events.filter((e) => e.kind === 'tool').map((e) => e.id));
+  return { ...t, events, tasks: t.tasks.filter((x) => tools.has(x.toolId)), todos: [] };
 }

@@ -25,7 +25,14 @@ export class LiveBlocks extends Map {
     if (ev.kind === 'text' || ev.kind === 'thinking') this.delete(ev.blockId);
     else if (ev.kind === 'tool') {
       const t = this.get(`tool:${ev.id}`);
-      if (t) t.written = true;
+      if (t) {
+        // Written whole: it runs from now on (the status line says what, and for how long).
+        t.written = true;
+        t.runAt = Date.now();
+        if (ev.title) t.title = ev.title;
+        const cmd = ev.input && typeof ev.input.command === 'string' ? ev.input.command.split('\n').find((l) => l.trim()) : '';
+        if (cmd) t.command = cmd.slice(0, 200);
+      }
     } else if (ev.kind === 'tool-result') this.delete(`tool:${ev.id}`);
   }
 

@@ -75,9 +75,10 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
         await sctx.deck.send(found.term.id, text);
       },
       kill: (name) => sctx.backend.kill(name),
-      // A chat (src/chat): its feature opens it as the page does, with that folder's last settings.
+      // A chat (src/chat): its feature opens it as the page does, with Settings' New-session defaults (as a terminal
+      // a schedule starts), not the folder's last chat: nobody watches a scheduled chat as it starts.
       ...(chat ? {
-        startChat: async ({ dir, profile, text }) => (await chat.open({ dir, profile, ...(text ? { text } : {}) })).id,
+        startChat: async ({ dir, profile, text }) => (await chat.open({ dir, profile, ...(text ? { text } : {}), defaults: true })).id,
         sendChat: (id, text) => chat.send(id, text),
       } : {}),
     },

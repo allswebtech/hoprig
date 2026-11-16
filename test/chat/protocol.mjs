@@ -4,7 +4,8 @@ import { ClaudeParser } from '../../src/chat/engines/claude-parse.mjs';
 import { readTranscript } from '../../src/chat/engines/claude-transcript.mjs';
 
 export * from '../../src/chat/engines/claude-lines.mjs';
-export { newTodos, todoStep, toolKind, toolTitle } from '../../src/chat/engines/claude-parse.mjs';
+export { askSubject, toolKind, toolTitle } from '../../src/chat/engines/claude-parse.mjs';
+export { newTodos, todoStep } from '../../src/chat/engines/claude-content.mjs';
 export { clipDiff, clipInput, clipText } from '../../src/chat/events.mjs';
 export const parseLine = (l) => new ClaudeParser().line(l);
 /** Lines through one parser, as one process gives them. */

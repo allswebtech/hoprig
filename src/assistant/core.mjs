@@ -118,9 +118,16 @@ export function createAssistantCore({
       const list = await ops.listSessions({ computer: args.computer || LOCAL });
       const c = list.find((x) => x.name === args.session && (x.computer || LOCAL) === (args.computer || LOCAL));
       if (c) f.session = { status: statusOf(c), note: c.note || '', account: c.profile ? c.profile.name : null, cwd: c.cwd || null, screen: '' };
+      // A chat (src/chat) has no screen: its card carries the OK it waits for, with what it is really about (the
+      // whole command or path, not the model's label of it), whether the chat keeps it for the owner, and its request
+      // id (send_to_chat answers that one and no other).
+      if (f.session && c.kind === 'chat' && c.ask) {
+        f.session.screen = String(c.ask.subject || '');
+        f.session.owner = c.ask.owner === true;
+        f.session.request = c.ask.request || null;
+      }
       // What a permission prompt asks is on the screen, not in the notification: read it, so policy.mjs can judge
       // the request itself (deterministically, not by the model).
-      // A chat (src/chat) has no screen: its question is in its card's note.
       if (f.session && f.session.status === 'needs_ok' && c.kind !== 'chat') {
         try {
           f.session.screen = String(await ops.capture({ computer: args.computer || LOCAL, session: args.session, lines: 15 })).split('\n').slice(-15).join('\n');
@@ -213,6 +220,7 @@ export function createAssistantCore({
         return { isError: true, text: errorText(rule[0], rule[1]) };
       }
       if (d.level !== 'L2') {
+        ctx.judged = f.session; // what the level was decided on (an answer goes to that OK, no other)
         const result = await tool.run(ops, args, ctx);
         if (result.shown) shown.add(conversation, result.shown);
         log('done', { level: d.level });
@@ -264,6 +272,7 @@ export function createAssistantCore({
         ctx = ctxFor(conversation, { accountKind: f.account.kind });
       }
       before = await tool.before(ops, args, ctx);
+      ctx.before = before; // what the card showed and the owner confirmed (an answer goes to that OK, no other)
     } catch (e) {
       if (cards.get(id)?.status === 'pending') cards.markStale(id);
       log('stale', { error: e.message });

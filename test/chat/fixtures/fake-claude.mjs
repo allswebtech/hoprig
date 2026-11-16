@@ -46,7 +46,9 @@ import readline from 'node:readline';
 const argv = process.argv.slice(2);
 const val = (f) => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : null);
 if (process.env.FAKE_CLAUDE_ARGS) fs.appendFileSync(process.env.FAKE_CLAUDE_ARGS, JSON.stringify(argv) + '\n');
-const sessionId = val('--resume') || val('--session-id');
+// --resume <old> --fork-session --session-id <new> --resume-session-at <uuid>: a copy of <old> up to that line.
+const fork = argv.includes('--fork-session') ? { from: val('--resume'), at: val('--resume-session-at') } : null;
+const sessionId = fork ? val('--session-id') : val('--resume') || val('--session-id');
 // "manual" is the flag's word for the mode Claude Code reports as "default".
 const wanted = val('--permission-mode') || 'default';
 const startMode = wanted === 'manual' || (wanted === 'bypassPermissions' && process.env.FAKE_CLAUDE_NO_BYPASS) ? 'default' : wanted;
@@ -68,7 +70,25 @@ let current = null; // the message whose turn runs
 const dir = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', process.cwd().replace(/[^A-Za-z0-9]/g, '-'));
 fs.mkdirSync(dir, { recursive: true });
 const transcript = path.join(dir, `${sessionId}.jsonl`);
-const record = (type, content, extra = {}) => fs.appendFileSync(transcript, JSON.stringify({ type, isSidechain: false, uuid: `u${Date.now()}${Math.random()}`, timestamp: new Date().toISOString(), sessionId, ...extra, message: { role: type, content } }) + '\n');
+// Each line names the one before it (parentUuid), as Claude Code's do.
+let lastUuid = null;
+let copied = [];
+if (fork && fs.existsSync(path.join(dir, `${fork.from}.jsonl`))) {
+  const old = fs.readFileSync(path.join(dir, `${fork.from}.jsonl`), 'utf8').split('\n').filter(Boolean);
+  const at = old.findIndex((l) => JSON.parse(l).uuid === fork.at);
+  copied = at < 0 ? [] : old.slice(0, at + 1); // written with the first message, as Claude Code does
+  if (copied.length) lastUuid = JSON.parse(copied.at(-1)).uuid;
+} else if (fs.existsSync(transcript)) {
+  const old = fs.readFileSync(transcript, 'utf8').split('\n').filter(Boolean);
+  if (old.length) lastUuid = JSON.parse(old.at(-1)).uuid || null;
+}
+const record = (type, content, extra = {}) => {
+  if (copied.length) fs.appendFileSync(transcript, copied.join('\n') + '\n');
+  copied = [];
+  const line = { type, isSidechain: false, uuid: `u${Date.now()}${Math.random()}`, parentUuid: lastUuid, timestamp: new Date().toISOString(), sessionId, ...extra, message: { role: type, content } };
+  lastUuid = line.uuid;
+  fs.appendFileSync(transcript, JSON.stringify(line) + '\n');
+};
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
 let msgs = 0;
 /** An assistant message: streamed block by block with --include-partial-messages (as Claude Code: the whole block as

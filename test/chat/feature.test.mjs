@@ -137,7 +137,8 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   assert.equal(ask.tool, 'Write');
   assert.deepEqual(asking.pending, [ask.request]);
   const needs = await until('Home to see it', async () => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === `chat:${id}` && s.status === 'attention'));
-  assert.match(needs.note, /^Allow Write/);
+  assert.match(needs.note, /^Claude wants to write: out.txt$/, 'the file, inside the folder');
+  assert.equal(needs.ask.subject, path.join(proj, 'out.txt'), 'the whole path, for Tia\'s rules');
   assert.equal((await owner('POST', `/api/chats/${id}/answer`, { request: ask.request })).status, 400, 'allow must be said');
   assert.equal((await owner('POST', `/api/chats/${id}/answer`, { request: ask.request, allow: true })).status, 200);
   assert.equal((await owner('POST', `/api/chats/${id}/answer`, { request: ask.request, allow: true })).status, 409, 'once');
@@ -161,6 +162,13 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   const refused = await owner('POST', `/api/chats/${id}/send`, { text: 'from the chat' });
   assert.equal(refused.status, 409);
   assert.match(refused.json.error, /runs in the terminal session/);
+  // Nothing else starts Claude Code on it either: no rewind, and the / menu from what the chat knew.
+  const firstMsg = vt.events.find((e) => e.kind === 'user');
+  const rw = await owner('POST', `/api/chats/${id}/rewind`, { messageId: firstMsg.messageId, dryRun: true });
+  assert.equal(rw.status, 409, 'a rewind would run a second process on the conversation');
+  assert.match(rw.json.error, /runs in the terminal session/);
+  assert.equal((await owner('GET', `/api/chats/${id}/commands`)).status, 200);
+  assert.equal((await view()).running, false, 'the menu started no process');
   assert.equal((await owner('POST', `/api/chats/${id}/take`, {})).status, 200);
   assert.equal((await view()).terminal, null, 'the terminal stopped Claude');
   const shell = await until('the terminal to be a plain shell', async () => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === term.json.name && s.kind === 'shell'));
