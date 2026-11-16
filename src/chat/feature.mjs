@@ -180,7 +180,7 @@ export function chatFeature(ctx, o = {}) {
       if (!c.busy()) c.stop();
       throw inTerminal(r.terminal);
     }
-    if (r.chat) throw new HttpError(409, 'another chat runs this conversation right now');
+    if (r.chat) throw Object.assign(new HttpError(409, 'another chat runs this conversation right now'), { code: 'in-chat' });
     return r.started;
   }
   /**
@@ -363,7 +363,9 @@ export function chatFeature(ctx, o = {}) {
     try {
       await sendOne(c, () => c.send(text));
     } catch (e) {
+      // The chat is open all the same (it reads along): a caller is told the message did not go, not that nothing opened.
       if (e.code === 'in-terminal') return { id, sent: false, why: 'a terminal session runs this conversation' };
+      if (e.code === 'in-chat') return { id, sent: false, why: 'another chat runs this conversation right now' };
       throw e;
     }
     return { id, sent: true };

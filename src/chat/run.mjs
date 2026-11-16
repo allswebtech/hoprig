@@ -35,7 +35,8 @@ export function start(chat) {
     try {
       removeChatLeftovers(chat.id, live); // a record of this chat's that no process of it holds any more
       const other = heldBefore(hold.run, chat.conversationId, chat.engine.id);
-      if (other) throw fail(409, other.kind === 'chat' ? 'another chat runs this conversation right now' : 'This conversation runs in a terminal now. Continue it here (that terminal stops), or read along.');
+      // The code says which, for a caller that started the chat and must not report a message as sent (feature.mjs).
+      if (other) throw Object.assign(fail(409, other.kind === 'chat' ? 'another chat runs this conversation right now' : 'This conversation runs in a terminal now. Continue it here (that terminal stops), or read along.'), { code: other.kind === 'chat' ? 'in-chat' : 'in-terminal' });
       session = await open(chat, gen, hold);
       return !!session;
     } finally {
