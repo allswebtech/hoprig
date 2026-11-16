@@ -44,6 +44,9 @@ export function decideLevel(tool, a, f, tia) {
     if (own) return own;
   }
   if (typing(name, a) && tia.level === 'ask') return { level: 'L2', why: 'the owner set "Ask me": everything typed into a session needs his OK' };
+  // "Do not ask again" leaves a standing rule in the chat: later calls it covers run with no OK, so her allow-list never
+  // sees them. Only the owner gives that.
+  if (name === 'send_to_chat' && a.answer === 'allow_always') return { level: 'L2', why: '"do not ask again" lets later calls run without an OK: only the owner gives that' };
   if (answering(name, a) && f.session && f.session.status === 'needs_ok') {
     if (f.session.owner) return { level: 'L2', why: 'the chat keeps this OK for the owner (his permission settings, a hook or a safety check ask him)' };
     if (!f.mine) return { level: 'L2', why: `the session is asking for permission and ${ASSISTANT_NAME} did not start it` };
