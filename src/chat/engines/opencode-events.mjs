@@ -39,6 +39,9 @@ const TOOLS = {
 /** An OK's action → the tool it is about, where no call was seen for it. */
 const ACTION_TOOL = { shell: 'shell', edit: 'edit', read: 'read', webfetch: 'webfetch', websearch: 'websearch', glob: 'glob', grep: 'grep', subagent: 'subagent', skill: 'skill' };
 
+/** A call the owner refused, in words: the reason he gave (the chat's own sentence says it already), or that he said no. */
+export const refused = (message) => (typeof message === 'string' && message.startsWith('The user said no') ? message.replace(/ Do not do it another way.*$/s, '') : `The user said no${message ? `: ${message}` : ''}`);
+
 const drop = (o) => Object.fromEntries(Object.entries(o).filter(([, x]) => x !== undefined && x !== null));
 /** { name, toolKind, input } of an OpenCode call (its own name and input) in the page's words. */
 export function pageTool(name, input) {
@@ -155,7 +158,7 @@ export class OpencodeEvents {
         const diff = ok ? filesDiff(m.files) || this.patches.get(id) || null : null;
         this.patches.delete(id);
         const err = d.error && typeof d.error === 'object' ? d.error : {};
-        const text = ok ? resultText(d) : err.type === 'permission.rejected' ? `The user said no${err.message ? `: ${err.message}` : ''}` : String(err.message || 'failed');
+        const text = ok ? resultText(d) : err.type === 'permission.rejected' ? refused(err.message) : String(err.message || 'failed');
         const out = [{ kind: 'tool-result', id, ok, text: clipText(text), ...(diff ? { diff } : {}), ...(m.interrupted ? { stopped: true } : {}), agent }];
         // A subagent's call ended: its task too.
         for (const [child, call] of this.children) if (call === id) out.push({ kind: 'task', taskId: child, toolId: id, status: ok ? 'completed' : 'failed', agent: null });

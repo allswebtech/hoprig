@@ -2,7 +2,7 @@
 // keeps, oldest first here) → the chat's events (src/chat/events.mjs), as opencode-events.mjs draws them live. What
 // a subagent did inside is not read back (it is a conversation of its own); its call and its result are.
 import { clipInput, clipText, oneLine, plainText } from '../events.mjs';
-import { filesDiff, pageTool } from './opencode-events.mjs';
+import { filesDiff, pageTool, refused } from './opencode-events.mjs';
 
 const PAGE = 200; // messages per request
 const PAGES_MAX = 10; // a longer conversation shows its newest 2000 messages
@@ -34,7 +34,7 @@ export function transcriptEvents(messages) {
           if (s.status === 'completed' || s.status === 'error') {
             const ok = s.status === 'completed';
             const text = ok ? (Array.isArray(s.content) ? s.content.filter((x) => x && x.type === 'text').map((x) => x.text).join('\n') : '')
-              : s.error && s.error.type === 'permission.rejected' ? `The user said no${s.error.message ? `: ${s.error.message}` : ''}` : String((s.error && s.error.message) || 'failed');
+              : s.error && s.error.type === 'permission.rejected' ? refused(s.error.message) : String((s.error && s.error.message) || 'failed');
             const diff = ok ? filesDiff(s.metadata && s.metadata.files) : null;
             events.push({ kind: 'tool-result', id: c.id, ok, text: clipText(text), ...(diff ? { diff } : {}), agent: null, at });
           }
