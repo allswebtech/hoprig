@@ -1,7 +1,7 @@
-// A chat runs Claude Code (until other engines come): a provider that does not serve it (an OpenAI key, a Codex
-// sign-in) is refused with a plain sentence wherever a chat starts or moves, and a Codex or OpenCode terminal session
-// is never taken into a chat. In the real dashboard (createServer, built-in terminals) for the routes, and on the
-// hand-off routes themselves for a terminal run of another coding tool.
+// A Claude Code chat: a provider that does not serve Claude Code (an OpenAI key, a Codex sign-in) is refused with a
+// plain sentence wherever a chat starts or moves, and a terminal session of a coding tool without a chat here (one
+// that is off, or Codex) is never taken into a chat. In the real dashboard (createServer, built-in terminals) for the
+// routes, and on the hand-off routes themselves for a terminal run of another coding tool.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -88,7 +88,7 @@ test('a chat, its provider chip and a chat schedule refuse a provider that does 
   assert.equal((await owner('POST', `/api/chats/${id}/close`, {})).status, 200);
 });
 
-test('Open as chat takes a Claude Code terminal only: a Codex run is refused, and so is a run on a provider that does not serve Claude Code', { skip: process.platform === 'win32' && 'POSIX paths' }, async (t) => {
+test('Open as chat refuses a run of a coding tool without a chat here (off, or Codex), and a run on a provider that does not serve Claude Code', { skip: process.platform === 'win32' && 'POSIX paths' }, async (t) => {
   const box = sandbox('chathandoff');
   t.after(() => box.cleanup());
   const { writeProfile } = await import('../../src/profiles.mjs');
