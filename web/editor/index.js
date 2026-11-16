@@ -105,7 +105,7 @@ registerSessionAction({
   icon: 'code',
   describe: (s) => {
     const found = sessionOf(s);
-    return found && found.cwd ? { sub: `${tildePath(found.cwd)} in the code editor` } : null;
+    return found && found.cwd ? { sub: `${found.cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || found.cwd} in the code editor` } : null;
   },
   run: (s) => {
     const found = sessionOf(s);

@@ -84,7 +84,7 @@ function defineThemes(monaco) {
   defineThemes.apply();
 }
 
-/** Follow the page's theme while `alive()`: Settings, the light/dark button and the system all change it. */
+/** Follow the page's theme (Settings, the light/dark button and the system all change it); returns the stop. */
 export function followTheme(onChange = () => {}) {
   const apply = () => {
     if (defineThemes.apply) defineThemes.apply();

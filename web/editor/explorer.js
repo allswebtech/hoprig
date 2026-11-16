@@ -3,6 +3,7 @@
 // makes new files and folders. git's state colours the names: changed, new, staged, in conflict.
 import { btn, chooseSheet, confirmSheet, copyText, fill, h, promptSheet, toast } from '../lib.js';
 import { icon } from '../icons.js';
+import { holdWhilePressed } from './press.js';
 import { markClass } from './scm.js';
 
 const NAME_RE = /^[^/\\\0]+$/;
@@ -99,11 +100,11 @@ export function createExplorer(wb) {
     return out;
   }
 
-  function paint() {
+  const paint = holdWhilePressed(list, () => {
     if (!kids.has('')) return;
     const out = rows('', 0, marks(), []);
     fill(list, out.length ? out : h('p.ed-panelnote', 'This folder is empty.'));
-  }
+  });
 
   async function press(p, isDir, keep) {
     selected = p;

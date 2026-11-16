@@ -510,10 +510,11 @@ export function createTabs(wb) {
       if (diff) diff.layout();
     },
     dispose() {
-      for (const t of tabs) dispose(t);
-      tabs.length = 0;
+      // The editors first: Monaco refuses a model that goes while an editor still shows it.
       if (editor) editor.dispose();
       if (diff) diff.dispose();
+      for (const t of tabs) dispose(t);
+      tabs.length = 0;
     },
     dirOf,
   };

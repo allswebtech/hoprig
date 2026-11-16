@@ -4,6 +4,7 @@
 import { ago, btn, confirmSheet, fill, h, link, toast } from '../lib.js';
 import { icon } from '../icons.js';
 import { fold } from '../shell.js';
+import { holdWhilePressed } from './press.js';
 
 const base = (p) => p.split('/').pop();
 const dirOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
@@ -54,11 +55,12 @@ export function createScm(wb) {
       wb.onStatus(null);
       return;
     }
-    paint();
+    paintSoon();
     wb.onStatus(st);
     if (logFold.open) loadLog();
   }
 
+  const paintSoon = holdWhilePressed(el, () => paint());
   function paint() {
     fill(repos, st.repos && st.repos.length ? [
       h('p.ed-group-title', 'Repositories inside this folder'),

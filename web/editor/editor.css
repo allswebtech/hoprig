@@ -3,7 +3,7 @@
 
 body.code-mode { overflow: hidden; }
 body.code-mode .tia-boxroot { display: none; }
-.ed-wrap { position: fixed; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; background: var(--bg); --ed-side: 300px; }
+.ed-wrap { position: fixed; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto; background: var(--bg); --ed-side: 300px; }
 
 /* ---------- the bar at the top ---------- */
 .ed-bar { display: flex; align-items: center; gap: 4px; min-height: 52px; padding: calc(4px + env(safe-area-inset-top)) 8px 4px 6px; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -177,3 +177,4 @@ button.ed-st:hover { background: var(--surface-2); color: var(--text); }
 }
 /* The log's fold reads like the groups above it. */
 .ed-scm .fold-summary { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.ed-plain:focus-visible { box-shadow: none; border-radius: 0; }

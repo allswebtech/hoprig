@@ -33,7 +33,8 @@ curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh 
   for you.
 - **Code from anywhere, phone included.** A self-hosted dashboard with the real terminal, built for one thumb.
   It shows which session is working, which is waiting for your next message and which needs you. Prefer no
-  terminal? The same Claude Code as a chat, with Allow and Deny buttons.
+  terminal? The same Claude Code as a chat, with Allow and Deny buttons. A project opens in a built-in code
+  editor with its git changes.
 - **Several computers in one place.** Home PC, office PC, servers: one page shows every session and starts
   work on any of them. Computers behind a router connect out by themselves. No VPN, no third-party service.
 - **It keeps going without you.** Queue the next messages, schedule work, reopen sessions after a restart.
@@ -209,6 +210,13 @@ Good to know:
 - **Chat**: the same Claude Code without the terminal (**New session**: Terminal or Chat, or **Open as chat** in
   a session's menu): messages, each tool call on one line with its diff, Allow and Deny buttons, its to-do list,
   Stop. A conversation runs in one place at a time, and **Open in terminal** takes it back.
+- **Code editor**: **Open code** on a project, a repository or in a session's menu opens the folder in VS Code's
+  editor core, inside the page and behind its sign-in, also for another computer's folders. **Explorer** (new,
+  rename, delete), **Search** in files, and **Source Control** (the changes side by side, stage, unstage,
+  discard, commit, the log); **N changes** on a project goes straight there. Ctrl+S, Ctrl+P, Ctrl+Shift+F and
+  Ctrl+G work as in VS Code. A save never overwrites a file that changed on disk without asking. On a phone one
+  pane shows at a time, with **Plain text editing** where the code editor cannot be typed into. Text size, tab
+  size and word wrap are in **Settings → Editor**; the colours follow the page.
 - **The way back**: a page another page sent you to links back to it (Setup → the session its Fix opened →
   back to Setup), not only to its parent.
 - **The menu**: Home, **Workspace** (your projects, each with its sessions under it), **Providers**,

@@ -138,6 +138,8 @@ test('commit: an empty message and nothing staged are refused; a refusing hook i
   let r = await post('/api/code/git/commit', { root: repo, message: 'nothing' });
   assert.deepEqual([r.status, r.json.code], [409, 'nothing-staged']);
   await post('/api/code/git/stage', { root: repo, paths: ['moved.txt', 'old.txt', 'sub/b é.txt'] });
+  // The repository's own hooks folder, whatever core.hooksPath the computer's git settings name.
+  g('config', 'core.hooksPath', '.git/hooks');
   const hook = path.join(repo, '.git', 'hooks', 'pre-commit');
   fs.writeFileSync(hook, '#!/bin/sh\necho "lint failed: fix it" >&2\nexit 1\n', { mode: 0o755 });
   r = await post('/api/code/git/commit', { root: repo, message: 'second' });

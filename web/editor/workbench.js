@@ -42,13 +42,13 @@ export function viewCode({ query }, onCurrent) {
   named(label);
   const way = wayBack() || { hash: link('#/workspace'), label: 'Workspace' };
   const here = machine.current;
-  const where = here ? (store.all.find((m) => m.machine === here) || {}).machineLabel || here : null;
   remember(root, here);
 
   let view = VIEWS.some((v) => v.id === query.get('view')) ? query.get('view') : 'explorer';
   let pane = query.get('file') ? 'editor' : 'side'; // on a phone
   let alive = true;
   let status = null;
+  let marksKey = '';
   const cursor = { line: 1, col: 1 };
 
   const wb = {
@@ -77,7 +77,12 @@ export function viewCode({ query }, onCurrent) {
     },
     onStatus: (st) => {
       status = st;
-      explorer.paint();
+      // Drawn again only when git's marks changed: a redraw under a finger or a pointer would swallow its press.
+      const key = JSON.stringify([...marksOf(st)]);
+      if (key !== marksKey) {
+        marksKey = key;
+        explorer.paint();
+      }
       paintStatus();
       paintActivity();
     },
@@ -100,10 +105,18 @@ export function viewCode({ query }, onCurrent) {
   const panels = { explorer: explorer.el, search: search.el, changes: scm.el };
 
   // ---------- layout ----------
+  // Under the title: the folder, and the computer it is on when that is not this one (its name may come later).
+  const subEl = h('div.ed-sub', { title: root });
+  const paintSub = () => {
+    const where = here ? (store.all.find((m) => m.machine === here) || {}).machineLabel || here : null;
+    fill(subEl, where ? `${where} · ` : '', here ? root : tildePath(root));
+  };
+  paintSub();
+  const stopStore = store.subscribe(paintSub);
   const saveBtn = btn('small secondary ed-savebtn', { icon: 'check', label: 'Save', title: 'Save (Ctrl+S)', disabled: true, onclick: () => tabs.save() });
   const bar = h('header.ed-bar',
     h('a.btn.ghost.ed-back', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.ed-back-label', way.label)),
-    h('div.ed-head', h('h1.ed-title', label), h('div.ed-sub', { title: root }, where ? `${where} · ` : '', tildePath(root))),
+    h('div.ed-head', h('h1.ed-title', label), subEl),
     h('div.ed-bar-end',
       saveBtn,
       btn('icon ghost', { icon: 'search', title: 'Go to file (Ctrl+P)', onclick: () => quick.open() }),
@@ -118,17 +131,21 @@ export function viewCode({ query }, onCurrent) {
   wrap.style.setProperty('--ed-side', `${prefs.get('editor.side', 300)}px`);
   fill(app, wrap);
 
+  let activityKey = '';
   function paintActivity() {
     const n = status && status.repo ? status.staged.length + status.changes.length + status.untracked.length + status.conflicts.length : 0;
+    // As the Explorer: drawn again only when something on it changed.
+    const key = `${view}|${pane}|${n}|${wrap.classList.contains('ed-noside')}`;
+    if (key === activityKey) return;
+    activityKey = key;
     const badge = (v) => (v.id === 'changes' && n ? h('span.ed-badge', n > 99 ? '99+' : String(n)) : null);
     fill(activity, VIEWS.map((v) => h(`button.ed-act${v.id === view ? '.on' : ''}`, { type: 'button', title: `${v.label} (${v.keys})`, 'aria-label': v.label, 'aria-pressed': String(v.id === view), onclick: () => showView(v.id, { toggle: true }) },
       icon(v.icon, { size: 22 }), badge(v))));
-    const t = tabs.active;
     fill(phonebar, [...VIEWS.map((v) => h(`button.ed-pb${pane === 'side' && v.id === view ? '.on' : ''}`, { type: 'button', onclick: () => {
       showView(v.id);
       setPane('side');
     } }, icon(v.icon, { size: 20 }), h('span', v.short), badge(v))),
-    h(`button.ed-pb${pane === 'editor' ? '.on' : ''}`, { type: 'button', onclick: () => setPane('editor') }, icon('text', { size: 20 }), h('span', t ? 'Editor' : 'Editor'))]);
+    h(`button.ed-pb${pane === 'editor' ? '.on' : ''}`, { type: 'button', onclick: () => setPane('editor') }, icon('text', { size: 20 }), h('span', 'Editor'))]);
   }
 
   function showView(id, { toggle = false } = {}) {
@@ -344,6 +361,7 @@ export function viewCode({ query }, onCurrent) {
   return () => {
     alive = false;
     onCurrent(null);
+    stopStore();
     clearInterval(tick);
     clearTimeout(soonTimer);
     stopTheme();
