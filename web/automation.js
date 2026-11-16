@@ -246,10 +246,23 @@ function schedulesPart(st, { reload, addSchedule }) {
   ];
 }
 
+/**
+ * When a schedule runs next, always as a day and the 24-hour clock its rule is written in ("today 18:00",
+ * "tomorrow 08:30", "Tue 08:30", "21 Nov 08:30"): one list never mixes "in 7 h 1 min" with "Tue 08:30".
+ */
+export function nextRunText(ms, now = Date.now()) {
+  const d = new Date(ms);
+  const two = (n) => String(n).padStart(2, '0');
+  const midnight = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((midnight(d) - midnight(new Date(now))) / 86_400_000); // round: a day may be 23 or 25 h
+  const day = days <= 0 ? 'today' : days === 1 ? 'tomorrow' : days < 7 ? d.toLocaleDateString([], { weekday: 'short' }) : d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+  return `${day} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+
 function scheduleRow(s, reload) {
   const mark = savedMark();
   const sentence = scheduleSentence(s, accountLabel);
-  const next = !s.enabled ? 'Off' : s.nextAt ? `Next run ${until(s.nextAt)}` : 'Done: it ran once';
+  const next = !s.enabled ? 'Off' : s.nextAt ? `Next run ${nextRunText(s.nextAt)}` : 'Done: it ran once';
   const turn = async (e) => {
     const on = e.target.checked;
     try {

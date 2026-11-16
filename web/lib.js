@@ -469,7 +469,8 @@ export function limitBox(s, profiles, after) {
   // Auto runs as the first free subscription of its order, else the router uses the first free provider of it.
   const inAuto = free.filter((p) => Number.isInteger(p.autoPlace));
   const autoNext = inAuto.find((p) => SUBSCRIPTION_KINDS.has(p.kind)) || inAuto[0] || null;
-  const words = (p) => (p.virtual ? (autoNext ? `Continue on Auto (next: ${autoNext.label})` : 'Continue on Auto') : isPaid(p) ? `Continue on ${p.label} (paid per use)` : `Continue on ${p.label}`);
+  // "(paid per use)" once: not after a name that says so already ("API (pay as you go)").
+  const words = (p) => (p.virtual ? (autoNext ? `Continue on Auto (next: ${autoNext.label})` : 'Continue on Auto') : isPaid(p) && !/\b(pay|paid)\b/i.test(p.label) ? `Continue on ${p.label} (paid per use)` : `Continue on ${p.label}`);
   // The main one first, then Auto, then the rest; paid ones last.
   const rank = (p) => (p === main ? 0 : p.virtual ? 1 : isPaid(p) ? 3 : 2);
   const shown = others.map((p, i) => [rank(p), i, p]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map((x) => x[2]);
