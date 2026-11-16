@@ -270,6 +270,12 @@ export class Deck {
     return name;
   }
 
+  /** A terminal that runs the launcher with `words` (e.g. Codex's own sign-in), named after `base`. Returns its name. */
+  async runLauncher(base, dir, words) {
+    const { name } = await this.backend.create({ name: await this.#newName(base), dir, argv: [...this.launcher(), ...words] });
+    return name;
+  }
+
   /** A plain shell, no Claude. */
   async shell(dir) {
     const { name } = await this.backend.create({ name: await this.#newName('shell'), dir });

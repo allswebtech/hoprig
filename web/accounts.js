@@ -4,7 +4,7 @@
 //   Claude subscription   sign in through a link, paste the code back; the computer keeps the token
 //   Claude API            a key from console.anthropic.com or a gateway that speaks Claude's API
 //   OpenAI API key        a key for OpenAI's API or a service that speaks it (for Codex and OpenCode)
-//   Codex sign-in         the ChatGPT account Codex keeps itself (`codex login` in a terminal; for Codex)
+//   Codex sign-in         the ChatGPT account Codex keeps itself (Sign in on its page opens Hoprig's `codex login`)
 //   Other providers       OpenAI, Gemini, OpenRouter, local models… through the TRouteAI add-on
 // Every provider says which coding tools it works with ("Test" asks the endpoint which APIs it answers).
 // "Use the terminal instead" stays for when the page flow does not work. Accounts are added on the computer whose
@@ -253,6 +253,31 @@ function testRow(a, refresh) {
   return row;
 }
 
+/**
+ * A Codex sign-in: whether Codex is signed in here, and Sign in, which opens a terminal in the page with Codex's own
+ * device sign-in (Hoprig's copy of Codex: a link and a code for the browser). The terminal ends when it is done.
+ */
+function codexSigninBox(a, d) {
+  if (a.signedIn === true) return h('p.acct-works', icon('check', { size: 15 }), h('span', 'Codex is signed in on this computer.'));
+  if (a.signedIn == null) {
+    return h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Codex is not installed on this computer yet.'),
+      h('a.btn.small.primary', { href: link('#/settings/codingtools') }, 'Coding tools'));
+  }
+  return h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Codex cannot use this provider until it is signed in.'),
+    d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      try {
+        const { name } = await api(at(machine.current, '/api/codetools/codex/signin'), {});
+        toast('Codex\'s sign-in opened in a terminal: follow its link and enter its code.', { ms: 8000 });
+        location.hash = link(`#/s/${encodeURIComponent(name)}`);
+      } catch (err) {
+        toast(err.message, { kind: 'error', ms: 8000 });
+        b.disabled = false;
+      }
+    } }) : null);
+}
+
 function viewAccount(frame, name) {
   const body = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading…')));
   // The title is the account's name: drawn again once it is known (and after a rename).
@@ -287,13 +312,13 @@ function viewAccount(frame, name) {
     fill(body,
       panel({},
         h(`p.acct-state.ps-${ps.key}`, h('span.dot'), ps.text),
-        ps.key === 'signin'
+        a.kind === 'chatgpt' ? codexSigninBox(a, d) : ps.key === 'signin'
           ? h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Claude Code cannot use this provider until you sign in again.'),
             d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: () => signInAgain(a, d, refresh) }) : null)
           : CLAUDE_SIGNIN.includes(a.kind) || a.kind === 'api' ? usageBars(a.usage, a.usageReported, a.inUse > 0) || h('p.hint', 'No usage figures yet: they appear after the first answer on this provider.') : null,
         worksWith(a) ? h('p.acct-works', icon('check', { size: 15 }), h('span', worksWith(a))) : null,
         testResult(a),
-        a.kind === 'chatgpt' ? h('p.hint', 'Codex uses the ChatGPT account it is signed in to on this computer. To sign in, run ', h('code', 'codex login --device-auth'), ' in a terminal here.') : null,
+        a.kind === 'chatgpt' ? h('p.hint', 'Codex uses the ChatGPT account it is signed in to on this computer. In a terminal, the same is ', h('code', `${COMMAND} codex login --device-auth`), '.') : null,
         CLAUDE_SIGNIN.includes(a.kind) ? h('p.hint', 'A Claude subscription works with Claude Code only.') : null,
         d.full && claude ? toggle('Use in Auto mode', a.inAuto, async (on) => {
           try {
@@ -486,7 +511,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
     }
 
     // ---------- an API key (Claude's API directly, or through TRouteAI) ----------
-    // ---------- Codex's own sign-in: a provider that says so; the sign-in itself is `codex login` ----------
+    // ---------- Codex's own sign-in: a provider that says so; the sign-in itself is Hoprig's `codex login` ----------
     function codexSignin() {
       const d = (data.defaults && data.defaults.codex) || { name: 'chatgpt', label: 'Codex sign-in' };
       const name = h('input.field.mono', { value: d.name, autocapitalize: 'off', spellcheck: 'false', maxlength: 32 });
@@ -498,6 +523,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
         try {
           const r = await api(A('/codex-signin'), { name: name.value, label: label.value });
           finish(`${label.value || 'Codex sign-in'} added`);
+          location.hash = link(`#/providers/${encodeURIComponent(r.name)}`); // where Sign in is
           return r;
         } catch (e) {
           fill(out, errorBox(e.message));
@@ -506,7 +532,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
       });
       fill(panel, back(),
         h('p.sheet-text', 'Codex keeps its own sign-in to a ChatGPT account on this computer. This provider lets Codex sessions use it; it works with Codex only.'),
-        steps([h('p', 'In a terminal on this computer, run ', h('code', 'codex login --device-auth'), ' and follow what it says.')], [h('p', 'Add the provider here.')]),
+        steps([h('p', 'Add the provider here.')], [h('p', 'On its page, press Sign in: a terminal opens with Codex\'s own sign-in, a link and a code for your browser. Until then it is "Not signed in".')]),
         h('details.adv', h('summary', 'Names'), field('Short name', name, 'Used on the command line.'), field('Name to show', label)),
         out,
         h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'), add));

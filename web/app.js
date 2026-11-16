@@ -27,6 +27,7 @@ import './addons.js';
 import './vscode.js';
 import './settings.js';
 import './updates.js';
+import './codingtools.js';
 
 const app = document.getElementById('app');
 let stopView = () => {};

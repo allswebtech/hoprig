@@ -98,6 +98,7 @@ test('the servers\' providers: every provider that serves the tool, keys only in
   assert.ok(args.includes(`model_provider="${S.providerId('gw')}"`), 'the default is a Hoprig provider, not OpenAI\'s account');
   assert.deepEqual(args.slice(-6), ['--listen', 'ws://127.0.0.1:5', '--ws-auth', 'capability-token', '--ws-token-file', '/t']);
   for (const a of ['check_for_update_on_startup=false', 'features.daemon_auto_start=false', 'features.in_app_updates=false']) assert.ok(args.includes(a), `the server never updates itself either: ${a}`);
+  assert.ok(args.includes('shell_environment_policy.exclude=["HOPRIG_CODEX_KEY*", "HOPRIG_CODEX_WS*"]'), 'commands the server runs for a model never see the keys');
   const env = S.serverEnv('codex', provs, { PATH: '/bin', ANTHROPIC_AUTH_TOKEN: 'shell-secret', OPENAI_API_KEY: 'shell-openai', HOPRIG_CODEX_KEY: 'old', OPENCODE_PASSWORD: 'pw' });
   assert.equal(env[S.keyVarOf('codex', 'gw')], KEY);
   assert.equal(env[S.keyVarOf('codex', 'my-gw')], `${KEY}-2`);
@@ -246,6 +247,7 @@ test('a session\'s choices are the tool\'s own lists; the tool is named or Claud
   assert.throws(() => toolFlags('codex', { permissionMode: 'acceptEdits' }), /one of: default, readOnly, bypassPermissions/);
   assert.throws(() => toolFlags('opencode', { effort: 'ultra' }), /one of: low, medium, high, xhigh, max/);
   assert.throws(() => toolFlags('opencode', { model: 'a b' }), /model id/);
+  assert.throws(() => toolFlags('codex', { model: '--x' }), /model id/, 'a model id never starts with a dash: the tool would read it as an option');
   assert.equal(toolFromRequest(undefined), 'claude');
   assert.throws(() => toolFromRequest('vim'), /claude, codex, opencode/);
 });

@@ -10,6 +10,12 @@
 //                      screen (feature in_app_updates, on by default). Hoprig updates Codex itself, at a moment the
 //                      owner chose, so every start Hoprig makes switches all three off (noSelfUpdate; `codex features
 //                      list` with these -c values shows both features false).
+//   plugin catalogue   at its first start it clones a plugin marketplace (about 100 MB) into $CODEX_HOME/.tmp/plugins.
+//                      That is not a self-update; only features.plugins=false stops it (remote_plugin=false does not),
+//                      and that would also switch off every plugin the owner installed, so Hoprig leaves it on.
+//   commands it runs   take the environment of the process that runs them, filtered by shell_environment_policy
+//                      (no default filter in 0.169: a variable named *KEY* reaches them). keyFilter drops Hoprig's
+//                      key variables there (checked with `codex sandbox -- env`, which applies the same policy).
 //   what it reads      rules: $CODEX_HOME/AGENTS.md (a link is followed), then the project's AGENTS.md files; never
 //                      CLAUDE.md. Skills: ~/.agents/skills, $CODEX_HOME/skills (it keeps its own bundled ones in
 //                      skills/.system there, so that folder is not linked), and the project's .agents/skills. Memory: none
@@ -36,6 +42,8 @@ export const codex = {
   home: (env = process.env) => env.CODEX_HOME || path.join(os.homedir(), '.codex'),
   /** Added to every start of Codex that Hoprig makes (terminal and app server). */
   noSelfUpdate: { args: ['-c', 'check_for_update_on_startup=false', '-c', 'features.daemon_auto_start=false', '-c', 'features.in_app_updates=false'], env: {} },
+  /** Commands Codex runs for the model never see the provider keys Hoprig hands it (nor the server's token). */
+  keyFilter: ['-c', 'shell_environment_policy.exclude=["HOPRIG_CODEX_KEY*", "HOPRIG_CODEX_WS*"]'],
   /**
    * The choices of a terminal session (the launcher's --permission-mode and --effort, src/codetools/terminal.mjs).
    * readOnly: Codex may read, and asks before anything else; bypassPermissions: it never asks and runs unsandboxed.
@@ -51,6 +59,9 @@ export const codex = {
   ],
   /** No memory of its own: the shared rules carry a section that tells it where each project's memory is. */
   ownMemory: false,
+  /** One line for the install, and how much it takes (measured on Linux x64). */
+  about: 'OpenAI\'s coding tool',
+  size: 'about 400 MB',
 };
 
 function flagsFor({ permissionMode = null, effort = null } = {}) {

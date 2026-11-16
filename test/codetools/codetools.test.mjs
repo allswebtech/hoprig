@@ -212,3 +212,75 @@ test('one install or update of a tool at a time, also across processes; a lock l
   go();
   assert.equal((await first).ok, true);
 });
+
+test('the coding tools for the page: on or off (never none), installed, the providers that serve each; idle servers stopped', async () => {
+  const { codetoolsFeature, IDLE_STOP_MS } = await import('../../src/codetools/feature.mjs');
+  let cfg = {};
+  const ticks = [];
+  const stopped = [];
+  class HttpError extends Error { constructor(status, m) { super(m); this.status = status; } }
+  const ctx = { config: () => cfg, saveConfig: (p) => (cfg = { ...cfg, ...p }), readJson: async (req) => req.body, HttpError, onTick: (fn) => (ticks.push(fn), () => {}) };
+  const profiles = () => [
+    { name: 'gw', kind: 'api', api: ['messages', 'responses', 'chat'], env: {} },
+    { name: 'sub', kind: 'subscription', env: {} },
+    { name: 'chatgpt', kind: 'chatgpt', signin: 'codex', env: {} },
+  ];
+  let clock = 1_000_000;
+  const f = codetoolsFeature(ctx, { profiles, stop: async (tool, o) => stopped.push([tool, o.idleMs]), now: () => clock });
+  const call = async (method, p, body) => {
+    for (const [m, re, fn] of f.routes) {
+      const match = re.exec(p);
+      if (match && m === method) return fn({ body }, match);
+    }
+    throw new Error(`no route ${method} ${p}`);
+  };
+  let v = await call('GET', '/api/codetools');
+  assert.deepEqual(v.tools.map((t) => [t.id, t.on, t.providers.join('+')]), [['claude', true, 'gw+sub'], ['codex', false, 'gw+chatgpt'], ['opencode', false, 'gw']]);
+  assert.equal(v.tools[1].command, 'hoprig codex <provider>');
+  v = await call('POST', '/api/codetools/codex', { on: true });
+  assert.deepEqual(cfg.codingTools, ['claude', 'codex']);
+  assert.equal(v.tools[1].on, true);
+  await call('POST', '/api/codetools/claude', { on: false });
+  await assert.rejects(call('POST', '/api/codetools/codex', { on: false }), (e) => e.status === 400 && /at least one/.test(e.message));
+  await assert.rejects(call('POST', '/api/codetools/vim', { on: true }), (e) => e.status === 404);
+  await assert.rejects(call('POST', '/api/codetools/codex', { on: 'yes' }), (e) => e.status === 400);
+  await assert.rejects(call('POST', '/api/codetools/codex', { on: true, x: 1 }), (e) => e.status === 400);
+  await ticks[0]();
+  assert.deepEqual(stopped, [['codex', IDLE_STOP_MS], ['opencode', IDLE_STOP_MS]], 'a server unused for 2 minutes is stopped');
+  await ticks[0]();
+  assert.equal(stopped.length, 2, 'looked at once a minute');
+  clock += 61_000;
+  await ticks[0]();
+  assert.equal(stopped.length, 4);
+});
+
+test('Codex\'s own sign-in: read from `codex login status` of Hoprig\'s copy; Sign in opens a terminal with its device sign-in', async () => {
+  const S = await import('../../src/codetools/codexsignin.mjs');
+  assert.equal(S.readLoginStatus({ ok: false, stdout: 'Not logged in\n' }), false);
+  assert.equal(S.readLoginStatus({ ok: true, stdout: 'Logged in using ChatGPT\n' }), true);
+  assert.equal(S.readLoginStatus({ ok: false, stdout: '', stderr: 'boom' }), null);
+  const argv = S.loginArgv(['--device-auth']);
+  assert.deepEqual(argv.slice(-2), ['login', '--device-auth']);
+  assert.ok(argv.includes('features.daemon_auto_start=false'), 'never its self-updating daemon');
+  // The page's route: a terminal running the launcher's own words, in the home folder.
+  const { codetoolsFeature } = await import('../../src/codetools/feature.mjs');
+  class HttpError extends Error { constructor(status, m) { super(m); this.status = status; } }
+  const started = [];
+  const ctx = { config: () => ({}), saveConfig: () => {}, readJson: async (req) => req.body, HttpError, deck: { runLauncher: async (base, dir, words) => (started.push([base, dir, words]), 'codex-signin') } };
+  let installed = null;
+  const f = codetoolsFeature(ctx, { profiles: () => [], signedIn: async () => installed && false });
+  const route = (m, p) => f.routes.find(([mm, re]) => mm === m && re.test(p))[2];
+  const realCodex = (await import('../../src/codetools/codex.mjs')).codex;
+  const was = realCodex.installedVersion;
+  try {
+    realCodex.installedVersion = () => installed;
+    await assert.rejects(route('POST', '/api/codetools/codex/signin')({ body: {} }), (e) => e.status === 409 && /not installed/.test(e.message));
+    installed = '0.169.0';
+    assert.deepEqual(await route('GET', '/api/codetools/codex/signin')({}), { installed: true, signedIn: false });
+    await assert.rejects(route('POST', '/api/codetools/codex/signin')({ body: { cmd: 'x' } }), (e) => e.status === 400);
+    assert.deepEqual(await route('POST', '/api/codetools/codex/signin')({ body: {} }), { name: 'codex-signin' });
+    assert.deepEqual(started, [['codex-signin', os.homedir(), ['codex', 'login', '--device-auth']]]);
+  } finally {
+    realCodex.installedVersion = was;
+  }
+});

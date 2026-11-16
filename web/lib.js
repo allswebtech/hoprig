@@ -292,6 +292,8 @@ export function profileState(p) {
   if (p.virtual) return { key: 'free', text: 'Uses your providers in order; never stops at a limit' };
   // A sign-in provider whose sign-in is gone (or never finished): it cannot be used until someone signs in again.
   if (p.signedIn === false) return { key: 'signin', text: 'Not signed in' };
+  // A Codex sign-in when Codex is not installed (or does not say whether it is signed in).
+  if (p.kind === 'chatgpt' && p.signedIn == null) return { key: 'signin', text: 'Codex is not installed' };
   if (p.limited) {
     const when = p.limited.until ? `${p.limited.exact === false ? 'about ' : ''}${until(p.limited.until)}` : '';
     return { key: 'limit', text: when ? `Limit reached · free ${when}` : 'Limit reached' };

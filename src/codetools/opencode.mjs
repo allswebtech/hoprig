@@ -91,6 +91,9 @@ export const opencode = {
     },
   ],
   ownMemory: false,
+  /** One line for the install, and how much it takes (measured on Linux x64). */
+  about: 'an open-source coding tool that works with many providers',
+  size: 'about 240 MB',
 };
 
 /** Where a project keeps its memory index, from the project's folder (the layout of src/pcsetup/workspace.mjs). */

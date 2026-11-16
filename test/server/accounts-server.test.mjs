@@ -51,7 +51,8 @@ const trouteai = { status: async () => ({ installed: true, running: true, versio
 saveConfig({ claudeBin: FAKE_CLAUDE, server: { passwordHash: await hashPassword('right-password') } });
 writeProfile('work', { label: 'Work' });
 const backend = { list: async () => [], capture: async () => '', kind: 'pty', capabilities: {} };
-const app = createServer({ backend, watch: false, accounts: { trouteai, times: { link: 4000, token: 4000, ttl: 60_000 } } });
+let codexIn = false; // what Hoprig's Codex says of its own sign-in (a stand-in)
+const app = createServer({ backend, watch: false, accounts: { trouteai, times: { link: 4000, token: 4000, ttl: 60_000 }, codexSignedIn: async () => codexIn } });
 const { port } = await app.listen(0, '127.0.0.1');
 const base = `http://127.0.0.1:${port}`;
 test.after(() => app.close());
@@ -386,7 +387,11 @@ test('an OpenAI-compatible key and a Codex sign-in: added, which tools they serv
     assert.deepEqual(r.json, { ok: true, name: 'chatgpt' });
     assert.equal(readProfile('chatgpt').kind, 'chatgpt');
     a = (await call('/api/accounts')).json.accounts.find((x) => x.name === 'chatgpt');
-    assert.deepEqual([a.label, a.tools, a.host], ['Codex sign-in', ['codex'], '']);
+    assert.deepEqual([a.label, a.tools, a.host, a.signedIn], ['Codex sign-in', ['codex'], '', false], 'not signed in until Codex says so');
+    codexIn = true;
+    assert.equal((await call('/api/accounts')).json.accounts.find((x) => x.name === 'chatgpt').signedIn, true);
+    codexIn = null;
+    assert.equal((await call('/api/accounts')).json.accounts.find((x) => x.name === 'chatgpt').signedIn, null, 'Codex not installed: cannot tell');
     assert.equal((await call('/api/accounts/chatgpt/test', {})).status, 409);
     assert.equal((await call('/api/accounts/subscription/start', { mode: 'signin', name: 'chatgpt' })).status, 409);
     // A Claude session or chat cannot start on these.

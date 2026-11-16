@@ -24,7 +24,7 @@ test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 function fakeTools({ ok = true } = {}) {
   const have = new Map();
   const mk = (id, name, pin) => ({
-    id, name, pin, managed: true,
+    id, name, pin, managed: true, about: `${name}, a coding tool`, size: 'about 1 MB',
     installedVersion: () => have.get(id) || null,
     async install({ onLine = () => {} } = {}) {
       onLine(`installing ${name} ${pin}`);
@@ -65,12 +65,18 @@ test('POST /api/pcsetup/tool: a job in the page, the tool turned on; strict inpu
   };
   await assert.rejects(call('POST', '/api/pcsetup/tool', { id: 'claude' }), (e) => e.status === 400, 'Claude Code is installed by its own installer');
   await assert.rejects(call('POST', '/api/pcsetup/tool', { id: '../../x' }), (e) => e.status === 400);
+  await assert.rejects(call('POST', '/api/pcsetup/tool', { id: 'opencode', version: '0.0.1' }), (e) => e.status === 400 && /"version" is not a field/.test(e.message), 'unknown fields are refused, as the Updates routes do');
   assert.deepEqual(await call('POST', '/api/pcsetup/tool', { id: 'opencode' }), { started: true });
   let j;
   for (let i = 0; i < 50 && (j = await call('GET', '/api/pcsetup/job?from=0')).running; i++) await new Promise((r) => setTimeout(r, 5));
   assert.equal(j.kind, 'tool');
-  assert.deepEqual(j.result, { ok: true, error: null, data: { tool: 'opencode', version: '2.3.0' } });
-  assert.deepEqual(j.lines, ['installing OpenCode 2.3.0']);
+  assert.deepEqual(j.result, { ok: true, error: null, data: { tool: 'opencode', name: 'OpenCode', version: '2.3.0' } });
+  assert.deepEqual(j.data, { tool: 'opencode', name: 'OpenCode', version: '2.3.0' }, 'the page names the tool in the job\'s title');
+  assert.deepEqual(j.lines, [
+    'OpenCode 2.3.0: OpenCode, a coding tool. A download of about 1 MB, into Hoprig\'s own tools folder; this takes a minute or two.',
+    'installing OpenCode 2.3.0',
+    'OpenCode 2.3.0 is installed and turned on.',
+  ]);
   assert.deepEqual(cfg.codingTools, ['claude', 'opencode'], 'installing turns it on');
   await assert.rejects(call('POST', '/api/pcsetup/tool', { id: 'opencode' }), (e) => e.status === 409 && /Settings → Updates/.test(e.message));
 });

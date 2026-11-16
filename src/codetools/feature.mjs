@@ -1,12 +1,24 @@
-// The dashboard's part of Codex's and OpenCode's servers (./servers.mjs): a server that a list of conversations
-// started, or whose last launcher could not stop it, is stopped once no session has used it for a while. The
-// sessions themselves are started through POST /api/sessions (src/server/server.mjs) like Claude Code's.
+// The dashboard's part of the coding tools.
+//
+//   GET  /api/codetools          [{ id, name, on, managed, installed, about, providers: [name], command }]: which
+//                                tools are on, which are installed, and the providers that serve each
+//   POST /api/codetools/<id>     { on: bool }: turn a tool on or off (never all off); which tools the page offers
+//   GET  /api/codetools/codex/signin   { installed, signedIn: true | false | null }: Codex's own sign-in
+//   POST /api/codetools/codex/signin   {}: a terminal with Codex's device sign-in (Hoprig's copy) → { name }
+//
+// And Codex's and OpenCode's servers (./servers.mjs): a server that a list of conversations started, or whose last
+// launcher could not stop it, is stopped once no session has used it for a while. The sessions themselves are
+// started through POST /api/sessions (src/server/server.mjs) like Claude Code's.
+import os from 'node:os';
+import { listProfiles, servesTools } from '../profiles.mjs';
+import { codexSignedIn, forgetSignin } from './codexsignin.mjs';
+import { TOOLS, enabledToolIds, findTool, withTool } from './index.mjs';
 import { SERVER_TOOLS, stopIfUnused } from './servers.mjs';
 
 export const IDLE_STOP_MS = 2 * 60_000;
 const LOOK_EVERY_MS = 60_000;
 
-export function codetoolsFeature(ctx, { stop = stopIfUnused, now = Date.now } = {}) {
+export function codetoolsFeature(ctx, { stop = stopIfUnused, now = Date.now, profiles = listProfiles, signedIn = codexSignedIn } = {}) {
   let last = 0;
   const unsubscribe = ctx.onTick ? ctx.onTick(async () => {
     if (now() - last < LOOK_EVERY_MS) return;
@@ -19,5 +31,46 @@ export function codetoolsFeature(ctx, { stop = stopIfUnused, now = Date.now } = 
       }
     }
   }) : null;
-  return { name: 'codetools', routes: [], close: () => unsubscribe?.() };
+
+  const fail = (status, message) => new ctx.HttpError(status, message);
+  const view = () => {
+    const on = enabledToolIds(ctx.config());
+    const all = profiles();
+    return {
+      tools: TOOLS.map((t) => ({
+        id: t.id, name: t.name, on: on.includes(t.id), managed: !!t.managed, installed: t.installedVersion(),
+        about: t.about || null,
+        providers: all.filter((p) => servesTools(p).includes(t.id)).map((p) => p.name),
+        command: t.id === 'claude' ? 'hoprig <provider>' : `hoprig ${t.id} <provider>`,
+      })),
+    };
+  };
+
+  const routes = [
+    ['GET', /^\/api\/codetools$/, async () => view()],
+    ['GET', /^\/api\/codetools\/codex\/signin$/, async () => ({ installed: !!findTool('codex').installedVersion(), signedIn: await signedIn({ fresh: true }) })],
+    ['POST', /^\/api\/codetools\/codex\/signin$/, async (req) => {
+      const b = await ctx.readJson(req);
+      if (b && Object.keys(b).length) throw fail(400, 'send {}');
+      if (!findTool('codex').installedVersion()) throw fail(409, 'Codex is not installed: Settings → Coding tools installs it');
+      forgetSignin();
+      // The launcher's own words (src/codetools/terminal.mjs): Hoprig's copy, never one on PATH.
+      return { name: await ctx.deck.runLauncher('codex-signin', os.homedir(), ['codex', 'login', '--device-auth']) };
+    }],
+    ['POST', /^\/api\/codetools\/([a-z]+)$/, async (req, m) => {
+      const b = await ctx.readJson(req);
+      const t = findTool(m[1]);
+      if (!t) throw fail(404, 'there is no such coding tool');
+      if (!b || typeof b.on !== 'boolean' || Object.keys(b).some((k) => k !== 'on')) throw fail(400, 'send { on: true } or { on: false }');
+      let next;
+      try {
+        next = withTool(ctx.config(), t.id, b.on);
+      } catch (e) {
+        throw fail(400, e.message);
+      }
+      ctx.saveConfig({ codingTools: next });
+      return view();
+    }],
+  ];
+  return { name: 'codetools', routes, close: () => unsubscribe?.() };
 }

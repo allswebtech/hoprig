@@ -1,6 +1,10 @@
-// What a coding tool gets from a provider when Hoprig starts it. The provider's key travels only in one variable
-// of the started process; nothing is written into the tool's own config file, and nothing of one provider (or of
-// the surrounding shell) reaches another tool's environment.
+// What a coding tool gets from a provider when Hoprig starts it. The provider's key travels in a variable of the
+// started process (for a tool's server: one variable per provider it serves); nothing is written into the tool's own
+// config file, and nothing of one provider (or of the surrounding shell) reaches another tool's environment.
+// What the tool passes on to the commands it runs for the model is its own business: Codex is told to drop the key
+// variables there (codex.keyFilter); OpenCode has no such filter (2.3), so a command in an OpenCode session can read
+// the keys of the OpenCode providers and its server's password. The same user can read the provider files anyway;
+// this is a second layer, not the first.
 //
 //   Claude Code   the provider's variables as they are (src/profiles.mjs profileEnv; unchanged)
 //   Codex         a model-provider block given on the command line (`-c model_providers.hoprig.…`, checked with
@@ -26,7 +30,8 @@ export const KEY_VAR = Object.freeze({ codex: 'HOPRIG_CODEX_KEY', opencode: 'HOP
 /** The provider id Hoprig uses inside Codex's and OpenCode's config ("openai" and others are reserved by Codex). */
 export const PROVIDER_ID = 'hoprig';
 const FETCH_TIMEOUT_MS = 10_000;
-const MODEL_RE = /^[A-Za-z0-9._:/@+\-[\]]{1,120}$/;
+// A letter or digit first: an id that starts with "-" would be read as an option by the tool.
+const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/;
 
 const trimBase = (u) => String(u).trim().replace(/\/+$/, '').replace(/\/v1$/, '');
 const modelOf = (p) => (p.env && p.env.ANTHROPIC_MODEL) || (/^\*=([^,]+)$/.exec(p.models || '') || [])[1] || '';
@@ -67,7 +72,7 @@ export function toolEnv(tool, profile, base = process.env) {
 /** Codex: its command-line settings for `profile` (no self-update, and the provider block for a key). */
 export function codexArgs(profile) {
   assertServes(profile, 'codex');
-  const args = [...codex.noSelfUpdate.args];
+  const args = [...codex.noSelfUpdate.args, ...codex.keyFilter];
   const ep = endpointOf(profile);
   const set = (k, v) => args.push('-c', `${k}=${tomlString(v)}`);
   // A Codex sign-in: Codex's own OpenAI provider with its stored account, named so its config cannot choose another.

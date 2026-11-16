@@ -96,14 +96,16 @@ test('no provider variable of the shell or of another tool reaches a tool', () =
 test('Codex: no self-update, then a model-provider block on the command line and the name of the key\'s variable', () => {
   const args = T.codexArgs(P.readProfile('gw'));
   assert.deepEqual(args.slice(0, 6), ['-c', 'check_for_update_on_startup=false', '-c', 'features.daemon_auto_start=false', '-c', 'features.in_app_updates=false']);
-  assert.deepEqual(args.slice(6), [
+  // Commands Codex runs for the model never see the key variable (checked on Codex 0.169 with `codex sandbox -- env`).
+  assert.deepEqual(args.slice(6, 8), ['-c', 'shell_environment_policy.exclude=["HOPRIG_CODEX_KEY*", "HOPRIG_CODEX_WS*"]']);
+  assert.deepEqual(args.slice(8), [
     '-c', 'model_provider="hoprig"', '-c', 'model_providers.hoprig.name="Renamed"', '-c', 'model_providers.hoprig.base_url="http://127.0.0.1:9/v1"',
     '-c', 'model_providers.hoprig.env_key="HOPRIG_CODEX_KEY"', '-c', 'model_providers.hoprig.wire_api="responses"', '-c', 'model="m-big"',
   ]);
   assert.ok(!args.join(' ').includes(KEY), 'the key is never an argument');
-  assert.deepEqual(T.codexArgs(P.readProfile('oai')).slice(8, 10), ['-c', 'model_providers.hoprig.name="OpenAI API"']);
+  assert.deepEqual(T.codexArgs(P.readProfile('oai')).slice(10, 12), ['-c', 'model_providers.hoprig.name="OpenAI API"']);
   assert.ok(T.codexArgs(P.readProfile('oai')).includes('model_providers.hoprig.base_url="https://api.openai.com/v1"'));
-  assert.deepEqual(T.codexArgs(P.readProfile('codexin')), ['-c', 'check_for_update_on_startup=false', '-c', 'features.daemon_auto_start=false', '-c', 'features.in_app_updates=false', '-c', 'model_provider="openai"'], 'a Codex sign-in names Codex\'s own OpenAI provider, so its config cannot pick another');
+  assert.deepEqual(T.codexArgs(P.readProfile('codexin')), ['-c', 'check_for_update_on_startup=false', '-c', 'features.daemon_auto_start=false', '-c', 'features.in_app_updates=false', '-c', 'shell_environment_policy.exclude=["HOPRIG_CODEX_KEY*", "HOPRIG_CODEX_WS*"]', '-c', 'model_provider="openai"'], 'a Codex sign-in names Codex\'s own OpenAI provider, so its config cannot pick another');
   assert.equal(T.tomlString('a "b" \\ c\x7f'), '"a \\"b\\" \\\\ c\\u007f"');
 });
 
@@ -121,7 +123,7 @@ test('OpenCode: a provider block in a file of Hoprig\'s own, with no secret in i
   const srv = http.createServer((req, res) => {
     seen.push([req.url, req.headers.authorization || '', req.headers['x-api-key'] || '']);
     if (req.headers.authorization !== `Bearer ${KEY}`) return res.writeHead(401).end('{}');
-    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ data: [{ id: 'm-big' }, { id: 'm-other' }, { id: 'no good' }] }));
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ data: [{ id: 'm-big' }, { id: 'm-other' }, { id: 'no good' }, { id: '--auto' }] })); // "--auto" would be read as an option
   });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   try {

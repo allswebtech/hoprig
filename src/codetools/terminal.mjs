@@ -22,7 +22,7 @@ import { createRun, removeRun, updateRun } from '../runs.mjs';
 import { codexPlan, opencodePlan, standalonePlan } from './attach.mjs';
 import { findTool } from './index.mjs';
 import { providerModels } from './providers.mjs';
-import { ensureServer, serverProviders, stopIfUnused } from './servers.mjs';
+import { cleanEnv, ensureServer, serverProviders, stopIfUnused } from './servers.mjs';
 import { isToolSessionId } from './stores.mjs';
 
 export { codexStatus, codexTuiArgs, opencodeStatus, opencodeTuiArgs } from './attach.mjs';
@@ -185,15 +185,34 @@ function runChild([bin, ...args], env, follow, { report }) {
   });
 }
 
+/** `hoprig codex login|logout [args]`: Hoprig's copy of Codex signs in or out (its own sign-in, in its own folder). */
+function codexAccount(word, rest, { base = process.env } = {}) {
+  const tool = findTool('codex');
+  if (!tool.installedVersion()) {
+    console.error('hoprig: Codex is not installed in Hoprig\'s tools folder. Install it: hoprig tools install codex');
+    return Promise.resolve(127);
+  }
+  const [bin, ...args] = tool.argv([...tool.noSelfUpdate.args, word, ...rest]);
+  return new Promise((resolve) => {
+    const child = spawn(bin, args, { stdio: 'inherit', env: cleanEnv(base) });
+    child.on('error', (e) => { console.error(`hoprig: could not start Codex: ${e.message}`); resolve(127); });
+    child.on('exit', (code, signal) => resolve(code ?? (signal ? 128 : 1)));
+  });
+}
+
 export async function toolCommand(toolId, args) {
   const tool = findTool(toolId);
   const [first, ...rest] = args;
+  if (toolId === 'codex' && (first === 'login' || first === 'logout')) return codexAccount(first, rest);
   if (first === '--help' || first === '-h' || first === 'help') {
     console.log(`hoprig ${toolId} [provider] [-c | --resume <id>] [--permission-mode ${tool.options.permissionModes.join('|')}]
                  [--effort ${tool.options.efforts.join('|')}] [--model <id>] [-- <first message>]
 
   Starts ${tool.name} in this terminal on a provider that serves it. Hoprig keeps the session's status for the
-  dashboard and stops its own ${tool.name} server when the last session ends.`);
+  dashboard and stops its own ${tool.name} server when the last session ends.${toolId === 'codex' ? `
+
+hoprig codex login [--device-auth] | login status | logout
+  Codex's own sign-in (for a "Codex sign-in" provider), with Hoprig's copy of Codex.` : ''}`);
     return 0;
   }
   if (first && !first.startsWith('-') && validName(first) && readProfile(first)) return launchTool(toolId, first, rest);

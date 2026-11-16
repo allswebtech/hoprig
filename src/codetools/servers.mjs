@@ -85,7 +85,7 @@ export function codexBlockArgs(prov) {
 export function codexServerArgs(provs, { port, tokenFile }) {
   const first = provs.find((p) => !p.signin);
   return [
-    'app-server', ...codex.noSelfUpdate.args,
+    'app-server', ...codex.noSelfUpdate.args, ...codex.keyFilter,
     // Its own default would be OpenAI's account: a terminal then asks to sign in before anything else.
     ...(first ? ['-c', `model_provider=${tomlString(first.id)}`] : []),
     ...provs.flatMap(codexBlockArgs),
@@ -98,7 +98,7 @@ export function opencodeServerConfig(provs, modelsOf = () => []) {
   const providers = {};
   for (const p of provs) {
     const pkg = (p.shapes.length ? p.shapes.includes('messages') : p.kind !== 'openai') ? '@opencode/ai/providers/anthropic-compatible' : '@opencode/ai/providers/openai-compatible';
-    const ids = [...new Set([p.model, ...modelsOf(p)].filter((m) => typeof m === 'string' && /^[A-Za-z0-9._:/@+\-[\]]{1,120}$/.test(m)))].slice(0, 200);
+    const ids = [...new Set([p.model, ...modelsOf(p)].filter((m) => typeof m === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/.test(m)))].slice(0, 200);
     providers[p.id] = { name: p.label, package: pkg, settings: { baseURL: `${p.base}/v1`, apiKey: `{env:${p.keyVar}}` }, models: Object.fromEntries(ids.map((id) => [id, { name: id }])) };
   }
   return { $schema: 'https://opencode.ai/config.json', ...NO_SELF_UPDATE.config, providers };

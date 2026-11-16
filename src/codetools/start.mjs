@@ -3,7 +3,8 @@
 import fs from 'node:fs';
 import { enabledToolIds, findTool, TOOL_IDS } from './index.mjs';
 
-const MODEL_RE = /^[A-Za-z0-9._:/@+\-[\]]{1,120}$/;
+// A letter or digit first: an id that starts with "-" would be read as an option by the tool.
+const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/;
 const bad = (message) => Object.assign(new Error(message), { status: 400 });
 
 /** The coding tool named by a request (absent: Claude Code). Throws a 400 for anything else. */

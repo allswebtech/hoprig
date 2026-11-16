@@ -590,6 +590,9 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); border-ra
 .acct-test svg { flex: none; margin-top: 2px; }
 .acct-test.test-ok svg { color: var(--ok); }
 .acct-test.test-bad svg { color: var(--danger); }
+/* Settings → Coding tools */
+.ct-scope { margin: 0 0 12px; }
+.ct-start { margin-top: 10px; display: grid; gap: 8px; }
 .row.row-busy { cursor: progress; opacity: .85; }
 .row.row-busy .row-end svg { display: none; }
 .row.row-busy .row-end::before { content: ''; display: block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); border-top-color: transparent; animation: spin .7s linear infinite; }
