@@ -36,19 +36,19 @@ function processes(view, call) {
   let failed = null;
   const status = h('span.dapp-status', { role: 'status' });
   const t = table('Processes', [
-    { key: 'name', label: 'Name', w: 'minmax(120px, 1.2fr)' },
-    { key: 'pid', label: 'PID', num: true, w: '72px' },
-    { key: 'user', label: 'User', w: 'minmax(70px, .6fr)' },
-    { key: 'cpu', label: 'CPU', num: true, w: '70px' },
-    { key: 'rss', label: 'Memory', num: true, w: '86px' },
-    { key: 'args', label: 'Command', w: 'minmax(160px, 2.4fr)' },
-    { key: 'end', label: '', sort: false, w: '44px' },
+    { key: 'name', label: 'Name', w: 'minmax(120px, 1.2fr)', narrow: 'minmax(0, 1fr)' },
+    { key: 'pid', label: 'PID', num: true, w: '72px', narrow: false },
+    { key: 'user', label: 'User', w: 'minmax(70px, .6fr)', narrow: false },
+    { key: 'cpu', label: 'CPU', num: true, w: '70px', narrow: '58px' },
+    { key: 'rss', label: 'Memory', num: true, w: '86px', narrow: '74px' },
+    { key: 'args', label: 'Command', w: 'minmax(160px, 2.4fr)', narrow: false },
+    { key: 'end', label: '', sort: false, w: '44px', narrow: '36px' },
   ], { sort: { key: 'cpu', desc: true }, onSort: () => draw() });
 
   const endBtn = (p) => {
     if (p.guarded) return h('span.dapp-lock', { title: 'This dashboard, or a program it runs inside: it is not ended from here' }, icon('lock', { size: 14 }));
     if (p.mine === false) return h('span.dapp-lock', { title: 'Started by another user: it cannot be ended from here' }, icon('lock', { size: 14 }));
-    return h('button.dwin-btn.dapp-end', { type: 'button', title: `End ${p.name}`, 'aria-label': `End ${p.name} (${p.pid})`, onclick: () => endIt(p) }, icon('x', { size: 14 }));
+    return h('button.dapp-btn.dapp-end', { type: 'button', title: `End ${p.name}`, 'aria-label': `End ${p.name} (${p.pid})`, onclick: () => endIt(p) }, icon('x', { size: 14 }));
   };
   function draw() {
     const s = q.trim().toLowerCase();
@@ -98,7 +98,7 @@ function processes(view, call) {
     q = v;
     draw();
   }), status), err, t.el);
-  return () => p.stop();
+  return () => (p.stop(), t.stop());
 }
 
 // ---------- performance ----------
@@ -141,12 +141,12 @@ function performance(view, call) {
 
 function disks(view, call) {
   const t = table('Disks', [
-    { key: 'mount', label: 'Mounted at', w: 'minmax(140px, 1.6fr)' },
-    { key: 'fs', label: 'Device', w: 'minmax(110px, 1fr)' },
-    { key: 'size', label: 'Size', num: true, w: '86px' },
-    { key: 'used', label: 'Used', num: true, w: '86px' },
-    { key: 'avail', label: 'Free', num: true, w: '86px' },
-    { key: 'share', label: 'Use', num: true, w: 'minmax(110px, 1fr)' },
+    { key: 'mount', label: 'Mounted at', w: 'minmax(140px, 1.6fr)', narrow: 'minmax(0, 1fr)' },
+    { key: 'fs', label: 'Device', w: 'minmax(110px, 1fr)', narrow: false },
+    { key: 'size', label: 'Size', num: true, w: '86px', narrow: '74px' },
+    { key: 'used', label: 'Used', num: true, w: '86px', narrow: false },
+    { key: 'avail', label: 'Free', num: true, w: '86px', narrow: '74px' },
+    { key: 'share', label: 'Use', num: true, w: 'minmax(110px, 1fr)', narrow: '60px' },
   ], { sort: { key: 'mount', desc: false }, onSort: () => draw() });
   let list = [];
   const err = h('div');
@@ -164,7 +164,7 @@ function disks(view, call) {
     draw();
   }, 10_000);
   fill(view, err, t.el);
-  return () => p.stop();
+  return () => (p.stop(), t.stop());
 }
 
 // ---------- network ----------
@@ -172,10 +172,10 @@ function disks(view, call) {
 function network(view, call) {
   const ifaces = h('div.dapp-ifaces');
   const ports = table('Listening ports', [
-    { key: 'port', label: 'Port', num: true, w: '80px' },
-    { key: 'addr', label: 'Address', w: 'minmax(120px, 1fr)' },
-    { key: 'process', label: 'Program', w: 'minmax(120px, 1fr)' },
-    { key: 'pid', label: 'PID', num: true, w: '80px' },
+    { key: 'port', label: 'Port', num: true, w: '80px', narrow: '56px' },
+    { key: 'addr', label: 'Address', w: 'minmax(120px, 1fr)', narrow: 'minmax(0, 1fr)' },
+    { key: 'process', label: 'Program', w: 'minmax(120px, 1fr)', narrow: 'minmax(0, 1fr)' },
+    { key: 'pid', label: 'PID', num: true, w: '80px', narrow: false },
   ], { sort: { key: 'port', desc: false }, onSort: () => drawPorts() });
   let portList = [];
   const drawPorts = () => ports.draw(sortBy(portList, ports.sort.key, ports.sort.desc).map((x) => ({
@@ -204,5 +204,5 @@ function network(view, call) {
     drawPorts();
   }, 3000);
   fill(view, h('div.dapp-scroll', err, ifaces, h('h3.dapp-sub', 'Listening ports'), ports.el));
-  return () => p.stop();
+  return () => (p.stop(), ports.stop());
 }

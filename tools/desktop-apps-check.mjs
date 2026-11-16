@@ -174,13 +174,13 @@ try {
     }
     check(P, 'the three apps open from the dock, each with a dot', await waitFor(`['tasks', 'services', 'logs'].every((a) => document.querySelector('.desk-dock-item[data-app="' + a + '"]').dataset.open === '1')`));
     check(P, 'each draws its content, in dark colours', await waitFor(`document.querySelectorAll('${W('tasks')} .dapp-tbody .dapp-tr').length >= 5 && document.querySelectorAll('${W('services')} .dapp-tbody .dapp-tr').length >= 3 && document.querySelectorAll('${W('logs')} .dapp-entry').length >= 5 && getComputedStyle(document.querySelector('${W('logs')} .dapp-journal')).backgroundColor !== 'rgb(255, 255, 255)'`, 10000));
-    // Side by side: Task manager left, Services top right, Logs bottom right (through the window menu's keys).
-    await ev(`document.querySelector('${W('tasks')} .dwin-bar').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+    // Side by side with the keys: Task manager left, Services top right, Logs bottom right.
+    await press('.desk-dock-item[data-app="tasks"]'); // a window behind comes to the front
     await key('ArrowLeft', 'ArrowLeft', 1 | 8, 37);
-    await ev(`document.querySelector('${W('services')} .dwin-bar').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+    await press('.desk-dock-item[data-app="services"]'); // a window behind comes to the front
     await key('ArrowRight', 'ArrowRight', 1 | 8, 39);
     await key('ArrowUp', 'ArrowUp', 1 | 8, 38);
-    await ev(`document.querySelector('${W('logs')} .dwin-bar').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+    await press('.desk-dock-item[data-app="logs"]'); // a window behind comes to the front
     await key('ArrowRight', 'ArrowRight', 1 | 8, 39);
     await key('ArrowDown', 'ArrowDown', 1 | 8, 40);
     await sleep(2500);

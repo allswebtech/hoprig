@@ -195,13 +195,16 @@ body.desk-mode[data-desk-style='dock'] .toasts { top: 42px; }
 .dapp-cmd-full { overflow-wrap: anywhere; color: var(--text-2); }
 .dapp-own { color: var(--muted); }
 .dapp-lock { display: inline-grid; place-items: center; width: 32px; color: var(--muted); }
-.dapp .dwin-btn:disabled { opacity: .4; cursor: default; }
+.dapp-btn { width: 32px; height: 28px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.dapp-btn:hover { background: var(--surface-3); color: var(--text); }
+.dapp-btn:disabled { opacity: .4; cursor: default; }
 .dapp-end:hover { background: var(--danger-solid, var(--danger)); color: var(--on-solid); }
 .dapp-share { display: grid; grid-template-columns: 1fr 48px; align-items: center; gap: 8px; }
 .dapp-picked { background: var(--accent-soft); }
 .dapp-link { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dapp-link:hover { color: var(--accent); text-decoration: underline; }
 .dapp-acts { display: inline-flex; gap: 2px; }
+.dapp-tr .badge { margin-left: 0; }
 .pill.dapp-st-running { background: var(--ok-soft); color: var(--ok); }
 .pill.dapp-st-failed { background: var(--danger-soft); color: var(--danger); }
 
@@ -246,5 +249,6 @@ body.desk-mode[data-desk-style='dock'] .toasts { top: 42px; }
 @media (max-width: 700px) {
   .dapp-page { height: calc(100vh - 230px); }
   .dapp-entry { grid-template-columns: 1fr; gap: 0; padding: 6px 12px; border-bottom: 1px solid var(--border); }
-  .dapp-tr { gap: 6px; padding: 0 6px; min-width: 600px; }
+  .dapp-tr { gap: 6px; padding: 0 6px; }
+  .dapp-st-sub { display: none; }
 }

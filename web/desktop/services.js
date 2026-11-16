@@ -49,17 +49,17 @@ export function mount(root, { machine }) {
   const status = h('span.dapp-status', { role: 'status' });
   const scopeBox = h('span');
   const t = table('Services', [
-    { key: 'name', label: 'Name', w: 'minmax(150px, 1.3fr)' },
-    { key: 'description', label: 'What it is', w: 'minmax(140px, 1.6fr)' },
-    { key: 'group', label: 'State', w: '150px' },
-    { key: 'enabled', label: 'At start-up', w: '100px' },
-    { key: 'act', label: '', sort: false, w: '118px' },
+    { key: 'name', label: 'Name', w: 'minmax(150px, 1.3fr)', narrow: 'minmax(0, 1fr)' },
+    { key: 'description', label: 'What it is', w: 'minmax(140px, 1.6fr)', narrow: false },
+    { key: 'group', label: 'State', w: '150px', narrow: 'auto' },
+    { key: 'enabled', label: 'At start-up', w: '100px', narrow: false },
+    { key: 'act', label: '', sort: false, w: '112px', narrow: 'auto' },
   ], { sort: { key: 'name', desc: false }, onSort: () => draw() });
   const logHead = h('div.dapp-loghead');
   const logBody = h('pre.dapp-log.mono', { tabindex: '0' });
   const logPane = h('section.dapp-logpane.hidden', { 'aria-label': 'The service\'s log' }, logHead, logBody);
 
-  const actBtn = (s, action, ic) => h('button.dwin-btn', { type: 'button', title: `${VERB[action]} ${s.name}`, 'aria-label': `${VERB[action]} ${s.name}`, disabled: busy.has(s.name), onclick: (e) => {
+  const actBtn = (s, action, ic) => h('button.dapp-btn', { type: 'button', title: `${VERB[action]} ${s.name}`, 'aria-label': `${VERB[action]} ${s.name}`, disabled: busy.has(s.name), onclick: (e) => {
     e.stopPropagation();
     act(s, action);
   } }, icon(ic, { size: 14 }));
@@ -80,7 +80,7 @@ export function mount(root, { machine }) {
       cells: [
         h('button.dapp-link', { type: 'button', title: `The log of ${x.name}`, onclick: () => showLog(x.name) }, x.name, x.ssh ? h('span.badge.soft', 'SSH') : null),
         h('span.dapp-dim', { title: x.description }, x.description || '–'),
-        h(`span.pill.dapp-st-${x.group}`, h('span.dot'), x.sub && x.sub !== x.active ? `${x.active} (${x.sub})` : x.active),
+        h(`span.pill.dapp-st-${x.group}`, h('span.dot'), h('span.dapp-st-word', x.active), x.sub && x.sub !== x.active ? h('span.dapp-st-sub', ` (${x.sub})`) : null),
         h('span.dapp-dim', x.enabled || '–'),
         actions(x),
       ],
@@ -164,8 +164,8 @@ export function mount(root, { machine }) {
     draw();
     logPane.classList.remove('hidden');
     fill(logHead, h('strong', name), h('span.hint', `the last ${LOG_LINES} lines`), h('span.desk-grow'),
-      h('button.dwin-btn', { type: 'button', title: 'Read again', 'aria-label': 'Read the log again', onclick: () => showLog(name) }, icon('refresh', { size: 14 })),
-      h('button.dwin-btn', { type: 'button', title: 'Close the log', 'aria-label': 'Close the log', onclick: () => {
+      h('button.dapp-btn', { type: 'button', title: 'Read again', 'aria-label': 'Read the log again', onclick: () => showLog(name) }, icon('refresh', { size: 14 })),
+      h('button.dapp-btn', { type: 'button', title: 'Close the log', 'aria-label': 'Close the log', onclick: () => {
         chosen = null;
         logPane.classList.add('hidden');
         draw();
@@ -194,5 +194,5 @@ export function mount(root, { machine }) {
     note, h('div.dapp-split', t.el, logPane));
   root.classList.add('dapp-services');
   const list = poll(root, load, 5000);
-  return () => list.stop();
+  return () => (list.stop(), t.stop());
 }

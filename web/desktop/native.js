@@ -84,32 +84,58 @@ export function choice(label, options, current, onPick) {
 /** A search field that calls onInput(text) as it is typed. */
 export const filterField = (placeholder, onInput) => h('input.field.dapp-filter', { type: 'search', placeholder, 'aria-label': placeholder, autocomplete: 'off', spellcheck: 'false', oninput: (e) => onInput(e.target.value) });
 
+/** Below this width a table shows its narrow columns only (a phone, or a small window). */
+const NARROW_PX = 560;
+
 /**
- * A table of `cols` [{ key, label, num?, w (a grid track), sort? (false: not sortable) }] in a scrolling box. Returns
- * { el, draw(rows: [{ key, cells: [node|text…], cls? }]) , sort: { key, desc } }. A press on a column head sorts by
- * it (again: the other way) and calls onSort().
+ * A table of `cols` [{ key, label, num?, w (a grid track), narrow? (its track when the table is narrow; false: left
+ * out then), sort? (false: not sortable) }] in a box that scrolls. Returns { el, draw(rows: [{ key, cells: [node |
+ * text…], cls? }]), sort: { key, desc } }. A press on a column head sorts by it (again: the other way) and calls
+ * onSort(). How wide the table is decides its columns each time it is drawn, so a window can be any size.
  */
 export function table(label, cols, { sort = null, onSort = () => {} } = {}) {
   const state = { key: sort ? sort.key : null, desc: sort ? sort.desc : false };
-  const tracks = cols.map((c) => c.w || '1fr').join(' ');
-  const head = h('div.dapp-tr.dapp-th', { role: 'row', style: { gridTemplateColumns: tracks } });
+  const head = h('div.dapp-tr.dapp-th', { role: 'row' });
   const body = h('div.dapp-tbody', { role: 'rowgroup' });
-  const paintHead = () => fill(head, cols.map((c) => {
-    const on = state.key === c.key;
-    const text = [h('span', c.label), on ? icon(state.desc ? 'down' : 'up', { size: 12 }) : null];
-    if (c.sort === false) return h(`span.dapp-td${c.num ? '.dapp-num' : ''}`, { role: 'columnheader' }, c.label);
-    return h(`button.dapp-sort${c.num ? '.dapp-num' : ''}`, { type: 'button', role: 'columnheader', 'aria-sort': on ? (state.desc ? 'descending' : 'ascending') : 'none', onclick: () => {
-      state.desc = on ? !state.desc : !!c.num;
-      state.key = c.key;
-      paintHead();
-      onSort();
-    } }, text);
-  }));
-  paintHead();
   const el = h('div.dapp-table', { role: 'table', 'aria-label': label }, head, body);
-  const draw = (rows) => fill(body, rows.map((r) => h(`div.dapp-tr${r.cls ? `.${r.cls}` : ''}`, { role: 'row', style: { gridTemplateColumns: tracks }, dataset: { key: String(r.key) } },
-    r.cells.map((c, i) => h(`span.dapp-td${cols[i].num ? '.dapp-num' : ''}`, { role: 'cell' }, c)))));
-  return { el, draw, sort: state };
+  let last = [];
+  const layout = () => {
+    const narrow = el.clientWidth > 0 && el.clientWidth < NARROW_PX;
+    const idx = cols.map((c, i) => i).filter((i) => !(narrow && cols[i].narrow === false));
+    return { idx, tracks: idx.map((i) => (narrow && cols[i].narrow) || cols[i].w || '1fr').join(' ') };
+  };
+  const paintHead = ({ idx, tracks }) => {
+    head.style.gridTemplateColumns = tracks;
+    fill(head, idx.map((i) => {
+      const c = cols[i];
+      const on = state.key === c.key;
+      if (c.sort === false) return h(`span.dapp-td${c.num ? '.dapp-num' : ''}`, { role: 'columnheader' }, c.label);
+      return h(`button.dapp-sort${c.num ? '.dapp-num' : ''}`, { type: 'button', role: 'columnheader', 'aria-sort': on ? (state.desc ? 'descending' : 'ascending') : 'none', onclick: () => {
+        state.desc = on ? !state.desc : !!c.num;
+        state.key = c.key;
+        onSort();
+      } }, h('span', c.label), on ? icon(state.desc ? 'down' : 'up', { size: 12 }) : null);
+    }));
+  };
+  const draw = (rows) => {
+    last = rows;
+    const l = layout();
+    paintHead(l);
+    fill(body, rows.map((r) => h(`div.dapp-tr${r.cls ? `.${r.cls}` : ''}`, { role: 'row', style: { gridTemplateColumns: l.tracks }, dataset: { key: String(r.key) } },
+      l.idx.map((i) => h(`span.dapp-td${cols[i].num ? '.dapp-num' : ''}`, { role: 'cell' }, r.cells[i])))));
+  };
+  // A window made narrower or wider: the same rows with the columns that fit.
+  let wasNarrow = null;
+  const sizer = new ResizeObserver(() => {
+    const n = el.clientWidth > 0 && el.clientWidth < NARROW_PX;
+    if (n !== wasNarrow) {
+      wasNarrow = n;
+      draw(last);
+    }
+  });
+  sizer.observe(el);
+  paintHead(layout());
+  return { el, draw, sort: state, stop: () => sizer.disconnect() };
 }
 
 /** Sort `list` by `key` of each item (numbers, else text), `desc` the other way; nulls last. */
