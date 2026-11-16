@@ -181,7 +181,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
         select('Provider', st.profile, [['', chat ? same : 'The first that serves it'], ...profiles.map((p) => [p.name, `${p.label} · ${KIND[p.kind] || p.kind} · ${profileState(p).text}`])], (v) => (st.profile = v)),
         select(`What ${toolName()} may do without asking`, modes.some(([x]) => x === st.permissionMode) ? st.permissionMode : '', [['', chat ? same : `${toolName()}'s own rules`], ...modes], (v) => (st.permissionMode = v),
           st.permissionMode === 'bypassPermissions' ? `${toolName()} can run any command and change any file without asking.` : null),
-        select('How hard it thinks', st.effort, [['', same], ...(info.efforts || Object.keys(EFFORT)).map((x) => [x, EFFORT[x] || x])], (v) => (st.effort = v)),
+        select('How hard it thinks', st.effort, [['', chat ? same : 'The model\'s own default'], ...(info.efforts || Object.keys(EFFORT)).map((x) => [x, EFFORT[x] || x])], (v) => (st.effort = v)),
         select('Conversation', st.conversation, [['new', 'A new conversation'], ['continue', 'Continue the last one in the folder'], ['pick', 'Pick an earlier one']], (v) => (st.conversation = v)));
     }
     fill(opts, run,
@@ -374,6 +374,9 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
   // ---------- the coding tool: first, where there is more than one ----------
   function paintTools() {
     if (!several()) return fill(toolSlot);
+    // The intro names Claude; with several coding tools it names the one chosen, or none.
+    const intro = document.querySelector('.page-intro');
+    if (intro) intro.textContent = `Pick a project: a chat${st.tool ? ` with ${toolName()}` : ''} opens there, set up as your last chat in that project. A terminal instead, and the rest, are under Options.`;
     if (st.tool && !toolInfo() && st.tool !== 'claude') st.tool = '';
     fill(toolSlot, groupHead('Coding tool'),
       h('div.ns-pcs', { role: 'radiogroup', 'aria-label': 'Coding tool' }, tools().map((t) => {

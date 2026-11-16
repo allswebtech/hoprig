@@ -342,6 +342,7 @@ article.card:hover { box-shadow: var(--shadow-2); }
 .ns-pc:disabled { cursor: not-allowed; box-shadow: none; background: var(--surface-2); color: var(--muted); }
 .ns-pc-icon { width: 34px; height: 34px; border-radius: var(--r); display: grid; place-items: center; background: var(--surface-3); color: var(--text-2); flex: none; }
 .ns-pc.on .ns-pc-icon { background: var(--surface); color: var(--accent); }
+.ns-toolhint { margin: 0 0 14px; } /* under the coding tool's choice (newsession.js) */
 .ns-pc-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ns-pc-name { font-weight: 600; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-pc-sub { font-size: var(--fs-xs); color: var(--muted); }

@@ -23,7 +23,7 @@ export function askCard(ev, o) {
   const actions = h('div.chat-ask-actions');
   const body = h('div.chat-ask-body');
   const extra = h('div.chat-ask-extra'); // the deny reason, the plan note
-  const title = askTitle(ev.tool, ev.input || {});
+  const title = askTitle(ev.tool, ev.input || {}, who);
   const el = h(`section.chat-item.chat-ask.chat-ask-${ev.type || 'permission'}`, { 'aria-label': title, tabindex: '-1' },
     h('div.chat-ask-head', icon(ev.type === 'question' ? 'info' : ev.type === 'plan' ? 'book' : 'alert', { size: 18 }), h('strong', title)),
     ev.description && !FILE_TOOLS.includes(ev.tool) ? h('p.chat-hint', ev.description) : null,
@@ -31,7 +31,7 @@ export function askCard(ev, o) {
     ev.why ? h('p.chat-hint.chat-ask-why', icon('info', { size: 14 }), h('span', ev.why)) : null,
     actions, extra,
     // Claude Code's rule in words; it may cover only a part of a longer command, and then says so.
-    ev.canAlways && ev.alwaysText ? h('p.chat-hint.chat-ask-scope', alwaysWords(ev)) : null,
+    ev.canAlways && ev.alwaysText ? h('p.chat-hint.chat-ask-scope', alwaysWords(ev, who)) : null,
     status);
   let keys = [];
   let busy = false;

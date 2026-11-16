@@ -2,7 +2,7 @@
 // a chat) and the rewind to before one of the owner's messages (files, conversation or both), with a confirm that
 // says what each does.
 import { icon } from '../icons.js';
-import { TOOL_NAMES, ago, api, chooseSheet, fill, h, link, openSheet, toast, toolBadge } from '../lib.js';
+import { TOOL_NAMES, ago, api, chooseSheet, fill, h, link, openSheet, toast } from '../lib.js';
 import { store } from '../store.js';
 import { inFolder } from './words.js';
 
@@ -25,7 +25,7 @@ export async function historySheet({ A, v }) {
     const paint = (q = '') => fill(rows, list.filter((c) => !q || (c.title || '').toLowerCase().includes(q.toLowerCase())).map((c) =>
       h(`button.choice${c.current ? '.current' : ''}`, { type: 'button', onclick: () => close(c) },
         h('span.choice-icon', icon('text')),
-        h('span.choice-main', h('span.choice-label', c.title || '(no words yet)', toolBadge(tool), c.current ? h('span.badge', 'This chat') : c.chat ? h('span.badge', 'Open') : null), h('span.choice-sub', ago(c.at))),
+        h('span.choice-main', h('span.choice-label', c.title || '(no words yet)', c.current ? h('span.badge', 'This chat') : c.chat ? h('span.badge', 'Open') : null), h('span.choice-sub', ago(c.at))),
         h('span.choice-end', icon(c.current ? 'check' : 'chevronRight')))));
     search?.addEventListener('input', () => paint(search.value.trim()));
     paint();

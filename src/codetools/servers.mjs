@@ -257,9 +257,14 @@ export const serverUsers = (tool, { except = null, runs = listRuns() } = {}) => 
   ...holders(tool).map((pid) => ({ runId: `chat-${pid}`, tool, server: true, chats: true })),
 ];
 
-async function stopLocked(tool, { fetchImpl } = {}) {
+async function stopLocked(tool, { fetchImpl, why = 'asked to' } = {}) {
   const s = readServer(tool);
   if (s && (await isServerProcess(tool, s, { fetchImpl }))) {
+    try {
+      fs.appendFileSync(logFile(tool), `--- stopped by Hoprig at ${new Date().toISOString()} (process ${process.pid}): ${why}\n`);
+    } catch {
+      /* no log: it stops all the same */
+    }
     const kill = (sig) => {
       try {
         process.kill(-s.pid, sig); // started detached: its own process group, with its helpers
@@ -306,7 +311,7 @@ export function stopIfUnused(tool, { except = null, idleMs = 0, now = Date.now()
     if (!s) return false;
     if (serverUsers(tool, { except }).length) return false;
     if (idleMs && now - (s.usedAt || s.startedAt || 0) < idleMs) return false;
-    await stopLocked(tool);
+    await stopLocked(tool, { why: 'no session uses it' });
     return true;
   });
 }
@@ -323,7 +328,8 @@ export function ensureServer(tool, { need = null, except = null, base = process.
   const provs = serverProviders(tool, profiles);
   return withLock(tool, async () => {
     const s = readServer(tool);
-    if (s && (await isServerProcess(tool, s, { fetchImpl })) && (await healthy(tool, s, { fetchImpl }))) {
+    const proc = !!s && (await isServerProcess(tool, s, { fetchImpl }));
+    if (proc && (await healthy(tool, s, { fetchImpl }))) {
       const has = !need || provs.some((p) => p.name === need && (s.providers || []).some((q) => q.name === p.name && q.fp === p.fp));
       if (has) {
         writeState(tool, { ...s, usedAt: Date.now() });
@@ -332,7 +338,7 @@ export function ensureServer(tool, { need = null, except = null, base = process.
       // The caller's own run (a launcher marks itself a user before it asks) does not keep the server.
       if (serverUsers(tool, { except }).length) return { ok: false, why: 'the server was started before this provider was added or changed, and other sessions use it' };
     }
-    await stopLocked(tool, { fetchImpl });
+    await stopLocked(tool, { fetchImpl, why: proc ? 'it did not answer, or a provider changed' : 'it was gone' });
     return start(tool, provs, { bin, base, fetchImpl, spawnImpl });
   });
 }
@@ -364,7 +370,13 @@ async function start(tool, provs, { bin, base, fetchImpl, spawnImpl }) {
     Object.assign(env, { OPENCODE_PASSWORD: secret, OPENCODE_CONFIG: configFile() });
     args = ['serve', '--hostname', '127.0.0.1', '--port', String(port)];
   }
-  fs.writeFileSync(logFile(tool), '', { mode: 0o600 });
+  // Kept across starts (the end of the previous one says why it ended), cut when it grows large.
+  try {
+    if (fs.statSync(logFile(tool)).size > 1024 * 1024) fs.writeFileSync(logFile(tool), '', { mode: 0o600 });
+  } catch {
+    fs.writeFileSync(logFile(tool), '', { mode: 0o600 });
+  }
+  fs.appendFileSync(logFile(tool), `--- started by Hoprig at ${new Date().toISOString()} (process ${process.pid})\n`);
   const [file, ...pre] = DESCRIPTOR[tool].argv(args);
   const pid = await (spawnImpl ? spawnDirect(spawnImpl, file, pre, env, logFile(tool)) : spawnDaemon(file, pre, env, logFile(tool)));
   const s = { tool, pid, port, secret, providers: provs.map((p) => ({ name: p.name, id: p.id, fp: p.fp })), startedAt: Date.now(), usedAt: Date.now() };
