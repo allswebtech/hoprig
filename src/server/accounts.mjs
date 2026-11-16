@@ -11,8 +11,10 @@
 //   OpenAI-compatible     base URL + key for OpenAI's API (or a service that speaks it), for OpenCode (and Codex): the
 //                         same steps, tested with the Responses API and chat completions; saved as OPENAI_API_KEY.
 //   Codex sign-in         the ChatGPT account Codex keeps itself (`codex login`): a provider file that says so
-//                         (SIGNIN=codex), no key. For Codex only. Offered only while Codex is (src/codetools/index.mjs);
+//                         (SIGNIN=codex), no key. For Codex only. Offered only while Codex is (src/codetools/offered.mjs);
 //                         until then such a file is listed with `unusable: true` and is not used.
+// A provider that serves none of the offered coding tools (that sign-in, or a key that answers only Codex's API) is
+// listed with `unusable: true` (as profiles.mjs publicProfile says it in /api/state).
 //
 // Which coding tools a provider serves is profiles.mjs servesTools; "Test" on a provider asks the endpoint which API
 // shapes it answers (probeShapes) and saves them as its API= line.
@@ -368,6 +370,7 @@ export function accountsFeature(ctx, opts = {}) {
     return all.map((p) => {
       const s = st.profiles.find((x) => x.name === p.name) || {};
       const k = stored(p);
+      const tools = offered(servesTools(p));
       let host = '';
       try {
         host = KEYED.includes(p.kind) ? new URL(k.baseUrl).host : '';
@@ -376,14 +379,14 @@ export function accountsFeature(ctx, opts = {}) {
       }
       return {
         name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, host, model: KEYED.includes(p.kind) ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
-        tools: offered(servesTools(p)), api: p.api || [],
+        tools, api: p.api || [], ...(tools.length ? {} : { unusable: true }),
         viaTrouteai: Boolean(p.prerun && /addons start trouteai/.test(p.prerun)),
         remote: remote.has(p.name) ? (({ computer, title, state, text }) => ({ computer, title: title || null, state, text }))(remote.get(p.name)) : null,
         limited: s.limited || null, usage: s.usage || null, inUse: s.inUse || 0, inAuto: order.includes(p.name),
         // providers that sign in: is the sign-in there, its plan, and whether that plan reports usage at all
         ...('signedIn' in s ? { signedIn: s.signedIn, plan: s.plan ?? null, usageReported: s.usageReported ?? null } : {}),
-        // A sign-in kind of a coding tool this version does not offer (a file from a version that did): kept, not used.
-        ...(p.kind === 'chatgpt' ? (codexOffered() ? { signedIn: codexIn } : { unusable: true }) : {}),
+        // Codex's own sign-in, while Codex is offered (else the file is from a version that offered it: `unusable`).
+        ...(p.kind === 'chatgpt' && tools.length ? { signedIn: codexIn } : {}),
       };
     });
   }

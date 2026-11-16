@@ -398,6 +398,14 @@ test('an OpenAI-compatible key: added, which offered tools it serves, and Test s
     const st = (await call('/api/state')).json;
     assert.deepEqual([st.profiles.find((x) => x.name === 'chatgpt').tools, st.profiles.find((x) => x.name === 'chatgpt').unusable], [[], true]);
     assert.deepEqual(st.profiles.find((x) => x.name === 'openai').tools, ['opencode']);
+    // A key that answers only Codex's API serves no coding tool of this version: the same `unusable`, on both lists.
+    writeProfile('resp', { label: 'Responses only', api: ['responses'], env: { OPENAI_API_KEY: 'sk-resp-only-0123456789' } });
+    a = (await call('/api/accounts')).json.accounts.find((x) => x.name === 'resp');
+    assert.deepEqual([a.kind, a.tools, a.unusable, 'signedIn' in a], ['openai', [], true, false]);
+    const st2 = (await call('/api/state')).json;
+    assert.deepEqual([st2.profiles.find((x) => x.name === 'resp').tools, st2.profiles.find((x) => x.name === 'resp').unusable], [[], true]);
+    assert.equal(st2.profiles.find((x) => x.name === 'openai').unusable, undefined);
+    await call('/api/accounts/resp/delete', {});
     r = await call('/api/sessions', { dir: os.homedir(), profile: 'openai', mode: 'new' });
     assert.equal(r.status, 400);
     assert.match(r.json.error, /cannot be used for Claude Code/);

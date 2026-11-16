@@ -23,8 +23,11 @@
 // "chat" (what those services answer); "Test" on the Providers page asks the endpoint and writes the line.
 //
 // Values are secrets: nothing here prints them, and publicProfile() is the only shape that may leave the machine.
+// It names only the coding tools this version offers (src/codetools/offered.mjs), and a provider that serves none
+// of them (a Codex sign-in, a key that answers only Codex's API) comes with `unusable: true`: kept, not used.
 import fs from 'node:fs';
 import path from 'node:path';
+import { offeredOnly } from './codetools/offered.mjs';
 import { profilesDir } from './paths.mjs';
 
 export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -167,15 +170,34 @@ export function servesTools(p) {
   return p.tools && p.tools.length ? out.filter((t) => p.tools.includes(t)) : out;
 }
 
-/** Throws a plain sentence when `p` may not be used for coding tool `tool`. */
-export function assertServes(p, tool) {
-  if (servesTools(p).includes(tool)) return;
+/** The plain sentence that says why `p` may not be used for coding tool `tool` ('' when it may). */
+export function whyNotServed(p, tool) {
+  if (servesTools(p).includes(tool)) return '';
   const name = TOOL_NAMES[tool] || tool;
   const kind = p ? p.kind || kindOf(p.env || {}, { SIGNIN: p.signin }) : '';
   const why = kind === 'login' || kind === 'subscription' || kind === 'auto' ? 'a Claude subscription is for Claude Code only'
     : kind === 'chatgpt' ? 'it is the sign-in of another coding tool'
       : 'it does not answer the API that tool speaks (Test it on the Providers page, or choose another provider)';
-  throw Object.assign(new Error(`The provider "${p ? p.label || p.name : '?'}" cannot be used for ${name}: ${why}.`), { status: 400 });
+  return `The provider "${p ? p.label || p.name : '?'}" cannot be used for ${name}: ${why}.`;
+}
+
+/** Throws the sentence of whyNotServed (status 400) when `p` may not be used for coding tool `tool`. */
+export function assertServes(p, tool) {
+  const why = whyNotServed(p, tool);
+  if (why) throw Object.assign(new Error(why), { status: 400 });
+}
+
+/**
+ * For the command line, when `p` cannot start `tool`: why, and the one thing to do instead (the command of a coding
+ * tool this version offers that can use it, else how to pick or add another provider). Two lines.
+ */
+export function notServedLines(p, tool) {
+  const other = offeredOnly(servesTools(p)).filter((t) => t !== tool);
+  const cmd = (t) => (t === 'claude' ? `hoprig ${p.name}` : `hoprig ${t} ${p.name}`);
+  return [
+    `hoprig: ${whyNotServed(p, tool)}`,
+    other.length ? `It works with ${other.map((t) => TOOL_NAMES[t]).join(' and ')}: ${cmd(other[0])}` : 'Choose another provider (hoprig profiles), or add one: hoprig add',
+  ];
 }
 
 /**
@@ -208,9 +230,13 @@ export function listProfiles() {
     .filter(Boolean);
 }
 
-/** The only view of a profile that may be shown outside this machine: no values. */
+/**
+ * The only view of a profile that may be shown outside this machine: no values, and only the coding tools this
+ * version offers (a provider that serves none of them is `unusable`: kept, nothing uses it).
+ */
 export function publicProfile(p) {
-  return { name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, tools: servesTools(p) };
+  const tools = offeredOnly(servesTools(p));
+  return { name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, tools, ...(tools.length ? {} : { unusable: true }) };
 }
 
 /** Create or replace a profile. The folder is 700 and the file 600. */

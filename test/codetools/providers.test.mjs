@@ -55,9 +55,16 @@ test('which coding tools each provider serves; a Claude sign-in serves Claude Co
   P.writeProfile('sub2', { api: ['responses', 'chat'], tools: ['codex', 'opencode'], env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x' } });
   assert.deepEqual(P.servesTools(P.readProfile('sub2')), ['claude']);
   assert.deepEqual(P.servesTools({ name: 'auto', env: {} }), ['claude'], 'Auto mode and a profile built in code without a kind');
-  // The page gets the list, never a value.
+  // The page (and the command line's JSON) gets the list of the offered coding tools only, never a value; a provider
+  // that serves none of them is `unusable` (kept, nothing uses it).
   const pub = P.publicProfile(P.readProfile('gw'));
-  assert.deepEqual(pub.tools, ['claude', 'codex', 'opencode']);
+  assert.deepEqual(pub.tools, ['claude', 'opencode']);
+  assert.equal(pub.unusable, undefined);
+  assert.deepEqual([P.publicProfile(P.readProfile('codexin')).tools, P.publicProfile(P.readProfile('codexin')).unusable], [[], true]);
+  assert.deepEqual(P.publicProfile(P.readProfile('oai')).tools, ['opencode']);
+  P.writeProfile('resp', { api: ['responses'], env: { OPENAI_API_KEY: 'sk-resp-only' } });
+  assert.deepEqual([P.publicProfile(P.readProfile('resp')).tools, P.publicProfile(P.readProfile('resp')).unusable], [[], true], 'a key only Codex could use');
+  P.deleteProfile('resp');
   assert.ok(!JSON.stringify(P.listProfiles().map(P.publicProfile)).includes('secret'));
   assert.ok(!JSON.stringify(pub).includes(KEY));
   P.deleteProfile('sub2');
