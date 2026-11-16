@@ -41,6 +41,7 @@ process.env.ANTHROPIC_AUTH_TOKEN = 'must-not-reach-cloudflared';
 const S = await import('../../src/addons/linkswitch.mjs');
 const { reachableUrl } = await import('../../src/addons/reach.mjs');
 const { loadConfig, saveConfig } = await import('../../src/config.mjs');
+const choice = () => { const { on, kind } = loadConfig().publicLink || {}; return { on, kind }; };
 const { hashTag } = await import('../../src/server/strength.mjs');
 const raw = () => JSON.parse(fs.readFileSync(path.join(tmp, 'config', 'config.json'), 'utf8'));
 const calls = () => (fs.existsSync(LOG) ? fs.readFileSync(LOG, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
@@ -91,7 +92,7 @@ test('Temporary: on, its address from the output, the settings while it runs, th
   const before = raw().server;
   const r = await S.turnOn('temporary');
   assert.equal(r.ok, true, r.error);
-  assert.deepEqual(loadConfig().publicLink, { on: true, kind: 'temporary' }, 'the choice is remembered');
+  assert.deepEqual(choice(), { on: true, kind: 'temporary' }, 'the choice is remembered');
   let s = await S.settled({ timeoutMs: 8000 });
   assert.deepEqual([s.state, s.url, s.error], ['on', 'https://run-1-wonder-lucky.trycloudflare.com', null]);
   assert.equal(s.installed, true);
@@ -131,7 +132,7 @@ test('the choice is remembered: a restart of the dashboard brings the link back 
   // The dashboard stops: the link stops with it and the settings go back, but it stays chosen.
   await S.detach();
   assert.deepEqual(raw().server, before);
-  assert.deepEqual(loadConfig().publicLink, { on: true, kind: 'temporary' });
+  assert.deepEqual(choice(), { on: true, kind: 'temporary' });
   sent.length = 0;
   await S.attach({ notifyFn, everyMs: 60_000 });
   const s = await S.settled();
@@ -191,4 +192,145 @@ test('Custom set up: turning it on stops the Temporary link first, so never both
   assert.equal(c.kinds.find((k) => k.id === 'custom').ready, true);
   await S.turnOff();
   assert.deepEqual(raw().server, before);
+});
+
+const runs = () => calls().filter((c) => c.a.includes('--url')).length;
+const dead = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch {
+    return true;
+  }
+};
+
+test('a link that is on never runs with a weak or unjudged password: held back with what it needs, and it starts by itself once it is strong', async () => {
+  await S.detach();
+  const before = raw().server;
+  const n = runs();
+  saveConfig({ publicLink: { on: true, kind: 'temporary' }, server: { passwordHash: HASH, passwordCheck: { tag: hashTag(HASH), strong: false, why: 'it has fewer than 12 characters' } } });
+  await S.attach({ notifyFn, everyMs: 100 });
+  await sleep(400);
+  let s = S.status();
+  assert.deepEqual([s.on, s.state, s.need, s.url], [true, 'blocked', 'stronger-password', null]);
+  assert.match(s.error, /too weak for a public link/);
+  assert.equal(S.status({ why: false }).password.why, null, 'what makes it weak is said only to the owner\'s own page');
+  assert.equal(runs(), n, 'no cloudflared ran');
+  assert.equal(raw().server.trustProxy, undefined, 'nothing was opened');
+  // Never judged (an older install): held back too, asking for it to be typed once.
+  saveConfig({ server: { passwordCheck: undefined } });
+  assert.ok(await until(() => S.status().need === 'check-password'), JSON.stringify(S.status()));
+  assert.equal(runs(), n);
+  // Judged strong (a sign-in, or the password typed in place): the chosen link starts with no other step.
+  strong();
+  assert.ok(await until(() => S.status().state === 'on'), JSON.stringify(S.status()));
+  assert.equal(runs(), n + 1);
+  // And a password judged weak later stops a running link at the next look.
+  const pid = S.readRecord().pid;
+  saveConfig({ server: { passwordCheck: { tag: hashTag(HASH), strong: false, why: 'it is one of the passwords people try first' } } });
+  assert.ok(await until(() => S.status().state === 'blocked' && dead(pid)), JSON.stringify(S.status()));
+  assert.equal(raw().server.trustProxy, undefined, 'its settings went back');
+  strong();
+  await S.turnOff();
+  assert.deepEqual(raw().server, { ...before, passwordCheck: raw().server.passwordCheck });
+  await S.detach();
+  await S.attach({ notifyFn, everyMs: 60_000 });
+});
+
+test('turning off while cloudflared installs answers at once, and nothing starts when the install ends', async () => {
+  strong();
+  const hidden = `${bin}-hidden`;
+  fs.renameSync(bin, hidden);
+  const realFetch = globalThis.fetch;
+  let release;
+  globalThis.fetch = () => new Promise((resolve, reject) => { release = () => reject(new Error('the download stopped')); });
+  const n = runs();
+  try {
+    assert.equal((await S.turnOn('temporary')).ok, true);
+    assert.ok(await until(() => S.status().state === 'installing'), JSON.stringify(S.status()));
+    const t0 = Date.now();
+    const off = await S.turnOff();
+    assert.ok(Date.now() - t0 < 1000, `answered in ${Date.now() - t0} ms`);
+    assert.equal(off.state, 'off');
+  } finally {
+    fs.renameSync(hidden, bin);
+    release?.();
+    globalThis.fetch = realFetch;
+  }
+  await S.settled();
+  await sleep(200);
+  assert.deepEqual([S.status().on, S.status().state], [false, 'off']);
+  assert.equal(runs(), n, 'nothing started after the install');
+});
+
+test('the owner\'s own turn-on of what a hub turned on makes it his; a second temporary address stops with the switch', async () => {
+  strong();
+  assert.equal((await S.turnOn('temporary', { by: 'tok-hub' })).ok, true);
+  await S.settled();
+  assert.equal(S.readRecord().openedBy, 'tok-hub');
+  assert.equal((await S.turnOn('temporary', { by: 'tok-other' })).ok, true);
+  assert.equal(S.readRecord().openedBy, 'tok-hub', 'another hub\'s turn-on of what runs takes nothing over');
+  assert.equal((await S.turnOn('temporary')).ok, true);
+  assert.equal(S.readRecord().openedBy, null, 'the owner\'s own: a revoke of the hub no longer ends it');
+
+  // Another local service gets a temporary address while the link is on as Temporary, and only then.
+  const look = async () => ({ status: 401, headers: new Headers(), text: async () => '<form>password</form>' });
+  const add = () => S.temporaryStep('add-service', { port: 20017 }, { fetchImpl: look, waitMs: 8000 });
+  const r = await add();
+  assert.equal(r.ok, true, r.error);
+  const svc = JSON.parse(fs.readFileSync(path.join(tmp, 'state', 'addons', 'public-link-service.json'), 'utf8')).pid;
+  assert.deepEqual(S.status().service, { port: 20017, url: r.url });
+  await S.turnOff();
+  assert.ok(await until(() => dead(svc)), 'off: the second address stops too, nothing stays open');
+  assert.equal(S.status().service, null);
+  assert.match((await add()).error, /Turn the public link on as Temporary first/, 'refused while off');
+  // Moving to Custom stops it as well (it belongs to Temporary).
+  assert.equal((await S.turnOn('temporary')).ok, true);
+  await S.settled();
+  assert.equal((await add()).ok, true);
+  const svc2 = JSON.parse(fs.readFileSync(path.join(tmp, 'state', 'addons', 'public-link-service.json'), 'utf8')).pid;
+  assert.equal((await S.turnOn('custom')).ok, true);
+  await S.settled();
+  assert.ok(await until(() => dead(svc2)), 'to Custom: the second temporary address stops');
+  assert.match((await add()).error, /Turn the public link on as Temporary first/, 'refused while Custom');
+  await S.turnOff();
+});
+
+test('after an update: a Custom link that ran keeps running until the password is judged; judged weak, it stops; a Temporary one waits for a strong password', async () => {
+  await S.detach();
+  const before = raw().server;
+  const dir = path.join(tmp, 'state', 'addons', 'fixed-link');
+  // What the older version left: Custom on, its settings taken; the password never judged.
+  saveConfig({ publicLink: undefined, server: { passwordCheck: undefined, trustProxy: true, allowedOrigins: [...before.allowedOrigins, 'https://office.example.com'] } });
+  fs.writeFileSync(path.join(dir, 'fixed.json'), JSON.stringify({ mode: 'named', hostname: 'office.example.com', tunnelId: ID, tunnelName: 'hoprig-office-example-com', extra: [], enabled: true, restored: false, pid: null, restore: { hadTrustProxy: false, hadOrigin: false, origin: 'https://office.example.com' } }));
+  await S.attach({ notifyFn, everyMs: 100 });
+  assert.ok(await until(() => S.status().state === 'on'), JSON.stringify(S.status()));
+  assert.deepEqual([S.status().kind, S.status().password.state], ['custom', 'unknown']);
+  // The owner's next sign-in judges it weak: the link stops, and asks for a stronger one.
+  saveConfig({ server: { passwordCheck: { tag: hashTag(HASH), strong: false, why: 'it has fewer than 12 characters' } } });
+  assert.ok(await until(() => S.status().state === 'blocked'), JSON.stringify(S.status()));
+  assert.equal(S.status().need, 'stronger-password');
+  assert.deepEqual(raw().server.allowedOrigins, before.allowedOrigins);
+  await S.detach();
+
+  // A Temporary link that ran: it would be a new address anyway, so it waits for the password like any turn-on.
+  saveConfig({ publicLink: undefined, server: { passwordCheck: undefined } });
+  fs.writeFileSync(path.join(dir, 'fixed.json'), JSON.stringify({ mode: 'named', hostname: 'office.example.com', tunnelId: ID, tunnelName: 'hoprig-office-example-com', extra: [] }));
+  const { spawn } = await import('node:child_process');
+  const old = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:7655'], { stdio: 'ignore' });
+  try {
+    fs.writeFileSync(path.join(tmp, 'state', 'addons', 'public-link.json'), JSON.stringify({ pid: old.pid, url: 'https://old-words.trycloudflare.com', restored: false, restore: null }));
+    const n = runs();
+    await S.attach({ notifyFn, everyMs: 100 });
+    assert.ok(await until(() => S.status().state === 'blocked'), JSON.stringify(S.status()));
+    assert.deepEqual([S.status().on, S.status().kind, S.status().need], [true, 'temporary', 'check-password']);
+    assert.ok(await until(() => dead(old.pid)), 'the old tunnel ended');
+    await sleep(300);
+    assert.equal(runs(), n, 'no new address was opened');
+  } finally {
+    old.kill('SIGKILL');
+  }
+  strong();
+  await S.turnOff();
+  await S.detach();
 });

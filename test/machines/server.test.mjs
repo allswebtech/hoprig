@@ -66,15 +66,22 @@ test('while the public link is on, the join line and `hoprig link` use its addre
     assert.equal(c.line, `https://office.example.com#join=${c.code}`);
     assert.equal(c.via, 'custom');
     assert.deepEqual(linkBase(), { url: 'https://office.example.com', local: false });
+    // The same address in a sign-in QR asked for with no address, and in the click link of a push.
+    const ll = await post('/api/login/links', {}, { Cookie: cookie });
+    assert.ok(ll.json.url.startsWith('https://office.example.com/login#link='), ll.json.url);
+    assert.equal(app.watcher.settings().publicUrl, 'https://office.example.com');
     // Temporary: only while its cloudflared runs (a stopped one's address is dead).
     saveConfig({ publicLink: { on: true, kind: 'temporary' } });
-    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: process.pid }));
+    // While cloudflared starts again (after a crash) the record still holds the old address: not handed out.
+    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: process.pid, connected: false }));
+    assert.equal(reachableUrl(), null, 'not connected: not offered');
+    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: process.pid, connected: true }));
     assert.equal(reachableUrl(), 'https://stem-wonder.trycloudflare.com');
     const t = await joinCode();
     assert.equal(t.url, 'https://stem-wonder.trycloudflare.com');
     assert.equal(t.via, 'temporary', 'the page then says that the link ends when the address changes');
     assert.equal(t.line, `https://stem-wonder.trycloudflare.com#join=${t.code}`);
-    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: 2 ** 22 + 7 }));
+    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: 2 ** 22 + 7, connected: true }));
     assert.equal(reachableUrl(), null);
     saveConfig({ publicLink: { on: false, kind: 'custom' } });
     assert.equal(reachableUrl(), null, 'off: none');

@@ -57,6 +57,7 @@ import { machinesFeature } from '../machines/index.mjs';
 import { assistantFeature } from '../assistant/feature.mjs';
 import { automationFeature } from '../automation/feature.mjs';
 import { addonsFeature } from '../addons/feature.mjs';
+import { reachableUrl } from '../addons/reach.mjs';
 import { accountsFeature } from './accounts.mjs';
 import { claudeLoginFeature, sameComputer } from './claudelogin.mjs';
 import { gatewayFeature } from '../gateway/index.mjs';
@@ -158,7 +159,8 @@ export function createServer(opts = {}) {
     cards: () => cards(),
     deck,
     auto: autoswitch,
-    settings: () => ({ notify: cfg().server.notify || null, publicUrl: cfg().server.publicUrl || '' }),
+    // Click links in a push lead to where this dashboard is reached from anywhere: the set address, else the public link's.
+    settings: () => ({ notify: cfg().server.notify || null, publicUrl: reachableUrl(cfg()) || '' }),
     send: (n, ev) => sendNotification(n, ev, { fetchImpl: notifyFetch }),
     ...(opts.autoSwitchGraceMs !== undefined ? { graceMs: opts.autoSwitchGraceMs } : {}),
     ...(opts.watchTickMs !== undefined ? { tickMs: opts.watchTickMs } : {}),
@@ -666,7 +668,8 @@ export function createServer(opts = {}) {
     // ---- one-time sign-in links (a phone scans the QR instead of typing the password) ----
     ['POST', /^\/api\/login\/links$/, async (req) => {
       const b = await readJson(req);
-      const pub = cfg().server.publicUrl;
+      // The address from anywhere (the set one, else the public link's) first: a phone scans the QR from elsewhere.
+      const pub = reachableUrl(cfg());
       const host = requestHost(req, proxyOpts());
       const own = host ? `${isHttps(req, proxyOpts()) ? 'https' : 'http'}://${host}` : null;
       let base = pub || own;
@@ -683,7 +686,7 @@ export function createServer(opts = {}) {
           }
         };
         const want = originOf(b.base);
-        const known = new Set([own, pub, process.env.HOPRIG_PUBLIC_URL, ...(cfg().server.allowedOrigins || [])].map(originOf).filter(Boolean));
+        const known = new Set([own, pub, cfg().server.publicUrl, process.env.HOPRIG_PUBLIC_URL, ...(cfg().server.allowedOrigins || [])].map(originOf).filter(Boolean));
         if (!want || !known.has(want)) throw bad('that address is not one this dashboard is reached at');
         base = want;
       }

@@ -249,7 +249,7 @@ function byCode(isAlive) {
         : [h('div.bigcode', { 'aria-label': `Code ${c.code.split('').join(' ')}` }, c.code),
           h('p.banner.info', icon('info', { size: 18 }), h('span', 'The other computer needs an address of this one that it can reach. ', h('a', { href: link('#/settings/public-link') }, 'Turn on the public link'), ' and show a new code; or, on the same network, type this there:')),
           cmdLine(cmd)],
-      c.via === 'temporary' ? h('p.banner.warn', icon('alert', { size: 18 }), h('span', 'This computer\'s public link is Temporary: when its address changes (after a restart), the other computer must be linked again. Use Custom, or a server as the main one, to keep computers linked.')) : null,
+      c.via === 'temporary' ? h('p.banner.warn', icon('alert', { size: 18 }), h('span', 'This computer\'s public link is Temporary: its address changes whenever Hoprig or this computer restarts (an update too), and then the other computer must be linked again. Use Custom, or a server as the main one, to keep computers linked.')) : null,
       plainHttp() && !c.line ? h('p.banner.warn', icon('lock', { size: 18 }), h('span', 'This page is not encrypted (http://). What the other computer sends, and everything typed into its sessions, would cross the network readable on the way. Use the public link, or this only on a network you trust.')) : null,
       waiting);
     const poll = async () => {
@@ -353,7 +353,7 @@ function linkToMainSheet() {
       store.refresh();
       close(true);
     }),
-    h('p.hint', 'When the main one\'s public link is Temporary, the link ends when its address changes (after a restart), and this computer must be linked again. To stay linked, the main one needs Custom, or is a server.'),
+    h('p.hint', 'When the main one\'s public link is Temporary, the link ends when its address changes (whenever Hoprig or that computer restarts), and this computer must be linked again. To stay linked, the main one needs Custom, or is a server.'),
   ]);
 }
 

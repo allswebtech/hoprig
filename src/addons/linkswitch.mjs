@@ -15,13 +15,14 @@
 //
 // Turning it on needs a strong dashboard password (strength.mjs): a page that controls the whole computer is
 // reachable from anywhere then. cloudflared is installed by the first switch-on.
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { passwordState } from '../server/strength.mjs';
 import { addonsDir, alive, cloudflaredEnv, dashboardPort, findBin, fixedDir, fixedStateFile, hasPassword, linkRecordFile, patchFor, quickStateFile, readFixed, readJsonFile, readQuick, restoreFor, writeAtomic } from './cloudflared.mjs';
 import { customRun, customSteps, fixedCloseOpenedBy, fixedStatus, makeSupervisor, stopSignIn } from './fixedlink.mjs';
-import { install, notifyNewAddress, parseTunnelUrl, serviceStatus, temporarySteps, tunnelArgv, closeServiceOpenedBy } from './publiclink.mjs';
+import { install, notifyNewAddress, parseTunnelUrl, serviceStatus, stopService, temporarySteps, tunnelArgv, closeServiceOpenedBy } from './publiclink.mjs';
 
 export const KINDS = ['temporary', 'custom'];
 export const recordFile = linkRecordFile;
@@ -29,11 +30,16 @@ const quickHome = () => path.join(addonsDir(), 'quick', 'home');
 const quickEmpty = () => path.join(addonsDir(), 'quick', 'empty');
 const RECONCILE_MS = 2000;
 const PROGRESS_MAX = 40;
+const RETRY_FIRST_MS = 15_000; // a start that failed by itself (no network at boot) is tried again, then less often
+const RETRY_MAX_MS = 5 * 60_000;
 
-/** What the owner chose: { on, kind }. */
+/**
+ * What the owner chose: { on, kind, at }. `at`: when it was last turned on (ms), so a turn-on asked again (the page,
+ * `hoprig public on`) is a new request even when on and the kind were already so: a start that failed is tried again.
+ */
 export function readSwitch(cfg = loadConfig()) {
   const p = cfg.publicLink;
-  return { on: !!(p && p.on === true), kind: p && p.kind === 'custom' ? 'custom' : 'temporary' };
+  return { on: !!(p && p.on === true), kind: p && p.kind === 'custom' ? 'custom' : 'temporary', at: (p && Number.isFinite(p.at) && p.at) || 0 };
 }
 
 export const readRecord = () => readJsonFile(recordFile()) || {};
@@ -45,7 +51,7 @@ export const KIND_WORDS = {
     title: 'Temporary',
     text: 'A new address each time it starts. Nothing to set up.',
     needs: 'Nothing. Hoprig installs Cloudflare\'s free helper (cloudflared) the first time you turn it on.',
-    gives: 'An https://….trycloudflare.com address through Cloudflare\'s free quick tunnel. It changes when the computer restarts; the new one is shown here and sent to your notifications.',
+    gives: 'An https://….trycloudflare.com address through Cloudflare\'s free quick tunnel. It changes whenever Hoprig or the computer restarts (an update restarts Hoprig too); the new one is shown here and sent to your notifications.',
   },
   custom: {
     title: 'Custom',
@@ -59,10 +65,13 @@ export const VISITOR_WORDS = 'Someone who opens the address sees the sign-in pag
 // ---- the in-process state of the one link ----
 let sup = null;
 let cur = null; // { kind, url, pending } while a link runs in this process
-let phase = 'off'; // off | installing | starting | error (on / retrying come from the supervisor)
+let phase = 'off'; // off | installing | starting | error | blocked (on / retrying come from the supervisor)
 let lastError = null;
+let blocked = null; // while on but held back: { need, error } (the password is not strong enough)
+let failures = 0; // starts that failed in a row by themselves, for the wait before the next try
+let retryAt = 0;
 let progress = [];
-let applied = null; // the choice the last reconcile acted on: "on:kind" or "off"
+let applied = null; // the choice the last reconcile acted on: "on:kind:at" or "off"
 let nextOpener; // the token id of the turn-on being applied (undefined: keep what the record says)
 let queue = Promise.resolve();
 let timer = null;
@@ -72,7 +81,7 @@ const say = (l) => {
   progress.push(String(l).slice(0, 500));
   if (progress.length > PROGRESS_MAX) progress.shift();
 };
-const keyOf = (w) => (w.on ? `on:${w.kind}` : 'off');
+const keyOf = (w) => (w.on ? `on:${w.kind}:${w.at}` : 'off');
 
 const supervisor = () => (sup ||= makeSupervisor({
   onPid: (pid) => {
@@ -116,25 +125,32 @@ function putBack() {
   writeRecord({ restore: null });
 }
 
-/**
- * Is `pid` a cloudflared tunnel of ours? On Linux its command line says so; a number that another program got after a
- * restart of the computer is never one. Elsewhere the number alone is trusted, as the record is our own.
- */
-function ours(pid) {
-  if (!pid || pid === process.pid || !alive(pid)) return false;
-  if (process.platform !== 'linux') return true;
+/** The command line of `pid` with its words joined by spaces, or null when it cannot be read here. */
+function commandLine(pid) {
   try {
-    const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
-    return cmd.includes('tunnel') && (cmd.includes(fixedDir()) || cmd.includes('--url\0http://127.0.0.1:'));
+    if (process.platform === 'linux') return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').join(' ');
+    if (process.platform === 'darwin') return execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
   } catch {
-    return false;
+    /* gone, or not ours to read */
   }
+  return null; // Windows and others: not checked, so never taken for ours
+}
+
+/**
+ * Is `pid` a cloudflared tunnel of ours? Its command line must say so: after a restart of the computer the number in
+ * an old record may belong to another program. Where the command line cannot be read, nothing is ours, so nothing is
+ * ended or adopted on a number alone.
+ */
+export function ours(pid) {
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !alive(pid)) return false;
+  const cmd = commandLine(pid);
+  return !!cmd && / tunnel /.test(` ${cmd} `) && (cmd.includes(fixedDir()) || cmd.includes('--url http://127.0.0.1:'));
 }
 
 // A cloudflared of ours still running from before (the dashboard ended without stopping it).
 function killLeftover() {
   const { pid } = readRecord();
-  if (process.platform === 'linux' && ours(pid)) try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ }
+  if (ours(pid)) try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ }
 }
 
 async function stopRun() {
@@ -145,16 +161,21 @@ async function stopRun() {
   writeRecord({ kind: null, url: null, pid: null, connected: false });
 }
 
-/** Start `kind`. A failure is { error } and leaves nothing running. */
+/** Start `kind`. A failure is { error } and leaves nothing running; { cancelled } when the switch changed meanwhile. */
 async function startRun(kind) {
   progress = [];
   lastError = null;
+  writeRecord({ error: null, errorAt: null });
   let bin = findBin();
   if (!bin) {
     phase = 'installing';
     say('Installing cloudflared, Cloudflare\'s free helper…');
-    const r = await install({ onLine: say });
+    // Its lines are shown on the page and to a linked hub: the folder it went to is left out.
+    const r = await install({ onLine: (l) => say(/^installed: /.test(l) ? 'cloudflared is installed.' : l) });
     bin = findBin();
+    // Turned off (or to the other kind) while it installed: the next step does what is chosen now.
+    const now = readSwitch();
+    if (!now.on || now.kind !== kind) return { cancelled: true };
     if (!r.ok || !bin) return { error: `cloudflared could not be installed${r.error ? `: ${r.error}` : ''}.` };
   }
   if (!hasPassword()) return { error: 'Set a dashboard password first (Settings → Security): the address leads to the sign-in page.' };
@@ -177,36 +198,79 @@ async function startRun(kind) {
 }
 
 /**
+ * Why the chosen `kind` may not run now (cannotTurnOn), checked at every look, so a link that is on never runs with a
+ * weak password, also one turned on by an older version or from a file. One exception: a Custom link that already ran
+ * before the strength check existed keeps running until the password is judged (at the owner's next sign-in), as
+ * stopping it at an update could leave the owner with no way in from where he is. Judged weak, it stops too.
+ */
+function cannotRun(kind) {
+  const no = cannotTurnOn(kind);
+  if (no && no.need === 'check-password' && kind === 'custom' && readRecord().migratedCustom) return null;
+  return no;
+}
+
+/** Stop the second temporary address (another local service) when the switch no longer allows it. */
+async function stopExtra(want) {
+  if (!(want.on && want.kind === 'temporary') && serviceStatus()) await stopService();
+}
+
+/**
  * Make what runs match what the owner chose. One at a time. `explicit`: a turn-on just asked for; when it cannot
  * start (cloudflared will not install, Custom is not set up) the switch goes back to off with the reason shown.
+ * A start that fails by itself (at boot, from the command line) keeps the switch on and is tried again later.
  * `restart`: start what runs again (the Custom address's services changed).
  */
 function reconcile({ force = false, explicit = false, restart = false } = {}) {
   const step = async () => {
     const want = readSwitch();
     const key = keyOf(want);
-    if (!force && !restart && key === applied) return;
+    const no = want.on ? cannotRun(want.kind) : null;
+    const due = want.on && phase === 'error' && Date.now() >= retryAt;
+    const holdChanged = (phase === 'blocked') !== !!no || (no && blocked && no.need !== blocked.need);
+    if (!force && !restart && key === applied && !due && !holdChanged) return;
     applied = key;
+    await stopExtra(want);
     if (!want.on) {
       if (cur || readRecord().restore) await stopRun();
-      writeRecord({ openedBy: null, error: null });
+      writeRecord({ openedBy: null, error: null, errorAt: null });
       phase = 'off';
+      blocked = null;
       return;
     }
-    if (cur && cur.kind === want.kind && phase !== 'error' && !restart) return;
+    if (no) {
+      // On, but held back until the password is strong: nothing runs, the page asks for what is needed.
+      if (cur || readRecord().restore) await stopRun();
+      phase = 'blocked';
+      blocked = { need: no.need, error: no.error };
+      lastError = no.error;
+      writeRecord({ error: no.error, errorAt: Date.now() });
+      return;
+    }
+    blocked = null;
+    if (cur && cur.kind === want.kind && phase !== 'error' && phase !== 'blocked' && !restart) return;
     if (cur || readRecord().restore) await stopRun();
     const r = await startRun(want.kind);
     nextOpener = undefined;
-    if (r.error) {
-      phase = 'error';
-      lastError = r.error;
-      say(r.error);
-      writeRecord({ error: r.error });
-      if (explicit) {
-        saveConfig({ publicLink: { on: false, kind: want.kind } });
-        applied = 'off';
-        writeRecord({ openedBy: null });
-      }
+    if (r.cancelled) {
+      phase = 'off';
+      applied = null;
+      return;
+    }
+    if (!r.error) {
+      failures = 0;
+      return;
+    }
+    phase = 'error';
+    lastError = r.error;
+    say(r.error);
+    writeRecord({ error: r.error, errorAt: Date.now() });
+    if (explicit) {
+      saveConfig({ publicLink: { on: false, kind: want.kind } });
+      applied = 'off';
+      writeRecord({ openedBy: null });
+    } else {
+      failures += 1;
+      retryAt = Date.now() + Math.min(RETRY_MAX_MS, RETRY_FIRST_MS * 2 ** (failures - 1));
     }
   };
   queue = queue.then(step).catch((e) => {
@@ -240,17 +304,26 @@ export async function turnOn(kind = readSwitch().kind, { by = null } = {}) {
   const no = cannotTurnOn(kind);
   if (no) return { ok: false, ...no };
   const now = readSwitch();
-  if (!(now.on && now.kind === kind && cur)) nextOpener = by || null;
-  saveConfig({ publicLink: { on: true, kind } });
-  reconcile({ explicit: true, force: phase === 'error' });
+  if (now.on && now.kind === kind && cur) {
+    // The owner's own turn-on of what a hub turned on makes it his: revoking the hub's token no longer ends it.
+    if (!by) writeRecord({ openedBy: null });
+  } else nextOpener = by || null;
+  failures = 0;
+  saveConfig({ publicLink: { on: true, kind, at: Date.now() } });
+  reconcile({ explicit: true });
   await Promise.resolve();
   return { ok: true, ...status() };
 }
 
-/** Turn it off (or keep it off). The kind stays chosen for the next time; `kind` chooses another one for then. */
+/**
+ * Turn it off (or keep it off). The kind stays chosen for the next time; `kind` chooses another one for then. Answers
+ * once it stopped; during an install of cloudflared at once (the start is dropped when the install ends).
+ */
 export async function turnOff({ kind = readSwitch().kind } = {}) {
+  const installing = phase === 'installing';
   saveConfig({ publicLink: { on: false, kind: KINDS.includes(kind) ? kind : 'temporary' } });
-  await reconcile();
+  const done = reconcile();
+  if (!installing) await done;
   return { ok: true, ...status() };
 }
 
@@ -271,8 +344,12 @@ function liveUrl() {
   return cur.url || null;
 }
 
-/** The state the page, Tia and `hoprig public status` show. Never a token, a certificate, a password or a file path. */
-export function status() {
+/**
+ * The state the page, Tia and `hoprig public status` show. Never a token, a certificate, a password or a file path.
+ * `why`: say what makes the password weak; only the owner's own browser gets that (a hint for guessing otherwise).
+ * `need` while it is on but held back (state 'blocked'): what the page asks for, as for a refused turn-on.
+ */
+export function status({ why = true } = {}) {
   const want = readSwitch();
   const r = sup && cur ? sup.state() : null;
   let state = phase;
@@ -285,13 +362,14 @@ export function status() {
     on: want.on,
     kind: want.kind,
     state,
+    need: state === 'blocked' && blocked ? blocked.need : null,
     url: state === 'on' || (cur && cur.kind === 'custom') ? liveUrl() : null,
-    error: phase === 'error' ? lastError : (r && !r.connected && r.error) || null,
+    error: phase === 'error' || state === 'blocked' ? lastError : (r && !r.connected && r.error) || null,
     nextTryAt: (r && r.nextTryAt) || null,
     restarts: (r && r.restarts) || 0,
     progress: [...progress],
     installed: Boolean(findBin()),
-    password: { state: pw.state, why: pw.why },
+    password: { state: pw.state, why: why ? pw.why : null },
     kinds: KINDS.map((id) => ({ id, ...KIND_WORDS[id], ready: id === 'temporary' || custom.state === 'ready' })),
     visitor: VISITOR_WORDS,
     custom,
@@ -310,13 +388,14 @@ export function migrate() {
   const fixed = readFixed();
   const quick = readQuick();
   if (!(fixed && fixed.mode) && !quick) return null;
-  const quickOn = !!(quick && ours(quick.pid) && quick.url && !quick.restored);
+  // The old tunnel counts as running only when its record says so AND that number is provably a tunnel of ours.
+  const quickOn = !!(quick && !quick.restored && quick.url && ours(quick.pid));
   const fixedOn = !!(fixed && fixed.mode && fixed.enabled);
   // Each record holds the owner's own trustProxy (the second link took it from the first), and its own origin.
   for (const r of [quick && !quick.restored && quick.restore, fixed && fixed.enabled && !fixed.restored && fixed.restore]) {
     if (r) saveConfig(restoreFor(loadConfig().server, r));
   }
-  if (quick && ours(quick.pid)) try { process.kill(quick.pid, 'SIGTERM'); } catch { /* gone */ }
+  if (quickOn) try { process.kill(quick.pid, 'SIGTERM'); } catch { /* gone */ }
   fs.rmSync(quickStateFile(), { force: true });
   if (fixed) {
     const { enabled, restore, restored, pid, openedBy, ...keep } = fixed;
@@ -325,7 +404,9 @@ export function migrate() {
   const choice = fixedOn ? { on: true, kind: 'custom' } : quickOn ? { on: true, kind: 'temporary' } : { on: false, kind: fixed && fixed.mode ? 'custom' : 'temporary' };
   saveConfig({ publicLink: choice });
   const opener = fixedOn ? fixed.openedBy : quickOn ? quick.openedBy : null;
-  writeRecord({ openedBy: opener || null });
+  // A Custom link that ran before keeps running until the password is judged (cannotRun); a Temporary one gets a new
+  // address anyway, so it is a new exposure and waits for a strong password like any turn-on.
+  writeRecord({ openedBy: opener || null, migratedCustom: fixedOn });
   return choice;
 }
 
@@ -341,6 +422,8 @@ export function attach({ notifyFn = notifyNewAddress, everyMs = RECONCILE_MS } =
   putBack();
   applied = null;
   phase = 'off';
+  blocked = null;
+  failures = 0;
   reconcile();
   clearInterval(timer);
   timer = setInterval(() => reconcile(), everyMs);
@@ -380,8 +463,16 @@ export async function customStep(name, body, opts = {}) {
   return r;
 }
 
-/** The Temporary kind's extra: a second temporary address for one more local service. */
-export const temporaryStep = (name, body, opts = {}) => (temporarySteps[name] ? temporarySteps[name](body, { notify, ...opts }) : { ok: false, error: 'no such step' });
+/**
+ * The Temporary kind's extra: a second temporary address for one more local service. It is part of the switch: only
+ * while the link is on as Temporary, and it stops when the switch goes off or to Custom (reconcile).
+ */
+export function temporaryStep(name, body, opts = {}) {
+  if (!temporarySteps[name]) return { ok: false, error: 'no such step' };
+  const want = readSwitch();
+  if (name === 'add-service' && !(want.on && want.kind === 'temporary')) return { ok: false, error: 'Turn the public link on as Temporary first: another service gets an address only while it is on.' };
+  return temporarySteps[name](body, { notify, ...opts });
+}
 
 /**
  * A machine token was revoked (`gone(id)`): turn off the link when that token turned it on, and close what it added.
@@ -405,5 +496,8 @@ export async function resetForTests() {
   sup = null;
   progress = [];
   lastError = null;
+  blocked = null;
+  failures = 0;
+  retryAt = 0;
   notify = notifyNewAddress;
 }

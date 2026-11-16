@@ -210,7 +210,7 @@ async function stopPid(pid) {
   return !alive(pid);
 }
 
-async function stopService() {
+export async function stopService() {
   const sv = readJson(serviceFile());
   const ok = sv ? await stopPid(sv.pid) : true;
   if (ok) fs.rmSync(serviceFile(), { force: true });

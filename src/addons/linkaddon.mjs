@@ -9,7 +9,7 @@ export const ID = 'public-link';
 
 /** The old shape: the Temporary address as running/url, the Custom one under `fixed`. */
 async function oldStatus() {
-  const s = status();
+  const s = status({ why: false }); // read by hubs on an older version: no hint about the password
   const on = (kind) => s.on && s.kind === kind;
   return {
     installed: s.installed,

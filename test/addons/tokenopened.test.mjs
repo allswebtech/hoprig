@@ -116,8 +116,11 @@ test('a token\'s changes are logged with its name; its revoke closes what it ope
   assert.equal(on.json.ok, true, JSON.stringify(on.json));
   await until('Custom is on', async () => (await linkState()).state === 'on');
   assert.equal(record().openedBy, null, 'the owner\'s: no opener');
-  // The owner's own temporary address for a service: not a token's.
-  assert.equal((await job(() => owner('/api/public-link/temporary/add-service', { port: servicePort }))).ok, true);
+  // A second temporary address belongs to the Temporary kind: refused while the switch is on as Custom.
+  const temp = await job(() => owner('/api/public-link/temporary/add-service', { port: servicePort }));
+  assert.equal(temp.ok, false);
+  assert.match(temp.error, /Turn the public link on as Temporary first/);
+  assert.equal(serviceState(), null);
   assert.equal(hubLines().length, 0, 'what the owner does is not logged as a hub');
 
   const office = { name: 'office-pc', ...createToken('office-pc') };
@@ -146,7 +149,6 @@ test('a token\'s changes are logged with its name; its revoke closes what it ope
   // What stays: the owner's link (on, and running again without the service) and his temporary address.
   assert.equal(isOn(), true);
   await until('running again without it', () => !fs.readFileSync(path.join(fixedDir(), 'config.yml'), 'utf8').includes('trouteai-office'));
-  assert.ok(serviceState() && alive(serviceState().pid), 'the owner\'s temporary address still runs');
   await new Promise((r) => setTimeout(r, 500)); // more sweeps: nothing said twice
   assert.equal(hubLines().length, 4);
 });
@@ -209,12 +211,15 @@ test('every way of revoking turns off the link that token turned on; one the own
   await until('logged', () => hubLines().includes('The public link the hub hub fixed turned on was turned off: its token was revoked'));
   assert.equal(record().openedBy, null);
 
-  // A password typed for the in-place check never comes from a hub over a plain leg.
+  // A hub never checks the password here, over any leg: a guess checked through a token would outlive its revoke.
+  // Nor does it learn what makes the password weak.
   const pw = { name: 'hub pw', ...createToken('hub pw') };
   const plain = await asHub(pw.token, '/api/public-link', { on: true, kind: 'temporary', password: 'right-password' });
   assert.equal(plain.status, 403);
-  assert.match(plain.json.error, /not encrypted/);
+  assert.match(plain.json.error, /only on this computer's own page/);
   assert.equal(isOn(), false);
+  const seen = await asHub(pw.token, '/api/public-link', { on: false });
+  assert.equal(seen.json.password.why, null, 'no hint about the password for a hub');
 });
 
 test('Setup started with a token is logged, and its password is nowhere: not the log, the console, any file', async () => {

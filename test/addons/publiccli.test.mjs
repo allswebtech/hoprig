@@ -72,7 +72,7 @@ test('refusals say what to do; a strong password in one step; with no dashboard 
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /Anyone|sign-in page/);
   assert.match(r.out, /Saved: it turns on when the dashboard runs/);
-  assert.deepEqual(loadConfig().publicLink, { on: true, kind: 'temporary' });
+  assert.deepEqual([loadConfig().publicLink.on, loadConfig().publicLink.kind], [true, 'temporary']);
   r = await run(['public', 'status', '--json']);
   assert.deepEqual(JSON.parse(r.out), { hoprig: 'public-link', on: true, kind: 'temporary', state: 'waiting for the dashboard', url: null, error: null, dashboard: false });
   // While it is on, the password cannot become a weak one.
@@ -100,8 +100,43 @@ test('with the dashboard running: on waits for the address and shows it with a s
   r = await run(['addons', 'stop', 'public-link']);
   assert.equal(r.code, 0, r.out);
   assert.ok(await (async () => { for (let i = 0; i < 100 && S.status().state !== 'off'; i++) await new Promise((x) => setTimeout(x, 50)); return S.status().state === 'off'; })());
+  // The old start, as a PRERUN runs it (no terminal): it turns the link on without a question, as it always did,
+  // and at the next launch, with the link on already, it only says where it is.
   r = await run(['addons', 'start', 'public-link']);
-  assert.equal(r.code, 1);
-  assert.match(r.out, /Add --yes/);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /The public link: https:\/\/cli-\d+-words\.trycloudflare\.com/);
+  const pid = S.readRecord().pid;
+  r = await run(['addons', 'start', 'public-link']);
+  assert.equal(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /Add --yes|Turn it on\?|makes this dashboard reachable/, 'no question when it is on already');
+  assert.match(r.out, /The public link: https:/);
+  assert.equal(S.readRecord().pid, pid, 'the running tunnel was left alone');
+  await S.detach();
+});
+
+test('a start that failed is tried again by the next `hoprig public on`, and its old error is not this one\'s answer', async () => {
+  fs.writeFileSync(path.join(box.state, 'dashboard.json'), JSON.stringify({ pid: process.pid, host: '127.0.0.1', port: 7666, at: Date.now() }));
+  saveConfig({ publicLink: { on: false, kind: 'temporary' } });
+  await S.attach({ notifyFn: async () => ({ sent: false }), everyMs: 100 });
+  // cloudflared cannot be found or installed (the network is down at boot): the start fails, the switch stays on.
+  const hidden = path.join(box.root, 'hidden');
+  fs.renameSync(bin, hidden);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('getaddrinfo ENOTFOUND github.com'); };
+  try {
+    saveConfig({ publicLink: { on: true, kind: 'temporary', at: Date.now() } });
+    for (let i = 0; i < 100 && S.status().state !== 'error'; i++) await new Promise((x) => setTimeout(x, 50));
+    assert.equal(S.status().state, 'error', JSON.stringify(S.status()));
+    assert.equal(S.status().on, true, 'a start that failed by itself keeps the switch on');
+    assert.match(S.readRecord().error, /could not be installed/);
+  } finally {
+    globalThis.fetch = realFetch;
+    fs.renameSync(hidden, bin);
+  }
+  // Now it can run. `hoprig public on` again: a new request, started again at once, and the old error is ignored.
+  const r = await run(['public', 'on', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /The public link: https:\/\/cli-\d+-words\.trycloudflare\.com/);
+  assert.equal(S.status().state, 'on');
   await S.detach();
 });

@@ -31,14 +31,18 @@ function liveAddress() {
   return want.on && rec.kind === want.kind && rec.connected && rec.url && alive(rec.pid) ? rec.url : null;
 }
 
-/** What `status` shows: { on, kind, state, url, error, dashboard }. */
+/**
+ * What `status` shows: { on, kind, state, url, error, dashboard }. An error counts only when the dashboard wrote it
+ * for the turn-on that is chosen now: one left from an earlier try is not this one's answer (the dashboard tries again).
+ */
 export function statusOf() {
   const want = readSwitch();
   const rec = readRecord();
   const dashboard = !!runningDashboard();
   const url = liveAddress();
-  const state = !want.on ? 'off' : url ? 'on' : rec.error ? 'error' : dashboard ? 'starting' : 'waiting for the dashboard';
-  return { on: want.on, kind: want.kind, state, url, error: want.on && rec.error ? rec.error : null, dashboard };
+  const error = want.on && rec.error && Number(rec.errorAt) >= want.at ? rec.error : null;
+  const state = !want.on ? 'off' : url ? 'on' : error ? 'error' : dashboard ? 'starting' : 'waiting for the dashboard';
+  return { on: want.on, kind: want.kind, state, url, error, dashboard };
 }
 
 function show(s, out) {
@@ -99,6 +103,12 @@ async function on(args, { out, err }) {
     if (no.need === 'custom-setup') err('Set it up in the page: Settings → Public link → Custom → Set up.');
     return 1;
   }
+  // On already as this kind: nothing to ask, only where it is (a PRERUN that says it at every start stays quiet).
+  const now = statusOf();
+  if (now.on && now.kind === kind && now.url) {
+    await showAddress(now.url, out);
+    return 0;
+  }
   const w = KIND_WORDS[kind];
   out(`The public link makes this dashboard reachable from anywhere, through Cloudflare, until you turn it off.`);
   out(`  ${w.title}: ${w.text} ${w.gives}`);
@@ -111,7 +121,8 @@ async function on(args, { out, err }) {
     const a = await ask('Turn it on? (y/N) ');
     if (!a || !/^y/i.test(a)) return 1;
   }
-  saveConfig({ publicLink: { on: true, kind } });
+  // `at`: a new request, so the running dashboard starts it again even when a start of the same choice failed before.
+  saveConfig({ publicLink: { on: true, kind, at: Date.now() } });
   if (!runningDashboard()) {
     out('Saved: it turns on when the dashboard runs (hoprig serve, or hoprig service install).');
     return 0;

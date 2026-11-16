@@ -286,7 +286,7 @@ function render({ here, isAlive }) {
         copyBtn(s.url),
         ext(s.url, [icon('external', { size: 16 }), h('span', 'Open')], 'a.btn.small.secondary'),
         here ? btn('small secondary', { icon: 'grid', label: 'QR', title: 'A one-time sign-in QR for a phone', onclick: () => qrSheet(s.url) }) : null),
-      s.kind === 'temporary' ? h('p.hint', 'This address changes when the computer restarts. The new one shows here and goes to your notifications.') : null);
+      s.kind === 'temporary' ? h('p.hint', 'This address changes whenever Hoprig or this computer restarts (an update of Hoprig too). The new one shows here and goes to your notifications.') : null);
   }
 
   function visitorCard() {
@@ -316,7 +316,7 @@ function render({ here, isAlive }) {
     fill(box, h('div.savebar.start', btn('secondary', { icon: 'key', label: 'Show the line to paste', onclick: show })));
     return panel({ icon: 'cpu', title: 'Link another computer', desc: 'On the other computer: Computers → Link to my main Hoprig, and paste this line.' },
       box,
-      s.kind === 'temporary' ? h('p.hint', 'With Temporary, a linked computer must be linked again when this address changes (after a restart). Use Custom to keep computers linked.') : null);
+      s.kind === 'temporary' ? h('p.hint', 'With Temporary, a linked computer must be linked again when this address changes (whenever Hoprig or this computer restarts). Use Custom to keep computers linked.') : null);
   }
 
   // ---------- Advanced ----------

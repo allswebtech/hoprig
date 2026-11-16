@@ -81,6 +81,7 @@ const L = await import('../../src/addons/localservice.mjs');
 const S = await import('../../src/addons/linkswitch.mjs');
 const { publicLink } = await import('../../src/addons/linkaddon.mjs');
 const { loadConfig, saveConfig } = await import('../../src/config.mjs');
+const choice = () => { const { on, kind } = loadConfig().publicLink || {}; return { on, kind }; };
 const { hashTag } = await import('../../src/server/strength.mjs');
 // A password judged strong (strength.mjs): the switch turns nothing on without one.
 const strongPassword = () => saveConfig({ server: { passwordHash: 'scrypt$x', passwordCheck: { tag: hashTag('scrypt$x'), strong: true } } });
@@ -288,7 +289,7 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   assert.equal(made.ok, true, made.error);
   assert.equal(made.url, 'https://office.example.com');
   assert.ok(made.lines.some((l) => /Created tunnel hoprig-office-example-com with id/.test(l)), made.lines.join('\n'));
-  assert.deepEqual(loadConfig().publicLink, { on: true, kind: 'custom' }, 'made: the switch is on as Custom');
+  assert.deepEqual(choice(), { on: true, kind: 'custom' }, 'made: the switch is on as Custom');
   const create = calls().find((c) => c.a.includes('create'));
   assert.deepEqual(create.a.slice(-3), ['--cred-file', path.join(fixedDir, 'tunnel.json'), 'hoprig-office-example-com']);
   assert.deepEqual(calls().find((c) => c.a.includes('route')).a.slice(-3), ['dns', ID, 'office.example.com']);

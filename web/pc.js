@@ -45,16 +45,20 @@ export function processList(d, sort = 'cpu') {
  */
 export function reachOf(settings, link = null) {
   // The row's title already says "Yes, from anywhere": the text only says where.
+  let broken = null; // the public link is on but does not work: said instead of the advice to turn it on
   if (link && link.on) {
     const kind = link.kind === 'custom' ? 'Custom' : 'Temporary';
-    if (link.state === 'on' && link.url) return { level: 'anywhere', text: `Through its public link ${link.url} (${kind}${link.kind === 'custom' ? '' : ': the address changes when it restarts'}).` };
-    return { level: 'anywhere', text: `Through its public link (${kind}), once it is connected (it is starting now).` };
+    if (link.state === 'on' && link.url) return { level: 'anywhere', text: `Through its public link ${link.url} (${kind}${link.kind === 'custom' ? '' : ': the address changes whenever Hoprig or the computer restarts'}).` };
+    if (link.state === 'starting' || link.state === 'installing') return { level: 'anywhere', text: `Through its public link (${kind}), once it is connected (it is starting now).` };
+    broken = link.state === 'blocked'
+      ? `Its public link (${kind}) is on but held back: its password must be made strong first (Settings → Public link).`
+      : `Its public link (${kind}) is on but not working now${link.state === 'retrying' ? '; it keeps trying' : ''} (Settings → Public link says why).`;
   }
   const s = (settings && settings.server) || {};
   if (s.publicUrl) return { level: 'anywhere', text: `At ${s.publicUrl}.` };
   const n = (settings && settings.network) || {};
-  if (n.host && !['127.0.0.1', '::1', 'localhost'].includes(n.host)) return { level: 'network', text: `From other devices on the same network, on port ${n.port}. Turn on the public link to open it from anywhere.` };
-  return { level: 'local', text: 'Turn on the public link to open it from anywhere.' };
+  if (n.host && !['127.0.0.1', '::1', 'localhost'].includes(n.host)) return { level: 'network', text: `From other devices on the same network, on port ${n.port}. ${broken || 'Turn on the public link to open it from anywhere.'}` };
+  return { level: 'local', text: broken || 'Turn on the public link to open it from anywhere.' };
 }
 
 /** The open computer as the list of computers knows it (state, system, versions). */

@@ -16,11 +16,13 @@
 //   GET  /api/public-link/job?from=N             that job's output
 //
 // A linked hub may use them with its machine token: what it turns on is recorded, and ends when the token is revoked.
+// A hub never gets what makes the password weak (a hint for guessing it), and never checks a password here: like
+// /api/login and /api/settings/password, that is for this computer's own page (a guess checked through a token would
+// outlive the token's revoke).
 import { verifyPassword, RateLimiter } from '../server/auth.mjs';
 import { loadConfig } from '../config.mjs';
 import { notePassword } from '../server/strength.mjs';
 import { tokenIdOf } from '../machines/index.mjs';
-import { arrivedEncrypted } from '../machines/legs.mjs';
 import { KINDS, status, turnOff, turnOn } from './linkswitch.mjs';
 
 const CUSTOM = ['sign-in', 'cancel', 'create', 'token', 'forget', 'add-service', 'remove-service'];
@@ -32,17 +34,19 @@ export function linkRoutes(sctx, { run, jobs, addon, limiter = new RateLimiter()
   const busy = () => {
     if (jobs.get(addon.id)?.running) throw fail(409, 'The public link is busy with something else; wait until it finishes.');
   };
+  // The owner's own browser: signed in by its cookie, not a machine token, not one of Tia's in-process requests.
+  const ownBrowser = (req) => tokenIdOf(req) === null && !!req.headers.cookie;
+  const shown = (req, r) => (ownBrowser(req) || !r.password ? r : { ...r, password: { ...r.password, why: null } });
   return [
-    ['GET', /^\/api\/public-link$/, async () => status()],
+    ['GET', /^\/api\/public-link$/, async (req) => status({ why: ownBrowser(req) })],
     ['POST', /^\/api\/public-link$/, async (req) => {
       const b = await sctx.readJson(req);
       if (typeof b.on !== 'boolean') throw fail(400, 'send { on: true | false }');
       if (b.kind !== undefined && !KINDS.includes(b.kind)) throw fail(400, 'kind must be "temporary" or "custom"');
       if (b.password !== undefined && (typeof b.password !== 'string' || !b.password || b.password.length > 1024)) throw fail(400, 'password must be a string');
-      if (!b.on) return turnOff(b.kind ? { kind: b.kind } : {}); // off: the kind (when sent) is kept for the next time
+      if (!b.on) return shown(req, await turnOff(b.kind ? { kind: b.kind } : {})); // off: the kind (when sent) is kept for the next time
       if (b.password !== undefined) {
-        // A password never crosses a plain leg from a hub (as for Setup: src/machines/legs.mjs).
-        if (tokenIdOf(req) !== null && !arrivedEncrypted(req)) throw fail(403, 'The password is not sent over this link: it is not encrypted. Type it on this computer\'s own page.');
+        if (tokenIdOf(req) !== null) throw fail(403, 'The password is checked only on this computer\'s own page: open it there (Settings → Public link).');
         // The stored password was never judged: the owner types it once. Limited like the sign-in.
         const ip = sctx.clientIp(req);
         const wait = limiter.retryAfter(ip);
@@ -53,7 +57,7 @@ export function linkRoutes(sctx, { run, jobs, addon, limiter = new RateLimiter()
         limiter.succeed(ip);
         notePassword(b.password, hash);
       }
-      return turnOn(b.kind || status().kind, { by: tokenIdOf(req) });
+      return shown(req, await turnOn(b.kind || status().kind, { by: tokenIdOf(req) }));
     }],
     ['POST', /^\/api\/public-link\/(custom|temporary)\/([a-z-]{1,20})$/, async (req, m) => {
       const body = await sctx.readJson(req);

@@ -18,7 +18,7 @@ const clean = (u, { origin = false } = {}) => {
 /**
  * How this computer is reached from anywhere: { url, via } with via 'set' (server.publicUrl, a hub behind its own
  * proxy; kept with its path), 'custom' (the Custom address while the public link is on as Custom) or 'temporary'
- * (the Temporary address while its cloudflared runs); { url: null, via: null } when there is none. No trailing "/".
+ * (the Temporary address while its cloudflared runs, connected); { url: null, via: null } when there is none. No trailing "/".
  */
 export function reachable(cfg = loadConfig()) {
   const none = { url: null, via: null };
@@ -31,9 +31,10 @@ export function reachable(cfg = loadConfig()) {
     const url = f && f.mode && f.hostname ? clean(`https://${f.hostname}`, { origin: true }) : null;
     return url ? { url, via: 'custom' } : none;
   }
-  // The Temporary address only while its cloudflared runs: after a restart it is a new one.
+  // The Temporary address only while its cloudflared runs and is connected: while it starts again after a crash the
+  // record still holds the old address, which no longer leads here.
   const rec = readJsonFile(linkRecordFile()) || {};
-  const url = rec.kind === 'temporary' && rec.url && alive(rec.pid) ? clean(rec.url, { origin: true }) : null;
+  const url = rec.kind === 'temporary' && rec.url && rec.connected === true && alive(rec.pid) ? clean(rec.url, { origin: true }) : null;
   return url ? { url, via: 'temporary' } : none;
 }
 

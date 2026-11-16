@@ -86,7 +86,8 @@ a message, because the port would otherwise be open to the whole network.
   (**Settings → Public link → Link another computer**). No server, nothing opened on any router.
 - **A server:** add it from the main one by SSH, or link it the same way.
 
-With Temporary, a linked computer must be linked again when the main one's address changes (after it restarts).
+With Temporary, a linked computer must be linked again when the main one's address changes: whenever Hoprig or the
+computer restarts there (an update of Hoprig restarts it too).
 Computers that should stay linked need Custom on the main one, or a server as the main one.
 
 ### How it works
@@ -100,9 +101,10 @@ not a common one; `hoprig public on --new-password FILE` makes one), and your tr
 The switch is remembered: when it was on, it is on again after the dashboard or the computer restarts.
 
 **Temporary** (the default) needs nothing: Cloudflare's free quick tunnel gives this dashboard an
-`https://…trycloudflare.com` address. It is new each time the link starts (after a restart of the computer, too);
+`https://…trycloudflare.com` address. It is new each time the link starts: whenever Hoprig or the computer restarts (an update of Hoprig restarts it too);
 each new address is shown on the page and sent to your phone when **Settings → Notifications** has a push address.
-Under **Advanced**, one more local service (such as TRouteAI's dashboard) can get a temporary address of its own.
+Under **Advanced**, one more local service (such as TRouteAI's dashboard) can get a temporary address of its own while
+the link is on as Temporary; it stops when the switch goes off or to Custom.
 
 **Custom** keeps your own address, such as `https://office.example.com`. It needs a free Cloudflare account with a
 domain on it (a domain you own, added to Cloudflare). To set it up:

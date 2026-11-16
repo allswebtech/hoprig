@@ -76,12 +76,32 @@ test('only a Temporary one ran: it stays on as Temporary; nothing ran: off, and 
   assert.deepEqual(S.migrate(), { on: false, kind: 'custom' });
   assert.deepEqual(raw().server, {});
 
+});
+
+test('the old tunnel is ended only when its record says it runs AND that number is provably ours', async () => {
   // After a restart of the computer the old number may belong to another program: it is neither on nor ended.
   fresh({});
   const stranger = sleeper(['not', 'cloudflared']);
   writeQuick({ pid: stranger.pid, url: QUICK, restored: false, restore: { hadTrustProxy: false, hadOrigin: false, origin: QUICK } });
   assert.deepEqual(S.migrate(), { on: false, kind: 'temporary' });
+  // A signal takes a moment to arrive: look again after it would have.
+  await new Promise((r) => setTimeout(r, 400));
   assert.equal(gone(stranger.pid), false, 'another program is never ended');
+  assert.equal(stranger.exitCode === null && stranger.signalCode === null, true);
+
+  // A record that says the tunnel was stopped (the older version kept it, with the old number): never ended, never on,
+  // even when the number now belongs to something that looks like a tunnel.
+  fresh({});
+  const lookalike = sleeper();
+  writeQuick({ pid: lookalike.pid, url: QUICK, restored: true });
+  assert.deepEqual(S.migrate(), { on: false, kind: 'temporary' });
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(gone(lookalike.pid), false, 'a stopped record\'s number is never ended');
+  assert.equal(lookalike.signalCode, null);
+  assert.equal(S.ours(stranger.pid), false);
+  assert.equal(S.ours(lookalike.pid), process.platform === 'linux' || process.platform === 'darwin');
+  assert.equal(S.ours(process.pid), false);
+  assert.equal(S.ours('12'), false, 'only a number');
 });
 
 test('a computer that never used the public link: nothing is written', () => {

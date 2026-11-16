@@ -28,6 +28,7 @@ process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
 
 const P = await import('../../src/addons/publiclink.mjs');
 const { findAddon } = await import('../../src/addons/index.mjs');
+const { saveConfig } = await import('../../src/config.mjs');
 
 test('the address is read from cloudflared\'s real output; its own service address is not one', () => {
   const lines = [
@@ -116,6 +117,9 @@ test('a temporary address for another local service: asked first when it has no 
   const look = (login) => async () => ({ status: login ? 401 : 200, headers: new Headers(), text: async () => '<h1>open</h1>' });
   const sent = [];
   const notify = async (url, what) => (sent.push([url, what]), { sent: true });
+  // Only while the switch is on as Temporary.
+  assert.match((await a.actions['quick-service-start']({ port: 20017 }, { notify, fetchImpl: look(true) })).error, /Turn the public link on as Temporary first/);
+  saveConfig({ publicLink: { on: true, kind: 'temporary' } });
   assert.match((await a.actions['quick-service-start']({ port: 7655 }, { notify })).error, /dashboard itself/);
   const ask = await a.actions['quick-service-start']({ port: 20017 }, { notify, fetchImpl: look(false) });
   assert.deepEqual([ask.ok, /no sign-in page of its own/.test(ask.confirm)], [false, true]);

@@ -203,7 +203,7 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
       // With the line to type there: the hub's address and, for a hub with its own certificate, its fingerprint.
       const c = createLinkCode();
       // How this computer is reached from anywhere: the set public address, else the public link's (reach.mjs).
-      // `via` 'temporary': the address changes after a restart, and a computer linked to it must be linked again.
+      // `via` 'temporary': the address changes whenever Hoprig or the computer restarts, and a computer linked to it must be linked again.
       const { url: base, via } = reachable();
       const cert = base ? await certOf(base) : null;
       const { line, note } = cert ? joinCommand(base, c.code, cert) : { line: null, note: null };

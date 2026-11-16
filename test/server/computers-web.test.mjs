@@ -63,10 +63,17 @@ test('Overview: whether the computer can be reached from anywhere, in plain word
   const temp = reachOf(s('127.0.0.1'), { on: true, kind: 'temporary', state: 'on', url: 'https://a-b.trycloudflare.com' });
   assert.equal(temp.level, 'anywhere');
   assert.match(temp.text, /a-b\.trycloudflare\.com/);
-  assert.match(temp.text, /changes when it restarts/);
+  assert.match(temp.text, /changes whenever Hoprig or the computer restarts/);
   assert.deepEqual(reachOf(s('127.0.0.1'), { on: true, kind: 'custom', state: 'on', url: 'https://pc.example.com' }), { level: 'anywhere', text: 'Through its public link https://pc.example.com (Custom).' });
   assert.match(reachOf(s('127.0.0.1'), { on: true, kind: 'custom', state: 'starting', url: null }).text, /once it is connected/);
   assert.equal(reachOf(s('127.0.0.1'), { on: false, kind: 'temporary', state: 'off' }).level, 'local');
+  // On but not working: never "from anywhere".
+  for (const state of ['error', 'retrying', 'blocked']) {
+    const r = reachOf(s('127.0.0.1'), { on: true, kind: 'temporary', state, url: null });
+    assert.equal(r.level, 'local', state);
+    assert.match(r.text, /is on but/, state);
+  }
+  assert.equal(reachOf(s('0.0.0.0'), { on: true, kind: 'custom', state: 'error', url: null }).level, 'network');
   assert.equal(reachOf(s('127.0.0.1'), null).level, 'local', 'an older computer without the route');
   for (const f of ['pc.js', 'settings.js', 'computers.js', 'gateways.js']) assert.doesNotMatch(src(f), /Tailscale|SSH tunnel/, `${f}: the public link is the way from anywhere`);
   assert.equal(upFor(3 * 86400 + 5 * 3600 + 120), '3 d 5 h');
