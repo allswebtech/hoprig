@@ -149,3 +149,13 @@ test('over the route of a sandboxed dashboard', async () => {
     await app.close();
   }
 });
+
+test('a dashboard started with GIT_DIR set still searches and lists the opened folder\'s own repository', async () => {
+  const other = path.join(box.root, 'other-repo');
+  fs.mkdirSync(other);
+  execFileSync('git', ['init', '-q'], { cwd: other });
+  const env = { ...process.env, GIT_DIR: path.join(other, '.git'), GIT_WORK_TREE: other };
+  assert.ok((await listFiles(repo, roots, { env })).files.includes('src/app.js'));
+  const r = await search(repo, { q: 'needle' }, roots, { env, engine: 'git' });
+  assert.ok(r.matches.some((m) => m.path === 'src/app.js'));
+});
