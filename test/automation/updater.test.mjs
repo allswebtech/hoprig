@@ -143,13 +143,15 @@ test('a coding tool that is missing is installed by its row; one that is there i
   const did = [];
   let have = null;
   const t = { id: 'codex', name: 'Codex', managed: true, pin: '0.169.0', updateItem: { whenRunning: 'wait-until-none' }, installedVersion: () => have, install: async () => (did.push('install'), { ok: true }), update: async () => (did.push('update'), { ok: true }), info: async () => ({ installed: have, latest: '0.169.0', method: 'hoprig' }) };
-  const it = toolItem('codex', { tool: t });
+  const on = [];
+  const it = toolItem('codex', { tool: t, turnOn: (id) => on.push(id) });
   assert.equal((await it.info()).method, "Hoprig's tools folder");
   assert.match((await it.info()).note, /Installs 0\.169\.0 at first/);
   await it.update();
   have = '0.169.0';
   await it.update();
   assert.deepEqual(did, ['install', 'update']);
+  assert.deepEqual(on, ['codex'], 'installing turns it on');
   assert.equal(it.autoOk({ installed: null }), false, 'Automatic never installs');
 });
 
@@ -289,4 +291,19 @@ test('a default dashboard looks for nothing in the background; Automatic or noti
   } finally {
     t.cleanup();
   }
+});
+
+test('the output shows the home folder as "~" (no user name on the page)', async () => {
+  const os = await import('node:os');
+  const home = os.homedir();
+  const item = fakeItem('codex', { info: newer(), update: () => ({ ok: false, output: `npm error in ${home}/.npm` }) });
+  item.update = async ({ onLine }) => {
+    onLine(`$ npm install --prefix ${home}/.local/state/hoprig/tools/codex`);
+    return { ok: false, output: `npm error in ${home}/.npm` };
+  };
+  const { u } = make([item]);
+  await u.start('codex');
+  const l = await settle(u);
+  assert.equal(l.lines[1], '$ npm install --prefix ~/.local/state/hoprig/tools/codex');
+  assert.equal(l.results.codex.error, 'npm error in ~/.npm');
 });

@@ -17,7 +17,7 @@
 // its sessions is working (Claude Code: a running session keeps its own copy) or open at all (Codex, OpenCode: npm
 // replaces their program files); the tunnel helper never while a public link is on (a Temporary link would come
 // back with a new address).
-import { findTool } from '../codetools/index.mjs';
+import { findTool, turnOn } from '../codetools/index.mjs';
 import { capture, compareVersions, npmMajor, showCommand, stream } from '../setup/system.mjs';
 import { busy } from './cards.mjs';
 
@@ -124,9 +124,11 @@ export function toolItem(id, deps = {}) {
       return { installed: i.installed, latest: i.latest, method, updateAvailable: !!i.updateAvailable, canUpdate: true, note };
     },
     async update({ onLine = () => {} } = {}) {
-      // Missing: install it (a managed tool at its tested version). Present: update it.
-      if (!tool.installedVersion()) return tool.install({ onLine });
-      return tool.update({ onLine });
+      // Missing: install it (a managed tool at its tested version) and turn it on. Present: update it.
+      if (tool.installedVersion()) return tool.update({ onLine });
+      const r = await tool.install({ onLine });
+      if (r.ok) (deps.turnOn || turnOn)(id);
+      return { ...r, installed: true };
     },
     blocked(cards) {
       if (keepsCopy) return null;
@@ -163,7 +165,7 @@ export function tunnelItem(deps = {}) {
     installable: false,
     async info() {
       const f = await facts();
-      const base = { installed: f.installed, latest: f.pin, method: f.own ? "Hoprig's add-ons folder" : f.bin ? 'the system' : 'not installed' };
+      const base = { installed: f.installed, latest: f.pin, method: f.own ? "Hoprig's add-ons folder" : f.bin ? 'the system' : null };
       if (!f.bin) return { ...base, updateAvailable: false, canUpdate: false, why: 'Installs itself the first time the public link is turned on.' };
       const newer = !!(f.installed && compareVersions(f.pin, f.installed) > 0);
       if (!f.own) return { ...base, updateAvailable: newer, canUpdate: false, why: 'Installed by the system: update it with its package manager (on a Mac: brew upgrade cloudflared).' };

@@ -3,7 +3,8 @@
 // the activity log.
 //
 //   view({ fresh, id })   → { mode, notify, running, items: [row] }; the facts of each item are kept 10 minutes
-//                           unless `fresh` (Check now) or after an update of that item
+//                           (1 minute when a server could not be reached) unless `fresh` (Check now) or after an
+//                           update of that item
 //   start(ids | 'all')    → { started, ids, skipped: [{ id, why }] } and the work goes on in the background;
 //                           throws (status 409) while another update runs or when the one item asked for must wait
 //   auto(id)              → the automatic rule's update of one item: { waited } | { ok, version, error }
@@ -11,9 +12,12 @@
 //
 // A row: { id, title, whenRunning, installed, latest, method, updateAvailable, canUpdate, why, note, error,
 //          action: 'update' | 'install' | null, blocked, auto, checkedAt, last, running }
+import { tildeText } from '../pcsetup/feature.mjs';
 import { cleanUpdateSettings, readUpdateSettings } from './updates.mjs';
 
 export const INFO_TTL_MS = 10 * 60_000;
+// A look that could not reach a server (no newest version, or an error) is tried again sooner.
+export const MISS_TTL_MS = 60_000;
 const LINES_MAX = 3000;
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
@@ -32,9 +36,19 @@ export function createUpdater({ items, cards, config, saveConfig, record = () =>
     return it;
   };
 
-  async function look(item, fresh) {
+  const looking = new Map(); // id → the look in progress: two pages asking at once share it
+
+  function look(item, fresh) {
+    if (looking.has(item.id)) return looking.get(item.id);
+    const p = lookNow(item, fresh).finally(() => looking.delete(item.id));
+    looking.set(item.id, p);
+    return p;
+  }
+
+  async function lookNow(item, fresh) {
     const hit = facts.get(item.id);
-    if (!fresh && hit && now() - hit.at < INFO_TTL_MS) return hit;
+    const ttl = hit && (hit.error || (hit.info && !hit.info.latest && hit.info.canUpdate)) ? MISS_TTL_MS : INFO_TTL_MS;
+    if (!fresh && hit && now() - hit.at < ttl) return hit;
     let f;
     try {
       if (item.prepare) await item.prepare();
@@ -83,7 +97,7 @@ export function createUpdater({ items, cards, config, saveConfig, record = () =>
     job = { ids, id: ids[0], running: true, lines: [], results: {} };
     const j = job;
     const line = (l) => {
-      j.lines.push(String(l).slice(0, 500));
+      j.lines.push(tildeText(String(l)).slice(0, 500)); // the home folder as "~": no user name on the page
       if (j.lines.length > LINES_MAX) j.lines.splice(0, j.lines.length - LINES_MAX);
     };
     return (async () => {
@@ -98,11 +112,11 @@ export function createUpdater({ items, cards, config, saveConfig, record = () =>
           r = { ok: false, version: null, output: e.message };
           line(e.message);
         }
-        const res = { ok: !!r.ok, version: r.version || null, at: now(), error: r.ok ? null : String(r.output || '').split('\n').filter(Boolean).pop() || 'see the output' };
+        const res = { ok: !!r.ok, version: r.version || null, at: now(), error: r.ok ? null : tildeText(String(r.output || '').split('\n').filter(Boolean).pop() || 'see the output') };
         j.results[id] = res;
         last.set(id, res);
         facts.delete(id); // look again: the version changed
-        if (by === 'owner') record({ automation: 'updates', did: `updated ${item.title} (Update now)`, outcome: res.ok ? `ok: now ${res.version || 'installed'}` : `failed: ${res.error}` });
+        if (by === 'owner') record({ automation: 'updates', did: `${r.installed ? 'installed' : 'updated'} ${item.title} (${r.installed ? 'Install' : 'Update now'})`, outcome: res.ok ? `ok: now ${res.version || 'installed'}` : `failed: ${res.error}` });
       }
       j.running = false;
       return j.results;

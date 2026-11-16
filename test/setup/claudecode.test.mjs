@@ -141,3 +141,12 @@ test('login status runs without the profile auth variables', async () => {
   const missing = await C.claudeLoginStatus({ env: { ...process.env, PATH: pathWith(s.tmp) } });
   assert.equal(missing.loggedIn, null);
 });
+
+test('a stand-in "offline" lookup does not leave its answer for the real ones', async () => {
+  C.clearLatestCache();
+  const offline = async () => ({ ok: false });
+  const online = async () => ({ ok: true, text: async () => '2.1.400\n' });
+  assert.equal(await C.latestVersion('native', 'latest', { fetchImpl: offline, now: 1 }), null);
+  assert.equal(await C.latestVersion('native', 'latest', { fetchImpl: online, now: 2 }), '2.1.400');
+  C.clearLatestCache();
+});

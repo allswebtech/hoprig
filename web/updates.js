@@ -34,7 +34,7 @@ function itemCard(it, act) {
   const mark = savedMark();
   const rows = [
     info('Installed', it.installed || 'not installed'),
-    info('Newest', it.latest || (it.error ? 'could not look' : 'unknown (offline?)')),
+    info('Newest', it.latest || (it.error ? 'could not look' : it.why ? 'not looked up' : 'unknown (offline?)')),
     it.method ? info('Installed by', it.method) : null,
   ];
   const check = btn('secondary', { icon: 'refresh', label: 'Check now', onclick: async () => {
@@ -93,8 +93,7 @@ function updatesPage({ isAlive }) {
           return;
         }
         if (r.skipped && r.skipped.length) toast(`Waits: ${r.skipped.map((s) => s.why).join('; ')}`, { ms: 7000 });
-        await load();
-        follow(0);
+        await load(); // draws the running item and follows its output
       } catch (e) {
         toast(e.message, { kind: 'error', ms: 6000 });
       }
