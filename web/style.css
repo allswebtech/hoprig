@@ -299,6 +299,9 @@ article.card:hover { box-shadow: var(--shadow-2); }
   body.has-fab .row .acct-more { padding-right: max(0px, calc(var(--fab-w, 150px) - 40px)); }
   body.has-fab .accountsline-actions { padding-right: calc(var(--fab-w, 150px) + 8px); }
   body.has-fab .accountsline-actions .btn { max-width: 100%; white-space: normal; text-align: left; line-height: 1.25; padding-top: 6px; padding-bottom: 6px; }
+  /* A switch on a card is a control at the right edge too ("Also use pay-per-use API keys" on Providers): it and its
+     sentence stop left of the floating button, as a card's buttons do, and the switch sits by the label's first line. */
+  body.has-fab .card .switchrow { padding-right: max(0px, calc(var(--fab-w, 150px) - 10px)); align-items: flex-start; }
 }
 .card.skeleton { cursor: default; display: grid; gap: 10px; }
 .sk { height: 12px; border-radius: 6px; background: var(--surface-3); animation: pulse 1.6s ease-in-out infinite; }

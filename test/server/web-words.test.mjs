@@ -209,3 +209,9 @@ test('Settings → Workspace: the map is kept by itself only while its switch is
   assert.match(ws, /onMap\(v\); \/\/ the map's own card/, 'switching it repaints the map card without a reload');
   assert.match(ws, /autoPanel\(paintMap\)/);
 });
+
+test('a phone with the floating button: a switch on a card stops left of it, beside its label', () => {
+  const css = read('web/style.css');
+  const phone = css.slice(css.indexOf('/* A phone with the floating button'));
+  assert.match(phone, /body\.has-fab \.card \.switchrow \{ padding-right: max\(0px, calc\(var\(--fab-w, 150px\) - 10px\)\); align-items: flex-start; \}/);
+});
