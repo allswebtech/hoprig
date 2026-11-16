@@ -206,7 +206,12 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
       // `via` 'temporary': the address changes whenever Hoprig or the computer restarts, and a computer linked to it must be linked again.
       const { url: base, via } = reachable();
       const cert = base ? await certOf(base) : null;
-      const { line, note } = cert ? joinCommand(base, c.code, cert) : { line: null, note: null };
+      const made = cert ? joinCommand(base, c.code, cert) : { line: null, note: null };
+      const { line } = made;
+      let { note } = made;
+      // A public link's address has Cloudflare's publicly trusted certificate: a failed self-check there only means
+      // the address does not answer yet (a new one can take a moment), never that a fingerprint is needed.
+      if ((via === 'temporary' || via === 'custom') && cert && cert.kind !== 'own') note = cert.kind === 'unknown' ? 'This address did not answer here yet; a new one can take a minute. If linking fails, show a new line in a minute.' : null;
       const pin = cert && cert.kind === 'own' ? cert.pin : null;
       return { ...c, url: cert ? base : null, via: cert ? via : null, certificate: cert ? cert.kind : null, fingerprint: pin, command: line, line: cert ? joinLine(base, c.code, pin) : null, note };
     }],

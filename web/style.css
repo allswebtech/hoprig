@@ -671,9 +671,17 @@ body.is-demo .page-title::after {
 .pl-kind-body { display: grid; gap: 8px; padding-left: 30px; min-width: 0; }
 .pl-url { font: 600 18px/1.35 var(--mono); overflow-wrap: anywhere; }
 .pl-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pl-qr { display: grid; justify-items: center; }
+.pl-qr .qrbox { background: #fff; padding: 8px; border-radius: var(--r-sm); }
+.pl-fail { display: grid; gap: 4px; }
+.pl-details { font-size: var(--fs-xs); color: var(--text-2); }
+.pl-details summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.pl-details code { display: block; overflow-wrap: anywhere; white-space: pre-wrap; }
 @media (max-width: 600px) {
   .pl-actions .btn { flex: 1 1 0; min-height: 44px; justify-content: center; }
   .pl-kind-body { padding-left: 0; }
+  /* A finger needs 44 px: every button of the page on a phone, not only the address card's. */
+  .pl .btn, .pl a.btn, .pl-details summary { min-height: 44px; }
 }
 
 /* ---------- shell (shell.js): sidebar, page head, computer pill, bottom bar ----------

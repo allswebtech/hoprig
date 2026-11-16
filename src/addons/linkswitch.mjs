@@ -353,7 +353,8 @@ export function status({ why = true } = {}) {
   const want = readSwitch();
   const r = sup && cur ? sup.state() : null;
   let state = phase;
-  if (want.on && cur && phase !== 'error') state = r && r.connected && liveUrl() ? 'on' : r && r.nextTryAt ? 'retrying' : 'starting';
+  // Once a run failed it stays 'retrying' until it is connected: not 'starting' between two tries.
+  if (want.on && cur && phase !== 'error') state = r && r.connected && liveUrl() ? 'on' : r && (r.nextTryAt || (r.restarts > 0 && r.error)) ? 'retrying' : 'starting';
   if (want.on && !cur && phase === 'off') state = 'starting'; // chosen a moment ago; the start is queued
   if (!want.on && phase !== 'error') state = 'off';
   const pw = passwordState();

@@ -23,7 +23,8 @@ const { reachableUrl } = await import('../../src/addons/reach.mjs');
 const backend = { kind: 'pty', capabilities: {}, list: async () => [], capture: async () => '', create: async ({ name }) => ({ name }) };
 saveConfig({ server: { passwordHash: await hashPassword('right-password'), port: 1 } });
 // No add-ons: the public link is switched in a test below by its files only, and must not start a real cloudflared.
-const app = createServer({ backend, watch: false, addons: { addons: [] }, machines: { claudeVersion: async () => null, certOf: async () => ({ kind: 'public' }) } });
+const app = createServer({ backend, watch: false, addons: { addons: [] }, machines: { claudeVersion: async () => null, // A Temporary address new in DNS: its self-check does not answer yet.
+  certOf: async (u) => (/stem-wonder/.test(u) ? { kind: 'unknown', why: 'its own address did not answer here (getaddrinfo ENOTFOUND)' } : { kind: 'public' }) } });
 const { port } = await app.listen(0, '127.0.0.1');
 const base = `http://127.0.0.1:${port}`;
 test.after(() => app.close());
@@ -81,6 +82,10 @@ test('while the public link is on, the join line and `hoprig link` use its addre
     assert.equal(t.url, 'https://stem-wonder.trycloudflare.com');
     assert.equal(t.via, 'temporary', 'the page then says that the link ends when the address changes');
     assert.equal(t.line, `https://stem-wonder.trycloudflare.com#join=${t.code}`);
+    // Cloudflare's certificate is publicly trusted: no fingerprint or certificate-authority advice, only plain words.
+    assert.match(t.note, /did not answer here yet/);
+    assert.doesNotMatch(t.note, /fingerprint|caddy|sudo/i);
+    assert.doesNotMatch(t.line, /fingerprint/);
     fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: 2 ** 22 + 7, connected: true }));
     assert.equal(reachableUrl(), null);
     saveConfig({ publicLink: { on: false, kind: 'custom' } });

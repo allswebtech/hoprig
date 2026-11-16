@@ -390,6 +390,13 @@ test('public link: the state in one pill and one line, Off by default; it looks 
   assert.deepEqual(statePill({ on: true, state: 'installing' }), ['starting', 'Installing cloudflared…']);
   assert.deepEqual(statePill({ on: true, state: 'on' }), ['waiting', 'On']);
   assert.deepEqual(statePill({ on: true, state: 'retrying' }), ['attention', 'Trying again']);
+  assert.deepEqual(statePill({ on: true, state: 'blocked', need: 'stronger-password' }), ['attention', 'Waiting for a strong password']);
+  assert.equal(needsPoll({ on: true, state: 'blocked', custom: { state: 'none' } }), false, 'held back: it waits for the owner, not for time');
+  // cloudflared's raw words become plain ones (the raw line stays behind Details); the server's own are plain already.
+  const { plainError } = await import('../../web/publiclink.js');
+  assert.equal(plainError('failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": dial tcp: lookup api.trycloudflare.com: no such host'), 'This computer cannot reach Cloudflare. Check its internet connection.');
+  assert.match(plainError('cloudflared could not be installed: getaddrinfo ENOTFOUND github.com.'), /could not be downloaded/);
+  assert.equal(plainError('Set up Custom first: sign in to Cloudflare and name the address.'), null);
   assert.equal(linkSummary(null), 'Off');
   assert.equal(linkSummary({ on: false, kind: 'custom' }), 'Off');
   assert.equal(linkSummary({ on: true, kind: 'temporary', state: 'on', url: 'https://a-b-c.trycloudflare.com' }), 'Temporary: a-b-c.trycloudflare.com');
@@ -415,10 +422,23 @@ test('public link: its own Settings page; refusals are asked for in place; the a
   assert.match(forgetText({ mode: 'token', url: 'https://office.example.com' }), /stay in your Cloudflare dashboard/);
   assert.match(forgetText({ mode: null }), /Nothing was made in your Cloudflare account/);
   const page = webSrc('publiclink.js');
+  const forms = webSrc('linkforms.js');
   assert.match(page, /registerSettingsPage\(\{\s*id: 'public-link', title: 'Public link'/);
-  for (const need of ['password', 'check-password', 'custom-setup']) assert.ok(page.includes(`'${need}'`), need);
-  assert.match(page, /return strongForm\(ui\.error, true\)/, 'a weak password: "Make a strong password" in place, then on');
-  assert.match(page, /api\('\/api\/settings\/password', \{ current: cur\.value, next: next\.value, strong: true \}\)/);
+  for (const need of ['password', 'check-password', 'custom-setup']) assert.ok(forms.includes(`'${need}'`), need);
+  assert.match(forms, /return strongForm\(p, why, true\)/, 'a weak password: "Make a strong password" in place, then on');
+  assert.match(forms, /const body = \{ current: cur\.value, next: next\.value, strong: true \};/);
+  assert.match(forms, /p\.api\('\/api\/settings\/password', body\)/);
+  // A link that is on but held back (a weak password) asks for the same in place.
+  assert.match(page, /const need = ui\.need \|\| \(s\.state === 'blocked' \? s\.need : null\)/);
+  // Typed passwords are never trimmed and live only in the page's own closure, not in a module.
+  assert.match(page, /oninput: \(e\) => \(secret\[key\] = e\.target\.value\)/);
+  assert.doesNotMatch(page.split('function render')[0], /secret|password: ''/, 'no password kept at module level');
+  // Enter submits the Custom name and the tunnel token (forms), and a redraw gives the focus back.
+  assert.match(forms, /h\('form\.addon-form', \{ onsubmit: async \(e\) => \{\n\s+e\.preventDefault\(\);\n\s+draft\.hostname/);
+  assert.match(forms, /h\('button\.btn\.small\.secondary', \{ type: 'submit', disabled: p\.ui\.busy \}, 'Use it'\)/);
+  assert.match(page, /const had = a && root\.contains\(a\) \? a\.dataset\.fk \|\| null : null;/);
+  // Custom being set up while Temporary is on stays chosen across a look-again.
+  assert.match(page, /const settingUp = ui\.chosen === 'custom' && s\.kind !== 'custom' && s\.custom\.state !== 'ready';/);
   // A field being typed in keeps the page from being drawn anew, but the switch and the kind radios are no such
   // field (a real click focuses them; the address would never show), and the owner's own action always redraws.
   assert.match(page, /a\.tagName === 'INPUT' && !\['checkbox', 'radio'\]\.includes\(a\.type\)/);
@@ -563,8 +583,14 @@ test('providers: "Not signed in" with a Sign in button; usage with its age; a pl
 });
 
 test('joining: the one line to paste on the main computer, the terminal line too; one paste field on the other', () => {
-  const src = fs.readFileSync(path.join(WEB, 'computers.js'), 'utf8');
+  const src = fs.readFileSync(path.join(WEB, 'joinlink.js'), 'utf8');
+  assert.match(fs.readFileSync(path.join(WEB, 'computers.js'), 'utf8'), /from '\.\/joinlink\.js'/);
   assert.match(src, /const cmd = c\.command \|\| /);
+  // Opened on this computer's own loopback address, no 127.0.0.1 command is offered to another computer.
+  assert.match(src, /: loopback\(\)\n\s+\? \[h\('p\.banner\.info'/);
+  // Once linked, the other computer says to which main one, whether it is connected, and Leave.
+  assert.match(src, /title: `Linked to your main \$\{APP_NAME\}`/);
+  assert.match(src, /lineIn\.form\.requestSubmit\(\)/, 'Enter in the one-line paste field links');
   assert.match(src, /c\.note \? h\('span\.hint', c\.note\)/);
   assert.match(src, /cmdLine\(c\.line\)/);
   assert.match(src, /c\.via === 'temporary'/, 'a Temporary address: the other computer must be linked again after a restart');

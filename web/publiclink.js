@@ -2,20 +2,21 @@
 // reachable from anywhere through Cloudflare, as one of two kinds, never both: Temporary (the default, nothing to set
 // up, a new address at each start) or Custom (the owner's own address, set up once inside its card). While it is on:
 // the address with Copy, Open and a sign-in QR, what a visitor has to do, and the line another computer pastes to
-// link itself here. When the server cannot turn it on it says what it needs, and the page asks for that in place
-// (the password typed once, a stronger password, the Custom set-up). The rarer things are under Advanced.
+// link itself here. When the server cannot turn it on (or holds a link that is on back) it says what it needs, and
+// the page asks for that in place (linkforms.js). The rarer things are under Advanced.
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
-import { add, api, btn, confirmSheet, copyText, fill, h, link, openSheet, qrSvg, toast } from './lib.js';
+import { add, api, btn, confirmSheet, copyText, fill, h, openSheet, qrSvg, toast } from './lib.js';
+import { customBody, forgetText, makePassword, needBox, strongForm, tokenForm } from './linkforms.js';
 import { registerSettingsPage } from './registry.js';
-import { field, fold, panel, steps } from './shell.js';
+import { panel } from './shell.js';
 
-// What was typed, kept while the page is drawn again (it looks again every few seconds while something changes).
-const draft = { hostname: '', token: '', tokenHost: '', svcPort: '', svcHost: '', quickPort: '', password: '', current: '', next: '' };
+export { forgetText, makePassword };
 
 /** The state in one pill: [state class, text]. */
 export function statePill(s) {
   if (!s || !s.on) return s && s.state === 'error' ? ['attention', 'Off: it did not start'] : ['ended', 'Off'];
+  if (s.state === 'blocked') return ['attention', s.need === 'custom-setup' ? 'Waiting for the set-up' : 'Waiting for a strong password'];
   return {
     installing: ['starting', 'Installing cloudflared…'],
     starting: ['starting', 'Starting…'],
@@ -34,33 +35,23 @@ export function linkSummary(s) {
 }
 
 /** Whether the page looks again soon: while it starts, tries again, or waits for Cloudflare's approval. */
-export const needsPoll = (s) => !!(s && ((s.on && s.state !== 'on') || (s.custom && s.custom.state === 'signing-in')));
+export const needsPoll = (s) => !!(s && ((s.on && !['on', 'blocked'].includes(s.state)) || (s.custom && s.custom.state === 'signing-in')));
 
-const plural = (list, one, many) => (list.length > 1 ? many : one);
-
-/** What "Stop using my domain" does, said before it is done. */
-export function forgetText(f) {
-  if (f.mode === 'token') {
-    return `${f.url} stops leading here and its token is removed from this computer. The tunnel and its address stay in your Cloudflare dashboard: delete them there under Networks → Tunnels if you no longer need them.`;
-  }
-  if (f.mode !== 'named') return 'The sign-in to Cloudflare is removed from this computer. Nothing was made in your Cloudflare account yet.';
-  const hosts = [f.hostname, ...(f.extra || []).map((x) => x.hostname)];
-  return `${f.url} stops leading here. Hoprig deletes its tunnel in your Cloudflare account and removes the sign-in to Cloudflare from this computer. `
-    + `The DNS ${plural(hosts, 'record', 'records')} for ${hosts.join(', ')} ${plural(hosts, 'stays', 'stay')} in Cloudflare, because cloudflared cannot remove DNS records: `
-    + `delete ${plural(hosts, 'it', 'them')} under your domain → DNS → Records. Until then the address shows a Cloudflare error page.`;
+/**
+ * A failure in plain words, or null when it has none (the server's own messages are plain already). cloudflared's
+ * raw line stays behind "Details".
+ */
+export function plainError(raw) {
+  const t = String(raw || '');
+  if (/could not be installed/.test(t)) return 'cloudflared could not be downloaded. Check this computer\'s internet connection.';
+  if (/no such host|ENOTFOUND|EAI_AGAIN|dial tcp|i\/o timeout|network is unreachable|connection refused|context deadline exceeded|TLS handshake timeout/i.test(t)) return 'This computer cannot reach Cloudflare. Check its internet connection.';
+  if (/\b429\b|Too Many Requests/i.test(t)) return 'Cloudflare asked to wait before the next try.';
+  return null;
 }
 
-/** A long random password that is easy to read aloud (no 0/O, 1/l): four groups of five. */
-export function makePassword(random = (n) => crypto.getRandomValues(new Uint8Array(n))) {
-  const abc = 'abcdefghijkmnpqrstuvwxyz23456789';
-  const bytes = random(20);
-  const chars = [...bytes].map((b) => abc[b % abc.length]).join('');
-  return chars.match(/.{5}/g).join('-');
-}
-
+const sentence = (t) => (/[.!?]$/.test(String(t).trim()) ? String(t).trim() : `${String(t).trim()}.`);
 const pill = ([key, text]) => h(`span.pill.st-${key}`, h('span.dot'), text);
 const ext = (href, text, cls = 'a.mono') => h(cls, { href, target: '_blank', rel: 'noopener noreferrer' }, text);
-const input = (key, attrs) => h('input.field', { value: draft[key], autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', oninput: (e) => (draft[key] = e.target.value.trim()), ...attrs });
 const copyBtn = (text, label = 'Copy', done = 'Copied') => btn('small secondary', { icon: 'copy', label, onclick: async () => toast((await copyText(text)) ? done : 'Select and copy it by hand') });
 
 /** A sheet with a sign-in QR made for that address: a phone scanning it lands signed in there, once. */
@@ -69,7 +60,7 @@ async function qrSheet(url) {
     const l = await api('~/api/login/links', { base: url });
     openSheet({ title: 'Sign in a phone' }, (close) => [
       h('p.sheet-text', `Scan it with the phone's camera: it opens ${url} signed in. It works once, for 15 minutes.`),
-      l.qr ? h('div.addon-address', h('div.qrbox', qrSvg(l.qr))) : null,
+      l.qr ? h('div.pl-qr', h('div.qrbox', qrSvg(l.qr))) : null,
       h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close(null) }, 'Close')),
     ]);
   } catch (e) {
@@ -78,12 +69,29 @@ async function qrSheet(url) {
 }
 
 function render({ here, isAlive }) {
+  // What was typed, kept while the page is drawn again; it goes with the page. Passwords are kept as typed (never
+  // trimmed) and only until they are sent.
+  const draft = { hostname: '', token: '', tokenHost: '', svcPort: '', svcHost: '', quickPort: '' };
+  const secret = { password: '', current: '', next: '', made: false };
   const root = h('div.pl', h('p.muted', 'Looking at the public link…'));
   const out = h('pre.output', { hidden: true, 'aria-live': 'polite' });
-  const ui = { need: null, error: null, busy: false, chosen: null, line: null };
+  // need/error: a refused turn-on; chosen: a kind picked but not switched to yet; outAt: where a job's output shows
+  // ('custom': in its card, 'advanced'); focus: the control (data-fk) to focus after the next draw.
+  const ui = { need: null, error: null, busy: false, chosen: null, outAt: null, focus: null, strong: false, pwError: '' };
   let s = null;
   let timer = null;
   let shown = null; // the one line the Settings list showed for it
+  let lastKey = null; // on/kind/state as last drawn: a job's leftover output goes when it changes
+  let advancedOpen = false;
+
+  const input = (key, attrs) => h('input.field', { value: draft[key], autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'data-fk': key, oninput: (e) => (draft[key] = e.target.value.trim()), ...attrs });
+  const secretInput = (key, attrs) => h('input.field', { value: secret[key], autocapitalize: 'off', spellcheck: 'false', 'data-fk': key, oninput: (e) => (secret[key] = e.target.value), ...attrs });
+  const kind = () => ui.chosen || s.kind;
+  const clearOutput = () => {
+    fill(out);
+    out.hidden = true;
+    ui.outAt = null;
+  };
 
   /** Look at the state and draw the page; `now`: after the owner's own action, even while a field has the focus. */
   async function load(now = false) {
@@ -104,18 +112,23 @@ function render({ here, isAlive }) {
       return;
     }
     if (!isAlive()) return;
-    if (s.on) ui.chosen = null;
+    // A kind picked while the link is on stays picked while it is set up (Custom's steps stay in its card until it
+    // is made and the link moves); otherwise what the server says is the choice.
+    const settingUp = ui.chosen === 'custom' && s.kind !== 'custom' && s.custom.state !== 'ready';
+    if ((s.on && !settingUp) || ui.chosen === s.kind) ui.chosen = null;
+    if (ui.need === 'custom-setup' && s.custom.state === 'ready') ui.need = null;
     // The Settings list beside this page says the state in one line: told to look again when that line changed.
     const line = linkSummary(s);
     if (shown !== null && line !== shown) window.dispatchEvent(new Event('saved'));
     shown = line;
+    const key = `${s.on}/${s.kind}/${s.state}`;
+    if (lastKey !== null && key !== lastKey && !ui.busy) clearOutput();
+    lastKey = key;
     paint();
     if (!ui.busy) timer = setTimeout(load, needsPoll(s) ? 1500 : s.on ? 10000 : 30000);
   }
 
-  const kind = () => ui.chosen || s.kind;
-
-  /** Ask the server; a refusal says what it needs, which the page asks for in place. */
+  /** Ask the server; a refusal says what it needs, which the page asks for in place (and focuses). */
   async function turn(on, k = kind(), extra = {}) {
     ui.error = null;
     try {
@@ -123,82 +136,40 @@ function render({ here, isAlive }) {
       if (r.ok === false) Object.assign(ui, { need: r.need || null, error: r.error, chosen: k });
       else Object.assign(ui, { need: null, chosen: null });
       if (r.need === 'custom-setup') ui.chosen = 'custom';
+      ui.focus = { 'check-password': 'password', 'stronger-password': 'current', 'custom-setup': 'set-it-up' }[r.need] || ui.focus;
     } catch (e) {
       ui.error = e.message;
+      if (extra.password !== undefined) ui.focus = 'password';
     }
     await load(true);
   }
 
   // ---------- the switch ----------
   function switchCard() {
-    const sw = h('input.switch', { type: 'checkbox', role: 'switch', checked: s.on, 'aria-label': 'Public link', onchange: (e) => turn(e.target.checked) });
+    const sw = h('input.switch', { type: 'checkbox', role: 'switch', checked: s.on, 'aria-label': 'Public link', 'data-fk': 'switch', onchange: (e) => turn(e.target.checked) });
     const busy = s.on && ['installing', 'starting'].includes(s.state);
     const wait = s.nextTryAt ? Math.max(1, Math.round((s.nextTryAt - Date.now()) / 1000)) : 0;
+    // A link that is on but held back asks for what it needs as a refused turn-on does.
+    const need = ui.need || (s.state === 'blocked' ? s.need : null);
+    const why = ui.need ? ui.error : s.error;
     return panel({},
       h('label.switchrow.pl-switch',
         h('span.switchrow-text', h('span.switchrow-label', 'Public link'), h('span', pill(statePill(s)))),
         sw),
       busy && s.progress.length ? h('ul.pl-progress', s.progress.slice(-4).map((l) => h('li', l))) : null,
-      s.error && (s.on || s.state === 'error') ? h('p.mrow-error', `${s.error}${wait ? ` It starts again in ${wait} s.` : ''}`) : null,
+      s.error && s.state !== 'blocked' && (s.on || s.state === 'error') ? failure(s.error, wait) : null,
       ui.error && !ui.need ? h('p.mrow-error', ui.error) : null,
-      needBox(),
+      needBox(p, need, why),
       !s.on ? h('p.hint', 'Off until you turn it on. Nothing is reachable from outside while it is off.') : null);
   }
 
-  // What the server asked for before it turns on, in place.
-  function needBox() {
-    if (!ui.need || ui.need === 'custom-setup') return null;
-    if (ui.need === 'password') {
-      return h('div.banner.warn', icon('lock', { size: 18 }), h('span', ui.error, ' ', h('a', { href: link('#/settings/security') }, 'Settings → Security')));
-    }
-    if (ui.need === 'check-password') {
-      const pw = input('password', { type: 'password', autocomplete: 'current-password', 'aria-label': 'Dashboard password' });
-      return h('form.stack.pl-need', { onsubmit: async (e) => {
-        e.preventDefault();
-        draft.password = pw.value;
-        await turn(true, kind(), { password: draft.password });
-        draft.password = '';
-      } },
-        h('p.hint', ui.error),
-        field('Your dashboard password', pw),
-        h('div.savebar.start', h('button.btn.primary', { type: 'submit' }, 'Check it and turn on')));
-    }
-    return strongForm(ui.error, true);
-  }
-
-  /** "Make a strong password": the current one, a new one (or one made here, shown once), then on again. */
-  function strongForm(why, thenOn) {
-    const cur = input('current', { type: 'password', autocomplete: 'current-password', 'aria-label': 'Current password' });
-    const next = input('next', { type: 'password', autocomplete: 'new-password', 'aria-label': 'New password' });
-    // Its refusal is kept with the page's state, so a look-again that draws the page anew does not lose it.
-    const msg = h('p.form-error', { role: 'alert' }, ui.pwError || '');
-    return h('form.stack.pl-need', { onsubmit: async (e) => {
-      e.preventDefault();
-      msg.textContent = ui.pwError = '';
-      try {
-        await api('/api/settings/password', { current: cur.value, next: next.value, strong: true });
-        draft.current = draft.next = ui.pwError = '';
-        toast('The new password is saved. Other browsers sign in again with it.');
-        ui.need = null;
-        if (thenOn) await turn(true);
-        else load(true);
-      } catch (er) {
-        msg.textContent = ui.pwError = er.message;
-      }
-    } },
-      why ? h('p.hint', why) : null,
-      field('Current password', cur),
-      field('New password', next, 'At least 12 characters, not a word people try first. Keep it in your password manager.'),
-      h('div.savebar.start',
-        btn('secondary', { icon: 'key', label: 'Make one for me', onclick: () => {
-          // Shown once, so it can be copied into a password manager.
-          next.type = 'text';
-          next.value = draft.next = makePassword();
-          next.select();
-        } }),
-        btn('ghost', { icon: 'copy', label: 'Copy it', onclick: async () => next.value && toast((await copyText(next.value)) ? 'Copied' : 'Select and copy it by hand') }),
-        h('button.btn.primary', { type: 'submit' }, thenOn ? 'Save it and turn on' : 'Save it')),
-      msg);
+  // A failure: plain words and what happens next; cloudflared's own line behind "Details".
+  function failure(raw, wait) {
+    const plain = plainError(raw);
+    const next = wait ? ` It tries again by itself in ${wait} s.` : s.on && s.state === 'retrying' ? ' It tries again by itself.' : '';
+    return h('div.pl-fail',
+      h('p.mrow-error', `${sentence(plain || raw)}${next}`),
+      plain ? h('details.pl-details', h('summary', 'Details'), h('code', raw)) : null);
   }
 
   // ---------- the two kinds ----------
@@ -206,75 +177,37 @@ function render({ here, isAlive }) {
     const on = kind() === k.id;
     const choose = async () => {
       if (on) return;
+      // Back to the kind that is on: only the pick is undone.
+      if (s.on && k.id === s.kind) {
+        Object.assign(ui, { chosen: null, need: null, focus: `kind-${k.id}` });
+        return paint();
+      }
       if (s.on) {
         const other = s.kind === 'custom' ? 'Custom' : 'Temporary';
-        if (!(await confirmSheet({ title: `Move the public link to ${k.title}?`, text: `The ${other} address stops working. ${k.id === 'temporary' ? 'The new address is shown here once it is ready.' : ''}`.trim(), ok: `Move to ${k.title}` }))) return paint();
-        if (k.id === 'custom' && !k.ready) {
-          Object.assign(ui, { chosen: 'custom', need: 'custom-setup' });
+        const notReady = k.id === 'custom' && !k.ready;
+        const text = notReady
+          ? `Custom is set up first, here in its card. The link moves over when it is made; the ${other} address stops working then.`
+          : `The ${other} address stops working. ${k.id === 'temporary' ? 'The new address is shown here once it is ready.' : ''}`.trim();
+        if (!(await confirmSheet({ title: `Move the public link to ${k.title}?`, text, ok: notReady ? 'Set up Custom' : `Move to ${k.title}` }))) return paint();
+        if (notReady) {
+          Object.assign(ui, { chosen: 'custom', need: 'custom-setup', focus: 'set-it-up' });
           return paint();
         }
         return turn(true, k.id);
       }
-      ui.chosen = k.id;
-      ui.need = null;
+      Object.assign(ui, { chosen: k.id, need: null, focus: `kind-${k.id}` });
       if (k.id === 'temporary' || k.ready) return turn(false, k.id);
       paint();
     };
     return h(`div.radiocard.pl-kind${on ? '.on' : ''}`,
       h('label.pl-kind-head',
-        h('input', { type: 'radio', name: 'pl-kind', value: k.id, checked: on, onchange: choose }),
+        h('input', { type: 'radio', name: 'pl-kind', value: k.id, checked: on, 'data-fk': `kind-${k.id}`, onchange: choose }),
         h('span.radiocard-text',
           h('span.radiocard-title', k.title, s.on && s.kind === k.id ? h('span.badge.soft', 'in use') : null),
           h('span.radiocard-sub', k.text),
           h('span.pl-kind-more', h('strong', 'Needs: '), k.needs),
           h('span.pl-kind-more', h('strong', 'Gives: '), k.gives))),
-      k.id === 'custom' && on ? h('div.pl-kind-body', customBody()) : null);
-  }
-
-  // The Custom set-up, in the card: sign in to Cloudflare, name the address, done.
-  function customBody() {
-    const f = s.custom;
-    const t = { busy: ui.busy, run: job };
-    if (f.state === 'ready') {
-      return [h('p.hint', 'Set up: ', ext(f.url, f.hostname)),
-        !s.on ? h('p.hint', 'Turn the switch on to use it.') : null];
-    }
-    const need = ui.need === 'custom-setup' ? h('p.banner.info', icon('info', { size: 18 }), h('span', 'Set it up first; it turns on by itself when it is made.')) : null;
-    if (f.state === 'signing-in') {
-      return [need,
-        steps(
-          [h('strong', 'Open Cloudflare and sign in.'), h('span.hint', 'A free account is enough.')],
-          [h('strong', 'Pick the domain for this address and press Authorize.')],
-          [h('strong', 'Come back here.'), h('span.hint', 'This page goes on by itself.')]),
-        h('div.mrow-actions',
-          f.loginUrl ? ext(f.loginUrl, [icon('external', { size: 16 }), h('span', 'Open Cloudflare')], 'a.btn.small.primary') : null,
-          btn('small ghost', { label: 'Cancel', disabled: t.busy, onclick: () => job('custom', 'cancel', {}) }))];
-    }
-    if (f.state === 'signed-in') {
-      const host = input('hostname', { placeholder: `${f.suggested}.example.com`, 'aria-label': 'The address' });
-      if (!draft.hostname) host.value = `${f.suggested}.`;
-      return [need,
-        h('div.fieldrow',
-          h('span.field-label', 'The address'),
-          h('div.addon-form', host, btn('small primary', { label: 'Make it', disabled: t.busy, onclick: async () => {
-            draft.hostname = host.value.trim();
-            const r = await job('custom', 'create', { hostname: draft.hostname });
-            if (r && r.ok) draft.hostname = '';
-          } })),
-          h('span.hint', 'A name under the domain you picked in Cloudflare. Hoprig makes the tunnel and its DNS record there, then turns the link on.')),
-        h('div.mrow-actions',
-          btn('small ghost', { label: 'Sign in again', title: 'For another Cloudflare account or domain', disabled: t.busy, onclick: () => job('custom', 'sign-in', { again: true }) }),
-          btn('small ghost', { label: 'Start over', disabled: t.busy, onclick: async () => {
-            if (await confirmSheet({ title: 'Start over?', text: forgetText(f), ok: 'Start over' })) job('custom', 'forget', {});
-          } }))];
-    }
-    return [need,
-      steps(
-        [h('strong', 'Sign in to Cloudflare'), h('span.hint', 'In this browser, then approve one of your domains.')],
-        [h('strong', 'Type the name'), h('span.hint', 'Such as office.example.com.')],
-        [h('strong', 'Done.'), h('span.hint', 'The link turns on at that address.')]),
-      f.loginError ? h('p.mrow-error', f.loginError) : null,
-      h('div.mrow-actions', btn('small primary', { icon: 'play', label: 'Set it up', disabled: t.busy, onclick: () => job('custom', 'sign-in', {}) }))];
+      k.id === 'custom' && on ? h('div.pl-kind-body', customBody(p)) : null);
   }
 
   // ---------- while it is on ----------
@@ -291,13 +224,15 @@ function render({ here, isAlive }) {
 
   function visitorCard() {
     const pw = s.password || {};
-    return panel({ icon: 'lock', title: 'Someone opening this address' },
-      h('p', s.visitor),
-      pw.state === 'weak' && ui.need !== 'stronger-password'
-        ? [h('p.banner.warn', icon('alert', { size: 18 }), h('span', `Your password is too weak for this: ${pw.why}.`)),
-          ui.strong ? strongForm(null, false) : h('div.savebar.start', btn('secondary', { icon: 'key', label: 'Make a strong password', onclick: () => { ui.strong = true; paint(); } }))]
+    const live = s.on && s.state === 'on' && s.url;
+    const need = ui.need || (s.state === 'blocked' ? s.need : null);
+    return panel({ icon: 'lock', title: live ? 'Someone opening this address' : 'Someone opening the address' },
+      h('p', live ? s.visitor : 'While the link is on, someone who opens its address sees the sign-in page. They need your Hoprig password, or a sign-in QR made on a device that is already signed in.'),
+      pw.state === 'weak' && need !== 'stronger-password'
+        ? [h('p.banner.warn', icon('alert', { size: 18 }), h('span', pw.why ? `Your password is too weak for this: ${sentence(pw.why)}` : 'Your password is too weak for this.')),
+          ui.strong ? strongForm(p, null, false) : h('div.savebar.start', btn('secondary', { icon: 'key', label: 'Make a strong password', onclick: () => { Object.assign(ui, { strong: true, focus: 'current' }); paint(); } }))]
         : null,
-      pw.state === 'unknown' ? h('p.hint', 'Your password is checked for strength once, when you turn the link on.') : null);
+      pw.state === 'unknown' && !s.on ? h('p.hint', 'Your password is checked for strength once, when you turn the link on.') : null);
   }
 
   function linkCard() {
@@ -308,6 +243,7 @@ function render({ here, isAlive }) {
         const c = await api('~/api/links/code', {});
         if (!c.line) throw new Error('The address is not ready yet. Try again in a moment.');
         fill(box, h('div.cmdline', h('code', c.line), btn('icon ghost', { icon: 'copy', title: 'Copy', onclick: async () => toast((await copyText(c.line)) ? 'Copied: it works once, for 10 minutes' : 'Select and copy it by hand') })),
+          c.note ? h('p.hint', c.note) : null,
           h('p.hint', `It works once, until ${new Date(c.expires).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`));
       } catch (e) {
         fill(box, h('p.form-error', e.message));
@@ -324,20 +260,24 @@ function render({ here, isAlive }) {
     const f = s.custom;
     const k = kind();
     const parts = [];
-    if (k === 'temporary') {
-      const sv = s.service;
+    const sv = s.service;
+    // A second temporary address that runs is shown whatever kind is picked, with its Stop.
+    if (sv || k === 'temporary') {
       parts.push(h('div.fieldrow',
         h('span.field-label', 'Another service on this computer'),
-        h('span.hint', 'One more local service, such as TRouteAI\'s own dashboard on port 20017, gets a temporary address of its own. It should have its own sign-in page: you are asked first when it has none.'),
+        h('span.hint', 'While the link is on as Temporary, one more local service, such as TRouteAI\'s own dashboard on port 20017, gets a temporary address of its own. It should have its own sign-in page: you are asked first when it has none. It stops with the link.'),
         sv
           ? h('div.addon-svc', ext(sv.url, sv.url), h('span.hint', `port ${sv.port}`),
-            btn('small secondary', { icon: 'stop', label: 'Stop', disabled: ui.busy, onclick: () => job('temporary', 'remove-service', {}) }))
-          : h('div.addon-form',
-            input('quickPort', { type: 'number', inputmode: 'numeric', min: 1, max: 65535, placeholder: '20017', class: 'addon-port', 'aria-label': 'Port' }),
-            btn('small secondary', { icon: 'play', label: 'Get an address', disabled: ui.busy, onclick: async () => {
-              const r = await job('temporary', 'add-service', { port: Number(draft.quickPort) });
+            btn('small secondary', { icon: 'stop', label: 'Stop', disabled: ui.busy, onclick: () => job('temporary', 'remove-service', {}, 'advanced') }))
+          : s.on && s.kind === 'temporary'
+            ? h('form.addon-form', { onsubmit: async (e) => {
+              e.preventDefault();
+              const r = await job('temporary', 'add-service', { port: Number(draft.quickPort) }, 'advanced');
               if (r && r.ok) draft.quickPort = '';
-            } }))));
+            } },
+              input('quickPort', { type: 'number', inputmode: 'numeric', min: 1, max: 65535, placeholder: '20017', class: 'addon-port', 'aria-label': 'Port' }),
+              h('button.btn.small.secondary', { type: 'submit', disabled: ui.busy }, icon('play', { size: 18 }), h('span', 'Get an address')))
+            : h('p.hint', 'Turn the link on as Temporary first.')));
     }
     if (k === 'custom' && f.state === 'ready' && f.mode === 'named') {
       parts.push(h('div.fieldrow',
@@ -346,41 +286,41 @@ function render({ here, isAlive }) {
         f.extra.map((x) => h('div.addon-svc', ext(x.url, x.url), h('span.hint', `port ${x.port}`),
           btn('small ghost', { icon: 'trash', label: 'Remove', disabled: ui.busy, onclick: async () => {
             const text = `${x.hostname} no longer leads to port ${x.port}. Its DNS record stays in Cloudflare (cloudflared cannot remove it): delete it under your domain → DNS → Records.`;
-            if (await confirmSheet({ title: 'Remove this name?', text, ok: 'Remove', danger: true })) job('custom', 'remove-service', { hostname: x.hostname });
+            if (await confirmSheet({ title: 'Remove this name?', text, ok: 'Remove', danger: true })) job('custom', 'remove-service', { hostname: x.hostname }, 'advanced');
           } }))),
-        f.extra.length < 5 ? h('div.addon-form',
+        f.extra.length < 5 ? h('form.addon-form', { onsubmit: async (e) => {
+          e.preventDefault();
+          const r = await job('custom', 'add-service', { port: Number(draft.svcPort), hostname: draft.svcHost }, 'advanced');
+          if (r && r.ok) draft.svcPort = draft.svcHost = '';
+        } },
           input('svcPort', { type: 'number', inputmode: 'numeric', min: 1, max: 65535, placeholder: '20017', class: 'addon-port', 'aria-label': 'Port' }),
           input('svcHost', { placeholder: `trouteai-${f.hostname}`, 'aria-label': 'Its address' }),
-          btn('small secondary', { label: 'Add', disabled: ui.busy, onclick: async () => {
-            const r = await job('custom', 'add-service', { port: Number(draft.svcPort), hostname: draft.svcHost });
-            if (r && r.ok) draft.svcPort = draft.svcHost = '';
-          } })) : null));
+          h('button.btn.small.secondary', { type: 'submit', disabled: ui.busy }, 'Add')) : null));
     }
-    if (k === 'custom' && f.state !== 'ready') {
-      parts.push(h('div.fieldrow',
-        h('span.field-label', 'Use a tunnel token instead'),
-        h('span.hint', `For a tunnel made in the Cloudflare dashboard (Networks → Tunnels). There, give it a public hostname that leads to http://127.0.0.1:${f.port}; then paste its install command or its token here.`),
-        h('div.addon-form',
-          input('token', { type: 'password', placeholder: 'cloudflared service install eyJ…', 'aria-label': 'Tunnel token' }),
-          input('tokenHost', { placeholder: 'office.example.com', 'aria-label': 'Its address' }),
-          btn('small secondary', { label: 'Use it', disabled: ui.busy, onclick: async () => {
-            const r = await job('custom', 'token', { token: draft.token, hostname: draft.tokenHost });
-            if (r && r.ok) draft.token = draft.tokenHost = '';
-          } }))));
-    }
+    if (k === 'custom' && f.state !== 'ready') parts.push(tokenForm(p));
     if (k === 'custom' && f.state === 'ready') {
       parts.push(h('div.fieldrow',
         h('span.field-label', 'Stop using my domain'),
         h('span.hint', 'Removes what Hoprig made for the Custom address and turns the link off. You are told first what happens in Cloudflare.'),
         h('div.mrow-actions', btn('small danger', { icon: 'trash', label: 'Stop using it', disabled: ui.busy, onclick: async () => {
-          if (await confirmSheet({ title: 'Stop using your domain?', text: forgetText(f), ok: 'Stop using it', danger: true })) job('custom', 'forget', {});
+          if (await confirmSheet({ title: 'Stop using your domain?', text: forgetText(f), ok: 'Stop using it', danger: true })) job('custom', 'forget', {}, 'advanced');
         } }))));
     }
-    return parts.length ? fold('public-link', 'Advanced', parts) : null;
+    if (ui.outAt === 'advanced') parts.push(out);
+    if (!parts.length) return null;
+    // Open while one of its jobs shows its output; otherwise as the owner left it.
+    const d = h('details.fold', { open: ui.outAt === 'advanced' || advancedOpen },
+      h('summary.fold-summary', h('span', 'Advanced'), icon('chevronDown', { size: 18 })),
+      h('div.fold-body', parts));
+    d.addEventListener('toggle', () => (advancedOpen = d.open));
+    return d;
   }
 
-  /** Run a set-up step as a job and show its output until it ends; resolves the job's result. */
-  async function job(k, step, body) {
+  /**
+   * Run a set-up step as a job and show its output under what started it (`at`: 'custom', its card; 'advanced').
+   * Resolves the job's result. Output of a step that worked goes; a failure's stays until the state changes.
+   */
+  async function job(k, step, body, at = 'custom') {
     try {
       await api(`/api/public-link/${k}/${step}`, body);
     } catch (e) {
@@ -389,8 +329,8 @@ function render({ here, isAlive }) {
     }
     ui.busy = true;
     clearTimeout(timer);
-    out.hidden = false;
-    fill(out);
+    clearOutput();
+    ui.outAt = at;
     paint();
     let from = 0;
     try {
@@ -398,19 +338,23 @@ function render({ here, isAlive }) {
         const j = await api(`/api/public-link/job?from=${from}`).catch(() => null);
         if (!j || !isAlive()) return null;
         if (j.lines.length) add(out, `${j.lines.join('\n')}\n`);
+        out.hidden = !out.textContent;
         out.scrollTop = out.scrollHeight;
         from = j.next;
         if (!j.running) {
           const res = j.result || {};
           ui.busy = false;
           if (res.confirm) {
-            if (await confirmSheet({ title: 'Make it reachable anyway?', text: `${res.confirm} Make it reachable from anywhere anyway?`, ok: 'Yes, make it reachable', danger: true })) return job(k, step, { ...body, confirmed: true });
-            out.hidden = true;
+            if (await confirmSheet({ title: 'Make it reachable anyway?', text: `${res.confirm} Make it reachable from anywhere anyway?`, ok: 'Yes, make it reachable', danger: true })) return job(k, step, { ...body, confirmed: true }, at);
+            clearOutput();
             load(true);
             return res;
           }
           if (res.need) Object.assign(ui, { need: res.need, error: res.error });
-          toast(res.ok ? 'Done' : res.error || 'That did not work', { kind: res.ok ? 'info' : 'error' });
+          if (res.ok) clearOutput();
+          // The sign-in step only opens Cloudflare's page: nothing is done until the owner approves there.
+          if (!res.ok) toast(res.error || 'That did not work', { kind: 'error' });
+          else if (step !== 'sign-in') toast('Done');
           load(true);
           return res;
         }
@@ -421,8 +365,19 @@ function render({ here, isAlive }) {
     }
   }
 
+  // What the forms in linkforms.js get.
+  const p = {
+    get s() { return s; },
+    ui, draft, secret, out, input, secretInput, turn, job, api,
+    load: (now) => load(now),
+    paint: () => paint(),
+  };
+
   function paint() {
     if (!s || !isAlive()) return;
+    // A redraw replaces every control: the one that had the focus (or the one to go to next) gets it back.
+    const a = document.activeElement;
+    const had = a && root.contains(a) ? a.dataset.fk || null : null;
     fill(root,
       switchCard(),
       // While it is on, the address comes first: it is what the page is opened for.
@@ -432,8 +387,14 @@ function render({ here, isAlive }) {
         h('div.radiocards.pl-kinds', { role: 'radiogroup', 'aria-label': 'Kind' }, s.kinds.map(kindCard))),
       visitorCard(),
       linkCard(),
-      advanced(),
-      out);
+      advanced());
+    // Output whose own place is not drawn now (Custom's card is closed): under the switch rather than nowhere.
+    if (ui.outAt && !root.contains(out)) root.firstChild.after(out);
+    const want = ui.focus || had;
+    const moved = !!ui.focus;
+    ui.focus = null;
+    const el = want ? [...root.querySelectorAll('[data-fk]')].find((e) => e.dataset.fk === want) : null;
+    if (el && !el.disabled) el.focus({ preventScroll: !moved });
   }
 
   load();
