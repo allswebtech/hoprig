@@ -239,7 +239,11 @@ function viewChat({ sub }) {
       try {
         const r = await api('/api/chats', { dir: was.cwd, sessionId: was.conversationId });
         store.refresh();
-        location.hash = link(`#/chat/${r.id}`);
+        const to = link(`#/chat/${r.id}`);
+        // The new chat may take this address (a chat's id is its conversation's while that is free): the same
+        // address fires no hashchange, so the page is drawn again by hand.
+        if (location.hash === to) window.dispatchEvent(new HashChangeEvent('hashchange'));
+        else location.hash = to;
       } catch (e) {
         toast(failText(e), { kind: 'error' });
       }
