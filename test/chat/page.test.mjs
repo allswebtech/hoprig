@@ -283,6 +283,43 @@ test('tool cards: never in the past before they ran; Stop and a no are the owner
   assert.match(texts(long).join(''), /\$ cd sub &&\nnpm test/, 'a command of several lines is shown whole');
 });
 
+test('tool cards: Stop while the OK card is open is never said in the past, and has no counts', async () => {
+  const { toolCard } = await import('../../web/chat/tools.js');
+  assert.equal(W.toolLine('Write', { file_path: '/p/a.txt', content: 'x' }, 'stopped').verb, 'Did not write');
+  assert.equal(W.toolLine('Bash', { command: 'ls' }, 'stopped').verb, 'Did not run');
+  assert.equal(W.toolLine('AskUserQuestion', {}, 'stopped').verb, 'Not answered', 'a verb without "Wants to" says it as refused');
+  const w = toolCard({ id: 'w', name: 'Write', toolKind: 'edit', input: { file_path: '/p/out.txt', content: 'x\n' } }, { cwd: '/p' });
+  w.quiet(); // its OK card opened
+  w.result({ ok: false, stopped: true, text: '' }); // Stop: the card was cancelled ("No longer waiting"), nothing written
+  const said = texts(w).join('');
+  assert.match(said, /^Did not writeout\.txtstopped by you/);
+  assert.doesNotMatch(said, /Wrote|\+1|−0/);
+  // An edit read back without its OK card (a reload after a restart): one step, stopped means not written.
+  const e = toolCard({ id: 'e', name: 'Edit', toolKind: 'edit', input: { file_path: '/p/a.js', old_string: 'a', new_string: 'b' } }, { cwd: '/p' });
+  e.result({ ok: false, stopped: true, text: '' });
+  assert.match(texts(e).join(''), /^Did not changea\.jsstopped by you$/);
+  // A command that ran until Stop ran.
+  const b = toolCard({ id: 'b', name: 'Bash', toolKind: 'shell', input: { command: 'sleep 20' } }, { cwd: '/p' });
+  b.result({ ok: false, stopped: true, text: '' });
+  assert.match(texts(b).join(''), /^Ransleep 20stopped by you/);
+});
+
+test('a failed action says the dashboard\'s sentence, never a script\'s own message', async () => {
+  const { ApiError } = await import('../../web/lib.js');
+  assert.equal(W.failText(new ApiError('This chat is not open', 404)), 'This chat is not open');
+  assert.equal(W.failText(new TypeError("Cannot read properties of null (reading 'cwd')")), 'That did not work. Reload the page and try again.');
+  assert.equal(W.failText(null), 'That did not work. Reload the page and try again.');
+});
+
+test('one money formatter: a cent that a sum of floats made 0.0099999 reads $0.01', () => {
+  assert.equal(W.money(0.03 - 0.02), '$0.01');
+  assert.equal(W.money(0.01), '$0.01');
+  assert.equal(W.money(1.234), '$1.23');
+  assert.equal(W.money(0.0042), '$0.0042', 'below a cent: four places');
+  assert.equal(W.money(0), '$0');
+  assert.match(W.turnLine({ ok: true, turnCostUsd: 0.03 - 0.02, usage: { input: 10, output: 5 } }), /^\$0\.01 · /);
+});
+
 test('tool cards: an error Claude Code wraps in tool_use_error shows only its words', async () => {
   const { toolCard } = await import('../../web/chat/tools.js');
   const el = toolCard({ id: 't', name: 'Grep', toolKind: 'search', input: { pattern: 'x' } });

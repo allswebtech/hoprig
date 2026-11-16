@@ -389,13 +389,13 @@ export class Chat extends Timeline {
     return this.stopAndWait(ms);
   }
 
-  /** Continue on another provider: the next turn starts there with the conversation resumed. */
-  setProfile(name) {
+  /** Continue on another provider (`label`: its name as the owner reads it): the next turn starts there with the conversation resumed. */
+  setProfile(name, label = name) {
     if (this.busy()) throw fail(409, BUSY);
     this.stop();
     this.profile = name;
     this.limit = null;
-    this.push({ kind: 'notice', level: 'info', text: `The next message goes to another provider (${name}).` });
+    this.push({ kind: 'notice', level: 'info', text: `The next message goes to another provider (${label}).` });
   }
 
   record() {

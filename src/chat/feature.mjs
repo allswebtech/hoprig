@@ -387,7 +387,7 @@ export function chatFeature(ctx, o = {}) {
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
       if (typeof b.profile !== 'string' || !profileOk(b.profile)) throw bad('there is no such provider');
-      c.setProfile(b.profile);
+      c.setProfile(b.profile, profileView(b.profile).label); // the owner's name for it in the timeline, not its id
       c.emit('state'); // a page that streams shows the new provider
       save();
       remember(c);

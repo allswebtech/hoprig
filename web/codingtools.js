@@ -13,10 +13,13 @@ const SCOPE = 'Claude Code can do everything here. Codex and OpenCode: sessions 
 /** The one line in the Settings list. */
 export const summaryOf = (v) => `On: ${v.tools.filter((t) => t.on).map((t) => t.name).join(', ')}`;
 
+/** The providers of a coding tool as the owner named them (an older computer sends the short names only). */
+export const labelsOf = (t) => (Array.isArray(t.providerLabels) && t.providerLabels.length === t.providers.length ? t.providerLabels : t.providers);
+
 function startForm(t, folders) {
   const group = (label, list) => (list.length ? h('optgroup', { label }, list.map((f) => h('option', { value: f.path }, f.short))) : null);
   const dir = h('select.field', { 'aria-label': 'Folder' }, group('Recent', folders.recent), group('Your folders', folders.more));
-  const prov = h('select.field', { 'aria-label': 'Provider' }, t.providers.map((p) => h('option', { value: p }, p)));
+  const prov = h('select.field', { 'aria-label': 'Provider' }, t.providers.map((p, i) => h('option', { value: p }, labelsOf(t)[i])));
   const go = btn('primary', { icon: 'play', label: `Start ${t.name}`, onclick: async () => {
     go.disabled = true;
     go.classList.add('busy');
@@ -39,7 +42,7 @@ function toolPanel(t, folders, redraw) {
   const missing = t.managed && !t.installed;
   const tag = missing ? 'Not installed' : t.on ? 'On' : 'Off';
   const providers = t.providers.length
-    ? h('p.hint', `Providers for it: ${t.providers.join(', ')}.`)
+    ? h('p.hint', `Providers for it: ${labelsOf(t).join(', ')}.`)
     : h('p.banner.warn', icon('alert', { size: 18 }), h('span', `No provider serves ${t.name} yet. `,
       h('a', { href: link('#/providers') }, 'Providers'), t.id === 'codex'
         ? ': add an OpenAI key or a gateway (then Test it), or a Codex sign-in.'

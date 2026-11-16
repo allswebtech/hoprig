@@ -121,6 +121,16 @@ const STATE = {
 };
 
 /**
+ * A coding tool's links still to make, counted and named from the same entries (the server's count is of these):
+ * "Not linked yet: 2 links to make (rules, memory), 1 in the way".
+ */
+export function todoWords(t, entries = []) {
+  const todo = entries.filter((e) => (e.tools || []).includes(t.id) && !['already', 'conflict'].includes(e.action) && !e.error).map((e) => e.what);
+  const n = todo.length || t.todo;
+  return `Not linked yet: ${n} link${n === 1 ? '' : 's'} to make${todo.length ? ` (${todo.join(', ')})` : ''}${t.left ? `, ${t.left} in the way` : ''}`;
+}
+
+/**
  * The AI brain page's "Coding tools": per coding tool that is on, whether it reads the brain (linked, n to link, or
  * something in the way), and one "Link" button for all of them. An older computer (no per-tool state) gets the note.
  */
@@ -140,7 +150,7 @@ export function toolsPart({ after = () => {}, prefix = '' } = {}) {
       return h(`div.row.static.bl-tool-row.bl-${t.state}`,
         h('span.row-icon.bl-mark', icon(ic, { size: 15 })),
         h('span.row-main', h('span.row-title', t.name),
-          h('span.row-sub', text || `Not linked yet: ${t.todo} link${t.todo === 1 ? '' : 's'} to make (rules, skills, memory)${t.left ? `, ${t.left} in the way` : ''}`)));
+          h('span.row-sub', text || todoWords(t, plan.entries))));
     });
     fill(box,
       groupHead('Coding tools', plan.tools.length),

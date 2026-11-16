@@ -179,6 +179,7 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
 
   // ---- provider, next turn, Stop ----
   assert.equal((await owner('POST', `/api/chats/${id}/provider`, { profile: 'api' })).json.profile.label, 'Gateway');
+  assert.ok((await view()).events.some((e) => e.kind === 'notice' && e.text === 'The next message goes to another provider (Gateway).'), 'the owner\'s name for it, not its id');
   assert.equal((await owner('POST', `/api/chats/${id}/settings`, { model: 'haiku', effort: 'low' })).json.model, 'haiku');
   assert.equal((await owner('POST', `/api/chats/${id}/settings`, { effort: 'enormous' })).status, 400);
   await owner('POST', `/api/chats/${id}/send`, { text: 'sleep' });

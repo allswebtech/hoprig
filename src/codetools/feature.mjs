@@ -1,6 +1,7 @@
 // The dashboard's part of the coding tools.
 //
-//   GET  /api/codetools          [{ id, name, on, managed, installed, about, providers: [name], command }]: which
+//   GET  /api/codetools          [{ id, name, on, managed, installed, about, providers: [name], providerLabels: [label],
+//                                command }]: which
 //                                tools are on, which are installed, and the providers that serve each
 //   POST /api/codetools/<id>     { on: bool }: turn a tool on or off (never all off); which tools the page offers
 //   GET  /api/codetools/codex/signin   { installed, signedIn: true | false | null }: Codex's own sign-in
@@ -36,12 +37,14 @@ export function codetoolsFeature(ctx, { stop = stopIfUnused, now = Date.now, pro
   const view = () => {
     const on = enabledToolIds(ctx.config());
     const all = profiles();
+    // A Codex sign-in last: the Start form picks the first, and a key provider works without a sign-in step.
+    const serving = (id) => all.filter((p) => servesTools(p).includes(id)).sort((a, b) => (a.kind === 'chatgpt') - (b.kind === 'chatgpt'));
     return {
       tools: TOOLS.map((t) => ({
         id: t.id, name: t.name, on: on.includes(t.id), managed: !!t.managed, installed: t.installedVersion(),
         about: t.about || null,
-        // A Codex sign-in last: the Start form picks the first, and a key provider works without a sign-in step.
-        providers: all.filter((p) => servesTools(p).includes(t.id)).sort((a, b) => (a.kind === 'chatgpt') - (b.kind === 'chatgpt')).map((p) => p.name),
+        providers: serving(t.id).map((p) => p.name),
+        providerLabels: serving(t.id).map((p) => p.label || p.name), // the same, as the owner named them (the page shows these)
         command: t.id === 'claude' ? 'hoprig <provider>' : `hoprig ${t.id} <provider>`,
       })),
     };

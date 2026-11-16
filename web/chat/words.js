@@ -76,13 +76,20 @@ const VERBS = {
 VERBS.MultiEdit = VERBS.Edit;
 VERBS.NotebookEdit = VERBS.Edit;
 VERBS.Task = VERBS.Agent;
-const STATES = { done: 0, running: 1, asking: 2, refused: 3 };
+const STATES = { done: 0, running: 1, asking: 2, refused: 3, stopped: 4 };
 
 /**
  * One line for a tool call: { verb, detail, mono } — "Ran" + its command, "Edited" + the file and +/- lines, …
- * `state`: done (default), running, asking (waits for the owner's OK) or refused (he said no).
+ * `state`: done (default), running, asking (waits for the owner's OK), refused (he said no) or stopped (Stop came
+ * before it ran: "Did not write", never in the past).
  */
 export function toolLine(name, input = {}, state = 'done') {
+  if (state === 'stopped') {
+    // "Wants to write" → "Did not write"; a verb without "Wants to" ("Asks you") says it as refused ("Not answered").
+    const line = toolLine(name, input, 'asking');
+    const m = /^Wants to (.+)$/.exec(line.verb);
+    return { ...line, verb: m ? `Did not ${m[1]}` : toolLine(name, input, 'refused').verb };
+  }
   const i = input && typeof input === 'object' ? input : {};
   const n = STATES[state] ?? 0;
   const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
@@ -179,7 +186,8 @@ export function askTitle(tool, input = {}) {
   }
 }
 
-export const money = (n) => (n >= 0.01 ? `$${n.toFixed(2)}` : n > 0 ? `$${n.toFixed(4)}` : '$0');
+// A cent or more in cents; what rounds to a cent is one (a difference of two sums is 0.0099999…, not "$0.0100").
+export const money = (n) => (n >= 0.00995 ? `$${n.toFixed(2)}` : n > 0 ? `$${n.toFixed(4)}` : '$0');
 export const kilo = (n) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
 /** less than 1 s, 4 s, 1 min 5 s, 2 h 3 min */
 export function took(ms) {
