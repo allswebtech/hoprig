@@ -82,6 +82,30 @@ test('the race: an answer goes only to the OK that was judged; one that opened m
   assert.deepEqual(answered(ops), ['r1']);
 });
 
+// ---------- a job follows her conversation into a new chat ----------
+
+test('a job keeps following when she continues the same conversation in a new chat within that job', async () => {
+  const { ops, core: c, call } = core();
+  await call('list_projects', {});
+  const r = await call('start_chat', { folder: '/home/owner/projects/api', account: 'sub', message: 'go', goal: 'tests pass' });
+  const name = /Started chat (chat:\S+) /.exec(r.text)[1];
+  const job = /Job (j_[0-9a-f]{10})/.exec(r.text)[1];
+  const first = ops.s.sessions.find((x) => x.name === name);
+  // Her chat closes; she opens the same conversation again in a new chat for the same job: the same name, a new time.
+  ops.s.sessions.splice(ops.s.sessions.indexOf(first), 1);
+  ops.s.conversations['/home/owner/projects/api'].push({ id: first.chatId, at: Date.now(), title: 'go' });
+  await call('list_projects', { folder: '/home/owner/projects/api' });
+  const again = await call('start_chat', { folder: '/home/owner/projects/api', account: 'sub', conversation: first.chatId, job });
+  assert.equal(again.isError, false, again.text);
+  const second = ops.s.sessions.find((x) => x.name === name);
+  assert.ok(second.created > first.created);
+  const entry = c.jobs.get(job).sessions.find((e) => e.session === name);
+  assert.equal(entry.created, second.created, 'the entry takes the new chat\'s time');
+  assert.equal(c.jobs.get(job).sessions.length, 1);
+  const { events } = planWakes([{ ...c.jobs.get(job), sessions: [{ ...entry, armed: true, last: 'working' }] }], [{ ...second, status: 'attention' }], Date.now());
+  assert.deepEqual(events.map((e) => e.reason), ['needs_ok'], 'it follows the new chat, not "ended"');
+});
+
 // ---------- the whole way, in the real dashboard ----------
 
 function request(base, method, p, { body, headers = {} } = {}) {
