@@ -5,8 +5,9 @@
 // (mdtext.js), never as HTML from the file.
 // Also here: "Workspace folders" (the tree the product sets up, GET /api/workspace) for a computer's Setup tab, and
 // the one way to create what is missing (POST /api/workspace/setup: the dry run first, then the real run).
+import { linkBrainNote, linkBrainSheet } from './brainlink.js';
 import { icon } from './icons.js';
-import { ago, api, bytes, fill, h, link, openSheet, toast } from './lib.js';
+import { ago, api, btn, bytes, fill, h, link, openSheet, toast } from './lib.js';
 import { mdView } from './mdtext.js';
 import { registerPage } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, okBox, panel, skeletonRows } from './shell.js';
@@ -79,6 +80,7 @@ export function workspaceFolders() {
     const other = w.folders.filter((f) => !fine.includes(f));
     fill(box,
       h('p.hint', 'In ', h('code', w.short), w.exists ? '' : ' (not made yet)', '.'),
+      w.exists ? linkBrainNote({ after: load }) : null,
       other.length ? rows(other) : null,
       fine.length ? fold('workspace-folders-fine', fine.length === w.folders.length ? `All ${fine.length} folders are there` : `${fine.length} more folder${fine.length === 1 ? ' is' : 's are'} there`, rows(fine)) : null,
       missing
@@ -93,9 +95,10 @@ export function workspaceFolders() {
 
 /**
  * The Skills part: the same count as Skills and Get started (the skills Claude Code loads), and the brain's own skills
- * that it does not load yet on a line of their own. An older server sends only `count`.
+ * that it does not load yet on a line of their own, with the button that links them. An older server sends only
+ * `count`. `after()` runs once linked.
  */
-export function skillsPart(sk) {
+export function skillsPart(sk, after = () => {}) {
   const used = sk.used ?? sk.count;
   const only = sk.brainOnly || 0;
   const n = (k) => `${k} skill${k === 1 ? '' : 's'}`;
@@ -104,8 +107,10 @@ export function skillsPart(sk) {
     h('div.rows', h('a.row', { href: link('#/skills') },
       h('span.row-main', h('span.row-title', `${n(used)} Claude Code uses`), h('span.row-sub', 'See them, and find more, under Skills')),
       h('span.row-end', icon('chevronRight', { size: 18 })))),
-    only ? h('p.hint.brain-none', `${n(only)} in the AI brain ${only === 1 ? 'is' : 'are'} not used by Claude Code yet: run `, h('code', 'hoprig workspace link'),
-      ' on this computer to let Claude Code read the brain\'s skills folder.') : null,
+    only ? h('div.bl-inline', h('p.hint.brain-none', `${n(only)} in the AI brain ${only === 1 ? 'is' : 'are'} not used by Claude Code yet. Link the brain's skills folder so Claude Code reads it.`),
+      btn('small secondary', { icon: 'check', label: 'Link now', onclick: async () => {
+        if (await linkBrainSheet()) after();
+      } })) : null,
   ];
 }
 
@@ -209,12 +214,13 @@ function viewBrain({ frame, sub }) {
     const groups = brainGroups(b, { memoryOrder });
     const first = groups.flatMap((g) => g.rows)[0];
     fill(list,
+      linkBrainNote({ only: ['rules', 'memory'], after: load }),
       groups.map((g) => [
         groupHead(g.title, g.count ?? (g.rows.length || undefined)),
         g.rows.length ? h('div.rows', g.rows.map((r) => itemRow(r, r.item.id === (id || (first && first.item.id))))) : h('p.hint.brain-none', g.none),
         g.count > g.rows.length ? h('p.hint.brain-none', `The newest ${g.rows.length} of ${g.count}.`) : null,
       ]),
-      skillsPart(b.skills),
+      skillsPart(b.skills, load),
       h('p.hint.brain-none', 'Claude and you change these files in a session; this page only shows them.'));
     const show = id || (first && first.item.id);
     if (show) showItem(pane, show);

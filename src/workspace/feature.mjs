@@ -5,7 +5,8 @@
 //   GET  /api/brain                     what the AI knows: the index (brainIndex)
 //   GET  /api/brain/item?id=<id>        the text of one item of that index (brainRead), size-capped, secrets masked
 //   GET  /api/workspace/link            what linking Claude Code's folder into the brain would do (link.mjs planLink):
-//                                       { entries: [{ id, what, link, target, action, words, why? }], todo, already }
+//                                       { brain (it exists), entries: [{ id, what, link, target, action, words, why? }],
+//                                       todo, already }
 //   POST /api/workspace/link {}         do it (applyLink); each entry with `done` or `error`; a conflict is left alone
 //   GET  /api/workspace/map             the map and, per repository, here | missing | different | unmapped; saved:
 //                                       { unsaved, command? } (the map differs from the brain's last commit)
@@ -33,6 +34,7 @@
 // Behind the owner's login like every /api route, or another dashboard's machine token (the relay: the same owner
 // looking at this computer). Tia's token is refused here. The page never sends a path for the brain view (only an
 // id from the index); folders it sends for settings are checked like any typed folder.
+import fs from 'node:fs';
 import { jobUi, tildeText } from '../pcsetup/feature.mjs';
 import { brainIndex, brainRead } from './brain.mjs';
 import { applyLink, planLink, planWords } from './link.mjs';
@@ -133,7 +135,8 @@ export function workspaceFeature(sctx, opts = {}) {
     }],
     ['GET', /^\/api\/workspace\/link$/, async (req) => {
       ownerOnly(req);
-      return linkView(planLink(linkOpts()));
+      const o = linkOpts();
+      return { brain: fs.existsSync(o.brain), ...linkView(planLink(o)) };
     }],
     ['POST', /^\/api\/workspace\/link$/, async (req) => {
       ownerOnly(req);

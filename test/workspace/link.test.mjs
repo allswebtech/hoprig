@@ -92,6 +92,7 @@ test('the route: login, Tia refused, the plan, then the result, then already lin
 
     const plan = await (await fetch(`${origin}/api/workspace/link`, { headers: { Cookie: cookie } })).json();
     assert.deepEqual(plan.entries.map((e) => [e.id, e.action]), [['rules', 'link'], ['skills', 'merge'], ['memory', 'link']]);
+    assert.equal(plan.brain, true);
     assert.equal(plan.todo, 3);
     assert.equal(plan.already, false);
     assert.ok(plan.entries.every((e) => typeof e.words === 'string' && e.words.length > 5));

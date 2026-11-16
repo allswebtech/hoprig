@@ -4,6 +4,7 @@
 // review sheet first (files, what the scan found, the full SKILL.md, the diff of an update): Review, then Install.
 // The tools some skills need and the weekly update check wait under Advanced.
 import { APP_NAME, COMMAND } from './brand.js';
+import { linkBrainNote } from './brainlink.js';
 import { icon } from './icons.js';
 import { api, btn, confirmSheet, fill, h, link, openSheet, prefs, promptSheet, tildePath, toast } from './lib.js';
 import { registerPage } from './registry.js';
@@ -126,7 +127,10 @@ function viewSkills({ frame, sub }) {
     title: 'Skills',
     page: 'skills',
     intro: 'A skill teaches Claude Code one kind of work, like testing a web app or writing Flutter code. Add the ones that fit you and your projects.',
-    body: [h('div.sk-for', h('label.sk-for-label', { for: 'sk-for' }, 'Skills for:'), picker), tabs, partBox, advanced],
+    body: [h('div.sk-for', h('label.sk-for-label', { for: 'sk-for' }, 'Skills for:'), picker),
+      // The brain's skills, not read by Claude Code until its skills folder is linked: the same button as the AI brain page.
+      project ? null : linkBrainNote({ only: ['skills'], text: () => 'The skills in your AI brain are not used by Claude Code yet.', after: () => load() }),
+      tabs, partBox, advanced],
   });
 
   const scopeName = () => (project ? (projects.find((p) => p.path === project) || {}).name || project.split(/[\\/]/).pop() : '');

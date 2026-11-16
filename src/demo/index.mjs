@@ -123,7 +123,8 @@ const DEMO_FACTS = {
   tools: async () => ({ missing: [] }),
   rules: async () => ({ installed: true, edited: false }),
   projects: async () => ['shop-frontend', 'api-server', 'data-pipeline'],
-  skills: async () => ['commit-messages'], // the one handSkill() puts in the demo's Claude Code, as Skills shows
+  // The demo's own Claude Code folder (isolate() points there), so the count agrees with Skills, also after a link.
+  skills: async () => (await import('../skillhub/hub.mjs')).installed({}).skills.map((s) => s.name),
   machines: async () => [],
   sessions: async () => 1,
 };
