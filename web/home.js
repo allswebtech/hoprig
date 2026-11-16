@@ -18,34 +18,40 @@ export const GROUPS = [
   // A plain terminal is not Claude: it waits for nobody's message and never needs anyone, so it comes last.
   ['terminals', 'Terminals', ['shell']],
 ];
+// The state a group's heading already names: its cards' pills show only the time. "Needs you" holds two states
+// (Needs your OK, Limit reached) and Waiting also holds Finished, so those keep their words.
+const SAID_BY_HEADING = { working: 'working', waiting: 'waiting', terminals: 'shell' };
 export const groupOf = (s) => (isStarting(s) ? 'working' : (GROUPS.find(([, , keys]) => keys.includes(stateOf(s).key)) || GROUPS[2])[0]);
 
 const NEAR = 90; // from this share of a limit, the line warns
 
 /**
- * The one line about the providers of the computers shown: { text, warn }. All fine: "3 providers · all available".
- * Otherwise only the providers not signed in, or at or near a limit, by name ("Claude Max is at 96% of its 5-hour limit"); the
- * computer's name once, only when there are several.
+ * The one line about the providers of the computers shown: { text, warn, lines }. It warns only about limits: a
+ * provider at or near one, by name ("Claude Max is at 96% of its 5-hour limit"), the computer's name once, only when
+ * there are several; `lines` holds the same per computer, one line each. A provider that is not signed in is no
+ * warning (one may simply not use it here): it is counted quietly, and Providers has its Sign in button.
  */
 export function accountsLine(machines, multi) {
   const troubles = [];
   let count = 0;
+  let unsigned = 0;
   for (const m of machines) {
     const said = [];
     for (const p of (m.profiles || []).filter((x) => !x.virtual)) {
       count++;
       const u = p.usage || {};
       const near = [['5-hour', u.fiveHour], ['weekly', u.week]].filter(([, x]) => x && Number.isFinite(x.pct) && x.pct >= NEAR).sort((x, y) => y[1].pct - x[1].pct)[0];
-      if (p.signedIn === false) said.push(`${p.label} is not signed in`);
+      if (p.signedIn === false) unsigned++;
       else if (p.limited) said.push(`${p.label} is at its limit${p.limited.until ? `, free ${until(p.limited.until)}` : ''}`);
       else if (near) said.push(`${p.label} is at ${Math.round(near[1].pct)}% of its ${near[0]} limit`);
     }
     if (said.length) troubles.push(multi ? `${m.machineLabel}: ${said.join('; ')}` : said.join('; '));
   }
-  if (!count) return { text: 'No providers yet: add one so sessions can start', warn: true };
-  if (troubles.length) return { text: troubles.join(' · '), warn: true };
+  if (!count) return { text: 'No providers yet: add one so sessions can start', warn: true, lines: [] };
+  if (troubles.length) return { text: troubles.join(' · '), warn: true, lines: troubles };
   const where = multi && machines.length > 1 ? ` on ${machines.length} computers` : '';
-  return { text: `${count} provider${count === 1 ? '' : 's'}${where} · all available`, warn: false };
+  const rest = unsigned ? `${unsigned} not signed in` : 'all available';
+  return { text: `${count} provider${count === 1 ? '' : 's'}${where} · ${rest}`, warn: false, lines: [] };
 }
 
 const skeleton = (n = 3) => Array.from({ length: n }, () => h('div.card.skeleton', h('div.sk.w40'), h('div.sk.w70'), h('div.sk.w90')));
@@ -86,7 +92,7 @@ export function viewHome() {
     if (!multi || !all.some((m) => keyOf(m.machine) === only)) only = 'all';
     const key = JSON.stringify([only, all.map((m) => [m.machine, m.machineLabel, m.status, m.error, m.sessions, m.profiles])]);
     if (key === last) {
-      for (const el of list.querySelectorAll('[data-at]')) el.textContent = ` · ${ago(Number(el.dataset.at))}`;
+      for (const el of list.querySelectorAll('[data-at]')) el.textContent = `${el.dataset.bare ? '' : ' · '}${ago(Number(el.dataset.at))}`;
       return;
     }
     last = key;
@@ -114,7 +120,10 @@ export function viewHome() {
       : null);
     const line = accountsLine(shown.filter((m) => m.status === 'online'), multi);
     fill(accountsRow, h(`a.accountsline${line.warn ? '.warn' : ''}`, { href: '#/providers' },
-      icon(line.warn ? 'alert' : 'user', { size: 18 }), h('span.accountsline-text', line.text), icon('chevronRight', { size: 18 })));
+      icon(line.warn ? 'alert' : 'user', { size: 18 }),
+      // One line per computer when several have something near a limit (a phone then reads them one by one).
+      h('span.accountsline-text', line.lines.length > 1 ? line.lines.map((l) => h('span.accountsline-one', l)) : line.text),
+      icon('chevronRight', { size: 18 })));
     const profilesOf = new Map(all.map((m) => [m.machine, m.profiles]));
     const sessions = shown.flatMap((m) => m.sessions).sort(needsYouFirst);
     noSessions = !sessions.length;
@@ -140,7 +149,8 @@ export function viewHome() {
     fill(list, GROUPS.map(([id, title]) => {
       const mine = sessions.filter((s) => groupOf(s) === id);
       return mine.length
-        ? h(`section.home-group.g-${id}`, { 'aria-label': title }, groupHead(title, mine.length), h('div.cards', mine.map((s) => sessionCard(s, profilesOf.get(s.machine) || [], after, multi))))
+        ? h(`section.home-group.g-${id}`, { 'aria-label': title }, groupHead(title, mine.length),
+          h('div.cards', mine.map((s) => sessionCard(s, profilesOf.get(s.machine) || [], after, multi, { heading: SAID_BY_HEADING[id] }))))
         : null;
     }));
   });

@@ -781,6 +781,7 @@ body.is-demo .page-title::after { display: inline-block; }
 .accountsline { display: flex; align-items: center; gap: 10px; min-height: var(--tap); padding: 10px 12px; margin: 4px 0 2px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--border); color: var(--text-2); font-size: var(--fs-sm); }
 .accountsline > .icon:first-child { color: var(--accent); }
 .accountsline-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.accountsline-one { display: block; }
 .accountsline.warn { background: var(--warn-soft); border-color: transparent; color: var(--warn); font-weight: 600; }
 .accountsline.warn > .icon:first-child { color: var(--warn); }
 .home-group:first-child .group-head { margin-top: 18px; }

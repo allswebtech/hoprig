@@ -241,10 +241,13 @@ export const needsYou = (s) => ['attention', 'limit'].includes(stateOf(s).key);
 export const needsYouFirst = (a, b) =>
   stateOf(a).rank - stateOf(b).rank || (b.statusAt || b.activity || 0) - (a.statusAt || a.activity || 0);
 
-export function statusPill(s, { time = true } = {}) {
+/** The state chip: "● Working · 2 min ago". `text: false` (its group's heading says the state): "● 2 min ago". */
+export function statusPill(s, { time = true, text = true } = {}) {
   const st = stateOf(s);
   const at = s.statusAt || s.activity;
-  return h(`span.pill.st-${st.key}`, h('span.dot'), st.text, time && at ? h('span.pill-time', { dataset: { at } }, ` · ${ago(at)}`) : null);
+  const when = time && at ? ago(at) : '';
+  if (!text && when) return h(`span.pill.st-${st.key}`, { title: st.text }, h('span.dot'), h('span.pill-time', { dataset: { at, bare: '1' } }, when));
+  return h(`span.pill.st-${st.key}`, h('span.dot'), st.text, when ? h('span.pill-time', { dataset: { at } }, ` · ${when}`) : null);
 }
 
 export const KIND = { login: 'Subscription', subscription: 'Subscription', api: 'API', auto: 'Auto mode', unknown: 'Provider' };

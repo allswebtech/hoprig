@@ -305,8 +305,8 @@ test('Home: groups by what the session needs, plain terminals last, and one plai
   assert.equal(groupOf({ name: 'fresh', machine: null, kind: 'shell', status: 'shell' }), 'working', 'just started from the page: Working, not a plain terminal');
   const acct = (label, pct, extra = {}) => ({ name: label.toLowerCase(), label, kind: 'subscription', usage: pct === null ? null : { fiveHour: { pct } }, ...extra });
   const one = (profiles) => [{ machine: null, machineLabel: 'Desk', profiles, autoSwitch: { order: [] } }];
-  assert.deepEqual(accountsLine(one([acct('Max', 40), acct('Team', 10), { name: 'api', label: 'API', kind: 'api' }]), false), { text: '3 providers · all available', warn: false });
-  assert.deepEqual(accountsLine(one([acct('Max', 96), acct('Team', 10)]), false), { text: 'Max is at 96% of its 5-hour limit', warn: true });
+  assert.deepEqual(accountsLine(one([acct('Max', 40), acct('Team', 10), { name: 'api', label: 'API', kind: 'api' }]), false), { text: '3 providers · all available', warn: false, lines: [] });
+  assert.deepEqual(accountsLine(one([acct('Max', 96), acct('Team', 10)]), false), { text: 'Max is at 96% of its 5-hour limit', warn: true, lines: ['Max is at 96% of its 5-hour limit'] });
   assert.match(accountsLine(one([acct('Max', 20, { limited: {} })]), false).text, /^Max is at its limit$/);
   assert.deepEqual(accountsLine(one([]), false).warn, true);
   const two = [{ machine: null, machineLabel: 'Desk', profiles: [acct('Max', 96)] }, { machine: 'lap', machineLabel: 'Lap', profiles: [acct('Team', 5)] }];
@@ -469,7 +469,11 @@ test('Get started on a hub: its own three steps, the phone step from the server'
 test('providers: "Not signed in" with a Sign in button; usage with its age; a plan without usage says so', async () => {
   const { accountsLine } = await import('../../web/home.js');
   const line = accountsLine([{ machineLabel: 'A', profiles: [{ label: 'Pro', signedIn: false }, { label: 'Max', signedIn: true }] }], false);
-  assert.deepEqual(line, { text: 'Pro is not signed in', warn: true }, 'never "all available" while one is not signed in');
+  assert.deepEqual(line, { text: '2 providers · 1 not signed in', warn: false, lines: [] }, 'never "all available" while one is not signed in, but no warning either');
+  const both = accountsLine([{ machineLabel: 'A', profiles: [{ label: 'Pro', signedIn: false }, { label: 'Max', signedIn: true, usage: { fiveHour: { pct: 96 } } }] }], false);
+  assert.deepEqual([both.text, both.warn], ['Max is at 96% of its 5-hour limit', true], 'the warning is about the limit only');
+  const many = accountsLine([{ machineLabel: 'A', profiles: [{ label: 'Max', limited: {} }] }, { machineLabel: 'B', profiles: [{ label: 'Team', limited: {} }] }], true);
+  assert.deepEqual(many.lines, ['A: Max is at its limit', 'B: Team is at its limit'], 'one line per computer');
   assert.equal(accountsLine([{ profiles: [{ label: 'Max', signedIn: null }] }], false).text, '1 provider · all available', 'not checked yet claims nothing');
   const { profileState } = await import('../../web/lib.js');
   assert.deepEqual(profileState({ signedIn: false, kind: 'login' }), { key: 'signin', text: 'Not signed in' });
@@ -609,7 +613,27 @@ test('a question waiting for an OK: the same answers on the card and the banner;
 
 test('new session: a folder where a session runs opens that session', () => {
   const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
-  assert.match(src, /f\.live && f\.session\s*\?\s*row\(f, f\.short, \(\) => \(location\.hash = link\(`#\/s\/\$\{encodeURIComponent\(f\.session\)\}`/);
+  assert.match(src, /f\.live && f\.session\s*\?\s*row\(f, folderSub\(f, projectsShort\), \(\) => \(location\.hash = link\(`#\/s\/\$\{encodeURIComponent\(f\.session\)\}`/);
+});
+
+test('new session: repositories by their own name, and a path only where it says more than the name', async () => {
+  const { folderSub, repoWords } = await import('../../web/newsession.js');
+  assert.deepEqual(repoWords('code/bookshop-api', 'bookshop'), { name: 'bookshop-api', sub: 'repository in bookshop' });
+  assert.deepEqual(repoWords('.', 'bookshop'), { name: 'bookshop', sub: 'project' });
+  assert.equal(folderSub({ name: 'shop', short: '~/Workspace/projects/shop' }, '~/Workspace/projects'), 'project');
+  assert.equal(folderSub({ name: 'tool', short: '~/src/tool' }, '~/Workspace/projects'), '~/src/tool');
+  assert.equal(folderSub({ name: 'x', short: '~/x' }, null), '~/x', 'projects folder not known: the path');
+});
+
+test('Home cards: the pill leaves out what the heading says; the folder only when it is not projects/<name>', async () => {
+  const { folderWorthShowing } = await import('../../web/sessionitem.js');
+  assert.equal(folderWorthShowing({ name: 'shop', short: '~/Workspace/projects/shop' }), false);
+  assert.equal(folderWorthShowing({ name: 'shop', short: '~/src/shop' }), true);
+  assert.equal(folderWorthShowing({ name: 'shop-2', short: '~/Workspace/projects/shop' }), true, 'a second session: the folder tells which');
+  const { statusPill } = await import('../../web/lib.js');
+  const s = { status: 'working', statusAt: Date.now() - 120_000 };
+  assert.deepEqual(texts(statusPill(s, { text: false })), ['2 min ago']);
+  assert.deepEqual(texts(statusPill(s)), ['Working', ' · 2 min ago']);
 });
 
 test('workspace strip: a project that is not here gets a button that says so, not only "Sync"', async () => {
