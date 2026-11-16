@@ -87,6 +87,9 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   let r = await owner('POST', '/api/chats', { dir: proj, tool: 'opencode', profile: 'gw' });
   assert.equal(r.status, 400);
   assert.equal(r.json.error, 'a chat runs one of these coding tools: Claude Code');
+  r = await owner('POST', '/api/chats', { dir: proj, tool: 'codex', profile: 'gw' });
+  assert.equal(r.status, 400);
+  assert.equal(r.json.error, 'Codex is not part of this version of Hoprig.', 'the switch\'s own sentence');
   // On but not installed.
   saveConfig({ codingTools: ['claude', 'opencode'] });
   r = await owner('POST', '/api/chats', { dir: proj, tool: 'opencode', profile: 'gw' });
@@ -324,6 +327,11 @@ test('hoprig chat --tool: the address opens a chat in that coding tool', async (
   assert.doesNotMatch(out.join('\n'), /tool=claude/, 'Claude Code is the default: no word for it');
   assert.equal(await run(['--tool']), 2);
   assert.equal(await run(['--tool', 'Bad Tool']), 2);
+  // Codex is not offered in this version: refused here, in the switch's own sentence, and nothing opens.
+  const before = opened.length;
+  assert.equal(await run(['--tool', 'codex']), 2);
+  assert.match(out.at(-1), /^ERR hoprig: Codex is not part of this version of Hoprig\./);
+  assert.equal(opened.length, before);
 });
 
 test('the chat page in another tool\'s words: its name, its modes, its OK cards and patterns', async () => {

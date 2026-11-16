@@ -6,7 +6,8 @@
 import { getAutoSwitch } from '../autoswitch.mjs';
 import { EFFORTS, PERMISSION_MODES } from '../config.mjs';
 import { assertServes, readProfile, servesTools } from '../profiles.mjs';
-import { enabledToolIds, findTool } from '../codetools/index.mjs';
+import { anyTool, enabledToolIds, findTool, notOffered } from '../codetools/index.mjs';
+import { isOffered } from '../codetools/offered.mjs';
 import { assertToolReady } from '../codetools/start.mjs';
 import { isToolSessionId } from '../codetools/stores.mjs';
 import { isSessionId } from '../sessions.mjs';
@@ -20,6 +21,8 @@ const autoOn = () => getAutoSwitch().enabled === true;
 /** The coding tool a request names (absent: Claude Code): on, installed and with a chat engine. Throws a 400/409. */
 export function chatTool(v, cfg) {
   if (v === undefined || v === null || v === '' || v === 'claude') return 'claude';
+  // Not part of this version (Codex): the switch's own sentence (src/codetools/offered.mjs).
+  if (!isOffered(v) && anyTool(v)) throw bad(notOffered(v));
   const offered = chatTools(cfg);
   if (!offered.includes(v)) throw bad(`a chat runs one of these coding tools: ${offered.map((id) => findTool(id).name).join(', ')}`);
   assertToolReady(v, cfg);

@@ -6,6 +6,8 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { notOffered } from '../codetools/index.mjs';
+import { isOffered } from '../codetools/offered.mjs';
 import { linkBase } from '../machines/cli.mjs';
 import { dashboardAddress } from '../machines/pairing.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
@@ -54,6 +56,11 @@ export async function main(args = [], o = {}) {
     rest = rest.filter((_, i) => i !== at && !(i === at + 1 && !rest[at].includes('=')));
     if (!tool || !/^[a-z]{1,20}$/.test(tool)) {
       err(USAGE);
+      return 2;
+    }
+    // A coding tool this version does not offer (Codex) is refused here, in the switch's own sentence.
+    if (!isOffered(tool)) {
+      err(`hoprig: ${notOffered(tool, { cli: true })}`);
       return 2;
     }
     if (tool === 'claude') tool = null;
