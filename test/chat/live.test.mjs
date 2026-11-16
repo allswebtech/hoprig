@@ -175,7 +175,7 @@ test('the routes of a running chat', { timeout: 120_000, skip: process.platform 
   assert.ok(!(await owner('GET', `${A}/files?q=passwd`)).json.files.length, 'only the chat\'s own folder');
   assert.deepEqual((await owner('GET', `${A}/commands`)).json.commands.map((x) => x.name), ['compact', 'review']);
   const usage = (await owner('GET', `${A}/usage`)).json;
-  assert.equal(usage.limits.five_hour.utilization, 0.42);
+  assert.equal(usage.limits.five_hour.percent, 42);
 
   // ---- a message's files: a picture goes in as an image, any other file as @path ----
   const up = async (name, bytes) => (await owner('POST', `${A}/upload`, undefined, { raw: bytes, headers: { Cookie: cookie, 'X-File-Name': name } })).json.path;

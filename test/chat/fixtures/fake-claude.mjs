@@ -414,7 +414,7 @@ function control(m) {
     case 'get_context_usage':
       return answerControl(m, { totalTokens: 21000, maxTokens: 200000, percentage: 10.5, categories: [] });
     case 'get_usage':
-      return answerControl(m, { subscription_type: 'max', rate_limits_available: true, rate_limits: { five_hour: { status: 'allowed', utilization: 0.42, resetsAt: 1900000000 } } });
+      return answerControl(m, { subscription_type: 'max', rate_limits_available: true, rate_limits: { five_hour: { utilization: 42, resets_at: '2030-03-17T17:46:40+00:00' }, seven_day: { utilization: 10, resets_at: '2030-03-20T00:00:00+00:00' }, spend: { utilization: null, resets_at: null } } });
     default:
       return refuse(m, `Unsupported control request subtype: ${r.subtype}`, 'unsupported_request');
   }

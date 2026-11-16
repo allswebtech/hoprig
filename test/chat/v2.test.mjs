@@ -159,15 +159,15 @@ test('a message while a turn runs is queued in Claude Code, can be taken back, a
   const two = await c.send('two');
   const three = await c.send('three');
   assert.equal(two.queued, true);
-  assert.deepEqual(c.queue.map((q) => [q.text, q.state]), [['two', 'sent'], ['three', 'sent']]);
+  assert.deepEqual(c.queue.items.map((q) => [q.text, q.state]), [['two', 'sent'], ['three', 'sent']]);
   assert.equal(of(c, 'user').length, 1, 'a queued message is shown once it is taken');
   await c.unqueue(three.id);
   assert.deepEqual(controls(c, 'cancel_async_message'), [{ subtype: 'cancel_async_message', message_uuid: three.id }]);
-  assert.deepEqual(c.queue.map((q) => q.text), ['two']);
+  assert.deepEqual(c.queue.items.map((q) => q.text), ['two']);
   await until('both turns', () => ends(c).length === 2 && c.status() === 'waiting');
   assert.deepEqual(of(c, 'user').map((e) => e.text), ['slow 500', 'two']);
   assert.equal(of(c, 'text').at(-1).text, 'echo: two');
-  assert.deepEqual(c.queue, []);
+  assert.deepEqual(c.queue.items, []);
   await assert.rejects(c.unqueue(two.id), /not queued/);
 });
 
@@ -178,7 +178,7 @@ test('a coding tool that does not queue: the chat holds the message and sends it
   await c.send('slow 300');
   await until('the slow turn to run', () => c.session && c.turn);
   await c.send('held');
-  assert.deepEqual(c.queue.map((q) => q.state), ['held']);
+  assert.deepEqual(c.queue.items.map((q) => q.state), ['held']);
   await until('both turns', () => ends(c).length === 2 && c.status() === 'waiting');
   assert.deepEqual(of(c, 'user').map((e) => e.text), ['slow 300', 'held']);
 });
@@ -265,11 +265,12 @@ test('the / menu, usage and plan limits, a title, compacting and a new conversat
   assert.deepEqual(cmds.map((x) => x.name), ['compact', 'review']);
   assert.equal(c.status(), 'waiting', 'a process started for a menu is not work');
   await turn(c, 'limits');
-  assert.equal(c.limits.five_hour.utilization, 0.81);
-  assert.equal(c.limits.five_hour.status, 'allowed_warning');
+  assert.deepEqual(c.limits.five_hour, { status: 'allowed_warning', percent: 81, resetsAt: 1900000000000, at: c.limits.five_hour.at });
   const u = await c.usageNow();
   assert.equal(u.usage.contextPercent, 10.5);
-  assert.equal(u.limits.five_hour.utilization, 0.42);
+  assert.deepEqual([u.limits.five_hour.status, u.limits.five_hour.percent, u.limits.five_hour.resetsAt], ['allowed_warning', 42, Date.parse('2030-03-17T17:46:40Z')], 'the status the live line said stays');
+  assert.equal(u.limits.seven_day.percent, 10);
+  assert.equal(u.limits.spend, undefined, 'a window with nothing in it is left out');
   assert.equal(u.subscription, 'max');
   await turn(c, 'title A good name');
   assert.equal(c.title, 'A good name');

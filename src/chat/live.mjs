@@ -25,7 +25,7 @@ const PING_MS = 20_000;
 export function stateOf(c) {
   return {
     status: c.status(), running: !!c.session, working: c.busy(), activity: c.activity, pending: [...c.pending.keys()],
-    todos: c.todos, tasks: [...c.tasks.values()], queue: c.queue.map(({ id, text, attachments, state }) => ({ id, text, attachments, state })),
+    todos: c.todos, tasks: [...c.tasks.values()], queue: c.queue.list(),
     live: [...c.live.values()], usage: c.usage, limits: c.limits, limit: c.limit, lastError: c.lastError, title: c.title,
     engine: { id: c.engine.id, label: c.engine.label, capabilities: c.engine.capabilities, version: c.info.version || null },
     model: c.model, effort: c.effort, ultracode: c.ultracode, permissionMode: c.permissionMode, liveModel: c.liveModel, liveMode: c.liveMode,

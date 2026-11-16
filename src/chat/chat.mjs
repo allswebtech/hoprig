@@ -8,33 +8,22 @@
 // starts a turn of its own), so the chat is idle only when no turn runs and no background task runs; until then
 // its card says "working" and the idle timer leaves the process alone.
 //
-// Who answers when the coding tool asks for an OK:
-//   - bypassPermissions ("Run anything without asking"): the chat allows it at once, with no card. Three things stay
-//     the owner's, because they are his own word or cannot be taken back (the engine marks them `owner`): a question
-//     to him or a plan to approve, what his own settings insist on (an "ask" rule, a hook that says ask), and the
-//     coding tool's stop before a delete that could empty the disk. This holds only while the coding tool itself
-//     reports the mode: where its settings turn it off, cards show.
-//   - every other mode: a card. "Allow in this chat" adds the coding tool's own suggestion for the running process
-//     and is remembered in the chat (grants): a process started again gets them with its start, and an ask that a
-//     remembered grant covers is answered from it when a rule settles that kind of ask (the engine's `settled`).
+// Who answers when the coding tool asks for an OK, and how: asks.mjs. What changes live: controls.mjs.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { providerEnv } from '../assistant/engine.mjs';
 import { engineOf } from './engines/index.mjs';
+import { allowPending, answerAsk, askArrived, cancelAsks, keepGrants } from './asks.mjs';
+import { applySettings, mergeLimit, usageNow } from './controls.mjs';
 import { oneLine } from './events.mjs';
+import { MessageQueue } from './queue.mjs';
+import { LiveBlocks } from './streaming.mjs';
+import { OWED_MS, TaskTable } from './tasks.mjs';
 import { Timeline } from './timeline.mjs';
 
 export { EVENTS_MAX, WINDOW_MAX } from './timeline.mjs';
 export const IDLE_MS = 20 * 60_000; // a process with nothing to do is stopped after this (the next message resumes)
 const STOP_GRACE_MS = 8000; // after Stop, how long the coding tool gets to end the turn itself
-const GRANTS_MAX = 500; // what "allow in this chat" covered, kept per chat (the oldest go first)
-const QUEUE_MAX = 20; // messages waiting for the turn that runs
-const TASKS_MAX = 200;
-const LIVE_TEXT_MAX = 200_000; // of one block still streaming
-// A background task that ended is followed by a turn of the coding tool's own (it reads the task's result), also
-// when it ended while a turn ran; that turn starts right after. Until it does, the chat still works; it does not
-// wait for it longer than this.
-const OWED_MS = 10_000;
 // Errors that mean "this provider cannot serve now" (the coding tool's error categories).
 const LIMIT_ERRORS = new Set(['rate_limit', 'billing_error']);
 const LIMIT_TEXT = /usage limit|limit reached|rate.?limit|out of (credit|quota)|credit balance/i;
@@ -63,21 +52,18 @@ export class Chat extends Timeline {
     this.title = o.title || '';
     this.openedAt = o.openedAt || Date.now();
     this.costTotal = Number.isFinite(o.costTotal) ? o.costTotal : null; // what the coding tool reported last (a running total)
-    this.grants = new Set((Array.isArray(o.grants) ? o.grants : []).filter((g) => typeof g === 'string').slice(-GRANTS_MAX));
+    this.grants = keepGrants(o.grants); // what "allow in this chat" covered (asks.mjs)
     this.session = null; // the running coding tool
     this.turn = null; // the turn that runs: { messageId, auto, at }
     this.pending = new Map(); // request id → the ask event (with the full input)
-    this.tasks = new Map(); // task id → { taskId, toolId, type, title, status, background, usage, phases, agents, … }
-    this.bg = new Set(); // the background tasks the coding tool says run
-    this.owed = 0; // background tasks that ended, whose turn has not started yet
-    this.owedTimer = null;
-    this.queue = []; // messages written while a turn runs: { id, text, attachments, images, state: held | sent }
-    this.live = new Map(); // what still streams: text and thinking blocks, tool calls being written or running
+    this.tasks = new TaskTable(); // subagents, background shells and workflows (tasks.mjs)
+    this.queue = new MessageQueue(() => this.emit('state')); // messages written while a turn runs (queue.mjs)
+    this.live = new LiveBlocks(); // what still streams (streaming.mjs)
     this.shown = new Set(); // ids of the owner's messages shown (the coding tool's echo of one is not shown twice)
     this.todos = [];
     this.info = {}; // what the coding tool says of itself: version, tools, commands, skills
     this.usage = {}; // contextUsed, contextWindow, costTotal
-    this.limits = {}; // window → { status, utilization, resetsAt }
+    this.limits = {}; // window → { status, percent, resetsAt } (controls.mjs)
     this.activity = null; // requesting | compacting | retrying (live, for the status line)
     this.liveModel = null;
     this.liveMode = null; // the permission mode the running process reports
@@ -107,7 +93,7 @@ export class Chat extends Timeline {
     const t = this.engine.transcript({ cwd: this.cwd, id: this.conversationId });
     this.reset(t.events);
     this.todos = t.todos;
-    for (const task of t.tasks) if (!this.tasks.has(task.taskId)) this.tasks.set(task.taskId, (({ kind, ...x }) => x)(task));
+    this.tasks.load(t.tasks);
     const last = [...t.events].reverse().find((e) => e.kind === 'text' && !e.agent);
     this.lastText = last ? last.text : '';
     if (t.title) this.title = t.title;
@@ -134,14 +120,9 @@ export class Chat extends Timeline {
     return true;
   }
 
-  /** Background work runs: the coding tool says so, or a task started in the background has not ended. */
-  bgBusy() {
-    if (this.bg.size) return true;
-    for (const t of this.tasks.values()) if (t.background && t.status === 'running') return true;
-    return false;
-  }
+  /** A turn runs, or background work (tasks.mjs: also the turn the coding tool owes after a background task). */
   busy() {
-    return !!this.turn || this.bgBusy() || this.owed > 0;
+    return !!this.turn || this.tasks.busy();
   }
   /** idle | working: the word the rest of the dashboard asks for. */
   get state() {
@@ -154,7 +135,8 @@ export class Chat extends Timeline {
     return this.busy() ? 'working' : 'waiting';
   }
 
-  #changed() {
+  /** The status may have changed: say so (and when it did). */
+  changed() {
     const s = this.status();
     if (s !== this.lastStatus) {
       this.lastStatus = s;
@@ -165,14 +147,7 @@ export class Chat extends Timeline {
 
   /** Idle now? Then a restart asked for happens, or the idle timer starts. */
   #settle() {
-    if (this.owed && !this.turn && !this.bgBusy() && !this.owedTimer) {
-      this.owedTimer = setTimeout(() => {
-        this.owedTimer = null;
-        this.owed = 0;
-        this.#settle();
-      }, this.o.owedMs ?? OWED_MS);
-      this.owedTimer.unref?.();
-    }
+    if (!this.turn) this.tasks.waitOwed(this.o.owedMs ?? OWED_MS, () => this.#settle());
     if (!this.busy() && !this.pending.size) {
       if (this.restart && this.session) {
         this.restart = false;
@@ -181,7 +156,7 @@ export class Chat extends Timeline {
       }
       this.#idleLater();
     }
-    this.#changed();
+    this.changed();
   }
 
   #idleLater() {
@@ -253,16 +228,14 @@ export class Chat extends Timeline {
         this.liveModel = ev.model;
         this.liveMode = ev.mode;
         this.bypass = ev.mode === 'bypassPermissions';
-        this.owed = 0;
-        clearTimeout(this.owedTimer);
-        this.owedTimer = null;
+        this.tasks.turnStarted();
         // A turn nobody asked for: the coding tool goes on by itself (a background task ended).
         if (!this.turn) {
           clearTimeout(this.idleTimer);
           this.turn = { messageId: null, auto: true, at: Date.now() };
           this.push({ kind: 'turn-start', auto: true });
         }
-        this.#changed();
+        this.changed();
         return;
       case 'mode': // the coding tool entered or left plan mode, or a switch was confirmed
         this.liveMode = ev.mode;
@@ -278,39 +251,19 @@ export class Chat extends Timeline {
         this.emit('state');
         return;
       case 'text-delta':
-      case 'thinking-delta': {
-        const b = this.live.get(ev.blockId) || { kind: ev.kind === 'text-delta' ? 'text' : 'thinking', blockId: ev.blockId, text: '', agent: ev.agent };
-        b.text = (b.text + ev.text).slice(-LIVE_TEXT_MAX);
-        if (ev.tokens !== undefined) b.tokens = ev.tokens;
-        this.live.set(ev.blockId, b);
-        this.emit('live', ev);
-        return;
-      }
+      case 'thinking-delta':
       case 'tool-start':
-      case 'tool-progress': {
-        const key = `tool:${ev.id}`;
-        const t = this.live.get(key) || { kind: 'tool', id: ev.id, agent: ev.agent };
-        if (ev.kind === 'tool-start') Object.assign(t, { name: ev.name, title: ev.title || t.title || '', toolKind: ev.toolKind });
-        else t.elapsedS = ev.elapsedS;
-        this.live.set(key, t);
+      case 'tool-progress':
+        this.live.add(ev);
         this.emit('live', ev);
         return;
-      }
       case 'text':
       case 'thinking':
-        this.live.delete(ev.blockId);
-        if (ev.kind === 'text' && !ev.agent) this.lastText = ev.text;
-        this.push(ev);
-        return;
-      case 'tool': {
-        const t = this.live.get(`tool:${ev.id}`);
-        if (t) t.written = true; // stays while it runs (its progress), until its result
-        this.push(strip(ev));
-        return;
-      }
+      case 'tool':
       case 'tool-result':
-        this.live.delete(`tool:${ev.id}`);
-        this.push(ev);
+        this.live.final(ev);
+        if (ev.kind === 'text' && !ev.agent) this.lastText = ev.text;
+        this.push(strip(ev));
         return;
       case 'todos':
         this.todos = ev.list;
@@ -320,29 +273,23 @@ export class Chat extends Timeline {
         this.#task(ev);
         return;
       case 'tasks-running':
-        this.bg = new Set(ev.ids);
-        // This line comes before the task's own start, and is what marks a workflow as background.
-        for (const id of ev.ids) {
-          const t = this.tasks.get(id) || { taskId: id, status: 'running', startedAt: Date.now() };
-          t.background = true;
-          this.tasks.set(id, t);
-        }
+        this.tasks.running(ev.ids);
         this.emit('state');
         this.#settle();
         return;
       case 'ask':
-        this.#ask(ev);
+        askArrived(this, ev);
         return;
       case 'ask-cancelled':
         if (this.pending.delete(ev.request)) this.push({ kind: 'ask-closed', request: ev.request, outcome: 'cancelled' });
-        this.#changed();
+        this.changed();
         return;
       case 'user':
         this.#taken(ev.messageId, ev);
         return;
       case 'queue-state':
         if (ev.state === 'started') this.#taken(ev.messageId, null);
-        else if (ev.state === 'cancelled') this.#dequeue(ev.messageId);
+        else if (ev.state === 'cancelled') this.queue.take(ev.messageId);
         return;
       case 'session-changed':
         if (ev.reason === 'clear' && ev.id && ev.id !== this.conversationId) {
@@ -356,7 +303,7 @@ export class Chat extends Timeline {
         this.emit('state');
         return;
       case 'limits':
-        this.limits[ev.window] = { status: ev.status, utilization: ev.utilization, resetsAt: ev.resetsAt, at: Date.now() };
+        mergeLimit(this.limits, ev.window, { status: ev.status, percent: Number.isFinite(ev.utilization) ? Math.round(ev.utilization * 100) : null, resetsAt: ev.resetsAt });
         if (ev.status === 'rejected') this.limit = { at: Date.now(), error: 'rate_limit', text: `The plan's limit is reached (${ev.window.replace(/_/g, ' ')})` };
         this.emit('state');
         return;
@@ -379,41 +326,14 @@ export class Chat extends Timeline {
   }
 
   #task(ev) {
-    const { kind, at, ...fields } = ev;
-    const t = this.tasks.get(ev.taskId) || { taskId: ev.taskId, status: 'running', startedAt: Date.now() };
-    const was = t.status;
-    Object.assign(t, fields, { updatedAt: Date.now() });
-    if (t.background && was === 'running' && (t.status === 'completed' || t.status === 'failed')) this.owed++;
-    this.tasks.set(t.taskId, t);
-    if (t.status !== 'running') this.bg.delete(t.taskId);
-    if (this.tasks.size > TASKS_MAX) {
-      const old = [...this.tasks.values()].find((x) => x.status !== 'running');
-      if (old) this.tasks.delete(old.taskId);
-    }
+    this.tasks.apply(ev);
     this.emit('state');
     this.#settle();
   }
 
-  #ask(ev) {
-    const grant = ev.grant;
-    // No card: the mode allows everything, or the owner already allowed exactly this for the chat and only the
-    // process is new (it gets the rule again with the answer).
-    const allowedBefore = !!grant && ev.settled && grant.atoms.every((a) => this.grants.has(a));
-    if (!ev.owner && (this.bypass || allowedBefore) && this.session) {
-      this.session.answer(ev.request, { allow: true, input: ev.full, permissions: this.bypass ? null : grant.updates });
-      return;
-    }
-    this.pending.set(ev.request, ev);
-    // The page gets the input to show and what "allow in this chat" covers; the rest stays here.
-    const { full, interactive, reasonType, reason, ruleForced, manualOnly, noAlways, settled, owner, grant: g, ...shown } = ev;
-    this.push({ ...shown, canAlways: !!grant, always: grant ? (grant.edits ? 'edits' : 'rule') : null, alwaysText: grant && !grant.edits ? grant.text : '' });
-    this.#changed();
-  }
-
   /** A message of the owner was taken by the coding tool: shown (once), out of the queue, its turn runs. */
   #taken(messageId, ev) {
-    const item = messageId ? this.queue.find((q) => q.id === messageId) : null;
-    if (item) this.#dequeue(messageId);
+    const item = messageId ? this.queue.take(messageId) : null;
     if (!messageId || !this.shown.has(messageId)) {
       const src = ev || item;
       if (src) {
@@ -424,14 +344,8 @@ export class Chat extends Timeline {
     if (!this.turn && (item || ev)) {
       clearTimeout(this.idleTimer);
       this.turn = { messageId, auto: false, at: Date.now() };
-      this.#changed();
+      this.changed();
     }
-  }
-
-  #dequeue(id) {
-    const n = this.queue.length;
-    this.queue = this.queue.filter((q) => q.id !== id);
-    if (this.queue.length !== n) this.emit('state');
   }
 
   #turnEnd(ev) {
@@ -441,8 +355,8 @@ export class Chat extends Timeline {
     if (ev.costUsd !== null) this.costTotal = ev.costUsd;
     this.lastError = ev.ok ? null : ev.error;
     this.limit = !ev.ok && ev.error && LIMIT_TEXT.test(ev.error) ? { at: Date.now(), error: 'rate_limit', text: ev.error.slice(0, 300) } : ev.ok ? null : this.limit;
-    this.#cancelAsks();
-    for (const [k, v] of this.live) if (v.kind !== 'tool' || !v.written) this.live.delete(k);
+    cancelAsks(this);
+    this.live.turnEnded();
     const stopped = ev.subtype === 'error_during_execution' || ev.error === 'stopped';
     this.push({ kind: 'turn-end', ok: ev.ok, subtype: ev.subtype, error: ev.ok ? null : ev.error, turnCostUsd: turnCost, usage: ev.usage, durationMs: ev.durationMs, stopped });
     this.#knowSize();
@@ -457,37 +371,26 @@ export class Chat extends Timeline {
     this.session = null;
     clearTimeout(this.stopTimer);
     if (this.turn || this.pending.size) {
-      this.#cancelAsks();
+      cancelAsks(this);
       this.push({ kind: 'turn-end', ok: false, subtype: 'exit', error: `${this.engine.label} stopped (${code})${why ? `: ${why}` : ''}`, stopped: false });
       this.lastError = `${this.engine.label} stopped (${code})`;
       this.turn = null;
     }
     this.#lostWork();
     this.#knowSize();
-    this.#changed();
+    this.changed();
   }
 
   /** The process is gone: what it ran in the background and what was queued in it went with it. */
   #lostWork() {
-    for (const t of this.tasks.values()) if (t.status === 'running') t.status = 'stopped';
-    this.bg.clear();
-    this.owed = 0;
-    clearTimeout(this.owedTimer);
-    this.owedTimer = null;
-    const lost = this.queue.filter((q) => q.state === 'sent');
-    if (lost.length) {
-      this.queue = this.queue.filter((q) => q.state !== 'sent');
-      this.push({ kind: 'notice', level: 'warning', text: `${lost.length === 1 ? 'A queued message was' : `${lost.length} queued messages were`} not sent.` });
-    }
+    this.tasks.lost();
+    const lost = this.queue.lose();
+    if (lost) this.push({ kind: 'notice', level: 'warning', text: `${lost === 1 ? 'A queued message was' : `${lost} queued messages were`} not sent.` });
     this.live.clear();
     this.activity = null;
     this.emit('state');
   }
 
-  #cancelAsks() {
-    for (const r of this.pending.keys()) this.push({ kind: 'ask-closed', request: r, outcome: 'cancelled' });
-    this.pending.clear();
-  }
 
   // ---------- what the owner does ----------
 
@@ -505,14 +408,7 @@ export class Chat extends Timeline {
     if (!this.title) this.title = oneLine(text, 80);
     const msg = { id: crypto.randomUUID(), text, images, attachments };
     if (this.turn) {
-      if (this.queue.length >= QUEUE_MAX) throw fail(409, `${QUEUE_MAX} messages are queued already; wait for them, or remove one`);
-      const item = { ...msg, state: 'held', at: Date.now() };
-      this.queue.push(item);
-      if (this.session && this.engine.capabilities.queue) {
-        this.session.send(msg);
-        item.state = 'sent';
-      }
-      this.emit('state');
+      this.queue.add(msg, this.engine.capabilities.queue ? this.session : null);
       return { id: msg.id, queued: true };
     }
     this.#begin(msg);
@@ -527,13 +423,7 @@ export class Chat extends Timeline {
     }
     this.session.send(msg);
     // What was written while it started goes in behind it.
-    if (this.engine.capabilities.queue) {
-      for (const q of this.queue) {
-        if (q.state !== 'held') continue;
-        this.session.send(q);
-        q.state = 'sent';
-      }
-    }
+    if (this.engine.capabilities.queue) this.queue.sendHeld(this.session);
     return { id: msg.id, queued: false };
   }
 
@@ -541,62 +431,25 @@ export class Chat extends Timeline {
     this.turn = { messageId: msg.id, auto: false, at: Date.now() };
     this.shown.add(msg.id);
     this.push({ kind: 'user', text: msg.text, attachments: msg.attachments, messageId: msg.id });
-    this.#changed();
+    this.changed();
   }
 
   /** After a turn: a message held here (the coding tool does not queue) becomes the next turn. */
   #nextHeld() {
-    const q = this.queue.find((x) => x.state === 'held');
-    if (!q || !this.session) return;
-    this.#dequeue(q.id);
+    const q = this.session ? this.queue.nextHeld() : null;
+    if (!q) return;
     this.#begin(q);
     this.session.send(q);
   }
 
   /** Take a queued message back. Refused once the coding tool has started on it. */
-  async unqueue(id) {
-    const q = this.queue.find((x) => x.id === id);
-    if (!q) throw fail(409, 'that message is not queued any more');
-    if (q.state === 'sent' && this.session) {
-      if (!(await this.session.cancel(id).catch(() => false))) throw fail(409, `${this.engine.label} has already taken that message`);
-    }
-    this.#dequeue(id);
+  unqueue(id) {
+    return this.queue.remove(id, this.session, this.engine.label);
   }
 
-  /**
-   * The owner's answer to a tool use that waits for an OK. a: { allow, always (only for this chat: the coding tool's
-   * own session suggestions, never a settings file), answers (a question: question → chosen label), mode (a plan
-   * approved: the permission mode to go on in), message }.
-   */
+  /** The owner's answer to a tool use that waits for an OK (asks.mjs). */
   answer(request, a) {
-    const ask = this.pending.get(request);
-    if (!ask) throw fail(409, 'that question was already answered');
-    if (!this.session) throw fail(409, `${this.engine.label} is not running in this chat`);
-    let outcome = 'denied';
-    if (a.allow) {
-      const input = ask.tool === 'AskUserQuestion' && a.answers ? { ...ask.full, answers: a.answers } : ask.full;
-      const grant = a.always ? ask.grant : null;
-      let permissions = grant ? grant.updates : null;
-      if (ask.type === 'plan' && a.mode) {
-        permissions = [{ type: 'setMode', mode: a.mode === 'manual' ? 'default' : a.mode, destination: 'session' }];
-        this.permissionMode = a.mode;
-        this.bypass = a.mode === 'bypassPermissions';
-        this.emit('record');
-      }
-      this.session.answer(request, { allow: true, input, permissions });
-      outcome = grant ? 'allowed-always' : 'allowed';
-      if (grant) {
-        for (const g of grant.atoms) this.grants.add(g);
-        for (const g of [...this.grants].slice(0, Math.max(0, this.grants.size - GRANTS_MAX))) this.grants.delete(g);
-        this.emit('record'); // kept with the chat (feature.mjs saves the open chats)
-      }
-    } else {
-      const why = a.message ? `: ${a.message}` : '.';
-      this.session.answer(request, { allow: false, message: `The user said no to this ${ask.tool} call in the dashboard${why} Do not do it another way; wait for the user to say how to go on.` });
-    }
-    this.pending.delete(request);
-    this.push({ kind: 'ask-closed', request, outcome });
-    this.#changed();
+    answerAsk(this, request, a);
   }
 
   /** Stop: the coding tool ends the turn (and the tool it runs), not its background tasks. If it does not, the process is stopped. */
@@ -607,8 +460,8 @@ export class Chat extends Timeline {
       return true;
     }
     this.session.interrupt();
-    this.#cancelAsks();
-    this.#changed();
+    cancelAsks(this);
+    this.changed();
     clearTimeout(this.stopTimer);
     this.stopTimer = setTimeout(() => {
       if (!this.turn || !this.session) return;
@@ -644,77 +497,18 @@ export class Chat extends Timeline {
   }
 
   /** Context and plan usage, asked of the running process (null when it does not run). */
-  async usageNow() {
-    if (!this.session || !this.engine.capabilities.usage) return null;
-    const [context, usage] = await Promise.all([this.session.contextUsage().catch(() => null), this.session.usage().catch(() => null)]);
-    if (context && Number.isFinite(context.totalTokens)) Object.assign(this.usage, { contextUsed: context.totalTokens, contextWindow: context.maxTokens, contextPercent: context.percentage });
-    if (usage && usage.rate_limits && typeof usage.rate_limits === 'object') {
-      for (const [w, r] of Object.entries(usage.rate_limits)) if (r && typeof r === 'object') this.limits[w] = { status: r.status ?? null, utilization: r.utilization ?? null, resetsAt: r.resetsAt ?? r.resets_at ?? null, at: Date.now() };
-    }
-    this.emit('state');
-    return { usage: this.usage, limits: this.limits, subscription: usage ? usage.subscription_type || null : null, limitsKnown: !!(usage && usage.rate_limits_available) };
+  usageNow() {
+    return usageNow(this);
   }
 
-  /**
-   * Model, effort, ultracode and the permission mode, changed in the running process where the engine can (no
-   * restart, the conversation's cache stays); where it cannot, it starts again with the conversation resumed once
-   * it is idle. → { restart }
-   */
-  async setSettings({ model, effort, ultracode, mode }) {
-    const caps = this.engine.capabilities;
-    const live = () => !!(this.session && this.session.alive);
-    const tryLive = async (can, fn) => {
-      if (!live()) return true; // the next start has it
-      if (!can) return false;
-      try {
-        await fn(this.session);
-        return true;
-      } catch {
-        return false;
-      }
-    };
-    let restart = false;
-    if (model !== undefined && model !== this.model) {
-      this.model = model;
-      if (!(await tryLive(caps.liveModel, (s) => s.setModel(model)))) restart = true;
-    }
-    const effortChanged = effort !== undefined && effort !== this.effort;
-    const ultraChanged = ultracode !== undefined && ultracode !== this.ultracode;
-    if (effortChanged || ultraChanged) {
-      if (effortChanged) this.effort = effort;
-      if (ultraChanged) this.ultracode = ultracode;
-      // An effort change always carries the ultracode value (without it Claude Code turns ultracode off).
-      if (!(await tryLive(caps.liveEffort && (!ultraChanged || caps.ultracode), (s) => s.setEffort({ effort: this.effort, ultracode: this.ultracode })))) restart = true;
-    }
-    if (mode !== undefined && mode !== this.permissionMode) {
-      this.permissionMode = mode;
-      if (await tryLive(caps.liveMode, (s) => s.setMode(mode))) {
-        if (live()) {
-          this.bypass = mode === 'bypassPermissions';
-          this.liveMode = mode === 'manual' ? 'default' : mode;
-          this.#allowPending();
-        }
-      } else restart = true;
-    }
-    if (restart && this.session) {
-      if (this.busy()) this.restart = true;
-      else this.stop();
-    }
-    this.emit('record');
-    this.emit('state');
-    return { restart };
+  /** Model, effort, ultracode and the permission mode: live where the engine can (controls.mjs). → { restart } */
+  setSettings(o) {
+    return applySettings(this, o);
   }
 
   /** Switched to bypass: what waits for an OK that is not the owner's own word is allowed now. */
-  #allowPending() {
-    if (!this.bypass) return;
-    for (const [r, ask] of [...this.pending]) {
-      if (ask.owner) continue;
-      this.session.answer(r, { allow: true, input: ask.full, permissions: null });
-      this.pending.delete(r);
-      this.push({ kind: 'ask-closed', request: r, outcome: 'allowed' });
-    }
-    this.#changed();
+  allowPending() {
+    allowPending(this);
   }
 
   /** End the process (the conversation stays in its transcript). */
@@ -726,12 +520,12 @@ export class Chat extends Timeline {
     this.session = null;
     this.restart = false;
     if (this.turn || this.pending.size) {
-      this.#cancelAsks();
+      cancelAsks(this);
       this.push({ kind: 'notice', level: 'info', text: 'Stopped.' });
       this.turn = null;
     }
     this.#lostWork();
-    this.queue = [];
+    this.queue.clear();
     if (session) {
       const ended = session.close().then(() => {
         if (this.ending === ended) this.ending = null;
@@ -739,7 +533,7 @@ export class Chat extends Timeline {
       this.ending = ended;
       this.endingSession = session;
     }
-    this.#changed();
+    this.changed();
   }
 
   /** stop(), and resolve once the process has really ended (SIGKILL after `ms`): nothing else may run it before. */
