@@ -7,7 +7,7 @@
 // "Pause all automations" sits above the parts; while it is on, a banner says so on every part.
 // The same file brings the session view's "Queue" button and the "3 queued" badge on Home's session cards.
 import { icon } from './icons.js';
-import { ago, api, at, btn, chooseSheet, confirmSheet, fill, h, link, machine, needsYouFirst, openSheet, stateOf, tildePath, toast, until } from './lib.js';
+import { ago, api, at, btn, chooseSheet, confirmSheet, fill, h, isCodingCard, link, machine, needsYouFirst, openSheet, stateOf, tildePath, toast, until } from './lib.js';
 import { registerCardBadge, registerPage, registerSessionAction } from './registry.js';
 import { emptyState, errorBox, groupHead, panel, savedMark, tabBar, toggle } from './shell.js';
 import { store } from './store.js';
@@ -300,7 +300,7 @@ async function scheduleForm(old, preset = null) {
   ])];
   const accounts = (d.profiles || []).map((p) => [p.name, p.virtual ? 'Auto mode (the next provider at a limit)' : p.label]);
   const firstAccount = d.recommended || (accounts[0] || [''])[0];
-  const claudeSessions = (d.sessions || []).filter((x) => x.kind === 'claude').map((x) => x.name);
+  const claudeSessions = (d.sessions || []).filter(isCodingCard).map((x) => x.name);
   const tomorrow = ymd(new Date(Date.now() + 86_400_000));
   const s = old
     ? JSON.parse(JSON.stringify({ label: old.label || '', when: old.when, action: old.action, enabled: old.enabled }))
@@ -434,9 +434,9 @@ function queuePart(st, reload) {
   ];
 }
 
-/** The Claude sessions of the open computer a message can be queued for, the ones that need you first. */
+/** The coding sessions of the open computer a message can be queued for, the ones that need you first. */
 export function queueChoices(sessions, queues = {}) {
-  return sessions.filter((x) => x.kind === 'claude').sort(needsYouFirst).map((x) => {
+  return sessions.filter(isCodingCard).sort(needsYouFirst).map((x) => {
     const q = queues[x.name];
     return { value: x.name, label: x.display || x.name, icon: 'sparkle',
       sub: `${stateOf(x).text}${q && q.count ? ` · ${q.count} queued` : ''}` };
@@ -590,7 +590,7 @@ function followStore() {
 }
 
 registerCardBadge((s) => {
-  if (s.kind !== 'claude') return null;
+  if (!isCodingCard(s)) return null;
   followStore();
   const b = { el: h('span.badge.soft.hidden'), key: s.machine || '~', name: s.name };
   badges.add(b);

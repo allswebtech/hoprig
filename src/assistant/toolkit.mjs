@@ -4,6 +4,7 @@
 // with its own level, fields, card and handler. That keeps the eager tool list at 25 or fewer while the owner's
 // whole dashboard is reachable.
 import { obj, ref, str } from './schema.mjs';
+import { isCodingCard } from '../automation/cards.mjs';
 import { LOCAL } from './shown.mjs';
 
 // A terminal session's name, or a chat's (src/chat: "chat:<conversation id>", 41 characters).
@@ -45,7 +46,7 @@ export const minsAgo = (t, now) => (Number.isFinite(t) && t > 0 ? Math.max(0, Ma
 
 /** A session card as the dashboard keeps it → its status in the words the model sees. */
 export function statusOf(c) {
-  if (c.kind !== 'claude' && c.kind !== 'chat') return 'shell';
+  if (!isCodingCard(c) && c.kind !== 'chat') return 'shell';
   if (c.limit || c.runLimit) return 'limit';
   if (c.status === 'attention') return 'needs_ok';
   return ['starting', 'working', 'waiting', 'ended'].includes(c.status) ? c.status : 'unknown';

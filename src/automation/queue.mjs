@@ -11,7 +11,7 @@
 //   goneAt   when the session was last seen missing; the queue is dropped after a day.
 //
 // Never sends into a session that needs an OK, is at a limit, or whose last reply ended in an error.
-import { idle } from './cards.mjs';
+import { idle, isCodingCard } from './cards.mjs';
 import { QUEUE_MAX, cleanText } from './settings.mjs';
 
 export const GONE_KEEP_MS = 24 * 3600_000;
@@ -52,7 +52,7 @@ export function decide({ cards, data, now }) {
       continue;
     }
     q.goneAt = null;
-    if (c.kind === 'claude' && c.runId) {
+    if (isCodingCard(c) && c.runId) {
       if (q.runId && q.runId !== c.runId) q.kick = false; // another run: an old "send now" does not carry over
       q.runId = c.runId;
     }

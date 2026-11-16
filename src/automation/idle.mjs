@@ -5,7 +5,7 @@
 //
 // Stored: { gateways: { [addon id]: { lastUsedAt, stoppedFor } } }   stoppedFor = the lastUsedAt we stopped at,
 // so one quiet spell gives one stop.
-import { plainShell } from './cards.mjs';
+import { isCodingCard, plainShell } from './cards.mjs';
 
 /**
  * state: { cards, data, now, settings: { shells, shellHours, gateway, gatewayMinutes }, addons: [{ id, profile }],
@@ -27,7 +27,7 @@ export function decide({ cards, data, now, settings, addons = [], autoOrder = []
       const g = { lastUsedAt: now, stoppedFor: null, ...((data && data.gateways && data.gateways[a.id]) || {}) };
       // A chat whose process runs counts too: that process does not run the provider's PRERUN again, so a gateway
       // stopped under it would fail its next message. Once its process stops (after a quiet while), it does not.
-      const using = (c) => c.kind === 'claude' || (c.kind === 'chat' && c.running === true);
+      const using = (c) => isCodingCard(c) || (c.kind === 'chat' && c.running === true);
       const used = cards.some((c) => using(c) && c.profile && (c.profile.name === a.profile || (c.profile.name === 'auto' && autoOrder.includes(a.profile))));
       if (used) g.lastUsedAt = now;
       else if (g.stoppedFor !== g.lastUsedAt && now - g.lastUsedAt > settings.gatewayMinutes * 60_000) {

@@ -76,6 +76,10 @@ import { AUTO, DEFAULT_QUICK_ACTIONS, cleanServerPatch } from './settings.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from './uploads.mjs';
 import * as v from './validate.mjs';
 import { Watcher, enrich } from './watcher.mjs';
+import { isClaudeCard } from '../automation/cards.mjs';
+import { codetoolsFeature } from '../codetools/feature.mjs';
+import { assertToolReady, toolFlags, toolFromRequest } from '../codetools/start.mjs';
+import { isToolSessionId, toolSessions } from '../codetools/stores.mjs';
 
 export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 7433;
@@ -218,6 +222,7 @@ export function createServer(opts = {}) {
     onboardingFeature(ctx, opts.onboarding), // Home → Get started: the steps a new user goes through, done or not
     workspaceFeature(ctx, opts.workspace), // Workspace: the tree, its map, restore and sync, Git and GitHub, the AI brain (read-only)
     chat, // coding without the terminal: a Claude Code conversation as a chat (its cards are among the sessions)
+    codetoolsFeature(ctx, opts.codetools), // Codex's and OpenCode's servers: stopped when no session uses them
   ];
   const trusted = (req) => features.some((f) => f.trusted && f.trusted(req));
 
@@ -252,10 +257,10 @@ export function createServer(opts = {}) {
   /** Auto mode is on: sessions may run on the virtual profile "auto" (the router picks the account). */
   const autoOn = () => autoswitch.getAutoSwitch().enabled === true;
   /** A profile name from the browser: a real profile, or "auto" while Auto mode is on. Full object or null. */
-  // The sessions started and moved here are Claude Code's: a provider that does not serve it is refused (400).
-  const pickProfile = (name) => {
-    const p = name === AUTO.name ? (autoOn() ? { name: AUTO.name, env: {} } : null) : v.profile(name);
-    if (p) assertServes(p, 'claude');
+  // A provider that does not serve the session's coding tool is refused (400). Auto mode is Claude Code's.
+  const pickProfile = (name, tool = 'claude') => {
+    const p = name === AUTO.name ? (autoOn() && tool === 'claude' ? { name: AUTO.name, env: {} } : null) : v.profile(name);
+    if (p) assertServes(p, tool);
     return p;
   };
 
@@ -266,7 +271,7 @@ export function createServer(opts = {}) {
     const serving = safe(() => rs.routerSessions());
     const names = new Map(listProfiles().map((p) => [p.name, p.label]));
     for (const c of list) {
-      if (c.kind !== 'claude' || !c.profile || c.profile.name !== AUTO.name) continue;
+      if (!isClaudeCard(c) || !c.profile || c.profile.name !== AUTO.name) continue;
       c.profile = { name: AUTO.name, label: AUTO.label, kind: 'auto' };
       const now = c.sessionId && serving[c.sessionId];
       c.autoOn = now && now.profile ? { name: now.profile, label: names.get(now.profile) || now.profile, at: now.at || null } : null;
@@ -322,7 +327,7 @@ export function createServer(opts = {}) {
     const profiles = profileStates(list);
     const names = new Set(profiles.map((p) => p.name));
     for (const c of list) {
-      if (c.kind !== 'claude' || !c.profile) continue;
+      if (!isClaudeCard(c) || !c.profile) continue;
       // "Move back" is offered on a session that runs on this profile only because a preferred one hit its limit.
       const pref = c.fallback ? autoswitch.preferredAvailable(c.profile.name) : null;
       c.preferred = pref && pref !== c.profile.name && names.has(pref) ? pref : null;
@@ -402,16 +407,40 @@ export function createServer(opts = {}) {
     ['GET', /^\/api\/folders\/sessions$/, async (req, m, q) => {
       const dir = insideRoots(v.absPath(q.get('path')), roots());
       if (!dir) throw new HttpError(404, 'folder not found or not allowed');
+      // ?tool=codex|opencode: that coding tool's own store (a conversation stays with the tool it was started in).
+      const tool = toolFromRequest(q.get('tool'));
+      if (tool !== 'claude') {
+        assertToolReady(tool, cfg());
+        return { tool, sessions: (await toolSessions(tool, dir)).slice(0, 30).map((s) => ({ ...s, title: s.title || '(untitled)' })) };
+      }
       return { sessions: sessionsIn(dir).slice(0, 30).map((s) => ({ id: s.id, at: s.mtimeMs, title: sessionTitle(s.file) || '(untitled)' })) };
     }],
     ['POST', /^\/api\/sessions$/, async (req) => {
       const b = await readJson(req);
       const dir = insideRoots(v.absPath(b.dir), roots());
       if (!dir) throw bad('choose a folder inside the allowed roots');
-      const profile = pickProfile(b.profile);
+      // `tool`: the coding tool (absent: Claude Code, as before). Codex and OpenCode take their own choices.
+      const tool = toolFromRequest(b.tool);
+      if (tool !== 'claude') assertToolReady(tool, cfg());
+      const profile = pickProfile(b.profile, tool);
       if (!profile) throw bad('there is no such provider');
       const mode = ['new', 'continue', 'resume'].includes(b.mode) ? b.mode : null;
       if (!mode) throw bad('bad mode');
+      if (tool !== 'claude') {
+        let sid = null;
+        if (mode === 'resume') {
+          sid = isToolSessionId(tool, b.sessionId) ? b.sessionId : null;
+          if (!sid || !(await toolSessions(tool, dir)).some((s) => s.id === sid)) throw bad('that conversation is not in this folder');
+        }
+        let prompt = null;
+        if (b.prompt !== undefined && b.prompt !== null) {
+          prompt = v.message(b.prompt);
+          if (!prompt) throw bad(`the first message must be 1 to ${v.MESSAGE_MAX} bytes`);
+        }
+        const name = await deck.start({ tool, dir, profile, mode, sessionId: sid, prompt, flags: toolFlags(tool, b) });
+        watcher.poke();
+        return { name, tool };
+      }
       let sid = null;
       if (mode === 'resume') {
         sid = v.sessionId(b.sessionId);
@@ -496,10 +525,11 @@ export function createServer(opts = {}) {
     }],
     ['POST', /^\/api\/sessions\/([^/]+)\/switch$/, async (req, m) => {
       const b = await readJson(req);
-      const profile = pickProfile(b.profile);
-      if (!profile) throw bad('there is no such provider');
       const { term, run } = await sessionOr404(decodeURIComponent(m[1]));
-      if (!run) throw new HttpError(409, 'this is a plain shell, not a Claude session started by the launcher');
+      if (!run) throw new HttpError(409, 'this is a plain shell, not a coding session started by the launcher');
+      // The conversation stays in its coding tool: only a provider that serves that tool may take it.
+      const profile = pickProfile(b.profile, run.tool || 'claude');
+      if (!profile) throw bad('there is no such provider');
       await moveTo(term, run, profile.name);
       return { ok: true };
     }],

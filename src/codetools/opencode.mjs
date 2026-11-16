@@ -58,6 +58,22 @@ export const opencode = {
   ...tool,
   home: (env = process.env) => env.OPENCODE_CONFIG_DIR || path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'opencode'),
   noSelfUpdate: { args: [], env: NO_SELF_UPDATE.env, config: NO_SELF_UPDATE.config },
+  /**
+   * The choices of a terminal session (src/codetools/terminal.mjs). OpenCode's own defaults already allow almost
+   * everything; "ask" adds rules that make it ask before it edits, runs a command, fetches a page or leaves the
+   * folder; bypassPermissions approves whatever is not explicitly denied (its --auto). The effort is the model's
+   * variant.
+   */
+  options: { permissionModes: ['default', 'ask', 'bypassPermissions'], efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+  flagsFor: ({ permissionMode = null, effort = null } = {}) => {
+    if (permissionMode && !['default', 'ask', 'bypassPermissions'].includes(permissionMode)) throw new Error(`OpenCode's permission mode is one of: default, ask, bypassPermissions`);
+    if (effort && !['low', 'medium', 'high', 'xhigh', 'max'].includes(effort)) throw new Error(`OpenCode's effort is one of: low, medium, high, xhigh, max`);
+    return permissionMode === 'bypassPermissions' ? ['--auto'] : [];
+  },
+  /** The rules a new conversation gets (POST /api/session "permissions"), for the "ask" mode. */
+  sessionPermissions: ({ permissionMode = null } = {}) => (permissionMode === 'ask'
+    ? { permissions: ['edit', 'shell', 'webfetch', 'external_directory'].map((action) => ({ action, resource: '*', effect: 'ask' })) }
+    : {}),
   /** npm replaces the program's files: an update waits until no OpenCode session is open. */
   updateItem: { whenRunning: 'wait-until-none' },
   /**

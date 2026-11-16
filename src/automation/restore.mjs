@@ -8,6 +8,9 @@
 // tick, or vanished within GONE_WINDOW_MS before it (the shutdown that took tmux down with it), is reopened.
 //
 // Stored: { lastTickAt, sessions: { [name]: { name, cwd, profile, sessionId, carryArgs, goneAt, shellSince } } }
+//
+// Claude Code's sessions only: a Codex or OpenCode session is not reopened after a restart (yet).
+import { isClaudeCard } from './cards.mjs';
 
 export const GONE_WINDOW_MS = 2 * 60_000;
 /** A session that has been a plain shell this long had Claude exit in it: not a Claude session any more. */
@@ -42,7 +45,7 @@ export function decide({ cards, data, now, boot, enabled }) {
       if (now - goneAt <= GONE_WINDOW_MS) sessions[name] = { ...s, goneAt };
       continue;
     }
-    if (c.kind !== 'claude') {
+    if (!isClaudeCard(c)) {
       // A shell: Claude is still starting (just reopened), or it exited. Wait a little before deciding.
       const shellSince = s.shellSince || now;
       if (now - shellSince <= SHELL_FORGET_MS) sessions[name] = { ...s, goneAt: null, shellSince };
@@ -54,7 +57,7 @@ export function decide({ cards, data, now, boot, enabled }) {
   // Learn the sessions there are now (and their current session id: /clear starts a new one). A conversation is
   // remembered under one name only: after a rename the old name must not reopen it a second time.
   for (const c of cards) {
-    if (c.kind !== 'claude' || !c.sessionId || !c.profile || !c.profile.name) continue;
+    if (!isClaudeCard(c) || !c.sessionId || !c.profile || !c.profile.name) continue; // Claude Code's sessions only
     for (const [n, s] of Object.entries(sessions)) if (n !== c.name && s.sessionId === c.sessionId) delete sessions[n];
     const carryArgs = Array.isArray(c.carryArgs) ? c.carryArgs.filter((a) => typeof a === 'string') : [];
     sessions[c.name] = { name: c.name, cwd: c.cwd, profile: c.profile.name, sessionId: c.sessionId, carryArgs, goneAt: null, shellSince: null };

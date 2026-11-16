@@ -27,6 +27,13 @@
 //              { fiveHour?: { pct, resetsAt }, week?: { pct, resetsAt }, at }; `at` is when Claude Code wrote it.
 //              Absent for API profiles and for plans that report none. Each reading is also kept per provider
 //              (routerstate.mjs: rememberUsage), so the figures outlive the run.
+//   tool       the coding tool: 'claude' (Claude Code; its hooks keep this record), 'codex' or 'opencode' (the launcher
+//              of src/codetools/terminal.mjs keeps it from the tool's server). Absent in records of older launchers:
+//              Claude Code
+//   server     (codex, opencode) true while the session is attached to Hoprig's server of that tool
+//   statusSource  (codex, opencode) 'server': the status comes from the server's events; 'basic': it does not (the
+//              tool runs on its own, or the server cannot be reached), and the card reads the screen's activity only
+//   title      (codex, opencode) the conversation's name as the tool gave it
 //   startedAt, statusAt   epoch milliseconds
 import fs from 'node:fs';
 import path from 'node:path';
@@ -36,7 +43,7 @@ import { readRun, watchFile, writeRun as write } from './runfile.mjs';
 
 export { readRun };
 
-export function createRun({ profile, cwd, carryArgs = [] }) {
+export function createRun({ profile, cwd, carryArgs = [], tool = 'claude' }) {
   const runId = `${Date.now().toString(36)}-${process.pid}`;
   const file = path.join(runsDir(), `${runId}.json`);
   const now = Date.now();
@@ -51,6 +58,7 @@ export function createRun({ profile, cwd, carryArgs = [] }) {
     status: 'starting',
     note: '',
     carryArgs,
+    tool,
     startedAt: now,
     statusAt: now,
   };

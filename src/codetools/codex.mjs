@@ -36,6 +36,12 @@ export const codex = {
   home: (env = process.env) => env.CODEX_HOME || path.join(os.homedir(), '.codex'),
   /** Added to every start of Codex that Hoprig makes (terminal and app server). */
   noSelfUpdate: { args: ['-c', 'check_for_update_on_startup=false', '-c', 'features.daemon_auto_start=false', '-c', 'features.in_app_updates=false'], env: {} },
+  /**
+   * The choices of a terminal session (the launcher's --permission-mode and --effort, src/codetools/terminal.mjs).
+   * readOnly: Codex may read, and asks before anything else; bypassPermissions: it never asks and runs unsandboxed.
+   */
+  options: { permissionModes: ['default', 'readOnly', 'bypassPermissions'], efforts: ['low', 'medium', 'high', 'xhigh'] },
+  flagsFor: (o = {}) => flagsFor(o),
   /** npm replaces the program's files: an update waits until no Codex session is open. */
   updateItem: { whenRunning: 'wait-until-none' },
   /** What Codex reads from the AI brain: the same rules file as Claude Code, the same skills folder. */
@@ -46,3 +52,13 @@ export const codex = {
   /** No memory of its own: the shared rules carry a section that tells it where each project's memory is. */
   ownMemory: false,
 };
+
+function flagsFor({ permissionMode = null, effort = null } = {}) {
+  const out = [];
+  if (permissionMode && !['default', 'readOnly', 'bypassPermissions'].includes(permissionMode)) throw new Error(`Codex's permission mode is one of: default, readOnly, bypassPermissions`);
+  if (effort && !['low', 'medium', 'high', 'xhigh'].includes(effort)) throw new Error(`Codex's effort is one of: low, medium, high, xhigh`);
+  if (permissionMode === 'readOnly') out.push('-s', 'read-only', '-a', 'on-request');
+  if (permissionMode === 'bypassPermissions') out.push('--dangerously-bypass-approvals-and-sandbox');
+  if (effort) out.push('-c', `model_reasoning_effort="${effort}"`);
+  return out;
+}

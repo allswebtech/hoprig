@@ -19,6 +19,10 @@ const HELP = `Hoprig — Claude Code under several profiles, with one shared ses
                                 hoprig sub2 --resume ID  continue one session
   hoprig -c | --resume ...    choose a profile, then continue as asked
 
+  hoprig codex [provider] [args]     start Codex instead (also: hoprig opencode [provider] [args]);
+                                 -c, --resume ID and -- "first message" as above. Auto mode,
+                                 plan usage and Tia's engine are Claude Code's only
+
   hoprig auto [args]          start in Auto mode: when a provider reaches its limit, work goes on
                                  under the next one without stopping, and comes back by itself
 
@@ -186,6 +190,11 @@ async function main() {
     case 'update': {
       const setup = await import('../src/setup/cli.mjs');
       return (await setup.main(cmd, rest)) ?? 0;
+    }
+    case 'codex':
+    case 'opencode': {
+      const terminal = await import('../src/codetools/terminal.mjs');
+      return terminal.toolCommand(cmd, rest);
     }
     case 'tools': {
       const tools = await import('../src/codetools/cli.mjs');

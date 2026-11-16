@@ -5,6 +5,7 @@
 //      (no `limit` in the run) for more than GRACE_MS and auto-switch is on, the watcher does the same move the
 //      Switch button does, sends the continue prompt once the new run waits, and marks the old profile limited.
 // It ticks every 5 s while there are Claude sessions or a move in progress, else every 30 s.
+import { isClaudeCard, isCodingCard } from '../automation/cards.mjs';
 import { describe, sendNotification } from './notify.mjs';
 
 export const GRACE_MS = 20_000;
@@ -16,7 +17,7 @@ const PENDING_MAX_MS = 3 * 60_000;
  */
 export function enrich(cards, runs) {
   return cards.map((c) => {
-    if (c.kind !== 'claude') return c;
+    if (!isCodingCard(c)) return c;
     let run = c.runId ? runs.find((r) => r.runId === c.runId) : null;
     if (!run && c.sessionId) {
       run = runs
@@ -71,7 +72,7 @@ export function planAutoSwitch({ cards, auto, now, seen, done, nextProfile, grac
   const limitedNow = new Set();
   for (const c of cards) {
     // Auto sessions never stop at a limit: the router moves their requests by itself.
-    if (c.kind !== 'claude' || !c.limit || c.runLimit || !c.runId || !c.profile || c.profile.name === 'auto') continue;
+    if (!isClaudeCard(c) || !c.limit || c.runLimit || !c.runId || !c.profile || c.profile.name === 'auto') continue;
     limitedNow.add(c.runId);
     if (!seen.has(c.runId)) seen.set(c.runId, now);
     if (!auto || !auto.enabled || done.has(c.runId) || !c.canSwitch) continue;
@@ -146,7 +147,7 @@ export class Watcher {
     let busy = false;
     try {
       const cards = await this.cards();
-      busy = cards.some((c) => c.kind === 'claude') || this.pending.size > 0;
+      busy = cards.some(isCodingCard) || this.pending.size > 0;
       await this.#notify(cards);
       await this.#autoSwitch(cards);
       await this.#followUp(cards);
@@ -220,7 +221,7 @@ export class Watcher {
         this.pending.delete(name);
         continue;
       }
-      if (c.kind === 'claude' && c.profile && c.profile.name === p.to && c.status === 'waiting') {
+      if (isClaudeCard(c) && c.profile && c.profile.name === p.to && c.status === 'waiting') {
         this.pending.delete(name);
         if (!p.prompt) continue;
         try {

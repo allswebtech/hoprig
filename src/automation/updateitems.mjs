@@ -19,10 +19,9 @@
 // back with a new address).
 import { findTool, turnOn } from '../codetools/index.mjs';
 import { capture, compareVersions, npmMajor, showCommand, stream } from '../setup/system.mjs';
-import { busy } from './cards.mjs';
+import { busy, toolOf } from './cards.mjs';
 
-/** The coding tool a session card belongs to: `tool` when the card says it, else Claude Code (older cards). */
-export const toolOf = (c) => (c && typeof c.tool === 'string' ? c.tool : c && (c.kind === 'claude' || c.kind === 'chat') ? 'claude' : c && (c.kind === 'codex' || c.kind === 'opencode') ? c.kind : null);
+export { toolOf };
 const plural = (n, one) => `${n} ${one} session${n === 1 ? '' : 's'}`;
 
 // ---------- Hoprig ----------

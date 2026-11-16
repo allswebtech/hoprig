@@ -16,6 +16,7 @@
 // Results: { summary (one plain line, built only from validated ids, numbers and fixed words), data (fenced as
 // untrusted JSON), terminal / output (fenced raw text), shown (ids this result showed, by kind) }.
 import { anyJson, arr, bool, int, obj, ref, str } from './schema.mjs';
+import { isCodingCard } from '../automation/cards.mjs';
 import { LOCAL } from './shown.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
 import {
@@ -379,7 +380,7 @@ const stop_session = tool({
 
 async function switchFacts(ops, a) {
   const c = await findSession(ops, a);
-  if (c.kind !== 'claude') throw toolError(`${a.session} is a plain shell, not a Claude session`, 'pick a Claude session from list_sessions');
+  if (!isCodingCard(c)) throw toolError(`${a.session} is a plain shell, not a coding session`, 'pick a coding session from list_sessions');
   if (!c.sessionId) throw toolError(`${a.session} has no conversation id yet`, 'wait until Claude Code has started, then try again');
   const acc = await ops.accounts({ computer: comp(a) });
   const autoOn = !!(acc.autoSwitch && acc.autoSwitch.enabled);

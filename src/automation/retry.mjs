@@ -11,7 +11,7 @@
 // A dropped connection arrives as "unknown".
 //
 // Stored per session: { attempts, handled (failure.at acted on), sentAt, toldFor (failure.at we gave up on) }
-import { atLimit, busy } from './cards.mjs';
+import { atLimit, busy, isClaudeCard } from './cards.mjs';
 
 export const RETRY_KINDS = new Set(['server_error', 'overloaded', 'unknown']);
 
@@ -26,7 +26,7 @@ export function decide({ cards, data, now, max, firstMinutes }) {
   const next = {};
   const actions = [];
   for (const c of cards) {
-    if (c.kind !== 'claude') continue;
+    if (!isClaudeCard(c)) continue; // the error kinds are Claude Code's (its StopFailure hook)
     let st = { attempts: 0, ...((data && data[c.name]) || {}) };
     // A reply finished after our last retry: the trouble is over.
     if (st.sentAt && c.stopAt && c.stopAt > st.sentAt) st = { attempts: 0 };
