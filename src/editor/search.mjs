@@ -113,6 +113,56 @@ export async function search(rootArg, { q, regex = false, caseSensitive = false,
   return { engine: pick, matches, truncated: matches.length >= LIMITS.matches, timedOut: Boolean(res.timedOut) };
 }
 
+export const FILES_MAX = 20_000;
+
+/**
+ * Every file of the opened folder, for quick open: git's tracked and new files (what .gitignore leaves out is not
+ * listed) inside a repository, else a walk. The same folders as in a search are skipped, and so are paths the editor
+ * cannot open (a part that starts with "-"). { files, truncated }.
+ */
+export async function listFiles(rootArg, roots, { env = process.env } = {}) {
+  const root = rootOf(rootArg, roots);
+  const usable = (p) => p && !p.startsWith('"') && !p.split('/').some((s) => SKIP.includes(s) || s.startsWith('-'));
+  const files = [];
+  const seen = new Set(); // git lists a file twice while it has a conflict
+  let truncated = false;
+  const keep = (p) => {
+    if (!usable(p) || seen.has(p)) return true;
+    seen.add(p);
+    if (files.length >= FILES_MAX) {
+      truncated = true;
+      return false;
+    }
+    files.push(p);
+    return true;
+  };
+  if ((await repoOf(root, roots)).top) {
+    // Names with a quote, a backslash or a control character come back C-quoted: those are left out (keep).
+    const argv = ['git', '-c', 'core.quotePath=false', 'ls-files', '--cached', '--others', '--exclude-standard', '--', '.', ...SKIP.map((d) => `:(exclude,glob)**/${d}/**`)];
+    const r = await runLines(argv, { cwd: root, env: { ...env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' }, onLine: keep });
+    return { files: files.sort(), truncated: truncated || r.timedOut };
+  }
+  const until = Date.now() + LIMITS.ms;
+  const stack = [''];
+  while (stack.length && !truncated) {
+    if (Date.now() > until) return { files, truncated: true };
+    const rel = stack.pop();
+    let list;
+    try {
+      list = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const d of list) {
+      if (SKIP.includes(d.name)) continue;
+      const p = rel ? `${rel}/${d.name}` : d.name;
+      if (d.isDirectory()) stack.push(p);
+      else if (d.isFile() && !keep(p)) break;
+    }
+  }
+  return { files: files.sort(), truncated };
+}
+
 async function viaRg(root, o, env, add) {
   const argv = [
     'rg', '--json', '--hidden', '--max-count', String(LIMITS.perFile), '--max-filesize', '1M', '--max-columns', '1000',

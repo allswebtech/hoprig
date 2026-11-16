@@ -10,6 +10,7 @@
 //   POST /api/code/rename { root, from, to }          never over something that exists
 //   POST /api/code/delete { root, path, confirm }     confirm must be true
 //   GET  /api/code/search?root&q&regex&case&word&include&exclude   { engine, matches, truncated, timedOut }
+//   GET  /api/code/files?root                       every file, for quick open: { files, truncated }
 //   GET  /api/code/git/status?root                    { repo, branch, upstream, ahead, behind, staged, changes, untracked, conflicts }
 //   GET  /api/code/git/diff?root&path&staged          the two sides of a file for the diff editor
 //   POST /api/code/git/stage | unstage { root, paths }
@@ -27,7 +28,7 @@ import { cleanupVscode } from './cleanup.mjs';
 import { MAX_BYTES, create, readFile, remove, rename, tree, writeFile } from './files.mjs';
 import { commit, diffSides, discard, gitBranches, gitLog, gitStatus, stage, unstage } from './git.mjs';
 import { fail } from './paths.mjs';
-import { search } from './search.mjs';
+import { listFiles, search } from './search.mjs';
 
 // A save carries the whole file as JSON text: room for the size limit and its escapes.
 const BODY_MAX = MAX_BYTES * 2 + 64 * 1024;
@@ -87,6 +88,7 @@ export function editorFeature(sctx, opts = {}) {
       q: q.get('q'), regex: flag(q, 'regex'), caseSensitive: flag(q, 'case'), word: flag(q, 'word'),
       include: q.get('include') || '', exclude: q.get('exclude') || '',
     }, roots(), { env: opts.searchEnv }))],
+    ['GET', /^\/api\/code\/files$/, get((q) => listFiles(q.get('root'), roots(), { env: opts.searchEnv }))],
     ['GET', /^\/api\/code\/git\/status$/, get((q) => gitStatus(q.get('root'), roots()))],
     ['GET', /^\/api\/code\/git\/diff$/, get((q) => diffSides(q.get('root'), q.get('path'), flag(q, 'staged'), roots()))],
     ['POST', /^\/api\/code\/git\/stage$/, post((b) => stage(b.root, b.paths, roots()))],

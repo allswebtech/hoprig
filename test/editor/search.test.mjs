@@ -11,7 +11,7 @@ import { sandbox } from '../server/helpers.mjs';
 const box = sandbox('editor-search');
 test.after(() => box.cleanup());
 
-const { LIMITS, globRe, runLines, search } = await import('../../src/editor/search.mjs');
+const { FILES_MAX, LIMITS, globRe, listFiles, runLines, search } = await import('../../src/editor/search.mjs');
 const { which } = await import('../../src/setup/system.mjs');
 
 const projects = path.join(box.root, 'projects');
@@ -100,6 +100,23 @@ test('the limits: the match cap marks the result truncated; the time limit stops
   }
   const long = await search(plain, { q: 'needle' }, roots, { engine: 'walk' });
   assert.ok(long.matches.every((m) => m.text.length <= LIMITS.text));
+});
+
+test('the file list for quick open: git\'s files in a repository, a walk elsewhere; the same folders skipped', async () => {
+  const want = ['.hidden/conf.txt', 'blob.bin', 'docs/readme.md', 'many.txt', 'src/app.js', 'src/deep/ü file.md'];
+  fs.writeFileSync(path.join(repo, '.gitignore'), 'ignored.log\n');
+  fs.writeFileSync(path.join(repo, 'ignored.log'), 'x');
+  fs.writeFileSync(path.join(repo, '-opt.txt'), 'x');
+  fs.writeFileSync(path.join(plain, '-opt.txt'), 'x');
+  try {
+    assert.deepEqual((await listFiles(repo, roots)).files, ['.gitignore', ...want].sort(), 'ignored files and "-" names are left out');
+    assert.deepEqual((await listFiles(plain, roots)).files, want);
+    await assert.rejects(listFiles('/', roots), { status: 403 });
+    assert.ok(FILES_MAX >= 10_000);
+  } finally {
+    for (const f of ['.gitignore', 'ignored.log', '-opt.txt']) fs.rmSync(path.join(repo, f), { force: true });
+    fs.rmSync(path.join(plain, '-opt.txt'), { force: true });
+  }
 });
 
 test('glob patterns as VS Code reads them', () => {
