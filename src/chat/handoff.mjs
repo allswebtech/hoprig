@@ -21,6 +21,7 @@ const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 /**
  * terminalOf(id, tool): the terminal that runs conversation `id` of coding tool `tool` (Claude Code unless said): { name,
  * termId, cwd, run } (null name: one outside the dashboard), or null.
+ * o: { chatOf(id), launchMs (tests: how long a terminal without a run record counts) }.
  * claim(id, fn, { tool, self }): one conversation, one process. Whatever starts a process on a conversation (a terminal,
  * a chat's message) does it in `fn`, run here one at a time per conversation, and only when no terminal runs it (else →
  * { terminal }) and no open chat but `self` has a process on it (o.chatOf(id); else → { chat: its id }). → { started:
@@ -28,20 +29,26 @@ const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
  */
 export function terminals(ctx, o = {}) {
   const { HttpError } = ctx;
-  // A terminal started just now runs its conversation before its run record says so (the launcher writes it once
-  // Claude Code starts): for that while, this says it.
+  // A terminal started for a conversation runs it before its run record says so: the launcher writes the record with
+  // no conversation, and Claude Code reports it at its start (SessionStart), which can wait long (a slow start, a
+  // question on the screen first). Until it reports another conversation or ends, this says it runs that one.
   const recent = new Map(); // `${tool}:${id}` → { name, at }
-  const RECENT_MS = 30_000;
+  const LAUNCH_MS = o.launchMs || 30_000; // a terminal with no run record in it this long after its start: its launcher never came
   async function terminalOf(id, tool = 'claude') {
+    const key = `${tool}:${id}`;
     // A record without `tool` is an older one of Claude Code's.
-    const runs = listRuns().filter((r) => r.sessionId === id && r.status !== 'ended' && (r.tool || 'claude') === tool);
+    const live = listRuns().filter((r) => r.status !== 'ended' && (r.tool || 'claude') === tool);
+    const runs = live.filter((r) => r.sessionId === id);
     if (!runs.length) {
-      const just = recent.get(`${tool}:${id}`);
-      if (!just || Date.now() - just.at > RECENT_MS) return null;
+      const just = recent.get(key);
+      if (!just) return null;
       const t = (await ctx.backend.list()).find((x) => x.session === just.name);
-      return t ? { name: t.session, termId: t.id, cwd: t.cwd, run: null } : null;
+      const run = t ? matchRuns([t], live, live.some((r) => r.tmuxPane) ? await parentLookup() : procParent).get(t.id) : null;
+      if (t && (run ? !run.sessionId : Date.now() - just.at <= LAUNCH_MS)) return { name: t.session, termId: t.id, cwd: t.cwd, run: run || null };
+      recent.delete(key); // gone, its launcher never came, or it reported another conversation
+      return null;
     }
-    recent.delete(`${tool}:${id}`); // its run record says it from now on
+    recent.delete(key); // its run record says it from now on
     const terms = await ctx.backend.list();
     const byId = matchRuns(terms, runs, runs.some((r) => r.tmuxPane) ? await parentLookup() : procParent);
     const t = terms.find((x) => byId.has(x.id));

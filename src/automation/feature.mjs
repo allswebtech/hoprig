@@ -72,8 +72,15 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
         const p = profileObject(profile);
         if (!p) throw new Error(`there is no provider "${profile}"`);
         const argv = launchArgv(sctx.deck.launcher(), { profile: p, mode, sessionId, carryArgs });
-        const taken = new Set((await sctx.backend.list()).map((t) => t.session));
-        const r = await sctx.backend.create({ name: uniqueName(safeSessionName(name || path.basename(dir)), taken), dir, argv });
+        const go = async () => {
+          const taken = new Set((await sctx.backend.list()).map((t) => t.session));
+          return { name: (await sctx.backend.create({ name: uniqueName(safeSessionName(name || path.basename(dir)), taken), dir, argv })).name };
+        };
+        if (!sessionId || !chat) return (await go()).name;
+        // One conversation, one process: a conversation that a chat or a terminal runs already is not started again
+        // (a message sent right after a restart, before this terminal reports it, must find it too).
+        const r = await chat.startTerminal(sessionId, go);
+        if (r.existing) throw Object.assign(new Error(r.existing.chat ? 'a chat runs its conversation now' : `the terminal session "${r.existing.terminal.name}" runs its conversation now`), { existing: r.existing });
         return r.name;
       },
       async send(name, text) {

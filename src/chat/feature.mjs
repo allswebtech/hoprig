@@ -139,7 +139,7 @@ export function chatFeature(ctx, o = {}) {
 
   // One place at a time (handoff.mjs): the open chat whose process runs a conversation (or gets ready to) is one.
   const chatOf = (id) => ([...chats.values()].find((c) => c.conversationId === id && (c.session || c.starting || c.busy())) || {}).id || null;
-  const { terminalOf, inTerminal, claim, serial, forget } = terminals(ctx, { chatOf });
+  const { terminalOf, inTerminal, claim, serial, forget } = terminals(ctx, { chatOf, launchMs: o.launchMs });
   /**
    * A message that starts a turn in chat `c` (`fn` sends it): never while a terminal runs the conversation, also while
    * this chat's process waits idle (a terminal may have resumed the conversation meanwhile).
