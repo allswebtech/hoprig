@@ -555,7 +555,9 @@ test('joining: the server\'s whole line when it gives one, its note under it; th
 test('session view: the short placeholder on a narrow screen', () => {
   const src = fs.readFileSync(path.join(WEB, 'session.js'), 'utf8');
   assert.match(src, /matchMedia\('\(max-width: 599px\)'\)/);
-  assert.match(src, /: 'Message Claude'\)/);
+  // The short one names the session's coding tool ("Message Codex"), Claude until the session is known.
+  assert.match(src, /: `Message \$\{toolName\(\)\}`\)/);
+  assert.match(src, /\|\| 'Claude';/);
 });
 
 // ---------- the workspace through git ----------
