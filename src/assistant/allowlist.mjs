@@ -9,6 +9,7 @@
 //   b. Bash: one simple command (none of ; & | < > ( ) { } $ ` \ ' " ~, no line break, and no * ? [ ]: the shell
 //      would turn those into words nobody judged), its first word in COMMANDS, and that entry's rule passes.
 //   c. any other tool (a page fetch, a web search, a skill, a subagent, a tool added later): the owner's.
+import os from 'node:os';
 import path from 'node:path';
 import { ASSISTANT_NAME, SECRET_FILES } from './tia.mjs';
 
@@ -16,6 +17,7 @@ const P = path.posix;
 
 export const WHY = {
   noFolder: 'the chat\'s folder is not known',
+  notProject: 'the chat\'s folder is the whole disk or a home folder, not a project\'s folder',
   noPath: 'a call without the path it works on',
   outside: 'a path outside the chat\'s folder',
   home: 'a path that names the home folder or a variable',
@@ -223,16 +225,23 @@ function commandWhy(command, root) {
   return COMMANDS[words[0]](words.slice(1), root);
 }
 
+// The usual home folders and the folders that hold them (a chat on another computer has its own home).
+const HOMES = /^\/(home|Users)(\/[^/]+)?$|^\/root$/;
+/** The whole disk, a home folder or a folder that holds one is not a project's folder: it holds the shell's start-up
+ * files and every account's settings. */
+const notAProject = (root, home) =>
+  root === '/' || HOMES.test(root) || (typeof home === 'string' && home.startsWith('/') && (P.resolve(home) === root || P.resolve(home).startsWith(`${root}/`)));
+
 /**
  * May Tia allow this call by herself? tool: the coding tool's name of it; input: the strings of the call (the command,
- * the paths; src/chat/engines/claude-parse.mjs askSubject); cwd: the chat's folder.
+ * the paths; src/chat/engines/claude-parse.mjs askSubject); cwd: the chat's folder; home: this computer's home folder.
  * → { ok: true } | { ok: false, why }
  */
-export function allowsHerself(tool, input, cwd) {
+export function allowsHerself(tool, input, cwd, home = os.homedir()) {
   if (typeof cwd !== 'string' || !cwd.startsWith('/')) return { ok: false, why: WHY.noFolder };
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false, why: WHY.tool };
   const root = P.resolve(cwd);
-  if (root === '/') return { ok: false, why: WHY.noFolder }; // the whole disk is not a project's folder
+  if (notAProject(root, home)) return { ok: false, why: WHY.notProject };
   let why;
   if (tool === 'Bash') why = commandWhy(input.command, root);
   else if (typeof tool === 'string' && Object.hasOwn(FILE_TOOLS, tool)) why = FILE_TOOLS[tool](input, root);

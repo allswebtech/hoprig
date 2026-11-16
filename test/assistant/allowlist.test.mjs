@@ -117,8 +117,28 @@ test('file tools: every path inside the folder; outside, the home folder, a secr
     ['WebFetch', { url: 'https://example.org' }, WHY.tool], ['WebSearch', { query: 'x' }, WHY.tool], ['Skill', { skill: 'x' }, WHY.tool],
     ['Agent', { prompt: 'x' }, WHY.tool], ['mcp__fs__read', { file_path: `${ROOT}/a` }, WHY.tool], ['NewTool', { file_path: `${ROOT}/a` }, WHY.tool], ['__proto__', { file_path: `${ROOT}/a` }, WHY.tool],
   ]) card(f(tool, input), why, `${tool} ${JSON.stringify(input)}`);
-  for (const cwd of [null, '', 'proj', '/', 'C:\\w\\proj']) card(f('Read', { file_path: `${ROOT}/a` }, cwd), WHY.noFolder, String(cwd));
+  for (const cwd of [null, '', 'proj', 'C:\\w\\proj']) card(f('Read', { file_path: `${ROOT}/a` }, cwd), WHY.noFolder, String(cwd));
   for (const input of [null, 'ls', ['ls']]) card(f('Bash', input), WHY.tool, JSON.stringify(input));
+});
+
+test('the whole disk, a home folder or a folder that holds one is not a project\'s folder: nothing there is hers', () => {
+  // A chat may be opened in the home folder (the folders the dashboard offers start there): writing a shell start-up
+  // file or reading an account's settings is not work on a project.
+  const home = '/home/owner';
+  for (const [tool, input] of [
+    ['Write', { file_path: '/home/owner/.bashrc', content: 'x' }], ['Edit', { file_path: '/home/owner/.profile', old_string: 'a', new_string: 'b' }],
+    ['Read', { file_path: '/home/owner/.config/gh/hosts.yml' }], ['Bash', { command: 'cat .config/gh/hosts.yml' }], ['Bash', { command: 'ls' }],
+  ]) {
+    for (const cwd of ['/', '/home/owner', '/home/owner/', '/home', '/home/owner/projects/..', '/Users/owner', '/Users', '/root']) {
+      card(allowsHerself(tool, input, cwd, home), WHY.notProject, `${tool} ${JSON.stringify(input)} in ${cwd}`);
+    }
+  }
+  // This computer's home elsewhere, and the folders that hold it.
+  for (const cwd of ['/srv/me', '/srv']) card(allowsHerself('Bash', { command: 'ls' }, cwd, '/srv/me'), WHY.notProject, cwd);
+  // A project inside the home folder is a project.
+  allowed(allowsHerself('Read', { file_path: '/home/owner/projects/web/a.js' }, '/home/owner/projects/web', home), 'a project in the home folder');
+  allowed(allowsHerself('Bash', { command: 'ls' }, '/srv/me/web', '/srv/me'), 'a project in a home elsewhere');
+  allowed(allowsHerself('Bash', { command: 'ls' }, '/home/owner/projects/web'), 'the default home is this computer\'s');
 });
 
 // What the earlier checks of the deny-list (their lists of paths and command shapes) found it let through, and the rest
