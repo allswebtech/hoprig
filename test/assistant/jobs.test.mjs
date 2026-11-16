@@ -36,6 +36,13 @@ test('planWakes: limit (not for auto), ended, expired, inactive jobs', () => {
   const made = job({ sessions: [{ computer: 'this', session: 's', created: 5000, since: 0, last: 'working', armed: true }] });
   assert.deepEqual(planWakes([made], [card({ created: 9000, status: 'attention' })], 10).events.map((e) => e.reason), ['ended']);
   assert.deepEqual(planWakes([made], [card({ created: 5000, status: 'attention' })], 10).events.map((e) => e.reason), ['needs_ok']);
+  // A chat: its name comes back when the owner opens that conversation again after hers closed. The job follows only
+  // the chat it was given (when it was opened); one whose time is not known follows nothing.
+  const chat = (created) => job({ sessions: [{ computer: 'this', session: 'chat:x', created, since: 0, last: 'working', armed: true }] });
+  const his = card({ name: 'chat:x', kind: 'chat', created: 9000, status: 'attention' });
+  assert.deepEqual(planWakes([chat(5000)], [his], 10).events.map((e) => e.reason), ['ended']);
+  assert.deepEqual(planWakes([chat(null)], [his], 10).events.map((e) => e.reason), ['ended'], 'not known: never his chat');
+  assert.deepEqual(planWakes([chat(9000)], [his], 10).events.map((e) => e.reason), ['needs_ok']);
 });
 
 test('decideMode and stateAfter', () => {

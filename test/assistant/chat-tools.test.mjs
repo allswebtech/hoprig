@@ -105,6 +105,8 @@ test('start_chat: an allowed provider picked by her, a job, then her own chat\'s
   assert.match(r.text, /Job j_[0-9a-f]{10} watches it/);
   assert.ok(core.jobs.forSession('this', name), 'the job watches the chat');
   const card = ops.s.sessions.find((x) => x.name === name);
+  assert.ok(card.created > 0);
+  assert.equal(core.jobs.forSession('this', name).sessions[0].created, card.created, 'the job follows this chat, by when it was opened');
   card.cwd = '/home/owner/projects/api';
   Object.assign(card, { status: 'attention', note: 'Claude wants to run: npm test (Run the tests)', ask: { request: 'r2', type: 'permission', tool: 'Bash', known: true, subject: 'npm test', owner: false, canAlways: true } });
   r = await call('send_to_chat', { session: name, answer: 'allow_always' });

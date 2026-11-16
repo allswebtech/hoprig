@@ -51,8 +51,9 @@ export function planWakes(jobs, cards, now, armMs = ARM_MS) {
         patches.push({});
         continue;
       }
-      // The job's own terminal: a later session that got its name (made at another time) is someone else's.
-      const card = cards.find((c) => c.name === e.session && (c.computer || LOCAL) === e.computer && (e.created == null || c.created === e.created)) || null;
+      // The job's own terminal: a later session that got its name (made at another time) is someone else's. A chat's
+      // name comes back each time its conversation is opened again, so a chat whose time is not known is never its own.
+      const card = cards.find((c) => c.name === e.session && (c.computer || LOCAL) === e.computer && (e.created == null ? !e.session.startsWith('chat:') : c.created === e.created)) || null;
       const st = card ? statusOf(card) : 'gone';
       // A session that was just started shows as a plain shell until the launcher has registered its run: that
       // is not an end. It ends once it was seen running (armed) or the grace time has passed.
