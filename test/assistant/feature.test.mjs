@@ -261,6 +261,13 @@ for (const kind of kinds) {
     r = await owner('GET', '/api/assistant');
     assert.equal(r.json.ready.ok, false);
     assert.match(r.json.ready.problem, /turned off/);
+    // Never set (a new computer): off as well, for her calls and on Settings → Tia alike (she costs money).
+    const { enabled: _was, ...unset } = loadConfig().assistant;
+    saveConfig({ assistant: unset });
+    r = await owner('GET', '/api/assistant');
+    assert.equal(r.json.ready.ok, false, 'not on until the owner turns her on');
+    assert.equal((await owner('GET', '/api/assistant/settings')).json.settings.enabled, false);
+    assert.equal((await asTia('POST', '/api/assistant/call', { tool: 'list_sessions', args: {} })).json.code, 'tia-off');
     await owner('POST', '/api/assistant/settings', { enabled: true });
 
     // ---- the owner's own MCP client: a token with the same scope ----

@@ -31,7 +31,7 @@ import { createAssistantCore } from './core.mjs';
 import { Engine } from './engine.mjs';
 import { createOps, runShell as realRunShell } from './ops.mjs';
 import { systemPrompt } from './prompt.mjs';
-import { ASSISTANT_NAME, HELP, LEVELS, cleanTiaPatch, resolveTia, savedTiaChoice, servesTool, tiaChoices } from './tia.mjs';
+import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, HELP, LEVELS, cleanTiaPatch, resolveTia, savedTiaChoice, servesTool, tiaChoices } from './tia.mjs';
 import { readUsage, recordUsage, summarizeUsage, turnUsage, usageFile } from './usage.mjs';
 
 /**
@@ -105,7 +105,8 @@ export function assistantFeature(ctx, o = {}) {
     const a = ctx.config().assistant;
     return a && typeof a === 'object' && !Array.isArray(a) ? a : {};
   };
-  const enabled = () => raw().enabled !== false;
+  // Off until the owner turns her on (she costs money): the same default Settings → Tia shows (resolveTia).
+  const enabled = () => ({ ...TIA_DEFAULTS, ...raw() }).enabled !== false;
   let serverToken = null;
   let address = o.url || null; // set in start(): where this dashboard listens
 
