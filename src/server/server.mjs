@@ -49,7 +49,7 @@ import {
   COOKIE, RateLimiter, SessionStore, clearCookie, hashPassword, parseCookies, sessionCookie, sha256, verifyPassword,
 } from './auth.mjs';
 import { createBackend } from './backends/index.mjs';
-import { Deck, launchArgv } from './deck.mjs';
+import { Deck } from './deck.mjs';
 import { browse, insideRoots, recentFolders, resolveRoots } from './folders.mjs';
 import { alwaysOption } from './prompts.mjs';
 import { killProcess, power, snapshot } from './platform.mjs';
@@ -273,10 +273,7 @@ export function createServer(opts = {}) {
   /** Move a session to another profile; "auto" is not a profile file, so it is built here. */
   async function moveTo(term, run, name) {
     if (name !== AUTO.name) return deck.move(term, run, name);
-    if (!run.sessionId) throw new HttpError(409, 'this session has no id yet; wait until Claude has started');
-    const carry = Array.isArray(run.carryArgs) ? run.carryArgs.filter((a) => typeof a === 'string') : [];
-    const argv = launchArgv(deck.launcher(), { profile: { name: AUTO.name, env: {} }, mode: 'move', sessionId: run.sessionId, carryArgs: carry });
-    await backend.respawn(term.id, run.cwd, argv);
+    await backend.respawn(term.id, run.cwd, deck.moveArgv({ name: AUTO.name, env: {} }, run));
   }
 
   /**

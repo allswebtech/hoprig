@@ -13,7 +13,7 @@ import { binFile, claudeDir, hookSettingsDir } from './paths.mjs';
 import { listProfiles, profileEnv, readProfile } from './profiles.mjs';
 import { loginSeen, rememberLogin } from './routerstate.mjs';
 import { createRun, noteUsage, readRun, readUsage, removeRun, updateRun, usageFile } from './runs.mjs';
-import { isSessionId } from './sessions.mjs';
+import { hasConversation, isSessionId } from './sessions.mjs';
 import { AUTO, autoIdentity, ensureRouter } from './router.mjs';
 import { resolveWindowsBin, windowsSpawnPlan } from './winspawn.mjs';
 
@@ -142,11 +142,15 @@ export function dedupeFlags(args) {
  * The arguments that continue session `sessionId` under the profile `target`, given the arguments of the launch
  * it comes from. A model chosen with --model moves along, except to a profile that names its own model
  * (ANTHROPIC_MODEL): such a profile says what its endpoint can serve.
+ *
+ * `fresh`: nothing was said in the session yet, so it has no conversation on disk (sessions.mjs hasConversation)
+ * and `--resume` would end with "No conversation found with session ID". Such a session starts on the target
+ * under the same id instead (`--session-id`), which is all there is to carry over.
  */
-export function moveArgs(target, args, sessionId) {
+export function moveArgs(target, args, sessionId, { fresh = false } = {}) {
   let carry = dedupeFlags(carryArgs(args));
   if (target.env.ANTHROPIC_MODEL) carry = dropValueFlag(carry, '--model');
-  return [...carry, '--resume', sessionId];
+  return [...carry, fresh ? '--session-id' : '--resume', sessionId];
 }
 
 /** The model Claude Code starts with when nothing chooses one: the user's settings, else its own default. */
@@ -453,6 +457,8 @@ export async function launch(profileName, args, { askNext = null } = {}) {
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !isPrintMode(current);
     if (interactive) console.error(`hoprig: profile ${profile.name} · ${profile.label}`);
     const { code, sessionId, signalled, auto } = await runOnce(profile, current, cfg, { interactive, fallback });
+    // A session nobody typed into has nothing on disk to resume: it starts on the next profile under the same id.
+    const fresh = Boolean(sessionId) && !hasConversation(process.cwd(), sessionId);
     if (auto && sessionId && !signalled) {
       const target = await profileNamed(auto.to);
       if (target) {
@@ -461,22 +467,22 @@ export async function launch(profileName, args, { askNext = null } = {}) {
         if (auto.why === 'limit') {
           console.error(`hoprig: ${from} reached its usage limit. Continuing this session on ${to}.`);
           // The interrupted request is in the transcript; this prompt makes Claude pick it up again.
-          current = [...moveArgs(target, current, sessionId), getAutoSwitch().prompt];
+          current = [...moveArgs(target, current, sessionId, { fresh }), ...(fresh ? [] : [getAutoSwitch().prompt])];
           fallback = true;
         } else {
           console.error(`hoprig: ${to} is available again. Moving this session back to it.`);
-          current = moveArgs(target, current, sessionId);
+          current = moveArgs(target, current, sessionId, { fresh });
         }
         name = target.name;
         continue;
       }
     }
     if (!interactive || signalled || !askNext || !sessionId) return code;
-    const next = await askNext({ current: profile.name, sessionId });
+    const next = await askNext({ current: profile.name, sessionId, saved: !fresh });
     if (!next) return code;
     const target = await profileNamed(next);
     if (!target) return code;
     name = next;
-    current = moveArgs(target, current, sessionId);
+    current = moveArgs(target, current, sessionId, { fresh });
   }
 }
