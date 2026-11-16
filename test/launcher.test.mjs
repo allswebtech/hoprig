@@ -293,7 +293,6 @@ test('auto-switch: the next profile follows the order, goes round, and skips pro
   assert.equal(A.nextProfile('not-in-order', now), 'sub');
   assert.equal(A.preferredAvailable('api', now), 'sub');
   assert.equal(A.preferredAvailable('sub', now), null);
-  assert.equal(A.recommendedProfile(now), 'sub');
   // sub hits its limit with a known end; sub2 with none (the cooldown applies).
   const until = now + 2 * 3600_000;
   assert.deepEqual([A.markLimited('sub', { until, reason: 'rate_limit', text: 'x' }, now).exact, A.markLimited('sub2', {}, now).exact], [true, false]);
@@ -301,7 +300,6 @@ test('auto-switch: the next profile follows the order, goes round, and skips pro
   assert.equal(A.nextProfile('sub', now), 'api');
   assert.equal(A.nextProfile('api', now), null, 'everything else is at its limit: stay');
   assert.equal(A.preferredAvailable('api', now), null);
-  assert.equal(A.recommendedProfile(now), 'api');
   // Two hours later sub is free again, sub2 still not.
   const later = until + 1;
   assert.deepEqual(Object.keys(A.limitedProfiles(later)), ['sub2']);

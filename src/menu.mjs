@@ -5,7 +5,7 @@ import { getAutoSwitch, limitedProfiles, usableOrder } from './autoswitch.mjs';
 import { loadConfig } from './config.mjs';
 import { chooseDefault, lastProviderIn } from './defaultprovider.mjs';
 import { tilde } from './paths.mjs';
-import { AUTH_VARS, listProfiles, readProfile, validName, writeProfile } from './profiles.mjs';
+import { AUTH_VARS, listProfiles, publicProfile, readProfile, validName, writeProfile } from './profiles.mjs';
 import { sessionsIn } from './sessions.mjs';
 
 const out = (s = '') => process.stdout.write(s + '\n');
@@ -133,6 +133,21 @@ export function ensureFirstProfile() {
 }
 
 /**
+ * The profile Enter takes in the start menu: the default a dashboard gives a new session in `cwd`
+ * (defaultprovider.mjs). Each profile goes in as the dashboard sees it (publicProfile), so the same facts decide in
+ * both places, among them which coding tools a provider serves. "auto" while Auto mode is on; Auto mode on without
+ * an order to run has no "auto" in the menu, so then the choice is made as with it off. null: none can start here.
+ */
+export function enterDefault(profiles = menuProfiles(), limited = limitedProfiles(), cwd = process.cwd()) {
+  const states = profiles.map((p) => (p.kind === 'auto' ? { name: p.name, kind: 'auto', virtual: true } : { ...publicProfile(p), limited: p.name in limited }));
+  const as = getAutoSwitch();
+  const last = lastProviderIn(cwd);
+  let pick = chooseDefault({ profiles: states, auto: as, last });
+  if (!profiles.some((p) => p.name === pick)) pick = chooseDefault({ profiles: states, auto: { ...as, enabled: false }, last });
+  return profiles.find((p) => p.name === pick) || null;
+}
+
+/**
  * The start menu. `sessionChosen` is true when the caller already passed -c / --resume.
  * Resolves to { name, extraArgs } or null (quit).
  */
@@ -142,10 +157,7 @@ export async function chooseProfile({ sessionChosen = false } = {}) {
     const profiles = menuProfiles();
     const limited = limitedProfiles();
     const as = getAutoSwitch();
-    // Enter takes the default a dashboard gives a new session here (defaultprovider.mjs): "auto" when Auto mode is
-    // on, else the profile used last in this folder, else the first not at its limit in the Providers page's order.
-    const pick = chooseDefault({ profiles: profiles.map((p) => ({ ...p, virtual: p.kind === 'auto', limited: p.name in limited })), auto: as, last: lastProviderIn(process.cwd()) });
-    const def = profiles.find((p) => p.name === pick) || profiles.find((p) => !(p.name in limited)) || profiles[0];
+    const def = enterDefault(profiles, limited) || profiles[0];
     const sessions = sessionChosen ? [] : sessionsIn(process.cwd());
     out();
     out(`${bold('Hoprig')} ${dim('·')} ${tilde(process.cwd())}`);

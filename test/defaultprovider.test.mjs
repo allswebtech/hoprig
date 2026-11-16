@@ -29,7 +29,16 @@ test('Auto mode on: "auto", whatever the folder used last', () => {
 
 test('Auto mode off: the provider used last in the folder comes first', () => {
   assert.equal(D.chooseDefault({ profiles, auto: { enabled: false, order: ['sub', 'team'] }, last: 'team' }), 'team');
-  assert.equal(D.chooseDefault({ profiles, auto: { enabled: false, order: ['sub'] }, last: 'key' }), 'key', 'chosen there before: a paid key too');
+});
+
+test('a pay-per-use key used last in the folder is not the default while it is not allowed and another can work', () => {
+  // One session continued on the paid key at a limit must not keep every later session there after the reset.
+  assert.equal(D.chooseDefault({ profiles, auto: { enabled: false, order: ['sub'] }, last: 'key' }), 'sub');
+  assert.equal(D.chooseDefault({ profiles, auto: { enabled: false, order: ['sub'], payPerUse: true }, last: 'key' }), 'key', 'allowed: the folder\'s own');
+  const onlyKey = profiles.map((p) => (p.paid ? p : { ...p, limited: { until: null } }));
+  assert.equal(D.chooseDefault({ profiles: onlyKey, auto: { enabled: false, order: ['sub'] }, last: 'key' }), 'key', 'nothing else can work');
+  // Everything at its limit: the folder's own one is shown first.
+  assert.equal(D.chooseDefault({ profiles: profiles.map((p) => ({ ...p, limited: {} })), auto: { enabled: false, order: ['gw'] }, last: 'team' }), 'team');
 });
 
 test('Auto mode off, nothing used in the folder (or it is gone, or at its limit): the Providers page\'s order', () => {
@@ -68,6 +77,14 @@ test('Claude Code started in a folder (the launcher) makes its provider that fol
   assert.equal(D.lastProviderIn(work), 'team');
   assert.equal(D.lastProviderIn(link), 'team', 'the same folder by another path');
   assert.equal(D.lastProviderIn(path.join(tmp, 'elsewhere')), null);
+  // Carrying a conversation on (a resume, a move, a restore, a limit's fallback: all name the session) leaves the
+  // folder's provider as it was.
+  writeProfile('other', { label: 'Other' });
+  for (const args of [['--resume', '0b6a1c1e-5d3f-4f43-9d8e-1f7f0e7a2b11'], ['--session-id', '0b6a1c1e-5d3f-4f43-9d8e-1f7f0e7a2b12'], ['-c']]) {
+    const m = spawnSync(process.execPath, [BIN, 'other', ...args], { cwd: work, env: process.env, encoding: 'utf8', timeout: 30_000 });
+    assert.equal(m.status, 0, m.stderr);
+    assert.equal(D.lastProviderIn(work), 'team', args.join(' '));
+  }
   D.rememberFolderProvider(work, 'sub');
   assert.equal(D.lastProviderIn(work), 'sub', 'the last one wins');
   for (let i = 0; i < 105; i++) D.rememberFolderProvider(`/f/${i}`, 'gw');
@@ -75,4 +92,41 @@ test('Claude Code started in a folder (the launcher) makes its provider that fol
   assert.equal(Object.keys(all).length, 100);
   assert.equal(all['/f/104'].profile, 'gw');
   assert.equal(all[work], undefined, 'the oldest went first');
+});
+
+// The terminal menu's Enter default, from real provider files: the same rule as the dashboard's (the profiles go in
+// as publicProfile shows them, so which coding tools a provider serves counts there too).
+test('the start menu: Enter takes the folder\'s provider, never a paid key or a provider Claude Code cannot use while another works', async () => {
+  const pdir = process.env.HOPRIG_PROFILES_DIR;
+  fs.rmSync(pdir, { recursive: true, force: true });
+  const P2 = await import('../src/profiles.mjs');
+  const { enterDefault } = await import('../src/menu.mjs');
+  const { setAutoSwitch, markLimited, clearLimited } = await import('../src/autoswitch.mjs');
+  const here = fs.realpathSync(fs.mkdtempSync(path.join(tmp, 'menu-')));
+  P2.writeProfile('api', { env: { ANTHROPIC_API_KEY: 'sk-ant-api03-test' } }); // pay per use, first by name
+  P2.writeProfile('sub', { env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test' } });
+  P2.writeProfile('team', { env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-team' } });
+  setAutoSwitch({ enabled: false, order: ['sub'], payPerUse: false });
+  const enter = () => (enterDefault(undefined, undefined, here) || {}).name;
+  assert.equal(enter(), 'sub', 'the Auto order, not the paid key that sorts first');
+  D.rememberFolderProvider(here, 'team');
+  assert.equal(enter(), 'team', 'the folder\'s own provider');
+  D.rememberFolderProvider(here, 'api');
+  assert.equal(enter(), 'sub', 'a paid key used here before is passed over');
+  markLimited('sub', { until: Date.now() + 3600_000 });
+  assert.equal(enter(), 'team');
+  clearLimited('sub');
+  setAutoSwitch({ enabled: true });
+  assert.equal(enter(), 'auto');
+  setAutoSwitch({ enabled: true, order: [] });
+  assert.equal(enter(), 'sub', 'Auto mode on with no order to run: no "auto" in the menu');
+  setAutoSwitch({ enabled: false, order: [] });
+  // A Codex sign-in sorts first by name and serves Codex only: once the profiles know the coding tools they serve
+  // (profiles.mjs servesTools), Enter never offers it for Claude Code, even where it was used last.
+  if (typeof P2.servesTools === 'function') {
+    fs.writeFileSync(path.join(pdir, 'chatgpt.env'), 'LABEL="Codex sign-in"\nSIGNIN=codex\n', { mode: 0o600 });
+    D.rememberFolderProvider(here, 'chatgpt');
+    assert.equal(enter(), 'sub');
+    fs.rmSync(path.join(pdir, 'chatgpt.env'));
+  }
 });

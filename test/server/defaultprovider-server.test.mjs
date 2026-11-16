@@ -58,6 +58,14 @@ test('a new session without a provider starts on the folder\'s default; a chosen
   assert.equal((await call('/api/sessions', { dir: workA, mode: 'new', profile: 'nobody' })).status, 400);
 });
 
+test('a pay-per-use key used last in a folder (a limit card\'s "Continue on") is not that folder\'s default', async () => {
+  rememberFolderProvider(workA, 'key');
+  assert.deepEqual((await call('/api/state')).json.recommendedIn, { [workB]: 'team' });
+  created.length = 0;
+  await call('/api/sessions', { dir: workA, mode: 'new' });
+  assert.equal(created[0].argv[1], 'sub');
+});
+
 test('Auto mode on: "auto" everywhere', async () => {
   setAutoSwitch({ enabled: true });
   const st = (await call('/api/state')).json;

@@ -7,9 +7,9 @@
 // spends money by itself while another provider can work. Only when nothing else can work is a limited one or a
 // paid key the default.
 //
-// The folder's provider is kept when Claude Code starts there (launch.mjs: every launch, from the dashboard, a
-// terminal or a move to another provider), in <state>/folder-providers.json: { [folder]: { profile, at } }, the
-// newest MAX folders. It is a convenience: a file that cannot be read or written changes nothing else.
+// The folder's provider is kept when a new conversation starts there by choice (launch.mjs: from the dashboard, a
+// terminal or a schedule; not a resume, a move or a restore, nor a run the launcher made after a limit), in
+// <state>/folder-providers.json: { [folder]: { profile, at } }, the newest MAX folders. It is a convenience: a file that cannot be read or written changes nothing else.
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from './paths.mjs';
@@ -65,10 +65,10 @@ export function chooseDefault({ profiles = [], auto = {}, autoName = 'auto', las
   if (auto.enabled) return autoName;
   const real = profiles.filter((p) => p && !p.virtual && (!Array.isArray(p.tools) || p.tools.includes('claude')));
   const free = (p) => !p.limited;
-  const used = last && real.find((p) => p.name === last);
-  if (used && free(used)) return used.name;
+  // The folder's own provider goes first, under the same two tests as every other: not at its limit, and not a
+  // pay-per-use key while that is not allowed and another provider can work.
   const order = (auto.order || []).filter((n) => real.some((p) => p.name === n));
-  const rank = (p) => (order.includes(p.name) ? order.indexOf(p.name) : order.length + (p.kind === 'api' ? 1 : 0));
+  const rank = (p) => (p.name === last ? -1 : order.includes(p.name) ? order.indexOf(p.name) : order.length + (p.kind === 'api' ? 1 : 0));
   const shown = real.map((p, i) => [p, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([p]) => p);
   const pick = shown.find((p) => free(p) && (auto.payPerUse || !p.paid)) || shown.find(free) || shown[0];
   return pick ? pick.name : null;

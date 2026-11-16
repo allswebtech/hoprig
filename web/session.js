@@ -647,12 +647,11 @@ export function openSession(app, name) {
       permissionActions({ ...s, machine: machine.current }, () => store.refresh()));
   }
 
-  // A second session in the same folder, on the computer's recommended provider (as New session starts one).
+  // A second session in the same folder, on that folder's default provider: no provider is sent, so the server
+  // chooses it (the one started there last, else the Providers page's order: src/defaultprovider.mjs).
   async function startAnother(s) {
     try {
-      const profile = (store.data && store.data.recommended) || (await api('/api/state')).recommended;
-      if (!profile) throw new Error('No provider on this computer yet: add one under Providers first.');
-      const { name: next } = await api('/api/sessions', { dir: s.cwd, profile, mode: 'new' });
+      const { name: next } = await api('/api/sessions', { dir: s.cwd, mode: 'new' });
       markStarting(machine.current, next);
       store.refresh();
       location.hash = link(`#/s/${encodeURIComponent(next)}`);
