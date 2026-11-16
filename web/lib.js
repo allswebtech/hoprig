@@ -124,12 +124,13 @@ export function openApp(app, hash) {
 }
 if (BARE) {
   // The desktop gives a window the keyboard (web/desktop/frames.js giveKeys): the page's own place for typing takes
-  // it, as a press into it would (the terminal, the editor). A page still being drawn is waited for a moment.
+  // it, as a press into it would (the terminal, the editor, a chat's message box). A page still being drawn is
+  // waited for a moment.
   const takeKeys = () => {
     let n = 0;
     const take = () => {
       if (document.activeElement && document.activeElement !== document.body) return;
-      const el = document.querySelector('.xterm-helper-textarea, .monaco-editor textarea, [autofocus]');
+      const el = document.querySelector('.xterm-helper-textarea, .monaco-editor textarea, textarea.chat-input, [autofocus]');
       if (el) el.focus();
       else if (++n < 30 && document.hasFocus()) setTimeout(take, 100);
     };

@@ -26,7 +26,7 @@ body.chat-mode .tia-boxroot { display: none; }
 .chat-hchip { min-height: 26px; padding: 0 8px; gap: 4px; font-size: var(--fs-xs); min-width: 0; flex: 0 1 auto; color: var(--text-2); }
 .chat-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-hchip svg { flex: none; }
-.chat-morebtn { flex: none; }
+.chat-morebtn, .chat-deskbtn { flex: none; }
 .chat-notes:empty, .chat-conn:empty { display: none; }
 .chat-banner { margin: 0; border-radius: 0; flex-wrap: wrap; }
 .chat-banner > span:not(.chat-banner-actions) { flex: 1; min-width: 200px; }

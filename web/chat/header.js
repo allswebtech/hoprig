@@ -4,7 +4,7 @@
 // with the same settings, Rewind, Keyboard shortcuts, Close). A conversation stays with the coding
 // tool it started with: the provider changes, the coding tool does not.
 import { icon } from '../icons.js';
-import { KIND, api, chooseSheet, fill, h, link, profileIcon, profileState, promptSheet, servesClaude, toast } from '../lib.js';
+import { BARE, KIND, api, chooseSheet, fill, h, link, openApp, profileIcon, profileState, promptSheet, servesClaude, toast } from '../lib.js';
 import { store } from '../store.js';
 import { touchScreen, turnRuns } from './words.js';
 
@@ -18,7 +18,10 @@ export function usageWords(p) {
 }
 
 /** The editor's address for a folder (another part of the dashboard draws it). */
-export const editorLink = (dir, view = null) => link(`#/code?dir=${encodeURIComponent(dir)}${view ? `&view=${view}` : ''}`);
+export const editorLink = (dir, view = null, m = undefined) => link(`#/code?dir=${encodeURIComponent(dir)}${view ? `&view=${view}` : ''}`, m);
+// Files and Changes: the editor in place, or inside a window of the desktop an Editor window beside the chat. The
+// folder is the chat's own: the editor checks it against its allowed folders as for any other address.
+const openEditor = (dir, view = null) => openApp('editor', editorLink(dir, view, null));
 
 /** o: { A, way: { hash, label } | null (a window that started on this chat: no way back), act: { stop, compact, clear, close, terminal, moveTo(name), history, rewind, shortcuts } } → { el, paint(v) } */
 export function createHeader(o) {
@@ -35,6 +38,9 @@ export function createHeader(o) {
   const el = h('header.chat-bar',
     o.way && h('a.btn.ghost.chatback', { href: o.way.hash, 'aria-label': `Back to ${o.way.label}`, title: `Back to ${o.way.label}` }, icon('back'), h('span.chatback-label', o.way.label)),
     h('div.chat-head', h('div.chat-h1row', h('h1.chat-h1', titleBtn), histBtn), h('div.chat-sub', folderBtn, provBtn)),
+    // "Desktop mode", as at the top right of every page head (web/desktop/index.js; its CSS hides it on a small
+    // screen); not inside a window of the desktop.
+    BARE ? null : h('a.icon-btn.desk-headbtn.chat-deskbtn', { href: link('#/desktop'), title: 'Desktop mode', 'aria-label': 'Desktop mode' }, icon('monitor', { size: 16 })),
     h('button.btn.icon.ghost.chat-morebtn', { type: 'button', title: 'More for this chat', 'aria-label': 'More for this chat', onclick: () => more() }, icon('more')));
 
   async function rename() {
@@ -62,8 +68,8 @@ export function createHeader(o) {
     });
     if (pick === 'rename') rename();
     else if (pick === 'history') o.act.history();
-    else if (pick === 'files') location.hash = editorLink(v.cwd);
-    else if (pick === 'changes') location.hash = editorLink(v.cwd, 'changes');
+    else if (pick === 'files') openEditor(v.cwd);
+    else if (pick === 'changes') openEditor(v.cwd, 'changes');
     else if (pick === 'terminal') o.act.terminal();
     else if (pick === 'provider') providerMenu();
   }
@@ -78,8 +84,8 @@ export function createHeader(o) {
         { value: 'terminal', label: 'Open in terminal', sub: 'The same conversation, in a terminal session', icon: 'terminal' },
       ],
     });
-    if (pick === 'files') location.hash = editorLink(v.cwd);
-    else if (pick === 'changes') location.hash = editorLink(v.cwd, 'changes');
+    if (pick === 'files') openEditor(v.cwd);
+    else if (pick === 'changes') openEditor(v.cwd, 'changes');
     else if (pick === 'terminal') o.act.terminal();
   }
 
