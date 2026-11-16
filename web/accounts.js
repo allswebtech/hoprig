@@ -139,7 +139,7 @@ function limitPanel(auto, accounts, refresh, flash) {
         h('li', 'On another subscription, Claude Code restarts on that provider and carries on with the same conversation.'),
         h('li', 'Providers lower in the order are used only while the ones above are at their limit.'),
         h('li', 'An API key straight to Anthropic costs money for every use; Auto mode uses one only when you allow it below.'),
-        h('li', 'Auto mode, plan usage and Tia work with Claude Code only. An OpenCode session stays on the provider you start it on.')),
+        h('li', 'Auto mode and plan usage work with Claude Code only: an OpenCode session is never moved by itself. Tia starts an OpenCode chat when you name it, and every OK of one comes to you.')),
       subscriptionsNote(rows.map((n) => accounts.find((p) => p.name === n)))),
     choice === 'carry' ? [
       h('div.field-label', 'Order of providers'),

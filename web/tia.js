@@ -788,12 +788,14 @@ function tiaSettings({ isAlive }) {
     const u = v.usage;
     const line = (label, x) => h('div', h('span', label), h('strong', `${x.turns} turns · ${(x.input + x.cacheRead + x.cacheWrite).toLocaleString()} in / ${x.output.toLocaleString()} out · ${money(x.costUsd)}`));
     fill(usageBox, h('h3.section-title', 'Usage'), h('div.kv', line('Today', u.today), line('Last 7 days', u.week), u.conversations.slice(-5).reverse().map((c) => line(`Conversation ${c.id.slice(-6)}`, c))), h('p.hint', v.help.usage));
+    // Her tools answer the owner's own client only while she is on: no token is offered while she is off.
     fill(clientBox,
       h('h3.section-title', 'Let my own Claude Code use these tools'),
       h('p.hint', v.help.client),
+      s.enabled ? null : h('p.hint.tia-client-off', `Only while ${NAME} is on: turn her on above first.`),
       v.client ? h('p.hint', `A token was made ${new Date(v.client.created).toLocaleDateString()}.`) : null,
       h('div.savebar',
-        btn('secondary', { icon: 'key', label: v.client ? 'Make a new token' : 'Make a token', onclick: async () => {
+        s.enabled && btn('secondary', { icon: 'key', label: v.client ? 'Make a new token' : 'Make a token', onclick: async () => {
           try {
             const r = await api(`${A}/client-token`, {});
             fill(clientBox.querySelector('.tia-cmd') || add(clientBox, h('div.tia-cmd')).lastChild,

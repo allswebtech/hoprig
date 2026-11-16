@@ -351,6 +351,8 @@ export function assistantFeature(ctx, o = {}) {
     ['POST', /^\/api\/assistant\/client-token$/, async (req) => {
       ownerOnly(req);
       await ctx.readJson(req);
+      // Her tools answer a client only while she is on (the call route says tia-off): a token made now would not work.
+      if (!enabled()) throw Object.assign(new HttpError(409, `Turn ${ASSISTANT_NAME} on first: her tools answer your own Claude Code only while she is on`), { details: { code: 'tia-off' } });
       const token = TOKEN_PREFIX + crypto.randomBytes(32).toString('base64url');
       ctx.saveConfig({ assistant: { ...raw(), clientToken: { hash: sha256(token), created: Date.now() } } });
       audit.append({ actor: 'owner', conversation: '-', tool: 'client_token', level: 'L1', input: {}, outcome: 'done' });

@@ -268,6 +268,11 @@ for (const kind of kinds) {
     assert.equal(r.json.ready.ok, false, 'not on until the owner turns her on');
     assert.equal((await owner('GET', '/api/assistant/settings')).json.settings.enabled, false);
     assert.equal((await asTia('POST', '/api/assistant/call', { tool: 'list_sessions', args: {} })).json.code, 'tia-off');
+    // While she is off no token for the owner's own client is made: its calls would all be refused.
+    r = await owner('POST', '/api/assistant/client-token', {});
+    assert.deepEqual([r.status, r.json.code], [409, 'tia-off']);
+    assert.match(r.json.error, /on first/);
+    assert.equal((await owner('GET', '/api/assistant/settings')).json.client, null);
     await owner('POST', '/api/assistant/settings', { enabled: true });
 
     // ---- the owner's own MCP client: a token with the same scope ----

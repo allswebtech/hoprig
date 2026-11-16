@@ -8,7 +8,7 @@ import { api, btn, fill, h, link, toast } from './lib.js';
 import { registerSettingsPage } from './registry.js';
 import { panel, toggle } from './shell.js';
 
-const SCOPE = 'Claude Code can do everything here. OpenCode: a chat or a session in a terminal, the providers that fit it, the shared AI brain and updates. Auto mode, plan usage and Tia work with Claude Code only.';
+const SCOPE = 'Claude Code can do everything here. OpenCode: a chat or a session in a terminal, the providers that fit it, the shared AI brain, updates, and Tia (she starts its chats when you name it, and every OK of one comes to you). Auto mode and plan usage work with Claude Code only.';
 
 /** The one line in the Settings list. */
 export const summaryOf = (v) => `On: ${v.tools.filter((t) => t.on).map((t) => t.name).join(', ')}`;

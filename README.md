@@ -114,7 +114,7 @@ Code's only.
 
 ### One brain for both
 
-`hop workspace link` (or **Link now** on the AI brain page) makes every coding tool that is on read the same
+`hop workspace link` (or **Link** on the AI brain page) makes every coding tool that is on read the same
 global rules, skills and memory from your AI brain, a git repository of your own:
 
 | | Rules | Skills | Memory |
@@ -357,7 +357,7 @@ what is running. One choice for all:
 An assistant in the dashboard: a round button at the bottom right of every page, and her own page under **More**.
 She manages what is described above and gets a coding job done for you: she opens a chat in a project, picks a
 provider among the ones you allow, sends the task, watches it, and reports. She is a headless Claude Code that
-may use only Hoprig's own tools (`hoprig mcp`; your own Claude Code can use the same tools). She is off until you
+may use only Hoprig's own tools (`hoprig mcp`; while she is on, your own Claude Code can use the same tools). She is off until you
 turn her on under **Settings → Tia**, and she costs money: her own thinking runs on a provider you choose, and
 the chats she starts run on yours.
 
@@ -380,7 +380,9 @@ What she can do, through the dashboard's own routes (the list is `ALLOW` in
 only for looking (reading inside the chat's folder, listing, git's reading commands) and for the project's own
 checks (`npm test`, `npm run lint` and the like, `node --test`). Every change to a file, every other command, any
 tool she does not know, and every OK of an OpenCode chat is your card. Whatever costs money, stops work, installs
-or updates something, turns a coding tool on or off or opens the computer to the internet is a card too. A
+or updates something, turns a coding tool on or off or opens the computer to the internet is a card too, with one
+exception you choose: at the level **Hands off** (Settings → Tia; the default is **Do the work**) she also starts
+chats and sessions on the paid API providers you allowed her, and moves the ones she started there, without asking. A
 terminal session's OK is judged only by the text on its screen against a list of risky things, which is best
 effort. A chat stops being hers as soon as you type into it. What she reads from a chat, a terminal, a page or a
 file is data to her, never an instruction; secrets never pass through her.

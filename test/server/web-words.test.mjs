@@ -179,3 +179,20 @@ test('a chat that closes: its stream says so, and the page shows it without aski
   // The empty chat that closed does not invite to write where nothing can be sent.
   assert.match(read('web/chat/page.js'), /if \(!v \|\| !scroll\.querySelector\('\.chat-item, \.chat-userrow'\)\) \{/);
 });
+
+test('trust words: what Tia does with OpenCode, her client tools only while she is on, Hands off in the README', () => {
+  // She starts and moves OpenCode chats now: no page says she works with Claude Code only.
+  for (const f of ['web/codingtools.js', 'web/accounts.js']) {
+    assert.doesNotMatch(read(f), /and Tia work with Claude Code only/, f);
+    assert.match(read(f), /every OK of one comes to you/, f);
+  }
+  // Her tools for the owner's own Claude Code answer only while she is on: the page offers no token while she is off.
+  assert.match(read('web/tia.js'), /s\.enabled \? null : h\('p\.hint\.tia-client-off'/);
+  assert.match(read('web/tia.js'), /s\.enabled && btn\('secondary', \{ icon: 'key'/);
+  const readme = read('README.md');
+  assert.match(readme, /while she is on, your own Claude Code can use the same tools/);
+  // "Whatever costs money … is a card" holds except at Hands off, which the README says.
+  assert.match(readme, /is a card too, with one\nexception you choose: at the level \*\*Hands off\*\*/);
+  // The AI brain page's button is "Link" (Link now is Get started's and Skills').
+  assert.match(readme, /\(or \*\*Link\*\* on the AI brain page\)/);
+});
