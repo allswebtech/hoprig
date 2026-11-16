@@ -35,9 +35,9 @@ const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 /** Plain sentences shown under every option in Settings → Tia. */
 export const HELP = {
   enabled: `Turn ${ASSISTANT_NAME} on or off (off at first; she is experimental). Off hides her tab and stops everything she watches.`,
-  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself, and in a chat she started she allows by herself only work on files inside the project's folder and a short list of commands that look and test (everything else comes to you); "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking.`,
+  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself; in a chat she started she allows by herself only what is on a short list (files inside the project's folder, commands that look and test), and everything else comes to you; in a terminal session she started she still answers its ordinary permission prompts and sends you the risky ones; "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking.`,
   levelAsk: 'You tap OK for everything she types into a session.',
-  levelWork: 'She runs the job herself: starts the session, picks the provider, answers its questions, checks the result. In a chat she started she allows by herself only work on files inside the project\'s folder and a short list of commands that look and test; everything else comes to you.',
+  levelWork: 'She runs the job herself: starts the session, picks the provider, answers its questions, checks the result. In a chat she started she allows by herself only what is on a short list (files inside the project\'s folder, commands that look and test), and everything else comes to you. In a terminal session she started she still answers its ordinary permission prompts and sends you the risky ones.',
   levelHandsoff: 'As "Do the work", and she may also start or move sessions on the paid API providers you allowed, without asking.',
   accounts: `The providers ${ASSISTANT_NAME} may start or move sessions on. She never uses one that is not ticked.`,
   runsOn: `The provider ${ASSISTANT_NAME} herself thinks on (her own chat).`,
