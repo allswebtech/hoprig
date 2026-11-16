@@ -2,7 +2,7 @@
 // account. Everything else waits under a closed "Options": the computer, the account, what Claude may do without
 // asking, how hard it thinks, which conversation, or a plain terminal instead. Another folder is one row away.
 import { icon } from './icons.js';
-import { KIND, ago, api, at, chooseSheet, fill, h, link, machine, prefs, profileState, toast } from './lib.js';
+import { KIND, ago, api, at, chooseSheet, fill, h, link, machine, prefs, profileState, tildePath, toast } from './lib.js';
 import { fold, frame, groupHead } from './shell.js';
 import { runsSessions, store } from './store.js';
 
@@ -30,6 +30,23 @@ export function outsideProjects(dir, projectsDir) {
   const root = norm(projectsDir);
   const d = norm(dir);
   return !under(d, root) && !under(root, d);
+}
+
+/**
+ * The second line of a folder's row: its path only when it says something the name does not, i.e. when the folder is
+ * not simply <projects folder>/<name>. `short` is the "~/…" path, `projectsShort` the projects folder written the same way.
+ */
+export function folderSub(f, projectsShort) {
+  const norm = (x) => String(x || '').replace(/[\\/]+$/, '').replace(/\\/g, '/');
+  if (projectsShort && norm(f.short) === `${norm(projectsShort)}/${f.name}`) return 'project';
+  return f.short;
+}
+
+/** A repository of a project as a person names it: "bookshop-api", "repository in bookshop" (not "code/bookshop-api"). */
+export function repoWords(rel, project) {
+  if (!rel || rel === '.') return { name: project, sub: 'project' };
+  const name = rel.split(/[\\/]/).filter(Boolean).pop() || rel;
+  return { name, sub: project ? `repository in ${project}` : 'repository' };
 }
 
 export function viewNew() {
@@ -70,6 +87,7 @@ export function viewNew() {
   paintAs();
   let alive = true;
   let projectsDir = null; // the computer's projects folder, from the list of projects (null: not known)
+  let projectsShort = null; // the same, as "~/…", to tell a plain project path from one worth showing
   const where = () => store.all.find((x) => x.machine === st.m) || null;
   // Claude Code on each computer ('~' for this one): its version, null when not installed (GET /api/machines).
   const claudeOf = new Map();
@@ -146,8 +164,8 @@ export function viewNew() {
   // A folder where a session runs: the tap opens that session (a second one in the same folder is what nobody
   // tapping a "running" project means). Another one starts from "Another folder" → Start here.
   const recentRow = (f) => (f.live && f.session
-    ? row(f, f.short, () => (location.hash = link(`#/s/${encodeURIComponent(f.session)}`, st.m)), h('span.badge.soft', 'running'), 'chevronRight')
-    : row(f, f.short, () => start(f), f.live ? h('span.badge.soft', 'running') : null));
+    ? row(f, folderSub(f, projectsShort), () => (location.hash = link(`#/s/${encodeURIComponent(f.session)}`, st.m)), h('span.badge.soft', 'running'), 'chevronRight')
+    : row(f, folderSub(f, projectsShort), () => start(f), f.live ? h('span.badge.soft', 'running') : null));
 
   async function projects() {
     const m = where();
@@ -184,14 +202,15 @@ export function viewNew() {
     }
     if (!alive) return;
     projectsDir = proj && proj.projectsDir ? proj.projectsDir : null;
+    projectsShort = proj && (proj.projectsShort || (proj.projectsDir && tildePath(proj.projectsDir))) || null;
     const seen = new Set(recent.folders.map((f) => f.path));
     const more = proj
-      ? [...proj.workspaces.flatMap((w) => w.repos.map((r) => ({ path: r.dir, name: r.rel === '.' ? w.name : r.rel }))), ...proj.repos.map((r) => ({ path: r.dir, name: r.rel }))].filter((f) => !seen.has(f.path))
+      ? [...proj.workspaces.flatMap((w) => w.repos.map((r) => ({ path: r.dir, ...repoWords(r.rel, w.name) }))), ...proj.repos.map((r) => ({ path: r.dir, ...repoWords(r.rel, null), sub: 'project' }))].filter((f) => !seen.has(f.path))
       : [];
     fill(body,
       recent.folders.length || more.length ? null : h('p.muted', 'No projects yet. Open a folder below, or add a project under Workspace.'),
       recent.folders.length ? [groupHead('Recent'), h('div.rows', recent.folders.map(recentRow))] : null,
-      more.length ? [groupHead('Projects'), h('div.rows', more.map((f) => row(f, 'project', () => start({ ...f, short: f.name }))))] : null,
+      more.length ? [groupHead('Projects'), h('div.rows', more.map((f) => row(f, f.sub, () => start({ ...f, short: f.name }))))] : null,
       groupHead('Somewhere else'),
       h('div.rows', recent.roots.map((r) => h('button.row', { type: 'button', onclick: () => browse(r.path) },
         h('span.row-icon', icon('folderUp')), h('span.row-main', h('span.row-title', 'Another folder'), h('span.row-sub', `Browse ${r.short}`)), h('span.row-end', icon('chevronRight', { size: 18 }))))));
