@@ -14,6 +14,10 @@ import { fakeReq, sandbox } from './helpers.mjs';
 
 const box = sandbox('claude-login');
 test.after(() => box.cleanup());
+// A temp folder of its own: the helper folders ("hoprig-login-*") are counted there, and another test run on this
+// computer at the same moment makes its own in the shared one. os.tmpdir() reads TMPDIR at every call.
+process.env.TMPDIR = path.join(box.root, 'tmp');
+fs.mkdirSync(process.env.TMPDIR);
 const FAKE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-claude-login.mjs');
 const ENV_FILE = path.join(box.root, 'fake-claude-env.json');
 const MARK = path.join(box.claude, 'fake-signed-in');
