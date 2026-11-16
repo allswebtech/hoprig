@@ -14,7 +14,7 @@ const workB = folder('b');
 
 const { saveConfig } = await import('../../src/config.mjs');
 const { writeProfile } = await import('../../src/profiles.mjs');
-const { setAutoSwitch } = await import('../../src/autoswitch.mjs');
+const { clearLimited, markLimited, setAutoSwitch } = await import('../../src/autoswitch.mjs');
 const { hashPassword } = await import('../../src/server/auth.mjs');
 const { rememberFolderProvider } = await import('../../src/defaultprovider.mjs');
 const { createServer } = await import('../../src/server/server.mjs');
@@ -33,6 +33,8 @@ const backend = {
   create: async ({ name, dir, argv }) => (created.push({ name, dir, argv }), { name }),
 };
 const app = createServer({ backend, watch: false, dashboardFile: false });
+let ctx = null; // what every feature gets: a stand-in feature takes it when the server starts
+app.features.push({ name: 'probe', start: (c) => (ctx = c) });
 const { port } = await app.listen(0, '127.0.0.1');
 const base = `http://127.0.0.1:${port}`;
 test.after(() => app.close());
@@ -66,6 +68,17 @@ test('a pay-per-use key used last in a folder (a limit card\'s "Continue on") is
   assert.equal(created[0].argv[1], 'sub');
 });
 
+test('a feature asks for a folder\'s default; a provider it names as used last there goes under the same tests', async () => {
+  assert.equal(await ctx.defaultProvider(workB), 'team');
+  assert.equal(await ctx.defaultProvider(workA), 'sub', 'the key used last in a is passed over');
+  assert.equal(await ctx.defaultProvider(workA, 'team'), 'team', 'a chat\'s own last provider');
+  assert.equal(await ctx.defaultProvider(workB, 'key'), 'sub', 'a pay-per-use key is not a default');
+  markLimited('team', { until: Date.now() + 3600_000 });
+  assert.equal(await ctx.defaultProvider(workB), 'sub', 'nor one at its limit');
+  clearLimited('team');
+  assert.equal(await ctx.defaultProvider(null), 'sub');
+});
+
 test('Auto mode on: "auto" everywhere', async () => {
   setAutoSwitch({ enabled: true });
   const st = (await call('/api/state')).json;
@@ -74,4 +87,5 @@ test('Auto mode on: "auto" everywhere', async () => {
   created.length = 0;
   await call('/api/sessions', { dir: workB, mode: 'new' });
   assert.equal(created[0].argv[1], 'auto');
+  assert.equal(await ctx.defaultProvider(workB, 'team'), 'auto');
 });

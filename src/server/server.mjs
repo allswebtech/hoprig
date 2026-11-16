@@ -25,6 +25,7 @@
 //
 // Features (plug-ins) are registered in ONE list, `features`, at the top of createServer(). Each is built from `ctx`
 // (deck, backend, config, saveConfig, state, poke, authed, originOk, clientIp, onTick, notify, readJson, HttpError,
+// defaultProvider: the provider a new session in a folder starts on when nobody chose one,
 // dispatch: the owner's own request run in-process through the same handling, for Tia's tools) and
 // returns { name, routes?, handle?, upgrade?, trusted?, start?, close? }:
 //   handle(req, res) / upgrade(req, socket, head)  called first, in order; true = answered, false = go on
@@ -208,6 +209,9 @@ export function createServer(opts = {}) {
       return n && n.url ? sendNotification(n, ev, { fetchImpl: notifyFetch }) : Promise.resolve({ sent: false });
     },
     readJson: (req) => readJson(req),
+    // The provider a new Claude Code session in `dir` starts on when nobody chose one (src/defaultprovider.mjs).
+    // `last`: the provider the caller's own record says ran there last (a chat's); else the launcher's record.
+    defaultProvider: (dir, last = null) => defaultProviderIn(dir, last),
     HttpError,
   };
   // ---- the features: one line each ----
@@ -262,6 +266,7 @@ export function createServer(opts = {}) {
   /** Auto mode is on: sessions may run on the virtual profile "auto" (the router picks the account). */
   const autoOn = () => autoswitch.getAutoSwitch().enabled === true;
   const defaultFor = (profiles, last = null) => chooseDefault({ profiles, auto: { ...autoswitch.getAutoSwitch(), enabled: autoOn() }, autoName: AUTO.name, last });
+  const defaultProviderIn = async (dir, last = null) => defaultFor(profileStates(await cards()), last || (dir ? lastProviderIn(dir) : null));
   /** A profile name from the browser: a real profile, or "auto" while Auto mode is on. Full object or null. */
   const pickProfile = (name) => (name === AUTO.name ? (autoOn() ? { name: AUTO.name, env: {} } : null) : v.profile(name));
 
@@ -422,7 +427,7 @@ export function createServer(opts = {}) {
       const b = await readJson(req);
       // No provider chosen for Claude Code: the default for this folder (the one used last there, …: defaultprovider.mjs).
       if ((b.profile === undefined || b.profile === '') && (b.tool === undefined || b.tool === 'claude')) {
-        b.profile = defaultFor(profileStates(await cards()), lastProviderIn(insideRoots(v.absPath(b.dir), roots())));
+        b.profile = await defaultProviderIn(insideRoots(v.absPath(b.dir), roots()));
         if (!b.profile) throw bad('there is no provider on this computer yet: add one under Providers first');
       }
       const dir = insideRoots(v.absPath(b.dir), roots());
