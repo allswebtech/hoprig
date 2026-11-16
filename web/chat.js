@@ -175,7 +175,24 @@ function viewChat({ sub }) {
         return null;
     }
   }
-  const draw = (events) => events.map(item).filter(Boolean);
+  // The server speaks the event model of chat v2 (src/chat/events.mjs); this page draws the kinds it knew before.
+  // Until the new page: a subagent's own steps, thinking and the start of a turn of Claude's own are not drawn.
+  function legacy(ev) {
+    if (ev.agent) return null;
+    switch (ev.kind) {
+      case 'tool-result':
+        return { ...ev, kind: 'result', isError: !ev.ok };
+      case 'turn-end':
+        return { ...ev, kind: 'done' };
+      case 'ask-closed':
+        return { kind: 'answer', request: ev.request, cancelled: ev.outcome === 'cancelled', allow: ev.outcome === 'allowed' || ev.outcome === 'allowed-always', always: ev.outcome === 'allowed-always' };
+      case 'session-changed':
+        return ev.reason === 'compact' ? { kind: 'notice', text: 'The conversation was compacted.' } : ev.reason === 'clear' ? { kind: 'notice', text: 'The conversation was cleared.' } : null;
+      default:
+        return ev;
+    }
+  }
+  const draw = (events) => events.map(legacy).filter(Boolean).map(item).filter(Boolean);
 
   // ---------- the OK card ----------
   function askCard(ev) {
@@ -304,7 +321,7 @@ function viewChat({ sub }) {
   function paintNext() {
     const modelName = (m) => (m ? (MODELS.find(([x]) => x === m) || [m, m])[1].split(':')[0] : 'Default model');
     fill(nextRow,
-      h('span.chat-next-label', 'Next message:'),
+      h('span.chat-next-label', 'This chat:'),
       h('button.chip', { type: 'button', onclick: () => chooseNext('model') }, icon('sparkle', { size: 13 }), h('span', modelName(v.model)), icon('chevronDown', { size: 12 })),
       h('button.chip', { type: 'button', onclick: () => chooseNext('effort') }, icon('zap', { size: 13 }), h('span', v.effort ? `Effort ${v.effort}` : 'Default effort'), icon('chevronDown', { size: 12 })));
   }
@@ -313,10 +330,10 @@ function viewChat({ sub }) {
     const items = what === 'model'
       ? [{ value: '', label: 'Default model', sub: 'As Claude Code chooses' }, ...v.choices.models.map((m) => ({ value: m, label: (MODELS.find(([x]) => x === m) || [m, m])[1] }))]
       : [{ value: '', label: 'Default effort', sub: 'As Claude Code chooses' }, ...v.choices.efforts.map((e) => ({ value: e, label: EFFORT[e] || e }))];
-    const pick = await chooseSheet({ title: what === 'model' ? 'Model for the next message' : 'How hard Claude thinks', subtitle: 'From the next message on, in this chat.', items: items.map((x) => ({ ...x, current: (x.value || null) === (cur || null) })) });
+    const pick = await chooseSheet({ title: what === 'model' ? 'Model' : 'How hard Claude thinks', subtitle: 'Changes at once, in this chat.', items: items.map((x) => ({ ...x, current: (x.value || null) === (cur || null) })) });
     if (pick === null || (pick || null) === (cur || null)) return;
     try {
-      await api(`${A}/next`, { [what]: pick || null });
+      await api(`${A}/settings`, { [what]: pick || null });
       v[what] = pick || null;
       paintNext();
     } catch (e) {
@@ -419,7 +436,6 @@ function viewChat({ sub }) {
   async function sendMessage() {
     const text = textarea.value.replace(/\s+$/, '');
     if (!text) return textarea.focus();
-    if (v && v.status !== 'waiting') return toast('Claude is still working. Wait, or press Stop.', { kind: 'error' });
     sendBtn.disabled = true;
     try {
       await api(`${A}/send`, { text });

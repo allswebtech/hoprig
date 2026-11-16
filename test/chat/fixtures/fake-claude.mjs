@@ -26,7 +26,16 @@
 //   "hook <file>"    Write on which a hook answered "ask"
 //   "rm <dir>"       Bash "rm -rf $DIR/*": Claude Code's stop before a delete that could empty the disk
 // and what never asks: "denied <file>", a Write that a deny rule of the settings covers (refused in every mode).
-// $FAKE_CLAUDE_ARGS: a file that gets one line per start with the arguments it was given (and the answers to OK cards).
+// More (fake-claude-tasks.mjs): "think", "edit <file>", "agent", "bgagent <ms>", "bgsleep", "workflow <ms>",
+// "limits", "compact", "title <words>": thinking, a diff, subagents, background tasks and workflows with their task
+// lines and the turn Claude Code starts by itself when a background task ends.
+// As Claude Code 2.1.325 does with these flags: --include-partial-messages streams text and thinking (stream_event),
+// --replay-user-messages echoes each message with its uuid when its turn starts (command_lifecycle says when a
+// message was queued, started, completed or taken back), and control requests are answered (initialize,
+// set_permission_mode, set_model, apply_flag_settings, stop_task, rewind_files, cancel_async_message,
+// get_context_usage, get_usage; anything else: "unsupported_request"). system/init comes at the start of each turn.
+// $FAKE_CLAUDE_ARGS: a file that gets one line per start with the arguments it was given, the answers to OK cards
+// ({answer}) and the control requests ({control}).
 // $FAKE_CLAUDE_STUBBORN=1: it keeps running when its input ends and ignores SIGTERM (only SIGKILL ends it).
 // $FAKE_CLAUDE_NO_BYPASS=1: the settings turn bypassPermissions off: it starts in the default mode instead.
 import fs from 'node:fs';
@@ -48,25 +57,55 @@ for (const r of (val('--settings') ? JSON.parse(val('--settings')).permissions?.
   const m = /^([^(]+)(?:\((.*)\))?$/.exec(r);
   sessionRules.add(`${m[1]}:${m[2] ?? ''}`);
 }
+const partial = argv.includes('--include-partial-messages');
+const replay = argv.includes('--replay-user-messages');
+const canBypass = argv.includes('--allow-dangerously-skip-permissions') || argv.includes('--dangerously-skip-permissions') || wanted === 'bypassPermissions';
+let model = val('--model') || 'fake-model';
+const flags = { effortLevel: val('--effort'), ultracode: !!(val('--settings') && JSON.parse(val('--settings')).ultracode) };
+const changes = []; // files written: { uuid (the message whose turn wrote it), file, before }
+let current = null; // the message whose turn runs
 const dir = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', process.cwd().replace(/[^A-Za-z0-9]/g, '-'));
 fs.mkdirSync(dir, { recursive: true });
 const transcript = path.join(dir, `${sessionId}.jsonl`);
-const record = (type, content) => fs.appendFileSync(transcript, JSON.stringify({ type, isSidechain: false, uuid: `u${Date.now()}${Math.random()}`, timestamp: new Date().toISOString(), sessionId, message: { role: type, content } }) + '\n');
+const record = (type, content, extra = {}) => fs.appendFileSync(transcript, JSON.stringify({ type, isSidechain: false, uuid: `u${Date.now()}${Math.random()}`, timestamp: new Date().toISOString(), sessionId, ...extra, message: { role: type, content } }) + '\n');
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
-const assistant = (content) => {
-  record('assistant', content);
-  out({ type: 'assistant', message: { role: 'assistant', content }, parent_tool_use_id: null, session_id: sessionId });
+let msgs = 0;
+/** An assistant message: streamed block by block with --include-partial-messages (as Claude Code: the whole block as
+ * an assistant line just before the block's stop), else one line. A subagent's (parent) is never streamed. */
+const assistant = (content, { parent = null, noRecord = false } = {}) => {
+  if (!noRecord) record('assistant', content);
+  const id = `msg_fake_${++msgs}`;
+  const line = (c) => out({ type: 'assistant', message: { id, role: 'assistant', content: c, usage: { input_tokens: 100, cache_read_input_tokens: 2000, cache_creation_input_tokens: 0, output_tokens: 20 } }, parent_tool_use_id: parent, session_id: sessionId });
+  if (!partial || parent) return line(content);
+  const se = (event) => out({ type: 'stream_event', event, parent_tool_use_id: null, session_id: sessionId, uuid: `se${Math.random()}` });
+  se({ type: 'message_start', message: { id, role: 'assistant', content: [] } });
+  content.forEach((b, index) => {
+    se({ type: 'content_block_start', index, content_block: b.type === 'tool_use' ? { type: 'tool_use', id: b.id, name: b.name, input: {} } : { type: b.type, [b.type]: '' } });
+    const chunks = (t, n) => t.match(new RegExp(`[\\s\\S]{1,${n}}`, 'g')) || [];
+    if (b.type === 'text') for (const t of chunks(b.text, b.text.length > 20_000 ? 50_000 : 5)) se({ type: 'content_block_delta', index, delta: { type: 'text_delta', text: t } });
+    if (b.type === 'thinking') {
+      for (const t of chunks(b.thinking, 6)) se({ type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking: t } });
+      out({ type: 'system', subtype: 'thinking_tokens', estimated_tokens: 12, estimated_tokens_delta: 12, session_id: sessionId });
+    }
+    if (b.type === 'tool_use') for (const t of chunks(JSON.stringify(b.input), 8)) se({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: t } });
+    line([b]);
+    se({ type: 'content_block_stop', index });
+  });
+  se({ type: 'message_stop' });
 };
-const user = (content) => {
-  record('user', content);
-  out({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, session_id: sessionId });
+const user = (content, { parent = null, result: r = undefined } = {}) => {
+  if (!parent) record('user', content, r ? { toolUseResult: r } : {});
+  out({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: parent, session_id: sessionId, ...(r ? { tool_use_result: r } : {}) });
 };
 let cost = fs.existsSync(transcript) ? fs.readFileSync(transcript, 'utf8').split('\n').filter((l) => l.includes('"role":"user"') && !l.includes('tool_result')).length * 0.01 : 0;
 const result = (ok, subtype = ok ? 'success' : 'error_during_execution') => {
   cost += 0.01;
-  out({ type: 'result', subtype, is_error: !ok, result: ok ? 'done' : '', session_id: sessionId, total_cost_usd: cost, duration_ms: 1200, num_turns: 1, usage: { input_tokens: 120, output_tokens: 30, cache_read_input_tokens: 1000 } });
+  out({
+    type: 'result', subtype, is_error: !ok, result: ok ? 'done' : '', session_id: sessionId, total_cost_usd: cost, duration_ms: 1200, num_turns: 1,
+    usage: { input_tokens: 120, output_tokens: 30, cache_read_input_tokens: 1000 }, modelUsage: { [model]: { inputTokens: 120, outputTokens: 30, costUSD: cost, contextWindow: 200000 } },
+  });
 };
-out({ type: 'system', subtype: 'init', session_id: sessionId, model: val('--model') || 'fake-model', permissionMode: mode, tools: ['Read', 'Write', 'Bash', 'TaskCreate'] });
+const init = () => out({ type: 'system', subtype: 'init', session_id: sessionId, model, permissionMode: mode, tools: ['Read', 'Write', 'Bash', 'TaskCreate', 'Agent', 'Workflow'], slash_commands: ['compact', 'cost', 'review'], skills: ['review'], claude_code_version: '9.9.9-fake' });
 
 const waiting = new Map(); // request id → resolve
 let onInterrupt = null;
@@ -111,8 +150,10 @@ function stopped() {
   return result(false);
 }
 
-async function turn(text) {
-  record('user', [{ type: 'text', text }]);
+let images = 0;
+async function turn(text, content = [{ type: 'text', text }]) {
+  record('user', content, current ? { uuid: current } : {});
+  images = content.filter((c) => c.type === 'image').length;
   let m;
   if ((m = /^read (\S+)/.exec(text))) {
     const id = tool('Read', { file_path: path.resolve(m[1]) });
@@ -135,9 +176,11 @@ async function turn(text) {
     }
     if (answer.behavior === 'allow') {
       learn(answer);
-      fs.mkdirSync(path.dirname(answer.updatedInput.file_path), { recursive: true });
-      fs.writeFileSync(answer.updatedInput.file_path, answer.updatedInput.content);
-      user([{ type: 'tool_result', tool_use_id: id, content: `File created successfully at: ${answer.updatedInput.file_path}` }]);
+      const f = answer.updatedInput.file_path;
+      changes.push({ uuid: current, file: f, before: fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null });
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, answer.updatedInput.content);
+      user([{ type: 'tool_result', tool_use_id: id, content: `File created successfully at: ${f}` }], { result: { type: 'create', filePath: f, content: answer.updatedInput.content, structuredPatch: [] } });
       assistant([{ type: 'text', text: 'Written.' }]);
     } else {
       refused(id, answer);
@@ -276,38 +319,116 @@ async function turn(text) {
     user([{ type: 'tool_result', tool_use_id: id, content: `Task #1 created successfully: ${m[1]}` }]);
     return result(true);
   }
-  assistant([{ type: 'text', text: `echo: ${text}` }]);
+  if ((m = await more(text))) return m;
+  assistant([{ type: 'text', text: `echo: ${text}${images ? ` [${images} image${images > 1 ? 's' : ''}]` : ''}` }]);
   return result(true);
 }
 
-const queue = [];
+const queue = []; // { text, content, uuid }
 let busy = false;
+const lifecycle = (uuid, state) => uuid && out({ type: 'command_lifecycle', command_uuid: uuid, state, uuid: `lc${Math.random()}`, session_id: sessionId });
 async function pump() {
   if (busy) return;
   busy = true;
-  while (queue.length) await turn(queue.shift());
+  while (queue.length) {
+    const msg = queue.shift();
+    current = msg.uuid;
+    lifecycle(msg.uuid, 'started');
+    init();
+    if (replay) out({ type: 'user', message: { role: 'user', content: msg.content }, parent_tool_use_id: null, session_id: sessionId, uuid: msg.uuid, isReplay: true });
+    await turn(msg.text, msg.content);
+    lifecycle(msg.uuid, 'completed');
+    current = null;
+  }
   busy = false;
 }
+/** A turn of its own, as Claude Code starts one when a background task ends (no user line). */
+async function ownTurn(fn) {
+  while (busy) await new Promise((r) => setTimeout(r, 20));
+  busy = true;
+  init();
+  await fn();
+  busy = false;
+  pump();
+}
+const answerControl = (m, response) => out({ type: 'control_response', response: { subtype: 'success', request_id: m.request_id, response } });
+const refuse = (m, error, code) => out({ type: 'control_response', response: { subtype: 'error', request_id: m.request_id, error, error_code: code } });
+function control(m) {
+  const r = m.request;
+  if (process.env.FAKE_CLAUDE_ARGS && r.subtype !== 'interrupt') fs.appendFileSync(process.env.FAKE_CLAUDE_ARGS, JSON.stringify({ control: r }) + '\n');
+  switch (r.subtype) {
+    case 'interrupt':
+      // An OK it still waits for is taken back, then the stop is confirmed and the turn ends.
+      for (const [rid, resolve] of waiting) {
+        out({ type: 'control_cancel_request', request_id: rid });
+        resolve({ behavior: 'deny', stopped: true });
+      }
+      waiting.clear();
+      answerControl(m, { still_queued: [] });
+      onInterrupt?.();
+      return;
+    case 'initialize':
+      return answerControl(m, { commands: [{ name: 'compact', description: 'Clear the history but keep a summary', argumentHint: '', builtin: true }, { name: 'review', description: 'Review the changes', argumentHint: '[what]', builtin: false }], models: [{ value: 'default' }, { value: 'haiku' }], pid: process.pid });
+    case 'set_permission_mode':
+      if (r.mode === 'bypassPermissions' && !canBypass) return refuse(m, 'Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions', 'bypass_not_launched');
+      setMode(r.mode);
+      return answerControl(m, { mode: r.mode });
+    case 'set_model':
+      model = r.model || 'fake-default';
+      out({ type: 'user', message: { role: 'user', content: `<local-command-stdout>Set model to ${model}</local-command-stdout>` }, isReplay: true, uuid: `rp${Math.random()}`, session_id: sessionId });
+      return answerControl(m, { model });
+    case 'apply_flag_settings':
+      // Without an "ultracode" key an effort change turns it off.
+      if ('effortLevel' in r.settings) flags.ultracode = !!r.settings.ultracode;
+      Object.assign(flags, r.settings);
+      return answerControl(m, {});
+    case 'get_settings':
+      return answerControl(m, { applied: { model, effort: flags.effortLevel, ultracode: flags.ultracode } });
+    case 'stop_task':
+      return stopTask(r.task_id) ? answerControl(m, {}) : refuse(m, 'No such task', 'not_found');
+    case 'rewind_files': {
+      if (process.env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING !== '1') return answerControl(m, { canRewind: false, error: 'File checkpointing is not enabled' });
+      const at = changes.findIndex((c) => c.uuid === r.user_message_id);
+      if (at < 0) return answerControl(m, { canRewind: false, error: 'No changes since that message' });
+      const undo = changes.slice(at);
+      if (!r.dry_run) {
+        for (const c of undo.reverse()) (c.before === null ? fs.rmSync(c.file, { force: true }) : fs.writeFileSync(c.file, c.before));
+        changes.splice(at);
+      }
+      return answerControl(m, { canRewind: true, filesChanged: [...new Set(undo.map((c) => c.file))], insertions: 0, deletions: undo.length });
+    }
+    case 'cancel_async_message': {
+      const i = queue.findIndex((q) => q.uuid === r.message_uuid);
+      if (i >= 0) {
+        queue.splice(i, 1);
+        lifecycle(r.message_uuid, 'cancelled');
+      }
+      return answerControl(m, { cancelled: i >= 0 });
+    }
+    case 'get_context_usage':
+      return answerControl(m, { totalTokens: 21000, maxTokens: 200000, percentage: 10.5, categories: [] });
+    case 'get_usage':
+      return answerControl(m, { subscription_type: 'max', rate_limits_available: true, rate_limits: { five_hour: { status: 'allowed', utilization: 0.42, resetsAt: 1900000000 } } });
+    default:
+      return refuse(m, `Unsupported control request subtype: ${r.subtype}`, 'unsupported_request');
+  }
+}
+const { more, stopTask } = await import('./fake-claude-tasks.mjs').then((x) => x.tasks({ out, assistant, user, tool, result, init, sessionId, ownTurn, mode: () => mode, onStop: (f) => (onInterrupt = f) }));
+
 readline.createInterface({ input: process.stdin }).on('line', (l) => {
   const m = JSON.parse(l);
   if (m.type === 'user') {
-    queue.push(m.message.content[0].text);
+    const content = typeof m.message.content === 'string' ? [{ type: 'text', text: m.message.content }] : m.message.content;
+    const text = (content.find((c) => c.type === 'text') || { text: '' }).text;
+    if (busy) lifecycle(m.uuid, 'queued');
+    queue.push({ text, content, uuid: m.uuid || null });
     pump();
   } else if (m.type === 'control_response') {
     if (process.env.FAKE_CLAUDE_ARGS) fs.appendFileSync(process.env.FAKE_CLAUDE_ARGS, JSON.stringify({ answer: m.response.response }) + '\n');
     const r = waiting.get(m.response.request_id);
     waiting.delete(m.response.request_id);
     r?.(m.response.response);
-  } else if (m.type === 'control_request' && m.request.subtype === 'interrupt') {
-    // An OK it still waits for is taken back, then the stop is confirmed and the turn ends.
-    for (const [rid, resolve] of waiting) {
-      out({ type: 'control_cancel_request', request_id: rid });
-      resolve({ behavior: 'deny', stopped: true });
-    }
-    waiting.clear();
-    out({ type: 'control_response', response: { subtype: 'success', request_id: m.request_id, response: { still_queued: [] } } });
-    onInterrupt?.();
-  }
+  } else if (m.type === 'control_request') control(m);
 }).on('close', () => {
   if (!process.env.FAKE_CLAUDE_STUBBORN) process.exit(0);
 });

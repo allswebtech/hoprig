@@ -101,12 +101,12 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   const view = async (q = '') => (await owner('GET', `/api/chats/${id}${q}`)).json;
   const v1 = await until('the first answer', async () => {
     const x = await view();
-    return x.events.some((e) => e.kind === 'done') && x;
+    return x.events.some((e) => e.kind === 'turn-end') && x;
   });
   assert.equal(v1.permissionMode, 'manual', 'the session defaults apply');
   assert.equal(v1.profile.label, 'Main');
   assert.equal(v1.short.endsWith('proj'), true);
-  assert.deepEqual(v1.events.map((e) => e.kind), ['user', 'text', 'done']);
+  assert.deepEqual(v1.events.map((e) => e.kind), ['user', 'text', 'turn-end']);
   assert.ok(!JSON.stringify(v1).includes('secret-of-the-test'));
 
   // the long poll waits while nothing changes (first the idle process stops: that is news too, `running` changes)
@@ -171,8 +171,8 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
 
   // ---- provider, next turn, Stop ----
   assert.equal((await owner('POST', `/api/chats/${id}/provider`, { profile: 'api' })).json.profile.label, 'Gateway');
-  assert.equal((await owner('POST', `/api/chats/${id}/next`, { model: 'haiku', effort: 'low' })).json.model, 'haiku');
-  assert.equal((await owner('POST', `/api/chats/${id}/next`, { effort: 'enormous' })).status, 400);
+  assert.equal((await owner('POST', `/api/chats/${id}/settings`, { model: 'haiku', effort: 'low' })).json.model, 'haiku');
+  assert.equal((await owner('POST', `/api/chats/${id}/settings`, { effort: 'enormous' })).status, 400);
   await owner('POST', `/api/chats/${id}/send`, { text: 'sleep' });
   await until('the long command', async () => (await view()).events.some((e) => e.kind === 'tool' && e.name === 'Bash'));
   // "continue" (-c) means the folder's newest conversation: this one, which the chat works on right now.

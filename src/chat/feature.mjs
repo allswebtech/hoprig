@@ -7,15 +7,17 @@
 //   POST /api/chats/from-session              { session } → { id }   the conversation of a terminal session, as a chat
 //   GET  /api/chats/<id>?from=N&epoch=E&wait=S   the chat: events from N (wait up to S seconds for news)
 //   GET  /api/chats/<id>/older?before=N       earlier events
-//   POST /api/chats/<id>/send                 { text }
-//   POST /api/chats/<id>/answer               { request, allow, always?, answers?, message? }   a tool use's OK
-//   POST /api/chats/<id>/stop                 interrupt the turn
-//   POST /api/chats/<id>/next                 { model?, effort? }   for the next turn
+//   POST /api/chats/<id>/send                 { text, attachments?: [{ path }] } → { id, queued }   (while a turn
+//                                             runs the message is queued; attachments: what /upload returned)
+//   POST /api/chats/<id>/answer               { request, allow, always?, answers?, mode?, message? }   a tool use's OK
+//                                             (mode: a plan approved, the permission mode to go on in)
+//   POST /api/chats/<id>/stop                 end the turn (background tasks go on; see live.mjs for one task)
 //   POST /api/chats/<id>/provider             { profile }   continue on another provider
 //   POST /api/chats/<id>/take                 the terminal that runs this conversation stops; the chat goes on
 //   POST /api/chats/<id>/terminal             open the conversation in a terminal → { name } (the chat closes)
 //   POST /api/chats/<id>/upload               raw bytes, X-File-Name → { path }   (the uploads folder, as for sessions)
 //   POST /api/chats/<id>/close
+// and the routes of live.mjs: the event stream, mode, settings, queue, task stop, rewind, files, commands, usage.
 //
 // One conversation never runs in two places at once (the owner's rule). A terminal session runs it when a run record
 // (src/runs.mjs) carries its id: then the chat does not send, and offers to take it over. The other way round,
@@ -35,6 +37,8 @@ import { parentLookup, procParent } from '../server/platform.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from '../server/uploads.mjs';
 import * as v from '../server/validate.mjs';
 import { Chat } from './chat.mjs';
+import { readAttachments } from './files.mjs';
+import { liveRoutes, stateOf } from './live.mjs';
 
 const OPEN_MAX = 50;
 const WAIT_MAX_S = 25; // below the relay's 30 s idle limit, so a chat of another computer can wait too
@@ -44,7 +48,7 @@ const AUTO = { name: 'auto', label: 'Auto', kind: 'auto' };
 /** The name a chat has among the sessions (Home, notifications). ":" is never in a terminal's name. */
 export const cardName = (id) => `chat:${id}`;
 
-/** o: { command, resolveEnv, spawnImpl, idleMs, stopGraceMs } (tests), file (where the open chats are kept) */
+/** o: { command, resolveEnv, spawnImpl, idleMs, stopGraceMs, owedMs } (tests), file (where the open chats are kept) */
 export function chatFeature(ctx, o = {}) {
   const { HttpError } = ctx;
   const bad = (msg) => new HttpError(400, msg);
@@ -56,7 +60,7 @@ export function chatFeature(ctx, o = {}) {
 
   // ---------- the list of open chats ----------
   function make(rec) {
-    const c = new Chat({ ...rec, command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs });
+    const c = new Chat({ ...rec, command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs, owedMs: o.owedMs });
     c.setMaxListeners(200); // one per page that waits for news
     c.on('status', () => ctx.poke?.()); // Home and the notifications see a new state at once
     c.on('turn', save);
@@ -131,9 +135,9 @@ export function chatFeature(ctx, o = {}) {
     return {
       name: cardName(c.id), kind: 'chat', chatId: c.id, display: c.title || 'New chat', title: c.title,
       cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), status, statusAt: c.statusAt, activity: c.statusAt,
-      created: c.openedAt, attached: false, panes: 0, sessionId: c.id, canSwitch: false,
+      created: c.openedAt, attached: false, panes: 0, sessionId: c.conversationId, canSwitch: false,
       lastMessage: c.lastText.replace(/\s+/g, ' ').trim().slice(0, 300),
-      running: !!c.child, // its process runs on the provider now (idle care keeps that provider's gateway up)
+      running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
       note: ask ? `Allow ${ask.title}${ask.description ? `: ${ask.description}` : ''}?` : '',
       limit: c.limit ? { text: c.limit.text } : null,
     };
@@ -142,13 +146,18 @@ export function chatFeature(ctx, o = {}) {
     const { reset, events } = c.window(from, epoch);
     return {
       id: c.id, epoch: c.epoch, reset, events, next: c.next, first: events.length ? events[0].i : c.next, older: (events.length ? events[0].i : c.next) > c.base,
-      status: c.status(), running: !!c.child, pending: [...c.pending.keys()], todos: c.todos.list,
-      title: c.title, cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile),
-      model: c.model, effort: c.effort, permissionMode: c.permissionMode, liveModel: c.liveModel,
-      costTotal: c.costTotal, lastError: c.lastError, limit: c.limit,
-      terminal: c.child && c.state !== 'idle' ? null : await terminalOf(c.id).then((t) => (t ? { name: t.name } : null)),
-      choices: { models: models(), efforts: EFFORTS },
+      ...stateOf(c), cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile),
+      terminal: c.session && c.busy() ? null : await terminalOf(c.conversationId).then((t) => (t ? { name: t.name } : null)),
+      choices: { models: models(), efforts: EFFORTS, modes: PERMISSION_MODES },
     };
+  }
+  /** Where the files of a chat's messages are uploaded (inside its folder). */
+  function uploadsOf(c) {
+    const dirName = uploadsDirName(cfg().server.uploadsDir || DEFAULT_UPLOADS_DIR);
+    if (!dirName) throw new HttpError(500, 'server.uploadsDir must be a relative folder name');
+    const cwd = insideRoots(c.cwd, roots());
+    if (!cwd) throw bad('this chat runs outside the allowed folders');
+    return { cwd, dirName, dir: path.join(cwd, dirName) };
   }
   // Wait for news. The response's "close" (not the request's: that one fires as soon as a GET is read) ends the wait
   // when the browser goes away. While a terminal runs the conversation, its transcript is looked at every 1.5 s, so a
@@ -166,7 +175,7 @@ export function chatFeature(ctx, o = {}) {
       };
       const check = () => c.version !== at && done();
       const t = setTimeout(done, ms);
-      const look = setInterval(() => !c.child && c.refresh(), 1500);
+      const look = setInterval(() => !c.session && c.refresh(), 1500);
       c.on('change', check);
       c.on('status', check);
       res.on?.('close', done);
@@ -201,7 +210,7 @@ export function chatFeature(ctx, o = {}) {
         if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
       }
       if (chats.size >= OPEN_MAX) {
-        const old = [...chats.values()].filter((c) => !c.child).sort((a, b2) => a.statusAt - b2.statusAt)[0];
+        const old = [...chats.values()].filter((c) => !c.session).sort((a, b2) => a.statusAt - b2.statusAt)[0];
         if (!old) throw new HttpError(409, `${OPEN_MAX} chats are open; close one first`);
         chats.delete(old.id);
         old.close();
@@ -247,19 +256,25 @@ export function chatFeature(ctx, o = {}) {
     ['POST', new RegExp(`^/api/chats/${ID}/send$`), async (req, m) => {
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
-      const text = v.message(b.text);
+      let text = v.message(b.text);
       if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
+      let files = { images: [], mentions: [], attachments: [] };
+      if (b.attachments !== undefined && b.attachments !== null) {
+        const u = uploadsOf(c);
+        files = readAttachments(b.attachments, { cwd: u.cwd, uploadsDir: u.dir });
+        if (files.mentions.length) text = `${text}\n\n${files.mentions.join(' ')}`;
+      }
       // Also while this chat's process waits idle: a terminal may have resumed the conversation meanwhile.
-      if (c.state === 'idle') {
-        const term = await terminalOf(c.id);
+      if (!c.busy()) {
+        const term = await terminalOf(c.conversationId);
         if (term) {
           c.stop();
           throw inTerminal(term);
         }
       }
-      await c.send(text);
+      const r = await c.send(text, { images: files.images, attachments: files.attachments });
       save();
-      return { ok: true };
+      return { ok: true, id: r.id, queued: r.queued };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/answer$`), async (req, m) => {
       const c = chatOr404(m[1]);
@@ -276,19 +291,14 @@ export function chatFeature(ctx, o = {}) {
         }
       }
       const message = typeof b.message === 'string' ? b.message.slice(0, 1000) : '';
-      c.answer(b.request, { allow: b.allow, always: b.always === true, answers, message });
+      const mode = b.mode === undefined || b.mode === null ? null : pick(b.mode, PERMISSION_MODES, 'permission mode');
+      c.answer(b.request, { allow: b.allow, always: b.always === true, answers, mode, message });
+      if (mode) save();
       return { ok: true };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/stop$`), async (req, m) => {
       await ctx.readJson(req);
       return { stopped: chatOr404(m[1]).interrupt() };
-    }],
-    ['POST', new RegExp(`^/api/chats/${ID}/next$`), async (req, m) => {
-      const c = chatOr404(m[1]);
-      const b = await ctx.readJson(req);
-      c.setNext({ model: pick(b.model, models(), 'model'), effort: pick(b.effort, EFFORTS, 'effort') });
-      save();
-      return { model: c.model, effort: c.effort };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/provider$`), async (req, m) => {
       const c = chatOr404(m[1]);
@@ -301,7 +311,7 @@ export function chatFeature(ctx, o = {}) {
     ['POST', new RegExp(`^/api/chats/${ID}/take$`), async (req, m) => {
       const c = chatOr404(m[1]);
       await ctx.readJson(req);
-      const term = await terminalOf(c.id);
+      const term = await terminalOf(c.conversationId);
       if (!term) return { ok: true };
       if (term.termId) {
         // The terminal stays, as a plain shell: Claude stops in it, the conversation goes on here.
@@ -313,8 +323,8 @@ export function chatFeature(ctx, o = {}) {
           /* already gone */
         }
       }
-      for (let i = 0; i < 40 && (await terminalOf(c.id)); i++) await new Promise((r) => setTimeout(r, 200));
-      if (await terminalOf(c.id)) throw new HttpError(409, 'the terminal did not stop; stop Claude there and try again');
+      for (let i = 0; i < 40 && (await terminalOf(c.conversationId)); i++) await new Promise((r) => setTimeout(r, 200));
+      if (await terminalOf(c.conversationId)) throw new HttpError(409, 'the terminal did not stop; stop Claude there and try again');
       c.refresh();
       ctx.poke?.();
       return { ok: true };
@@ -323,7 +333,7 @@ export function chatFeature(ctx, o = {}) {
       const c = chatOr404(m[1]);
       await ctx.readJson(req);
       if (!fs.existsSync(c.file())) throw new HttpError(409, 'send a first message: a conversation that has not started cannot be resumed in a terminal');
-      if (c.state !== 'idle') throw new HttpError(409, 'Claude is working. Wait until the reply ends, or press Stop first.');
+      if (c.busy()) throw new HttpError(409, 'Claude is working. Wait until it is done, or press Stop first.');
       const profile = c.profile === AUTO.name ? (autoOn() ? { name: AUTO.name, env: {} } : null) : readProfile(c.profile);
       if (!profile) throw bad('the provider of this chat is gone; choose another one first');
       chats.delete(c.id);
@@ -335,7 +345,7 @@ export function chatFeature(ctx, o = {}) {
       ];
       let name;
       try {
-        name = await ctx.deck.start({ dir: c.cwd, profile, mode: 'resume', sessionId: c.id, flags });
+        name = await ctx.deck.start({ dir: c.cwd, profile, mode: 'resume', sessionId: c.conversationId, flags });
       } catch (e) {
         make(c.record()); // the terminal did not start: the chat stays open
         throw e;
@@ -347,10 +357,7 @@ export function chatFeature(ctx, o = {}) {
     ['POST', new RegExp(`^/api/chats/${ID}/upload$`), async (req, m) => {
       const c = chatOr404(m[1]);
       const s = cfg().server;
-      const dirName = uploadsDirName(s.uploadsDir || DEFAULT_UPLOADS_DIR);
-      if (!dirName) throw new HttpError(500, 'server.uploadsDir must be a relative folder name');
-      const cwd = insideRoots(c.cwd, roots());
-      if (!cwd) throw bad('this chat runs outside the allowed folders');
+      const { cwd, dirName } = uploadsOf(c);
       let fileName = 'upload';
       try {
         fileName = decodeURIComponent(String(req.headers['x-file-name'] || 'upload'));
@@ -371,9 +378,13 @@ export function chatFeature(ctx, o = {}) {
     }],
   ];
 
+  const live = liveRoutes(ctx, { chatOr404, save, bad, models });
+  routes.push(...live.routes);
+
   return {
     name: 'chat',
     routes,
+    handle: live.handle, // the event stream (server-sent events)
     /** The open chats as session cards (server.mjs adds them to the sessions: Home, notifications). */
     cards() {
       load();
@@ -382,8 +393,8 @@ export function chatFeature(ctx, o = {}) {
     /** True when a chat runs conversation `id` right now: its process, or one getting ready for a message. */
     running(id) {
       load();
-      const c = chats.get(id);
-      return !!(c && (c.child || c.state !== 'idle'));
+      const c = chats.get(id) || [...chats.values()].find((x) => x.conversationId === id);
+      return !!(c && (c.session || c.busy()));
     },
     async close() {
       await Promise.all([...chats.values()].map((c) => c.close(3000)));
