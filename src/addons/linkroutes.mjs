@@ -19,6 +19,7 @@ import { verifyPassword, RateLimiter } from '../server/auth.mjs';
 import { loadConfig } from '../config.mjs';
 import { notePassword } from '../server/strength.mjs';
 import { tokenIdOf } from '../machines/index.mjs';
+import { arrivedEncrypted } from '../machines/legs.mjs';
 import { KINDS, status, turnOff, turnOn } from './linkswitch.mjs';
 
 const CUSTOM = ['sign-in', 'cancel', 'create', 'token', 'forget', 'add-service', 'remove-service'];
@@ -39,6 +40,8 @@ export function linkRoutes(sctx, { run, jobs, addon, limiter = new RateLimiter()
       if (b.password !== undefined && (typeof b.password !== 'string' || !b.password || b.password.length > 1024)) throw fail(400, 'password must be a string');
       if (!b.on) return turnOff();
       if (b.password !== undefined) {
+        // A password never crosses a plain leg from a hub (as for Setup: src/machines/legs.mjs).
+        if (tokenIdOf(req) !== null && !arrivedEncrypted(req)) throw fail(403, 'The password is not sent over this link: it is not encrypted. Type it on this computer\'s own page.');
         // The stored password was never judged: the owner types it once. Limited like the sign-in.
         const ip = sctx.clientIp(req);
         const wait = limiter.retryAfter(ip);

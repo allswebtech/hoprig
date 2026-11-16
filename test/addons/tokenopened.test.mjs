@@ -208,6 +208,13 @@ test('every way of revoking turns off the link that token turned on; one the own
   await until('turned off', () => !isOn());
   await until('logged', () => hubLines().includes('The public link the hub hub fixed turned on was turned off: its token was revoked'));
   assert.equal(record().openedBy, null);
+
+  // A password typed for the in-place check never comes from a hub over a plain leg.
+  const pw = { name: 'hub pw', ...createToken('hub pw') };
+  const plain = await asHub(pw.token, '/api/public-link', { on: true, kind: 'temporary', password: 'right-password' });
+  assert.equal(plain.status, 403);
+  assert.match(plain.json.error, /not encrypted/);
+  assert.equal(isOn(), false);
 });
 
 test('Setup started with a token is logged, and its password is nowhere: not the log, the console, any file', async () => {
