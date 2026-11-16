@@ -83,9 +83,9 @@ async function run(t, kind) {
   t.after(async () => {
     for (const p of outside) p.kill('SIGTERM');
     if (kind === 'tmux') {
-      const sock = await app.backend.run(['display', '-p', '#{socket_path}']).catch(() => '');
+      // Every terminal was closed: tmux has ended by itself and left its socket file.
       await app.backend.killServer().catch(() => {});
-      if (sock.trim()) fs.rmSync(sock.trim(), { force: true });
+      fs.rmSync(path.join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${process.getuid()}`, `onerecord-${process.pid}`), { force: true });
     }
     await app.close().catch(() => {});
     router.close();
