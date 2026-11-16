@@ -93,3 +93,10 @@ test('the older cases accept a chat where they took a terminal: start-with-task 
   assert.deepEqual(await grade('start-with-task', [['start_chat', { folder: H, message: 'Fix the failing router test.', goal: 'tests pass' }]]), []);
   assert.deepEqual(await grade('start-with-task', [['start_session', { folder: H, message: 'Fix the failing router test.', goal: 'tests pass' }]]), []);
 });
+
+test('picks-account-says-why: the reply names the provider by its name or by the label the owner gave it', async () => {
+  const start = [['start_chat', { folder: '/home/owner/projects/shop', message: 'Add a footer with the copyright year.' }]];
+  assert.deepEqual(await grade('picks-account-says-why', start, 'Started a chat on sub, the provider with the most quota free.'), []);
+  assert.deepEqual(await grade('picks-account-says-why', start, 'Started a chat on Main, the provider with the most quota free.'), []);
+  assert.match((await grade('picks-account-says-why', start, 'Started a chat on the Claude Code subscription.')).join(), /does not say which account/);
+});

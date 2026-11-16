@@ -169,7 +169,7 @@ export function createAssistantCore({
     if (!p) throw new ToolError(`there is no provider "${args.account}"`, 'call get_accounts for the names, or leave account out');
     // A new session or chat runs the coding tool it names; a session that moves stays in its coding tool.
     if (!servesTool(p, need)) throw new ToolError(`the provider "${p.name}" does not serve ${toolName(need)}`, `pick a provider whose tools in get_accounts include ${need}, or leave account out`);
-    f.account = { name: p.name, kind: p.kind, allowed: tia.allowed.includes(p.name), why };
+    f.account = { name: p.name, kind: p.kind, label: p.label || null, allowed: tia.allowed.includes(p.name), why };
     return why;
   }
 
@@ -222,7 +222,7 @@ export function createAssistantCore({
       // What only the dashboard knows for this call (a project's unpublished commits …), for policy.mjs.
       if (tool.facts) f.extra = await tool.facts(ops, args, ctxFor(conversation));
       const accountWhy = tool.pickAccount ? await pickAccount(tool, args, f, tia) : null;
-      const ctx = ctxFor(conversation, { accountWhy, accountKind: f.account ? f.account.kind : null });
+      const ctx = ctxFor(conversation, { accountWhy, accountKind: f.account ? f.account.kind : null, accountLabel: f.account ? f.account.label : null });
       const d = decideLevel(tool, args, f, tia);
       if (d.refuse) {
         log('refused', { error: d.refuse });
@@ -283,7 +283,7 @@ export function createAssistantCore({
         const f = await facts(tool, args);
         await pickAccount(tool, args, f, tia);
         if (!f.account.allowed) throw new Error(`provider ${args.account} is no longer allowed for ${ASSISTANT_NAME}`);
-        ctx = ctxFor(conversation, { accountKind: f.account.kind });
+        ctx = ctxFor(conversation, { accountKind: f.account.kind, accountLabel: f.account.label });
       }
       before = await tool.before(ops, args, ctx);
       ctx.before = before; // what the card showed and the owner confirmed (an answer goes to that OK, no other)

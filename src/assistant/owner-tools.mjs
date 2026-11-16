@@ -4,7 +4,7 @@
 import { anyJson, arr, bool, int, obj, str } from './schema.mjs';
 import { isCodingCard } from '../automation/cards.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
-import { account, comp, computer, conversation, findSession, folder, session, statusOf, tool, toolError } from './toolkit.mjs';
+import { account, comp, computer, conversation, findSession, folder, providerNote, session, statusOf, tool, toolError } from './toolkit.mjs';
 
 const ABS = /^(\/|~\/|~$|[A-Za-z]:[\\/])/;
 
@@ -64,7 +64,7 @@ export const switch_account = tool({
     const f = await switchFacts(ops, a);
     if (f.chat) await ops.moveChat({ computer: comp(a), id: a.session.slice('chat:'.length), profile: a.account });
     else await ops.switchAccount({ computer: comp(a), session: a.session, profile: a.account });
-    return { summary: `${a.session} now continues on ${a.account}${ctx.accountWhy ? ` (${ctx.accountWhy})` : ''}.`, data: { session: a.session, account: a.account, account_why: ctx.accountWhy || null } };
+    return { summary: `${a.session} now continues on ${a.account}${providerNote(ctx)}.`, data: { session: a.session, account: a.account, account_label: ctx.accountLabel || null, account_why: ctx.accountWhy || null } };
   },
 });
 

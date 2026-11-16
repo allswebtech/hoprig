@@ -114,6 +114,11 @@ test('start_chat: an allowed provider picked by her, a job, then her own chat\'s
   assert.equal(start.args.text, 'fix the failing test');
   const name = /Started chat (chat:\S+) /.exec(r.text)[1];
   assert.match(r.text, /Job j_[0-9a-f]{10} watches it/);
+  // The owner knows the provider by its label: it comes in the fenced data, and the summary only points there.
+  const label = baseState().profiles.find((p) => p.name === start.args.profile).label;
+  assert.match(r.text, /name it to the owner by its label \(account_label in the data\)/);
+  assert.ok(r.text.indexOf(`"account_label":"${label}"`) > r.text.indexOf('<untrusted_data'), 'the label is in the fenced data');
+  assert.ok(!r.text.slice(0, r.text.indexOf('<untrusted_data')).includes(label), 'the label is not in the summary');
   assert.ok(core.jobs.forSession('this', name), 'the job watches the chat');
   const card = ops.s.sessions.find((x) => x.name === name);
   assert.ok(card.created > 0);

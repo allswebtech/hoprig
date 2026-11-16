@@ -19,7 +19,7 @@ import { bool, int, obj, ref, str } from './schema.mjs';
 import { LOCAL } from './shown.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
 import {
-  KEYS, SESSION, account, codingTool, comp, computer, conversation, findSession, folder, job, minsAgo, session, sessKey, short, startOf, statusOf, tool, toolError, toolName, aTool,
+  KEYS, SESSION, account, codingTool, comp, computer, conversation, findSession, folder, job, minsAgo, providerNote, session, sessKey, short, startOf, statusOf, tool, toolError, toolName, aTool,
 } from './toolkit.mjs';
 import { toolOf } from '../automation/cards.mjs';
 import { send_to_chat, start_chat } from './chats.mjs';
@@ -254,10 +254,9 @@ const start_session = tool({
     }
     if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: r.name, startedByTia: true, created });
     else ctx.jobs.markStarted(comp(a), r.name, created);
-    const why = ctx.accountWhy ? ` (${ctx.accountWhy})` : '';
     return {
-      summary: `Started session ${r.name}${a.coding_tool && a.coding_tool !== 'claude' ? ` (${toolName(a.coding_tool)})` : ''} on ${comp(a)} under ${a.account}${why}${a.message ? ' with the first message' : ''}.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
-      data: { session: r.name, computer: comp(a), coding_tool: a.coding_tool || 'claude', account: a.account, account_why: ctx.accountWhy || null, job: j ? j.id : null },
+      summary: `Started session ${r.name}${a.coding_tool && a.coding_tool !== 'claude' ? ` (${toolName(a.coding_tool)})` : ''} on ${comp(a)} under ${a.account}${providerNote(ctx)}${a.message ? ' with the first message' : ''}.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
+      data: { session: r.name, computer: comp(a), coding_tool: a.coding_tool || 'claude', account: a.account, account_label: ctx.accountLabel || null, account_why: ctx.accountWhy || null, job: j ? j.id : null },
       shown: { session: [sessKey(comp(a), r.name)], ...(j ? { job: [j.id] } : {}) },
     };
   },

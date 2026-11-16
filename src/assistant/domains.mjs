@@ -654,7 +654,7 @@ const typedLevel = (text, f, tia, base) => {
 
 export const manage_automation = actionTool({
   name: 'manage_automation',
-  description: 'The Automations page: list (settings, rules, schedules with their next run, queued messages, recent activity); add / change / delete a schedule (it starts a chat or a terminal session, or writes to one, at a time); turn a rule on or off (also the workspace upkeep: map, commit map, sync, push); how often the workspace is kept in step; pause all automations or resume them; queue a message for a session (typed when it next waits) or clear its queue.',
+  description: 'The Automations page: list (settings, rules, schedules with their next run, queued messages, recent activity); add / change / delete a schedule (it starts a chat or a terminal session, or writes to one, at a time; a schedule the owner asks for is a new one, even beside a similar one, and change_schedule is only for the one he asked to change); turn a rule on or off (also the workspace upkeep: map, commit map, sync, push); how often the workspace is kept in step; pause all automations or resume them; queue a message for a session (typed when it next waits) or clear its queue.',
   fields: {
     schedule: scheduleRef,
     time: str({ max: 5, pattern: /^([01]\d|2[0-3]):[0-5]\d$/, desc: 'HH:MM, 24-hour.' }),

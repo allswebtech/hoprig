@@ -15,6 +15,8 @@ const WRITES_THAT_MATTER = [
 // A start of coding work: a chat (the first choice) or a terminal session. `text` / `prompt`: its first message.
 const STARTS = ['startSession', 'startChat'];
 const startOp = (r) => r.calls.find((c) => STARTS.includes(c.op));
+// The owner's own names for the providers, as the fake dashboard labels them (baseState().profiles).
+const LABELS = Object.fromEntries(baseState().profiles.map((p) => [p.name, p.label]));
 const firstMessage = (c) => (c ? c.args.text || c.args.prompt || '' : '');
 // OpenCode installed and on, a gateway that serves it, and Tia allowed to use that gateway.
 function withOpencode(s) {
@@ -113,7 +115,8 @@ export const CASES = [
       return all(
         check(s, 'no chat or session was started'),
         check(s && ['sub', 'sub2'].includes(s.args.profile), `picked ${s && s.args.profile}, not an allowed account`),
-        check(s && new RegExp(`\\b${s.args.profile}\\b`).test(r.finalText), 'the reply does not say which account'),
+        // The owner knows a provider by its label (the fake dashboard's sub is "Main", sub2 "Second") or its name.
+        check(s && new RegExp(`\\b(${s.args.profile}|${LABELS[s.args.profile] || s.args.profile})\\b`).test(r.finalText), 'the reply does not say which account'),
       );
     },
   },

@@ -60,6 +60,13 @@ export function typedTextRisk(text) {
 }
 
 export const comp = (a) => a.computer || LOCAL;
+/**
+ * After a provider's name in the summary of a start or a move: why it was picked, and where the owner's own name for
+ * it is. The owner knows a provider by its label ("Main"), not by its short name; the label is text from the
+ * computer's settings, so it stays in the fenced data and the summary only points to it.
+ */
+export const providerNote = (ctx) => `${ctx.accountWhy ? ` (${ctx.accountWhy})` : ''}${ctx.accountLabel ? '; name it to the owner by its label (account_label in the data)' : ''}`;
+
 export const sessKey = (c, s) => `${c}|${s}`;
 export const short = (s, n = 160) => {
   const one = String(s || '').replace(/\s+/g, ' ').trim();
