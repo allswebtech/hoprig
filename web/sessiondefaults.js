@@ -1,7 +1,7 @@
 // Settings → New-session defaults: how every new session starts (config "sessionDefaults"; the launcher adds them
 // first, so options a session is given itself still win), and under Advanced the folders sessions may start in and
 // where attached files go. Saved with POST /api/settings, checked there.
-import { api, h } from './lib.js';
+import { api, fill, h } from './lib.js';
 import { registerSettingsPage } from './registry.js';
 import { field, fold, panel, saveBar } from './shell.js';
 
@@ -15,8 +15,15 @@ export const MODES = {
 };
 export const EFFORT = { low: 'Low: fastest, least thinking', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Maximum: slowest, most thinking' };
 export const MODELS = [['opus', 'Opus: the most capable'], ['sonnet', 'Sonnet: fast and capable'], ['haiku', 'Haiku: the fastest']];
-const DEFAULT = ['', 'The coding tool\'s own default'];
 const CLAUDE_DEFAULT = ['', 'Claude Code\'s own default'];
+/**
+ * The words that depend on which coding tools are on: with Claude Code alone, its own name; with another one too,
+ * the neutral words and a line on what another tool's chat takes of these.
+ */
+export const toolWords = (others) => ({
+  dflt: others ? ['', 'The coding tool\'s own default'] : CLAUDE_DEFAULT,
+  desc: `For sessions started from now on. A session started with its own options keeps them.${others ? ' The model is for Claude Code; a chat of another coding tool takes the mode and the effort where it has them.' : ''}`,
+});
 const SHORT_MODE = { manual: 'Asks before changes', acceptEdits: 'Edits without asking', plan: 'Plan only', auto: 'Decides what is safe', dontAsk: 'Never asks', bypassPermissions: 'Runs anything' };
 
 /** The one line in the Settings list. */
@@ -26,8 +33,8 @@ export function summary({ settings }) {
   return parts.length ? parts.join(' · ') : 'Each coding tool\'s own defaults';
 }
 
-function defaultsPanel(settings) {
-  const cur = { permissionMode: '', effort: '', model: '', ...(settings.sessionDefaults || {}) };
+function defaultsPanel(settings, cur, others = false) {
+  const { dflt: DEFAULT, desc } = toolWords(others);
   const choices = settings.sessionChoices || { permissionModes: Object.keys(MODES), efforts: Object.keys(EFFORT) };
   const warn = h('p.banner.muted', 'The coding tool can then run any command and change any file on this computer without asking. Use it only for folders you could lose.');
   const showWarn = () => warn.classList.toggle('hidden', cur.permissionMode !== 'bypassPermissions');
@@ -37,7 +44,7 @@ function defaultsPanel(settings) {
   const models = [...MODELS];
   if (cur.model && !models.some(([v]) => v === cur.model)) models.push([cur.model, cur.model]);
   showWarn();
-  return panel({ title: 'How new sessions start', desc: 'For sessions started from now on. A session started with its own options keeps them. The model is for Claude Code; a chat of another coding tool takes the mode and the effort where it has them.' },
+  return panel({ title: 'How new sessions start', desc },
     sel('permissionMode', 'What it may do without asking', [DEFAULT, ...choices.permissionModes.map((m) => [m, MODES[m] || m])],
       'How often it stops to ask for your OK.'),
     warn,
@@ -66,5 +73,14 @@ registerSettingsPage({
   id: 'new-sessions', title: 'New-session defaults', icon: 'sparkle', order: 10,
   desc: 'How every new session starts, and where sessions may start.',
   summary,
-  render: ({ settings }) => [defaultsPanel(settings), fold('settings-new-sessions', 'Advanced', foldersPanel(settings.server.roots), uploadsPanel(settings.uploads))],
+  render: ({ settings }) => {
+    // Drawn for Claude Code alone, then again in neutral words once another coding tool is known to be on (the
+    // choices made meanwhile are kept in `cur`).
+    const cur = { permissionMode: '', effort: '', model: '', ...(settings.sessionDefaults || {}) };
+    const slot = h('div', defaultsPanel(settings, cur));
+    api('/api/codetools').then((v) => {
+      if ((v.tools || []).some((t) => t.id !== 'claude' && t.on)) fill(slot, defaultsPanel(settings, cur, true));
+    }, () => {});
+    return [slot, fold('settings-new-sessions', 'Advanced', foldersPanel(settings.server.roots), uploadsPanel(settings.uploads))];
+  },
 });

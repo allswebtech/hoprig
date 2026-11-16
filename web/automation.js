@@ -171,7 +171,7 @@ function viewAutomations({ frame, sub }) {
     paintBanner(next);
     if (tab === 'rules') paintContent(next);
   };
-  /** The rare switch, for Rules → Advanced. */
+  /** The rare switch, for Rules → Advanced (on a card, as every rule above it is). */
   function pauseRow(st) {
     const row = toggle('Pause all automations', !!st.settings.paused, async (v) => {
       try {
@@ -192,7 +192,7 @@ function viewAutomations({ frame, sub }) {
   function paintContent(st) {
     if (tab === 'schedules') return fill(content, schedulesPart(st, { reload: load, addSchedule }));
     if (tab === 'queue') return fill(content, queuePart(st, load));
-    if (tab === 'rules') return fill(content, rulesPart(st, (next) => { paintBanner(next); }), fold('automations-advanced', 'Advanced', pauseRow(st)));
+    if (tab === 'rules') return fill(content, rulesPart(st, (next) => { paintBanner(next); }), fold('automations-advanced', 'Advanced', panel({}, pauseRow(st))));
     return activityPart(content, isAlive);
   }
 

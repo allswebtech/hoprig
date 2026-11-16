@@ -87,11 +87,12 @@ export function terminals(ctx, o = {}) {
 
 /**
  * o (from feature.mjs): { chats, make, save, chatOr404, memory, models, openChatOf, freeId, and terminals()' terminalOf,
- * claim, serial, forget, auto: { name, on() } (the Auto provider) }
+ * claim, serial, forget, auto: { name, on() } (the Auto provider), handedTo(id, name) (what is kept of the closed chat
+ * names the terminal it went to) }
  */
 export function handoffRoutes(ctx, o) {
   const { HttpError } = ctx;
-  const { chats, make, save, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto } = o;
+  const { chats, make, save, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto, handedTo = () => {} } = o;
   const bad = (msg) => new HttpError(400, msg);
   const cfg = () => ctx.config();
   const handed = new Map(); // a chat's id → its conversation, for the chats closed by "Open in terminal" (the last 50)
@@ -227,6 +228,7 @@ export function handoffRoutes(ctx, o) {
           c.emit('kept');
           throw e;
         }
+        handedTo(c.id, name); // its page can open that terminal
         c.emit('gone');
         return { name };
       }, { tool, self: c.id });

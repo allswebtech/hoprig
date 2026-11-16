@@ -924,3 +924,13 @@ test('a chat that is not open any more: its page\'s keys go with it (Esc would s
   const gone = page.slice(page.indexOf('function gone('), page.indexOf('const unfollow = follow('));
   assert.match(gone, /\bunkeys\(\)/, 'gone() removes the page\'s key handler');
 });
+
+test('a chat that is not open any more is never a dead end, and its head never says "New chat"', () => {
+  const page = fs.readFileSync(path.join(WEB, 'chat', 'page.js'), 'utf8');
+  const gone = page.slice(page.indexOf('function gone('), page.indexOf('const unfollow = follow('));
+  assert.match(gone, /was && was\.terminal \? h\('a\.btn\.primary', \{ href: link\(`#\/s\/\$\{encodeURIComponent\(was\.terminal\)\}`\) \}/, 'the terminal it went to');
+  assert.match(gone, /'Continue in a new chat'/);
+  assert.match(gone, /again\(true\)\ }, icon\('plus', \{ size: 18 \}\), h\('span', 'New chat in this folder'\)/, 'nothing was said in it: a new chat in its folder');
+  assert.match(gone, /const lead = term \|\| go;/, 'one primary button');
+  assert.match(fs.readFileSync(path.join(WEB, 'chat', 'header.js'), 'utf8'), /fill\(titleText, title \|\| 'Closed chat'\);/);
+});

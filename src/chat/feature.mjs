@@ -84,7 +84,7 @@ export function chatFeature(ctx, o = {}) {
     if (c.engine.id !== 'claude') rememberFolderProvider(c.cwd, c.profile, c.engine.id);
   };
   const chats = new Map();
-  const shut = new Map(); // the chats closed since the start (the last 100): id → { cwd, conversationId, title, tool }
+  const shut = new Map(); // the chats closed since the start (the last 100): id → { cwd, conversationId, title, tool, terminal? }
   let loaded = false;
 
   // ---------- the list of open chats ----------
@@ -493,7 +493,7 @@ export function chatFeature(ctx, o = {}) {
   const openChatOf = (id) => ([...chats.values()].find((c) => c.conversationId === id) || {}).id || null;
   // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
   const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
-  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn } }));
+  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn }, handedTo: (id, name) => shut.has(id) && typeof name === 'string' && (shut.get(id).terminal = name) }));
   const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView, shutOf: (id) => shut.get(id) || null, openNow: (c) => chats.get(c.id) === c });
   routes.push(...live.routes);
 

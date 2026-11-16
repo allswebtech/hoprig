@@ -8,6 +8,7 @@
 .au-loading { min-height: 200px; justify-content: center; }
 .au-inline { align-items: center; flex-wrap: wrap; }
 .au-inline > span { flex: 1 1 220px; }
+@media (pointer: coarse) { .au-inline .btn { min-height: 44px; min-width: 44px; } } /* Resume, with a finger */
 .au-foot { margin-top: 10px; }
 .au-foot-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
 

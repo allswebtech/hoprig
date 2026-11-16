@@ -252,11 +252,12 @@ function viewChat({ sub }) {
     const known = !!(was && was.cwd && was.conversationId); // its conversation can go on in a new chat
     header.closed(was && was.title);
     wrap.classList.add('chat-closed', 'chat-no-rewind');
-    const again = async () => {
+    // In its own coding tool (a conversation stays in the tool it was started with); Claude Code's is the default.
+    // `fresh`: a new conversation in its folder (nothing was said in it, so there is nothing to continue).
+    const again = async (fresh = false) => {
       try {
-        // In its own coding tool (a conversation stays in the tool it was started with); Claude Code's is the default.
         const tool = (was.engine && was.engine.id) || was.tool;
-        const r = await api('/api/chats', { dir: was.cwd, sessionId: was.conversationId, ...(tool && tool !== 'claude' ? { tool } : {}) });
+        const r = await api('/api/chats', { dir: was.cwd, ...(fresh ? {} : { sessionId: was.conversationId }), ...(tool && tool !== 'claude' ? { tool } : {}) });
         store.refresh();
         const to = link(`#/chat/${r.id}`);
         // The new chat may take this address (a chat's id is its conversation's while that is free): the same
@@ -267,21 +268,25 @@ function viewChat({ sub }) {
         toast(failText(e), { kind: 'error' });
       }
     };
+    const words = was && was.terminal ? 'This chat was opened in a terminal: the conversation goes on there.' : 'This chat is not open any more: it was closed, or opened in a terminal.';
+    // Never a dead end: the terminal it went to, its conversation in a new chat, or a new chat in its folder.
+    const term = was && was.terminal ? h('a.btn.primary', { href: link(`#/s/${encodeURIComponent(was.terminal)}`) }, icon('terminal', { size: 18 }), h('span', 'Open its terminal')) : null;
+    const go = known ? h(`button.btn.${term ? 'secondary' : 'primary'}`, { type: 'button', onclick: () => again() }, icon('text', { size: 18 }), h('span', 'Continue in a new chat'))
+      : was && was.cwd ? h('button.btn.primary', { type: 'button', onclick: () => again(true) }, icon('plus', { size: 18 }), h('span', 'New chat in this folder')) : null;
+    const lead = term || go; // the one primary button
     // In a window of the desktop it also offers to close the window; a window that started on this chat has no way
     // back (trail.js windowWay), so closing is its way out.
-    const shut = BARE ? h(`button.btn.${!known && inWindow === null ? 'primary' : 'secondary'}`, { type: 'button', onclick: () => closeWindow() }, icon('x', { size: 18 }), h('span', 'Close window')) : null;
-    const back = inWindow === null ? null : h(`a.btn.${known ? 'secondary' : 'primary'}`, { href: way.hash }, icon(way.label === 'Home' ? 'home' : 'back', { size: 18 }), h('span', way.label === 'Home' ? 'Home' : `Back to ${way.label}`));
-    const words = 'This chat is not open any more: it was closed, or opened in a terminal.';
-    const go = known ? h('button.btn.primary', { type: 'button', onclick: again }, icon('text', { size: 18 }), h('span', 'Continue in a new chat')) : null;
+    const shut = BARE ? h(`button.btn.${!lead && inWindow === null ? 'primary' : 'secondary'}`, { type: 'button', onclick: () => closeWindow() }, icon('x', { size: 18 }), h('span', 'Close window')) : null;
+    const back = inWindow === null ? null : h(`a.btn.${lead ? 'secondary' : 'primary'}`, { href: way.hash }, icon(way.label === 'Home' ? 'home' : 'back', { size: 18 }), h('span', way.label === 'Home' ? 'Home' : `Back to ${way.label}`));
     if (!v || !scroll.querySelector('.chat-item, .chat-userrow')) {
       // Nothing of it was drawn here (or nothing was said in it: its "Write what … should do" would invite to type
       // where nothing can be sent): the conversation is read in the new chat, which shows it from its start.
-      fill(wrap, header.el, h('div.chat-mid', h('div.empty', icon('text', { size: 32 }), h('p', words), h('div.chat-gone-actions', go, back, shut))));
+      fill(wrap, header.el, h('div.chat-mid', h('div.empty', icon('text', { size: 32 }), h('p', words), h('div.chat-gone-actions', term, go, back, shut))));
       return;
     }
     fill(wrap, header.el, h('div.chat-mid', scroll, timeline.downBtn),
       h('div.chat-dock', h('div.chat-col.chat-gone', h('p.chat-gone-text', words),
-        h('div.chat-gone-actions', go, back, shut))));
+        h('div.chat-gone-actions', term, go, back, shut))));
   }
   const unfollow = follow({
     A,

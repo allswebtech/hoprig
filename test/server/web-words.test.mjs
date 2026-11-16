@@ -96,6 +96,12 @@ test('New-session defaults: the coding tool\'s own default, the model Claude Cod
   const { summary } = await import('../../web/sessiondefaults.js');
   assert.equal(summary({ settings: {} }), 'Each coding tool\'s own defaults');
   assert.equal(summary({ settings: { sessionDefaults: { effort: 'high' } } }), 'effort high');
+  // With Claude Code alone its own name; another coding tool on: the neutral words and what its chat takes.
+  const { toolWords } = await import('../../web/sessiondefaults.js');
+  assert.deepEqual(toolWords(false).dflt, ['', 'Claude Code\'s own default']);
+  assert.doesNotMatch(toolWords(false).desc, /another coding tool/);
+  assert.deepEqual(toolWords(true).dflt, ['', 'The coding tool\'s own default']);
+  assert.match(toolWords(true).desc, /a chat of another coding tool takes the mode and the effort/);
 });
 
 test('the starting pill names the coding tool that starts, by its own name', async () => {
@@ -130,7 +136,8 @@ test('a schedule never says a provider\'s short name, also in the first moment a
 test('rare things under a closed Advanced: Pause all automations, the map\'s list; Link now only where it belongs', () => {
   const au = read('web/automation.js');
   assert.match(au, /body: \[tabs, bannerSlot, content\]/, 'Pause all is not the first thing on every part any more');
-  assert.match(au, /fold\('automations-advanced', 'Advanced', pauseRow\(st\)\)/, 'it is under Rules → Advanced');
+  assert.match(au, /fold\('automations-advanced', 'Advanced', panel\(\{\}, pauseRow\(st\)\)\)/, 'it is under Rules → Advanced, on a card as the rules above it');
+  assert.match(read('web/page-automations.css'), /@media \(pointer: coarse\) \{ \.au-inline \.btn \{ min-height: 44px;/, 'Resume is big enough for a finger');
   assert.match(au, /label: 'Resume', onclick: \(\) => setPaused\(false\)/, 'while paused, the banner on every part resumes with one tap');
   const ws = read('web/workspace.js');
   assert.match(ws, /fold\('settings-map-list', 'Advanced',/, 'every repository of the map, under Advanced');
