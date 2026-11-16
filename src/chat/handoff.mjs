@@ -36,19 +36,24 @@ export function terminals(ctx, o = {}) {
   const runsIt = (r, id) => r.sessionId === id || (!r.sessionId && r.conversation === id);
   async function terminalOf(id, tool = 'claude') {
     // A record without `tool` is an older one of Claude Code's.
-    const live = listRuns().filter((r) => r.status !== 'ended' && (r.tool || 'claude') === tool);
+    // The note is read before the terminals are listed: one written meanwhile is not judged by an older list.
+    const note = ctx.deck?.launchOf?.(id, tool);
+    const all = listRuns().filter((r) => r.status !== 'ended');
+    const live = all.filter((r) => (r.tool || 'claude') === tool);
     const runs = live.filter((r) => runsIt(r, id));
-    const parents = live.some((r) => r.tmuxPane) ? await parentLookup() : procParent;
+    const parents = all.some((r) => r.tmuxPane) ? await parentLookup() : procParent;
     const terms = await ctx.backend.list();
     const byId = matchRuns(terms, runs, parents);
     const t = terms.find((x) => byId.has(x.id));
-    if (t) return { name: t.session, termId: t.id, cwd: t.cwd, run: byId.get(t.id) };
     // The moment before a launcher has written its record (deck.mjs noteLaunch): the terminal it was started in runs
-    // the conversation while it lives and holds no record written since. Then the record says what it runs.
-    const note = ctx.deck?.launchOf?.(id, tool);
+    // the conversation while it lives and holds no record written since. It ends at the first record seen there (any
+    // record, whatever it runs), or with the terminal: from then on only records say what runs, and a launcher that has
+    // ended leaves a plain shell that runs nothing.
     const nt = note && terms.find((x) => x.session === note.name);
-    if (nt && !matchRuns([nt], live.filter((r) => r.startedAt >= note.at), parents).has(nt.id)) return { name: nt.session, termId: nt.id, cwd: nt.cwd, run: null };
-    if (note) ctx.deck.launchOf(id, tool, { drop: true });
+    const written = nt && matchRuns([nt], all.filter((r) => r.startedAt >= note.at), parents).has(nt.id);
+    if (note && (!nt || written) && ctx.deck.launchOf(id, tool) === note) ctx.deck.launchOf(id, tool, { drop: true });
+    if (t) return { name: t.session, termId: t.id, cwd: t.cwd, run: byId.get(t.id) };
+    if (nt && !written) return { name: nt.session, termId: nt.id, cwd: nt.cwd, run: null };
     return runs.length ? { name: null, run: runs[0] } : null;
   }
   const inTerminal = (term) => Object.assign(new HttpError(409, term.name

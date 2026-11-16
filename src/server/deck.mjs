@@ -151,6 +151,18 @@ export class Deck {
     if (this.launches.size > 200) this.launches.delete(this.launches.keys().next().value);
   }
 
+  /**
+   * Every look at the sessions (the watcher's tick, a page) ends the notes whose terminal is gone or holds a record
+   * written since, as terminalOf does: a launcher that wrote its record and ended leaves no note behind.
+   */
+  #settleLaunches(notes, terms, runs, parentOf) {
+    for (const [key, note] of notes) {
+      if (this.launches.get(key) !== note) continue;
+      const ts = terms.filter((t) => t.session === note.name);
+      if (!ts.length || matchRuns(ts, runs.filter((r) => r.startedAt >= note.at), parentOf).size) this.launches.delete(key);
+    }
+  }
+
   /** The note of conversation `id` (noteLaunch), or null. `drop`: it ends (its terminal is gone, or holds a newer record). */
   launchOf(id, tool = 'claude', { drop = false } = {}) {
     if (drop) this.launches.delete(`${tool}:${id}`);
@@ -190,9 +202,11 @@ export class Deck {
 
   /** One card per session, most recently changed first. */
   async list() {
+    const notes = new Map(this.launches); // the notes written before this look: only these are judged by it
     const terms = await this.backend.list();
     const { runs, parentOf } = await runsAndParents();
     const byId = matchRuns(terms, runs, parentOf);
+    this.#settleLaunches(notes, terms, runs, parentOf);
     const profiles = new Map(this.profiles().map((p) => [p.name, p]));
     const groups = new Map();
     for (const t of terms) groups.set(t.session, [...(groups.get(t.session) || []), t]);

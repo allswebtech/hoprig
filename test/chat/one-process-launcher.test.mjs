@@ -262,6 +262,43 @@ async function run(t, kind) {
   for (const line of ['hello', 'from the terminal', 'back in the chat']) assert.ok(said.includes(line), `the conversation keeps "${line}"`);
   await until('the idle chat process to stop', async () => !(await req(`/api/chats/${chatId}`)).json.running);
   assert.equal((await count(id)).term, 0, 'the terminal stopped running it');
+  assert.equal((await req(`/api/chats/${chatId}/close`, {})).status, 200);
+
+  // ---- Claude Code ends in a terminal that stays open (as after /exit): the conversation is free again ----
+  // What the dashboard knew of the terminal's start ends with the first record written there, so the plain shell
+  // left behind runs nothing: a chat sends, and a resume opens a new terminal. After a start from the page, and after
+  // a move to another provider.
+  const endIn = async (name, what) => {
+    const run = listRuns().find((r) => r.sessionId === id);
+    process.kill(run.pid, 'SIGTERM'); // the launcher ends; the terminal keeps its shell
+    await until('the launcher gone', async () => !listRuns().some((r) => r.sessionId === id || r.conversation === id));
+    assert.equal((await card(name))?.kind, 'shell', `${what}: the terminal stays open, a plain shell`);
+    const c = await req('/api/chats', { dir: work, profile: 'work', sessionId: id, text: `after the end (${what})` });
+    assert.equal(c.json && c.json.sent, true, `${what}: a new chat with text is sent: ${c.text}`);
+    await until('the chat\'s message in the conversation', async () => fs.readFileSync(file, 'utf8').includes(`after the end (${what})`));
+    await until('the idle chat process to stop', async () => !(await req(`/api/chats/${c.json.id}`)).json.running);
+    assert.equal((await req(`/api/chats/${c.json.id}/close`, {})).status, 200);
+    const again = await req('/api/sessions', { dir: work, profile: 'work', mode: 'resume', sessionId: id });
+    assert.equal(again.status, 200, again.text);
+    assert.ok(again.json.name !== name && !again.json.existing, `${what}: a resume opens a new terminal: ${again.text}`);
+    assert.equal((await req(`/api/sessions/${name}/kill`, {})).status, 200);
+    return again.json.name;
+  };
+  late(0);
+  const opened2 = await req('/api/sessions', { dir: work, profile: 'work', mode: 'resume', sessionId: id });
+  assert.equal(opened2.status, 200, opened2.text);
+  await reported(opened2.json.name, 'work', id);
+  const term3 = await endIn(opened2.json.name, 'Claude Code ended after a start from the page');
+  await reported(term3, 'work', id);
+  late(2000);
+  assert.equal((await req(`/api/sessions/${term3}/switch`, { profile: 'backup' })).status, 200);
+  await reported(term3, 'backup', id);
+  const term4 = await endIn(term3, 'Claude Code ended after a move');
+  await reported(term4, 'work', id);
+  const last = listRuns().find((r) => r.sessionId === id);
+  process.kill(last.pid, 'SIGTERM');
+  await until('the last launcher gone', async () => !listRuns().some((r) => r.sessionId === id || r.conversation === id));
+  assert.equal((await req(`/api/sessions/${term4}/kill`, {})).status, 200);
 
   // ---- a launcher started from a plain shell, outside the dashboard ----
   late(LATE);
