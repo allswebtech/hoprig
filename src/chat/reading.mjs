@@ -62,8 +62,16 @@ export function refresh(chat) {
     /* not written yet */
   }
   if (size === chat.knownSize || (size === 0 && chat.knownSize <= 0)) return false;
+  grewElsewhere(chat);
   chat.load();
   return true;
+}
+
+/** The conversation went on elsewhere, where the owner may have written in it: a chat of Tia's is hers no more. */
+function grewElsewhere(chat) {
+  if (!chat.byTia) return;
+  chat.byTia = false;
+  chat.emit('record');
 }
 
 // A tool read through its server: when the conversation last changed there, at most every few seconds.
@@ -75,7 +83,10 @@ function restamp(chat) {
     return false;
   }
   Promise.resolve(chat.engine.stamp({ cwd: chat.cwd, id: chat.conversationId }, chat.o.engineOpts)).then((n) => {
-    if (n && n !== chat.knownSize && !chat.session && !chat.turn) chat.load();
+    if (n && n !== chat.knownSize && !chat.session && !chat.turn) {
+      grewElsewhere(chat);
+      chat.load();
+    }
   }, () => {});
   return false;
 }

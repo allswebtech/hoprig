@@ -36,12 +36,12 @@ export function toolTitle(input) {
 }
 // What an OK is about. Tia may answer an OK by herself only for the coding tool's own tools in a shape the list below
 // knows (`known`): their subject is short, the strings that say what runs or where (`judged`, the main one first, for
-// a card's one line), and her deny-list and path rules judge it. The keys known to say neither are left out (`left`,
-// each with its kind): a command's `description` is the model's own label of it ("Install the helper"), an edit's
-// text is what it writes into its file, a page fetch's `prompt` is a question to the model, the rest are plain
-// settings. Any other call (an MCP tool, a tool not listed, a listed tool with a key or a value of a kind the list
-// does not know) cannot be judged by a deny-list written for a command line and a path, however its input is
-// flattened ({command: 'rm', args: ['-rf', '~']}): its OK is always the owner's (src/assistant/policy.mjs), and its
+// a card's one line), and her short allow-list (src/assistant/allowlist.mjs) and her deny-list judge them. The keys
+// known to say neither are left out (`left`, each with its kind): a command's `description` is the model's own label
+// of it ("Install the helper"), an edit's text is what it writes into its file, a page fetch's `prompt` is a question
+// to the model, the rest are plain settings. Any other call (an MCP tool, a tool not listed, a listed tool with a key or a value of a kind the list
+// does not know) cannot be judged by rules written for a command line and a path, however its input is flattened
+// ({command: 'rm', args: ['-rf', '~']}): its OK is always the owner's (src/assistant/policy.mjs), and its
 // subject is only what he reads on his card, the tool's name and its input.
 const EDIT = { old_string: 'string', new_string: 'string', replace_all: 'boolean' };
 const edits = (x) => Array.isArray(x) && x.every((e) => e && typeof e === 'object' && !Array.isArray(e) && Object.entries(e).every(([k, y]) => EDIT[k] && typeof y === EDIT[k]));
@@ -65,9 +65,9 @@ const kindOk = (want, x) => (typeof want === 'function' ? want(x) : typeof x ===
 /** How much of a subject an ask carries; one that is longer is marked cut, and Tia's rules never judge a part. */
 export const SUBJECT_MAX = 16000;
 /**
- * What `tool`'s call with `input` is about: { subject, cut, known }. known: one of the coding tool's own tools in a
- * shape the list knows, with the short subject; else the subject is the tool's name and its input as JSON. A subject
- * is at most SUBJECT_MAX long, and `cut` says it was longer.
+ * What `tool`'s call with `input` is about: { subject, cut, known, judged? }. known: one of the coding tool's own tools
+ * in a shape the list knows, with the short subject and (when not cut) `judged`, its strings by their keys; else the
+ * subject is the tool's name and its input as JSON. A subject is at most SUBJECT_MAX long, and `cut` says it was longer.
  */
 export function askSubject(tool, input) {
   const known = Object.hasOwn(BUILT_IN, tool) ? BUILT_IN[tool] : null;
@@ -75,7 +75,12 @@ export function askSubject(tool, input) {
   if (known && input && typeof input === 'object' && Object.entries(input).every(([k, x]) => (known.judged.includes(k) ? typeof x === 'string' : Object.hasOwn(known.left, k) && kindOk(known.left[k], x)))) {
     s = known.judged.filter((k) => typeof input[k] === 'string' && input[k].trim()).map((k) => input[k]).join('\n');
   }
-  if (s) return { subject: s.slice(0, SUBJECT_MAX), cut: s.length > SUBJECT_MAX, known: true };
+  if (s) {
+    const cut = s.length > SUBJECT_MAX;
+    // judged: those strings by their keys, for the allow-list (src/assistant/allowlist.mjs); none when cut.
+    const judged = cut ? null : Object.fromEntries(known.judged.filter((k) => typeof input[k] === 'string').map((k) => [k, input[k]]));
+    return { subject: s.slice(0, SUBJECT_MAX), cut, known: true, judged };
+  }
   try {
     s = `${tool} ${JSON.stringify(input ?? {})}`;
   } catch {
@@ -400,6 +405,7 @@ export class ClaudeParser {
     a.subject = about.subject;
     a.subjectCut = about.cut; // too long to carry whole: judged as risky, never by a part
     a.known = about.known; // false: an OK only the owner gives (src/assistant/policy.mjs)
+    a.judged = about.known ? about.judged : null; // the call's strings by their keys, for her allow-list
     a.type = tool === 'ExitPlanMode' ? 'plan' : tool === 'AskUserQuestion' ? 'question' : 'permission';
     // The plan's text is in the tool call, not in the ask.
     if (a.type === 'plan') a.plan = clipText(String(full.plan || (call && call.input && call.input.plan) || ''), 40000);

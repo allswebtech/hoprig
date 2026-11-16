@@ -9,6 +9,9 @@ import https from 'node:https';
 
 // Request headers the API reads. Everything else (Cookie, Origin, Authorization, X-Forwarded-*, ...) is dropped.
 const PASS_REQ = ['content-type', 'content-length', 'x-file-name', 'accept'];
+// Set by the hub (never passed on from a browser): the request is the hub's own, from Tia's door, not a page's. The
+// other computer trusts it only with the hub's token (src/chat/feature.mjs: only her requests mark a chat hers).
+export const SELF_HEADER = 'x-hoprig-self';
 // Response headers worth passing back. Set-Cookie and the other side's security headers are dropped (the hub
 // sets its own).
 const PASS_RES = ['content-type', 'content-length', 'cache-control', 'retry-after', 'content-disposition', 'last-modified', 'etag'];

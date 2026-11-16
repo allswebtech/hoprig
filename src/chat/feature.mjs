@@ -35,6 +35,7 @@ import { listProfiles, publicProfile } from '../profiles.mjs';
 import { isSessionId } from '../sessions.mjs';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from '../server/uploads.mjs';
+import { SELF_HEADER } from '../machines/relay.mjs';
 import * as v from '../server/validate.mjs';
 import { Chat } from './chat.mjs';
 import { engineOf } from './engines/index.mjs';
@@ -64,6 +65,13 @@ export function chatFeature(ctx, o = {}) {
   const cfg = () => ctx.config();
   const roots = () => resolveRoots(cfg().server.roots);
   const file = () => o.file || path.join(stateDir(), 'chats.json');
+  // "This is Tia's" (byTia) counts only from her own door: the server's in-process call, or another computer's
+  // dashboard relaying hers (its token and the mark its relay sets for its own requests, never for a browser's). A
+  // page that says it is ignored: a chat it opens or writes in is the owner's.
+  const fromTia = (req) => {
+    const by = ctx.caller ? ctx.caller(req) : 'page';
+    return by === 'self' || (by === 'computer' && req.headers[SELF_HEADER] === '1');
+  };
   // The settings each folder's chat ran with last: one tap on a project opens a chat with them.
   const memory = folderMemory(() => o.foldersFile || path.join(path.dirname(file()), 'chat-folders.json'));
   // Another coding tool's provider is also kept as that tool's own in the folder (src/defaultprovider.mjs): the next
@@ -173,6 +181,18 @@ export function chatFeature(ctx, o = {}) {
     return r.started;
   }
   /**
+   * Every message into an open chat (the page, Tia's send_to_chat, a schedule): a turn that runs queues it; else it
+   * starts one through the claim, by the chat's coding tool, never while a terminal runs the conversation. Only Tia's
+   * own message (`hers`: from her door, src/server/server.mjs ctx.caller) keeps her mark on a chat she started; anyone
+   * else's makes it the owner's chat for good.
+   */
+  async function deliver(c, text, opts = {}, hers = false) {
+    const send = () => c.send(text, opts);
+    const r = c.busy() ? await send() : await sendOne(c, send);
+    if (!hers) c.byTia = false;
+    return r;
+  }
+  /**
    * A chat of a coding tool that was turned off since: it runs nothing any more. It can still be read (from the tool's
    * server where that runs already) and closed, and its page says why it runs nothing (about().toolOff).
    */
@@ -198,10 +218,11 @@ export function chatFeature(ctx, o = {}) {
       // The OK it waits for, so a card can answer it (Allow, Allow in this chat, Do not allow); a question or a plan
       // is answered in the chat itself. `subject` is what it is really about (the whole command or path; `cut` when it
       // was too long to carry whole), `owner` says the chat keeps it for the owner (his settings, a hook or a safety
-      // check ask him) and `known` that it is a call Tia's rules can judge at all (claude-parse.mjs askSubject): her
-      // rules read all four.
+      // check ask him) and `known` that it is a call Tia's rules can judge at all (claude-parse.mjs askSubject), with
+      // `judged`, its strings by their keys, for her allow-list: her rules read them all.
       ask: ask ? {
         request: ask.request, type: ask.type, tool: ask.tool, subject: ask.subject || '', cut: !!ask.subjectCut, owner: !!ask.owner, known: ask.known === true,
+        judged: ask.known === true && ask.judged ? ask.judged : null,
         canAlways: !!ask.grant, always: ask.grant ? (ask.grant.edits ? 'edits' : 'rule') : null, alwaysText: ask.grant && !ask.grant.edits ? ask.grant.text : '',
       } : null,
       // The turn is over but subagents, shells or a workflow still run (Home: "Working in the background").
@@ -258,10 +279,11 @@ export function chatFeature(ctx, o = {}) {
    * default provider (ctx.defaultProvider) and Settings. defaults: true (Tia, a schedule) takes Settings → New-session
    * defaults and not the folder's last chat, as a terminal session they start does: a mode the owner chose for himself
    * (bypass) is not carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
-   * byTia: true (Tia's start_chat) marks the chat this call creates as hers, and no other: not an open chat it gives
-   * back, nor a later chat on the same conversation (the mark goes with this chat when it closes for any reason). A
-   * message sent into it by anyone but her (the page, a schedule) takes the mark off for good: from then on the chat
-   * carries the owner's own instructions. An answer, a Stop or a settings change does not (he only steers her work).
+   * byTia: true (Tia's start_chat, from her door only) marks the chat this call creates as hers, and no other: not an
+   * open chat it gives back, nor a later chat on the same conversation (the mark goes with this chat when it closes for
+   * any reason). A message sent into it by anyone but her (the page, a schedule) takes the mark off for good (deliver):
+   * from then on the chat carries the owner's own instructions, and so does a conversation that went on in a terminal.
+   * An answer, a Stop or a settings change does not (he only steers her work).
    * → { id, sent, existing?, permissionMode? } (sent: false when the first message was not sent because a terminal or
    * an open chat runs the conversation; existing: true with that open chat's mode)
    */
@@ -349,8 +371,7 @@ export function chatFeature(ctx, o = {}) {
     toolStillOn(c);
     const t = v.message(text);
     if (!t) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
-    const r = c.busy() ? await c.send(t) : await sendOne(c, () => c.send(t));
-    c.byTia = false; // the owner's schedule writes in it: a chat with his instructions, not Tia's any more
+    const r = await deliver(c, t); // the owner's schedule writes in it: a chat with his instructions, not Tia's any more
     save();
     return { id: r.id, queued: r.queued };
   }
@@ -361,7 +382,11 @@ export function chatFeature(ctx, o = {}) {
       load();
       return { chats: [...chats.values()].map(card) };
     }],
-    ['POST', /^\/api\/chats$/, async (req) => openChat(await ctx.readJson(req))],
+    ['POST', /^\/api\/chats$/, async (req) => {
+      const b = await ctx.readJson(req);
+      if (b && b.byTia === true && !fromTia(req)) b.byTia = false;
+      return openChat(b);
+    }],
     ['GET', /^\/api\/chats\/tools$/, async () => ({ tools: chatToolList(cfg()) })],
     ['GET', new RegExp(`^/api/chats/${ID}$`), async (req, m, q, res) => {
       const c = chatOr404(m[1]);
@@ -389,10 +414,7 @@ export function chatFeature(ctx, o = {}) {
         files = readAttachments(b.attachments, { cwd: u.cwd, uploadsDir: u.dir });
         if (files.mentions.length) text = `${text}\n\n${files.mentions.join(' ')}`;
       }
-      // A turn that runs queues it; else it starts one, never while a terminal runs the conversation (one at a time).
-      const send = () => c.send(text, { images: files.images, attachments: files.attachments });
-      const r = c.busy() ? await send() : await sendOne(c, send);
-      if (b.byTia !== true) c.byTia = false; // a message of the owner's (not Tia's own send_to_chat): his chat from now on
+      const r = await deliver(c, text, { images: files.images, attachments: files.attachments }, b.byTia === true && fromTia(req));
       save();
       return { ok: true, id: r.id, queued: r.queued };
     }],

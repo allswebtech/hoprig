@@ -209,9 +209,16 @@ export class JobStore {
   attach(id, { computer = LOCAL, session, startedByTia = false, created = null }) {
     const job = this.jobs.get(id);
     if (!job || !ACTIVE.has(job.state)) return null;
-    if (!job.sessions.some((e) => e.computer === computer && e.session === session)) {
-      job.sessions.push({ computer, session, startedByTia, created: startKey(computer, session, created) ? created : null, since: this.now(), last: null, armed: false, ended: false });
+    const at = startKey(computer, session, created) ? created : null;
+    const entry = job.sessions.find((e) => e.computer === computer && e.session === session);
+    if (!entry) {
+      job.sessions.push({ computer, session, startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false });
       this.#log(job, `${startedByTia ? 'started' : 'watching'} ${session} on ${computer}`);
+    } else if (at !== null && entry.created !== at) {
+      // The same name, made at another time: the conversation goes on in a new chat (or terminal) within this job, and
+      // the job follows that one now.
+      Object.assign(entry, { startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false });
+      this.#log(job, `${startedByTia ? 'started' : 'watching'} ${session} on ${computer} again`);
     }
     return { ...job };
   }

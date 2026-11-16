@@ -270,17 +270,27 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   assert.equal(r.status, 400);
   assert.match(r.json.error, /another coding tool only in a chat/);
 
-  // Tia's mark (byTia: only the chat that start created) holds for an OpenCode chat as for Claude Code's, and goes for
-  // good when the owner writes into it.
+  // Tia's mark (byTia: only the chat that start created, and only from her door: here another computer's dashboard
+  // relaying hers, its token and its relay's own mark) holds for an OpenCode chat as for Claude Code's, and goes for
+  // good when the owner writes into it. A page that claims it gets the owner's chat.
+  const { createToken } = await import('../../src/machines/tokens.mjs');
+  const { SELF_HEADER } = await import('../../src/machines/relay.mjs');
+  const { token } = createToken('hub');
+  const door = (method, p, body) => request(base, method, p, { body, headers: { Authorization: `Bearer ${token}`, [SELF_HEADER]: '1' } });
+  const chatCard = async (i) => (await owner('GET', '/api/chats')).json.chats.find((c) => c.chatId === i);
   r = await owner('POST', '/api/chats', { dir: proj, tool: 'opencode', profile: 'gw', byTia: true, defaults: true });
   assert.equal(r.status, 200, r.json && r.json.error);
+  assert.equal((await chatCard(r.json.id)).byTia, false, 'a page cannot open a chat marked hers');
+  assert.equal((await owner('POST', `/api/chats/${r.json.id}/close`, {})).status, 200);
+  r = await door('POST', '/api/chats', { dir: proj, tool: 'opencode', profile: 'gw', byTia: true, defaults: true });
+  assert.equal(r.status, 200, r.json && r.json.error);
   const hers = r.json.id;
-  const cardOf = async () => (await owner('GET', '/api/chats')).json.chats.find((c) => c.chatId === hers);
+  const cardOf = () => chatCard(hers);
   assert.deepEqual([(await cardOf()).byTia, (await cardOf()).tool], [true, 'opencode']);
-  assert.equal((await owner('POST', `/api/chats/${hers}/send`, { text: 'hello', byTia: true })).status, 200);
+  assert.equal((await door('POST', `/api/chats/${hers}/send`, { text: 'hello', byTia: true })).status, 200);
   assert.equal((await cardOf()).byTia, true, 'her own message');
-  assert.equal((await owner('POST', `/api/chats/${hers}/send`, { text: 'mine now' })).status, 200);
-  assert.equal((await cardOf()).byTia, false, 'the owner wrote: his chat from now on');
+  assert.equal((await owner('POST', `/api/chats/${hers}/send`, { text: 'from the page', byTia: true })).status, 200);
+  assert.equal((await cardOf()).byTia, false, 'a page that claims to be her is the owner writing: his chat from now on');
   assert.equal((await owner('POST', `/api/chats/${hers}/close`, {})).status, 200);
 });
 

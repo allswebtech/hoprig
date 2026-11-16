@@ -208,6 +208,8 @@ export function createServer(opts = {}) {
     deck, backend, config: cfg, saveConfig, authed,
     state: () => state(),
     originOk: (req) => req[INTERNAL] === true || originOk(req, proxyOpts()),
+    // Who sent a request: 'self' (ctx.dispatch, Tia's door), 'computer' (another dashboard's bearer token) or 'page'.
+    caller: (req) => (req[INTERNAL] === true ? 'self' : trusted(req) ? 'computer' : 'page'),
     // Run `method path` with a JSON `body` through the very same handling a page request gets (features, routes,
     // validators, the relay to another computer at /m/<name>/…) on the owner's behalf. Resolves { status, json }.
     // ONLY Tia's door (src/assistant/door.mjs: an allowlist of routes) may call it — no other feature: it acts as the

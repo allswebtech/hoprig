@@ -20,6 +20,8 @@
 //   maxMinutes   how long one job may run                                    default 240
 //   model        null (default: the account's own) or the model her engine uses, e.g. "haiku"
 
+import path from 'node:path';
+
 /** One constant for the name, so a fork can rename her. */
 export const ASSISTANT_NAME = 'Tia';
 
@@ -33,9 +35,9 @@ const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 /** Plain sentences shown under every option in Settings → Tia. */
 export const HELP = {
   enabled: `Turn ${ASSISTANT_NAME} on or off (off at first; she is experimental). Off hides her tab and stops everything she watches.`,
-  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself, and in the sessions she started for a job she also answers Claude Code's ordinary permission questions (risky ones still come to you); "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking.`,
+  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself; in a chat she started she allows by herself only looking and running the project's own tests (a short list); changing files and everything else comes to you; in a terminal session she started she still answers its ordinary permission prompts and sends you the risky ones; "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking.`,
   levelAsk: 'You tap OK for everything she types into a session.',
-  levelWork: 'She runs the job herself: starts the session, picks the provider, answers its questions and its ordinary permission prompts in the sessions she started, checks the result. Risky things still come to you.',
+  levelWork: 'She runs the job herself: starts the session, picks the provider, answers its questions, checks the result. In a chat she started she allows by herself only looking and running the project\'s own tests (a short list); changing files and everything else comes to you. In a terminal session she started she still answers its ordinary permission prompts and sends you the risky ones.',
   levelHandsoff: 'As "Do the work", and she may also start or move sessions on the paid API providers you allowed, without asking.',
   accounts: `The providers ${ASSISTANT_NAME} may start or move sessions on. She never uses one that is not ticked.`,
   runsOn: `The provider ${ASSISTANT_NAME} herself thinks on (her own chat).`,
@@ -185,30 +187,44 @@ export function chooseAccount(tia, accounts, tool = 'claude') {
 
 // Permission prompts Tia never answers by herself, whatever the level: what the session wants to run looks like
 // fetching and running code, deleting widely, reading secrets or touching the system. The text is the session's
-// own notification (untrusted), so this is a deny-list on top of "only within the goal", not a guarantee.
+// own notification (untrusted), so this is a deny-list on top of "only within the goal", not a guarantee: for a
+// terminal session, which has only its screen to judge, it is best effort; a chat does not rest on it (she allows a
+// chat's OK only from the short allow-list of allowlist.mjs, and this list runs after it as a second look).
+/** Files that may hold secrets: keys, sign-ins, a .env, the package managers' and databases' sign-in files, Claude Code's
+ * and Hoprig's own settings. The one list of the deny-list below and of the allow-list (allowlist.mjs). */
+export const SECRET_FILES = /(\.ssh|\.aws|\.gnupg|\.netrc|\.env\b|\.envrc|\.npmrc|\.pypirc|\.pgpass|\.docker\/config\.json|\.(?:pem|key)(?![\w.-])|id_rsa|id_ed25519|credentials|keychain|\.claude\/|\.config\/hoprig)/i;
 const RISKY = [
   /\b(curl|wget|fetch|iwr|invoke-webrequest)\b[^\n|]*\|\s*(ba|z|da|k)?sh\b/i,
   /\bbase64\s+(-d|--decode)\b[^\n]*\|\s*(ba|z)?sh\b/i,
   /\brm\s+-[a-z]*r[a-z]*f?\s+(\/|~|\$HOME|\*)(\s|$)/i,
   /\b(sudo|su|doas|chmod\s+777|chown|mkfs|dd\s+if=|shutdown|reboot|systemctl|launchctl|crontab)\b/i,
-  /(\.ssh|\.aws|\.gnupg|\.netrc|\.env\b|id_rsa|id_ed25519|credentials|keychain|\.claude\/|\.config\/hoprig)/i,
+  SECRET_FILES,
   /\b(printenv|env[ \t]*$|export\s+\w*(KEY|TOKEN|SECRET))/im, // `env` alone at the end of any line, not only the last
   /\b(ssh|scp|rsync|nc|ncat|netcat|socat|telnet)\s/i,
   /\bgit\s+push\b[^\n]*(--force|-f\b)|\bgit\s+push\b/i,
 ];
+// A path that leaves whatever folder it starts in: a ".." segment anywhere in a word (../x, a/../../b, /p/../q), or
+// the home folder itself (~, $HOME) as a word of its own.
+const LEAVES_FOLDER = [
+  /(?:^|[\s'"`=(/])\.\.(?=$|[/\s'"`);|&])/m,
+  /(?:^|[\s'"`=(])(?:~|\$HOME|\$\{HOME\})(?=$|[/\s'"`);|&])/m,
+];
 /**
  * `text`: the session's notification and the bottom of its screen (where Claude Code shows what it wants to run).
- * `cwd`: the session's folder — a path outside it (absolute or ~/…) is risky too: a job works in its own folder.
+ * `cwd`: the session's folder — a path outside it (absolute after normalising, ~/…, or any path through "..") is
+ * risky too: a job works in its own folder.
  */
 export function riskyPermission(text, cwd = null) {
   const s = String(text || '');
   if (RISKY.some((re) => re.test(s))) return true;
+  if (LEAVES_FOLDER.some((re) => re.test(s))) return true;
   if (!cwd) return false;
-  const root = String(cwd).replace(/\/+$/, '');
-  for (const m of s.matchAll(/(?:^|[\s'"`=(])(~\/[^\s'"`)]*|\/(?:[A-Za-z0-9._@+-]+\/?)+)/g)) {
-    const p = m[1];
+  const root = path.posix.normalize(String(cwd)).replace(/\/+$/, '');
+  for (const m of s.matchAll(/(?:^|[\s'"`=(])(~\/[^\s'"`)]*|\/+(?:[A-Za-z0-9._@+-]+\/*)+)/g)) {
+    if (m[1].startsWith('~')) return true;
+    const p = path.posix.normalize(m[1]).replace(/(.)\/+$/, '$1');
     if (p === '/dev/null') continue;
-    if (p.startsWith('~') || !(p === root || p.startsWith(`${root}/`))) return true;
+    if (!(p === root || p.startsWith(`${root}/`))) return true;
   }
   return false;
 }

@@ -113,6 +113,11 @@ export function handoffRoutes(ctx, o) {
     forget(c.conversationId, tool);
     for (let i = 0; i < 40 && (await terminalOf(c.conversationId, tool)); i++) await new Promise((r) => setTimeout(r, 200));
     if (await terminalOf(c.conversationId, tool)) throw new HttpError(409, `the terminal did not stop; stop ${tool === 'claude' ? 'Claude' : c.engine.label} there and try again`);
+    // The conversation ran in that terminal, where the owner may have written in it: not Tia's chat any more.
+    if (c.byTia) {
+      c.byTia = false;
+      save();
+    }
     // A coding tool whose turns run on its server (OpenCode) goes on without its terminal: that turn stops too, as
     // Claude Code's does with its process. The chat goes on from where it ended.
     if (c.engine.interrupt) await c.engine.interrupt(c.conversationId, c.o.engineOpts);
@@ -135,7 +140,15 @@ export function handoffRoutes(ctx, o) {
       if (run && !chatTools(cfg()).includes(tool)) throw new HttpError(409, 'Open as chat is not offered for this coding tool: this conversation stays in its terminal');
       if (!run || !conversationIdOk(tool, run.sessionId)) throw new HttpError(409, 'The coding tool has not reported its conversation yet; try again in a moment');
       const open = openChatOf(run.sessionId);
-      if (open) return { id: open };
+      if (open) {
+        // The terminal ran its conversation: the owner's words may be in it now, so a chat of Tia's is hers no more.
+        const c = chats.get(open);
+        if (c.byTia) {
+          c.byTia = false;
+          save();
+        }
+        return { id: open };
+      }
       const prof = run.profile && run.profile !== auto.name ? readProfile(run.profile) : null;
       if (prof) assertServes(prof, tool); // says why, as a 400
       // As the terminal ran it (its flags), else as the last chat in that folder, else Settings: a conversation
