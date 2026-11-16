@@ -9,24 +9,22 @@
 // its card says "working" and the idle timer leaves the process alone.
 //
 // The process: run.mjs. What each of its events does: hear.mjs. Who answers when the coding tool asks for an OK, and
-// how: asks.mjs. What changes live: controls.mjs.
+// how: asks.mjs. What changes live: controls.mjs. Reading the conversation back: reading.mjs.
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import { engineOf } from './engines/index.mjs';
 import { allowPending, answerAsk, cancelAsks, keepGrants } from './asks.mjs';
 import { applySettings, renameChat, usageNow } from './controls.mjs';
 import { oneLine } from './events.mjs';
 import { MessageQueue } from './queue.mjs';
+import { knowSize, load, refresh } from './reading.mjs';
 import { ensure, start, stop, stopAndWait } from './run.mjs';
 import { LiveBlocks } from './streaming.mjs';
 import { OWED_MS, TaskTable } from './tasks.mjs';
 import { Timeline } from './timeline.mjs';
-import { readTurns, withTurns } from './turns.mjs';
 
 export { EVENTS_MAX, WINDOW_MAX } from './timeline.mjs';
 export const IDLE_MS = 20 * 60_000; // a process with nothing to do is stopped after this (the next message resumes)
 const STOP_GRACE_MS = 8000; // after Stop, how long the coding tool gets to end the turn itself
-const STAMP_MS = 3000; // a conversation kept by a tool's server is looked at no more often than this
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const busyWords = (chat) => `${chat.engine.id === 'claude' ? 'Claude' : chat.engine.label} is working. Wait until it is done, or press Stop first.`;
@@ -99,91 +97,21 @@ export class Chat extends Timeline {
   }
 
   /**
-   * Read the conversation from its files (the page starts over). A rewound one: the old one up to its message. A tool
-   * whose store is read through its server answers later: what it read is taken unless a turn started meanwhile.
-   * wake: false (when the dashboard starts) reads such a store only from a server that runs already; the chat reads
-   * it once a page looks at it (refresh), so a saved chat never starts the tool's server by itself.
+   * Read the conversation from its files or its tool's server (the page starts over); wake: false (when the dashboard
+   * starts) never starts a tool's server for it (reading.mjs).
    */
   load({ wake = true } = {}) {
-    if (this.fork && this.engine.exists(this.cwd, this.conversationId) === true) this.fork = null;
-    const f = this.fork;
-    const id = f ? f.from : this.conversationId;
-    const t = this.engine.transcript({ cwd: this.cwd, id }, this.o.engineOpts, { start: wake });
-    if (!t || typeof t.then !== 'function') return this.#loaded(t, f, id);
-    const gen = this.gen;
-    this.loading = t.then((x) => {
-      if (!x) this.unread = true;
-      else if (!this.closed && gen === this.gen && !this.session && !this.turn && id === this.conversationId) this.#loaded(x, f, id);
-    }, () => {
-      this.unread = true; // asked again at the next look
-    }).finally(() => {
-      this.loading = null;
-    });
-    return this.loading;
-  }
-
-  #loaded(t, f, id) {
-    this.unread = false;
-    t = { ...t, events: withTurns(t.events, readTurns(this.o.turnsDir, id)) }; // each turn's cost and time (turns.mjs)
-    if (f) t = cutAt(t, f.messageId);
-    this.reset(t.events);
-    this.todos = t.todos;
-    this.tasks.load(t.tasks);
-    const last = [...t.events].reverse().find((e) => e.kind === 'text' && !e.agent);
-    this.lastText = last ? last.text : '';
-    if (t.title && !this.named) this.title = t.title;
-    if (!this.title) {
-      const first = t.events.find((e) => e.kind === 'user');
-      if (first) this.title = oneLine(first.text, 80);
-    }
-    for (const e of t.events) if (e.kind === 'user' && e.messageId) this.shown.add(e.messageId);
-    this.knownSize = f ? 0 : t.size; // a rewound conversation has no file of its own yet
-    this.emit('change');
-    this.emit('state');
+    return load(this, { wake });
   }
 
   /** The transcript changed without us (a terminal ran it): read it again. Cheap when nothing changed. */
   refresh() {
-    if (this.session) return false;
-    if (this.engine.stamp) return this.#restamp();
-    let size = 0;
-    try {
-      size = fs.statSync(this.file()).size;
-    } catch {
-      /* not written yet */
-    }
-    if (size === this.knownSize || (size === 0 && this.knownSize <= 0)) return false;
-    this.load();
-    return true;
+    return refresh(this);
   }
 
-  // A tool read through its server: when the conversation last changed there, at most every few seconds.
-  #restamp() {
-    if (this.loading || Date.now() - (this.stampAt || 0) < STAMP_MS) return false;
-    this.stampAt = Date.now();
-    if (this.unread) {
-      this.load();
-      return false;
-    }
-    Promise.resolve(this.engine.stamp({ cwd: this.cwd, id: this.conversationId }, this.o.engineOpts)).then((n) => {
-      if (n && n !== this.knownSize && !this.session && !this.turn) this.load();
-    }, () => {});
-    return false;
-  }
-
+  /** What the coding tool wrote last is ours: no reason to read it again. */
   knowSize() {
-    if (this.engine.stamp) {
-      this.stampAt = 0; // asked again at the next look
-      Promise.resolve(this.engine.stamp({ cwd: this.cwd, id: this.conversationId }, this.o.engineOpts)).then((n) => {
-        if (n) this.knownSize = n;
-      }, () => {});
-      return;
-    }
-    try {
-      this.knownSize = fs.statSync(this.file()).size;
-    } catch {
-      /* nothing written */
-    }
+    knowSize(this);
   }
 
   /** A turn runs, or background work (tasks.mjs: also the turn the coding tool owes after a background task). */
@@ -455,13 +383,4 @@ export class Chat extends Timeline {
       ...(this.fork ? { fork: this.fork } : {}),
     };
   }
-}
-
-/** A transcript up to (not with) the owner's message `messageId`: the view of a conversation rewound to there. */
-function cutAt(t, messageId) {
-  const at = t.events.findIndex((e) => e.kind === 'user' && e.messageId === messageId);
-  if (at < 0) return t;
-  const events = t.events.slice(0, at);
-  const tools = new Set(events.filter((e) => e.kind === 'tool').map((e) => e.id));
-  return { ...t, events, tasks: t.tasks.filter((x) => tools.has(x.toolId)), todos: [] };
 }

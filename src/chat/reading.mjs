@@ -1,0 +1,106 @@
+// Reading a chat's conversation back (chat.mjs): from the coding tool's file (Claude Code), or through its server
+// (OpenCode), which answers later. The page starts over with what was read; a terminal that went on with the
+// conversation is followed by reading it again when it changed.
+import fs from 'node:fs';
+import { oneLine } from './events.mjs';
+import { readTurns, withTurns } from './turns.mjs';
+
+const STAMP_MS = 3000; // a conversation kept by a tool's server is looked at no more often than this
+
+/**
+ * Read the conversation (the page starts over). A rewound one: the old one up to its message. A tool whose store is
+ * read through its server answers later: what it read is taken unless a turn started meanwhile. wake: false (when the
+ * dashboard starts) reads such a store only from a server that runs already; the chat reads it once a page looks at
+ * it (refresh), so a saved chat never starts the tool's server by itself.
+ */
+export function load(chat, { wake = true } = {}) {
+  if (chat.fork && chat.engine.exists(chat.cwd, chat.conversationId) === true) chat.fork = null;
+  const f = chat.fork;
+  const id = f ? f.from : chat.conversationId;
+  const t = chat.engine.transcript({ cwd: chat.cwd, id }, chat.o.engineOpts, { start: wake });
+  if (!t || typeof t.then !== 'function') return loaded(chat, t, f, id);
+  const gen = chat.gen;
+  chat.loading = t.then((x) => {
+    if (!x) chat.unread = true;
+    else if (!chat.closed && gen === chat.gen && !chat.session && !chat.turn && id === chat.conversationId) loaded(chat, x, f, id);
+  }, () => {
+    chat.unread = true; // asked again at the next look
+  }).finally(() => {
+    chat.loading = null;
+  });
+  return chat.loading;
+}
+
+function loaded(chat, t, f, id) {
+  chat.unread = false;
+  t = { ...t, events: withTurns(t.events, readTurns(chat.o.turnsDir, id)) }; // each turn's cost and time (turns.mjs)
+  if (f) t = cutAt(t, f.messageId);
+  chat.reset(t.events);
+  chat.todos = t.todos;
+  chat.tasks.load(t.tasks);
+  const last = [...t.events].reverse().find((e) => e.kind === 'text' && !e.agent);
+  chat.lastText = last ? last.text : '';
+  if (t.title && !chat.named) chat.title = t.title;
+  if (!chat.title) {
+    const first = t.events.find((e) => e.kind === 'user');
+    if (first) chat.title = oneLine(first.text, 80);
+  }
+  for (const e of t.events) if (e.kind === 'user' && e.messageId) chat.shown.add(e.messageId);
+  chat.knownSize = f ? 0 : t.size; // a rewound conversation has no file of its own yet
+  chat.emit('change');
+  chat.emit('state');
+}
+
+/** The transcript changed without the chat (a terminal ran it): read it again. Cheap when nothing changed. */
+export function refresh(chat) {
+  if (chat.session) return false;
+  if (chat.engine.stamp) return restamp(chat);
+  let size = 0;
+  try {
+    size = fs.statSync(chat.file()).size;
+  } catch {
+    /* not written yet */
+  }
+  if (size === chat.knownSize || (size === 0 && chat.knownSize <= 0)) return false;
+  chat.load();
+  return true;
+}
+
+// A tool read through its server: when the conversation last changed there, at most every few seconds.
+function restamp(chat) {
+  if (chat.loading || Date.now() - (chat.stampAt || 0) < STAMP_MS) return false;
+  chat.stampAt = Date.now();
+  if (chat.unread) {
+    chat.load();
+    return false;
+  }
+  Promise.resolve(chat.engine.stamp({ cwd: chat.cwd, id: chat.conversationId }, chat.o.engineOpts)).then((n) => {
+    if (n && n !== chat.knownSize && !chat.session && !chat.turn) chat.load();
+  }, () => {});
+  return false;
+}
+
+/** What the coding tool wrote last is the chat's own: the next look does not read it again. */
+export function knowSize(chat) {
+  if (chat.engine.stamp) {
+    chat.stampAt = 0; // asked again at the next look
+    Promise.resolve(chat.engine.stamp({ cwd: chat.cwd, id: chat.conversationId }, chat.o.engineOpts)).then((n) => {
+      if (n) chat.knownSize = n;
+    }, () => {});
+    return;
+  }
+  try {
+    chat.knownSize = fs.statSync(chat.file()).size;
+  } catch {
+    /* nothing written */
+  }
+}
+
+/** A transcript up to (not with) the owner's message `messageId`: the view of a conversation rewound to there. */
+function cutAt(t, messageId) {
+  const at = t.events.findIndex((e) => e.kind === 'user' && e.messageId === messageId);
+  if (at < 0) return t;
+  const events = t.events.slice(0, at);
+  const tools = new Set(events.filter((e) => e.kind === 'tool').map((e) => e.id));
+  return { ...t, events, tasks: t.tasks.filter((x) => tools.has(x.toolId)), todos: [] };
+}
