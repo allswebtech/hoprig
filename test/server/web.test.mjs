@@ -843,7 +843,10 @@ test('new session: a folder where a session runs opens that session, one where a
   assert.equal(runningIn({ live: true }), null);
   const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
   assert.doesNotMatch(src, /role: 'radiogroup', 'aria-label': 'Work in'/, 'no Terminal | Chat switch at the top');
-  assert.match(src, /\['chat', 'A chat \(the default\)'\], \['claude', 'Claude Code in a terminal'\], \['shell', 'A plain terminal, without Claude'\]/, 'one row under Options');
+  // One row under Options: a chat, the coding tool in a terminal (Claude Code unless another is chosen), a plain shell.
+  assert.match(src, /\['chat', 'A chat \(the default\)'\], \['claude', `\$\{toolName\(\)\} in a terminal`\], \['shell', `A plain terminal, without \$\{tool === 'claude' \? 'Claude' : toolName\(\)\}`\]/, 'one row under Options');
+  assert.match(src, /const toolNow = \(\) => st\.tool \|\| 'claude';/, 'Claude Code where none is chosen');
+  assert.match(src, /const toolName = \(id = toolNow\(\)\) => TOOL_NAMES\[id\] \|\| id;/);
 });
 
 test('new session: repositories by their own name, and a path only where it says more than the name', async () => {
