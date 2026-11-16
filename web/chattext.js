@@ -63,6 +63,7 @@ export function toolLine(name, input = {}) {
     case 'TodoWrite': return { verb: 'Updated the to-do list', detail: '', mono: false };
     case 'Skill': return { verb: 'Used the skill', detail: i.skill || i.name || '', mono: false };
     case 'AskUserQuestion': return { verb: 'Asked you', detail: (i.questions && i.questions[0] && i.questions[0].question) || '', mono: false };
+    case 'EnterPlanMode': return { verb: 'Started to plan', detail: '', mono: false };
     case 'ExitPlanMode': return { verb: 'Made a plan', detail: '', mono: false };
     default: {
       const first = Object.values(i).find((x) => typeof x === 'string');

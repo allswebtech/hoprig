@@ -60,6 +60,7 @@ export function chatFeature(ctx, o = {}) {
     c.setMaxListeners(200); // one per page that waits for news
     c.on('status', () => ctx.poke?.()); // Home and the notifications see a new state at once
     c.on('turn', save);
+    c.on('record', save); // "allow in this chat" was given: it is kept with the chat
     chats.set(c.id, c);
     return c;
   }
