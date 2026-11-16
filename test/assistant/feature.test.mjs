@@ -96,7 +96,11 @@ for (const kind of kinds) {
     t.after(async () => {
       await app.close();
       // tmux sessions outlive the dashboard on purpose; the test's own tmux server must not.
-      if (kind === 'tmux') spawnSync('tmux', ['-L', socket, 'kill-server']);
+      if (kind === 'tmux') {
+        spawnSync('tmux', ['-L', socket, 'kill-server']);
+        // tmux leaves the socket file behind: one more in the shared tmux folder at every run.
+        fs.rmSync(path.join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${process.getuid()}`, socket), { force: true });
+      }
       box.cleanup();
     });
 

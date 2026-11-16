@@ -210,6 +210,8 @@ test('the tmux server of the sessions is found on the backend\'s own socket and 
     assert.deepEqual(signalled, []);
   } finally {
     await tmux.run(['kill-server']).catch(() => {});
+    // tmux leaves the socket file behind: one more in the shared tmux folder at every run.
+    fs.rmSync(path.join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${process.getuid()}`, socket), { force: true });
   }
 });
 
