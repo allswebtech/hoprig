@@ -86,7 +86,10 @@ From a terminal on that computer, `hop chat [folder]` prints the chat's address 
   "Run anything without asking" it never asks; a question to you, a plan to approve and what your own
   settings insist on still come to you, and a "deny" rule of your settings stays denied in every mode.
 - **One place at a time**: **Open in terminal** takes the conversation to a real terminal, and **Open as chat**
-  in a terminal session's menu brings it back. **Files** and **Changes** in the folder chip open the editor.
+  in a terminal session's menu brings it back. A conversation runs in one process only: a chat, a terminal session,
+  or `hop` typed by hand in any terminal of that computer. The second one is refused in one sentence that says where
+  the conversation runs and what to do; in a chat, **Continue here** stops that terminal and goes on in the chat.
+  **Files** and **Changes** in the folder chip open the editor.
 
 <p align="center">
   <img src="docs/screenshots/chat-phone-light.webp" alt="The same chat on a phone: the diff, the OK card and the message box with its chips" width="250">
@@ -429,7 +432,15 @@ Said plainly, so nothing here is a surprise:
   the tests).
 - **Files on the desktop**: dragging between two Files windows is not built.
 - **Run only on Linux**: everything new in this version (the chat, OpenCode, the editor, the desktop, the public
-  link switch, Updates). It was not run on macOS or Windows.
+  link switch, Updates, one process per conversation). It was not run on macOS or Windows. How Hoprig tells that a
+  process is still the one it started (a process id can belong to another program after a restart of the computer)
+  is exact on Linux; on macOS and Windows it is written and tested with recorded answers of the system only.
+- **Two gaps around one process per conversation**: pressing Ctrl+C in a new terminal session before its shell has
+  read the start line leaves the conversation shown as running there until you choose **Continue here** or that
+  terminal ends. A `hop` launcher that is killed hard while its coding tool goes on leaves that coding tool unseen by
+  Hoprig.
+- **On Windows**, a second temporary address of the public link whose file names no process identity (one an earlier
+  version started) cannot be stopped by Hoprig: it says so, and that helper is ended by hand.
 - **Not proven on real devices**: a phone's on-screen keyboard in the editor and the chat; changing the Claude
   account of a provider from the page end to end with a real account; a real stop or restart of a service from the
   desktop.
