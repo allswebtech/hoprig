@@ -71,9 +71,10 @@ export function chatFeature(ctx, o = {}) {
     c.on('turn', (ev) => limitMark(c, ev, { auto: AUTO.name, poke: () => ctx.poke?.() }));
     c.on('record', save); // "allow in this chat" was given: it is kept with the chat
     c.on('closed', () => {
-      // Its page, opened later, still names it and can continue its conversation (chatOr404).
+      // Its page, opened later, still names it and can continue its conversation (chatOr404): only one that has a
+      // conversation to continue (a chat closed before its first message has none on disk).
       shut.delete(c.id);
-      shut.set(c.id, { cwd: c.cwd, conversationId: c.conversationId, title: c.title || null });
+      shut.set(c.id, { cwd: c.cwd, conversationId: fs.existsSync(c.file()) ? c.conversationId : null, title: c.title || null });
       if (shut.size > 100) shut.delete(shut.keys().next().value);
     });
     chats.set(c.id, c);

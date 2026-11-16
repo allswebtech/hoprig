@@ -229,11 +229,14 @@ function viewChat({ sub }) {
   }
   // A chat that is not open any more (closed, cleared, opened in a terminal) offers only what still makes sense: read
   // what was drawn, continue the conversation in a new chat, go back. Its head and its cards act on nothing.
+  let said = false; // the conversation has a message: there is something to continue
   function gone(e) {
     unfollow();
+    unkeys(); // Esc, Shift+Tab, a number: the page's keys act on nothing now (gone only comes after a request)
     forgetHere(); // a chat that is not open any more is never a way back
-    // What is known of it: as the page saw it while it was open, else as the server remembers a chat it closed.
-    const was = v && v.cwd && v.conversationId ? v : (e && e.data && e.data.closed) || null;
+    // What is known of it: as the server remembers a chat it closed (it names the conversation only when there is one
+    // to continue), else as the page saw it while it was open (a message was said in it).
+    const was = (e && e.data && e.data.closed) || (v && v.cwd && v.conversationId && said ? v : null);
     const known = !!(was && was.cwd && was.conversationId); // its conversation can go on in a new chat
     header.closed(was && was.title);
     wrap.classList.add('chat-closed', 'chat-no-rewind');
@@ -261,7 +264,10 @@ function viewChat({ sub }) {
   const unfollow = follow({
     A,
     remote: !!machine.current,
-    events: (r) => timeline.apply(r),
+    events: (r) => {
+      said = said || (r.events || []).some((x) => x.kind === 'user');
+      timeline.apply(r);
+    },
     state,
     live: (list) => timeline.live(list),
     gone,
