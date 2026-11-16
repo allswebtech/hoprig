@@ -43,7 +43,7 @@ function excerpt(line, col) {
 }
 
 /** Run a search program, line by line, until it ends, the match limit or the time limit. */
-function runLines(argv, { cwd, env, onLine }) {
+export function runLines(argv, { cwd, env, onLine }) {
   return new Promise((resolve) => {
     let child;
     try {
@@ -144,10 +144,14 @@ async function viaRg(root, o, env, add) {
 }
 
 async function viaGit(root, o, env, add) {
+  // A pattern without "/" matches at any depth, and a folder's pattern takes in what is inside it (as with rg).
+  const spec = (magic, g) => {
+    const p = g.includes('/') ? g : `**/${g}`;
+    return [`:(${magic})${p}`, `:(${magic})${p}/**`];
+  };
   const pathspecs = [
-    ...(o.inc.length ? o.inc.map((g) => `:(glob)${g.includes('/') ? g : `**/${g}`}`) : ['.']),
-    ...o.exc.map((g) => `:(exclude,glob)${g.includes('/') ? g : `**/${g}`}`),
-    ...SKIP.map((d) => `:(exclude,glob)**/${d}/**`),
+    ...(o.inc.length ? o.inc.flatMap((g) => spec('glob', g)) : ['.']),
+    ...[...o.exc, ...SKIP].flatMap((g) => spec('exclude,glob', g)),
   ];
   const argv = [
     'git', 'grep', '-n', '--column', '-I', '-z', '--untracked', '--exclude-standard', '--max-count', String(LIMITS.perFile),

@@ -1,0 +1,132 @@
+// The one-time cleanup of what VS Code Server left, on a made-up state folder and temp folder (never the real ones):
+// its folder and dead socket folders go, a live socket folder stays, a leftover server is stopped only when its
+// command line carries our own folder, the settings key goes, and it all runs once.
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import net from 'node:net';
+import path from 'node:path';
+import test from 'node:test';
+import { sandbox } from '../server/helpers.mjs';
+
+const box = sandbox('editor-cleanup');
+test.after(() => box.cleanup());
+const { cleanupVscode, MARKER } = await import('../../src/editor/cleanup.mjs');
+const { loadConfig, saveConfig } = await import('../../src/config.mjs');
+
+const quiet = () => {};
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+/** A stand-in process in a group of its own whose command line carries `args`. */
+function fake(args) {
+  const p = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '--', ...args], { detached: true, stdio: 'ignore' });
+  p.unref();
+  return p;
+}
+const waitGone = async (pid) => {
+  for (let i = 0; i < 50 && alive(pid); i++) await new Promise((r) => setTimeout(r, 100));
+  return !alive(pid);
+};
+
+function stateWith(name, pidRec) {
+  const state = path.join(box.root, name, 'state');
+  const tmp = path.join(box.root, name, 'tmp');
+  const data = path.join(state, 'vscode');
+  fs.mkdirSync(path.join(data, 'cli'), { recursive: true });
+  fs.mkdirSync(path.join(data, 'server', 'extensions'), { recursive: true });
+  fs.writeFileSync(path.join(data, 'cli', 'code-server.bin'), Buffer.alloc(2 * 1024 * 1024));
+  fs.mkdirSync(tmp, { recursive: true });
+  if (pidRec) fs.writeFileSync(path.join(data, 'server.pid'), JSON.stringify(pidRec(data, tmp)));
+  return { state, tmp, data };
+}
+
+test('POSIX: our leftover server is stopped, its folders and the settings key removed, and it runs once', { skip: process.platform === 'win32' }, async (t) => {
+  let proc;
+  const { state, tmp, data } = stateWith('ours', (d, tm) => {
+    proc = fake(['serve-web', '--cli-data-dir', path.join(d, 'cli')]);
+    return { pid: proc.pid, run: path.join(tm, 'hoprig-vscode-ours'), marker: path.join(d, 'cli') };
+  });
+  t.after(() => alive(proc.pid) && process.kill(-proc.pid, 'SIGKILL'));
+  fs.mkdirSync(path.join(tmp, 'hoprig-vscode-ours'));
+  fs.mkdirSync(path.join(tmp, 'hoprig-vscode-dead'));
+  fs.writeFileSync(path.join(tmp, 'hoprig-vscode-dead', 'vs.sock'), ''); // a socket file nothing listens on
+  fs.mkdirSync(path.join(tmp, 'hoprig-vscode-live'));
+  fs.mkdirSync(path.join(tmp, 'something-else'));
+  const live = net.createServer().listen(path.join(tmp, 'hoprig-vscode-live', 'vs.sock'));
+  await new Promise((r) => live.once('listening', r));
+  t.after(() => live.close());
+  saveConfig({ vscode: { enabled: true, idleMinutes: 15 }, keep: 1 });
+  const lines = [];
+
+  const r = await cleanupVscode(state, { tmpDir: tmp, config: loadConfig, saveConfig, log: (m) => lines.push(m) });
+  assert.equal(r.ran, true);
+  assert.deepEqual(r.stopped, [proc.pid]);
+  assert.ok(await waitGone(proc.pid), 'the leftover server ended');
+  assert.equal(fs.existsSync(data), false, 'its state folder is gone');
+  assert.ok(r.removedBytes >= 2 * 1024 * 1024);
+  assert.match(lines.join('\n'), /Removed the VS Code Server files .*\(2 MB\)/);
+  assert.deepEqual(fs.readdirSync(tmp).sort(), ['hoprig-vscode-live', 'something-else'], 'a folder whose socket still answers stays');
+  assert.equal(r.configKey, true);
+  const raw = JSON.parse(fs.readFileSync(path.join(process.env.HOPRIG_CONFIG_DIR, 'config.json'), 'utf8'));
+  assert.deepEqual([('vscode' in raw), raw.keep], [false, 1]);
+  assert.ok(fs.existsSync(path.join(state, MARKER)));
+
+  // Once: a second start does nothing, even when something like it appears again.
+  fs.mkdirSync(path.join(data), { recursive: true });
+  const again = await cleanupVscode(state, { tmpDir: tmp, config: loadConfig, saveConfig, log: quiet });
+  assert.equal(again.ran, false);
+  assert.equal(fs.existsSync(data), true);
+});
+
+test('POSIX: a process with the recorded number but without our folder on its command line is never stopped', { skip: process.platform === 'win32' }, async (t) => {
+  let proc;
+  const { state, tmp, data } = stateWith('stranger', (d, tm) => {
+    proc = fake(['some-other-program', '--cli-data-dir', '/elsewhere/cli']); // the number was reused by another program
+    return { pid: proc.pid, run: path.join(tm, 'hoprig-vscode-x'), marker: '/elsewhere/cli' }; // a marker the file claims is not trusted
+  });
+  t.after(() => alive(proc.pid) && process.kill(-proc.pid, 'SIGKILL'));
+  const r = await cleanupVscode(state, { tmpDir: tmp, log: quiet });
+  assert.deepEqual(r.stopped, []);
+  await new Promise((res) => setTimeout(res, 300));
+  assert.equal(alive(proc.pid), true, 'still running');
+  assert.equal(fs.existsSync(data), false, 'the files go anyway');
+});
+
+test('a computer that never used it: nothing is looked at in the temp folder, the settings stay, the marker is written', async () => {
+  const state = path.join(box.root, 'never', 'state');
+  const tmp = path.join(box.root, 'never', 'tmp');
+  fs.mkdirSync(path.join(tmp, 'hoprig-vscode-abc'), { recursive: true });
+  let psCalls = 0;
+  let saved = 0;
+  const r = await cleanupVscode(state, { tmpDir: tmp, ps: () => (psCalls++, ''), config: () => ({ server: {} }), saveConfig: () => saved++, log: quiet });
+  assert.deepEqual([r.ran, r.stopped, r.removedTmp, r.configKey, psCalls, saved], [true, [], [], false, 0, 0]);
+  assert.ok(fs.existsSync(path.join(tmp, 'hoprig-vscode-abc')), 'another install\'s folder is not touched');
+  assert.ok(fs.existsSync(path.join(state, MARKER)));
+});
+
+test('the dashboard runs it at start, in its own state folder', async () => {
+  const { createServer } = await import('../../src/server/server.mjs');
+  const { hashPassword } = await import('../../src/server/auth.mjs');
+  const state = process.env.HOPRIG_STATE_DIR;
+  fs.mkdirSync(path.join(state, 'vscode', 'server'), { recursive: true });
+  saveConfig({ server: { passwordHash: await hashPassword('pw'), port: 1 }, vscode: { enabled: false } });
+  const tmp = path.join(box.root, 'start-tmp');
+  fs.mkdirSync(tmp);
+  const backend = { kind: 'pty', capabilities: {}, list: async () => [], capture: async () => '', create: async ({ name }) => ({ name }) };
+  const app = createServer({ backend, watch: false, dashboardFile: false, machines: { claudeVersion: async () => null }, editor: { cleanup: { tmpDir: tmp, log: quiet } } });
+  await app.listen(0, '127.0.0.1');
+  try {
+    for (let i = 0; i < 50 && !fs.existsSync(path.join(state, MARKER)); i++) await new Promise((r) => setTimeout(r, 50));
+    assert.ok(fs.existsSync(path.join(state, MARKER)));
+    assert.equal(fs.existsSync(path.join(state, 'vscode')), false);
+    assert.equal('vscode' in JSON.parse(fs.readFileSync(path.join(process.env.HOPRIG_CONFIG_DIR, 'config.json'), 'utf8')), false);
+  } finally {
+    await app.close();
+  }
+});

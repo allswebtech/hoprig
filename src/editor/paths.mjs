@@ -34,6 +34,7 @@ export function segments(rel, { write = false } = {}) {
   if (rel === undefined || rel === null || rel === '' || rel === '.') return [];
   if (typeof rel !== 'string' || rel.length > 4096 || path.posix.isAbsolute(rel) || /^[A-Za-z]:/.test(rel)) throw fail(400, 'paths are relative to the opened folder');
   const segs = rel.split('/');
+  if (segs.some((s) => s === '' || s === '.' || s === '..')) throw fail(400, 'a path inside the opened folder cannot go up or have empty parts');
   for (const s of segs) checkName(s);
   if (segs.some((s) => PRIVATE_DIRS.includes(s))) throw fail(403, 'that folder is private: the dashboard never opens it');
   if (write && segs.includes('.git')) throw fail(403, 'git\'s own folder is not changed from the editor');
