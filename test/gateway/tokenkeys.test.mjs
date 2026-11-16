@@ -3,6 +3,7 @@
 // once, on /gateway/<id>/… and on the linked path. A key the owner made with the login is never tied to a token.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { REPO } from '../machines/harness.mjs';
@@ -64,6 +65,10 @@ test('keys made with a machine token end with it, by every way of revoking; the 
   assert.equal(listed.find((k) => k.id === mine.keyId).linked, false);
   assert.ok(tokens.every((t) => listed.find((k) => k.id === t.keyId).linked === true), 'the page can say which keys belong to a linked computer');
   for (const t of [{ key: mine.key }, ...tokens]) assert.equal(await direct(t.key), 200);
+  // Each key a token made is in this computer's Activity log under the token's name; the owner's is not.
+  const hubLines = fs.readFileSync(path.join(box.state, 'automation.log'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.automation === 'hub').map((e) => e.did);
+  assert.deepEqual(hubLines, tokens.map((t) => `The hub ${t.name} made a key for the gateway trouteai`));
+  for (const t of tokens) assert.equal(JSON.stringify(hubLines).includes(t.key), false, 'never the key');
 
   // The linked path: this dashboard linked to itself by address, with a provider that holds the first hub's key.
   putMachine({ name: 'self', label: 'Self', via: 'url', url: base, token: 'unused-machine-token', added: Date.now() });

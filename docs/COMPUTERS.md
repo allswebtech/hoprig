@@ -141,6 +141,15 @@ public-link`). That address changes at every start, so it is meant for now and t
 your phone when **Settings → Notifications** has a push address. Under **Advanced**, one more local service (such
 as TRouteAI's dashboard) can get a temporary address of its own.
 
+**A hub that runs this computer's add-ons.** A hub this computer is linked to may start and stop the public link,
+the fixed address and their extra services, run Setup and share a gateway here, so one dashboard runs every
+computer. Each such change is in this computer's **Automations → Activity** under the hub's name, such as "The hub
+office-pc started the public link"; what the request carried (a password, a key) is never written there. When you
+revoke that hub's right (**Who may control this computer**, `hoprig tokens revoke`, or Remove on the hub), what it
+opened to the network closes with it: its temporary address stops, a fixed address it turned on is turned off and a
+service it added is removed. What you opened yourself stays, and so does a gateway's sharing switch (the keys the hub
+made end with its right).
+
 ## Put the hub behind HTTPS
 
 `hoprig setup --hub` does it: Caddy with a certificate for your domain or for the server's IP address, or the
