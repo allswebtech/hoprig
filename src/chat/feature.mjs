@@ -30,6 +30,7 @@ import { listProfiles, publicProfile, readProfile } from '../profiles.mjs';
 import { isSessionId, sessionsIn } from '../sessions.mjs';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from '../server/uploads.mjs';
+import { SELF_HEADER } from '../machines/relay.mjs';
 import * as v from '../server/validate.mjs';
 import { Chat } from './chat.mjs';
 import { askNote, previewText } from './events.mjs';
@@ -53,6 +54,13 @@ export function chatFeature(ctx, o = {}) {
   const cfg = () => ctx.config();
   const roots = () => resolveRoots(cfg().server.roots);
   const file = () => o.file || path.join(stateDir(), 'chats.json');
+  // "This is Tia's" (byTia) counts only from her own door: the server's in-process call, or another computer's
+  // dashboard relaying hers (its token and the mark its relay sets for its own requests, never for a browser's). A
+  // page that says it is ignored: a chat it opens or writes in is the owner's.
+  const fromTia = (req) => {
+    const by = ctx.caller ? ctx.caller(req) : 'page';
+    return by === 'self' || (by === 'computer' && req.headers[SELF_HEADER] === '1');
+  };
   // The settings each folder's chat ran with last: one tap on a project opens a chat with them.
   const memory = folderMemory(() => o.foldersFile || path.join(path.dirname(file()), 'chat-folders.json'));
   const remember = (c) => memory.remember(c.record());
@@ -194,10 +202,11 @@ export function chatFeature(ctx, o = {}) {
    * recommended now and Settings. defaults: true (Tia, a schedule) takes Settings → New-session defaults and not the
    * folder's last chat, as a terminal session they start does: a mode the owner chose for himself (bypass) is not
    * carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
-   * byTia: true (Tia's start_chat) marks the chat this call creates as hers, and no other: not an open chat it gives
-   * back, nor a later chat on the same conversation (the mark goes with this chat when it closes for any reason). A
-   * message sent into it by anyone but her (the page, a schedule) takes the mark off for good: from then on the chat
-   * carries the owner's own instructions. An answer, a Stop or a settings change does not (he only steers her work).
+   * byTia: true (Tia's start_chat, from her door only) marks the chat this call creates as hers, and no other: not an
+   * open chat it gives back, nor a later chat on the same conversation (the mark goes with this chat when it closes for
+   * any reason). A message sent into it by anyone but her (the page, a schedule) takes the mark off for good: from then
+   * on the chat carries the owner's own instructions, and so does a conversation that went on in a terminal. An
+   * answer, a Stop or a settings change does not (he only steers her work).
    * → { id, sent, existing?, permissionMode? } (sent: false when the first message was not sent because a terminal or
    * an open chat runs the conversation; existing: true with that open chat's mode)
    */
@@ -284,7 +293,11 @@ export function chatFeature(ctx, o = {}) {
       load();
       return { chats: [...chats.values()].map(card) };
     }],
-    ['POST', /^\/api\/chats$/, async (req) => openChat(await ctx.readJson(req))],
+    ['POST', /^\/api\/chats$/, async (req) => {
+      const b = await ctx.readJson(req);
+      if (b && b.byTia === true && !fromTia(req)) b.byTia = false;
+      return openChat(b);
+    }],
     ['GET', new RegExp(`^/api/chats/${ID}$`), async (req, m, q, res) => {
       const c = chatOr404(m[1]);
       c.refresh();
@@ -319,7 +332,7 @@ export function chatFeature(ctx, o = {}) {
         }
       }
       const r = await c.send(text, { images: files.images, attachments: files.attachments });
-      if (b.byTia !== true) c.byTia = false; // a message of the owner's (not Tia's own send_to_chat): his chat from now on
+      if (b.byTia !== true || !fromTia(req)) c.byTia = false; // a message of the owner's (not Tia's own send_to_chat): his chat from now on
       save();
       return { ok: true, id: r.id, queued: r.queued };
     }],

@@ -204,3 +204,76 @@ test('in the real dashboard: in her chat she allows by herself only what the sho
   assert.equal((await cardOf(id)).byTia, true, 'her own messages keep the chat hers');
 });
 
+test('in the real dashboard: her mark comes only from her own door, and goes when her conversation ran in a terminal', { timeout: 240_000, ...POSIX }, async (t) => {
+  const { box, base, proj, call, owner, cardOf, start, request: req } = await dashboard(t, 'tiadoor', { idleMs: 400 });
+  const { createToken } = await import('../../src/machines/tokens.mjs');
+  const { putMachine } = await import('../../src/machines/store.mjs');
+  const { SELF_HEADER } = await import('../../src/machines/relay.mjs');
+  const hers = async (id) => (await cardOf(id)).byTia;
+  const { token, id: tokenId } = createToken('hub');
+  const bearer = (method, p, body, extra = {}) => req(base, method, p, { body, headers: { Authorization: `Bearer ${token}`, ...extra } });
+
+  // A page that says "this is Tia's": opening a chat with it gives the owner's chat; writing with it takes her mark off.
+  const opened = await owner('POST', '/api/chats', { dir: proj, profile: 'sub', byTia: true });
+  assert.equal(opened.status, 200);
+  assert.equal(await hers(opened.json.id), false, 'a page cannot open a chat marked hers');
+  let id = await start();
+  assert.equal(await hers(id), true);
+  assert.equal((await owner('POST', `/api/chats/${id}/send`, { text: 'from the page', byTia: true })).status, 200);
+  assert.equal(await hers(id), false, 'a page that claims it is ignored: the owner wrote in it');
+
+  // Another computer's token: hers only with the mark its relay sets for its own (Tia's) requests.
+  id = await start();
+  assert.equal((await bearer('POST', `/api/chats/${id}/send`, { text: 'relayed', byTia: true }, { [SELF_HEADER]: '1' })).status, 200);
+  await until('idle', async () => (await cardOf(id)).status === 'waiting');
+  assert.equal(await hers(id), true, 'her relayed send keeps it');
+  assert.equal((await bearer('POST', `/api/chats/${id}/send`, { text: 'a page of the hub', byTia: true })).status, 200);
+  assert.equal(await hers(id), false, 'without the mark it is a page of the other computer');
+  const byHub = await bearer('POST', '/api/chats', { dir: proj, profile: 'sub', defaults: true, byTia: true }, { [SELF_HEADER]: '1' });
+  assert.equal(await hers(byHub.json.id), true, 'her relayed start');
+  assert.equal(await hers((await bearer('POST', '/api/chats', { dir: proj, profile: 'sub', defaults: true, byTia: true })).json.id), false);
+
+  // Through a real relay (this dashboard as its own other computer): a page's claim loses the mark, her door keeps it.
+  putMachine({ name: 'self', label: 'Self', via: 'url', url: base, token, tokenId });
+  id = await start();
+  assert.equal((await owner('POST', `/m/self/api/chats/${id}/send`, { text: 'via the relay', byTia: true })).status, 200);
+  await until('the relayed message', async () => (await cardOf(id)).byTia === false);
+  id = await start();
+  await call('get_computer_status', {}); // as she does: a computer and a session she acts on were shown to her first
+  await call('list_sessions', { computer: 'self' });
+  const viaDoor = await call('send_to_chat', { session: `chat:${id}`, computer: 'self', text: 'relayed by her door' });
+  assert.equal(viaDoor.isError, false, viaDoor.text);
+  await until('her relayed message answered', async () => (await owner('GET', `/api/chats/${id}`)).json.events.some((e) => e.kind === 'text' && /relayed by her door/.test(e.text)));
+  assert.equal(await hers(id), true, 'her door\'s request, relayed, keeps it hers');
+
+  // Taken back from a terminal that ran her conversation: hers no more.
+  const running = async (i) => (await owner('GET', `/api/chats/${i}`)).json.running;
+  const inTerminal = async (i) => {
+    await until('her chat\'s process to stop', async () => !(await running(i)));
+    const term = await owner('POST', '/api/sessions', { dir: proj, profile: 'sub', mode: 'resume', sessionId: i });
+    assert.equal(term.status, 200, JSON.stringify(term.json));
+    await until('the chat to see the terminal', async () => (await owner('GET', `/api/chats/${i}`)).json.terminal);
+    return term.json.name;
+  };
+  id = await start();
+  await inTerminal(id);
+  assert.equal(await hers(id), true, 'while the terminal only runs, nothing is taken back yet');
+  assert.equal((await owner('POST', `/api/chats/${id}/take`, {})).status, 200);
+  assert.equal(await hers(id), false, 'taken back from the terminal');
+  id = await start();
+  const term = await inTerminal(id);
+  const back = await owner('POST', '/api/chats/from-session', { session: term });
+  assert.equal(back.json.id, id, 'the chat that is open');
+  assert.equal(await hers(id), false, 'taken from the terminal into a chat');
+
+  // The conversation went on elsewhere while her chat had no process (its transcript grew without it): hers no more.
+  id = await start();
+  await until('her chat\'s process to stop', async () => !(await running(id)));
+  const find = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? find(path.join(dir, e.name)) : e.name === `${id}.jsonl` ? [path.join(dir, e.name)] : []));
+  const [file] = find(box.claude);
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
+  fs.appendFileSync(file, `${lines.find((l) => JSON.parse(l).type === 'user')}\n`);
+  assert.equal(await hers(id), true, 'not looked at yet');
+  await owner('GET', `/api/chats/${id}`);
+  assert.equal(await hers(id), false);
+});

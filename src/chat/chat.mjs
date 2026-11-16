@@ -130,6 +130,11 @@ export class Chat extends Timeline {
       /* not written yet */
     }
     if (size === this.knownSize || (size === 0 && this.knownSize <= 0)) return false;
+    // The conversation went on elsewhere, where the owner may have written in it: a chat of Tia's is hers no more.
+    if (this.byTia) {
+      this.byTia = false;
+      this.emit('record');
+    }
     this.load();
     return true;
   }

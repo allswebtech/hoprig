@@ -52,7 +52,15 @@ export function handoffRoutes(ctx, o) {
       const run = found.run;
       if (!run || !isSessionId(run.sessionId)) throw new HttpError(409, 'Claude has not reported its conversation yet; try again in a moment');
       const open = openChatOf(run.sessionId);
-      if (open) return { id: open };
+      if (open) {
+        // The terminal ran its conversation: the owner's words may be in it now, so a chat of Tia's is hers no more.
+        const c = chats.get(open);
+        if (c.byTia) {
+          c.byTia = false;
+          save();
+        }
+        return { id: open };
+      }
       // As the terminal ran it (its flags), else as the last chat in that folder, else Settings: a conversation
       // taken back from a terminal keeps its model, effort and mode.
       const d = cfg().sessionDefaults || {};
@@ -90,6 +98,9 @@ export function handoffRoutes(ctx, o) {
       }
       for (let i = 0; i < 40 && (await terminalOf(c.conversationId)); i++) await new Promise((r) => setTimeout(r, 200));
       if (await terminalOf(c.conversationId)) throw new HttpError(409, 'the terminal did not stop; stop Claude there and try again');
+      // The conversation ran in that terminal, where the owner may have written in it: not Tia's chat any more.
+      c.byTia = false;
+      save();
       c.refresh();
       c.emit('state'); // a page that streams leaves its read-along mode now, not at the next news
       ctx.poke?.();

@@ -39,7 +39,7 @@ import { reachable } from '../addons/reach.mjs';
 import { joinLine, parseJoinLine } from './joinline.mjs';
 import { label as cleanLabel, machineName, tokenName } from './names.mjs';
 import { claimCode, codeStatus, createCode, machineInfo } from './pairing.mjs';
-import { errorBody, relayHttp, relayUpgrade, rejectUpgrade } from './relay.mjs';
+import { SELF_HEADER, errorBody, relayHttp, relayUpgrade, rejectUpgrade } from './relay.mjs';
 import { getMachine } from './store.mjs';
 import { legEncrypted, relayLeg } from './legs.mjs';
 import { auditToken } from './tokenaudit.mjs';
@@ -106,7 +106,7 @@ function claudeVersionLookup() {
  * the server a request came with a valid bearer token.
  */
 export function machinesFeature(ctx, opts = {}) {
-  const m = createMachines({ authed: ctx.authed, originOk: ctx.originOk, clientIp: ctx.clientIp, localState: ctx.state, ...opts });
+  const m = createMachines({ authed: ctx.authed, originOk: ctx.originOk, clientIp: ctx.clientIp, localState: ctx.state, fromSelf: (req) => ctx.caller?.(req) === 'self', ...opts });
   // start: the reverse tunnels of the hubs this computer joined, kept by the service (they survive reboots).
   return { name: 'machines', handle: m.handle, upgrade: m.upgrade, trusted: m.authedByToken, start: () => m.joins.start(), close: m.close, machines: m };
 }
@@ -121,7 +121,7 @@ export function machinesFeature(ctx, opts = {}) {
  * @param {() => Promise<string|null>} [o.claudeVersion]
  * @param {number} [o.relayIdleMs]        how long a relayed request may sit with nothing moving
  */
-export function createMachines({ authed, originOk, clientIp = (req) => (req.socket && req.socket.remoteAddress) || 'unknown', localState = null, hub: hubOpt = {}, claudeVersion = claudeVersionLookup(), pairLimiter = new RateLimiter(), relayIdleMs = 30_000, join: joinOpt = {}, certOf: certStandIn = null } = {}) {
+export function createMachines({ authed, originOk, clientIp = (req) => (req.socket && req.socket.remoteAddress) || 'unknown', localState = null, fromSelf = () => false, hub: hubOpt = {}, claudeVersion = claudeVersionLookup(), pairLimiter = new RateLimiter(), relayIdleMs = 30_000, join: joinOpt = {}, certOf: certStandIn = null } = {}) {
   // Computers linked directly (link.mjs): their WebSocket, and the hub's local port for each while it is up.
   const links = new LinkHub({ clientIp, ...(hubOpt.link || {}) });
   // This hub's own certificate, for the join line: Caddy's authority as the link routes hand it out.
@@ -283,7 +283,9 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
       req.resume();
       return send(res, status, body);
     }
-    await relayHttp(leg.req, res, ep, { machine: m.label || name, path: rest + url.search, token: m.token, headers: leg.headers, idleMs: /\/upload$|^\/api\/code\/git\/(commit|stage|unstage|discard)$/.test(rest) ? Math.max(150_000, relayIdleMs) : relayIdleMs });
+    // A request of this dashboard's own (Tia's door) says so to the other computer: a browser's never can (relay.mjs).
+    const headers = fromSelf(req) ? { ...leg.headers, [SELF_HEADER]: '1' } : leg.headers;
+    await relayHttp(leg.req, res, ep, { machine: m.label || name, path: rest + url.search, token: m.token, headers, idleMs: /\/upload$|^\/api\/code\/git\/(commit|stage|unstage|discard)$/.test(rest) ? Math.max(150_000, relayIdleMs) : relayIdleMs });
     return true;
   }
 
