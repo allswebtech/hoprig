@@ -6,7 +6,8 @@ import { Readable } from 'node:stream';
 import test from 'node:test';
 import { createAutomation } from '../../src/automation/index.mjs';
 import { automationFeature } from '../../src/automation/feature.mjs';
-import { gitFacts, hoprigItem, toolItem, toolOf, tunnelItem } from '../../src/automation/updateitems.mjs';
+import { gitFacts, hoprigItem, publicLinkState, toolItem, toolOf, tunnelItem } from '../../src/automation/updateitems.mjs';
+import { readSwitch } from '../../src/addons/linkswitch.mjs';
 import { INFO_TTL_MS, createUpdater } from '../../src/automation/updater.mjs';
 import { claude, fakeCtx, fakeDeck, fakeItem, tmpDir } from './helpers.mjs';
 
@@ -255,7 +256,7 @@ test('the tunnel helper: the version Hoprig ships, only its own copy is updated,
   const mk = ({ bin, out = 'cloudflared version 2026.9.0 (built …)', link = { on: false } } = {}) => tunnelItem({
     run: async () => ({ ok: true, stdout: out }),
     cloudflared: { findBin: () => bin, binDir: () => '/state/addons/bin' },
-    publiclink: { CLOUDFLARED_VERSION: '2026.10.1', publicLink: { update: async () => ({ ok: true }) } },
+    publiclink: { CLOUDFLARED_VERSION: '2026.10.1', update: async () => ({ ok: true }) },
     linkState: () => link,
   });
   const own = await mk({ bin: '/state/addons/bin/cloudflared' }).info();
@@ -270,6 +271,25 @@ test('the tunnel helper: the version Hoprig ships, only its own copy is updated,
   assert.match(mk({ link: { on: true, kind: 'Temporary' } }).blocked([]), /public link is on \(Temporary\)/);
   assert.equal(mk().autoOk(own), true);
   assert.equal(mk().autoOk(sys), false);
+  assert.deepEqual(await mk({ bin: '/state/addons/bin/cloudflared' }).update({ onLine: () => {} }), { ok: true, version: '2026.9.0', output: '' }, 'the add-on module\'s own update()');
+});
+
+test('the tunnel helper reads the Public link switch: a Temporary and a Custom link both count, also while it ends', async () => {
+  const ls = (record = {}, oursPid = null) => ({ readSwitch, readRecord: () => record, ours: (pid) => pid === oursPid });
+  const cfg = (publicLink) => ({ publicLink });
+  assert.deepEqual(publicLinkState(ls(), cfg(undefined)), { on: false }, 'never turned on');
+  assert.deepEqual(publicLinkState(ls(), cfg({ on: false, kind: 'custom' })), { on: false });
+  assert.deepEqual(publicLinkState(ls(), cfg({ on: true, kind: 'custom' })), { on: true, kind: 'Custom' });
+  assert.deepEqual(publicLinkState(ls(), cfg({ on: true, kind: 'temporary' })), { on: true, kind: 'Temporary' });
+  assert.deepEqual(publicLinkState(ls(), cfg({ on: true })), { on: true, kind: 'Temporary' }, 'Temporary is the default kind');
+  // Turned off a moment ago: its cloudflared still runs until it has ended; a number that is not ours does not count.
+  assert.deepEqual(publicLinkState(ls({ kind: 'custom', pid: 4242 }, 4242), cfg({ on: false, kind: 'custom' })), { on: true, kind: 'Custom' });
+  assert.deepEqual(publicLinkState(ls({ kind: 'custom', pid: 4242 }, null), cfg({ on: false, kind: 'custom' })), { on: false });
+  // The item itself, with the switch on as Custom.
+  const item = tunnelItem({ run: async () => ({ ok: true, stdout: '' }), cloudflared: { findBin: () => null, binDir: () => '/x' }, publiclink: { CLOUDFLARED_VERSION: '1' },
+    linkswitch: { ...ls(), readSwitch: () => readSwitch(cfg({ on: true, kind: 'custom' })) } });
+  await item.prepare();
+  assert.match(item.blocked([]), /public link is on \(Custom\): turn it off first/);
 });
 
 // ---- the routes and the automations around it ----

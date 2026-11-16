@@ -198,28 +198,37 @@ export function tunnelItem(deps = {}) {
     },
     async update({ onLine = () => {} } = {}) {
       const { p } = await facts();
-      const r = await p.publicLink.update({ onLine });
+      const r = await p.update({ onLine });
       const after = await facts();
       return { ok: !!r.ok, version: after.installed, output: r.error || '' };
     },
     blocked() {
-      // Read at the moment of asking: the state files of the two links (src/addons/cloudflared.mjs).
+      // Read at the moment of asking: the Public link switch (src/addons/linkswitch.mjs).
       const c = deps.linkState ? deps.linkState() : null;
       return c && c.on ? `The public link is on (${c.kind}): turn it off first` : null;
     },
     autoOk: (info) => info.method === "Hoprig's add-ons folder",
-    // The link state needs the add-on module; loaded once before blocked() is asked.
+    // The link state needs the switch's module; loaded once before blocked() is asked.
     async prepare() {
       if (deps.linkState) return;
-      const c = await cf();
-      deps.linkState = () => {
-        const q = c.readQuick();
-        if (q && c.alive(q.pid) && q.url) return { on: true, kind: 'Temporary' };
-        const f = c.readFixed();
-        return f && f.enabled ? { on: true, kind: 'Custom' } : { on: false };
-      };
+      const ls = deps.linkswitch || (await import('../addons/linkswitch.mjs'));
+      deps.linkState = () => publicLinkState(ls);
     },
   };
+}
+
+/**
+ * Is a public link on, for the tunnel helper's rule: { on, kind: 'Temporary'|'Custom' }. The owner's switch
+ * (config.json publicLink, either kind) counts while it is on, also while it starts or tries again; after it was
+ * turned off, a cloudflared of ours that the switch's record still names counts until it has ended.
+ * `ls`: the switch's module (readSwitch, readRecord, ours); `cfg`: for tests.
+ */
+export function publicLinkState(ls, cfg) {
+  const name = (k) => (k === 'custom' ? 'Custom' : 'Temporary');
+  const s = ls.readSwitch(cfg);
+  if (s.on) return { on: true, kind: name(s.kind) };
+  const rec = ls.readRecord() || {};
+  return rec.pid && ls.ours(rec.pid) ? { on: true, kind: name(rec.kind) } : { on: false };
 }
 
 /** The five items, in the order the page shows them. */
