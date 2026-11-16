@@ -26,8 +26,8 @@ export const claude = {
    * the memory of work started in the home folder. Ids stay the short ones older pages and computers know.
    */
   brainLinks: ({ base = claudeDir(), brain, home }) => [
-    { id: 'rules', what: 'the rules Claude gets everywhere', link: path.join(base, 'CLAUDE.md'), target: path.join(brain, 'claude', 'CLAUDE.md'), kind: 'file' },
-    { id: 'skills', what: 'your skills', link: path.join(base, 'skills'), target: path.join(brain, 'skills'), kind: 'dir' },
-    { id: 'memory', what: 'the memory for work started in your home folder', link: path.join(base, 'projects', projectSlug(home), 'memory'), target: path.join(brain, 'claude-memory', 'home'), kind: 'dir' },
+    { id: 'rules', short: 'rules', what: 'the rules Claude gets everywhere', link: path.join(base, 'CLAUDE.md'), target: path.join(brain, 'claude', 'CLAUDE.md'), kind: 'file' },
+    { id: 'skills', short: 'skills', what: 'your skills', link: path.join(base, 'skills'), target: path.join(brain, 'skills'), kind: 'dir' },
+    { id: 'memory', short: 'home memory', what: 'the memory for work started in your home folder', link: path.join(base, 'projects', projectSlug(home), 'memory'), target: path.join(brain, 'claude-memory', 'home'), kind: 'dir' },
   ],
 };

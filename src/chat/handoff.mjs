@@ -81,11 +81,12 @@ export function terminals(ctx, o = {}) {
 
 /**
  * o (from feature.mjs): { chats, make, save, chatOr404, memory, models, openChatOf, freeId, and terminals()' terminalOf,
- * claim, serial, forget, auto: { name, on() } (the Auto provider) }
+ * claim, serial, forget, auto: { name, on() } (the Auto provider), handedTo(id, name) (what is kept of the closed chat
+ * names the terminal it went to) }
  */
 export function handoffRoutes(ctx, o) {
   const { HttpError } = ctx;
-  const { chats, make, save, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto } = o;
+  const { chats, make, save, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto, handedTo = () => {} } = o;
   const bad = (msg) => new HttpError(400, msg);
   const cfg = () => ctx.config();
   const handed = new Map(); // a chat's id → its conversation, for the chats closed by "Open in terminal" (the last 50)
@@ -215,12 +216,18 @@ export function handoffRoutes(ctx, o) {
         handed.set(c.id, { conversation, tool });
         if (handed.size > 50) handed.delete(handed.keys().next().value);
         await c.close();
+        // Its page learns the outcome only now (live.mjs): gone once the terminal runs, kept when it did not start.
+        let name;
         try {
-          return { name: await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: conversation, flags }) };
+          name = await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: conversation, flags });
         } catch (e) {
           make(c.record()); // the terminal did not start: the chat stays open
+          c.emit('kept');
           throw e;
         }
+        handedTo(c.id, name); // its page can open that terminal
+        c.emit('gone');
+        return { name };
       }, { tool, self: c.id });
       if (r.terminal) return there(r.terminal);
       if (r.chat) throw new HttpError(409, 'another chat runs this conversation right now');

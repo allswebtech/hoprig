@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { BUILTIN_DIR, Skills, formatSkill, parseSkill } from '../../src/assistant/skills.mjs';
+import { TOOL_NAMES } from '../../src/assistant/tools.mjs';
 
 const write = (dir, name, text) => {
   fs.mkdirSync(path.join(dir, name), { recursive: true });
@@ -14,12 +15,16 @@ const skill = (name, desc, tools = 'list_sessions', body = '## Procedure\n1. x')
 test('the built-in pack loads cleanly and covers the main jobs', () => {
   const s = new Skills({ dirs: [{ dir: BUILTIN_DIR, source: 'built-in' }] });
   assert.deepEqual(s.problems, []);
-  assert.deepEqual(s.all.map((x) => x.name).sort(), ['get-coding-done', 'handle-usage-limit', 'morning-status', 'triage-sessions']);
+  assert.deepEqual(s.all.map((x) => x.name).sort(), ['coding-tools-and-updates', 'get-coding-done', 'handle-usage-limit', 'morning-status', 'triage-sessions']);
   for (const x of s.all) for (const h of ['## When to use', '## Procedure', '## Pitfalls', '## Verification', '## Examples']) assert.ok(x.body.includes(h), `${x.name}: ${h}`);
   assert.equal(s.find('fix the failing test in a project')[0].name, 'get-coding-done');
   assert.equal(s.find('a session hit its usage limit')[0].name, 'handle-usage-limit');
   assert.equal(s.find('morning status of my machines')[0].name, 'morning-status');
   assert.equal(s.find('what needs me')[0].name, 'triage-sessions');
+  assert.equal(s.find('install OpenCode')[0].name, 'coding-tools-and-updates');
+  assert.equal(s.find('any updates for my coding tools')[0].name, 'coding-tools-and-updates');
+  // Every tool a procedure names exists (a renamed tool or action would leave a procedure that cannot run).
+  for (const x of s.all) for (const t of x.allowedTools) assert.ok(TOOL_NAMES.includes(t), `${x.name}: ${t}`);
 });
 
 test('find before create: the owner\'s skill wins over a built-in one of the same name', () => {

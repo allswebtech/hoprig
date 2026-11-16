@@ -110,7 +110,7 @@ function lookPanel() {
   const group = (label, control, hint) => h('div.fieldrow', h('span.field-label', label, (marks[keyOf[label]] = savedMark())), control, hint ? h('span.hint', hint) : null);
   return panel({ icon: 'sun', title: 'Colours and text size', desc: 'Saved on this device only.' },
     group('Page colours', seg('page.theme', 'system', [['system', 'System', 'refresh'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']], applyPageTheme), 'System follows your phone or computer setting.'),
-    group('Terminal colours', seg('term.theme', 'dark', [['dark', 'Dark', 'moon'], ['light', 'Light', 'sun'], ['system', 'System', 'refresh']]), 'Claude Code is drawn for a dark terminal, so dark reads best.'),
+    group('Terminal colours', seg('term.theme', 'dark', [['dark', 'Dark', 'moon'], ['light', 'Light', 'sun'], ['system', 'System', 'refresh']]), 'Coding tools are drawn for a dark terminal, so dark reads best.'),
     group('Terminal text size', h('div.stepper-inline', btn('icon secondary', { icon: 'minus', title: 'Smaller', onclick: () => step(-1) }), size, btn('icon secondary', { icon: 'plus', title: 'Larger', onclick: () => step(1) })), 'Smaller text fits more on a phone screen.'));
 }
 

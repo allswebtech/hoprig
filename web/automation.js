@@ -4,14 +4,16 @@
 //   Queue      (#/automations/queue)        the messages waiting per session (added from a session's "Queue" button)
 //   Rules      (#/automations/rules)        one switch per automation, in two groups
 //   Activity   (#/automations/activity)     what the automations did, newest first, in plain sentences
-// "Pause all automations" sits above the parts; while it is on, a banner says so on every part.
+// "Pause all automations", rarely used, is under Rules → Advanced; while it is on, a banner with Resume says so on
+// every part.
 // The same file brings the session view's "Queue" button and the "3 queued" badge on Home's session cards.
 import { icon } from './icons.js';
 import { TOOL_NAMES, ago, api, at, btn, chooseSheet, confirmSheet, fill, h, isCodingCard, link, machine, needsYouFirst, openSheet, servesTool, stateOf, tildePath, toast } from './lib.js';
 import { chatTools } from './chat/start.js';
 import { registerCardBadge, registerPage, registerSessionAction } from './registry.js';
-import { emptyState, errorBox, groupHead, panel, savedMark, tabBar, toggle } from './shell.js';
+import { emptyState, errorBox, fold, groupHead, panel, savedMark, tabBar, toggle } from './shell.js';
 import { store } from './store.js';
+import { accountLabel, providerLine } from './providerword.js';
 import './addons.js';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -116,12 +118,6 @@ export function foldActivity(entries) {
 const cache = new Map(); // computer key → GET /api/automation
 const keyOf = () => machine.current || '~';
 
-/** An account's display name on the open computer ("Claude Max"; "Auto mode" for auto). */
-function accountLabel(name) {
-  if (name === 'auto') return 'Auto mode';
-  const p = ((store.data && store.data.profiles) || []).find((x) => x.name === name);
-  return (p && p.label) || name;
-}
 
 /** Save automation settings; resolves the new status or throws after saying why. */
 async function saveSettings(patch) {
@@ -147,7 +143,6 @@ function viewAutomations({ frame, sub }) {
   }
   let alive = true;
   const isAlive = () => alive;
-  const pauseSlot = h('div.au-pause');
   const bannerSlot = h('div.au-banner');
   const content = h('div.au-content');
   const tabs = tabBar('Parts of Automations', TABS.map(([id, label, ic]) => ({ id, label, icon: ic, href: link(id === 'schedules' ? '#/automations' : `#/automations/${id}`) })), tab);
@@ -158,33 +153,36 @@ function viewAutomations({ frame, sub }) {
     page: 'automations',
     intro: 'What the dashboard does for you by fixed rules, without AI.',
     primary: tab === 'schedules' ? { label: 'Add schedule', icon: 'plus', onclick: () => addSchedule() } : null,
-    body: [pauseSlot, tabs, bannerSlot, content],
+    body: [tabs, bannerSlot, content],
   });
 
-  function paintPause(st) {
-    const paused = !!(st && st.settings.paused);
-    const row = toggle('Pause all automations', paused, async (v) => {
+  const setPaused = async (v) => {
+    const next = await saveSettings({ paused: v });
+    paintBanner(next);
+    if (tab === 'rules') paintContent(next);
+  };
+  /** The rare switch, for Rules → Advanced (on a card, as every rule above it is). */
+  function pauseRow(st) {
+    const row = toggle('Pause all automations', !!st.settings.paused, async (v) => {
       try {
-        const next = await saveSettings({ paused: v });
-        paintBanner(next);
-        if (tab === 'rules') paintContent(next);
+        await setPaused(v);
       } catch (e) {
         row.querySelector('input').checked = !v;
         throw e;
       }
     }, 'Nothing is sent, started, closed or updated by itself while this is on. Your schedules and queues are kept.');
-    if (!st) row.querySelector('input').disabled = true; // the same size while the answer is on its way
-    fill(pauseSlot, row);
+    return row;
   }
   function paintBanner(st) {
     fill(bannerSlot, st && st.settings.paused
-      ? h('p.banner.warn', { role: 'status' }, icon('alert', { size: 18 }), h('span', 'All automations are paused. Nothing runs by itself until you turn off "Pause all automations" above.'))
+      ? h('div.banner.warn.au-inline', { role: 'status' }, icon('alert', { size: 18 }), h('span', 'All automations are paused. Nothing runs by itself until you resume them.'),
+        btn('small secondary', { label: 'Resume', onclick: () => setPaused(false).catch(() => {}) }))
       : null);
   }
   function paintContent(st) {
     if (tab === 'schedules') return fill(content, schedulesPart(st, { reload: load, addSchedule }));
     if (tab === 'queue') return fill(content, queuePart(st, load));
-    if (tab === 'rules') return fill(content, rulesPart(st, (next) => { paintBanner(next); }));
+    if (tab === 'rules') return fill(content, rulesPart(st, (next) => { paintBanner(next); }), fold('automations-advanced', 'Advanced', panel({}, pauseRow(st))));
     return activityPart(content, isAlive);
   }
 
@@ -195,20 +193,17 @@ function viewAutomations({ frame, sub }) {
     } catch (e) {
       if (!alive) return;
       if (!cache.get(keyOf())) {
-        paintPause(null);
         fill(content, errorBox(`Could not load the automations: ${e.message}`, load));
       } else toast(`Could not refresh: ${e.message}`, { kind: 'error' });
       return;
     }
     if (!alive) return;
     cache.set(keyOf(), st);
-    paintPause(st);
     paintBanner(st);
     paintContent(st);
   }
 
   const seen = cache.get(keyOf());
-  paintPause(seen || null);
   paintBanner(seen || null);
   if (seen) paintContent(seen);
   else fill(content, loading());
@@ -252,7 +247,7 @@ function schedulesPart(st, { reload, addSchedule }) {
     offBanner,
     groupHead('Schedules', st.schedules.length),
     h('div.rows', list),
-    h('p.hint.au-foot', 'Times are this computer\'s clock. A message waits in the session\'s queue (a chat queues it itself), so it never interrupts Claude. A run missed while the computer was off still runs if it is less than 2 hours late.'),
+    h('p.hint.au-foot', 'Times are this computer\'s clock. A message waits in the session\'s queue (a chat queues it itself), so it never interrupts a reply. A run missed while the computer was off still runs if it is less than 2 hours late.'),
   ];
 }
 
@@ -284,7 +279,7 @@ export function nextRunText(ms, now = Date.now(), timeZone = undefined) {
 
 function scheduleRow(s, reload, timeZone) {
   const mark = savedMark();
-  const sentence = scheduleSentence(s, accountLabel);
+  const line = providerLine((label) => scheduleSentence(s, label));
   const next = !s.enabled ? 'Off' : s.nextAt ? `Next run ${nextRunText(s.nextAt, Date.now(), timeZone)}` : 'Done: it ran once';
   const turn = async (e) => {
     const on = e.target.checked;
@@ -299,7 +294,7 @@ function scheduleRow(s, reload, timeZone) {
     }
   };
   const remove = async () => {
-    if (!(await confirmSheet({ title: 'Remove this schedule?', text: `${s.label ? `${s.label}: ` : ''}${sentence} It will not run again.`, ok: 'Remove', danger: true }))) return;
+    if (!(await confirmSheet({ title: 'Remove this schedule?', text: `${s.label ? `${s.label}: ` : ''}${line.textContent} It will not run again.`, ok: 'Remove', danger: true }))) return;
     try {
       await api('/api/automation/schedules', { op: 'delete', id: s.id });
       toast('Schedule removed');
@@ -311,8 +306,8 @@ function scheduleRow(s, reload, timeZone) {
   return h(`div.row.static.au-sched${s.enabled ? '' : '.off'}`,
     h('span.row-icon', icon('clock')),
     h('div.au-sched-main',
-      h('span.row-title', s.label || sentence, mark),
-      s.label ? h('span.au-sentence-line', sentence) : null,
+      h('span.row-title', s.label || line, mark),
+      s.label ? h('span.au-sentence-line', line) : null,
       h('span.row-sub', next, s.lastAt ? ` · last ran ${ago(s.lastAt)}` : ''),
       h('div.au-sched-actions',
         btn('small ghost', { icon: 'pencil', label: 'Change', onclick: async () => (await scheduleForm(s)) && reload() }),
@@ -446,7 +441,7 @@ async function scheduleForm(old, preset = null) {
               ? h('label.fieldrow', h('span.field-label', 'To the session'),
                 h('select.field', { onchange: (e) => { a.session = e.target.value; paintSentence(); } },
                   [...new Set([a.session, ...claudeSessions].filter(Boolean))].map((n) => h('option', { value: n, selected: n === a.session }, (targets.find(([x]) => x === n) || [n, n])[1]))))
-              : h('p.hint', 'No chat or Claude session is open on this computer. Start one first, or pick "Start a session".'),
+              : h('p.hint', 'No session of a coding tool is open on this computer. Start one first, or pick "Start a session".'),
             h('label.fieldrow', h('span.field-label', 'Message'),
               h('textarea.field', { rows: 2, value: a.text || '', required: true, placeholder: 'run the tests and fix what fails', oninput: (e) => (a.text = e.target.value) })),
           ]);
@@ -505,7 +500,7 @@ function queuePart(st, reload) {
             h('span.row-title', name),
             h('span.row-sub', `${q.count} ${q.count === 1 ? 'message waits' : 'messages wait'}${q.paused ? ' · paused: nothing is sent until you resume' : ' · sent one per finished reply'}`)),
           h('span.row-end', icon('chevronRight', { size: 18 })))))]
-      : emptyState('send', 'Nothing is queued. A queue holds your next messages for a session and sends one each time Claude finishes a reply.'),
+      : emptyState('send', 'Nothing is queued. A queue holds your next messages for a session and sends one each time a reply ends.'),
     h('p.hint.au-foot', 'Tap a session to see, reorder or remove what waits. A session\'s more button (…) has Queue as well.'),
   ];
 }
@@ -529,8 +524,8 @@ async function queueFor(reload) {
     /* the counts are only a help */
   }
   const items = queueChoices(d.sessions || [], queues);
-  if (!items.length) return toast('No Claude session runs on this computer. Start one first.', { kind: 'info' });
-  const name = items.length === 1 ? items[0].value : await chooseSheet({ title: 'Queue a message for', subtitle: 'Sent when Claude finishes its current reply', items });
+  if (!items.length) return toast('No session of a coding tool runs on this computer. Start one first.', { kind: 'info' });
+  const name = items.length === 1 ? items[0].value : await chooseSheet({ title: 'Queue a message for', subtitle: 'Sent when its current reply ends', items });
   if (name) queueSheet(name, reload);
 }
 
@@ -579,14 +574,14 @@ function rulesPart(st, after) {
   return [
     panel({ icon: 'clock', title: 'While you are away', desc: 'Keep the work going when you are not watching.' },
       rule('Send the next queued message', s.queue.enabled, (v) => ({ queue: { enabled: v } }),
-        'Each time Claude finishes a reply, the next message from that session\'s queue is sent.'),
+        'Each time a reply ends, the next message from that session\'s queue is sent.'),
       rule('Try again after a server error', s.retry.enabled, (v) => ({ retry: { enabled: v } }),
-        'When Claude\'s servers are busy or the connection breaks, it waits a little and sends "continue", up to three times; never at a usage limit.'),
+        'In a Claude Code session: when the provider\'s servers are busy or the connection breaks, it waits a little and sends "continue", up to three times; never at a usage limit.'),
       rule('Reopen sessions after a restart', !!st.restoreOn, (v) => ({ restore: { enabled: v } }),
-        'Sessions lost when the computer or the dashboard restarts come back with their conversation; nothing is typed into them.')),
+        'Claude Code sessions lost when the computer or the dashboard restarts come back with their conversation; nothing is typed into them.')),
     panel({ icon: 'settings', title: 'Housekeeping', desc: 'Keep the computer tidy. New versions have a page of their own: Settings → Updates.' },
       rule('Close idle terminals', s.idle.shells, (v) => ({ idle: { shells: v } }),
-        'Closes a plain terminal that nobody uses after it has been quiet for a while; Claude sessions are never closed.', (v) => (idleShells.hidden = !v)),
+        'Closes a plain terminal that nobody uses after it has been quiet for a while; a coding tool\'s session is never closed.', (v) => (idleShells.hidden = !v)),
       idleShells,
       rule('Stop an unused gateway', s.idle.gateway, (v) => ({ idle: { gateway: v } }),
         'Stops an add-on gateway that no session has used for a while, to free memory; it starts again when a session needs it.', (v) => (idleGateway.hidden = !v)),
@@ -699,7 +694,7 @@ function queueSheet(name, after) {
   const base = `/api/automation/queue/${encodeURIComponent(name)}`;
   const list = h('div.rows');
   const pauseBtn = h('button.btn.small.secondary', { type: 'button' }, 'Pause');
-  const input = h('textarea.field', { rows: 3, placeholder: 'What Claude should do next', 'aria-label': 'Message to queue' });
+  const input = h('textarea.field', { rows: 3, placeholder: 'What to do next', 'aria-label': 'Message to queue' });
   const err = h('p.form-error', { role: 'alert' });
   let q = { paused: false, items: [] };
   const op = async (body) => {
@@ -732,7 +727,7 @@ function queueSheet(name, after) {
   }).catch((e) => (err.textContent = e.message));
   paint();
   setTimeout(() => input.focus(), 50); // the message box is what one came for
-  return openSheet({ title: `Queue · ${name}`, subtitle: 'Each time Claude finishes a reply, the next message is sent. It waits while Claude needs your OK, hits a limit or an error.', wide: true }, (close) => [
+  return openSheet({ title: `Queue · ${name}`, subtitle: 'Each time a reply ends, the next message is sent. It waits while the session needs your OK, hits a limit or an error.', wide: true }, (close) => [
     list,
     h('div.mrow-actions', pauseBtn, btn('small ghost', { icon: 'trash', label: 'Clear all', onclick: () => op({ op: 'clear' }) })),
     h('form', {

@@ -96,7 +96,11 @@ for (const kind of kinds) {
     t.after(async () => {
       await app.close();
       // tmux sessions outlive the dashboard on purpose; the test's own tmux server must not.
-      if (kind === 'tmux') spawnSync('tmux', ['-L', socket, 'kill-server']);
+      if (kind === 'tmux') {
+        spawnSync('tmux', ['-L', socket, 'kill-server']);
+        // tmux leaves the socket file behind: one more in the shared tmux folder at every run.
+        fs.rmSync(path.join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${process.getuid()}`, socket), { force: true });
+      }
       box.cleanup();
     });
 
@@ -261,6 +265,18 @@ for (const kind of kinds) {
     r = await owner('GET', '/api/assistant');
     assert.equal(r.json.ready.ok, false);
     assert.match(r.json.ready.problem, /turned off/);
+    // Never set (a new computer): off as well, for her calls and on Settings → Tia alike (she costs money).
+    const { enabled: _was, ...unset } = loadConfig().assistant;
+    saveConfig({ assistant: unset });
+    r = await owner('GET', '/api/assistant');
+    assert.equal(r.json.ready.ok, false, 'not on until the owner turns her on');
+    assert.equal((await owner('GET', '/api/assistant/settings')).json.settings.enabled, false);
+    assert.equal((await asTia('POST', '/api/assistant/call', { tool: 'list_sessions', args: {} })).json.code, 'tia-off');
+    // While she is off no token for the owner's own client is made: its calls would all be refused.
+    r = await owner('POST', '/api/assistant/client-token', {});
+    assert.deepEqual([r.status, r.json.code], [409, 'tia-off']);
+    assert.match(r.json.error, /on first/);
+    assert.equal((await owner('GET', '/api/assistant/settings')).json.client, null);
     await owner('POST', '/api/assistant/settings', { enabled: true });
 
     // ---- the owner's own MCP client: a token with the same scope ----

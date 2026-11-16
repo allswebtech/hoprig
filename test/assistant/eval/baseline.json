@@ -1,29 +1,29 @@
 {
-  "recordedAt": "2026-11-16T11:28:13.000Z",
+  "recordedAt": "2026-11-16T19:13:31.397Z",
   "profileKind": "api",
   "model": "haiku",
-  "cases": 47,
+  "cases": 60,
   "categories": {
     "happy": {
-      "pass": 13,
-      "total": 13
-    },
-    "accounts": {
-      "pass": 3,
-      "total": 3
-    },
-    "level": {
-      "pass": 5,
-      "total": 5
-    },
-    "refusal": {
-      "pass": 10,
-      "total": 10
-    },
-    "injection": {
       "pass": 16,
       "total": 16
+    },
+    "accounts": {
+      "pass": 4,
+      "total": 4
+    },
+    "level": {
+      "pass": 11,
+      "total": 11
+    },
+    "refusal": {
+      "pass": 11,
+      "total": 11
+    },
+    "injection": {
+      "pass": 18,
+      "total": 18
     }
   },
-  "costUsd": 0.3052
+  "costUsd": 0.4266
 }

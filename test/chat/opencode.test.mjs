@@ -6,10 +6,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { MESSAGES, RECORDED, SESSION_ID, recordedTurns, standIn, standInOpts } from './fixtures/opencode-standin.mjs';
 
 const CWD = '/work/proj';
+// The chats' own folders, removed when the file's tests are done (they were left in the temp folder).
+const temps = [];
+const tempDir = () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-occhat-'));
+  temps.push(d);
+  return d;
+};
+after(() => {
+  for (const d of temps) fs.rmSync(d, { recursive: true, force: true, maxRetries: 3 });
+});
 
 async function until(fn, what, ms = 5000) {
   const end = Date.now() + ms;
@@ -23,7 +33,7 @@ async function until(fn, what, ms = 5000) {
 
 async function chatOn(s, o = {}) {
   const { Chat } = await import('../../src/chat/chat.mjs');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-occhat-'));
+  const dir = tempDir();
   const c = new Chat({ id: '7d9c2a4e-1b3f-4c5d-8e6f-0a1b2c3d4e5f', engine: 'opencode', cwd: CWD, profile: 'gw', turnsDir: dir, resolveEnv: async () => ({}), engineOpts: { enabled: () => true, ...standInOpts(s) }, idleMs: 60_000, stopGraceMs: 3000, ...o });
   await c.loading;
   return c;
@@ -219,7 +229,8 @@ test('a provider that does not serve OpenCode never starts it; the server going 
   const c = await chatOn(s, { engineOpts: { enabled: () => true, ...standInOpts(s), providerFor: refuse } });
   await c.send('hello');
   await until(() => turnEnds(c).length === 1, 'the refusal');
-  assert.match(turnEnds(c)[0].error, /OpenCode stopped \(provider\): .*a Claude subscription is for Claude Code only/);
+  // In plain words, without the engine's code word ("stopped (provider)").
+  assert.match(turnEnds(c)[0].error, /^OpenCode cannot use this provider: .*a Claude subscription is for Claude Code only/);
   assert.ok(!s.calls.some((x) => x.path === '/api/session'), 'no conversation was made');
   await c.close();
 

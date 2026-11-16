@@ -145,7 +145,7 @@ export function createHeader(o) {
      * the page's .chat-closed hides them).
      */
     closed(title) {
-      if (title) fill(titleText, title);
+      fill(titleText, title || 'Closed chat'); // never "New chat" for one that is gone
       titleBtn.disabled = true;
       titleBtn.removeAttribute('aria-label');
       titleBtn.title = '';

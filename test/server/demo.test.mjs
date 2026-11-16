@@ -68,6 +68,47 @@ test('demo: free port, own temp folder, one-time sign-in link, sample data, clea
     assert.equal(code.certificate, 'own');
     assert.match(code.command, new RegExp(`^hoprig join https://203\\.0\\.113\\.10 ${code.code} --fingerprint sha256:[A-Za-z0-9_-]{43}$`));
     assert.match(code.note, /fingerprint/);
+    // A chat (src/demo/chat.mjs): it edits a file with a diff and waits for the OK to run the tests; the file really
+    // changed, so the editor's Source Control has it too.
+    const get = async (p) => (await fetch(`${url}${p}`, { headers: auth })).json();
+    let chat = null;
+    for (let i = 0; i < 80 && !(chat && chat.status === 'attention'); i++) {
+      chat = (await get('/api/chats')).chats.find((c) => c.title === 'Fix the cart total with a discount') || null;
+      if (!chat || chat.status !== 'attention') await new Promise((r) => setTimeout(r, 250));
+    }
+    assert.equal(chat && chat.status, 'attention', `the chat waits for an OK: ${JSON.stringify(chat)}`);
+    assert.match(chat.short, /^~\/Workspace\/projects\/shop-frontend$/);
+    const events = (await get(`/api/chats/${chat.chatId}?from=0`)).events;
+    assert.ok(events.some((e) => e.kind === 'tool' && e.name === 'Edit'), 'an edit');
+    assert.ok(events.some((e) => e.kind === 'ask' && /npm test/.test(JSON.stringify(e))), 'the OK it waits for: npm test');
+    const cart = fs.readFileSync(path.join(root, 'home', 'Workspace', 'projects', 'shop-frontend', 'src', 'cart.js'), 'utf8');
+    assert.match(cart, /return Math\.round\(sum \* \(1 - discount\) \* 100\) \/ 100;/, 'the file changed on disk');
+    // OpenCode as a second coding tool: on, its version from the package file; its program runs nothing.
+    const tools = await get('/api/codetools');
+    const oc = (tools.tools || tools).find((t) => t.id === 'opencode');
+    assert.equal(oc.on, true);
+    assert.equal(oc.installed, '2.3.0');
+    // A chat of it says in one plain line that it does not run in the demo: no server log, no code word.
+    const shop = path.join(root, 'home', 'Workspace', 'projects', 'shop-frontend');
+    const made = await (await fetch(`${url}/api/chats`, { method: 'POST', headers: auth, body: JSON.stringify({ dir: shop, tool: 'opencode', text: 'hello' }) })).json();
+    assert.ok(made.id, JSON.stringify(made));
+    let end = null;
+    for (let i = 0; i < 80 && !end; i++) {
+      end = (await get(`/api/chats/${made.id}?from=0`)).events.find((e) => e.kind === 'turn-end') || null;
+      if (!end) await new Promise((r) => setTimeout(r, 250));
+    }
+    assert.equal(end && end.error, 'OpenCode could not start: OpenCode does not run in the demo. On your own computer it runs as Claude Code does here.');
+    // A chat in another project gets the short demo reply, never the cart story (no cart there).
+    const api = path.join(root, 'home', 'Workspace', 'projects', 'api-server');
+    const other = await (await fetch(`${url}/api/chats`, { method: 'POST', headers: auth, body: JSON.stringify({ dir: api, tool: 'claude', profile: 'max', text: 'hello' }) })).json();
+    assert.ok(other.id, JSON.stringify(other));
+    let evs = [];
+    for (let i = 0; i < 80 && !evs.some((e) => e.kind === 'turn-end'); i++) {
+      evs = (await get(`/api/chats/${other.id}?from=0`)).events;
+      if (!evs.some((e) => e.kind === 'turn-end')) await new Promise((r) => setTimeout(r, 250));
+    }
+    assert.ok(evs.some((e) => e.kind === 'text' && /This chat talks to no model/.test(e.text)), JSON.stringify(evs));
+    assert.ok(!evs.some((e) => e.kind === 'tool'), 'no Read, no Edit, no OK of a cart that is not there');
 
     await hooks.stop();
     assert.equal(fs.existsSync(root), false, 'its folder is removed');
@@ -104,11 +145,14 @@ test('demo: every coding tool\'s own folder is inside the demo, so its brain lin
   const { toolHomes } = await import('../../src/workspace/link.mjs');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-iso-'));
   try {
-    const env = { HOME: '/real/home', XDG_CONFIG_HOME: '/real/home/.config', OPENCODE_CONFIG_DIR: '/real/oc', CODEX_HOME: '/real/codex', PATH: '/usr/bin' };
+    const env = { HOME: '/real/home', XDG_CONFIG_HOME: '/real/home/.config', OPENCODE_CONFIG_DIR: '/real/oc', CODEX_HOME: '/real/codex', PATH: '/usr/bin', HOPRIG_RUN_FILE: '/real/run', GH_TOKEN: 'x', GITHUB_TOKEN: 'x' };
     const home = isolate(root, env);
     const homes = toolHomes(env.HOME, env);
     for (const dir of Object.values(homes)) assert.ok(dir.startsWith(home + path.sep), dir);
     assert.equal(env.OPENCODE_CONFIG_DIR, undefined);
+    // Nothing of the session that started the demo, and no real GitHub sign-in.
+    assert.deepEqual([env.HOPRIG_RUN_FILE, env.GH_TOKEN, env.GITHUB_TOKEN], [undefined, undefined, undefined]);
+    assert.ok(env.GH_CONFIG_DIR.startsWith(home + path.sep));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

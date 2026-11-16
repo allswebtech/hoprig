@@ -5,9 +5,10 @@
 //
 //   read (L0)        projects, the brain, the setup check, automations, installed / suggested / found skills
 //   act (L1)         sync that only fetches and fast-forwards, rename a computer, review a skill, pause automations,
-//                    queue a message (typing rules as for send_to_session), start an add-on
+//                    queue a message (typing rules as for send_to_session), start an add-on, look for updates again
 //   confirm (L2)     new / get project, add a repository, install a project's dependencies, create workspace
-//                    folders, add a computer by SSH, fix one setup check, set up a computer, update Claude Code,
+//                    folders, add a computer by SSH, fix one setup check, set up a computer, install or update a coding
+//                    tool (or Hoprig, the tunnel helper), turn a coding tool on or off (codingtools.mjs),
 //                    end a process, reboot / power off, install / stop an add-on, schedules, rules, resume
 //                    automations, install / update / remove a skill, draft a procedure
 //   not by chat (L3) remove a computer, add one by pairing code, providers' sign-ins (sign in, sign out, another
@@ -17,6 +18,7 @@
 import { arr, bool, int, obj, ref, str } from './schema.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
 import { NAME, actionTool, comp, computer, folder, minsAgo, session, sessKey, short, toolError, typedTextRisk } from './toolkit.mjs';
+import { CODING_TOOL_ACTIONS, CODING_TOOL_FIELDS } from './codingtools.mjs';
 
 const at = (c, id) => `${c}|${id}`;
 const project = ref('project', str({ max: 100, pattern: NAME, desc: 'Project id from list_projects.' }));
@@ -193,7 +195,7 @@ async function computerRow(ops, c) {
 
 export const manage_computer = actionTool({
   name: 'manage_computer',
-  description: 'Act on a computer: add one by SSH (user@host), rename it, update Claude Code, fix one setup check or set it up (it runs as a job, output on that computer\'s Setup page; when it needs the administrator password nothing starts and the owner runs it there), end a process, install / start / stop / update an add-on, turn its public link on or off (on opens its sign-in page to the internet), reboot or power off. Removing a computer or adding one by pairing code is the owner\'s own step (open_screen).',
+  description: 'Act on a computer: add one by SSH (user@host), rename it; its coding tools and Settings → Updates: check_updates (look again for newer versions), update (one item, or install a missing coding tool, which also turns it on; item "all" updates everything that can be), coding_tool (turn: on or off; which coding tools new sessions and chats offer); fix one setup check or set it up (it runs as a job, output on that computer\'s Setup page; when it needs the administrator password nothing starts and the owner runs it there), end a process, install / start / stop / update an add-on, turn its public link on or off (on opens its sign-in page to the internet), reboot or power off. Removing a computer or adding one by pairing code is the owner\'s own step (open_screen).',
   fields: {
     ssh_target: str({ max: 300, pattern: /^(?:ssh:\/\/)?(?:[A-Za-z0-9._][A-Za-z0-9._+-]{0,63}@)?[A-Za-z0-9_[][A-Za-z0-9._:\]-]{0,252}$/, desc: 'add: user@host.' }),
     name: str({ max: 32, pattern: /^[a-z0-9][a-z0-9_-]{0,31}$/, desc: 'add: the short name to use.' }),
@@ -204,8 +206,9 @@ export const manage_computer = actionTool({
     force: bool({ desc: 'end_process: SIGKILL instead of SIGTERM.' }),
     addon: str({ max: 31, pattern: ADDON, desc: 'addon: the add-on id (get_computer_status with settings: true shows them).' }),
     addon_action: str({ enum: ['install', 'update', 'start', 'stop'] }),
-    turn: str({ enum: ['on', 'off'], desc: 'public_link: on or off.' }),
+    turn: str({ enum: ['on', 'off'], desc: 'public_link, coding_tool: on or off.' }),
     link_kind: str({ enum: ['temporary', 'custom'], desc: 'public_link: temporary (a new address at each start, nothing to set up) or custom (the owner\'s own domain, set up in Settings → Public link); default: the kind chosen before.' }),
+    ...CODING_TOOL_FIELDS,
   },
   actions: {
     add: {
@@ -231,18 +234,7 @@ export const manage_computer = actionTool({
         return { summary: `${comp(a)} is now shown as "${short(a.label, 40)}".`, data: { computer: comp(a) } };
       },
     },
-    update_claude_code: {
-      level: 'L2',
-      before: async (ops, a) => {
-        const s = await ops.computerStatus({ computer: comp(a) });
-        return { computer: comp(a), version: (s.claude && s.claude.version) || null };
-      },
-      cardLines: (a, b) => [`Update Claude Code on ${comp(a)} from ${b.version || 'unknown'} to the latest version`, 'Running sessions keep their version until they start again.'],
-      async run(ops, a) {
-        await ops.updateClaude({ computer: comp(a) });
-        return { summary: `The Claude Code update on ${comp(a)} started.`, data: { computer: comp(a), started: true } };
-      },
-    },
+    ...CODING_TOOL_ACTIONS,
     setup_fix: {
       level: 'L2',
       need: ['check'],
@@ -662,7 +654,7 @@ const typedLevel = (text, f, tia, base) => {
 
 export const manage_automation = actionTool({
   name: 'manage_automation',
-  description: 'The Automations page: list (settings, rules, schedules with their next run, queued messages, recent activity); add / change / delete a schedule (it starts a chat or a terminal session, or writes to one, at a time); turn a rule on or off (also the workspace upkeep: map, commit map, sync, push); how often the workspace is kept in step; pause all automations or resume them; queue a message for a session (typed when it next waits) or clear its queue.',
+  description: 'The Automations page: list (settings, rules, schedules with their next run, queued messages, recent activity); add / change / delete a schedule (it starts a chat or a terminal session, or writes to one, at a time; a schedule the owner asks for is a new one, even beside a similar one, and change_schedule is only for the one he asked to change); turn a rule on or off (also the workspace upkeep: map, commit map, sync, push); how often the workspace is kept in step; pause all automations or resume them; queue a message for a session (typed when it next waits) or clear its queue.',
   fields: {
     schedule: scheduleRef,
     time: str({ max: 5, pattern: /^([01]\d|2[0-3]):[0-5]\d$/, desc: 'HH:MM, 24-hour.' }),

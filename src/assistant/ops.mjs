@@ -129,8 +129,9 @@ export function createOps(o) {
     async capture({ computer, session, lines = 60 }) {
       return (await get(computer, `/api/sessions/${enc(session)}/history?lines=${lines}`)).text || '';
     },
-    startSession: ({ computer, folder, profile, mode, sessionId, prompt }) =>
-      post(computer, '/api/sessions', { dir: dir(computer, folder), profile, mode, ...(sessionId ? { sessionId } : {}), ...(prompt ? { prompt } : {}) }).then((r) => {
+    // tool: the coding tool (left out: Claude Code); the computer checks it is on and installed.
+    startSession: ({ computer, folder, profile, mode, sessionId, prompt, tool }) =>
+      post(computer, '/api/sessions', { dir: dir(computer, folder), ...(tool ? { tool } : {}), profile, mode, ...(sessionId ? { sessionId } : {}), ...(prompt ? { prompt } : {}) }).then((r) => {
         ctx.poke?.(); // the watcher looks soon, so a job sees the session start working
         return r;
       }),
@@ -140,8 +141,8 @@ export function createOps(o) {
     killSession: ({ computer, session }) => post(computer, `/api/sessions/${enc(session)}/kill`, {}),
     switchAccount: ({ computer, session, profile }) => post(computer, `/api/sessions/${enc(session)}/switch`, { profile }),
     // ---- chats (src/chat; a chat is "chat:<id>" among the sessions) ----
-    startChat: ({ computer, folder, profile, sessionId, text }) =>
-      post(computer, '/api/chats', { dir: dir(computer, folder), profile, ...(sessionId ? { sessionId } : {}), ...(text ? { text } : {}), defaults: true, byTia: true }).then((r) => {
+    startChat: ({ computer, folder, profile, sessionId, text, tool }) =>
+      post(computer, '/api/chats', { dir: dir(computer, folder), ...(tool ? { tool } : {}), profile, ...(sessionId ? { sessionId } : {}), ...(text ? { text } : {}), defaults: true, byTia: true }).then((r) => {
         ctx.poke?.();
         return r;
       }),
@@ -151,6 +152,7 @@ export function createOps(o) {
     }),
     answerChat: ({ computer, id, request, allow, always }) => post(computer, `/api/chats/${enc(id)}/answer`, { request, allow, always }),
     stopChat: ({ computer, id }) => post(computer, `/api/chats/${enc(id)}/stop`, {}),
+    moveChat: ({ computer, id, profile }) => post(computer, `/api/chats/${enc(id)}/provider`, { profile }),
 
     // ---- folders and projects ----
     async recentFolders({ computer }) {
@@ -219,6 +221,12 @@ export function createOps(o) {
     setupFix: ({ computer, id }) => post(computer, '/api/pcsetup/fix', { id }),
     setUp: ({ computer, kits }) => post(computer, '/api/pcsetup/setup', { kits }),
     updateClaude: ({ computer }) => post(computer, '/api/claude/update', {}),
+    // The coding tools (src/codetools/feature.mjs) and Settings → Updates (src/automation/feature.mjs, updater.mjs).
+    codingTools: ({ computer }) => get(computer, '/api/codetools'),
+    setCodingTool: ({ computer, id, on }) => post(computer, `/api/codetools/${enc(id)}`, { on: on === true }),
+    updates: ({ computer }) => get(computer, '/api/updates'),
+    checkUpdates: ({ computer }) => post(computer, '/api/updates/check', {}),
+    runUpdate: ({ computer, id }) => post(computer, '/api/updates/run', { id }),
     killProcess: ({ computer, pid, signal }) => post(computer, '/api/pc/kill', { pid, signal: signal === 'KILL' ? 'KILL' : 'TERM' }),
     power: ({ computer, action }) => post(computer, '/api/pc/power', { action, confirm: action }),
     addComputer: async ({ sshTarget, name }) => ({ name: (await post(LOCAL, '/api/machines/ssh', { target: sshTarget, ...(name ? { name } : {}) })).machine.name }),

@@ -34,9 +34,12 @@ function entryList(entries, after) {
 }
 
 /** "Claude Code and OpenCode read": the coding tools of these entries, with the verb that fits. */
+/** "Claude Code and OpenCode": the coding tools these links are for. */
+export const toolNames = (entries) => [...new Set(entries.flatMap(toolsOf))].map(toolName).join(', ').replace(/, ([^,]*)$/, ' and $1') || 'your coding tools';
 const whoReads = (entries) => {
-  const ids = [...new Set(entries.flatMap(toolsOf))];
-  return `${ids.map(toolName).join(', ').replace(/, ([^,]*)$/, ' and $1') || 'Your coding tools'} read${ids.length === 1 ? 's' : ''}`;
+  const n = new Set(entries.flatMap(toolsOf)).size;
+  const who = toolNames(entries);
+  return `${who[0].toUpperCase()}${who.slice(1)} read${n === 1 ? 's' : ''}`;
 };
 
 /**
@@ -84,8 +87,8 @@ export async function linkBrainSheet(after = () => {}, { prefix = '' } = {}) {
 
 /**
  * The note with the "Link now" button, for any page: empty while it loads and when there is nothing to link (no
- * brain, everything linked, an older computer). `only`: link ids to look at (e.g. ['skills'] on Skills); `text(plan)`
- * the sentence; `after()` once it linked. `prefix` as above.
+ * brain, everything linked, an older computer). `only`: kinds of link to look at, for every coding tool (['skills'] on
+ * Skills also takes OpenCode's "opencode:skills"); `text(todo)` the sentence; `after()` once it linked. `prefix` as above.
  */
 export function linkBrainNote({ only = null, text = null, after = () => {}, prefix = '' } = {}) {
   const box = h('div.bl-note-slot');
@@ -96,7 +99,7 @@ export function linkBrainNote({ only = null, text = null, after = () => {}, pref
     } catch {
       return fill(box); // an older computer without the route, or no brain: nothing to offer
     }
-    const todo = plan.entries.filter((e) => !LEFT.includes(e.action) && (!only || only.includes(e.id)));
+    const todo = plan.entries.filter((e) => !LEFT.includes(e.action) && (!only || only.includes(String(e.id).split(':').pop())));
     if (!plan.brain || !todo.length) return fill(box);
     const said = text ? text(todo) : todo.every((e) => toolsOf(e).join() === 'claude')
       ? `Claude Code does not read ${todo.map((e) => e.what).join(', ').replace(/, ([^,]*)$/, ' and $1')} from the AI brain yet.`
@@ -121,11 +124,11 @@ const STATE = {
 };
 
 /**
- * A coding tool's links still to make, counted and named from the same entries (the server's count is of these):
- * "Not linked yet: 2 links to make (rules, memory), 1 in the way".
+ * A coding tool's links still to make, counted and named by their short names (the server's count is of these):
+ * "Not linked yet: 4 links to make (rules, skills, settings, memory note), 1 in the way".
  */
 export function todoWords(t, entries = []) {
-  const todo = entries.filter((e) => (e.tools || []).includes(t.id) && !['already', 'conflict'].includes(e.action) && !e.error).map((e) => e.what);
+  const todo = entries.filter((e) => (e.tools || []).includes(t.id) && !['already', 'conflict'].includes(e.action) && !e.error).map((e) => e.short || e.what);
   const n = todo.length || t.todo;
   return `Not linked yet: ${n} link${n === 1 ? '' : 's'} to make${todo.length ? ` (${todo.join(', ')})` : ''}${t.left ? `, ${t.left} in the way` : ''}`;
 }

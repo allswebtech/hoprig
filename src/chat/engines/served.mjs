@@ -81,7 +81,7 @@ export const rememberModels = (name, list) => modelCache.set(name, { at: Date.no
  */
 export async function onServer(tool, profile, o = {}) {
   const r = await (o.ensure || ensureServer)(tool, { need: profile.name });
-  if (!r || !r.ok) throw fail(409, `OpenCode's server cannot be used: ${(r && r.why) || 'it did not start'}`);
+  if (!r || !r.ok) throw fail(409, (r && r.why) || 'its server did not start'); // the reason says the tool's name
   const prov = (o.providers || serverProviders)(tool, [profile])[0];
   if (!prov) throw fail(400, `the provider "${profile.name}" has no key for OpenCode`);
   // Held from now on. The upkeep that stops an unused server leaves it alone meanwhile: the ask above made it fresh.

@@ -254,6 +254,12 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
   ];
   assert.equal(todoWords({ id: 'claude', todo: 2, left: 1 }, entries), 'Not linked yet: 2 links to make (rules, memory), 1 in the way');
   assert.equal(todoWords({ id: 'opencode', todo: 1, left: 0 }, entries), 'Not linked yet: 1 link to make (memory)');
+  // Short names where the server gives them: a count of words, not a run-on list of long phrases.
+  const short = [{ tools: ['opencode'], what: 'a line in OpenCode\'s settings that names Claude Code\'s rules folder and each project\'s memory index', short: 'settings', action: 'link' }, { tools: ['opencode'], what: 'the rules OpenCode gets everywhere', short: 'rules', action: 'link' }];
+  assert.equal(todoWords({ id: 'opencode', todo: 2, left: 0 }, short), 'Not linked yet: 2 links to make (settings, rules)');
+  const { toolNames } = await import('../../web/brainlink.js');
+  assert.equal(toolNames([{ tools: ['claude'] }, { tools: ['opencode'] }]), 'Claude Code and OpenCode', 'the Skills banner names every coding tool it links');
+  assert.equal(toolNames([{ tool: 'claude' }]), 'Claude Code');
   const { when, indexOrder } = await import('../../web/brain.js');
   assert.match(when(new Date(Date.now() - 3 * 86400_000).toISOString()), /^3 d/, 'an ISO date from the route');
   assert.match(when(Date.now() - 3 * 86400_000), /^3 d/);
@@ -487,7 +493,7 @@ test('wording: "provider" and "computer" in everything a visitor reads; Auto mod
   assert.match(accounts, /'Stop and ask me'/);
   assert.match(accounts, /Work continues on the next provider in the order below, without you doing anything\. This is called Auto mode\./);
   assert.match(accounts, /On an API provider the session goes on without stopping\./);
-  assert.match(accounts, /On another subscription, Claude restarts on that provider/);
+  assert.match(accounts, /On another subscription, Claude Code restarts on that provider/);
   const { subscriptionsNote, manySubscriptions } = await import('../../web/lib.js');
   const sub = (n) => ({ name: n, kind: 'subscription' });
   assert.equal(manySubscriptions([sub('a'), { name: 'api', kind: 'api' }]), false);
@@ -853,7 +859,7 @@ test('new session: a folder where a session runs opens that session, one where a
   const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
   assert.doesNotMatch(src, /role: 'radiogroup', 'aria-label': 'Work in'/, 'no Terminal | Chat switch at the top');
   // One row under Options: a chat, the coding tool in a terminal (Claude Code unless another is chosen), a plain shell.
-  assert.match(src, /\['chat', 'A chat \(the default\)'\], \['claude', `\$\{toolName\(\)\} in a terminal`\], \['shell', `A plain terminal, without \$\{tool === 'claude' \? 'Claude' : toolName\(\)\}`\]/, 'one row under Options');
+  assert.match(src, /\['chat', 'A chat \(the default\)'\], \['claude', `\$\{toolName\(\)\} in a terminal`\], \['shell', `A plain terminal, without \$\{toolName\(\)\}`\]/, 'one row under Options');
   assert.match(src, /const toolNow = \(\) => st\.tool \|\| 'claude';/, 'Claude Code where none is chosen');
   assert.match(src, /const toolName = \(id = toolNow\(\)\) => TOOL_NAMES\[id\] \|\| id;/);
 });
@@ -861,10 +867,14 @@ test('new session: a folder where a session runs opens that session, one where a
 test('new session: repositories by their own name, and a path only where it says more than the name', async () => {
   const { folderSub, repoWords } = await import('../../web/newsession.js');
   assert.deepEqual(repoWords('code/bookshop-api', 'bookshop'), { name: 'bookshop-api', sub: 'repository in bookshop' });
-  assert.deepEqual(repoWords('.', 'bookshop'), { name: 'bookshop', sub: 'project' });
-  assert.equal(folderSub({ name: 'shop', short: '~/Workspace/projects/shop' }, '~/Workspace/projects'), 'project');
+  assert.deepEqual(repoWords('.', 'bookshop'), { name: 'bookshop', sub: null }, 'a project\'s own folder: its name, no second line');
+  assert.equal(folderSub({ name: 'shop', short: '~/Workspace/projects/shop' }, '~/Workspace/projects'), null, 'no "project" under every row');
   assert.equal(folderSub({ name: 'tool', short: '~/src/tool' }, '~/Workspace/projects'), '~/src/tool');
   assert.equal(folderSub({ name: 'x', short: '~/x' }, null), '~/x', 'projects folder not known: the path');
+  const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
+  assert.match(src, /sub \? h\('span\.row-sub', sub\) : null/, 'a row without a second line draws none');
+  // On a phone the computers and the coding tools sit two to a row, so the first project is in the first screen.
+  assert.match(fs.readFileSync(path.join(WEB, 'page-projects.css'), 'utf8'), /@media \(max-width: 520px\) \{\n\s+\.ns-pcs \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
 });
 
 test('Home cards: the pill leaves out what the heading says; the folder only when it is not projects/<name>', async () => {
@@ -917,4 +927,14 @@ test('a chat that is not open any more: its page\'s keys go with it (Esc would s
   const page = fs.readFileSync(path.join(WEB, 'chat', 'page.js'), 'utf8');
   const gone = page.slice(page.indexOf('function gone('), page.indexOf('const unfollow = follow('));
   assert.match(gone, /\bunkeys\(\)/, 'gone() removes the page\'s key handler');
+});
+
+test('a chat that is not open any more is never a dead end, and its head never says "New chat"', () => {
+  const page = fs.readFileSync(path.join(WEB, 'chat', 'page.js'), 'utf8');
+  const gone = page.slice(page.indexOf('function gone('), page.indexOf('const unfollow = follow('));
+  assert.match(gone, /was && was\.terminal \? h\('a\.btn\.primary', \{ href: link\(`#\/s\/\$\{encodeURIComponent\(was\.terminal\)\}`\) \}/, 'the terminal it went to');
+  assert.match(gone, /'Continue in a new chat'/);
+  assert.match(gone, /again\(true\)\ }, icon\('plus', \{ size: 18 \}\), h\('span', 'New chat in this folder'\)/, 'nothing was said in it: a new chat in its folder');
+  assert.match(gone, /const lead = term \|\| go;/, 'one primary button');
+  assert.match(fs.readFileSync(path.join(WEB, 'chat', 'header.js'), 'utf8'), /fill\(titleText, title \|\| 'Closed chat'\);/);
 });

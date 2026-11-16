@@ -109,7 +109,7 @@ export function onboardingSteps(f) {
       action: f.tools.missing.length ? page('pc/setup') : null,
     },
     {
-      id: 'rules', title: 'Working rules for Claude', optional: false, done: !!f.rules.installed,
+      id: 'rules', title: 'Working rules', optional: false, done: !!f.rules.installed,
       detail: f.rules.installed ? `${f.rules.edited ? 'your edited copy' : 'added'}` : 'a good set of rules, yours to edit',
       action: f.rules.installed ? null : { kind: 'request', method: 'POST', path: '/api/pcsetup/rules', body: { action: 'add' } },
     },
@@ -119,7 +119,7 @@ export function onboardingSteps(f) {
       action: f.projects.length ? null : page('pc/projects'),
     },
     {
-      id: 'skills', title: 'Skills for Claude', optional: false, done: f.skills.length > 0,
+      id: 'skills', title: 'Skills', optional: false, done: f.skills.length > 0,
       detail: f.skills.length ? `${f.skills.length} that Claude Code uses` : 'none yet: the one that comes with Hoprig is a good start',
       action: f.skills.length ? null : page('settings/skills'),
     },

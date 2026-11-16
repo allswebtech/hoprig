@@ -193,7 +193,9 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   // ---- open in a terminal: the chat closes, a terminal session resumes the conversation ----
   const opened = await owner('POST', `/api/chats/${id}/terminal`, {});
   assert.equal(opened.status, 200);
-  assert.equal((await owner('GET', `/api/chats/${id}`)).status, 404, 'the chat is closed');
+  const handed = await owner('GET', `/api/chats/${id}`);
+  assert.equal(handed.status, 404, 'the chat is closed');
+  assert.equal(handed.json.closed.terminal, opened.json.name, 'its page can open the terminal it went to');
   const resumed = await until('the terminal session', async () => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === opened.json.name && s.kind === 'claude'));
   assert.equal(resumed.sessionId, id, 'the same conversation');
 

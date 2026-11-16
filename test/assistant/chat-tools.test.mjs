@@ -114,6 +114,11 @@ test('start_chat: an allowed provider picked by her, a job, then her own chat\'s
   assert.equal(start.args.text, 'fix the failing test');
   const name = /Started chat (chat:\S+) /.exec(r.text)[1];
   assert.match(r.text, /Job j_[0-9a-f]{10} watches it/);
+  // The owner knows the provider by its label: it comes in the fenced data, and the summary only points there.
+  const label = baseState().profiles.find((p) => p.name === start.args.profile).label;
+  assert.match(r.text, /name it to the owner by its label \(account_label in the data\)/);
+  assert.ok(r.text.indexOf(`"account_label":"${label}"`) > r.text.indexOf('<untrusted_data'), 'the label is in the fenced data');
+  assert.ok(!r.text.slice(0, r.text.indexOf('<untrusted_data')).includes(label), 'the label is not in the summary');
   assert.ok(core.jobs.forSession('this', name), 'the job watches the chat');
   const card = ops.s.sessions.find((x) => x.name === name);
   assert.ok(card.created > 0);
@@ -264,10 +269,15 @@ test('her own OpenCode chat\'s OK is always the owner\'s, even a harmless comman
     return call('send_to_chat', { session: name, answer: 'allow' });
   };
   // What she would answer at once in a chat of Claude Code (npm test is on her short list; reading a file in the
-  // folder too) is a card here, for the reason that she cannot judge it, not for one of the list's.
-  assert.match((await judge('shell', { command: 'npm test', description: 'Run the tests' }, 'shell')).text, cannotJudge);
-  assert.match((await judge('write', { path: `${cwd}/notes.txt`, content: 'x' }, 'edit')).text, cannotJudge);
-  assert.match((await judge('read', { path: `${cwd}/README.md` }, 'read')).text, cannotJudge);
+  // folder too) is a card here, for the reason that it is another coding tool's OK (the policy's first rule for it,
+  // whatever the engine marks), not for one of the list's.
+  const otherTool = /Waiting for the owner's OK.*OpenCode asks for this OK: only Claude Code's own OKs are Tia's to answer/s;
+  assert.match((await judge('shell', { command: 'npm test', description: 'Run the tests' }, 'shell')).text, otherTool);
+  assert.match((await judge('write', { path: `${cwd}/notes.txt`, content: 'x' }, 'edit')).text, otherTool);
+  assert.match((await judge('read', { path: `${cwd}/README.md` }, 'read')).text, otherTool);
+  // Even a card that says "known" (a later engine that marks its calls) does not make it hers.
+  Object.assign(card.ask, { known: true, judged: { command: 'npm test' }, tool: 'Bash', subject: 'npm test' });
+  assert.match((await call('send_to_chat', { session: name, answer: 'allow' })).text, otherTool);
   assert.deepEqual(ops.calls.filter((c) => c.op === 'answerChat'), [], 'she answered none');
   // Saying no is never held back, as in any chat of hers.
   assert.equal((await call('send_to_chat', { session: name, answer: 'deny' })).isError, false);

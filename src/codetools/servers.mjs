@@ -22,7 +22,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { stateDir } from '../paths.mjs';
+import { stateDir, tilde } from '../paths.mjs';
 import { AUTH_VARS, listProfiles, servesTools } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { codex } from './codex.mjs';
@@ -355,7 +355,8 @@ async function start(tool, provs, { bin, base, fetchImpl, spawnImpl }) {
   }
   writeState(tool, s);
   await stopLocked(tool);
-  return { ok: false, why: `${DESCRIPTOR[tool].name}'s server did not start (its log: ${logFile(tool)})` };
+  // Said where the owner reads it (a chat's error): what to look at next, and where the server's own words are.
+  return { ok: false, why: `${DESCRIPTOR[tool].name}'s server did not start. Check under Settings → Coding tools that it is installed and up to date; what it said is in ${tilde(logFile(tool))}` };
 }
 
 // The server belongs to the computer, not to the terminal that happened to start it first: the built-in terminals

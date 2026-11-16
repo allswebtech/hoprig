@@ -30,6 +30,7 @@ import { FIRST_CALL, LOCAL, ShownIds } from './shown.mjs';
 import { Skills } from './skills.mjs';
 import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, chooseAccount, freePct, resolveTia, servesTool } from './tia.mjs';
 import { ToolError, TOOL_NAMES, byName, statusOf } from './tools.mjs';
+import { toolName } from './toolkit.mjs';
 import { wakeMessage } from './jobs.mjs';
 
 const SESSION_TOOLS = new Set(['send_to_session', 'send_to_chat', 'switch_account', 'stop_session']);
@@ -118,7 +119,8 @@ export function createAssistantCore({
     if (args.session && baseLevel(tool, args) !== 'L0') {
       const list = await ops.listSessions({ computer: args.computer || LOCAL });
       const c = list.find((x) => x.name === args.session && (x.computer || LOCAL) === (args.computer || LOCAL));
-      if (c) f.session = { status: statusOf(c), note: c.note || '', account: c.profile ? c.profile.name : null, cwd: c.cwd || null, screen: '', tool: toolOf(c) };
+      // codingTool: the session's coding tool (a provider that moves it must serve it); tool, below: the call an OK is about.
+      if (c) f.session = { status: statusOf(c), note: c.note || '', account: c.profile ? c.profile.name : null, cwd: c.cwd || null, screen: '', codingTool: toolOf(c) || 'claude', tool: null };
       // A chat (src/chat) has no screen: its card carries the OK it waits for, with what it is really about (the
       // whole command or path, not the model's label of it), whether the chat keeps it for the owner, and its request
       // id (send_to_chat answers that one and no other).
@@ -148,10 +150,11 @@ export function createAssistantCore({
     return f;
   }
 
-  /** start_session / switch_account: fill in the account (Tia's choice when none is named) and its facts. */
+  /** start_session / start_chat / switch_account: fill in the account (Tia's choice when none is named) and its facts. */
   async function pickAccount(tool, args, f, tia) {
     const accounts = await ops.accounts({ computer: args.computer || LOCAL });
-    const need = (f.session && f.session.tool) || 'claude'; // the coding tool the provider must serve
+    // The coding tool the provider must serve: the one a start names (else Claude Code), or the moving session's own.
+    const need = args.coding_tool || (f.session && f.session.codingTool) || 'claude';
     let why = null;
     if (!args.account) {
       const current = f.session && f.session.account;
@@ -164,9 +167,9 @@ export function createAssistantCore({
     }
     const p = args.account === 'auto' ? { name: 'auto', kind: 'auto' } : (accounts.profiles || []).find((x) => x.name === args.account);
     if (!p) throw new ToolError(`there is no provider "${args.account}"`, 'call get_accounts for the names, or leave account out');
-    // A new session or chat of hers runs Claude Code; a session that moves stays in its coding tool.
-    if (!servesTool(p, need)) throw new ToolError(`the provider "${p.name}" does not serve ${need === 'claude' ? 'Claude Code' : need}`, `pick a provider whose tools in get_accounts include ${need}, or leave account out`);
-    f.account = { name: p.name, kind: p.kind, allowed: tia.allowed.includes(p.name), why };
+    // A new session or chat runs the coding tool it names; a session that moves stays in its coding tool.
+    if (!servesTool(p, need)) throw new ToolError(`the provider "${p.name}" does not serve ${toolName(need)}`, `pick a provider whose tools in get_accounts include ${need}, or leave account out`);
+    f.account = { name: p.name, kind: p.kind, label: p.label || null, allowed: tia.allowed.includes(p.name), why };
     return why;
   }
 
@@ -219,7 +222,7 @@ export function createAssistantCore({
       // What only the dashboard knows for this call (a project's unpublished commits …), for policy.mjs.
       if (tool.facts) f.extra = await tool.facts(ops, args, ctxFor(conversation));
       const accountWhy = tool.pickAccount ? await pickAccount(tool, args, f, tia) : null;
-      const ctx = ctxFor(conversation, { accountWhy, accountKind: f.account ? f.account.kind : null });
+      const ctx = ctxFor(conversation, { accountWhy, accountKind: f.account ? f.account.kind : null, accountLabel: f.account ? f.account.label : null });
       const d = decideLevel(tool, args, f, tia);
       if (d.refuse) {
         log('refused', { error: d.refuse });
@@ -280,7 +283,7 @@ export function createAssistantCore({
         const f = await facts(tool, args);
         await pickAccount(tool, args, f, tia);
         if (!f.account.allowed) throw new Error(`provider ${args.account} is no longer allowed for ${ASSISTANT_NAME}`);
-        ctx = ctxFor(conversation, { accountKind: f.account.kind });
+        ctx = ctxFor(conversation, { accountKind: f.account.kind, accountLabel: f.account.label });
       }
       before = await tool.before(ops, args, ctx);
       ctx.before = before; // what the card showed and the owner confirmed (an answer goes to that OK, no other)

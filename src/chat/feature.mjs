@@ -76,12 +76,15 @@ export function chatFeature(ctx, o = {}) {
   const memory = folderMemory(() => o.foldersFile || path.join(path.dirname(file()), 'chat-folders.json'));
   // Another coding tool's provider is also kept as that tool's own in the folder (src/defaultprovider.mjs): the next
   // chat of the tool there starts on it even after a chat of another tool (Claude Code's is the launcher's to keep).
-  const remember = (c) => {
+  // Only the owner's own choice is kept: not a change Tia makes (her door), nor anything of a chat that is hers (she
+  // moves it to another provider after a limit; the owner's next chat in the folder must not start there).
+  const remember = (c, req) => {
+    if (c.byTia || (req && fromTia(req))) return;
     memory.remember(c.record());
     if (c.engine.id !== 'claude') rememberFolderProvider(c.cwd, c.profile, c.engine.id);
   };
   const chats = new Map();
-  const shut = new Map(); // the chats closed since the start (the last 100): id → { cwd, conversationId, title, tool }
+  const shut = new Map(); // the chats closed since the start (the last 100): id → { cwd, conversationId, title, tool, terminal? }
   let loaded = false;
 
   // ---------- the list of open chats ----------
@@ -346,6 +349,7 @@ export function chatFeature(ctx, o = {}) {
       if (!old) throw new HttpError(409, `${OPEN_MAX} chats are open; close one first`);
       chats.delete(old.id);
       old.close();
+      old.emit('gone'); // its page shows it as not open (live.mjs)
     }
     const c = make({
       id, ...(conversationId && conversationId !== id ? { conversationId } : {}), engine: tool, cwd: dir, profile,
@@ -437,7 +441,7 @@ export function chatFeature(ctx, o = {}) {
       c.answer(b.request, { allow: b.allow, always: b.always === true, answers, mode, message });
       if (mode) {
         save();
-        remember(c);
+        remember(c, req);
       }
       return { ok: true };
     }],
@@ -455,7 +459,7 @@ export function chatFeature(ctx, o = {}) {
       c.setProfile(b.profile, profileView(b.profile).label); // the owner's name for it in the timeline, not its id
       c.emit('state'); // a page that streams shows the new provider
       save();
-      remember(c);
+      remember(c, req);
       return { profile: profileView(c.profile) };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/upload$`), async (req, m) => {
@@ -476,7 +480,9 @@ export function chatFeature(ctx, o = {}) {
       await ctx.readJson(req);
       chats.delete(c.id);
       save();
-      await c.close();
+      const ended = c.close();
+      c.emit('gone'); // closed for good: its page shows it as not open, without asking again (live.mjs)
+      await ended;
       ctx.poke?.();
       return { ok: true };
     }],
@@ -487,8 +493,8 @@ export function chatFeature(ctx, o = {}) {
   const openChatOf = (id) => ([...chats.values()].find((c) => c.conversationId === id) || {}).id || null;
   // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
   const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
-  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn } }));
-  const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
+  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn }, handedTo: (id, name) => shut.has(id) && typeof name === 'string' && (shut.get(id).terminal = name) }));
+  const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView, shutOf: (id) => shut.get(id) || null, openNow: (c) => chats.get(c.id) === c });
   routes.push(...live.routes);
 
   return {
@@ -501,14 +507,6 @@ export function chatFeature(ctx, o = {}) {
     cards() {
       load();
       return [...chats.values()].map(card);
-    },
-    /**
-     * True when a chat runs conversation `id` (of coding tool `tool`, Claude Code when left out) right now: its
-     * process, or one getting ready for a message.
-     */
-    running(id, tool = 'claude') {
-      load();
-      return !!chatOf(id, tool);
     },
     /**
      * Start a terminal on conversation `id` (server.mjs: New session, Tia) with `start()` → { name }, unless something

@@ -3,14 +3,12 @@
 
 
 /* ---------- Pause all, and the banner under the parts ---------- */
-.au-pause { margin: 0 0 10px; padding: 4px 16px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-1); }
-.au-pause .switchrow { border-bottom: 0; min-height: 60px; }
-.au-pause:empty { display: none; }
 .au-banner .banner { margin: 0 0 14px; }
 .au-content { min-height: 240px; }
 .au-loading { min-height: 200px; justify-content: center; }
 .au-inline { align-items: center; flex-wrap: wrap; }
 .au-inline > span { flex: 1 1 220px; }
+@media (pointer: coarse) { .au-inline .btn { min-height: 44px; min-width: 44px; } } /* Resume, with a finger */
 .au-foot { margin-top: 10px; }
 .au-foot-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
 

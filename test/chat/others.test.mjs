@@ -43,13 +43,17 @@ test('Tia: a chat that waits for an OK needs the owner; her terminal tools send 
   const read = await call('read_session', { session: `chat:${ID}` });
   assert.equal(read.isError, false);
   assert.match(read.text, /a chat in the dashboard page/);
-  for (const [tool, args] of [['send_to_session', { text: 'yes' }], ['send_to_session', { key: 'Enter' }], ['stop_session', {}], ['switch_account', { account: 'sub' }]]) {
+  for (const [tool, args] of [['send_to_session', { text: 'yes' }], ['send_to_session', { key: 'Enter' }], ['stop_session', {}]]) {
     const r = await call(tool, { session: `chat:${ID}`, ...args });
     assert.equal(r.isError, true, tool);
     assert.match(r.text, /is a chat in the dashboard page, not a terminal session/, tool);
     assert.match(r.text, /use send_to_chat/, tool);
     assert.ok(!r.card, `${tool}: no card for something that cannot run`);
   }
+  // A chat moves to another provider as a terminal does (switch_account): not hers, so only a card.
+  const move = await call('switch_account', { session: `chat:${ID}` });
+  assert.doesNotMatch(move.text, /not a terminal session/);
+  assert.ok(move.card || move.isError, move.text);
   assert.equal(ops.calls.length, 0, 'nothing was typed or changed');
   assert.ok(!ops.reads.some((x) => x.op === 'capture' && x.args.session === `chat:${ID}`), 'a chat has no screen to read');
 });

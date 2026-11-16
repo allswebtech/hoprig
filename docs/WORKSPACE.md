@@ -4,7 +4,7 @@ One folder tree, the same on every computer. Coding happens inside `projects/`.
 
 ```
 ~/Workspace/
-├── ai_brain/              shared AI knowledge for all projects: the rules Claude gets everywhere, skills,
+├── ai_brain/              shared AI knowledge for all projects: the rules every coding tool gets, skills,
 │                          memory, notes, scripts; its own private git repository
 ├── projects/<project>/    the project's parent: AGENTS.md, ai_brain/ (that project's memory, learnings,
 │   │                      current context), docs, decisions, project.json
@@ -49,7 +49,8 @@ hoprig workspace restore example/ai_brain             # or any git address of yo
 ```
 
 The installer's own setup already asks the second and third question in a terminal; the commands are for doing it
-later or again. Then `hoprig workspace link` makes Claude Code use the brain's rules, skills and home memory.
+later or again. Then `hoprig workspace link` makes every coding tool that is on (Claude Code, and OpenCode when it is
+on) use the brain's rules, skills and memory.
 
 ## The map: every repository in one file
 

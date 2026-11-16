@@ -6,11 +6,13 @@
 //   level        "ask" | "work" | "handsoff"                                  default "work"
 //     ask        Tia proposes; every action that types into a session is a card the owner taps.
 //     work       Tia gets the job done: starts sessions, picks the account, sends the task, answers Claude
-//                Code's questions within the goal, carries on after a limit, checks the result, reports.
+//                Code's questions within the goal (never another coding tool's OKs), carries on after a limit,
+//                checks the result, reports.
 //     handsoff   as "work", and the actions that only cost money within the owner's bounds (start on or move
 //                to an API account he allowed) need no card either.
 //     In every level the destructive or system-changing actions stay cards (stop a session she did not start,
-//     run_command, ending a process, updating Claude Code, setting up a computer, settings, schedules, skills, power), and secrets stay out (L3).
+//     run_command, ending a process, installing, updating or switching a coding tool, setting up a computer, settings,
+//     schedules, skills, power), and secrets stay out (L3).
 //   accounts     null (default) or a list of account names Tia may use (may include "auto")
 //                default: "auto" when Auto mode is on, then every subscription/login account; never an API
 //                account unless the owner lists it; only providers that serve a coding tool of this version
@@ -21,6 +23,7 @@
 //   model        null (default: the account's own) or the model her engine uses, e.g. "haiku"
 
 import path from 'node:path';
+import { toolName } from './toolkit.mjs';
 
 /** One constant for the name, so a fork can rename her. */
 export const ASSISTANT_NAME = 'Tia';
@@ -35,9 +38,9 @@ const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 /** Plain sentences shown under every option in Settings → Tia. */
 export const HELP = {
   enabled: `Turn ${ASSISTANT_NAME} on or off (off at first; she is experimental). Off hides her tab and stops everything she watches.`,
-  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself; in a chat she started she allows by herself only looking and running the project's own tests (a short list); changing files and everything else comes to you; in a terminal session she started she still answers its ordinary permission prompts and sends you the risky ones; "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking.`,
+  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself; in a Claude Code chat she started she allows by herself only looking and running the project's own tests (a short list); changing files, everything else and every OK of another coding tool come to you; in a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones; "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking.`,
   levelAsk: 'You tap OK for everything she types into a session.',
-  levelWork: 'She runs the job herself: starts the session, picks the provider, answers its questions, checks the result. In a chat she started she allows by herself only looking and running the project\'s own tests (a short list); changing files and everything else comes to you. In a terminal session she started she still answers its ordinary permission prompts and sends you the risky ones.',
+  levelWork: 'She runs the job herself: starts the session, picks the provider, answers its questions, checks the result. In a Claude Code chat she started she allows by herself only looking and running the project\'s own tests (a short list); changing files, everything else and every OK of another coding tool come to you. In a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones.',
   levelHandsoff: 'As "Do the work", and she may also start or move sessions on the paid API providers you allowed, without asking.',
   accounts: `The providers ${ASSISTANT_NAME} may start or move sessions on. She never uses one that is not ticked.`,
   runsOn: `The provider ${ASSISTANT_NAME} herself thinks on (her own chat).`,
@@ -165,7 +168,7 @@ export function chooseAccount(tia, accounts, tool = 'claude') {
   };
   const candidates = tia.allowed.map((n) => profiles.find((p) => p.name === n)).filter((p) => servesTool(p, tool));
   const free = candidates.filter((p) => !p.limited);
-  if (!candidates.length) return { error: `no provider is allowed for ${ASSISTANT_NAME}` };
+  if (!candidates.length) return { error: tool === 'claude' ? `no provider is allowed for ${ASSISTANT_NAME}` : `no provider ${ASSISTANT_NAME} may use serves ${toolName(tool)}` };
   if (!free.length) {
     const soonest = candidates.map((p) => p.limited && p.limited.until).filter(Boolean).sort((a, b) => a - b)[0];
     return { error: `every provider ${ASSISTANT_NAME} may use is at its limit${soonest ? ` (the first frees up at ${new Date(soonest).toISOString()})` : ''}` };

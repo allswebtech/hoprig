@@ -129,8 +129,8 @@ export function writeManifest(root, manifest) {
 export const BUILTIN_TEMPLATE = {
   'AGENTS.md': `# {{Project}}
 
-The one place for instructions to AI coding tools (Claude Code, Codex, Gemini, Cursor, Copilot). The other
-instruction files only point here. Keep it short and true; edit it as the project grows.
+The one place for instructions to AI coding tools: OpenCode and most others read it, Claude Code through
+CLAUDE.md. The other instruction files only point here. Keep it short and true; edit it as the project grows.
 
 ## What this repository is
 The parent of the {{project}} project: rules, decisions, docs and the AI memory. The code lives in its own

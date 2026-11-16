@@ -224,6 +224,18 @@ test('OpenCode\'s server always has a password, and a lock left by a holder that
   assert.equal(S.readServer('opencode'), null);
 });
 
+test('a server that does not start says what to look at next, in words a chat can show', async () => {
+  installFake('opencode', 'process.stderr.write("cannot open the database\\n"); process.exit(3);');
+  const r = await S.ensureServer('opencode', {});
+  assert.equal(r.ok, false);
+  assert.match(r.why, /^OpenCode's server did not start\. Check under Settings → Coding tools that it is installed and up to date; what it said is in \S+opencode-server\.log$/);
+  assert.doesNotMatch(r.why, /\(start\)|cannot be used/);
+  assert.match(fs.readFileSync(path.join(S.serverDir(), 'opencode-server.log'), 'utf8'), /cannot open the database/, 'its own words are in that log');
+  // A chat shows it as the engine's start that failed, without a code word.
+  const { onServer } = await import('../../src/chat/engines/served.mjs');
+  await assert.rejects(onServer('opencode', { name: 'gw' }), (e) => e.status === 409 && e.message === r.why);
+});
+
 test('a server that answers late is never stopped under the chats that hold it; a slow one nobody uses starts again', async () => {
   installFake('opencode', FAKE_SERVER);
   const models = (url, o) => (String(url).includes('/v1/models') ? new Response('{"data":[]}') : fetch(url, o));

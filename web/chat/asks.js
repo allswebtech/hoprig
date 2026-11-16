@@ -120,7 +120,7 @@ export function askCard(ev, o) {
       return true;
     };
   } else if (ev.type === 'plan') {
-    fill(body, ev.plan ? h('div.chat-plan', mdView(ev.plan)) : h('p.chat-hint', 'Claude wrote no plan text. Its messages above say what it wants to do.'));
+    fill(body, ev.plan ? h('div.chat-plan', mdView(ev.plan)) : h('p.chat-hint', `${who} wrote no plan text. Its messages above say what it wants to do.`));
     const keep = () => note('What should change in the plan? (optional)', 'Keep planning', (msg) => answer(false, { message: msg || 'keep planning' }));
     keys = [
       () => answer(true, { mode: 'acceptEdits' }),

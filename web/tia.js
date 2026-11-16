@@ -12,41 +12,11 @@ import { navChanged, registerHeadTool, registerPage, registerSessionAction, regi
 import { fold, saveBar, tabBar, toggle } from './shell.js';
 import { MODELS } from './sessiondefaults.js';
 import { store } from './store.js';
+import { DID, DOING, TOOL_WORDS, jobChip, jobLabel, wordFor } from './tiawords.js';
 
 const NAME = 'Tia';
 const A = '~/api/assistant';
 
-// What she did, in plain words (the chips under her answer and the Activity list).
-const TOOL_WORDS = {
-  list_sessions: 'looked at the sessions', read_session: 'read a session', list_projects: 'looked at the projects', list_conversations: 'looked at earlier conversations',
-  get_accounts: 'looked at the providers', get_computer_status: 'looked at the computers', get_settings: 'read the settings', find_skill: 'looked up how to do it',
-  start_session: 'start a session', send_to_session: 'type into a session', press_key: 'press a key in a session', rename_session: 'rename a session',
-  start_chat: 'start a chat', send_to_chat: 'act in a chat',
-  watch_session: 'watch a session', finish_job: 'finish the job', notify_owner: 'notify you', open_screen: 'open a screen',
-  stop_session: 'stop a session', switch_account: 'move a session to another provider', set_auto_mode: 'change Auto mode',
-  update_claude_code: 'update Claude Code', kill_process: 'end a process', change_setting: 'change a setting', run_command: 'run a command',
-  manage_computer: 'change a computer', draft_skill: 'add a skill',
-};
-// What she is doing right now (the line while she works).
-const DOING = {
-  list_sessions: 'looking at the sessions', read_session: 'reading a session', list_projects: 'looking at your projects', list_conversations: 'looking at earlier conversations',
-  get_accounts: 'checking the providers', get_computer_status: 'checking the computers', get_settings: 'reading the settings', find_skill: 'looking up how to do it',
-  start_session: 'starting a session', send_to_session: 'typing into a session', press_key: 'pressing a key in a session', rename_session: 'renaming a session',
-  start_chat: 'starting a chat', send_to_chat: 'writing to a chat',
-  watch_session: 'watching a session', finish_job: 'finishing the job', notify_owner: 'writing to you', open_screen: 'opening a screen',
-  stop_session: 'stopping a session', switch_account: 'moving a session to another provider', set_auto_mode: 'changing Auto mode',
-  update_claude_code: 'updating Claude Code', kill_process: 'ending a process', change_setting: 'changing a setting', run_command: 'running a command',
-  manage_computer: 'changing a computer', draft_skill: 'writing a skill',
-};
-// The chip once a call has an answer.
-const DID = {
-  ...Object.fromEntries(Object.entries(TOOL_WORDS).filter(([, v]) => v.startsWith('looked') || v.startsWith('read'))),
-  start_session: 'started a session', send_to_session: 'typed into a session', press_key: 'pressed a key', rename_session: 'renamed a session',
-  start_chat: 'started a chat', send_to_chat: 'wrote to a chat',
-  watch_session: 'watches a session', finish_job: 'finished the job', notify_owner: 'notified you', open_screen: 'opened a screen',
-  stop_session: 'stopped a session', switch_account: 'moved a session', set_auto_mode: 'changed Auto mode', update_claude_code: 'updated Claude Code',
-  kill_process: 'ended a process', change_setting: 'changed a setting', run_command: 'ran a command', manage_computer: 'changed a computer', draft_skill: 'added a skill',
-};
 const JOB_WORDS = { working: 'Working', waiting: 'Waiting for you', done: 'Done', stuck: 'Stuck', stopped: 'Stopped' };
 const JOB_PILL = { working: 'st-working', waiting: 'st-waiting', done: 'st-starting', stuck: 'st-limit', stopped: 'st-starting' };
 const OUTCOME = { done: 'Done', staged: 'Waiting for your OK', confirmed: 'You confirmed', declined: 'You declined', refused: 'Refused', failed: 'Failed', stale: 'Not run (things changed)', expired: 'Expired' };
@@ -145,7 +115,7 @@ export function plainCard(card, { accounts = [], computerLabel = null } = {}) {
   } else if (card.tool === 'draft_skill') {
     question = `Add the skill "${a.name}"?`;
   } else {
-    question = `${cap(TOOL_WORDS[card.tool] || card.tool)}${on}?`;
+    question = `${cap(wordFor(TOOL_WORDS, card.tool, a.action) || card.tool)}${on}?`;
   }
   const asks = lines.find((l) => l.startsWith('The session asks: '));
   if (asks) notes.push(`The session asks: ${asks.slice('The session asks: '.length)}`);
@@ -282,7 +252,7 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
   const empty = () => fill(list, h('div.tia-empty',
     h('span.tia-off-icon', icon('sparkle', { size: 26 })),
     h('h2.tia-off-title', `Hi, I am ${NAME}.`),
-    h('p', 'Tell me what to get done: I start Claude Code sessions in your projects, answer their questions, check the result and tell you when it is done. Try one:'),
+    h('p', 'Tell me what to get done: I start chats in your projects, answer their questions, check the result and tell you when it is done. Try one:'),
     h('div.tia-examples', EXAMPLES.map((x) => h('button.tia-example', { type: 'button', onclick: () => { input.value = x; submit(); } }, icon('send', { size: 15 }), h('span', x))))));
 
   function render(e) {
@@ -300,15 +270,17 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
         tools = h('div.tia-tools');
         add(list, tools);
       }
-      busy(DOING[e.tool] || 'working');
+      const doing = wordFor(DOING, e.tool, e.input && e.input.action);
+      busy(doing || 'working');
       const arg = e.input && (e.input.session || e.input.folder || e.input.query || e.input.job || '');
-      return add(tools, h('span.tia-tool', { id: `tc-${e.id}`, 'data-tool': e.tool }, icon('zap', { size: 13 }), h('span', `${cap(DOING[e.tool] || e.tool)}${arg && !/^j_/.test(arg) ? ` · ${short(arg)}` : ''}`)));
+      return add(tools, h('span.tia-tool', { id: `tc-${e.id}`, 'data-tool': e.tool, 'data-action': (e.input && e.input.action) || '' }, icon('zap', { size: 13 }), h('span', `${cap(doing || e.tool)}${arg && !/^j_/.test(arg) ? ` · ${short(arg)}` : ''}`)));
     }
     if (e.kind === 'tool_result') {
       const chip = list.querySelector(`#tc-${CSS.escape(e.id)}`);
       if (chip) {
-        const t = chip.dataset.tool;
-        const words = e.card ? 'waits for your OK' : e.isError ? `could not ${TOOL_WORDS[t] && !/^(looked|read)/.test(TOOL_WORDS[t]) ? TOOL_WORDS[t] : 'do it'}` : DID[t] || 'done';
+        const [t, act] = [chip.dataset.tool, chip.dataset.action];
+        const would = wordFor(TOOL_WORDS, t, act);
+        const words = e.card ? 'waits for your OK' : e.isError ? `could not ${would && !/^(looked|read)/.test(would) ? would : 'do it'}` : wordFor(DID, t, act) || 'done';
         chip.classList.add(e.card ? 'card' : e.isError ? 'err' : 'ok');
         chip.lastChild.textContent = cap(words);
         chip.title = e.summary || '';
@@ -584,7 +556,7 @@ function viewTia({ frame, sub }) {
       fill(body, h('div.tia-off',
         h('span.tia-off-icon', icon('sparkle', { size: 28 })),
         h('h2.tia-off-title', `${NAME} is off`),
-        h('p', `${NAME} is a built-in assistant (experimental) that starts Claude Code sessions for you, watches them and asks you before anything risky.`),
+        h('p', `${NAME} is a built-in assistant (experimental) that starts coding sessions for you, watches them and asks you before anything risky.`),
         h('a.btn.primary', { href: '#/settings/tia' }, icon('power', { size: 18 }), h('span', `Turn on ${NAME} in Settings`))));
       return false;
     }
@@ -626,9 +598,9 @@ function viewTia({ frame, sub }) {
     if (!r.jobs.length) return fill(body, h('div.empty.compact', icon('clock', { size: 28 }), h('div.empty-title', 'No jobs yet'), h('p', `When you ask ${NAME} to get something done, the job shows here: its goal, the sessions, and what she did.`)));
     fill(body, h('div.rows', r.jobs.map((j) => h('div.row.static.col.tia-job',
       h('div.mrow-top',
-        h('span.row-main', h('span.row-title.tia-wrap', j.goal), h('span.row-sub', `${when(j.createdAt)} · ${j.sessions.map((s) => s.session).join(', ') || 'no session yet'} · ${j.steps} of ${j.maxSteps} answers used`)),
+        h('span.row-main', h('span.row-title.tia-wrap', j.goal), h('span.row-sub', `${when(j.createdAt)} · ${j.sessions.map(jobLabel).join(', ') || 'no session yet'} · ${j.steps} of ${j.maxSteps} answers used`)),
         h(`span.pill.${JOB_PILL[j.state] || 'st-starting'}`, h('span.dot'), JOB_WORDS[j.state] || j.state)),
-      j.sessions.length ? h('div.tia-tools', j.sessions.map((s) => h('a.chip', { href: s.computer === 'this' ? `#/s/${encodeURIComponent(s.session)}` : `#/m/${s.computer}/s/${encodeURIComponent(s.session)}` }, icon('terminal', { size: 14 }), s.session))) : null,
+      j.sessions.length ? h('div.tia-tools', j.sessions.map(jobChip)) : null,
       h('details', h('summary.hint', 'What she did'), h('ul.tia-log', j.log.slice(-12).map((l) => h('li', `${when(l.at)} ${l.text}`)))),
       j.state === 'working' || j.state === 'waiting'
         ? h('div', btn('secondary small', { icon: 'stop', label: 'Stop this job', onclick: async () => {
@@ -658,7 +630,7 @@ function viewTia({ frame, sub }) {
     fill(body, h('div.rows', r.entries.map((e) => h('div.row.static',
       h('span.row-icon', icon(e.actor === 'owner' ? 'user' : 'sparkle')),
       h('span.row-main',
-        h('span.row-title.tia-wrap', `${e.actor === 'owner' ? 'You' : NAME}: ${TOOL_WORDS[e.tool] || e.tool}`),
+        h('span.row-title.tia-wrap', `${e.actor === 'owner' ? 'You' : NAME}: ${wordFor(TOOL_WORDS, e.tool, e.input && e.input.action) || e.tool}`),
         h('span.row-sub.tia-wrap', `${new Date(e.at).toLocaleString()} · ${OUTCOME[e.outcome] || e.outcome}${e.error ? ` · ${e.error}` : ''}`),
         Object.keys(e.input || {}).length ? h('span.row-sub.tia-wrap', Object.entries(e.input).map(([k, v]) => `${k}: ${short(v)}`).join(' · ')) : null)))));
   }
@@ -775,12 +747,14 @@ function tiaSettings({ isAlive }) {
     const u = v.usage;
     const line = (label, x) => h('div', h('span', label), h('strong', `${x.turns} turns · ${(x.input + x.cacheRead + x.cacheWrite).toLocaleString()} in / ${x.output.toLocaleString()} out · ${money(x.costUsd)}`));
     fill(usageBox, h('h3.section-title', 'Usage'), h('div.kv', line('Today', u.today), line('Last 7 days', u.week), u.conversations.slice(-5).reverse().map((c) => line(`Conversation ${c.id.slice(-6)}`, c))), h('p.hint', v.help.usage));
+    // Her tools answer the owner's own client only while she is on: no token is offered while she is off.
     fill(clientBox,
       h('h3.section-title', 'Let my own Claude Code use these tools'),
       h('p.hint', v.help.client),
+      s.enabled ? null : h('p.hint.tia-client-off', `Only while ${NAME} is on: turn her on above first.`),
       v.client ? h('p.hint', `A token was made ${new Date(v.client.created).toLocaleDateString()}.`) : null,
       h('div.savebar',
-        btn('secondary', { icon: 'key', label: v.client ? 'Make a new token' : 'Make a token', onclick: async () => {
+        s.enabled && btn('secondary', { icon: 'key', label: v.client ? 'Make a new token' : 'Make a token', onclick: async () => {
           try {
             const r = await api(`${A}/client-token`, {});
             fill(clientBox.querySelector('.tia-cmd') || add(clientBox, h('div.tia-cmd')).lastChild,
@@ -803,7 +777,7 @@ export const providerWords = (a) => (a.name === 'auto' ? 'Auto mode'
 
 registerSettingsPage({
   id: 'tia', title: NAME, icon: 'sparkle', order: 50, onlyHere: true, tag: 'experimental',
-  desc: `${NAME} is the assistant: she gets coding work done through Claude Code sessions and tells you when it is done. Choose how far she may go and which providers she may use.`,
+  desc: `${NAME} is the assistant: she gets coding work done through chats with your coding tools and tells you when it is done. Choose how far she may go and which providers she may use.`,
   summary: async () => {
     const v = await api(`${A}/settings`);
     return v.settings.enabled ? `On · ${{ ask: 'asks first', work: 'does the work', handsoff: 'hands off' }[v.settings.level] || v.settings.level}` : 'Off';

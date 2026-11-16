@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// hoprig: Claude Code under several profiles, one shared session store, and a web dashboard.
+// hoprig: Claude Code and OpenCode under several providers, and a web dashboard.
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { getAutoSwitch, limitedProfiles, setAutoSwitch } from '../src/autoswitch.mjs';
@@ -9,9 +9,9 @@ import { routerMain } from '../src/router.mjs';
 import { profileUsage, routerAddress } from '../src/routerstate.mjs';
 import { addProfile, ago, askNext, chooseProfile, clock, menuProfiles } from '../src/menu.mjs';
 import { profilesDir } from '../src/paths.mjs';
-import { deleteProfile, listProfiles, publicProfile, readProfile, validName } from '../src/profiles.mjs';
+import { deleteProfile, publicProfile, readProfile, validName } from '../src/profiles.mjs';
 
-const HELP = `Hoprig — Claude Code under several profiles, with one shared session store
+const HELP = `Hoprig — Claude Code and OpenCode under several providers, and a dashboard for every computer
 
   hoprig                      choose a profile, then start Claude Code in this terminal
   hoprig chat [folder]        code in a chat in the dashboard instead: prints its address and opens it
@@ -64,7 +64,7 @@ const HELP = `Hoprig — Claude Code under several profiles, with one shared ses
   hoprig pair                 let another computer's dashboard control this one
   hoprig tokens               who may control this computer (list, revoke)
 
-  hoprig skills               Claude Code skills for you and your projects: suggest, find, review and
+  hoprig skills               skills for you and your projects: suggest, find, review and
                                  add, update (skills suggest | find | add | list | update)
   hoprig addons               optional companions, such as an AI gateway that lets Claude Code use
                                  other providers (addons setup trouteai)

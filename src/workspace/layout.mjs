@@ -14,7 +14,7 @@ import { PRIVATE_DIRS } from '../pcsetup/projects.mjs';
 
 /** The folders of the tree, in the order they are shown, each with the one sentence that says what it is for. */
 export const TREE = [
-  { id: 'ai_brain', rel: 'ai_brain', purpose: 'Shared AI knowledge for all projects: the rules Claude gets everywhere, skills, memory, notes, scripts; its own private git repository.' },
+  { id: 'ai_brain', rel: 'ai_brain', purpose: 'Shared AI knowledge for all projects: the rules every coding tool gets, skills, memory, notes, scripts; its own private git repository.' },
   { id: 'projects', rel: 'projects', purpose: 'One folder per project: its AGENTS.md, ai_brain/ (that project\'s memory, learnings, current context), docs, decisions and project.json, with each code repository under code/.' },
   { id: 'credentials', rel: 'credentials', purpose: 'Keys and passwords for local work: never in git; AI tools may use them but never print them.' },
   { id: 'development', rel: 'development', purpose: 'Toolchains and SDKs installed for you (node, flutter, android, …).' },

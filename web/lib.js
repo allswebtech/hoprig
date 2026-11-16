@@ -2,6 +2,7 @@
 // WebSocket URLs, per-device preferences, wording, sheets (dialogs) and toasts.
 import { APP_NAME, REPO_URL } from './brand.js';
 import { icon } from './icons.js';
+import { keepTabIn } from './tabwrap.js';
 
 // ---------- DOM ----------
 
@@ -156,7 +157,7 @@ if (BARE) {
   });
 }
 
-/** An in-page link to a screen of computer `m` (default: the open one): "#/s/x" -> "#/m/pc2/s/x". */
+/** An in-page link to a screen of computer `m` (default: the open one): "#/s/x" -> "#/m/laptop/s/x". */
 export const link = (hash, m = MACHINE) => (m ? `#/m/${m}${hash.slice(1)}` : hash);
 
 export class ApiError extends Error {
@@ -418,6 +419,7 @@ function sheetElement() {
     sheetEl.addEventListener('click', (e) => {
       if (e.target === sheetEl) sheetEl.close();
     });
+    keepTabIn(sheetEl); // Tab stays in the sheet
     // The browser reports a close a moment later. A sheet that made way for another one was answered already: its
     // report must not end the one that is open now.
     sheetEl.addEventListener('close', () => {

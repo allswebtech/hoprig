@@ -18,14 +18,14 @@ const finePointer = () => !touchScreen();
 export function createComposer(o) {
   const draftKey = `chat.draft.${o.id}`;
   const queueBox = h('ul.chat-queue', { 'aria-label': 'Queued messages' });
-  const textarea = h('textarea.msg.chat-input', { rows: 1, 'aria-label': 'Message to Claude', enterkeyhint: finePointer() ? 'send' : 'enter' });
+  const textarea = h('textarea.msg.chat-input', { rows: 1, 'aria-label': 'Message', enterkeyhint: finePointer() ? 'send' : 'enter' });
   const files = createAttachments({ A: o.A, changed: () => paintButtons() });
   const menus = createMenus({ textarea, A: o.A, own: () => o.own(), send: (text) => send(text) });
   const sent = recall({ get: () => prefs.get(`chat.sent.${o.id}`, []), set: (list) => prefs.set(`chat.sent.${o.id}`, list) });
   const fileInput = h('input.hidden', { type: 'file', multiple: true, tabindex: '-1', 'aria-hidden': 'true' });
   const attachBtn = h('button.btn.icon.ghost.chat-attachbtn', { type: 'button', 'aria-label': 'Attach files or pictures', title: 'Attach files or pictures (or paste or drop them)', onclick: () => fileInput.click() }, icon('paperclip'));
   const sendBtn = h('button.btn.primary.icon.chat-send', { type: 'button', 'aria-label': 'Send', title: 'Send', onclick: () => send() }, icon('send', { size: 20 }));
-  const stopBtn = h('button.btn.danger.icon.chat-stop.hidden', { type: 'button', 'aria-label': 'Stop', title: 'Stop Claude (Esc; the turn ends, background agents go on)', onclick: () => o.stop() }, icon('stop', { size: 20 }));
+  const stopBtn = h('button.btn.danger.icon.chat-stop.hidden', { type: 'button', 'aria-label': 'Stop', title: 'Stop (Esc)', onclick: () => o.stop() }, icon('stop', { size: 20 }));
   const modeBtn = h('button.chip.chat-chip.chat-modechip', { type: 'button', onclick: () => chooseMode() });
   const modelBtn = h('button.chip.chat-chip', { type: 'button', onclick: () => choose('model') });
   const effortBtn = h('button.chip.chat-chip', { type: 'button', onclick: () => choose('effort') });

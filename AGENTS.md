@@ -4,9 +4,9 @@
 
 ## What this is
 
-Hoprig turns a computer into a managed place to code with Claude Code: it installs what is missing, runs
-Claude Code under several providers with one shared session store (a session continues on another provider
-after a usage limit), and serves a web dashboard that also shows other computers. Node.js ≥ 20, ES modules,
+Hoprig turns a computer into a managed place to code with Claude Code and OpenCode: it installs what is missing,
+runs each coding tool under several providers (a session continues on another provider after a usage limit), and
+serves a web dashboard (chats, terminals, a code editor, a desktop) that also shows other computers. Node.js ≥ 20, ES modules,
 no framework, no build step. Runtime dependencies are few and pinned.
 
 ## Map
@@ -14,14 +14,17 @@ no framework, no build step. Runtime dependencies are few and pinned.
 | Where | What |
 |---|---|
 | `bin/hoprig.mjs` | the command: dispatch only |
-| `bin/hoprig-hook.mjs` | what Claude Code starts for a hook event: small on purpose, Claude waits for it |
+| `bin/hoprig-hook.mjs` | what Claude Code starts for a hook event: small on purpose, Claude Code waits for it |
 | `src/*.mjs` | the launcher: providers (`profiles`), sessions, run records (`runs`), launch (`launch`), the hook that keeps a session's status (`hook`), Auto mode (`autoswitch`, `router`), menus |
 | `src/server/` | the dashboard: HTTP and WebSocket server, login, terminal backends (`backends/`: tmux and built-in), per-OS information (`platform/`), background service (`service/`) |
 | `src/machines/` | several computers: hub, pairing, tokens, relay, `join` |
+| `src/chat/` | the coding chat: one engine per coding tool (`engines/`), its events, OKs, queue, hand-off to a terminal |
+| `src/codetools/` | the coding tools (Claude Code, OpenCode; Codex kept switched off): install, start, servers, providers |
+| `src/editor/`, `src/desktop/` | the code editor's routes (files, search, git) and the desktop's apps (files, processes, services, logs) |
 | `src/assistant/` | Tia: tools, policy, confirm cards, jobs, MCP server, eval |
 | `src/automation/` | queue, schedules, restore, retry, updates (no AI) |
 | `src/setup/`, `src/pcsetup/`, `src/skillhub/`, `src/addons/` | first setup and doctor, computer and project setup, skills, add-ons |
-| `web/` | the page: plain modules, no bundler |
+| `web/` | the page: plain modules, no bundler (`web/chat/`, `web/editor/`, `web/desktop/` for those parts) |
 | `test/` | `node:test`; one folder per area |
 
 A feature of the server is one module registered in the `features` list in `src/server/server.mjs`; a part

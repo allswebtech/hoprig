@@ -2,7 +2,10 @@
 // change without a restart, the queue, one task's stop, rewind, and what the composer's menus need.
 //
 //   GET  /api/chats/<id>/stream?from=N&epoch=E    server-sent events: "events" { epoch, reset, events, next },
-//                                                 "state" (the chat's state, as in the long poll), "live" [deltas …]
+//                                                 "state" (the chat's state, as in the long poll), "live" [deltas …],
+//                                                 last "closed" { closed } (what a 404 of the chat would carry), only
+//                                                 when the chat left the open list for good; at a restart, or a
+//                                                 hand-off that failed, the stream just ends and the page looks again
 //   POST /api/chats/<id>/mode                     { mode }   the permission mode, in the running process
 //   POST /api/chats/<id>/settings                 { model?, effort?, ultracode? }   (null: Auto) → { restart }
 //   POST /api/chats/<id>/title                    { title }  the owner names the chat
@@ -44,13 +47,15 @@ export function stateOf(c) {
 }
 
 /**
- * o: { chatOr404, toolStillOn(chat) (throws while its coding tool is off), save, remember(chat) (its settings are
- * its folder's last), bad, choices(chat) (its coding tool's modes, efforts and models), pickModel(value, tool,
+ * o: { chatOr404, toolStillOn(chat) (throws while its coding tool is off), save, remember(chat, req) (its settings are
+ * its folder's last, unless Tia made the change or the chat is hers), bad, choices(chat) (its coding tool's modes, efforts and models), pickModel(value, tool,
  * choices), folderOf(chat) (its folder while inside the allowed roots), about(chat) (what the page shows beside the
- * state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that runs the conversation now) }
- * from feature.mjs
+ * state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that runs the conversation now),
+ * shutOf(id) (what is kept of a chat that closed: { cwd, conversationId, title, tool } or null), openNow(chat) (it is
+ * still the open chat of its id: its process ends at a restart, not the chat) } from feature.mjs. The feature emits
+ * 'gone' on a chat that left the list for good, and 'kept' on one whose hand-off to a terminal failed.
  */
-export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf }) {
+export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf, shutOf = () => null, openNow = () => true }) {
   const { HttpError } = ctx;
   const pick = (val, list, what) => {
     if (val === undefined) return undefined;
@@ -91,7 +96,7 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
     }
     c.refresh();
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-    const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const send = (event, data) => !res.writableEnded && res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     let from = Math.max(0, Number(url.searchParams.get('from')) || 0);
     let epoch = Number(url.searchParams.get('epoch')) || 0;
     let deltas = [];
@@ -133,8 +138,32 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
     c.on('status', onState);
     c.on('state', onState);
     c.on('live', onLive);
-    const onClosed = () => res.end(); // the page looks again, hears 404 and shows the chat as not open
+    // The page learns it here, with what a look would answer, so it does not ask once more for a chat that is gone
+    // (at a hand-off to a terminal that request was a 404 in its console). Only for a chat closed for good: its
+    // process also ends at every restart of the dashboard (the chat is loaded again after it) and while a hand-off
+    // runs (which can fail and keep the chat); then the stream just ends and the page looks again, as it always did.
+    let waitEnd = null;
+    const end = (gone) => {
+      if (res.writableEnded) return;
+      clearTimeout(waitEnd);
+      if (gone) {
+        if (timer) {
+          clearTimeout(timer); // what waited is sent first; nothing is written after the end
+          flush();
+        }
+        send('closed', { closed: shutOf(c.id) });
+      }
+      res.end();
+    };
+    const onGone = () => end(true);
+    const onKept = () => end(false);
+    const onClosed = () => {
+      if (openNow(c)) return end(false);
+      waitEnd = setTimeout(() => end(false), 60_000); // the hand-off says gone or kept; never hold the page for ever
+    };
     c.once('closed', onClosed);
+    c.once('gone', onGone);
+    c.once('kept', onKept);
     let closed = false;
     const lookTerminal = async () => {
       const t = await terminalOf(c).catch(() => null);
@@ -145,7 +174,7 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
     };
     flush();
     lookTerminal();
-    const ping = setInterval(() => res.write(': ping\n\n'), PING_MS);
+    const ping = setInterval(() => !res.writableEnded && res.write(': ping\n\n'), PING_MS);
     // A terminal that runs it: follow along, and say so.
     const look = setInterval(() => {
       if (c.session) return;
@@ -155,6 +184,7 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
     res.on('close', () => {
       closed = true;
       clearTimeout(timer);
+      clearTimeout(waitEnd);
       clearInterval(ping);
       clearInterval(look);
       c.off('change', onChange);
@@ -162,6 +192,8 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
       c.off('state', onState);
       c.off('live', onLive);
       c.off('closed', onClosed);
+      c.off('gone', onGone);
+      c.off('kept', onKept);
     });
     return true;
   }
@@ -202,7 +234,7 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
       if (!mode) throw bad('say which mode');
       const r = await c.setSettings({ mode });
       save();
-      remember(c);
+      remember(c, req);
       return { permissionMode: c.permissionMode, liveMode: c.liveMode, restart: r.restart };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/settings$`), async (req, m) => {
@@ -212,7 +244,7 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
       const ch = choices(c);
       const r = await c.setSettings({ model: pickModel(b.model, c.engine.id, ch), effort: pick(b.effort, ch.efforts, 'effort'), ultracode: b.ultracode });
       save();
-      remember(c);
+      remember(c, req);
       return { model: c.model, effort: c.effort, ultracode: c.ultracode, restart: r.restart };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/title$`), async (req, m) => {

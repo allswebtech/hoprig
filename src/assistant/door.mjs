@@ -76,15 +76,17 @@ export const ALLOW = [
   r('POST', `/api/sessions/${SEG}/rename`, 'rename_session'),
   r('POST', `/api/sessions/${SEG}/kill`, 'stop_session'),
   r('POST', `/api/sessions/${SEG}/switch`, 'switch_account'),
-  // A chat (src/chat): only the fields her tools send. The model, effort, permission mode and provider of a chat, its
-  // plan approvals and questions, its files and rewinds stay the owner's, in the page.
+  // A chat (src/chat): only the fields her tools send. The model, effort and permission mode of a chat, its plan
+  // approvals and questions, its files and rewinds stay the owner's, in the page. Its provider moves as a terminal's
+  // does (switch_account: the same rules, a card unless it is her own chat).
   // A chat she starts takes Settings → New-session defaults (defaults: true), never the folder's last chat of the owner,
   // and is marked hers (byTia: the chat it creates, see src/chat/feature.mjs openChat).
-  r('POST', '/api/chats', 'start_chat', (b) => onlyKeys(['dir', 'profile', 'sessionId', 'text', 'defaults', 'byTia'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)),
+  r('POST', '/api/chats', 'start_chat', (b) => onlyKeys(['dir', 'tool', 'profile', 'sessionId', 'text', 'defaults', 'byTia'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)),
   // Her message says it is hers (byTia: true): a message from anyone else takes her mark off the chat.
   r('POST', `/api/chats/${CHAT_ID}/send`, 'send_to_chat (text)', (b) => onlyKeys(['text', 'byTia'])(b) || (b.byTia !== true ? 'a message Tia sends says it is hers (byTia: true)' : null)),
   r('POST', `/api/chats/${CHAT_ID}/answer`, 'send_to_chat (answer)', onlyKeys(['request', 'allow', 'always'])),
   r('POST', `/api/chats/${CHAT_ID}/stop`, 'send_to_chat (stop)', onlyKeys([])),
+  r('POST', `/api/chats/${CHAT_ID}/provider`, 'switch_account (a chat)', (b) => onlyKeys(['profile'])(b) || (typeof b.profile !== 'string' ? 'say which provider' : null)),
   r('GET', '/api/folders/recent', 'list_projects'),
   r('GET', '/api/folders/browse', 'list_projects (folder)'),
   r('GET', '/api/folders/sessions', 'list_projects (folder)'),
@@ -115,7 +117,14 @@ export const ALLOW = [
   r('GET', '/api/pcsetup/kits', 'get_computer_status (setup), manage_computer set_up'),
   r('POST', '/api/pcsetup/fix', 'manage_computer setup_fix', onlyKeys(['id'])),
   r('POST', '/api/pcsetup/setup', 'manage_computer set_up', onlyKeys(['kits'])),
-  r('POST', '/api/claude/update', 'manage_computer update_claude_code'),
+  r('POST', '/api/claude/update', 'manage_computer update (Claude Code, on a computer without Settings → Updates)', onlyKeys([])),
+  // The coding tools and Settings → Updates. Installing, updating and turning a coding tool on or off are cards; how
+  // updates run (by themselves or not) stays the owner's (NEVER below), and so does another coding tool's sign-in.
+  r('GET', '/api/codetools', 'get_computer_status (coding_tools), manage_computer coding_tool'),
+  r('POST', '/api/codetools/[a-z]+', 'manage_computer coding_tool', (b) => onlyKeys(['on'])(b) || (typeof b.on !== 'boolean' ? 'on is true or false' : null)),
+  r('GET', '/api/updates', 'get_computer_status (coding_tools), manage_computer update'),
+  r('POST', '/api/updates/check', 'manage_computer check_updates', onlyKeys([])),
+  r('POST', '/api/updates/run', 'manage_computer update', (b) => onlyKeys(['id'])(b) || (typeof b.id !== 'string' ? 'say which item to update' : null)),
   r('POST', '/api/pc/kill', 'manage_computer end_process'),
   r('POST', '/api/pc/power', 'manage_computer reboot, power_off'),
   r('POST', '/api/machines/ssh', 'manage_computer add'),
@@ -167,6 +176,8 @@ export const NEVER = [
   /^\/api\/addons\/[^/]+\/setup$/,
   /^\/api\/addons\/public-link\//, // the old routes of the public link: Tia uses its own route, with a card
   /^\/api\/public-link\/.+$/, // the Custom set-up (a Cloudflare sign-in) and its extra addresses: the owner's own steps
+  /^\/api\/updates\/settings$/, // updates by themselves or not: the owner's choice
+  /^\/api\/codetools\/[^/]+\/signin$/, // another coding tool's own sign-in
   /^\/api\/notify(\/|$)/,
   /^\/api\/onboarding(\/|$)/,
   /^\/api\/pcsetup\/recipe$/,

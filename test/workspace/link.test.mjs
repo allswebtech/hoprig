@@ -111,7 +111,7 @@ test('the route: login, Tia refused, the plan, then the result, then already lin
     assert.ok(again.entries.every((e) => e.done === 'already linked'));
     // Only the short forms of the paths go to the page (these temp folders are not under the home, so they
     // show in full: the point is that only the fields the page needs are sent).
-    assert.deepEqual(Object.keys(again.entries[0]).sort(), ['action', 'done', 'id', 'link', 'target', 'tool', 'tools', 'what', 'words']);
+    assert.deepEqual(Object.keys(again.entries[0]).sort(), ['action', 'done', 'id', 'link', 'short', 'target', 'tool', 'tools', 'what', 'words']);
     assert.deepEqual(again.tools, [{ id: 'claude', name: 'Claude Code', state: 'linked', todo: 0, left: 0 }]);
   } finally {
     await app.close();
@@ -159,7 +159,13 @@ test('every coding tool that is on: Codex and OpenCode read the same rules and s
   applyLink(all);
   assert.equal(fs.statSync(path.join(homes.opencode, 'opencode.json')).mode & 0o777, 0o600);
   // OpenCode alone: its own skills entry.
-  assert.deepEqual(planLink({ ...a, homes, tools: ['opencode'] }).map((p) => p.id), ['opencode:rules', 'opencode:skills', 'opencode:instructions', 'memory-note']);
+  const alone = planLink({ ...a, homes, tools: ['opencode'] });
+  assert.deepEqual(alone.map((p) => p.id), ['opencode:rules', 'opencode:skills', 'opencode:instructions', 'memory-note']);
+  // Each with a short name for the page's count (the long words read as one run-on list), in plain grammar.
+  assert.deepEqual(alone.map((p) => p.short), ['rules', 'skills', 'settings', 'memory note']);
+  assert.equal(alone[2].what, 'a line in OpenCode\'s settings that names Claude Code\'s rules folder and each project\'s memory index');
+  assert.equal(alone.at(-1).what, 'a Memory section in the shared rules, so OpenCode reads and keeps each project\'s memory');
+  assert.match(planLink({ ...a, homes, tools: ['codex', 'opencode'] }).at(-1).what, /so Codex and OpenCode read and keep/);
 });
 
 test('settings OpenCode keeps in a form Hoprig does not write, and a different Codex rules file, are left alone', { skip: !posix && 'links need rights on Windows' }, () => {

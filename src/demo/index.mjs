@@ -6,11 +6,12 @@
 // written. The server listens on 127.0.0.1 only, on a free port, and the browser is signed in with a one-time
 // link. What it sets up:
 //   five sessions in different states (working with output flowing, waiting for you, needs your OK, limit
-//   reached, waiting with a queue), three accounts with usage, Auto mode on, a second computer ("Laptop", a
+//   reached, waiting with a queue), a chat that changed a file and waits for your OK, three accounts with usage, Auto mode on, a second computer ("Laptop", a
 //   second demo server in its own temp folder), a schedule, a Tia conversation with a confirm card and a finished
-//   job, the TRouteAI add-on (pretend: "installing" it prints lines and installs nothing).
+//   job, the TRouteAI add-on (pretend: "installing" it prints lines and installs nothing), OpenCode as a second coding
+//   tool (pretend: its package file is there, its program only says that it does not run in the demo).
 // The sessions are src/demo/session.mjs (looks like Claude Code, talks to no model); Tia's engine is
-// src/demo/tia.mjs; the sign-in on the Providers page is src/demo/signin.mjs.
+// src/demo/tia.mjs; the chat is src/demo/chat.mjs; the sign-in on the Providers page is src/demo/signin.mjs.
 //
 //   hoprig demo [--port N] [--no-open]
 // Internal (the second computer, and tests): --secondary, --ready-file <file> (writes { url, link, root, … }).
@@ -20,12 +21,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { demoOpenCode, seedCart } from './coding.mjs';
 import { demoDesktop } from './desktop.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SESSION = path.join(HERE, 'session.mjs');
 const TIA = path.join(HERE, 'tia.mjs');
 const SIGNIN = path.join(HERE, 'signin.mjs');
+const CHAT = path.join(HERE, 'chat.mjs');
 const SELF = fileURLToPath(import.meta.url);
 
 const MAIN_FOLDERS = ['shop-frontend', 'api-server', 'mobile-app', 'docs-site', 'data-pipeline', 'landing-page'];
@@ -73,6 +76,7 @@ export function isolate(root, env = process.env) {
     // Link in the demo must never reach the real ones.
     XDG_CONFIG_HOME: path.join(home, '.config'),
     CODEX_HOME: path.join(home, '.codex'),
+    GH_CONFIG_DIR: path.join(home, '.config', 'gh'), // GitHub's command: no real sign-in in the demo
     HOPRIG_HOSTNAME: 'workstation', // a made-up host name for the Computers page (the Laptop says its own)
     SHELL: '/bin/sh',
     PS1: '$ ',
@@ -80,7 +84,7 @@ export function isolate(root, env = process.env) {
     // demo must not find (and show) the tools installed on this computer.
     ...(process.platform === 'win32' ? {} : { PATH: `${nodeOnly(root)}:/usr/bin:/bin:/usr/sbin:/sbin` }),
   });
-  for (const k of Object.keys(env)) if (/^(ANTHROPIC_|CLAUDE_CODE_OAUTH_TOKEN$|HOPRIG_PROFILE$|HOPRIG_TERM_ID$|TMUX$|TMUX_PANE$|OPENCODE_CONFIG_DIR$|OPENCODE_CONFIG$)/.test(k)) delete env[k];
+  for (const k of Object.keys(env)) if (/^(ANTHROPIC_|CLAUDE_CODE_OAUTH_TOKEN$|HOPRIG_PROFILE$|HOPRIG_TERM_ID$|HOPRIG_RUN_FILE$|GH_TOKEN$|GITHUB_TOKEN$|TMUX$|TMUX_PANE$|OPENCODE_CONFIG_DIR$|OPENCODE_CONFIG$)/.test(k)) delete env[k];
   return home;
 }
 
@@ -429,7 +433,10 @@ async function seed(home, { secondary, password }) {
     const dir = path.join(projects, f);
     fs.mkdirSync(dir, { recursive: true });
     // Look like real projects to the Projects block and the skill suggestions: a package file and a git folder.
-    if (f === 'shop-frontend') fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: f, private: true, dependencies: { next: '15.1.0', react: '19.0.0' } }, null, 2));
+    if (f === 'shop-frontend') {
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: f, private: true, scripts: { test: 'node --test' }, dependencies: { next: '15.1.0', react: '19.0.0' } }, null, 2));
+      seedCart(dir); // the file the demo's chat changes (src/demo/chat.mjs)
+    }
     if (f === 'api-server') fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: f, private: true, dependencies: { express: '4.21.2', pg: '8.13.1' } }, null, 2));
     if (f === 'data-pipeline') fs.writeFileSync(path.join(dir, 'pyproject.toml'), '[project]\nname = "data-pipeline"\ndependencies = ["pandas"]\n');
     gitInit(dir);
@@ -611,6 +618,7 @@ export async function main(args = [], hooks = {}) {
   };
   try {
     const projects = await seed(home, { secondary: o.secondary, password });
+    if (!o.secondary) demoOpenCode(root);
     const { createServer } = await import('../server/server.mjs');
     const addon = demoAddon();
     app = createServer({
@@ -630,6 +638,9 @@ export async function main(args = [], hooks = {}) {
       // certificate answers (the address in server.publicUrl below; a made-up fingerprint), so the page shows it whole.
       machines: { claudeVersion: async () => CLAUDE_INFO.installed, certOf: async () => ({ kind: 'own', pin: DEMO_PIN }) },
       accounts: { trouteai: addon },
+      // The demo's chat talks to no model. OpenCode is on (its pages show it) but has no server here: a chat of it says
+      // so in one plain line instead of a server that did not start.
+      chat: { command: { command: process.execPath, args: [CHAT] }, engineOpts: { served: { ensure: async () => ({ ok: false, why: 'OpenCode does not run in the demo. On your own computer it runs as Claude Code does here.' }) } } },
       assistant: {
         claudecode: async () => ({ claudeInfo: async () => CLAUDE_INFO }),
         engine: { command: { command: process.execPath, args: [TIA] }, resolveEnv: async () => ({ ...process.env }) },
@@ -666,6 +677,10 @@ export async function main(args = [], hooks = {}) {
         schedule: { label: 'Evening test run', when: { kind: 'weekly', time: '18:00', days: [1, 2, 3, 4, 5] }, action: { type: 'send', session: 'data-pipeline', text: 'Run the full test suite and sum up what fails' } },
       }).catch(() => {});
       await demoActivity();
+
+      await api('/api/codetools/opencode', { on: true }).catch(() => {});
+      // ---- a chat: it changes a file and waits for the OK to run the tests ----
+      await api('/api/chats', { dir: path.join(projects, 'shop-frontend'), profile: 'max', text: 'The cart total is a cent off when there is a discount. Fix it and run the tests.' }).catch(() => {});
 
       // ---- Tia and the second computer come up in the background: the address is shown at once ----
       background = (async () => {

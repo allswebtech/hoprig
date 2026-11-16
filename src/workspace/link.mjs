@@ -66,7 +66,8 @@ export function toolHomes(home = os.homedir(), env = process.env) {
 }
 
 /**
- * The entries of the tools that are on: [{ id, tool, tools, what, link, target, kind: 'file'|'dir'|'json'|'section' }].
+ * The entries of the tools that are on: [{ id, tool, tools, what, short (a word or two for a count), link, target,
+ * kind: 'file'|'dir'|'json'|'section' }].
  * Claude Code's ids are the short ones ("rules", "skills", "memory") older pages filter on; the others are
  * "<tool>:<id>". One place linked for two tools (~/.agents/skills) is one entry with both in `tools`.
  * `tools`: the tool ids (default: config.json "codingTools"); `homes`: { codex, opencode } folders.
@@ -82,7 +83,7 @@ export function linkTargets({ base = claudeDir(), brain = brainDir(), home = os.
       const same = e.kind !== 'json' && out.find((o) => o.link === e.link);
       if (same) {
         same.tools.push(id);
-        same.what = `your skills, for ${same.tools.map((x) => anyTool(x).name).join(' and ')}`;
+        same.what = `your skills, for ${same.tools.map((x) => anyTool(x).name).join(' and ')}`; // short stays "skills"
         continue;
       }
       out.push({ ...e, id: id === 'claude' ? e.id : `${id}:${e.id}`, tool: id, tools: [id] });
@@ -91,8 +92,9 @@ export function linkTargets({ base = claudeDir(), brain = brainDir(), home = os.
   const forgetful = ids.filter((id) => anyTool(id) && anyTool(id).ownMemory === false);
   if (forgetful.length) {
     const names = forgetful.map((x) => anyTool(x).name).join(' and ');
+    const keep = forgetful.length === 1 ? 'reads and keeps' : 'read and keep';
     out.push({
-      id: 'memory-note', tool: forgetful[0], tools: forgetful, kind: 'section', what: `a Memory section in the shared rules, so ${names} read and keep each project's memory`,
+      id: 'memory-note', tool: forgetful[0], tools: forgetful, kind: 'section', short: 'memory note', what: `a Memory section in the shared rules, so ${names} ${keep} each project's memory`,
       link: path.join(brain, 'claude', 'CLAUDE.md'), target: 'a short "Memory" section at its end',
     });
   }

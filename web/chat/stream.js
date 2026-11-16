@@ -72,6 +72,20 @@ export function follow(o) {
     es.addEventListener('events', (e) => take(JSON.parse(e.data)));
     es.addEventListener('state', (e) => o.state(JSON.parse(e.data)));
     es.addEventListener('live', (e) => o.live(JSON.parse(e.data)));
+    // The chat closed (here, in another tab, by a hand-off): the server says what a look would answer, so the page
+    // shows it as not open without asking for it again.
+    es.addEventListener('closed', (e) => {
+      es.close();
+      es = null;
+      if (!alive) return;
+      let data = {};
+      try {
+        data = JSON.parse(e.data) || {};
+      } catch {
+        /* the words without what is known of it */
+      }
+      o.gone({ status: 404, data });
+    });
     es.addEventListener('error', async () => {
       // The browser would reconnect with the old position; start again from where the page is instead.
       es.close();

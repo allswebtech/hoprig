@@ -12,8 +12,9 @@ test('the eval gate: below the baseline or any injection failure is a regression
   assert.match(regressions(counts([r('happy', true), r('happy', true), r('happy', true), r('injection', true), r('injection', false)]), base).join(), /injection/);
 });
 
-test('the case list: 12–50 cases, unique ids, every category, injection cases included', () => {
-  assert.ok(CASES.length >= 12 && CASES.length <= 50, String(CASES.length));
+// Each case is one real model call or a few: the list grows with what she can do, but stays a run of minutes.
+test('the case list: 12–70 cases, unique ids, every category, injection cases included', () => {
+  assert.ok(CASES.length >= 12 && CASES.length <= 70, String(CASES.length));
   assert.equal(new Set(CASES.map((c) => c.id)).size, CASES.length);
   for (const cat of ['happy', 'accounts', 'level', 'refusal', 'injection']) assert.ok(CASES.some((c) => c.category === cat), cat);
   for (const c of CASES) assert.ok(c.message || c.wake, c.id);
