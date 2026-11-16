@@ -296,7 +296,10 @@ No AI involved, just rules you switch on, on the **Automations** page (Schedules
   weekdays. A chat takes the message at its next step; a terminal gets it when Claude is free.
 - **Restore**: after a restart, sessions come back where they were.
 - **Retry**: after a server error that is not a limit, wait and continue, three times.
-- **Updates**: tell you about, or install, a new Claude Code when nothing is working.
+
+New versions have a page of their own, **Settings → Updates**: Claude Code, Codex, OpenCode, the tunnel helper and
+Hoprig, Manual (it tells you) or Automatic (it installs one when no Claude Code session or chat is working, and
+no Codex or OpenCode session is open; Hoprig itself it only tells you about).
 
 ## Tia (experimental, off by default)
 
