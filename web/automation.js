@@ -7,7 +7,7 @@
 // "Pause all automations" sits above the parts; while it is on, a banner says so on every part.
 // The same file brings the session view's "Queue" button and the "3 queued" badge on Home's session cards.
 import { icon } from './icons.js';
-import { ago, api, at, btn, chooseSheet, confirmSheet, fill, h, link, machine, needsYouFirst, openSheet, stateOf, tildePath, toast, until } from './lib.js';
+import { ago, api, at, btn, chooseSheet, confirmSheet, fill, h, link, machine, needsYouFirst, openSheet, stateOf, tildePath, toast } from './lib.js';
 import { registerCardBadge, registerPage, registerSessionAction } from './registry.js';
 import { emptyState, errorBox, groupHead, panel, savedMark, tabBar, toggle } from './shell.js';
 import { store } from './store.js';
@@ -237,7 +237,7 @@ function schedulesPart(st, { reload, addSchedule }) {
       h('p.au-example', '“Weekdays at 08:30, start a session in my project that checks for outdated dependencies.”'),
       btn('secondary', { icon: 'pencil', label: 'Start from this example', onclick: () => addSchedule(example) }))];
   }
-  const list = st.schedules.map((s) => scheduleRow(s, reload));
+  const list = st.schedules.map((s) => scheduleRow(s, reload, st.timeZone));
   return [
     offBanner,
     groupHead('Schedules', st.schedules.length),
@@ -248,21 +248,34 @@ function schedulesPart(st, { reload, addSchedule }) {
 
 /**
  * When a schedule runs next, always as a day and the 24-hour clock its rule is written in ("today 18:00",
- * "tomorrow 08:30", "Tue 08:30", "21 Nov 08:30"): one list never mixes "in 7 h 1 min" with "Tue 08:30".
+ * "tomorrow 08:30", "Tue 08:30", "21 Nov 08:30"): one list never mixes "in 7 h 1 min" with "Tue 08:30". The day and
+ * the clock are the computer's (`timeZone`, from the server), as its rule sentence is, also when the page is opened
+ * from another time zone; without it, the browser's. A time already past (a page left open) says its day too.
  */
-export function nextRunText(ms, now = Date.now()) {
-  const d = new Date(ms);
+export function nextRunText(ms, now = Date.now(), timeZone = undefined) {
+  const opts = { hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' };
+  let zone = timeZone;
+  let f;
+  try {
+    f = new Intl.DateTimeFormat('en-US', { ...opts, timeZone: zone });
+  } catch {
+    zone = undefined; // a zone this browser does not know: its own clock
+    f = new Intl.DateTimeFormat('en-US', opts);
+  }
+  const parts = (t) => Object.fromEntries(f.formatToParts(new Date(t)).map((x) => [x.type, Number(x.value)]));
+  const a = parts(ms);
+  const dayNo = (p) => Date.UTC(p.year, p.month - 1, p.day) / 86_400_000;
+  const days = dayNo(a) - dayNo(parts(now));
   const two = (n) => String(n).padStart(2, '0');
-  const midnight = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const days = Math.round((midnight(d) - midnight(new Date(now))) / 86_400_000); // round: a day may be 23 or 25 h
-  const day = days <= 0 ? 'today' : days === 1 ? 'tomorrow' : days < 7 ? d.toLocaleDateString([], { weekday: 'short' }) : d.toLocaleDateString([], { day: 'numeric', month: 'short' });
-  return `${day} ${two(d.getHours())}:${two(d.getMinutes())}`;
+  const name = (o) => new Date(ms).toLocaleDateString([], { ...o, timeZone: zone });
+  const day = days === 0 ? 'today' : days === 1 ? 'tomorrow' : days === -1 ? 'yesterday' : days > 1 && days < 7 ? name({ weekday: 'short' }) : name({ day: 'numeric', month: 'short' });
+  return `${day} ${two(a.hour % 24)}:${two(a.minute)}`; // % 24: an engine that writes midnight as 24
 }
 
-function scheduleRow(s, reload) {
+function scheduleRow(s, reload, timeZone) {
   const mark = savedMark();
   const sentence = scheduleSentence(s, accountLabel);
-  const next = !s.enabled ? 'Off' : s.nextAt ? `Next run ${nextRunText(s.nextAt)}` : 'Done: it ran once';
+  const next = !s.enabled ? 'Off' : s.nextAt ? `Next run ${nextRunText(s.nextAt, Date.now(), timeZone)}` : 'Done: it ran once';
   const turn = async (e) => {
     const on = e.target.checked;
     try {

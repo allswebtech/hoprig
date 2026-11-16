@@ -158,6 +158,7 @@ test('routes: settings, queue and schedules through the plug-in, with refusals a
 
     const st = await call(feature, 'GET', '/api/automation');
     assert.equal(st.restoreOn, true);
+    assert.equal(st.timeZone, Intl.DateTimeFormat().resolvedOptions().timeZone, 'the computer\'s, so the page shows a next run on its clock');
     assert.equal(st.settings.workspace.commitMap, false, 'never chosen, the brain has no address (the fake): off, as true or false');
     assert.deepEqual(st.commitMap, { on: false, chosen: false, github: false });
     assert.deepEqual((await call(feature, 'POST', '/api/automation/settings', { retry: { enabled: true } })).settings.retry.enabled, true);
