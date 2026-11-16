@@ -209,6 +209,35 @@ function deckWith() {
   return { file, hook, card, state };
 }
 
+test('the deck: what it knew of a start ends at the first record written in that terminal, or with the terminal', async () => {
+  const CONV = '77777777-7777-4777-8777-777777777777';
+  const terms = [{ id: TERM, session: 'app', pid: process.pid, cwd: path.join(tmp, 'app'), attached: false, created: 1, activity: 1, command: 'bash', active: true }];
+  const deck = new Deck({ backend: { list: async () => terms.slice(), capture: async () => WAITING }, config: () => ({}), profiles: () => [], now: () => Date.now() });
+  const run = () => {
+    const { file } = R.createRun({ profile: 'sub', cwd: path.join(tmp, 'app'), conversation: CONV });
+    R.updateRun(file, { termId: TERM });
+    return file;
+  };
+  // A move restarts the terminal in place: the old launcher's record, written before the note, does not end it.
+  const old = run();
+  deck.noteLaunch('app', CONV, 'claude', Date.now() + 1000);
+  await deck.list();
+  assert.ok(deck.launchOf(CONV), 'no record since: the note holds');
+  R.removeRun(old);
+  // The new launcher writes its record: from then on records alone say what runs, also after that launcher ended
+  // and left a plain shell in the terminal (a look in between is enough, as the watcher's tick).
+  deck.noteLaunch('app', CONV, 'claude', Date.now() - 1);
+  const file = run();
+  await deck.list();
+  R.removeRun(file);
+  await deck.list();
+  assert.equal(deck.launchOf(CONV), null, 'a record was written there: the note is over');
+  deck.noteLaunch('app', CONV);
+  terms.length = 0;
+  await deck.list();
+  assert.equal(deck.launchOf(CONV), null, 'its terminal is gone: the note is over');
+});
+
 test('a card: needs your OK only while the question waits; the note goes with it', async () => {
   const { file, hook, card } = deckWith();
   hook({ hook_event_name: 'SessionStart', source: 'startup' });

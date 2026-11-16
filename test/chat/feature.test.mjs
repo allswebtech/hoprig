@@ -211,6 +211,12 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   const shut = await owner('GET', `/api/chats/${id}`);
   assert.equal(shut.status, 404);
   assert.deepEqual([shut.json.closed.cwd, shut.json.closed.conversationId], [realProj, id]);
+  // One closed before its first message has no conversation to continue: its page offers only the way back.
+  const empty = await owner('POST', '/api/chats', { dir: proj, profile: 'sub' });
+  assert.equal(empty.status, 200, JSON.stringify(empty.json));
+  assert.equal((await owner('POST', `/api/chats/${empty.json.id}/close`, {})).status, 200);
+  const emptyShut = await owner('GET', `/api/chats/${empty.json.id}`);
+  assert.deepEqual([emptyShut.status, emptyShut.json.closed.cwd, emptyShut.json.closed.conversationId], [404, realProj, null]);
 
   // the list of open chats is kept in a file of the state folder, 600, without secrets
   const { stateDir } = await import('../../src/paths.mjs');

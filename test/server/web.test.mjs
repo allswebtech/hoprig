@@ -906,3 +906,15 @@ test('a time until a limit resets: whole minutes first, so the minutes never rea
   assert.equal(until(now + 5400 * 1000), 'in 1 h 30 min');
   assert.equal(until(now + 59 * 60 * 1000), 'in 59 min');
 });
+
+test('one cost format: no part of the page writes a dollar amount its own way (web/chat/words.js money does)', () => {
+  for (const f of pageFiles().filter((x) => x !== path.join('chat', 'words.js'))) {
+    assert.doesNotMatch(fs.readFileSync(path.join(WEB, f), 'utf8'), /\$\$\{[^`]*toFixed/, `${f}: a cost goes through money()`);
+  }
+});
+
+test('a chat that is not open any more: its page\'s keys go with it (Esc would send a stop, Shift+Tab a mode change)', () => {
+  const page = fs.readFileSync(path.join(WEB, 'chat', 'page.js'), 'utf8');
+  const gone = page.slice(page.indexOf('function gone('), page.indexOf('const unfollow = follow('));
+  assert.match(gone, /\bunkeys\(\)/, 'gone() removes the page\'s key handler');
+});

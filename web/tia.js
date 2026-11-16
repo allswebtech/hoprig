@@ -773,7 +773,7 @@ function tiaSettings({ isAlive }) {
         }),
       ] : null);
     const u = v.usage;
-    const line = (label, x) => h('div', h('span', label), h('strong', `${x.turns} turns · ${(x.input + x.cacheRead + x.cacheWrite).toLocaleString()} in / ${x.output.toLocaleString()} out · $${x.costUsd.toFixed(2)}`));
+    const line = (label, x) => h('div', h('span', label), h('strong', `${x.turns} turns · ${(x.input + x.cacheRead + x.cacheWrite).toLocaleString()} in / ${x.output.toLocaleString()} out · ${money(x.costUsd)}`));
     fill(usageBox, h('h3.section-title', 'Usage'), h('div.kv', line('Today', u.today), line('Last 7 days', u.week), u.conversations.slice(-5).reverse().map((c) => line(`Conversation ${c.id.slice(-6)}`, c))), h('p.hint', v.help.usage));
     fill(clientBox,
       h('h3.section-title', 'Let my own Claude Code use these tools'),

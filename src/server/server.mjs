@@ -309,7 +309,9 @@ export function createServer(opts = {}) {
   /** Move a session to another profile; "auto" is not a profile file, so it is built here. */
   async function moveTo(term, run, name) {
     if (name !== AUTO.name) return deck.move(term, run, name);
-    await backend.respawn(term.id, run.cwd, deck.moveArgv({ name: AUTO.name, env: {} }, run));
+    const argv = deck.moveArgv({ name: AUTO.name, env: {} }, run);
+    deck.noteLaunch(term.session, run.sessionId, run.tool || 'claude'); // as deck.move does
+    await backend.respawn(term.id, run.cwd, argv);
   }
 
   /**
@@ -540,7 +542,9 @@ export function createServer(opts = {}) {
         if (!models.includes(b.model)) throw bad(`the model must be one of: ${models.join(', ')}`);
         flags.push('--model', b.model);
       }
-      const go = async () => ({ name: await deck.start({ dir, profile, mode, sessionId: sid, prompt, flags }) });
+      // The folder's newest conversation is started by its id, not by -c: the launcher then names it in its run record
+      // from the first moment (launch.mjs conversationOf), and nothing else can start a process on it meanwhile.
+      const go = async () => ({ name: await deck.start({ dir, profile, mode: runs ? 'resume' : mode, sessionId: runs || sid, prompt, flags }) });
       const r = runs ? await chat.startTerminal(runs, go) : await go();
       if (r.existing) return runsAlready(r.existing, prompt);
       watcher.poke();

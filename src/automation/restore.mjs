@@ -73,7 +73,8 @@ export function decide({ cards, data, now, boot, enabled }) {
 
 /**
  * Carry out the actions. ctx: { deck.start({ dir, profile, mode: 'move', sessionId, carryArgs, name, fresh? }),
- * conversationExists(cwd, id) → bool, record(entry) }.
+ * conversationExists(cwd, id) → bool, record(entry), label(profile)? → its shown name }. A start that finds the
+ * conversation running already (a chat, a terminal) throws with `existing`: nothing is reopened.
  */
 export async function apply(actions, ctx) {
   for (const a of actions) {
@@ -81,10 +82,13 @@ export async function apply(actions, ctx) {
     const fresh = !ctx.conversationExists(s.cwd, s.sessionId);
     try {
       const name = await ctx.deck.start({ dir: s.cwd, profile: s.profile, mode: 'move', sessionId: s.sessionId, carryArgs: s.carryArgs || [], name: s.name, ...(fresh ? { fresh } : {}) });
+      // The provider as the owner named it: this line is read on Automations → Activity.
+      const shown = (ctx.label && ctx.label(s.profile)) || s.profile;
       const how = fresh ? 'started fresh: it had no conversation to resume' : `resumed ${s.sessionId.slice(0, 8)}`;
-      ctx.record({ automation: 'restore', session: name, did: `reopened on ${s.profile} (${how})`, outcome: 'ok' });
+      ctx.record({ automation: 'restore', session: name, did: `reopened on ${shown} (${how})`, outcome: 'ok' });
     } catch (e) {
-      ctx.record({ automation: 'restore', session: s.name, did: 'could not reopen', outcome: `failed: ${e.message}` });
+      if (e.existing) ctx.record({ automation: 'restore', session: s.name, did: 'did not reopen', outcome: `skipped: ${e.message}` });
+      else ctx.record({ automation: 'restore', session: s.name, did: 'could not reopen', outcome: `failed: ${e.message}` });
     }
   }
 }

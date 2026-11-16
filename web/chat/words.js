@@ -242,8 +242,12 @@ export const modeInfo = (v, m) => (v && v.choices && v.choices.modeWords && v.ch
 export const toolWord = (v) => (v && v.engine && v.engine.id && v.engine.id !== 'claude' ? v.engine.label || v.engine.id : 'Claude');
 /** What the chat's coding tool can do (its engine's capabilities; before the first state: nothing extra). */
 export const caps = (v) => (v && v.engine && v.engine.capabilities) || {};
-/** Whether the chat offers Compact: its coding tool says it cannot (absent: an older dashboard's Claude Code, which can). */
-export const canCompact = (v) => caps(v).compact !== false;
+/**
+ * Whether the chat offers Compact: not while it is read only (a terminal runs the conversation or its coding tool is
+ * off: a compact is a message to the coding tool), and not where its coding tool says it cannot (absent: an older
+ * dashboard's Claude Code, which can).
+ */
+export const canCompact = (v) => caps(v).compact !== false && !(v && (v.terminal || v.toolOff));
 
 const MODEL_NAMES = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' };
 /** "Opus", or the model's own id for one the dashboard does not name. */

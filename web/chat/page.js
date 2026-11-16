@@ -157,7 +157,7 @@ function viewChat({ sub }) {
   const strip = agentsStrip({ stop: (taskId) => act.stopTask(taskId), canStop: () => !v || caps().stopTask !== false, jump: (toolId) => timeline.jump(toolId) });
   // The page's own "/" commands, before the coding tool's (popovers.js).
   const own = () => [
-    // Compact is Claude Code's own: not offered where the coding tool has none.
+    // Compact is Claude Code's own, and a message: not where the coding tool has none, nor while the box is read only.
     canCompact(v) ? { name: 'compact', description: `${toolWord(v)} goes on from a summary of the conversation, which frees context`, run: act.compact } : null,
     { name: 'clear', description: 'A new chat in this folder with the same settings; this one is kept', run: act.clear },
     { name: 'model', description: 'Choose the model', run: () => composer.choose('model') },
@@ -185,6 +185,12 @@ function viewChat({ sub }) {
   vv?.addEventListener('resize', onViewport);
   vv?.addEventListener('scroll', onViewport);
   onViewport();
+  // The chat's toasts sit under the head and the banners under it (a terminal runs it, a limit, the connection),
+  // where they cover none of their buttons (chat.css: --chat-toast-top).
+  const toastPlace = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+    document.body.style.setProperty('--chat-toast-top', `${Math.round(Math.max(...[header.el, notes, conn].map((x) => x.getBoundingClientRect().bottom)))}px`);
+  }) : null;
+  for (const x of [header.el, notes, conn]) toastPlace?.observe(x);
 
   // ---------- the to-do list (one line on a phone until opened) ----------
   let todosOpen = prefs.get('chat.todos', !matchMedia('(max-width: 599px)').matches);
@@ -235,11 +241,14 @@ function viewChat({ sub }) {
   }
   // A chat that is not open any more (closed, cleared, opened in a terminal) offers only what still makes sense: read
   // what was drawn, continue the conversation in a new chat, go back. Its head and its cards act on nothing.
+  let said = false; // the conversation has a message: there is something to continue
   function gone(e) {
     unfollow();
+    unkeys(); // Esc, Shift+Tab, a number: the page's keys act on nothing now (gone only comes after a request)
     forgetHere(); // a chat that is not open any more is never a way back
-    // What is known of it: as the page saw it while it was open, else as the server remembers a chat it closed.
-    const was = v && v.cwd && v.conversationId ? v : (e && e.data && e.data.closed) || null;
+    // What is known of it: as the server remembers a chat it closed (it names the conversation only when there is one
+    // to continue), else as the page saw it while it was open (a message was said in it).
+    const was = (e && e.data && e.data.closed) || (v && v.cwd && v.conversationId && said ? v : null);
     const known = !!(was && was.cwd && was.conversationId); // its conversation can go on in a new chat
     header.closed(was && was.title);
     wrap.classList.add('chat-closed', 'chat-no-rewind');
@@ -279,6 +288,7 @@ function viewChat({ sub }) {
     events: (r) => {
       // The coding tool comes before the first state on a fresh page: the events are drawn in its words.
       if (r.engine && !(v && v.engine)) v = { ...(v || {}), engine: r.engine };
+      said = said || (r.events || []).some((x) => x.kind === 'user');
       timeline.apply(r);
     },
     state,
@@ -322,6 +332,8 @@ function viewChat({ sub }) {
     unkeys();
     vv?.removeEventListener('resize', onViewport);
     vv?.removeEventListener('scroll', onViewport);
+    toastPlace?.disconnect();
+    document.body.style.removeProperty('--chat-toast-top');
   };
 }
 

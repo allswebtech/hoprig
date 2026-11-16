@@ -7,7 +7,8 @@ import { rememberTurn } from './turns.mjs';
 
 // Errors that mean "this provider cannot serve now" (the coding tool's error categories).
 export const LIMIT_ERRORS = new Set(['rate_limit', 'billing_error']);
-export const LIMIT_TEXT = /usage limit|limit reached|rate.?limit|out of (credit|quota)|credit balance/i;
+// A full context ("Context limit reached · /compact or /clear to continue") is not one: another provider would not help.
+export const LIMIT_TEXT = /usage limit|(?<!context )limit reached|rate.?limit|out of (credit|quota)|credit balance/i;
 
 const strip = ({ full, ...rest }) => rest; // a tool's whole input stays on the server (an answer needs it)
 

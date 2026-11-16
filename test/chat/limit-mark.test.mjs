@@ -135,3 +135,29 @@ test('another coding tool\'s chat: an error that only mentions a limit marks no 
   assert.ok(limitedProfiles().gw, 'marked');
   c.close();
 });
+
+test('a chat\'s other ends that read like a limit do not mark the provider (a full context, a per-minute 429)', async (t) => {
+  const box = sandbox('chatlimit2');
+  t.after(() => box.cleanup());
+  const { limitMark } = await import('../../src/chat/providerlimit.mjs');
+  const { LIMIT_TEXT } = await import('../../src/chat/hear.mjs');
+  const { limitedProfiles, clearLimited } = await import('../../src/autoswitch.mjs');
+  const end = (text, limits = {}) => ({ profile: 'sub', engine: { id: 'claude' }, lastEnd: 'limit', limit: { text }, limits });
+  const notLimits = [
+    'Context limit reached · /compact or /clear to continue',
+    'API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed the rate limit for your organization of 40,000 input tokens per minute."}}',
+  ];
+  for (const text of notLimits) {
+    limitMark(end(text), { ok: false });
+    assert.equal(limitedProfiles().sub, undefined, text);
+  }
+  assert.equal(LIMIT_TEXT.test(notLimits[0]), false, 'a full context is not shown as a limit: another provider would not help');
+  // Claude Code's words for a usage limit, and a plan window that refused, do.
+  for (const text of ["You've hit your usage limit · resets 5pm", 'Claude AI usage limit reached|1763300000', '5-hour limit reached ∙ resets 2am']) {
+    limitMark(end(text), { ok: false });
+    assert.ok(limitedProfiles().sub, text);
+    clearLimited('sub');
+  }
+  limitMark(end('API Error: 429', { five_hour: { status: 'rejected', resetsAt: Date.now() + 3600_000 } }), { ok: false });
+  assert.ok(limitedProfiles().sub, 'the plan said the window refused');
+});

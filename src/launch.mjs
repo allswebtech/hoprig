@@ -14,7 +14,7 @@ import { claudeDir, hookFile, hookSettingsDir } from './paths.mjs';
 import { listProfiles, notServedLines, profileEnv, readProfile, servesTools } from './profiles.mjs';
 import { loginSeen, rememberLogin } from './routerstate.mjs';
 import { createRun, noteUsage, readRun, readUsage, removeRun, updateRun, usageFile } from './runs.mjs';
-import { hasConversation } from './sessions.mjs';
+import { hasConversation, isSessionId } from './sessions.mjs';
 import { compareVersions } from './setup/system.mjs';
 import { AUTO, autoIdentity, ensureRouter } from './router.mjs';
 import { resolveWindowsBin, windowsSpawnPlan } from './winspawn.mjs';
@@ -82,6 +82,26 @@ const CARRY_BOOL = new Set([
 
 export const hasSessionFlag = (args) => args.some((a) => SESSION_FLAGS.has(a.split('=')[0]));
 export const isPrintMode = (args) => args.some((a) => a === '-p' || a === '--print');
+
+/**
+ * The conversation `args` start Claude Code on: the id after --resume (-r) or --session-id, else null. It goes into the
+ * run record before Claude Code starts (runs.mjs: conversation), so the dashboard knows at once that this terminal runs
+ * it, also after its own restart. A plain "continue the last conversation" (-c) names no id: only Claude Code knows
+ * which one it takes, and says so at its start (the dashboard's own continue names the id: server.mjs). A fork
+ * (--fork-session) writes a new conversation, not the one it reads.
+ */
+export function conversationOf(args) {
+  const cut = args.indexOf('--');
+  const given = cut < 0 ? args : args.slice(0, cut);
+  if (given.includes('--fork-session')) return null;
+  for (let i = 0; i < given.length; i++) {
+    const [name, eq] = given[i].startsWith('--') ? [given[i].split('=')[0], given[i].split('=')[1]] : [given[i], undefined];
+    if (!['-r', '--resume', '--session-id'].includes(name)) continue;
+    const id = eq !== undefined ? eq : given[i + 1];
+    if (isSessionId(id)) return id;
+  }
+  return null;
+}
 
 /** The arguments that survive a move to another profile. */
 export function carryArgs(args) {
@@ -246,8 +266,8 @@ export function statusScript(user) {
  * Run one Claude Code process under `profile`. Resolves to { code, sessionId, signalled, auto }, where `auto` is
  * { to, why } when the launcher itself stopped Claude to continue the session on another profile.
  */
-function runOnce(profile, args, cfg, { interactive = false, fallback = false } = {}) {
-  const { file } = createRun({ profile: profile.name, cwd: process.cwd(), carryArgs: carryArgs(args) });
+function runOnce(profile, args, cfg, { interactive = false, fallback = false, file: again = null } = {}) {
+  const { file } = createRun({ profile: profile.name, cwd: process.cwd(), carryArgs: carryArgs(args), conversation: conversationOf(args), file: again });
   // `fallback`: this session is here only because a preferred profile reached its limit (see launch()).
   if (fallback) updateRun(file, { fallback: true });
   // A new conversation started here on purpose makes this the folder's provider: the next new session here starts
@@ -294,7 +314,9 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false } =
     fs.writeFileSync(settingsFile, JSON.stringify(hookSettings({ ...status, version: claudeVersionQuick({ bin: cfg.claudeBin, env }) })) + '\n', { mode: 0o600 });
   }
   const full = [...given, ...modelArgs(profile, given), ...(settingsFile ? ['--settings', settingsFile] : []), ...promptTail];
-  const cleanup = () => {
+  // `keep`: this launcher moves the conversation on by itself. Its record stays, naming the conversation, until the
+  // next run writes it anew: no moment without one, in which something else could start a process on it.
+  const cleanup = (keep = null) => {
     // What this run learnt stays known after it: its plan usage, per provider (the Providers page shows it with its
     // time), and that the stored sign-in works when a reply came back on it.
     try {
@@ -304,7 +326,8 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false } =
     } catch {
       /* never in the way of ending a run */
     }
-    removeRun(file);
+    if (keep) createRun({ profile: profile.name, cwd: process.cwd(), carryArgs: carryArgs(args), conversation: keep, file });
+    else removeRun(file);
     fs.rmSync(usageFile(file), { force: true });
     if (settingsFile) fs.rmSync(settingsFile, { force: true });
     if (scriptFile) fs.rmSync(scriptFile, { force: true });
@@ -387,13 +410,14 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false } =
       process.off('SIGTERM', onTerm);
       process.off('SIGHUP', onHup);
       const run = readRun(file);
-      cleanup();
+      const keep = auto && !signalled && run?.sessionId ? run.sessionId : null;
+      cleanup(keep);
       if (auto && process.stdout.isTTY) {
         // We stopped Claude ourselves: make sure its full-screen mode, mouse reporting and hidden cursor are off.
         process.stdout.write('\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[0m\r\n');
         if (process.platform !== 'win32') spawnSync('stty', ['sane'], { stdio: 'inherit' });
       }
-      resolve({ code, sessionId: run?.sessionId || null, signalled, auto });
+      resolve({ code, sessionId: run?.sessionId || null, signalled, auto, kept: keep ? file : null });
     };
     child.on('error', (e) => {
       console.error(e.code === 'ENOENT'
@@ -415,26 +439,38 @@ export async function launch(profileName, args, { askNext = null } = {}) {
   let name = profileName;
   let current = args;
   let fallback = false; // true once a limit moved this session off the profile it was started on
+  let kept = null; // the run record a move of this launcher's own keeps for the next run (runOnce)
+  // Whatever ends the launch, no record names a conversation that nothing runs (a record of a launcher that has
+  // ended goes by itself too: runs.mjs listRuns).
+  const drop = () => {
+    if (kept) removeRun(kept);
+    kept = null;
+  };
   for (;;) {
     const profile = await profileNamed(name);
     if (!profile && name === AUTO) {
       console.error('hoprig: Auto mode needs the order of providers first, for example: hoprig auto order sub api');
+      drop();
       return 2;
     }
     if (!profile) {
       const known = listProfiles().map((p) => p.name).join(', ') || 'none yet';
       console.error(`hoprig: no profile "${name}" (profiles: ${known}). Add one with: hoprig add`);
+      drop();
       return 2;
     }
     if (!servesTools(profile).includes('claude')) {
       // An OpenAI key or another coding tool's sign-in: Claude Code cannot use it (profileEnv refuses it too). Why,
       // and what to do instead.
       for (const line of notServedLines(profile, 'claude')) console.error(line);
+      drop();
       return 2;
     }
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !isPrintMode(current);
     if (interactive) console.error(`hoprig: profile ${profile.name} · ${profile.label}`);
-    const { code, sessionId, signalled, auto } = await runOnce(profile, current, cfg, { interactive, fallback });
+    const once = await runOnce(profile, current, cfg, { interactive, fallback, file: kept });
+    const { code, sessionId, signalled, auto } = once;
+    kept = once.kept;
     // A session nobody typed into has nothing on disk to resume: it starts on the next profile under the same id.
     const fresh = Boolean(sessionId) && !hasConversation(process.cwd(), sessionId);
     if (auto && sessionId && !signalled) {
@@ -455,6 +491,7 @@ export async function launch(profileName, args, { askNext = null } = {}) {
         continue;
       }
     }
+    drop();
     if (!interactive || signalled || !askNext || !sessionId) return code;
     const next = await askNext({ current: profile.name, sessionId, saved: !fresh });
     if (!next) return code;

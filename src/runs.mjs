@@ -9,6 +9,10 @@
 //   tmuxPane   $TMUX_PANE ("%3") when started inside tmux, else null
 //   termId     $HOPRIG_TERM_ID when started in a terminal the dashboard itself holds (no tmux), else null
 //   sessionId  Claude session id, set by the SessionStart hook (also after /clear and /resume)
+//   conversation  the conversation the launcher starts the coding tool on, when its arguments name one (a resume, a
+//              start under a given id, a move), written with the record before the tool starts: until the tool
+//              reports its own (sessionId), this is the fact that the terminal runs that conversation. null for a
+//              new conversation and for "continue the last one" (-c), whose id only the tool knows
 //   status     "starting" | "working" | "waiting" | "attention" | "ended" (hook.mjs says which event sets which)
 //   note       what Claude waits for when status is "attention" (a permission, a question, an error)
 //   asks       who waits for the owner's answer right now: "main", a subagent's id, or "?" (a notification that
@@ -43,9 +47,10 @@ import { readRun, watchFile, writeRun as write } from './runfile.mjs';
 
 export { readRun };
 
-export function createRun({ profile, cwd, carryArgs = [], tool = 'claude' }) {
-  const runId = `${Date.now().toString(36)}-${process.pid}`;
-  const file = path.join(runsDir(), `${runId}.json`);
+/** `file`: the record of this launcher's previous run, written anew (its own move to another profile keeps it). */
+export function createRun({ profile, cwd, carryArgs = [], tool = 'claude', conversation = null, file: again = null }) {
+  const runId = again ? path.basename(again, '.json') : `${Date.now().toString(36)}-${process.pid}`;
+  const file = again || path.join(runsDir(), `${runId}.json`);
   const now = Date.now();
   const run = {
     runId,
@@ -55,6 +60,7 @@ export function createRun({ profile, cwd, carryArgs = [], tool = 'claude' }) {
     tmuxPane: process.env.TMUX_PANE || null,
     termId: process.env.HOPRIG_TERM_ID || null,
     sessionId: null,
+    conversation: conversation || null,
     status: 'starting',
     note: '',
     carryArgs,

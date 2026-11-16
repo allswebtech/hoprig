@@ -28,9 +28,10 @@ body.chat-mode .tia-boxroot { display: none; }
 .chat-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-hchip svg { flex: none; }
 .chat-morebtn, .chat-deskbtn { flex: none; }
-/* The chat's toasts sit under its head, where they cover no control: not over the head's menu (desktop), not over the
-   message box (phone). */
-body.chat-mode .toasts { top: calc(66px + env(safe-area-inset-top)); bottom: auto; }
+/* The chat's toasts sit under its head and its banners (page.js measures --chat-toast-top), at every width and in a
+   desktop window, where they cover no control: not the head's menu (desktop), not a banner's buttons, not the message
+   box (phone). */
+body.chat-mode .toasts { top: calc(var(--chat-toast-top, calc(58px + env(safe-area-inset-top))) + 8px); bottom: auto; }
 .chat-notes:empty, .chat-conn:empty { display: none; }
 .chat-banner { margin: 0; border-radius: 0; flex-wrap: wrap; }
 .chat-banner > span:not(.chat-banner-actions) { flex: 1; min-width: 200px; }
@@ -171,6 +172,8 @@ textarea.chat-input:disabled { opacity: 0.6; }
   .chat-banner .btn, .btn.chat-more, .btn.chat-down { min-height: 44px; }
   /* The head is one row: the title opens a sheet with the name, folder and provider (header.js). */
   .chat-sub { display: none; }
+  /* The title takes the row (a button at 100% of a box sized by its content would be cut far too early). */
+  .chat-h1row .chat-h1 { flex: 1 1 auto; }
   .chat-title { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; align-content: center; min-height: 44px; width: 100%; text-align: left; }
   .chat-title-sub { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 var(--fs-xs) var(--font); color: var(--muted); }
   .chat-title svg { display: none; }

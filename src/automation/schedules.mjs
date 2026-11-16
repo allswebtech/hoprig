@@ -87,7 +87,7 @@ export function decide({ schedules, lateHours, data, now }) {
 
 /**
  * Carry out the actions. ctx: { deck.start({ dir, profile, mode, name? }) → name, deck.has(name) → bool,
- * deck.startChat({ dir, profile, text, tool }) → chat id, deck.sendChat(id, text), enqueue(session, text), record(entry),
+ * deck.startChat({ dir, profile, text, tool }) → chat id, deck.sendChat(id, text), enqueue(session, text), label(profile)?, record(entry),
  * notify({ title, message, session }) }.
  * A message to a terminal goes through the session's queue, so it waits until Claude is free instead of typing over
  * its work; a chat queues a message by itself (Claude takes it at its next step).
@@ -95,7 +95,7 @@ export function decide({ schedules, lateHours, data, now }) {
 export async function apply(actions, ctx) {
   for (const a of actions) {
     const s = a.schedule;
-    const label = s.label || describeAction(s.action);
+    const label = s.label || describeAction(s.action, ctx.label);
     if (a.type === 'skip') {
       const hours = Math.round(a.late / 360_000) / 10;
       ctx.record({ automation: 'schedules', session: s.action.session || '', did: `skipped "${label}" (due ${new Date(a.slot).toLocaleString()})`, outcome: `missed: ${hours} hours late, more than allowed` });
@@ -126,4 +126,5 @@ export async function apply(actions, ctx) {
   }
 }
 
-export const describeAction = (a) => (a.type === 'start' ? `start ${a.in === 'chat' ? 'a chat ' : ''}in ${a.dir} on ${a.profile}` : `message to ${a.session}`);
+/** A schedule without a name, in words; `shown(profile)`: the provider as the owner named it (Activity is read). */
+export const describeAction = (a, shown = null) => (a.type === 'start' ? `start ${a.in === 'chat' ? 'a chat ' : ''}in ${a.dir} on ${(shown && shown(a.profile)) || a.profile}` : `message to ${a.session}`);

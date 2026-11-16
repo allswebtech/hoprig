@@ -23,6 +23,15 @@ test('restore: learns sessions, and at start reopens the ones that vanished, res
   assert.deepEqual(deck.started, [{ dir: '/p', profile: 'api', mode: 'move', sessionId: SID, carryArgs: ['--model', 'opus', '--permission-mode', 'plan'], name: 'api-work' }]);
   assert.equal(deck.sent.length, 0, 'nothing is typed');
   assert.match(rec.entries[0].did, /reopened on api \(resumed 22222222\)/);
+  // Read on Automations → Activity: the provider as the owner named it.
+  const named = recorder();
+  await restore.apply(r.actions, { deck: fakeDeck(), record: named.record, conversationExists: () => true, label: (p) => (p === 'api' ? 'Work key' : p) });
+  assert.equal(named.entries[0].did, 'reopened on Work key (resumed 22222222)');
+  // A conversation that runs already (a chat, a terminal): nothing reopens, and that is no failure.
+  const busy = recorder();
+  const deckBusy = { ...fakeDeck(), start: async () => { throw Object.assign(new Error('a chat runs its conversation now'), { existing: { chat: 'x' } }); } };
+  await restore.apply(r.actions, { deck: deckBusy, record: busy.record, conversationExists: () => true });
+  assert.deepEqual([busy.entries[0].did, busy.entries[0].outcome], ['did not reopen', 'skipped: a chat runs its conversation now']);
 });
 
 test('restore: a session closed while the service ran is never reopened', () => {

@@ -107,7 +107,8 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
     console.error(`hoprig: "${o.resume}" is not a ${tool.name} conversation id.`);
     return 2;
   }
-  const { file, run } = createRun({ profile: profile.name, cwd, carryArgs: carryOf(o), tool: toolId });
+  // A resume names its conversation in the run record before the coding tool starts (one conversation, one process).
+  const { file, run } = createRun({ profile: profile.name, cwd, carryArgs: carryOf(o), tool: toolId, conversation: o.resume });
   // A new conversation started here makes this the folder's provider for this coding tool, as Claude Code's launcher
   // does for its own (defaultprovider.mjs). A resume or a continue (a move too: it resumes) carries a conversation on
   // and says nothing about where the next one should start.
