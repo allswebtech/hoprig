@@ -1,6 +1,7 @@
 // A linked git worktree (`git worktree add`) is a second checkout of another repository, often a session's
-// temporary one: it is never a repository of the workspace map, wherever the map is built or updated, and entries
-// of an existing map that are worktrees are dropped at the next update. A submodule stays what it was: a repository.
+// temporary one: it is never a repository of the workspace map, wherever the map is built or updated, and an entry
+// of an existing map whose folder here is a worktree is dropped at the next update. Nothing is dropped by its
+// address: an entry whose folder is not here stays (the union), whatever its address. A submodule stays a repository.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -62,11 +63,11 @@ test('building the map leaves every linked worktree out (project repositories, p
   assert.deepEqual(r.worktrees, []);
 });
 
-test('worktree entries of an existing map are dropped at the next update; a repository only missing here stays', async () => {
+test('entries whose folder here is a worktree are dropped at the next update; an entry not here stays, whatever its address', async () => {
   const m = M.readMap(C.ws).map;
   const a = m.projects.find((p) => p.name === 'app');
   a.repos.push({ dir: 'code/app-web-wt', url: urls.web }); // its folder here is a worktree
-  a.repos.push({ dir: 'code/app-web-gone', url: urls.web }); // a worktree that was removed: same address as code/app-web
+  a.repos.push({ dir: 'code/app-web-gone', url: urls.web }); // not here, the address of code/app-web: kept (a leftover or a wanted clone?)
   a.repos.push({ dir: 'code/app-api', url: w.url('app-api') }); // on another computer only: kept
   m.projects.push({ name: 'app-wt', url: urls.app, repos: [] });
   m.projects.push({ name: 'elsewhere', url: w.url('elsewhere'), repos: [] });
@@ -83,36 +84,34 @@ test('worktree entries of an existing map are dropped at the next update; a repo
   const r = await M.updateMap({ dir: C.ws, projects: C.projects, manifests: false });
   const linked = ['app-wt', 'app/code/app-web-wt', 'app/code/ext-wt', 'ext-wt', 'git/ext-wt', 'git/tool-wt'];
   assert.deepEqual([...r.worktrees].sort(), linked);
-  assert.deepEqual(r.twins, [{ label: 'app/code/app-web-gone', same: 'app/code/app-web' }], 'gone: not called a linked worktree');
-  assert.deepEqual([...r.diff.removed].sort(), [...linked, 'app/code/app-web-gone'].sort());
-  assert.deepEqual(r.map.projects.find((p) => p.name === 'app').repos.map((x) => x.dir).sort(), ['code/app-api', 'code/app-web', 'code/lib']);
+  assert.deepEqual([...r.diff.removed].sort(), linked, 'only what is a worktree on this disk');
+  assert.deepEqual(r.map.projects.find((p) => p.name === 'app').repos.map((x) => x.dir).sort(), ['code/app-api', 'code/app-web', 'code/app-web-gone', 'code/lib']);
   assert.deepEqual(r.map.projects.map((p) => p.name).sort(), ['app', 'app-old-name', 'elsewhere', 'two']);
   assert.deepEqual(r.map.others.map((o) => o.dir).sort(), ['git/tool', 'git/tool-old']);
-  assert.deepEqual([...r.notHere].sort(), ['app-old-name', 'app/code/app-api', 'elsewhere', 'git/tool-old']);
+  assert.deepEqual([...r.notHere].sort(), ['app-old-name', 'app/code/app-api', 'app/code/app-web-gone', 'elsewhere', 'git/tool-old']);
   const again = await M.updateMap({ dir: C.ws, projects: C.projects, manifests: false });
   assert.equal(again.diff.same, true, 'nothing comes back');
 });
 
-test('a worktree named in a project.json is left out after it was removed, and `workspace map` takes it out of that file', async () => {
-  w.sh(twoWeb, 'worktree', 'remove', path.join(two, 'code', 'two-web-wt'));
-  assert.equal(fs.existsSync(path.join(two, 'code', 'two-web-wt')), false);
-  const m = M.readMap(C.ws).map;
-  m.projects.find((p) => p.name === 'two').repos.push({ dir: 'code/two-web-wt', url: urls.twoWeb }); // an older map wrote it
-  M.writeMap(m, C.ws);
-  const look = await M.updateMap({ dir: C.ws, projects: C.projects, manifests: false });
-  assert.deepEqual(look.map.projects.find((p) => p.name === 'two').repos.map((x) => x.dir), ['code/two-web']);
-  assert.deepEqual([look.worktrees, look.twins], [[], [{ label: 'two/code/two-web-wt', same: 'two/code/two-web' }]]);
-  assert.ok(!look.notHere.includes('two/code/two-web-wt'), 'dropped, not kept as "not on this computer"');
+test('`workspace map` takes a worktree out of the project.json that names it; a code repository whose folder is gone stays until forget', async () => {
   const manifest = () => JSON.parse(fs.readFileSync(path.join(two, 'project.json'), 'utf8')).repos.map((x) => x.dir);
-  assert.deepEqual(manifest(), ['code/two-web', 'code/two-web-wt'], 'the upkeep leaves project.json alone');
+  const look = await M.updateMap({ dir: C.ws, projects: C.projects, manifests: false });
+  assert.deepEqual([look.manifests, manifest()], [[{ project: 'two', added: [], dropped: ['code/two-web-wt'] }], ['code/two-web', 'code/two-web-wt']], 'the upkeep leaves project.json alone');
   const r = await M.updateMap({ dir: C.ws, projects: C.projects });
   assert.deepEqual(r.manifests, [{ project: 'two', added: [], dropped: ['code/two-web-wt'] }]);
-  assert.deepEqual(manifest(), ['code/two-web'], 'a fresh computer no longer clones the repository twice');
-  // A repository named in project.json that is only on another computer, with an address no repository here has: kept.
-  const j = JSON.parse(fs.readFileSync(path.join(two, 'project.json'), 'utf8'));
-  j.repos.push({ dir: 'code/two-api', url: w.url('two-api') });
-  fs.writeFileSync(path.join(two, 'project.json'), JSON.stringify(j));
-  const again = await M.updateMap({ dir: C.ws, projects: C.projects });
-  assert.deepEqual(again.map.projects.find((p) => p.name === 'two').repos.map((x) => x.dir).sort(), ['code/two-api', 'code/two-web']);
-  assert.deepEqual(again.manifests, []);
+  assert.deepEqual(manifest(), ['code/two-web'], 'a fresh computer does not clone the worktree');
+  // The worktree is removed; a map an older version wrote still names it. Its project is here and its project.json
+  // no longer names it: that file is the truth for the project (as before), not the address.
+  w.sh(twoWeb, 'worktree', 'remove', path.join(two, 'code', 'two-web-wt'));
+  const m = M.readMap(C.ws).map;
+  m.projects.find((p) => p.name === 'two').repos.push({ dir: 'code/two-web-wt', url: urls.twoWeb });
+  M.writeMap(m, C.ws);
+  const out = await M.updateMap({ dir: C.ws, projects: C.projects, manifests: false });
+  assert.deepEqual([out.takenOut, out.worktrees], [[{ project: 'two', dir: 'code/two-web-wt' }], []]);
+  // Without a project.json, an entry whose folder is gone stays (this disk cannot tell it from a clone kept on another
+  // computer) until the person runs  hoprig workspace forget app/code/app-web-gone.
+  assert.equal(M.forget('app/code/app-web-gone', C.ws).wasInMap, true);
+  const after = await M.updateMap({ dir: C.ws, projects: C.projects, manifests: false });
+  assert.deepEqual(after.map.projects.find((p) => p.name === 'app').repos.map((x) => x.dir).sort(), ['code/app-api', 'code/app-web', 'code/lib']);
+  assert.deepEqual([after.diff.same, after.map.skip], [true, ['app/code/app-web-gone']]);
 });

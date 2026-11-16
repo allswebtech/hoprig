@@ -31,7 +31,6 @@ function chosenProjectsDir() {
   }
 }
 
-const sameNote = (label, same) => `${label}: not cloned, it is the same repository as ${same}`;
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const lastLine = (text) => String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).pop() || '';
 const emptyDir = (d) => {
@@ -81,26 +80,13 @@ export async function untouchedScaffold(dir, run = capture) {
   return log.ok && log.stdout.trim() === 'Start the AI brain' && remote.ok && !remote.stdout.trim() && st.ok && !st.stdout.trim();
 }
 
-/**
- * A code repository the plan already gets for that project under another name: a project lists a repository once
- * (map.mjs twinsIn), so a second plain entry with its address (a worktree an older map or project.json named, or one
- * repository under two names) is not cloned again. An entry that names its own branch is a checkout someone asked
- * for and is always cloned. → the label of the one in the plan, or null.
- */
-const clonedAs = (plan, e) => (e.url && !e.branch ? (plan.find((x) => x.kind === 'repo' && x.project === e.project && x.label !== e.label && !x.branch && x.url && sameUrl(x.url, e.url) && ['clone', 'here'].includes(x.action)) || {}).label || null : null);
-
 /** Every place the map names, in order: the brain, each project then its code repositories, the others. */
-async function planFrom(map, { dir, projects, brainUrl, run, notes }) {
+async function planFrom(map, { dir, projects, brainUrl, run }) {
   const plan = [{ kind: 'brain', label: 'ai_brain', url: brainUrl, dest: path.join(dir, 'ai_brain'), ...(await placeState(path.join(dir, 'ai_brain'), brainUrl, run)) }];
   for (const p of map.projects) {
     const root = path.join(projects, p.name);
     plan.push({ kind: 'project', label: p.name, url: p.url, dest: root, ...(await placeState(root, p.url, run)) });
-    for (const r of p.repos) {
-      const e = { kind: 'repo', project: p.name, label: `${p.name}/${r.dir}`, url: r.url, branch: r.branch, dest: path.join(root, r.dir), ...(await placeState(path.join(root, r.dir), r.url, run)) };
-      const same = e.action === 'clone' && clonedAs(plan, e);
-      if (same) notes.push(sameNote(e.label, same));
-      else plan.push(e);
-    }
+    for (const r of p.repos) plan.push({ kind: 'repo', project: p.name, label: `${p.name}/${r.dir}`, url: r.url, branch: r.branch, dest: path.join(root, r.dir), ...(await placeState(path.join(root, r.dir), r.url, run)) });
   }
   for (const o of map.others) plan.push({ kind: 'other', label: o.dir, url: o.url, branch: o.branch, dest: path.join(dir, o.dir), ...(await placeState(path.join(dir, o.dir), o.url, run)) });
   return plan;
@@ -156,7 +142,7 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
     // The projects folder: one chosen on this computer before wins; else where the map says (relative to the
     // workspace); else <workspace>/projects.
     const projects = given || chosenProjectsDir() || (m.map.config && m.map.config.projectsDir ? path.join(dir, ...m.map.config.projectsDir.split('/')) : projectsIn({ workspaceDir: dir }));
-    const plan = await planFrom(m.map, { dir, projects, brainUrl: repo.url, run, notes });
+    const plan = await planFrom(m.map, { dir, projects, brainUrl: repo.url, run });
     plan[0] = { ...plan[0], action: brainHere.action, why: setAside ? `the unused starting brain is kept as ${tilde(setAside)} first` : plan[0].why };
     if (!plan[0].why) delete plan[0].why;
     // The brain comes from git, never from the scaffold: only the other folders of the tree are listed.
@@ -191,7 +177,9 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
       }
       await cloneOne(e);
     }
-    // A project's own project.json may name code repositories the map does not have yet: clone those too.
+    // A project's own project.json may name code repositories the map does not have yet: clone those too, except
+    // one taken out with `workspace forget` (the map's skip list has it as <project>/<dir>).
+    const forgotten = new Set(m.map.skip || []);
     for (const p of plan.filter((x) => x.kind === 'project' && isGitRepo(x.dest))) {
       const { manifest, source } = await readManifest(p.dest, run);
       if (!manifest) continue;
@@ -199,14 +187,8 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
       const fromMap = (m.map.projects.find((x) => x.name === p.label) || {}).memories;
       if (source !== MANIFEST && fromMap) manifest.memories = fromMap;
       for (const r of manifest.repos) {
-        if (plan.some((x) => x.kind === 'repo' && x.dest === path.join(p.dest, r.dir))) continue;
+        if (forgotten.has(`${p.label}/${r.dir}`) || plan.some((x) => x.kind === 'repo' && x.dest === path.join(p.dest, r.dir))) continue;
         const e = { kind: 'repo', project: p.label, label: `${p.label}/${r.dir}`, url: r.url, branch: r.branch, dest: path.join(p.dest, r.dir), ...(await placeState(path.join(p.dest, r.dir), r.url, run)) };
-        const same = e.action === 'clone' && clonedAs(plan, e);
-        if (same) {
-          notes.push(sameNote(e.label, same));
-          ui.note(sameNote(e.label, same));
-          continue;
-        }
         plan.push(e);
         await cloneOne(e);
       }
