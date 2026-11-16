@@ -76,8 +76,9 @@ export const ALLOW = [
   r('POST', `/api/sessions/${SEG}/rename`, 'rename_session'),
   r('POST', `/api/sessions/${SEG}/kill`, 'stop_session'),
   r('POST', `/api/sessions/${SEG}/switch`, 'switch_account'),
-  // A chat (src/chat): only the fields her tools send. The model, effort, permission mode and provider of a chat, its
-  // plan approvals and questions, its files and rewinds stay the owner's, in the page.
+  // A chat (src/chat): only the fields her tools send. The model, effort and permission mode of a chat, its plan
+  // approvals and questions, its files and rewinds stay the owner's, in the page. Its provider moves as a terminal's
+  // does (switch_account: the same rules, a card unless it is her own chat).
   // A chat she starts takes Settings → New-session defaults (defaults: true), never the folder's last chat of the owner,
   // and is marked hers (byTia: the chat it creates, see src/chat/feature.mjs openChat).
   r('POST', '/api/chats', 'start_chat', (b) => onlyKeys(['dir', 'tool', 'profile', 'sessionId', 'text', 'defaults', 'byTia'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)),
@@ -85,6 +86,7 @@ export const ALLOW = [
   r('POST', `/api/chats/${CHAT_ID}/send`, 'send_to_chat (text)', (b) => onlyKeys(['text', 'byTia'])(b) || (b.byTia !== true ? 'a message Tia sends says it is hers (byTia: true)' : null)),
   r('POST', `/api/chats/${CHAT_ID}/answer`, 'send_to_chat (answer)', onlyKeys(['request', 'allow', 'always'])),
   r('POST', `/api/chats/${CHAT_ID}/stop`, 'send_to_chat (stop)', onlyKeys([])),
+  r('POST', `/api/chats/${CHAT_ID}/provider`, 'switch_account (a chat)', (b) => onlyKeys(['profile'])(b) || (typeof b.profile !== 'string' ? 'say which provider' : null)),
   r('GET', '/api/folders/recent', 'list_projects'),
   r('GET', '/api/folders/browse', 'list_projects (folder)'),
   r('GET', '/api/folders/sessions', 'list_projects (folder)'),

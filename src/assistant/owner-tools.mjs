@@ -32,16 +32,19 @@ export const stop_session = tool({
   },
 });
 
+// A chat moves too (its page's "continue on another provider"): its next message runs there. A terminal needs its
+// conversation id, to start again on the new provider.
 async function switchFacts(ops, a) {
-  const c = await findSession(ops, a);
-  if (!isCodingCard(c)) throw toolError(`${a.session} is a plain shell, not a coding session`, 'pick a coding session from list_sessions');
-  if (!c.sessionId) throw toolError(`${a.session} has no conversation id yet`, 'wait until Claude Code has started, then try again');
+  const c = await findSession(ops, a, { chatOk: true });
+  const chat = c.kind === 'chat';
+  if (!chat && !isCodingCard(c)) throw toolError(`${a.session} is a plain shell, not a coding session`, 'pick a coding session from list_sessions');
+  if (!chat && !c.sessionId) throw toolError(`${a.session} has no conversation id yet`, 'wait until its coding tool has started, then try again');
   const acc = await ops.accounts({ computer: comp(a) });
   const autoOn = !!(acc.autoSwitch && acc.autoSwitch.enabled);
   const target = a.account === 'auto' ? (autoOn ? { name: 'auto', kind: 'auto', limited: null } : null) : (acc.profiles || []).find((p) => p.name === a.account);
   if (!target) throw toolError(`there is no provider "${a.account}"${a.account === 'auto' ? ' while Auto mode is off' : ''}`, 'call get_accounts for the names');
   if (c.profile && c.profile.name === a.account) throw toolError(`${a.session} already runs on ${a.account}`, 'pick another provider');
-  return { session: c.name, sessionId: c.sessionId, from: c.profile ? c.profile.name : null, to: a.account, toKind: target.kind, toLimited: !!target.limited };
+  return { session: c.name, chat, sessionId: c.sessionId || null, from: c.profile ? c.profile.name : null, to: a.account, toKind: target.kind, toLimited: !!target.limited };
 }
 
 export const switch_account = tool({
@@ -49,17 +52,18 @@ export const switch_account = tool({
   level: 'L2',
   card: 'maybe',
   pickAccount: true,
-  description: `Move a session to another provider: the same conversation continues there (how work carries on after a usage limit). Leave account out to let ${ASSISTANT_NAME} pick an allowed provider. Runs at once for a session ${ASSISTANT_NAME} started, unless the owner's level or a paid API provider needs a card.`,
+  description: `Move a session or a chat to another provider: the same conversation continues there (how work carries on after a usage limit); it stays in its coding tool. Leave account out to let ${ASSISTANT_NAME} pick an allowed provider. Runs at once for a session ${ASSISTANT_NAME} started, unless the owner's level or a paid API provider needs a card.`,
   input: obj({ session, account, computer }, { required: ['session'] }),
   before: switchFacts,
   cardLines: (a, b) => [
-    `Move session ${a.session} on ${comp(a)} from ${b.from} to ${b.to}`,
+    `Move ${b.chat ? 'chat' : 'session'} ${a.session} on ${comp(a)} from ${b.from} to ${b.to}${b.chat ? ' (its next message runs there)' : ''}`,
     b.toKind === 'api' ? `${b.to} is an API provider: it is paid per token` : `${b.to} is a ${b.toKind} provider`,
     ...(b.toLimited ? [`${b.to} is itself at a usage limit right now`] : []),
   ],
   async run(ops, a, ctx) {
-    await switchFacts(ops, a);
-    await ops.switchAccount({ computer: comp(a), session: a.session, profile: a.account });
+    const f = await switchFacts(ops, a);
+    if (f.chat) await ops.moveChat({ computer: comp(a), id: a.session.slice('chat:'.length), profile: a.account });
+    else await ops.switchAccount({ computer: comp(a), session: a.session, profile: a.account });
     return { summary: `${a.session} now continues on ${a.account}${ctx.accountWhy ? ` (${ctx.accountWhy})` : ''}.`, data: { session: a.session, account: a.account, account_why: ctx.accountWhy || null } };
   },
 });

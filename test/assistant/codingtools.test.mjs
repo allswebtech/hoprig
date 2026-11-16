@@ -119,10 +119,9 @@ test('an OK in an OpenCode chat is always the owner\'s, even one on her short li
   assert.equal(ops.calls.at(-1).op, 'answerChat');
 });
 
-// The provider of a move must serve the session's coding tool, not "Bash" (the call an OK is about): a chat is then
-// told the right thing (it moves on its own page), not that no provider serves "Bash".
-test('switch_account of a chat that waits for an OK: judged by the chat\'s coding tool, not by the call it asks about', async () => {
-  const { call } = setup((s) => {
+// The provider of a move must serve the session's coding tool, not "Bash" (the call an OK is about).
+test('switch_account moves a chat too: her own at once, judged by the chat\'s coding tool, not by the call it asks about', async () => {
+  const { call, ops } = setup((s) => {
     s.sessions.push({
       computer: 'this', name: `chat:${OC}`, kind: 'chat', chatId: OC, byTia: true, status: 'attention', title: 'Tests',
       profile: { name: 'sub', label: 'Main', kind: 'subscription' }, cwd: '/home/owner/projects/hoprig', note: 'Claude wants to run: npm test',
@@ -133,8 +132,13 @@ test('switch_account of a chat that waits for an OK: judged by the chat\'s codin
   });
   await call('list_sessions', {});
   const r = await call('switch_account', { session: `chat:${OC}` });
-  assert.doesNotMatch(r.text, /does not serve/, r.text);
-  assert.match(r.text, /is a chat in the dashboard page/);
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.text, /now continues on sub2/);
+  assert.deepEqual(ops.calls.at(-1), { op: 'moveChat', args: { computer: 'this', id: OC, profile: 'sub2' } });
+  // Not hers: a card that says it is a chat.
+  ops.s.sessions.at(-1).byTia = false;
+  const card = await call('switch_account', { session: `chat:${OC}` });
+  assert.match(card.text, /Move chat chat:\S+ on this from sub2 to sub \(its next message runs there\)/);
 });
 
 test('get_computer_status coding_tools: which tools are on and installed, and every row of Settings → Updates', async () => {
@@ -212,6 +216,9 @@ test('manage_computer coding_tool: turning one on or off is a card; a missing on
 
 test('the door: the coding tools\' routes take only what the tools send; updates by themselves and a coding tool\'s sign-in stay the owner\'s', () => {
   assert.equal(checkRoute('POST', '/api/chats', { dir: '/x', tool: 'opencode', profile: 'gw', defaults: true, byTia: true }).tool, 'start_chat');
+  assert.equal(checkRoute('POST', `/api/chats/${OC}/provider`, { profile: 'sub2' }).tool, 'switch_account (a chat)');
+  assert.throws(() => checkRoute('POST', `/api/chats/${OC}/provider`, { profile: 'sub2', model: 'opus' }), /"model" is the owner's to send/);
+  assert.throws(() => checkRoute('POST', `/api/chats/${OC}/model`, { model: 'opus' }), /not a route Tia's tools use/);
   assert.equal(checkRoute('GET', '/api/codetools', null).route, '/api/codetools');
   assert.equal(checkRoute('POST', '/m/box2/api/codetools/opencode', { on: true }).computer, 'box2');
   assert.throws(() => checkRoute('POST', '/api/codetools/opencode', { on: 'yes' }), /on is true or false/);

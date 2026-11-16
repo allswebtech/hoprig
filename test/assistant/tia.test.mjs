@@ -16,12 +16,13 @@ test('the name lives in one constant; every option has a plain sentence', () => 
   assert.equal(ASSISTANT_NAME, 'Tia');
   for (const k of ['enabled', 'level', 'accounts', 'runsOn', 'maxSteps', 'maxMinutes']) assert.ok(HELP[k].length > 20, k);
   assert.deepEqual(LEVELS, ['ask', 'work', 'handsoff']);
-  // "Do the work" says both truths: in a chat she allows by herself only looking and the project's own tests, never a
-  // change to a file (allowlist.mjs); in a terminal session she still answers its ordinary prompts and sends the risky
-  // ones on.
+  // "Do the work" says the three truths: in a Claude Code chat she allows by herself only looking and the project's own
+  // tests, never a change to a file (allowlist.mjs), and no OK of another coding tool (policy.mjs); in a terminal
+  // session she still answers its ordinary prompts, judged only by its screen's text and a deny-list, and sends the
+  // risky ones on.
   for (const s of [HELP.levelWork, HELP.level]) {
-    assert.match(s, /in a chat she started she allows by herself only looking and running the project's own tests \(a short list\); changing files and everything else comes to you/i);
-    assert.match(s, /in a terminal session she started she still answers its ordinary permission prompts and sends you the risky ones/i);
+    assert.match(s, /in a Claude Code chat she started she allows by herself only looking and running the project's own tests \(a short list\); changing files, everything else and every OK of another coding tool come to you/i);
+    assert.match(s, /in a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things \(best effort\), and sends you the risky ones/i);
   }
 });
 

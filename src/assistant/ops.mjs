@@ -152,6 +152,7 @@ export function createOps(o) {
     }),
     answerChat: ({ computer, id, request, allow, always }) => post(computer, `/api/chats/${enc(id)}/answer`, { request, allow, always }),
     stopChat: ({ computer, id }) => post(computer, `/api/chats/${enc(id)}/stop`, {}),
+    moveChat: ({ computer, id, profile }) => post(computer, `/api/chats/${enc(id)}/provider`, { profile }),
 
     // ---- folders and projects ----
     async recentFolders({ computer }) {

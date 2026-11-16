@@ -7,7 +7,7 @@
 // and, once decided, shows what happened. Styles: page-automations.css (every class starts with "tia-").
 import { money } from './chat/words.js';
 import { icon } from './icons.js';
-import { BARE, add, api, btn, confirmSheet, copyText, fill, h, prefs, toast, url } from './lib.js';
+import { BARE, add, api, btn, confirmSheet, copyText, fill, h, link, prefs, toast, url } from './lib.js';
 import { navChanged, registerHeadTool, registerPage, registerSessionAction, registerSettingsPage } from './registry.js';
 import { fold, saveBar, tabBar, toggle } from './shell.js';
 import { MODELS } from './sessiondefaults.js';
@@ -49,6 +49,19 @@ const DID = {
 };
 const JOB_WORDS = { working: 'Working', waiting: 'Waiting for you', done: 'Done', stuck: 'Stuck', stopped: 'Stopped' };
 const JOB_PILL = { working: 'st-working', waiting: 'st-waiting', done: 'st-starting', stuck: 'st-limit', stopped: 'st-starting' };
+
+/**
+ * A session of a job as a chip that opens it: a chat ("chat:<id>") on its chat page by its id, a terminal on its
+ * session page by its name; another computer's through its own address.
+ */
+const chatOf = (s) => (/^chat:([0-9a-f-]{36})$/.exec(s.session) || [])[1] || null;
+export const jobLabel = (s) => (chatOf(s) ? `Chat ${chatOf(s).slice(0, 8)}` : s.session);
+export function jobChip(s) {
+  const chat = chatOf(s);
+  const m = s.computer && s.computer !== 'this' ? s.computer : null;
+  const href = chat ? link(`#/chat/${chat}`, m) : link(`#/s/${encodeURIComponent(s.session)}`, m);
+  return h('a.chip', { href }, icon(chat ? 'text' : 'terminal', { size: 14 }), jobLabel(s));
+}
 const OUTCOME = { done: 'Done', staged: 'Waiting for your OK', confirmed: 'You confirmed', declined: 'You declined', refused: 'Refused', failed: 'Failed', stale: 'Not run (things changed)', expired: 'Expired' };
 // Three things to ask, for the empty chat: each is sent as it is when tapped.
 export const EXAMPLES = [
@@ -282,7 +295,7 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
   const empty = () => fill(list, h('div.tia-empty',
     h('span.tia-off-icon', icon('sparkle', { size: 26 })),
     h('h2.tia-off-title', `Hi, I am ${NAME}.`),
-    h('p', 'Tell me what to get done: I start Claude Code sessions in your projects, answer their questions, check the result and tell you when it is done. Try one:'),
+    h('p', 'Tell me what to get done: I start chats in your projects, answer their questions, check the result and tell you when it is done. Try one:'),
     h('div.tia-examples', EXAMPLES.map((x) => h('button.tia-example', { type: 'button', onclick: () => { input.value = x; submit(); } }, icon('send', { size: 15 }), h('span', x))))));
 
   function render(e) {
@@ -584,7 +597,7 @@ function viewTia({ frame, sub }) {
       fill(body, h('div.tia-off',
         h('span.tia-off-icon', icon('sparkle', { size: 28 })),
         h('h2.tia-off-title', `${NAME} is off`),
-        h('p', `${NAME} is a built-in assistant (experimental) that starts Claude Code sessions for you, watches them and asks you before anything risky.`),
+        h('p', `${NAME} is a built-in assistant (experimental) that starts coding sessions for you, watches them and asks you before anything risky.`),
         h('a.btn.primary', { href: '#/settings/tia' }, icon('power', { size: 18 }), h('span', `Turn on ${NAME} in Settings`))));
       return false;
     }
@@ -626,9 +639,9 @@ function viewTia({ frame, sub }) {
     if (!r.jobs.length) return fill(body, h('div.empty.compact', icon('clock', { size: 28 }), h('div.empty-title', 'No jobs yet'), h('p', `When you ask ${NAME} to get something done, the job shows here: its goal, the sessions, and what she did.`)));
     fill(body, h('div.rows', r.jobs.map((j) => h('div.row.static.col.tia-job',
       h('div.mrow-top',
-        h('span.row-main', h('span.row-title.tia-wrap', j.goal), h('span.row-sub', `${when(j.createdAt)} · ${j.sessions.map((s) => s.session).join(', ') || 'no session yet'} · ${j.steps} of ${j.maxSteps} answers used`)),
+        h('span.row-main', h('span.row-title.tia-wrap', j.goal), h('span.row-sub', `${when(j.createdAt)} · ${j.sessions.map(jobLabel).join(', ') || 'no session yet'} · ${j.steps} of ${j.maxSteps} answers used`)),
         h(`span.pill.${JOB_PILL[j.state] || 'st-starting'}`, h('span.dot'), JOB_WORDS[j.state] || j.state)),
-      j.sessions.length ? h('div.tia-tools', j.sessions.map((s) => h('a.chip', { href: s.computer === 'this' ? `#/s/${encodeURIComponent(s.session)}` : `#/m/${s.computer}/s/${encodeURIComponent(s.session)}` }, icon('terminal', { size: 14 }), s.session))) : null,
+      j.sessions.length ? h('div.tia-tools', j.sessions.map(jobChip)) : null,
       h('details', h('summary.hint', 'What she did'), h('ul.tia-log', j.log.slice(-12).map((l) => h('li', `${when(l.at)} ${l.text}`)))),
       j.state === 'working' || j.state === 'waiting'
         ? h('div', btn('secondary small', { icon: 'stop', label: 'Stop this job', onclick: async () => {
@@ -803,7 +816,7 @@ export const providerWords = (a) => (a.name === 'auto' ? 'Auto mode'
 
 registerSettingsPage({
   id: 'tia', title: NAME, icon: 'sparkle', order: 50, onlyHere: true, tag: 'experimental',
-  desc: `${NAME} is the assistant: she gets coding work done through Claude Code sessions and tells you when it is done. Choose how far she may go and which providers she may use.`,
+  desc: `${NAME} is the assistant: she gets coding work done through chats with your coding tools and tells you when it is done. Choose how far she may go and which providers she may use.`,
   summary: async () => {
     const v = await api(`${A}/settings`);
     return v.settings.enabled ? `On · ${{ ask: 'asks first', work: 'does the work', handsoff: 'hands off' }[v.settings.level] || v.settings.level}` : 'Off';

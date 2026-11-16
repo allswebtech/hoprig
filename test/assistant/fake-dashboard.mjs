@@ -223,6 +223,12 @@ export class FakeOps {
     this.#write('killSession', a);
     this.s.sessions = this.s.sessions.filter((c) => !(c.computer === a.computer && c.name === a.session));
   }
+  async moveChat(a) {
+    this.#write('moveChat', a);
+    const c = this.#session(a.computer, `chat:${a.id}`);
+    c.profile = { name: a.profile, label: a.profile, kind: (this.s.profiles.find((p) => p.name === a.profile) || {}).kind || 'auto' };
+    c.limit = null;
+  }
   async switchAccount(a) {
     this.#write('switchAccount', a);
     const c = this.#session(a.computer, a.session);
