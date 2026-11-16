@@ -19,7 +19,7 @@ const item = (id, title, whenRunning, info, o = {}) => ({
 export function demoUpdateItems() {
   const shown = (i) => !ALL_TOOLS.some((t) => t.id === i.id) || TOOL_IDS.includes(i.id);
   return [
-    item('hoprig', 'Hoprig', 'The new version is used after the dashboard restarts: sessions kept by tmux go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). From a git checkout Hoprig never updates by itself.',
+    item('hoprig', 'Hoprig', 'The new version is used after the dashboard restarts: sessions kept by tmux go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). Hoprig never updates itself: Automatic tells you, and you choose the moment.',
       { installed: '0.1.0', latest: '0.1.0', method: 'npm', updateAvailable: false, canUpdate: true }),
     item('claude', 'Claude Code', 'Running sessions keep the version they started with and use the new one when they start again. Automatic updates wait until no Claude Code session is working.',
       { installed: '2.1.330', latest: '2.1.332', method: 'official installer', updateAvailable: true, canUpdate: true }),

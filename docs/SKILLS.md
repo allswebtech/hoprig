@@ -1,8 +1,9 @@
 # Skills
 
-Claude Code skills are folders with a `SKILL.md` (and sometimes scripts) that Claude Code loads: yours from
-`~/.claude/skills/<name>/`, a project's from `<project>/.claude/skills/<name>/`. A skill is instructions an AI
-agent follows with your permissions, so taking one is like installing software from the internet. Hoprig
+Skills are folders with a `SKILL.md` (and sometimes scripts) that a coding tool loads: yours from
+`~/.claude/skills/<name>/`, a project's from `<project>/.claude/skills/<name>/`. Claude Code reads both, and so does
+OpenCode (it also reads `~/.agents/skills`, which `hoprig workspace link` points at the brain's skills). A skill is
+instructions an AI agent follows with your permissions, so taking one is like installing software from the internet. Hoprig
 suggests skills that fit a project, finds others, and installs one only after you have seen it.
 
 ## One command or two taps
