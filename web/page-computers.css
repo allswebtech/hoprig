@@ -55,19 +55,19 @@
 .cp-tr { display: grid; align-items: center; gap: 4px 16px; padding: 10px 14px; border-top: 1px solid var(--border); min-height: 52px; }
 .cp-tr:first-child { border-top: 0; }
 .cp-th { min-height: 0; padding-top: 8px; padding-bottom: 8px; background: var(--surface-2); font-size: var(--fs-xs); font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.cp-procs .cp-tr { grid-template-columns: minmax(0, 1fr) 72px 84px 40px; }
+.cp-procs .cp-tr { grid-template-columns: minmax(0, 1fr) 72px 84px 76px; }
 .cp-ports .cp-tr { grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr); }
 .cp-name { min-width: 0; }
 .cp-args { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cp-n { text-align: right; font-variant-numeric: tabular-nums; font-size: var(--fs-sm); }
 .cp-act { display: flex; justify-content: flex-end; }
-.cp-stop-none { width: 40px; height: 1px; }
+.cp-stop-none { font-size: var(--fs-xs); white-space: nowrap; padding-right: 8px; }
 .cp-danger .row-icon { color: var(--danger); }
 .cp-danger .row-title { color: var(--danger); }
 
 @media (max-width: 620px) {
   .cp-th { display: none; }
-  .cp-procs .cp-tr { grid-template-columns: auto auto minmax(0, 1fr) 40px; }
+  .cp-procs .cp-tr { grid-template-columns: auto auto minmax(0, 1fr) 76px; }
   .cp-procs .cp-name { grid-column: 1 / -2; grid-row: 1; }
   .cp-procs .cp-act { grid-column: -2 / -1; grid-row: 1 / span 2; }
   .cp-procs .cp-n { grid-row: 2; text-align: left; color: var(--text-2); }

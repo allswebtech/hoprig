@@ -33,7 +33,7 @@ globalThis.document ??= {
   visibilityState: 'visible',
 };
 
-const { PARTS, processList, reachOf, upFor, osName } = await import('../../web/pc.js');
+const { PARTS, processList, reachOf, upFor, osName, busyFigures, diskName } = await import('../../web/pc.js');
 const { computerLine } = await import('../../web/computers.js');
 const { setupSummary } = await import('../../web/pcsetup.js');
 
@@ -66,7 +66,7 @@ test('Overview: whether the computer can be reached from anywhere, in plain word
   assert.equal(reachOf(s('127.0.0.1'), [{ id: 'public-link', running: false }]).level, 'local');
   // The fixed address comes first, and says whether it is connected yet.
   const fixed = (o) => [{ id: 'public-link', running: true, url: 'https://a-b.trycloudflare.com', fixed: { url: 'https://pc.example.com', enabled: true, connected: true, ...o } }];
-  assert.deepEqual(reachOf(s('127.0.0.1'), fixed({})), { level: 'anywhere', text: 'Yes, at its fixed address https://pc.example.com.' });
+  assert.deepEqual(reachOf(s('127.0.0.1'), fixed({})), { level: 'anywhere', text: 'At its fixed address https://pc.example.com.' });
   assert.match(reachOf(s('127.0.0.1'), fixed({ connected: false })).text, /once it is connected/);
   assert.match(reachOf(s('127.0.0.1'), fixed({ enabled: false })).text, /a-b\.trycloudflare\.com/, 'turned off: the temporary one, when it runs');
   assert.equal(upFor(3 * 86400 + 5 * 3600 + 120), '3 d 5 h');
@@ -117,4 +117,15 @@ test('the pages: one list, Add a computer by situation, Rename/Test/Remove on th
   for (const [, , sel] of css.matchAll(/(^|})\s*([^{}@]+)\{/g)) {
     for (const part of sel.split(',')) assert.match(part.trim(), /(^|\s|>)\.(cp-|pcsetup)/, `page-computers.css: "${part.trim()}" carries the page's prefix`);
   }
+});
+
+test('Overview: how busy in plain words first, the raw load second; the system disk is the main disk', () => {
+  const b = busyFigures([1.8, 1.5, 1.2], 10);
+  assert.deepEqual([b.word, b.value, b.sub], ['Calm', '18%', 'load 1.80 on 10 CPUs']);
+  assert.match(b.title, /1\.80, 1\.50, 1\.20/);
+  assert.equal(busyFigures([9.5, 0, 0], 10).word, 'Very busy');
+  assert.equal(diskName('/'), 'Main disk');
+  assert.equal(diskName('C:\\'), 'Main disk');
+  assert.equal(diskName('/data'), '/data');
+  for (const l of [reachOf({ server: { publicUrl: 'https://x.example' }, network: {} })]) assert.doesNotMatch(l.text, /^Yes/, 'the title says yes once');
 });
