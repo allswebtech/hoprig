@@ -158,6 +158,7 @@ export class ClaudeParser {
     this.calls = new Map(); // tool use id → { name, input } (the newest 2000)
     this.taskTool = new Map(); // task id → the tool call that started it (a subagent's ask names its task)
     this.thinking = null; // the thinking block being streamed (its token count comes on its own line)
+    this.thinkAt = new Map(); // thinking block id → when it started (how long it thought)
     this.usageOf = null; // the message whose prompt size was told last
     this.todos = newTodos();
     this.n = 0;
@@ -205,7 +206,12 @@ export class ClaudeParser {
         if (!m.message) return [];
         const id = m.message.id || `m${++this.n}`;
         const out = assistantEvents(m.message.content, this.#blockId(id), agent);
-        for (const e of out) if (e.kind === 'tool') this.#call(e.id, e.name, e.full);
+        for (const e of out) {
+          if (e.kind === 'tool') this.#call(e.id, e.name, e.full);
+          // How long it thought: Claude Code's own figure where the line has it, else since its first delta.
+          if (e.kind === 'thinking') e.durationMs = num(m.thinkingDurationMs) ?? (this.thinkAt.has(e.blockId) ? Date.now() - this.thinkAt.get(e.blockId) : null);
+          this.thinkAt.delete(e.blockId);
+        }
         const u = m.message.usage;
         if (!agent && u && this.usageOf !== id) {
           this.usageOf = id;
@@ -266,7 +272,11 @@ export class ClaudeParser {
         this.blocks.set(e.index, block);
         // Claude Code gives the whole block as an assistant line while it ends (before or after its stop event).
         if (BLOCKS.has(b.type)) this.started.get(this.msg)?.push(block.blockId);
-        if (b.type === 'thinking') this.thinking = block.blockId;
+        if (b.type === 'thinking') {
+          this.thinking = block.blockId;
+          this.thinkAt.set(block.blockId, Date.now());
+          if (this.thinkAt.size > 50) this.thinkAt.delete(this.thinkAt.keys().next().value);
+        }
         if (b.type === 'text') return [{ kind: 'text-delta', blockId: block.blockId, text: '', agent }];
         if (b.type === 'thinking') return [{ kind: 'thinking-delta', blockId: block.blockId, text: '', agent }];
         if (b.type === 'tool_use') return [{ kind: 'tool-start', id: block.id, name: block.name, title: '', toolKind: toolKind(block.name), agent }];

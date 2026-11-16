@@ -74,3 +74,15 @@ export async function usageNow(chat) {
   chat.emit('state');
   return { usage: chat.usage, limits: chat.limits, subscription: usage ? usage.subscription_type || null : null, limitsKnown: !!(usage && usage.rate_limits_available) };
 }
+
+/**
+ * The owner names `chat` in the dashboard. The running coding tool is told too where it can (then a terminal that
+ * resumes the conversation shows the same name); the name is kept with the chat either way.
+ */
+export async function renameChat(chat, title) {
+  chat.title = title;
+  chat.named = true;
+  chat.emit('record');
+  chat.emit('state');
+  if (chat.session && chat.session.alive && chat.engine.capabilities.rename) await chat.session.rename(title).catch(() => {});
+}

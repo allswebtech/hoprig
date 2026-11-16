@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import { providerEnv } from '../assistant/engine.mjs';
 import { engineOf } from './engines/index.mjs';
 import { allowPending, answerAsk, askArrived, cancelAsks, keepGrants } from './asks.mjs';
-import { applySettings, mergeLimit, usageNow } from './controls.mjs';
+import { applySettings, mergeLimit, renameChat, usageNow } from './controls.mjs';
 import { oneLine } from './events.mjs';
 import { MessageQueue } from './queue.mjs';
 import { LiveBlocks } from './streaming.mjs';
@@ -50,6 +50,7 @@ export class Chat extends Timeline {
     this.ultracode = o.ultracode === true;
     this.permissionMode = o.permissionMode || null;
     this.title = o.title || '';
+    this.named = o.named === true; // the owner named it in the dashboard: that name wins over the transcript's
     this.openedAt = o.openedAt || Date.now();
     this.costTotal = Number.isFinite(o.costTotal) ? o.costTotal : null; // what the coding tool reported last (a running total)
     this.grants = keepGrants(o.grants); // what "allow in this chat" covered (asks.mjs)
@@ -96,7 +97,7 @@ export class Chat extends Timeline {
     this.tasks.load(t.tasks);
     const last = [...t.events].reverse().find((e) => e.kind === 'text' && !e.agent);
     this.lastText = last ? last.text : '';
-    if (t.title) this.title = t.title;
+    if (t.title && !this.named) this.title = t.title;
     if (!this.title) {
       const first = t.events.find((e) => e.kind === 'user');
       if (first) this.title = oneLine(first.text, 80);
@@ -496,6 +497,11 @@ export class Chat extends Timeline {
     return s.commands();
   }
 
+  /** The owner names the chat (controls.mjs). */
+  rename(title) {
+    return renameChat(this, title);
+  }
+
   /** Context and plan usage, asked of the running process (null when it does not run). */
   usageNow() {
     return usageNow(this);
@@ -568,7 +574,7 @@ export class Chat extends Timeline {
     return {
       id: this.id, ...(this.conversationId !== this.id ? { conversationId: this.conversationId } : {}), engine: this.engine.id,
       cwd: this.cwd, profile: this.profile, model: this.model, effort: this.effort, ultracode: this.ultracode, permissionMode: this.permissionMode,
-      title: this.title, openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
+      title: this.title, ...(this.named ? { named: true } : {}), openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
     };
   }
 }

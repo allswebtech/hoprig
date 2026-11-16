@@ -5,6 +5,7 @@
 //                                                 "state" (the chat's state, as in the long poll), "live" [deltas …]
 //   POST /api/chats/<id>/mode                     { mode }   the permission mode, in the running process
 //   POST /api/chats/<id>/settings                 { model?, effort?, ultracode? }   (null: Auto) → { restart }
+//   POST /api/chats/<id>/title                    { title }  the owner names the chat
 //   POST /api/chats/<id>/unqueue                  { id }     take a queued message back
 //   POST /api/chats/<id>/tasks/<task>/stop                   stop one background agent, shell or workflow
 //   POST /api/chats/<id>/rewind                   { messageId, dryRun? }   undo the file changes since a message
@@ -33,8 +34,12 @@ export function stateOf(c) {
   };
 }
 
-/** o: { chatOr404, save, bad, models(), folderOf(chat) (its folder while inside the allowed roots) } from feature.mjs */
-export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf }) {
+/**
+ * o: { chatOr404, save, bad, models(), folderOf(chat) (its folder while inside the allowed roots), about(chat) (what
+ * the page shows beside the state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that
+ * runs the conversation now) } from feature.mjs
+ */
+export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf, about, terminalOf }) {
   const { HttpError } = ctx;
   const pick = (val, list, what) => {
     if (val === undefined) return undefined;
@@ -70,6 +75,7 @@ export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf }) {
     let from = Math.max(0, Number(url.searchParams.get('from')) || 0);
     let epoch = Number(url.searchParams.get('epoch')) || 0;
     let deltas = [];
+    let terminal = null; // a terminal that runs the conversation (the page then reads along)
     let dirty = { events: true, state: true };
     let timer = null;
     const flush = () => {
@@ -81,7 +87,7 @@ export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf }) {
         epoch = c.epoch;
       }
       if (deltas.length) send('live', deltas);
-      if (dirty.state) send('state', stateOf(c));
+      if (dirty.state) send('state', { ...stateOf(c), ...about(c), terminal });
       deltas = [];
       dirty = { events: false, state: false };
     };
@@ -104,10 +110,25 @@ export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf }) {
     c.on('status', onState);
     c.on('state', onState);
     c.on('live', onLive);
+    let closed = false;
+    const lookTerminal = async () => {
+      const t = await terminalOf(c).catch(() => null);
+      if (!closed && JSON.stringify(t) !== JSON.stringify(terminal)) {
+        terminal = t;
+        onState();
+      }
+    };
     flush();
+    lookTerminal();
     const ping = setInterval(() => res.write(': ping\n\n'), PING_MS);
-    const look = setInterval(() => !c.session && c.refresh(), 1500); // a terminal that runs it: follow along
+    // A terminal that runs it: follow along, and say so.
+    const look = setInterval(() => {
+      if (c.session) return;
+      c.refresh();
+      lookTerminal();
+    }, 1500);
     res.on('close', () => {
+      closed = true;
       clearTimeout(timer);
       clearInterval(ping);
       clearInterval(look);
@@ -136,6 +157,15 @@ export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf }) {
       const r = await c.setSettings({ model: pick(b.model, models(), 'model'), effort: pick(b.effort, EFFORTS, 'effort'), ultracode: b.ultracode });
       save();
       return { model: c.model, effort: c.effort, ultracode: c.ultracode, restart: r.restart };
+    }],
+    ['POST', new RegExp(`^/api/chats/${ID}/title$`), async (req, m) => {
+      const c = chatOr404(m[1]);
+      const b = await ctx.readJson(req);
+      const title = typeof b.title === 'string' ? b.title.replace(/[\x00-\x1f\x7f]+/g, ' ').trim() : '';
+      if (!title || title.length > 200) throw bad('the name must be 1 to 200 characters');
+      await c.rename(title);
+      save();
+      return { title: c.title };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/unqueue$`), async (req, m) => {
       const c = chatOr404(m[1]);

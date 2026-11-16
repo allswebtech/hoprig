@@ -7,9 +7,9 @@
 //   says comes back through emit() as the events of src/chat/events.mjs, the last one { kind: "exit", code, why }.
 // The session: send({ id, text, images }), answer(request, { allow, input, permissions, message }), interrupt(),
 //   stopTask(taskId), setMode(mode), setModel(model), setEffort({ effort, ultracode }), rewind(messageId, { dryRun }),
-//   cancel(messageId) → taken back?, contextUsage(), usage(), commands(), close() → ended, kill(), alive.
+//   cancel(messageId) → taken back?, contextUsage(), usage(), commands(), rename(title), close() → ended, kill(), alive.
 // capabilities says what a running session changes by itself: { liveMode, liveModel, liveEffort, ultracode, queue,
-//   stopTask, rewind, commands, usage }. Where one is false (or the call fails), the chat starts the coding tool again
+//   stopTask, rewind, commands, usage, rename }. Where one is false (or the call fails), the chat starts the coding tool again
 //   with the conversation resumed instead.
 import { claude } from './claude.mjs';
 

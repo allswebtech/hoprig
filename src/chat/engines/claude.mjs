@@ -160,6 +160,10 @@ class ClaudeSession {
   setEffort({ effort, ultracode }) {
     return this.#control({ subtype: 'apply_flag_settings', settings: { effortLevel: effort || null, ultracode: !!ultracode } });
   }
+  /** The conversation's name (kept in its transcript, so a terminal shows it too). */
+  rename(title) {
+    return this.#control({ subtype: 'rename_session', title, source: 'host' });
+  }
   /** Undo the file changes made since message `messageId`; dryRun: only say what would change. */
   rewind(messageId, { dryRun = false } = {}) {
     return this.#control({ subtype: 'rewind_files', user_message_id: messageId, dry_run: dryRun });
@@ -221,7 +225,7 @@ export const claude = {
   id: 'claude',
   label: 'Claude Code',
   // What it changes in a running process (else the chat starts it again with --resume).
-  capabilities: { liveMode: true, liveModel: true, liveEffort: true, ultracode: true, queue: true, stopTask: true, rewind: true, commands: true, usage: true },
+  capabilities: { liveMode: true, liveModel: true, liveEffort: true, ultracode: true, queue: true, stopTask: true, rewind: true, commands: true, usage: true, rename: true },
   /** Where conversation `id` of folder `cwd` is kept: it exists once a first message was sent. */
   file: (cwd, id) => path.join(projectDir(cwd), `${id}.jsonl`),
   exists: (cwd, id) => fs.existsSync(claude.file(cwd, id)),

@@ -4,7 +4,7 @@
 //
 // Kept in the chat's numbered list (and rebuilt from the transcript):
 //   user          { text, attachments: [{ type: "image" | "file", name, mime }], messageId }
-//   text          { blockId, text }                       thinking { blockId, text }
+//   text          { blockId, text }                       thinking { blockId, text, durationMs }
 //   tool          { id, name, title, toolKind, input }    toolKind: edit shell read search web agent workflow plan
 //                                                           question todo other
 //   tool-result   { id, ok, text, diff?: [{ oldStart, oldLines, newStart, newLines, lines }] }

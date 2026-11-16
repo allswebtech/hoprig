@@ -36,7 +36,8 @@ function linesToEvents(text, agent) {
     } else if (!m.message || (!agent && m.isSidechain)) continue;
     else if (m.type === 'assistant') {
       const id = m.message.id || m.uuid || 'x';
-      events.push(...assistantEvents(m.message.content, (i) => `${id}:t${i}:${m.uuid || ''}`, agent).map((e) => ({ ...e, at })));
+      const thought = Number.isFinite(m.thinkingDurationMs) ? m.thinkingDurationMs : null;
+      events.push(...assistantEvents(m.message.content, (i) => `${id}:t${i}:${m.uuid || ''}`, agent).map((e) => ({ ...e, at, ...(e.kind === 'thinking' ? { durationMs: thought } : {}) })));
     } else if (m.type === 'user' && !m.isMeta && !m.isCompactSummary && !m.isVisibleInTranscriptOnly) {
       const results = toolResults(m.message.content, m.toolUseResult, agent);
       if (results.length) events.push(...results.map((e) => ({ ...e, at })));

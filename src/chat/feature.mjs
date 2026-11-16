@@ -142,13 +142,15 @@ export function chatFeature(ctx, o = {}) {
       limit: c.limit ? { text: c.limit.text } : null,
     };
   }
+  /** What the page shows beside the chat's state. */
+  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), choices: { models: models(), efforts: EFFORTS, modes: PERMISSION_MODES } });
+  /** The terminal that runs the chat's conversation, as the page names it ({ name }), or null. */
+  const terminalView = async (c) => (c.session && c.busy() ? null : await terminalOf(c.conversationId).then((t) => (t ? { name: t.name } : null)));
   async function view(c, { from, epoch }) {
     const { reset, events } = c.window(from, epoch);
     return {
       id: c.id, epoch: c.epoch, reset, events, next: c.next, first: events.length ? events[0].i : c.next, older: (events.length ? events[0].i : c.next) > c.base,
-      ...stateOf(c), cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile),
-      terminal: c.session && c.busy() ? null : await terminalOf(c.conversationId).then((t) => (t ? { name: t.name } : null)),
-      choices: { models: models(), efforts: EFFORTS, modes: PERMISSION_MODES },
+      ...stateOf(c), ...about(c), terminal: await terminalView(c),
     };
   }
   /** Where the files of a chat's messages are uploaded (inside its folder). */
@@ -378,7 +380,7 @@ export function chatFeature(ctx, o = {}) {
     }],
   ];
 
-  const live = liveRoutes(ctx, { chatOr404, save, bad, models, folderOf: (c) => uploadsOf(c).cwd });
+  const live = liveRoutes(ctx, { chatOr404, save, bad, models, folderOf: (c) => uploadsOf(c).cwd, about, terminalOf: terminalView });
   routes.push(...live.routes);
 
   return {
