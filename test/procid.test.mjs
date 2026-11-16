@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { POWERSHELL } from '../src/server/platform/win32.mjs';
+import { POWERSHELL, psArgs } from '../src/server/platform/win32.mjs';
 import { makeIdentity, parseCreations, parseEtimes, sameProcess, statStart } from '../src/procid.mjs';
 
 // /proc/<pid>/stat: 52 fields; the name (field 2) in parentheses may hold spaces and ")".
@@ -132,6 +132,7 @@ test('a system that answers wrongly about this process itself is never believed 
 test('Windows reader: one PowerShell call for all pids, kept 5 minutes', () => {
   const s = sys('win32', (cmd, args) => {
     assert.equal(cmd, POWERSHELL);
+    assert.deepEqual(args.slice(0, -1), psArgs('').slice(0, -1), 'as the other PowerShell calls');
     const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
     assert.match(script, /Win32_Process -Filter 'ProcessId=101 OR ProcessId=202 OR ProcessId=7'/);
     assert.match(script, /\[DateTimeOffset\]\$_\.CreationDate\)\.ToUnixTimeMilliseconds\(\)/);

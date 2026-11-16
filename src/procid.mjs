@@ -13,7 +13,6 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
-import { POWERSHELL, psArgs } from './server/platform/win32.mjs';
 
 export const SAME_WITHIN = 3000;
 // A file written within this much before the boot may still be of this boot: the clock may have been corrected
@@ -51,6 +50,10 @@ export function parseCreations(out) {
 // how it is written. Pids are numbers we checked, never text from elsewhere.
 export const creationScript = (pids) => `$ErrorActionPreference = 'SilentlyContinue'
 Get-CimInstance Win32_Process -Filter 'ProcessId=${pids.join(' OR ProcessId=')}' | ForEach-Object { if ($_.CreationDate) { "$($_.ProcessId) $(([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds())" } }`;
+
+// As server/platform/win32.mjs calls it; not imported from there, because every launcher start loads this module and
+// that one costs it about 5 ms.
+const powershellArgs = (script) => ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')];
 
 /** stdout of a program, also when it exits non-zero (ps does when one of the pids is gone); null when it cannot run. */
 function runProgram(cmd, args, timeout) {
@@ -111,7 +114,7 @@ export function makeIdentity({ platform = process.platform, read = (p) => fs.rea
   const ask = platform === 'darwin'
     ? { ttl: 30_000, starts: (pids) => { const out = run('ps', ['-o', 'pid=,etime=', '-p', pids.join(',')], 5000); return out === null ? null : parseEtimes(out, now()); } }
     : platform === 'win32'
-      ? { ttl: 300_000, starts: (pids) => { const out = run(POWERSHELL, psArgs(creationScript(pids)), 15_000); return out === null ? null : parseCreations(out); } }
+      ? { ttl: 300_000, starts: (pids) => { const out = run('powershell.exe', powershellArgs(creationScript(pids)), 15_000); return out === null ? null : parseCreations(out); } }
       : null;
   const memo = new Map(); // pid → { start (null: nothing said), answered (the system could be asked), at }
   let trusted = null; // null until the system has answered about this process
