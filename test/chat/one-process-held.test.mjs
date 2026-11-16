@@ -179,17 +179,30 @@ const until = async (what, fn, ms = 10_000) => {
   }
   throw new Error(`timed out waiting for ${what}`);
 };
-const chatOn = (cwd, o = {}) => new Chat({ id: crypto.randomUUID(), cwd, profile: 'p', command: { command: process.execPath, args: [FAKE_CHAT] }, resolveEnv: async () => ({ ...process.env }), ...o });
+// A chat on the stand-in, closed when its test ends however it ends (its process must not outlive a failure).
+const chatOn = (t, cwd, o = {}) => {
+  const c = new Chat({ id: crypto.randomUUID(), cwd, profile: 'p', command: { command: process.execPath, args: [FAKE_CHAT] }, resolveEnv: async () => ({ ...process.env }), ...o });
+  t.after(() => c.close());
+  return c;
+};
 const turn = async (c, text) => {
-  const done = new Promise((r) => c.once('turn', r));
-  await c.send(text);
-  await done;
+  let timer;
+  const done = new Promise((resolve, reject) => {
+    c.once('turn', resolve);
+    timer = setTimeout(() => reject(new Error(`no turn for "${text}" (last event: ${JSON.stringify(c.events.at(-1)).slice(0, 200)})`)), 8000);
+  });
+  try {
+    await c.send(text);
+    await done;
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
-test('a chat\'s record follows its process into another conversation (a clear): the new one is held, the old one is free', async () => {
+test('a chat\'s record follows its process into another conversation (a clear): the new one is held, the old one is free', { timeout: 30_000 }, async (t) => {
   clear();
   const cwd = fs.realpathSync(fs.mkdtempSync(path.join(box.root, 'proj-')));
-  const c = chatOn(cwd);
+  const c = chatOn(t, cwd);
   await turn(c, 'hello');
   const A = c.conversationId;
   await turn(c, 'clear'); // Claude Code's /clear: the same process goes on in a new conversation
@@ -207,7 +220,7 @@ test('a chat\'s record follows its process into another conversation (a clear): 
   assert.equal(R.heldBefore(onA.run, A), null, 'nothing runs the old one: a launcher may start on it');
   R.removeRun(onA.file);
   // …and so may another chat.
-  const d = chatOn(cwd, { conversationId: A });
+  const d = chatOn(t, cwd, { conversationId: A });
   await turn(d, 'on the old one');
   assert.ok(d.session, 'a second chat runs the old conversation');
   await d.close();
@@ -216,10 +229,10 @@ test('a chat\'s record follows its process into another conversation (a clear): 
   clear();
 });
 
-test('a chat\'s record goes when its process ends by itself, and a record of its own that is left over never blocks it', async () => {
+test('a chat\'s record goes when its process ends by itself, and a record of its own that is left over never blocks it', { timeout: 30_000 }, async (t) => {
   clear();
   const cwd = fs.realpathSync(fs.mkdtempSync(path.join(box.root, 'proj-')));
-  const c = chatOn(cwd);
+  const c = chatOn(t, cwd);
   await turn(c, 'hello');
   assert.equal(R.listRuns({ chats: true }).length, 1);
   await c.send('big'); // the stand-in answers, then exits at once (code 1), as Claude Code does at a usage limit
@@ -237,12 +250,12 @@ test('a chat\'s record goes when its process ends by itself, and a record of its
   clear();
 });
 
-test('a chat closed while its start waits for the provider holds nothing from that moment ("Open in terminal")', async () => {
+test('a chat closed while its start waits for the provider holds nothing from that moment ("Open in terminal")', { timeout: 30_000 }, async (t) => {
   clear();
   const cwd = fs.realpathSync(fs.mkdtempSync(path.join(box.root, 'proj-')));
   let ready;
   const gate = new Promise((r) => (ready = r));
-  const c = chatOn(cwd, { resolveEnv: async () => { await gate; return { ...process.env }; } }); // a gateway that starts slowly
+  const c = chatOn(t, cwd, { resolveEnv: async () => { await gate; return { ...process.env }; } }); // a gateway that starts slowly
   const sent = c.send('hello').catch(() => null);
   await until('the start\'s record', () => R.listRuns({ chats: true }).length === 1);
   await c.close();
@@ -257,12 +270,13 @@ test('a chat closed while its start waits for the provider holds nothing from th
   clear();
 });
 
-test('OpenCode: a new chat\'s record names the conversation OpenCode made for it', async (t) => {
+test('OpenCode: a new chat\'s record names the conversation OpenCode made for it', { timeout: 30_000 }, async (t) => {
   clear();
   const ev = (type) => ({ event: { type, data: { sessionID: SESSION_ID } } });
   const s = await standIn({ turns: [{ text: 'hi', steps: [ev('session.execution.started'), ev('session.execution.succeeded')] }] });
   t.after(() => s.close());
   const c = new Chat({ id: crypto.randomUUID(), engine: 'opencode', cwd: '/work/proj', profile: 'gw', turnsDir: fs.mkdtempSync(path.join(box.root, 'oc-')), resolveEnv: async () => ({}), engineOpts: { enabled: () => true, ...standInOpts(s) }, idleMs: 60_000 });
+  t.after(() => c.close());
   if (c.loading) await c.loading;
   await c.send('hi');
   await until('OpenCode named the conversation', () => c.conversationId === SESSION_ID);
