@@ -216,6 +216,8 @@ test('in the real dashboard: in her chat she allows by herself only what the sho
     ['Bash', { command: 'echo x>>~/.profile' }, /not on the short list/],
     ['Bash', { command: 'git -C.. status' }, /not on the short list/],
     ['Bash', { command: 'cat ../outside.txt' }, /a path outside the chat's folder/],
+    ['Bash', { command: `file -f${path.dirname(proj)}/outside.txt` }, /a path outside the chat's folder/], // a value glued to an option
+    ['Bash', { command: 'npm run --script-shell python3 test' }, /not on the short list/], // a script name that is an option
     ['Read', { file_path: `${proj}/../outside.txt` }, /a path outside the chat's folder/],
     ['Write', { file_path: `${proj}/.env`, content: 'x' }, /a file that may hold secrets/],
     ['WebFetch', { url: 'https://example.org', prompt: 'read it' }, /a tool Tia does not allow herself/],
