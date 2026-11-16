@@ -150,8 +150,9 @@ export function chooseAccount(tia, accounts) {
 // own notification (untrusted), so this is a deny-list on top of "only within the goal", not a guarantee: for a
 // terminal session, which has only its screen to judge, it is best effort; a chat does not rest on it (she allows a
 // chat's OK only from the short allow-list of allowlist.mjs, and this list runs after it as a second look).
-/** Files that may hold secrets: keys, sign-ins, a .env, Claude Code's and Hoprig's own settings. */
-export const SECRET_FILES = /(\.ssh|\.aws|\.gnupg|\.netrc|\.env\b|id_rsa|id_ed25519|credentials|keychain|\.claude\/|\.config\/hoprig)/i;
+/** Files that may hold secrets: keys, sign-ins, a .env, the package managers' and databases' sign-in files, Claude Code's
+ * and Hoprig's own settings. The one list of the deny-list below and of the allow-list (allowlist.mjs). */
+export const SECRET_FILES = /(\.ssh|\.aws|\.gnupg|\.netrc|\.env\b|\.envrc|\.npmrc|\.pypirc|\.pgpass|\.docker\/config\.json|\.(?:pem|key)(?![\w.-])|id_rsa|id_ed25519|credentials|keychain|\.claude\/|\.config\/hoprig)/i;
 const RISKY = [
   /\b(curl|wget|fetch|iwr|invoke-webrequest)\b[^\n|]*\|\s*(ba|z|da|k)?sh\b/i,
   /\bbase64\s+(-d|--decode)\b[^\n]*\|\s*(ba|z)?sh\b/i,

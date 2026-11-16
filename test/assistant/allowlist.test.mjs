@@ -1,8 +1,9 @@
-// Tia's short allow-list for a chat's OK (src/assistant/allowlist.mjs): every entry of the table in its plain form,
-// each rule's refusals, and every command the earlier checks of the old deny-list found it missing is a card.
+// Tia's short allow-list for a chat's OK (src/assistant/allowlist.mjs): the table walked option by option (every option
+// it names is allowed, anything else is a card), each rule's refusals, the cases the two checks of the list found, and
+// every command the earlier checks of the old deny-list found it missing.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { COMMANDS, FILE_TOOLS, WHY, allowsHerself } from '../../src/assistant/allowlist.mjs';
+import { FILE_TOOLS, TABLE, WHY, allowsHerself } from '../../src/assistant/allowlist.mjs';
 
 const ROOT = '/w/proj';
 const bash = (command, cwd = ROOT) => allowsHerself('Bash', { command }, cwd);
@@ -14,32 +15,95 @@ const card = (r, why, what) => {
 
 // Each entry of the table with calls it allows (the plain form first).
 const PLAIN = {
-  ls: ['ls', 'ls -la src', 'ls -- -odd-name'],
+  ls: ['ls', 'ls -la src', 'ls -1 .'],
   pwd: ['pwd'],
-  cat: ['cat README.md', `cat ${ROOT}/src/a.js`],
-  head: ['head -n 20 src/a.js'],
-  tail: ['tail -n 50 build.log'],
+  cat: ['cat README.md', `cat -n ${ROOT}/src/a.js`],
+  head: ['head -n 20 src/a.js', 'head -5 a.txt'],
+  tail: ['tail -n 50 build.log', 'tail -c 100 x'],
   wc: ['wc -l src/a.js src/b.js'],
-  file: ['file logo.png', 'file -f names.txt', `file -f${ROOT}/names.txt`],
   stat: ['stat package.json'],
-  du: ['du -sh src', 'du --max-depth=1 .', `du -X${ROOT}/skip.txt .`],
-  tree: ['tree -L 2 src'],
-  grep: ['grep -rn TODO src', 'grep -e foo -- src/a.js', 'grep --files-with-matches foo .'],
-  rg: ['rg TODO', 'rg -n --hidden foo src'],
-  git: ['git status', 'git diff', 'git diff --cached', 'git log --oneline -20', 'git show HEAD', 'git ls-files', 'git blame src/a.js', 'git rev-parse HEAD', 'git describe --tags', 'git log main..feature', 'git log --since=2.weeks --format=%h:%s'],
-  npm: ['npm test', 'npm run lint', 'npm run test:unit', 'npm test -- --watch'],
+  du: ['du -sh src'],
+  tree: ['tree -L 2 src', 'tree -a -d'],
+  file: ['file logo.png'],
+  grep: ['grep -rn TODO src', 'grep -e foo src/a.js', 'grep -A 3 -i foo .'],
+  rg: ['rg TODO', 'rg -n foo src', 'rg -C 2 -e foo'],
+  'git status': ['git status', 'git status -s -b', 'git status --short src'],
+  'git diff': ['git diff', 'git diff --cached', 'git diff --stat main'],
+  'git show': ['git show HEAD', 'git show --stat HEAD'],
+  'git log': ['git log --oneline -20', 'git log main..feature', 'git log -n 5 -p src/a.js'],
+  'git ls-files': ['git ls-files', 'git ls-files src'],
+  'git blame': ['git blame src/a.js'],
+  'git rev-parse': ['git rev-parse HEAD', 'git rev-parse --abbrev-ref HEAD'],
+  'git describe': ['git describe --tags'],
+  npm: ['npm test', 'npm run lint', 'npm run test:unit'],
   pnpm: ['pnpm test', 'pnpm run build'],
-  yarn: ['yarn test', 'yarn run e2e-ci'],
-  node: ['node --test', 'node --test test/a.test.mjs'],
-  pytest: ['pytest', 'pytest -x -q tests/unit', 'pytest -csetup.cfg', 'pytest -c tests/pytest.ini'],
-  go: ['go test ./...', 'go build ./cmd/app', 'go vet ./...'],
-  cargo: ['cargo test', 'cargo build --release', 'cargo check'],
+  yarn: ['yarn test', 'yarn run typecheck'],
+  'node --test': ['node --test', 'node --test test/a.test.mjs'],
+  pytest: ['pytest', 'pytest -x -q tests/unit', 'pytest -k parse tests/test_a.py::test_x'],
+  'go test': ['go test ./...', 'go test -run TestX -count=1 ./pkg'],
+  'go build': ['go build ./cmd/app'],
+  'go vet': ['go vet ./...'],
+  'cargo test': ['cargo test', 'cargo test -p core parse'],
+  'cargo build': ['cargo build --release'],
+  'cargo check': ['cargo check --workspace'],
 };
 
 test('the short list: every entry of the table is allowed in its plain form, and the table is no longer than this', () => {
-  assert.deepEqual(Object.keys(COMMANDS).sort(), Object.keys(PLAIN).sort(), 'a new entry needs its plain forms here');
+  assert.deepEqual(Object.keys(TABLE).sort(), Object.keys(PLAIN).sort(), 'a new entry needs its plain forms here');
   for (const [cmd, forms] of Object.entries(PLAIN)) for (const c of forms) allowed(bash(c), `${cmd}: ${c}`);
   assert.deepEqual(Object.keys(FILE_TOOLS).sort(), ['Edit', 'Glob', 'Grep', 'MultiEdit', 'NotebookEdit', 'Read', 'Write']);
+});
+
+const NUMBER_OPTS = (e) => e.num || [];
+const WORD_OPTS = (e) => e.word || [];
+/** One option word the entry does not name: a letter none of its options use. */
+function unnamed(e) {
+  const named = new Set([...(e.flags || []), ...NUMBER_OPTS(e), ...WORD_OPTS(e), ...(e.eq || [])]);
+  const c = [...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'].find((x) => !(e.letters || '').includes(x) && !named.has(`-${x}`));
+  return `-${c}`;
+}
+
+test('the table walked: every option it names is allowed; any other option, "--", a glued value, a path or a second value is a card', () => {
+  for (const [cmd, e] of Object.entries(TABLE)) {
+    if (e.script) continue; // the script runners have their own walk below
+    const ok = (opts) => allowed(bash(`${cmd} ${opts}`), `${cmd} ${opts}`);
+    const no = (opts) => card(bash(`${cmd} ${opts}`), null, `${cmd} ${opts}`);
+    // Named: allowed, alone and (letters) combined.
+    for (const c of e.letters || '') ok(`-${c}`);
+    if (e.letters) ok(`-${e.letters}`);
+    for (const f of e.flags || []) ok(f);
+    for (const o of NUMBER_OPTS(e)) ok(`${o} 3`);
+    for (const o of WORD_OPTS(e)) ok(`${o} foo_1`);
+    for (const o of e.eq || []) ok(`${o}=3`);
+    if (e.dashNum) ok('-5');
+    // Not named.
+    for (const w of [unnamed(e), '--help', '--zzz=1', '-', '--', '-- x', '-- -x', `${unnamed(e)} x`]) no(w);
+    // A named one glued to a value, given a path, a second value, or none.
+    for (const c of e.letters || '') for (const g of [`-${c}=x`, `-${c}/etc/passwd`, `-${c}../x`, `-${c}9`]) no(g);
+    for (const f of e.flags || []) for (const g of [`${f}=x`, `${f}/etc/passwd`, `${f}x`]) no(g);
+    for (const o of NUMBER_OPTS(e)) {
+      for (const g of [`${o}3`, `${o}=3`, `${o} /etc/passwd`, `${o} ../x`, `${o} src/a`, `${o} x`, `${o} -3`, `${o} 3,4`, `${o} 3 ${o} 4`, o]) no(g);
+    }
+    for (const o of WORD_OPTS(e)) {
+      for (const g of [`${o}foo`, `${o}=foo`, `${o} /etc/passwd`, `${o} ../x`, `${o} src/a`, `${o} ..`, `${o} -x`, `${o} a,b`, `${o} a=b`, `${o} a ${o} b`, o]) no(g);
+    }
+    for (const o of e.eq || []) for (const g of [`${o} 3`, `${o}=x`, `${o}=/etc`, `${o}=../x`, `${o}=3,4`, `${o}=3 ${o}=4`, `-${o}=3`]) no(g);
+    if (e.dashNum) for (const g of ['-5x', '-5=3', '--5']) no(g);
+  }
+});
+
+test('npm, pnpm, yarn: "test", or "run" with one of the names on the list (and ":" and a plain tail); nothing after it', () => {
+  for (const r of ['npm', 'pnpm', 'yarn']) {
+    assert.deepEqual(TABLE[r], { script: true });
+    for (const n of ['test', 'tests', 'lint', 'build', 'typecheck', 'check', 'format', 'test:unit', 'lint:fix-all', 'build:prod_2']) allowed(bash(`${r} run ${n}`), `${r} run ${n}`);
+    allowed(bash(`${r} test`), `${r} test`);
+    for (const c of [
+      'test --', 'test -- --watch', 'test -- --import=data:text/javascript,x', 'test x', 'test --silent', 'run test --', 'run test -- --watch',
+      'run test x', 'run test:unit -- --watch', 'run x', 'run e2e-ci', 'run test:', 'run :x', 'run x:', 'run test:a/b', 'run test:a.b', 'run Test',
+      'run', 'run -- test', 'run --x', 'run -lint', 'run --script-shell python3 test', 'run --prefix x test', 'run -w x test', 'install', 't',
+      'run-script test', 'exec jest', 'test:unit', '--prefix=.. test',
+    ]) card(bash(`${r} ${c}`), WHY.command, `${r} ${c}`);
+  }
 });
 
 test('one simple command: none of ; & | < > ( ) { } $ ` \\ \' " ~, no line break, no shell pattern', () => {
@@ -47,57 +111,47 @@ test('one simple command: none of ; & | < > ( ) { } $ ` \\ \' " ~, no line break
     card(bash(`ls src${ch}x`), WHY.command, JSON.stringify(ch));
     card(bash(`git status ${ch}`), WHY.command, JSON.stringify(ch));
   }
-  for (const c of ['', '   ', 'ls\u00a0src', 'ls\u0000', 'mkdir build', 'echo done', 'npx jest', 'make test', 'python -m pytest', 'sh -c ls', 'env', 'cd src', '/bin/ls', './node_modules/.bin/jest', 'X=1 npm test', 'Ls', 'git']) {
+  for (const c of ['', '   ', 'ls\u00a0src', 'ls\u0000', 'mkdir build', 'echo done', 'npx jest', 'make test', 'python -m pytest', 'sh -c ls', 'env', 'cd src', '/bin/ls', './node_modules/.bin/jest', 'X=1 npm test', 'Ls', 'git', 'node', 'go', 'cargo', 'go run .', 'cargo run', 'node app.js', 'node --test=x', 'git push', 'git -C .. status', 'cargo +nightly test']) {
     card(bash(c), WHY.command, JSON.stringify(c));
   }
   card(allowsHerself('Bash', { command: ['ls'] }, ROOT), WHY.command, 'not a string');
 });
 
-test('each rule refuses what it must', () => {
-  const rows = [
-    // looking commands: every word that is not an option is a path inside the folder, an option's value too
+test('words that are not options: a path inside the folder, a revision or a pattern as a plain word', () => {
+  for (const [c, why] of [
     ['cat ../secret.txt', WHY.outside], ['cat /etc/passwd', WHY.outside], ['ls /', WHY.outside], ['cat src/../../x', WHY.outside],
-    ['cat .env', WHY.secret], ['cat config/credentials.json', WHY.secret], ['ls .ssh', WHY.secret],
-    ['du --files0-from=/etc/shadow', WHY.outside], ['tree -o /tmp/x', WHY.outside], ['file -f /etc/passwd', WHY.outside],
-    ['head -c 100 /dev/urandom', WHY.outside], ['cat a.js:/etc/passwd', WHY.outside], ['ls /w/projX', WHY.outside],
-    // a value glued to a short option is a path too (file -f prints every line of the file it names)
-    ['file -f/home/owner/.npmrc', WHY.outside], ['file -zf/etc/passwd', WHY.outside], ['file -m/home/owner/.docker/config.json x', WHY.outside],
-    ['du -X/home/owner/x .', WHY.outside], ['file -f../x', WHY.outside], ['file -zf..', WHY.outside], ['du -X/w/projX/x .', WHY.outside],
-    ['file -f.env', WHY.secret], ['file -fsrc/../../x', WHY.outside], ['cat -X/abs=x', WHY.outside],
-    // where the option letters end and a relative value begins cannot be told: the part from the slash is the path
-    ['file -fsrc/names.txt', WHY.outside],
-    // grep, rg: no option that reads patterns from a file or runs a command
-    ['grep -f /etc/x foo', WHY.command], ['grep -f pats.txt src', WHY.command], ['grep -rnf pats.txt src', WHY.command],
-    ['grep --file=pats.txt src', WHY.command], ['grep --fil=pats.txt src', WHY.command], ['grep --exclude-from=x src', WHY.command],
-    ['rg --pre=sh foo', WHY.command], ['rg --pre-glob=x foo', WHY.command], ['rg --ignore-file=x foo', WHY.command], ['rg --hostname-bin=x foo', WHY.command],
-    ['grep -rn foo ..', WHY.outside], ['grep -rn foo /', WHY.outside], ['rg foo ../other', WHY.outside], ['grep foo .env', WHY.secret],
-    // git: only the commands that look; nothing that points it elsewhere or makes it run or write
-    ['git push', WHY.command], ['git commit -m x', WHY.command], ['git checkout .', WHY.command], ['git reset --hard', WHY.command],
-    ['git config core.pager x', WHY.command], ['git -C .. status', WHY.command], ['git -C.. status', WHY.command], ['git status -C ..', WHY.command],
-    ['git -c core.pager=x log', WHY.command], ['git log -c', WHY.command], ['git ls-files -o', WHY.command], ['git log --git-dir=x', WHY.command],
-    ['git status --work-tree=..', WHY.command], ['git log --exec-path=x', WHY.command], ['git diff --output=x', WHY.command],
-    ['git diff --out=x', WHY.command], ['git diff --no-index /etc/passwd x', WHY.command], ['git log -- ../other', WHY.outside],
-    ['git log -O/srv/x', WHY.outside], ['git diff -O/var/x', WHY.outside], ['git diff -O../x', WHY.outside], ['grep -rnX/etc/x foo', WHY.outside],
-    ['rg -j1/../../x foo', WHY.outside],
-    // npm, pnpm, yarn: test or run <name>, then plain words; an option only after "--"
-    ['npm install', WHY.command], ['npm run', WHY.command], ['npm run a/b', WHY.command], ['npm exec jest', WHY.command],
-    ['npm test --prefix=/x', WHY.command], ['npm run build --prefix ..', WHY.command], ['npm test --script-shell=sh', WHY.command],
-    ['npm test -- --out=/tmp/x', WHY.outside], ['yarn add left-pad', WHY.command], ['pnpm dlx x', WHY.command], ['npm test #x', WHY.command],
-    // the name of a script is never an option
-    ['npm run --script-shell python3 test', WHY.command], ['npm run --x', WHY.command], ['npm run -lint', WHY.command], ['npm run -- x', WHY.command],
-    ['npm run --prefix x test', WHY.command], ['pnpm run --filter x test', WHY.command], ['yarn run --cwd x test', WHY.command], ['npm run :x', WHY.command],
-    // node --test, then only paths inside the folder
-    ['node app.js', WHY.command], ['node --test --require=x', WHY.command], ['node --test ../x.test.mjs', WHY.outside], ['node -e x', WHY.command],
-    // pytest, go, cargo: plain words and paths inside the folder; none of the options that name another program
-    ['pytest --basetemp=/tmp/x', WHY.outside], ['pytest -o cache_dir=../x', WHY.outside], ['pytest -c /etc/x', WHY.outside],
-    ['pytest -c/home/owner/other/x.ini', WHY.outside], ['pytest -c../x.ini', WHY.outside], ['go test -coverprofile=/tmp/c.out', WHY.outside],
-    ['go run .', WHY.command], ['go test -exec=sh ./...', WHY.command], ['go test -exec sh', WHY.command], ['go build -toolexec=x', WHY.command],
-    ['go vet -vettool=x', WHY.command], ['go build -ldflags=-extld=python3', WHY.command], ['go build -ldflags -extld=python3', WHY.command],
-    ['go build -gccgoflags=x', WHY.command], ['go build -o /usr/local/bin/x', WHY.outside], ['go test ../...', WHY.outside],
-    ['cargo run', WHY.command], ['cargo build --config=build.rustc-wrapper=x', WHY.command], ['cargo check -Zunstable-options', WHY.command],
-    ['cargo test --manifest-path=../x/Cargo.toml', WHY.outside], ['cargo build --target-dir=/tmp/t', WHY.outside],
-  ];
-  for (const [c, why] of rows) card(bash(c), why, c);
+    ['cat .env', WHY.secret], ['cat config/credentials.json', WHY.secret], ['ls .ssh', WHY.secret], ['cat a.js:/etc/passwd', WHY.outside],
+    ['ls /w/projX', WHY.outside], ['grep -rn foo ..', WHY.outside], ['grep -rn foo /', WHY.outside], ['rg foo ../other', WHY.outside],
+    ['grep foo .env', WHY.secret], ['git log ../other', WHY.outside], ['git show :/etc', WHY.outside], ['node --test ../x.test.mjs', WHY.outside],
+    ['node --test /x', WHY.outside], ['node --test data:text/javascript,x', WHY.command], ['node --test a=b', WHY.command],
+    ['pytest tests/../../x', WHY.outside], ['go test ../...', WHY.outside], ['cargo test a b', WHY.command], ['cargo test a/b', WHY.command],
+    ['cargo test ..', WHY.command],
+  ]) card(bash(c), why, c);
+});
+
+test('the secret rule names .npmrc, .pypirc, .envrc, .netrc, .pgpass, *.pem, *.key and .docker/config.json too', () => {
+  for (const f of ['.npmrc', '.pypirc', '.envrc', '.netrc', '.pgpass', 'certs/site.pem', 'tls/server.key', 'a/.docker/config.json', 'sub/.NPMRC']) {
+    card(allowsHerself('Read', { file_path: `${ROOT}/${f}` }, ROOT), WHY.secret, `Read ${f}`);
+    card(bash(`cat ${f}`), WHY.secret, `cat ${f}`);
+  }
+  card(bash('git show HEAD:secret.key'), WHY.secret);
+  card(bash('grep token .npmrc'), WHY.secret);
+  for (const f of ['keys.js', 'a.keys', 'pem.md', 'docker/config.json']) allowed(allowsHerself('Read', { file_path: `${ROOT}/${f}` }, ROOT), f);
+});
+
+test('a write into a place that makes a program run later is a card; reading it stays allowed', () => {
+  for (const p of ['.git/hooks/pre-commit', '.git/config', '.git', '.claude', '.claude/agents/x.md', '.vscode/tasks.json', '.idea/workspace.xml', '.husky/pre-push',
+    '.github/workflows/ci.yml', '.mcp.json', 'sub/.mcp.json', 'pkg/.git/config', '.GIT/config', '.VSCode/tasks.json', 'src/../.github/x']) {
+    for (const tool of ['Write', 'Edit', 'MultiEdit']) card(allowsHerself(tool, { file_path: `${ROOT}/${p}` }, ROOT), null, `${tool} ${p}`);
+    card(allowsHerself('NotebookEdit', { notebook_path: `${ROOT}/${p}` }, ROOT), null, `NotebookEdit ${p}`);
+  }
+  for (const p of ['.git/config', '.vscode/tasks.json', '.mcp.json', '.github/workflows/ci.yml']) {
+    card(allowsHerself('Write', { file_path: `${ROOT}/${p}` }, ROOT), WHY.runsLater, p);
+    allowed(allowsHerself('Read', { file_path: `${ROOT}/${p}` }, ROOT), `Read ${p}`);
+  }
+  for (const p of ['.npmrc', '.envrc', '.pypirc', 'a/.npmrc']) card(allowsHerself('Write', { file_path: `${ROOT}/${p}` }, ROOT), WHY.secret, p);
+  allowed(bash('cat .git/config'), 'reading .git');
+  for (const p of ['CLAUDE.md', 'package.json', 'src/git/a.js', '.gitignore', '.github-notes.md', 'docs/claude.md']) allowed(allowsHerself('Write', { file_path: `${ROOT}/${p}` }, ROOT), p);
 });
 
 test('file tools: every path inside the folder; outside, the home folder, a secret file, no folder known, any other tool: a card', () => {
@@ -125,9 +179,9 @@ test('file tools: every path inside the folder; outside, the home folder, a secr
   for (const input of [null, 'ls', ['ls']]) card(f('Bash', input), WHY.tool, JSON.stringify(input));
 });
 
-test('the whole disk, a home folder or a folder that holds one is not a project\'s folder: nothing there is hers', () => {
+test('the whole disk, a home folder, what holds one, and a dot folder or bin inside a home are not a project\'s folder', () => {
   // A chat may be opened in the home folder (the folders the dashboard offers start there): writing a shell start-up
-  // file or reading an account's settings is not work on a project.
+  // file, an autostart entry or a program in ~/bin, or reading an account's settings, is not work on a project.
   const home = '/home/owner';
   for (const [tool, input] of [
     ['Write', { file_path: '/home/owner/.bashrc', content: 'x' }], ['Edit', { file_path: '/home/owner/.profile', old_string: 'a', new_string: 'b' }],
@@ -137,12 +191,66 @@ test('the whole disk, a home folder or a folder that holds one is not a project\
       card(allowsHerself(tool, input, cwd, home), WHY.notProject, `${tool} ${JSON.stringify(input)} in ${cwd}`);
     }
   }
+  for (const [cwd, tool, input] of [
+    ['/home/owner/.config', 'Bash', { command: 'ls' }], ['/home/owner/.local', 'Bash', { command: 'ls' }], ['/home/owner/.local/share/y', 'Bash', { command: 'ls' }],
+    ['/home/owner/.config', 'Write', { file_path: '/home/owner/.config/autostart/x.desktop', content: 'x' }],
+    ['/home/owner/.local', 'Write', { file_path: '/home/owner/.local/bin/git', content: 'x' }], ['/home/owner/bin', 'Write', { file_path: '/home/owner/bin/ls', content: 'x' }],
+    ['/home/other/.config/x', 'Bash', { command: 'ls' }], ['/Users/owner/.ssh', 'Bash', { command: 'ls' }], ['/root/bin', 'Bash', { command: 'ls' }],
+    ['/srv/me/.cache/x', 'Bash', { command: 'ls' }], ['/srv/me/bin', 'Bash', { command: 'ls' }],
+  ]) card(allowsHerself(tool, input, cwd, cwd.startsWith('/srv') ? '/srv/me' : home), WHY.notProject, `${tool} ${JSON.stringify(input)} in ${cwd}`);
   // This computer's home elsewhere, and the folders that hold it.
   for (const cwd of ['/srv/me', '/srv']) card(allowsHerself('Bash', { command: 'ls' }, cwd, '/srv/me'), WHY.notProject, cwd);
-  // A project inside the home folder is a project.
+  // A project inside the home folder is a project, a dot folder deeper down too.
   allowed(allowsHerself('Read', { file_path: '/home/owner/projects/web/a.js' }, '/home/owner/projects/web', home), 'a project in the home folder');
+  allowed(allowsHerself('Bash', { command: 'ls' }, '/home/owner/projects/.hidden', home), 'a dot folder that is not directly in the home');
+  allowed(allowsHerself('Bash', { command: 'ls' }, '/home/owner/binary', home), 'not bin');
   allowed(allowsHerself('Bash', { command: 'ls' }, '/srv/me/web', '/srv/me'), 'a project in a home elsewhere');
   allowed(allowsHerself('Bash', { command: 'ls' }, '/home/owner/projects/web'), 'the default home is this computer\'s');
+});
+
+// What the two checks of the list found (and what they tried that must stay as it is): fixed rows.
+const CHECKS_CARD = [
+  // options: script runners, node, pytest, go, cargo
+  'npm test -- --import=data:text/javascript,console.log%28process.pid%29', 'npm test -- --inspect=0.0.0.0:9229', 'npm test -- --require=x',
+  'npm run test -- --experimental-loader=data:text/javascript,x', 'yarn test -- --import=data:text/javascript,x', 'pnpm test -- --eval=x',
+  'npm test -- -r x', 'npm test -- --inspect', 'npm run test:unit -- --watch', 'npm run x:', 'npm run --script-shell python3 test', 'npm run -w x test',
+  'npm run -- test', 'npm run --prefix x test', 'pnpm run --filter x test', 'yarn run --cwd x test', 'npm run -lint', 'npm run --x', 'npm run -- x',
+  'node --test data:text/javascript,console.log%28process.pid%29', 'node --test -- -r x', 'node --test -r x', 'node --test --import=x',
+  'pytest -p antigravity', 'pytest --basetemp=.', 'pytest --basetemp=src', 'pytest --basetemp=x', 'pytest --pyargs json', 'pytest -c /etc/x',
+  'pytest --rootdir=/', 'pytest -csetup.cfg', 'pytest -c tests/pytest.ini', 'pytest -o cache_dir=x',
+  'go test -- -exec x', 'go test -args -test.v', 'go test -exec x', 'go build -o x', 'go build -ldflags=-extld=python3', 'go build -C /tmp',
+  'go test -coverprofile=c.out', 'cargo test -- --nocapture', 'cargo build --config x', 'cargo test -Zx', 'cargo test --manifest-path x/Cargo.toml',
+  'cargo build --target-dir=t',
+  // options: git
+  'git diff --output-indicator-new=x', 'git log --ext-diff -p', 'git log --ext-diff', 'git show --textconv HEAD', 'git show --ext-diff HEAD',
+  'git log --textconv -p', 'git diff --ext-diff', 'git status --ignored', 'git status --porcelain', 'git ls-files --others', 'git ls-files -o',
+  'git blame -S revs x', 'git blame --contents x y', 'git log --show-signature', 'git log --no-walk=x', 'git log --since=x', 'git log --format=%H',
+  'git log -O/srv/x', 'git diff -O/var/x', 'git diff --no-index a b', 'git log -c', 'git status -C ..', 'git log -- ../x', 'git log -p --all -- x',
+  // options: looking commands
+  'tree -o out', 'tree -o/tmp/out', 'tree -R -H x -o index.html', 'tree --fromfile list', 'file -f/etc/passwd', 'file -f/home/owner/.config/gh/hosts.yml',
+  'file -m/etc/passwd x', 'file -zf/etc/passwd', 'file -C -m magic', 'file -f-x', 'file -f names.txt', 'du -X/etc/passwd .', 'du -X/home/owner/x .',
+  'du --max-depth=1 .', 'du --files0-from=x', 'tail -f x', 'cat -A x', 'stat -c%n x', 'head -c1 x', 'ls -- -odd-name', 'ls -- /etc', 'cat -- ../x',
+  'grep x -- /etc/passwd', 'grep -f pats.txt src', 'grep -rnf pats.txt src', 'grep --file=pats.txt src', 'grep --files-with-matches foo .',
+  'rg --pre=cat x', 'rg --pre cat x', 'rg --hidden foo', 'rg -j1 foo',
+];
+const CHECKS_SECRET = ['cat .envrc', 'cat .npmrc', 'head secrets.pem', 'grep token .npmrc', 'git show HEAD:secret.key', 'cat .env.local'];
+const CHECKS_ALLOWED = [
+  'ls', ' ls', 'ls ', '\tls', 'git\tstatus', 'git  status', 'ls -l', 'pwd', 'cat .', 'cat package.json', `cat ${ROOT}/`, 'cat .git/config',
+  'grep -rn TODO src', 'rg TODO', 'git status', 'git diff', 'git log -p', 'git show HEAD', 'git rev-parse --show-toplevel', 'git describe',
+  'git ls-files', 'git blame x', 'npm test', 'npm run test', 'npm run lint', 'npm run test:unit', 'node --test', 'node --test test/',
+  'pytest', 'go test ./...', 'cargo test',
+];
+
+test('the cases of both checks of the list: every option they got through is a card now; the plain calls stay allowed', () => {
+  for (const c of CHECKS_CARD) card(bash(c), null, c);
+  for (const c of CHECKS_SECRET) card(bash(c), WHY.secret, c);
+  for (const c of CHECKS_ALLOWED) allowed(bash(c), JSON.stringify(c));
+  for (const p of ['.mcp.json', '.git/config', '.vscode/tasks.json', '.claude', '.git/hooks/pre-commit']) {
+    card(allowsHerself('Write', { file_path: `${ROOT}/${p}`, content: 'x' }, ROOT), WHY.runsLater, p);
+  }
+  card(allowsHerself('Edit', { file_path: `${ROOT}/.git/hooks/pre-commit`, old_string: 'a', new_string: 'b' }, ROOT), WHY.runsLater);
+  for (const p of ['.npmrc', '.envrc']) card(allowsHerself('Write', { file_path: `${ROOT}/${p}`, content: 'x' }, ROOT), WHY.secret, p);
+  for (const p of ['CLAUDE.md', 'package.json']) allowed(allowsHerself('Write', { file_path: `${ROOT}/${p}`, content: 'x' }, ROOT), p);
 });
 
 // What the earlier checks of the deny-list (their lists of paths and command shapes) found it let through, and the rest
