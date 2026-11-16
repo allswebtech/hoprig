@@ -7,6 +7,7 @@ import { accountLimitActions } from '../claudeaccount.js';
 import { icon } from '../icons.js';
 import { h, machine, until } from '../lib.js';
 import { store } from '../store.js';
+import { hasPlan } from './words.js';
 
 /** ctx: { id (the chat's), v (its state), moveProvider(), profiles? (this computer's; the store's by default) } */
 export const LIMIT_ACTIONS = [
@@ -28,7 +29,7 @@ const isPrimary = (b) => /(^|\s)primary(\s|$)/.test(b.className || '');
 /** The card, or null while the provider can answer (or a terminal runs the conversation). */
 export function limitCard(v, ctx) {
   if (!v.limit || v.terminal) return null;
-  const again = resets(v.limits);
+  const again = hasPlan(v) ? resets(v.limits) : '';
   const buttons = LIMIT_ACTIONS.flatMap((make) => {
     const a = make({ ...ctx, v });
     if (!a) return [];

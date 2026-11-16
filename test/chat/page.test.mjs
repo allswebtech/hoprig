@@ -171,6 +171,9 @@ test('status line: what Claude does now (the tool that runs, for how long), then
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'error', lastError: 'boom' }), 'Stopped with an error');
   // The model, effort and mode are the chips right above: not said twice.
   assert.deepEqual(St.statusParts(base).map((x) => x[1]), ['main', '$0.50 so far', 'context 10%', '5 h 63%']);
+  // The plan's limits are a Claude subscription's: a chat on a gateway, an API key or Auto mode shows none.
+  assert.deepEqual(St.statusParts({ ...base, profile: { name: 'sub', kind: 'subscription' } }).map((x) => x[0]), ['Git branch', 'Cost so far', 'Context', 'Plan limits']);
+  for (const kind of ['api', 'auto']) assert.ok(!St.statusParts({ ...base, profile: { name: 'x', kind } }).some((x) => x[0] === 'Plan limits'), kind);
 });
 
 test('the limit card: its actions are a list, so another part adds one line; none while a terminal runs it', () => {
@@ -187,6 +190,7 @@ test('the limit card: its actions are a list, so another part adds one line; non
   } finally {
     L.LIMIT_ACTIONS.pop();
   }
+  assert.doesNotMatch(texts(L.limitCard({ ...v, profile: { label: 'Gateway', kind: 'api' } }, { moveProvider() {} })).join(''), /free again/, 'no plan window on a gateway');
   assert.equal(L.limitCard({ ...v, terminal: { name: 'x' } }, {}), null);
   assert.equal(L.limitCard({ ...v, limit: null }, {}), null);
 });

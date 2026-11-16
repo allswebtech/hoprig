@@ -3,7 +3,7 @@
 // The model, effort and mode are the chips just above it: not said twice. Only the first part is read out by a
 // screen reader when it changes (the list of the conversation is not: it would read every streamed word).
 import { fill, h } from '../lib.js';
-import { contextPercent, limitsLine, money, turnRuns } from './words.js';
+import { contextPercent, hasPlan, limitsLine, money, turnRuns } from './words.js';
 
 const ACTIVITY = { requesting: 'Claude is thinking', compacting: 'Compacting the conversation', retrying: 'Retrying' };
 const ASKING = { permission: 'Needs your OK', question: 'Claude asks you a question', plan: 'A plan waits for your OK' };
@@ -37,7 +37,7 @@ export function stateWords(v) {
 /** The rest of the line: [label, text] pairs (the label is for a screen reader and the title). */
 export function statusParts(v) {
   const p = contextPercent(v.usage);
-  const lim = limitsLine(v.limits);
+  const lim = hasPlan(v) ? limitsLine(v.limits) : ''; // the plan's limits: a Claude subscription's only
   return [
     v.branch ? ['Git branch', v.branch] : null,
     Number.isFinite(v.costTotal) && v.costTotal > 0 ? ['Cost so far', `${money(v.costTotal)} so far`] : null,

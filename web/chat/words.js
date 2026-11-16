@@ -234,6 +234,12 @@ export function inFolder(p, cwd) {
 
 /** The plan's limits in a few words: "5 h 42% · week 10%". */
 const WINDOWS = { five_hour: '5 h', seven_day: 'week', seven_day_opus: 'week Opus', seven_day_sonnet: 'week Sonnet' };
+/**
+ * Whether the chat's provider has plan limits to show (a Claude subscription or sign-in): a gateway, an API key or
+ * Auto mode has none, whatever Claude Code reports through it.
+ */
+export const hasPlan = (v) => !(v && v.profile && v.profile.kind && v.profile.kind !== 'subscription' && v.profile.kind !== 'login');
+
 export function limitsLine(limits) {
   return Object.entries(limits || {})
     .filter(([, x]) => x && Number.isFinite(x.percent))
