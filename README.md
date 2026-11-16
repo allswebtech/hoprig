@@ -361,6 +361,11 @@ may use only Hoprig's own tools (`hoprig mcp`; while she is on, your own Claude 
 turn her on under **Settings → Tia**, and she costs money: her own thinking runs on a provider you choose, and
 the chats she starts run on yours.
 
+**After an update from an earlier version:** earlier versions ran Tia when the settings never named her, although
+Settings → Tia showed her off. Now she is off until turned on. If you used her without ever touching that switch,
+her page says she is off and her jobs are not watched until you turn her on in **Settings → Tia**; her conversations and
+jobs are kept.
+
 What she can do, through the dashboard's own routes (the list is `ALLOW` in
 [src/assistant/door.mjs](src/assistant/door.mjs)):
 
