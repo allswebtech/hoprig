@@ -161,6 +161,8 @@ test('every way of revoking stops what that token started; a start by the owner 
   const stopped = async (t) => {
     await until(`${t.name}: its public link stops`, () => !quickRunning());
     await until(`${t.name}: logged`, () => hubLines().includes(`The public link the hub ${t.name} started was stopped: its token was revoked`));
+    // The revoke itself, with the token's name, whichever process revoked it (the CLI too).
+    await until(`${t.name}: its revoke logged`, () => hubLines().includes(`The token of the hub ${t.name} was revoked`));
   };
   const [self, cli, removed, other] = ['hub self', 'hub cli', 'hub removed', 'hub other'].map((n) => ({ name: n, ...createToken(n) }));
   await new Promise((r) => setTimeout(r, 400));

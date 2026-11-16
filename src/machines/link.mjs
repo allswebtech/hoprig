@@ -450,11 +450,11 @@ export async function claimLink(rawUrl, rawCode, { insecure = false, fingerprint
   try {
     r = await callJson(endpointOf(base), { machine: host, method: 'POST', path: '/api/link/claim', body: { code, token, tokenId, info: { hostname: me.hostname, platform: me.platform, version: me.version, label: defaultHubLabel() }, ...(SECRET_RE.test(String(replaces)) ? { replaces } : {}) }, timeoutMs: 15_000, raw: true, tls: linkTrust({ url: base, ...trust }) });
   } catch (e) {
-    revokeToken(tokenId);
+    revokeToken(tokenId, { log: false }); // never in use
     throw new LinkError(e.code || 'offline', e.message, 502);
   }
   if (r.status !== 200 || !r.json || !SECRET_RE.test(String(r.json.secret))) {
-    revokeToken(tokenId);
+    revokeToken(tokenId, { log: false });
     if (r.status === 403) throw new LinkError('bad-code', 'that code is wrong or has expired. Show a new one on the other dashboard.', 400);
     if (r.status === 429) throw new LinkError('rate-limited', 'too many tries; wait a few minutes', 429);
     throw new LinkError('too-old', `${host} does not answer like a Hoprig dashboard that accepts direct links (HTTP ${r.status}). Update Hoprig there, and check the address.`, 502);

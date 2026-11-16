@@ -9,7 +9,7 @@ import { sandbox } from '../server/helpers.mjs';
 const box = sandbox('tokenaudit');
 test.after(() => box.cleanup());
 
-const { CHANGES, auditToken, changeOf } = await import('../../src/machines/tokenaudit.mjs');
+const { CHANGES, auditToken, changeOf, revokedWords } = await import('../../src/machines/tokenaudit.mjs');
 const { createToken, onRevoke, revokeToken } = await import('../../src/machines/tokens.mjs');
 
 test('each change a token may make has its plain words; anything else is not logged', () => {
@@ -96,4 +96,18 @@ test('revoke listeners: called after the revoke with the id, name and number of 
   } finally {
     for (const f of off) f();
   }
+});
+
+test('a revoke is a line in the Activity log with the token\'s name; taking back a token never used is not', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const log = path.join(box.state, 'automation.log');
+  const hub = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.automation === 'hub').map((e) => e.did) : []);
+  const before = hub().length;
+  revokeToken(createToken('laptop').id);
+  assert.deepEqual(hub().slice(before), ['The token of the hub laptop was revoked']);
+  revokeToken(createToken('a failed link').id, { log: false });
+  assert.equal(hub().length, before + 1, 'a token taken back at once is not news');
+  assert.equal(revokedWords('office-pc', 2), 'The token of the hub office-pc was revoked; the 2 gateway keys it made ended with it, and the sharing of the gateways stays as it is');
+  assert.equal(revokedWords('office-pc', 1).includes('the gateway key it made'), true);
 });

@@ -9,6 +9,7 @@ import path from 'node:path';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { stateDir } from '../paths.mjs';
 import { tokenName } from './names.mjs';
+import { recordHubActivity, revokedWords } from './tokenaudit.mjs';
 
 export const TOKEN_PREFIX = 'hop_';
 const TOKEN_RE = /^hop_[A-Za-z0-9_-]{43}$/;
@@ -62,8 +63,10 @@ export function onRevoke(fn) {
 /**
  * Revoke by id, or every token with that name. Returns the entries removed. The gateway keys a token made (a hub's
  * "Use here", src/gateway/keys.mjs) end with it, in the same write: every way of revoking comes through here.
+ * Each revoke is a line in the Activity log; `{ log: false }` only for a token that never came into use (a link or
+ * a join that failed takes back the token it had just made).
  */
-export function revokeToken(idOrName) {
+export function revokeToken(idOrName, { log = true } = {}) {
   const cfg = loadConfig();
   const list = storedTokens(cfg);
   const gone = list.filter((t) => t.id === idOrName || t.name === idOrName);
@@ -80,6 +83,9 @@ export function revokeToken(idOrName) {
   }
   for (const t of gone) {
     const ev = { id: t.id, name: t.name, keys: keys.get(t.id) || 0 };
+    // In the Activity log here, by the process that revoked it (the page, `hoprig tokens revoke`, a hub's Remove),
+    // so the line has the token's name even when no dashboard was running.
+    if (log) recordHubActivity(revokedWords(ev.name, ev.keys));
     for (const fn of [...revokeListeners]) {
       queueMicrotask(() => {
         try {

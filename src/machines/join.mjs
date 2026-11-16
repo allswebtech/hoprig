@@ -366,7 +366,7 @@ export async function joinHub(rawTarget, { keeper, ssh = {}, now = Date.now } = 
     if (before && before.tokenId !== tokenId) revokeToken(before.tokenId);
     return entry;
   } catch (e) {
-    revokeToken(tokenId);
+    revokeToken(tokenId, { log: false }); // never in use
     if (!before) keeper.closeId(id);
     throw e;
   } finally {

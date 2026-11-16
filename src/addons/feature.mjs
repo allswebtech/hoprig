@@ -17,8 +17,7 @@
 // add-on that opens something to the network with it (the public link) records that id. When the token is revoked,
 // closeOpenedBy(gone) closes exactly what it opened; what the owner opened with his own login is never touched. The
 // sweep runs at once after a revoke in this process, when the dashboard starts, and every SWEEP_MS, which catches a
-// revoke by another process (`hoprig tokens revoke`).
-import { loadConfig } from '../config.mjs';
+// revoke by another process (`hoprig tokens revoke`). The revoke itself is logged by revokeToken (tokens.mjs).
 import { tokenIdOf } from '../machines/index.mjs';
 import { recordHubActivity } from '../machines/tokenaudit.mjs';
 import { onRevoke, storedTokens } from '../machines/tokens.mjs';
@@ -30,13 +29,8 @@ const SWEEP_MS = 15_000;
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
-/** The live tokens: id → { name, keys } (keys: how many gateway keys it made). */
-function liveTokens() {
-  const keys = loadConfig().gateways?.keys;
-  const count = new Map();
-  if (Array.isArray(keys)) for (const k of keys) if (k && typeof k.token === 'string') count.set(k.token, (count.get(k.token) || 0) + 1);
-  return new Map(storedTokens().map((t) => [t.id, { name: t.name, keys: count.get(t.id) || 0 }]));
-}
+/** The live tokens: id → { name }. */
+const liveTokens = () => new Map(storedTokens().map((t) => [t.id, { name: t.name }]));
 
 /** `opts.addons`: the add-on list (tests pass fakes). `opts.record`, `opts.sweepMs`: for tests. */
 export function addonsFeature(sctx, opts = {}) {
@@ -110,22 +104,14 @@ export function addonsFeature(sctx, opts = {}) {
 
   // ---- what a revoked token opened ends with it ----
   const record = opts.record || recordHubActivity;
-  let known = new Map(); // the tokens at the last look: a token gone since then was revoked
-  const told = new Set(); // revoked tokens said already (a revoke in this process is seen by the listener and the timer)
+  let known = new Map(); // the tokens at the last look (their names, for the lines below)
   let sweeping = Promise.resolve();
   let timer = null;
   let stopListening = null;
   const who = (id) => (known.has(id) ? `the hub ${known.get(id).name}` : 'a linked hub');
   async function sweepNow(ev) {
-    if (ev) known.set(ev.id, { name: ev.name, keys: ev.keys });
+    if (ev) known.set(ev.id, { name: ev.name });
     const live = liveTokens();
-    for (const [id, t] of known) {
-      if (live.has(id) || told.has(id)) continue;
-      told.add(id);
-      record(t.keys
-        ? `The token of the hub ${t.name} was revoked; the ${t.keys === 1 ? 'gateway key' : `${t.keys} gateway keys`} it made ended with it, and the sharing of the gateways stays as it is`
-        : `The token of the hub ${t.name} was revoked`);
-    }
     const gone = (id) => typeof id === 'string' && !live.has(id);
     await each(async (a) => {
       for (const c of (await a.closeOpenedBy?.(gone)) || []) record(c.say(who(c.by)));

@@ -20,6 +20,13 @@ export function recordHubActivity(did, outcome = 'ok') {
   }
 }
 
+/** The line for a revoked token, written by revokeToken (tokens.mjs) in whichever process revoked it. */
+export function revokedWords(name, keys = 0) {
+  return keys
+    ? `The token of the hub ${name} was revoked; the ${keys === 1 ? 'gateway key' : `${keys} gateway keys`} it made ended with it, and the sharing of the gateways stays as it is`
+    : `The token of the hub ${name} was revoked`;
+}
+
 const ADDON_NAMES = { 'public-link': 'the public link', trouteai: 'TRouteAI' };
 const addonName = (id) => ADDON_NAMES[id] || (/^[a-z0-9-]{1,40}$/.test(id) ? `the add-on ${id}` : 'an add-on');
 const ADDON_VERBS = { install: 'installed', update: 'updated', start: 'started', stop: 'stopped' };
