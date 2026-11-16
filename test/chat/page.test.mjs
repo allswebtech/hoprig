@@ -396,3 +396,12 @@ test('Home\'s card of a chat that waits for an OK: Allow, Allow in this chat and
   assert.equal(permissionActions({ ...s, status: 'waiting' }), null, 'nothing waits');
   assert.equal(permissionActions({ ...s, ask: null }), null, 'an older computer that does not say what it waits for');
 });
+
+test('the chat\'s toasts sit under its head at every width: no rule gives their box a bottom edge as well', async () => {
+  const fs = await import('node:fs');
+  const css = fs.readFileSync(new URL('../../web/chat/chat.css', import.meta.url), 'utf8');
+  const rules = [...css.matchAll(/body\.chat-mode \.toasts\s*\{([^}]*)\}/g)].map((m) => m[1]);
+  assert.ok(rules.length >= 1, 'a rule places them');
+  // A top and a bottom together stretch the box between them, and a toast in it draws as a tall block.
+  for (const r of rules) assert.match(r, /bottom:\s*auto/, r);
+});
