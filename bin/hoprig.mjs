@@ -153,8 +153,9 @@ async function main() {
       await hookMain();
       return 0;
     case 'profiles': {
-      // "auto" is listed too when it can be used, so wrapper scripts accept it as a profile name.
-      const list = menuProfiles().map(publicProfile);
+      // Every provider ("auto" too when it can be used, so wrapper scripts accept it as a profile name); its `tools`
+      // name only the offered coding tools (publicProfile).
+      const list = menuProfiles({ all: true }).map(publicProfile);
       if (rest.includes('--json')) console.log(JSON.stringify(list));
       else for (const p of list) console.log(`${p.name}\t${p.kind}\t${p.label}`);
       return 0;

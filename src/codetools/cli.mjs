@@ -20,7 +20,7 @@ const USAGE = `usage:
 
 const toolArg = (id, out) => {
   const t = findTool(id);
-  if (!t) out(notOffered(id || ''));
+  if (!t) out(`hoprig: ${notOffered(id || '', { cli: true })}`);
   return t;
 };
 

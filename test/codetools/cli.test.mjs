@@ -47,7 +47,7 @@ test('Codex is not part of this version: install, update, on and off are refused
   const t = io({ codingTools: ['claude'] });
   for (const words of [['install', 'codex'], ['update', 'codex'], ['on', 'codex'], ['off', 'codex']]) {
     assert.equal(await main(words, t.io), 2, words.join(' '));
-    assert.equal(t.errs.at(-1), 'Codex is not part of this version of Hoprig.', words.join(' '));
+    assert.equal(t.errs.at(-1), 'hoprig: Codex is not part of this version of Hoprig. Start Claude Code with: hoprig, or OpenCode with: hoprig opencode.', words.join(' '));
   }
   assert.deepEqual(t.cfg().codingTools, ['claude'], 'nothing changed');
   assert.deepEqual(t.lines, [], 'nothing started');

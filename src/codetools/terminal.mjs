@@ -17,10 +17,10 @@
 // screen's activity only, and says so.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import { listProfiles, readProfile, servesTools, validName } from '../profiles.mjs';
+import { listProfiles, notServedLines, readProfile, servesTools, validName } from '../profiles.mjs';
 import { createRun, removeRun, updateRun } from '../runs.mjs';
 import { codexPlan, opencodePlan, standalonePlan } from './attach.mjs';
-import { anyTool, findTool, notOffered, offeredOnly } from './index.mjs';
+import { anyTool, findTool, notOffered } from './index.mjs';
 import { providerModels } from './providers.mjs';
 import { cleanEnv, ensureServer, serverProviders, stopIfUnused } from './servers.mjs';
 import { isToolSessionId } from './stores.mjs';
@@ -87,7 +87,7 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
     return 2;
   }
   if (!servesTools(profile).includes(toolId)) {
-    console.error(`hoprig: the provider "${profile.name}" does not serve ${tool.name} (it works with: ${offeredOnly(servesTools(profile)).join(', ') || 'no coding tool'}).`);
+    for (const line of notServedLines(profile, toolId)) console.error(line);
     return 2;
   }
   if (!fs.existsSync(tool.binPath())) {
@@ -204,7 +204,7 @@ export async function toolCommand(toolId, args) {
   const tool = findTool(toolId);
   if (!tool) {
     // The leading word of a tool this version does not offer (src/codetools/index.mjs): one plain sentence.
-    console.error(`hoprig: ${notOffered(toolId)}`);
+    console.error(`hoprig: ${notOffered(toolId, { cli: true })}`);
     return 2;
   }
   const [first, ...rest] = args;

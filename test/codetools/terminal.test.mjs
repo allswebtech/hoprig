@@ -307,7 +307,7 @@ test('the launcher\'s leading word "codex" is refused with one plain sentence; n
   } finally {
     console.error = was;
   }
-  assert.deepEqual(said, Array(3).fill('hoprig: Codex is not part of this version of Hoprig.'));
+  assert.deepEqual(said, Array(3).fill('hoprig: Codex is not part of this version of Hoprig. Start Claude Code with: hoprig, or OpenCode with: hoprig opencode.'), 'why, and what to start instead');
 });
 
 test('doctor names a provider file that a new command word hides, and says how to rename it', async () => {

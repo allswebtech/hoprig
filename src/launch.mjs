@@ -10,7 +10,7 @@ import { getAutoSwitch, limitedProfiles, markLimited, nextProfile, parseResets, 
 import { claudeLoginStatus, claudeVersionQuick } from './claudecode.mjs';
 import { loadConfig, sessionArgs } from './config.mjs';
 import { claudeDir, hookFile, hookSettingsDir } from './paths.mjs';
-import { listProfiles, profileEnv, readProfile, servesTools } from './profiles.mjs';
+import { listProfiles, notServedLines, profileEnv, readProfile, servesTools } from './profiles.mjs';
 import { loginSeen, rememberLogin } from './routerstate.mjs';
 import { createRun, noteUsage, readRun, readUsage, removeRun, updateRun, usageFile } from './runs.mjs';
 import { hasConversation } from './sessions.mjs';
@@ -421,10 +421,9 @@ export async function launch(profileName, args, { askNext = null } = {}) {
       return 2;
     }
     if (!servesTools(profile).includes('claude')) {
-      // An OpenAI key or a Codex sign-in: Claude Code cannot use it (profileEnv refuses it too). Only the offered
-      // tools are named (loaded here only: a normal start does not need the coding tools' registry).
-      const { offeredOnly } = await import('./codetools/index.mjs');
-      console.error(`hoprig: the provider "${profile.name}" does not serve Claude Code (it works with: ${offeredOnly(servesTools(profile)).join(', ') || 'no coding tool'}).`);
+      // An OpenAI key or another coding tool's sign-in: Claude Code cannot use it (profileEnv refuses it too). Why,
+      // and what to do instead.
+      for (const line of notServedLines(profile, 'claude')) console.error(line);
       return 2;
     }
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !isPrintMode(current);

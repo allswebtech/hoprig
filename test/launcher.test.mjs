@@ -263,7 +263,14 @@ process.exit(7);
   fs.rmSync(outFile, { force: true });
   const oai = spawnSync(process.execPath, [binFile(), 'oai'], { env: { ...process.env, FAKE_OUT: outFile }, encoding: 'utf8' });
   assert.equal(oai.status, 2);
-  assert.match(oai.stderr, /does not serve Claude Code \(it works with: opencode\)/, 'only the offered coding tools are named');
+  assert.equal(oai.stderr, 'hoprig: The provider "OpenAI API" cannot be used for Claude Code: it does not answer the API that tool speaks (Test it on the Providers page, or choose another provider).\nIt works with OpenCode: hoprig opencode oai\n', 'why, and the one thing to do instead');
+  // Another coding tool's sign-in: the reason the page gives, and no tool of this version to start on it.
+  P.writeProfile('cx', { label: 'Codex sign-in', signin: 'codex' });
+  const cx = spawnSync(process.execPath, [binFile(), 'cx'], { env: { ...process.env, FAKE_OUT: outFile }, encoding: 'utf8' });
+  assert.equal(cx.status, 2);
+  assert.equal(cx.stderr, 'hoprig: The provider "Codex sign-in" cannot be used for Claude Code: it is the sign-in of another coding tool.\nChoose another provider (hoprig profiles), or add one: hoprig add\n');
+  assert.equal(fs.existsSync(outFile), false, 'Claude Code was not started');
+  P.deleteProfile('cx');
   assert.equal(fs.existsSync(outFile), false, 'Claude Code was not started');
   P.deleteProfile('oai');
   // An unknown profile is an error, not a launch.
@@ -281,6 +288,55 @@ test('profiles command: tab-separated and JSON, never a value', () => {
   const json = spawnSync(process.execPath, [binFile(), 'profiles', '--json'], { env: process.env, encoding: 'utf8' });
   assert.deepEqual(JSON.parse(json.stdout).map((p) => p.name), ['api', 'sub', 'sub2']);
   assert.ok(!/tok|sk-ant/.test(tsv.stdout + json.stdout));
+});
+
+test('the start menu offers only providers that serve Claude Code, and never another coding tool\'s sign-in as the Enter default', () => {
+  // A Codex sign-in from an earlier version (its name sorts first) and an OpenAI key: kept, listed by `hoprig profiles`,
+  // not offered by the menu that starts Claude Code.
+  P.writeProfile('aa-cx', { label: 'Codex sign-in', signin: 'codex' });
+  P.writeProfile('ab-oai', { env: { OPENAI_API_KEY: 'sk-menu-key-0123' } });
+  try {
+    assert.deepEqual(M.menuProfiles().map((p) => p.name), ['api', 'sub', 'sub2']);
+    assert.deepEqual(M.menuProfiles({ all: true }).map((p) => p.name), ['aa-cx', 'ab-oai', 'api', 'sub', 'sub2']);
+    const menu = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'menu.mjs');
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', `import { chooseProfile } from ${JSON.stringify(menu)}; console.log('CHOICE', JSON.stringify(await chooseProfile({ sessionChosen: true })));`],
+      { env: process.env, encoding: 'utf8', input: '\n' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.doesNotMatch(r.stdout, /aa-cx|ab-oai|Codex/);
+    assert.match(r.stdout, /CHOICE \{"name":"api","extraArgs":\[\]\}/, 'Enter starts on a provider that serves Claude Code');
+    // `hoprig profiles --json` lists every provider, with the offered coding tools only; `unusable` for one that serves none.
+    const json = JSON.parse(spawnSync(process.execPath, [binFile(), 'profiles', '--json'], { env: process.env, encoding: 'utf8' }).stdout);
+    const of = (n) => json.find((p) => p.name === n);
+    assert.deepEqual([of('aa-cx').tools, of('aa-cx').unusable], [[], true]);
+    assert.deepEqual([of('ab-oai').tools, of('ab-oai').unusable], [['opencode'], undefined]);
+    assert.doesNotMatch(JSON.stringify(json.map((p) => p.tools)), /codex/);
+    assert.ok(!JSON.stringify(json).includes('sk-menu-key'));
+  } finally {
+    P.deleteProfile('aa-cx');
+    P.deleteProfile('ab-oai');
+  }
+});
+
+test('the start menu with no provider for Claude Code: it adds the stored sign-in as "sub", else says what to do', () => {
+  const dir = fs.mkdtempSync(path.join(tmp, 'menu-'));
+  const env = { ...process.env, HOPRIG_PROFILES_DIR: dir, HOPRIG_STATE_DIR: path.join(dir, 'state') };
+  fs.writeFileSync(path.join(dir, 'cx.env'), 'LABEL="Codex sign-in"\nSIGNIN=codex\n', { mode: 0o600 });
+  const menu = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'menu.mjs');
+  const choose = (input) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { chooseProfile } from ${JSON.stringify(menu)}; console.log('CHOICE', JSON.stringify(await chooseProfile({ sessionChosen: true })));`],
+    { env, encoding: 'utf8', input });
+  let r = choose('\n');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Created the profile "sub"/);
+  assert.match(r.stdout, /CHOICE \{"name":"sub","extraArgs":\[\]\}/);
+  // "sub" taken by a provider of another coding tool: nothing is created, Enter says what to do, q quits.
+  fs.rmSync(path.join(dir, 'sub.env'));
+  fs.writeFileSync(path.join(dir, 'sub.env'), 'OPENAI_API_KEY=sk-menu-sub\n', { mode: 0o600 });
+  r = choose('\nq\n');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /No provider here serves Claude Code yet/);
+  assert.match(r.stdout, /There is nothing to start on yet: type a to add a provider, or q to quit\./);
+  assert.match(r.stdout, /CHOICE null/);
+  assert.ok(!r.stdout.includes('sk-menu-sub'));
 });
 
 const A = await import('../src/autoswitch.mjs');
@@ -606,7 +662,7 @@ test('the command line does not offer Codex: "hoprig codex" is refused in one pl
   for (const args of [['codex'], ['codex', 'login', '--device-auth'], ['tools', 'install', 'codex'], ['tools', 'on', 'codex']]) {
     const r = spawnSync(process.execPath, [bin, ...args], { env, encoding: 'utf8' });
     assert.equal(r.status, 2, args.join(' '));
-    assert.match(r.stderr, /^(hoprig: )?Codex is not part of this version of Hoprig\.\n$/, args.join(' '));
+    assert.equal(r.stderr, 'hoprig: Codex is not part of this version of Hoprig. Start Claude Code with: hoprig, or OpenCode with: hoprig opencode.\n', args.join(' '));
   }
   const help = spawnSync(process.execPath, [bin, '--help'], { env, encoding: 'utf8' });
   assert.equal(help.status, 0);
