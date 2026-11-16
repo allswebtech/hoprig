@@ -830,9 +830,15 @@ test('a question waiting for an OK: the same answers on the card and the banner;
   assert.doesNotMatch(fs.readFileSync(path.join(WEB, 'session.js'), 'utf8'), /rank <= 2/);
 });
 
-test('new session: a folder where a session runs opens that session', () => {
+test('new session: a folder where a session runs opens that session, one where a chat works opens that chat', async () => {
+  const { runningIn } = await import('../../web/newsession.js');
+  assert.equal(runningIn({ live: true, session: 'web ui' }), '#/s/web%20ui');
+  assert.equal(runningIn({ live: true, chat: '11111111-2222-4333-8444-555555555555' }), '#/chat/11111111-2222-4333-8444-555555555555');
+  assert.equal(runningIn({ live: false, session: 'old' }), null, 'nothing runs there: a tap opens a new chat');
+  assert.equal(runningIn({ live: true }), null);
   const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
-  assert.match(src, /f\.live && f\.session\s*\?\s*row\(f, folderSub\(f, projectsShort\), \(\) => \(location\.hash = link\(`#\/s\/\$\{encodeURIComponent\(f\.session\)\}`/);
+  assert.doesNotMatch(src, /role: 'radiogroup', 'aria-label': 'Work in'/, 'no Terminal | Chat switch at the top');
+  assert.match(src, /\['chat', 'A chat \(the default\)'\], \['claude', 'Claude Code in a terminal'\], \['shell', 'A plain terminal, without Claude'\]/, 'one row under Options');
 });
 
 test('new session: repositories by their own name, and a path only where it says more than the name', async () => {

@@ -167,7 +167,7 @@ function route(e) {
   if (s) {
     document.body.classList.remove('has-nav');
     stop = openSession(app, decodeURIComponent(s[1]));
-  } else if (path === '/new' || path === '/new/here') stop = viewNew();
+  } else if (path === '/new' || path === '/new/here') stop = viewNew({ query });
   else if (path === '/more') stop = viewMore();
   else if (page) stop = page.render({ frame, connectionBanner, sub: p[2] || '', query });
   else stop = viewHome();

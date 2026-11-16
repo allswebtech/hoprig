@@ -11,6 +11,7 @@
 // With several computers the switcher picks whose projects these are (#/m/<computer>/workspace). A "project" is a
 // folder in the projects folder: a plain git repository, or a parent repository with its code repositories in
 // code/ (docs/PC-SETUP.md).
+import { startChat } from './chat/start.js';
 import { icon } from './icons.js';
 import { add, ago, api, btn, fill, h, link, needsYouFirst, openSheet, promptSheet, tildePath, toast } from './lib.js';
 import { groupOf } from './home.js';
@@ -72,19 +73,14 @@ const needsLook = (p) => p.repos.some((r) => !r.ok || r.changes || r.behind || (
 const inside = (dir, cwd) => !!cwd && (cwd === dir || cwd.startsWith(`${dir}/`) || cwd.startsWith(`${dir}\\`));
 const sessionsIn = (dir) => ((store.data && store.data.sessions) || []).filter((s) => inside(dir, s.cwd));
 
-// ---------- starting Claude: the same call as the New session page ----------
+// ---------- starting Claude: a chat, as the New session page opens one ----------
 
-async function startIn(dir, { mode = 'new', sessionId = null, prompt = null } = {}) {
-  let profile = store.data && store.data.recommended;
-  if (!profile) profile = (await api('/api/state')).recommended;
-  if (!profile) throw new Error('No provider on this computer yet: add one under Providers first.');
-  const { name } = await api('/api/sessions', { dir, profile, mode, sessionId, prompt });
-  store.refresh();
-  location.hash = link(`#/s/${enc(name)}`);
-}
+// A chat in `dir`, set up as the last chat there (the server keeps that per folder); `sessionId` continues that
+// conversation (the chat that already runs it opens instead), `prompt` is its first message.
+const startIn = (dir, { sessionId = null, prompt = null } = {}) => startChat(dir, { sessionId, text: prompt });
 
-/** A button that starts a session and says so while it does; an error stays next to it until the next press. */
-export function startButton(dir, { cls = 'small secondary', label = 'Start', title = 'Start Claude here', ...how } = {}) {
+/** A button that opens a chat and says so while it does; an error stays next to it until the next press. */
+export function startButton(dir, { cls = 'small secondary', label = 'Start', title = 'Open a chat with Claude here', ...how } = {}) {
   const b = btn(cls, { icon: 'play', label, title });
   b.addEventListener('click', async (e) => {
     e.preventDefault();
@@ -155,7 +151,7 @@ function earlier(p) {
       h('div.rows.ws-pastrows', list.slice(0, 8).map((c) => h('div.row.static',
         h('span.row-icon', icon('text')),
         h('span.row-main', h('span.row-title', c.title), h('span.row-sub', ago(c.at))),
-        startButton(p.dir, { mode: 'resume', sessionId: c.id, label: 'Continue', title: 'Continue this conversation' }))))));
+        startButton(p.dir, { sessionId: c.id, label: 'Continue', title: 'Continue this conversation in a chat' }))))));
   });
   return slot;
 }
@@ -179,7 +175,7 @@ function projectCard(p, sessions, profiles, home) {
           h('span.row-sub', tildePath(p.dir, home)),
           h(`span.row-sub.pj-git${needsLook(p) ? '.attn' : ''}`, projectWords(p)))),
       h('span.ws-tools',
-        startButton(p.dir, { label: 'New session', title: `Start Claude in ${p.name} on the default provider` }),
+        startButton(p.dir, { label: 'New session', title: `Open a chat with Claude in ${p.name}, set up as your last one there` }),
         changesButton(p),
         editorButton(p.dir, { name: p.name, compact: true }),
         h('a.btn.icon.ghost.small', { href: page, title: `Open ${p.name}`, 'aria-label': `Open ${p.name}` }, icon('chevronRight', { size: 18 })))),
@@ -385,7 +381,7 @@ function viewProject(frame, id) {
       h('div.rows', (all ? r.sessions : r.sessions.slice(0, 4)).map((c) => h('div.row.static.pj-past',
         h('span.row-icon', icon('text')),
         h('span.row-main', h('span.row-title', c.title), h('span.row-sub', ago(c.at))),
-        startButton(p.dir, { label: 'Continue', title: 'Continue this conversation', mode: 'resume', sessionId: c.id })))),
+        startButton(p.dir, { label: 'Continue', title: 'Continue this conversation in a chat', sessionId: c.id })))),
       !all && r.sessions.length > 4 ? h('button.btn.ghost.small.pj-more', { type: 'button', onclick: () => { all = true; paint(); } }, `Show all ${r.sessions.length}`) : null);
     paint();
   }

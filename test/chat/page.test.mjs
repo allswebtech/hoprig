@@ -278,3 +278,17 @@ test('a command Claude Code answered by itself has no cost line; a message\'s pi
   assert.equal(img.getAttribute('alt'), 'Picture shot 1.png');
   assert.deepEqual(texts(box).filter(Boolean), ['b.log', 'picture'], 'a file, and a picture without a name, as chips');
 });
+
+test('Home\'s card of a chat that waits for an OK: Allow, Allow in this chat and Do not allow; a question leads into the chat', async () => {
+  const { permissionActions } = await import('../../web/lib.js');
+  const s = { kind: 'chat', name: 'chat:c1', chatId: '11111111-2222-4333-8444-555555555555', machine: null, status: 'attention', ask: { request: 'r1', type: 'permission', canAlways: true, alwaysText: 'Bash(npm test:*)' } };
+  const words = (n) => byClass(n, 'btn').map((b) => texts(b).join(''));
+  assert.deepEqual(words(permissionActions(s)), ['Allow', 'Allow in this chat', 'Do not allow']);
+  assert.deepEqual(words(permissionActions({ ...s, ask: { ...s.ask, canAlways: false } })), ['Allow', 'Do not allow']);
+  const q = permissionActions({ ...s, ask: { request: 'r2', type: 'question' } });
+  assert.deepEqual(words(q), ['Answer']);
+  assert.equal(byClass(q, 'btn')[0].attrs.href || byClass(q, 'btn')[0].href, '#/chat/11111111-2222-4333-8444-555555555555');
+  assert.deepEqual(words(permissionActions({ ...s, ask: { request: 'r3', type: 'plan' } })), ['Read the plan']);
+  assert.equal(permissionActions({ ...s, status: 'waiting' }), null, 'nothing waits');
+  assert.equal(permissionActions({ ...s, ask: null }), null, 'an older computer that does not say what it waits for');
+});

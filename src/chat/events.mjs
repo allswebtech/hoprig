@@ -65,3 +65,20 @@ export const oneLine = (s, max) => {
   const t = String(s || '').replace(/\s+/g, ' ').trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 };
+
+/**
+ * A reply written in Markdown as one plain line, for a card's preview (Home, Workspace, Tia): no heading, list or
+ * quote marks, no fences, `code`, **bold** or _italic_ marks, a link as its words, a table row as its cells.
+ */
+export function previewText(md, max = 300) {
+  const lines = [];
+  for (let l of String(md || '').replace(/\r\n?/g, '\n').split('\n')) {
+    if (/^\s*(```|~~~)/.test(l) || /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(l) || /^\s*([-*_]\s*){3,}$/.test(l)) continue;
+    l = l.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/^\s*(>\s*)+/, '').replace(/^\s*[-*+]\s+(\[[ xX]\]\s+)?/, '');
+    if (/^\s*\|.*\|\s*$/.test(l)) l = l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim()).filter(Boolean).join(' · ');
+    l = l.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/`([^`]*)`/g, '$1').replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '$2').replace(/(^|[\s(])[*_](?=\S)(.+?)(?<=\S)[*_](?=$|[\s).,;:!?])/g, '$1$2');
+    lines.push(l);
+  }
+  return oneLine(lines.join(' '), max);
+}

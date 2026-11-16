@@ -394,6 +394,8 @@ export function createServer(opts = {}) {
     ['GET', /^\/api\/profiles$/, async () => ({ profiles: profileStates(await cards()), autoSwitch: autoswitch.getAutoSwitch() })],
     ['GET', /^\/api\/folders\/recent$/, async () => {
       const live = (await backend.list()).map((t) => ({ cwd: t.cwd, session: t.session }));
+      // A chat at work counts as running there too: the picker opens it rather than a second one.
+      for (const c of chat.cards()) if (c.status !== 'waiting') live.push({ cwd: c.cwd, chat: c.chatId });
       const r = roots();
       return { folders: recentFolders(live, r), roots: r.map((p) => ({ path: p, short: tilde(p) })) };
     }],

@@ -42,11 +42,11 @@ export function stateOf(c) {
 }
 
 /**
- * o: { chatOr404, save, bad, models(), folderOf(chat) (its folder while inside the allowed roots), about(chat) (what
+ * o: { chatOr404, save, remember(chat) (its settings are its folder's last), bad, models(), folderOf(chat) (its folder while inside the allowed roots), about(chat) (what
  * the page shows beside the state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that
  * runs the conversation now) } from feature.mjs
  */
-export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf, uploadsDir, openChatOf, about, terminalOf }) {
+export function liveRoutes(ctx, { chatOr404, save, remember, bad, models, folderOf, uploadsDir, openChatOf, about, terminalOf }) {
   const { HttpError } = ctx;
   const pick = (val, list, what) => {
     if (val === undefined) return undefined;
@@ -183,6 +183,7 @@ export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf, upload
       if (!mode) throw bad('say which mode');
       const r = await c.setSettings({ mode });
       save();
+      remember(c);
       return { permissionMode: c.permissionMode, liveMode: c.liveMode, restart: r.restart };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/settings$`), async (req, m) => {
@@ -191,6 +192,7 @@ export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf, upload
       if (b.ultracode !== undefined && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
       const r = await c.setSettings({ model: pick(b.model, models(), 'model'), effort: pick(b.effort, EFFORTS, 'effort'), ultracode: b.ultracode });
       save();
+      remember(c);
       return { model: c.model, effort: c.effort, ultracode: c.ultracode, restart: r.restart };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/title$`), async (req, m) => {

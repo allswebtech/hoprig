@@ -3,7 +3,9 @@
 // after a restart (their process starts again with the next message).
 //
 //   GET  /api/chats                           the open chats, as cards
-//   POST /api/chats                           { dir, profile, model?, effort?, permissionMode?, sessionId?, text? } → { id }
+//   POST /api/chats                           { dir, profile?, model?, effort?, permissionMode?, ultracode?, sessionId?, text? }
+//                                             → { id }   what is left out: as the last chat in that folder ran
+//                                             (folders.mjs), else the provider recommended now and Settings
 //   POST /api/chats/from-session              { session } → { id }   the conversation of a terminal session, as a chat
 //   GET  /api/chats/<id>?from=N&epoch=E&wait=S   the chat: events from N (wait up to S seconds for news)
 //   GET  /api/chats/<id>/older?before=N       earlier events
@@ -37,7 +39,9 @@ import { parentLookup, procParent } from '../server/platform.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from '../server/uploads.mjs';
 import * as v from '../server/validate.mjs';
 import { Chat } from './chat.mjs';
+import { previewText } from './events.mjs';
 import { readAttachments } from './files.mjs';
+import { folderMemory } from './folders.mjs';
 import { liveRoutes, stateOf } from './live.mjs';
 
 const OPEN_MAX = 50;
@@ -55,6 +59,9 @@ export function chatFeature(ctx, o = {}) {
   const cfg = () => ctx.config();
   const roots = () => resolveRoots(cfg().server.roots);
   const file = () => o.file || path.join(stateDir(), 'chats.json');
+  // The settings each folder's chat ran with last: one tap on a project opens a chat with them.
+  const memory = folderMemory(() => o.foldersFile || path.join(path.dirname(file()), 'chat-folders.json'));
+  const remember = (c) => memory.remember(c.record());
   const chats = new Map();
   let loaded = false;
 
@@ -132,13 +139,21 @@ export function chatFeature(ctx, o = {}) {
   function card(c) {
     const status = c.status();
     const ask = status === 'attention' ? [...c.pending.values()][0] : null;
+    const words = !ask ? '' : ask.type === 'question' ? `${c.engine.label} asks you a question`
+      : ask.type === 'plan' ? `${c.engine.label} has a plan for you to approve`
+        : `Allow ${ask.title}${ask.description ? `: ${ask.description}` : ''}?`;
     return {
       name: cardName(c.id), kind: 'chat', chatId: c.id, display: c.title || 'New chat', title: c.title,
       cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), status, statusAt: c.statusAt, activity: c.statusAt,
       created: c.openedAt, attached: false, panes: 0, sessionId: c.conversationId, canSwitch: false,
-      lastMessage: c.lastText.replace(/\s+/g, ' ').trim().slice(0, 300),
+      lastMessage: previewText(c.lastText), // plain words: a card shows no Markdown marks
       running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
-      note: ask ? `Allow ${ask.title}${ask.description ? `: ${ask.description}` : ''}?` : '',
+      note: words,
+      // The OK it waits for, so a card can answer it (Allow, Allow in this chat, Deny); a question or a plan is
+      // answered in the chat itself.
+      ask: ask ? { request: ask.request, type: ask.type, canAlways: !!ask.grant, alwaysText: ask.grant && !ask.grant.edits ? ask.grant.text : '' } : null,
+      // The turn is over but subagents, shells or a workflow still run (Home: "Working in the background").
+      background: status === 'working' && !c.turn,
       limit: c.limit ? { text: c.limit.text } : null,
       ...(c.limit ? { limitAt: c.limit.at || null } : {}), // since when: the page compares it with the provider's accountAt
     };
@@ -196,11 +211,22 @@ export function chatFeature(ctx, o = {}) {
       const b = await ctx.readJson(req);
       const dir = insideRoots(v.absPath(b.dir), roots());
       if (!dir) throw bad('choose a folder inside the allowed roots');
-      if (typeof b.profile !== 'string' || !profileOk(b.profile)) throw bad('there is no such provider');
+      const last = memory.last(dir) || {};
+      let profile = b.profile;
+      if (profile === undefined || profile === null || profile === '') {
+        // As the last chat here ran, while that provider is still there; else the one recommended now.
+        profile = last.profile && profileOk(last.profile) ? last.profile : (await ctx.state()).recommended;
+        if (!profile) throw bad('there is no provider yet: add one under Providers first');
+      }
+      if (typeof profile !== 'string' || !profileOk(profile)) throw bad('there is no such provider');
+      if (b.ultracode !== undefined && b.ultracode !== null && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
       const d = cfg().sessionDefaults || {};
-      const model = pick(b.model, models(), 'model');
-      const effort = pick(b.effort, EFFORTS, 'effort');
-      const permissionMode = pick(b.permissionMode, PERMISSION_MODES, 'permission mode');
+      // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults.
+      const kept = (k, chosen, fallback) => (chosen !== undefined ? chosen : k in last ? last[k] : fallback);
+      const model = kept('model', pick(b.model, models(), 'model'), d.model || null);
+      const effort = kept('effort', pick(b.effort, EFFORTS, 'effort'), d.effort || null);
+      const permissionMode = kept('permissionMode', pick(b.permissionMode, PERMISSION_MODES, 'permission mode'), d.permissionMode || null);
+      const ultracode = kept('ultracode', b.ultracode ?? undefined, false) === true;
       let id = crypto.randomUUID();
       if (b.sessionId !== undefined && b.sessionId !== null) {
         id = v.sessionId(b.sessionId);
@@ -219,12 +245,13 @@ export function chatFeature(ctx, o = {}) {
         old.close();
       }
       const c = make({
-        id, cwd: dir, profile: b.profile,
-        model: model === undefined ? d.model || null : model,
-        effort: effort === undefined ? d.effort || null : effort,
-        permissionMode: permissionMode === undefined ? d.permissionMode || null : permissionMode,
+        id, cwd: dir, profile,
+        // a model the computer stopped offering is not forced on a new chat
+        model: model && models().includes(model) ? model : null, effort: EFFORTS.includes(effort) ? effort : null,
+        permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode,
       });
       save();
+      remember(c);
       if (text && !(await terminalOf(id))) await c.send(text);
       return { id };
     }],
@@ -296,7 +323,10 @@ export function chatFeature(ctx, o = {}) {
       const message = typeof b.message === 'string' ? b.message.slice(0, 1000) : '';
       const mode = b.mode === undefined || b.mode === null ? null : pick(b.mode, PERMISSION_MODES, 'permission mode');
       c.answer(b.request, { allow: b.allow, always: b.always === true, answers, mode, message });
-      if (mode) save();
+      if (mode) {
+        save();
+        remember(c);
+      }
       return { ok: true };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/stop$`), async (req, m) => {
@@ -310,6 +340,7 @@ export function chatFeature(ctx, o = {}) {
       c.setProfile(b.profile);
       c.emit('state'); // a page that streams shows the new provider
       save();
+      remember(c);
       return { profile: profileView(c.profile) };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/take$`), async (req, m) => {
@@ -384,7 +415,7 @@ export function chatFeature(ctx, o = {}) {
 
   // The open chat that runs conversation `id` (its own id, or one whose conversation went on under a new id), or null.
   const openChatOf = (id) => (chats.has(id) ? id : ([...chats.values()].find((c) => c.conversationId === id) || {}).id || null);
-  const live = liveRoutes(ctx, { chatOr404, save, bad, models, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
+  const live = liveRoutes(ctx, { chatOr404, save, remember, bad, models, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
   routes.push(...live.routes);
 
   return {
