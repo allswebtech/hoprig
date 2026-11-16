@@ -89,6 +89,8 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
         sendChat: (id, text) => chat.send(id, text),
       } : {}),
     },
+    // A provider as the owner named it (the activity log is read by a person); Auto mode is no profile file.
+    label: (name) => (name === 'auto' ? 'Auto mode' : (readProfile(name) || {}).label || name),
     backend: sctx.backend,
     config: sctx.config,
     saveConfig: sctx.saveConfig,

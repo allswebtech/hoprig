@@ -78,7 +78,9 @@ export async function apply(actions, ctx) {
     }
     try {
       const name = await ctx.deck.start({ dir: s.cwd, profile: s.profile, mode: 'move', sessionId: s.sessionId, carryArgs: s.carryArgs || [], name: s.name });
-      ctx.record({ automation: 'restore', session: name, did: `reopened on ${s.profile} (resumed ${s.sessionId.slice(0, 8)})`, outcome: 'ok' });
+      // The provider as the owner named it: this line is read on Automations → Activity.
+      const shown = (ctx.label && ctx.label(s.profile)) || s.profile;
+      ctx.record({ automation: 'restore', session: name, did: `reopened on ${shown} (resumed ${s.sessionId.slice(0, 8)})`, outcome: 'ok' });
     } catch (e) {
       ctx.record({ automation: 'restore', session: s.name, did: 'could not reopen', outcome: `failed: ${e.message}` });
     }

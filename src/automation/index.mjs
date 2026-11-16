@@ -26,7 +26,8 @@
 // Optional (real ones are used when left out; tests pass fakes):
 //   saveConfig(patch), stateDir (hoprig's state folder), now(), updateItems (./updateitems.mjs), addons [{ id, title,
 //   profile, status(), stop() }], autoOrder() → profile names, conversationExists(cwd, id), checks { dirOk(dir),
-//   profileOk(name) } for schedules, workspaceSync({ push }) and workspaceMap({ commit, push }) (the workspace rule's engines).
+//   profileOk(name) } for schedules, workspaceSync({ push }) and workspaceMap({ commit, push }) (the workspace rule's engines),
+//   label(profile) → the provider's name as the owner reads it.
 import path from 'node:path';
 import { saveConfig as realSaveConfig } from '../config.mjs';
 import { stateDir as realStateDir } from '../paths.mjs';
@@ -184,10 +185,10 @@ export function createAutomation(ctx) {
       for (const [name, actions] of plan) {
         if (!actions.length || closed) continue;
         try {
-          if (name === 'restore') await restore.apply(actions, { ...common, conversationExists });
+          if (name === 'restore') await restore.apply(actions, { ...common, conversationExists, label: ctx.label });
           else if (name === 'queue') await queue.apply(actions, { ...common, putBack });
           else if (name === 'retry') await retry.apply(actions, { ...common, prompt: s.retry.prompt, max: s.retry.max });
-          else if (name === 'schedules') await schedules.apply(actions, { ...common, enqueue });
+          else if (name === 'schedules') await schedules.apply(actions, { ...common, enqueue, label: ctx.label });
           else if (name === 'idle') await idleCare.apply(actions, { ...common, addons });
           else if (name === 'workspace') {
             await workspaceRule.apply(actions, { ...common, workspaceSync: ctx.workspaceSync || workspaceRule.realWorkspaceSync, workspaceMap: ctx.workspaceMap || workspaceRule.realWorkspaceMap, data: store.read('workspace', {}), save: (d) => store.write('workspace', d) });

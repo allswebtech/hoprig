@@ -171,6 +171,7 @@ test('a schedule can start a chat (with that folder\'s last settings) and messag
   assert.equal(rec.entries[0].session, 'chat:55555555-5555-4555-8555-555555555555');
   assert.match(rec.entries[0].did, /started "Morning" in a chat/);
   assert.equal(sch.describeAction(start.action), 'start a chat in /w on sub');
+  assert.equal(sch.describeAction(start.action, (p) => (p === 'sub' ? 'Main' : p)), 'start a chat in /w on Main', 'Activity shows the provider as the owner named it');
   // validation: "in" is chat or terminal; a chat's name is a target; a terminal start keeps its old shape
   assert.deepEqual(cleanSchedule({ when: { kind: 'daily', time: '07:00' }, action: { type: 'start', in: 'chat', dir: '/w', profile: 'sub' } }).action, { type: 'start', dir: '/w', profile: 'sub', in: 'chat' });
   assert.deepEqual(cleanSchedule({ when: { kind: 'daily', time: '07:00' }, action: { type: 'start', in: 'terminal', dir: '/w', profile: 'sub' } }).action, { type: 'start', dir: '/w', profile: 'sub' });
