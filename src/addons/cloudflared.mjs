@@ -1,10 +1,6 @@
-// What the two kinds of public link share (publiclink.mjs: the temporary address; fixedlink.mjs: the fixed one):
-// where cloudflared is, the dashboard's port and password, and the settings change while a link is in use.
-//
-// Both links can be on at once. Each records the owner's own trustProxy value before it changes it; when the other
-// link is already on, that value is taken from the other's record (the current one is the other link's change), and
-// a link that ends while the other one is still on leaves trustProxy on. So the last one to end puts back exactly
-// what the owner had.
+// What the two kinds of public link share (publiclink.mjs: the Temporary address; fixedlink.mjs: the Custom one;
+// linkswitch.mjs: the one switch that runs either, never both): where cloudflared is, the dashboard's port and
+// password, and the settings change while a link is in use.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,6 +14,8 @@ export const binDir = () => path.join(addonsDir(), 'bin');
 export const quickStateFile = () => path.join(addonsDir(), 'public-link.json');
 export const fixedDir = () => path.join(addonsDir(), 'fixed-link');
 export const fixedStateFile = () => path.join(fixedDir(), 'fixed.json');
+/** The switch's record: what runs, its address, the owner's own settings while a link changed them (linkswitch.mjs). */
+export const linkRecordFile = () => path.join(addonsDir(), 'link.json');
 const DEFAULT_PORT = 7433;
 
 /**
@@ -77,53 +75,33 @@ export function cloudflaredEnv(home, emptyDir, env = process.env) {
 }
 
 /**
- * The config change while a link is in use: { server: { trustProxy, allowedOrigins } } plus what to put back.
- * `inherit`: the other link's record when it is on (see the header).
+ * The config change while a link is in use: { server: { trustProxy, allowedOrigins } } plus what to put back (the
+ * owner's own trustProxy, and whether the origin was there before).
  */
-export function patchFor(server, origin, { inherit = null } = {}) {
+export function patchFor(server, origin) {
   const origins = Array.isArray(server.allowedOrigins) ? server.allowedOrigins : [];
-  const own = inherit ? { hadTrustProxy: inherit.hadTrustProxy, trustProxy: inherit.trustProxy } : { hadTrustProxy: Object.hasOwn(server, 'trustProxy'), trustProxy: server.trustProxy };
   return {
     patch: { server: { trustProxy: true, allowedOrigins: origins.includes(origin) ? origins : [...origins, origin] } },
-    restore: { ...own, hadOrigin: origins.includes(origin), origin },
+    restore: { hadTrustProxy: Object.hasOwn(server, 'trustProxy'), trustProxy: server.trustProxy, hadOrigin: origins.includes(origin), origin },
   };
 }
 
-/**
- * The config change when a link ends: trustProxy as it was (absent stays absent), the origin removed unless it was
- * there. `keepTrust`: the other link is still on, so trustProxy stays as it is.
- */
-export function restoreFor(server, restore, { keepTrust = false } = {}) {
+/** The config change when a link ends: trustProxy as it was (absent stays absent), the origin removed unless it was there. */
+export function restoreFor(server, restore) {
   const origins = (Array.isArray(server.allowedOrigins) ? server.allowedOrigins : []).filter((o) => restore.hadOrigin || o !== restore.origin);
-  const out = { server: { allowedOrigins: origins.length ? origins : undefined } };
-  if (!keepTrust) out.server.trustProxy = restore.hadTrustProxy ? restore.trustProxy : undefined;
-  return out;
+  return { server: { allowedOrigins: origins.length ? origins : undefined, trustProxy: restore.hadTrustProxy ? restore.trustProxy : undefined } };
 }
 
-export function readQuick() {
+export function readJsonFile(file) {
   try {
-    return JSON.parse(fs.readFileSync(quickStateFile(), 'utf8'));
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {
     return null;
   }
 }
 
-/** The temporary link's settings record while it runs, else null. */
-export function quickRestore() {
-  const st = readQuick();
-  return st && alive(st.pid) && st.url && !st.restored && st.restore ? st.restore : null;
-}
+/** The record an older version kept for its detached temporary tunnel (read once, when the switch takes over). */
+export const readQuick = () => readJsonFile(quickStateFile());
 
-export function readFixed() {
-  try {
-    return JSON.parse(fs.readFileSync(fixedStateFile(), 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-/** The fixed link's settings record while it is turned on, else null. */
-export function fixedRestore() {
-  const st = readFixed();
-  return st && st.enabled && st.restore && !st.restored ? st.restore : null;
-}
+/** The Custom address's set-up: { mode, hostname, tunnelId, extra, … }, or null when it is not set up. */
+export const readFixed = () => readJsonFile(fixedStateFile());

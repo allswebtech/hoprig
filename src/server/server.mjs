@@ -58,7 +58,7 @@ import { assistantFeature } from '../assistant/feature.mjs';
 import { automationFeature } from '../automation/feature.mjs';
 import { addonsFeature } from '../addons/feature.mjs';
 import { accountsFeature } from './accounts.mjs';
-import { claudeLoginFeature } from './claudelogin.mjs';
+import { claudeLoginFeature, sameComputer } from './claudelogin.mjs';
 import { gatewayFeature } from '../gateway/index.mjs';
 import { pcsetupFeature } from '../pcsetup/feature.mjs';
 import { skillhubFeature } from '../skillhub/feature.mjs';
@@ -69,6 +69,7 @@ import { onboardingFeature } from '../setup/onboarding.mjs';
 import { removeDashboardFile, writeDashboardFile } from './dashboardfile.mjs';
 import { createLoginLink, loginLinkStatus, qrRows, useLoginLink } from './loginlink.mjs';
 import { clientIp, isHttps, originOk, requestHost, securityHeaders } from './security.mjs';
+import { notePassword, passwordProblem, passwordState } from './strength.mjs';
 import { resolveStatic, sendFile } from './static.mjs';
 import { attachTerminal } from './terminal.mjs';
 import { EVENTS, sendNotification } from './notify.mjs';
@@ -580,16 +581,22 @@ export function createServer(opts = {}) {
       return settingsView();
     }],
     ['POST', /^\/api\/settings\/password$/, async (req, m, q, res) => {
+      // Only a signed-in browser gets here, so the overall cap (which an attacker could fill) does not apply.
       const ip = clientIp(req, proxyOpts());
-      const wait = limiter.retryAfter(ip);
+      const wait = limiter.retryAfter(ip, { overall: false });
       if (wait > 0) throw new HttpError(429, `Too many tries. Wait ${Math.ceil(wait / 60000)} min.`);
       const b = await readJson(req);
       if (typeof b.next !== 'string' || b.next.length < 8 || b.next.length > 1024) throw bad('the new password needs at least 8 characters');
-      limiter.fail(ip); // counted before the slow check, as for the login
+      // While the page can be reached from anywhere, a weak password would open the computer to anyone.
+      const weak = cfg().publicLink?.on === true ? passwordProblem(b.next) : null;
+      if (weak) throw bad(`the public link is on, so the new password must be strong: ${weak}`);
+      limiter.fail(ip, { overall: false }); // counted before the slow check, as for the login
       const ok = typeof b.current === 'string' && b.current.length <= 1024 && (await verifyPassword(b.current, cfg().server.passwordHash));
       if (!ok) throw new HttpError(403, 'the current password is wrong');
-      limiter.succeed(ip);
-      saveConfig({ server: { passwordHash: await hashPassword(b.next) } });
+      limiter.succeed(ip, { overall: false });
+      const hash = await hashPassword(b.next);
+      saveConfig({ server: { passwordHash: hash } });
+      notePassword(b.next, hash);
       // The tag changed with the hash, so every other browser is logged out now; this one gets a new session.
       res.setHeader('Set-Cookie', sessionCookie(sessions.create(passwordTag()), { secure: isHttps(req, proxyOpts()) }));
       return { ok: true };
@@ -693,34 +700,45 @@ export function createServer(opts = {}) {
     ...features.flatMap((f) => f.routes || []),
   ];
 
+  // The overall cap of the sign-in limit (auth.mjs RateLimiter): left out for this computer itself, and once the
+  // password is known to be strong, so nobody can lock the owner out by failing on purpose from many addresses.
+  const overallFor = (req) => ({ overall: !sameComputer(req) && passwordState(cfg().server).state !== 'strong' });
+
   async function login(req, res) {
     const ip = clientIp(req, proxyOpts());
-    const wait = limiter.retryAfter(ip);
+    const lim = overallFor(req);
+    const wait = limiter.retryAfter(ip, lim);
     if (wait > 0) {
       return send(res, 429, { error: `Too many tries. Wait ${Math.ceil(wait / 60000)} min.` }, { 'Retry-After': String(Math.ceil(wait / 1000)) });
     }
     const b = await readJson(req);
     // Count the try BEFORE the slow password check. Counting afterwards would let a burst of parallel guesses all
     // pass the limit above (each waits for scrypt before any is counted) and run that many 32 MiB hashes at once.
-    limiter.fail(ip);
-    const ok = typeof b.password === 'string' && b.password.length <= 1024 && (await verifyPassword(b.password, cfg().server.passwordHash));
+    limiter.fail(ip, lim);
+    const hash = cfg().server.passwordHash;
+    const ok = typeof b.password === 'string' && b.password.length <= 1024 && (await verifyPassword(b.password, hash));
     if (!ok) return send(res, 401, { error: 'Wrong password.' });
-    limiter.succeed(ip);
+    limiter.succeed(ip, lim);
+    notePassword(b.password, hash); // what it is like, for the public link's check (only the result is kept)
     const token = sessions.create(passwordTag());
     return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(token, { secure: isHttps(req, proxyOpts()) }) });
   }
 
-  /** A sign-in link: the token from the link's #fragment, sent once by the login page. Limited like the login. */
+  /**
+   * A sign-in link: the token from the link's #fragment, sent once by the login page. Limited per address like the
+   * login, but never by the overall cap: it is the owner's way in from outside while someone guesses the password.
+   */
   async function loginByLink(req, res) {
     const ip = clientIp(req, proxyOpts());
-    const wait = limiter.retryAfter(ip);
+    const lim = { overall: false };
+    const wait = limiter.retryAfter(ip, lim);
     if (wait > 0) {
       return send(res, 429, { error: `Too many tries. Wait ${Math.ceil(wait / 60000)} min.` }, { 'Retry-After': String(Math.ceil(wait / 1000)) });
     }
     const b = await readJson(req);
-    limiter.fail(ip);
+    limiter.fail(ip, lim);
     if (!useLoginLink(b.token)) return send(res, 401, { error: 'This sign-in link was used already or has expired. Make a new one on a device that is signed in.' });
-    limiter.succeed(ip);
+    limiter.succeed(ip, lim);
     return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(sessions.create(passwordTag()), { secure: isHttps(req, proxyOpts()) }) });
   }
 

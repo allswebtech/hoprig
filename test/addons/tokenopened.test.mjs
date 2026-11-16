@@ -39,11 +39,11 @@ setInterval(() => {}, 1000);
 `, { mode: 0o755 });
 process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
 
-const { saveConfig } = await import('../../src/config.mjs');
+const { loadConfig, saveConfig } = await import('../../src/config.mjs');
 const { hashPassword } = await import('../../src/server/auth.mjs');
 const { putMachine } = await import('../../src/machines/store.mjs');
 const { createToken } = await import('../../src/machines/tokens.mjs');
-const { fixedDir, fixedStateFile, quickStateFile, readFixed, alive, writeAtomic } = await import('../../src/addons/cloudflared.mjs');
+const { fixedDir, fixedStateFile, quickStateFile, readFixed, alive, writeAtomic, linkRecordFile } = await import('../../src/addons/cloudflared.mjs');
 const { createServer } = await import('../../src/server/server.mjs');
 
 // A local service with a sign-in of its own (401): it may get an address without a question.
@@ -102,73 +102,74 @@ const LOG = path.join(box.state, 'automation.log');
 const activity = () => (fs.existsSync(LOG) ? fs.readFileSync(LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
 const hubLines = () => activity().filter((e) => e.automation === 'hub').map((e) => e.did);
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
-const quick = () => readJson(quickStateFile());
-const quickRunning = () => { const q = quick(); return !!(q && alive(q.pid)); };
+const record = () => readJson(linkRecordFile()) || {};
+const isOn = () => loadConfig().publicLink?.on === true;
+const linkState = async () => (await owner('/api/public-link')).json;
 const serviceState = () => readJson(path.join(path.dirname(quickStateFile()), 'public-link-service.json'));
 
-test('a token\'s changes are logged with its name; its revoke stops what it opened, and the owner\'s own stays', async () => {
-  // The fixed address set up before (as Make it leaves it), turned on by the owner.
+test('a token\'s changes are logged with its name; its revoke closes what it opened, and the owner\'s own stays', async () => {
+  // The Custom address set up before (as Make it leaves it), turned on by the owner.
   fs.mkdirSync(path.join(fixedDir(), 'home', '.cloudflared'), { recursive: true });
   fs.writeFileSync(path.join(fixedDir(), 'home', '.cloudflared', 'cert.pem'), 'stand-in');
-  writeAtomic(fixedStateFile(), JSON.stringify({ mode: 'named', hostname: 'office.example.com', tunnelId: '6ff42ae2-765d-4adf-8112-31c55c1551ef', tunnelName: 'hoprig-office', extra: [], enabled: false }));
-  assert.equal((await job(() => owner('/api/addons/public-link/do/fixed-on', {}))).ok, true);
-  assert.equal(readFixed().openedBy, null, 'the owner\'s: no opener');
+  writeAtomic(fixedStateFile(), JSON.stringify({ mode: 'named', hostname: 'office.example.com', tunnelId: '6ff42ae2-765d-4adf-8112-31c55c1551ef', tunnelName: 'hoprig-office', extra: [] }));
+  const on = await owner('/api/public-link', { on: true, kind: 'custom' });
+  assert.equal(on.json.ok, true, JSON.stringify(on.json));
+  await until('Custom is on', async () => (await linkState()).state === 'on');
+  assert.equal(record().openedBy, null, 'the owner\'s: no opener');
   // The owner's own temporary address for a service: not a token's.
-  assert.equal((await job(() => owner('/api/addons/public-link/do/quick-service-start', { port: servicePort }))).ok, true);
+  assert.equal((await job(() => owner('/api/public-link/temporary/add-service', { port: servicePort }))).ok, true);
   assert.equal(hubLines().length, 0, 'what the owner does is not logged as a hub');
 
   const office = { name: 'office-pc', ...createToken('office-pc') };
   await new Promise((r) => setTimeout(r, 400)); // a sweep has seen it (its name for the revoke line)
-  // The token starts the temporary public link and adds a service to the fixed address.
-  assert.equal((await job(() => asHub(office.token, '/api/addons/public-link/start'))).ok, true);
-  assert.equal(quick().openedBy, office.id, 'its id is kept');
-  assert.equal(JSON.stringify(quick()).includes(office.token), false, 'never the token itself');
-  const added = await job(() => asHub(office.token, '/api/addons/public-link/do/fixed-add-service', { port: servicePort, hostname: 'trouteai-office.example.com' }));
+  // The token adds a service to the Custom address.
+  const added = await job(() => asHub(office.token, '/api/public-link/custom/add-service', { port: servicePort, hostname: 'trouteai-office.example.com' }));
   assert.equal(added.ok, true, JSON.stringify(added));
   assert.deepEqual(readFixed().extra, [{ hostname: 'trouteai-office.example.com', port: servicePort, openedBy: office.id }]);
-  // A second "on" with the token does not make the owner's fixed address the token's.
-  assert.equal((await job(() => asHub(office.token, '/api/addons/public-link/do/fixed-on'))).ok, true);
-  assert.equal(readFixed().openedBy, null);
+  assert.equal(JSON.stringify(readFixed()).includes(office.token), false, 'never the token itself');
+  // A second "on" with the token does not make the owner's link the token's.
+  assert.equal((await asHub(office.token, '/api/public-link', { on: true, kind: 'custom' })).json.ok, true);
+  assert.equal(record().openedBy, null);
   assert.deepEqual(hubLines(), [
-    'The hub office-pc started the public link',
-    'The hub office-pc added a service to the fixed address',
-    'The hub office-pc turned on the fixed address',
+    'The hub office-pc added a service to the Custom public link',
+    'The hub office-pc switched the public link on or off',
   ]);
 
-  // Revoked on the page ("Who may control this computer"): what it opened ends, and that is logged.
+  // Revoked on the page ("Who may control this computer"): what it added ends, and that is logged.
   assert.equal((await owner(`/api/tokens/${office.id}/revoke`, {})).status, 200);
-  await until('the token\'s public link stops', () => !quickRunning());
   await until('its service is removed', () => readFixed().extra.length === 0);
-  await until('the log says so', () => hubLines().length >= 6);
-  assert.deepEqual(hubLines().slice(3).sort(), [
-    'The public link the hub office-pc started was stopped: its token was revoked',
-    'The service trouteai-office.example.com that the hub office-pc added to the fixed address was removed: its token was revoked',
+  await until('the log says so', () => hubLines().length >= 4);
+  assert.deepEqual(hubLines().slice(2).sort(), [
+    'The service trouteai-office.example.com that the hub office-pc added to the Custom address was removed: its token was revoked',
     'The token of the hub office-pc was revoked',
   ].sort());
-  // What stays: the owner's fixed address (on, and running again without the service) and his temporary address.
-  assert.equal(readFixed().enabled, true);
-  assert.equal(fs.readFileSync(path.join(fixedDir(), 'config.yml'), 'utf8').includes('trouteai-office'), false, 'the tunnel no longer leads to the service');
+  // What stays: the owner's link (on, and running again without the service) and his temporary address.
+  assert.equal(isOn(), true);
+  await until('running again without it', () => !fs.readFileSync(path.join(fixedDir(), 'config.yml'), 'utf8').includes('trouteai-office'));
   assert.ok(serviceState() && alive(serviceState().pid), 'the owner\'s temporary address still runs');
   await new Promise((r) => setTimeout(r, 500)); // more sweeps: nothing said twice
-  assert.equal(hubLines().length, 6);
+  assert.equal(hubLines().length, 4);
 });
 
-test('every way of revoking stops what that token started; a start by the owner survives a revoke', async () => {
+test('every way of revoking turns off the link that token turned on; one the owner turned on survives a revoke', async () => {
   const start = async (t) => {
+    // The route an older hub uses: it maps onto the one switch (Temporary).
     assert.equal((await job(() => asHub(t.token, '/api/addons/public-link/start'))).ok, true);
-    assert.equal(quick().openedBy, t.id);
+    assert.equal(record().openedBy, t.id);
+    assert.equal((await linkState()).kind, 'temporary');
   };
   const stopped = async (t) => {
-    await until(`${t.name}: its public link stops`, () => !quickRunning());
-    await until(`${t.name}: logged`, () => hubLines().includes(`The public link the hub ${t.name} started was stopped: its token was revoked`));
+    await until(`${t.name}: its public link is off`, () => !isOn());
+    await until(`${t.name}: logged`, () => hubLines().includes(`The public link the hub ${t.name} turned on was turned off: its token was revoked`));
     // The revoke itself, with the token's name, whichever process revoked it (the CLI too).
     await until(`${t.name}: its revoke logged`, () => hubLines().includes(`The token of the hub ${t.name} was revoked`));
   };
   const [self, cli, removed, other] = ['hub self', 'hub cli', 'hub removed', 'hub other'].map((n) => ({ name: n, ...createToken(n) }));
   await new Promise((r) => setTimeout(r, 400));
 
-  // The token gives itself up.
+  // The token gives itself up. (Its Temporary link replaced the owner's Custom one: never both.)
   await start(self);
+  assert.equal(readFixed().mode, 'named', 'Custom stays set up for the next time');
   assert.equal((await asHub(self.token, '/api/tokens/self/revoke')).status, 200);
   await stopped(self);
 
@@ -184,29 +185,29 @@ test('every way of revoking stops what that token started; a start by the owner 
   assert.equal(r.json.revoked, true, JSON.stringify(r.json));
   await stopped(removed);
 
-  // The owner starts it himself: a revoke of another token leaves it running, and nothing is logged as a hub.
+  // The owner turns it on himself: a revoke of another token leaves it on, and nothing is logged as a hub.
   const before = hubLines().length;
-  assert.equal((await job(() => owner('/api/addons/public-link/start', {}))).ok, true);
-  assert.equal(quick().openedBy, null);
+  assert.equal((await owner('/api/public-link', { on: true, kind: 'temporary' })).json.ok, true);
+  await until('on', async () => (await linkState()).state === 'on');
+  assert.equal(record().openedBy, null);
   assert.equal(hubLines().length, before);
   assert.equal((await owner(`/api/tokens/${other.id}/revoke`, {})).status, 200);
   await until('the revoke is logged', () => hubLines().includes('The token of the hub hub other was revoked'));
   await new Promise((r) => setTimeout(r, 400));
-  assert.ok(quickRunning(), 'the owner\'s public link still runs');
+  assert.ok(isOn() && (await linkState()).state === 'on', 'the owner\'s public link still runs');
 
-  assert.equal((await job(() => owner('/api/addons/public-link/stop', {}))).ok, true);
-  assert.equal((await job(() => owner('/api/addons/public-link/do/quick-service-stop', {}))).ok, true);
-  assert.equal((await job(() => owner('/api/addons/public-link/do/fixed-off', {}))).ok, true);
+  assert.equal((await owner('/api/public-link', { on: false })).json.state, 'off');
+  assert.equal((await job(() => owner('/api/public-link/temporary/remove-service', {}))).ok, true);
 
-  // The fixed address turned on by a token (it was off): its revoke turns it off again.
+  // Custom turned on by a token (it was off): its revoke turns it off again.
   const fixedHub = { name: 'hub fixed', ...createToken('hub fixed') };
   await new Promise((r) => setTimeout(r, 400));
-  assert.equal((await job(() => asHub(fixedHub.token, '/api/addons/public-link/do/fixed-on'))).ok, true);
-  assert.equal(readFixed().openedBy, fixedHub.id);
+  assert.equal((await asHub(fixedHub.token, '/api/public-link', { on: true, kind: 'custom' })).json.ok, true);
+  assert.equal(record().openedBy, fixedHub.id);
   assert.equal((await owner(`/api/tokens/${fixedHub.id}/revoke`, {})).status, 200);
-  await until('turned off', () => readFixed().enabled === false);
-  await until('logged', () => hubLines().includes('The fixed address the hub hub fixed turned on was turned off: its token was revoked'));
-  assert.equal(readFixed().openedBy, null);
+  await until('turned off', () => !isOn());
+  await until('logged', () => hubLines().includes('The public link the hub hub fixed turned on was turned off: its token was revoked'));
+  assert.equal(record().openedBy, null);
 });
 
 test('Setup started with a token is logged, and its password is nowhere: not the log, the console, any file', async () => {

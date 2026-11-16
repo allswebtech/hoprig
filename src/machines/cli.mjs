@@ -8,6 +8,7 @@ import { qrText } from '../setup/qr.mjs';
 import { configuredInstaller, createHub, defaultHubName } from './hub.mjs';
 import { JoinKeeper, accept, joinByAddress, joinHub, leaveHub, loadJoined, publicJoined } from './join.mjs';
 import { BY_HAND, hubCertificate, joinCommand, pinOf, toX509 } from './hubcert.mjs';
+import { reachableUrl } from '../addons/reach.mjs';
 import { createLinkCode } from './link.mjs';
 import { tokenName } from './names.mjs';
 import { CODE_TTL_MS, cancelCode, codeStatus, createCode, dashboardAddress, listening, pairInfo, rawDashboardAddress as dashboardAddressRaw } from './pairing.mjs';
@@ -340,12 +341,15 @@ async function machines(args) {
 }
 
 /**
- * The address another device reaches this dashboard at: server.publicUrl when set, else the running dashboard's
- * address, with this computer's network address in place of 0.0.0.0 (127.0.0.1 only works on this computer).
+ * The address another device reaches this dashboard at: server.publicUrl when set, else the public link's while it
+ * is on (reach.mjs), else the running dashboard's address, with this computer's network address in place of 0.0.0.0
+ * (127.0.0.1 only works on this computer).
  */
 export function linkBase(cfg = loadConfig(), interfaces = os.networkInterfaces(), running = runningDashboard()) {
   const s = cfg.server || {};
   if (typeof s.publicUrl === 'string' && /^https?:\/\//.test(s.publicUrl)) return { url: s.publicUrl, local: false };
+  const reach = reachableUrl(cfg);
+  if (reach) return { url: reach, local: false };
   const { host, port } = dashboardAddressRaw(cfg, running);
   if (host === '0.0.0.0' || host === '::' || host === '') {
     const lan = Object.values(interfaces).flat().find((a) => a && a.family === 'IPv4' && !a.internal);

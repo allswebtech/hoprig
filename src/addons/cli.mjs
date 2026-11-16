@@ -72,6 +72,14 @@ export async function main(command, args) {
     await show(await listAddons());
     return 0;
   }
+  // The public link has its own words now (hoprig public); the old ones still work, as a profile's PRERUN may use them.
+  if (id === 'public-link' && ['start', 'stop', 'status'].includes(action)) {
+    const pub = await import('./publiccli.mjs');
+    const rest = args.slice(2).filter((a) => a !== '--temporary' && a !== '--custom');
+    // Written to stderr: as a PRERUN, stdout belongs to Claude Code.
+    const say = (s) => process.stderr.write(`${s}\n`);
+    return pub.main(action === 'start' ? ['on', '--temporary', ...rest] : action === 'stop' ? ['off'] : ['status'], { out: say, err: say });
+  }
   const addon = findAddon(id);
   if (!addon) {
     console.error(id ? `There is no add-on "${id}".\n${USAGE}` : USAGE);

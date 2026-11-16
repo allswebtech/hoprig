@@ -207,7 +207,7 @@ test('setup: "from anywhere" explains the three ways', async () => {
   await SU.stepAccess(u, S, {}, {});
   assert.match(rec.text, /3 {2}from anywhere/);
   assert.match(rec.text, /a {2}I have a server: make it the hub/);
-  assert.match(rec.text, /b {2}a quick public link \(free, through Cloudflare; the address changes every time\)/);
-  assert.match(rec.text, /hoprig addons start public-link/);
+  assert.match(rec.text, /b {2}a public link \(free, through Cloudflare, no server: a new address at each start, or your own domain\)/);
+  assert.match(rec.text, /hoprig public on/);
   assert.equal(loadConfig().server.host, '127.0.0.1', 'this computer only, until the link is started');
 });

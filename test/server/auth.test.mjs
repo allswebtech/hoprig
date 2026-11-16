@@ -79,6 +79,15 @@ test('rate limiter: per IP, global, window, success resets the IP', () => {
   assert.equal(g.retryAfter('w'), 0, 'two failures and one good login do not reach the overall cap of 3');
   g.fail('w');
   assert.ok(g.retryAfter('v') > 0, 'the third failure does');
+  // A try that leaves the overall cap out: it is neither stopped by it nor counted in it; its address still counts.
+  assert.equal(g.retryAfter('owner', { overall: false }), 0, 'the overall cap does not lock this try out');
+  const o = new RateLimiter({ perIp: 2, global: 2, now: () => 0 });
+  o.fail('p', { overall: false }); o.fail('q', { overall: false });
+  assert.equal(o.retryAfter('r'), 0, 'not counted overall');
+  assert.ok(o.retryAfter('p', { overall: false }) === 0 && (o.fail('p', { overall: false }), o.retryAfter('p', { overall: false }) > 0), 'its own address is limited');
+  o.fail('s'); o.fail('t');
+  o.succeed('u', { overall: false });
+  assert.ok(o.retryAfter('v') > 0, 'a success that was not counted overall takes nothing back from it');
 });
 
 test('cookies', () => {

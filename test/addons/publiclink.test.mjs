@@ -1,5 +1,7 @@
-// The public-link add-on: reading the address from cloudflared's real output, the install plan per OS, the config
-// change while it runs and its exact undo, and start / status / stop against a stand-in cloudflared.
+// The Temporary kind's own parts (src/addons/publiclink.mjs): reading the address from cloudflared's real output,
+// the install plan per OS, the config change while a link runs and its exact undo, the push with a new address, and
+// a second temporary address for another local service against a stand-in cloudflared. The switch that runs the
+// link itself is tested in linkswitch.test.mjs.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -25,9 +27,7 @@ exec sleep 600
 process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
 
 const P = await import('../../src/addons/publiclink.mjs');
-const { loadConfig, saveConfig } = await import('../../src/config.mjs');
 const { findAddon } = await import('../../src/addons/index.mjs');
-const raw = () => JSON.parse(fs.readFileSync(path.join(tmp, 'config', 'config.json'), 'utf8'));
 
 test('the address is read from cloudflared\'s real output; its own service address is not one', () => {
   const lines = [
@@ -87,65 +87,6 @@ test('the config change while it runs, and its exact undo', () => {
     { server: { trustProxy: false, allowedOrigins: ['https://deck.example.net'] } });
 });
 
-test('it refuses to start without a dashboard password', async () => {
-  const r = await P.publicLink.start();
-  assert.equal(r.ok, false);
-  assert.match(r.error, /password/);
-});
-
-test('it refuses to start while the dashboard is not running', async () => {
-  saveConfig({ server: { port: 7433, passwordHash: 'scrypt$x', allowedOrigins: ['https://deck.example.net'] } });
-  const r = await P.publicLink.start();
-  assert.equal(r.ok, false);
-  assert.match(r.error, /dashboard is not running/);
-});
-
-test('start: the address from its output, the settings while it runs; stop puts them back exactly', async () => {
-  // The dashboard runs on a port given on its command line (7655), not the configured 7433: the tunnel goes there.
-  fs.mkdirSync(path.join(tmp, 'state'), { recursive: true });
-  fs.writeFileSync(path.join(tmp, 'state', 'dashboard.json'), JSON.stringify({ pid: process.pid, host: '127.0.0.1', port: 7655, at: Date.now() }));
-  const before = raw().server;
-  const a = findAddon('public-link');
-  assert.ok(a, 'registered');
-  const s0 = await a.status();
-  assert.deepEqual([s0.installed, s0.version, s0.running, s0.account], [true, '2026.10.1', false, false]);
-  const r = await a.start({ waitMs: 10_000 });
-  assert.deepEqual([r.ok, r.url, r.already], [true, 'https://stem-wonder-lucky-hung.trycloudflare.com', false]);
-  assert.equal(fs.readFileSync(path.join(tmp, 'args.txt'), 'utf8').trim(), 'tunnel --no-autoupdate --url http://127.0.0.1:7655');
-  assert.equal(loadConfig().server.trustProxy, true);
-  assert.deepEqual(loadConfig().server.allowedOrigins, ['https://deck.example.net', r.url]);
-  const s1 = await a.status();
-  assert.deepEqual([s1.running, s1.url], [true, r.url]);
-  assert.equal((await a.start()).already, true, 'a second start finds it running');
-  assert.equal((await a.stop()).ok, true);
-  assert.deepEqual(raw().server, before, 'settings exactly as before');
-  assert.equal((await a.status()).running, false);
-});
-
-test('when cloudflared ends by itself, its settings go back at the next look', async () => {
-  const a = findAddon('public-link');
-  const before = raw().server;
-  const r = await a.start({ waitMs: 10_000 });
-  const pid = JSON.parse(fs.readFileSync(path.join(tmp, 'state', 'addons', 'public-link.json'), 'utf8')).pid;
-  process.kill(pid, 'SIGKILL');
-  await new Promise((res) => setTimeout(res, 300));
-  assert.equal(loadConfig().server.trustProxy, true, r.url);
-  assert.equal((await a.status()).running, false);
-  assert.deepEqual(raw().server, before);
-});
-
-test('the command line explains and asks before it starts', async () => {
-  const out = [];
-  const say = (s) => out.push(s);
-  assert.equal(await P.publicLink.beforeStart({ args: [], ask: async () => 'y', out: say }), process.stdin.isTTY ? true : false);
-  assert.equal(await P.publicLink.beforeStart({ args: ['--yes'], out: say }), true);
-  const text = out.join('\n');
-  assert.match(text, /changes every time/);
-  assert.match(text, /Anyone who has the address reaches the sign-in page/);
-  assert.match(text, /through Cloudflare/);
-  assert.match(text, /hub .* or Tailscale/);
-});
-
 test('each new temporary address is sent through the owner\'s notifications, as the plain address', async () => {
   const { buildRequest } = await import('../../src/server/notify.mjs');
   const ev = P.newAddressEvent('https://stem-wonder-lucky-hung.trycloudflare.com');
@@ -159,23 +100,18 @@ test('each new temporary address is sent through the owner\'s notifications, as 
   assert.deepEqual(sent, [['https://ntfy.sh/t', 'New public link for port 20017']]);
   assert.deepEqual(await P.notifyNewAddress(ev.url, 'x', { send, config: () => ({ server: {} }) }), { sent: false });
   assert.deepEqual(await P.notifyNewAddress(ev.url, 'x', { send: async () => { throw new Error('down'); }, config: () => ({ server: { notify: { url: 'https://ntfy.sh/t' } } }) }), { sent: false }, 'never throws');
-  // At a start, with the real sendNotification and a stand-in receiver.
+  // With the real sendNotification and a stand-in receiver (the switch sends it at each new address: linkswitch.test).
   const { sendNotification } = await import('../../src/server/notify.mjs');
   const got = [];
   const fetchImpl = async (url, o) => (got.push({ url, title: o.headers.Title, body: o.body }), { ok: true, status: 200 });
-  const notify = (url, what) => P.notifyNewAddress(url, what, { send: (n, e) => sendNotification(n, e, { fetchImpl }) });
-  saveConfig({ server: { notify: { url: 'https://ntfy.sh/a-long-random-topic', events: ['waiting'] } } });
-  const a = findAddon('public-link');
-  const r = await a.start({ waitMs: 10_000, notify });
-  assert.equal(r.ok, true, r.error);
-  assert.deepEqual(got, [{ url: 'https://ntfy.sh/a-long-random-topic', title: 'New public link for this dashboard', body: r.url }]);
-  assert.equal((await a.start({ notify })).already, true);
-  assert.equal(got.length, 1, 'not sent again while the same address runs');
-  assert.equal((await a.stop()).ok, true);
-  saveConfig({ server: { notify: undefined } });
+  await P.notifyNewAddress(ev.url, 'this dashboard', { send: (n, e) => sendNotification(n, e, { fetchImpl }), config: () => ({ server: { notify: { url: 'https://ntfy.sh/a-long-random-topic', events: ['waiting'] } } }) });
+  assert.deepEqual(got, [{ url: 'https://ntfy.sh/a-long-random-topic', title: 'New public link for this dashboard', body: ev.url }]);
 });
 
 test('a temporary address for another local service: asked first when it has no sign-in of its own', async () => {
+  // The dashboard runs on a port given on its command line (7655): that port is never "another" service.
+  fs.mkdirSync(path.join(tmp, 'state'), { recursive: true });
+  fs.writeFileSync(path.join(tmp, 'state', 'dashboard.json'), JSON.stringify({ pid: process.pid, host: '127.0.0.1', port: 7655, at: Date.now() }));
   const a = findAddon('public-link');
   const look = (login) => async () => ({ status: login ? 401 : 200, headers: new Headers(), text: async () => '<h1>open</h1>' });
   const sent = [];

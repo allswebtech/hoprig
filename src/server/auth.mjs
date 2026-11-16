@@ -111,9 +111,12 @@ export class SessionStore {
 }
 
 /**
- * Failed-login limiter: at most `perIp` failures per IP and `global` failures overall in `windowMs`. The global
- * cap stops a slow spread-out guess from many addresses; it can also lock the owner out for a while during an
- * attack, which is the right trade for a page that controls the whole PC.
+ * Failed-login limiter: at most `perIp` failures per visitor address and `global` failures overall in `windowMs`.
+ * The overall cap stops a slow spread-out guess from many addresses, but it would also lock the owner out while
+ * someone else guesses. So a try may leave it out (`{ overall: false }`): the server does that for this computer
+ * itself, for a sign-in link (a random one-time token: nothing to guess), and once the password is known to be
+ * strong (strength.mjs: then guessing it from many addresses is hopeless anyway). The per-address limit always
+ * counts; behind a trusted proxy the address is the visitor's as the proxy reports it (security.mjs clientIp).
  */
 export class RateLimiter {
   constructor({ perIp = 5, global = 30, windowMs = 15 * 60 * 1000, now = Date.now } = {}) {
@@ -129,30 +132,30 @@ export class RateLimiter {
   }
 
   /** Milliseconds until `ip` may try again, or 0 when it may try now. */
-  retryAfter(ip) {
+  retryAfter(ip, { overall = true } = {}) {
     const mine = this.#prune(this.byIp.get(ip) || []);
     const all = this.#prune(this.all);
     let wait = 0;
     if (mine.length >= this.perIp) wait = Math.max(wait, mine[0] + this.windowMs - this.now());
-    if (all.length >= this.global) wait = Math.max(wait, all[0] + this.windowMs - this.now());
+    if (overall && all.length >= this.global) wait = Math.max(wait, all[0] + this.windowMs - this.now());
     return wait;
   }
 
-  fail(ip) {
+  fail(ip, { overall = true } = {}) {
     const mine = this.#prune(this.byIp.get(ip) || []);
     mine.push(this.now());
     this.byIp.set(ip, mine);
-    this.all.push(this.now());
+    if (overall) this.all.push(this.now());
     if (this.byIp.size > 10000) this.byIp.clear(); // bound memory under a flood of addresses
   }
 
   /**
    * A login worked. The try was counted with fail() before the password was checked (see the login handler), so
-   * take it back: this address starts clean and the overall count loses the one entry it added.
+   * take it back: this address starts clean and the overall count loses the one entry it added (when it added one).
    */
-  succeed(ip) {
+  succeed(ip, { overall = true } = {}) {
     this.byIp.delete(ip);
-    this.all.pop();
+    if (overall) this.all.pop();
   }
 }
 

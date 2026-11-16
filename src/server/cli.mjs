@@ -7,6 +7,7 @@ import { stateDir } from '../paths.mjs';
 import { generatePassword, hashPassword } from './auth.mjs';
 import { DEFAULT_HOST, DEFAULT_PORT, createServer, hasPassword } from './server.mjs';
 import { isLoopback } from './security.mjs';
+import { notePassword, passwordProblem } from './strength.mjs';
 import { firstPassword, passwordFileFrom, publicUrlSettings, resolveListen } from './serveopts.mjs';
 import { APP_NAME } from './brand.mjs';
 import { service } from './service/index.mjs';
@@ -51,7 +52,9 @@ function askHidden(prompt) {
 }
 
 async function setPassword(password) {
-  saveConfig({ server: { passwordHash: await hashPassword(password) } });
+  const hash = await hashPassword(password);
+  saveConfig({ server: { passwordHash: hash } });
+  notePassword(password, hash); // whether it is strong enough for the public link (only the result is kept)
   // A new password logs every browser out.
   try {
     fs.unlinkSync(path.join(stateDir(), 'web-sessions.json'));
@@ -83,6 +86,12 @@ async function passwd(args) {
     process.stderr.write(USAGE);
     return 2;
   }
+  // While the public link is on, the page can be reached from anywhere: no weak password then.
+  const weak = (pw) => {
+    const why = loadConfig().publicLink?.on === true ? passwordProblem(pw) : null;
+    if (why) console.error(`The public link is on, so the password must be strong: ${why}. Nothing changed. Or: ${A} passwd --generate <file>`);
+    return !!why;
+  };
   if (!process.stdin.isTTY) {
     // Piped in (e.g. from a password manager): the first line is the password, no confirmation.
     let text = '';
@@ -92,6 +101,7 @@ async function passwd(args) {
       console.error('Use at least 8 characters.');
       return 1;
     }
+    if (weak(pw)) return 1;
     await setPassword(pw);
     console.log('Dashboard password set.');
     return 0;
@@ -101,6 +111,7 @@ async function passwd(args) {
     console.error('Use at least 8 characters.');
     return 1;
   }
+  if (weak(a)) return 1;
   const b = await askHidden('Again: ');
   if (a !== b) {
     console.error('The two did not match; nothing changed.');

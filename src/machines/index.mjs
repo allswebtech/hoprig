@@ -35,6 +35,7 @@ import { JoinKeeper, joinByAddress, joinHub, leaveHub, loadJoined, publicJoined 
 import { LinkHub, createLinkCode, linkCodeStatus } from './link.mjs';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { hubCertificate, joinCommand } from './hubcert.mjs';
+import { reachableUrl } from '../addons/reach.mjs';
 import { label as cleanLabel, machineName, tokenName } from './names.mjs';
 import { claimCode, codeStatus, createCode, machineInfo } from './pairing.mjs';
 import { errorBody, relayHttp, relayUpgrade, rejectUpgrade } from './relay.mjs';
@@ -195,7 +196,8 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
       await readJson(req);
       // With the line to type there: the hub's address and, for a hub with its own certificate, its fingerprint.
       const c = createLinkCode();
-      const base = String(loadConfig().server?.publicUrl || '');
+      // How this computer is reached from anywhere: the set public address, else the public link's (reach.mjs).
+      const base = reachableUrl() || '';
       const cert = /^https?:\/\//.test(base) ? await certOf(base) : null;
       const { line, note } = cert ? joinCommand(base, c.code, cert) : { line: null, note: null };
       return { ...c, url: cert ? base.replace(/\/+$/, '') : null, certificate: cert ? cert.kind : null, fingerprint: cert && cert.kind === 'own' ? cert.pin : null, command: line, note };

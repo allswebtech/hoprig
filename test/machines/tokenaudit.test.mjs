@@ -17,8 +17,13 @@ test('each change a token may make has its plain words; anything else is not log
   assert.equal(said('POST', '/api/addons/public-link/start'), 'The hub office-pc started the public link');
   assert.equal(said('POST', '/api/addons/public-link/stop'), 'The hub office-pc stopped the public link');
   assert.equal(said('POST', '/api/addons/trouteai/install'), 'The hub office-pc installed TRouteAI');
-  assert.equal(said('POST', '/api/addons/public-link/do/fixed-on'), 'The hub office-pc turned on the fixed address');
-  assert.equal(said('POST', '/api/addons/public-link/do/fixed-add-service'), 'The hub office-pc added a service to the fixed address');
+  assert.equal(said('POST', '/api/addons/public-link/do/fixed-on'), 'The hub office-pc turned on the Custom public link');
+  assert.equal(said('POST', '/api/addons/public-link/do/fixed-add-service'), 'The hub office-pc added a service to the Custom public link');
+  // The page's own routes since the public link has one (the body, on or off, is never read here).
+  assert.equal(said('POST', '/api/public-link'), 'The hub office-pc switched the public link on or off');
+  assert.equal(said('POST', '/api/public-link/custom/create'), 'The hub office-pc set up the Custom public link');
+  assert.equal(said('POST', '/api/public-link/custom/forget'), 'The hub office-pc stopped using the Custom public link');
+  assert.equal(said('POST', '/api/public-link/temporary/add-service'), 'The hub office-pc gave a service on this computer a temporary address');
   assert.equal(said('POST', '/api/addons/public-link/do/quick-service-start'), 'The hub office-pc gave a service on this computer a temporary address');
   assert.equal(said('POST', '/api/addons/other/do/some-thing'), 'The hub office-pc ran "some-thing" of the add-on other');
   assert.equal(said('POST', '/api/gateways/trouteai/share'), 'The hub office-pc changed the sharing of the gateway trouteai');
@@ -33,7 +38,7 @@ test('each change a token may make has its plain words; anything else is not log
   assert.equal(said('POST', '/api/workspace/git/brain'), "The hub office-pc created the AI brain's repository");
   assert.equal(said('POST', '/api/workspace/map/commit'), "The hub office-pc saved the workspace map in the AI brain's history");
   // Reads, other routes and odd paths: nothing.
-  for (const [m, p] of [['GET', '/api/addons'], ['GET', '/api/addons/public-link/job'], ['GET', '/api/pcsetup/recipe'], ['POST', '/api/workspace/git/signin/cancel'],
+  for (const [m, p] of [['GET', '/api/addons'], ['GET', '/api/addons/public-link/job'], ['GET', '/api/public-link'], ['GET', '/api/public-link/job'], ['POST', '/api/public-link/temporary/x'], ['GET', '/api/pcsetup/recipe'], ['POST', '/api/workspace/git/signin/cancel'],
     ['POST', '/api/state'], ['POST', '/api/addons/Public%20Link/start'], ['POST', '/api/addons/public-link/start/x']]) assert.equal(said(m, p), null, `${m} ${p}`);
   assert.equal(CHANGES.every(([m]) => m === 'POST'), true);
 });
