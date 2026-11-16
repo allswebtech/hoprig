@@ -193,12 +193,13 @@ export function listRepos(dir) {
 }
 
 /**
- * Clone `url` into `<dir>/<name>`. Never into a folder that already exists. With `quiet`, git may not ask for a
- * password on the terminal (the dashboard has none). Resolves { ok, dest, skipped?, output }.
+ * Clone `url` into `<dir>/<name>`. Never into a folder that has something in it; an empty folder is cloned into (a
+ * project that keeps a code repository as a submodule leaves its folder empty when it is cloned). With `quiet`, git
+ * may not ask for a password on the terminal (the dashboard has none). Resolves { ok, dest, skipped?, output }.
  */
 export async function cloneRepo(repo, dir, { onLine = () => {}, quiet = false, run = stream, name, env: extra = {} } = {}) {
   const dest = path.join(dir, name || repo.name);
-  if (fs.existsSync(dest)) {
+  if (fs.existsSync(dest) && !emptyFolder(dest)) {
     onLine(`${dest} is already there: left as it is.`);
     return { ok: true, dest, skipped: true };
   }
@@ -206,6 +207,14 @@ export async function cloneRepo(repo, dir, { onLine = () => {}, quiet = false, r
   const env = { ...process.env, ...(quiet ? { GIT_TERMINAL_PROMPT: '0' } : {}), ...extra };
   const r = await run(['git', 'clone', '--', repo.url, dest], { env, onLine, interactive: false });
   return { ok: r.ok, dest, output: r.output };
+}
+
+function emptyFolder(d) {
+  try {
+    return fs.statSync(d).isDirectory() && fs.readdirSync(d).length === 0;
+  } catch {
+    return false;
+  }
 }
 
 /** After a clone: copy .env.example to .env when there is none. Says what it did. */

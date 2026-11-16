@@ -163,6 +163,7 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
         ui.line('fail', `${e.label}: ${e.result}`);
         return e.result;
       }
+      if (c.skipped) return (e.result = 'left alone: something came into its folder before the clone');
       if (e.branch) await git(e.dest, ['checkout', '-q', e.branch], run);
       ui.line('ok', `${e.label}: cloned`);
       return (e.result = 'cloned');
