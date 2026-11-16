@@ -54,9 +54,9 @@ test('Host header validation and headers', () => {
   const h = securityHeaders('pc:7433');
   assert.match(h['Content-Security-Policy'], /script-src 'self';/);
   assert.match(h['Content-Security-Policy'], /connect-src 'self' ws:\/\/pc:7433 wss:\/\/pc:7433/);
-  assert.match(h['Content-Security-Policy'], /frame-ancestors 'none'/);
+  assert.match(h['Content-Security-Policy'], /frame-ancestors 'self';/, 'framed by this same site only (the desktop)');
   assert.doesNotMatch(securityHeaders(null)['Content-Security-Policy'], /ws:/);
-  assert.equal(h['X-Frame-Options'], 'DENY');
+  assert.equal(h['X-Frame-Options'], 'SAMEORIGIN');
   assert.equal(h['X-Content-Type-Options'], 'nosniff');
   assert.equal(h['Referrer-Policy'], 'no-referrer');
   assert.equal(isLoopback('127.0.0.1'), true);

@@ -11,7 +11,7 @@
 //   errorBox, okBox, steps, stepHeader, skeletonRows   a result, numbered steps, a step header, rows while loading
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
-import { MACHINE_STATE, applyPageTheme, fill, h, link, machine, prefs } from './lib.js';
+import { BARE, MACHINE_STATE, applyPageTheme, fill, h, link, machine, prefs } from './lib.js';
 import { navPages, pageById, registeredHeadTools } from './registry.js';
 import { store } from './store.js';
 import { cameFrom, named, startOver, wayBack } from './trail.js';
@@ -159,6 +159,20 @@ export function frame({ title, place = null, intro = null, page = null, back: pa
       ? h(`a.btn.primary.${cls}`, { href: primary.href }, icon(primary.icon || 'plus', { size: 16 }), h('span', primary.label))
       : h(`button.btn.primary.${cls}`, { type: 'button', onclick: primary.onclick }, icon(primary.icon || 'plus', { size: 16 }), h('span', primary.label)))
     : () => null;
+  // In a window of the desktop (lib.js BARE): no navigation, no floating button and no head icons (the desktop has
+  // the theme, Tia and the computer); the window belongs to one computer, so no switcher either.
+  if (BARE) {
+    const bareHead = h('header.pagehead',
+      h('div.pagehead-text',
+        back ? backLink(back, backLabel, '') : null,
+        h('div.pagehead-title-row', h('h1.page-title', title)),
+        intro ? h(`p.page-intro${introOnPhone ? '' : '.desktop-only'}`, intro) : null),
+      h('div.head-tools', actions.length ? h('div.pagehead-actions', actions) : null, go('pagehead-primary')));
+    fill(app, h('div.shell-main', h(`main.page${wide ? '.wide' : ''}${fillWindow ? '.fill' : ''}`, bareHead, body)), extra);
+    document.body.classList.add('bare');
+    document.body.classList.remove('has-nav', 'has-fab');
+    return;
+  }
   const head = h('header.pagehead',
     h('div.pagehead-text',
       back ? backLink(back, backLabel, backOnPhoneOnly ? '.phone-only' : '') : null,

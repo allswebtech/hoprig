@@ -4,6 +4,8 @@
 // (its link, the browser's Back, the session switcher) takes off what came after it; a press in the navigation and
 // Home start a new trail. A page of another computer is a place of its own.
 
+import { BARE } from './lib.js';
+
 const KEY = 'trail';
 const MAX = 8;
 // Pages that only start something: the session or chat they open goes back to where you were before them.
@@ -20,7 +22,10 @@ const clean = (p) => (p && isHash(p.hash) && typeof p.page === 'string'
   ? { hash: p.hash, page: p.page, entry: isHash(p.entry) ? p.entry : p.hash, label: typeof p.label === 'string' ? p.label.slice(0, 60) : null }
   : null);
 
+// A window of the desktop keeps its trail in memory only: every window shares the tab's sessionStorage, and several
+// windows would overwrite each other's trail (and the desktop's own).
 function load() {
+  if (BARE) return;
   try {
     const v = JSON.parse(sessionStorage.getItem(KEY) || 'null');
     if (v && Array.isArray(v.stack)) trail = { stack: v.stack.map(clean).filter(Boolean).slice(-MAX), here: clean(v.here) };
@@ -30,6 +35,7 @@ function load() {
 }
 
 function save() {
+  if (BARE) return;
   try {
     sessionStorage.setItem(KEY, JSON.stringify(trail));
   } catch {

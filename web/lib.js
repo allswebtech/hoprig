@@ -71,7 +71,40 @@ export const at = (m, p) => (m ? `/m/${m}${p}` : `~${p}`);
 /** API path of the computer a session (or account) belongs to; items from the shared poller carry `machine`. */
 export const atOf = (item, p) => (item && 'machine' in item ? at(item.machine, p) : p);
 export const url = (p) => (p.startsWith('~/') ? p.slice(1) : p.startsWith('/m/') || p === '/login' || !MACHINE ? p : `/m/${MACHINE}${p}`);
+/** The WebSocket address of path `p` on computer `m` (null: this one), whatever screen is open (native desktop apps). */
+export const wsAt = (m, p) => wsUrl(at(m, p));
 export const wsUrl = (p) => `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${url(p)}`;
+// ---------- bare mode: a page inside a window of the desktop ----------
+
+// "/?bare=1#/…" is a page drawn as an app in a window of the desktop (web/desktop/): the frame has no navigation,
+// no head tools and no floating buttons, the trail is not saved, the session poll is the desktop's, and Tia is the
+// desktop's. The desktop is this same page one level up (framing is allowed for this origin only).
+export const BARE = typeof location !== 'undefined' && new URLSearchParams(location.search).get('bare') === '1' && typeof window !== 'undefined' && window.parent !== window;
+/** The desktop around a bare page, or null: only ever this same site's own page (a frame of another one is not). */
+export function desktopParent() {
+  if (!BARE) return null;
+  try {
+    return window.parent.location.origin === location.origin ? window.parent : null;
+  } catch {
+    return null;
+  }
+}
+/** Tell the desktop something ({ type: 'hoprig:…' }); a page outside the desktop has nobody to tell. */
+export function tellDesktop(msg) {
+  const p = desktopParent();
+  if (p) p.postMessage(msg, location.origin);
+  return !!p;
+}
+if (BARE) {
+  // The desktop's window keys work while the keyboard is inside a window too (web/desktop/wm.js, onKey).
+  window.addEventListener('keydown', (e) => {
+    if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
+    if (!/^(ArrowLeft|ArrowRight|ArrowUp|ArrowDown|KeyW|KeyM)$/.test(e.code)) return;
+    e.preventDefault();
+    tellDesktop({ type: 'hoprig:key', code: e.code });
+  });
+}
+
 /** An in-page link to a screen of computer `m` (default: the open one): "#/s/x" -> "#/m/pc2/s/x". */
 export const link = (hash, m = MACHINE) => (m ? `#/m/${m}${hash.slice(1)}` : hash);
 
@@ -97,7 +130,8 @@ export async function api(path, body, method = body === undefined ? 'GET' : 'POS
     throw new ApiError('Cannot reach the computer. Check the connection.', 0);
   }
   if (r.status === 401 && !path.startsWith('/api/settings/password')) {
-    location.href = url('/login');
+    // Inside a window of the desktop the whole desktop goes to the login, not this one window.
+    if (!tellDesktop({ type: 'hoprig:logged-out' })) location.href = url('/login');
     throw new ApiError('Logged out', 401);
   }
   const data = await r.json().catch(() => ({}));
@@ -182,6 +216,12 @@ export function applyPageTheme() {
   const t = prefs.get('page.theme', 'system');
   if (t === 'system') document.documentElement.removeAttribute('data-theme');
   else document.documentElement.setAttribute('data-theme', t);
+}
+// A choice made in another tab, or in the desktop around this window, applies here at once.
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'pref:page.theme') applyPageTheme();
+  });
 }
 
 // ---------- wording ----------
