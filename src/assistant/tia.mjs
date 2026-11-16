@@ -20,6 +20,8 @@
 //   maxMinutes   how long one job may run                                    default 240
 //   model        null (default: the account's own) or the model her engine uses, e.g. "haiku"
 
+import path from 'node:path';
+
 /** One constant for the name, so a fork can rename her. */
 export const ASSISTANT_NAME = 'Tia';
 
@@ -156,19 +158,28 @@ const RISKY = [
   /\b(ssh|scp|rsync|nc|ncat|netcat|socat|telnet)\s/i,
   /\bgit\s+push\b[^\n]*(--force|-f\b)|\bgit\s+push\b/i,
 ];
+// A path that leaves whatever folder it starts in: a ".." segment anywhere in a word (../x, a/../../b, /p/../q), or
+// the home folder itself (~, $HOME) as a word of its own.
+const LEAVES_FOLDER = [
+  /(?:^|[\s'"`=(/])\.\.(?=$|[/\s'"`);|&])/m,
+  /(?:^|[\s'"`=(])(?:~|\$HOME|\$\{HOME\})(?=$|[/\s'"`);|&])/m,
+];
 /**
  * `text`: the session's notification and the bottom of its screen (where Claude Code shows what it wants to run).
- * `cwd`: the session's folder — a path outside it (absolute or ~/…) is risky too: a job works in its own folder.
+ * `cwd`: the session's folder — a path outside it (absolute after normalising, ~/…, or any path through "..") is
+ * risky too: a job works in its own folder.
  */
 export function riskyPermission(text, cwd = null) {
   const s = String(text || '');
   if (RISKY.some((re) => re.test(s))) return true;
+  if (LEAVES_FOLDER.some((re) => re.test(s))) return true;
   if (!cwd) return false;
-  const root = String(cwd).replace(/\/+$/, '');
-  for (const m of s.matchAll(/(?:^|[\s'"`=(])(~\/[^\s'"`)]*|\/(?:[A-Za-z0-9._@+-]+\/?)+)/g)) {
-    const p = m[1];
+  const root = path.posix.normalize(String(cwd)).replace(/\/+$/, '');
+  for (const m of s.matchAll(/(?:^|[\s'"`=(])(~\/[^\s'"`)]*|\/+(?:[A-Za-z0-9._@+-]+\/*)+)/g)) {
+    if (m[1].startsWith('~')) return true;
+    const p = path.posix.normalize(m[1]).replace(/(.)\/+$/, '$1');
     if (p === '/dev/null') continue;
-    if (p.startsWith('~') || !(p === root || p.startsWith(`${root}/`))) return true;
+    if (!(p === root || p.startsWith(`${root}/`))) return true;
   }
   return false;
 }

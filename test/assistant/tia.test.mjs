@@ -67,6 +67,11 @@ test('riskyPermission: fetch-and-run, wide deletes, secrets, system, network, pu
   assert.ok(riskyPermission('Bash: cat ~/notes.txt', '/home/o/p'));
   assert.ok(!riskyPermission('Bash command\n  npm test > /dev/null\n  node /home/o/p/scripts/t.js\n 1. Yes  2. No', '/home/o/p'));
   assert.ok(!riskyPermission('Yes/no? 1/2 https://example.com/x', '/home/o/p'));
+  // ".." leaves any folder; the home folder by its short name is outside too; an absolute path is judged normalised.
+  for (const s of ['Read: /home/o/p/../../../etc/passwd', 'Edit: /home/o/p/./../q/x.js', 'Write: /home/o/p/../q/.git/hooks/pre-commit', 'Bash: rm -rf ../..', 'Bash: cd .. && ls', 'Write: ../q/x.js', 'Bash: cat src/../../q/x', 'Bash: rm -r -f ~', 'Bash: find ~ -delete', 'Bash: rm -rf "$HOME"', 'Bash: cat ${HOME}/x', 'Bash: cat //etc/passwd']) assert.ok(riskyPermission(s, '/home/o/p'), s);
+  assert.ok(riskyPermission('Bash: rm -rf ../..'), 'without a known folder too');
+  for (const s of ['Read: /home/o/p//src/./a.js', 'Read: /home/o/p/src/', 'Bash: git log main..dev', 'Do you want to proceed...', 'Bash: ls ./src', 'Bash: echo a..b']) assert.ok(!riskyPermission(s, '/home/o/p'), s);
+  assert.ok(!riskyPermission('Read: /home/o/p/a.js', '/home/o//p/'), 'the folder is normalised too');
 });
 
 const tia = (level, allowed = ['sub', 'sub2']) => ({ level, allowed });

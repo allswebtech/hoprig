@@ -200,7 +200,25 @@ test('her own chat\'s OK of a call her rules cannot judge (an MCP tool, any tool
   const ran = [`m${n - 1}`, `m${n}`];
   assert.match((await judge('Bash', { command: 'rm -rf ~', description: 'Clean up' })).text, /Waiting for the owner's OK.*risky/s);
   assert.match((await judge('Read', { file_path: '/etc/shadow' })).text, /Waiting for the owner's OK.*risky/s, 'a path outside the folder');
-  assert.deepEqual(ops.calls.filter((c) => c.op === 'answerChat').map((c) => c.args.request), ran, 'only the two known, harmless ones ran');
+  // A path that leaves the folder through "..", or the home folder by its short name, is outside it too.
+  for (const [tool, input] of [
+    ['Write', { file_path: `${cwd}/../../../home/owner/.bashrc`, content: 'x' }],
+    ['Write', { file_path: `${cwd}/../web/x.js`, content: 'x' }],
+    ['Read', { file_path: `${cwd}/../../../etc/passwd` }],
+    ['Edit', { file_path: `${cwd}/./../web/x.js`, old_string: 'a', new_string: 'b' }],
+    ['Read', { file_path: `/${cwd}/../web/x.js` }],
+    ['Bash', { command: 'rm -rf ../..' }],
+    ['Bash', { command: 'cd .. && git status' }],
+    ['Bash', { command: 'cat src/../../web/.git/config' }],
+    ['Bash', { command: 'rm -r -f ~' }],
+    ['Bash', { command: 'find ~ -delete' }],
+    ['Bash', { command: 'rm -rf "$HOME"' }],
+    ['Bash', { command: 'cat //etc/passwd' }],
+  ]) assert.match((await judge(tool, input)).text, /Waiting for the owner's OK.*risky/s, `${tool} ${JSON.stringify(input)}`);
+  // A path in the folder written another way is still in it.
+  assert.equal((await judge('Read', { file_path: `${cwd}/src/./a.js` })).isError, false);
+  ran.push(`m${n}`);
+  assert.deepEqual(ops.calls.filter((c) => c.op === 'answerChat').map((c) => c.args.request), ran, 'only the known, harmless ones ran');
 });
 
 test('the policy reads a chat\'s "known" before the risk check; a terminal session has no such fact', () => {
@@ -607,6 +625,12 @@ test('in the real dashboard: in her own chat, every call her rules cannot judge 
     assert.equal(card.ask.known, false);
     assert.equal(card.ask.subject, `${tool} ${JSON.stringify(input)}`, 'what the owner reads: the tool and its input');
     assert.equal(card.note, `Claude wants to use ${tool} ${JSON.stringify(input)}`);
+  }
+  // The coding tool's own tools in a shape it knows, but through ".." out of the folder: a card for a risky path.
+  for (const [tool, input] of [['Write', { file_path: `${proj}/../../home/.bashrc`, content: 'x' }], ['Write', { file_path: `${proj}/../other/x.js`, content: 'x' }], ['Bash', { command: 'rm -rf ../..' }]]) {
+    const { r: rr, card: cc } = await level(as(tool, input));
+    assert.equal(cc.ask.known, true, `${tool} ${JSON.stringify(input)}`);
+    assert.match(rr.text, /Waiting for the owner's OK.*risky/s, `${tool} ${JSON.stringify(input)}`);
   }
   // The coding tool's own tool in a shape it knows, harmless: she answers at once, in "Hands off" as in every level.
   const { r, card } = await level('run ls');
