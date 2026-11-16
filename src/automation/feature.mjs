@@ -61,10 +61,10 @@ export function serverAdapter(sctx, { log = console.log } = {}) {
           return { ...c, stopAt: r.stopAt || null, failure: r.failure || null, attentionKind: r.attentionKind || null, carryArgs: Array.isArray(r.carryArgs) ? r.carryArgs : [] };
         });
       },
-      async start({ dir, profile, mode = 'new', sessionId = null, carryArgs = [], name = null }) {
+      async start({ dir, profile, mode = 'new', sessionId = null, carryArgs = [], name = null, fresh = false }) {
         const p = profileObject(profile);
         if (!p) throw new Error(`there is no provider "${profile}"`);
-        const argv = launchArgv(sctx.deck.launcher(), { profile: p, mode, sessionId, carryArgs });
+        const argv = launchArgv(sctx.deck.launcher(), { profile: p, mode, sessionId, carryArgs, fresh });
         const taken = new Set((await sctx.backend.list()).map((t) => t.session));
         const r = await sctx.backend.create({ name: uniqueName(safeSessionName(name || path.basename(dir)), taken), dir, argv });
         return r.name;
