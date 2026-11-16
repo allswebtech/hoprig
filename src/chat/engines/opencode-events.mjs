@@ -8,6 +8,8 @@
 //   a step       session.step.started (the model is asked) … session.step.ended { tokens, cost, files }
 //   text         session.text.started / .delta / .ended { assistantMessageID, ordinal, text }; reasoning the same
 //   a tool call  session.tool.input.started { id, name } → session.tool.called { id, input } → .success | .failed
+//   a subagent   its call starts it and returns at once; it runs in a conversation of its own (session.created with
+//                parentID) in the background, and when that ends the main conversation goes on by itself
 //   an OK        permission.asked { id, action, resources, save, metadata.files[].patch, source.id (the call) } and
 //                permission.replied; a question to the owner is a form (form.created / replied / cancelled)
 //   a message    session.inbox.enqueued / delivered / cancelled { inboxID } (a message written while a turn runs)
@@ -160,8 +162,9 @@ export class OpencodeEvents {
         const err = d.error && typeof d.error === 'object' ? d.error : {};
         const text = ok ? resultText(d) : err.type === 'permission.rejected' ? refused(err.message) : String(err.message || 'failed');
         const out = [{ kind: 'tool-result', id, ok, text: clipText(text), ...(diff ? { diff } : {}), ...(m.interrupted ? { stopped: true } : {}), agent }];
-        // A subagent's call ended: its task too.
-        for (const [child, call] of this.children) if (call === id) out.push({ kind: 'task', taskId: child, toolId: id, status: ok ? 'completed' : 'failed', agent: null });
+        // A subagent runs in the background (its call only starts it): its task ends with its own conversation's
+        // turn, below. A call that failed started nothing.
+        if (!ok) for (const [child, call] of this.children) if (call === id) out.push({ kind: 'task', taskId: child, toolId: id, status: 'failed', agent: null });
         return out;
       }
       case 'session.step.ended':
@@ -202,8 +205,13 @@ export class OpencodeEvents {
         return this.#closed(str(d.id));
       case 'session.execution.succeeded':
       case 'session.execution.failed':
-      case 'session.execution.interrupted':
-        return main ? this.#end(e.type.slice('session.execution.'.length), d) : [];
+      case 'session.execution.interrupted': {
+        const how = e.type.slice('session.execution.'.length);
+        if (main) return this.#end(how, d);
+        // A subagent's turn ended: its task (the main conversation goes on by itself when it reads the result).
+        const err = d.error && typeof d.error === 'object' ? d.error : {};
+        return [{ kind: 'task', taskId: sid, toolId: agent, status: how === 'succeeded' ? 'completed' : how === 'interrupted' ? 'stopped' : 'failed', ...(how === 'failed' ? { error: plainText(String(err.message || 'it failed'), 300) } : {}), agent: null }];
+      }
       default:
         return [];
     }
@@ -221,7 +229,7 @@ export class OpencodeEvents {
     if (!call) return [];
     const input = (this.calls.get(call) || {}).input || {};
     return [{
-      kind: 'task', taskId: sid, toolId: call, type: 'agent', status: 'running',
+      kind: 'task', taskId: sid, toolId: call, type: 'agent', status: 'running', background: true,
       title: plainText(String(input.description || d.title || 'Subagent'), 200), agentType: str(d.agent || input.agent, 60),
       model: d.model && typeof d.model.id === 'string' ? d.model.id.slice(0, 60) : null, agent: null,
     }];

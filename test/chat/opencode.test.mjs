@@ -81,8 +81,13 @@ test('an OK whose call was not seen whole is the owner\'s; a subagent\'s events 
   const inner = map.feed({ type: 'session.text.ended', data: { sessionID: 'ses_child00001', assistantMessageID: 'msg_c', ordinal: 0, text: 'found 3 files' } });
   assert.equal(inner[0].agent, 'call_a');
   assert.deepEqual(map.feed({ type: 'session.text.ended', data: { sessionID: 'ses_other00001', assistantMessageID: 'm', ordinal: 0, text: 'not ours' } }), [], 'another conversation is not this chat\'s');
-  const done = map.feed({ type: 'session.tool.success', data: { sessionID: 'ses_parent0001', id: 'call_a', content: [{ type: 'text', text: 'ok' }] } });
-  assert.deepEqual(done.filter((e) => e.kind === 'task').map((e) => e.status), ['completed']);
+  assert.equal(task[0].background, true, 'a subagent runs in the background: the chat works until it ends');
+  // Its call returns at once (it only started it): the task runs on until the subagent's own turn ends.
+  const started = map.feed({ type: 'session.tool.success', data: { sessionID: 'ses_parent0001', id: 'call_a', content: [{ type: 'text', text: 'The subagent is working in the background' }] } });
+  assert.deepEqual(started.filter((e) => e.kind === 'task'), []);
+  const done = map.feed({ type: 'session.execution.succeeded', data: { sessionID: 'ses_child00001' } });
+  assert.deepEqual(done.map((e) => [e.kind, e.taskId, e.status]), [['task', 'ses_child00001', 'completed']]);
+  assert.deepEqual(map.feed({ type: 'session.execution.started', data: { sessionID: 'ses_child00001' } }), [], 'not a turn of the chat');
   // A question to the owner: the chat's question card, the answers back in OpenCode's form.
   const q = map.feed({ type: 'form.created', data: { form: { id: 'frm_q1', sessionID: 'ses_parent0001', title: 'Which one?', fields: [
     { key: 'pick', type: 'string', title: 'Which database?', options: [{ value: 'pg', label: 'PostgreSQL' }, { value: 'my', label: 'MySQL' }] },
