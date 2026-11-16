@@ -34,26 +34,47 @@ export function toolTitle(input) {
   for (const k of TITLE_KEYS) if (typeof input[k] === 'string' && input[k].trim()) return plainText(input[k], 200);
   return '';
 }
-// What an OK is really about: the command it runs, the file it writes, the page it reads, and every other string of
-// its input (a search's folder and pattern both). Not `description`: for a command that is the model's own label of it
-// ("Install the helper"), which says nothing of what runs; nor what an edit writes into its file, or a page fetch's
-// question to the model: text, not what runs or where. The main key comes first, for a card's one line.
-const SUBJECT_KEYS = ['command', 'file_path', 'notebook_path', 'url', 'path', 'pattern', 'query', 'skill'];
-const NOT_SUBJECT = new Set(['description', 'content', 'old_string', 'new_string', 'new_source', 'prompt']);
+// What an OK is really about, whole: what Tia's rules judge. Shortened only for the coding tool's own tools whose input
+// is known: the strings that say what runs or where (`judged`, the main one first, for a card's one line), without
+// the keys known to say neither (`left`, each with its kind): a command's `description` is the model's own label of
+// it ("Install the helper"), an edit's text is what it writes into its file, a page fetch's `prompt` is a question to
+// the model, the rest are plain settings. Any other tool (an MCP tool, one not listed), and a listed tool with a key
+// or a value of a kind the list does not know, is judged by its whole input as JSON, nested values included: an MCP
+// tool's `command` may be "bash" and its `args` the script.
+const EDIT = { old_string: 'string', new_string: 'string', replace_all: 'boolean' };
+const edits = (x) => Array.isArray(x) && x.every((e) => e && typeof e === 'object' && !Array.isArray(e) && Object.entries(e).every(([k, y]) => EDIT[k] && typeof y === EDIT[k]));
+const BUILT_IN = {
+  Bash: { judged: ['command'], left: { description: 'string', timeout: 'number', run_in_background: 'boolean' } },
+  Read: { judged: ['file_path', 'pages'], left: { offset: 'number', limit: 'number' } },
+  Write: { judged: ['file_path'], left: { content: 'string' } },
+  Edit: { judged: ['file_path'], left: EDIT },
+  MultiEdit: { judged: ['file_path'], left: { edits } },
+  NotebookEdit: { judged: ['notebook_path', 'cell_id', 'cell_type', 'edit_mode'], left: { new_source: 'string' } },
+  Glob: { judged: ['path', 'pattern'], left: {} },
+  Grep: {
+    judged: ['path', 'pattern', 'glob', 'type', 'output_mode'],
+    left: { '-i': 'boolean', '-n': 'boolean', '-A': 'number', '-B': 'number', '-C': 'number', context: 'number', multiline: 'boolean', head_limit: 'number', offset: 'number' },
+  },
+  WebFetch: { judged: ['url'], left: { prompt: 'string' } },
+  WebSearch: { judged: ['query'], left: {} },
+  Skill: { judged: ['skill', 'args'], left: {} },
+};
+const kindOk = (want, x) => (typeof want === 'function' ? want(x) : typeof x === want);
 /** How much of a subject an ask carries; one that is longer is marked cut, and Tia's rules never judge a part. */
 export const SUBJECT_MAX = 16000;
-/** The subject of a tool call, whole: what the owner and Tia's rules judge. */
-export function askSubject(input) {
+/** The subject of `tool`'s call with `input`, whole: what the owner and Tia's rules judge. */
+export function askSubject(tool, input) {
   if (!input || typeof input !== 'object') return '';
-  if (!SUBJECT_KEYS.some((k) => typeof input[k] === 'string' && input[k].trim())) {
-    try {
-      return JSON.stringify(input); // an MCP tool's input: all of it
-    } catch {
-      return '';
-    }
+  const known = Object.hasOwn(BUILT_IN, tool) ? BUILT_IN[tool] : null;
+  if (known && Object.entries(input).every(([k, x]) => (known.judged.includes(k) ? typeof x === 'string' : Object.hasOwn(known.left, k) && kindOk(known.left[k], x)))) {
+    const s = known.judged.filter((k) => typeof input[k] === 'string' && input[k].trim()).map((k) => input[k]).join('\n');
+    if (s) return s;
   }
-  const keys = [...SUBJECT_KEYS, ...Object.keys(input).filter((k) => !SUBJECT_KEYS.includes(k))];
-  return keys.filter((k) => !NOT_SUBJECT.has(k) && typeof input[k] === 'string' && input[k].trim()).map((k) => input[k]).join('\n');
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return '';
+  }
 }
 // The same from a tool's input while it still streams (partial JSON): the first of those keys whose string is whole.
 const PARTIAL = new RegExp(`"(${TITLE_KEYS.join('|')})"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`);
@@ -367,7 +388,7 @@ export class ClaudeParser {
       noAlways: r.suppress_always_allow_rule === true,
       agent: r.agent_id ? this.taskTool.get(String(r.agent_id)) || null : null,
     };
-    const subject = askSubject(full);
+    const subject = askSubject(tool, full);
     a.subject = subject.slice(0, SUBJECT_MAX);
     a.subjectCut = subject.length > SUBJECT_MAX; // too long to carry whole: judged as risky, never by a part
     a.type = tool === 'ExitPlanMode' ? 'plan' : tool === 'AskUserQuestion' ? 'question' : 'permission';
