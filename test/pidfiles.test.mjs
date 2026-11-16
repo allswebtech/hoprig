@@ -372,3 +372,30 @@ test('the Temporary address of ours is live; a record from before identities in 
   assert.equal(cli.statusOf().url, null);
   saveConfig({ publicLink: { on: false, kind: 'temporary' } });
 });
+
+test('the switch\'s start ends its own leftover tunnel, never another tunnel of ours under an older record\'s pid', POSIX, async () => {
+  saveConfig({ publicLink: { on: false, kind: 'temporary' } });
+  fs.rmSync(serviceFile(), { force: true });
+  const S = await import('../src/addons/linkswitch.mjs');
+  const start = async (rec) => {
+    record(rec);
+    await S.attach({ notifyFn: async () => ({ sent: false }), everyMs: 60_000 });
+    await S.resetForTests();
+  };
+  // The second temporary address's tunnel has a pid a record once named: another identity, or a record before this boot.
+  const other = await tunnel(SERVICE_PORT);
+  await start({ pid: other, proc: earlier(other) });
+  record({ pid: other });
+  beforeBoot(linkRecordFile());
+  await S.attach({ notifyFn: async () => ({ sent: false }), everyMs: 60_000 });
+  await S.resetForTests();
+  await sleep(300);
+  assert.ok(alive(other), 'another tunnel of ours got no signal');
+  // A leftover of the switch's own: by its identity, and by its command line in a record of this boot (an older version's).
+  for (const withId of [true, false]) {
+    const own = await tunnel(7971);
+    await start(withId ? { pid: own, proc: identity(own) } : { pid: own });
+    assert.ok(await dead(own), `its leftover ended (${withId ? 'identity' : 'command line'})`);
+  }
+  assert.ok(alive(other));
+});

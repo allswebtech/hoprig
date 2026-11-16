@@ -18,10 +18,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, saveConfig } from '../config.mjs';
-import { system } from '../procid.mjs';
+import { filedProcess, system } from '../procid.mjs';
 import { passwordState } from '../server/strength.mjs';
 import { addonsDir, cloudflaredEnv, dashboardPort, findBin, hasPassword, linkRecordFile, patchFor, readFixed, readJsonFile, restoreFor, writeAtomic } from './cloudflared.mjs';
-import { migrate, ours } from './linkmigrate.mjs';
+import { migrate, ours, tunnelFact } from './linkmigrate.mjs';
 import { customRun, customSteps, fixedCloseOpenedBy, fixedStatus, makeSupervisor, stopSignIn } from './fixedlink.mjs';
 import { install, notifyNewAddress, parseTunnelUrl, serviceStatus, stopService, temporarySteps, tunnelArgv, closeServiceOpenedBy } from './publiclink.mjs';
 
@@ -135,8 +135,10 @@ function putBack() {
 
 // A cloudflared of ours still running from before (the dashboard ended without stopping it).
 function killLeftover() {
-  const { pid } = readRecord();
-  if (ours(pid)) try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ }
+  const rec = readRecord();
+  // Only the tunnel this record names (procid.mjs filedProcess: its identity, else its command line in a record of this
+  // boot): after a restart of the computer its pid may be another program's, or the second temporary address's tunnel.
+  if (filedProcess(recordFile(), rec, { fact: tunnelFact }) === true) try { process.kill(rec.pid, 'SIGTERM'); } catch { /* gone */ }
 }
 
 async function stopRun() {
