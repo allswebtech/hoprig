@@ -7,13 +7,14 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getAutoSwitch, limitedProfiles, markLimited, nextProfile, parseResets, preferredAvailable, usableOrder } from './autoswitch.mjs';
-import { claudeLoginStatus } from './claudecode.mjs';
+import { claudeLoginStatus, claudeVersionQuick } from './claudecode.mjs';
 import { loadConfig, sessionArgs } from './config.mjs';
-import { binFile, claudeDir, hookSettingsDir } from './paths.mjs';
+import { claudeDir, hookFile, hookSettingsDir } from './paths.mjs';
 import { listProfiles, profileEnv, readProfile } from './profiles.mjs';
 import { loginSeen, rememberLogin } from './routerstate.mjs';
 import { createRun, noteUsage, readRun, readUsage, removeRun, updateRun, usageFile } from './runs.mjs';
-import { isSessionId } from './sessions.mjs';
+import { hasConversation } from './sessions.mjs';
+import { compareVersions } from './setup/system.mjs';
 import { AUTO, autoIdentity, ensureRouter } from './router.mjs';
 import { resolveWindowsBin, windowsSpawnPlan } from './winspawn.mjs';
 
@@ -142,11 +143,15 @@ export function dedupeFlags(args) {
  * The arguments that continue session `sessionId` under the profile `target`, given the arguments of the launch
  * it comes from. A model chosen with --model moves along, except to a profile that names its own model
  * (ANTHROPIC_MODEL): such a profile says what its endpoint can serve.
+ *
+ * `fresh`: nothing was said in the session yet, so it has no conversation on disk (sessions.mjs hasConversation)
+ * and `--resume` would end with "No conversation found with session ID". Such a session starts on the target
+ * under the same id instead (`--session-id`), which is all there is to carry over.
  */
-export function moveArgs(target, args, sessionId) {
+export function moveArgs(target, args, sessionId, { fresh = false } = {}) {
   let carry = dedupeFlags(carryArgs(args));
   if (target.env.ANTHROPIC_MODEL) carry = dropValueFlag(carry, '--model');
-  return [...carry, '--resume', sessionId];
+  return [...carry, fresh ? '--session-id' : '--resume', sessionId];
 }
 
 /** The model Claude Code starts with when nothing chooses one: the user's settings, else its own default. */
@@ -175,16 +180,32 @@ export function modelArgs(profile, args) {
 // the common ground (Git Bash, cmd).
 const shq = (s) => (process.platform === 'win32' ? `"${String(s).replace(/"/g, '\\"')}"` : `'${String(s).replace(/'/g, `'\\''`)}'`);
 
+// The events every Claude Code we support has, and the ones that make the status exact (hook.mjs says what each
+// tells). An event name Claude Code does not know stops it at a "settings error" question when it starts (seen on
+// 2.1.325 with a made-up name), so the second list is only handed to a version that surely has all of them: they
+// were found in the programs of 2.1.319, 2.1.323 and 2.1.325. An older or unknown version keeps the first list.
+const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'SessionEnd'];
+const EXACT_EVENTS = ['PermissionRequest', 'PostToolBatch', 'SubagentStop'];
+export const EXACT_SINCE = '2.1.319';
+
 /**
  * Settings handed to Claude Code for this launch only: hooks that report the session id and state to the run
- * file, and (when `statusScript` is given) a status line command that saves the plan-usage numbers.
+ * file, and (when `statusScript` is given) a status line command that saves the plan-usage numbers. `version` is
+ * the Claude Code that will read them (null when not known).
  */
-export function hookSettings({ statusScript = null, padding = 0 } = {}) {
-  const command = `${shq(process.execPath)} ${shq(binFile())} hook`;
-  const entry = [{ hooks: [{ type: 'command', command, timeout: 5 }] }];
-  const settings = {
-    hooks: { SessionStart: entry, UserPromptSubmit: entry, Stop: entry, StopFailure: entry, Notification: entry, SessionEnd: entry },
-  };
+export function hookSettings({ statusScript = null, padding = 0, version = null } = {}) {
+  const command = `${shq(process.execPath)} ${shq(hookFile())}`;
+  const entry = (cmd) => [{ hooks: [{ type: 'command', command: cmd, timeout: 5 }] }];
+  const hooks = {};
+  for (const e of HOOK_EVENTS) hooks[e] = entry(command);
+  if (version && compareVersions(version, EXACT_SINCE) >= 0) {
+    for (const e of EXACT_EVENTS) hooks[e] = entry(command);
+    // After every batch of tool calls, in every subagent too: far too often to start a program each time. The
+    // shell Claude Code runs hooks in looks for the run's mark first (runfile.mjs: watchFile) and starts the hook
+    // only while its news could change something. Windows has no one shell to write that test for.
+    if (process.platform !== 'win32') hooks.PostToolBatch = entry(`if [ -e "$HOPRIG_RUN_FILE.watch" ]; then ${command}; fi`);
+  }
+  const settings = { hooks };
   if (statusScript) settings.statusLine = { type: 'command', command: `sh ${shq(statusScript)}`, padding };
   return settings;
 }
@@ -218,57 +239,6 @@ export function statusScript(user) {
     ...(user ? ["printf '%s' \"$i\" | {", user.command, '}'] : []),
     '',
   ].join('\n');
-}
-
-// Reasons to carry a session on elsewhere: the profile is out of quota or out of credit. Other failures (a
-// server error, a bad request) would fail the same way on any profile.
-const LIMIT_ERRORS = new Set(['rate_limit', 'billing_error']);
-
-/**
- * `hoprig hook`: called by Claude Code with the event as JSON on stdin. Updates the run file named by
- * $HOPRIG_RUN_FILE. Must stay silent and never fail: its output would land in the conversation.
- */
-export async function hookMain() {
-  try {
-    const file = process.env.HOPRIG_RUN_FILE;
-    if (!file) return;
-    let raw = '';
-    for await (const chunk of process.stdin) raw += chunk;
-    const ev = JSON.parse(raw);
-    const patch = {};
-    if (isSessionId(ev.session_id)) patch.sessionId = ev.session_id;
-    switch (ev.hook_event_name) {
-      case 'SessionStart': patch.status = 'waiting'; patch.note = ''; break;
-      case 'UserPromptSubmit': patch.status = 'working'; patch.note = ''; patch.limit = null; patch.failure = null; patch.attentionKind = null; break;
-      case 'Stop':
-        patch.status = 'waiting'; patch.note = ''; patch.stopAt = Date.now(); patch.failure = null; patch.attentionKind = null;
-        if (typeof ev.last_assistant_message === 'string') patch.lastMessage = ev.last_assistant_message.replace(/\s+/g, ' ').trim().slice(0, 300);
-        break;
-      case 'StopFailure': {
-        // The reply ended in an API error. Claude sits idle now; the text says why.
-        const text = typeof ev.last_assistant_message === 'string' ? ev.last_assistant_message.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
-        patch.status = 'attention'; patch.note = text || String(ev.error || 'error');
-        // Which kind of error (overloaded, server_error, authentication_failed…): the retry automation acts on it.
-        patch.failure = { at: Date.now(), error: String(ev.error || 'unknown').slice(0, 60), text };
-        if (LIMIT_ERRORS.has(ev.error)) patch.limit = { at: Date.now(), error: ev.error, text };
-        break;
-      }
-      case 'Notification': {
-        const kind = typeof ev.notification_type === 'string' ? ev.notification_type.slice(0, 60) : null;
-        patch.attentionKind = kind;
-        // "Claude is waiting for your input" comes after a minute of quiet: that is still plain waiting, not
-        // "needs your OK" (a permission prompt, a question).
-        if (kind === 'idle_prompt') break;
-        patch.status = 'attention'; patch.note = typeof ev.message === 'string' ? ev.message.slice(0, 300) : '';
-        break;
-      }
-      case 'SessionEnd': patch.status = 'ended'; break;
-      default: break;
-    }
-    updateRun(file, patch);
-  } catch {
-    /* never disturb the session */
-  }
 }
 
 /**
@@ -315,7 +285,7 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false } =
       fs.writeFileSync(scriptFile, statusScript(user), { mode: 0o700 });
       status = { statusScript: scriptFile, padding: user ? user.padding : 0 };
     }
-    fs.writeFileSync(settingsFile, JSON.stringify(hookSettings(status)) + '\n', { mode: 0o600 });
+    fs.writeFileSync(settingsFile, JSON.stringify(hookSettings({ ...status, version: claudeVersionQuick({ bin: cfg.claudeBin, env }) })) + '\n', { mode: 0o600 });
   }
   const full = [...given, ...modelArgs(profile, given), ...(settingsFile ? ['--settings', settingsFile] : []), ...promptTail];
   const cleanup = () => {
@@ -453,6 +423,8 @@ export async function launch(profileName, args, { askNext = null } = {}) {
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !isPrintMode(current);
     if (interactive) console.error(`hoprig: profile ${profile.name} · ${profile.label}`);
     const { code, sessionId, signalled, auto } = await runOnce(profile, current, cfg, { interactive, fallback });
+    // A session nobody typed into has nothing on disk to resume: it starts on the next profile under the same id.
+    const fresh = Boolean(sessionId) && !hasConversation(process.cwd(), sessionId);
     if (auto && sessionId && !signalled) {
       const target = await profileNamed(auto.to);
       if (target) {
@@ -461,22 +433,22 @@ export async function launch(profileName, args, { askNext = null } = {}) {
         if (auto.why === 'limit') {
           console.error(`hoprig: ${from} reached its usage limit. Continuing this session on ${to}.`);
           // The interrupted request is in the transcript; this prompt makes Claude pick it up again.
-          current = [...moveArgs(target, current, sessionId), getAutoSwitch().prompt];
+          current = [...moveArgs(target, current, sessionId, { fresh }), ...(fresh ? [] : [getAutoSwitch().prompt])];
           fallback = true;
         } else {
           console.error(`hoprig: ${to} is available again. Moving this session back to it.`);
-          current = moveArgs(target, current, sessionId);
+          current = moveArgs(target, current, sessionId, { fresh });
         }
         name = target.name;
         continue;
       }
     }
     if (!interactive || signalled || !askNext || !sessionId) return code;
-    const next = await askNext({ current: profile.name, sessionId });
+    const next = await askNext({ current: profile.name, sessionId, saved: !fresh });
     if (!next) return code;
     const target = await profileNamed(next);
     if (!target) return code;
     name = next;
-    current = moveArgs(target, current, sessionId);
+    current = moveArgs(target, current, sessionId, { fresh });
   }
 }

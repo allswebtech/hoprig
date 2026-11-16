@@ -197,12 +197,17 @@ export async function chooseProfile({ sessionChosen = false } = {}) {
   }
 }
 
-/** After Claude exits: carry the same session on under another profile? Resolves to a profile name or null. */
-export async function askNext({ current, sessionId }) {
+/**
+ * After Claude exits: carry the same session on under another profile? Resolves to a profile name or null.
+ * `saved` false: nothing was said in it, so there is no conversation to continue, only a session to start again.
+ */
+export async function askNext({ current, sessionId, saved = true }) {
   const profiles = menuProfiles();
   if (profiles.length < 2) return null;
   out();
-  out(`Session ${bold(sessionId.slice(0, 8))} is saved. Continue it on another profile?`);
+  out(saved
+    ? `Session ${bold(sessionId.slice(0, 8))} is saved. Continue it on another profile?`
+    : `Nothing was said in session ${bold(sessionId.slice(0, 8))} yet. Start it on another profile?`);
   out();
   const limited = limitedProfiles();
   table(profiles, (p) => [p.name === current ? dim('(it ran here)') : '', limitNote(p.name, limited)].filter(Boolean).join('  '));

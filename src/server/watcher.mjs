@@ -102,6 +102,7 @@ export class Watcher {
     this.timer = null;
     this.nextAt = 0;
     this.running = false;
+    this.again = false; // a poke came during a look
     this.stopped = true;
     this.tickListeners = new Set();
   }
@@ -125,7 +126,10 @@ export class Watcher {
   /** Look again soon (a session was just started or a page is watching). */
   poke() {
     // Only ever brings the next tick forward: pokes arriving faster than 200 ms must not keep postponing it.
-    if (!this.stopped && !this.running && this.nextAt - Date.now() > 200) this.#schedule(200);
+    // During a look the sessions were already read: what changed since is seen by one more look right after it
+    // (a chat that needs an OK would otherwise be told up to 30 s late).
+    if (this.running) this.again = true;
+    else if (!this.stopped && this.nextAt - Date.now() > 200) this.#schedule(200);
   }
 
   #schedule(ms) {
@@ -138,6 +142,7 @@ export class Watcher {
   async tick() {
     if (this.running) return;
     this.running = true;
+    this.again = false;
     let busy = false;
     try {
       const cards = await this.cards();
@@ -154,7 +159,7 @@ export class Watcher {
       }
     } finally {
       this.running = false;
-      if (!this.stopped) this.#schedule(busy ? this.tickMs : Math.max(this.tickMs, 30_000));
+      if (!this.stopped) this.#schedule(this.again ? 200 : busy ? this.tickMs : Math.max(this.tickMs, 30_000));
     }
   }
 

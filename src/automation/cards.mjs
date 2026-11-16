@@ -6,7 +6,7 @@
 //   chat (src/chat: a conversation in the page, no terminal): profile { name }, status, running (its process runs)
 //   claude only: profile { name }, status, statusAt, sessionId, runId, stopAt, limit (seen on screen),
 //                runLimit (reported by Claude Code), failure { at, error, text } (the last reply ended in an
-//                API error), attentionKind (the Notification's type, e.g. 'permission_prompt', 'idle_prompt')
+//                API error), attentionKind (what the session waits for: 'permission_prompt', 'elicitation_dialog'…)
 
 export const isClaude = (c) => Boolean(c) && c.kind === 'claude';
 
@@ -21,7 +21,8 @@ export const busy = (c) => (isClaude(c) || (Boolean(c) && c.kind === 'chat')) &&
 
 /**
  * Claude finished and waits for the next message, with nothing in the way: no permission question, no limit, no
- * error. Claude Code's "waiting for your input" reminder (Notification of type idle_prompt) is still waiting.
+ * error. Claude Code's "waiting for your input" reminder (Notification of type idle_prompt) is still waiting: the
+ * hook leaves the status alone for it now, and a record an older hook wrote may still carry it as "attention".
  */
 export const idle = (c) =>
   isClaude(c) &&

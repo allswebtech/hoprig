@@ -59,6 +59,9 @@ export const defaultWorkspaceDir = () => path.join(home(), 'Workspace');
 /** Absolute path of the hoprig executable script (bin/hoprig.mjs). */
 export const binFile = () => path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'hoprig.mjs');
 
+/** The small program Claude Code starts for a hook event (bin/hoprig-hook.mjs): `hoprig hook` without the rest. */
+export const hookFile = () => path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'hoprig-hook.mjs');
+
 /**
  * Where hoprig is installed and updated from: the repository's main branch as a tarball, which npm installs
  * directly. When the package is published on npm these become the package name and its `@latest`.

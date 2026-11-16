@@ -70,6 +70,10 @@ body.chat-mode .tia-boxroot { display: none; }
 .chat-ask-head strong { color: var(--text); }
 .chat-ask-body { display: grid; gap: 6px; min-width: 0; }
 .chat-ask-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.chat-ask-why { margin: 0; display: flex; align-items: flex-start; gap: 6px; color: var(--text); }
+.chat-ask-why svg { flex: none; margin-top: 2px; color: var(--warn); }
+.chat-ask-scope { margin: 0; overflow-wrap: anywhere; }
+.chat-ask.decided .chat-ask-scope { display: none; }
 .chat-ask-actions:empty { display: none; }
 .chat-ask-status { margin: 0; display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--muted); }
 .chat-ask-status:empty { display: none; }

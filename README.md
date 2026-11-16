@@ -217,7 +217,12 @@ Good to know:
   the card on Home, including Claude's own "Yes, and don't ask again".
 - **Chat**: the same Claude Code without the terminal (**New session**: Terminal or Chat, or **Open as chat** in
   a session's menu): messages, each tool call on one line with its diff, Allow and Deny buttons, its to-do list,
-  Stop. A conversation runs in one place at a time, and **Open in terminal** takes it back.
+  Stop. A conversation runs in one place at a time, and **Open in terminal** takes it back. **Allow in this
+  chat** stops the asking for that kind of call until the chat is closed (nothing is written to a settings
+  file). In the mode "Run anything without asking" the chat never asks for a permission; what it still shows
+  is a question Claude puts to you, a plan to approve, what your own Claude Code settings insist on (an "ask"
+  rule, a hook that says ask) and Claude Code's stop before a delete that could empty the disk. A "deny" rule
+  of your settings stays denied in every mode.
 - **VS Code**: **Open in VS Code** on a project, a repository or a session opens the folder in VS Code in the
   browser, behind the dashboard's own sign-in (off until you accept VS Code Server's license), or on this
   computer's own screen.

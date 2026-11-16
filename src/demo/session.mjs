@@ -3,7 +3,7 @@
 // terminal — a prompt, tool lines, a diff, a result — and keeps a run record like the real launcher, so the
 // dashboard shows it as working, waiting, needing an OK or at a limit. It talks to no model and costs nothing.
 //
-// Called like the launcher: session.mjs <account> [--resume <id>] …   The folder's name picks the story
+// Called like the launcher: session.mjs <account> [--resume <id> | --session-id <id>] …   The folder's name picks the story
 // (STORIES below); a message typed into it gets a short scripted answer. All names, paths and projects are
 // made up.
 import crypto from 'node:crypto';
@@ -12,10 +12,13 @@ import readline from 'node:readline';
 import { createRun, removeRun, updateRun } from '../runs.mjs';
 
 const [account = 'max', ...args] = process.argv.slice(2);
-const resumed = args.includes('--resume');
+// A session that moved to another provider comes with its id: --resume, or --session-id from a dashboard that
+// finds no conversation on disk (this stand-in keeps none). Either way the demo's story goes on, it does not restart.
+const idFlag = ['--resume', '--session-id'].find((f) => args.includes(f));
+const resumed = Boolean(idFlag);
 const folder = path.basename(process.cwd());
 const id = (s) => crypto.createHash('sha256').update(s).digest('hex').replace(/^(.{8})(.{4})(.{3})(.{3})(.{12}).*/, '$1-$2-4$3-a$4-$5');
-const sessionId = resumed ? args[args.indexOf('--resume') + 1] : id(`demo:${folder}`);
+const sessionId = resumed ? args[args.indexOf(idFlag) + 1] : id(`demo:${folder}`);
 
 // ---------- drawing, the way Claude Code looks ----------
 const E = '\x1b[';
@@ -166,6 +169,9 @@ if (resumed) {
   promptBox();
 } else {
   story().then(() => {
-    if (!busyMessage) promptBox(folder === 'mobile-app' ? 'Enter to confirm · Esc to exit' : '? for shortcuts');
+    if (busyMessage) return;
+    // A question takes the place of the message box, as in Claude Code: only its key hint stands under it.
+    if (folder === 'mobile-app') w(`  ${c.dim('Enter to confirm · Esc to cancel')}`);
+    else promptBox();
   });
 }
