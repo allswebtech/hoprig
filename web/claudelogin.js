@@ -68,7 +68,7 @@ export function claudeSignIn({ done = () => {}, another = false, email = '', aft
         done();
         return fill(body,
           h('div.banner.warn', icon('alert', { size: 18 }), h('span', `Claude Code is signed in with the same account as before${plan}. Its limits are unchanged.`)),
-          h('p.sheet-text', 'The sign-in page uses the account your browser is signed in to at claude.ai. Switch the account there first, or copy the sign-in link into a private window, then try again.'),
+          h('p.sheet-text', 'Most likely the browser is signed in to that account at claude.ai, and the sign-in page took it. Switch the account there first, or copy the sign-in link into a private window, then try again.'),
           h('div.sheet-actions',
             h('button.btn.secondary', { type: 'button', onclick: () => close(true) }, 'Close'),
             btn('primary', { icon: 'refresh', label: 'Try again', onclick: () => { finished = false; tab = blankTab(); start(); } })));

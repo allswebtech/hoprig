@@ -263,13 +263,7 @@ function viewChat({ sub }) {
           h('button.btn.small.primary', { type: 'button', onclick: () => takeOver() }, 'Continue here'),
           s.terminal.name ? h('a.btn.small.secondary', { href: link(`#/s/${encodeURIComponent(s.terminal.name)}`) }, 'Open the terminal') : null))
         : null,
-      s.limit && !ro ? h('div.banner.error-box.chat-banner', { role: 'alert' }, icon('alert', { size: 18 }), h('span', `${s.profile.label} cannot answer now: ${s.limit.text}`),
-        h('span.chat-banner-actions',
-          h('button.btn.small.primary', { type: 'button', onclick: () => moveProvider() }, icon('swap', { size: 16 }), h('span', 'Move to another provider')),
-          // On Claude Code's stored sign-in: go on with another Claude account (claudeaccount.js).
-          accountLimitActions({ kind: 'chat', chatId: s.id, name: `chat:${s.id}`, display: s.title || 'This chat', profile: s.profile, limit: s.limit, limitAt: s.limit.at || null, machine: machine.current },
-            (store.data && store.data.profiles) || [])))
-        : null);
+      s.limit && !ro ? limitBanner(s) : null);
     const busy = s.status !== 'waiting';
     working.classList.toggle('hidden', s.status !== 'working');
     sendBtn.classList.toggle('hidden', busy);
@@ -282,6 +276,17 @@ function viewChat({ sub }) {
     for (const [r, el] of asks) if (!s.pending.includes(r)) decided(el, 'No longer waiting', false);
     paintTodos(s.todos);
     paintNext();
+  }
+
+  // The provider cannot answer: move the chat to another one, or (on Claude Code's stored sign-in) go on with another
+  // Claude account (claudeaccount.js). Once another account signed in, going on here leads.
+  function limitBanner(s) {
+    const account = (accountLimitActions({ kind: 'chat', chatId: s.id, name: `chat:${s.id}`, display: s.title || 'This chat', profile: s.profile, limit: s.limit, limitAt: s.limit.at || null, machine: machine.current },
+      (store.data && store.data.profiles) || []) || []).filter(Boolean);
+    const leads = account.filter((b) => /(^|\s)primary(\s|$)/.test(b.className));
+    const move = h(`button.btn.small.${leads.length ? 'secondary' : 'primary'}`, { type: 'button', onclick: () => moveProvider() }, icon('swap', { size: 16 }), h('span', 'Move to another provider'));
+    return h('div.banner.error-box.chat-banner', { role: 'alert' }, icon('alert', { size: 18 }), h('span', `${s.profile.label} cannot answer now: ${s.limit.text}`),
+      h('span.chat-banner-actions', leads, move, account.filter((b) => !leads.includes(b))));
   }
 
   let todosOpen = prefs.get('chat.todos', true);

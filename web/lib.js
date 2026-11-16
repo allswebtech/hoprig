@@ -204,7 +204,8 @@ export function until(ms) {
   const s = Math.round((ms - Date.now()) / 1000);
   if (s <= 60) return 'any moment';
   if (s < 3600) return `in ${Math.round(s / 60)} min`;
-  if (s < 12 * 3600) return `in ${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
+  const min = Math.round(s / 60); // whole minutes first: 1 h 59.7 min is "2 h 0 min", never "1 h 60 min"
+  if (s < 12 * 3600) return `in ${Math.floor(min / 60)} h ${min % 60} min`;
   const d = new Date(ms);
   const day = d.toLocaleDateString([], { weekday: 'short' });
   return `${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;

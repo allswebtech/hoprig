@@ -814,3 +814,11 @@ test('Setup on a plain leg: that computer\'s own page is a link only when it is 
   assert.equal(pageHref('https://pc.example.com/hop'), 'https://pc.example.com/hop');
   for (const bad of ['javascript:alert(1)', 'data:text/html,x', 'file:///etc/passwd', '//pc.example.com', 'not a url', '', null, 7]) assert.equal(pageHref(bad), null, String(bad));
 });
+
+test('a time until a limit resets: whole minutes first, so the minutes never read 60', async () => {
+  const { until } = await import('../../web/lib.js');
+  const now = Date.now();
+  assert.equal(until(now + (2 * 3600 - 20) * 1000), 'in 2 h 0 min'); // was "in 1 h 60 min"
+  assert.equal(until(now + 5400 * 1000), 'in 1 h 30 min');
+  assert.equal(until(now + 59 * 60 * 1000), 'in 59 min');
+});

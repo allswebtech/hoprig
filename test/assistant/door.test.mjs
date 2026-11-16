@@ -43,6 +43,8 @@ const OWNERS_ONLY = [
   ['POST', '/api/pair/code'], ['POST', '/api/pair/claim'], ['GET', '/api/joins'], ['POST', '/api/joins/x/leave'], ['POST', '/api/links/code'],
   ['POST', '/api/machines/url'], ['POST', '/api/machines/box2/remove'], ['POST', '/api/machines/install'], ['POST', '/api/machines/box2/test'],
   ['POST', '/api/profiles/add'], ['POST', '/api/profiles/sub/delete'], ['POST', '/api/profiles/sub/available'], ['GET', '/api/accounts'], ['POST', '/api/accounts/api'],
+  // Claude Code's own sign-in: who is signed in, signing in (also as another account) and out are the owner's
+  ['GET', '/api/accounts/claude-login/account'], ['POST', '/api/accounts/claude-login/start'], ['POST', '/api/accounts/claude-login/logout'], ['POST', '/api/accounts/claude-login/code'],
   ['POST', '/api/workspace/git/terminal'], ['POST', '/api/workspace/git/identity'], ['POST', '/api/workspace/git/signin'], ['POST', '/api/workspace/git/brain'], ['POST', '/api/addons/trouteai/setup'], ['POST', '/api/notify/test'], ['POST', '/api/onboarding/run'], ['POST', '/api/pcsetup/recipe'],
   ['GET', '/api/assistant'], ['POST', '/api/assistant/settings'], ['POST', '/api/assistant/client-token'], ['POST', '/api/assistant/cards/c_000000000000/confirm'],
   ['POST', '/api/assistant/chat'], ['POST', '/api/assistant/call'], ['GET', '/ws/term'],

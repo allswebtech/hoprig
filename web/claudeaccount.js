@@ -7,6 +7,7 @@
 // computer's page.
 import { claudeSignIn } from './claudelogin.js';
 import { icon } from './icons.js';
+import { REPO_URL } from './brand.js';
 import { add, api, btn, fill, h, limitActions, machine, openSheet, toast } from './lib.js';
 import { errorBox } from './shell.js';
 import { store } from './store.js';
@@ -115,7 +116,10 @@ export function switchAccount({ session = null, done = () => {} } = {}) {
         h('li', 'The new account has its own limits: the limit mark and the usage figures of this provider start again.'),
         session ? h('li', `Afterwards "${nameOf(session)}" goes on by itself.`) : null),
       h('label.fieldrow', h('span.field-label', 'E-mail address of the other account (optional)'), email,
-        h('span.hint', 'It fills in the sign-in page. Without it, that page offers the account your browser is signed in to at claude.ai.')),
+        h('span.hint', 'Claude Code hands it to the sign-in page, so that page can start with this account instead of the one your browser is signed in to.')),
+      // The same calm note as under Auto mode's order with several subscriptions (lib.js subscriptionsNote).
+      h('p.hint', 'Only an account of your own. Whether going on past a limit with a second account of yours is acceptable is yours to judge against Anthropic\'s terms. ',
+        h('a', { href: `${REPO_URL}#is-this-allowed`, target: '_blank', rel: 'noopener' }, 'Is this allowed?')),
       h('div.sheet-actions',
         h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'),
         h('button.btn.primary', { type: 'submit' }, icon('user', { size: 18 }), h('span', 'Sign in with another account'))));

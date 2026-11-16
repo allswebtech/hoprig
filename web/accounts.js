@@ -165,9 +165,12 @@ function accountRow(a, place, autoOn, signIn, another) {
   h('span.row-main',
     h('span.row-title', a.label, autoOn && place ? h('span.badge.soft', `${ORDINAL(place)} in the order`) : null),
     h('span.row-sub.state', [kindText(a), remoteText(a), ps.text].filter(Boolean).join(' · ')),
-    ps.key === 'signin' ? null : usageBars(a.usage, a.usageReported, a.inUse > 0)),
+    ps.key === 'signin' ? null : usageBars(a.usage, a.usageReported, a.inUse > 0),
+    // Under the figures, not beside them: its words would squeeze the row on a phone.
+    ps.key === 'limit' && another && usesStoredLogin(a)
+      ? h('span.acct-more', h('button.btn.small.secondary', { type: 'button', onclick: (e) => { e.stopPropagation(); another(a); } }, icon('user', { size: 15 }), h('span', 'Sign in with another Claude account')))
+      : null),
   ps.key === 'signin' && signIn ? h('button.btn.small.primary.acct-signin', { type: 'button', onclick: (e) => { e.stopPropagation(); signIn(a); } }, icon('user', { size: 15 }), h('span', 'Sign in')) : null,
-  ps.key === 'limit' && another && usesStoredLogin(a) ? h('button.btn.small.secondary.acct-signin', { type: 'button', title: 'Sign in with another Claude account: the work goes on under this provider', onclick: (e) => { e.stopPropagation(); another(a); } }, icon('user', { size: 15 }), h('span', 'Use another account')) : null,
   h('span.row-end', icon('chevronRight', { size: 18 })));
 }
 
@@ -265,7 +268,7 @@ function viewAccount(frame, name) {
             d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: () => signInAgain(a, d, refresh) }) : null)
           : usageBars(a.usage, a.usageReported, a.inUse > 0) || h('p.hint', 'No usage figures yet: they appear after the first answer on this provider.'),
         stored && ps.key === 'limit'
-          ? h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'This account is at its limit. With another Claude account the work goes on under this provider.'),
+          ? h('div.banner.warn.mbanner.acct-limit', icon('alert', { size: 18 }), h('span', 'This account is at its limit. With another Claude account the work goes on under this provider.'),
             btn('small primary', { icon: 'user', label: 'Sign in with another Claude account', onclick: () => switchAccount({ done: refresh }) }))
           : null,
         d.full ? toggle('Use in Auto mode', a.inAuto, async (on) => {
@@ -279,8 +282,8 @@ function viewAccount(frame, name) {
           }
         }, 'When on, Auto mode moves a session here when the providers above it in the order are at their limit.') : null),
       d.full ? h('div.rows',
-        stored && ps.key !== 'signin' ? act('user', 'Sign in with another account', 'Sessions on this provider keep running and use the new account; the account of now stays until the new sign-in is complete', () => switchAccount({ done: refresh })) : null,
-        stored && ps.key !== 'signin' ? act('logout', 'Sign out', 'Claude Code forgets this sign-in on this computer', () => signOut({ done: refresh })) : null,
+        stored && ps.key !== 'signin' ? act('user', 'Sign in with another account', 'Sessions keep running, on the new account', () => switchAccount({ done: refresh })) : null,
+        stored && ps.key !== 'signin' ? act('logout', 'Sign out', 'Claude Code forgets this sign-in', () => signOut({ done: refresh })) : null,
         act('pencil', 'Rename', 'The name shown everywhere', async () => {
           const label = await promptSheet({ title: 'Rename provider', value: a.label, ok: 'Rename', check: (v) => (v.trim() && v.length <= 60 ? '' : 'One line, up to 60 characters') });
           if (!label) return;

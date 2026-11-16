@@ -10,7 +10,8 @@
 //                    folders, add a computer by SSH, fix one setup check, set up a computer, update Claude Code,
 //                    end a process, reboot / power off, install / stop an add-on, schedules, rules, resume
 //                    automations, install / update / remove a skill, draft a procedure
-//   not by chat (L3) remove a computer, add one by pairing code, providers' sign-ins, keys, the password, the network
+//   not by chat (L3) remove a computer, add one by pairing code, providers' sign-ins (sign in, sign out, another
+//                    Claude account: Providers page, src/server/claudelogin.mjs), keys, the password, the network
 //
 // Text that comes from a project (names, files, git output), a brain file or a skill review is DATA: it is fenced.
 import { arr, bool, int, obj, ref, str } from './schema.mjs';
