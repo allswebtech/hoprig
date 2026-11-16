@@ -10,7 +10,7 @@
 //
 // It never guesses: when the system cannot be asked, says nothing about a pid, or answers wrongly about this process
 // itself, the identity is "not known" (null), and not known is never "another process".
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 
@@ -18,6 +18,9 @@ export const SAME_WITHIN = 3000;
 // A file written within this much before the boot may still be of this boot: the clock may have been corrected
 // after the machine started.
 const BOOT_SLACK = 10 * 60_000;
+// This process's start, worked out once, when it is loaded: a clock set later (the time service, by hand) must not move
+// it, as it does not move what the system stored when the process was created.
+const STARTED = Date.now() - process.uptime() * 1000;
 
 /** Field 22 (starttime) of a /proc/<pid>/stat text, or null. The name in it may contain spaces and ")". */
 export function statStart(text) {
@@ -61,6 +64,15 @@ function runProgram(cmd, args, timeout) {
   return r.error ? null : r.stdout || '';
 }
 
+/** runProgram without waiting: a promise of the same. */
+function runProgramLater(cmd, args, timeout) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { encoding: 'utf8', timeout, windowsHide: true, env: { ...process.env, LC_ALL: 'C' } }, (err, stdout) => {
+      resolve(err && (typeof err.code !== 'number' || err.killed) ? null : stdout || '');
+    });
+  });
+}
+
 /** Whether two identities are the same process: true, false, or null when they cannot be compared. */
 export function sameProcess(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return null;
@@ -78,12 +90,12 @@ export function sameProcess(a, b) {
 /**
  * The identity reader of one system. Tests hand in what a system would print: `read(path)` (a file's text, throws
  * when it cannot), `run(cmd, args, timeout)` (stdout, or null when it cannot run), `now`, `ownStart` (this process's
- * start in epoch ms), `osUptime` (seconds), `pid` (this process).
+ * start in epoch ms, fixed), `osUptime` (seconds), `pid` (this process).
  *   self()       this process's identity (null on Linux when /proc cannot be read: its records carry none)
  *   of(pids)     Map pid → identity or null (not known); all pids in one call to the system
  *   bootAt()     when this boot began, in epoch ms
  */
-export function makeIdentity({ platform = process.platform, read = (p) => fs.readFileSync(p, 'utf8'), run = runProgram, now = Date.now, ownStart = () => Date.now() - process.uptime() * 1000, osUptime = os.uptime, pid = process.pid } = {}) {
+export function makeIdentity({ platform = process.platform, read = (p) => fs.readFileSync(p, 'utf8'), run = runProgram, now = Date.now, ownStart = STARTED, osUptime = os.uptime, pid = process.pid } = {}) {
   let boot;
   const bootId = () => {
     if (boot === undefined) {
@@ -105,7 +117,7 @@ export function makeIdentity({ platform = process.platform, read = (p) => fs.rea
   };
   let mine;
   const self = () => {
-    if (mine === undefined) mine = platform === 'linux' ? linuxOf(pid) : `T:${Math.round(ownStart())}`;
+    if (mine === undefined) mine = platform === 'linux' ? linuxOf(pid) : `T:${Math.round(ownStart)}`;
     return mine;
   };
 
@@ -117,7 +129,9 @@ export function makeIdentity({ platform = process.platform, read = (p) => fs.rea
       ? { ttl: 300_000, starts: (pids) => { const out = run('powershell.exe', powershellArgs(creationScript(pids)), 15_000); return out === null ? null : parseCreations(out); } }
       : null;
   const memo = new Map(); // pid → { start (null: nothing said), answered (the system could be asked), at }
-  let trusted = null; // null until the system has answered about this process
+  // null until the system has said when this process started (an answer without it, or none, is asked again after the
+  // while); false for good once that answer was wrong.
+  let trusted = null;
   const fresh = (p) => memo.has(p) && now() - memo.get(p).at < ask.ttl;
   const learn = (pids) => {
     const starts = ask.starts(pids);
@@ -139,7 +153,7 @@ export function makeIdentity({ platform = process.platform, read = (p) => fs.rea
       if (trusted === null && !fresh(pid)) wanted.push(pid); // the self check rides on the first call
       if (wanted.length) learn(wanted);
       const me = memo.get(pid);
-      if (trusted === null && me && me.answered) trusted = me.start !== null && Math.abs(me.start - ownStart()) < SAME_WITHIN;
+      if (trusted === null && me && me.start !== null) trusted = Math.abs(me.start - ownStart) < SAME_WITHIN;
     }
     for (const p of others) {
       const m = trusted ? memo.get(p) : null;

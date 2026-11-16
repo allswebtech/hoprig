@@ -73,10 +73,10 @@ const sys = (platform, answer) => {
   let t = 1_800_000_000_000;
   const started = t - 5_000; // this process started 5 s ago
   const id = makeIdentity({
-    platform, pid: 7, now: () => t, ownStart: () => started,
+    platform, pid: 7, now: () => t, ownStart: started,
     run: (cmd, args) => {
       calls.push([cmd, args]);
-      return answer(cmd, args);
+      return answer(cmd, args, calls.length);
     },
   });
   return { id, calls, later: (ms) => (t += ms), now: () => t };
@@ -112,13 +112,23 @@ test('macOS reader: all pids in one ps call, its answer kept 30 seconds, after a
 });
 
 test('a system that answers wrongly about this process itself is never believed about others', () => {
-  for (const [why, self] of [['an hour off', '    7 01:00:05'], ['four seconds off', '    7 00:09'], ['nothing about itself', '']]) {
+  for (const [why, self] of [['an hour off', '    7 01:00:05'], ['four seconds off', '    7 00:09']]) {
     const s = sys('darwin', (cmd, args) => `${self}\n  101 01:10\n`);
     assert.equal(s.id.of([101]).get(101), null, why);
     s.later(60_000);
     assert.equal(s.id.of([101]).get(101), null, why);
     assert.equal(s.calls.length, 1, `${why}: not asked again`);
   }
+  // One that said nothing about this process (PowerShell prints nothing on a busy moment): not believed while it says
+  // nothing, asked again after the while, and believed once it answers rightly.
+  const quiet = sys('darwin', (cmd, args, n) => `${n === 1 ? '' : '    7 00:36'}\n  101 01:10\n`);
+  assert.equal(quiet.id.of([101]).get(101), null, 'nothing about itself');
+  quiet.later(10_000);
+  assert.equal(quiet.id.of([101]).get(101), null, 'still not believed');
+  assert.equal(quiet.calls.length, 1, 'kept for the while');
+  quiet.later(21_000);
+  assert.equal(quiet.id.of([101]).get(101), `T:${quiet.now() - 70_000}`, 'asked again: right about itself, believed');
+  assert.equal(quiet.calls.length, 2);
   // A system that cannot be asked: not known, and asked again only after the while.
   const s = sys('darwin', () => null);
   assert.equal(s.id.of([101]).get(101), null);
@@ -146,4 +156,19 @@ test('Windows reader: one PowerShell call for all pids, kept 5 minutes', () => {
   // A clock off by more than the 3 seconds between PowerShell and Node: not believed.
   const off = sys('win32', () => `7 ${off.now() - 9_000}\r\n101 1\r\n`);
   assert.equal(off.id.of([101]).get(101), null);
+});
+
+test('this process\'s own start is the one of when it was loaded, also after the clock was set', () => {
+  // Days later the time service moves the clock an hour; then the first chat writes the dashboard's identity. It is the
+  // start the system stored at creation (Windows' CreationDate does not move with the clock), not one an hour off.
+  const start = Date.now() - process.uptime() * 1000;
+  const real = Date.now;
+  Date.now = () => real() + 3_600_000;
+  let token;
+  try {
+    token = makeIdentity({ platform: 'win32', run: () => null }).self();
+  } finally {
+    Date.now = real;
+  }
+  assert.ok(Math.abs(Number(token.slice(2)) - start) < 1000, `${token} against T:${Math.round(start)}`);
 });
