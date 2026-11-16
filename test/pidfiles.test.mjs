@@ -15,8 +15,10 @@ const box = sandbox('pidfiles');
 const bin = path.join(box.root, 'bin');
 fs.mkdirSync(bin);
 // A stand-in cloudflared: the lines the real one prints, then it waits. A node script, so its command line stays
-// "… cloudflared tunnel --no-autoupdate --url http://127.0.0.1:<port>", as the real one's.
-fs.writeFileSync(path.join(bin, 'cloudflared'), `#!/usr/bin/env node
+// "… cloudflared tunnel --no-autoupdate --url http://127.0.0.1:<port>", as the real one's. Started by this Node itself,
+// not through /usr/bin/env: while env starts node, the command line reads empty for a moment, and a check that falls
+// into that moment takes the tunnel for another program (seen once in a whole suite).
+fs.writeFileSync(path.join(bin, 'cloudflared'), `#!${process.execPath}
 console.error('INF |  https://pid-' + process.pid + '-words.trycloudflare.com  |');
 console.error('INF Registered tunnel connection connIndex=0');
 setInterval(() => {}, 1 << 30);
