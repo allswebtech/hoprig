@@ -37,6 +37,7 @@
 // $FAKE_CLAUDE_ARGS: a file that gets one line per start with the arguments it was given, the answers to OK cards
 // ({answer}) and the control requests ({control}).
 // $FAKE_CLAUDE_STUBBORN=1: it keeps running when its input ends and ignores SIGTERM (only SIGKILL ends it).
+// $FAKE_CLAUDE_NO_LIVE=1: model, effort and mode cannot change while it runs (the control requests are refused).
 // $FAKE_CLAUDE_NO_BYPASS=1: the settings turn bypassPermissions off: it starts in the default mode instead.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -262,9 +263,11 @@ async function turn(text, content = [{ type: 'text', text }]) {
     if (a1.stopped) return stopped();
     const plan = { plan: '# The plan\n\n1. Add the thing\n2. Test it\n' };
     const x = tool('ExitPlanMode', plan);
-    const a2 = await ask(x, 'ExitPlanMode', plan, { requires_user_interaction: true });
+    // As Claude Code: the ask does not carry the plan; it is in the tool call.
+    const a2 = await ask(x, 'ExitPlanMode', {}, { requires_user_interaction: true });
     if (a2.behavior === 'allow') {
       setMode(startMode);
+      learn(a2); // the mode to go on in, where the approval names one
       user([{ type: 'tool_result', tool_use_id: x, content: 'User has approved your plan. You can now start coding.' }]);
       assistant([{ type: 'text', text: 'The plan is approved.' }]);
     } else {
@@ -370,14 +373,17 @@ function control(m) {
     case 'initialize':
       return answerControl(m, { commands: [{ name: 'compact', description: 'Clear the history but keep a summary', argumentHint: '', builtin: true }, { name: 'review', description: 'Review the changes', argumentHint: '[what]', builtin: false }], models: [{ value: 'default' }, { value: 'haiku' }], pid: process.pid });
     case 'set_permission_mode':
+      if (process.env.FAKE_CLAUDE_NO_LIVE) return refuse(m, 'not in this version', 'unsupported_request');
       if (r.mode === 'bypassPermissions' && !canBypass) return refuse(m, 'Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions', 'bypass_not_launched');
       setMode(r.mode);
       return answerControl(m, { mode: r.mode });
     case 'set_model':
+      if (process.env.FAKE_CLAUDE_NO_LIVE) return refuse(m, 'not in this version', 'unsupported_request');
       model = r.model || 'fake-default';
       out({ type: 'user', message: { role: 'user', content: `<local-command-stdout>Set model to ${model}</local-command-stdout>` }, isReplay: true, uuid: `rp${Math.random()}`, session_id: sessionId });
       return answerControl(m, { model });
     case 'apply_flag_settings':
+      if (process.env.FAKE_CLAUDE_NO_LIVE) return refuse(m, 'not in this version', 'unsupported_request');
       // Without an "ultracode" key an effort change turns it off.
       if ('effortLevel' in r.settings) flags.ultracode = !!r.settings.ultracode;
       Object.assign(flags, r.settings);

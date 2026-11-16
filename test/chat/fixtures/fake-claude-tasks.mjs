@@ -11,6 +11,9 @@
 //   "limits"         a plan-limit line (rate_limit_event), then text
 //   "compact"        compacting: status, compact_boundary
 //   "title <words>"  the conversation gets a title
+//   "slow <ms>"      answers after <ms> (a turn that runs a while)
+//   "clear"          the conversation gets a new id (conversation_reset), as /clear does
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -129,6 +132,15 @@ export function tasks({ out, assistant, user, tool, result, sessionId, ownTurn }
     if ((m = /^title (.+)/.exec(text))) {
       sys('session_title_changed', { title: m[1] });
       assistant([{ type: 'text', text: 'Named.' }]);
+      return result(true) || true;
+    }
+    if ((m = /^slow (\d+)/.exec(text))) {
+      await new Promise((r) => setTimeout(r, Number(m[1])));
+      assistant([{ type: 'text', text: `slow: done after ${m[1]} ms` }]);
+      return result(true) || true;
+    }
+    if (text === 'clear') {
+      out({ type: 'conversation_reset', new_conversation_id: crypto.randomUUID(), trigger: 'clear', session_id: sessionId });
       return result(true) || true;
     }
     return null;

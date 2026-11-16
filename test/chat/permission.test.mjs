@@ -70,7 +70,8 @@ test('bypassPermissions: what Claude Code still asks about is allowed at once, w
   await c.send('plan inplan.txt');
   const plan = await card(c);
   assert.equal(plan.tool, 'ExitPlanMode', 'the only card is the plan');
-  assert.match(plan.input.plan, /Add the thing/, 'with its text');
+  assert.match(plan.plan, /Add the thing/, 'with its text, taken from the tool call (the ask does not carry it)');
+  assert.equal(plan.type, 'plan');
   assert.equal(plan.canAlways, false);
   assert.equal(fs.readFileSync(path.join(c.cwd, 'inplan.txt'), 'utf8'), 'written in plan mode\n', 'the change in plan mode ran');
   assert.equal(c.liveMode, 'plan');
