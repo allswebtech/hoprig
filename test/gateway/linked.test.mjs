@@ -80,7 +80,12 @@ test('a linked computer\'s gateway: listed, used with one click, streamed throug
   const b = await machine(root, 'b', `writeProfile('api', { label: 'API via TRouteAI', env: { ANTHROPIC_BASE_URL: 'http://localhost:${gw.port}', ANTHROPIC_AUTH_TOKEN: ${JSON.stringify(GW_KEY)}, ANTHROPIC_MODEL: 'combo-best' } });`, gw.port);
   const a = await machine(root, 'a');
   t.after(async () => {
-    for (const m of [a, b]) if (m.child && m.child.exitCode === null) m.child.kill('SIGTERM');
+    // Each dashboard has ended before its folders go: one still stopping writes into them while they are removed.
+    await Promise.all([a, b].map((m) => m.child && m.child.exitCode === null && m.child.signalCode === null && new Promise((r) => {
+      m.child.once('exit', r);
+      m.child.kill('SIGTERM');
+      setTimeout(r, 10_000).unref();
+    })));
     await gw.close();
     fs.rmSync(root, { recursive: true, force: true });
   });
