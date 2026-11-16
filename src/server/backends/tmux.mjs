@@ -9,7 +9,7 @@ import { ensureSpawnHelper } from './pty-helper.mjs';
 import { shellLine } from './shell.mjs';
 
 const FIELDS = [
-  'session_name', 'session_created', 'session_attached', 'session_activity',
+  'session_name', 'session_created', 'session_attached', 'session_activity', 'window_activity',
   'window_active', 'pane_active', 'pane_id', 'pane_pid', 'pane_dead', 'pane_current_command', 'pane_current_path',
 ];
 export const PANE_FORMAT = FIELDS.map((f) => `#{${f}}`).join('\t');
@@ -31,7 +31,9 @@ export function parsePanes(out) {
       command: r.pane_current_command,
       created: Number(r.session_created) * 1000,
       attached: Number(r.session_attached) || 0,
-      activity: Number(r.session_activity) * 1000,
+      // The last input (session_activity) or output (window_activity: tmux moves only this one when the program
+      // prints), like the built-in terminals' own clock. A screen-only status ("Live status: basic") reads it.
+      activity: Math.max(Number(r.session_activity) || 0, Number(r.window_activity) || 0) * 1000,
       active: r.window_active === '1' && r.pane_active === '1',
       dead: r.pane_dead === '1',
     });
