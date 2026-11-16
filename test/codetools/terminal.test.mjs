@@ -254,3 +254,13 @@ test('doctor names a provider file that a new command word hides, and says how t
   assert.match(JSON.stringify(r), /codex-provider\.env/);
   fs.rmSync(path.join(process.env.HOPRIG_PROFILES_DIR, 'codex.env'));
 });
+
+test('a session with basic live status sends no notification when its screen goes quiet', async () => {
+  const { transitions } = await import('../../src/server/watcher.mjs');
+  const card = (status, extra = {}) => ({ name: 'x', kind: 'claude', tool: 'codex', status, ...extra });
+  let r = transitions(new Map(), [card('working', { liveStatus: 'basic' })]);
+  r = transitions(r.next, [card('waiting', { liveStatus: 'basic' })]);
+  assert.deepEqual(r.events, []);
+  r = transitions(new Map([['x', 'working']]), [card('attention')]);
+  assert.deepEqual(r.events.map((e) => e.status), ['attention'], 'from the server: told as for Claude Code');
+});

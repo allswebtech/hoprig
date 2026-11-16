@@ -36,8 +36,11 @@ export function enrich(cards, runs) {
   });
 }
 
-/** What a card is, for notifications: limit (wins), shell, or the run status. */
-export const stateOf = (c) => (c.limit || c.runLimit ? 'limit' : c.kind === 'shell' ? 'shell' : c.status || 'unknown');
+/**
+ * What a card is, for notifications: limit (wins), shell, or the run status. A session whose status is read from
+ * its screen's activity only ("Live status: basic") is never told about: that status is a guess.
+ */
+export const stateOf = (c) => (c.limit || c.runLimit ? 'limit' : c.kind === 'shell' ? 'shell' : c.liveStatus === 'basic' ? 'basic' : c.status || 'unknown');
 
 const NOTIFY = new Set(['waiting', 'attention', 'limit']);
 
