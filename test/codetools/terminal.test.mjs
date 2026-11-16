@@ -71,6 +71,38 @@ test('OpenCode in a terminal attaches to the server on one conversation; "ask" a
   assert.throws(() => opencode.flagsFor({ effort: 'ultra' }), /effort is one of/);
 });
 
+test('OpenCode: a conversation continued in "ask" mode asks from then on; in another mode it stops asking; without a mode it stays', async () => {
+  const http = await import('node:http');
+  const { opencodePlan } = await import('../../src/codetools/attach.mjs');
+  const seen = [];
+  const srv = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      seen.push([req.method, req.url, body ? JSON.parse(body) : null]);
+      if (req.method === 'PATCH') { res.writeHead(204); return res.end(); }
+      res.writeHead(200);
+      res.end(JSON.stringify({ data: { id: 'ses_abcdefgh12345678', title: 'T', permissions: [] } }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const server = { port: srv.address().port, secret: 's' };
+  const plan = (args) => opencodePlan(server, { profile: P.readProfile('gw'), model: null, cwd: tmp, o: T.parseToolArgs(['--resume', 'ses_abcdefgh12345678', ...args]), base: {}, report: Object.assign(() => {}, { title: () => {} }) });
+  const patches = () => seen.filter(([m]) => m === 'PATCH').map(([, url, b]) => [url, b.permissions.map((r) => `${r.action}:${r.effect}`)]);
+  try {
+    await plan(['--permission-mode', 'ask']);
+    assert.deepEqual(patches(), [['/api/session/ses_abcdefgh12345678', ['edit:ask', 'shell:ask', 'webfetch:ask', 'external_directory:ask']]]);
+    seen.length = 0;
+    await plan(['--permission-mode', 'default']);
+    assert.deepEqual(patches(), [['/api/session/ses_abcdefgh12345678', []]], 'another mode takes the "ask" rules away');
+    seen.length = 0;
+    await plan([]);
+    assert.deepEqual(patches(), [], 'no mode chosen: the conversation keeps its rules');
+  } finally {
+    srv.close();
+  }
+});
+
 test('status from the servers\' events: working, needs your OK, waiting; an error is kept until the next turn', () => {
   // Codex's finished items: the model's message, and the owner's first words as a title (its threads have no name).
   const got = [];
@@ -192,7 +224,7 @@ test('OpenCode\'s server always has a password, and a lock left by a holder that
   assert.equal(S.readServer('opencode'), null);
 });
 
-test('Codex\'s conversations of a folder come from its own store, with the name it gave them', () => {
+test('Codex\'s conversations of a folder come from its own store, with the name it gave them', async () => {
   const day = path.join(process.env.CODEX_HOME, 'sessions', '2026', '11', '16');
   fs.mkdirSync(day, { recursive: true });
   const line = (id, cwd) => JSON.stringify({ type: 'session_meta', payload: { id, cwd, originator: 'x' } });
@@ -202,9 +234,10 @@ test('Codex\'s conversations of a folder come from its own store, with the name 
   fs.writeFileSync(path.join(day, `rollout-2026-11-16T14-00-00-${a}.jsonl`), [line(a, '/w/proj'), user('<environment_context>'), user('Fix the build please')].join('\n') + '\n');
   fs.writeFileSync(path.join(day, `rollout-2026-11-16T14-05-00-${b}.jsonl`), [line(b, '/w/other'), user('elsewhere')].join('\n') + '\n');
   fs.writeFileSync(path.join(process.env.CODEX_HOME, 'session_index.jsonl'), `${JSON.stringify({ id: a, thread_name: 'old' })}\n${JSON.stringify({ id: a, thread_name: 'Build fix' })}\n`);
-  assert.deepEqual(ST.codexSessions('/w/proj').map((s) => [s.id, s.title]), [[a, 'Build fix']]);
+  assert.deepEqual((await ST.codexSessions('/w/proj')).map((s) => [s.id, s.title]), [[a, 'Build fix']]);
   fs.writeFileSync(path.join(process.env.CODEX_HOME, 'session_index.jsonl'), '');
-  assert.deepEqual(ST.codexSessions('/w/proj').map((s) => s.title), ['Fix the build please'], 'else its first message');
+  assert.deepEqual((await ST.codexSessions('/w/proj')).map((s) => s.title), ['Fix the build please'], 'else its first message');
+  assert.ok(ST.codexSessions('/w/proj') instanceof Promise, 'read without blocking the dashboard');
   assert.equal(ST.codexHas(a), true);
   assert.equal(ST.codexHas('01a1e399-0000-7000-8000-000000000000'), false, 'a thread nobody typed into has no file');
   assert.equal(ST.isToolSessionId('opencode', 'ses_0000demo0002SampleSession'), true);

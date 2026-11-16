@@ -30,14 +30,14 @@ const real = (p) => {
 };
 const sameDir = (a, b) => a === b || real(a) === real(b);
 
-function readHead(file, n = HEAD_BYTES) {
-  const fd = fs.openSync(file, 'r');
+async function readHead(file, n = HEAD_BYTES) {
+  const fh = await fs.promises.open(file, 'r');
   try {
     const buf = Buffer.alloc(n);
-    const got = fs.readSync(fd, buf, 0, n, 0);
-    return buf.toString('utf8', 0, got);
+    const { bytesRead } = await fh.read(buf, 0, n, 0);
+    return buf.toString('utf8', 0, bytesRead);
   } finally {
-    fs.closeSync(fd);
+    await fh.close();
   }
 }
 
@@ -49,14 +49,15 @@ const entries = (dir) => {
   }
 };
 
-// Read once per file and mtime: the page lists them again and again.
+// Read once per file and mtime: the page lists them again and again. The reads are asynchronous: a first list of a
+// computer with thousands of conversations reads their heads, and the dashboard keeps serving meanwhile.
 const metaCache = new Map();
 
 /** { id, cwd, title } from the head of a Codex rollout file, or null. */
-export function codexMeta(file) {
+export async function codexMeta(file) {
   let st;
   try {
-    st = fs.statSync(file);
+    st = await fs.promises.stat(file);
   } catch {
     return null;
   }
@@ -64,7 +65,7 @@ export function codexMeta(file) {
   if (metaCache.has(key)) return metaCache.get(key);
   let out = null;
   try {
-    const head = readHead(file);
+    const head = await readHead(file);
     const first = head.split('\n')[0];
     const cwd = (/"cwd":"((?:[^"\\]|\\.)*)"/.exec(first) || [])[1];
     const id = (/"id":"([0-9a-f-]{36})"/.exec(first) || [])[1];
@@ -155,13 +156,14 @@ export function codexHas(id, { home = codex.home() } = {}) {
 }
 
 /** Codex conversations of `cwd`, newest first: [{ id, at, title }]. */
-export function codexSessions(cwd, { home = codex.home() } = {}) {
+export async function codexSessions(cwd, { home = codex.home() } = {}) {
+  const files = [];
+  eachRollout(home, (file) => (files.push(file), false));
   const out = [];
-  eachRollout(home, (file) => {
-    const meta = codexMeta(file);
+  for (const file of files) {
+    const meta = await codexMeta(file);
     if (meta && sameDir(meta.cwd, cwd)) out.push(meta);
-    return false;
-  });
+  }
   const names = out.length ? codexNames(home) : new Map();
   return out
     .sort((a, b) => b.at - a.at)

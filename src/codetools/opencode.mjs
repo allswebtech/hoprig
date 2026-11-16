@@ -71,9 +71,14 @@ export const opencode = {
     return permissionMode === 'bypassPermissions' ? ['--auto'] : [];
   },
   /** The rules a new conversation gets (POST /api/session "permissions"), for the "ask" mode. */
-  sessionPermissions: ({ permissionMode = null } = {}) => (permissionMode === 'ask'
-    ? { permissions: ['edit', 'shell', 'webfetch', 'external_directory'].map((action) => ({ action, resource: '*', effect: 'ask' })) }
-    : {}),
+  sessionPermissions: ({ permissionMode = null } = {}) => (permissionMode === 'ask' ? { permissions: askRules() } : {}),
+  /**
+   * The rules a conversation that is continued gets (PATCH /api/session/<id> "permissions", which replaces them;
+   * checked with 2.3: a shell step of a default conversation is allowed, asked after the "ask" rules are set, and
+   * allowed again after []): the "ask" rules for "ask", none for another mode, so a conversation continued in another
+   * mode stops asking; null (left as it is) when no mode was chosen.
+   */
+  resumePermissions: ({ permissionMode = null } = {}) => (permissionMode ? (permissionMode === 'ask' ? askRules() : []) : null),
   /** npm replaces the program's files: an update waits until no OpenCode session is open. */
   updateItem: { whenRunning: 'wait-until-none' },
   /**
@@ -95,6 +100,17 @@ export const opencode = {
   about: 'an open-source coding tool that works with many providers',
   size: 'about 240 MB',
 };
+
+/** The rules of the "ask" mode: OpenCode asks before it edits, runs a command, fetches a page or leaves the folder. */
+export const askRules = () => ['edit', 'shell', 'webfetch', 'external_directory'].map((action) => ({ action, resource: '*', effect: 'ask' }));
+
+/**
+ * The same rules in OpenCode's config, for a start without Hoprig's server (no conversation rules to set there). They
+ * go to the agents that do the work: an agent's own rules come after the global ones, and the built-in "build" agent
+ * allows everything, so a global rule would never ask (checked with 2.3: global rules allowed a shell step, rules of
+ * "build" and "general" asked; "plan" and "explore" stay read-only by their own rules).
+ */
+export const askAgents = () => ({ build: { permissions: askRules() }, general: { permissions: askRules() } });
 
 /** Where a project keeps its memory index, from the project's folder (the layout of src/pcsetup/workspace.mjs). */
 export const MEMORY_INDEX = 'ai_brain/claude-memory/MEMORY.md';

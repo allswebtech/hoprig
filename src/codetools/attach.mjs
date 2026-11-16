@@ -130,7 +130,7 @@ export const isNewThreadOf = (t, cwd) => Boolean(t && t.id) && !t.ephemeral && !
 export async function codexPlan(server, { profile, model, cwd, o, base, report }) {
   const prov = serverProviders('codex', [profile])[0];
   const client = await codexClient({ port: server.port, secret: server.secret });
-  let resume = o.resume || (o.cont ? (codexSessions(cwd)[0] || {}).id || null : null);
+  let resume = o.resume || (o.cont ? ((await codexSessions(cwd))[0] || {}).id || null : null);
   if (resume) {
     // Loaded with this provider and model before the terminal resumes it, and a check that Codex has the
     // conversation at all. Codex keeps a conversation on the provider it was started on ("Cannot change this
@@ -160,7 +160,7 @@ export async function codexPlan(server, { profile, model, cwd, o, base, report }
   }
   const env = { ...cleanEnv(base), ...findTool('codex').noSelfUpdate.env, HOPRIG_CODEX_WS: server.secret };
   const args = codexTuiArgs({ port: server.port, prov, model, cwd, resume, o });
-  if (resume) report.title((codexSessions(cwd).find((x) => x.id === resume) || {}).title || '');
+  if (resume) report.title(((await codexSessions(cwd)).find((x) => x.id === resume) || {}).title || '');
   let mine = resume;
   // Codex names a thread only when asked to: until then the card's title is the first thing the owner said.
   let named = Boolean(resume);
@@ -257,6 +257,9 @@ export async function opencodePlan(server, { profile, model, cwd, o, base, repor
     });
     if (j && j.data && typeof j.data.title === 'string') report.title(j.data.title);
     if (want) await oc.req('POST', `/api/session/${encodeURIComponent(id)}/model`, { model: want });
+    // A conversation keeps the rules it was made with: the mode chosen now replaces them.
+    const rules = t.resumePermissions(o);
+    if (rules) await oc.req('PATCH', `/api/session/${encodeURIComponent(id)}`, { permissions: rules });
   } else {
     const body = { location: { directory: cwd }, ...(want ? { model: want } : {}), ...t.sessionPermissions(o) };
     const j = await oc.req('POST', '/api/session', body);
@@ -303,11 +306,11 @@ export async function standalonePlan(toolId, { profile, model, cwd, o, base }) {
   const t = findTool(toolId);
   if (toolId === 'codex') {
     const { env } = await startSettings('codex', profile, { base: cleanEnv(base) });
-    const resume = o.resume || (o.cont ? (codexSessions(cwd)[0] || {}).id || null : null);
+    const resume = o.resume || (o.cont ? ((await codexSessions(cwd))[0] || {}).id || null : null);
     const args = [...codexArgs(profile, { home: t.home(env) }), ...(model && !profile.env?.ANTHROPIC_MODEL ? ['-m', model] : []), ...t.flagsFor(o), ...o.extra, '-C', cwd, ...(resume ? ['resume', resume] : []), ...promptTail('codex', o.prompt)];
     return { args, env, sessionId: resume };
   }
-  const { env } = await startSettings('opencode', profile, { base: cleanEnv(base) });
+  const { env } = await startSettings('opencode', profile, { base: cleanEnv(base), permissionMode: o.permissionMode });
   const args = ['--standalone', ...(o.resume ? ['-s', o.resume] : o.cont ? ['-c'] : []), ...t.flagsFor(o), ...o.extra, ...promptTail('opencode', o.prompt), cwd];
   return { args, env, sessionId: o.resume || null };
 }

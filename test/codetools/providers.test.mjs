@@ -191,6 +191,13 @@ test('OpenCode: a provider block in a file of Hoprig\'s own, with no secret in i
     assert.deepEqual(Object.keys(JSON.parse(text).providers.hoprig.models), ['m-big', 'm-other']);
     if (process.platform !== 'win32') assert.equal(fs.statSync(env.OPENCODE_CONFIG).mode & 0o777, 0o600);
     assert.equal(env.HOPRIG_OPENCODE_KEY, KEY);
+    assert.equal(JSON.parse(text).agents, undefined, 'OpenCode\'s own rules unless "ask" was chosen');
+    // "ask" without Hoprig's server: the working agents get the rules (a global rule would lose to "build"'s own).
+    const ask = await T.startSettings('opencode', prof, { base: { PATH: '/bin' }, permissionMode: 'ask' });
+    assert.equal(ask.env.OPENCODE_CONFIG, path.join(process.env.HOPRIG_STATE_DIR, 'codetools', 'opencode', 'gw.ask.json'), 'a file of its own: sessions in other modes keep theirs');
+    const agents = JSON.parse(fs.readFileSync(ask.env.OPENCODE_CONFIG, 'utf8')).agents;
+    assert.deepEqual(Object.keys(agents), ['build', 'general']);
+    assert.deepEqual(agents.build.permissions.map((r) => `${r.action}:${r.effect}`), ['edit:ask', 'shell:ask', 'webfetch:ask', 'external_directory:ask']);
   } finally {
     srv.close();
   }

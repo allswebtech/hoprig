@@ -23,7 +23,7 @@ import path from 'node:path';
 import { stateDir } from '../paths.mjs';
 import { AUTH_VARS, assertServes, kindOf } from '../profiles.mjs';
 import { codex } from './codex.mjs';
-import { opencode } from './opencode.mjs';
+import { askAgents, opencode } from './opencode.mjs';
 import { tomlString } from './toml.mjs';
 
 /** The variable each tool reads the key from (named in its provider block). */
@@ -91,9 +91,10 @@ export function codexArgs(profile, { home = codex.home() } = {}) {
 
 /**
  * OpenCode: the config Hoprig gives it for `profile` (no secret in it). `models`: the ids the provider lists; the
- * pinned model is always among them. Claude's API shape is preferred when the endpoint answers both.
+ * pinned model is always among them. Claude's API shape is preferred when the endpoint answers both. `ask`: the rules
+ * of the "ask" mode (a start without Hoprig's server, where a conversation's own rules cannot be set).
  */
-export function opencodeConfig(profile, models = []) {
+export function opencodeConfig(profile, models = [], { ask = false } = {}) {
   assertServes(profile, 'opencode');
   const ep = endpointOf(profile);
   const shapes = profile.api && profile.api.length ? profile.api : (profile.kind || kindOf(profile.env || {})) === 'openai' ? ['chat'] : ['messages'];
@@ -111,6 +112,7 @@ export function opencodeConfig(profile, models = []) {
       },
     },
     ...(ep.model ? { model: `${PROVIDER_ID}/${ep.model}` } : {}),
+    ...(ask ? { agents: askAgents() } : {}),
   };
 }
 
@@ -121,21 +123,25 @@ export const opencodeConfigDir = () => path.join(stateDir(), 'codetools', 'openc
  * Write `profile`'s OpenCode config into Hoprig's folder; returns the variables that point OpenCode at it, to be
  * added to toolEnv('opencode', …). The file is private (0600) although it holds no key.
  */
-export function writeOpencodeConfig(profile, models = [], dir = opencodeConfigDir()) {
-  const file = path.join(dir, `${profile.name}.json`);
+export function writeOpencodeConfig(profile, models = [], dir = opencodeConfigDir(), { ask = false } = {}) {
+  const file = path.join(dir, `${profile.name}${ask ? '.ask' : ''}.json`);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(opencodeConfig(profile, models), null, 2) + '\n', { mode: 0o600 });
+  fs.writeFileSync(tmp, JSON.stringify(opencodeConfig(profile, models, { ask }), null, 2) + '\n', { mode: 0o600 });
   fs.renameSync(tmp, file);
   return { OPENCODE_CONFIG: file };
 }
 
-/** What `tool` needs at start for `profile`: { args, env } (OpenCode's env names its config file). */
-export async function startSettings(tool, profile, { base = process.env, fetchImpl = globalThis.fetch, dir } = {}) {
+/**
+ * What `tool` needs at start for `profile`: { args, env } (OpenCode's env names its config file). `permissionMode`:
+ * the session's, for what the config must carry (OpenCode's "ask").
+ */
+export async function startSettings(tool, profile, { base = process.env, fetchImpl = globalThis.fetch, dir, permissionMode = null } = {}) {
   if (tool === 'codex') return { args: codexArgs(profile, { home: codex.home(base) }), env: toolEnv('codex', profile, base) };
   if (tool === 'opencode') {
     const env = toolEnv('opencode', profile, base);
-    return { args: [...opencode.noSelfUpdate.args], env: { ...env, ...writeOpencodeConfig(profile, await providerModels(profile, { fetchImpl }), dir) } };
+    const file = writeOpencodeConfig(profile, await providerModels(profile, { fetchImpl }), dir, { ask: permissionMode === 'ask' });
+    return { args: [...opencode.noSelfUpdate.args], env: { ...env, ...file } };
   }
   throw new Error(`no start settings for "${tool}" here (Claude Code: profiles.mjs profileEnv)`);
 }
