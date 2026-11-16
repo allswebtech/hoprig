@@ -160,3 +160,23 @@ test('bypass allows what waits, except what is the owner\'s own word (a question
   assert.deepEqual([...chat.pending.keys()], ['q', 'r', 's'], 'still the owner\'s cards');
   assert.deepEqual(pushed.map((e) => [e.request, e.outcome]), [['p', 'allowed']]);
 });
+
+test('each turn\'s end (cost, tokens, time, a Stop) is kept and comes back when the chat is read again', async (t) => {
+  const turnsDir = path.join(box.root, 'turns');
+  const c = newChat({ permissionMode: 'bypassPermissions', turnsDir });
+  t.after(() => c.stopAndWait());
+  await turn(c, 'one');
+  await c.send('sleep');
+  await until('the long command', () => of(c, 'tool').length && c.turn);
+  c.interrupt();
+  await until('stopped', () => !c.turn);
+  await turn(c, 'two');
+  await c.stopAndWait();
+  const again = new Chat({ ...c.record(), turnsDir, command: c.o.command, resolveEnv: c.o.resolveEnv });
+  const seq = again.events.filter((e) => ['user', 'turn-end'].includes(e.kind) || (e.kind === 'notice' && e.text === 'Stopped.')).map((e) => (e.kind === 'user' ? e.text : e.kind === 'notice' ? 'notice' : e.stopped ? 'end:stopped' : 'end'));
+  assert.deepEqual(seq, ['one', 'end', 'sleep', 'end:stopped', 'two', 'end'], 'each end after its turn; a stop once, not also as "Stopped."');
+  const first = again.events.find((e) => e.kind === 'turn-end');
+  assert.ok(first.usage && Number.isFinite(first.durationMs), 'with what it used and took');
+  const noDir = new Chat({ ...c.record(), command: c.o.command, resolveEnv: c.o.resolveEnv });
+  assert.equal(noDir.events.filter((e) => e.kind === 'turn-end').length, 0, 'without the folder nothing is read (as before)');
+});

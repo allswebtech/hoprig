@@ -3,6 +3,7 @@
 // and the turn. The Chat class (chat.mjs) calls hear() for the events of its current process only.
 import { askArrived, cancelAsks } from './asks.mjs';
 import { mergeLimit } from './controls.mjs';
+import { rememberTurn } from './turns.mjs';
 
 // Errors that mean "this provider cannot serve now" (the coding tool's error categories).
 export const LIMIT_ERRORS = new Set(['rate_limit', 'billing_error']);
@@ -156,7 +157,8 @@ function turnEnd(chat, ev) {
   chat.limit = limited ? { at: Date.now(), error: 'rate_limit', text: ev.error.slice(0, 300) } : ev.ok ? null : chat.limit;
   cancelAsks(chat);
   chat.live.turnEnded();
-  chat.push({ kind: 'turn-end', ok: ev.ok, subtype: ev.subtype, error: ev.ok || stopped || limited ? null : ev.error, limited, turnCostUsd: turnCost, usage: ev.usage, durationMs: ev.durationMs, stopped });
+  const end = chat.push({ kind: 'turn-end', ok: ev.ok, subtype: ev.subtype, error: ev.ok || stopped || limited ? null : ev.error, limited, turnCostUsd: turnCost, usage: ev.usage, durationMs: ev.durationMs, stopped });
+  if (chat.turn && chat.turn.messageId) rememberTurn(chat.o.turnsDir, chat.conversationId, chat.turn.messageId, end); // read back on a reload
   chat.knowSize();
   // A rewound conversation now has its own file: it is read from there from now on.
   if (chat.fork && chat.engine.exists(chat.cwd, chat.conversationId)) {

@@ -61,7 +61,7 @@ export function chatFeature(ctx, o = {}) {
 
   // ---------- the list of open chats ----------
   function make(rec) {
-    const c = new Chat({ ...rec, command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs, owedMs: o.owedMs });
+    const c = new Chat({ ...rec, turnsDir: path.join(path.dirname(file()), 'chat-turns'), command: o.command, resolveEnv: o.resolveEnv, spawnImpl: o.spawnImpl, idleMs: o.idleMs, stopGraceMs: o.stopGraceMs, owedMs: o.owedMs });
     c.setMaxListeners(200); // one per page that waits for news
     c.on('status', () => ctx.poke?.()); // Home and the notifications see a new state at once
     c.on('turn', save);

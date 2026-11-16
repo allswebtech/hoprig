@@ -21,6 +21,7 @@ import { ensure, start, stop, stopAndWait } from './run.mjs';
 import { LiveBlocks } from './streaming.mjs';
 import { OWED_MS, TaskTable } from './tasks.mjs';
 import { Timeline } from './timeline.mjs';
+import { readTurns, withTurns } from './turns.mjs';
 
 export { EVENTS_MAX, WINDOW_MAX } from './timeline.mjs';
 export const IDLE_MS = 20 * 60_000; // a process with nothing to do is stopped after this (the next message resumes)
@@ -32,7 +33,7 @@ const BUSY = 'Claude is working. Wait until it is done, or press Stop first.';
 export class Chat extends Timeline {
   /**
    * o: { id, conversationId, engine, cwd, profile, model, effort, ultracode, permissionMode, title, openedAt,
-   *      costTotal, grants, fork, resolveEnv(profile) (tests), command { command, args } and spawnImpl (tests), idleMs,
+   *      costTotal, grants, fork, turnsDir (where each turn's end is kept), resolveEnv(profile) (tests), command { command, args } and spawnImpl (tests), idleMs,
    *      stopGraceMs, termMs, killMs, drainMs, owedMs }
    */
   constructor(o) {
@@ -97,7 +98,9 @@ export class Chat extends Timeline {
   load() {
     if (this.fork && this.engine.exists(this.cwd, this.conversationId)) this.fork = null;
     const f = this.fork;
-    let t = this.engine.transcript({ cwd: this.cwd, id: f ? f.from : this.conversationId });
+    const id = f ? f.from : this.conversationId;
+    let t = this.engine.transcript({ cwd: this.cwd, id });
+    t = { ...t, events: withTurns(t.events, readTurns(this.o.turnsDir, id)) }; // each turn's cost and time (turns.mjs)
     if (f) t = cutAt(t, f.messageId);
     this.reset(t.events);
     this.todos = t.todos;
