@@ -254,6 +254,12 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
   ];
   assert.equal(todoWords({ id: 'claude', todo: 2, left: 1 }, entries), 'Not linked yet: 2 links to make (rules, memory), 1 in the way');
   assert.equal(todoWords({ id: 'opencode', todo: 1, left: 0 }, entries), 'Not linked yet: 1 link to make (memory)');
+  // Short names where the server gives them: a count of words, not a run-on list of long phrases.
+  const short = [{ tools: ['opencode'], what: 'a line in OpenCode\'s settings that names Claude Code\'s rules folder and each project\'s memory index', short: 'settings', action: 'link' }, { tools: ['opencode'], what: 'the rules OpenCode gets everywhere', short: 'rules', action: 'link' }];
+  assert.equal(todoWords({ id: 'opencode', todo: 2, left: 0 }, short), 'Not linked yet: 2 links to make (settings, rules)');
+  const { toolNames } = await import('../../web/brainlink.js');
+  assert.equal(toolNames([{ tools: ['claude'] }, { tools: ['opencode'] }]), 'Claude Code and OpenCode', 'the Skills banner names every coding tool it links');
+  assert.equal(toolNames([{ tool: 'claude' }]), 'Claude Code');
   const { when, indexOrder } = await import('../../web/brain.js');
   assert.match(when(new Date(Date.now() - 3 * 86400_000).toISOString()), /^3 d/, 'an ISO date from the route');
   assert.match(when(Date.now() - 3 * 86400_000), /^3 d/);

@@ -87,10 +87,10 @@ export const opencode = {
    * Code and Codex read already, so the skills link is the same one as Codex's (link.mjs keeps one of the two).
    */
   brainLinks: ({ base = claudeDir(), brain, home, toolHome }) => [
-    { id: 'rules', what: 'the rules OpenCode gets everywhere', link: path.join(toolHome, 'AGENTS.md'), target: path.join(brain, 'claude', 'CLAUDE.md'), kind: 'file' },
-    { id: 'skills', what: 'your skills, for OpenCode', link: path.join(home, '.agents', 'skills'), target: path.join(brain, 'skills'), kind: 'dir' },
+    { id: 'rules', short: 'rules', what: 'the rules OpenCode gets everywhere', link: path.join(toolHome, 'AGENTS.md'), target: path.join(brain, 'claude', 'CLAUDE.md'), kind: 'file' },
+    { id: 'skills', short: 'skills', what: 'your skills, for OpenCode', link: path.join(home, '.agents', 'skills'), target: path.join(brain, 'skills'), kind: 'dir' },
     {
-      id: 'instructions', what: 'Claude Code\'s rules folder and each project\'s memory index, named in OpenCode\'s settings', kind: 'json',
+      id: 'instructions', short: 'settings', what: 'a line in OpenCode\'s settings that names Claude Code\'s rules folder and each project\'s memory index', kind: 'json',
       link: path.join(toolHome, 'opencode.json'), key: 'instructions',
       values: [`${tilde(path.join(base, 'rules')).split(path.sep).join('/')}/*.md`, MEMORY_INDEX],
     },

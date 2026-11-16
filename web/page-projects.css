@@ -138,6 +138,7 @@
 /* ---------- linking the AI brain into Claude Code (brainlink.js) ---------- */
 .bl-note { align-items: center; flex-wrap: wrap; }
 .bl-note-text { flex: 1 1 200px; min-width: 0; }
+.bl-tool-row .row-sub { white-space: normal; overflow-wrap: anywhere; } /* what Link will make is read whole, never cut */
 .bl-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 2px 6px; }
 .bl-inline .brain-none { margin: 0; flex: 1 1 200px; }
 .bl-list { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; gap: 10px; }

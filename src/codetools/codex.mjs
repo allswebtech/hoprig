@@ -61,8 +61,8 @@ export const codex = {
   updateItem: { whenRunning: 'wait-until-none' },
   /** What Codex reads from the AI brain: the same rules file as Claude Code, the same skills folder. */
   brainLinks: ({ brain, home, toolHome }) => [
-    { id: 'rules', what: 'the rules Codex gets everywhere', link: path.join(toolHome, 'AGENTS.md'), target: path.join(brain, 'claude', 'CLAUDE.md'), kind: 'file' },
-    { id: 'skills', what: 'your skills, for Codex', link: path.join(home, '.agents', 'skills'), target: path.join(brain, 'skills'), kind: 'dir' },
+    { id: 'rules', short: 'rules', what: 'the rules Codex gets everywhere', link: path.join(toolHome, 'AGENTS.md'), target: path.join(brain, 'claude', 'CLAUDE.md'), kind: 'file' },
+    { id: 'skills', short: 'skills', what: 'your skills, for Codex', link: path.join(home, '.agents', 'skills'), target: path.join(brain, 'skills'), kind: 'dir' },
   ],
   /** No memory of its own: the shared rules carry a section that tells it where each project's memory is. */
   ownMemory: false,

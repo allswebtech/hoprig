@@ -82,7 +82,7 @@ export function workspaceFeature(sctx, opts = {}) {
   const linkOpts = () => ({ brain: brainDir(places().dir), ...(opts.link || {}) });
   const linkView = (list) => {
     const entries = list.map((p) => ({
-      id: p.id, tool: p.tool, tools: p.tools, what: p.what, link: p.linkShort, target: p.targetShort, action: p.action, words: tildeText(planWords(p)),
+      id: p.id, tool: p.tool, tools: p.tools, what: p.what, ...(p.short ? { short: p.short } : {}), link: p.linkShort, target: p.targetShort, action: p.action, words: tildeText(planWords(p)),
       ...(p.why ? { why: tildeText(p.why) } : {}), ...(p.done ? { done: tildeText(p.done) } : {}), ...(p.error ? { error: tildeText(p.error) } : {}),
     }));
     // Per coding tool that is on: linked (everything of it is), todo (something to link) or left (only conflicts left).
