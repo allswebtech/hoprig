@@ -205,3 +205,33 @@ test('in the background (the dashboard): what is not known yet is not known, and
   assert.equal(id.of([101], { after: t }).get(101), `T:${t - 60_000}`);
   assert.equal(asked.length, 2);
 });
+
+test('filedProcess: one judgement of the identities, never a second read that may say otherwise', async () => {
+  const { filedProcess } = await import('../src/procid.mjs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { spawn } = await import('node:child_process');
+  const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { stdio: 'ignore' });
+  try {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'filed-'));
+    const file = path.join(dir, 'f.json');
+    fs.writeFileSync(file, '{}'); // of this boot
+    const rec = { pid: c.pid, proc: 'T:1000000' };
+    const bootAt = () => Date.now() - os.uptime() * 1000;
+    // A kept answer "another process" (perhaps from before the record's process started), asked again: not known yet.
+    // Nothing shows the process is ours, so the fact decides; a later read saying "another process" must not make it so.
+    let n = 0;
+    const doubted = { of: (pids) => new Map(pids.map((p) => [p, n++ === 1 ? null : 'T:9000000'])), bootAt };
+    assert.equal(filedProcess(file, rec, { ident: doubted, fact: () => false }), false, 'the fact says it is not ours');
+    n = 0;
+    assert.equal(filedProcess(file, rec, { ident: doubted }), null, 'cannot be told');
+    // The identities equal: shown, on that one answer.
+    let reads = 0;
+    const same = { of: (pids) => (reads++, new Map(pids.map((p) => [p, 'T:1000000']))), bootAt };
+    assert.equal(filedProcess(file, rec, { ident: same, fact: () => false }), true);
+    assert.equal(reads, 1, 'the system was asked once');
+    fs.rmSync(dir, { recursive: true, force: true });
+  } finally {
+    c.kill('SIGKILL');
+  }
+});

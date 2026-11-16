@@ -226,6 +226,11 @@ export const alive = (pid) => {
  * this boot is of a process that cannot be alive. `after`: only what the system said since then is used (of()).
  */
 export function stillOwned(list, ident = system, { after = 0 } = {}) {
+  return judge(list, ident, after).map((j) => j.owned);
+}
+
+/** stillOwned's judgement of each entry: { owned, same } (same: what the identities said, null when they could not). */
+function judge(list, ident, after) {
   const live = list.map(({ run }) => Number.isInteger(run.pid) && alive(run.pid));
   const ids = ident.of(list.filter((e, i) => live[i] && e.run.proc).map((e) => e.run.pid), { after });
   // A kept answer that says "another process" may be from before the record's process started, about the process that
@@ -239,13 +244,13 @@ export function stillOwned(list, ident = system, { after = 0 } = {}) {
   if (doubt.size) for (const [p, id] of ident.of([...doubt.keys()], { after: doubt })) ids.set(p, id);
   const boot = ident.bootAt();
   return list.map(({ run, file }, i) => {
-    if (!live[i]) return false;
+    if (!live[i]) return { owned: false, same: null };
     const same = run.proc ? sameProcess(run.proc, ids.get(run.pid)) : null;
-    if (same !== null) return same;
+    if (same !== null) return { owned: same, same };
     try {
-      return fs.statSync(file).mtimeMs >= boot - BOOT_SLACK;
+      return { owned: fs.statSync(file).mtimeMs >= boot - BOOT_SLACK, same };
     } catch {
-      return false; // gone meanwhile
+      return { owned: false, same }; // gone meanwhile
     }
   });
 }
@@ -262,8 +267,9 @@ export function stillOwned(list, ident = system, { after = 0 } = {}) {
  */
 export function filedProcess(file, rec, { fact = () => null, ident = system, after = 0 } = {}) {
   const run = { pid: rec?.pid, proc: typeof rec?.proc === 'string' ? rec.proc : null };
-  if (!stillOwned([{ run, file }], ident, { after })[0]) return false;
-  if (run.proc && sameProcess(run.proc, ident.of([run.pid], { after }).get(run.pid)) !== null) return true; // stillOwned compared them
+  const [{ owned, same }] = judge([{ run, file }], ident, after);
+  if (!owned) return false;
+  if (same) return true; // the identities, as stillOwned compared them: no second read that might say otherwise
   const f = fact(run.pid);
   return f === true || f === false ? f : null;
 }
