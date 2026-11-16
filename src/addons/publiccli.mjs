@@ -10,10 +10,12 @@
 // `hoprig addons start|stop|status public-link` lead here (a profile's PRERUN may still say them).
 import { loadConfig, saveConfig } from '../config.mjs';
 import { ask, askHidden } from '../menu.mjs';
+import { filedProcess } from '../procid.mjs';
 import { verifyPassword } from '../server/auth.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 import { notePassword } from '../server/strength.mjs';
-import { alive } from './cloudflared.mjs';
+import { linkRecordFile } from './cloudflared.mjs';
+import { tunnelFact } from './linkmigrate.mjs';
 import { KIND_WORDS, VISITOR_WORDS, cannotTurnOn, readRecord, readSwitch } from './linkswitch.mjs';
 
 export const USAGE = `usage: hoprig public [status] [--json]        whether this dashboard can be reached from anywhere, and where
@@ -24,11 +26,14 @@ export const USAGE = `usage: hoprig public [status] [--json]        whether this
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** The record's cloudflared still runs (its pid may be another program's after a restart: procid.mjs filedProcess). */
+const tunnelRuns = (rec) => filedProcess(linkRecordFile(), rec, { fact: tunnelFact }) !== false;
+
 /** The address while the link is on and connected, from the files the dashboard writes. */
 function liveAddress() {
   const want = readSwitch();
   const rec = readRecord();
-  return want.on && rec.kind === want.kind && rec.connected && rec.url && alive(rec.pid) ? rec.url : null;
+  return want.on && rec.kind === want.kind && rec.connected && rec.url && tunnelRuns(rec) ? rec.url : null;
 }
 
 /**
@@ -177,7 +182,7 @@ async function on(args, { out, err, prerun = false }) {
 async function off({ out }) {
   saveConfig({ publicLink: { on: false, kind: readSwitch().kind } });
   if (runningDashboard()) {
-    for (let t = 0; t < 20_000 && alive(readRecord().pid); t += 250) await sleep(250);
+    for (let t = 0; t < 20_000 && tunnelRuns(readRecord()); t += 250) await sleep(250);
   }
   out('The public link is off.');
   return 0;

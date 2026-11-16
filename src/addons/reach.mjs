@@ -2,7 +2,9 @@
 // (src/machines) and the sign-in link use. Read from files only (config.json, the switch's record, the Custom
 // set-up), so a command in a terminal gets the same answer as the running dashboard.
 import { loadConfig } from '../config.mjs';
-import { alive, linkRecordFile, readFixed, readJsonFile } from './cloudflared.mjs';
+import { filedProcess } from '../procid.mjs';
+import { linkRecordFile, readFixed, readJsonFile } from './cloudflared.mjs';
+import { tunnelFact } from './linkmigrate.mjs';
 
 // An http(s) address without its trailing "/"; `origin`: only scheme, host and port.
 const clean = (u, { origin = false } = {}) => {
@@ -32,9 +34,10 @@ export function reachable(cfg = loadConfig()) {
     return url ? { url, via: 'custom' } : none;
   }
   // The Temporary address only while its cloudflared runs and is connected: while it starts again after a crash the
-  // record still holds the old address, which no longer leads here.
+  // record still holds the old address, which no longer leads here; after a restart of the computer its pid may be
+  // another program's (procid.mjs filedProcess).
   const rec = readJsonFile(linkRecordFile()) || {};
-  const url = rec.kind === 'temporary' && rec.url && rec.connected === true && alive(rec.pid) ? clean(rec.url, { origin: true }) : null;
+  const url = rec.kind === 'temporary' && rec.url && rec.connected === true && filedProcess(linkRecordFile(), rec, { fact: tunnelFact }) !== false ? clean(rec.url, { origin: true }) : null;
   return url ? { url, via: 'temporary' } : none;
 }
 
