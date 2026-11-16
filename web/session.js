@@ -647,6 +647,20 @@ export function openSession(app, name) {
       permissionActions({ ...s, machine: machine.current }, () => store.refresh()));
   }
 
+  // A second session in the same folder, on the computer's recommended provider (as New session starts one).
+  async function startAnother(s) {
+    try {
+      const profile = (store.data && store.data.recommended) || (await api('/api/state')).recommended;
+      if (!profile) throw new Error('No provider on this computer yet: add one under Providers first.');
+      const { name: next } = await api('/api/sessions', { dir: s.cwd, profile, mode: 'new' });
+      markStarting(machine.current, next);
+      store.refresh();
+      location.hash = link(`#/s/${encodeURIComponent(next)}`);
+    } catch (e) {
+      toast(e.message, { kind: 'error', ms: 7000 });
+    }
+  }
+
   // Moved to another account: Claude restarts in the same terminal; until it reports, it reads "Starting".
   function moved() {
     markStarting(machine.current, name);
@@ -692,6 +706,7 @@ export function openSession(app, name) {
       items: [
         working ? { value: 'stop', label: 'Stop Claude', sub: 'Interrupts the reply it is writing (Esc)', icon: 'stop' } : null,
         pref ? { value: 'back', label: `Move back to ${pref.label}`, sub: 'It is free again', icon: 'swap' } : null,
+        s && s.kind === 'claude' && s.cwd ? { value: 'another', label: 'Start another session here', sub: `A new Claude session in ${s.short || s.cwd}`, icon: 'plus' } : null,
         ...extra,
         { value: 'attach', label: 'Attach a file', sub: 'Upload into this folder; its path goes into your message', icon: 'paperclip' },
         { value: 'text', label: 'Text of this session', sub: 'Select and copy', icon: 'copy' },
@@ -704,6 +719,7 @@ export function openSession(app, name) {
     if (action) return action.run(me);
     if (what === 'stop') stop();
     else if (what === 'back') (await switchProfile(s, pref)) && moved();
+    else if (what === 'another') startAnother(s);
     else if (what === 'attach') fileInput.click();
     else if (what === 'text') showText();
     else if (what === 'look') terminalLook();
