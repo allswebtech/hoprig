@@ -238,6 +238,18 @@ for (const kind of kinds) {
     const choices = (await owner('GET', '/api/assistant/settings')).json.accounts;
     assert.equal(choices.some((a) => a.name === 'cx'), false);
     assert.deepEqual(choices.filter((a) => ['oc', 'sub'].includes(a.name)).map((a) => [a.name, a.thinks]), [['oc', false], ['sub', true]]);
+    // A choice saved by an earlier version (another tool's sign-in, a provider removed since, her engine on an
+    // OpenCode-only key) has no box on the page; the page sends back what it was given, and Save must still work.
+    saveConfig({ assistant: { ...loadConfig().assistant, accounts: ['sub', 'cx', 'gone', 'auto'], runsOn: 'oc' } });
+    let shown = (await owner('GET', '/api/assistant/settings')).json.settings;
+    assert.deepEqual([shown.accounts, shown.runsOnSet], [['sub', 'auto'], null]);
+    r = await owner('POST', '/api/assistant/settings', { level: 'ask', accounts: shown.accounts, runsOn: shown.runsOnSet });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual([r.json.settings.accounts, r.json.settings.runsOnSet, r.json.settings.level], [['sub', 'auto'], null, 'ask']);
+    saveConfig({ assistant: { ...loadConfig().assistant, runsOn: 'sub' } });
+    shown = (await owner('GET', '/api/assistant/settings')).json.settings;
+    assert.equal(shown.runsOnSet, 'sub', 'a choice that is still valid is shown as saved');
+    assert.match((await owner('POST', '/api/assistant/settings', { accounts: ['cx'] })).json.error, /no provider "cx" she can use/);
     r = await owner('POST', '/api/assistant/settings', { level: 'handsoff', accounts: ['api'], runsOn: 'api', model: 'haiku' });
     assert.equal(r.status, 200, JSON.stringify(r.json));
     assert.deepEqual(r.json.settings.allowed, ['api']);

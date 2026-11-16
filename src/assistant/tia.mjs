@@ -65,7 +65,7 @@ export function cleanTiaPatch(p, knownAccounts = [], runsOnAccounts = knownAccou
       if (v === null) out.accounts = null;
       else {
         if (!Array.isArray(v) || v.length > 20 || v.some((n) => typeof n !== 'string' || !NAME_RE.test(n))) throw new Error('accounts must be a list of provider names');
-        for (const n of v) if (n !== 'auto' && !knownAccounts.includes(n)) throw new Error(`there is no provider "${n}"`);
+        for (const n of v) if (n !== 'auto' && !knownAccounts.includes(n)) throw new Error(`there is no provider "${n}" she can use`);
         out.accounts = [...new Set(v)];
       }
     } else if (k === 'runsOn') {
@@ -105,6 +105,23 @@ export function resolveTia(raw, accounts) {
     : autoOn ? 'auto' : allowed.find((n) => thinks.includes(n)) || thinks[0] || null;
   const model = typeof r.model === 'string' && MODEL_RE.test(r.model) ? r.model : null;
   return { enabled: r.enabled !== false, level: r.level, allowed, accountsDefault: !Array.isArray(r.accounts), runsOn, maxSteps: r.maxSteps, maxMinutes: r.maxMinutes, model };
+}
+
+/**
+ * The owner's saved choice as Settings → Tia shows it and sends it back with Save: only names cleanTiaPatch accepts
+ * now. A list saved earlier can name a provider that was removed since, or one she may no longer use (another coding
+ * tool's sign-in, a key only that tool could use); the page has no box for it, so it could neither be unticked nor
+ * saved. Dropping it here changes nothing she does: resolveTia ignores such names too.
+ */
+export function savedTiaChoice(raw, accounts) {
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const real = tiaChoices(accounts);
+  const known = new Set(real.map((p) => p.name));
+  const thinks = new Set(real.filter((p) => servesTool(p, 'claude')).map((p) => p.name));
+  return {
+    accounts: Array.isArray(r.accounts) ? r.accounts.filter((n) => n === 'auto' || known.has(n)) : null,
+    runsOnSet: r.runsOn === 'auto' || thinks.has(r.runsOn) ? r.runsOn : null,
+  };
 }
 
 /** How much of an account's quota is left, 0–100, or null when unknown (API accounts have no plan windows). */

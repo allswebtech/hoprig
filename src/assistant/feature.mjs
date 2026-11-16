@@ -31,7 +31,7 @@ import { createAssistantCore } from './core.mjs';
 import { Engine } from './engine.mjs';
 import { createOps, runShell as realRunShell } from './ops.mjs';
 import { systemPrompt } from './prompt.mjs';
-import { ASSISTANT_NAME, HELP, LEVELS, cleanTiaPatch, resolveTia, servesTool, tiaChoices } from './tia.mjs';
+import { ASSISTANT_NAME, HELP, LEVELS, cleanTiaPatch, resolveTia, savedTiaChoice, servesTool, tiaChoices } from './tia.mjs';
 import { readUsage, recordUsage, summarizeUsage, turnUsage, usageFile } from './usage.mjs';
 
 /**
@@ -248,7 +248,8 @@ export function assistantFeature(ctx, o = {}) {
     const c = raw().clientToken;
     return {
       name: ASSISTANT_NAME,
-      settings: { ...tia, accounts: Array.isArray(raw().accounts) ? raw().accounts : null, runsOnSet: raw().runsOn || null },
+      // The saved choice holds only names Save accepts back (savedTiaChoice), or the page could not be saved.
+      settings: { ...tia, ...savedTiaChoice(raw(), accounts) },
       levels: LEVELS,
       help: HELP,
       // Only the providers she can use (tiaChoices); `thinks`: she can run on it (it serves Claude Code).

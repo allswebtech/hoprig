@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decideLevel } from '../../src/assistant/policy.mjs';
-import { ASSISTANT_NAME, HELP, LEVELS, chooseAccount, cleanTiaPatch, resolveTia, riskyPermission, tiaChoices } from '../../src/assistant/tia.mjs';
+import { ASSISTANT_NAME, HELP, LEVELS, chooseAccount, cleanTiaPatch, resolveTia, riskyPermission, savedTiaChoice, tiaChoices } from '../../src/assistant/tia.mjs';
 import { byName } from '../../src/assistant/tools.mjs';
 
 const profiles = [
@@ -65,6 +65,13 @@ test('a provider no coding tool of this version can use is never hers; she runs 
   assert.throws(() => cleanTiaPatch({ accounts: ['aa-cx'] }, names), /no provider "aa-cx"/);
   assert.throws(() => cleanTiaPatch({ runsOn: 'ac-oai' }, names, ['sub', 'sub2', 'me', 'api']), /runsOn must be a provider that serves Claude Code/);
   assert.deepEqual(cleanTiaPatch({ accounts: ['ac-oai'], runsOn: 'sub' }, names, ['sub']), { accounts: ['ac-oai'], runsOn: 'sub' });
+  // What Settings -> Tia shows as saved, and sends back with Save, holds only names the server accepts now.
+  const saved = savedTiaChoice({ accounts: ['aa-cx', 'ac-oai', 'gone', 'auto', 'sub'], runsOn: 'ac-oai' }, more);
+  assert.deepEqual(saved, { accounts: ['ac-oai', 'auto', 'sub'], runsOnSet: null });
+  assert.deepEqual(cleanTiaPatch({ accounts: saved.accounts, runsOn: saved.runsOnSet }, names, ['sub', 'sub2', 'me', 'api']), { accounts: ['ac-oai', 'auto', 'sub'], runsOn: null });
+  assert.deepEqual(savedTiaChoice({ runsOn: 'sub' }, more), { accounts: null, runsOnSet: 'sub' });
+  assert.deepEqual(savedTiaChoice({ accounts: [], runsOn: 'auto' }, more), { accounts: [], runsOnSet: 'auto' });
+  assert.deepEqual(savedTiaChoice(undefined, more), { accounts: null, runsOnSet: null });
 });
 
 test('chooseAccount: auto first; else most free quota; never limited; unknown counts as half', () => {
