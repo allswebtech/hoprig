@@ -48,6 +48,7 @@ export const PAGE_ADDRESSES = [
   '#/brain',
   '#/tia', '#/tia/jobs', '#/tia/activity',
   '#/code',
+  '#/desktop', '#/desktop/sessions', '#/desktop/terminal', '#/desktop/files', '#/desktop/editor', '#/desktop/tasks', '#/desktop/services', '#/desktop/logs',
   '#/settings', '#/settings/new-sessions', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/public-link', '#/settings/tia', '#/settings/editor', '#/settings/addons', '#/settings/codingtools', '#/settings/updates', '#/settings/about',
 ];
 

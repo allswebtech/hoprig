@@ -3,7 +3,7 @@
 // tools/desktop-check.mjs.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { APPS, APP_IDS, appById, appHash, filesHash, frameSrc, onComputer, queryOf, searchApps, sessionHash } from '../../web/desktop/apps.js';
+import { APPS, APP_IDS, appById, appHash, cardHash, filesHash, frameSrc, onComputer, queryOf, searchApps, sessionHash } from '../../web/desktop/apps.js';
 import { GRAB, MAX_WINDOWS, MIN_H, MIN_W, clampRect, cleanLayout, keepLayout, keySnap, layoutKey, placeNew, resizeRect, snapRect, snapZone } from '../../web/desktop/layout.js';
 
 const AREA = { w: 1440, h: 852 };
@@ -165,6 +165,12 @@ test('the catalog: the computer\'s own apps, each with a known icon and an addre
   assert.equal(queryOf('#/desktop/files').get('path'), null);
   assert.equal(appHash(appById('editor'), 'laptop'), '#/m/laptop/code');
   assert.equal(sessionHash('x', 'laptop'), '#/m/laptop/s/x');
+  // A card of the sessions list: a chat ("chat:<id>") opens at its conversation, anything else at its session page.
+  const chatId = '0b8c1a52-2f7e-4d0a-9a43-5f1c2b3d4e5f';
+  assert.equal(cardHash({ kind: 'chat', name: `chat:${chatId}`, chatId }, null), `#/chat/${chatId}`);
+  assert.equal(cardHash({ kind: 'chat', name: `chat:${chatId}`, chatId }, 'laptop'), `#/m/laptop/chat/${chatId}`);
+  assert.equal(cardHash({ kind: 'claude', tool: 'opencode', name: 'web' }, null), '#/s/web');
+  assert.equal(cardHash({ kind: 'shell', name: 'sh 1' }, 'laptop'), '#/m/laptop/s/sh%201');
   assert.equal(frameSrc('#/'), '/?bare=1#/');
   // What a window's page is told about its app: where it starts, its name, its computer (lib.js WINDOW reads it).
   const src = frameSrc('#/m/laptop/s/x', '/', { home: '#/', label: 'Sessions', only: 'laptop' });
@@ -200,4 +206,14 @@ test('the native apps\' shared words and sorting', async () => {
   assert.equal(errorText(new ApiError('There is no such file or folder', 404, { error: 'there is no such file or folder' })), 'There is no such file or folder', 'a missing file says so, not "update"');
   assert.equal(errorText(new ApiError('Offline', 404, { code: 'offline' })), 'Offline');
   assert.equal(errorText(new ApiError('No such process', 409)), 'No such process');
+});
+
+test('the desktop and each of its apps have an address, in the page and in what Tia can open, in step', async () => {
+  const fs = await import('node:fs');
+  const { SCREENS } = await import('../../src/assistant/tools.mjs');
+  const app = fs.readFileSync(new URL('../../web/app.js', import.meta.url), 'utf8');
+  const pages = [...(/export const PAGE_ADDRESSES = \[([\s\S]*?)\];/.exec(app)[1]).matchAll(/'#\/(desktop[^']*)'/g)].map((m) => m[1]);
+  const want = ['desktop', ...APPS.map((a) => `desktop/${a.id}`)];
+  assert.deepEqual([...pages].sort(), [...want].sort(), 'web/app.js PAGE_ADDRESSES');
+  assert.deepEqual(SCREENS.filter((x) => x.startsWith('desktop')).sort(), [...want].sort(), 'src/assistant/tools.mjs SCREENS');
 });

@@ -338,8 +338,9 @@ export const SCREENS = [
   'automations', 'automations/queue', 'automations/rules', 'automations/activity', 'skills', 'skills/installed', 'skills/suggested',
   'skills/find', 'brain', 'tia', 'tia/jobs', 'tia/activity', 'settings', 'settings/new-sessions', 'settings/notifications',
   'settings/appearance', 'settings/security', 'settings/public-link', 'settings/tia', 'settings/addons', 'settings/codingtools', 'settings/updates', 'settings/about',
+  'desktop', 'desktop/sessions', 'desktop/terminal', 'desktop/files', 'desktop/editor', 'desktop/tasks', 'desktop/services', 'desktop/logs',
 ];
-const PER_COMPUTER = /^(computer|workspace|new-project|get-project|automations|skills|providers)(\/|$)/;
+const PER_COMPUTER = /^(computer|workspace|new-project|get-project|automations|skills|providers|desktop)(\/|$)/;
 const open_screen = tool({
   name: 'open_screen',
   level: 'L1',

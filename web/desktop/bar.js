@@ -9,7 +9,7 @@
 // The start menu and the launcher are one list: a search field, the apps, and the sessions of this computer that
 // can be opened in a window. Everything here is drawn again when the windows or the sessions change.
 import { icon } from '../icons.js';
-import { MACHINE_STATE, add, applyPageTheme, fill, h, needsYou, needsYouFirst, prefs, stateOf } from '../lib.js';
+import { MACHINE_STATE, add, applyPageTheme, fill, h, needsYou, needsYouFirst, prefs, stateOf, toolChip } from '../lib.js';
 import { store } from '../store.js';
 import { APPS, appById, onComputer, searchApps } from './apps.js';
 import { closeMenu, openMenu, withMenu } from './menu.js';
@@ -95,7 +95,7 @@ export function drawBars({ root, top, bottom, style, desk }) {
       const typed = input.value.trim().toLowerCase();
       const found = searchApps(input.value);
       const m = own();
-      const list = m ? [...(m.sessions || [])].filter((s) => s.kind !== 'chat' && (!typed || `${s.display || ''} ${s.name}`.toLowerCase().includes(typed))).sort(needsYouFirst).slice(0, 6) : [];
+      const list = m ? [...(m.sessions || [])].filter((s) => (!typed || `${s.display || ''} ${s.name}`.toLowerCase().includes(typed))).sort(needsYouFirst).slice(0, 6) : [];
       next = found.length ? { app: found[0] } : list.length ? { session: list[0] } : null;
       const enterMark = (on) => (on && typed ? h('kbd.desk-enter', { title: 'Enter opens this' }, 'Enter') : null);
       fill(grid, found.map((a, i) => h('button.desk-app', { type: 'button', role: 'listitem', dataset: { next: i === 0 && typed ? '1' : '' }, onclick: () => {
@@ -107,7 +107,7 @@ export function drawBars({ root, top, bottom, style, desk }) {
         list.map((s, i) => h('button.desk-session', { type: 'button', dataset: { next: !found.length && i === 0 && typed ? '1' : '' }, onclick: () => {
           closePopup();
           desk.openSession(s);
-        } }, icon(s.kind === 'shell' ? 'terminal' : 'sessions', { size: 16 }), h('span.desk-session-name', s.display || s.name), h('span.desk-session-state', stateOf(s).text), enterMark(!found.length && i === 0)))]
+        } }, icon(s.kind === 'shell' ? 'terminal' : s.kind === 'chat' ? 'text' : 'sessions', { size: 16 }), h('span.desk-session-name', s.display || s.name), toolChip(s), h('span.desk-session-state', stateOf(s).text), enterMark(!found.length && i === 0)))]
         : typed && m && (m.sessions || []).length ? h('p.hint', 'No session has that name.') : null);
     };
     input.addEventListener('input', draw);

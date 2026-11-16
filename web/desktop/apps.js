@@ -46,6 +46,9 @@ export const filesHash = (path, m, select = null) => onComputer(`#/desktop/files
 /** The address of a session's page on computer `m`: what a Terminal window shows. */
 export const sessionHash = (name, m) => onComputer(`#/s/${encodeURIComponent(name)}`, m);
 
+/** The address of a card of the sessions list on computer `m`: a chat's conversation (#/chat/<id>), else its session page. */
+export const cardHash = (s, m) => (s.kind === 'chat' && s.chatId ? onComputer(`#/chat/${s.chatId}`, m) : sessionHash(s.name, m));
+
 /**
  * The frame address of a window showing `hash`: this same page in bare mode. `home`: the address its app starts at
  * (the page's way back leads there), `label`: the app's name, `only`: the computer whose sessions it shows (lib.js

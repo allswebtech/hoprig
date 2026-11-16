@@ -16,12 +16,13 @@ import { registerHeadTool, registerPage } from '../registry.js';
 import { panel, savedMark } from '../shell.js';
 import { pageNotify, store } from '../store.js';
 import { named } from '../trail.js';
-import { APPS, appById, appHash, onComputer, queryOf, sessionHash } from './apps.js';
+import { APPS, appById, appHash, cardHash, onComputer, queryOf, sessionHash } from './apps.js';
 import { drawBars } from './bar.js';
 import { withMenu } from './menu.js';
 import { nativeBody } from './native.js';
 import { windowManager } from './wm.js';
 
+let launchNext = null; // the app #/desktop/<app> asked for, opened once the desktop is drawn
 /** The screens that get windows; smaller ones get the grid of apps. */
 export const WIDE = '(min-width: 1024px) and (min-height: 600px)';
 export const STYLES = ['taskbar', 'dock'];
@@ -151,7 +152,8 @@ function mountDesktop() {
      */
     showSessions: () => desk.launch('sessions'),
     openSession(s) {
-      desk.wm.open(s.kind === 'shell' ? 'terminal' : 'sessions', sessionHash(s.name, machineName), { title: s.display || s.name });
+      // A chat opens at its conversation (#/chat/<id>): a window of Sessions that is not its list (wm.only).
+      desk.wm.open(s.kind === 'shell' ? 'terminal' : 'sessions', cardHash(s, machineName), { title: s.display || s.name });
     },
     // Back to the dashboard: its Home, or this computer's own page for another computer.
     leave: () => (location.hash = machineName ? link('#/computer', machineName) : '#/'),
@@ -177,6 +179,8 @@ function mountDesktop() {
     });
   };
   bars = drawBars({ root, top, bottom, style, desk });
+  if (launchNext) desk.launch(launchNext);
+  launchNext = null;
 
   function restyle() {
     const next = deskStyle();
@@ -289,8 +293,12 @@ function viewDesktop({ frame, sub }) {
   }
   const a = sub ? appById(sub) : null;
   if (a && a.kind === 'native') return appPage(a, frame);
+  // #/desktop/<app> of a page app or Terminal (a link, Tia's open_screen): the desktop with that app in a window; the
+  // address becomes the desktop's, so a reload opens nothing again. On a small screen: the app's page, or the grid.
   if (sub) {
-    location.replace(link('#/desktop'));
+    const wide = !!a && matchMedia(WIDE).matches;
+    if (wide) launchNext = a.id;
+    location.replace(a && !wide && a.kind === 'page' ? appHash(a, machine.current) : link('#/desktop'));
     return () => {};
   }
   const mq = matchMedia(WIDE);
