@@ -16,6 +16,9 @@ test('the name lives in one constant; every option has a plain sentence', () => 
   assert.equal(ASSISTANT_NAME, 'Tia');
   for (const k of ['enabled', 'level', 'accounts', 'runsOn', 'maxSteps', 'maxMinutes']) assert.ok(HELP[k].length > 20, k);
   assert.deepEqual(LEVELS, ['ask', 'work', 'handsoff']);
+  // "Do the work" says what she allows by herself in a chat, as allowlist.mjs decides it.
+  for (const s of [HELP.levelWork, HELP.level]) assert.match(s, /in a chat she started she allows by herself only work on files inside the project's folder and a short list of commands that look and test/i);
+  assert.doesNotMatch(HELP.levelWork, /ordinary permission/);
 });
 
 test('defaults: level "work"; Auto off → every subscription/login account, never API; runs on the first', () => {

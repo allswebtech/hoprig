@@ -2,14 +2,16 @@
 // (never from the model) and the owner's Tia level. Pure, so every rule is unit-tested.
 //
 //   facts: {
-//     session:  { status, note, cwd, screen, owner?, known?, request? } | null   the session the call is about, as
-//               the dashboard sees it now (screen: the bottom of its screen, read only while it asks for permission; for
-//               a chat: what its OK is about, the whole command or path; owner: the chat keeps that OK for the owner;
-//               known: false for a chat's OK of a call her rules cannot judge)
+//     session:  { status, note, cwd, screen, owner?, known?, tool?, input?, request? } | null   the session the call is
+//               about, as the dashboard sees it now (screen: the bottom of its screen, read only while it asks for
+//               permission; for a chat: what its OK is about, the whole command or path; owner: the chat keeps that OK
+//               for the owner; known: false for a chat's OK of a call her rules cannot judge; tool, input: a known call's
+//               name and strings, for the allow-list)
 //     mine:     boolean                       Tia started that very session (a chat: by its own mark; a terminal: by its name and when it was made)
 //     account:  { name, kind, allowed } | null    the account a start or move would use
 //   }
 // Returns { level: "L0" | "L1" | "L2", why } or { refuse, next }.
+import { allowsHerself } from './allowlist.mjs';
 import { ASSISTANT_NAME, riskyPermission } from './tia.mjs';
 import { typedTextRisk } from './tools.mjs';
 
@@ -49,6 +51,12 @@ export function decideLevel(tool, a, f, tia) {
     // deny-list cannot judge an input of unknown shape, whatever it says.
     if (f.session.known === false) return { level: 'L2', why: `this tool's input is not one ${ASSISTANT_NAME} can judge` };
     if (f.session.cut) return { level: 'L2', why: 'what the session asks permission for is too long to judge whole' };
+    // A chat's OK of a known call: only what the short allow-list holds (allowlist.mjs); the deny-list below still
+    // looks at what passed it. A terminal has no call to judge, only its screen (known is not set).
+    if (f.session.known === true) {
+      const own = allowsHerself(f.session.tool, f.session.input, f.session.cwd);
+      if (!own.ok) return { level: 'L2', why: own.why };
+    }
     if (riskyPermission(`${f.session.note || ''}\n${f.session.screen || ''}`, f.session.cwd || null)) return { level: 'L2', why: 'the session asks permission for something risky (fetching and running code, deleting, secrets, the system, the network, or a path outside its folder)' };
   }
   if (STARTS.has(name)) {

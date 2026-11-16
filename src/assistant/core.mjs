@@ -126,6 +126,8 @@ export function createAssistantCore({
         f.session.cut = c.ask.cut === true; // only a part of it came: never judged by that part
         f.session.owner = c.ask.owner === true;
         f.session.known = c.ask.known === true; // a call her rules can judge; else (or not said) the OK is the owner's
+        f.session.tool = typeof c.ask.tool === 'string' ? c.ask.tool : null; // with its strings, for her allow-list
+        f.session.input = c.ask.judged && typeof c.ask.judged === 'object' ? c.ask.judged : null;
         f.session.request = c.ask.request || null;
       }
       // What a permission prompt asks is on the screen, not in the notification: read it, so policy.mjs can judge

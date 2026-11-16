@@ -133,10 +133,11 @@ export function chatFeature(ctx, o = {}) {
       // The OK it waits for, so a card can answer it (Allow, Allow in this chat, Do not allow); a question or a plan
       // is answered in the chat itself. `subject` is what it is really about (the whole command or path; `cut` when it
       // was too long to carry whole), `owner` says the chat keeps it for the owner (his settings, a hook or a safety
-      // check ask him) and `known` that it is a call Tia's rules can judge at all (claude-parse.mjs askSubject): her
-      // rules read all four.
+      // check ask him) and `known` that it is a call Tia's rules can judge at all (claude-parse.mjs askSubject), with
+      // `judged`, its strings by their keys, for her allow-list: her rules read them all.
       ask: ask ? {
         request: ask.request, type: ask.type, tool: ask.tool, subject: ask.subject || '', cut: !!ask.subjectCut, owner: !!ask.owner, known: ask.known === true,
+        judged: ask.known === true && ask.judged ? ask.judged : null,
         canAlways: !!ask.grant, always: ask.grant ? (ask.grant.edits ? 'edits' : 'rule') : null, alwaysText: ask.grant && !ask.grant.edits ? ask.grant.text : '',
       } : null,
       // The turn is over but subagents, shells or a workflow still run (Home: "Working in the background").
