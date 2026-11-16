@@ -69,7 +69,7 @@ function tree(tasks, stop, jump) {
       icon(t.type === 'shell' ? 'terminal' : t.type === 'workflow' ? 'grid' : 'sparkle', { size: 16 }),
       h('strong', t.title || TYPE[t.type] || 'task'),
       t.background ? h('span.badge', 'background') : null,
-      t.status === 'running' ? taskStop(t, stop) : null),
+      t.status === 'running' && stop ? taskStop(t, stop) : null),
     h('p.chat-hint', taskLine(t)),
     t.error ? h('p.chat-hint.chat-task-err', t.error) : null,
     t.type === 'workflow' ? workflowView(t) : null,
@@ -77,11 +77,13 @@ function tree(tasks, stop, jump) {
 }
 
 /**
- * The strip above the composer and the sheet it opens. o: { stop(taskId), jump(toolId) }. → { el, paint(tasks) }
+ * The strip above the composer and the sheet it opens. o: { stop(taskId), canStop(), jump(toolId) }. → { el, paint(tasks) }
  * The open sheet follows the tasks while it is open.
  */
 export function agentsStrip(o) {
   let tasks = [];
+  // One task's Stop where the coding tool can (o.canStop), else none: the turn's Stop is the way there.
+  const stop = () => (!o.canStop || o.canStop() ? o.stop : null);
   let body = null; // the open sheet's body: it follows the tasks
   let close = () => {};
   const jump = (id) => {
@@ -90,8 +92,8 @@ export function agentsStrip(o) {
   };
   const label = h('span');
   const el = h('button.chat-strip.hidden', { type: 'button', onclick: async () => {
-    body = h('div.chat-tree', tree(tasks, o.stop, jump));
-    await openSheet({ title: 'Agents and background work', subtitle: 'Each with its model and effort where Claude Code says them.' }, (c) => {
+    body = h('div.chat-tree', tree(tasks, stop(), jump));
+    await openSheet({ title: 'Agents and background work', subtitle: 'Each with its model and effort where the coding tool says them.' }, (c) => {
       close = c;
       return body;
     });
@@ -105,7 +107,7 @@ export function agentsStrip(o) {
       const words = runningWords(tasks);
       el.classList.toggle('hidden', !words);
       fill(label, words);
-      if (body) fill(body, tree(tasks, o.stop, jump));
+      if (body) fill(body, tree(tasks, stop(), jump));
     },
   };
 }

@@ -137,13 +137,13 @@ function viewChat({ sub }) {
   const canRewind = () => !!(v && (caps().rewind || caps().fork) && !v.terminal);
   const canFork = () => !!caps().fork;
   const timeline = createTimeline({
-    scroll, A, cwd: () => (v ? v.cwd : ''), stopTask: act.stopTask, after: () => store.refresh(), who: () => toolWord(v),
+    scroll, A, cwd: () => (v ? v.cwd : ''), stopTask: act.stopTask, after: () => store.refresh(), who: () => toolWord(v), canStopTask: () => !v || caps().stopTask !== false,
     canRewind: () => !v || canRewind(), // before the first state: drawn, and hidden by the state's class if not
     rewind: (m) => rewindSheet({ A, cwd: v ? v.cwd : '', m, conversation: canFork(), put: (t) => composer.putBack(t) }),
   });
   add(scroll, timeline.el);
   const todos = h('div.chat-todos');
-  const strip = agentsStrip({ stop: act.stopTask, jump: (toolId) => timeline.jump(toolId) });
+  const strip = agentsStrip({ stop: (taskId) => act.stopTask(taskId), canStop: () => !v || caps().stopTask !== false, jump: (toolId) => timeline.jump(toolId) });
   // The page's own "/" commands, before the coding tool's (popovers.js).
   const own = () => [
     // Compact is Claude Code's own: not offered where the coding tool has none.

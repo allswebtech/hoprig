@@ -16,10 +16,12 @@ const NEAR_PX = 120;
 
 /**
  * o: { scroll (the scrolling element), A (the chat's API path), cwd(), stopTask(id), after(), canRewind(), rewind({ messageId, text }),
- *      who() (the coding tool as a sentence names it: "Claude", "OpenCode") }
+ *      who() (the coding tool as a sentence names it: "Claude", "OpenCode"), canStopTask() }
  */
 export function createTimeline(o) {
   const who = () => (o.who ? o.who() : 'Claude');
+  // One task's Stop only where the coding tool can stop one task (else the turn's Stop is the way).
+  const canStop = () => (o.canStopTask ? o.canStopTask() : true);
   const moreSlot = h('div.chat-moreslot');
   const olderBox = h('div.chat-older');
   const list = h('div.chat-list');
@@ -147,7 +149,7 @@ export function createTimeline(o) {
         let card = tools.get(ev.id);
         if (card) card.finish(ev);
         else {
-          card = toolCard(ev, { cwd: o.cwd(), stopTask: o.stopTask });
+          card = toolCard(ev, { cwd: o.cwd(), stopTask: canStop() ? o.stopTask : null });
           tools.set(ev.id, card);
           add(container(ev, at), card);
         }
@@ -306,7 +308,7 @@ export function createTimeline(o) {
         } else if (ev.kind === 'tool-start') {
           let card = tools.get(ev.id);
           if (!card) {
-            card = toolCard(ev, { cwd: o.cwd(), stopTask: o.stopTask });
+            card = toolCard(ev, { cwd: o.cwd(), stopTask: canStop() ? o.stopTask : null });
             tools.set(ev.id, card);
             add(container(ev, main), card);
             follow();
