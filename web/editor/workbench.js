@@ -10,6 +10,7 @@ import { createExplorer } from './explorer.js';
 import { PREFS_EVENT, editorPrefs, followTheme, setEditorPref } from './monaco.js';
 import { createScm, marksOf } from './scm.js';
 import { createQuickOpen, createSearch } from './search.js';
+import { folderName, forget, refused, remember } from './places.js';
 import { createTabs } from './tabs.js';
 
 const VIEWS = [
@@ -38,15 +39,15 @@ export function viewCode({ query }, onCurrent) {
   const app = document.getElementById('app');
   document.body.classList.remove('has-nav');
   document.body.classList.add('code-mode');
-  const label = root.replace(/\/+$/, '').split('/').pop() || root;
+  const label = folderName(root);
   named(label);
   const way = wayBack() || { hash: link('#/workspace'), label: 'Workspace' };
   const here = machine.current;
-  remember(root, here);
 
   let view = VIEWS.some((v) => v.id === query.get('view')) ? query.get('view') : 'explorer';
   let pane = query.get('file') ? 'editor' : 'side'; // on a phone
   let alive = true;
+  let failed = false; // the folder cannot be opened: one message for the whole page
   let status = null;
   let marksKey = '';
   const cursor = { line: 1, col: 1 };
@@ -59,6 +60,8 @@ export function viewCode({ query }, onCurrent) {
       return editorPrefs().plain;
     },
     gitMarks: () => marksOf(status),
+    hasStaged: (p) => Boolean(status && status.repo && status.staged.some((x) => x.path === p)),
+    onRootError: (e) => rootError(e),
     onActive: (t, user) => {
       if (!alive) return;
       explorer.paint();
@@ -88,6 +91,7 @@ export function viewCode({ query }, onCurrent) {
     },
     onDiscarded: async () => {
       await explorer.refresh();
+      await tabs.check(); // a discarded change goes from its open tab too, a deleted new file's tab closes
       tabs.refreshDiffs();
     },
     onChanged: () => {
@@ -113,7 +117,12 @@ export function viewCode({ query }, onCurrent) {
   };
   paintSub();
   const stopStore = store.subscribe(paintSub);
-  const saveBtn = btn('small secondary ed-savebtn', { icon: 'check', label: 'Save', title: 'Save (Ctrl+S)', disabled: true, onclick: () => tabs.save() });
+  const saveBtn = btn('small secondary ed-savebtn', { icon: 'check', label: 'Save', title: 'Save (Ctrl+S)', disabled: true, onclick: async () => {
+    // The button hides itself once nothing is unsaved: the keys go back to the editor, not to the page.
+    tabs.focus();
+    await tabs.save();
+    tabs.focus();
+  } });
   const bar = h('header.ed-bar',
     h('a.btn.ghost.ed-back', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.ed-back-label', way.label)),
     h('div.ed-head', h('h1.ed-title', label), subEl),
@@ -167,6 +176,7 @@ export function viewCode({ query }, onCurrent) {
     pane = p;
     wrap.classList.toggle('ed-pane-editor', p === 'editor');
     paintActivity();
+    paintStatus();
     if (p === 'editor') requestAnimationFrame(() => tabs.layout());
   }
 
@@ -178,7 +188,8 @@ export function viewCode({ query }, onCurrent) {
       st && st.repo ? h('button.ed-st', { type: 'button', title: 'Source Control', onclick: () => showView('changes') }, icon('git', { size: 13 }),
         h('span', st.detached ? 'Detached' : st.branch || '(no branch)'), st.upstream && (st.ahead || st.behind) ? h('span', `↑${st.ahead} ↓${st.behind}`) : null) : null,
       h('span.ed-st-gap'),
-      t && t.kind === 'file' && !t.note ? [
+      // On a phone with the side pane up, the file is not on screen: its line and language would say nothing.
+      t && t.kind === 'file' && !t.note && !(phoneQuery.matches && pane === 'side') ? [
         h('button.ed-st', { type: 'button', title: 'Go to line (Ctrl+G)', onclick: () => goToLine() }, `Ln ${cursor.line}, Col ${cursor.col}`),
         h('span.ed-st.ed-st-wide', `Spaces: ${p.tabSize}`),
         h('span.ed-st.ed-st-wide', tabs.eol(t)),
@@ -268,7 +279,7 @@ export function viewCode({ query }, onCurrent) {
   }
 
   const onKey = (e) => {
-    if (!(e.ctrlKey || e.metaKey) || e.altKey || document.querySelector('dialog.sheet[open]')) return;
+    if (failed || !(e.ctrlKey || e.metaKey) || e.altKey || document.querySelector('dialog.sheet[open]')) return;
     const k = e.key.toLowerCase();
     const take = (fn) => {
       e.preventDefault();
@@ -306,13 +317,19 @@ export function viewCode({ query }, onCurrent) {
   let soonTimer = null;
   const soon = () => {
     clearTimeout(soonTimer);
-    soonTimer = setTimeout(() => alive && scm.refresh(), 300);
+    soonTimer = setTimeout(() => alive && !failed && scm.refresh(), 300);
   };
-  const tick = setInterval(() => alive && document.visibilityState === 'visible' && scm.refresh(), 15_000);
+  // A session, git or another window changes files all the time: the lists and the open tabs follow.
+  const tick = setInterval(() => {
+    if (!alive || failed || document.visibilityState !== 'visible') return;
+    scm.refresh();
+    tabs.check();
+  }, 15_000);
   const onFocus = () => {
-    if (!alive) return;
+    if (!alive || failed) return;
     scm.refresh();
     explorer.refresh();
+    tabs.check();
   };
   window.addEventListener('focus', onFocus);
 
@@ -336,7 +353,10 @@ export function viewCode({ query }, onCurrent) {
     const file = q.get('file');
     const v = q.get('view');
     if (VIEWS.some((x) => x.id === v)) showView(v);
-    if (!file) return address();
+    if (!file) {
+      if (v) setPane('side'); // a link to a view shows it, also on a phone with a file up
+      return address();
+    }
     const line = Number(q.get('line')) || 0;
     if (v === 'changes') {
       // "Show changes" for a file: its unstaged changes, else its staged ones, else the file.
@@ -350,13 +370,26 @@ export function viewCode({ query }, onCurrent) {
     explorer.reveal(file);
   }
 
+  // ---------- a folder that cannot be opened ----------
+  // Outside the folders the dashboard may show, private, gone, or the computer cannot be reached: one plain message
+  // for the whole page and what to do next, instead of an empty Explorer with its tools.
+  function rootError(e) {
+    if (!alive || failed) return;
+    failed = true;
+    forget(root, here);
+    wrap.classList.add('ed-failed');
+    fill(main, refused(e, root));
+    paintStatus();
+  }
+
   showView(view);
   paintStatus();
-  explorer.start();
+  // Kept among "Opened lately" only once it opened.
+  explorer.start().then((ok) => ok && alive && remember(root, here));
   scm.refresh();
   openFrom(query);
 
-  onCurrent({ root, machine: here, dirty: () => tabs.dirty().length, openFrom });
+  onCurrent({ root, machine: here, dirty: () => tabs.dirty().length, saveAll: () => tabs.saveAll(), openFrom });
 
   return () => {
     alive = false;
@@ -373,15 +406,4 @@ export function viewCode({ query }, onCurrent) {
     tabs.dispose();
     document.body.classList.remove('code-mode');
   };
-}
-
-// ---------- folders opened lately (the page without a folder lists them) ----------
-
-/** The folders opened in this browser lately, newest first: [{ dir, machine }]. */
-export const recentFolders = () => {
-  const v = prefs.get('editor.recent', []);
-  return Array.isArray(v) ? v.filter((x) => x && typeof x.dir === 'string').slice(0, 8) : [];
-};
-function remember(dir, m) {
-  prefs.set('editor.recent', [{ dir, machine: m || null }, ...recentFolders().filter((x) => !(x.dir === dir && (x.machine || null) === (m || null)))].slice(0, 8));
 }

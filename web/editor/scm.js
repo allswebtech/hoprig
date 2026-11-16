@@ -1,12 +1,17 @@
 // Source Control: the repository's branch, what is staged and what is not (with counts), a press shows a file's
 // changes in the diff editor; stage, unstage, discard (confirmed, naming the files), the commit box, and the newest
 // commits. A folder that is not in a repository says so, and repositories inside it can be opened on their own.
-import { ago, btn, confirmSheet, fill, h, link, toast } from '../lib.js';
+import { ago, btn, chooseSheet, confirmSheet, fill, h, link, toast } from '../lib.js';
 import { icon } from '../icons.js';
 import { fold } from '../shell.js';
 import { holdWhilePressed } from './press.js';
 
 const base = (p) => p.split('/').pop();
+/** A folder inside `root` (relative, with "/") as a full path of that computer, Windows ("C:\\x") or not. */
+export function inside(root, rel) {
+  const win = /^[A-Za-z]:\\/.test(root);
+  return `${root.replace(/[\\/]+$/, '')}${win ? '\\' : '/'}${win ? rel.split('/').join('\\') : rel}`;
+}
 const dirOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 // What git's letters mean, in words, for a row's title. The page shows U for a new file and ! for a conflict.
 const WORDS = { M: 'Changed', A: 'Added', D: 'Deleted', R: 'Renamed', C: 'Copied', T: 'Type changed', U: 'New, not in git yet', '!': 'In conflict' };
@@ -26,7 +31,8 @@ export function marksOf(st) {
 /** wb: { get, post, root, tabs, onStatus(status) }. */
 export function createScm(wb) {
   let st = null;
-  const message = h('textarea.field.ed-commit-msg', { rows: 3, placeholder: 'Message (Ctrl+Enter commits)', 'aria-label': 'Commit message' });
+  const keyboard = !(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
+  const message = h('textarea.field.ed-commit-msg', { rows: 3, placeholder: keyboard ? 'Message (Ctrl+Enter commits)' : 'Commit message', 'aria-label': 'Commit message' });
   const commitBtn = btn('primary small', { icon: 'check', label: 'Commit', onclick: () => commit() });
   const branch = h('div.ed-branch');
   const groups = h('div.ed-groups');
@@ -50,7 +56,11 @@ export function createScm(wb) {
     try {
       st = await wb.get('git/status', {});
     } catch (e) {
+      // Only the reason: no commit box or log for a repository that could not be read.
       st = null;
+      fill(branch);
+      box.classList.add('hidden');
+      logFold.classList.add('hidden');
       fill(groups, h('p.ed-panelnote', e.message));
       wb.onStatus(null);
       return;
@@ -64,7 +74,7 @@ export function createScm(wb) {
   function paint() {
     fill(repos, st.repos && st.repos.length ? [
       h('p.ed-group-title', 'Repositories inside this folder'),
-      st.repos.map((r) => h('a.ed-reporow', { href: link(`#/code?dir=${encodeURIComponent(`${wb.root}/${r}`)}&view=changes`) }, icon('git', { size: 14 }), h('span', r), icon('chevronRight', { size: 14 }))),
+      st.repos.map((r) => h('a.ed-reporow', { href: link(`#/code?dir=${encodeURIComponent(inside(wb.root, r))}&view=changes`) }, icon('git', { size: 14 }), h('span', r), icon('chevronRight', { size: 14 }))),
     ] : null);
     if (!st.repo) {
       fill(branch);
@@ -109,7 +119,12 @@ export function createScm(wb) {
       onclick: () => (kind === 'conflict' ? wb.tabs.open(x.path, { preview: false }) : wb.tabs.openDiff(x.path, { staged: kind === 'staged' })),
       onkeydown: (e) => e.key === 'Enter' && e.currentTarget.click(),
     },
-    h('span.ed-change-name', base(x.path)), h('span.ed-hitfile-dir', dirOf(x.path)),
+    h('span.ed-change-name', base(x.path)), h('span.ed-change-dir', h('bdi', dirOf(x.path))),
+    // A phone: one button for the row's actions (three small ones side by side are too easy to miss).
+    btn('icon ghost small ed-change-more', { icon: 'more', title: 'Actions', onclick: (e) => {
+      e.stopPropagation();
+      rowMenu(x, kind, deleted);
+    } }),
     h('span.ed-change-tools',
       deleted ? null : btn('icon ghost small', { icon: 'text', title: 'Open the file', onclick: (e) => {
         e.stopPropagation();
@@ -129,6 +144,23 @@ export function createScm(wb) {
           act('stage', [x.path]);
         } })),
     h('span.ed-row-mark', { 'aria-label': word }, letter));
+  }
+
+  async function rowMenu(x, kind, deleted) {
+    const what = await chooseSheet({
+      title: base(x.path),
+      subtitle: x.path,
+      items: [
+        kind === 'conflict' ? null : { value: 'diff', label: 'Show the changes', icon: 'git' },
+        deleted ? null : { value: 'open', label: 'Open the file', icon: 'text' },
+        kind === 'staged' ? { value: 'unstage', label: 'Unstage', icon: 'minus' } : { value: 'stage', label: kind === 'conflict' ? 'Mark as resolved (stage)' : 'Stage', icon: 'plus' },
+        kind === 'changes' ? { value: 'discard', label: 'Discard changes', sub: x.x === '?' ? 'The new file is deleted' : 'Back to the staged or committed version', icon: 'undo', danger: true } : null,
+      ].filter(Boolean),
+    });
+    if (what === 'diff') wb.tabs.openDiff(x.path, { staged: kind === 'staged' });
+    else if (what === 'open') wb.tabs.open(x.path, { preview: false });
+    else if (what === 'stage' || what === 'unstage') act(what, [x.path]);
+    else if (what === 'discard') discard([x]);
   }
 
   async function act(what, paths) {

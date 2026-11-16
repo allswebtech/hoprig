@@ -33,10 +33,11 @@ globalThis.document ??= {
 };
 
 const { codeHash } = await import('../../web/editor/workbench.js');
+const { folderName } = await import('../../web/editor/places.js');
 const { _codeTarget, editorButton } = await import('../../web/editor/index.js');
 const { fuzzy, matchSpan } = await import('../../web/editor/search.js');
 const { workerFor } = await import('../../web/editor/monaco.js');
-const { markClass, marksOf } = await import('../../web/editor/scm.js');
+const { inside, markClass, marksOf } = await import('../../web/editor/scm.js');
 const { pageById, registeredSessionActions, registeredSettingsPages } = await import('../../web/registry.js');
 
 test('addresses: #/code?dir=…&file=…&line=…&view=…, for this computer or another', () => {
@@ -107,4 +108,12 @@ test('the page loads Monaco only from this dashboard, and sets its workers after
   const env = src.indexOf('self.MonacoEnvironment =');
   assert.ok(load > 0 && env > load, 'the environment is set after editor.main loaded');
   assert.doesNotMatch(src.replace(/^\s*\/\/.*$/gm, ''), /blob:|eval\(/, 'no blob: worker and no eval in the code');
+});
+
+test('folder names and folders inside one, on POSIX and Windows alike', () => {
+  assert.equal(folderName('/home/a/shop/'), 'shop');
+  assert.equal(folderName('C:\\work\\shop'), 'shop');
+  assert.equal(folderName('/'), '/');
+  assert.equal(inside('/home/a/shop', 'code/web'), '/home/a/shop/code/web');
+  assert.equal(inside('C:\\work\\shop\\', 'code/web'), 'C:\\work\\shop\\code\\web');
 });

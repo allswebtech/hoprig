@@ -2,19 +2,21 @@
 // folder of this computer or of another one (its files go through the hub like every other request; Monaco's own
 // files always come from this dashboard). The server part is src/editor/. Reached from a project on Workspace ("Open
 // code", "Changes"), from a session's menu, and by links: #/code?dir=<folder>&file=<path>&line=<n>&view=changes.
-import { btn, confirmSheet, fill, h, link, machine, tildePath } from '../lib.js';
+import { btn, fill, h, link, machine, openSheet, tildePath } from '../lib.js';
 import { icon } from '../icons.js';
 import { registerPage, registerSessionAction, registerSettingsPage } from '../registry.js';
 import { emptyState, listRow, panel, savedMark, toggle } from '../shell.js';
 import { store } from '../store.js';
 import { editorPrefs, setEditorPref } from './monaco.js';
-import { codeHash, recentFolders, viewCode } from './workbench.js';
+import { choice } from './saving.js';
+import { folderName, recentFolders } from './places.js';
+import { codeHash, viewCode } from './workbench.js';
 
 export { codeHash };
 
 // ---------- leaving with unsaved changes ----------
 
-// The open editor, for the guard below: { root, machine, dirty(), openFrom(query) } or null.
+// The open editor, for the guard below: { root, machine, dirty(), saveAll(), openFrom(query) } or null.
 let current = null;
 let leaving = false;
 
@@ -39,9 +41,17 @@ if (typeof window !== 'undefined') {
     if (!n) return;
     e.stopImmediatePropagation();
     const next = location.href;
+    const editor = current;
     history.replaceState(null, '', e.oldURL);
-    confirmSheet({ title: 'Leave without saving?', text: `${n} file${n === 1 ? ' has' : 's have'} unsaved changes in the editor. They are lost if you leave.`, ok: 'Leave without saving', danger: true }).then((ok) => {
-      if (!ok) return;
+    openSheet({ title: 'Unsaved changes' }, (close) => [
+      h('p.sheet-text', `${n} file${n === 1 ? ' has' : 's have'} unsaved changes in the editor.`),
+      h('div.choice-list',
+        choice('check', 'Save and leave', n === 1 ? 'The file is saved first' : `All ${n} files are saved first`, () => close('save')),
+        choice('x', 'Leave without saving', 'The changes are lost', () => close('leave'), true)),
+    ]).then(async (pick) => {
+      // A save that does not go through (the file changed on disk, an error) keeps the page: nothing is lost.
+      if (pick === 'save' && !(await editor.saveAll())) return;
+      if (pick !== 'save' && pick !== 'leave') return;
       leaving = true;
       location.href = next;
     });
@@ -57,10 +67,10 @@ function viewLanding({ frame }) {
   frame({
     title: 'Code editor',
     page: 'code',
-    intro: 'Open a project\'s code from Workspace: every project has an Open code button.',
+    intro: 'Open a project\'s code from Workspace: the code button (</>) on its row, or Open code on its page.',
     body: [
       recent.length
-        ? panel({ icon: 'clock', title: 'Opened lately', desc: 'In this browser.' }, h('div.rows', recent.map((r) => listRow({ href: codeHash(r.dir), icon: 'code', title: r.dir.split('/').pop() || r.dir, sub: tildePath(r.dir) }))))
+        ? panel({ icon: 'clock', title: 'Opened lately', desc: 'In this browser.' }, h('div.rows', recent.map((r) => listRow({ href: codeHash(r.dir), icon: 'code', title: folderName(r.dir), sub: tildePath(r.dir) }))))
         : emptyState('code', 'No folder is open yet.', h('a.btn.primary', { href: link('#/workspace') }, 'Go to Workspace')),
     ],
   });
@@ -88,12 +98,12 @@ export function editorButton(dir, { name = '', compact = false, changes = 0, m =
   if (!dir) return null;
   if (changes > 0) {
     const words = `${changes} change${changes === 1 ? '' : 's'}`;
-    return h('a.btn.small.secondary', { href: codeHash(dir, { view: 'changes' }, m), title: `See ${words}${name ? ` in ${name}` : ''} and commit them` }, h('span', words));
+    return h('a.btn.small.secondary.ed-open', { href: codeHash(dir, { view: 'changes' }, m), title: `See ${words}${name ? ` in ${name}` : ''} and commit them` }, h('span', words));
   }
   const title = name ? `Open ${name} in the code editor` : 'Open in the code editor';
   return compact
-    ? h('a.btn.icon.ghost.small', { href: codeHash(dir, {}, m), title, 'aria-label': title }, icon('code', { size: 18 }))
-    : h('a.btn.small.secondary', { href: codeHash(dir, {}, m), title }, icon('code', { size: 18 }), h('span', 'Open code'));
+    ? h('a.btn.icon.ghost.small.ed-open', { href: codeHash(dir, {}, m), title, 'aria-label': title }, icon('code', { size: 18 }))
+    : h('a.btn.small.secondary.ed-open', { href: codeHash(dir, {}, m), title }, icon('code', { size: 18 }), h('span', 'Open code'));
 }
 
 // A session's folder, wherever the session runs.
@@ -105,7 +115,7 @@ registerSessionAction({
   icon: 'code',
   describe: (s) => {
     const found = sessionOf(s);
-    return found && found.cwd ? { sub: `${found.cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || found.cwd} in the code editor` } : null;
+    return found && found.cwd ? { sub: `${folderName(found.cwd)} in the code editor` } : null;
   },
   run: (s) => {
     const found = sessionOf(s);

@@ -52,7 +52,8 @@ body.code-mode .tia-boxroot { display: none; }
 .ed-row-more { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; opacity: 0; }
 .ed-row:hover .ed-row-more, .ed-row:focus-within .ed-row-more, .ed-row.sel .ed-row-more { opacity: 1; }
 .ed-row-more:hover { background: var(--surface-3); color: var(--text); }
-@media (pointer: coarse) { .ed-row { min-height: 34px; } .ed-row-more { opacity: 1; } }
+@media (pointer: coarse) { .ed-row { min-height: var(--tap); } .ed-row-more { opacity: 1; width: var(--tap); height: var(--tap); } }
+.ed-row-note { margin: 2px 12px 4px; }
 /* git's state: changed, new, deleted, in conflict; a folder with changes in it */
 .git-mod .ed-row-name, .git-mod .ed-change-name, .git-mod .ed-row-mark { color: var(--warn); }
 .git-new .ed-row-name, .git-new .ed-change-name, .git-new .ed-row-mark { color: var(--ok); }
@@ -97,13 +98,22 @@ body.code-mode .tia-boxroot { display: none; }
 .ed-group-title { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 p.ed-group-title { margin: 10px 12px 4px; }
 .ed-group-tools { margin-left: auto; display: flex; }
-.ed-change { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 8px 0 22px; font-size: var(--fs-sm); cursor: pointer; }
+.ed-change { position: relative; display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 8px 0 22px; font-size: var(--fs-sm); cursor: pointer; }
 .ed-change:hover, .ed-change:focus-within { background: var(--surface-2); }
-.ed-change-name { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ed-change-tools { display: flex; opacity: 0; }
-.ed-change:hover .ed-change-tools, .ed-change:focus-within .ed-change-tools { opacity: 1; }
-@media (pointer: coarse) { .ed-change { min-height: 38px; } .ed-change-tools { opacity: 1; } }
+.ed-change-name { flex: 0 1 auto; min-width: 4em; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The folder is cut from its start, so its last part (the one that tells files apart) stays: "…/components/forms". */
+.ed-change-dir { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-size: var(--fs-xs); color: var(--muted); }
+.ed-change-more { display: none; }
+/* Its buttons sit over the end of the row while it is pointed at (as in VS Code), so the folder keeps its room. */
+.ed-change-tools { position: absolute; right: 24px; top: 0; bottom: 0; display: none; align-items: center; padding-left: 6px; background: var(--surface-2); }
+.ed-change:hover .ed-change-tools, .ed-change:focus-within .ed-change-tools { display: flex; }
 .ed-change-tools .btn.icon.small { width: 26px; min-height: 26px; }
+/* A finger: one actions button per change at the kit's tap size, instead of three small ones side by side. */
+@media (pointer: coarse) {
+  .ed-change { min-height: calc(var(--tap) + 4px); padding-right: 2px; }
+  .ed-change-tools { display: none; }
+  .ed-change .btn.ed-change-more { display: inline-flex; width: var(--tap); min-height: var(--tap); }
+}
 .ed-scm .fold { margin: 8px 10px; }
 .ed-log { display: grid; gap: 2px; }
 .ed-commitrow { display: grid; padding: 4px 2px; border-bottom: 1px solid var(--border); }
@@ -131,13 +141,15 @@ p.ed-group-title { margin: 10px 12px 4px; }
 .ed-tab.dirty .ed-tab-x .icon { visibility: hidden; }
 .ed-tab.dirty .ed-tab-x:hover .icon { visibility: visible; }
 .ed-tab.dirty .ed-tab-x:hover .ed-dot { display: none; }
-@media (pointer: coarse) { .ed-tab-x { opacity: 1; } }
+@media (pointer: coarse) { .ed-tab { height: calc(var(--tap) + 4px); } .ed-tab-x { opacity: 1; width: var(--tap); height: var(--tap); } }
+.ed-tab.gone .ed-tab-name { text-decoration: line-through; }
 
 .ed-body { position: relative; display: flex; flex-direction: column; min-height: 0; }
 .ed-host { flex: 1; min-height: 0; }
 .ed-plain { flex: 1; min-height: 0; width: 100%; margin: 0; padding: 10px 12px; border: 0; outline: none; resize: none; background: var(--surface); color: var(--text); font: 14px/1.55 var(--mono); tab-size: 2; white-space: pre; overflow: auto; }
 .ed-plain[wrap='soft'] { white-space: pre-wrap; }
 .ed-note { padding: 28px 24px; display: grid; gap: 6px; align-content: start; color: var(--text-2); }
+.ed-note-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .ed-empty { flex: 1; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; color: var(--muted); text-align: center; }
 .ed-diffbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); font-size: var(--fs-sm); }
 .ed-diffbar-text { flex: 1; min-width: 180px; color: var(--text-2); }
@@ -178,3 +190,20 @@ button.ed-st:hover { background: var(--surface-2); color: var(--text); }
 /* The log's fold reads like the groups above it. */
 .ed-scm .fold-summary { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .ed-plain:focus-visible { box-shadow: none; border-radius: 0; }
+
+/* ---------- the kit's tap size for a finger: the tools of the panels, the bar and the lists ---------- */
+@media (pointer: coarse) {
+  .ed-paneltools .btn.icon, .ed-group-tools .btn.icon, .ed-bar-end .btn.icon { width: var(--tap); min-height: var(--tap); }
+  .ed-savebtn, a.btn.ed-open { min-height: var(--tap); }
+  a.btn.icon.ed-open { width: var(--tap); }
+  .ed-hit, .ed-hitfile-head, .ed-quick-item { min-height: var(--tap); }
+}
+
+/* ---------- a folder that cannot be opened: one message for the whole page ---------- */
+.ed-wrap.ed-failed .ed-bar-end, .ed-wrap.ed-failed .ed-status, .ed-wrap.ed-failed .ed-phonebar { display: none; }
+.ed-wrap.ed-failed .ed-main { display: block; overflow: auto; }
+.ed-fail { max-width: 560px; margin: 48px auto; padding: 0 16px; display: grid; justify-items: center; gap: 8px; text-align: center; color: var(--text-2); }
+.ed-fail .icon { color: var(--muted); }
+.ed-fail-title { margin: 6px 0 0; font-size: var(--fs-lg); font-weight: 700; color: var(--text); }
+.ed-fail-text { margin: 0; overflow-wrap: anywhere; }
+.ed-fail-tools { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
