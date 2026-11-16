@@ -8,14 +8,15 @@
 //   apps.js    the catalog          wm.js     the windows        bar.js     the bars, start menu and launcher
 //   layout.js  the window maths     menu.js   right-click menu   native.js  what the native apps share
 //   moves.js   moving and resizing windows with the pointer
-//   tasks.js, services.js, logs.js  the native apps              desktop.css its look
+//   files.js (with files-parts.js, files-ops.js), tasks.js, services.js, logs.js  the native apps
+//   desktop.css its look
 import { icon } from '../icons.js';
-import { BARE, WINDOW, api, at, fill, h, link, machine, openSheet, prefs, toast } from '../lib.js';
+import { BARE, WINDOW, api, at, confirmSheet, fill, h, link, machine, openSheet, prefs, toast } from '../lib.js';
 import { registerHeadTool, registerPage } from '../registry.js';
 import { panel, savedMark } from '../shell.js';
 import { pageNotify, store } from '../store.js';
 import { named } from '../trail.js';
-import { APPS, appById, appHash, onComputer, sessionHash } from './apps.js';
+import { APPS, appById, appHash, onComputer, queryOf, sessionHash } from './apps.js';
 import { drawBars } from './bar.js';
 import { withMenu } from './menu.js';
 import { nativeBody } from './native.js';
@@ -89,6 +90,14 @@ async function askCloseShell(v, m) {
 
 // ---------- the desktop on a wide screen ----------
 
+// Before the router's own listener (this module is loaded first): the desktop shown can keep the page (leaveGuard).
+let leaveGuard = null;
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('hashchange', (e) => {
+    if (leaveGuard) leaveGuard(e);
+  });
+}
+
 function mountDesktop() {
   const app = document.getElementById('app');
   const machineName = machine.current;
@@ -123,7 +132,14 @@ function mountDesktop() {
         }
         return;
       }
-      desk.wm.open(id, hash ? onComputer(hash, machineName) : appHash(a, machineName), { title: a.title });
+      const to = hash ? onComputer(hash, machineName) : appHash(a, machineName);
+      // A file of a folder the Editor has open already opens in that window, next to its other tabs.
+      if (a.id === 'editor' && hash) {
+        const dir = queryOf(hash).get('dir');
+        const w = desk.wm.list().find((x) => x.app === 'editor' && queryOf(x.hash).get('dir') === dir);
+        if (w && desk.wm.navigate(w.id, to)) return;
+      }
+      desk.wm.open(id, to, { title: a.title });
     },
     openSession(s) {
       desk.wm.open(s.kind === 'shell' ? 'terminal' : 'sessions', sessionHash(s.name, machineName), { title: s.display || s.name });
@@ -137,7 +153,20 @@ function mountDesktop() {
     },
   };
   let bars = null;
-  desk.wm = windowManager({ root, area, machineName, onChange: () => bars && bars.paint(), askClose: (v) => askCloseShell(v, machineName) });
+  desk.wm = windowManager({ root, area, machineName, onChange: () => bars && bars.paint(), askClose: (v) => askCloseShell(v, machineName), launch: (id, hash) => desk.launch(id, hash) });
+  // Leaving the desktop with unsaved changes in an Editor window asks first, as the editor's own page does.
+  leaveGuard = (e) => {
+    const n = desk.wm.unsaved();
+    if (!n || /^#(\/m\/[^/]+)?\/desktop$/.test(location.hash)) return;
+    e.stopImmediatePropagation();
+    const next = location.href;
+    history.replaceState(null, '', e.oldURL);
+    confirmSheet({ title: 'Unsaved changes', text: `${n} ${n === 1 ? 'file has' : 'files have'} unsaved changes in the Editor. Leaving the desktop loses them.`, ok: 'Leave without saving', danger: true }).then((yes) => {
+      if (!yes) return;
+      leaveGuard = null;
+      location.href = next;
+    });
+  };
   bars = drawBars({ root, top, bottom, style, desk });
 
   function restyle() {
@@ -180,6 +209,7 @@ function mountDesktop() {
   document.addEventListener('keydown', onKey);
 
   return () => {
+    leaveGuard = null;
     window.removeEventListener('storage', onStorage);
     document.removeEventListener('keydown', onKey);
     bars.stop();
@@ -222,7 +252,10 @@ function appsGrid(frame) {
 
 /** A native app as a page of its own (#/desktop/<app>): on a small screen, and "Open as a page" from a window. */
 function appPage(a, frame) {
-  const body = nativeBody(a, { machine: machine.current });
+  const m = machine.current;
+  const body = nativeBody(a, { machine: m, hash: () => location.hash,
+    open: (id, hash) => (location.hash = onComputer(hash || appHash(appById(id), m), m)),
+    place: (q) => history.replaceState(null, '', `${appHash(a, m)}${q ? `?${q}` : ''}`) });
   body.el.classList.add('dapp-page');
   frame({ title: a.title, page: 'desktop', back: link('#/desktop'), backLabel: 'Desktop', wide: true, body: [body.el] });
   return () => body.stop();

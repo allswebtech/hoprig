@@ -3,7 +3,7 @@
 // tools/desktop-check.mjs.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { APPS, APP_IDS, appById, appHash, frameSrc, onComputer, searchApps, sessionHash } from '../../web/desktop/apps.js';
+import { APPS, APP_IDS, appById, appHash, filesHash, frameSrc, onComputer, queryOf, searchApps, sessionHash } from '../../web/desktop/apps.js';
 import { GRAB, MAX_WINDOWS, MIN_H, MIN_W, clampRect, cleanLayout, keepLayout, keySnap, layoutKey, placeNew, resizeRect, snapRect, snapZone } from '../../web/desktop/layout.js';
 
 const AREA = { w: 1440, h: 852 };
@@ -135,8 +135,8 @@ test('the kept layout is read back only where it is sound', () => {
 test('the catalog: the computer\'s own apps, each with a known icon and an address of this page', async () => {
   const fs = await import('node:fs');
   const { ICON_NAMES } = await import('../../web/icons.js');
-  // Sessions is the one dashboard page that is an app; the other pages of the dashboard are not apps.
-  assert.deepEqual(APPS.map((a) => a.id), ['sessions', 'terminal', 'tasks', 'services', 'logs']);
+  // Sessions and the Editor are the dashboard pages that are apps; the other pages of the dashboard are not apps.
+  assert.deepEqual(APPS.map((a) => a.id), ['sessions', 'terminal', 'files', 'editor', 'tasks', 'services', 'logs']);
   for (const a of APPS) {
     assert.ok(ICON_NAMES.includes(a.icon), `${a.id}: icon ${a.icon}`);
     assert.ok(['page', 'terminal', 'native'].includes(a.kind), a.id);
@@ -158,6 +158,12 @@ test('the catalog: the computer\'s own apps, each with a known icon and an addre
   assert.equal(appHash(appById('logs'), 'laptop'), '#/m/laptop/desktop/logs');
   assert.equal(onComputer('#/settings/appearance', 'server-1'), '#/m/server-1/settings/appearance');
   assert.equal(sessionHash('a b/c', null), '#/s/a%20b%2Fc');
+  // Files at a folder (Show in Files from the Editor), and the Editor's own address on another computer.
+  assert.equal(filesHash('/home/dev/a b', null, 'x.txt'), '#/desktop/files?path=%2Fhome%2Fdev%2Fa+b&select=x.txt');
+  assert.equal(filesHash('/srv', 'laptop'), '#/m/laptop/desktop/files?path=%2Fsrv');
+  assert.equal(queryOf(filesHash('/srv/a&b', null)).get('path'), '/srv/a&b');
+  assert.equal(queryOf('#/desktop/files').get('path'), null);
+  assert.equal(appHash(appById('editor'), 'laptop'), '#/m/laptop/code');
   assert.equal(sessionHash('x', 'laptop'), '#/m/laptop/s/x');
   assert.equal(frameSrc('#/'), '/?bare=1#/');
   // What a window's page is told about its app: where it starts, its name, its computer (lib.js WINDOW reads it).

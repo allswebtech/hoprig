@@ -1,7 +1,8 @@
-// The apps of the desktop: the computer's own things. Sessions is the one page of the dashboard that is also an app
-// (coding is what the computer is for), shown in a window as a frame of this same page in bare mode (lib.js BARE);
-// Terminal opens a new shell, or a session that runs already, in a window; Task manager, Services and Logs are native
-// apps: a module in this folder with mount(root, { machine }) that calls that computer's API. The other pages of the
+// The apps of the desktop: the computer's own things. Sessions and the Editor are pages of the dashboard that are
+// also apps (coding is what the computer is for), shown in a window as a frame of this same page in bare mode (lib.js
+// BARE); Terminal opens a new shell, or a session that runs already, in a window; Files, Task manager, Services and
+// Logs are native apps: a module in this folder with mount(root, { machine, query, open, place }) that calls that
+// computer's API (native.js says what the rest is). The other pages of the
 // dashboard are not apps: they stay in the dashboard, one press away. Each app is opened for the computer the desktop
 // belongs to. No DOM here: the tests read the catalog as it is.
 
@@ -15,6 +16,8 @@
 export const APPS = [
   { id: 'sessions', title: 'Sessions', icon: 'sessions', kind: 'page', hash: '#/', pinned: true, keep: 'home chats conversations coding' },
   { id: 'terminal', title: 'Terminal', icon: 'terminal', kind: 'terminal', pinned: true, keep: 'shell console command' },
+  { id: 'files', title: 'Files', icon: 'folder', kind: 'native', module: 'files.js', pinned: true, keep: 'folders documents upload download trash archive zip' },
+  { id: 'editor', title: 'Editor', icon: 'code', kind: 'page', hash: '#/code', pinned: true, keep: 'code source text edit' },
   { id: 'tasks', title: 'Task manager', icon: 'cpu', kind: 'native', module: 'tasks.js', pinned: true, keep: 'processes programs performance memory disks network ports kill' },
   { id: 'services', title: 'Services', icon: 'power', kind: 'native', module: 'services.js', pinned: true, keep: 'systemd daemons units start stop restart' },
   { id: 'logs', title: 'Logs', icon: 'text', kind: 'native', module: 'logs.js', pinned: true, keep: 'journal journalctl syslog events' },
@@ -32,6 +35,12 @@ export const onComputer = (hash, m) => (m && hash !== '#/' ? `#/m/${m}${hash.sli
 
 /** The address an app opens at as a page of computer `m`: a page app's own, a native app's under the desktop. */
 export const appHash = (app, m) => onComputer(app.kind === 'native' ? `#/desktop/${app.id}` : app.hash, m);
+
+/** The query of an address ("#/desktop/files?path=…"): what a native app is told where to start. */
+export const queryOf = (hash) => new URLSearchParams(String(hash || '').includes('?') ? hash.slice(hash.indexOf('?') + 1) : '');
+
+/** The folder `path` in Files on computer `m`, with `select` chosen: "Show in Files" from the Editor. */
+export const filesHash = (path, m, select = null) => onComputer(`#/desktop/files?${new URLSearchParams({ path, ...(select ? { select } : {}) })}`, m);
 
 /** The address of a session's page on computer `m`: what a Terminal window shows. */
 export const sessionHash = (name, m) => onComputer(`#/s/${encodeURIComponent(name)}`, m);

@@ -7,7 +7,7 @@
 // swallow the pointer, and the first press on a window behind brings it to the front instead of pressing in it.
 // The layout of each computer's desktop is kept in this browser (layout.js) and comes back on a reload.
 import { icon } from '../icons.js';
-import { add, fill, h, prefs, samePlace, toast } from '../lib.js';
+import { add, confirmSheet, fill, h, prefs, samePlace, toast } from '../lib.js';
 import { APP_IDS, appById, appHash, frameSrc } from './apps.js';
 import { MAX_WINDOWS, clampRect, cleanLayout, gridRects, keepLayout, keySnap, layoutKey, placeNew, snapRect } from './layout.js';
 import { pointerMoves } from './moves.js';
@@ -23,7 +23,7 @@ const newId = () => `w${Date.now().toString(36).slice(-6)}${Math.random().toStri
  * again), `askClose(window)` → 'close' | 'end' | null (stay) before a window of a shell the desktop started closes
  * ('end': the shell was ended too). Returns the manager; `stop()` ends its listeners.
  */
-export function windowManager({ root, area, machineName, onChange = () => {}, askClose = async () => 'close' }) {
+export function windowManager({ root, area, machineName, onChange = () => {}, askClose = async () => 'close', launch = () => {} }) {
   const key = layoutKey(machineName);
   // { id, app, hash, home (where its app starts), own (a shell the desktop started), title, rect, snap, min, z, el,
   //   frame, titleEl }
@@ -95,6 +95,8 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     const w = byId(id);
     if (!w) return;
     if (w.own && w.app === 'terminal' && (await askClose(w)) === null) return;
+    const n = unsavedOf(w);
+    if (n && !(await confirmSheet({ title: `Close ${w.title || 'the editor'}?`, text: `${n} ${n === 1 ? 'file has' : 'files have'} unsaved changes in this window. Closing it loses them.`, ok: 'Close without saving', danger: true }))) return;
     const i = wins.indexOf(w);
     if (i < 0) return; // closed meanwhile
     const [v] = wins.splice(i, 1);
@@ -114,6 +116,16 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
 
   const moves = pointerMoves({ root, area, size, place, changed });
 
+  /** Files with unsaved changes in a window's page (the editor says, web/editor/index.js). */
+  function unsavedOf(v) {
+    try {
+      const f = v.frame && v.frame.contentWindow.__hoprigUnsaved;
+      return typeof f === 'function' ? Number(f()) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  }
+
   // ---------- one window ----------
 
   function build(v) {
@@ -129,7 +141,12 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     } },
     h('span.dwin-icon', icon(app.icon, { size: 15 })), v.titleEl,
     h('div.dwin-ctl', ctl('minus', 'Minimise', () => minimise(v.id)), v.maxBtn, ctl('x', 'Close', () => close(v.id))));
-    v.native = app.kind === 'native' ? nativeBody(app, { machine: machineName }) : null;
+    // A native app keeps where it is (Files: its folder) in the window's address and title, and opens other apps.
+    v.native = app.kind === 'native' ? nativeBody(app, { machine: machineName, hash: () => v.hash, open: launch, place: (q, title) => {
+      v.hash = `${appHash(app, machineName)}${q ? `?${q}` : ''}`;
+      if (title) v.titleEl.textContent = v.title = title;
+      changed();
+    } }) : null;
     v.frame = v.native ? null : h('iframe.dwin-frame', { src: frameSrc(v.hash, location.pathname, frameOpts(v)), title: v.title || app.title });
     const shield = h('div.dwin-shield', { 'aria-hidden': 'true' });
     v.el = h('section.dwin', { 'aria-label': v.title || app.title, dataset: { id: v.id, app: v.app, kind: app.kind } },
@@ -243,6 +260,7 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     if (e.data.type === 'hoprig:key' && typeof e.data.code === 'string') onKeyCode(e.data.code, v.id);
     else if (e.data.type === 'hoprig:logged-out') location.href = '/login';
     else if (e.data.type === 'hoprig:close') close(v.id); // its session ended on the window's start page
+    else if (e.data.type === 'hoprig:open' && APP_IDS.has(e.data.app) && /^#\/[^\s<>"']{0,2000}$/.test(e.data.hash || '')) launch(e.data.app, e.data.hash); // Show in Files
   };
   // The keyboard went into a window's page (Tab, or a press the shield did not take): that window comes forward.
   const onBlur = () => setTimeout(() => {
@@ -313,6 +331,20 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     toggleMax,
     setSnap,
     reload,
+    /** A window that shows a page goes to `hash` on that page (the editor opens a file of its folder in place). */
+    navigate(id, hash) {
+      const v = byId(id);
+      if (!v || !v.frame) return false;
+      try {
+        v.frame.contentWindow.location.hash = hash;
+      } catch {
+        return false;
+      }
+      focus(id);
+      return true;
+    },
+    /** Files with unsaved changes in all the windows. */
+    unsaved: () => wins.reduce((n, v) => n + unsavedOf(v), 0),
     /** The windows in the order they were opened, for the bars: { id, app, title, min, focused }. */
     list: () => wins.map((v) => ({ id: v.id, app: v.app, title: v.title || appById(v.app).title, min: v.min, focused: v.id === focusId && !v.min, hash: v.hash, own: v.own })),
     focused: () => (focusId ? byId(focusId) : null),

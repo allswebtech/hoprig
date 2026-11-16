@@ -117,6 +117,11 @@ export function tellDesktop(msg) {
  * page left to go back to (trail.js windowWay). False outside a window.
  */
 export const closeWindow = () => tellDesktop({ type: 'hoprig:close' });
+/** Open app `app` of the desktop at `hash` (on this page's computer, written without it): a window of the desktop
+ * around this page, or the page itself outside the desktop. */
+export function openApp(app, hash) {
+  if (!tellDesktop({ type: 'hoprig:open', app, hash })) location.hash = link(hash);
+}
 if (BARE) {
   // The desktop's window keys work while the keyboard is inside a window too (web/desktop/wm.js, onKey).
   window.addEventListener('keydown', (e) => {

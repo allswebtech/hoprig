@@ -2,9 +2,9 @@
 // an activity bar (Explorer, Search, Source Control), the side panel, the tabs with the editor, and a status bar
 // (branch, line and column, tab size, line ends, language). On a phone one pane at a time, switched from a bar at the
 // bottom. The address follows what is open, so a reload or a shared link lands in the same place.
-import { api, btn, chooseSheet, fill, h, link, machine, prefs, promptSheet, tildePath, toast } from '../lib.js';
+import { BARE, api, btn, chooseSheet, fill, h, link, machine, prefs, promptSheet, tildePath, toast } from '../lib.js';
 import { icon } from '../icons.js';
-import { store } from '../store.js';
+import { pageNotify, store } from '../store.js';
 import { named, wayBack } from '../trail.js';
 import { createExplorer } from './explorer.js';
 import { PREFS_EVENT, editorPrefs, followTheme, setEditorPref } from './monaco.js';
@@ -41,7 +41,9 @@ export function viewCode({ query }, onCurrent) {
   document.body.classList.add('code-mode');
   const label = folderName(root);
   named(label);
-  const way = wayBack() || { hash: link('#/workspace'), label: 'Workspace' };
+  pageNotify.setTitleBase(label); // the tab's (and a desktop window's) name: the folder
+  // In a window of the desktop with nowhere to go back to, no way back: the window has its own close.
+  const way = wayBack() || (BARE ? null : { hash: link('#/workspace'), label: 'Workspace' });
   const here = machine.current;
 
   let view = VIEWS.some((v) => v.id === query.get('view')) ? query.get('view') : 'explorer';
@@ -124,7 +126,7 @@ export function viewCode({ query }, onCurrent) {
     tabs.focus();
   } });
   const bar = h('header.ed-bar',
-    h('a.btn.ghost.ed-back', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.ed-back-label', way.label)),
+    way ? h('a.btn.ghost.ed-back', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.ed-back-label', way.label)) : null,
     h('div.ed-head', h('h1.ed-title', label), subEl),
     h('div.ed-bar-end',
       saveBtn,

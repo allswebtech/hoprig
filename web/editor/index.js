@@ -58,6 +58,9 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// The desktop asks before it closes a window of the editor that holds unsaved changes (web/desktop/wm.js).
+if (typeof window !== 'undefined') window.__hoprigUnsaved = () => (current ? current.dirty() : 0);
+
 // ---------- the page ----------
 
 /** #/code without a folder: where folders are opened from, and the ones opened lately. */

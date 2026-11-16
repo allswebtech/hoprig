@@ -2,7 +2,8 @@
 // preview tab), a double press keeps it open; each row's menu (its "…" button, a right click, or the context-menu key)
 // renames, deletes and makes new files and folders. git's state colours the names: changed, new, staged, in conflict.
 // The keys are a tree's: one Tab stop for the whole tree, the arrows, Home and End move inside it.
-import { btn, chooseSheet, confirmSheet, copyText, fill, h, promptSheet, toast } from '../lib.js';
+import { btn, chooseSheet, confirmSheet, copyText, fill, h, openApp, promptSheet, toast } from '../lib.js';
+import { filesHash } from '../desktop/apps.js';
 import { icon } from '../icons.js';
 import { holdWhilePressed } from './press.js';
 import { markClass } from './scm.js';
@@ -272,6 +273,7 @@ export function createExplorer(wb) {
         isDir ? { value: 'dir', label: 'New folder here', icon: 'folder' } : null,
         { value: 'rename', label: 'Rename', sub: 'F2', icon: 'pencil' },
         { value: 'copy', label: 'Copy the path', sub: 'Relative to the opened folder', icon: 'copy' },
+        { value: 'files', label: 'Show in Files', sub: 'The desktop\'s file manager', icon: 'folder' },
         { value: 'delete', label: 'Delete', sub: isDir ? 'The folder and everything in it' : 'From the disk', icon: 'trash', danger: true },
       ].filter(Boolean),
     });
@@ -280,6 +282,7 @@ export function createExplorer(wb) {
     else if (what === 'rename') renameIt(p);
     else if (what === 'delete') removeIt(p, isDir);
     else if (what === 'copy') toast((await copyText(p)) ? 'Path copied' : 'Could not copy', { kind: 'info' });
+    else if (what === 'files') openApp('files', filesHash(`${wb.root}/${isDir ? p : p.split('/').slice(0, -1).join('/')}`.replace(/\/$/, ''), null, isDir ? null : p.split('/').pop()));
   }
 
   async function refreshDir(dir) {

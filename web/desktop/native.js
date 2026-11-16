@@ -1,15 +1,19 @@
-// What the native apps of the desktop share (tasks.js, services.js, logs.js): the body of their window, a poll that
-// runs only while the app can be seen, a sortable table, small controls and the words for numbers. A native app is
-// a module with mount(root, { machine }) → stop(): it draws into `root` and calls the API of computer `machine`
-// (null: this one) through at(), so the same app works for another computer through the relay.
+// What the native apps of the desktop share (files.js, tasks.js, services.js, logs.js): the body of their window, a
+// poll that runs only while the app can be seen, a sortable table, small controls and the words for numbers. A native
+// app is a module with mount(root, { machine, query, open, place }) → stop(): it draws into `root` and calls the API
+// of computer `machine` (null: this one) through at(), so the same app works for another computer through the relay.
+// `query` is its address's query (where it starts), `open(app, hash)` opens another app (a window on the desktop, a
+// page outside it; `hash` without the computer), `place(query, title)` keeps where it is now (the window's layout and
+// title, or the page's address).
 import { icon } from '../icons.js';
 import { ApiError, fill, h } from '../lib.js';
+import { queryOf } from './apps.js';
 
 /**
  * The body of a native app's window: { el, reload(), stop() }. The module is loaded when the window is built; a
  * reload mounts it again from nothing.
  */
-export function nativeBody(app, { machine }) {
+export function nativeBody(app, { machine, hash = () => '', open = () => {}, place = () => {} }) {
   const el = h('div.dapp', { dataset: { app: app.id } });
   let stop = () => {};
   let gen = 0;
@@ -19,7 +23,7 @@ export function nativeBody(app, { machine }) {
     import(`./${app.module}`).then((m) => {
       if (mine !== gen) return;
       fill(el);
-      stop = m.mount(el, { machine }) || (() => {});
+      stop = m.mount(el, { machine, query: queryOf(hash()), open, place }) || (() => {});
     }).catch((e) => fill(el, h('div.dapp-error', icon('alert', { size: 18 }), h('span', `This app did not open: ${e.message}`))));
   };
   start();

@@ -256,6 +256,36 @@ body.desk-mode[data-desk-style='dock'] .toasts { top: 42px; }
 .dapp-p7 .dapp-msg { color: var(--muted); }
 .dapp-follow[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); border-color: transparent; }
 
+/* Files */
+.dfiles-path { flex-wrap: nowrap; }
+.dfiles-crumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; padding: 0 4px; height: 34px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); overflow: hidden; }
+.dfiles-crumb { flex: none; max-width: 220px; padding: 3px 6px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.dfiles-crumb:hover { background: var(--surface-3); color: var(--text); }
+.dfiles-crumb[aria-current] { color: var(--text); font-weight: 600; cursor: default; }
+.dfiles-crumbs .dapp-btn { margin-left: auto; flex: none; }
+.dfiles-sep { flex: none; display: inline-grid; color: var(--muted); }
+.dfiles-tool { height: 30px; padding: 0 10px; gap: 6px; }
+.dfiles-tool[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); border-color: transparent; }
+.dfiles-selbar { padding: 6px 8px; border-radius: var(--r); background: var(--accent-soft); }
+.dfiles-name { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: default; }
+.dfiles-name svg { flex: none; color: var(--muted); }
+.dfiles-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dfiles-where { flex: 1 1 0; min-width: 0; color: var(--muted); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dfiles-table .dapp-tbody .dapp-tr { cursor: default; user-select: none; }
+.dfiles-table .dapp-tr.dapp-picked { background: var(--accent-soft); }
+.dfiles-table .dapp-tr.dapp-picked .dfiles-name svg { color: var(--accent); }
+.dfiles-more { width: 28px; }
+.dfiles-reach { flex: none; color: var(--muted); }
+.dapp-files.dfiles-drop { outline: 2px dashed var(--accent); outline-offset: -6px; background: var(--accent-soft); }
+.dfiles-viewer { display: grid; place-items: center; min-height: 200px; max-height: 70vh; overflow: auto; border-radius: var(--r); background: var(--surface-2); }
+.dfiles-viewer img { max-width: 100%; max-height: 68vh; object-fit: contain; }
+.dfiles-pickpath { flex: 1; min-width: 0; margin: 0; color: var(--text-2); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.dfiles-picklist { display: flex; flex-direction: column; max-height: 50vh; min-height: 160px; overflow: auto; margin: 10px 0; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
+.dfiles-pick { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 12px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.dfiles-pick span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dfiles-pick:hover { background: var(--surface-2); }
+.dfiles-pick svg { flex: none; color: var(--muted); }
+
 /* a native app as a page on a small screen */
 @media (max-width: 700px) {
   .dapp-page { height: calc(100vh - 230px); }
