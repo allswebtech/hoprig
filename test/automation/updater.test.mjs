@@ -164,6 +164,12 @@ test('a coding tool: Claude Code waits only for working sessions; Codex and Open
   assert.equal(cc.blocked(busy), null, 'Update now: a running Claude Code keeps its copy');
   assert.equal(cc.autoBlocked(idle), null);
   assert.match(cc.autoBlocked(busy), /1 working Claude Code session/);
+  // A chat runs Claude Code too: its turn, or only a background task (its card then says "working"), holds it back.
+  const chatAt = (status, background = false) => ({ name: 'chat:c1', kind: 'chat', chatId: 'c1', status, background });
+  assert.match(cc.autoBlocked([chatAt('working', true)]), /1 working Claude Code session/);
+  assert.match(cc.autoBlocked([...busy, chatAt('working')]), /2 working Claude Code sessions/);
+  assert.equal(cc.autoBlocked([chatAt('waiting')]), null);
+  assert.equal(cx.blocked([chatAt('working')]), null, 'a chat does not hold Codex back');
   assert.equal(cx.blocked(busy), null, 'Claude sessions do not hold Codex back');
   assert.match(cx.blocked(codexOpen), /1 Codex session open: close it first/);
   // A session started with `hoprig codex` in a terminal the dashboard does not hold has no card, only a run record.
