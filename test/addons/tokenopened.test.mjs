@@ -81,8 +81,9 @@ const owner = async (p, body) => {
   const r = await fetch(base + p, { method: body === undefined ? 'GET' : 'POST', headers: { Origin: base, Cookie: cookie, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) });
   return { status: r.status, json: await r.json() };
 };
-const asHub = async (token, p, body = {}) => {
-  const r = await fetch(base + p, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+// `headers`: e.g. the hub's word that the leg is encrypted (src/machines/legs.mjs: believed only from this computer).
+const asHub = async (token, p, body = {}, headers = {}) => {
+  const r = await fetch(base + p, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
   return { status: r.status, json: await r.json() };
 };
 const until = async (what, fn, ms = 15_000) => {
@@ -209,9 +210,14 @@ test('every way of revoking stops what that token started; a start by the owner 
 test('Setup started with a token is logged, and its password is nowhere: not the log, the console, any file', async () => {
   const t = { name: 'setup-hub', ...createToken('setup-hub') };
   const before = hubLines().length;
-  assert.deepEqual((await asHub(t.token, '/api/pcsetup/setup', { kits: ['extras'] })).json, { needsPassword: true });
+  // Over a plain leg the password is refused unread: nothing ran, so nothing is logged.
+  assert.deepEqual((await asHub(t.token, '/api/pcsetup/setup', { kits: ['extras'], password: PASSWORD })).json, { needsPassword: true, plainLeg: true });
+  assert.equal(hubLines().length, before, 'a refused password is not a change');
+  // Over an encrypted leg (ssh or a tunnel to this computer: the hub says so, from loopback).
+  const leg = { 'X-Hoprig-Leg': 'encrypted' };
+  assert.deepEqual((await asHub(t.token, '/api/pcsetup/setup', { kits: ['extras'] }, leg)).json, { needsPassword: true });
   assert.equal(hubLines().length, before, 'asking for the password is not a change');
-  const r = await asHub(t.token, '/api/pcsetup/setup', { kits: ['extras'], password: PASSWORD });
+  const r = await asHub(t.token, '/api/pcsetup/setup', { kits: ['extras'], password: PASSWORD }, leg);
   assert.deepEqual(r.json, { started: true });
   await until('logged', () => hubLines().length === before + 1);
   assert.equal(hubLines().at(-1), 'The hub setup-hub ran Set up this computer');
