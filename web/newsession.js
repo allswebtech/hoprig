@@ -54,7 +54,7 @@ export function viewNew() {
   const opts = h('div.newopts');
   const body = h('div');
   const computers = h('div.ns-computers');
-  // How to work with Claude: in the terminal (the default, Claude Code as it is) or in a chat (chat.js).
+  // How to work with Claude: in the terminal (the default, Claude Code as it is) or in a chat (chat/page.js).
   const asRow = h('div.ns-as');
   frame({
     title: 'New session',

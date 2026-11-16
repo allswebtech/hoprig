@@ -307,6 +307,7 @@ export function chatFeature(ctx, o = {}) {
       const b = await ctx.readJson(req);
       if (typeof b.profile !== 'string' || !profileOk(b.profile)) throw bad('there is no such provider');
       c.setProfile(b.profile);
+      c.emit('state'); // a page that streams shows the new provider
       save();
       return { profile: profileView(c.profile) };
     }],

@@ -46,6 +46,8 @@ globalThis.document = {
   visibilityState: 'visible',
 };
 const texts = (n) => (n instanceof FakeText ? [n.text] : n.children.flatMap(texts));
+// Every page module, also in the page's folders (web/chat/): "chat/page.js".
+const pageFiles = (ext = '.js') => fs.readdirSync(WEB, { recursive: true }).map(String).filter((x) => x.endsWith(ext)).sort();
 
 const { h, fill, add } = await import('../../web/lib.js');
 
@@ -68,7 +70,7 @@ test('h(), fill() and add() skip nothing-children', () => {
 
 test('views build DOM only through the helpers', () => {
   const allowed = new Set(['lib.js', 'icons.js', 'login.js']);
-  for (const f of fs.readdirSync(WEB).filter((x) => x.endsWith('.js'))) {
+  for (const f of pageFiles()) {
     const src = fs.readFileSync(path.join(WEB, f), 'utf8');
     assert.doesNotMatch(src, /\.innerHTML\s*=|\.outerHTML\s*=|insertAdjacentHTML\(|document\.write\(/, `${f} must not build HTML from strings`);
     if (allowed.has(f)) continue;
@@ -77,7 +79,7 @@ test('views build DOM only through the helpers', () => {
 });
 
 test('every API and WebSocket URL goes through lib.js url()/wsUrl()', () => {
-  for (const f of fs.readdirSync(WEB).filter((x) => x.endsWith('.js') && x !== 'lib.js' && x !== 'login.js')) {
+  for (const f of pageFiles().filter((x) => x !== 'lib.js' && x !== 'login.js')) {
     const src = fs.readFileSync(path.join(WEB, f), 'utf8');
     assert.doesNotMatch(src, /fetch\(|new WebSocket\(\s*[`'"]/, `${f} must call api()/wsUrl() instead of fetch or a literal socket URL`);
     assert.doesNotMatch(src, /\.open\(\s*'POST',\s*[`'"]/, `${f} must pass upload URLs through url()`);
@@ -86,7 +88,7 @@ test('every API and WebSocket URL goes through lib.js url()/wsUrl()', () => {
 
 // Most page files are only read as text here, so a broken one would pass every other test and break the page.
 test('every page module parses', () => {
-  for (const f of fs.readdirSync(WEB).filter((x) => x.endsWith('.js'))) {
+  for (const f of pageFiles()) {
     const r = spawnSync(process.execPath, ['--check', path.join(WEB, f)], { encoding: 'utf8' });
     assert.equal(r.status, 0, `${f}: ${r.stderr}`);
   }
@@ -129,12 +131,12 @@ test('pages: groups in order, visible() hides one from the navigation (routing s
 // ---------- the pages the owner asked for: where each thing lives ----------
 test('structure: the main pages, the second group, the Settings pages, and old addresses that still land', () => {
   const src = (f) => fs.readFileSync(path.join(WEB, f), 'utf8');
-  const pages = [...fs.readdirSync(WEB).filter((f) => f.endsWith('.js')).map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)', title: [^,]+, icon: '[a-z]+'(?:, group: '(main|more)', order: (\d+))?/g)];
+  const pages = [...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)', title: [^,]+, icon: '[a-z]+'(?:, group: '(main|more)', order: (\d+))?/g)];
   const group = (g) => pages.filter((m) => m[2] === g).sort((a, b) => a[3] - b[3]).map((m) => m[1]);
   assert.deepEqual(group('main'), ['workspace', 'providers', 'computers'], 'Home is the router\'s own, then Workspace · Providers · Computers');
   assert.deepEqual(group('more'), ['automations', 'skills', 'brain', 'tia', 'settings']);
   // Every address in PAGE_ADDRESSES (what Tia's open_screen may open) leads to a page that exists.
-  const ids = new Set([...pages.map((m) => m[1]), ...[...fs.readdirSync(WEB).filter((f) => f.endsWith('.js')).map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)'/g)].map((m) => m[1])]);
+  const ids = new Set([...pages.map((m) => m[1]), ...[...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)'/g)].map((m) => m[1])]);
   const list = /export const PAGE_ADDRESSES = \[([\s\S]*?)\];/.exec(src('app.js'))[1];
   const addresses = [...list.matchAll(/'(#\/[^']*)'/g)].map((m) => m[1]);
   assert.ok(addresses.length > 20);
@@ -142,7 +144,7 @@ test('structure: the main pages, the second group, the Settings pages, and old a
     const first = a.slice(2).split('/')[0];
     assert.ok(first === '' || ['new', 'more'].includes(first) || ids.has(first), `${a} leads to a page`);
   }
-  const settingsPages = [...fs.readdirSync(WEB).filter((f) => f.endsWith('.js')).map(src).join('\n').matchAll(/registerSettingsPage\(\{\s*id: '([a-z-]+)', title: ([^,]+), icon: '[a-z]+', order: (\d+)/g)]
+  const settingsPages = [...pageFiles().map(src).join('\n').matchAll(/registerSettingsPage\(\{\s*id: '([a-z-]+)', title: ([^,]+), icon: '[a-z]+', order: (\d+)/g)]
     .sort((a, b) => a[3] - b[3]).map((m) => m[1]);
   assert.deepEqual(settingsPages, ['new-sessions', 'workspace', 'notifications', 'appearance', 'security', 'tia', 'vscode', 'addons', 'about']);
   const app = src('app.js');
@@ -157,7 +159,7 @@ test('structure: the main pages, the second group, the Settings pages, and old a
 // ---------- one kit ----------
 test('one kit: tabs, results, steps and loading rows come from shell.js; no page keeps its own copy', async () => {
   const src = (f) => fs.readFileSync(path.join(WEB, f), 'utf8');
-  for (const f of fs.readdirSync(WEB).filter((x) => x.endsWith('.js') && x !== 'shell.js')) {
+  for (const f of pageFiles().filter((x) => x !== 'shell.js')) {
     const s = src(f);
     assert.doesNotMatch(s, /const (errorBox|okBox|steps|skeleton|stepper) = \([^)]*\) =>\s*h\(/, `${f}: use the one in shell.js`);
     assert.doesNotMatch(s, /h\('nav\.(cp|au|sk)-tabs/, `${f}: tabs come from tabBar()`);
@@ -258,7 +260,7 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
 
 // ---------- styles ----------
 test('styles: a selected state is never a bare class another rule can also style (the Settings list once took a wizard strip\'s monospace)', () => {
-  for (const f of fs.readdirSync(WEB).filter((x) => x.endsWith('.css'))) {
+  for (const f of pageFiles('.css')) {
     const css = fs.readFileSync(path.join(WEB, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
     for (const sel of css.split('}').map((r) => r.split('{')[0].trim()).filter((x) => x && !x.startsWith('@'))) {
       for (const one of sel.split(',').map((x) => x.trim())) {
@@ -407,7 +409,7 @@ test('add-ons: the public link\'s fixed address in plain words; what "Stop using
 
 // ---------- wording ----------
 test('wording: "provider" and "computer" in everything a visitor reads; Auto mode promises "without stopping" only for API', async () => {
-  for (const f of fs.readdirSync(WEB).filter((x) => x.endsWith('.js') || x.endsWith('.html'))) {
+  for (const f of [...pageFiles(), ...pageFiles('.html')]) {
     const visible = fs.readFileSync(path.join(WEB, f), 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
     for (const m of visible.matchAll(/(['"`])((?:(?!\1).)*)\1/g)) {
       const t = m[2];
@@ -624,7 +626,7 @@ test('Get started: the brain\'s unlinked skills reopen the skills step with the 
   assert.equal(none.steps[0].detail, '1 more in the AI brain is not used yet');
   assert.equal(none.done, 0);
   // No page tells the owner to type the link command any more.
-  for (const f of fs.readdirSync(WEB).filter((x) => x.endsWith('.js') && x !== 'brainlink.js')) assert.ok(!/workspace link/.test(fs.readFileSync(path.join(WEB, f), 'utf8')), f);
+  for (const f of pageFiles().filter((x) => x !== 'brainlink.js')) assert.ok(!/workspace link/.test(fs.readFileSync(path.join(WEB, f), 'utf8')), f);
 });
 
 // ---------- every helper of lib.js that a page module calls is imported there ----------
@@ -635,10 +637,10 @@ test('web modules import every lib.js helper they call', () => {
   const helpers = [...lib.matchAll(/^export (?:async )?(?:function|const|class|let) ([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]);
   assert.ok(helpers.includes('link') && helpers.includes('api'), 'lib.js exports were read');
   const missing = [];
-  for (const f of fs.readdirSync(WEB).filter((x) => x.endsWith('.js') && x !== 'lib.js')) {
+  for (const f of pageFiles().filter((x) => x !== 'lib.js')) {
     const raw = fs.readFileSync(path.join(WEB, f), 'utf8');
     const imported = new Set();
-    for (const m of raw.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/lib\.js'/g)) for (const n of m[1].split(',')) imported.add(n.trim().split(/\s+as\s+/).pop());
+    for (const m of raw.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\.?\/lib\.js'/g)) for (const n of m[1].split(',')) imported.add(n.trim().split(/\s+as\s+/).pop());
     // Code only: no comments, no quoted text (a template's ${…} stays, it is code).
     const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:\\])\/\/.*$/gm, '$1').replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"/g, "''");
     for (const n of helpers) {

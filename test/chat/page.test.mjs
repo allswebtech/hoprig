@@ -1,0 +1,178 @@
+// The chat page's own logic (web/chat/), without a browser: its words, the diff with line numbers, the agents' lines
+// and the strip, the status line, the limit card's list of actions, the provider usage words. The page itself is
+// proven in a real browser against Claude Code (see the step's notes); here the parts that decide what it says.
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+// A small stand-in for the browser DOM: what lib.js's h/fill/add and the views use.
+class FakeNode {}
+class FakeText extends FakeNode {
+  constructor(t) {
+    super();
+    this.text = t;
+  }
+}
+class FakeElement extends FakeNode {
+  constructor(tag) {
+    super();
+    Object.assign(this, { tag, className: '', dataset: {}, style: { setProperty() {} }, attrs: {}, children: [], listeners: {} });
+    this.classList = { add: (c) => (this.className += ` ${c}`), remove: () => {}, toggle: () => {}, contains: (c) => this.className.split(' ').includes(c) };
+  }
+  setAttribute(k, v) {
+    this.attrs[k] = v;
+  }
+  getAttribute(k) {
+    return this.attrs[k] ?? null;
+  }
+  addEventListener(k, fn) {
+    this.listeners[k] = fn;
+  }
+  append(...nodes) {
+    for (const n of nodes) this.children.push(n instanceof FakeNode ? n : new FakeText(String(n)));
+  }
+  replaceChildren(...nodes) {
+    this.children = [];
+    this.append(...nodes);
+  }
+  remove() {}
+  querySelector() {
+    return null;
+  }
+  querySelectorAll() {
+    return [];
+  }
+}
+globalThis.Node = FakeNode;
+globalThis.document = {
+  createElement: (t) => new FakeElement(t),
+  createElementNS: (ns, t) => new FakeElement(t),
+  createTextNode: (t) => new FakeText(t),
+  getElementById: () => null,
+  addEventListener: () => {},
+  visibilityState: 'visible',
+};
+const texts = (n) => (n instanceof FakeText ? [n.text] : n.children.flatMap(texts));
+const byClass = (n, c) => (n instanceof FakeText ? [] : [...(n.className.split(' ').includes(c) ? [n] : []), ...n.children.flatMap((x) => byClass(x, c))]);
+
+const W = await import('../../web/chat/words.js');
+const D = await import('../../web/chat/diff.js');
+const Ag = await import('../../web/chat/agents.js');
+const St = await import('../../web/chat/statusline.js');
+const L = await import('../../web/chat/limit.js');
+
+test('chat page words: the mode chip, Shift+Tab order, model and effort, paths, limits, context, exit codes', () => {
+  assert.equal(W.modeChip('bypassPermissions'), 'Bypass');
+  assert.equal(W.modeChip(null), 'Ask first');
+  assert.ok(W.MODE.bypassPermissions.danger);
+  // Shift+Tab: ask first → accept edits → plan → auto → bypass → ask first; never-ask only in the menu
+  const ring = [];
+  let m = 'manual';
+  for (let i = 0; i < 5; i++) ring.push((m = W.nextMode(m)));
+  assert.deepEqual(ring, ['acceptEdits', 'plan', 'auto', 'bypassPermissions', 'manual']);
+  assert.equal(W.nextMode('dontAsk'), 'manual');
+  assert.equal(W.nextMode('acceptEdits', ['manual', 'acceptEdits']), 'manual'); // only the modes the server offers
+  // What the process says wins over what is set; Claude Code's "default" is the dashboard's "manual".
+  assert.equal(W.modeOf({ liveMode: 'default', permissionMode: 'plan' }), 'manual');
+  assert.equal(W.modeOf({ liveMode: null, permissionMode: 'plan' }), 'plan');
+  assert.equal(W.modelName('sonnet'), 'Sonnet');
+  assert.equal(W.modelName(null), 'Auto');
+  assert.equal(W.modelName('claude-opus-5-5'), 'opus-5-5');
+  assert.equal(W.effortName('xhigh'), 'Extra high');
+  assert.equal(W.inFolder('/p/shop/src/a.js', '/p/shop'), 'src/a.js');
+  assert.equal(W.inFolder('/elsewhere/a.js', '/p/shop'), '/elsewhere/a.js');
+  assert.equal(W.limitsLine({ five_hour: { percent: 42.4 }, seven_day: { percent: 10 }, other: { status: 'allowed' } }), '5 h 42% · week 10%');
+  assert.equal(W.contextPercent({ contextUsed: 50_000, contextWindow: 200_000 }), 25);
+  assert.equal(W.contextPercent({ contextPercent: 41.6, contextUsed: 1, contextWindow: 2 }), 42);
+  assert.equal(W.contextPercent({}), null);
+  assert.equal(W.exitCode('Exit code 2\nls: cannot access'), 2);
+  assert.equal(W.exitCode('all fine'), null);
+  assert.equal(W.took(400), 'less than 1 s');
+  assert.equal(W.took(65_000), '1 min 5 s');
+  // A last newline ends the last line: one line, not two.
+  assert.equal(W.lineCount('one\n'), 1);
+  assert.equal(W.toolLine('Write', { file_path: '/p/a.txt', content: 'one\n' }).detail, 'a.txt · 1 lines');
+  assert.equal(W.toolLine('Bash', { command: 'sleep 9', run_in_background: true }).verb, 'Started');
+  assert.equal(W.toolLine('Agent', { description: 'x', run_in_background: true }).verb, 'Started a background agent');
+});
+
+test('the diff: the longest common lines, hunks with old and new numbers, context around each change', () => {
+  assert.deepEqual(D.diffLines('a\nb\nc', 'a\nB\nc\nd'), [[' ', 'a'], ['-', 'b'], ['+', 'B'], [' ', 'c'], ['+', 'd']]);
+  // Unlike the plain prefix/suffix diff, a line moved past an insertion stays context.
+  const rows = D.diffLines('x\n1\n2\n3\ny', 'x\nnew\n1\n2\n3\ny');
+  assert.deepEqual(rows.filter((r) => r[0] !== ' '), [['+', 'new']]);
+  const before = Array.from({ length: 30 }, (_, i) => `l${i + 1}`).join('\n');
+  const after = before.replace('l5', 'L5').replace('l25', 'L25');
+  const hunks = D.hunksOf(before, after);
+  assert.equal(hunks.length, 2); // two changes far apart: two hunks
+  assert.deepEqual([hunks[0].oldStart, hunks[0].newStart, hunks[0].oldLines, hunks[0].newLines], [2, 2, 7, 7]);
+  assert.deepEqual(hunks[0].lines, [' l2', ' l3', ' l4', '-l5', '+L5', ' l6', ' l7', ' l8']);
+  assert.deepEqual(D.hunkCounts(hunks), { added: 2, removed: 2 });
+  assert.deepEqual(D.hunksOf('same', 'same'), []);
+  // The view: numbers per side, a sign (and words for a screen reader) per changed line, all text as text.
+  const view = D.diffView([{ oldStart: 10, oldLines: 2, newStart: 10, newLines: 2, lines: [' keep', '-<b>old</b>', '+new'] }]);
+  const t = texts(view);
+  assert.ok(t.includes('Line 10'), 'a hunk past the start says where it is');
+  assert.ok(t.includes('<b>old</b>'), 'set as text, never as HTML');
+  const rowsEl = byClass(view, 'cd-row');
+  assert.deepEqual(rowsEl.map((r) => r.children.map((c) => texts(c).join('')).join('|')), ['10|10| |keep', '11||−|<b>old</b>', '|11|+|new']);
+  assert.equal(byClass(rowsEl[1], 'cd-m')[0].attrs['aria-label'], 'removed');
+  // A long diff shows its first rows and a "Show all".
+  const long = D.diffView([{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 300, lines: Array.from({ length: 300 }, (_, i) => `+${i}`) }]);
+  assert.equal(byClass(long, 'cd-row').length, 80);
+  assert.match(texts(byClass(long, 'chat-showall')[0]).join(''), /Show all 300 lines/);
+});
+
+test('agents: the strip counts what runs, a task line names its model and effort, a workflow its phases', () => {
+  const tasks = [
+    { taskId: 'a', type: 'agent', status: 'running', title: 'Find tests', now: 'Reading src', model: 'sonnet', effort: 'low', usage: { tools: 3, tokens: 12_300, ms: 41_000 } },
+    { taskId: 'b', type: 'shell', status: 'running', background: true, title: 'npm test' },
+    { taskId: 'c', type: 'agent', status: 'completed', title: 'done one', summary: 'its whole report …' },
+  ];
+  assert.equal(Ag.runningWords(tasks), '1 agent · 1 shell running');
+  assert.equal(Ag.runningWords([tasks[2]]), '');
+  assert.equal(Ag.taskLine(tasks[0]), 'running · Reading src · Sonnet · effort low · 3 tools · 12k tokens · 41 s');
+  assert.equal(Ag.taskLine(tasks[2]), 'done', 'an ended task does not repeat its report');
+  const wf = Ag.workflowView({ phases: [{ index: 0, title: 'Ask' }], agents: [{ phase: 0, label: 'one', state: 'done', model: 'claude-sonnet-5-5', tokens: 6500 }, { phase: 3, label: 'stray', state: 'running' }] });
+  const t = texts(wf);
+  assert.ok(t.includes('Ask') && t.includes('one') && t.includes('Other') && t.includes('stray'));
+  assert.ok(t.some((x) => /done · sonnet-5-5 · 6\.5k tokens/.test(x)));
+});
+
+test('status line: what Claude does now, then model, effort, mode, cost, context and the plan limits', () => {
+  const base = { status: 'working', model: null, liveModel: 'claude-opus-5-5', effort: 'high', permissionMode: 'bypassPermissions', liveMode: null, costTotal: 0.5, usage: { contextUsed: 20_000, contextWindow: 200_000 }, limits: { five_hour: { percent: 63 } }, tasks: [], live: [] };
+  assert.equal(St.stateWords(base), 'Working…');
+  assert.equal(St.stateWords({ ...base, activity: 'compacting' }), 'Compacting the conversation…');
+  assert.equal(St.stateWords({ ...base, live: [{ kind: 'tool', title: 'npm test' }] }), 'Working: npm test');
+  assert.equal(St.stateWords({ ...base, live: [], tasks: [{ status: 'running', background: true }] }), 'Working: 1 in the background');
+  assert.equal(St.stateWords({ ...base, status: 'attention' }), 'Needs your OK');
+  assert.equal(St.stateWords({ ...base, status: 'waiting', terminal: { name: 'x' } }), 'Runs in a terminal');
+  assert.deepEqual(St.statusParts(base).map((x) => x[1]), ['Auto · opus', 'High', 'Bypass', '$0.50 so far', 'context 10%', '5 h 63%']);
+  // The owner's choice is shown, not what ran before it took effect.
+  assert.equal(St.statusParts({ ...base, model: 'sonnet' })[0][1], 'Sonnet');
+});
+
+test('the limit card: its actions are a list, so another part adds one line; none while a terminal runs it', () => {
+  const v = { limit: { text: 'You\'ve hit your usage limit' }, profile: { label: 'Max' }, limits: { five_hour: { status: 'rejected', resetsAt: Date.now() + 2 * 3600_000 } } };
+  let moved = 0;
+  const card = L.limitCard(v, { moveProvider: () => moved++ });
+  assert.match(texts(card).join(''), /Max cannot answer now: You've hit your usage limit It is free again in (1 h 59|2 h 0) min\./);
+  assert.deepEqual(byClass(card, 'btn').map((b) => texts(b).join('')), ['Move to another provider']);
+  byClass(card, 'btn')[0].listeners.click();
+  assert.equal(moved, 1);
+  L.LIMIT_ACTIONS.push((ctx) => (ctx.v.profile ? { label: 'Sign in with another account', icon: 'user', run: () => {} } : null));
+  try {
+    assert.deepEqual(byClass(L.limitCard(v, { moveProvider() {} }), 'btn').map((b) => texts(b).join('')), ['Move to another provider', 'Sign in with another account']);
+  } finally {
+    L.LIMIT_ACTIONS.pop();
+  }
+  assert.equal(L.limitCard({ ...v, terminal: { name: 'x' } }, {}), null);
+  assert.equal(L.limitCard({ ...v, limit: null }, {}), null);
+});
+
+test('the provider sheet: each provider with its plan usage', async () => {
+  globalThis.window = globalThis.window || { addEventListener() {} };
+  const { usageWords, editorLink } = await import('../../web/chat/header.js');
+  assert.equal(usageWords({ usage: { fiveHour: { pct: 42.2 }, week: { pct: 9 } } }), '5-hour 42% · weekly 9%');
+  assert.equal(usageWords({}), '');
+  assert.equal(editorLink('/p/my shop', 'changes'), '#/code?dir=%2Fp%2Fmy%20shop&view=changes');
+});

@@ -58,7 +58,7 @@ export function answerAsk(chat, request, a) {
       chat.emit('record'); // kept with the chat (feature.mjs saves the open chats)
     }
   } else {
-    const why = a.message ? `: ${a.message}` : '.';
+    const why = a.message ? `: ${a.message.replace(/[\s.!?]+$/, '')}.` : '.';
     chat.session.answer(request, { allow: false, message: `The user said no to this ${ask.tool} call in the dashboard${why} Do not do it another way; wait for the user to say how to go on.` });
   }
   chat.pending.delete(request);

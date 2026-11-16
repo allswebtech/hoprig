@@ -5,7 +5,7 @@ import { h, limitBox, link, machinePill, permissionActions, profileIcon, profile
 import { isStarting, markStarting, startingPill } from './newsession.js';
 import { registeredCardBadges } from './registry.js';
 
-// A chat (chat.js) has its own page; every other session is a terminal.
+// A chat (chat/page.js) has its own page; every other session is a terminal.
 export const sessionHref = (s) => link(s.kind === 'chat' ? `#/chat/${s.chatId}` : `#/s/${encodeURIComponent(s.name)}`, s.machine);
 const open = (s) => (location.hash = sessionHref(s));
 const nameOf = (s) => s.display || s.name;

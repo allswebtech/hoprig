@@ -1,7 +1,7 @@
 // The coding chat (src/chat/chat.mjs) and its Claude Code engine (src/chat/engines/) against a stand-in Claude Code
 // that speaks stream-json (fixtures/fake-claude.mjs): a turn, a tool call, a permission card allowed and denied,
 // Stop, resume from the transcript, and the settings of the next start. chat v2 (streaming, tasks, the queue, live
-// controls) is in v2.test.mjs. Also the page's plain words for tool calls (web/chattext.js).
+// controls) is in v2.test.mjs. Also the page's plain words for tool calls (web/chat/words.js).
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -17,7 +17,7 @@ test.after(() => box.cleanup());
 
 const { Chat } = await import('../../src/chat/chat.mjs');
 const P = await import('./protocol.mjs'); // the Claude Code engine's lines, parser and transcript reader, in one
-const T = await import('../../web/chattext.js');
+const T = await import('../../web/chat/words.js');
 
 const until = async (what, fn, ms = 10_000) => {
   const end = Date.now() + ms;
