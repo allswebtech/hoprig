@@ -176,6 +176,14 @@ test('status line: what Claude does now (the tool that runs, for how long), then
   assert.equal(St.stateWords({ ...base, status: 'attention' }), 'Needs your OK');
   assert.equal(St.stateWords({ ...base, status: 'attention', asking: 'question' }), 'Claude asks you a question');
   assert.equal(St.stateWords({ ...base, status: 'waiting', terminal: { name: 'x' } }), 'Runs in a terminal');
+  // The dot: the limit's colour at the limit, never Ready's green.
+  assert.equal(St.statusKey({ status: 'waiting', lastEnd: 'limit' }), 'limit');
+  assert.equal(St.statusKey({ status: 'waiting', limit: { at: 1 } }), 'limit');
+  assert.equal(St.statusKey({ status: 'waiting', lastEnd: 'ok' }), 'waiting');
+  assert.equal(St.statusKey({ status: 'waiting', lastEnd: 'stopped' }), 'stopped');
+  assert.equal(St.statusKey({ status: 'waiting', lastError: 'boom', lastEnd: 'error' }), 'error');
+  assert.equal(St.statusKey({ status: 'working', lastEnd: 'limit' }), 'working');
+  assert.equal(St.statusKey({ status: 'waiting', terminal: { name: 'x' } }), 'terminal');
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'stopped' }), 'Stopped', 'the owner\'s Stop is no error');
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'limit', limit: { text: 'x' } }), 'Stopped at the usage limit');
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'error', lastError: 'boom' }), 'Stopped with an error');

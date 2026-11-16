@@ -24,7 +24,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getAutoSwitch } from '../autoswitch.mjs';
+import { getAutoSwitch, limitedProfiles } from '../autoswitch.mjs';
 import { EFFORTS, MODELS, PERMISSION_MODES } from '../config.mjs';
 import { stateDir, tilde } from '../paths.mjs';
 import { assertServes, listProfiles, publicProfile, readProfile, servesTools } from '../profiles.mjs';
@@ -38,6 +38,7 @@ import { gitBranch, readAttachments } from './files.mjs';
 import { folderMemory } from './folders.mjs';
 import { handoffRoutes, terminals } from './handoff.mjs';
 import { liveRoutes, stateOf } from './live.mjs';
+import { limitMark } from './providerlimit.mjs';
 
 const OPEN_MAX = 50;
 const WAIT_MAX_S = 25; // below the relay's 30 s idle limit, so a chat of another computer can wait too
@@ -67,6 +68,7 @@ export function chatFeature(ctx, o = {}) {
     c.setMaxListeners(200); // one per page that waits for news
     c.on('status', () => ctx.poke?.()); // Home and the notifications see a new state at once
     c.on('turn', save);
+    c.on('turn', (ev) => limitMark(c, ev, { auto: AUTO.name, poke: () => ctx.poke?.() }));
     c.on('record', save); // "allow in this chat" was given: it is kept with the chat
     c.on('closed', () => {
       // Its page, opened later, still names it and can continue its conversation (chatOr404).
@@ -243,7 +245,8 @@ export function chatFeature(ctx, o = {}) {
     let profile = b.profile;
     if (profile === undefined || profile === null || profile === '') {
       // As the last chat here ran, while that provider is still there; else the one recommended now.
-      profile = last.profile && servesChat(last.profile) ? last.profile : (await ctx.state()).recommended;
+      // A provider at its limit is not picked by itself (the owner may still choose it).
+      profile = last.profile && servesChat(last.profile) && !limitedProfiles()[last.profile] ? last.profile : (await ctx.state()).recommended;
       if (!profile) throw bad('there is no provider yet: add one under Providers first');
     }
     if (typeof profile !== 'string' || !profileOk(profile)) throw bad('there is no such provider');

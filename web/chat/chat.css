@@ -134,6 +134,7 @@ textarea.chat-input:disabled { opacity: 0.6; }
 .chat-status[data-status='terminal'] .chat-st-dot { background: var(--muted); }
 .chat-status[data-status='error'] .chat-st-dot { background: var(--danger-solid); }
 .chat-status[data-status='stopped'] .chat-st-dot { background: var(--muted); }
+.chat-status[data-status='limit'] .chat-st-dot { background: var(--danger-solid, var(--danger)); }
 .chat-st-timer { flex: none; margin-left: -8px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .chat-st-timer:empty { display: none; }
 .chat-st-state { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); font-weight: 600; }

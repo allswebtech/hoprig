@@ -34,6 +34,19 @@ export function stateWords(v) {
   return v.lastError ? 'Stopped with an error' : 'Ready';
 }
 
+/**
+ * The dot's colour by what the chat does: a terminal runs it, an error, Stop, the usage limit (the danger colour the
+ * limit has on Home and the providers), else the chat's status.
+ */
+export function statusKey(v) {
+  if (v.terminal) return 'terminal';
+  if (v.status !== 'waiting') return v.status;
+  if (v.lastError) return 'error';
+  if (v.lastEnd === 'stopped') return 'stopped';
+  if (v.lastEnd === 'limit' || v.limit) return 'limit';
+  return v.status;
+}
+
 /** The rest of the line: [label, text] pairs (the label is for a screen reader and the title). */
 export function statusParts(v) {
   const p = contextPercent(v.usage);
@@ -66,7 +79,7 @@ export function createStatusLine() {
     el,
     paint(s) {
       v = s;
-      el.dataset.status = v.terminal ? 'terminal' : v.status === 'waiting' && v.lastError ? 'error' : v.status === 'waiting' && v.lastEnd === 'stopped' ? 'stopped' : v.status;
+      el.dataset.status = statusKey(v);
       const counting = words();
       clearInterval(tick);
       tick = counting ? setInterval(words, 1000) : null;
