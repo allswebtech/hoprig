@@ -10,7 +10,7 @@ import path from 'node:path';
 import { claudeInfo, claudeLoginStatus } from '../claudecode.mjs';
 import { loadConfig } from '../config.mjs';
 import { binFile, configDir, configFile, profilesDir, stateDir, tilde } from '../paths.mjs';
-import { listProfiles } from '../profiles.mjs';
+import { hiddenProfiles, listProfiles } from '../profiles.mjs';
 import { ensureSpawnHelper } from '../server/backends/pty-helper.mjs';
 import { tmuxNewEnough } from '../server/backends/tmuxversion.mjs';
 import { capture, compareVersions, detectPackageManager, installCommands, isRoot, npmArgv, npmMajor, showCommands, which } from './system.mjs';
@@ -131,7 +131,13 @@ export function loginCheck(status, profiles) {
   return result('login', 'Claude login', needsLogin ? 'warn' : 'info', `unknown: ${status.reason || 'no answer'}`, status.reason === 'Claude Code is not installed' ? '' : fix);
 }
 
-export function profilesCheck(profiles) {
+export function profilesCheck(profiles, hidden = []) {
+  // A provider file named like a command (codex, opencode, tools…) is not listed: say so, and how to rename it.
+  if (hidden.length) {
+    const n = hidden[0];
+    return result('profiles', 'Profiles', 'warn', `${hidden.map((x) => `"${x}"`).join(', ')} ${hidden.length === 1 ? 'is a command word now, so that provider is' : 'are command words now, so those providers are'} not used`,
+      `mv "${path.join(profilesDir(), `${n}.env`)}" "${path.join(profilesDir(), `${n}-provider.env`)}"`);
+  }
   if (!profiles.length) return result('profiles', 'Profiles', 'warn', 'none yet (the first start creates "sub" for your login)', `${APP} setup   (or: ${APP} add)`);
   return result('profiles', 'Profiles', 'ok', profiles.map((p) => `${p.name} (${p.kind})`).join(', '));
 }
@@ -369,7 +375,7 @@ export async function allChecks({ sys = sysInfo(), offline = false } = {}) {
   } catch {
     /* reported by the folder check */
   }
-  list.push(forHub(loginCheck(await claudeLoginStatus({ env: sys.env }), profiles)), forHub(profilesCheck(profiles)));
+  list.push(forHub(loginCheck(await claudeLoginStatus({ env: sys.env }), profiles)), forHub(profilesCheck(profiles, hiddenProfiles())));
   const term = await terminalCheck(sys);
   list.push(term, forHub(await ptyCheck(sys, { tmux: !term.detail.startsWith('built-in') })), await passwordCheck(), await serviceCheck(sys));
   list.push(await portCheck(cfg.server.host || DEFAULT_HOST, cfg.server.port || DEFAULT_PORT));

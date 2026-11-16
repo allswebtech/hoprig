@@ -168,6 +168,18 @@ export function assertServes(p, tool) {
   throw Object.assign(new Error(`The provider "${p ? p.label || p.name : '?'}" cannot be used for ${name}: ${why}.`), { status: 400 });
 }
 
+/**
+ * Provider files whose name is now a command word (RESERVED: e.g. "tools", "codex", "opencode" since those became
+ * commands). listProfiles leaves them out, so doctor names them; they are never deleted.
+ */
+export function hiddenProfiles() {
+  try {
+    return fs.readdirSync(profilesDir()).filter((f) => f.endsWith('.env') && RESERVED.has(f.slice(0, -4))).map((f) => f.slice(0, -4)).sort();
+  } catch {
+    return [];
+  }
+}
+
 /** All profiles, sorted by name. */
 export function listProfiles() {
   let names;

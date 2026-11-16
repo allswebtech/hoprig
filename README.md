@@ -389,6 +389,7 @@ No framework and no build step.
 hop                              choose a provider, start Claude Code
 hop <profile> [args]             start on that provider (args go to Claude Code)
 hop auto [args]                  Auto mode          hop auto on | off | order … | status
+hop codex | opencode [profile] [args]   Codex or OpenCode in this terminal, on a provider that serves it
 hop add | profiles | rm          providers (each one is a profile)
 hop setup | doctor | update      set everything up, check everything, update Hoprig
 hop pc setup | status | clone    this computer for coding;  hop pc recipe save: a recipe for the next one
