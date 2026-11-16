@@ -13,6 +13,7 @@ import { chatTools } from './chat/start.js';
 import { registerCardBadge, registerPage, registerSessionAction } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, panel, savedMark, tabBar, toggle } from './shell.js';
 import { store } from './store.js';
+import { accountLabel, providerLine } from './providerword.js';
 import './addons.js';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -117,17 +118,6 @@ export function foldActivity(entries) {
 const cache = new Map(); // computer key → GET /api/automation
 const keyOf = () => machine.current || '~';
 
-/**
- * A provider's display name ("Claude Max"; "Auto mode" for auto) among `profiles`; while they are not known yet (the
- * first moment after a load) "its provider", never the short name the owner did not type.
- */
-export function providerWord(name, profiles) {
-  if (name === 'auto') return 'Auto mode';
-  if (!Array.isArray(profiles)) return 'its provider';
-  const p = profiles.find((x) => x.name === name);
-  return (p && p.label) || name;
-}
-const accountLabel = (name) => providerWord(name, store.data && store.data.profiles);
 
 /** Save automation settings; resolves the new status or throws after saying why. */
 async function saveSettings(patch) {
@@ -289,19 +279,7 @@ export function nextRunText(ms, now = Date.now(), timeZone = undefined) {
 
 function scheduleRow(s, reload, timeZone) {
   const mark = savedMark();
-  const line = h('span', scheduleSentence(s, accountLabel));
-  if (!(store.data && store.data.profiles)) {
-    // The providers' names come with the first look at the computer: the sentence says them as soon as they do.
-    let done = false;
-    let off = null;
-    off = store.subscribe((d) => {
-      if (done || !(d && d.profiles)) return;
-      done = true;
-      line.textContent = scheduleSentence(s, accountLabel);
-      if (off) off();
-    });
-    if (done) off();
-  }
+  const line = providerLine((label) => scheduleSentence(s, label));
   const next = !s.enabled ? 'Off' : s.nextAt ? `Next run ${nextRunText(s.nextAt, Date.now(), timeZone)}` : 'Done: it ran once';
   const turn = async (e) => {
     const on = e.target.checked;

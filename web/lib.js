@@ -2,6 +2,7 @@
 // WebSocket URLs, per-device preferences, wording, sheets (dialogs) and toasts.
 import { APP_NAME, REPO_URL } from './brand.js';
 import { icon } from './icons.js';
+import { keepTabIn } from './tabwrap.js';
 
 // ---------- DOM ----------
 
@@ -411,18 +412,6 @@ export const insecure = () => location.protocol === 'http:' && !['localhost', '1
 let sheetEl = null;
 let sheetNow = null; // the open sheet: { resolve, result }
 let sheetSkip = 0; // close events still to come from sheets that made way for the next one
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
-/**
- * Where Tab goes from `active` among a sheet's controls `items` (in order): from the last round to the first, with
- * `back` (Shift+Tab) from the first (or from the sheet itself) round to the last; null: the browser's own step.
- */
-export function wrapTab(items, active, back) {
-  if (!items.length) return null;
-  const i = items.indexOf(active);
-  if (back) return i <= 0 ? items[items.length - 1] : null;
-  return i === items.length - 1 ? items[0] : null;
-}
-
 function sheetElement() {
   if (!sheetEl) {
     sheetEl = h('dialog.sheet', { 'aria-modal': 'true' });
@@ -430,16 +419,7 @@ function sheetElement() {
     sheetEl.addEventListener('click', (e) => {
       if (e.target === sheetEl) sheetEl.close();
     });
-    // Tab stays in the sheet: from its last control round to its first (Shift+Tab the other way). A modal dialog
-    // alone lets it step out to the page's body once a round.
-    sheetEl.addEventListener('keydown', (e) => {
-      if (e.key !== 'Tab' || e.defaultPrevented) return;
-      const to = wrapTab([...sheetEl.querySelectorAll(FOCUSABLE)].filter((x) => x.tabIndex >= 0 && x.getClientRects().length), document.activeElement, e.shiftKey);
-      if (to) {
-        e.preventDefault();
-        to.focus();
-      }
-    });
+    keepTabIn(sheetEl); // Tab stays in the sheet
     // The browser reports a close a moment later. A sheet that made way for another one was answered already: its
     // report must not end the one that is open now.
     sheetEl.addEventListener('close', () => {

@@ -112,7 +112,7 @@ test('the starting pill names the coding tool that starts, by its own name', asy
 });
 
 test('a sheet keeps Tab inside it: from the last control round to the first, and back', async () => {
-  const { wrapTab } = await import('../../web/lib.js');
+  const { wrapTab } = await import('../../web/tabwrap.js');
   const [a, b, c] = ['a', 'b', 'c'];
   assert.equal(wrapTab([a, b, c], c, false), a, 'Tab on the last goes to the first');
   assert.equal(wrapTab([a, b, c], a, true), c, 'Shift+Tab on the first goes to the last');
@@ -120,17 +120,19 @@ test('a sheet keeps Tab inside it: from the last control round to the first, and
   assert.equal(wrapTab([a, b, c], b, false), null, 'in between: the browser\'s own step');
   assert.equal(wrapTab([a, b, c], b, true), null);
   assert.equal(wrapTab([], a, false), null);
-  assert.match(read('web/lib.js'), /sheetEl\.addEventListener\('keydown', \(e\) => \{\n\s+if \(e\.key !== 'Tab'/, 'every sheet, Add provider among them');
+  assert.match(read('web/lib.js'), /keepTabIn\(sheetEl\)/, 'every sheet, Add provider among them');
+  assert.match(read('web/tabwrap.js'), /dialog\.addEventListener\('keydown', \(e\) => \{\n\s+if \(e\.key !== 'Tab'/);
 });
 
 test('a schedule never says a provider\'s short name, also in the first moment after a load', async () => {
-  const { providerWord } = await import('../../web/automation.js');
+  const { providerWord } = await import('../../web/providerword.js');
   const profiles = [{ name: 'max', label: 'Claude Max' }];
   assert.equal(providerWord('max', profiles), 'Claude Max');
   assert.equal(providerWord('auto', undefined), 'Auto mode');
   assert.equal(providerWord('max', undefined), 'its provider', 'not known yet: never "max"');
   assert.equal(providerWord('gone', profiles), 'gone', 'a provider removed since: the name the schedule keeps');
-  assert.match(read('web/automation.js'), /off = store\.subscribe\(\(d\) => \{\n\s+if \(done \|\| !\(d && d\.profiles\)\) return;/, 'said again once the providers are known');
+  assert.match(read('web/providerword.js'), /off = store\.subscribe\(\(d\) => \{\n\s+if \(done \|\| !\(d && d\.profiles\)\) return;/, 'said again once the providers are known');
+  assert.match(read('web/automation.js'), /const line = providerLine\(\(label\) => scheduleSentence\(s, label\)\);/, 'a schedule\'s row uses it');
 });
 
 test('rare things under a closed Advanced: Pause all automations, the map\'s list; Link now only where it belongs', () => {
