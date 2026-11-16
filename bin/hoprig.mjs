@@ -9,7 +9,7 @@ import { routerMain } from '../src/router.mjs';
 import { profileUsage, routerAddress } from '../src/routerstate.mjs';
 import { addProfile, ago, askNext, chooseProfile, clock, menuProfiles } from '../src/menu.mjs';
 import { profilesDir } from '../src/paths.mjs';
-import { deleteProfile, listProfiles, publicProfile, readProfile, validName } from '../src/profiles.mjs';
+import { deleteProfile, publicProfile, readProfile, validName } from '../src/profiles.mjs';
 
 const HELP = `Hoprig — Claude Code and OpenCode under several providers, and a dashboard for every computer
 

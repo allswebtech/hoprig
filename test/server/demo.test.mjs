@@ -124,11 +124,14 @@ test('demo: every coding tool\'s own folder is inside the demo, so its brain lin
   const { toolHomes } = await import('../../src/workspace/link.mjs');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-iso-'));
   try {
-    const env = { HOME: '/real/home', XDG_CONFIG_HOME: '/real/home/.config', OPENCODE_CONFIG_DIR: '/real/oc', CODEX_HOME: '/real/codex', PATH: '/usr/bin' };
+    const env = { HOME: '/real/home', XDG_CONFIG_HOME: '/real/home/.config', OPENCODE_CONFIG_DIR: '/real/oc', CODEX_HOME: '/real/codex', PATH: '/usr/bin', HOPRIG_RUN_FILE: '/real/run', GH_TOKEN: 'x', GITHUB_TOKEN: 'x' };
     const home = isolate(root, env);
     const homes = toolHomes(env.HOME, env);
     for (const dir of Object.values(homes)) assert.ok(dir.startsWith(home + path.sep), dir);
     assert.equal(env.OPENCODE_CONFIG_DIR, undefined);
+    // Nothing of the session that started the demo, and no real GitHub sign-in.
+    assert.deepEqual([env.HOPRIG_RUN_FILE, env.GH_TOKEN, env.GITHUB_TOKEN], [undefined, undefined, undefined]);
+    assert.ok(env.GH_CONFIG_DIR.startsWith(home + path.sep));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

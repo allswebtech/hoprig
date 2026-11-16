@@ -75,6 +75,7 @@ export function isolate(root, env = process.env) {
     // Link in the demo must never reach the real ones.
     XDG_CONFIG_HOME: path.join(home, '.config'),
     CODEX_HOME: path.join(home, '.codex'),
+    GH_CONFIG_DIR: path.join(home, '.config', 'gh'), // GitHub's command: no real sign-in in the demo
     HOPRIG_HOSTNAME: 'workstation', // a made-up host name for the Computers page (the Laptop says its own)
     SHELL: '/bin/sh',
     PS1: '$ ',
@@ -82,7 +83,7 @@ export function isolate(root, env = process.env) {
     // demo must not find (and show) the tools installed on this computer.
     ...(process.platform === 'win32' ? {} : { PATH: `${nodeOnly(root)}:/usr/bin:/bin:/usr/sbin:/sbin` }),
   });
-  for (const k of Object.keys(env)) if (/^(ANTHROPIC_|CLAUDE_CODE_OAUTH_TOKEN$|HOPRIG_PROFILE$|HOPRIG_TERM_ID$|TMUX$|TMUX_PANE$|OPENCODE_CONFIG_DIR$|OPENCODE_CONFIG$)/.test(k)) delete env[k];
+  for (const k of Object.keys(env)) if (/^(ANTHROPIC_|CLAUDE_CODE_OAUTH_TOKEN$|HOPRIG_PROFILE$|HOPRIG_TERM_ID$|HOPRIG_RUN_FILE$|GH_TOKEN$|GITHUB_TOKEN$|TMUX$|TMUX_PANE$|OPENCODE_CONFIG_DIR$|OPENCODE_CONFIG$)/.test(k)) delete env[k];
   return home;
 }
 

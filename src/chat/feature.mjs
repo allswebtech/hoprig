@@ -509,14 +509,6 @@ export function chatFeature(ctx, o = {}) {
       return [...chats.values()].map(card);
     },
     /**
-     * True when a chat runs conversation `id` (of coding tool `tool`, Claude Code when left out) right now: its
-     * process, or one getting ready for a message.
-     */
-    running(id, tool = 'claude') {
-      load();
-      return !!chatOf(id, tool);
-    },
-    /**
      * Start a terminal on conversation `id` (server.mjs: New session, Tia) with `start()` → { name }, unless something
      * runs it already: → { name } of the new one, or { existing: { terminal: { name } } | { chat } } (handoff.mjs claim).
      */

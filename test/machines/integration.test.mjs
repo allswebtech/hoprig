@@ -73,6 +73,26 @@ function serve(m) {
   return until(`${m.name} to listen`, async () => (await fetch(`${m.base}/login`)).status === 200);
 }
 
+/**
+ * Stop the machines' dashboards and remove their folders once they have exited: a dashboard still shutting down
+ * writes its state again, and a folder removed before that was left behind in the temp folder.
+ */
+async function stopAll(machines, root) {
+  await Promise.all(machines.map((m) => {
+    const c = m.child;
+    if (!c || c.exitCode !== null || c.signalCode !== null) return null;
+    return new Promise((resolve) => {
+      const hard = setTimeout(() => c.kill('SIGKILL'), 5000);
+      c.once('exit', () => {
+        clearTimeout(hard);
+        resolve();
+      });
+      c.kill('SIGTERM');
+    });
+  }));
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+}
+
 /** A browser on `m`: logs in, then fetch with the cookie and Origin. */
 async function browser(m) {
   const login = await fetch(`${m.base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: m.base }, body: JSON.stringify({ password: PASSWORD }) });
@@ -105,10 +125,7 @@ test('two dashboards: pair, see, drive and revoke through the hub', { skip, time
     script: `export HOPRIG_CONFIG_DIR='${b.config}' HOPRIG_STATE_DIR='${b.state}' HOPRIG_PROFILES_DIR='${b.profiles}' CLAUDE_CONFIG_DIR='${b.claude}' HOPRIG_WORKSPACE_DIR='${b.workspace}'\nexec "${process.execPath}" "${BIN}" "$@"`,
   });
   const a = await machine(root, 'a', { PATH: ssh.sshEnv.PATH, FAKE_SSH_LOG: ssh.log, FAKE_SSH_SHELL: ssh.sshEnv.FAKE_SSH_SHELL });
-  t.after(() => {
-    for (const m of [a, b]) if (m.child && m.child.exitCode === null) m.child.kill('SIGTERM');
-    fs.rmSync(root, { recursive: true, force: true });
-  });
+  t.after(() => stopAll([a, b], root));
   await Promise.all([serve(a), serve(b)]);
   const hub = await browser(a);
 
@@ -194,10 +211,7 @@ test('a computer behind a router joins the hub by itself: driven from the hub, b
     script: `export HOPRIG_CONFIG_DIR='${a.config}' HOPRIG_STATE_DIR='${a.state}' HOPRIG_PROFILES_DIR='${a.profiles}' CLAUDE_CONFIG_DIR='${a.claude}' HOPRIG_WORKSPACE_DIR='${a.workspace}'\nexec "${process.execPath}" "${BIN}" "$@"`,
   });
   const b = await machine(root, 'b', { PATH: toA.sshEnv.PATH, FAKE_SSH_LOG: toA.log, FAKE_SSH_SHELL: toA.sshEnv.FAKE_SSH_SHELL });
-  t.after(() => {
-    for (const m of [a, b]) if (m.child && m.child.exitCode === null) m.child.kill('SIGTERM');
-    fs.rmSync(root, { recursive: true, force: true });
-  });
+  t.after(() => stopAll([a, b], root));
   await Promise.all([serve(a), serve(b)]);
   const hub = await browser(a);
   const home = await browser(b);
@@ -248,10 +262,7 @@ test('a computer behind a router joins the hub by itself: driven from the hub, b
 test('direct link: B joins A by address + code; A drives B (terminal, resize, 5 MB upload); B restarts; Leave', { skip, timeout: 180_000 }, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hop-link-'));
   const [a, b] = await Promise.all([machine(root, 'a'), machine(root, 'b')]);
-  t.after(() => {
-    for (const m of [a, b]) if (m.child && m.child.exitCode === null) m.child.kill('SIGTERM');
-    fs.rmSync(root, { recursive: true, force: true });
-  });
+  t.after(() => stopAll([a, b], root));
   await Promise.all([serve(a), serve(b)]);
   const hub = await browser(a);
   const home = await browser(b);

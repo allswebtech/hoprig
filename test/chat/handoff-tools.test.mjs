@@ -5,7 +5,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
@@ -35,7 +34,7 @@ test('Open as chat, Open in terminal and Continue here for an OpenCode conversat
   const { createRun, updateRun } = await import('../../src/runs.mjs');
 
   const chats = new Map();
-  const turnsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-handoff-'));
+  const turnsDir = path.join(box.root, 'turns'); // inside the sandbox: removed with it
   const engineOpts = { enabled: () => true, ...standInOpts(s) };
   const make = (rec) => {
     const c = new Chat({ ...rec, turnsDir, resolveEnv: async () => ({}), engineOpts, idleMs: 60_000 });

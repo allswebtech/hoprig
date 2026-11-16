@@ -6,10 +6,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { SESSION_ID, recordedTurns, standIn, standInOpts } from './fixtures/opencode-standin.mjs';
 
 const CWD = '/work/proj';
+// The chats' own folders, removed when the file's tests are done (they were left in the temp folder).
+const temps = [];
+const tempDir = () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-oclife-'));
+  temps.push(d);
+  return d;
+};
+after(() => {
+  for (const d of temps) fs.rmSync(d, { recursive: true, force: true, maxRetries: 3 });
+});
 const CHILD = 'ses_child0000000001';
 const CHILD2 = 'ses_child0000000002';
 const ev = (type, data) => ({ event: { type, data: { sessionID: SESSION_ID, ...data } } });
@@ -27,7 +37,7 @@ async function until(fn, what, ms = 5000) {
 let n = 0;
 async function chatOn(s, o = {}, opts = {}) {
   const { Chat } = await import('../../src/chat/chat.mjs');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-oclife-'));
+  const dir = tempDir();
   const id = `7d9c2a4e-1b3f-4c5d-8e6f-${String(++n).padStart(12, '0')}`;
   const c = new Chat({ id, engine: 'opencode', cwd: CWD, profile: 'gw', turnsDir: dir, resolveEnv: async () => ({}), engineOpts: { enabled: () => true, ...standInOpts(s), ...opts }, idleMs: 60_000, stopGraceMs: 3000, owedMs: 50, ...o });
   if (c.loading) await c.loading;
@@ -211,7 +221,7 @@ test('a chat closed while it starts makes no conversation; a read that comes aft
   const slow = await standIn({ messageMs: 300 });
   t.after(() => slow.close());
   const { Chat } = await import('../../src/chat/chat.mjs');
-  const d = new Chat({ id: '9d9c2a4e-1b3f-4c5d-8e6f-0a1b2c3d4e5f', conversationId: SESSION_ID, engine: 'opencode', cwd: CWD, profile: 'gw', turnsDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-oclife-')), resolveEnv: async () => ({}), engineOpts: { enabled: () => true, ...standInOpts(slow) } });
+  const d = new Chat({ id: '9d9c2a4e-1b3f-4c5d-8e6f-0a1b2c3d4e5f', conversationId: SESSION_ID, engine: 'opencode', cwd: CWD, profile: 'gw', turnsDir: tempDir(), resolveEnv: async () => ({}), engineOpts: { enabled: () => true, ...standInOpts(slow) } });
   await d.send('Reply with exactly three short words, nothing else.'); // while the first read is still under way
   await d.loading;
   assert.equal(d.events.filter((e) => e.kind === 'user').length, 1, 'the read that came late did not replace the turn');
