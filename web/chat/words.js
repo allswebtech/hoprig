@@ -143,6 +143,19 @@ export function ruleWords(text) {
   }).join(', ');
 }
 
+/**
+ * Under an OK card: what "Allow in this chat" adds, in words. Claude Code suggests a rule for each part of a command
+ * that still asks (`ls x; exit 2` gives Bash(exit 2)): then the sentence says it covers only that part.
+ */
+export function alwaysWords(ev) {
+  const what = ruleWords(ev.alwaysText);
+  if (!what) return '';
+  const cmd = ev.tool === 'Bash' && ev.input && typeof ev.input.command === 'string' ? ev.input.command.trim() : '';
+  const rules = String(ev.alwaysText).split(/,\s*(?=[A-Za-z_]+(?:\(|,|$))/).map((x) => x.trim());
+  const part = !!cmd && /[;&|\n]/.test(cmd) && !rules.includes(`Bash(${cmd})`);
+  return `“Allow in this chat” also lets Claude do this again in this chat without asking: ${what}.${part ? ' That is only part of this command.' : ''}`;
+}
+
 /** What Claude asks to do, as the head of the OK card. */
 export function askTitle(tool, input = {}) {
   switch (tool) {

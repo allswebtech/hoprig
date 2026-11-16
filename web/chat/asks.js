@@ -6,7 +6,7 @@ import { icon } from '../icons.js';
 import { api, fill, h, toast } from '../lib.js';
 import { mdView } from '../mdtext.js';
 import { inputView } from './tools.js';
-import { askTitle, ruleWords } from './words.js';
+import { alwaysWords, askTitle, ruleWords } from './words.js';
 
 const FILE_TOOLS = ['Bash', 'Edit', 'MultiEdit', 'Write', 'Read', 'NotebookEdit'];
 
@@ -29,8 +29,8 @@ export function askCard(ev, o) {
     body,
     ev.why ? h('p.chat-hint.chat-ask-why', icon('info', { size: 14 }), h('span', ev.why)) : null,
     actions, extra,
-    // Claude Code's rule in words; it may cover only a part of a longer command, and says which.
-    ev.canAlways && ev.alwaysText ? h('p.chat-hint.chat-ask-scope', `“Allow in this chat” also lets Claude do this again in this chat without asking: ${ruleWords(ev.alwaysText)}.`) : null,
+    // Claude Code's rule in words; it may cover only a part of a longer command, and then says so.
+    ev.canAlways && ev.alwaysText ? h('p.chat-hint.chat-ask-scope', alwaysWords(ev)) : null,
     status);
   let keys = [];
   let busy = false;
@@ -153,6 +153,7 @@ export function askCard(ev, o) {
     // Answered: one line. A permission's diff or command is on the tool card above; a question keeps its choices
     // (what was picked shows) but no empty "own answer" box.
     if (ev.type !== 'question' && ev.type !== 'plan') fill(body);
+    for (const i of el.querySelectorAll('.chat-ask-scope, .chat-ask-why')) i.remove(); // about the answer, given now
     for (const i of el.querySelectorAll('.chat-q-other')) if (!i.value.trim()) i.remove();
     for (const i of el.querySelectorAll('button, input, textarea')) i.disabled = true;
     fill(status, icon(ok ? 'check' : 'x', { size: 14 }), h('span', text));
