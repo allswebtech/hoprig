@@ -16,9 +16,10 @@ import { checkName, fail, isGitName, isPrivateName, locate, mayChangeFolder } fr
 const TIMEOUT = 10 * 60_000;
 export const ENTRIES_MAX = 50_000;
 export const ARCHIVE = /\.(tar|tar\.gz|tgz|tar\.bz2|tbz2?|tar\.xz|txz|zip)$/i;
-// The tar of the computer, with the user's own settings (names in their language come out as they are).
-const tar = (args, timeout = TIMEOUT) => run('tar', args, { timeout, env: { ...process.env } });
-const unzip = (args, timeout = TIMEOUT) => run('unzip', args, { timeout, env: { ...process.env } });
+// The tar of the computer, with the user's own settings (names in their language come out as they are). Neither it
+// nor unzip ever gets the dashboard's terminal: an archive with a password would ask for it there and wait.
+const tar = (args, timeout = TIMEOUT) => run('tar', args, { timeout, env: { ...process.env }, noTerminal: true });
+const unzip = (args, timeout = TIMEOUT) => run('unzip', args, { timeout, env: { ...process.env }, noTerminal: true });
 const missing = (r) => /ENOENT/.test(r.stderr || '');
 const noTar = missing;
 const ZIP = /\.zip$/i;
@@ -69,6 +70,15 @@ export function linkEntries(lines) {
 }
 
 /**
+ * Why zipinfo's long listing (unzip -Z) must not be unpacked: an entry with a password, or null. Its fifth column is
+ * "t" (text) or "b" (binary), in capitals when the entry is encrypted.
+ */
+export function lockedEntries(lines) {
+  const l = lines.find((x) => /^\S+\s+\S+\s+\S+\s+\d+\s+[TB][xX-]?\s/.test(x));
+  return l ? 'it is protected by a password, which Files does not ask for: unpack it in a terminal' : null;
+}
+
+/**
  * The program that reads archive `file`: { list(), long(), extract(into) }, each → run()'s { ok, stdout, stderr }.
  * A .zip: unzip where it is installed (zipinfo's long lines start with the mode, "l" for a link), else tar. The
  * archive's path is absolute, so it is never read as an option.
@@ -81,7 +91,9 @@ async function reader(file) {
         tool: 'unzip',
         list: async () => probe,
         long: () => unzip(['-Z', file], 120_000),
-        extract: (into) => unzip(['-q', '-n', file, '-d', into]), // -n: never over a file
+        locked: lockedEntries,
+        // -n: never over a file; -P '': an entry with a password fails at once, it is never asked for.
+        extract: (into) => unzip(['-q', '-n', '-P', '', file, '-d', into]),
       };
     }
   }
@@ -106,7 +118,8 @@ export async function unpack(p, roots) {
   }
   const list = names.stdout.split('\n').filter(Boolean);
   const long = await rd.long();
-  const why = badEntries(list) || (long.ok ? linkEntries(long.stdout.split('\n')) : 'it could not be listed');
+  const lines = long.ok ? long.stdout.split('\n') : null;
+  const why = badEntries(list) || (lines ? linkEntries(lines) || (rd.locked && rd.locked(lines)) : 'it could not be listed');
   if (why) throw fail(409, `it is not unpacked: ${why}`);
   const dir = path.dirname(a.abs);
   const stem = path.basename(a.abs).replace(ARCHIVE, '') || 'Archive';

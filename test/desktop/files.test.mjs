@@ -440,7 +440,8 @@ test('the dashboard\'s git never runs a repository\'s fsmonitor command', { skip
   assert.ok(!fs.existsSync(mark), 'the command in the repository\'s settings did not run');
 });
 
-// A .zip as Info-ZIP writes it (stored, no compression), with a link when `link` is set: enough for unzip.
+// A .zip as Info-ZIP writes it (stored, no compression), with a link when `link` is set and an entry marked as
+// encrypted when `locked` is: enough for unzip.
 function zipOf(entries) {
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;
@@ -460,10 +461,10 @@ function zipOf(entries) {
     const data = Buffer.from(e.data || '');
     const mode = e.link ? 0o120777 : e.name.endsWith('/') ? 0o040755 : 0o100644;
     const l = Buffer.alloc(30);
-    l.writeUInt32LE(0x04034b50, 0); l.writeUInt16LE(10, 4); l.writeUInt32LE(crc(data), 14);
+    l.writeUInt32LE(0x04034b50, 0); l.writeUInt16LE(10, 4); l.writeUInt16LE(e.locked ? 1 : 0, 6); l.writeUInt32LE(crc(data), 14);
     l.writeUInt32LE(data.length, 18); l.writeUInt32LE(data.length, 22); l.writeUInt16LE(name.length, 26);
     const c = Buffer.alloc(46);
-    c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE((3 << 8) | 30, 4); c.writeUInt16LE(10, 6); c.writeUInt32LE(crc(data), 16);
+    c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE((3 << 8) | 30, 4); c.writeUInt16LE(10, 6); c.writeUInt16LE(e.locked ? 1 : 0, 8); c.writeUInt32LE(crc(data), 16);
     c.writeUInt32LE(data.length, 20); c.writeUInt32LE(data.length, 24); c.writeUInt16LE(name.length, 28);
     c.writeUInt32LE((mode << 16) >>> 0, 38); c.writeUInt32LE(offset, 42);
     locals.push(l, name, data);
@@ -494,4 +495,37 @@ test('a .zip unpacks with unzip, with the same refusals as a tar', { skip: !whic
     assert.match(r.json.error, why, file);
   }
   assert.ok(!fs.existsSync(path.join(home, 'out.txt')) && !fs.existsSync(path.join(dir, 'up')) && !fs.existsSync(path.join(dir, 'git')) && !fs.existsSync(path.join(dir, 'link')));
+});
+
+test('a .zip with a password is refused in plain words at once; unpacking never asks for it on a terminal', { skip: !which('unzip') && 'no unzip here' }, async () => {
+  const dir = path.join(home, 'locked-zips');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, 'mixed.zip'), zipOf([{ name: 'open.txt', data: 'open\n' }, { name: 'shut.txt', data: 'shut\n', locked: true }]));
+  const t = Date.now();
+  const r = await call('/api/files/unpack', { body: { path: path.join(dir, 'mixed.zip') } });
+  assert.equal(r.status, 409, r.text);
+  assert.match(r.json.error, /password/);
+  assert.ok(Date.now() - t < 10_000, 'answered at once');
+  assert.deepEqual(fs.readdirSync(dir), ['mixed.zip'], 'nothing was unpacked');
+  // A real one, where the computer can make it.
+  if (which('zip')) {
+    put('locked-zips/a.txt', 'secret\n');
+    execFileSync('zip', ['-q', '-P', 'pw', 'real.zip', 'a.txt'], { cwd: dir });
+    const r2 = await call('/api/files/unpack', { body: { path: path.join(dir, 'real.zip') } });
+    assert.equal(r2.status, 409, r2.text);
+    assert.match(r2.json.error, /password/);
+  }
+});
+
+test('tar and unzip run without the dashboard\'s terminal: in a session of their own', { skip: (process.platform === 'win32' || !which('ps')) && 'no sessions here' }, async () => {
+  const { run } = await import('../../src/server/platform/common.mjs');
+  // The shell's own process id and its session's id: the same only when it leads a session of its own.
+  const ids = async (opts) => (await run('sh', ['-c', 'echo $$ $(ps -o sid= -p $$)'], opts)).stdout.trim().split(/\s+/).map(Number);
+  const [pid, sid] = await ids({ noTerminal: true });
+  assert.ok(pid > 0 && pid === sid, `its own session: ${pid} ${sid}`);
+  const [pid2, sid2] = await ids({});
+  assert.ok(pid2 > 0 && pid2 !== sid2, 'a plain run stays in the dashboard\'s');
+  const src = fs.readFileSync(new URL('../../src/editor/archive.mjs', import.meta.url), 'utf8');
+  assert.equal((src.match(/noTerminal: true/g) || []).length, 2, 'tar and unzip both');
+  assert.match(src, /'-P', ''/, 'unzip is given an empty password, so it never asks');
 });

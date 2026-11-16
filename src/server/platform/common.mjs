@@ -1,14 +1,69 @@
-// Helpers shared by the per-OS platform modules. Every external command runs through execFile with an argument
+// Helpers shared by the per-OS platform modules. Every external command runs through execFile (or spawn) with an argument
 // array, never through a shell.
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 
-/** Run a command; never rejects. LC_ALL=C keeps number and date formats the parsers expect. */
-export const run = (cmd, args, { timeout = 5000, env } = {}) =>
-  new Promise((resolve) => {
-    execFile(cmd, args, { timeout, maxBuffer: 8 << 20, windowsHide: true, env: env || { ...process.env, LC_ALL: 'C' } }, (err, stdout, stderr) =>
+const MAX_OUTPUT = 8 << 20;
+
+/**
+ * Run a command; never rejects. LC_ALL=C keeps number and date formats the parsers expect. `noTerminal`: the command
+ * runs in a session of its own, without the dashboard's terminal (when it was started in one), so a program that asks
+ * for a password on the terminal itself (unzip, bsdtar) fails at once instead of waiting there for keys.
+ */
+export const run = (cmd, args, { timeout = 5000, env, noTerminal = false } = {}) => {
+  const e = env || { ...process.env, LC_ALL: 'C' };
+  if (noTerminal && process.platform !== 'win32') return runAlone(cmd, args, { timeout, env: e });
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout, maxBuffer: MAX_OUTPUT, windowsHide: true, env: e }, (err, stdout, stderr) =>
       resolve({ ok: !err, stdout: stdout || '', stderr: (stderr || (err && err.message) || '').trim() }),
     );
   });
+};
+
+/**
+ * run() in a new session (execFile cannot start one): setsid leaves the terminal behind, and past the time limit the
+ * whole group ends, the programs it started too (tar's gzip). Same answer as run().
+ */
+function runAlone(cmd, args, { timeout, env }) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(cmd, args, { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      resolve({ ok: false, stdout: '', stderr: err.message });
+      return;
+    }
+    const out = [[], []];
+    let size = 0;
+    let why = '';
+    const end = (reason) => {
+      if (why) return;
+      why = reason;
+      try {
+        process.kill(-child.pid, 'SIGTERM');
+      } catch {
+        /* it ended already */
+      }
+    };
+    const take = (i) => (b) => {
+      size += b.length;
+      if (size > MAX_OUTPUT) end('its output was too long');
+      else out[i].push(b);
+    };
+    child.stdout.on('data', take(0));
+    child.stderr.on('data', take(1));
+    const timer = setTimeout(() => end(`it took longer than ${Math.round(timeout / 1000)} s`), timeout);
+    let done = false;
+    const finish = (ok, extra = '') => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      const stderr = Buffer.concat(out[1]).toString().trim();
+      resolve({ ok: ok && !why, stdout: Buffer.concat(out[0]).toString(), stderr: stderr || why || extra });
+    };
+    child.on('error', (err) => finish(false, err.message)); // ENOENT: not installed
+    child.on('close', (code, signal) => finish(code === 0, signal ? `ended by ${signal}` : `exit code ${code}`));
+  });
+}
 
 /** The synchronous twin, for the few callers that must answer at once. Returns stdout, or null on failure. */
 export function runSync(cmd, args, { timeout = 5000 } = {}) {
