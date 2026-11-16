@@ -79,6 +79,10 @@ test('Activity: one sentence per entry, and what went wrong said plainly', () =>
   assert.equal(activityLine({ automation: 'retry', did: 'stopped retrying after 3 tries', outcome: 'gave up' }).problem, 'It gave up; open the session to see why.');
   assert.equal(activityLine({ automation: 'updates', did: 'looked for new versions', outcome: 'nothing new' }).sub, 'Updates · Nothing new');
   assert.match(activityLine({ automation: 'schedules', did: 'skipped "x"', outcome: 'missed: 3 hours late, more than allowed' }).problem, /^Missed: 3 hours late/);
+  // A chat is never named by its id: by its title where the page knows it, else "a chat".
+  const chat = { automation: 'schedules', session: 'chat:55555555-5555-4555-8555-555555555555', did: 'started "start a chat in blog on Gateway"', outcome: 'ok' };
+  assert.equal(activityLine(chat).sub, 'Schedule · a chat');
+  assert.equal(activityLine(chat, (n) => (n === chat.session ? 'the chat "Fix the build"' : n)).sub, 'Schedule · the chat "Fix the build"');
 });
 
 const ACCOUNTS = [{ name: 'max', label: 'Claude Max', kind: 'subscription' }, { name: 'api', label: 'API (pay as you go)', kind: 'api' }];

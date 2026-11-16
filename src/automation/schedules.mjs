@@ -106,7 +106,8 @@ export async function apply(actions, ctx) {
       if (s.action.type === 'start' && s.action.in === 'chat') {
         if (!ctx.deck.startChat) throw new Error('chats are not available here');
         const id = await ctx.deck.startChat({ dir: s.action.dir, profile: s.action.profile, text: s.action.prompt || null, ...(s.action.tool ? { tool: s.action.tool } : {}) });
-        ctx.record({ automation: 'schedules', session: `chat:${id}`, did: `started "${label}" in a chat${lateNote}`, outcome: 'ok' });
+        // A schedule without a name says "a chat" in its own words already.
+        ctx.record({ automation: 'schedules', session: `chat:${id}`, did: `started "${label}"${s.label ? ' in a chat' : ''}${lateNote}`, outcome: 'ok' });
       } else if (s.action.type === 'start') {
         const name = await ctx.deck.start({ dir: s.action.dir, profile: s.action.profile, mode: 'new' });
         if (s.action.prompt) ctx.enqueue(name, s.action.prompt);
@@ -126,5 +127,15 @@ export async function apply(actions, ctx) {
   }
 }
 
-/** A schedule without a name, in words; `shown(profile)`: the provider as the owner named it (Activity is read). */
-export const describeAction = (a, shown = null) => (a.type === 'start' ? `start ${a.in === 'chat' ? 'a chat ' : ''}in ${a.dir} on ${(shown && shown(a.profile)) || a.profile}` : `message to ${a.session}`);
+const TOOL_WORDS = { opencode: 'OpenCode', codex: 'Codex' };
+/**
+ * A schedule without a name, in the words the Schedules list uses (web/automation.js whatText), since Activity is read
+ * by a person too: the folder by its name, the provider as the owner named it (`shown(profile)`), another coding tool
+ * by its name, a chat as "a chat" (the page names it by its title where it can).
+ */
+export function describeAction(a, shown = null) {
+  if (a.type !== 'start') return `send a message to ${String(a.session || '').startsWith('chat:') ? 'a chat' : a.session}`;
+  const folder = String(a.dir || '').split(/[\\/]/).filter(Boolean).pop() || a.dir;
+  const other = a.in === 'chat' && a.tool && a.tool !== 'claude' ? ` with ${TOOL_WORDS[a.tool] || a.tool}` : '';
+  return `start ${a.in === 'chat' ? 'a chat' : 'a session'}${other} in ${folder} on ${(shown && shown(a.profile)) || a.profile}`;
+}

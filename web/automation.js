@@ -66,9 +66,10 @@ const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a re
 
 /**
  * One line of Activity in plain words: { title, sub, problem } — the title says what happened as a sentence, `problem`
- * (or null) what went wrong.
+ * (or null) what went wrong. `sessionLabel(name)`: a session as a person reads it (a chat is "chat:<id>": its title,
+ * else "a chat"; never its id).
  */
-export function activityLine(e) {
+export function activityLine(e, sessionLabel = (n) => (n.startsWith('chat:') ? 'a chat' : n)) {
   const did = String(e.did || '').trim();
   const title = `${cap(did)}${/[.!?]$/.test(did) ? '' : '.'}`;
   // Lines written before the wording was plain named a setting by its key; said in the page's words instead.
@@ -78,7 +79,7 @@ export function activityLine(e) {
       : /^missed/.test(o) ? `Missed: ${o.replace(/^missed:?\s*/, '')}.`
         : null;
   const note = problem || o === 'ok' ? null : cap(o.replace(/:\s*/, ': '));
-  return { title, sub: [WHO[e.automation] || cap(e.automation), e.session || null, note].filter(Boolean).join(' · '), problem };
+  return { title, sub: [WHO[e.automation] || cap(e.automation), e.session ? sessionLabel(String(e.session)) : null, note].filter(Boolean).join(' · '), problem };
 }
 
 const GAINED = /^The map gained (.+)$/;
@@ -610,10 +611,13 @@ async function activityPart(box, isAlive) {
     fill(box, h('div.au-activity', emptyState('text', 'Nothing yet. Each time an automation does something, it shows here in one sentence.'), h('div.au-foot-row', refresh)));
     return;
   }
+  // A chat by its title while it is open; one that closed since is "a chat".
+  const chats = new Map(((store.data && store.data.sessions) || []).filter((x) => x.kind === 'chat').map((x) => [x.name, x.title || x.display]));
+  const sessionLabel = (n) => (n.startsWith('chat:') ? (chats.get(n) ? `the chat "${chats.get(n)}"` : 'a chat') : n);
   fill(box, h('div.au-activity',
     groupHead('Newest first', r.entries.length),
     h('div.rows', foldActivity(r.entries).map(({ e, n }) => {
-      const l = activityLine(e);
+      const l = activityLine(e, sessionLabel);
       return h(`div.row.static.au-act${l.problem ? '.bad' : ''}`,
         h('span.row-icon', icon(l.problem ? 'alert' : 'check', { size: 18 })),
         h('span.row-main',

@@ -168,7 +168,8 @@ test('the chat is the default: the folder\'s last settings, Home\'s card, the re
   assert.deepEqual([sv.cwd, sv.profile.name, sv.permissionMode, sv.model, sv.effort], [fs.realpathSync(shop), 'sub', 'manual', null, null], 'the provider the schedule names, the rest as Settings says (not the owner\'s last chat there: nobody watches a scheduled chat start)');
   await until('the message in the open chat', async () => (await view(id)).events.some((e) => e.kind === 'text' && e.text === 'echo: scheduled hello'));
   const log = (await owner('GET', '/api/automation/log')).json.entries.filter((e) => e.automation === 'schedules');
-  assert.ok(log.some((e) => /in a chat/.test(e.did) && e.outcome === 'ok'), JSON.stringify(log));
+  // In the Schedules list's words: the folder by its name, the provider as the owner named it.
+  assert.ok(log.some((e) => e.did === 'started "start a chat in shop on Main"' && e.outcome === 'ok'), JSON.stringify(log));
   assert.ok(log.some((e) => e.session === `chat:${id}` && e.outcome === 'ok'), JSON.stringify(log));
 });
 
