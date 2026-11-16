@@ -249,7 +249,7 @@ test('start_chat follows the start rules: "Ask me" and a paid provider are cards
 test('start_chat runs Claude Code: a provider that does not serve it is refused when named and never picked', async () => {
   const { call, ops } = setup({ cards: [] });
   // An OpenAI key the owner allowed her, with the most free quota: still not one a chat can run on.
-  ops.s.profiles.push({ name: 'oai', label: 'OpenAI key', kind: 'openai', tools: ['codex', 'opencode'], inUse: 0, limited: null, usage: { fiveHour: { pct: 0 } } });
+  ops.s.profiles.push({ name: 'oai', label: 'OpenAI key', kind: 'openai', tools: ['opencode'], inUse: 0, limited: null, usage: { fiveHour: { pct: 0 } } });
   ops.s.assistant.accounts = ['oai', 'sub'];
   await call('list_projects', {});
   const r = await call('start_chat', { folder: '/home/owner/projects/api', account: 'oai', message: 'x' });
@@ -261,7 +261,7 @@ test('start_chat runs Claude Code: a provider that does not serve it is refused 
   const { chooseAccount, resolveTia } = await import('../../src/assistant/tia.mjs');
   const acc = { profiles: ops.s.profiles.filter((p) => p.name === 'oai'), autoSwitch: { enabled: false } };
   assert.match(chooseAccount(resolveTia({ accounts: ['oai'] }, acc), acc).error, /no provider is allowed/);
-  assert.equal(chooseAccount(resolveTia({ accounts: ['oai'] }, acc), acc, 'codex').account, 'oai', 'a Codex session that moves may go there');
+  assert.equal(chooseAccount(resolveTia({ accounts: ['oai'] }, acc), acc, 'opencode').account, 'oai', 'an OpenCode session that moves may go there');
 });
 
 test('the door: a chat\'s start, message, answer and stop with only her fields; the owner\'s chat controls stay closed', () => {
