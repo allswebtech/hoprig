@@ -51,7 +51,10 @@ export const start_chat = tool({
     const r = await startOf(ops.startChat({ computer: comp(a), folder: a.folder, profile: a.account, sessionId: a.conversation || null, text: a.message || null, ...(a.coding_tool ? { tool: a.coding_tool } : {}) }), a.coding_tool);
     const name = `chat:${r.id}`;
     // The first message is not sent where the conversation already runs elsewhere (a terminal, an open chat).
-    const sent = !a.message ? '' : r.sent === false ? `. The first message was NOT sent: ${r.why || 'the conversation runs elsewhere'}` : ' with the first message';
+    // The dashboard opened the chat but started nothing in it (a terminal or another chat runs the conversation): she
+    // says so, with what to do next, and never that it started.
+    const held = !!a.message && r.sent === false;
+    const sent = !a.message ? '' : held ? `. The first message was NOT sent: ${r.why || 'the conversation runs elsewhere'}. Read it with read_session and send it with send_to_chat once that has ended, or ask the owner` : ' with the first message';
     let j = null;
     if (a.goal) j = ctx.jobs.create({ conversation: ctx.conversation, goal: a.goal });
     else if (a.job) j = ctx.jobs.get(a.job);
@@ -80,7 +83,7 @@ export const start_chat = tool({
     // Hers by the chat's own mark (byTia, set by the dashboard on the chat this start created), not by its name.
     if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: true, created });
     return {
-      summary: `Started chat ${name} (${toolName(tool)}) on ${comp(a)} under ${a.account}${providerNote(ctx)}${a.conversation ? ', continuing the earlier conversation' : ''}${sent}. It runs with the permission mode, model and effort of Settings → New-session defaults.${tool === 'claude' ? '' : ` Every OK it asks for is the owner's: you cannot answer the OKs of ${aTool(tool)} chat.`} The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
+      summary: `${held ? 'Opened' : 'Started'} chat ${name} (${toolName(tool)}) on ${comp(a)} under ${a.account}${providerNote(ctx)}${a.conversation ? ', continuing the earlier conversation' : ''}${sent}. It runs with the permission mode, model and effort of Settings → New-session defaults.${tool === 'claude' ? '' : ` Every OK it asks for is the owner's: you cannot answer the OKs of ${aTool(tool)} chat.`} The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
       data: { session: name, computer: comp(a), coding_tool: tool, account: a.account, account_label: ctx.accountLabel || null, account_why: ctx.accountWhy || null, job: j ? j.id : null, message_sent: a.message ? r.sent !== false : null },
       shown: { session: [sessKey(comp(a), name)], ...(j ? { job: [j.id] } : {}) },
     };
