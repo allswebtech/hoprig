@@ -121,9 +121,10 @@ test('Open as chat takes a Claude Code terminal only: a Codex run is refused, an
     return e;
   };
 
+  // A coding tool that is off, or has no chat: its conversation stays in its terminal.
   for (const tool of ['codex', 'opencode']) {
     run = { tool, sessionId: CONV, cwd: '/w', profile: 'oai' };
-    assert.equal((await refused(/for Claude Code sessions only/)).status, 409, tool);
+    assert.equal((await refused(/Open as chat is not offered for this coding tool/)).status, 409, tool);
   }
   run = { tool: 'claude', sessionId: CONV, cwd: '/w', profile: 'oai' };
   assert.equal((await refused(/cannot be used for Claude Code/)).status, 400);

@@ -211,6 +211,7 @@ body.has-nav .page { padding-bottom: calc(150px + env(safe-area-inset-bottom)); 
 .badge { display: inline-flex; align-items: center; margin-left: 8px; padding: 2.5px 8px; border-radius: 7px; font-size: 11px; font-weight: 700; letter-spacing: .02em; background: var(--accent-soft); color: var(--accent-soft-text); vertical-align: 1px; white-space: nowrap; }
 .badge.soft { background: color-mix(in srgb, var(--muted) 11%, transparent); color: var(--muted); }
 .badge.toolchip { margin-left: 0; } /* the coding tool's name on a session (lib.js toolChip): first in its row */
+.row-title .badge.toolchip { margin-left: 8px; } /* after a conversation's title (Workspace's earlier conversations) */
 .hint { font-size: var(--fs-sm); color: var(--muted); }
 .form-error { color: var(--danger); font-size: var(--fs-sm); min-height: 0; }
 .form-error:empty { display: none; }
@@ -347,6 +348,7 @@ article.card:hover { box-shadow: var(--shadow-2); }
 .ns-pc:disabled { cursor: not-allowed; box-shadow: none; background: var(--surface-2); color: var(--muted); }
 .ns-pc-icon { width: 34px; height: 34px; border-radius: var(--r); display: grid; place-items: center; background: var(--surface-3); color: var(--text-2); flex: none; }
 .ns-pc.on .ns-pc-icon { background: var(--surface); color: var(--accent); }
+.ns-toolhint { margin: 0 0 14px; } /* under the coding tool's choice (newsession.js) */
 .ns-pc-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ns-pc-name { font-weight: 600; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-pc-sub { font-size: var(--fs-xs); color: var(--muted); }
@@ -612,7 +614,6 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); border-ra
 .acct-test.test-bad svg { color: var(--danger); }
 /* Settings → Coding tools */
 .ct-scope { margin: 0 0 12px; }
-.ct-start { margin-top: 10px; display: grid; gap: 8px; }
 .row.row-busy { cursor: progress; opacity: .85; }
 .row.row-busy .row-end svg { display: none; }
 .row.row-busy .row-end::before { content: ''; display: block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); border-top-color: transparent; animation: spin .7s linear infinite; }

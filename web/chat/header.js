@@ -4,9 +4,9 @@
 // with the same settings, Rewind, Keyboard shortcuts, Close). A conversation stays with the coding
 // tool it started with: the provider changes, the coding tool does not.
 import { icon } from '../icons.js';
-import { BARE, api, chooseSheet, fill, h, kindLabel, link, openApp, profileIcon, profileState, promptSheet, servesClaude, toast } from '../lib.js';
+import { BARE, api, chooseSheet, fill, h, kindLabel, link, openApp, profileIcon, profileState, promptSheet, servesTool, toast, toolBadge } from '../lib.js';
 import { store } from '../store.js';
-import { failText, touchScreen, turnRuns } from './words.js';
+import { canCompact, caps, failText, toolWord, touchScreen, turnRuns } from './words.js';
 
 const phone = () => typeof matchMedia !== 'undefined' && matchMedia('(max-width: 599px)').matches;
 const base = (p) => String(p || '').split('/').filter(Boolean).pop() || String(p || '');
@@ -42,10 +42,11 @@ export function createHeader(o) {
   const folderBtn = h('button.chip.chat-hchip', { type: 'button', onclick: () => folderMenu() }, icon('folder', { size: 13 }), folderLabel, icon('chevronDown', { size: 12 }));
   const provLabel = h('span.chat-chip-label');
   const provBtn = h('button.chip.chat-hchip', { type: 'button', onclick: () => providerMenu() }, icon('user', { size: 13 }), provLabel, icon('chevronDown', { size: 12 }));
+  const toolSlot = h('span.chat-toolslot'); // the coding tool's chip, when it is not Claude Code
   const histBtn = h('button.btn.icon.ghost.chat-histbtn', { type: 'button', 'aria-label': 'Earlier conversations of this folder', title: 'Earlier conversations of this folder', onclick: () => o.act.history() }, icon('clock', { size: 16 }));
   const el = h('header.chat-bar',
     o.way && h('a.btn.ghost.chatback', { href: o.way.hash, 'aria-label': `Back to ${o.way.label}`, title: `Back to ${o.way.label}` }, icon('back'), h('span.chatback-label', o.way.label)),
-    h('div.chat-head', h('div.chat-h1row', h('h1.chat-h1', titleBtn), histBtn), h('div.chat-sub', folderBtn, provBtn)),
+    h('div.chat-head', h('div.chat-h1row', h('h1.chat-h1', titleBtn), histBtn), h('div.chat-sub', toolSlot, folderBtn, provBtn)),
     // "Desktop mode", as at the top right of every page head (web/desktop/index.js; its CSS hides it on a small
     // screen); not inside a window of the desktop.
     BARE ? null : h('a.icon-btn.desk-headbtn.chat-deskbtn', { href: link('#/desktop'), title: 'Desktop mode', 'aria-label': 'Desktop mode' }, icon('monitor', { size: 16 })),
@@ -98,8 +99,9 @@ export function createHeader(o) {
   }
 
   async function providerMenu() {
-    // A chat runs Claude Code: a provider that does not serve it (an OpenAI key, a Codex sign-in) is not offered.
-    const profiles = ((store.data && store.data.profiles) || []).filter((p) => p.name && servesClaude(p));
+    // Only the providers that serve the chat's coding tool: a conversation stays in its tool.
+    const tool = (v.engine && v.engine.id) || 'claude';
+    const profiles = ((store.data && store.data.profiles) || []).filter((p) => p.name && servesTool(p, tool));
     if (!profiles.length) return toast('No other provider on this computer', { kind: 'error' });
     const cur = v.profile ? v.profile.name : null;
     const pick = await chooseSheet({
@@ -116,16 +118,16 @@ export function createHeader(o) {
 
   async function more() {
     const busy = turnRuns(v);
-    const caps = (v && v.engine && v.engine.capabilities) || {};
+    const can = caps(v);
     const what = await chooseSheet({
       title: (v && v.title) || 'Chat',
       subtitle: v ? v.short : null,
       items: [
-        busy ? { value: 'stop', label: 'Stop Claude', sub: 'Ends the turn; agents in the background go on', icon: 'stop' } : null,
-        { value: 'compact', label: 'Compact', sub: 'Claude goes on from a summary of the conversation, which frees context', icon: 'minus' },
+        busy ? { value: 'stop', label: `Stop ${toolWord(v)}`, sub: can.stopTask ? 'Ends the turn; agents in the background go on' : 'Ends the turn', icon: 'stop' } : null,
+        canCompact(v) ? { value: 'compact', label: 'Compact', sub: `${toolWord(v)} goes on from a summary of the conversation, which frees context`, icon: 'minus' } : null,
         { value: 'clear', label: 'Clear', sub: 'A new chat in this folder with the same settings; this one is kept', icon: 'plus' },
         // Not while a terminal runs the conversation: a rewind runs Claude Code on it (one place at a time).
-        (caps.rewind || caps.fork) && v && !v.terminal ? { value: 'rewind', label: 'Rewind…', sub: 'Go back to before one of your messages: the files, the conversation or both', icon: 'undo' } : null,
+        (can.rewind || can.fork) && v && !v.terminal ? { value: 'rewind', label: 'Rewind…', sub: 'Go back to before one of your messages: the files, the conversation or both', icon: 'undo' } : null,
         terminalItem(v),
         touchScreen() ? null : { value: 'shortcuts', label: 'Keyboard shortcuts', sub: 'Enter, Esc, Shift+Tab, ↑, / and @', icon: 'info' },
         { value: 'close', label: 'Close this chat', sub: 'The conversation stays; it leaves Home', icon: 'x', danger: true },
@@ -153,11 +155,12 @@ export function createHeader(o) {
       fill(titleText, v.title || 'New chat');
       titleBtn.setAttribute('aria-label', phone() ? `${v.title || 'New chat'}: name, folder, provider` : `${v.title || 'New chat'}. Rename`);
       titleBtn.title = phone() ? '' : 'Rename this chat';
-      fill(titleSub, [base(v.cwd), v.profile ? v.profile.label : ''].filter(Boolean).join(' · '));
+      fill(titleSub, [v.engine && v.engine.id !== 'claude' ? v.engine.label : '', base(v.cwd), v.profile ? v.profile.label : ''].filter(Boolean).join(' · '));
       fill(folderLabel, base(v.cwd));
       folderBtn.title = v.short || v.cwd || '';
       folderBtn.setAttribute('aria-label', `Folder ${v.short || v.cwd || ''}: files, changes, terminal`);
       fill(provLabel, v.profile ? v.profile.label : '…');
+      fill(toolSlot, toolBadge(v.engine && v.engine.id));
       provBtn.setAttribute('aria-label', `Provider ${v.profile ? v.profile.label : ''}: move to another`);
     },
   };

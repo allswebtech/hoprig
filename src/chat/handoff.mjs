@@ -7,14 +7,14 @@
 //                                             the second finds it done)
 //   POST /api/chats/<id>/terminal             open the conversation in a terminal → { name } (the chat closes); when a
 //                                             terminal runs it already → { name, existing: true } (the chat stays)
-import fs from 'node:fs';
-import { EFFORTS, PERMISSION_MODES } from '../config.mjs';
+import crypto from 'node:crypto';
 import { assertServes, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
-import { isSessionId } from '../sessions.mjs';
+import { toolFlags } from '../codetools/start.mjs';
 import { matchRuns } from '../server/deck.mjs';
 import { parentLookup, procParent } from '../server/platform.mjs';
 import * as v from '../server/validate.mjs';
+import { chatTools, choicesOf, conversationIdOk, modeFor, modelOk } from './tools.mjs';
 
 const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 
@@ -23,13 +23,13 @@ const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
  * termId, cwd, run } (null name: one outside the dashboard), or null.
  * claim(id, fn, { tool, self }): one conversation, one process. Whatever starts a process on a conversation (a terminal,
  * a chat's message) does it in `fn`, run here one at a time per conversation, and only when no terminal runs it (else →
- * { terminal }) and no open chat but `self` has a process on it (o.chatOf(id); else → { chat: its id }). → { started:
+ * { terminal }) and no open chat but `self` has a process on it (o.chatOf(id, tool); else → { chat: its id }). → { started:
  * what fn returned }. A start that returns { name } (a terminal) is known as the conversation's from then on.
  */
 export function terminals(ctx, o = {}) {
   const { HttpError } = ctx;
   // A terminal started just now runs its conversation before its run record says so (the launcher writes it once
-  // Claude Code starts): for that while, this says it.
+  // the coding tool starts): for that while, this says it.
   const recent = new Map(); // `${tool}:${id}` → { name, at }
   const RECENT_MS = 30_000;
   async function terminalOf(id, tool = 'claude') {
@@ -63,7 +63,7 @@ export function terminals(ctx, o = {}) {
     return serial(id, async () => {
       const term = await terminalOf(id, tool);
       if (term) return { terminal: term };
-      const chat = tool === 'claude' && o.chatOf ? o.chatOf(id) : null;
+      const chat = o.chatOf ? o.chatOf(id, tool) : null;
       if (chat && chat !== self) return { chat };
       const started = await fn();
       if (started && typeof started.name === 'string') recent.set(`${tool}:${id}`, { name: started.name, at: Date.now() });
@@ -87,22 +87,27 @@ export function handoffRoutes(ctx, o) {
   const handed = new Map(); // a chat's id → its conversation, for the chats closed by "Open in terminal" (the last 50)
   /** Continue here: the terminal that runs chat `c`'s conversation stops (it stays, as a plain shell); the chat goes on. */
   async function take(c) {
-    const term = await terminalOf(c.conversationId);
+    const tool = c.engine.id;
+    const term = await terminalOf(c.conversationId, tool);
     if (!term) return { ok: true };
     if (term.termId) {
-      // The terminal stays, as a plain shell: Claude stops in it, the conversation goes on here.
+      // The terminal stays, as a plain shell: the coding tool stops in it, the conversation goes on here.
       await ctx.backend.respawn(term.termId, term.cwd || c.cwd, [process.execPath, '-e', '']);
     } else if (term.run && v.pid(term.run.pid)) {
       try {
-        process.kill(term.run.pid, 'SIGTERM'); // the launcher ends Claude Code and removes its run record
+        process.kill(term.run.pid, 'SIGTERM'); // the launcher ends the coding tool and removes its run record
       } catch {
         /* already gone */
       }
     }
-    forget(c.conversationId);
-    for (let i = 0; i < 40 && (await terminalOf(c.conversationId)); i++) await new Promise((r) => setTimeout(r, 200));
-    if (await terminalOf(c.conversationId)) throw new HttpError(409, 'the terminal did not stop; stop Claude there and try again');
-    c.refresh();
+    forget(c.conversationId, tool);
+    for (let i = 0; i < 40 && (await terminalOf(c.conversationId, tool)); i++) await new Promise((r) => setTimeout(r, 200));
+    if (await terminalOf(c.conversationId, tool)) throw new HttpError(409, `the terminal did not stop; stop ${tool === 'claude' ? 'Claude' : c.engine.label} there and try again`);
+    // A coding tool whose turns run on its server (OpenCode) goes on without its terminal: that turn stops too, as
+    // Claude Code's does with its process. The chat goes on from where it ended.
+    if (c.engine.interrupt) await c.engine.interrupt(c.conversationId, c.o.engineOpts);
+    if (c.engine.stamp) c.load(); // kept by the tool's server: read it again now
+    else c.refresh();
     c.emit('state'); // a page that streams leaves its read-along mode now, not at the next news
     ctx.poke?.();
     return { ok: true };
@@ -115,17 +120,20 @@ export function handoffRoutes(ctx, o) {
       const found = await ctx.deck.find(b.session);
       if (!found) throw new HttpError(404, 'no such session');
       const run = found.run;
-      // A chat runs Claude Code: a Codex or OpenCode conversation stays in its terminal.
-      if (run && (run.tool || 'claude') !== 'claude') throw new HttpError(409, 'Open as chat is for Claude Code sessions only: this conversation stays in its terminal');
-      if (!run || !isSessionId(run.sessionId)) throw new HttpError(409, 'Claude has not reported its conversation yet; try again in a moment');
+      // A chat runs the coding tools that have a chat here; another tool's conversation stays in its terminal.
+      const tool = run ? run.tool || 'claude' : 'claude';
+      if (run && !chatTools(cfg()).includes(tool)) throw new HttpError(409, 'Open as chat is not offered for this coding tool: this conversation stays in its terminal');
+      if (!run || !conversationIdOk(tool, run.sessionId)) throw new HttpError(409, 'The coding tool has not reported its conversation yet; try again in a moment');
       const open = openChatOf(run.sessionId);
       if (open) return { id: open };
       const prof = run.profile && run.profile !== auto.name ? readProfile(run.profile) : null;
-      if (prof) assertServes(prof, 'claude'); // says why, as a 400
+      if (prof) assertServes(prof, tool); // says why, as a 400
       // As the terminal ran it (its flags), else as the last chat in that folder, else Settings: a conversation
       // taken back from a terminal keeps its model, effort and mode.
       const d = cfg().sessionDefaults || {};
-      const last = memory.last(run.cwd) || {};
+      const before = memory.last(run.cwd) || {};
+      const last = (before.engine || 'claude') === tool ? before : {};
+      const ch = choicesOf(tool, run.profile, models);
       const args = Array.isArray(run.carryArgs) ? run.carryArgs.filter((x) => typeof x === 'string') : [];
       const flag = (name) => {
         const i = args.indexOf(name);
@@ -133,10 +141,15 @@ export function handoffRoutes(ctx, o) {
         return i >= 0 && i + 1 < args.length ? args[i + 1] : eq ? eq.slice(name.length + 1) : null;
       };
       const one = (name, key, list) => [flag(name), last[key], d[key]].find((x) => typeof x === 'string' && list.includes(x)) || null;
-      const id = freeId(run.sessionId);
+      // Another tool's model: one the provider lists, or (its list not known yet) a well-formed model id.
+      const toolModel = [flag('--model'), last.model].find((x) => typeof x === 'string' && modelOk(tool, x, ch)) || null;
+      // OpenCode's terminal words for its modes: "ask" is the chat's "manual".
+      const mode = tool === 'claude' ? one('--permission-mode', 'permissionMode', ch.modes) : modeFor(tool, flag('--permission-mode') === 'ask' ? 'manual' : flag('--permission-mode')) || modeFor(tool, last.permissionMode);
+      const id = tool === 'claude' ? freeId(run.sessionId) : crypto.randomUUID();
       make({
-        id, ...(id !== run.sessionId ? { conversationId: run.sessionId } : {}), cwd: run.cwd, profile: run.profile,
-        model: one('--model', 'model', models()), effort: one('--effort', 'effort', EFFORTS), permissionMode: one('--permission-mode', 'permissionMode', PERMISSION_MODES),
+        id, ...(id !== run.sessionId ? { conversationId: run.sessionId } : {}), engine: tool, cwd: run.cwd, profile: run.profile,
+        model: tool === 'claude' ? one('--model', 'model', ch.models) : toolModel,
+        effort: one('--effort', 'effort', ch.efforts), permissionMode: mode,
         ultracode: last.ultracode === true,
       });
       save();
@@ -145,7 +158,7 @@ export function handoffRoutes(ctx, o) {
     ['POST', new RegExp(`^/api/chats/${ID}/take$`), async (req, m) => {
       const c = chatOr404(m[1]);
       await ctx.readJson(req);
-      return serial(c.conversationId, () => take(c)); // pressed twice, or in two tabs: the second finds it done
+      return serial(c.conversationId, () => take(c), c.engine.id); // pressed twice, or in two tabs: the second finds it done
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/terminal$`), async (req, m) => {
       await ctx.readJson(req);
@@ -157,34 +170,40 @@ export function handoffRoutes(ctx, o) {
       };
       if (!chats.has(m[1]) && handed.has(m[1])) {
         // Handed to a terminal a moment ago (the other tab was first): that terminal, while it runs the conversation.
-        const term = await terminalOf(handed.get(m[1]));
+        const h = handed.get(m[1]);
+        const term = await terminalOf(h.conversation, h.tool);
         if (term) return there(term);
       }
       const c = chatOr404(m[1]);
       const conversation = c.conversationId;
+      const tool = c.engine.id;
+      if (tool !== 'claude' && !chatTools(cfg()).includes(tool)) throw new HttpError(409, `${c.engine.label} is off on this computer: turn it on to open its conversations in a terminal`);
       const r = await claim(conversation, async () => {
         if (!chats.has(c.id)) throw new HttpError(404, 'this chat is not open (it was closed or opened in a terminal)');
-        if (!fs.existsSync(c.file())) throw new HttpError(409, 'send a first message: a conversation that has not started cannot be resumed in a terminal');
-        if (c.busy()) throw new HttpError(409, 'Claude is working. Wait until it is done, or press Stop first.');
+        if (!(await c.engine.exists(c.cwd, conversation, c.o.engineOpts))) throw new HttpError(409, 'send a first message: a conversation that has not started cannot be resumed in a terminal');
+        if (c.busy()) throw new HttpError(409, `${tool === 'claude' ? 'Claude' : c.engine.label} is working. Wait until it is done, or press Stop first.`);
         const profile = c.profile === auto.name ? (auto.on() ? { name: auto.name, env: {} } : null) : readProfile(c.profile);
         if (!profile) throw bad('the provider of this chat is gone; choose another one first');
-        chats.delete(c.id);
-        handed.set(c.id, conversation);
-        if (handed.size > 50) handed.delete(handed.keys().next().value);
-        await c.close();
-        const flags = [
+        // The terminal's flags first: a choice it refuses leaves the chat as it is.
+        // OpenCode's terminal has fewer modes: it asks (for edits too) unless the chat allowed everything.
+        const flags = tool === 'claude' ? [
           ...(c.permissionMode ? ['--permission-mode', c.permissionMode] : []),
           ...(c.effort ? ['--effort', c.effort] : []),
           ...(c.model ? ['--model', c.model] : []),
-        ];
+        ] : toolFlags(tool, { permissionMode: c.permissionMode === 'bypassPermissions' ? 'bypassPermissions' : 'ask', effort: c.effort, model: c.model });
+        chats.delete(c.id);
+        handed.set(c.id, { conversation, tool });
+        if (handed.size > 50) handed.delete(handed.keys().next().value);
+        await c.close();
         try {
-          return { name: await ctx.deck.start({ dir: c.cwd, profile, mode: 'resume', sessionId: conversation, flags }) };
+          return { name: await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: conversation, flags }) };
         } catch (e) {
           make(c.record()); // the terminal did not start: the chat stays open
           throw e;
         }
-      }, { self: c.id });
+      }, { tool, self: c.id });
       if (r.terminal) return there(r.terminal);
+      if (r.chat) throw new HttpError(409, 'another chat runs this conversation right now');
       save();
       ctx.poke?.();
       return { name: r.started.name };

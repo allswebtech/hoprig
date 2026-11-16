@@ -9,7 +9,7 @@ import { api, chooseSheet, fill, h, openSheet, prefs, toast } from '../lib.js';
 import { createAttachments } from './attach.js';
 import { recall } from './keys.js';
 import { createMenus } from './popovers.js';
-import { contextPercent, effortName, failText, kilo, MODE, modeChip, modelName, modeOf, nextMode, touchScreen, turnRuns } from './words.js';
+import { MODE, canCompact, caps, contextPercent, effortName, failText, kilo, modeChip, modeInfo, modeOf, modelName, nextMode, toolWord, touchScreen, turnRuns } from './words.js';
 
 // Enter sends unless the screen is touched (a phone's Enter makes a new line; its Send button sends).
 const finePointer = () => !touchScreen();
@@ -108,7 +108,7 @@ export function createComposer(o) {
     } catch (e) {
       toast(`Not sent: ${failText(e)}`, { kind: 'error' });
     } finally {
-      sendBtn.disabled = false;
+      sendBtn.disabled = !!(v && (v.terminal || v.toolOff));
       paintButtons();
       textarea.focus(); // the box keeps the focus (and a phone its keyboard) for the next message
     }
@@ -119,7 +119,7 @@ export function createComposer(o) {
     fill(queueBox, (q || []).map((m) => h('li.chat-queued',
       icon('clock', { size: 14 }),
       h('span.chat-queued-text', m.text),
-      h('span.chat-queued-state', m.state === 'sent' ? 'Claude has it' : 'waiting'),
+      h('span.chat-queued-state', m.state === 'sent' ? `${toolWord(v)} has it` : 'waiting'),
       h('button.btn.icon.ghost.chat-unqueue', { type: 'button', 'aria-label': `Remove the queued message: ${m.text.slice(0, 60)}`, title: 'Remove from the queue', onclick: async (e) => {
         e.currentTarget.disabled = true;
         try {
@@ -147,26 +147,33 @@ export function createComposer(o) {
   async function chooseMode() {
     const now = modeOf(v);
     const pick = await chooseSheet({
-      title: 'What Claude may do without asking',
-      subtitle: 'Changes at once, also while Claude works. Shift+Tab in the message box goes to the next.',
-      items: (v.choices ? v.choices.modes : Object.keys(MODE)).map((m) => ({ value: m, label: modeChip(m), sub: MODE[m] ? MODE[m].sub : '', current: m === now, danger: !!(MODE[m] && MODE[m].danger) })),
+      title: `What ${toolWord(v)} may do without asking`,
+      subtitle: `Changes at once, also while ${toolWord(v)} works. Shift+Tab in the message box goes to the next.`,
+      items: (v.choices ? v.choices.modes : Object.keys(MODE)).map((m) => {
+        const w = modeInfo(v, m);
+        return { value: m, label: w ? w.chip : modeChip(m), sub: w ? w.sub : '', current: m === now, danger: !!(w && w.danger) };
+      }),
     });
     if (pick && pick !== now) setMode(pick);
   }
   async function choose(what) {
     const cur = v[what];
+    const claude = toolWord(v) === 'Claude';
+    const first = v.choices.models[0]; // another tool's Auto: the provider's own model, else this one
     const items = what === 'model'
-      ? [{ value: '', label: 'Auto', sub: 'Claude Code\'s own model; each agent gets the model its task needs' }, ...v.choices.models.map((m) => ({ value: m, label: modelName(m) }))]
-      : [{ value: '', label: 'Auto', sub: 'Claude Code\'s own effort; each agent gets the effort its task needs' }, ...v.choices.efforts.map((e) => ({ value: e, label: effortName(e) }))];
+      ? [{ value: '', label: 'Auto', sub: claude ? 'Claude Code\'s own model; each agent gets the model its task needs' : `The provider's own model when it names one, else the first it lists${first ? ` (${modelName(first)})` : ''}` }, ...v.choices.models.map((m) => ({ value: m, label: modelName(m) }))]
+      : [{ value: '', label: 'Auto', sub: claude ? 'Claude Code\'s own effort; each agent gets the effort its task needs' : 'The model\'s own default' }, ...v.choices.efforts.map((e) => ({ value: e, label: effortName(e) }))];
+    // Another tool's ultracode is its model's highest effort: while it is on, it decides, not this choice.
+    const over = what === 'effort' && !claude && v.ultracode;
     const pick = await chooseSheet({
-      title: what === 'model' ? 'Model' : 'How hard Claude thinks',
-      subtitle: what === 'model' ? 'Changes at once, in this chat. A new model reads the conversation again, which costs more once.' : 'Changes at once, in this chat.',
+      title: what === 'model' ? 'Model' : `How hard ${toolWord(v)} thinks`,
+      subtitle: what === 'model' ? 'Changes at once, in this chat. A new model reads the conversation again, which costs more once.' : over ? 'Ultracode is on: the model thinks as hard as it can, whatever is chosen here. Turn it off to use this choice.' : 'Changes at once, in this chat.',
       items: items.map((x) => ({ ...x, current: (x.value || null) === (cur || null) })),
     });
     if (pick === null || (pick || null) === (cur || null)) return;
     try {
       const r = await api(`${o.A}/settings`, { [what]: pick || null });
-      if (r.restart) toast('It takes effect when Claude starts again with the next message');
+      if (r.restart) toast(`It takes effect when ${toolWord(v)} starts again with the next message`);
     } catch (e) {
       toast(failText(e), { kind: 'error' });
     }
@@ -181,15 +188,18 @@ export function createComposer(o) {
   function contextSheet() {
     const u = v.usage || {};
     const p = contextPercent(u);
-    openSheet({ title: 'Context', subtitle: 'How much of what Claude can keep in mind this conversation fills.' }, (close) => [
-      h('p.sheet-text', p === null ? 'Not known yet: it comes with Claude\'s next answer.' : `${p}% used${Number.isFinite(u.contextUsed) ? ` · ${kilo(u.contextUsed)} of ${kilo(u.contextWindow || 0)} tokens` : ''}.`),
-      h('p.sheet-text', 'When it is nearly full Claude compacts by itself: it goes on from a summary of the conversation. Compact now to do that at a moment you choose.'),
+    const who = toolWord(v);
+    // Compact is Claude Code's: another coding tool's chat only says how full the context is.
+    const compact = canCompact(v);
+    openSheet({ title: 'Context', subtitle: `How much of what ${who} can keep in mind this conversation fills.` }, (close) => [
+      h('p.sheet-text', p === null ? `Not known yet: it comes with ${who}'s next answer.` : `${p}% used${Number.isFinite(u.contextUsed) ? ` · ${kilo(u.contextUsed)} of ${kilo(u.contextWindow || 0)} tokens` : ''}.`),
+      compact ? h('p.sheet-text', 'When it is nearly full Claude compacts by itself: it goes on from a summary of the conversation. Compact now to do that at a moment you choose.') : null,
       h('div.sheet-actions',
-        h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Close'),
-        h('button.btn.primary', { type: 'button', onclick: () => {
+        h(`button.btn.${compact ? 'secondary' : 'primary'}`, { type: 'button', onclick: () => close() }, 'Close'),
+        compact ? h('button.btn.primary', { type: 'button', onclick: () => {
           close();
           o.compact();
-        } }, 'Compact now')),
+        } }, 'Compact now') : null),
     ]);
   }
 
@@ -201,7 +211,7 @@ export function createComposer(o) {
     sendBtn.classList.toggle('hidden', !!busy && !hasText);
     fill(sendBtn, icon(busy ? 'clock' : 'send', { size: 20 }));
     sendBtn.setAttribute('aria-label', busy ? 'Queue the message' : 'Send');
-    sendBtn.title = busy ? 'Queue: Claude takes it at its next step' : 'Send';
+    sendBtn.title = busy ? `Queue: ${toolWord(v)} takes it at its next step` : 'Send';
   }
 
   return {
@@ -225,27 +235,37 @@ export function createComposer(o) {
     nextMode: () => v && setMode(nextMode(modeOf(v), v.choices ? v.choices.modes : undefined)),
     paint(state) {
       v = state;
-      const ro = !!v.terminal;
+      const ro = !!v.terminal || !!v.toolOff;
       textarea.disabled = ro;
       attachBtn.disabled = ro;
       if (ro) menus.close();
-      const words = ro ? 'Read only while the terminal runs this conversation'
+      const who = toolWord(v);
+      textarea.setAttribute('aria-label', `Message to ${who}`);
+      stopBtn.title = `Stop ${who} (Esc; the turn ends${caps(v).stopTask ? ', background agents go on' : ''})`;
+      ultraBtn.classList.toggle('hidden', !caps(v).ultracode);
+      ultraBtn.title = who === 'Claude' ? 'Ultracode: Claude plans the work out to agents and workflows' : 'Ultracode: the model thinks as hard as it can';
+      const words = v.toolOff ? `${who} is off on this computer` : ro ? 'Read only while the terminal runs this conversation'
         : turnRuns(v) ? 'Queue a message…'
-          : finePointer() ? 'Message Claude · / commands · @ files · Shift+Tab mode · /help keys' : 'Message Claude · / commands · @ files';
+          : finePointer() ? `Message ${who} · / commands · @ files · Shift+Tab mode · /help keys` : `Message ${who} · / commands · @ files`;
       if (textarea.placeholder !== words) {
         textarea.placeholder = words;
         grow(); // an empty box is as high as its placeholder
       }
       paintQueue(v.queue);
       paintButtons();
+      sendBtn.disabled = ro; // nothing to send while the conversation runs elsewhere or its tool is off
       const mode = modeOf(v);
-      modeBtn.classList.toggle('chat-is-danger', !!(MODE[mode] && MODE[mode].danger));
-      fill(modeBtn, icon(MODE[mode] && MODE[mode].danger ? 'alert' : 'lock', { size: 13 }), h('span', modeChip(mode)));
-      modeBtn.setAttribute('aria-label', `Permission mode: ${modeChip(mode)}. Change it`);
+      const mw = modeInfo(v, mode);
+      const chip = mw ? mw.chip : modeChip(mode);
+      modeBtn.classList.toggle('chat-is-danger', !!(mw && mw.danger));
+      fill(modeBtn, icon(mw && mw.danger ? 'alert' : 'lock', { size: 13 }), h('span', chip));
+      modeBtn.setAttribute('aria-label', `Permission mode: ${chip}. Change it`);
       fill(modelBtn, icon('sparkle', { size: 13 }), h('span.chat-chip-k', 'Model'), h('span', v.model ? modelName(v.model) : 'Auto'));
       modelBtn.setAttribute('aria-label', `Model: ${v.model ? modelName(v.model) : 'Auto'}. Change it`);
-      fill(effortBtn, icon('zap', { size: 13 }), h('span.chat-chip-k', 'Effort'), h('span', v.effort ? effortName(v.effort) : 'Auto'));
-      effortBtn.setAttribute('aria-label', `Effort: ${v.effort ? effortName(v.effort) : 'Auto'}. Change it`);
+      // Another tool's ultracode is the model's highest effort: the chip says so instead of a choice it overrides.
+      const effortNow = v.ultracode && who !== 'Claude' ? 'Highest (ultracode)' : v.effort ? effortName(v.effort) : 'Auto';
+      fill(effortBtn, icon('zap', { size: 13 }), h('span.chat-chip-k', 'Effort'), h('span', effortNow));
+      effortBtn.setAttribute('aria-label', `Effort: ${effortNow}. Change it`);
       ultraBtn.setAttribute('aria-pressed', String(!!v.ultracode));
       fill(ultraWord, v.ultracode ? 'on' : 'off'); // said in words, not only by its colour
       const p = contextPercent(v.usage);

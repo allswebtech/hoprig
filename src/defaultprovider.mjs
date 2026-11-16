@@ -7,9 +7,12 @@
 // spends money by itself while another provider can work. Only when nothing else can work is a limited one or a
 // paid key the default.
 //
-// The folder's provider is kept when a new conversation starts there by choice (launch.mjs: from the dashboard, a
-// terminal or a schedule; not a resume, a move or a restore, nor a run the launcher made after a limit), in
-// <state>/folder-providers.json: { [folder]: { profile, at } }, the newest MAX folders. It is a convenience: a file that cannot be read or written changes nothing else.
+// The same rule for every coding tool: only the providers that serve it are candidates, and Auto mode is Claude
+// Code's alone. The folder's provider is kept per coding tool when a new conversation starts there by choice
+// (Claude Code: launch.mjs, from the dashboard, a terminal or a schedule; not a resume, a move or a restore, nor a
+// run the launcher made after a limit. Another tool: its launcher's new conversation and the owner's new chat), in
+// <state>/folder-providers.json: { [folder]: { profile, at, tools?: { [tool]: profile } } } (`profile`: Claude
+// Code's), the newest MAX folders. It is a convenience: a file that cannot be read or written changes nothing else.
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from './paths.mjs';
@@ -27,8 +30,11 @@ export function folderProviders() {
   }
 }
 
-/** The provider used last in `dir` (kept under the folder's real path: a launcher's working folder), or null. */
-export function lastProviderIn(dir, all = folderProviders()) {
+/**
+ * The provider coding tool `tool` used last in `dir` (kept under the folder's real path: a launcher's working
+ * folder), or null.
+ */
+export function lastProviderIn(dir, all = folderProviders(), tool = 'claude') {
   if (typeof dir !== 'string' || !dir) return null;
   let real = dir;
   try {
@@ -37,15 +43,21 @@ export function lastProviderIn(dir, all = folderProviders()) {
     /* gone: only the name as given */
   }
   const e = all[dir] || all[real];
-  return e && typeof e.profile === 'string' ? e.profile : null;
+  const name = !e ? null : tool === 'claude' ? e.profile : e.tools && typeof e.tools === 'object' ? e.tools[tool] : null;
+  return typeof name === 'string' ? name : null;
 }
 
-export function rememberFolderProvider(cwd, profile) {
-  if (typeof cwd !== 'string' || !cwd || typeof profile !== 'string' || !profile) return;
+export function rememberFolderProvider(cwd, profile, tool = 'claude') {
+  if (typeof cwd !== 'string' || !cwd || typeof profile !== 'string' || !profile || typeof tool !== 'string') return;
   try {
     const all = folderProviders();
+    const old = all[cwd] && typeof all[cwd] === 'object' ? all[cwd] : {};
     delete all[cwd];
-    all[cwd] = { profile, at: Date.now() };
+    const tools = { ...(old.tools && typeof old.tools === 'object' ? old.tools : {}), ...(tool === 'claude' ? {} : { [tool]: profile }) };
+    all[cwd] = {
+      ...(tool === 'claude' ? { profile } : typeof old.profile === 'string' ? { profile: old.profile } : {}),
+      at: Date.now(), ...(Object.keys(tools).length ? { tools } : {}),
+    };
     const keep = Object.fromEntries(Object.entries(all).slice(-MAX)); // the newest last: a folder used again moved there
     fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
     const tmp = `${file()}.${process.pid}.tmp`;
@@ -57,14 +69,16 @@ export function rememberFolderProvider(cwd, profile) {
 }
 
 /**
- * The default provider's name (or null when there is none). `profiles`: the server's provider states ({ name, kind,
- * paid, limited, virtual, tools? }); `auto`: { enabled, order, payPerUse }; `last`: the provider used last in the
- * folder. Only a provider that serves Claude Code is a candidate (`tools`, where the states carry it).
+ * The default provider's name for a session or chat of coding tool `tool` (or null when there is none). `profiles`:
+ * the server's provider states ({ name, kind, paid, limited, virtual, tools? }); `auto`: { enabled, order, payPerUse
+ * }; `last`: the provider `tool` used last in the folder. Only a provider that serves `tool` is a candidate (`tools`;
+ * a state without it is an older one of Claude Code's).
  */
-export function chooseDefault({ profiles = [], auto = {}, autoName = 'auto', last = null }) {
-  if (auto.enabled) return autoName;
+export function chooseDefault({ profiles = [], auto = {}, autoName = 'auto', last = null, tool = 'claude' }) {
+  if (auto.enabled && tool === 'claude') return autoName;
+  const serves = (p) => (Array.isArray(p.tools) ? p.tools.includes(tool) : tool === 'claude');
   // `unusable`: no coding tool of this version can use it (profiles.mjs publicProfile); never a default.
-  const real = profiles.filter((p) => p && !p.virtual && !p.unusable && (!Array.isArray(p.tools) || p.tools.includes('claude')));
+  const real = profiles.filter((p) => p && !p.virtual && !p.unusable && serves(p));
   const free = (p) => !p.limited;
   // The folder's own provider goes first, under the same two tests as every other: not at its limit, and not a
   // pay-per-use key while that is not allowed and another provider can work.

@@ -58,6 +58,7 @@ body.chat-mode .toasts { top: calc(66px + env(safe-area-inset-top)); bottom: aut
 .chat-down { position: absolute; right: 16px; bottom: 12px; z-index: 2; box-shadow: var(--shadow-2); }
 .chat-loading, .chat-empty { display: grid; place-items: center; gap: 10px; padding: 40px 16px; color: var(--muted); text-align: center; }
 .chat-empty p { max-width: 460px; margin: 0; line-height: 1.5; }
+.chat-tool-off .chat-empty { display: none; } /* its tool is off: the banner says so, nothing invites a message */
 
 /* A long conversation stays fast: the browser skips the layout of items that are off screen. */
 .chat-item { content-visibility: auto; contain-intrinsic-size: auto 60px; min-width: 0; }

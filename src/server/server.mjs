@@ -87,6 +87,7 @@ import * as v from './validate.mjs';
 import { Watcher, enrich } from './watcher.mjs';
 import { isClaudeCard } from '../automation/cards.mjs';
 import { codetoolsFeature } from '../codetools/feature.mjs';
+import { enabledToolIds } from '../codetools/index.mjs';
 import { assertToolReady, toolFlags, toolFromRequest } from '../codetools/start.mjs';
 import { isToolSessionId, toolSessions } from '../codetools/stores.mjs';
 
@@ -150,7 +151,8 @@ function readJson(req) {
  * Build the server. `opts` override config.json (tests use them): host, port, tmuxSocket, tmuxConfigFile, backend,
  * autoswitch and claudecode (stand-ins for src/autoswitch.mjs and src/claudecode.mjs), watch (false: no watcher),
  * fetch (for notifications), autoSwitchGraceMs and watchTickMs (faster watcher for tests), machines (options for
- * src/machines: fake ssh, timeouts), dashboardFile (false: do not write <stateDir>/dashboard.json).
+ * src/machines: fake ssh, timeouts), dashboardFile (false: do not write <stateDir>/dashboard.json), toolSessions
+ * (a stand-in for the conversation lists of another coding tool's store).
  * Returns { server, deck, backend, watcher, listen(), close() }.
  */
 export function createServer(opts = {}) {
@@ -163,6 +165,8 @@ export function createServer(opts = {}) {
   const autoswitch = opts.autoswitch || autoswitchModule;
   // Loaded on first use, so the dashboard still starts if that module fails to load.
   const claudecode = async () => opts.claudecode || import('../claudecode.mjs');
+  // A coding tool's conversations of a folder, from its own store (opts.toolSessions: a stand-in, in tests).
+  const listToolSessions = opts.toolSessions || toolSessions;
   // The Computer tab's view of the system and its actions on it; the demo passes stand-ins, so it never shows or
   // touches the real computer.
   let loginTimer = null; // the half-hourly sign-in check started in listen()
@@ -217,9 +221,10 @@ export function createServer(opts = {}) {
       return n && n.url ? sendNotification(n, ev, { fetchImpl: notifyFetch }) : Promise.resolve({ sent: false });
     },
     readJson: (req) => readJson(req),
-    // The provider a new Claude Code session in `dir` starts on when nobody chose one (src/defaultprovider.mjs).
-    // `last`: the provider the caller's own record says ran there last (a chat's); else the launcher's record.
-    defaultProvider: (dir, last = null) => defaultProviderIn(dir, last),
+    // The provider a new session or chat of coding tool `tool` in `dir` starts on when nobody chose one
+    // (src/defaultprovider.mjs). `last`: the provider the caller's own record says ran there last (a chat's); else
+    // the folder's record of that tool.
+    defaultProvider: (dir, last = null, tool = 'claude') => defaultProviderIn(dir, last, tool),
     HttpError,
   };
   // ---- the features: one line each ----
@@ -275,8 +280,8 @@ export function createServer(opts = {}) {
 
   /** Auto mode is on: sessions may run on the virtual profile "auto" (the router picks the account). */
   const autoOn = () => autoswitch.getAutoSwitch().enabled === true;
-  const defaultFor = (profiles, last = null) => chooseDefault({ profiles, auto: { ...autoswitch.getAutoSwitch(), enabled: autoOn() }, autoName: AUTO.name, last });
-  const defaultProviderIn = async (dir, last = null) => defaultFor(profileStates(await cards()), last || (dir ? lastProviderIn(dir) : null));
+  const defaultFor = (profiles, last = null, tool = 'claude') => chooseDefault({ profiles, auto: { ...autoswitch.getAutoSwitch(), enabled: autoOn() }, autoName: AUTO.name, last, tool });
+  const defaultProviderIn = async (dir, last = null, tool = 'claude') => defaultFor(profileStates(await cards()), last || (dir ? lastProviderIn(dir, undefined, tool) : null), tool);
   /** A profile name from the browser: a real profile, or "auto" while Auto mode is on. Full object or null. */
   // A provider that does not serve the session's coding tool is refused (400). Auto mode is Claude Code's.
   const pickProfile = (name, tool = 'claude') => {
@@ -361,13 +366,26 @@ export function createServer(opts = {}) {
     // the folders whose own default (the provider used last there) differs from it.
     const recommended = defaultFor(profiles);
     const recommendedIn = {};
-    if (!autoOn()) for (const [d, e] of Object.entries(folderProviders())) {
+    const folders = Object.entries(folderProviders());
+    if (!autoOn()) for (const [d, e] of folders) {
       const r = defaultFor(profiles, e && e.profile);
       if (r && r !== recommended) recommendedIn[d] = r;
     }
+    // The same for each other coding tool that is on (New session shows the default of the tool chosen there):
+    // { [tool]: { recommended, recommendedIn } }. Left out while Claude Code is the only one.
+    const others = enabledToolIds(cfg()).filter((t) => t !== 'claude');
+    const toolDefaults = others.length ? Object.fromEntries(others.map((t) => {
+      const rec = defaultFor(profiles, null, t);
+      const inDir = {};
+      for (const [d, e] of folders) {
+        const r = e && e.tools && typeof e.tools[t] === 'string' ? defaultFor(profiles, e.tools[t], t) : null;
+        if (r && r !== rec) inDir[d] = r;
+      }
+      return [t, { recommended: rec, recommendedIn: inDir }];
+    })) : null;
     const qa = cfg().server.quickActions;
     return {
-      sessions: list, profiles, autoSwitch: auto, recommended, recommendedIn,
+      sessions: list, profiles, autoSwitch: auto, recommended, recommendedIn, ...(toolDefaults ? { toolDefaults } : {}),
       quickActions: Array.isArray(qa) ? qa : DEFAULT_QUICK_ACTIONS,
       backend: { kind: backend.kind, capabilities: backend.capabilities || {} },
       ...(opts.demo ? { demo: true } : {}), // `hoprig demo` (src/demo): the page shows a "Demo" marker
@@ -454,22 +472,22 @@ export function createServer(opts = {}) {
       const tool = toolFromRequest(q.get('tool'));
       if (tool !== 'claude') {
         assertToolReady(tool, cfg());
-        return { tool, sessions: (await toolSessions(tool, dir)).slice(0, 30).map((s) => ({ ...s, title: s.title || '(untitled)' })) };
+        return { tool, sessions: (await listToolSessions(tool, dir)).slice(0, 30).map((s) => ({ ...s, title: s.title || '(untitled)' })) };
       }
       return { sessions: sessionsIn(dir).slice(0, 30).map((s) => ({ id: s.id, at: s.mtimeMs, title: sessionTitle(s.file) || '(untitled)' })) };
     }],
     ['POST', /^\/api\/sessions$/, async (req) => {
       const b = await readJson(req);
-      // No provider chosen for Claude Code: the default for this folder (the one used last there, …: defaultprovider.mjs).
-      if ((b.profile === undefined || b.profile === null || b.profile === '') && (b.tool === undefined || b.tool === null || b.tool === '' || b.tool === 'claude')) {
-        b.profile = await defaultProviderIn(insideRoots(v.absPath(b.dir), roots()));
-        if (!b.profile) throw bad('there is no provider on this computer yet: add one under Providers first');
-      }
       const dir = insideRoots(v.absPath(b.dir), roots());
       if (!dir) throw bad('choose a folder inside the allowed roots');
       // `tool`: the coding tool (absent: Claude Code, as before). Codex and OpenCode take their own choices.
       const tool = toolFromRequest(b.tool);
       if (tool !== 'claude') assertToolReady(tool, cfg());
+      // No provider chosen: the folder's default for that coding tool (the one it used there last, …: defaultprovider.mjs).
+      if (b.profile === undefined || b.profile === null || b.profile === '') {
+        b.profile = await defaultProviderIn(dir, null, tool);
+        if (!b.profile) throw bad(tool === 'claude' ? 'there is no provider on this computer yet: add one under Providers first' : 'there is no provider for this coding tool yet: add one under Providers first');
+      }
       const profile = pickProfile(b.profile, tool);
       if (!profile) throw bad('there is no such provider');
       const mode = ['new', 'continue', 'resume'].includes(b.mode) ? b.mode : null;
@@ -478,8 +496,11 @@ export function createServer(opts = {}) {
         let sid = null;
         if (mode === 'resume') {
           sid = isToolSessionId(tool, b.sessionId) ? b.sessionId : null;
-          if (!sid || !(await toolSessions(tool, dir)).some((s) => s.id === sid)) throw bad('that conversation is not in this folder');
+          if (!sid || !(await listToolSessions(tool, dir)).some((s) => s.id === sid)) throw bad('that conversation is not in this folder');
         }
+        // One conversation runs in one place only, as for Claude Code ("continue": the folder's newest of the tool).
+        const runs = mode === 'resume' ? sid : mode === 'continue' ? ((await listToolSessions(tool, dir))[0] || {}).id : null;
+        if (runs && chat.running(runs, tool)) throw new HttpError(409, 'this conversation is open as a chat right now; open it in a terminal from the chat');
         let prompt = null;
         if (b.prompt !== undefined && b.prompt !== null) {
           prompt = v.message(b.prompt);

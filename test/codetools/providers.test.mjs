@@ -211,3 +211,16 @@ test('OpenCode: a provider block in a file of Hoprig\'s own, with no secret in i
   assert.deepEqual(await T.providerModels({ ...P.readProfile('gw'), env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: KEY } }), [], 'unreachable: no models, no error');
   assert.deepEqual(await T.providerModels(P.readProfile('codexin')), [], 'a sign-in has no endpoint to ask');
 });
+
+test('the models a provider lists, with the efforts each says it takes (a chat\'s ultracode is the highest)', async () => {
+  const { modelEfforts, providerModelList } = await import('../../src/codetools/providers.mjs');
+  assert.deepEqual(modelEfforts({ id: 'm', effort_tiers: ['none', 'low', 'high', 'xhigh'] }), ['none', 'low', 'high', 'xhigh']);
+  assert.deepEqual(modelEfforts({ id: 'm', capabilities: { supported_reasoning_efforts: [{ effort: 'low' }, { id: 'max' }] } }), ['low', 'max']);
+  assert.deepEqual(modelEfforts({ id: 'm', effort_tiers: ['<b>', 7] }), [], 'only plain words');
+  const fetchImpl = async () => ({ status: 200, text: async () => JSON.stringify({ data: [{ id: 'claude-sonnet-5-5', effort_tiers: ['low', 'xhigh'] }, { id: 'bad id!' }] }) });
+  const list = await providerModelList({ name: 'gw', env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: 't' } }, { fetchImpl });
+  assert.deepEqual(list, [{ id: 'claude-sonnet-5-5', efforts: ['low', 'xhigh'] }]);
+  const { topEffort } = await import('../../src/chat/engines/served.mjs');
+  assert.equal(topEffort(['low', 'xhigh']), 'xhigh');
+  assert.equal(topEffort([]), 'max', 'none listed: the highest the chat offers');
+});

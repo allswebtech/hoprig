@@ -1,15 +1,14 @@
 // Settings → Coding tools (#/settings/codingtools): which coding tools the dashboard offers (the ones this version
 // has: src/codetools/index.mjs), whether each is installed, the providers that serve it, and how to start a session
-// with it. A session of a tool other than Claude Code starts here (a folder and a provider) and in a terminal
-// (`hoprig opencode <provider>`).
-// The server side: src/codetools/feature.mjs (GET /api/codetools, POST /api/codetools/<id>); a session starts
-// through POST /api/sessions { tool }, an install through Settings → Updates (POST /api/updates/run).
+// with it. A session of another tool starts from New session (the coding tool chosen there: a chat, or a terminal)
+// and from a terminal (`hoprig opencode <provider>`). The server side: src/codetools/feature.mjs (GET /api/codetools,
+// POST /api/codetools/<id>); an install through Settings → Updates (POST /api/updates/run).
 import { icon } from './icons.js';
 import { api, btn, fill, h, link, toast } from './lib.js';
 import { registerSettingsPage } from './registry.js';
 import { panel, toggle } from './shell.js';
 
-const SCOPE = 'Claude Code can do everything here. OpenCode: sessions in a terminal, the providers that fit it, the shared AI brain and updates. Auto mode, plan usage and Tia work with Claude Code only.';
+const SCOPE = 'Claude Code can do everything here. OpenCode: a chat or a session in a terminal, the providers that fit it, the shared AI brain and updates. Auto mode, plan usage and Tia work with Claude Code only.';
 
 /** The one line in the Settings list. */
 export const summaryOf = (v) => `On: ${v.tools.filter((t) => t.on).map((t) => t.name).join(', ')}`;
@@ -17,29 +16,7 @@ export const summaryOf = (v) => `On: ${v.tools.filter((t) => t.on).map((t) => t.
 /** The providers of a coding tool as the owner named them (an older computer sends the short names only). */
 export const labelsOf = (t) => (Array.isArray(t.providerLabels) && t.providerLabels.length === t.providers.length ? t.providerLabels : t.providers);
 
-function startForm(t, folders) {
-  const group = (label, list) => (list.length ? h('optgroup', { label }, list.map((f) => h('option', { value: f.path }, f.short))) : null);
-  const dir = h('select.field', { 'aria-label': 'Folder' }, group('Recent', folders.recent), group('Your folders', folders.more));
-  const prov = h('select.field', { 'aria-label': 'Provider' }, t.providers.map((p, i) => h('option', { value: p }, labelsOf(t)[i])));
-  const go = btn('primary', { icon: 'play', label: `Start ${t.name}`, onclick: async () => {
-    go.disabled = true;
-    go.classList.add('busy');
-    try {
-      const r = await api('/api/sessions', { tool: t.id, profile: prov.value, dir: dir.value, mode: 'new' });
-      location.hash = link(`#/s/${encodeURIComponent(r.name)}`);
-    } catch (e) {
-      toast(e.message, { kind: 'error', ms: 7000 });
-      go.disabled = false;
-      go.classList.remove('busy');
-    }
-  } });
-  return h('div.ct-start',
-    h('label.fieldrow', h('span.field-label', 'Folder'), dir),
-    h('label.fieldrow', h('span.field-label', 'Provider'), prov),
-    h('div.savebar', go));
-}
-
-function toolPanel(t, folders, redraw) {
+function toolPanel(t, redraw) {
   const missing = t.managed && !t.installed;
   const tag = missing ? 'Not installed' : t.on ? 'On' : 'Off';
   const providers = t.providers.length
@@ -51,8 +28,9 @@ function toolPanel(t, folders, redraw) {
   let start = null;
   if (t.id === 'claude') start = h('p.hint', 'New session on Home starts it.');
   else if (!missing && t.on && t.providers.length) {
+    // One way to start it: New session, with this coding tool chosen there (a chat, or "Open in" a terminal).
     start = [
-      folders.recent.length || folders.more.length ? startForm(t, folders) : h('p.hint', 'No folder this dashboard may open was found: Settings → Security and sign-in says which folders it opens.'),
+      h('p.hint', `New session on Home starts it: choose ${t.name} there as the coding tool, for a chat or a terminal.`),
       h('p.hint', 'Or in a terminal: ', h('code', t.command), '.'),
     ];
   }
@@ -83,7 +61,6 @@ function toolPanel(t, folders, redraw) {
 
 function codingToolsPage() {
   const body = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading…')));
-  let folders = { recent: [], more: [] };
   let view = null;
   const draw = (v) => {
     if (v) view = v;
@@ -91,19 +68,12 @@ function codingToolsPage() {
     // A keyboard user keeps their place when the panels are drawn again.
     const all = () => [...body.querySelectorAll('input, button, select, a[href]')];
     const at = all().indexOf(document.activeElement);
-    fill(body, view.tools.map((t) => toolPanel(t, folders, draw)));
+    fill(body, view.tools.map((t) => toolPanel(t, draw)));
     if (at >= 0) all()[at]?.focus();
   };
   (async () => {
     try {
-      // The folders a session was started in, then the folders of the dashboard's first root folder (a fresh
-      // computer has no recent folder yet).
-      const [v, r, b] = await Promise.all([api('/api/codetools'), api('/api/folders/recent').catch(() => ({ folders: [] })), api('/api/folders/browse').catch(() => null)]);
-      const recent = (r.folders || []).slice(0, 30);
-      const seen = new Set(recent.map((f) => f.path));
-      const more = b ? [{ path: b.path, short: b.short }, ...(b.dirs || []).map((d) => ({ path: d.path, short: `${b.short.replace(/\/$/, '')}/${d.name}` }))].filter((f) => !seen.has(f.path)).slice(0, 60) : [];
-      folders = { recent, more };
-      draw(v);
+      draw(await api('/api/codetools'));
     } catch (e) {
       fill(body, h('div.empty', icon('alert', { size: 32 }), h('p', e.message)));
     }

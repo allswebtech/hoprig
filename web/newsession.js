@@ -3,9 +3,14 @@
 // default provider and Settings). Everything else waits under a closed "Options": the computer, a terminal or a
 // plain shell instead of the chat, the provider, what Claude may do without asking, how hard it thinks, the model,
 // which conversation. Another folder is one row away.
-import { startChat } from './chat/start.js';
+// Where a computer offers more than one coding tool for a chat (GET /api/chats/tools), the coding tool comes first:
+// left unchosen, each project opens in the tool its last chat used; chosen, only the providers that serve it are
+// offered, and "Open in" starts that tool in a terminal too. With Claude Code alone the page is as it always was.
+import { chatTools, knownChatTools, startChat } from './chat/start.js';
 import { icon } from './icons.js';
-import { ago, api, at, chooseSheet, confirmSheet, fill, h, kindLabel, link, machine, prefs, profileState, servesClaude, tildePath, toast } from './lib.js';
+import { TOOL_NAMES, ago, api, at, cardTool, chooseSheet, confirmSheet, fill, h, isCodingCard, kindLabel, link, machine, prefs, profileState, servesTool, tildePath, toast } from './lib.js';
+import { focusTool, otherToolOptions, select, terminalMode, toolButtons } from './newsession-tools.js';
+import { defaultWords, folderSub, outsideProjects, repoWords, runningIn } from './newsession-words.js';
 import { fold, frame, groupHead } from './shell.js';
 import { runsSessions, store } from './store.js';
 
@@ -16,64 +21,32 @@ import { EFFORT, MODELS, MODES } from './sessiondefaults.js';
  * Sessions this page just started or moved to another account: until Claude reports itself again (a few seconds),
  * they read "Starting Claude…" instead of "Terminal" (Home, session.js).
  */
-const justStarted = new Map();
+const justStarted = new Map(); // key → { at, tool }
 const keyOf = (machineName, name) => `${machineName || ''}/${name}`;
-export const markStarting = (machineName, name) => justStarted.set(keyOf(machineName, name), Date.now());
-export const isStarting = (s, machineName = s.machine) => s.kind !== 'claude' && Date.now() - (justStarted.get(keyOf(machineName, s.name)) || 0) < 30_000;
-export const startingPill = () => h('span.pill.st-starting', h('span.dot'), 'Starting Claude…');
+export const markStarting = (machineName, name, tool = 'claude') => justStarted.set(keyOf(machineName, name), { at: Date.now(), tool });
+const started = (s, machineName = s.machine) => justStarted.get(keyOf(machineName, s.name)) || { at: 0, tool: 'claude' };
+export const isStarting = (s, machineName = s.machine) => !isCodingCard(s) && Date.now() - started(s, machineName).at < 30_000;
+/** "Starting Claude…", or the coding tool that was started (s: the card, when known). */
+export const startingPill = (s = null) => {
+  const tool = s ? started(s).tool || cardTool(s) : 'claude';
+  return h('span.pill.st-starting', h('span.dot'), `Starting ${tool && tool !== 'claude' ? TOOL_NAMES[tool] || tool : 'Claude'}…`);
+};
 
-/**
- * True when `dir` is outside the projects folder: not it, not inside it, and not one of the folders that hold it (the
- * home folder is no project to make). Either separator, so Windows paths too.
- */
-export function outsideProjects(dir, projectsDir) {
-  if (!projectsDir || !dir) return false;
-  const norm = (x) => x.replace(/[\\/]+$/, '');
-  const under = (a, b) => a === b || a.startsWith(`${b}/`) || a.startsWith(`${b}\\`);
-  const root = norm(projectsDir);
-  const d = norm(dir);
-  return !under(d, root) && !under(root, d);
-}
-
-/**
- * The second line of a folder's row: its path only when it says something the name does not, i.e. when the folder is
- * not simply <projects folder>/<name>. `short` is the "~/…" path, `projectsShort` the projects folder written the same way.
- */
-export function folderSub(f, projectsShort) {
-  const norm = (x) => String(x || '').replace(/[\\/]+$/, '').replace(/\\/g, '/');
-  if (projectsShort && norm(f.short) === `${norm(projectsShort)}/${f.name}`) return 'project';
-  return f.short;
-}
-
-/** A repository of a project as a person names it: "bookshop-api", "repository in bookshop" (not "code/bookshop-api"). */
-export function repoWords(rel, project) {
-  if (!rel || rel === '.') return { name: project, sub: 'project' };
-  const name = rel.split(/[\\/]/).filter(Boolean).pop() || rel;
-  return { name, sub: project ? `repository in ${project}` : 'repository' };
-}
-
-/**
- * Where a tap on a recent folder goes when something already works there: the terminal session that runs in it, or
- * the chat at work in it (a second one there is what nobody tapping a "running" project means). Null: open a chat.
- */
-export function runningIn(f) {
-  if (!f || !f.live) return null;
-  if (f.chat) return `#/chat/${f.chat}`;
-  return f.session ? `#/s/${encodeURIComponent(f.session)}` : null;
-}
+export { folderSub, outsideProjects, repoWords, runningIn } from './newsession-words.js';
 
 export function viewNew({ query = new URLSearchParams() } = {}) {
   store.viewing = null;
   const opts = h('div.newopts');
   const body = h('div');
   const computers = h('div.ns-computers');
+  const toolSlot = h('div.ns-tools'); // the coding tool, where there is more than one
   frame({
     title: 'New session',
     page: 'home',
     back: '#/',
     backLabel: 'Home',
     intro: 'Pick a project: a chat with Claude opens there, set up as your last chat in that project. A terminal instead, and the rest, are under Options.',
-    body: [computers, body, fold('new-options', 'Options', opts)],
+    body: [computers, toolSlot, body, fold('new-options', 'Options', opts)],
   });
   const st = {
     m: machine.current,
@@ -84,13 +57,21 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     models: null, // the computer's list (GET /api/settings sessionChoices), null until known
     conversation: 'new',
     dir: null, // the folder open under "Another folder" (its real path), for the Provider list's words
-    run: 'chat', // chat | claude (Claude Code in a terminal) | shell (a plain terminal)
+    run: 'chat', // chat | claude (the coding tool in a terminal) | shell (a plain terminal)
     hidden: false,
+    tool: '', // the coding tool chosen here ('' = each project's last one; Claude Code where it is the only one)
   };
   let alive = true;
   let projectsDir = null; // the computer's projects folder, from the list of projects (null: not known)
   let projectsShort = null; // the same, as "~/…", to tell a plain project path from one worth showing
   const where = () => store.all.find((x) => x.machine === st.m) || null;
+  // The coding tools a chat can run on this computer ([{ id, name, modes?, modeWords?, efforts? }]).
+  const tools = () => knownChatTools(st.m);
+  const several = () => tools().length > 1;
+  const toolInfo = () => tools().find((t) => t.id === st.tool) || null;
+  // The tool a start uses: the one chosen, else Claude Code (a terminal, the provider lists before a tool is chosen).
+  const toolNow = () => st.tool || 'claude';
+  const toolName = (id = toolNow()) => TOOL_NAMES[id] || id;
   // Claude Code on each computer ('~' for this one): its version, null when not installed (GET /api/machines).
   const claudeOf = new Map();
   const can = (m) => runsSessions(m, claudeOf.get(m.machine || '~'));
@@ -107,7 +88,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
       h('div.ns-pcs', { role: 'radiogroup', 'aria-label': 'Computer' }, store.all.map((m) => {
         const c = can(m);
         const on = m.machine === st.m;
-        const providers = (m.profiles || []).filter((p) => !p.virtual && servesClaude(p)).length;
+        const providers = (m.profiles || []).filter((p) => !p.virtual && servesTool(p, toolNow())).length;
         return h(`button.ns-pc${on ? '.on' : ''}`, {
           type: 'button', role: 'radio', 'aria-checked': String(on), disabled: !c.ok && !on,
           onclick: () => {
@@ -135,39 +116,32 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
   const failed = (e, retry) => fill(body, h('div.empty', icon('alert', { size: 32 }), h('p', e.message), h('button.btn.secondary', { type: 'button', onclick: retry }, 'Try again')));
 
   // ---------- Options ----------
-  // What "nothing chosen" means, in the Provider list. The server decides per folder (src/defaultprovider.mjs): the
-  // provider used last in that folder while it can work, else the computer's default; Auto mode, when on, everywhere.
-  // Once a folder is open (Another folder), its own default by name (`recommendedIn`, by real path). A chat first
-  // takes what the last chat in the project had (`same`).
-  const defaultWords = (m, profiles, same) => {
-    const label = (n) => (profiles.find((p) => p.name === n) || {}).label;
-    const rec = m && label(m.recommended);
-    if (!rec) return same || 'The default';
-    const perFolder = m.recommendedIn && !(m.autoSwitch && m.autoSwitch.enabled);
-    const here = perFolder && st.dir ? label(m.recommendedIn[st.dir]) || rec : null;
-    const folder = here || (perFolder ? `the one used last in the folder, else ${rec}` : rec);
-    return same ? `${same}, else ${folder}` : `The default${here ? ' here' : ''}: ${folder}`;
-  };
-  const select = (label, value, options, onchange, hint) =>
-    h('label.fieldrow', h('span.field-label', label),
-      h('select.field', { onchange: (e) => onchange(e.target.value) }, options.map(([v, t]) => h('option', { value: v, selected: v === value }, t))),
-      hint ? h('span.hint', hint) : null);
   function paintOptions() {
     const m = where();
-    const profiles = m ? m.profiles.filter(servesClaude) : []; // these sessions are Claude Code's
+    const tool = toolNow();
+    const profiles = m ? m.profiles.filter((p) => servesTool(p, tool)) : []; // only the providers that serve the coding tool
     const chat = st.run === 'chat';
     // Left as it is, a chat takes what the last chat in that project had; a terminal takes Settings.
     const same = chat ? 'As your last chat in the project' : 'As in Settings';
-    const run = select('Open in', st.run, [['chat', 'A chat (the default)'], ['claude', 'Claude Code in a terminal'], ['shell', 'A plain terminal, without Claude']], (v) => {
+    const run = select('Open in', st.run, [['chat', 'A chat (the default)'], ['claude', `${toolName()} in a terminal`], ['shell', `A plain terminal, without ${tool === 'claude' ? 'Claude' : toolName()}`]], (v) => {
+      if (toolInfo() && toolInfo().modes && (v === 'chat') !== chat) st.permissionMode = ''; // a chat's modes and a terminal's differ
       st.run = v;
       paintOptions();
     }, st.run === 'shell' ? 'A shell in the folder you pick; nothing else applies to it.' : null);
-    // A plain terminal runs no Claude: no provider, mode, model or conversation to choose.
+    // A plain terminal runs no coding tool: no provider, mode, model or conversation to choose.
     if (st.run === 'shell') return fill(opts, run);
+    // Several coding tools and none chosen: each project's own last one decides, with its provider and the rest.
+    if (several() && !st.tool && chat) return fill(opts, run, h('p.hint', 'Choose a coding tool above to choose its provider, mode and effort here. Left alone, each project opens as its last chat did.'));
+    const info = toolInfo();
+    if (info && info.modes) {
+      // Another coding tool: its own modes; the model is chosen from the provider's list in the chat itself.
+      return fill(opts, run, otherToolOptions({ st, info, name: toolName(), profiles, chat, same, byDefault: defaultWords(m, profiles, chat ? same : null, tool, st.dir) }),
+        select('Conversation', st.conversation, [['new', 'A new conversation'], ['continue', 'Continue the last one in the folder'], ['pick', 'Pick an earlier one']], (v) => (st.conversation = v)));
+    }
     fill(opts, run,
-      select('Provider', st.profile, [['', defaultWords(m, profiles, chat ? same : null)], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => (st.profile = v)),
+      select('Provider', st.profile, [['', defaultWords(m, profiles, chat ? same : null, 'claude', st.dir)], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => (st.profile = v)),
       select('What Claude may do without asking', st.permissionMode, [['', same], ...Object.entries(MODES)], (v) => (st.permissionMode = v),
-        st.permissionMode === 'bypassPermissions' ? 'Claude can run any command and change any file without asking.' : null),
+        (v) => (v === 'bypassPermissions' ? 'Claude can run any command and change any file without asking.' : null)),
       select('How hard it thinks', st.effort, [['', same], ...Object.entries(EFFORT)], (v) => (st.effort = v)),
       // A model for this one session: try something cheaper without changing the setting for every session.
       select('Model', st.model, [['', same], ...(st.models || MODELS.map(([v]) => v)).map((v) => [v, (MODELS.find(([x]) => x === v) || [v, v])[1]])], (v) => (st.model = v),
@@ -201,9 +175,11 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
       return fill(body, h('div.empty.compact', icon('cpu', { size: 28 }), h('p', `${m.machineLabel}: ${c.why}.${other ? ' Choose a computer above.' : ''}`),
         other ? null : h('a.btn.secondary', { href: '#/computers' }, icon('cpu', { size: 18 }), h('span', 'Computers'))));
     }
-    if (m && st.run !== 'shell' && !m.profiles.some((p) => !p.virtual && servesClaude(p))) {
+    if (m && st.run !== 'shell' && !m.profiles.some((p) => !p.virtual && servesTool(p, toolNow()))) {
       // Nothing could start: say what is missing and lead there.
-      return fill(body, h('div.empty.compact', icon('user', { size: 28 }), h('p', `No provider on ${m.machineLabel} yet. Add the provider Claude should use first.`),
+      return fill(body, h('div.empty.compact', icon('user', { size: 28 }), h('p', st.tool && st.tool !== 'claude'
+        ? `No provider for ${toolName()} on ${m.machineLabel} yet. Add a provider that serves it first (an API key or a gateway; a Claude subscription is for Claude Code only).`
+        : `No provider on ${m.machineLabel} yet. Add the provider Claude should use first.`),
         h('a.btn.primary', { href: link('#/providers', st.m) }, icon('plus', { size: 18 }), h('span', 'Add provider'))));
     }
     busy('Loading projects…');
@@ -285,25 +261,54 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
       }
       return;
     }
-    // No provider chosen: none is sent, so the server takes the folder's default (the one used there last, else the
-    // Providers page's order: src/defaultprovider.mjs). A computer with no provider at all has no default. An older
-    // computer (no `recommendedIn`) does not choose by itself: it gets its recommended one, as before.
-    if (!st.profile && !(m && m.recommended)) return toast('No provider yet: add one under Providers first.', { kind: 'error', ms: 6000 });
+    const tool = toolNow();
+    const own = toolInfo() && toolInfo().modes; // another coding tool, with its own choices
+    // No provider chosen: none is sent, so the server takes the folder's default for the coding tool (the one it used
+    // there last, else the Providers page's order: src/defaultprovider.mjs). A computer with no provider for the tool
+    // has no default. An older computer (no `recommendedIn`, no `toolDefaults`) does not choose by itself: it gets its
+    // recommended one, or the first that serves the tool, as before.
+    const firstServing = m ? (m.profiles.find((p) => !p.virtual && servesTool(p, tool)) || {}).name : null;
+    if (!st.profile && !(tool === 'claude' ? m && m.recommended : firstServing)) return toast('No provider yet: add one under Providers first.', { kind: 'error', ms: 6000 });
     let mode = st.conversation === 'pick' ? 'resume' : st.conversation;
     let sessionId = null;
-    if (mode !== 'new') {
-      const { sessions: convs } = await api(at(st.m, `/api/folders/sessions?${new URLSearchParams({ path: f.path })}`)).catch(() => ({ sessions: [] }));
+    // Unchosen with several tools: the conversations of the tool the project's last chat used are the server's to find.
+    if (mode !== 'new' && !(several() && !st.tool && st.run === 'chat')) {
+      const q = new URLSearchParams({ path: f.path, ...(tool !== 'claude' ? { tool } : {}) });
+      const { sessions: convs } = await api(at(st.m, `/api/folders/sessions?${q}`)).catch(() => ({ sessions: [] }));
       if (!convs.length) mode = 'new'; // nothing to continue in this folder: a new conversation
       else if (mode === 'resume') {
-        sessionId = await chooseSheet({ title: 'Pick a conversation', subtitle: f.name, items: convs.map((c) => ({ value: c.id, label: c.title, sub: ago(c.at), icon: 'text' })) });
+        sessionId = await chooseSheet({ title: 'Pick a conversation', subtitle: tool === 'claude' ? f.name : `${f.name} · ${toolName()}`, items: convs.map((c) => ({ value: c.id, label: c.title, sub: ago(c.at), icon: 'text' })) });
         if (!sessionId) return;
-      } else if (st.run === 'chat') sessionId = convs[0].id; // the newest one (a terminal finds it itself)
+      } else if (st.run === 'chat' || own) sessionId = convs[0].id; // the newest one (Claude Code's terminal finds it itself)
     }
     if (st.run === 'chat') {
       busy(`Opening a chat in ${f.name}…`);
       try {
         // What is not chosen here is left out: the server takes what the last chat in this folder had.
-        await startChat(f.path, { sessionId, profile: st.profile, permissionMode: st.permissionMode, effort: st.effort, model: st.model }, st.m);
+        const permissionMode = own && !toolInfo().modes.includes(st.permissionMode) ? '' : st.permissionMode;
+        await startChat(f.path, { tool: st.tool, sessionId, profile: st.profile, permissionMode, effort: st.effort, model: own ? '' : st.model }, st.m);
+      } catch (e) {
+        failed(e, projects);
+      }
+      return;
+    }
+    if (own) {
+      // Another coding tool in a terminal: its own choices (it asks first unless the owner chose otherwise).
+      busy(`Starting ${toolName()} in ${f.name}…`);
+      try {
+        const { name, chat, existing } = await api(at(st.m, '/api/sessions'), {
+          tool, dir: f.path, profile: st.profile || (m && !m.toolDefaults ? firstServing : undefined), mode: sessionId ? 'resume' : mode === 'continue' ? 'continue' : 'new', sessionId,
+          permissionMode: terminalMode(st.permissionMode), effort: st.effort || null,
+        });
+        // The conversation runs in a chat already (one conversation, one process): it goes on there.
+        if (chat) {
+          store.refresh();
+          location.hash = link(`#/chat/${chat}`, st.m);
+          return;
+        }
+        if (!existing) markStarting(st.m, name, tool); // else it runs already: the terminal that has it opens
+        store.refresh();
+        location.hash = link(`#/s/${encodeURIComponent(name)}`, st.m);
       } catch (e) {
         failed(e, projects);
       }
@@ -331,14 +336,48 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
   // "#/new?dir=<folder>" (hoprig chat, a link): one tap opens a chat there, set up as the last one in that folder.
   // A link from anywhere never opens one by itself (each open chat counts against the open ones, and evicts idle ones).
   const asked = query.get('dir');
+  const askedTool = /^[a-z]{1,20}$/.test(query.get('tool') || '') ? query.get('tool') : '';
   if (asked) {
     history.replaceState(null, '', link('#/new', st.m)); // a reload or Back shows New session, not the question again
-    confirmSheet({ title: 'Open a chat here?', text: `A chat in ${tildePath(asked)}, set up as the last one in that folder. Nothing is sent until you write.`, ok: 'Open a chat' }).then((yes) => {
+    const with_ = askedTool && askedTool !== 'claude' ? ` with ${toolName(askedTool)}` : '';
+    confirmSheet({ title: 'Open a chat here?', text: `A chat${with_} in ${tildePath(asked)}, set up as the last one in that folder. Nothing is sent until you write.`, ok: 'Open a chat' }).then((yes) => {
       if (!yes || !alive) return;
       busy('Opening a chat…');
-      startChat(asked, {}, st.m).catch((e) => failed(e, projects));
+      startChat(asked, askedTool ? { tool: askedTool } : {}, st.m).catch((e) => failed(e, projects));
     });
   }
+
+  // ---------- the coding tool: first, where there is more than one ----------
+  function paintTools() {
+    if (!several()) return fill(toolSlot);
+    // The intro names Claude; with several coding tools it names the one chosen, or none.
+    const intro = document.querySelector('.page-intro');
+    if (intro) intro.textContent = `Pick a project: a chat${st.tool ? ` with ${toolName()}` : ''} opens there, set up as your last chat in that project. A terminal instead, and the rest, are under Options.`;
+    if (st.tool && !toolInfo() && st.tool !== 'claude') st.tool = '';
+    fill(toolSlot, groupHead('Coding tool'),
+      toolButtons({
+        tools: tools(), chosen: st.tool,
+        // A second press leaves it to each project again. The focus stays on the button (it is drawn anew).
+        choose: (id, pressed) => {
+          st.tool = id;
+          st.profile = '';
+          st.permissionMode = '';
+          st.effort = '';
+          paintTools();
+          focusTool(toolSlot, pressed);
+          painted = '';
+          paintComputers();
+          paintOptions();
+          projects();
+        },
+      }),
+      h('p.hint.ns-toolhint', st.tool ? `Opens in ${toolName()}; press it again to leave it to each project.` : 'Each project opens in the coding tool its last chat used.'));
+  }
+  chatTools(st.m).then(() => {
+    if (!alive) return;
+    paintTools();
+    paintOptions();
+  });
   preselect();
   paintComputers();
   const knownAtStart = !!where();

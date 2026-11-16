@@ -29,12 +29,17 @@ import { codex } from './codex.mjs';
 import { opencode, NO_SELF_UPDATE } from './opencode.mjs';
 import { takeLock } from './lock.mjs';
 import { KEY_VAR, endpointOf, providerModels, tomlString } from './providers.mjs';
+import { serverUsers } from './holds.mjs';
+
+export { holdServer, serverUsers } from './holds.mjs';
 
 export const SERVER_TOOLS = Object.freeze(['codex', 'opencode']);
 const DESCRIPTOR = { codex, opencode };
 const START_WAIT_MS = 60_000; // OpenCode fetches a small helper of its own on its very first start
 const LOCK_WAIT_MS = 30_000;
 const LOCK_STALE_MS = 90_000;
+const HEALTH_TRIES = 2; // asked again this often before a server that does not answer counts as stuck
+const HEALTH_PAUSE_MS = 500;
 
 export const serverDir = () => path.join(stateDir(), 'codetools');
 const stateFile = (tool) => path.join(serverDir(), `${tool}-server.json`);
@@ -120,7 +125,7 @@ export function serverEnv(tool, provs, base = process.env) {
 
 // ---- the running server ----
 
-const alive = (pid) => {
+export const alive = (pid) => {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
@@ -204,12 +209,14 @@ async function withLock(tool, fn) {
   }
 }
 
-/** The runs (terminal sessions) attached to the tool's server; `except`: a run id to leave out (one that is ending). */
-export const serverUsers = (tool, { except = null, runs = listRuns() } = {}) => runs.filter((r) => r.tool === tool && r.server === true && r.runId !== except);
-
-async function stopLocked(tool, { fetchImpl } = {}) {
+async function stopLocked(tool, { fetchImpl, why = 'asked to' } = {}) {
   const s = readServer(tool);
   if (s && (await isServerProcess(tool, s, { fetchImpl }))) {
+    try {
+      fs.appendFileSync(logFile(tool), `--- stopped by Hoprig at ${new Date().toISOString()} (process ${process.pid}): ${why}\n`);
+    } catch {
+      /* no log: it stops all the same */
+    }
     const kill = (sig) => {
       try {
         process.kill(-s.pid, sig); // started detached: its own process group, with its helpers
@@ -256,7 +263,7 @@ export function stopIfUnused(tool, { except = null, idleMs = 0, now = Date.now()
     if (!s) return false;
     if (serverUsers(tool, { except }).length) return false;
     if (idleMs && now - (s.usedAt || s.startedAt || 0) < idleMs) return false;
-    await stopLocked(tool);
+    await stopLocked(tool, { why: 'no session uses it' });
     return true;
   });
 }
@@ -273,16 +280,29 @@ export function ensureServer(tool, { need = null, except = null, base = process.
   const provs = serverProviders(tool, profiles);
   return withLock(tool, async () => {
     const s = readServer(tool);
-    if (s && (await isServerProcess(tool, s, { fetchImpl })) && (await healthy(tool, s, { fetchImpl }))) {
-      const has = !need || provs.some((p) => p.name === need && (s.providers || []).some((q) => q.name === p.name && q.fp === p.fp));
-      if (has) {
-        writeState(tool, { ...s, usedAt: Date.now() });
-        return { ok: true, server: publicServer(tool, s) };
+    const proc = !!s && (await isServerProcess(tool, s, { fetchImpl }));
+    // The caller's own run (a launcher marks itself a user before it asks) does not keep the server.
+    const used = () => serverUsers(tool, { except }).length > 0;
+    if (proc) {
+      // A server that works hard (a turn, a loaded computer) may answer late: ask again before anything is decided.
+      let ok = await healthy(tool, s, { fetchImpl });
+      for (let i = 0; !ok && i < HEALTH_TRIES; i++) {
+        await sleep(HEALTH_PAUSE_MS);
+        ok = await healthy(tool, s, { fetchImpl });
       }
-      // The caller's own run (a launcher marks itself a user before it asks) does not keep the server.
-      if (serverUsers(tool, { except }).length) return { ok: false, why: 'the server was started before this provider was added or changed, and other sessions use it' };
+      if (ok) {
+        const has = !need || provs.some((p) => p.name === need && (s.providers || []).some((q) => q.name === p.name && q.fp === p.fp));
+        if (has) {
+          writeState(tool, { ...s, usedAt: Date.now() });
+          return { ok: true, server: publicServer(tool, s) };
+        }
+        if (used()) return { ok: false, why: 'the server was started before this provider was added or changed, and other sessions use it' };
+      } else if (used()) {
+        // Its process runs and sessions use it (their turns go on in it): a slow answer never stops it under them.
+        return { ok: false, why: `${DESCRIPTOR[tool].name}'s server does not answer just now; try again in a moment` };
+      }
     }
-    await stopLocked(tool, { fetchImpl });
+    await stopLocked(tool, { fetchImpl, why: proc ? 'it did not answer and no session uses it, or a provider changed' : 'it was gone' });
     return start(tool, provs, { bin, base, fetchImpl, spawnImpl });
   });
 }
@@ -314,7 +334,13 @@ async function start(tool, provs, { bin, base, fetchImpl, spawnImpl }) {
     Object.assign(env, { OPENCODE_PASSWORD: secret, OPENCODE_CONFIG: configFile() });
     args = ['serve', '--hostname', '127.0.0.1', '--port', String(port)];
   }
-  fs.writeFileSync(logFile(tool), '', { mode: 0o600 });
+  // Kept across starts (the end of the previous one says why it ended), cut when it grows large.
+  try {
+    if (fs.statSync(logFile(tool)).size > 1024 * 1024) fs.writeFileSync(logFile(tool), '', { mode: 0o600 });
+  } catch {
+    fs.writeFileSync(logFile(tool), '', { mode: 0o600 });
+  }
+  fs.appendFileSync(logFile(tool), `--- started by Hoprig at ${new Date().toISOString()} (process ${process.pid})\n`);
   const [file, ...pre] = DESCRIPTOR[tool].argv(args);
   const pid = await (spawnImpl ? spawnDirect(spawnImpl, file, pre, env, logFile(tool)) : spawnDaemon(file, pre, env, logFile(tool)));
   const s = { tool, pid, port, secret, providers: provs.map((p) => ({ name: p.name, id: p.id, fp: p.fp })), startedAt: Date.now(), usedAt: Date.now() };
@@ -344,7 +370,8 @@ c.on('spawn', () => { process.stdout.write(String(c.pid)); c.unref(); process.ex
 
 function spawnDaemon(bin, args, env, log) {
   return new Promise((resolve, reject) => {
-    const helper = spawn(process.execPath, ['-e', DAEMON, bin, ...args], { env: { ...env, HOPRIG_SERVER_LOG: log }, detached: true, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    // In Hoprig's own folder: the server belongs to no project (OpenCode treats the folder it starts in as one).
+    const helper = spawn(process.execPath, ['-e', DAEMON, bin, ...args], { cwd: serverDir(), env: { ...env, HOPRIG_SERVER_LOG: log }, detached: true, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
     let out = '';
     helper.stdout.on('data', (d) => { out += d; });
     helper.on('error', reject);

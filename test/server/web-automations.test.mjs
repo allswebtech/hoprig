@@ -122,6 +122,10 @@ test('a confirm card asks in plain words with the accounts\' display names, the 
   assert.equal(whatText({ type: 'start', in: 'chat', dir: '/w/shop', profile: 'max' }, lbl), 'start a chat in shop on Claude Max');
   assert.equal(whatText({ type: 'send', session: C, text: 'go' }), 'send a message to a chat');
   assert.equal(whatText({ type: 'send', session: C, text: 'go' }, lbl, () => 'the chat "Fix it"'), 'send a message to the chat "Fix it"');
+  // Where more than one coding tool is offered, the sentence names the tool: a terminal is Claude Code's.
+  assert.equal(whatText({ type: 'start', in: 'chat', tool: 'opencode', dir: '/w/shop', profile: 'max' }, lbl), 'start a chat with OpenCode in shop on Claude Max');
+  assert.equal(whatText({ type: 'start', dir: '/w/shop', profile: 'max' }, lbl, undefined, { named: true }), 'start Claude Code in a terminal in shop on Claude Max');
+  assert.equal(whatText({ type: 'start', in: 'chat', dir: '/w/shop', profile: 'max' }, lbl, undefined, { named: true }), 'start a chat with Claude Code in shop on Claude Max');
 
   const other = plainCard({ tool: 'kill_process', input: { pid: 42 }, lines: ['Why a card: risky', 'End process 42 on this', 'Command: node x'] });
   assert.equal(other.question, 'End a process?');

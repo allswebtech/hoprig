@@ -87,7 +87,7 @@ export function decide({ schedules, lateHours, data, now }) {
 
 /**
  * Carry out the actions. ctx: { deck.start({ dir, profile, mode, name? }) → name, deck.has(name) → bool,
- * deck.startChat({ dir, profile, text }) → chat id, deck.sendChat(id, text), enqueue(session, text), record(entry),
+ * deck.startChat({ dir, profile, text, tool }) → chat id, deck.sendChat(id, text), enqueue(session, text), record(entry),
  * notify({ title, message, session }) }.
  * A message to a terminal goes through the session's queue, so it waits until Claude is free instead of typing over
  * its work; a chat queues a message by itself (Claude takes it at its next step).
@@ -105,7 +105,7 @@ export async function apply(actions, ctx) {
     try {
       if (s.action.type === 'start' && s.action.in === 'chat') {
         if (!ctx.deck.startChat) throw new Error('chats are not available here');
-        const id = await ctx.deck.startChat({ dir: s.action.dir, profile: s.action.profile, text: s.action.prompt || null });
+        const id = await ctx.deck.startChat({ dir: s.action.dir, profile: s.action.profile, text: s.action.prompt || null, ...(s.action.tool ? { tool: s.action.tool } : {}) });
         ctx.record({ automation: 'schedules', session: `chat:${id}`, did: `started "${label}" in a chat${lateNote}`, outcome: 'ok' });
       } else if (s.action.type === 'start') {
         const name = await ctx.deck.start({ dir: s.action.dir, profile: s.action.profile, mode: 'new' });

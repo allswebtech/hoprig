@@ -10,7 +10,7 @@ export const sessionHref = (s) => link(s.kind === 'chat' ? `#/chat/${s.chatId}` 
 const open = (s) => (location.hash = sessionHref(s));
 const nameOf = (s) => s.display || s.name;
 const chatTag = (s) => (s.kind === 'chat' ? h('span.badge.soft', icon('text', { size: 13 }), 'Chat') : null);
-const chip = (s, opts) => (isStarting(s) ? startingPill() : statusPill(s, opts));
+const chip = (s, opts) => (isStarting(s) ? startingPill(s) : statusPill(s, opts));
 
 /**
  * The folder line of a card: only when it says more than the name, i.e. not for <…>/projects/<name> (the folder a

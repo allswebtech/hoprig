@@ -130,3 +130,39 @@ test('the start menu: Enter takes the folder\'s provider, never a paid key or a 
     fs.rmSync(path.join(pdir, 'chatgpt.env'));
   }
 });
+
+test('one rule for every coding tool: only the providers that serve it, the folder\'s own provider of that tool, never Auto mode for another tool', () => {
+  const both = [
+    P('sub', { tools: ['claude'] }), // a Claude subscription: Claude Code only
+    P('gw', { kind: 'gateway', tools: ['claude', 'opencode'] }),
+    P('gw2', { kind: 'gateway', tools: ['claude', 'opencode'] }),
+    P('key', { kind: 'api', paid: true, tools: ['claude', 'opencode'] }),
+  ];
+  const auto = { enabled: false, order: ['sub', 'gw2'] };
+  assert.equal(D.chooseDefault({ profiles: both, auto }), 'sub', 'Claude Code: as before');
+  assert.equal(D.chooseDefault({ profiles: both, auto, tool: 'opencode' }), 'gw2', 'OpenCode: the first that serves it, in the page\'s order');
+  assert.equal(D.chooseDefault({ profiles: both, auto, tool: 'opencode', last: 'gw' }), 'gw', 'its own last one in the folder');
+  assert.equal(D.chooseDefault({ profiles: both, auto, tool: 'opencode', last: 'sub' }), 'gw2', 'never one that does not serve it');
+  assert.equal(D.chooseDefault({ profiles: both, auto, tool: 'opencode', last: 'key' }), 'gw2', 'nor a pay-per-use key while another can work');
+  const limited = both.map((p) => (p.name === 'gw' ? { ...p, limited: { until: null } } : p));
+  assert.equal(D.chooseDefault({ profiles: limited, auto, tool: 'opencode', last: 'gw' }), 'gw2', 'nor one at its limit');
+  assert.equal(D.chooseDefault({ profiles: both, auto: { ...auto, enabled: true }, tool: 'opencode' }), 'gw2', 'Auto mode is Claude Code\'s alone');
+  assert.equal(D.chooseDefault({ profiles: both, auto: { ...auto, enabled: true } }), 'auto');
+  assert.equal(D.chooseDefault({ profiles: [P('sub', { tools: ['claude'] })], auto, tool: 'opencode' }), null, 'none serves it');
+  assert.equal(D.chooseDefault({ profiles: [P('old')], auto, tool: 'opencode' }), null, 'a state without tools is an older one of Claude Code\'s');
+});
+
+test('a folder keeps its provider per coding tool: one tool\'s start never changes another\'s', () => {
+  const dir = fs.mkdtempSync(path.join(tmp, 'pertool-'));
+  D.rememberFolderProvider(dir, 'sub');
+  D.rememberFolderProvider(dir, 'gw', 'opencode');
+  assert.equal(D.lastProviderIn(dir), 'sub', 'Claude Code\'s');
+  assert.equal(D.lastProviderIn(dir, undefined, 'opencode'), 'gw');
+  D.rememberFolderProvider(dir, 'team');
+  assert.equal(D.lastProviderIn(dir, undefined, 'opencode'), 'gw', 'kept when Claude Code starts there');
+  D.rememberFolderProvider(dir, 'gw2', 'opencode');
+  assert.equal(D.lastProviderIn(dir), 'team', 'kept when OpenCode starts there');
+  const only = fs.mkdtempSync(path.join(tmp, 'pertool-'));
+  D.rememberFolderProvider(only, 'gw', 'opencode');
+  assert.equal(D.lastProviderIn(only), null, 'another tool\'s provider is never Claude Code\'s');
+});

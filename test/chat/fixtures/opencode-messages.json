@@ -1,0 +1,464 @@
+{
+ "data": [
+  {
+   "id": "msg_0000demo0018SampleMessage",
+   "time": {
+    "created": 1767225658293
+   },
+   "type": "idle",
+   "outcome": "interrupted"
+  },
+  {
+   "id": "msg_0000demo0017SampleMessage",
+   "time": {
+    "created": 1767225645118,
+    "firstToken": 1767225655699,
+    "streamed": 1767225655771,
+    "completed": 1767225658290
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "sample-model",
+    "providerID": "hoprig_demo_000001",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_0000demo0001SampleCall",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "error",
+      "input": {
+       "command": "sleep 40 && echo late"
+      },
+      "error": {
+       "type": "tool.execution",
+       "message": "[no output; output file: /home/user/.local/share/opencode/shell/global/sh_0000demo0001SampleShell.out]\n\nCommand interrupted by the user (shell ID: sh_0000demo0001SampleShell)."
+      },
+      "metadata": {
+       "shellID": "sh_0000demo0001SampleShell",
+       "interrupted": true,
+       "truncated": false,
+       "notice": "[no output; output file: /home/user/.local/share/opencode/shell/global/sh_0000demo0001SampleShell.out]\n\nCommand interrupted by the user (shell ID: sh_0000demo0001SampleShell)."
+      }
+     },
+     "time": {
+      "created": 1767225655701,
+      "ran": 1767225655764,
+      "completed": 1767225658283
+     }
+    }
+   ],
+   "finish": "error",
+   "rawFinish": "tool_use",
+   "cost": 0,
+   "tokens": {
+    "input": 16485,
+    "output": 17,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   },
+   "error": {
+    "type": "aborted",
+    "message": "Step interrupted"
+   }
+  },
+  {
+   "id": "msg_0000demo0016SampleMessage",
+   "time": {
+    "created": 1767225645103
+   },
+   "text": "Run the shell command: sleep 40 && echo late",
+   "type": "user"
+  },
+  {
+   "id": "msg_0000demo0015SampleMessage",
+   "time": {
+    "created": 1767225645089
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_0000demo0014SampleMessage",
+   "time": {
+    "created": 1767225634719,
+    "firstToken": 1767225644839,
+    "streamed": 1767225645077,
+    "completed": 1767225645085
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "sample-model",
+    "providerID": "hoprig_demo_000001",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "The user just sent a timestamp with no new request. Looking back, the shell command I tried to run was rejected with \"not now,\" so I never actually executed it. I should let them know it was declined and ask if they'd like me to try again.\n\n",
+     "time": {
+      "created": 1767225644841,
+      "completed": 1767225645064
+     }
+    },
+    {
+     "type": "text",
+     "text": "The last command, `ls -la /etc/hostname`, was rejected by a permission check (\"not now\"), so it did not run. Do you want me to try again?"
+    }
+   ],
+   "finish": "stop",
+   "rawFinish": "end_turn",
+   "cost": 0,
+   "tokens": {
+    "input": 16276,
+    "output": 152,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_0000demo0013SampleMessage",
+   "time": {
+    "created": 1767225625527,
+    "firstToken": 1767225632691,
+    "streamed": 1767225634663,
+    "completed": 1767225634701
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "sample-model",
+    "providerID": "hoprig_demo_000001",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_0000demo0002SampleCall",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "error",
+      "input": {
+       "command": "ls -la /etc/hostname"
+      },
+      "error": {
+       "type": "permission.rejected",
+       "message": "not now"
+      }
+     },
+     "time": {
+      "created": 1767225632694,
+      "ran": 1767225634646,
+      "completed": 1767225634685
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_use",
+   "cost": 0,
+   "tokens": {
+    "input": 16195,
+    "output": 16,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_0000demo0012SampleMessage",
+   "time": {
+    "created": 1767225625511
+   },
+   "text": "Run the shell command: ls -la /etc/hostname . Report what happened in one line.",
+   "type": "user"
+  },
+  {
+   "id": "msg_0000demo0011SampleMessage",
+   "time": {
+    "created": 1767225625495
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_0000demo0010SampleMessage",
+   "time": {
+    "created": 1767225622339,
+    "firstToken": 1767225625454,
+    "streamed": 1767225625476,
+    "completed": 1767225625490
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "sample-model",
+    "providerID": "hoprig_demo_000001",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "DONE"
+    }
+   ],
+   "finish": "stop",
+   "rawFinish": "end_turn",
+   "cost": 0,
+   "tokens": {
+    "input": 16124,
+    "output": 2,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_0000demo0009SampleMessage",
+   "time": {
+    "created": 1767225618813,
+    "firstToken": 1767225621611,
+    "streamed": 1767225622254,
+    "completed": 1767225622305
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "sample-model",
+    "providerID": "hoprig_demo_000001",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_0000demo0003SampleCall",
+     "name": "edit",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "path": "/work/proj/oc-notes.txt",
+       "oldString": "alpha",
+       "newString": "beta"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Edited oc-notes.txt (1 replacement)"
+       }
+      ],
+      "metadata": {
+       "files": [
+        {
+         "file": "oc-notes.txt",
+         "patch": "Index: oc-notes.txt\n===================================================================\n--- oc-notes.txt\n+++ oc-notes.txt\n@@ -1,1 +1,1 @@\n-alpha\n+beta\n",
+         "status": "modified",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1767225621614,
+      "ran": 1767225622249,
+      "completed": 1767225622269
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_use",
+   "cost": 0,
+   "tokens": {
+    "input": 16039,
+    "output": 51,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_0000demo0008SampleMessage",
+   "time": {
+    "created": 1767225618798
+   },
+   "text": "Change the line in oc-notes.txt from \"alpha\" to \"beta\" using your edit tool. Then say DONE.",
+   "type": "user"
+  },
+  {
+   "id": "msg_0000demo0007SampleMessage",
+   "time": {
+    "created": 1767225618777
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_0000demo0006SampleMessage",
+   "time": {
+    "created": 1767225615050,
+    "firstToken": 1767225618742,
+    "streamed": 1767225618758,
+    "completed": 1767225618769
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "sample-model",
+    "providerID": "hoprig_demo_000001",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "DONE"
+    }
+   ],
+   "finish": "stop",
+   "rawFinish": "end_turn",
+   "cost": 0,
+   "tokens": {
+    "input": 15915,
+    "output": 2,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_0000demo0005SampleMessage",
+   "time": {
+    "created": 1767225608596,
+    "firstToken": 1767225614585,
+    "streamed": 1767225614993,
+    "completed": 1767225615034
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "sample-model",
+    "providerID": "hoprig_demo_000001",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_0000demo0004SampleCall",
+     "name": "write",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "path": "/work/proj/oc-notes.txt",
+       "content": "alpha\n"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Created file successfully: oc-notes.txt"
+       }
+      ],
+      "metadata": {
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1767225614592,
+      "ran": 1767225614983,
+      "completed": 1767225615004
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_use",
+   "cost": 0,
+   "tokens": {
+    "input": 15841,
+    "output": 43,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_0000demo0004SampleMessage",
+   "time": {
+    "created": 1767225608584
+   },
+   "text": "Create a file oc-notes.txt in the current folder containing the single line \"alpha\", using your edit or write tool. Then say DONE.",
+   "type": "user"
+  },
+  {
+   "id": "msg_0000demo0003SampleMessage",
+   "time": {
+    "created": 1767225608561
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_0000demo0002SampleMessage",
+   "time": {
+    "created": 1767225600028,
+    "firstToken": 1767225606007,
+    "streamed": 1767225608543,
+    "completed": 1767225608555
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "sample-model",
+    "providerID": "hoprig_demo_000001",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Understood, happy to help."
+    }
+   ],
+   "finish": "stop",
+   "rawFinish": "end_turn",
+   "cost": 0,
+   "tokens": {
+    "input": 15719,
+    "output": 11,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_0000demo0001SampleMessage",
+   "time": {
+    "created": 1767225600000
+   },
+   "text": "Reply with exactly three short words, nothing else.",
+   "type": "user"
+  }
+ ]
+}

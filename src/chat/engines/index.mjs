@@ -11,10 +11,21 @@
 // capabilities says what a running session changes by itself: { liveMode, liveModel, liveEffort, ultracode, queue,
 //   stopTask, rewind, commands, usage, rename }. Where one is false (or the call fails), the chat starts the coding tool again
 //   with the conversation resumed instead.
+//   compact (Claude Code's /compact) and ownIds (the coding tool names a new conversation itself: the session says
+//   its id with a "conversation" event) are said there too.
+// exists, transcript and stamp may answer later (a promise): OpenCode's store is read through its server.
+// history(cwd) → [{ id, at, title }]: the folder's conversations in the tool's own store. A conversation stays in the
+// coding tool it was started with.
+//
+// Claude Code (claude.mjs) and OpenCode (opencode.mjs, on its server). The engine id is the coding tool's id
+// (src/codetools/index.mjs); which tools a computer offers is that registry's choice, not this list's.
 import { claude } from './claude.mjs';
+import { opencode } from './opencode.mjs';
 
-const ENGINES = new Map([[claude.id, claude]]);
+const ENGINES = new Map([[claude.id, claude], [opencode.id, opencode]]);
 
 export const engineIds = () => [...ENGINES.keys()];
 /** The engine `id`, or Claude Code (a chat kept from before engines had names). */
 export const engineOf = (id) => ENGINES.get(id) || claude;
+/** The engine `id`, or null (a chat must not start on an unknown one). */
+export const findEngine = (id) => ENGINES.get(id) || null;

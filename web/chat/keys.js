@@ -7,13 +7,13 @@ import { h, openSheet } from '../lib.js';
 const typing = (el) => !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 
 export const SHORTCUTS = [
-  ['Enter', 'Send the message (while Claude works: queue it); on a touch screen a new line (the Send button sends)'],
+  ['Enter', 'Send the message (while the coding tool works: queue it); on a touch screen a new line (the Send button sends)'],
   ['Shift+Enter', 'A new line'],
-  ['Esc', 'Stop Claude (the turn ends; background tasks go on), or close a menu'],
+  ['Esc', 'Stop the coding tool (the turn ends; background tasks go on), or close a menu'],
   ['Shift+Tab', 'The next permission mode'],
   ['↑ in an empty box', 'Your last message again (↑ and ↓ go through the earlier ones)'],
   ['/', 'Commands at the start of the box: compact, clear, model, skills …'],
-  ['@', 'A file of this folder, for Claude to read'],
+  ['@', 'A file of this folder, for the coding tool to read'],
   ['1 … 9', 'Answer the newest card that waits for you (also from an empty message box)'],
   ['?', 'This list (when the box does not have the keys)'],
 ];

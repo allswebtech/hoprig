@@ -2,19 +2,24 @@
 // a chat) and the rewind to before one of the owner's messages (files, conversation or both), with a confirm that
 // says what each does.
 import { icon } from '../icons.js';
-import { ago, api, chooseSheet, fill, h, link, openSheet, toast } from '../lib.js';
+import { TOOL_NAMES, ago, api, chooseSheet, fill, h, link, openSheet, toast } from '../lib.js';
 import { store } from '../store.js';
 import { failText, inFolder } from './words.js';
 
 /** The folder's earlier conversations. v: the chat's state (cwd, profile, model, effort, permissionMode). */
 export async function historySheet({ A, v }) {
   let list;
+  let tool = 'claude';
   try {
-    list = (await api(`${A}/history`)).conversations || [];
+    const r = await api(`${A}/history`);
+    list = r.conversations || [];
+    tool = r.tool || 'claude';
   } catch (e) {
     return toast(failText(e), { kind: 'error' });
   }
-  const pick = await openSheet({ title: 'Earlier conversations', subtitle: `In ${v.short || v.cwd}. One tap continues it in a chat.` }, (close) => {
+  // A conversation stays in its coding tool: the list is the chat's tool's own, and says so when it is not Claude Code.
+  const sub = `In ${v.short || v.cwd}${tool !== 'claude' ? `, ${TOOL_NAMES[tool] || tool}'s conversations` : ''}. One tap continues it in a chat.`;
+  const pick = await openSheet({ title: 'Earlier conversations', subtitle: sub }, (close) => {
     const rows = h('div.choice-list.chat-history');
     const search = list.length > 8 ? h('input.field.chat-history-search', { type: 'search', placeholder: 'Find a conversation', 'aria-label': 'Find a conversation', autocomplete: 'off' }) : null;
     const paint = (q = '') => fill(rows, list.filter((c) => !q || (c.title || '').toLowerCase().includes(q.toLowerCase())).map((c) =>
@@ -32,7 +37,7 @@ export async function historySheet({ A, v }) {
     return;
   }
   try {
-    const r = await api('/api/chats', { dir: v.cwd, profile: v.profile.name, sessionId: pick.id, model: v.model, effort: v.effort, permissionMode: v.permissionMode });
+    const r = await api('/api/chats', { dir: v.cwd, ...(tool !== 'claude' ? { tool } : {}), profile: v.profile.name, sessionId: pick.id, model: v.model, effort: v.effort, permissionMode: v.permissionMode });
     store.refresh();
     location.hash = link(`#/chat/${r.id}`);
   } catch (e) {

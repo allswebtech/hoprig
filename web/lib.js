@@ -371,11 +371,13 @@ export const isClaudeCard = (s) => isCodingCard(s) && cardTool(s) === 'claude';
 /** A provider that may take a session of coding tool `tool` (Auto mode only for Claude Code). */
 export const servesTool = (p, tool) => (tool === 'claude' ? servesClaude(p) : Boolean(p) && !p.virtual && Array.isArray(p.tools) && p.tools.includes(tool));
 
-/** The small chip with the coding tool's name, on a session that is not Claude Code's. */
+/** The small chip with the coding tool's name, on a session or chat that is not Claude Code's. */
 export function toolChip(s) {
   const t = cardTool(s);
-  return isCodingCard(s) && t && t !== 'claude' ? h('span.badge.toolchip', TOOL_NAMES[t] || t) : null;
+  return (isCodingCard(s) || (s && s.kind === 'chat')) && t && t !== 'claude' ? h('span.badge.toolchip', TOOL_NAMES[t] || t) : null;
 }
+/** The same chip for a coding tool by its id (a conversation in a list, a chat's head); none for Claude Code. */
+export const toolBadge = (t) => (t && t !== 'claude' ? h('span.badge.toolchip', TOOL_NAMES[t] || t) : null);
 /** A session whose status is read from its screen's activity only (Working or Waiting; never "Needs your OK"). */
 export const liveBasic = (s) => (s && s.liveStatus === 'basic'
   ? h('span.badge.soft', { title: 'Hoprig sees only whether the screen changes: Working or Waiting. A question or a limit shows in the terminal.' }, 'Live status: basic')

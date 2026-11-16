@@ -1,12 +1,12 @@
-// The status line under the composer: what Claude does now (the tool that runs and for how long, or that it
+// The status line under the composer: what the coding tool does now (the tool that runs and for how long, or that it
 // thinks), then the branch, the cost so far, the context used and the plan's limits where the provider says them.
 // The model, effort and mode are the chips just above it: not said twice. Only the first part is read out by a
 // screen reader when it changes (the list of the conversation is not: it would read every streamed word).
 import { fill, h } from '../lib.js';
-import { contextPercent, hasPlan, limitsLine, money, turnRuns } from './words.js';
+import { contextPercent, hasPlan, limitsLine, money, toolWord, turnRuns } from './words.js';
 
-const ACTIVITY = { requesting: 'Claude is thinking', compacting: 'Compacting the conversation', retrying: 'Retrying' };
-const ASKING = { permission: 'Needs your OK', question: 'Claude asks you a question', plan: 'A plan waits for your OK' };
+const ACTIVITY = { requesting: (who) => `${who} is thinking`, compacting: () => 'Compacting the conversation', retrying: () => 'Retrying' };
+const ASKING = { permission: () => 'Needs your OK', question: (who) => `${who} asks you a question`, plan: () => 'A plan waits for your OK' };
 
 /** The tool of the main conversation that runs now (written whole, not yet answered), or null. */
 const runningTool = (v) => (v.live || []).find((b) => b.kind === 'tool' && b.written && !b.agent) || null;
@@ -16,15 +16,17 @@ const secondsSince = (at, v) => Math.max(0, Math.round((Date.now() - (v.skew || 
 
 /** What the chat does, in words. */
 export function stateWords(v) {
+  const who = toolWord(v);
   if (v.terminal) return 'Runs in a terminal';
-  if (v.status === 'attention') return ASKING[v.asking] || ASKING.permission;
+  if (v.toolOff && v.status !== 'working') return `${who} is off`; // the banner says where to turn it on
+  if (v.status === 'attention') return (ASKING[v.asking] || ASKING.permission)(who);
   if (v.status === 'working') {
     // A tool that runs is what Claude does now: its command (or title) and for how long.
     const tool = runningTool(v);
     if (tool && (tool.command || tool.title)) return `Running: ${tool.command || tool.title}${Number.isFinite(tool.runAt) ? ` · ${secondsSince(tool.runAt, v)} s` : ''}`;
-    if (v.activity && ACTIVITY[v.activity]) return `${ACTIVITY[v.activity]}…`;
-    if ((v.live || []).some((b) => b.kind === 'text' && !b.agent)) return 'Claude is writing…';
-    if ((v.live || []).some((b) => b.kind === 'thinking' && !b.agent)) return 'Claude is thinking…';
+    if (v.activity && ACTIVITY[v.activity]) return `${ACTIVITY[v.activity](who)}…`;
+    if ((v.live || []).some((b) => b.kind === 'text' && !b.agent)) return `${who} is writing…`;
+    if ((v.live || []).some((b) => b.kind === 'thinking' && !b.agent)) return `${who} is thinking…`;
     const bg = (v.tasks || []).filter((t) => t.status === 'running' && t.background).length;
     if (!turnRuns(v)) return bg ? `Working in the background: ${bg === 1 ? '1 task' : `${bg} tasks`}` : 'Working in the background…';
     return 'Working…';
@@ -35,11 +37,12 @@ export function stateWords(v) {
 }
 
 /**
- * The dot's colour by what the chat does: a terminal runs it, an error, Stop, the usage limit (the danger colour the
+ * The dot's colour by what the chat does: a terminal runs it, its coding tool is off, an error, Stop, the usage limit (the danger colour the
  * limit has on Home and the providers), else the chat's status.
  */
 export function statusKey(v) {
   if (v.terminal) return 'terminal';
+  if (v.toolOff && v.status !== 'working') return 'stopped'; // the coding tool is off on this computer
   if (v.status !== 'waiting') return v.status;
   if (v.lastError) return 'error';
   if (v.lastEnd === 'stopped') return 'stopped';

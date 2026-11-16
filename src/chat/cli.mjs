@@ -1,7 +1,8 @@
 // `hoprig chat [folder]`: coding in a chat from the command line. It prints the dashboard address that opens a chat
 // in the folder (the page's New session does the same with one tap: web/newsession.js, "#/new?dir=…"), and opens it
 // where a browser is at hand on this computer. The chat starts as the last chat in that folder ran
-// (src/chat/folders.mjs). `hoprig` alone stays Claude Code in the terminal.
+// (src/chat/folders.mjs), its coding tool too; `--tool <id>` chooses one (a tool the dashboard offers for a chat, such
+// as opencode). `hoprig` alone stays Claude Code in the terminal.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,10 +10,10 @@ import { linkBase } from '../machines/cli.mjs';
 import { dashboardAddress } from '../machines/pairing.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 
-const USAGE = 'usage: hoprig chat [folder] [--no-open]   (the folder: this one when left out)';
+const USAGE = 'usage: hoprig chat [folder] [--tool <coding tool>] [--no-open]   (the folder: this one when left out)';
 
-/** The page address that opens a chat in `dir` on the dashboard at `base`. */
-export const chatAddress = (base, dir) => `${String(base).replace(/\/+$/, '')}/#/new?${new URLSearchParams({ dir })}`;
+/** The page address that opens a chat in `dir` on the dashboard at `base` (`tool`: in that coding tool). */
+export const chatAddress = (base, dir, tool = null) => `${String(base).replace(/\/+$/, '')}/#/new?${new URLSearchParams({ dir, ...(tool ? { tool } : {}) })}`;
 
 /** True when a browser can be opened on this computer for the person at this terminal. */
 export function browserAtHand(env = process.env, platform = process.platform, tty = !!process.stdout.isTTY) {
@@ -40,10 +41,22 @@ function openBrowser(url) {
 export async function main(args = [], o = {}) {
   const log = o.log || ((s) => console.log(s));
   const err = o.err || ((s) => console.error(s));
-  const rest = args.filter((a) => a !== '--no-open');
+  let rest = args.filter((a) => a !== '--no-open');
   if (rest.some((a) => a === '-h' || a === '--help')) {
     log(USAGE);
     return 0;
+  }
+  // --tool <id> or --tool=<id>: the coding tool (the dashboard checks that it offers it for a chat).
+  let tool = null;
+  const at = rest.findIndex((a) => a === '--tool' || a.startsWith('--tool='));
+  if (at >= 0) {
+    tool = rest[at].includes('=') ? rest[at].slice(7) : rest[at + 1];
+    rest = rest.filter((_, i) => i !== at && !(i === at + 1 && !rest[at].includes('=')));
+    if (!tool || !/^[a-z]{1,20}$/.test(tool)) {
+      err(USAGE);
+      return 2;
+    }
+    if (tool === 'claude') tool = null;
   }
   if (rest.length > 1 || rest.some((a) => a.startsWith('-'))) {
     err(USAGE);
@@ -65,16 +78,16 @@ export async function main(args = [], o = {}) {
     err('hoprig chat: the dashboard is not running. Start it with "hoprig serve" (or "hoprig service install" to keep it running), then try again.');
     return 1;
   }
-  const address = chatAddress((o.base || (() => linkBase().url))(), dir);
+  const address = chatAddress((o.base || (() => linkBase().url))(), dir, tool);
   log(`A chat in ${dir}:\n\n  ${address}\n`);
-  log('It opens set up as your last chat in that folder. The folder must be inside the folders the dashboard allows (Settings).');
+  log(`It opens set up as your last chat in that folder${tool ? `, with the coding tool ${tool}` : ''}. The folder must be inside the folders the dashboard allows (Settings).`);
   const atHand = o.atHand ? o.atHand() : browserAtHand();
   if (!args.includes('--no-open') && atHand) {
     const local = o.local ? o.local() : (() => {
       const { host, port } = dashboardAddress(undefined, running);
       return `http://${host.includes(':') ? `[${host}]` : host}:${port}`;
     })();
-    if ((o.open || openBrowser)(chatAddress(local, dir))) log('Opened in your browser.');
+    if ((o.open || openBrowser)(chatAddress(local, dir, tool))) log('Opened in your browser.');
   }
   return 0;
 }

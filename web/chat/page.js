@@ -6,7 +6,7 @@
 // live.mjs). Files dropped anywhere on the page go with the next message.
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
 import { icon } from '../icons.js';
-import { BARE, add, api, closeWindow, confirmSheet, fill, goTo, h, isClaudeCard, link, machine, prefs, toast } from '../lib.js';
+import { BARE, add, api, closeWindow, confirmSheet, fill, goTo, h, link, machine, prefs, toast } from '../lib.js';
 import { registerPage, registerSessionAction } from '../registry.js';
 import { pageNotify, store } from '../store.js';
 import { forgetHere, named, wayBack, windowWay } from '../trail.js';
@@ -19,7 +19,8 @@ import { chooseRewind, historySheet, rewindSheet } from './sheets.js';
 import { createStatusLine } from './statusline.js';
 import { follow } from './stream.js';
 import { createTimeline } from './timeline.js';
-import { failText, turnRuns } from './words.js';
+import { opensAsChat } from './start.js';
+import { canCompact, caps as capsOf, failText, toolWord, turnRuns } from './words.js';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -74,9 +75,9 @@ function viewChat({ sub }) {
     },
     // Clear: a new chat in the same folder with the same settings; this conversation is kept (and can be resumed).
     async clear() {
-      if (!(await confirmSheet({ title: 'Clear: start a new chat?', text: 'A new chat starts in this folder with the same provider, mode, model, effort and ultracode. This conversation is kept: you can continue it later.', ok: 'New chat' }))) return;
+      if (!(await confirmSheet({ title: 'Clear: start a new chat?', text: 'A new chat starts in this folder with the same coding tool, provider, mode, model, effort and ultracode. This conversation is kept: you can continue it later.', ok: 'New chat' }))) return;
       try {
-        const r = await api('/api/chats', { dir: v.cwd, profile: v.profile.name, model: v.model, effort: v.effort, permissionMode: v.permissionMode });
+        const r = await api('/api/chats', { dir: v.cwd, tool: v.engine ? v.engine.id : undefined, profile: v.profile.name, model: v.model, effort: v.effort, permissionMode: v.permissionMode });
         if (v.ultracode) await api(`/api/chats/${r.id}/settings`, { ultracode: true });
         if (!v.working && !v.pending.length) await api(`${A}/close`, {}).catch(() => {});
         store.refresh();
@@ -86,7 +87,7 @@ function viewChat({ sub }) {
       }
     },
     async close() {
-      if (!(await confirmSheet({ title: 'Close this chat?', text: 'Claude stops if it is working. The conversation is kept: you can continue it later from New session → Options → Conversation.', ok: 'Close', danger: true }))) return;
+      if (!(await confirmSheet({ title: 'Close this chat?', text: `${toolWord(v)} stops if it is working. The conversation is kept: you can continue it later from New session → Options → Conversation.`, ok: 'Close', danger: true }))) return;
       try {
         await api(`${A}/close`, {});
         store.refresh();
@@ -104,7 +105,8 @@ function viewChat({ sub }) {
         else toast('This conversation runs in a terminal outside the dashboard.', { kind: 'error' });
         return;
       }
-      if (!(await confirmSheet({ title: 'Open in a terminal?', text: 'The same conversation continues in a terminal session, with Claude Code as you know it. This chat closes; you can open the session as a chat again from its menu.', ok: 'Open in terminal' }))) return;
+      const tool = v && v.engine && v.engine.id !== 'claude' ? v.engine.label : 'Claude Code';
+      if (!(await confirmSheet({ title: 'Open in a terminal?', text: `The same conversation continues in a terminal session, with ${tool} as you know it. This chat closes; you can open the session as a chat again from its menu.`, ok: 'Open in terminal' }))) return;
       try {
         const { name, existing } = await api(`${A}/terminal`, {});
         store.refresh();
@@ -126,7 +128,7 @@ function viewChat({ sub }) {
     rewind: () => v && chooseRewind({ A, cwd: v.cwd, messages: timeline.messages(), conversation: canFork(), put: (t) => composer.putBack(t) }),
     shortcuts: () => shortcutsSheet(),
     async take() {
-      if (!(await confirmSheet({ title: 'Continue here?', text: 'Claude stops in the terminal (the terminal stays, as a plain shell) and the conversation goes on in this chat. A reply the terminal is writing right now is cut off.', ok: 'Continue here' }))) return;
+      if (!(await confirmSheet({ title: 'Continue here?', text: `${toolWord(v)} stops in the terminal (the terminal stays, as a plain shell) and the conversation goes on in this chat. A reply the terminal is writing right now is cut off.`, ok: 'Continue here' }))) return;
       try {
         await api(`${A}/take`, {});
         toast('The conversation continues here');
@@ -141,25 +143,26 @@ function viewChat({ sub }) {
   const notes = h('div.chat-notes'); // a terminal runs it, a limit
   const conn = h('div.chat-conn'); // the connection
   const scroll = h('div.chat-scroll', { role: 'region', 'aria-label': 'Conversation', tabindex: '-1' });
-  const caps = () => (v && v.engine && v.engine.capabilities) || {};
+  const caps = () => capsOf(v);
   // Never while a terminal runs the conversation: a rewind runs Claude Code on it (one place at a time).
   const canRewind = () => !!(v && (caps().rewind || caps().fork) && !v.terminal);
   const canFork = () => !!caps().fork;
   const timeline = createTimeline({
-    scroll, A, cwd: () => (v ? v.cwd : ''), stopTask: act.stopTask, after: () => store.refresh(),
+    scroll, A, cwd: () => (v ? v.cwd : ''), stopTask: act.stopTask, after: () => store.refresh(), who: () => toolWord(v), canStopTask: () => !v || caps().stopTask !== false,
     canRewind: () => !v || canRewind(), // before the first state: drawn, and hidden by the state's class if not
     rewind: (m) => rewindSheet({ A, cwd: v ? v.cwd : '', m, conversation: canFork(), put: (t) => composer.putBack(t) }),
   });
   add(scroll, timeline.el);
   const todos = h('div.chat-todos');
-  const strip = agentsStrip({ stop: act.stopTask, jump: (toolId) => timeline.jump(toolId) });
+  const strip = agentsStrip({ stop: (taskId) => act.stopTask(taskId), canStop: () => !v || caps().stopTask !== false, jump: (toolId) => timeline.jump(toolId) });
   // The page's own "/" commands, before the coding tool's (popovers.js).
   const own = () => [
-    { name: 'compact', description: 'Claude goes on from a summary of the conversation, which frees context', run: act.compact },
+    // Compact is Claude Code's own: not offered where the coding tool has none.
+    canCompact(v) ? { name: 'compact', description: `${toolWord(v)} goes on from a summary of the conversation, which frees context`, run: act.compact } : null,
     { name: 'clear', description: 'A new chat in this folder with the same settings; this one is kept', run: act.clear },
     { name: 'model', description: 'Choose the model', run: () => composer.choose('model') },
-    { name: 'effort', description: 'Choose how hard Claude thinks', run: () => composer.choose('effort') },
-    { name: 'mode', description: 'What Claude may do without asking', run: () => composer.chooseMode() },
+    { name: 'effort', description: `Choose how hard ${toolWord(v)} thinks`, run: () => composer.choose('effort') },
+    { name: 'mode', description: `What ${toolWord(v)} may do without asking`, run: () => composer.chooseMode() },
     { name: 'history', description: 'Earlier conversations of this folder', run: act.history },
     canRewind() ? { name: 'rewind', description: 'Go back to before one of your messages: the files, the conversation or both', run: act.rewind } : null,
     v && v.terminal ? { name: 'terminal', description: 'Go to the terminal that runs this conversation', run: act.terminal } : { name: 'terminal', description: 'Open this conversation in a terminal', run: act.terminal },
@@ -209,7 +212,12 @@ function viewChat({ sub }) {
     pageNotify.setTitleBase(v.title || 'Chat');
     named(v.title || 'Chat');
     const ro = !!v.terminal;
+    // Its coding tool was turned off since the chat opened: it runs nothing, and the page says so instead of inviting
+    // a message (what OpenCode's server still runs is shown, else nothing: no empty intro either).
+    wrap.classList.toggle('chat-tool-off', !!v.toolOff);
     fill(notes,
+      v.toolOff ? h('div.banner.warn.chat-banner', { role: 'status' }, icon('alert', { size: 18 }), h('span', `${v.toolOff}.`),
+        h('span.chat-banner-actions', h('a.btn.small.secondary', { href: link('#/settings/codingtools') }, 'Coding tools'))) : null,
       ro ? h('div.banner.warn.chat-banner', icon('terminal', { size: 18 }),
         h('span', v.terminal.name ? `This conversation runs in the terminal session "${v.terminal.name}". You can read along here; to write, continue it here.` : 'This conversation runs in a terminal outside the dashboard. You can read along here; to write, continue it here.'),
         h('span.chat-banner-actions',
@@ -266,7 +274,11 @@ function viewChat({ sub }) {
   const unfollow = follow({
     A,
     remote: !!machine.current,
-    events: (r) => timeline.apply(r),
+    events: (r) => {
+      // The coding tool comes before the first state on a fresh page: the events are drawn in its words.
+      if (r.engine && !(v && v.engine)) v = { ...(v || {}), engine: r.engine };
+      timeline.apply(r);
+    },
     state,
     live: (list) => timeline.live(list),
     gone,
@@ -321,8 +333,9 @@ registerSessionAction({
   icon: 'text',
   describe: (me) => {
     const s = ((store.data && store.data.sessions) || []).find((x) => x.name === me.name);
-    // A chat runs Claude Code: a Codex or OpenCode conversation stays in its terminal.
-    return s && isClaudeCard(s) && s.sessionId ? {} : null;
+    if (!s || !s.sessionId) return null;
+    // Only where that computer has a chat for the session's coding tool: else the conversation stays in its terminal.
+    return opensAsChat(s, me.machine || null) ? {} : null;
   },
   run: async (me) => {
     try {

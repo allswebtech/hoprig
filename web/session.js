@@ -587,8 +587,9 @@ export function openSession(app, name) {
       nativeScroll = true;
       term.options.scrollback = 5000;
     }
-    renderQuick(d.quickActions || []);
     const s = d.sessions.find((x) => x.name === name);
+    // The quick messages that fit the session's coding tool: a "/" command is Claude Code's.
+    renderQuick((d.quickActions || []).filter((a) => !s || isClaudeCard(s) || !isCodingCard(s) || !String(a.text || '').trim().startsWith('/')));
     // What Home calls "Needs you" (home.js GROUPS): needs your OK, or at a limit. Waiting for a message is not it.
     const others = d.sessions.filter((x) => x.name !== name && needsYou(x)).length;
     otherBadge.textContent = String(others);
@@ -610,7 +611,7 @@ export function openSession(app, name) {
       quick.classList.toggle('hidden', plain);
     }
     fill(profileBtn, icon(profileIcon(s.profile), { size: 16 }), h('span.profilebtn-label', profileText(s)), icon('chevronDown', { size: 14 }));
-    fill(statusSlot, starting ? startingPill() : statusPill(s, { time: false }), liveBasic(s));
+    fill(statusSlot, starting ? startingPill(s) : statusPill(s, { time: false }), liveBasic(s));
     fill(toolSlot, toolChip(s));
     const before = needSlot.offsetHeight;
     fill(needSlot, limitBox(s, profiles, moved) || (stateOf(s).key === 'attention' ? needsOk(s) : null));

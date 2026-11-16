@@ -9,31 +9,31 @@
 // its card says "working" and the idle timer leaves the process alone.
 //
 // The process: run.mjs. What each of its events does: hear.mjs. Who answers when the coding tool asks for an OK, and
-// how: asks.mjs. What changes live: controls.mjs.
+// how: asks.mjs. What changes live: controls.mjs. Reading the conversation back: reading.mjs.
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import { engineOf } from './engines/index.mjs';
 import { allowPending, answerAsk, cancelAsks, keepGrants } from './asks.mjs';
 import { applySettings, renameChat, usageNow } from './controls.mjs';
 import { oneLine } from './events.mjs';
 import { MessageQueue } from './queue.mjs';
+import { knowSize, load, refresh } from './reading.mjs';
 import { ensure, start, stop, stopAndWait } from './run.mjs';
 import { LiveBlocks } from './streaming.mjs';
 import { OWED_MS, TaskTable } from './tasks.mjs';
 import { Timeline } from './timeline.mjs';
-import { readTurns, withTurns } from './turns.mjs';
 
 export { EVENTS_MAX, WINDOW_MAX } from './timeline.mjs';
 export const IDLE_MS = 20 * 60_000; // a process with nothing to do is stopped after this (the next message resumes)
 const STOP_GRACE_MS = 8000; // after Stop, how long the coding tool gets to end the turn itself
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
-const BUSY = 'Claude is working. Wait until it is done, or press Stop first.';
+const busyWords = (chat) => `${chat.engine.id === 'claude' ? 'Claude' : chat.engine.label} is working. Wait until it is done, or press Stop first.`;
 
 export class Chat extends Timeline {
   /**
    * o: { id, conversationId, engine, cwd, profile, model, effort, ultracode, permissionMode, title, openedAt,
-   *      costTotal, grants, fork, turnsDir (where each turn's end is kept), resolveEnv(profile) (tests), command { command, args } and spawnImpl (tests), idleMs,
+   *      costTotal, grants, fork, turnsDir (where each turn's end is kept), resolveEnv(profile) (tests), command { command, args } and spawnImpl (tests),
+   *      engineOpts (stand-ins of a tool's server, tests), idleMs,
    *      stopGraceMs, termMs, killMs, drainMs, owedMs }
    */
   constructor(o) {
@@ -90,56 +90,31 @@ export class Chat extends Timeline {
     this.closed = false;
     this.ending = null; // the previous process's exit, while it is still stopping
     this.starting = null; // the start under way
-    this.load();
+    this.unread = false; // a tool read through its server: not read yet (its server did not run at the first look)
+    this.load({ wake: false });
   }
 
+  /** The conversation's file (null for a tool whose conversations are kept by its server). */
   file() {
     return this.engine.file(this.cwd, this.conversationId);
   }
 
-  /** Read the conversation from its files (the page starts over). A rewound one: the old one up to its message. */
-  load() {
-    if (this.fork && this.engine.exists(this.cwd, this.conversationId)) this.fork = null;
-    const f = this.fork;
-    const id = f ? f.from : this.conversationId;
-    let t = this.engine.transcript({ cwd: this.cwd, id });
-    t = { ...t, events: withTurns(t.events, readTurns(this.o.turnsDir, id)) }; // each turn's cost and time (turns.mjs)
-    if (f) t = cutAt(t, f.messageId);
-    this.reset(t.events);
-    this.todos = t.todos;
-    this.tasks.load(t.tasks);
-    const last = [...t.events].reverse().find((e) => e.kind === 'text' && !e.agent);
-    this.lastText = last ? last.text : '';
-    if (t.title && !this.named) this.title = t.title;
-    if (!this.title) {
-      const first = t.events.find((e) => e.kind === 'user');
-      if (first) this.title = oneLine(first.text, 80);
-    }
-    for (const e of t.events) if (e.kind === 'user' && e.messageId) this.shown.add(e.messageId);
-    this.knownSize = f ? 0 : t.size; // a rewound conversation has no file of its own yet
-    this.emit('change');
+  /**
+   * Read the conversation from its files or its tool's server (the page starts over); wake: false (when the dashboard
+   * starts) never starts a tool's server for it (reading.mjs).
+   */
+  load({ wake = true } = {}) {
+    return load(this, { wake });
   }
 
   /** The transcript changed without us (a terminal ran it): read it again. Cheap when nothing changed. */
   refresh() {
-    if (this.session) return false;
-    let size = 0;
-    try {
-      size = fs.statSync(this.file()).size;
-    } catch {
-      /* not written yet */
-    }
-    if (size === this.knownSize || (size === 0 && this.knownSize <= 0)) return false;
-    this.load();
-    return true;
+    return refresh(this);
   }
 
+  /** What the coding tool wrote last is ours: no reason to read it again. */
   knowSize() {
-    try {
-      this.knownSize = fs.statSync(this.file()).size;
-    } catch {
-      /* nothing written */
-    }
+    knowSize(this);
   }
 
   /** A turn runs, or background work (tasks.mjs: also the turn the coding tool owes after a background task). */
@@ -199,7 +174,11 @@ export class Chat extends Timeline {
     if (this.closed) throw fail(409, 'this chat is closed');
     clearTimeout(this.idleTimer);
     // A terminal may have gone on with the conversation meanwhile: read it first, so the page shows it all.
-    if (!this.session && !this.starting) this.refresh();
+    if (!this.session && !this.starting) {
+      // Never read yet (its server did not run when the dashboard started): the conversation first, then the message.
+      if (this.unread && !this.turn) await (this.loading || this.load());
+      else this.refresh();
+    }
     if (!this.title) this.title = oneLine(text, 80);
     const msg = { id: crypto.randomUUID(), text, images, attachments };
     if (this.turn) {
@@ -218,6 +197,8 @@ export class Chat extends Timeline {
       this.settle();
       return { id: msg.id, queued: false };
     }
+    // A coding tool that could not start at all has said so already (its exit ended the turn).
+    if (!this.session) return { id: msg.id, queued: false };
     this.session.send(msg);
     // What was written while it started goes in behind it.
     if (this.engine.capabilities.queue) this.queue.sendHeld(this.session);
@@ -308,7 +289,7 @@ export class Chat extends Timeline {
     if (files && !caps.rewind) throw fail(409, `${this.engine.label} cannot undo changes`);
     if (conversation && !caps.fork) throw fail(409, `${this.engine.label} cannot go back in a conversation`);
     if (!files && !conversation) throw fail(400, 'say what to rewind: the files, the conversation, or both');
-    if (this.busy()) throw fail(409, BUSY);
+    if (this.busy()) throw fail(409, busyWords(this));
     let point = null;
     if (conversation) {
       point = this.engine.forkPoint(this.cwd, this.fork ? this.fork.from : this.conversationId, messageId);
@@ -391,7 +372,7 @@ export class Chat extends Timeline {
 
   /** Continue on another provider (`label`: its name as the owner reads it): the next turn starts there with the conversation resumed. */
   setProfile(name, label = name) {
-    if (this.busy()) throw fail(409, BUSY);
+    if (this.busy()) throw fail(409, busyWords(this));
     this.stop();
     this.profile = name;
     this.limit = null;
@@ -406,13 +387,4 @@ export class Chat extends Timeline {
       ...(this.fork ? { fork: this.fork } : {}),
     };
   }
-}
-
-/** A transcript up to (not with) the owner's message `messageId`: the view of a conversation rewound to there. */
-function cutAt(t, messageId) {
-  const at = t.events.findIndex((e) => e.kind === 'user' && e.messageId === messageId);
-  if (at < 0) return t;
-  const events = t.events.slice(0, at);
-  const tools = new Set(events.filter((e) => e.kind === 'tool').map((e) => e.id));
-  return { ...t, events, tasks: t.tasks.filter((x) => tools.has(x.toolId)), todos: [] };
 }

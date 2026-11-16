@@ -175,10 +175,13 @@ export async function opencodeSessions(cwd, { ensure = ensureServer, fetchImpl }
   const r = await ensure('opencode');
   if (!r.ok) throw Object.assign(new Error(r.why), { status: 409 });
   const oc = opencodeClient({ ...r.server, fetchImpl });
-  const j = await oc.req('GET', `/api/session?location%5Bdirectory%5D=${encodeURIComponent(cwd)}`);
+  // The folder by its own filter (OpenCode 2.3: "directory"), and checked here too: a server that ignores the filter
+  // lists every folder's conversations.
+  const j = await oc.req('GET', `/api/session?${new URLSearchParams({ directory: cwd, limit: '200' })}`);
   const list = Array.isArray(j && j.data) ? j.data : [];
+  const where = (s) => (s.location && typeof s.location.directory === 'string' ? s.location.directory : null);
   return list
-    .filter((s) => s && isToolSessionId('opencode', s.id) && !s.parentID)
+    .filter((s) => s && isToolSessionId('opencode', s.id) && !s.parentID && where(s) && sameDir(where(s), cwd))
     .map((s) => ({ id: s.id, at: Number(s.time && (s.time.updated || s.time.created)) || 0, title: clip(s.title || '') }))
     .sort((a, b) => b.at - a.at);
 }

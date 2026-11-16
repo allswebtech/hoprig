@@ -163,7 +163,9 @@ export function ruleWords(text) {
  * Under an OK card: what "Allow in this chat" adds, in words. Claude Code suggests a rule for each part of a command
  * that still asks (`ls x; exit 2` gives Bash(exit 2)): then the sentence says it covers only that part.
  */
-export function alwaysWords(ev) {
+export function alwaysWords(ev, who = 'Claude') {
+  // Another coding tool's own patterns ("ls *"), which cover each part of a command it asked for.
+  if (who !== 'Claude') return ev.alwaysText ? `“Allow in this chat” also lets ${who} do what matches this again in this chat without asking: ${ev.alwaysText}.` : '';
   const what = ruleWords(ev.alwaysText);
   if (!what) return '';
   const cmd = ev.tool === 'Bash' && ev.input && typeof ev.input.command === 'string' ? ev.input.command.trim() : '';
@@ -171,18 +173,18 @@ export function alwaysWords(ev) {
   return `“Allow in this chat” also lets Claude do this again in this chat without asking: ${what}.${part ? ' That is only part of this command.' : ''}`;
 }
 
-/** What Claude asks to do, as the head of the OK card. */
-export function askTitle(tool, input = {}) {
+/** What the coding tool (`who`: "Claude", "OpenCode") asks to do, as the head of the OK card. */
+export function askTitle(tool, input = {}, who = 'Claude') {
   switch (tool) {
-    case 'Bash': return 'Claude wants to run a command';
-    case 'Write': return `Claude wants to write ${fileName(input.file_path)}`;
+    case 'Bash': return `${who} wants to run a command`;
+    case 'Write': return `${who} wants to write ${fileName(input.file_path)}`;
     case 'Edit':
     case 'MultiEdit':
-    case 'NotebookEdit': return `Claude wants to change ${fileName(input.file_path || input.notebook_path)}`;
-    case 'WebFetch': return 'Claude wants to read a web page';
-    case 'AskUserQuestion': return 'Claude asks you';
-    case 'ExitPlanMode': return 'Claude has a plan';
-    default: return `Claude wants to use ${toolLine(tool, input).verb}`;
+    case 'NotebookEdit': return `${who} wants to change ${fileName(input.file_path || input.notebook_path)}`;
+    case 'WebFetch': return `${who} wants to read a web page`;
+    case 'AskUserQuestion': return `${who} asks you`;
+    case 'ExitPlanMode': return `${who} has a plan`;
+    default: return `${who} wants to use ${toolLine(tool, input).verb}`;
   }
 }
 
@@ -234,6 +236,14 @@ export function nextMode(now, modes = Object.keys(MODE)) {
 /** The mode the chat runs in: what the running process says, else what is set (null: Claude Code's default, ask first). */
 export const modeOf = (v) => (v.liveMode ? (v.liveMode === 'default' ? 'manual' : v.liveMode) : v.permissionMode || 'manual');
 export const modeChip = (m) => (MODE[m] ? MODE[m].chip : m ? m : 'Ask first');
+/** A mode in the chat's coding tool's words (its own where it has them: what its modes do differs), else Claude Code's. */
+export const modeInfo = (v, m) => (v && v.choices && v.choices.modeWords && v.choices.modeWords[m]) || MODE[m] || null;
+/** How the page names the chat's coding tool in a sentence: "Claude" for Claude Code, else the tool's name. */
+export const toolWord = (v) => (v && v.engine && v.engine.id && v.engine.id !== 'claude' ? v.engine.label || v.engine.id : 'Claude');
+/** What the chat's coding tool can do (its engine's capabilities; before the first state: nothing extra). */
+export const caps = (v) => (v && v.engine && v.engine.capabilities) || {};
+/** Whether the chat offers Compact: its coding tool says it cannot (absent: an older dashboard's Claude Code, which can). */
+export const canCompact = (v) => caps(v).compact !== false;
 
 const MODEL_NAMES = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' };
 /** "Opus", or the model's own id for one the dashboard does not name. */

@@ -19,10 +19,8 @@
 // through the relay with the long poll of feature.mjs, which stays.
 import fs from 'node:fs';
 import path from 'node:path';
-import { EFFORTS, PERMISSION_MODES } from '../config.mjs';
 import { within } from '../server/folders.mjs';
 import { IMAGE_MAX, IMAGE_TYPES, searchFiles, uploadsReal } from './files.mjs';
-import { folderHistory } from './history.mjs';
 
 const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 const STREAM = new RegExp(`^/api/chats/${ID}/(stream|attachment)$`);
@@ -46,11 +44,13 @@ export function stateOf(c) {
 }
 
 /**
- * o: { chatOr404, save, remember(chat) (its settings are its folder's last), bad, models(), folderOf(chat) (its folder while inside the allowed roots), about(chat) (what
- * the page shows beside the state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that
- * runs the conversation now) } from feature.mjs
+ * o: { chatOr404, toolStillOn(chat) (throws while its coding tool is off), save, remember(chat) (its settings are
+ * its folder's last), bad, choices(chat) (its coding tool's modes, efforts and models), pickModel(value, tool,
+ * choices), folderOf(chat) (its folder while inside the allowed roots), about(chat) (what the page shows beside the
+ * state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that runs the conversation now) }
+ * from feature.mjs
  */
-export function liveRoutes(ctx, { chatOr404, save, remember, bad, models, folderOf, uploadsDir, openChatOf, about, terminalOf }) {
+export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf }) {
   const { HttpError } = ctx;
   const pick = (val, list, what) => {
     if (val === undefined) return undefined;
@@ -102,7 +102,10 @@ export function liveRoutes(ctx, { chatOr404, save, remember, bad, models, folder
       timer = null;
       if (dirty.events) {
         const w = c.window(from, epoch);
-        if (w.reset || w.events.length) send('events', { epoch: c.epoch, reset: w.reset, events: w.events, next: c.next });
+        // A page that starts over learns the coding tool with the events, before its state: what it draws first is
+        // said in that tool's words ("OpenCode wants to…"), not the default's.
+        const tool = w.reset ? { engine: { id: c.engine.id, label: c.engine.label, capabilities: c.engine.capabilities } } : {};
+        if (w.reset || w.events.length) send('events', { epoch: c.epoch, reset: w.reset, events: w.events, next: c.next, ...tool });
         from = c.next;
         epoch = c.epoch;
       }
@@ -184,14 +187,18 @@ export function liveRoutes(ctx, { chatOr404, save, remember, bad, models, folder
   const routes = [
     ['GET', new RegExp(`^/api/chats/${ID}/history$`), async (req, m) => {
       const c = chatOr404(m[1]);
+      toolStillOn(c);
+      // The coding tool's own store: a conversation stays in the tool it was started with.
+      const list = await c.engine.history(folderOf(c), c.o.engineOpts);
       return {
-        conversations: folderHistory(folderOf(c)).map((x) => ({ ...x, current: x.id === c.conversationId, chat: openChatOf(x.id) })),
+        tool: c.engine.id,
+        conversations: list.slice(0, 50).map((x) => ({ ...x, current: x.id === c.conversationId, chat: openChatOf(x.id) })),
       };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/mode$`), async (req, m) => {
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
-      const mode = pick(b.mode, PERMISSION_MODES, 'permission mode');
+      const mode = pick(b.mode, choices(c).modes, 'permission mode');
       if (!mode) throw bad('say which mode');
       const r = await c.setSettings({ mode });
       save();
@@ -202,7 +209,8 @@ export function liveRoutes(ctx, { chatOr404, save, remember, bad, models, folder
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
       if (b.ultracode !== undefined && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
-      const r = await c.setSettings({ model: pick(b.model, models(), 'model'), effort: pick(b.effort, EFFORTS, 'effort'), ultracode: b.ultracode });
+      const ch = choices(c);
+      const r = await c.setSettings({ model: pickModel(b.model, c.engine.id, ch), effort: pick(b.effort, ch.efforts, 'effort'), ultracode: b.ultracode });
       save();
       remember(c);
       return { model: c.model, effort: c.effort, ultracode: c.ultracode, restart: r.restart };

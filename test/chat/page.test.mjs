@@ -184,6 +184,7 @@ test('status line: what Claude does now (the tool that runs, for how long), then
   assert.equal(St.statusKey({ status: 'waiting', lastError: 'boom', lastEnd: 'error' }), 'error');
   assert.equal(St.statusKey({ status: 'working', lastEnd: 'limit' }), 'working');
   assert.equal(St.statusKey({ status: 'waiting', terminal: { name: 'x' } }), 'terminal');
+  assert.equal(St.statusKey({ status: 'waiting', toolOff: 'OpenCode is off on this computer.' }), 'stopped');
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'stopped' }), 'Stopped', 'the owner\'s Stop is no error');
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'limit', limit: { text: 'x' } }), 'Stopped at the usage limit');
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'error', lastError: 'boom' }), 'Stopped with an error');

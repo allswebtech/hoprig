@@ -79,6 +79,25 @@ test('a feature asks for a folder\'s default; a provider it names as used last t
   assert.equal(await ctx.defaultProvider(null), 'sub');
 });
 
+test('the same rule for OpenCode: only the providers that serve it, its own last one in a folder, in the state while it is on', async () => {
+  writeProfile('gw', { label: 'Gateway', api: ['messages', 'models'], env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: 'gw-token-of-the-test' } });
+  writeProfile('gw2', { label: 'Gateway two', api: ['messages', 'models'], env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: 'gw-token-of-the-test' } });
+  rememberFolderProvider(workB, 'gw2', 'opencode');
+  assert.equal((await call('/api/state')).json.toolDefaults, undefined, 'Claude Code alone: nothing new in the state');
+  assert.equal(await ctx.defaultProvider(workA, null, 'opencode'), 'gw', 'the first that serves it (never the subscription)');
+  assert.equal(await ctx.defaultProvider(workB, null, 'opencode'), 'gw2', 'the one OpenCode used last there');
+  assert.equal(await ctx.defaultProvider(workB, 'sub', 'opencode'), 'gw', 'a last provider named that does not serve it is never the default');
+  assert.equal(await ctx.defaultProvider(workB), 'team', 'Claude Code\'s own stays as it was');
+  saveConfig({ codingTools: ['claude', 'opencode'] });
+  try {
+    const st = (await call('/api/state')).json;
+    assert.deepEqual(st.toolDefaults, { opencode: { recommended: 'gw', recommendedIn: { [workB]: 'gw2' } } });
+    assert.deepEqual(st.recommendedIn, { [workB]: 'team' }, 'Claude Code\'s as before');
+  } finally {
+    saveConfig({ codingTools: ['claude'] });
+  }
+});
+
 test('Auto mode on: "auto" everywhere', async () => {
   setAutoSwitch({ enabled: true });
   const st = (await call('/api/state')).json;
