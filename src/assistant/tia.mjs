@@ -152,7 +152,7 @@ const RISKY = [
   /\brm\s+-[a-z]*r[a-z]*f?\s+(\/|~|\$HOME|\*)(\s|$)/i,
   /\b(sudo|su|doas|chmod\s+777|chown|mkfs|dd\s+if=|shutdown|reboot|systemctl|launchctl|crontab)\b/i,
   /(\.ssh|\.aws|\.gnupg|\.netrc|\.env\b|id_rsa|id_ed25519|credentials|keychain|\.claude\/|\.config\/hoprig)/i,
-  /\b(printenv|env\s*$|export\s+\w*(KEY|TOKEN|SECRET))/i,
+  /\b(printenv|env[ \t]*$|export\s+\w*(KEY|TOKEN|SECRET))/im, // `env` alone at the end of any line, not only the last
   /\b(ssh|scp|rsync|nc|ncat|netcat|socat|telnet)\s/i,
   /\bgit\s+push\b[^\n]*(--force|-f\b)|\bgit\s+push\b/i,
 ];

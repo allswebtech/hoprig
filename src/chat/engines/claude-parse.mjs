@@ -39,8 +39,10 @@ export function toolTitle(input) {
 // the keys known to say neither (`left`, each with its kind): a command's `description` is the model's own label of
 // it ("Install the helper"), an edit's text is what it writes into its file, a page fetch's `prompt` is a question to
 // the model, the rest are plain settings. Any other tool (an MCP tool, one not listed), and a listed tool with a key
-// or a value of a kind the list does not know, is judged by its whole input as JSON, nested values included: an MCP
-// tool's `command` may be "bash" and its `args` the script.
+// or a value of a kind the list does not know, is judged by its whole input, nested values included: an MCP tool's
+// `command` may be "bash" and its `args` the script. Every key and every value of it on a line of its own, raw: Tia's
+// deny-list (src/assistant/tia.mjs riskyPermission) is written for raw text, and JSON's quotes and escapes hide what it
+// looks for ("rm -rf ~" followed by a quote, a tab written as \t before "rm", "env" at the end of a value).
 const EDIT = { old_string: 'string', new_string: 'string', replace_all: 'boolean' };
 const edits = (x) => Array.isArray(x) && x.every((e) => e && typeof e === 'object' && !Array.isArray(e) && Object.entries(e).every(([k, y]) => EDIT[k] && typeof y === EDIT[k]));
 const BUILT_IN = {
@@ -70,11 +72,31 @@ export function askSubject(tool, input) {
     const s = known.judged.filter((k) => typeof input[k] === 'string' && input[k].trim()).map((k) => input[k]).join('\n');
     if (s) return s;
   }
-  try {
-    return JSON.stringify(input);
-  } catch {
-    return '';
+  return wholeInput(input);
+}
+// Every key and value of `input`, depth first, one per line. Walked without recursion (a deeply nested input cannot
+// overflow the stack) and stopped once past SUBJECT_MAX: the result is then longer than that, so the ask is cut.
+class Key {
+  constructor(k) {
+    this.k = k;
   }
+}
+function wholeInput(input) {
+  const out = [];
+  let size = 0;
+  const stack = [input];
+  while (stack.length && size <= SUBJECT_MAX + 1) {
+    const x = stack.pop();
+    if (x && typeof x === 'object' && !(x instanceof Key)) {
+      const items = Array.isArray(x) ? x : Object.entries(x).flatMap(([k, y]) => [new Key(k), y]);
+      for (let i = items.length - 1; i >= 0; i--) stack.push(items[i]);
+      continue;
+    }
+    const line = x instanceof Key ? x.k : String(x);
+    out.push(line);
+    size += line.length + 1;
+  }
+  return out.join('\n');
 }
 // The same from a tool's input while it still streams (partial JSON): the first of those keys whose string is whole.
 const PARTIAL = new RegExp(`"(${TITLE_KEYS.join('|')})"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`);

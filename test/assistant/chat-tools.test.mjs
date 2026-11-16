@@ -166,6 +166,12 @@ test('her own chat\'s OK of an MCP tool (or any tool not known) is judged by all
     ['mcp__shell__execute', { path: '/home/owner/projects/api', description: 'sudo reboot' }],
     ['Frobnicate', { command: 'ls', args: ['-c', curl] }],
     ['Bash', { command: 'ls', description: 'List', extra: { then: curl } }],
+    // Risky only as raw text: JSON's closing quote, \t and \n hid these from the deny-list.
+    ...['rm -rf ~', 'rm -rf /', 'echo ok\trm -rf ~ ', 'echo ok\nrm -rf ~', 'cat x\n/etc/shadow', 'true;\ncat\t/etc/shadow', 'echo hi\nenv'].flatMap((s) => [
+      ['mcp__shell__execute', { command: 'bash', args: ['-c', s], cwd: '/home/owner/projects/api' }],
+      ['mcp__x__y', { cmd: s }],
+      ['Bash', { command: s, description: 'Clean up', dangerouslyDisableSandbox: false }],
+    ]),
   ]) assert.match((await judge(tool, input)).text, /Waiting for the owner's OK.*risky/s, `${tool} ${JSON.stringify(input)}`);
   assert.equal((await judge('Bash', { command: 'npm test', description: 'sudo reboot' })).isError, false, 'a known tool\'s label is not what runs');
   assert.equal((await judge('mcp__db__query', { query: 'select 1' })).isError, false, 'a harmless MCP call still runs at once');
