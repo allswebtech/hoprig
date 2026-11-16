@@ -80,7 +80,7 @@ export async function restore(id, roots) {
   if (!info) throw fail(404, 'that is not in the trash any more');
   const dir = path.dirname(info.from);
   if (!fs.existsSync(dir)) throw fail(409, `the folder it came from (${dir}) is not there any more: make it again, then put it back`);
-  const at = locate(path.join(dir, freeName(dir, info.name)), roots, { mode: 'new' });
+  const at = locate(path.join(dir, freeName(dir, info.name)), roots, { mode: 'new', typed: false });
   try {
     await moveEntry(path.join(trashDir(), id, 'item'), at.abs);
   } catch (e) {

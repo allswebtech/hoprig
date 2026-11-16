@@ -141,8 +141,17 @@ export function nodeSatisfies(have, wants) {
 // Folders that hold a person's private notes (and that AI tools must never read): hoprig never looks inside
 // them, not even to count changes.
 export const PRIVATE_DIRS = ['no-ai', 'ignore', 'ai-ignore-dir'];
-// A status must not change anything: no optional locks, so git does not rewrite the index while it looks.
-export const READ_ONLY_GIT = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' };
+// A status must not change anything: no optional locks, so git does not rewrite the index while it looks. Nor start
+// a program: core.fsmonitor in a repository's own settings names a command that every status runs, so a folder that
+// came from elsewhere (a download, an archive) would run it as the owner. Set here, it outranks the repository's.
+export const READ_ONLY_GIT = {
+  ...process.env,
+  GIT_OPTIONAL_LOCKS: '0',
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_CONFIG_COUNT: '1',
+  GIT_CONFIG_KEY_0: 'core.fsmonitor',
+  GIT_CONFIG_VALUE_0: 'false',
+};
 /** True where the disk ignores the case of a name (macOS and Windows by default). */
 export const FOLD = process.platform === 'darwin' || process.platform === 'win32';
 /** Pathspecs that leave out the folders `dirs` at any depth (without regard to case where the disk ignores it). */

@@ -114,6 +114,8 @@ test('Files of another computer through the hub: list, upload as raw bytes, down
   const down = await fetch(`${hub.base}/m/pc/api/files/raw?${q({ path: path.join(home, 'notes', 'pic.bin'), download: '1' })}`, { headers: { Origin: hub.base, Cookie: COOKIE } });
   assert.equal(down.status, 200);
   assert.match(down.headers.get('content-disposition') || '', /^attachment/);
+  assert.equal(down.headers.get('content-security-policy'), "sandbox; default-src 'none'", 'the hub keeps the sandbox on a file it relays');
+  assert.equal(down.headers.get('x-content-type-options'), 'nosniff');
   assert.deepEqual(Buffer.from(await down.arrayBuffer()), bytes);
   // The reach holds on the computer: a folder outside it is refused through the hub too.
   assert.equal((await browser(`/m/pc/api/files/list?${q({ path: '/etc' })}`)).status, 403);

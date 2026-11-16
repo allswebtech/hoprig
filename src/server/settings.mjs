@@ -88,7 +88,7 @@ export function cleanServerPatch(b) {
     if (k === 'quickActions') out.quickActions = cleanQuickActions(v);
     else if (k === 'roots') out.roots = cleanRoots(v);
     else if (k === 'reach') {
-      // How far Files, the editor and new sessions reach (folders.mjs reachRoots): the allowed folders, or the whole disk.
+      // How far Files and the editor reach (folders.mjs reachRoots): the allowed folders, or the whole disk.
       if (v !== 'home' && v !== 'everything') throw new Error('reach is "home" or "everything"');
       out.reach = v;
     }

@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
@@ -267,7 +268,11 @@ test('how far Files reaches is one setting: the allowed folders, or the whole di
   }
   assert.equal((await list(box.state)).status, 403, 'Hoprig\'s own folders stay locked');
   assert.equal((await list(path.join(ws, 'credentials'))).status, 403);
-  // The folder picker of a new session follows the same reach.
+  // The setting is about files: new sessions and shells keep to the allowed folders (and with them Tia and
+  // automations, which start their work through these routes or the same folders).
+  assert.equal((await call(`/api/folders/browse?${q({ path: '/etc' })}`)).status, 404);
+  assert.equal((await call('/api/shells', { body: { dir: '/etc' } })).status, 400);
+  assert.equal((await call('/api/sessions', { body: { dir: '/etc', mode: 'new' } })).status, 400);
   assert.equal((await call('/api/settings', { body: { server: { reach: 'home' } } })).status, 200);
   assert.equal((await list('/etc')).status, 403);
 });
@@ -279,4 +284,214 @@ test('Tia\'s token reaches no route of Files, even one the server let through', 
     const p = re.source.replace(/^\^|\$$/g, '').replace(/\\\//g, '/');
     await assert.rejects(fn({ headers: { authorization: 'Bearer tia_abc' }, body: {} }, re.exec(p), new URLSearchParams(), null), (e) => e.status === 403, p);
   }
+});
+
+test('names that start with "-" open, rename, copy and go to the trash; only a typed new name may not start with one', async () => {
+  put('-old/-dash.txt', 'dash\n');
+  put('-old/inner/deep.txt', 'deep\n');
+  const old = path.join(home, '-old');
+  assert.ok(names(await list(home)).includes('-old'));
+  const r = await list(old);
+  assert.equal(r.status, 200, r.text);
+  assert.deepEqual(names(r), ['inner', '-dash.txt']);
+  assert.equal((await list(path.join(old, 'inner'))).status, 200, 'a folder under one opens too');
+  assert.equal((await call(`/api/files/raw?${q({ path: path.join(old, '-dash.txt'), download: '1' })}`)).text, 'dash\n');
+  assert.equal((await call('/api/files/new', { body: { dir: old, name: '-new.txt', kind: 'file' } })).status, 400, 'a typed name');
+  assert.equal((await call('/api/files/rename', { body: { path: path.join(old, '-dash.txt'), name: '-other.txt' } })).status, 400);
+  const ren = await call('/api/files/rename', { body: { path: path.join(old, '-dash.txt'), name: 'dash.txt' } });
+  assert.equal(ren.status, 200, ren.text);
+  fs.mkdirSync(path.join(home, 'dashes'));
+  const cp = await call('/api/files/copy', { body: { paths: [old], to: path.join(home, 'dashes') } });
+  assert.deepEqual(cp.json.failed, [], cp.text);
+  assert.equal(fs.readFileSync(path.join(home, 'dashes', '-old', 'dash.txt'), 'utf8'), 'dash\n', 'a copy keeps the name it had');
+  const tr = await call('/api/files/trash', { body: { paths: [old] } });
+  assert.deepEqual(tr.json.failed, [], tr.text);
+  const back = await call('/api/files/trash/restore', { body: { id: tr.json.done[0].id } });
+  assert.equal(back.json.path, old, back.text);
+});
+
+test('upload: a file that appears while the bytes come in is never written over', async () => {
+  const dir = path.join(home, 'race');
+  fs.mkdirSync(dir);
+  const target = path.join(dir, 'same.txt');
+  const status = await new Promise((resolve, reject) => {
+    const req = http.request(`${origin}/api/files/upload?${q({ dir, name: 'same.txt' })}`, { method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/octet-stream' } }, (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    req.on('error', reject);
+    req.write('mine, part one\n');
+    // Someone else's file lands while the upload is still under way.
+    setTimeout(() => {
+      fs.writeFileSync(target, 'theirs\n');
+      req.end('mine, part two\n');
+    }, 150);
+  });
+  assert.equal(status, 409);
+  assert.equal(fs.readFileSync(target, 'utf8'), 'theirs\n');
+  assert.deepEqual(fs.readdirSync(dir), ['same.txt'], 'no temporary file is left');
+});
+
+test('upload past the limit with no declared length is answered 413, not a dropped connection', async () => {
+  const dir = path.join(home, 'chunked');
+  fs.mkdirSync(dir);
+  const status = await new Promise((resolve, reject) => {
+    const req = http.request(`${origin}/api/files/upload?${q({ dir, name: 'big.bin' })}`, { method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/octet-stream', 'Transfer-Encoding': 'chunked' } }, (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    // A connection cut before the answer came: what this test is about (the answer a moment after it still counts).
+    req.on('error', (e) => (e.code === 'EPIPE' || e.code === 'ECONNRESET' ? setTimeout(() => resolve('dropped'), 500) : reject(e)));
+    const piece = Buffer.alloc(64 * 1024, 7);
+    let sent = 0;
+    const more = () => {
+      while (sent < 2 * 1024 * 1024) {
+        sent += piece.length;
+        if (!req.write(piece)) return req.once('drain', more);
+      }
+      req.end();
+    };
+    more();
+  });
+  assert.equal(status, 413);
+  assert.deepEqual(fs.readdirSync(dir), [], 'nothing half-written is left');
+});
+
+test('an upload into a folder it may not write in is answered at once', { skip: (process.getuid && process.getuid() === 0) && 'root writes anywhere' }, async () => {
+  const dir = path.join(home, 'locked-up');
+  fs.mkdirSync(dir);
+  fs.chmodSync(dir, 0o555);
+  try {
+    const r = await Promise.race([
+      call(`/api/files/upload?${q({ dir, name: 'x.txt' })}`, { raw: 'x\n', headers: { 'Content-Type': 'application/octet-stream' } }),
+      new Promise((resolve) => setTimeout(() => resolve({ status: 'no answer' }), 5000)),
+    ]);
+    assert.ok(r.status >= 400 && r.status < 600, String(r.status));
+  } finally {
+    fs.chmodSync(dir, 0o755);
+  }
+});
+
+test('a long name in any script: the upload\'s temporary name and the archive\'s stay within the disk\'s 255 bytes', async () => {
+  const dir = path.join(home, 'long');
+  fs.mkdirSync(dir);
+  const name = `${'क'.repeat(80)}.txt`; // 244 bytes
+  const r = await call(`/api/files/upload?${q({ dir, name })}`, { raw: 'x\n', headers: { 'Content-Type': 'application/octet-stream' } });
+  assert.equal(r.status, 200, r.text);
+  if (which('tar')) {
+    const pk = await call('/api/files/pack', { body: { paths: [path.join(dir, name)] } });
+    assert.equal(pk.status, 200, pk.text);
+    assert.ok(Buffer.byteLength(path.basename(pk.json.path)) <= 255);
+  }
+});
+
+test('a disk without hard links (FAT, many network disks): upload and pack still place their file, never over another', async () => {
+  const dir = path.join(home, 'nolinks');
+  fs.mkdirSync(dir);
+  const real = fs.linkSync;
+  fs.linkSync = () => {
+    throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
+  };
+  try {
+    const up = (name) => call(`/api/files/upload?${q({ dir, name })}`, { raw: 'new\n', headers: { 'Content-Type': 'application/octet-stream' } });
+    assert.equal((await up('a.txt')).status, 200);
+    assert.equal(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8'), 'new\n');
+    const { placeNew } = await import('../../src/editor/manage.mjs');
+    fs.writeFileSync(path.join(dir, 't.tmp'), 'tmp\n');
+    assert.throws(() => placeNew(path.join(dir, 't.tmp'), path.join(dir, 'a.txt')), (e) => e.code === 'EEXIST');
+    assert.equal(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8'), 'new\n', 'the copy never goes over a file');
+    if (which('tar')) {
+      const pk = await call('/api/files/pack', { body: { paths: [path.join(dir, 'a.txt')] } });
+      assert.equal(pk.status, 200, pk.text);
+    }
+    assert.deepEqual(fs.readdirSync(dir).filter((n) => n.startsWith('.')), [], 'no temporary file is left');
+  } finally {
+    fs.linkSync = real;
+  }
+});
+
+test('unpack never writes git\'s folder or a private one: such an archive could run a program when git looks at it', { skip: !which('tar') && 'no tar here' }, async () => {
+  const src = path.join(box.root, 'crafted');
+  put('.git/config', '[core]\n\tfsmonitor = "touch PWNED; false"\n', src);
+  put('.git/HEAD', 'ref: refs/heads/main\n', src);
+  put('no-ai/mine.txt', 'private\n', src);
+  put('ok.txt', 'fine\n', src);
+  const dir = path.join(home, 'unp');
+  fs.mkdirSync(dir);
+  execFileSync('tar', ['-cf', path.join(dir, 'git.tar'), '-C', src, '.git', 'ok.txt']);
+  execFileSync('tar', ['-cf', path.join(dir, 'private.tar'), '-C', src, 'no-ai', 'ok.txt']);
+  execFileSync('tar', ['-cf', path.join(dir, 'deep.tar'), '-C', box.root, 'crafted/.git/config']);
+  for (const [file, why] of [['git.tar', /git's own folder/], ['private.tar', /private folder/], ['deep.tar', /git's own folder/]]) {
+    const r = await call('/api/files/unpack', { body: { path: path.join(dir, file) } });
+    assert.equal(r.status, 409, `${file}: ${r.text}`);
+    assert.match(r.json.error, why);
+  }
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['deep.tar', 'git.tar', 'private.tar'], 'nothing was unpacked');
+});
+
+test('the dashboard\'s git never runs a repository\'s fsmonitor command', { skip: !which('git') && 'no git here' }, async () => {
+  const { READ_ONLY_GIT } = await import('../../src/pcsetup/projects.mjs');
+  const repo = path.join(box.root, 'fsm');
+  fs.mkdirSync(repo);
+  execFileSync('git', ['init', '-q', repo]);
+  const mark = path.join(box.root, 'fsm-ran');
+  execFileSync('git', ['-C', repo, 'config', 'core.fsmonitor', `touch '${mark}'; false`]);
+  execFileSync('git', ['-C', repo, 'status', '--porcelain'], { env: READ_ONLY_GIT, stdio: 'ignore' });
+  assert.ok(!fs.existsSync(mark), 'the command in the repository\'s settings did not run');
+});
+
+// A .zip as Info-ZIP writes it (stored, no compression), with a link when `link` is set: enough for unzip.
+function zipOf(entries) {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (b) => {
+    let c = 0xffffffff;
+    for (const x of b) c = crcTable[(c ^ x) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const e of entries) {
+    const name = Buffer.from(e.name);
+    const data = Buffer.from(e.data || '');
+    const mode = e.link ? 0o120777 : e.name.endsWith('/') ? 0o040755 : 0o100644;
+    const l = Buffer.alloc(30);
+    l.writeUInt32LE(0x04034b50, 0); l.writeUInt16LE(10, 4); l.writeUInt32LE(crc(data), 14);
+    l.writeUInt32LE(data.length, 18); l.writeUInt32LE(data.length, 22); l.writeUInt16LE(name.length, 26);
+    const c = Buffer.alloc(46);
+    c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE((3 << 8) | 30, 4); c.writeUInt16LE(10, 6); c.writeUInt32LE(crc(data), 16);
+    c.writeUInt32LE(data.length, 20); c.writeUInt32LE(data.length, 24); c.writeUInt16LE(name.length, 28);
+    c.writeUInt32LE((mode << 16) >>> 0, 38); c.writeUInt32LE(offset, 42);
+    locals.push(l, name, data);
+    centrals.push(c, name);
+    offset += 30 + name.length + data.length;
+  }
+  const cd = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, cd, end]);
+}
+
+test('a .zip unpacks with unzip, with the same refusals as a tar', { skip: !which('unzip') && 'no unzip here' }, async () => {
+  const dir = path.join(home, 'zips');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, 'good.zip'), zipOf([{ name: 'docs/' }, { name: 'docs/read me.txt', data: 'hello\n' }, { name: 'top.txt', data: 'top\n' }]));
+  let r = await call('/api/files/unpack', { body: { path: path.join(dir, 'good.zip') } });
+  assert.equal(r.status, 200, r.text);
+  assert.equal(r.json.path, path.join(dir, 'good'));
+  assert.equal(fs.readFileSync(path.join(dir, 'good', 'docs', 'read me.txt'), 'utf8'), 'hello\n');
+  fs.writeFileSync(path.join(dir, 'up.zip'), zipOf([{ name: '../out.txt', data: 'escaped\n' }]));
+  fs.writeFileSync(path.join(dir, 'git.zip'), zipOf([{ name: '.git/config', data: '[core]\n' }]));
+  fs.writeFileSync(path.join(dir, 'link.zip'), zipOf([{ name: 'lnk', data: '/etc', link: true }]));
+  for (const [file, why] of [['up.zip', /outside the folder/], ['git.zip', /git's own folder/], ['link.zip', /links/]]) {
+    r = await call('/api/files/unpack', { body: { path: path.join(dir, file) } });
+    assert.equal(r.status, 409, `${file}: ${r.text}`);
+    assert.match(r.json.error, why, file);
+  }
+  assert.ok(!fs.existsSync(path.join(home, 'out.txt')) && !fs.existsSync(path.join(dir, 'up')) && !fs.existsSync(path.join(dir, 'git')) && !fs.existsSync(path.join(dir, 'link')));
 });

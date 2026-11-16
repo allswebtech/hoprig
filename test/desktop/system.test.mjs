@@ -172,11 +172,13 @@ test('log files: listed and read only inside the log folders, from an offset, ro
     fs.writeFileSync(path.join(logs, 'app', 'app.log'), `token ${TOKEN}\n`);
     fs.writeFileSync(path.join(logs, 'old.log.2.gz'), 'packed');
     fs.writeFileSync(path.join(logs, 'wtmp'), Buffer.from([0, 1, 2]));
-    fs.writeFileSync(path.join(logs, 'bin.log'), Buffer.from([65, 0, 66, 10]));
+    fs.writeFileSync(path.join(logs, 'bin.log'), Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 65, 10]));
+    // A crash leaves a run of NULs in a log: the lines around them are still read, and a follow moves past them.
+    fs.writeFileSync(path.join(logs, 'nul.log'), Buffer.concat([Buffer.from('before\n'), Buffer.alloc(4096), Buffer.from('after\n')]));
     fs.symlinkSync(outside, path.join(logs, 'link.log'));
     const dirs = [logs];
     const names = listLogFiles(dirs).map((f) => path.relative(logs, f.path)).sort();
-    assert.deepEqual(names, ['app/app.log', 'bin.log', 'syslog'], 'no packed copies, no login records, no link out');
+    assert.deepEqual(names, ['app/app.log', 'bin.log', 'nul.log', 'syslog'], 'no packed copies, no login records, no link out');
     const first = readLogFile(path.join(logs, 'syslog'), dirs);
     assert.deepEqual([first.text, first.next], ['one\ntwo\n', 8]);
     fs.appendFileSync(path.join(logs, 'syslog'), 'three\npart');
@@ -191,6 +193,8 @@ test('log files: listed and read only inside the log folders, from an offset, ro
       assert.throws(() => readLogFile(bad, dirs), (e) => e.status === 404, bad);
     }
     assert.throws(() => readLogFile(path.join(logs, 'bin.log'), dirs), (e) => e.status === 415);
+    const nul = readLogFile(path.join(logs, 'nul.log'), dirs, 0);
+    assert.deepEqual([nul.text, nul.next], ['before\nafter\n', 4096 + 13]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

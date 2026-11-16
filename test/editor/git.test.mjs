@@ -118,8 +118,10 @@ test('names that look like options or pathspecs are only ever those files', asyn
   write('a*.txt', 'star\n');
   let s = await status();
   assert.ok(['--output=x', ':(glob)*', 'a*.txt'].every((n) => paths(s.untracked).includes(n)));
-  // A leading "-" is refused at the door; the others stage just themselves.
-  assert.equal((await post('/api/code/git/stage', { root: repo, paths: ['--output=x'] })).status, 400);
+  // Each stages just itself: a leading "-" comes after "--", so git reads it as a name, never as an option.
+  assert.equal((await post('/api/code/git/stage', { root: repo, paths: ['--output=x'] })).status, 200);
+  assert.ok(paths((await status()).staged).includes('--output=x'));
+  await post('/api/code/git/unstage', { root: repo, paths: ['--output=x'] });
   assert.equal((await post('/api/code/git/stage', { root: repo, paths: ['a*.txt'] })).status, 200);
   s = await status();
   assert.ok(paths(s.staged).includes('a*.txt'));

@@ -160,7 +160,10 @@ export function relayHttp(req, res, ep, { machine, path, token, idleMs = 30_000,
         return;
       }
       finished = true;
-      res.writeHead(up.statusCode, pick(up.headers, PASS_RES));
+      // A file from another computer's Files is never a page of this site either: the same sandbox the computer
+      // itself puts on it (src/editor/manage.mjs sendFile), set here, since the hub does not pass on its policy.
+      const sandbox = /^\/api\/files\/raw(\?|$)/.test(path) ? { 'Content-Security-Policy': "sandbox; default-src 'none'", 'X-Content-Type-Options': 'nosniff' } : {};
+      res.writeHead(up.statusCode, { ...pick(up.headers, PASS_RES), ...sandbox });
       up.pipe(res);
       up.on('end', resolve);
       up.on('error', () => res.destroy());

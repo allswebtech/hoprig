@@ -19,7 +19,7 @@ import { getAutoSwitch } from '../autoswitch.mjs';
 import { readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { launchArgv } from '../server/deck.mjs';
-import { insideRoots, reachRoots } from '../server/folders.mjs';
+import { insideRoots, resolveRoots } from '../server/folders.mjs';
 import { safeSessionName, uniqueName } from '../server/validate.mjs';
 import { createAutomation } from './index.mjs';
 
@@ -84,7 +84,7 @@ export function serverAdapter(sctx, { log = console.log } = {}) {
     },
     log,
     checks: {
-      dirOk: (d) => Boolean(insideRoots(d, reachRoots(sctx.config().server))),
+      dirOk: (d) => Boolean(insideRoots(d, resolveRoots(sctx.config().server.roots))),
       profileOk: (p) => (p === 'auto' ? getAutoSwitch().enabled === true : Boolean(readProfile(p))),
     },
   };

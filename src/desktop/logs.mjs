@@ -134,7 +134,9 @@ export function readLogFile(p, dirs, from = null) {
     const buf = Buffer.alloc(len);
     const got = len ? fs.readSync(fd, buf, 0, len, start) : 0;
     let chunk = buf.subarray(0, got);
-    if (chunk.includes(0)) throw fail(415, 'that file is not text');
+    // Runs of NUL bytes are common in a log (a crash, space set aside in advance): they are left out, so the file
+    // stays readable and a follow moves on past them. Other control bytes in number mean it is not text at all.
+    if (binaryLike(chunk)) throw fail(415, 'that file is not text');
     let skip = 0;
     if (from === null && start > 0) {
       skip = chunk.indexOf(10) + 1; // begin at a whole line
@@ -149,11 +151,23 @@ export function readLogFile(p, dirs, from = null) {
     else if (atEnd) whole = chunk;
     else if (got === READ_MAX) whole = chunk.subarray(0, utf8Whole(chunk) || chunk.length);
     else whole = Buffer.alloc(0);
-    const text = whole.toString('utf8').split('\n').map((l) => redact(l, 4000)).join('\n');
+    const text = whole.toString('utf8').replace(/\0+/g, '').split('\n').map((l) => redact(l, 4000)).join('\n');
     return { path: real, text, from: start + skip, next: start + skip + whole.length, size: st.size, reset };
   } finally {
     fs.closeSync(fd);
   }
+}
+
+/** True when more than one byte in twenty (NULs aside) is a control byte other than tab, line ends and escape. */
+function binaryLike(buf) {
+  let odd = 0;
+  let seen = 0;
+  for (const b of buf) {
+    if (b === 0) continue;
+    seen++;
+    if (b < 32 && b !== 9 && b !== 10 && b !== 13 && b !== 27) odd++;
+  }
+  return seen > 0 && odd * 20 > seen;
 }
 
 /** The page's journal query → checked values (a 400 for anything else). */

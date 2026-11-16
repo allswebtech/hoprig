@@ -8,7 +8,7 @@
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { insideRoots, reachRoots } from '../server/folders.mjs';
+import { insideRoots, resolveRoots } from '../server/folders.mjs';
 import { gatedDispatch } from './door.mjs';
 import * as v from '../server/validate.mjs';
 import { AUTH_VARS } from '../profiles.mjs';
@@ -86,7 +86,7 @@ export function runShell(command, { cwd, timeoutMs = 60_000, spawnImpl = spawn, 
 export function createOps(o) {
   const { ctx } = o;
   const cfg = () => ctx.config();
-  const roots = () => reachRoots(cfg().server);
+  const roots = () => resolveRoots(cfg().server.roots);
   const isLocal = (c) => !c || c === LOCAL;
   const enc = encodeURIComponent;
   const sleep = o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));

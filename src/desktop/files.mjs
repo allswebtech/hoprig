@@ -60,10 +60,10 @@ export function filesRoutes(ctx) {
     })],
     ['GET', /^\/api\/files\/raw$/, get((q, res) => sendFile(q.get('path'), roots(), res, { download: flag(q, 'download') }))],
     ['GET', /^\/api\/files\/find$/, get((q) => findByName(q.get('path'), q.get('q'), roots(), { hidden: flag(q, 'hidden') }))],
-    ['POST', /^\/api\/files\/upload$/, async (req, m, q) => {
+    ['POST', /^\/api\/files\/upload$/, async (req, m, q, res) => {
       notTia(req);
       const maxBytes = Math.max(1, Number(server().uploadMaxMB) || DEFAULT_UPLOAD_MAX_MB) * 1024 * 1024;
-      return receive(req, q.get('dir'), q.get('name'), roots(), { replace: flag(q, 'replace'), maxBytes });
+      return receive(req, q.get('dir'), q.get('name'), roots(), { replace: flag(q, 'replace'), maxBytes, res });
     }],
     ['POST', /^\/api\/files\/new$/, post((b) => {
       if (typeof b.dir !== 'string') throw fail(400, 'name the folder');

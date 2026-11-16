@@ -1,8 +1,9 @@
 // Every path the editor gets from a browser, checked on the server. A request names a root (the project or repository
 // folder the editor was opened on: an absolute folder inside the dashboard's roots) and paths inside it as relative
 // POSIX paths. A path is refused when it
-//   - holds a NUL, a backslash, an empty, "." or ".." segment, or a segment that starts with "-" (it could be read
-//     as an option by a program; every program also gets "--" before paths);
+//   - holds a NUL, a backslash, an empty, "." or ".." segment. A name that starts with "-" is refused only where it
+//     is typed (a new file, folder or name): it could be read as an option by a program. One that is already on the
+//     disk opens like any other, since every program gets "--" before paths;
 //   - leads, after symlinks, out of the root or the dashboard's roots, or into the dashboard's own folders;
 //   - passes through a private folder (the same list git status leaves out) or git's own folder (.git, or any folder
 //     that is a git directory: a bare repository, a worktree's separate one), read or write;
@@ -39,11 +40,18 @@ const PRIVATE_MSG = 'that folder is private: the dashboard never opens it';
 const GIT_MSG = 'git\'s own folder is not opened in the editor';
 const SECRET_MSG = 'that file holds a sign-in: the dashboard never shows it';
 
-/** One file or folder name typed in the page: a plain name, at most 255 bytes. Returns it or throws 400. */
-export function checkName(name) {
-  if (typeof name !== 'string' || !name || name === '.' || name === '..' || BAD_NAME.test(name) || name.startsWith('-') || Buffer.byteLength(name) > 255) {
+/** A name as it may be on the disk: a plain name, at most 255 bytes (it may start with "-"). */
+function checkPart(name) {
+  if (typeof name !== 'string' || !name || name === '.' || name === '..' || BAD_NAME.test(name) || Buffer.byteLength(name) > 255) {
     throw fail(400, 'that is not a usable file name');
   }
+  return name;
+}
+
+/** One file or folder name typed in the page: a plain name, at most 255 bytes, not one that starts with "-". */
+export function checkName(name) {
+  checkPart(name);
+  if (name.startsWith('-')) throw fail(400, 'a new name cannot start with "-"');
   return name;
 }
 
@@ -56,7 +64,7 @@ export function segments(rel) {
   if (typeof rel !== 'string' || rel.length > 4096 || path.posix.isAbsolute(rel) || /^[A-Za-z]:/.test(rel)) throw fail(400, 'paths are relative to the opened folder');
   const segs = rel.split('/');
   if (segs.some((s) => s === '' || s === '.' || s === '..')) throw fail(400, 'a path inside the opened folder cannot go up or have empty parts');
-  for (const s of segs) checkName(s);
+  for (const s of segs) checkPart(s);
   if (segs.some((s) => isPrivateName(s))) throw fail(403, PRIVATE_MSG);
   if (segs.some((s) => isGitName(s))) throw fail(403, GIT_MSG);
   return segs;
@@ -181,11 +189,14 @@ export function showable(rootReal, rel, cache = new Map()) {
  *   'existing'  (read, write) the path must exist; symlinks are followed and must stay inside
  *   'new'       (create, the target of a rename) the parent must exist (followed), the name itself must not
  *   'entry'     (delete, the source of a rename) the entry itself, a symlink not followed: its parent is checked
+ * `typed` ('new' only, the default there): the new name was typed, so it is held to checkName(); false for a name
+ * that comes from the disk (a move or a copy keeps the name it had).
  * Returns { root (real), abs, rel (POSIX, relative to root) }.
  */
-export function resolveIn(root, rel, roots, { mode = 'existing' } = {}) {
+export function resolveIn(root, rel, roots, { mode = 'existing', typed = mode === 'new' } = {}) {
   const rootReal = rootOf(root, roots);
   const segs = segments(rel);
+  if (typed && segs.length) checkName(segs[segs.length - 1]);
   const lexical = path.join(rootReal, ...segs);
   const out = (abs) => ({ root: rootReal, abs, rel: segs.join('/') });
   if (mode === 'existing') {
@@ -255,7 +266,7 @@ export function mayChangeFolder(abs) {
  * symlinks, then resolveIn() with every rule above. Modes as resolveIn's. Returns { root, abs, rel }. The tops of the
  * reach (the home folder, the disk) are never changed, renamed or moved.
  */
-export function locate(p, roots, { mode = 'existing' } = {}) {
+export function locate(p, roots, { mode = 'existing', typed = mode === 'new' } = {}) {
   if (typeof p !== 'string' || !p || p.length > 4096 || p.includes('\0') || !path.isAbsolute(p)) throw fail(400, 'send a full path');
   const parts = p.split(/[\\/]+/).filter(Boolean);
   if (parts.includes('..') || parts.includes('.')) throw fail(400, 'a path cannot go up or have empty parts');
@@ -280,5 +291,5 @@ export function locate(p, roots, { mode = 'existing' } = {}) {
   if (!root) throw fail(403, 'that folder is not one the dashboard may show');
   const rel = path.relative(root, real).split(path.sep).filter(Boolean).join('/');
   if (!rel && mode !== 'existing') throw fail(400, 'the top of what Files reaches cannot be changed here');
-  return resolveIn(root, rel, roots, { mode });
+  return resolveIn(root, rel, roots, { mode, typed });
 }

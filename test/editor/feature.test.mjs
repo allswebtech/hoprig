@@ -134,7 +134,8 @@ test('paths that leave the roots or reach private places are refused', async () 
   await refused('/api/code/file', { root: proj, path: 'no-ai/mine.md' }, 403);
   await refused('/api/code/file', { root: path.join(proj, 'no-ai') }, 403);
   await refused('/api/code/file', { root: proj, path: 'a\\..\\b' }, 400);
-  await refused('/api/code/file', { root: proj, path: '-rf' }, 400);
+  await refused('/api/code/file', { root: proj, path: '-rf' }, 404); // a name like an option is only a name: none here
+  assert.equal((await post('/api/code/create', { root: proj, path: '-rf', kind: 'file' })).status, 400, 'nor is one made');
   await refused('/api/code/file', { root: proj, path: 'x\0y' }, 400);
   await refused('/api/code/file', { root: 'relative/dir', path: 'x' }, 403);
   await refused('/api/code/file', { root: process.env.HOPRIG_STATE_DIR, path: 'x' }, 403);

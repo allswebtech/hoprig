@@ -20,7 +20,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { recentFolders, reachRoots, within } from '../server/folders.mjs';
+import { recentFolders, resolveRoots, within } from '../server/folders.mjs';
 import * as hub from './hub.mjs';
 import { hubDir } from './store.mjs';
 import { catalogTools, checkTool, updateTool } from './tools.mjs';
@@ -65,7 +65,7 @@ function forYou() {
 
 /** `opts`: { checkEveryMs (tests), now() }. */
 export function skillhubFeature(sctx, opts = {}) {
-  const roots = () => reachRoots(sctx.config().server);
+  const roots = () => resolveRoots(sctx.config().server.roots);
   const allowed = (real) => roots().some((r) => within(real, r));
   const projectOf = (v) => {
     if (v === undefined || v === null || v === '') return null;

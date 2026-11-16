@@ -121,6 +121,36 @@ export async function sendFile(p, roots, res, { download = true } = {}) {
   });
 }
 
+// link(2) is refused by disks without hard links (FAT and exFAT sticks, many network and FUSE mounts).
+const NO_LINKS = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EMLINK', 'EXDEV']);
+
+/**
+ * Put the finished temporary file `tmp` at `target`, never over something that appeared there meanwhile: a hard link
+ * where the disk has them, else a copy that fails when the target exists (O_EXCL). `tmp` is removed either way.
+ */
+export function placeNew(tmp, target) {
+  try {
+    try {
+      fs.linkSync(tmp, target);
+    } catch (e) {
+      if (!NO_LINKS.has(e.code)) throw e;
+      fs.copyFileSync(tmp, target, fs.constants.COPYFILE_EXCL);
+    }
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+}
+
+/** `name` cut to at most `bytes` bytes of UTF-8, never in the middle of a letter. */
+export function clipBytes(name, bytes) {
+  let out = '';
+  for (const ch of name) {
+    if (Buffer.byteLength(out + ch) > bytes) break;
+    out += ch;
+  }
+  return out;
+}
+
 /** A name not taken in `dir`: "name", else "name (2).ext", "name (3).ext"… */
 export function freeName(dir, name) {
   const ext = path.extname(name);
@@ -138,9 +168,10 @@ export function freeName(dir, name) {
 
 /**
  * Stream an upload (`req`, raw bytes) into folder `dir` as `name`: never over something there unless `replace` (then
- * only over a file). At most `maxBytes`. The bytes go to a temporary file in the same folder first.
+ * only over a file). At most `maxBytes`. The bytes go to a temporary file in the same folder first. `res` (the answer):
+ * a body that passes the limit without a declared length is answered 413 first and only then cut off.
  */
-export async function receive(req, dir, name, roots, { replace = false, maxBytes }) {
+export async function receive(req, dir, name, roots, { replace = false, maxBytes, res = null }) {
   checkName(name);
   const folder = locate(dir, roots);
   if (!fs.statSync(folder.abs).isDirectory()) throw fail(400, 'that is not a folder');
@@ -155,7 +186,8 @@ export async function receive(req, dir, name, roots, { replace = false, maxBytes
   }
   const declared = Number(req.headers['content-length']);
   if (Number.isFinite(declared) && declared > maxBytes) throw fail(413, `the file is larger than ${Math.round(maxBytes / 1048576)} MB`);
-  const tmp = path.join(folder.abs, `.${name.slice(0, 200)}.${crypto.randomBytes(4).toString('hex')}.upload`);
+  // ".<name>.<8 hex>.upload" stays within the disk's 255 bytes for a name of any script.
+  const tmp = path.join(folder.abs, `.${clipBytes(name, 200)}.${crypto.randomBytes(4).toString('hex')}.upload`);
   const out = fs.createWriteStream(tmp, { flags: 'wx', mode: 0o644 });
   let size = 0;
   try {
@@ -164,7 +196,12 @@ export async function receive(req, dir, name, roots, { replace = false, maxBytes
         size += c.length;
         if (size > maxBytes) {
           req.unpipe(out);
-          req.destroy();
+          req.pause();
+          // Cutting the connection now would lose the answer: it goes first, and the rest of the body is not read.
+          if (res) {
+            res.setHeader('Connection', 'close');
+            res.once('finish', () => req.destroy());
+          } else req.destroy();
           reject(fail(413, `the file is larger than ${Math.round(maxBytes / 1048576)} MB`));
         }
       });
@@ -175,15 +212,15 @@ export async function receive(req, dir, name, roots, { replace = false, maxBytes
       req.pipe(out);
     });
     if (replace && fs.existsSync(at.abs)) fs.renameSync(tmp, at.abs);
-    else {
-      fs.linkSync(tmp, at.abs); // fails when a file appeared meanwhile: never replaces one
-      fs.rmSync(tmp);
-    }
+    else placeNew(tmp, at.abs); // fails when a file appeared meanwhile: never replaces one
   } catch (e) {
-    await new Promise((resolve) => {
-      out.once('close', resolve);
-      out.destroy();
-    });
+    // A file that could not even be made (a folder it may not write in) has closed already: no wait for it then.
+    if (!out.closed) {
+      await new Promise((resolve) => {
+        out.once('close', resolve);
+        out.destroy();
+      });
+    }
     fs.rmSync(tmp, { force: true });
     throw fsError(e);
   }
@@ -208,7 +245,7 @@ export async function transfer(paths, to, roots, { copy = false } = {}) {
       if (dest.abs === src.abs || dest.abs.startsWith(src.abs + path.sep)) throw fail(400, 'a folder cannot go into itself');
       let name = path.basename(src.abs);
       if (copy && path.dirname(src.abs) === dest.abs) name = freeName(dest.abs, name);
-      const target = locate(path.join(dest.abs, name), roots, { mode: 'new' });
+      const target = locate(path.join(dest.abs, name), roots, { mode: 'new', typed: false });
       if (copy) await copyEntry(src.abs, target.abs);
       else await moveEntry(src.abs, target.abs);
       done.push({ from: src.abs, to: target.abs });

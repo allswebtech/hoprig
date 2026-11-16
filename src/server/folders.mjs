@@ -23,10 +23,10 @@ export function resolveRoots(roots) {
 }
 
 /**
- * How far the dashboard reaches on this computer: one setting for every place that opens a folder (new sessions, the
- * editor, Files, Tia). `server.reach` 'everything': the whole disk this user can open (a terminal can already); else
- * the allowed folders `server.roots` (the home folder unless changed). Hoprig's own folders and the files that hold a
- * sign-in stay locked either way (src/editor/paths.mjs).
+ * How far Files and the editor reach on this computer. `server.reach` 'everything': the whole disk this user can
+ * open (a terminal can already); else the allowed folders `server.roots` (the home folder unless changed). Hoprig's
+ * own folders and the files that hold a sign-in stay locked either way (src/editor/paths.mjs). New sessions, Tia,
+ * automations, chats and skills keep to the allowed folders (resolveRoots): the setting is about files only.
  */
 export function reachRoots(server = {}, platform = process.platform) {
   if (server && server.reach === 'everything') return diskRoots(platform);
