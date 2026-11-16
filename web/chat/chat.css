@@ -23,6 +23,7 @@ body.chat-mode .tia-boxroot { display: none; }
 .chat-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-title-sub { display: none; }
 .chat-sub { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.chat-toolslot:empty { display: none; } /* Claude Code's chat has no tool chip: no gap before the folder chip either */
 .chat-hchip { min-height: 26px; padding: 0 8px; gap: 4px; font-size: var(--fs-xs); min-width: 0; flex: 0 1 auto; color: var(--text-2); }
 .chat-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-hchip svg { flex: none; }
