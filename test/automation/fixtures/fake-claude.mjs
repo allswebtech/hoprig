@@ -3,7 +3,9 @@
 // arguments, the hook settings and the run record are all the real ones; only the model is fake.
 // It prints the command line it got, then runs the hooks the launcher gave it (--settings) the way Claude Code
 // does: SessionStart at start; per line typed, UserPromptSubmit, a short "think", then Stop with the answer.
-// A line containing FAIL-OVERLOADED ends in StopFailure (error "overloaded") the first time it is seen; "/exit" ends it.
+// A line containing FAIL-OVERLOADED ends in StopFailure (error "overloaded") the first time it is seen, one containing
+// FAIL-LIMIT in StopFailure at a usage limit (error "rate_limit"); "/exit" ends it. <state>/fake-claude-late-ms: the
+// milliseconds before SessionStart (a slow start, as when a question stands on the screen first).
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -46,7 +48,15 @@ if (flag('--resume') && !fs.existsSync(transcript)) {
   process.stdout.write(`No conversation found with session ID: ${sessionId}\n`);
   process.exit(1);
 }
-hook('SessionStart', { source: flag('--resume') ? 'resume' : 'startup' });
+let late = 0;
+try {
+  late = Number(fs.readFileSync(path.join(process.env.HOPRIG_STATE_DIR || '', 'fake-claude-late-ms'), 'utf8')) || 0;
+} catch {
+  /* reports at once */
+}
+const start = () => hook('SessionStart', { source: flag('--resume') ? 'resume' : 'startup' });
+if (late) setTimeout(start, late);
+else start();
 process.stdout.write('> ');
 
 const failed = new Set();
@@ -65,6 +75,11 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       failed.add(line);
       process.stdout.write('API Error: 529 overloaded\n> ');
       hook('StopFailure', { error: 'overloaded', last_assistant_message: 'API Error: 529 {"type":"overloaded_error"}' });
+      return;
+    }
+    if (line.includes('FAIL-LIMIT')) {
+      process.stdout.write("You've hit your limit\n> ");
+      hook('StopFailure', { error: 'rate_limit', last_assistant_message: "You've hit your limit" });
       return;
     }
     process.stdout.write(`DONE: ${line}\n> `);

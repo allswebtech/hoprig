@@ -600,3 +600,22 @@ test('hoprig add offers an OpenAI key and the Codex sign-in, and saves them as t
   assert.match(bad.text, /not a model id/);
   assert.equal(P.readProfile('oai3'), null);
 });
+
+test('the conversation a launch names goes into its run record before Claude Code starts', async () => {
+  const id = '6b5b0000-0000-4000-8000-00000000a001';
+  assert.equal(L.conversationOf(['--resume', id]), id);
+  assert.equal(L.conversationOf(['-r', id, '--model', 'opus']), id);
+  assert.equal(L.conversationOf([`--resume=${id}`]), id);
+  assert.equal(L.conversationOf(['--model', 'opus', '--session-id', id]), id, 'a move of a session nobody typed into');
+  assert.equal(L.conversationOf(['-c']), null, 'continue the last one: only Claude Code knows which');
+  assert.equal(L.conversationOf(['--resume']), null, 'the picker');
+  assert.equal(L.conversationOf(['--resume', id, '--fork-session']), null, 'a fork writes a new conversation');
+  assert.equal(L.conversationOf(['--', `--resume ${id}`]), null, 'a first message is not an argument');
+  const { createRun, readRun, removeRun } = await import('../src/runs.mjs');
+  const { file, run } = createRun({ profile: 'p', cwd: os.tmpdir(), conversation: id });
+  assert.deepEqual([run.sessionId, run.conversation, readRun(file).conversation], [null, id, id]);
+  // The launcher's own move writes the same record anew: same file, same run id, new start.
+  const again = createRun({ profile: 'q', cwd: os.tmpdir(), conversation: id, file });
+  assert.deepEqual([again.file, again.run.runId, again.run.profile], [file, run.runId, 'q']);
+  removeRun(file);
+});

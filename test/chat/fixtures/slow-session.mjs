@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// A stand-in for the launcher that starts as the real one does: its run record has no conversation at first (status
-// starting), and the conversation is known only after the milliseconds written in <state>/slow-session-ms (0 when the
-// file is absent), as when Claude Code's SessionStart hook comes late (a slow start, a question on the screen first).
+// A stand-in for the launcher that starts as the real one does: its run record names the conversation of --resume
+// (src/launch.mjs conversationOf) but has no reported one at first (status starting), which Claude Code reports only
+// after the milliseconds written in <state>/slow-session-ms (0 when the file is absent), as when Claude Code's
+// SessionStart hook comes late (a slow start, a question on the screen first).
 // Lines typed into it are echoed ("GOT: …").
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,7 +18,7 @@ try {
 } catch {
   /* reports at once */
 }
-const { file } = createRun({ profile, cwd: process.cwd(), carryArgs: [] });
+const { file } = createRun({ profile, cwd: process.cwd(), carryArgs: [], conversation: r >= 0 ? sessionId : null });
 process.stdout.write(`SLOW-SESSION profile=${profile} slow=${slow} args=${JSON.stringify(args)}\n`);
 const known = () => updateRun(file, { sessionId, status: 'waiting', lastMessage: 'Ready.' });
 if (slow) setTimeout(known, slow);

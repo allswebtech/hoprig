@@ -66,10 +66,9 @@ test('a terminal that has not reported its conversation yet still runs it: after
   saveConfig({ launcher: [process.execPath, SLOW_SESSION], server: { backend: 'pty', roots: [work], passwordHash: await hashPassword('pw-for-tests') } });
   writeProfile('sub', { label: 'Main' });
   const slow = (ms) => fs.writeFileSync(path.join(box.state, 'slow-session-ms'), String(ms));
-  // launchMs: a terminal with no run record in it counts for 1 s only, so what holds after that is the run record.
   const options = {
     watchTickMs: 300, dashboardFile: false,
-    chat: { command: { command: process.execPath, args: [FAKE_CLAUDE] }, resolveEnv: async () => ({ ...process.env }), idleMs: 400, launchMs: 1000 },
+    chat: { command: { command: process.execPath, args: [FAKE_CLAUDE] }, resolveEnv: async () => ({ ...process.env }), idleMs: 400 },
   };
   let app = null;
   let base = '';

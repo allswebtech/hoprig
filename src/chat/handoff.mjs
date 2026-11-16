@@ -21,7 +21,7 @@ const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 /**
  * terminalOf(id, tool): the terminal that runs conversation `id` of coding tool `tool` (Claude Code unless said): { name,
  * termId, cwd, run } (null name: one outside the dashboard), or null.
- * o: { chatOf(id), launchMs (tests: how long a terminal without a run record counts) }.
+ * o: { chatOf(id) }.
  * claim(id, fn, { tool, self }): one conversation, one process. Whatever starts a process on a conversation (a terminal,
  * a chat's message) does it in `fn`, run here one at a time per conversation, and only when no terminal runs it (else →
  * { terminal }) and no open chat but `self` has a process on it (o.chatOf(id); else → { chat: its id }). → { started:
@@ -29,30 +29,27 @@ const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
  */
 export function terminals(ctx, o = {}) {
   const { HttpError } = ctx;
-  // A terminal started for a conversation runs it before its run record says so: the launcher writes the record with
-  // no conversation, and Claude Code reports it at its start (SessionStart), which can wait long (a slow start, a
-  // question on the screen first). Until it reports another conversation or ends, this says it runs that one.
-  const recent = new Map(); // `${tool}:${id}` → { name, at }
-  const LAUNCH_MS = o.launchMs || 30_000; // a terminal with no run record in it this long after its start: its launcher never came
+  // A run record runs conversation `id` when the coding tool reported it (sessionId), or, until the tool reports one,
+  // when its launcher named it at the start (runs.mjs: conversation; written before the tool starts, so it holds from
+  // the first moment, after a restart of the dashboard and for a terminal started outside it). The tool's own report
+  // decides once there is one: after /clear it runs another conversation.
+  const runsIt = (r, id) => r.sessionId === id || (!r.sessionId && r.conversation === id);
   async function terminalOf(id, tool = 'claude') {
-    const key = `${tool}:${id}`;
     // A record without `tool` is an older one of Claude Code's.
     const live = listRuns().filter((r) => r.status !== 'ended' && (r.tool || 'claude') === tool);
-    const runs = live.filter((r) => r.sessionId === id);
-    if (!runs.length) {
-      const just = recent.get(key);
-      if (!just) return null;
-      const t = (await ctx.backend.list()).find((x) => x.session === just.name);
-      const run = t ? matchRuns([t], live, live.some((r) => r.tmuxPane) ? await parentLookup() : procParent).get(t.id) : null;
-      if (t && (run ? !run.sessionId : Date.now() - just.at <= LAUNCH_MS)) return { name: t.session, termId: t.id, cwd: t.cwd, run: run || null };
-      recent.delete(key); // gone, its launcher never came, or it reported another conversation
-      return null;
-    }
-    recent.delete(key); // its run record says it from now on
+    const runs = live.filter((r) => runsIt(r, id));
+    const parents = live.some((r) => r.tmuxPane) ? await parentLookup() : procParent;
     const terms = await ctx.backend.list();
-    const byId = matchRuns(terms, runs, runs.some((r) => r.tmuxPane) ? await parentLookup() : procParent);
+    const byId = matchRuns(terms, runs, parents);
     const t = terms.find((x) => byId.has(x.id));
-    return t ? { name: t.session, termId: t.id, cwd: t.cwd, run: byId.get(t.id) } : { name: null, run: runs[0] };
+    if (t) return { name: t.session, termId: t.id, cwd: t.cwd, run: byId.get(t.id) };
+    // The moment before a launcher has written its record (deck.mjs noteLaunch): the terminal it was started in runs
+    // the conversation while it lives and holds no record written since. Then the record says what it runs.
+    const note = ctx.deck?.launchOf?.(id, tool);
+    const nt = note && terms.find((x) => x.session === note.name);
+    if (nt && !matchRuns([nt], live.filter((r) => r.startedAt >= note.at), parents).has(nt.id)) return { name: nt.session, termId: nt.id, cwd: nt.cwd, run: null };
+    if (note) ctx.deck.launchOf(id, tool, { drop: true });
+    return runs.length ? { name: null, run: runs[0] } : null;
   }
   const inTerminal = (term) => Object.assign(new HttpError(409, term.name
     ? `This conversation runs in the terminal session "${term.name}". Continue it here (that terminal stops), or read along.`
@@ -72,13 +69,14 @@ export function terminals(ctx, o = {}) {
       if (term) return { terminal: term };
       const chat = tool === 'claude' && o.chatOf ? o.chatOf(id) : null;
       if (chat && chat !== self) return { chat };
+      const at = Date.now();
       const started = await fn();
-      if (started && typeof started.name === 'string') recent.set(`${tool}:${id}`, { name: started.name, at: Date.now() });
+      if (started && typeof started.name === 'string') ctx.deck?.noteLaunch?.(started.name, id, tool, at);
       return { started };
     }, tool);
   }
   /** The terminal of conversation `id` was told to stop (Continue here): what was known of its start goes. */
-  const forget = (id, tool = 'claude') => recent.delete(`${tool}:${id}`);
+  const forget = (id, tool = 'claude') => ctx.deck?.launchOf?.(id, tool, { drop: true });
   return { terminalOf, inTerminal, claim, serial, forget };
 }
 

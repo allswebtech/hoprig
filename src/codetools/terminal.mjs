@@ -106,7 +106,7 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
     console.error(`hoprig: "${o.resume}" is not a ${tool.name} conversation id.`);
     return 2;
   }
-  const { file, run } = createRun({ profile: profile.name, cwd, carryArgs: carryOf(o), tool: toolId });
+  const { file, run } = createRun({ profile: profile.name, cwd, carryArgs: carryOf(o), tool: toolId, conversation: o.resume });
   updateRun(file, { server: true, statusSource: 'server' }); // counted as a user before the server is looked at
   const report = makeReporter(file);
   let follow = null;

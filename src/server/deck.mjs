@@ -136,6 +136,25 @@ export class Deck {
     Object.assign(this, { backend, config, profiles, now });
     this.idle = new Map(); // session name → { key, since, last }: how long its screen has looked idle (see #shown)
     this.shown = new Map(); // session name → { key, status, at }: a card that differs from its run record, and since when
+    this.launches = new Map(); // `${tool}:${conversation}` → { name, at }: see noteLaunch
+  }
+
+  /**
+   * Terminal `name` was just started or restarted (at `at`) on conversation `id`. Its launcher names the conversation
+   * in its run record (runs.mjs: conversation) the moment it starts; this note covers only the moment before, while the
+   * terminal holds no record written since (handoff.mjs terminalOf reads it): a restart in place (a move) ends the
+   * old launcher and its record before the new one has written its own.
+   */
+  noteLaunch(name, id, tool = 'claude', at = Date.now()) {
+    if (!id || !name) return;
+    this.launches.set(`${tool}:${id}`, { name, at });
+    if (this.launches.size > 200) this.launches.delete(this.launches.keys().next().value);
+  }
+
+  /** The note of conversation `id` (noteLaunch), or null. `drop`: it ends (its terminal is gone, or holds a newer record). */
+  launchOf(id, tool = 'claude', { drop = false } = {}) {
+    if (drop) this.launches.delete(`${tool}:${id}`);
+    return this.launches.get(`${tool}:${id}`) || null;
   }
 
   /**
@@ -266,7 +285,9 @@ export class Deck {
   /** Start a coding tool (Claude Code unless `tool` says another) under `profile` (full profile object) in `dir`. Returns the session name. */
   async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, prompt = null, flags = [] }) {
     const argv = launchArgv(this.launcher(), { tool, profile, mode, sessionId, prompt, flags });
+    const at = Date.now(); // the clock of the launcher's record (startedAt)
     const { name } = await this.backend.create({ name: await this.#newName(path.basename(dir)), dir, argv });
+    if (mode === 'resume') this.noteLaunch(name, sessionId, tool, at);
     return name;
   }
 
@@ -304,7 +325,9 @@ export class Deck {
     if (!target) throw Object.assign(new Error('unknown provider'), { status: 400 });
     // A conversation stays in the coding tool it was started in: only a provider that serves that tool takes it.
     assertServes(target, run.tool || 'claude');
-    await this.backend.respawn(term.id, run.cwd, this.moveArgv(target, run));
+    const argv = this.moveArgv(target, run);
+    this.noteLaunch(term.session, run.sessionId, run.tool || 'claude');
+    await this.backend.respawn(term.id, run.cwd, argv);
   }
 
   /**
