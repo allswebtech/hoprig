@@ -5,7 +5,7 @@
 // which conversation. Another folder is one row away.
 import { startChat } from './chat/start.js';
 import { icon } from './icons.js';
-import { KIND, ago, api, at, chooseSheet, confirmSheet, fill, h, link, machine, prefs, profileState, servesClaude, tildePath, toast } from './lib.js';
+import { ago, api, at, chooseSheet, confirmSheet, fill, h, kindLabel, link, machine, prefs, profileState, servesClaude, tildePath, toast } from './lib.js';
 import { fold, frame, groupHead } from './shell.js';
 import { runsSessions, store } from './store.js';
 
@@ -153,7 +153,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     // A plain terminal runs no Claude: no provider, mode, model or conversation to choose.
     if (st.run === 'shell') return fill(opts, run);
     fill(opts, run,
-      select('Provider', st.profile, [['', chat ? `${same}${recLabel ? `, else ${recLabel}` : ''}` : recLabel ? `The default: ${recLabel}` : 'The default'], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${KIND[p.kind] || p.kind} · ${profileState(p).text}`])], (v) => (st.profile = v)),
+      select('Provider', st.profile, [['', chat ? `${same}${recLabel ? `, else ${recLabel}` : ''}` : recLabel ? `The default: ${recLabel}` : 'The default'], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => (st.profile = v)),
       select('What Claude may do without asking', st.permissionMode, [['', same], ...Object.entries(MODES)], (v) => (st.permissionMode = v),
         st.permissionMode === 'bypassPermissions' ? 'Claude can run any command and change any file without asking.' : null),
       select('How hard it thinks', st.effort, [['', same], ...Object.entries(EFFORT)], (v) => (st.effort = v)),

@@ -1,4 +1,4 @@
-// What Settings → Updates looks after: Hoprig itself, the three coding tools and the tunnel helper (cloudflared, for
+// What Settings → Updates looks after: Hoprig itself, the coding tools this version offers and the tunnel helper (cloudflared, for
 // the public link). One item each, all with the same shape, so the page, the command line and the automatic rule
 // treat them alike:
 //
@@ -18,7 +18,7 @@
 // its sessions is working (Claude Code: a running session keeps its own copy) or open at all (Codex, OpenCode: npm
 // replaces their program files); the tunnel helper never while a public link is on (a Temporary link would come
 // back with a new address).
-import { findTool, turnOn } from '../codetools/index.mjs';
+import { TOOLS, findTool, turnOn } from '../codetools/index.mjs';
 import { readyToReplace, toolRuns } from '../codetools/servers.mjs';
 import { capture, compareVersions, npmMajor, showCommand, stream } from '../setup/system.mjs';
 import { busy, toolOf } from './cards.mjs';
@@ -231,5 +231,5 @@ export function publicLinkState(ls, cfg) {
   return rec.pid && ls.ours(rec.pid) ? { on: true, kind: name(rec.kind) } : { on: false };
 }
 
-/** The five items, in the order the page shows them. */
-export const realItems = (deps = {}) => [hoprigItem(deps), toolItem('claude'), toolItem('codex'), toolItem('opencode'), tunnelItem(deps)];
+/** The items, in the order the page shows them: Hoprig, each offered coding tool (src/codetools/index.mjs), the tunnel helper. */
+export const realItems = (deps = {}) => [hoprigItem(deps), ...TOOLS.map((t) => toolItem(t.id)), tunnelItem(deps)];

@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runsDir } from '../paths.mjs';
 import { codexClient, opencodeClient } from './clients.mjs';
-import { findTool } from './index.mjs';
+import { anyTool } from './index.mjs'; // every built tool: the offered ones are chosen before this code runs
 import { codexArgs, startSettings, tomlString } from './providers.mjs';
 import { cleanEnv, codexBlockArgs, serverProviders } from './servers.mjs';
 import { codexSessions, isToolSessionId, opencodeSessions } from './stores.mjs';
@@ -26,7 +26,7 @@ export const promptTail = (tool, prompt) => (!prompt ? [] : tool === 'opencode' 
 
 /** Codex's command line for a terminal attached to Hoprig's app server. */
 export function codexTuiArgs({ port, prov, model, cwd, resume = null, o }) {
-  const t = findTool('codex');
+  const t = anyTool('codex');
   return [
     '--remote', `ws://127.0.0.1:${port}`, '--remote-auth-token-env', 'HOPRIG_CODEX_WS',
     ...t.noSelfUpdate.args,
@@ -43,7 +43,7 @@ export function codexTuiArgs({ port, prov, model, cwd, resume = null, o }) {
 
 /** OpenCode's command line for a terminal attached to Hoprig's server, on conversation `id`. */
 export function opencodeTuiArgs({ url, id, cwd, o }) {
-  const t = findTool('opencode');
+  const t = anyTool('opencode');
   return ['--server', url, '-s', id, ...t.flagsFor(o), ...o.extra, ...promptTail('opencode', o.prompt), cwd];
 }
 
@@ -158,7 +158,7 @@ export async function codexPlan(server, { profile, model, cwd, o, base, report }
       }
     }
   }
-  const env = { ...cleanEnv(base), ...findTool('codex').noSelfUpdate.env, HOPRIG_CODEX_WS: server.secret };
+  const env = { ...cleanEnv(base), ...anyTool('codex').noSelfUpdate.env, HOPRIG_CODEX_WS: server.secret };
   const args = codexTuiArgs({ port: server.port, prov, model, cwd, resume, o });
   if (resume) report.title(((await codexSessions(cwd)).find((x) => x.id === resume) || {}).title || '');
   let mine = resume;
@@ -248,7 +248,7 @@ function watchCodex(first, server, onNote, report, known) {
 export async function opencodePlan(server, { profile, model, cwd, o, base, report }) {
   const prov = serverProviders('opencode', [profile])[0];
   const oc = opencodeClient(server);
-  const t = findTool('opencode');
+  const t = anyTool('opencode');
   const want = model ? { providerID: prov.id, id: model, ...(o.effort ? { variant: o.effort } : {}) } : null;
   let id = o.resume || (o.cont ? ((await opencodeSessions(cwd, { ensure: async () => ({ ok: true, server }) }))[0] || {}).id || null : null);
   if (id) {
@@ -303,7 +303,7 @@ function watchOpencode(oc, id, report) {
 // ---- on its own (no server) ----
 
 export async function standalonePlan(toolId, { profile, model, cwd, o, base }) {
-  const t = findTool(toolId);
+  const t = anyTool(toolId);
   if (toolId === 'codex') {
     const { env } = await startSettings('codex', profile, { base: cleanEnv(base) });
     const resume = o.resume || (o.cont ? ((await codexSessions(cwd))[0] || {}).id || null : null);

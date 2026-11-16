@@ -14,8 +14,8 @@ import { FitAddon } from './vendor/addon-fit/lib/addon-fit.mjs';
 import { Unicode11Addon } from './vendor/addon-unicode11/lib/addon-unicode11.mjs';
 import { icon } from './icons.js';
 import {
-  KIND, TOOL_NAMES, api, btn, bytes, cardTool, chooseSheet, closeWindow, confirmSheet, fill, h, isClaudeCard, isCodingCard, limitBox, liveBasic,
-  needsYou, needsYouFirst, openSheet, permissionActions, link, machine, prefs, profileIcon, profileState, profileText, promptSheet, servesTool,
+  TOOL_NAMES, api, btn, bytes, cardTool, chooseSheet, closeWindow, confirmSheet, fill, h, isClaudeCard, isCodingCard, limitBox, liveBasic,
+  kindLabel, needsYou, needsYouFirst, openSheet, permissionActions, link, machine, prefs, profileIcon, profileState, profileText, promptSheet, servesTool,
   stateOf, statusPill, switchProfile, toast, toolChip, url, wsUrl,
 } from './lib.js';
 import { pageNotify, store } from './store.js';
@@ -704,7 +704,7 @@ export function openSession(app, name) {
       items: profiles.map((p) => ({
         value: p.name,
         label: p.label,
-        sub: p.virtual ? profileState(p).text : `${KIND[p.kind] || p.kind} · ${profileState(p).text}`,
+        sub: p.virtual ? profileState(p).text : `${kindLabel(p)} · ${profileState(p).text}`,
         icon: profileIcon(p),
         current: s.profile && p.name === s.profile.name,
         // One that is not signed in is shown with why, and cannot be picked (Providers signs it in).

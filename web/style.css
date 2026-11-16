@@ -597,6 +597,11 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); border-ra
 .acct-limit { flex-wrap: wrap; }
 .acct-limit > span { flex: 1 1 200px; }
 .acct-limit > .btn { flex: 0 1 auto; }
+/* A provider no coding tool of this version can use (`unusable`): muted in the list, its state too. */
+.acct.ps-unusable .row-title, .acct.ps-unusable .row-icon, .acct.ps-unusable .row-sub.state { color: var(--muted); }
+.acct-unusable { flex-wrap: wrap; }
+.acct-unusable > span { flex: 1 1 200px; }
+.acct-unusable > .btn { flex: 0 0 auto; }
 .acct-who strong { color: var(--text); font-weight: 600; }
 /* Which coding tools a provider works with (src/profiles.mjs servesTools). */
 .acct-works { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font-size: 13px; color: var(--text-2); }
@@ -855,6 +860,7 @@ body.is-demo .page-title::after { display: inline-block; }
 .acct-state.ps-limit { color: var(--danger); }
 .acct-state.ps-inuse { color: var(--accent); }
 .acct-state.ps-signin { color: var(--warn); }
+.acct-state.ps-unusable { color: var(--muted); }
 
 /* ---------- Settings (settings.js): the list and the chosen page ---------- */
 .split-head { margin: 0 2px 12px; }

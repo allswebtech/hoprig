@@ -297,9 +297,9 @@ No AI involved, just rules you switch on, on the **Automations** page (Schedules
 - **Restore**: after a restart, sessions come back where they were.
 - **Retry**: after a server error that is not a limit, wait and continue, three times.
 
-New versions have a page of their own, **Settings → Updates**: Claude Code, Codex, OpenCode, the tunnel helper and
+New versions have a page of their own, **Settings → Updates**: Claude Code, OpenCode, the tunnel helper and
 Hoprig, Manual (it tells you) or Automatic (it installs one when no Claude Code session or chat is working, and
-no Codex or OpenCode session is open; Hoprig itself it only tells you about).
+no OpenCode session is open; Hoprig itself it only tells you about).
 
 ## Tia (experimental, off by default)
 
@@ -418,7 +418,7 @@ hop                              choose a provider, start Claude Code in this te
 hop chat [folder]                open a chat in the folder (prints its address, opens the browser here)
 hop <profile> [args]             start on that provider (args go to Claude Code)
 hop auto [args]                  Auto mode          hop auto on | off | order … | status
-hop codex | opencode [profile] [args]   Codex or OpenCode in this terminal, on a provider that serves it
+hop opencode [profile] [args]    OpenCode in this terminal, on a provider that serves it
 hop add | profiles | rm          providers (each one is a profile)
 hop setup | doctor | update      set everything up, check everything, update Hoprig
 hop pc setup | status | clone    this computer for coding;  hop pc recipe save: a recipe for the next one

@@ -13,13 +13,14 @@
 // a new choice.
 //
 // Stored (automation store "updates"): { lastCheckAt, retryAt, told: { id: version }, waiting: { id: version } }.
+import { TOOL_IDS } from '../codetools/index.mjs';
 import { busy } from './cards.mjs';
 
 export const CHECK_EVERY_MS = 6 * 3600_000;
 export const RETRY_MS = 10 * 60_000;
 export const UPDATE_MODES = ['manual', 'auto'];
-/** What Settings → Updates lists (./updateitems.mjs realItems). */
-export const UPDATE_ITEMS = ['hoprig', 'claude', 'codex', 'opencode', 'cloudflared'];
+/** What Settings → Updates lists (./updateitems.mjs realItems): the coding tools are the offered ones. */
+export const UPDATE_ITEMS = Object.freeze(['hoprig', ...TOOL_IDS, 'cloudflared']);
 const LEGACY = ['off', 'notify', 'auto'];
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);

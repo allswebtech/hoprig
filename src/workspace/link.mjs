@@ -1,6 +1,7 @@
 // `hoprig workspace link`: make every coding tool that is on read the same global rules, skills and memory from
 // the AI brain, so they travel with the brain's git repository. Each tool's descriptor says what it reads
-// (src/codetools: brainLinks); the entries of the tools that are on (config.json "codingTools") are linked:
+// (src/codetools: brainLinks); the entries of the tools that are on (config.json "codingTools", only offered tools:
+// src/codetools/index.mjs) are linked. Codex's entries are kept for when it is offered again:
 //
 //   Claude Code   <claude dir>/CLAUDE.md                          → ai_brain/claude/CLAUDE.md
 //                 <claude dir>/skills                             → ai_brain/skills
@@ -21,7 +22,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { enabledToolIds, findTool } from '../codetools/index.mjs';
+import { anyTool, enabledToolIds } from '../codetools/index.mjs';
 import { MEMORY_INDEX } from '../codetools/opencode.mjs';
 import { loadConfig } from '../config.mjs';
 import { claudeDir, tilde } from '../paths.mjs';
@@ -71,25 +72,25 @@ export function toolHomes(home = os.homedir(), env = process.env) {
  * `tools`: the tool ids (default: config.json "codingTools"); `homes`: { codex, opencode } folders.
  */
 export function linkTargets({ base = claudeDir(), brain = brainDir(), home = os.homedir(), tools = null, homes = null } = {}) {
-  const ids = tools || enabledToolIds(loadConfig());
+  const ids = tools || enabledToolIds(loadConfig()); // offered tools only, unless a caller (a test) names others
   const where = { ...toolHomes(home), ...(homes || {}) };
   const out = [];
   for (const id of ids) {
-    const t = findTool(id);
+    const t = anyTool(id);
     if (!t || !t.brainLinks) continue;
     for (const e of t.brainLinks({ base, brain, home, toolHome: where[id] })) {
       const same = e.kind !== 'json' && out.find((o) => o.link === e.link);
       if (same) {
         same.tools.push(id);
-        same.what = `your skills, for ${same.tools.map((x) => findTool(x).name).join(' and ')}`;
+        same.what = `your skills, for ${same.tools.map((x) => anyTool(x).name).join(' and ')}`;
         continue;
       }
       out.push({ ...e, id: id === 'claude' ? e.id : `${id}:${e.id}`, tool: id, tools: [id] });
     }
   }
-  const forgetful = ids.filter((id) => findTool(id) && findTool(id).ownMemory === false);
+  const forgetful = ids.filter((id) => anyTool(id) && anyTool(id).ownMemory === false);
   if (forgetful.length) {
-    const names = forgetful.map((x) => findTool(x).name).join(' and ');
+    const names = forgetful.map((x) => anyTool(x).name).join(' and ');
     out.push({
       id: 'memory-note', tool: forgetful[0], tools: forgetful, kind: 'section', what: `a Memory section in the shared rules, so ${names} read and keep each project's memory`,
       link: path.join(brain, 'claude', 'CLAUDE.md'), target: 'a short "Memory" section at its end',

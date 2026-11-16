@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { getAutoSwitch, limitedProfiles, recommendedProfile, usableOrder } from './autoswitch.mjs';
+import { isOffered } from './codetools/offered.mjs';
 import { loadConfig } from './config.mjs';
 import { stateDir, tilde } from './paths.mjs';
-import { AUTH_VARS, listProfiles, readProfile, validName, writeProfile } from './profiles.mjs';
+import { AUTH_VARS, listProfiles, readProfile, servesTools, validName, writeProfile } from './profiles.mjs';
 import { sessionsIn } from './sessions.mjs';
 
 const out = (s = '') => process.stdout.write(s + '\n');
@@ -129,11 +130,13 @@ export function parseChoice(answer, profiles) {
 }
 
 /**
- * What the menus offer: the real profiles and, when an order is set, "auto" on top: Claude Code talks to the
- * router, which moves to the next account at a limit without the session stopping.
+ * What the menus offer: the profiles that serve Claude Code (the menus start Claude Code; an OpenAI key or another
+ * coding tool's sign-in is not one to pick, nor the Enter default) and, when an order is set, "auto" on top: Claude
+ * Code talks to the router, which moves to the next account at a limit without the session stopping.
+ * `all`: every profile instead (`hoprig profiles`, which wrapper scripts of any coding tool read).
  */
-export function menuProfiles() {
-  const real = listProfiles();
+export function menuProfiles({ all = false } = {}) {
+  const real = all ? listProfiles() : listProfiles().filter((p) => servesTools(p).includes('claude'));
   const as = getAutoSwitch();
   const names = usableOrder();
   if (!names.length) return real;
@@ -143,9 +146,13 @@ export function menuProfiles() {
   return [{ name: 'auto', label: `${names.join(' → ')}  (${what})`, kind: 'auto' }, ...real];
 }
 
-/** With no profile at all, start with one for the account Claude Code is already logged in with. */
+/**
+ * With no profile for Claude Code (none at all, or only providers of other coding tools), start with one for the
+ * account Claude Code is already logged in with, unless its name is taken.
+ */
 export function ensureFirstProfile() {
-  if (listProfiles().length) return;
+  const all = listProfiles();
+  if (all.some((p) => servesTools(p).includes('claude')) || all.some((p) => p.name === 'sub')) return;
   writeProfile('sub', { label: 'Claude account (stored login)' });
   out(dim('Created the profile "sub": the Claude account this machine is logged in with (claude /login).'));
 }
@@ -163,12 +170,13 @@ export async function chooseProfile({ sessionChosen = false } = {}) {
     // Enter takes the best profile to start on: "auto" when Auto mode is on, else the first of the order that is
     // not at its limit, else the one used last (unless that one is at its limit), else the first.
     const pick = [as.enabled ? 'auto' : null, recommendedProfile(), lastUsed()].find((n) => n && !(n in limited) && profiles.some((p) => p.name === n));
-    const def = profiles.find((p) => p.name === pick) || profiles.find((p) => !(p.name in limited)) || profiles[0];
+    const def = profiles.find((p) => p.name === pick) || profiles.find((p) => !(p.name in limited)) || profiles[0] || null;
     const sessions = sessionChosen ? [] : sessionsIn(process.cwd());
     out();
     out(`${bold('Hoprig')} ${dim('·')} ${tilde(process.cwd())}`);
     out();
-    table(profiles, (p) => [limitNote(p.name, limited), p.name === def.name ? dim('← Enter') : ''].filter(Boolean).join('  '));
+    if (profiles.length) table(profiles, (p) => [limitNote(p.name, limited), p.name === def.name ? dim('← Enter') : ''].filter(Boolean).join('  '));
+    else out(dim('  No provider here serves Claude Code yet. Add one with a.'));
     out();
     out(`  ${bold(' a')}  add a profile      ${bold('q')}  quit`);
     out(dim(as.enabled
@@ -181,6 +189,10 @@ export async function chooseProfile({ sessionChosen = false } = {}) {
     if (answer === null || answer.toLowerCase() === 'q') return null;
     if (answer.toLowerCase() === 'a') {
       await addProfile();
+      continue;
+    }
+    if (answer === '' && !def) {
+      out('There is nothing to start on yet: type a to add a provider, or q to quit.');
       continue;
     }
     const choice = answer === '' ? { profile: def, mode: 'new' } : parseChoice(answer, profiles);
@@ -252,8 +264,10 @@ export async function addProfile(nameArg) {
   out(`  ${bold('2')}  an Anthropic API key`);
   out(`  ${bold('3')}  an API through a proxy or gateway (base URL + token)`);
   out(`  ${bold('4')}  the Claude account this machine is logged in with (claude /login)`);
-  out(`  ${bold('5')}  an OpenAI API key, or a service that speaks OpenAI's API (for Codex and OpenCode)`);
-  out(`  ${bold('6')}  the ChatGPT account Codex signs in to on this computer (for Codex)`);
+  // 6: Codex's own sign-in, only while Codex is offered (src/codetools/offered.mjs).
+  const codex = isOffered('codex');
+  out(`  ${bold('5')}  an OpenAI API key, or a service that speaks OpenAI's API (for ${codex ? 'Codex and ' : ''}OpenCode)`);
+  if (codex) out(`  ${bold('6')}  the ChatGPT account Codex signs in to on this computer (for Codex)`);
   const kind = await ask('> ');
   if (kind === null || kind === '') return null;
 
@@ -327,7 +341,7 @@ export async function addProfile(nameArg) {
     if (url && !/^https:\/\/api\.openai\.com\/?(v1\/?)?$/.test(url)) env.OPENAI_BASE_URL = url.replace(/\/+$/, '').replace(/\/v1$/, '');
     if (model) models = `*=${model}`;
     defaultLabel = env.OPENAI_BASE_URL ? `OpenAI API via ${env.OPENAI_BASE_URL.replace(/^https?:\/\//, '')}` : 'OpenAI API';
-  } else if (kind === '6') {
+  } else if (kind === '6' && codex) {
     signin = 'codex';
     defaultLabel = 'Codex sign-in';
   } else {
@@ -337,7 +351,9 @@ export async function addProfile(nameArg) {
   const label = await ask(`Label shown in menus [${defaultLabel}]: `);
   if (label === null) return null;
   const saved = writeProfile(name, { label: label || defaultLabel, prerun, models, signin, env });
-  if (kind === '5') out(`Saved. Start Codex with: hoprig codex ${name}  (or OpenCode: hoprig opencode ${name}). The dashboard's Test on the provider finds out whether Claude Code can use it too.`);
+  if (kind === '5') {
+    out(`Saved. Start ${codex ? `Codex with: hoprig codex ${name}  (or OpenCode: hoprig opencode ${name})` : `OpenCode with: hoprig opencode ${name}`}. The dashboard's Test on the provider finds out whether Claude Code can use it too.`);
+  }
   else if (kind === '6') out(`Saved. Sign Codex in first: hoprig codex login --device-auth  Then start it with: hoprig codex ${name}`);
   else out(`Saved. Start it with: hoprig ${name}`);
   return saved ? name : null;

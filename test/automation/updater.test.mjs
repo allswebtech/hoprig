@@ -362,7 +362,7 @@ test('the old Claude-only setting: moved once at start; an older page or Tia may
     assert.deepEqual(g.config().updates, { mode: 'manual', notify: false, itemModes: { claude: 'auto' } });
     const U = await import('../../src/automation/updates.mjs');
     const s = U.readUpdateSettings(g.config());
-    assert.deepEqual(['hoprig', 'claude', 'codex', 'opencode', 'cloudflared'].map((id) => U.modeOf(s, id)), ['manual', 'auto', 'manual', 'manual', 'manual']);
+    assert.deepEqual(['hoprig', 'claude', 'opencode', 'cloudflared'].map((id) => U.modeOf(s, id)), ['manual', 'auto', 'manual', 'manual']);
     assert.equal(U.looksInBackground(s), true, 'it still looks, to update Claude Code');
     const rows = ['claude', 'codex'].map((id) => ({ id, title: id, installed: '1', latest: '2', updateAvailable: true, canUpdate: true, auto: true }));
     assert.deepEqual(U.afterCheck({ rows, settings: s, data: {} }).actions.map((x) => [x.type, x.id]), [['update', 'claude']]);
@@ -410,4 +410,18 @@ test('the output shows the home folder as "~" (no user name on the page)', async
   const l = await settle(u);
   assert.equal(l.lines[1], '$ npm install --prefix ~/.local/state/hoprig/tools/codex');
   assert.equal(l.results.codex.error, 'npm error in ~/.npm');
+});
+
+test('Settings → Updates lists the offered coding tools only: Hoprig, Claude Code, OpenCode, the tunnel helper', async () => {
+  const U = await import('../../src/automation/updates.mjs');
+  const { realItems } = await import('../../src/automation/updateitems.mjs');
+  const { demoUpdateItems } = await import('../../src/demo/updates.mjs');
+  assert.deepEqual([...U.UPDATE_ITEMS], ['hoprig', 'claude', 'opencode', 'cloudflared']);
+  assert.deepEqual(realItems().map((i) => [i.id, i.title]), [['hoprig', 'Hoprig'], ['claude', 'Claude Code'], ['opencode', 'OpenCode'], ['cloudflared', 'Tunnel helper (cloudflared)']]);
+  assert.deepEqual(demoUpdateItems().map((i) => i.id), ['hoprig', 'claude', 'opencode', 'cloudflared'], 'the demo too');
+  assert.doesNotMatch(JSON.stringify(realItems().concat(demoUpdateItems()).map((i) => [i.title, i.whenRunning])), /Codex/);
+  // A setting that names Codex (written by a version that offered it) is read as if it did not; a new one is refused.
+  const s = U.readUpdateSettings({ updates: { mode: 'manual', notify: false, itemModes: { codex: 'auto', opencode: 'auto' } } });
+  assert.deepEqual(s, { mode: 'manual', notify: false, itemModes: { opencode: 'auto' } });
+  assert.throws(() => U.cleanUpdateSettings({ itemModes: { codex: 'auto' } }, s), /"codex" is not updated here/);
 });

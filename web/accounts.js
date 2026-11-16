@@ -3,8 +3,12 @@
 // The ways to add one:
 //   Claude subscription   sign in through a link, paste the code back; the computer keeps the token
 //   Claude API            a key from console.anthropic.com or a gateway that speaks Claude's API
-//   OpenAI API key        a key for OpenAI's API or a service that speaks it (for Codex and OpenCode)
-//   Codex sign-in         the ChatGPT account Codex keeps itself (Sign in on its page opens Hoprig's `codex login`)
+//   OpenAI API key        a key for OpenAI's API or a service that speaks it (for OpenCode)
+//   Codex sign-in         the ChatGPT account Codex keeps itself (Sign in on its page opens Hoprig's `codex login`);
+//                         offered only while Codex is (the server sends defaults.codex then). A file of this kind
+//                         from a version that offered it comes with `unusable`: one plain line, not an error
+// A provider that serves no coding tool of this version (that sign-in, or a key that answers only Codex's API) is
+// `unusable` (src/profiles.mjs): muted, listed last, and its page says so and offers Remove.
 //   Other providers       OpenAI, Gemini, OpenRouter, local models… through the TRouteAI add-on
 // Every provider says which coding tools it works with ("Test" asks the endpoint which APIs it answers).
 // "Use the terminal instead" stays for when the page flow does not work. Accounts are added on the computer whose
@@ -14,7 +18,7 @@ import { accountText, loadAccount, signOut, switchAccount, usesStoredLogin } fro
 import { claudeSignIn } from './claudelogin.js';
 import { icon } from './icons.js';
 import {
-  KIND, add, ago, api, at, btn, confirmSheet, copyText, fill, h, insecure, link, machine, openSheet, profileState, promptSheet,
+  add, ago, api, at, btn, confirmSheet, copyText, fill, h, insecure, kindLabel, link, machine, openSheet, profileState, promptSheet,
   servesClaude, startOrder, subscriptionsNote, toast, toolsText, until,
 } from './lib.js';
 import { gatewaysPanel } from './gateways.js';
@@ -37,7 +41,7 @@ const CLAUDE_SIGNIN = ['login', 'subscription'];
 const PLAN = (p) => p.charAt(0).toUpperCase() + p.slice(1);
 // A provider that uses another computer's gateway: where it is, or why it cannot be used now (src/gateway).
 const remoteText = (a) => (!a.remote ? null : a.remote.state === 'online' ? `${a.remote.title || 'Gateway'} on ${a.remote.computer}` : a.remote.text);
-const kindText = (a) => [a.kind === 'login' || a.kind === 'subscription' ? 'Subscription' : KIND[a.kind] || a.kind, a.plan ? PLAN(a.plan) : null].filter(Boolean).join(' · ');
+const kindText = (a) => [kindLabel(a), a.plan ? PLAN(a.plan) : null].filter(Boolean).join(' · ');
 
 async function terminalWay() {
   try {
@@ -75,7 +79,7 @@ const ORDINAL = (n) => `${n}${[, 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 
 
 /** The accounts in the Auto order; the others after it, subscriptions first. */
 function inOrder(accounts, order) {
-  const rank = (a) => (order.includes(a.name) ? order.indexOf(a.name) : order.length + (CLAUDE_SIGNIN.includes(a.kind) ? 0 : 1));
+  const rank = (a) => (order.includes(a.name) ? order.indexOf(a.name) : order.length + (a.unusable ? 2 : CLAUDE_SIGNIN.includes(a.kind) ? 0 : 1));
   return [...accounts].sort((a, b) => rank(a) - rank(b));
 }
 
@@ -135,7 +139,7 @@ function limitPanel(auto, accounts, refresh, flash) {
         h('li', 'On another subscription, Claude restarts on that provider and carries on with the same conversation.'),
         h('li', 'Providers lower in the order are used only while the ones above are at their limit.'),
         h('li', 'An API key straight to Anthropic costs money for every use; Auto mode uses one only when you allow it below.'),
-        h('li', 'Auto mode, plan usage and Tia work with Claude Code only. A Codex or OpenCode session stays on the provider you start it on.')),
+        h('li', 'Auto mode, plan usage and Tia work with Claude Code only. An OpenCode session stays on the provider you start it on.')),
       subscriptionsNote(rows.map((n) => accounts.find((p) => p.name === n)))),
     choice === 'carry' ? [
       h('div.field-label', 'Order of providers'),
@@ -286,6 +290,33 @@ function codexSigninBox(a, d) {
     } }) : null);
 }
 
+// What Remove takes away: a provider with a key or a token of its own loses it; one that only points at a sign-in
+// kept elsewhere (Claude Code's stored login, another coding tool's sign-in) is only an entry here.
+const REMOVES_NOTHING_ELSE = ['login', 'chatgpt'];
+async function removeProvider(a) {
+  const text = REMOVES_NOTHING_ELSE.includes(a.kind)
+    ? 'Only this entry is removed; nothing else on the computer changes. Conversations are kept and can continue on another provider.'
+    : 'Its stored key or token is removed from the computer. Conversations are kept and can continue on another provider.';
+  if (!(await confirmSheet({ title: `Remove ${a.label}?`, text, ok: 'Remove', danger: true }))) return;
+  try {
+    await api(A(`/${encodeURIComponent(a.name)}/delete`), {});
+    toast(`${a.label} removed`);
+    store.refresh();
+    location.hash = link('#/providers');
+  } catch (e) {
+    toast(e.message, { kind: 'error' });
+  }
+}
+
+/** A provider no coding tool of this version can use: why, in one line, and the one thing to do (Remove). */
+function unusableBox(a, d) {
+  const why = a.kind === 'chatgpt'
+    ? 'This is the sign-in of a coding tool that this version of Hoprig does not offer, so nothing uses it. It is kept until you remove it.'
+    : `No coding tool of this version of Hoprig can use this provider, so nothing uses it.${KEYED.includes(a.kind) ? ' If its address answers more now, Test it again; otherwise remove it.' : ''}`;
+  return h('div.banner.muted.mbanner.acct-unusable', icon('info', { size: 18 }), h('span', why),
+    d.full ? btn('small danger', { icon: 'trash', label: 'Remove', onclick: () => removeProvider(a) }) : null);
+}
+
 function viewAccount(frame, name) {
   const body = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading…')));
   // The title is the account's name: drawn again once it is known (and after a rename).
@@ -329,7 +360,8 @@ function viewAccount(frame, name) {
       panel({},
         h(`p.acct-state.ps-${ps.key}`, h('span.dot'), ps.text),
         who,
-        a.kind === 'chatgpt' ? codexSigninBox(a, d) : ps.key === 'signin'
+        a.unusable ? unusableBox(a, d)
+          : a.kind === 'chatgpt' ? codexSigninBox(a, d) : ps.key === 'signin'
           ? h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Claude Code cannot use this provider until you sign in again.'),
             d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: () => signInAgain(a, d, refresh) }) : null)
           : CLAUDE_SIGNIN.includes(a.kind) || a.kind === 'api' ? usageBars(a.usage, a.usageReported, a.inUse > 0) || h('p.hint', 'No usage figures yet: they appear after the first answer on this provider.') : null,
@@ -339,7 +371,7 @@ function viewAccount(frame, name) {
           : null,
         worksWith(a) ? h('p.acct-works', icon('check', { size: 15 }), h('span', worksWith(a))) : null,
         testResult(a),
-        a.kind === 'chatgpt' ? h('p.hint', 'Codex uses the ChatGPT account it is signed in to on this computer. In a terminal, the same is ', h('code', `${COMMAND} codex login --device-auth`), '.') : null,
+        a.kind === 'chatgpt' && !a.unusable ? h('p.hint', 'Codex uses the ChatGPT account it is signed in to on this computer. In a terminal, the same is ', h('code', `${COMMAND} codex login --device-auth`), '.') : null,
         CLAUDE_SIGNIN.includes(a.kind) ? h('p.hint', 'A Claude subscription works with Claude Code only.') : null,
         d.full && claude ? toggle('Use in Auto mode', a.inAuto, async (on) => {
           try {
@@ -370,17 +402,7 @@ function viewAccount(frame, name) {
         }) : null) : null,
       d.full ? fold('account', 'Advanced',
         h('p.hint', `Short name: ${a.name} (for the command line).`),
-        h('div.savebar', btn('danger', { icon: 'trash', label: 'Remove this provider', onclick: async () => {
-          if (!(await confirmSheet({ title: `Remove ${a.label}?`, text: 'Its stored login or key is removed from the computer. Conversations are kept and can continue on another provider.', ok: 'Remove', danger: true }))) return;
-          try {
-            await api(A(`/${encodeURIComponent(a.name)}/delete`), {});
-            toast(`${a.label} removed`);
-            store.refresh();
-            location.hash = link('#/providers');
-          } catch (e) {
-            toast(e.message, { kind: 'error' });
-          }
-        } }))) : h('p.hint', 'This computer runs an older version: its providers are changed on its own page.'));
+        h('div.savebar', btn('danger', { icon: 'trash', label: 'Remove this provider', onclick: () => removeProvider(a) }))) : h('p.hint', 'This computer runs an older version: its providers are changed on its own page.'));
   }
   load();
   return () => {
@@ -469,8 +491,9 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
         h('div.choice-list',
           choice('user', 'Claude subscription', 'Another Claude Pro or Max account. You sign in through a link; nothing to install.', () => subscription()),
           choice('key', 'Claude API key', 'A key from console.anthropic.com, or a gateway that speaks Claude\'s API.', () => apiForm({ via: 'api' })),
-          choice('key', 'OpenAI API key', 'For Codex and OpenCode: a key from platform.openai.com, or a service that speaks OpenAI\'s API.', () => apiForm({ via: 'openai' })),
-          choice('user', 'Codex sign-in', 'The ChatGPT account Codex signs in to on this computer. For Codex only.', () => codexSignin()),
+          choice('key', 'OpenAI API key', 'For OpenCode: a key from platform.openai.com, or a service that speaks OpenAI\'s API.', () => apiForm({ via: 'openai' })),
+          // Only while Codex is offered (src/codetools/offered.mjs): the server sends its defaults then.
+          data.defaults && data.defaults.codex ? choice('user', 'Codex sign-in', 'The ChatGPT account Codex signs in to on this computer. For Codex only.', () => codexSignin()) : null,
           choice('sparkle', 'Other providers through TRouteAI (for Claude Code)', 'OpenAI, Gemini, OpenRouter or a local model, translated for Claude Code by TRouteAI, a free gateway on this computer.', () => trouteai())),
         terminalLink());
     const back = () => signIn ? null : h('button.btn.ghost.small.backlink', { type: 'button', onclick: async () => { await cleanup?.(); cleanup = null; choose(); } }, icon('back', { size: 16 }), h('span', 'Other ways'));

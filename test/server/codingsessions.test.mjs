@@ -1,6 +1,7 @@
-// POST /api/sessions and the routes around it for Codex and OpenCode: the tool must be on and installed, the
-// provider must serve it (a Claude subscription and Auto mode never do), the choices are the tool's own, resume
-// lists come from the tool's store, and a move stays inside the tool. A Claude Code start is unchanged.
+// POST /api/sessions and the routes around it for a coding tool other than Claude Code (OpenCode): the tool must be
+// on and installed, the provider must serve it (a Claude subscription and Auto mode never do), the choices are the
+// tool's own, and a move stays inside the tool. Codex is not offered in this version: refused everywhere. A Claude
+// Code start is unchanged. (Codex's own store and launcher words are kept code: test/codetools/terminal.test.mjs.)
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -64,47 +65,58 @@ const install = (tool) => {
   fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 };
 
-test('Codex starts only when it is on and installed, on a provider that serves it, with its own choices', async () => {
-  let r = await call('/api/sessions', { tool: 'codex', dir: work, profile: 'gw', mode: 'new' });
+test('OpenCode starts only when it is on and installed, on a provider that serves it, with its own choices', async () => {
+  let r = await call('/api/sessions', { tool: 'opencode', dir: work, profile: 'gw', mode: 'new' });
   assert.equal(r.status, 400);
-  assert.match(r.json.error, /Codex is off/);
-  saveConfig({ codingTools: ['claude', 'codex', 'opencode'] });
-  r = await call('/api/sessions', { tool: 'codex', dir: work, profile: 'gw', mode: 'new' });
+  assert.match(r.json.error, /OpenCode is off/);
+  saveConfig({ codingTools: ['claude', 'codex', 'opencode'] }); // written by a version that offered Codex
+  r = await call('/api/sessions', { tool: 'opencode', dir: work, profile: 'gw', mode: 'new' });
   assert.equal(r.status, 409);
   assert.match(r.json.error, /not installed/);
   install('codex');
   install('opencode');
-  r = await call('/api/sessions', { tool: 'codex', dir: work, profile: 'sub', mode: 'new' });
+  r = await call('/api/sessions', { tool: 'opencode', dir: work, profile: 'sub', mode: 'new' });
   assert.equal(r.status, 400);
-  assert.match(r.json.error, /cannot be used for Codex: a Claude subscription is for Claude Code only/);
-  assert.equal((await call('/api/sessions', { tool: 'codex', dir: work, profile: 'auto', mode: 'new' })).status, 400, 'Auto mode is Claude Code\'s');
-  assert.equal((await call('/api/sessions', { tool: 'codex', dir: work, profile: 'gw', mode: 'new', permissionMode: 'acceptEdits' })).status, 400);
+  assert.match(r.json.error, /cannot be used for OpenCode: a Claude subscription is for Claude Code only/);
+  assert.equal((await call('/api/sessions', { tool: 'opencode', dir: work, profile: 'auto', mode: 'new' })).status, 400, 'Auto mode is Claude Code\'s');
+  assert.equal((await call('/api/sessions', { tool: 'opencode', dir: work, profile: 'gw', mode: 'new', permissionMode: 'readOnly' })).status, 400);
   assert.equal((await call('/api/sessions', { tool: 'vim', dir: work, profile: 'gw', mode: 'new' })).status, 400);
-  r = await call('/api/sessions', { tool: 'codex', dir: work, profile: 'gw', mode: 'new', permissionMode: 'readOnly', effort: 'low', prompt: 'hi there' });
+  r = await call('/api/sessions', { tool: 'opencode', dir: work, profile: 'gw', mode: 'new', permissionMode: 'ask', effort: 'low', prompt: 'hi there' });
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json, { name: 'work', tool: 'codex' });
-  assert.deepEqual(created.pop().argv, ['L', 'codex', 'gw', '--permission-mode', 'readOnly', '--effort', 'low', '--', 'hi there']);
+  assert.deepEqual(r.json, { name: 'work', tool: 'opencode' });
+  assert.deepEqual(created.pop().argv, ['L', 'opencode', 'gw', '--permission-mode', 'ask', '--effort', 'low', '--', 'hi there']);
   // Claude Code: the command it always had.
   r = await call('/api/sessions', { dir: work, profile: 'gw', mode: 'new', effort: 'low' });
   assert.equal(r.status, 200);
   assert.deepEqual(created.pop().argv, ['L', 'gw', '--effort', 'low']);
 });
 
-test('resume lists and resume come from the tool\'s own store', async () => {
+test('Codex is not part of this version: no start, resume or resume list, even when the config names it and it is installed', async () => {
   const id = '01a1e390-0000-7000-8000-000000000001';
   const day = path.join(process.env.CODEX_HOME, 'sessions', '2026', '11', '16');
   fs.mkdirSync(day, { recursive: true });
   fs.writeFileSync(path.join(day, `rollout-2026-11-16T14-00-00-${id}.jsonl`), `${JSON.stringify({ type: 'session_meta', payload: { id, cwd: work } })}\n`);
+  const sentence = 'Codex is not part of this version of Hoprig.';
+  const n = created.length;
   let r = await call(`/api/folders/sessions?path=${encodeURIComponent(work)}&tool=codex`);
-  assert.deepEqual(r.json.sessions.map((s) => [s.id, s.title]), [[id, '(untitled)']]);
-  assert.equal(r.json.tool, 'codex');
+  assert.deepEqual([r.status, r.json.error], [400, sentence]);
+  r = await call('/api/sessions', { tool: 'codex', dir: work, profile: 'gw', mode: 'new' });
+  assert.deepEqual([r.status, r.json.error], [400, sentence]);
+  r = await call('/api/sessions', { tool: 'codex', dir: work, profile: 'gw2', mode: 'resume', sessionId: id });
+  assert.deepEqual([r.status, r.json.error], [400, sentence]);
+  assert.equal(created.length, n, 'nothing started');
   assert.equal((await call(`/api/folders/sessions?path=${encodeURIComponent(work)}&tool=vim`)).status, 400);
   r = await call(`/api/folders/sessions?path=${encodeURIComponent(work)}`);
   assert.deepEqual(r.json.sessions, [], 'Claude Code\'s store is another one');
-  assert.equal((await call('/api/sessions', { tool: 'codex', dir: work, profile: 'gw', mode: 'resume', sessionId: '01a1e399-0000-7000-8000-000000000000' })).status, 400);
-  r = await call('/api/sessions', { tool: 'codex', dir: work, profile: 'gw2', mode: 'resume', sessionId: id });
-  assert.equal(r.status, 200);
-  assert.deepEqual(created.pop().argv, ['L', 'codex', 'gw2', '--resume', id]);
+  // The page's lists: the providers name only the offered coding tools.
+  writeProfile('resp', { label: 'Responses only', api: ['responses'], env: { OPENAI_API_KEY: 'sk-resp-0123456789' } });
+  writeProfile('cx', { signin: 'codex' });
+  const st = await call('/api/state');
+  const of = (name) => st.json.profiles.find((p) => p.name === name);
+  assert.deepEqual(of('gw').tools, ['claude', 'opencode']);
+  assert.deepEqual(of('resp').tools, [], 'a provider only Codex could use serves no offered coding tool');
+  assert.deepEqual([of('cx').tools, of('cx').unusable], [[], true], 'a Codex sign-in from an earlier version: kept, not used');
+  assert.equal(of('gw').unusable, undefined);
 });
 
 test('a move stays in the tool: refused to a provider that does not serve it, else the conversation is resumed', async () => {

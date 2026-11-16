@@ -31,7 +31,7 @@ import { createAssistantCore } from './core.mjs';
 import { Engine } from './engine.mjs';
 import { createOps, runShell as realRunShell } from './ops.mjs';
 import { systemPrompt } from './prompt.mjs';
-import { ASSISTANT_NAME, HELP, LEVELS, cleanTiaPatch, resolveTia } from './tia.mjs';
+import { ASSISTANT_NAME, HELP, LEVELS, cleanTiaPatch, resolveTia, savedTiaChoice, servesTool, tiaChoices } from './tia.mjs';
 import { readUsage, recordUsage, summarizeUsage, turnUsage, usageFile } from './usage.mjs';
 
 /**
@@ -248,10 +248,13 @@ export function assistantFeature(ctx, o = {}) {
     const c = raw().clientToken;
     return {
       name: ASSISTANT_NAME,
-      settings: { ...tia, accounts: Array.isArray(raw().accounts) ? raw().accounts : null, runsOnSet: raw().runsOn || null },
+      // The saved choice holds only names Save accepts back (savedTiaChoice), or the page could not be saved.
+      settings: { ...tia, ...savedTiaChoice(raw(), accounts) },
       levels: LEVELS,
       help: HELP,
-      accounts: (accounts.profiles || []).map((p) => ({ name: p.name, label: p.label, kind: p.kind, limited: !!p.limited, virtual: !!p.virtual })),
+      // Only the providers she can use (tiaChoices); `thinks`: she can run on it (it serves Claude Code).
+      accounts: [...(accounts.profiles || []).filter((p) => p.virtual), ...tiaChoices(accounts)]
+        .map((p) => ({ name: p.name, label: p.label, kind: p.kind, limited: !!p.limited, virtual: !!p.virtual, thinks: servesTool(p, 'claude') })),
       autoOn: !!(accounts.autoSwitch && accounts.autoSwitch.enabled),
       usage: { today: usage.today, week: usage.week, conversations: Object.entries(usage.byConversation).slice(-20).map(([id, u]) => ({ id, ...u })) },
       client: c ? { created: c.created || null } : null,
@@ -334,7 +337,8 @@ export function assistantFeature(ctx, o = {}) {
       const accounts = await accountsNow();
       let patch;
       try {
-        patch = cleanTiaPatch(b, (accounts.profiles || []).filter((p) => !p.virtual).map((p) => p.name));
+        const choices = tiaChoices(accounts);
+        patch = cleanTiaPatch(b, choices.map((p) => p.name), choices.filter((p) => servesTool(p, 'claude')).map((p) => p.name));
       } catch (e) {
         throw new HttpError(400, e.message);
       }

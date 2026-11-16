@@ -305,7 +305,7 @@ test('the whole flow times out', async () => {
   }
 });
 
-test('an OpenAI-compatible key and a Codex sign-in: added, which tools they serve, and Test saves the API shapes', async () => {
+test('an OpenAI-compatible key: added, which offered tools it serves, and Test saves the API shapes; no Codex sign-in kind', async () => {
   // A stand-in for OpenAI's API: Bearer only; responses and chat completions, no Claude messages.
   const hits = [];
   const oai = http.createServer((req, res) => {
@@ -321,7 +321,7 @@ test('an OpenAI-compatible key and a Codex sign-in: added, which tools they serv
   try {
     let r = await call('/api/accounts');
     assert.equal(r.json.defaults.openai.baseUrl, 'https://api.openai.com');
-    assert.equal(r.json.defaults.codex.name, 'chatgpt');
+    assert.equal(r.json.defaults.codex, undefined, 'Codex is not offered: no Codex sign-in to add');
     r = await call('/api/accounts/probe', { baseUrl: `${url}/v1`, key: KEY, via: 'openai' });
     assert.equal(r.json.auth, 'Authorization: Bearer');
     const probe = r.json.probe;
@@ -336,13 +336,13 @@ test('an OpenAI-compatible key and a Codex sign-in: added, which tools they serv
     assert.deepEqual(p.api, ['responses', 'chat', 'models']);
     r = await call('/api/accounts');
     let a = r.json.accounts.find((x) => x.name === 'openai');
-    assert.deepEqual([a.kind, a.host, a.model, a.tools], ['openai', new URL(url).host, 'gpt-x', ['codex', 'opencode']]);
+    assert.deepEqual([a.kind, a.host, a.model, a.tools], ['openai', new URL(url).host, 'gpt-x', ['opencode']], 'OpenCode uses an OpenAI key (chat completions)');
 
     // Test on the provider: asks every shape again and saves what answered; the label and model stay.
     await call('/api/accounts/openai/label', { label: 'My OpenAI' });
     hits.length = 0;
     r = await call('/api/accounts/openai/test', {});
-    assert.deepEqual(r.json, { ok: true, shapes: ['responses', 'chat', 'models'], kept: [], tools: ['codex', 'opencode'] }, 'a clear "not here" (404) for Claude\'s API');
+    assert.deepEqual(r.json, { ok: true, shapes: ['responses', 'chat', 'models'], kept: [], tools: ['opencode'] }, 'a clear "not here" (404) for Claude\'s API');
     assert.ok(hits.includes('/v1/messages') && hits.includes('/v1/responses') && hits.includes('/v1/chat/completions'));
     assert.equal(readProfile('openai').label, 'My OpenAI');
     assert.equal(readProfile('openai').models, '*=gpt-x');
@@ -353,18 +353,18 @@ test('an OpenAI-compatible key and a Codex sign-in: added, which tools they serv
     r = await call('/api/accounts/subscription/start', { mode: 'signin', name: 'openai' });
     assert.equal(r.status, 409);
 
-    // A gateway that answers everything: Test turns a Claude-only provider into one for all three tools.
+    // A gateway that answers everything: Test finds every API (the offered tools are named).
     writeProfile('gw3', { label: 'GW', env: { ANTHROPIC_BASE_URL: GW, ANTHROPIC_AUTH_TOKEN: KEY, ANTHROPIC_MODEL: 'combo-best' } });
     r = await call('/api/accounts');
     assert.deepEqual(r.json.accounts.find((x) => x.name === 'gw3').tools, ['claude', 'opencode'], 'before Test: Claude\'s API only');
     r = await call('/api/accounts/gw3/test', {});
-    assert.deepEqual(r.json, { ok: true, shapes: ['messages', 'responses', 'chat', 'models'], kept: [], tools: ['claude', 'codex', 'opencode'] });
+    assert.deepEqual(r.json, { ok: true, shapes: ['messages', 'responses', 'chat', 'models'], kept: [], tools: ['claude', 'opencode'] });
     assert.equal(readProfile('gw3').env.ANTHROPIC_MODEL, 'combo-best');
     // Claude's API overloaded at the moment of a Test: it is not taken away (an overload says nothing about the API).
     overloaded = true;
     try {
       r = await call('/api/accounts/gw3/test', {});
-      assert.deepEqual(r.json, { ok: true, shapes: ['messages', 'responses', 'chat', 'models'], kept: ['messages'], tools: ['claude', 'codex', 'opencode'] });
+      assert.deepEqual(r.json, { ok: true, shapes: ['messages', 'responses', 'chat', 'models'], kept: ['messages'], tools: ['claude', 'opencode'] });
       assert.deepEqual(readProfile('gw3').api, ['messages', 'responses', 'chat', 'models']);
       r = await call('/api/sessions', { dir: os.homedir(), profile: 'gw3', mode: 'new' });
       assert.doesNotMatch(String(r.json.error || ''), /cannot be used for Claude Code/, 'Claude Code still starts on it');
@@ -382,21 +382,30 @@ test('an OpenAI-compatible key and a Codex sign-in: added, which tools they serv
     assert.match(r.json.error, /refused \(401\)/);
     assert.deepEqual(readProfile('gw4').api, []);
 
-    // A Codex sign-in: a file that says so, no key; Codex only; no Auto mode, no model.
+    // Codex is not offered: no Codex sign-in is added, and one that a version offering it made is kept and listed as
+    // a provider this version cannot use (not an error, nothing asks Codex).
     r = await call('/api/accounts/codex-signin', {});
-    assert.deepEqual(r.json, { ok: true, name: 'chatgpt' });
-    assert.equal(readProfile('chatgpt').kind, 'chatgpt');
+    assert.deepEqual([r.status, r.json.error], [404, 'Codex is not part of this version of Hoprig.']);
+    assert.equal(readProfile('chatgpt'), null, 'nothing written');
+    writeProfile('chatgpt', { label: 'ChatGPT account', signin: 'codex' });
+    codexIn = 'never asked';
     a = (await call('/api/accounts')).json.accounts.find((x) => x.name === 'chatgpt');
-    assert.deepEqual([a.label, a.tools, a.host, a.signedIn], ['Codex sign-in', ['codex'], '', false], 'not signed in until Codex says so');
-    codexIn = true;
-    assert.equal((await call('/api/accounts')).json.accounts.find((x) => x.name === 'chatgpt').signedIn, true);
-    codexIn = null;
-    assert.equal((await call('/api/accounts')).json.accounts.find((x) => x.name === 'chatgpt').signedIn, null, 'Codex not installed: cannot tell');
+    assert.deepEqual([a.kind, a.tools, a.host, a.unusable, 'signedIn' in a], ['chatgpt', [], '', true, false]);
     assert.equal((await call('/api/accounts/chatgpt/test', {})).status, 409);
-    assert.equal((await call('/api/accounts/subscription/start', { mode: 'signin', name: 'chatgpt' })).status, 409);
+    r = await call('/api/accounts/subscription/start', { mode: 'signin', name: 'chatgpt' });
+    assert.deepEqual([r.status, r.json.error], [409, '"chatgpt" is a sign-in this version of Hoprig cannot use']);
     // A Claude session or chat cannot start on these.
     const st = (await call('/api/state')).json;
-    assert.deepEqual(st.profiles.find((x) => x.name === 'chatgpt').tools, ['codex']);
+    assert.deepEqual([st.profiles.find((x) => x.name === 'chatgpt').tools, st.profiles.find((x) => x.name === 'chatgpt').unusable], [[], true]);
+    assert.deepEqual(st.profiles.find((x) => x.name === 'openai').tools, ['opencode']);
+    // A key that answers only Codex's API serves no coding tool of this version: the same `unusable`, on both lists.
+    writeProfile('resp', { label: 'Responses only', api: ['responses'], env: { OPENAI_API_KEY: 'sk-resp-only-0123456789' } });
+    a = (await call('/api/accounts')).json.accounts.find((x) => x.name === 'resp');
+    assert.deepEqual([a.kind, a.tools, a.unusable, 'signedIn' in a], ['openai', [], true, false]);
+    const st2 = (await call('/api/state')).json;
+    assert.deepEqual([st2.profiles.find((x) => x.name === 'resp').tools, st2.profiles.find((x) => x.name === 'resp').unusable], [[], true]);
+    assert.equal(st2.profiles.find((x) => x.name === 'openai').unusable, undefined);
+    await call('/api/accounts/resp/delete', {});
     r = await call('/api/sessions', { dir: os.homedir(), profile: 'openai', mode: 'new' });
     assert.equal(r.status, 400);
     assert.match(r.json.error, /cannot be used for Claude Code/);
@@ -404,6 +413,34 @@ test('an OpenAI-compatible key and a Codex sign-in: added, which tools they serv
   } finally {
     oai.closeAllConnections();
     oai.close();
+  }
+});
+
+test('the kept Codex sign-in kind, as it works once Codex is offered (the registry\'s full list)', async () => {
+  const { anyTool } = await import('../../src/codetools/index.mjs');
+  let signedIn = false;
+  const app3 = createServer({ backend, watch: false, accounts: { trouteai, findTool: anyTool, codexSignedIn: async () => signedIn } });
+  const { port: p3 } = await app3.listen(0, '127.0.0.1');
+  const b3 = `http://127.0.0.1:${p3}`;
+  try {
+    const l = await fetch(`${b3}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: b3 }, body: JSON.stringify({ password: 'right-password' }) });
+    const c3 = l.headers.get('set-cookie').split(';')[0];
+    const go = (p, body) => fetch(b3 + p, { method: body ? 'POST' : 'GET', headers: { Origin: b3, Cookie: c3, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, json: await r.json() }));
+    let r = await go('/api/accounts');
+    assert.equal(r.json.defaults.codex.name, 'chatgpt');
+    r = await go('/api/accounts/codex-signin', {});
+    assert.deepEqual(r.json, { ok: true, name: 'chatgpt' });
+    const a = () => go('/api/accounts').then((x) => x.json.accounts.find((y) => y.name === 'chatgpt'));
+    assert.deepEqual(await a().then((x) => [x.label, x.tools, x.signedIn, x.unusable]), ['Codex sign-in', ['codex'], false, undefined], 'not signed in until Codex says so');
+    signedIn = true;
+    assert.equal((await a()).signedIn, true);
+    signedIn = null;
+    assert.equal((await a()).signedIn, null, 'Codex not installed: cannot tell');
+    r = await go('/api/accounts/subscription/start', { mode: 'signin', name: 'chatgpt' });
+    assert.match(r.json.error, /Codex's own sign-in/);
+    await go('/api/accounts/chatgpt/delete', {});
+  } finally {
+    await app3.close();
   }
 });
 

@@ -98,3 +98,18 @@ test('demo: a folder left by a demo that was killed hard is removed by the next 
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('demo: every coding tool\'s own folder is inside the demo, so its brain links never reach the real ones', async () => {
+  const { isolate } = await import('../../src/demo/index.mjs');
+  const { toolHomes } = await import('../../src/workspace/link.mjs');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-iso-'));
+  try {
+    const env = { HOME: '/real/home', XDG_CONFIG_HOME: '/real/home/.config', OPENCODE_CONFIG_DIR: '/real/oc', CODEX_HOME: '/real/codex', PATH: '/usr/bin' };
+    const home = isolate(root, env);
+    const homes = toolHomes(env.HOME, env);
+    for (const dir of Object.values(homes)) assert.ok(dir.startsWith(home + path.sep), dir);
+    assert.equal(env.OPENCODE_CONFIG_DIR, undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

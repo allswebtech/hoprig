@@ -1,6 +1,7 @@
-// Settings → Coding tools (#/settings/codingtools): which coding tools the dashboard offers (Claude Code, Codex,
-// OpenCode), whether each is installed, the providers that serve it, and how to start a session with it. A session
-// of Codex or OpenCode starts here (a folder and a provider) and in a terminal (`hoprig codex <provider>`).
+// Settings → Coding tools (#/settings/codingtools): which coding tools the dashboard offers (the ones this version
+// has: src/codetools/index.mjs), whether each is installed, the providers that serve it, and how to start a session
+// with it. A session of a tool other than Claude Code starts here (a folder and a provider) and in a terminal
+// (`hoprig opencode <provider>`).
 // The server side: src/codetools/feature.mjs (GET /api/codetools, POST /api/codetools/<id>); a session starts
 // through POST /api/sessions { tool }, an install through Settings → Updates (POST /api/updates/run).
 import { icon } from './icons.js';
@@ -8,7 +9,7 @@ import { api, btn, fill, h, link, toast } from './lib.js';
 import { registerSettingsPage } from './registry.js';
 import { panel, toggle } from './shell.js';
 
-const SCOPE = 'Claude Code can do everything here. Codex and OpenCode: sessions in a terminal, the providers that fit them, the shared AI brain and updates. Auto mode, plan usage and Tia work with Claude Code only.';
+const SCOPE = 'Claude Code can do everything here. OpenCode: sessions in a terminal, the providers that fit it, the shared AI brain and updates. Auto mode, plan usage and Tia work with Claude Code only.';
 
 /** The one line in the Settings list. */
 export const summaryOf = (v) => `On: ${v.tools.filter((t) => t.on).map((t) => t.name).join(', ')}`;
@@ -44,7 +45,7 @@ function toolPanel(t, folders, redraw) {
   const providers = t.providers.length
     ? h('p.hint', `Providers for it: ${labelsOf(t).join(', ')}.`)
     : h('p.banner.warn', icon('alert', { size: 18 }), h('span', `No provider serves ${t.name} yet. `,
-      h('a', { href: link('#/providers') }, 'Providers'), t.id === 'codex'
+      h('a', { href: link('#/providers') }, 'Providers'), t.id === 'codex' // only once Codex is offered again
         ? ': add an OpenAI key or a gateway (then Test it), or a Codex sign-in.'
         : ': add an OpenAI key, a Claude API key or a gateway, then Test it.'));
   let start = null;
@@ -112,7 +113,7 @@ function codingToolsPage() {
 
 registerSettingsPage({
   id: 'codingtools', title: 'Coding tools', icon: 'code', order: 62,
-  desc: 'Claude Code, Codex and OpenCode: which ones the dashboard offers, and how to start a session with each.',
+  desc: 'Claude Code and OpenCode: which ones the dashboard offers, and how to start a session with each.',
   summary: async () => summaryOf(await api('/api/codetools')),
   render: codingToolsPage,
 });

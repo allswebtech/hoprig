@@ -21,9 +21,9 @@ const HELP = `Hoprig — Claude Code under several profiles, with one shared ses
                                 hoprig sub2 --resume ID  continue one session
   hoprig -c | --resume ...    choose a profile, then continue as asked
 
-  hoprig codex [provider] [args]     start Codex instead (also: hoprig opencode [provider] [args]);
-                                 -c, --resume ID and -- "first message" as above. Auto mode,
-                                 plan usage and Tia's engine are Claude Code's only
+  hoprig opencode [provider] [args]  start OpenCode instead; -c, --resume ID and -- "first message"
+                                 as above. Auto mode, plan usage and Tia's engine are Claude
+                                 Code's only
 
   hoprig auto [args]          start in Auto mode: when a provider reaches its limit, work goes on
                                  under the next one without stopping, and comes back by itself
@@ -51,7 +51,7 @@ const HELP = `Hoprig — Claude Code under several profiles, with one shared ses
   hoprig setup                install what is missing and set everything up, step by step
   hoprig doctor               check that everything works
   hoprig claude status        Claude Code's version (also: claude update, claude install <version>)
-  hoprig tools                the coding tools: Claude Code, Codex, OpenCode (tools install <tool>,
+  hoprig tools                the coding tools: Claude Code, OpenCode (tools install <tool>,
                                  tools update <tool | all>, tools on | off <tool>)
   hoprig update               update Hoprig itself
 
@@ -153,8 +153,9 @@ async function main() {
       await hookMain();
       return 0;
     case 'profiles': {
-      // "auto" is listed too when it can be used, so wrapper scripts accept it as a profile name.
-      const list = menuProfiles().map(publicProfile);
+      // Every provider ("auto" too when it can be used, so wrapper scripts accept it as a profile name); its `tools`
+      // name only the offered coding tools (publicProfile).
+      const list = menuProfiles({ all: true }).map(publicProfile);
       if (rest.includes('--json')) console.log(JSON.stringify(list));
       else for (const p of list) console.log(`${p.name}\t${p.kind}\t${p.label}`);
       return 0;

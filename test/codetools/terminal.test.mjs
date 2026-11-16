@@ -22,7 +22,7 @@ const S = await import('../../src/codetools/servers.mjs');
 const ST = await import('../../src/codetools/stores.mjs');
 const C = await import('../../src/automation/cards.mjs');
 const { launchArgv, Deck } = await import('../../src/server/deck.mjs');
-const { toolFlags, toolFromRequest } = await import('../../src/codetools/start.mjs');
+const { assertToolReady, toolFlags, toolFromRequest } = await import('../../src/codetools/start.mjs');
 
 const KEY = 'gw-key-terminal-0123456789';
 P.writeProfile('gw', { label: 'Gateway', api: ['messages', 'responses', 'chat'], env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9/v1', ANTHROPIC_AUTH_TOKEN: KEY, ANTHROPIC_MODEL: 'm-small' } });
@@ -291,7 +291,23 @@ test('a session\'s choices are the tool\'s own lists; the tool is named or Claud
   assert.throws(() => toolFlags('opencode', { model: 'a b' }), /model id/);
   assert.throws(() => toolFlags('codex', { model: '--x' }), /model id/, 'a model id never starts with a dash: the tool would read it as an option');
   assert.equal(toolFromRequest(undefined), 'claude');
-  assert.throws(() => toolFromRequest('vim'), /claude, codex, opencode/);
+  assert.throws(() => toolFromRequest('vim'), /must be one of: claude, opencode$/);
+  assert.throws(() => toolFromRequest('codex'), (e) => e.status === 400 && e.message === 'Codex is not part of this version of Hoprig.');
+  assert.throws(() => assertToolReady('codex', { codingTools: ['claude', 'codex'] }), (e) => e.status === 400 && /not part of this version/.test(e.message));
+});
+
+test('the launcher\'s leading word "codex" is refused with one plain sentence; nothing starts', async () => {
+  const said = [];
+  const was = console.error;
+  console.error = (s) => said.push(String(s));
+  try {
+    assert.equal(await T.toolCommand('codex', ['gw']), 2);
+    assert.equal(await T.toolCommand('codex', ['login', '--device-auth']), 2, 'its own sign-in too');
+    assert.equal(await T.toolCommand('codex', ['--help']), 2, 'no help for it either');
+  } finally {
+    console.error = was;
+  }
+  assert.deepEqual(said, Array(3).fill('hoprig: Codex is not part of this version of Hoprig. Start Claude Code with: hoprig, or OpenCode with: hoprig opencode.'), 'why, and what to start instead');
 });
 
 test('doctor names a provider file that a new command word hides, and says how to rename it', async () => {

@@ -72,6 +72,8 @@ for (const kind of kinds) {
     writeProfile('sub', { label: 'Main' });
     writeProfile('sub2', { label: 'Second' });
     writeProfile('api', { label: 'API', env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' } });
+    writeProfile('cx', { label: 'Codex sign-in', signin: 'codex' }); // from an earlier version: nothing uses it
+    writeProfile('oc', { label: 'OpenCode key', env: { OPENAI_API_KEY: 'sk-tia-feature-0123' } }); // OpenCode's
 
     let offset = 0; // the cards' clock: moved forward to expire a card
     const emptyConf = path.join(box.root, 'empty.conf');
@@ -148,7 +150,7 @@ for (const kind of kinds) {
     assert.equal(r.isError, false, r.text);
     await until('the echo', async () => /GOT: hello there/.test((await call('read_session', { session: name })).text));
     assert.equal((await call('send_to_session', { session: name, key: 'Escape' })).isError, false);
-    assert.match((await call('get_accounts', {})).text, /3 provider\(s\) on this/);
+    assert.match((await call('get_accounts', {})).text, /5 provider\(s\) on this/);
     assert.match((await call('get_computer_status', { computer: 'this' })).text, /Claude Code 2\.1\.325/);
     assert.match((await call('list_projects', { folder: work })).text, /subfolder/);
     assert.equal((await call('list_projects', {})).isError, false);
@@ -229,6 +231,25 @@ for (const kind of kinds) {
     // ---- settings: validated; off → 403 for her token and the tab says what to do ----
     assert.equal((await owner('POST', '/api/assistant/settings', { level: 'max' })).status, 400);
     assert.equal((await owner('POST', '/api/assistant/settings', { accounts: ['nope'] })).status, 400);
+    // A provider no coding tool of this version can use is not hers to tick; she runs only on a Claude Code one.
+    assert.equal((await owner('POST', '/api/assistant/settings', { accounts: ['cx'] })).status, 400);
+    assert.equal((await owner('POST', '/api/assistant/settings', { runsOn: 'cx' })).status, 400);
+    assert.equal((await owner('POST', '/api/assistant/settings', { runsOn: 'oc' })).status, 400);
+    const choices = (await owner('GET', '/api/assistant/settings')).json.accounts;
+    assert.equal(choices.some((a) => a.name === 'cx'), false);
+    assert.deepEqual(choices.filter((a) => ['oc', 'sub'].includes(a.name)).map((a) => [a.name, a.thinks]), [['oc', false], ['sub', true]]);
+    // A choice saved by an earlier version (another tool's sign-in, a provider removed since, her engine on an
+    // OpenCode-only key) has no box on the page; the page sends back what it was given, and Save must still work.
+    saveConfig({ assistant: { ...loadConfig().assistant, accounts: ['sub', 'cx', 'gone', 'auto'], runsOn: 'oc' } });
+    let shown = (await owner('GET', '/api/assistant/settings')).json.settings;
+    assert.deepEqual([shown.accounts, shown.runsOnSet], [['sub', 'auto'], null]);
+    r = await owner('POST', '/api/assistant/settings', { level: 'ask', accounts: shown.accounts, runsOn: shown.runsOnSet });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual([r.json.settings.accounts, r.json.settings.runsOnSet, r.json.settings.level], [['sub', 'auto'], null, 'ask']);
+    saveConfig({ assistant: { ...loadConfig().assistant, runsOn: 'sub' } });
+    shown = (await owner('GET', '/api/assistant/settings')).json.settings;
+    assert.equal(shown.runsOnSet, 'sub', 'a choice that is still valid is shown as saved');
+    assert.match((await owner('POST', '/api/assistant/settings', { accounts: ['cx'] })).json.error, /no provider "cx" she can use/);
     r = await owner('POST', '/api/assistant/settings', { level: 'handsoff', accounts: ['api'], runsOn: 'api', model: 'haiku' });
     assert.equal(r.status, 200, JSON.stringify(r.json));
     assert.deepEqual(r.json.settings.allowed, ['api']);

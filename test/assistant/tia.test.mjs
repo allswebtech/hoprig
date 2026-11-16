@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decideLevel } from '../../src/assistant/policy.mjs';
-import { ASSISTANT_NAME, HELP, LEVELS, chooseAccount, cleanTiaPatch, resolveTia, riskyPermission } from '../../src/assistant/tia.mjs';
+import { ASSISTANT_NAME, HELP, LEVELS, chooseAccount, cleanTiaPatch, resolveTia, riskyPermission, savedTiaChoice, tiaChoices } from '../../src/assistant/tia.mjs';
 import { byName } from '../../src/assistant/tools.mjs';
 
 const profiles = [
@@ -44,6 +44,34 @@ test('cleanTiaPatch: only known keys and values', () => {
   assert.throws(() => cleanTiaPatch({ accounts: ['nope'] }, ['sub']), /no provider "nope"/);
   assert.throws(() => cleanTiaPatch({ password: 'x' }), /not a Tia setting/);
   assert.throws(() => cleanTiaPatch({ maxSteps: 0 }), /1 to 200/);
+});
+
+test('a provider no coding tool of this version can use is never hers; she runs only on one that serves Claude Code', () => {
+  const more = accounts({ profiles: [
+    { name: 'aa-cx', kind: 'chatgpt', tools: [], unusable: true }, // another coding tool's sign-in, kept from an older version
+    { name: 'ab-resp', kind: 'openai', tools: [], unusable: true }, // a key only Codex could use
+    { name: 'ac-oai', kind: 'openai', tools: ['opencode'] }, // OpenCode's: a session of it may move there
+    ...profiles,
+  ] });
+  assert.deepEqual(tiaChoices(more).map((p) => p.name), ['ac-oai', 'sub', 'sub2', 'me', 'api']);
+  const t = resolveTia({ accounts: ['aa-cx', 'ab-resp', 'ac-oai', 'sub'], runsOn: 'aa-cx' }, more);
+  assert.deepEqual(t.allowed, ['ac-oai', 'sub'], 'the unusable ones drop out of a saved list');
+  assert.equal(t.runsOn, 'sub', 'she thinks through Claude Code: not on another tool\'s sign-in, nor on an OpenCode-only key');
+  assert.equal(resolveTia({ accounts: ['ac-oai'], runsOn: 'ac-oai' }, more).runsOn, 'sub', 'the first one that serves Claude Code');
+  const only = accounts({ profiles: more.profiles.slice(0, 3) });
+  assert.equal(resolveTia({ accounts: ['ac-oai'] }, only).runsOn, null, 'none at all: the Tia tab says so in one line');
+  // The server refuses them too (feature.mjs passes tiaChoices and the Claude Code ones).
+  const names = tiaChoices(more).map((p) => p.name);
+  assert.throws(() => cleanTiaPatch({ accounts: ['aa-cx'] }, names), /no provider "aa-cx"/);
+  assert.throws(() => cleanTiaPatch({ runsOn: 'ac-oai' }, names, ['sub', 'sub2', 'me', 'api']), /runsOn must be a provider that serves Claude Code/);
+  assert.deepEqual(cleanTiaPatch({ accounts: ['ac-oai'], runsOn: 'sub' }, names, ['sub']), { accounts: ['ac-oai'], runsOn: 'sub' });
+  // What Settings -> Tia shows as saved, and sends back with Save, holds only names the server accepts now.
+  const saved = savedTiaChoice({ accounts: ['aa-cx', 'ac-oai', 'gone', 'auto', 'sub'], runsOn: 'ac-oai' }, more);
+  assert.deepEqual(saved, { accounts: ['ac-oai', 'auto', 'sub'], runsOnSet: null });
+  assert.deepEqual(cleanTiaPatch({ accounts: saved.accounts, runsOn: saved.runsOnSet }, names, ['sub', 'sub2', 'me', 'api']), { accounts: ['ac-oai', 'auto', 'sub'], runsOn: null });
+  assert.deepEqual(savedTiaChoice({ runsOn: 'sub' }, more), { accounts: null, runsOnSet: 'sub' });
+  assert.deepEqual(savedTiaChoice({ accounts: [], runsOn: 'auto' }, more), { accounts: [], runsOnSet: 'auto' });
+  assert.deepEqual(savedTiaChoice(undefined, more), { accounts: null, runsOnSet: null });
 });
 
 test('chooseAccount: auto first; else most free quota; never limited; unknown counts as half', () => {

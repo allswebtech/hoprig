@@ -18,24 +18,38 @@ const { claude } = await import('../../src/codetools/claude.mjs');
 const { toolsDir } = await import('../../src/paths.mjs');
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-test('the three descriptors, and which tools are on', () => {
-  assert.deepEqual(T.TOOL_IDS, ['claude', 'codex', 'opencode']);
-  assert.equal(T.findTool('codex'), codex);
+test('the descriptors, the one switch of the offered tools (Codex is built, not offered), and which tools are on', () => {
+  assert.deepEqual(T.ALL_TOOLS.map((t) => t.id), ['claude', 'codex', 'opencode'], 'every built tool is kept');
+  assert.deepEqual(T.TOOL_IDS, ['claude', 'opencode'], 'this version offers Claude Code and OpenCode');
+  assert.deepEqual(T.TOOLS.map((t) => t.name), ['Claude Code', 'OpenCode']);
+  assert.equal(T.findTool('codex'), null, 'Codex is offered nowhere');
+  assert.equal(T.anyTool('codex'), codex, 'its kept code still finds it');
+  assert.equal(T.findTool('opencode'), opencode);
   assert.equal(T.findTool('nope'), null);
+  assert.equal(T.anyTool('nope'), null);
+  assert.equal(T.notOffered('codex'), 'Codex is not part of this version of Hoprig.');
+  assert.equal(T.notOffered('gemini'), '"gemini" is not a coding tool: claude, opencode');
+  assert.deepEqual(T.offeredOnly(['claude', 'codex', 'opencode']), ['claude', 'opencode']);
+  assert.deepEqual(T.offeredOnly(null), []);
   assert.deepEqual(T.enabledToolIds({}), ['claude'], 'Claude Code alone by default');
   assert.deepEqual(T.enabledToolIds({ codingTools: ['opencode', 'claude', 'bogus'] }), ['claude', 'opencode'], 'fixed order, unknown ids left out');
+  assert.deepEqual(T.enabledToolIds({ codingTools: ['claude', 'codex', 'opencode'] }), ['claude', 'opencode'], 'a config that names Codex is read as if it did not');
+  assert.deepEqual(T.enabledToolIds({ codingTools: ['codex'] }), ['claude'], '…also when it named Codex alone, without an error');
   assert.deepEqual(T.enabledToolIds({ codingTools: [] }), ['claude'], 'never none');
-  assert.deepEqual(T.enabledToolIds({ codingTools: 'codex' }), ['claude'], 'a broken value is the default');
-  assert.deepEqual(T.enabledTools({ codingTools: ['codex'] }).map((t) => t.name), ['Codex']);
+  assert.deepEqual(T.enabledToolIds({ codingTools: 'opencode' }), ['claude'], 'a broken value is the default');
+  assert.deepEqual(T.enabledTools({ codingTools: ['opencode'] }).map((t) => t.name), ['OpenCode']);
   assert.throws(() => T.cleanCodingTools([]), /at least one/);
   assert.throws(() => T.cleanCodingTools(['claude', 'gemini']), /"gemini" is not a coding tool/);
-  assert.deepEqual(T.withTool({}, 'codex', true), ['claude', 'codex']);
-  assert.deepEqual(T.withTool({ codingTools: ['claude', 'codex'] }, 'claude', false), ['codex']);
+  assert.throws(() => T.cleanCodingTools(['claude', 'codex']), /^Error: Codex is not part of this version of Hoprig\.$/);
+  assert.deepEqual(T.withTool({}, 'opencode', true), ['claude', 'opencode']);
+  assert.deepEqual(T.withTool({ codingTools: ['claude', 'opencode'] }, 'claude', false), ['opencode']);
+  assert.throws(() => T.withTool({}, 'codex', true), /Codex is not part of this version/);
   assert.throws(() => T.withTool({}, 'claude', false), /at least one/);
   let saved = null;
   T.turnOn('opencode', { config: () => ({ codingTools: ['claude'] }), save: (p) => (saved = p) });
   assert.deepEqual(saved, { codingTools: ['claude', 'opencode'] });
-  for (const t of T.TOOLS) for (const k of ['id', 'name', 'home', 'installedVersion', 'info', 'install', 'update', 'updateItem']) assert.ok(k in t, `${t.id}.${k}`);
+  assert.throws(() => T.turnOn('codex', { config: () => ({}), save: () => assert.fail('nothing saved') }), /not part of this version/);
+  for (const t of T.ALL_TOOLS) for (const k of ['id', 'name', 'home', 'installedVersion', 'info', 'install', 'update', 'updateItem']) assert.ok(k in t, `${t.id}.${k}`);
 });
 
 test('Claude Code: the descriptor only points at what exists (the program from config.json, its folder)', () => {
@@ -215,7 +229,7 @@ test('one install or update of a tool at a time, also across processes; a lock l
   assert.equal((await first).ok, true);
 });
 
-test('the coding tools for the page: on or off (never none), installed, the providers that serve each; idle servers stopped', async () => {
+test('the coding tools for the page: the offered ones only, on or off (never none), installed, the providers that serve each; idle servers stopped', async () => {
   const { codetoolsFeature, IDLE_STOP_MS } = await import('../../src/codetools/feature.mjs');
   let cfg = {};
   const ticks = [];
@@ -238,18 +252,21 @@ test('the coding tools for the page: on or off (never none), installed, the prov
     throw new Error(`no route ${method} ${p}`);
   };
   let v = await call('GET', '/api/codetools');
-  assert.deepEqual(v.tools.map((t) => [t.id, t.on, t.providers.join('+')]), [['claude', true, 'gw+sub'], ['codex', false, 'gw+oai+chatgpt'], ['opencode', false, 'gw+oai']]);
+  assert.deepEqual(v.tools.map((t) => [t.id, t.on, t.providers.join('+')]), [['claude', true, 'gw+sub'], ['opencode', false, 'gw+oai']], 'no Codex row');
+  assert.ok(!JSON.stringify(v).includes('odex'), 'nothing in the page\'s data names Codex');
   assert.deepEqual(v.tools[0].providerLabels, ['Gateway', 'Main'], 'the page shows the owner\'s names, not the short ones');
-  assert.deepEqual(v.tools[2].providerLabels, ['Gateway', 'oai'], 'a provider without a label: its name');
-  assert.equal(v.tools[1].command, 'hoprig codex <provider>');
-  v = await call('POST', '/api/codetools/codex', { on: true });
-  assert.deepEqual(cfg.codingTools, ['claude', 'codex']);
+  assert.deepEqual(v.tools[1].providerLabels, ['Gateway', 'oai'], 'a provider without a label: its name');
+  assert.equal(v.tools[1].command, 'hoprig opencode <provider>');
+  v = await call('POST', '/api/codetools/opencode', { on: true });
+  assert.deepEqual(cfg.codingTools, ['claude', 'opencode']);
   assert.equal(v.tools[1].on, true);
+  await assert.rejects(call('POST', '/api/codetools/codex', { on: true }), (e) => e.status === 404 && e.message === 'Codex is not part of this version of Hoprig.');
+  assert.deepEqual(cfg.codingTools, ['claude', 'opencode'], 'unchanged');
   await call('POST', '/api/codetools/claude', { on: false });
-  await assert.rejects(call('POST', '/api/codetools/codex', { on: false }), (e) => e.status === 400 && /at least one/.test(e.message));
-  await assert.rejects(call('POST', '/api/codetools/vim', { on: true }), (e) => e.status === 404);
-  await assert.rejects(call('POST', '/api/codetools/codex', { on: 'yes' }), (e) => e.status === 400);
-  await assert.rejects(call('POST', '/api/codetools/codex', { on: true, x: 1 }), (e) => e.status === 400);
+  await assert.rejects(call('POST', '/api/codetools/opencode', { on: false }), (e) => e.status === 400 && /at least one/.test(e.message));
+  await assert.rejects(call('POST', '/api/codetools/vim', { on: true }), (e) => e.status === 404 && /no such coding tool/.test(e.message));
+  await assert.rejects(call('POST', '/api/codetools/opencode', { on: 'yes' }), (e) => e.status === 400);
+  await assert.rejects(call('POST', '/api/codetools/opencode', { on: true, x: 1 }), (e) => e.status === 400);
   await ticks[0]();
   assert.deepEqual(stopped, [['codex', IDLE_STOP_MS], ['opencode', IDLE_STOP_MS]], 'a server unused for 2 minutes is stopped');
   await ticks[0]();
@@ -273,7 +290,13 @@ test('Codex\'s own sign-in: read from `codex login status` of Hoprig\'s copy; Si
   const started = [];
   const ctx = { config: () => ({}), saveConfig: () => {}, readJson: async (req) => req.body, HttpError, deck: { runLauncher: async (base, dir, words) => (started.push([base, dir, words]), 'codex-signin') } };
   let installed = null;
-  const f = codetoolsFeature(ctx, { profiles: () => [], signedIn: async () => installed && false });
+  // Not offered in this version: both routes answer 404 and start nothing.
+  const off = codetoolsFeature(ctx, { profiles: () => [], signedIn: async () => assert.fail('not asked') });
+  const offRoute = (m, p) => off.routes.find(([mm, re]) => mm === m && re.test(p))[2];
+  await assert.rejects(offRoute('GET', '/api/codetools/codex/signin')({}), (e) => e.status === 404 && /not part of this version/.test(e.message));
+  await assert.rejects(offRoute('POST', '/api/codetools/codex/signin')({ body: {} }), (e) => e.status === 404);
+  // The kept code, as it works once Codex is offered (the registry's full list).
+  const f = codetoolsFeature(ctx, { profiles: () => [], signedIn: async () => installed && false, find: T.anyTool });
   const route = (m, p) => f.routes.find(([mm, re]) => mm === m && re.test(p))[2];
   const realCodex = (await import('../../src/codetools/codex.mjs')).codex;
   const was = realCodex.installedVersion;
