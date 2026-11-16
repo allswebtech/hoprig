@@ -6,7 +6,7 @@
 // live.mjs). Files dropped anywhere on the page go with the next message.
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
 import { icon } from '../icons.js';
-import { add, api, cardTool, confirmSheet, fill, h, isClaudeCard, link, machine, prefs, toast } from '../lib.js';
+import { add, api, confirmSheet, fill, h, link, machine, prefs, toast } from '../lib.js';
 import { registerPage, registerSessionAction } from '../registry.js';
 import { pageNotify, store } from '../store.js';
 import { forgetHere, named, wayBack } from '../trail.js';
@@ -19,7 +19,7 @@ import { chooseRewind, historySheet, rewindSheet } from './sheets.js';
 import { createStatusLine } from './statusline.js';
 import { follow } from './stream.js';
 import { createTimeline } from './timeline.js';
-import { offersChat } from './start.js';
+import { opensAsChat } from './start.js';
 import { canCompact, caps as capsOf, toolWord, turnRuns } from './words.js';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -201,7 +201,12 @@ function viewChat({ sub }) {
     pageNotify.setTitleBase(v.title || 'Chat');
     named(v.title || 'Chat');
     const ro = !!v.terminal;
+    // Its coding tool was turned off since the chat opened: it runs nothing, and the page says so instead of inviting
+    // a message (what OpenCode's server still runs is shown, else nothing: no empty intro either).
+    wrap.classList.toggle('chat-tool-off', !!v.toolOff);
     fill(notes,
+      v.toolOff ? h('div.banner.warn.chat-banner', { role: 'status' }, icon('alert', { size: 18 }), h('span', `${v.toolOff}.`),
+        h('span.chat-banner-actions', h('a.btn.small.secondary', { href: link('#/settings/codingtools') }, 'Coding tools'))) : null,
       ro ? h('div.banner.warn.chat-banner', icon('terminal', { size: 18 }),
         h('span', v.terminal.name ? `This conversation runs in the terminal session "${v.terminal.name}". You can read along here; to write, continue it here.` : 'This conversation runs in a terminal outside the dashboard. You can read along here; to write, continue it here.'),
         h('span.chat-banner-actions',
@@ -288,8 +293,7 @@ registerSessionAction({
     const s = ((store.data && store.data.sessions) || []).find((x) => x.name === me.name);
     if (!s || !s.sessionId) return null;
     // Only where that computer has a chat for the session's coding tool: else the conversation stays in its terminal.
-    // Not known yet on this page (it is asked for now): offered, and the computer itself refuses a tool that is off.
-    return isClaudeCard(s) || offersChat(me.machine || null, cardTool(s)) !== false ? {} : null;
+    return opensAsChat(s, me.machine || null) ? {} : null;
   },
   run: async (me) => {
     try {

@@ -40,7 +40,7 @@ import { gitBranch, readAttachments } from './files.mjs';
 import { folderMemory } from './folders.mjs';
 import { handoffRoutes, terminals } from './handoff.mjs';
 import { liveRoutes, stateOf } from './live.mjs';
-import { chatTool, chatToolList, chatTools, choicesOf, conversationIdOk, defaultProvider, modeFor, modelOk, providerOk, serves } from './tools.mjs';
+import { chatTool, chatToolList, choicesOf, conversationIdOk, defaultProvider, modeFor, modelOk, providerOk, serves, toolOffWords } from './tools.mjs';
 
 const OPEN_MAX = 50;
 const WAIT_MAX_S = 25; // below the relay's 30 s idle limit, so a chat of another computer can wait too
@@ -133,9 +133,14 @@ export function chatFeature(ctx, o = {}) {
 
   // One place at a time (handoff.mjs).
   const { terminalOf, inTerminal } = terminals(ctx);
-  /** A chat of a coding tool that was turned off since: it runs nothing any more (it can still be read and closed). */
+  /**
+   * A chat of a coding tool that was turned off since: it runs nothing any more. It can still be read (from the tool's
+   * server where that runs already) and closed, and its page says why it runs nothing (about().toolOff).
+   */
+  const toolOff = (c) => toolOffWords(c.engine.id, cfg());
   const toolStillOn = (c) => {
-    if (c.engine.id !== 'claude' && !chatTools(cfg()).includes(c.engine.id)) throw new HttpError(409, `${c.engine.label} is off on this computer: turn it on under Settings → Coding tools to go on with this chat`);
+    const why = toolOff(c);
+    if (why) throw new HttpError(409, why);
   };
 
   // ---------- views ----------
@@ -165,7 +170,7 @@ export function chatFeature(ctx, o = {}) {
     };
   }
   /** What the page shows beside the chat's state. */
-  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), branch: gitBranch(c.cwd), profile: profileView(c.profile), choices: choices(c) });
+  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), branch: gitBranch(c.cwd), profile: profileView(c.profile), choices: choices(c), toolOff: toolOff(c) });
   /** The terminal that runs the chat's conversation, as the page names it ({ name }), or null. */
   const terminalView = async (c) => (c.session && c.busy() ? null : await terminalOf(c.conversationId, c.engine.id).then((t) => (t ? { name: t.name } : null)));
   async function view(c, { from, epoch }) {

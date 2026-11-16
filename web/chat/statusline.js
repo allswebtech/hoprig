@@ -18,6 +18,7 @@ const secondsSince = (at, v) => Math.max(0, Math.round((Date.now() - (v.skew || 
 export function stateWords(v) {
   const who = toolWord(v);
   if (v.terminal) return 'Runs in a terminal';
+  if (v.toolOff && v.status !== 'working') return `${who} is off`; // the banner says where to turn it on
   if (v.status === 'attention') return (ASKING[v.asking] || ASKING.permission)(who);
   if (v.status === 'working') {
     // A tool that runs is what Claude does now: its command (or title) and for how long.
@@ -67,7 +68,7 @@ export function createStatusLine() {
     el,
     paint(s) {
       v = s;
-      el.dataset.status = v.terminal ? 'terminal' : v.status === 'waiting' && v.lastError ? 'error' : v.status === 'waiting' && v.lastEnd === 'stopped' ? 'stopped' : v.status;
+      el.dataset.status = v.terminal ? 'terminal' : v.toolOff && v.status !== 'working' ? 'stopped' : v.status === 'waiting' && v.lastError ? 'error' : v.status === 'waiting' && v.lastEnd === 'stopped' ? 'stopped' : v.status;
       const counting = words();
       clearInterval(tick);
       tick = counting ? setInterval(words, 1000) : null;

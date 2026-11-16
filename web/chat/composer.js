@@ -108,7 +108,7 @@ export function createComposer(o) {
     } catch (e) {
       toast(`Not sent: ${e.message}`, { kind: 'error' });
     } finally {
-      sendBtn.disabled = false;
+      sendBtn.disabled = !!(v && (v.terminal || v.toolOff));
       paintButtons();
       textarea.focus(); // the box keeps the focus (and a phone its keyboard) for the next message
     }
@@ -235,7 +235,7 @@ export function createComposer(o) {
     nextMode: () => v && setMode(nextMode(modeOf(v), v.choices ? v.choices.modes : undefined)),
     paint(state) {
       v = state;
-      const ro = !!v.terminal;
+      const ro = !!v.terminal || !!v.toolOff;
       textarea.disabled = ro;
       attachBtn.disabled = ro;
       if (ro) menus.close();
@@ -244,7 +244,7 @@ export function createComposer(o) {
       stopBtn.title = `Stop ${who} (Esc; the turn ends${caps(v).stopTask ? ', background agents go on' : ''})`;
       ultraBtn.classList.toggle('hidden', !caps(v).ultracode);
       ultraBtn.title = who === 'Claude' ? 'Ultracode: Claude plans the work out to agents and workflows' : 'Ultracode: the model thinks as hard as it can';
-      const words = ro ? 'Read only while the terminal runs this conversation'
+      const words = v.toolOff ? `${who} is off on this computer` : ro ? 'Read only while the terminal runs this conversation'
         : turnRuns(v) ? 'Queue a message…'
           : finePointer() ? `Message ${who} · / commands · @ files · Shift+Tab mode · /help keys` : `Message ${who} · / commands · @ files`;
       if (textarea.placeholder !== words) {
@@ -253,6 +253,7 @@ export function createComposer(o) {
       }
       paintQueue(v.queue);
       paintButtons();
+      sendBtn.disabled = ro; // nothing to send while the conversation runs elsewhere or its tool is off
       const mode = modeOf(v);
       const mw = modeInfo(v, mode);
       const chip = mw ? mw.chip : modeChip(mode);

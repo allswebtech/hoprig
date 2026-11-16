@@ -62,7 +62,12 @@ function add(u, t) {
  * size: when it last changed (the chat reads it again when that moves).
  */
 export async function readTranscript(client, id) {
-  const info = await client.req('GET', `/api/session/${encodeURIComponent(id)}`).catch(() => null);
+  // Only OpenCode's own "no such conversation" is an empty one. A server that could not be asked (gone, refusing,
+  // busy) fails the read, so the chat reads again at its next look instead of keeping an empty conversation.
+  const info = await client.req('GET', `/api/session/${encodeURIComponent(id)}`).catch((e) => {
+    if (e && e.status === 404) return null;
+    throw e;
+  });
   if (!info || !info.data) return EMPTY();
   const all = [];
   let cursor = null;

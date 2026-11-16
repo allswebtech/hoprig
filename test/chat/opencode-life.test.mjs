@@ -142,6 +142,11 @@ test('OpenCode turned off: an open chat runs nothing and starts no server; a sav
   assert.equal(ensured, 0, 'read when the dashboard starts: only from a server that runs, none here');
   assert.equal(off.events.length, 0);
   assert.equal(off.unread, true);
+  // A page looks (a read that may start the server while OpenCode is on): while it is off, still none is started.
+  off.refresh();
+  await off.loading;
+  assert.equal(ensured, 0, 'a look while it is off starts no server');
+  assert.equal(off.unread, true);
   await off.send('hello');
   assert.match(turnEnds(off).at(-1).error, /OpenCode is off on this computer/);
   assert.equal(ensured, 0, 'no server was started');
@@ -158,7 +163,19 @@ test('OpenCode turned off: an open chat runs nothing and starts no server; a sav
   await assert.rejects(opencode.history(CWD, { enabled: () => false, ...counting }), /off on this computer/);
   assert.equal(await opencode.stamp({ id: SESSION_ID }, { running: () => null, ...counting }), 0, 'looking for news never starts it');
   assert.equal(await opencode.transcript({ id: SESSION_ID }, { running: () => null, ...counting }, { start: false }), null);
+  assert.equal(await opencode.transcript({ id: SESSION_ID }, { enabled: () => false, running: () => null, ...counting }), null, 'off: never started to read');
   assert.equal(ensured, 0);
+  // Off, and OpenCode's server runs by the time a page looks (a terminal started it): the saved chat is read from it,
+  // nothing is started.
+  let up = null;
+  const readable = await chatOn(s, { conversationId: SESSION_ID }, { enabled: () => false, ...counting, running: () => up });
+  assert.equal(readable.unread, true);
+  up = s.server;
+  readable.refresh();
+  if (readable.loading) await readable.loading;
+  assert.ok(readable.events.some((e) => e.kind === 'user'), 'its conversation is shown');
+  assert.equal(ensured, 0);
+  await readable.close();
   // On, and no server ran at the start: the chat reads its conversation when a page looks at it.
   const later = await chatOn(s, { conversationId: SESSION_ID }, { running: () => null });
   assert.equal(later.events.length, 0);
@@ -214,5 +231,26 @@ test('a message OpenCode takes before it has answered for it is still shown as t
   assert.deepEqual(c.events.filter((e) => e.kind === 'user').map((e) => e.text), ['first', 'second']);
   s.came('go');
   await until(() => turnEnds(c).length >= 1, 'the turn');
+  await c.close();
+});
+
+test('a read OpenCode\'s server could not answer is no empty conversation: the chat reads again at its next look', { timeout: 20_000 }, async (t) => {
+  const { readTranscript } = await import('../../src/chat/engines/opencode-transcript.mjs');
+  const failing = (status) => ({ req: async () => { throw Object.assign(new Error('fetch failed'), status ? { status } : {}); } });
+  assert.deepEqual((await readTranscript(failing(404), SESSION_ID)).events, [], 'OpenCode has no such conversation: empty');
+  await assert.rejects(readTranscript(failing(), SESSION_ID), /fetch failed/, 'a server that is gone (a stale state file)');
+  await assert.rejects(readTranscript(failing(503), SESSION_ID), /fetch failed/);
+  // A chat whose first read hit a server that had gone: unread, and read once one runs.
+  const s = await standIn();
+  t.after(() => s.close());
+  let client = () => failing();
+  const c = await chatOn(s, { conversationId: SESSION_ID }, { client: (o) => client(o) });
+  assert.equal(c.unread, true);
+  assert.equal(c.events.length, 0);
+  const { opencodeClient } = await import('../../src/codetools/clients.mjs');
+  client = opencodeClient;
+  c.refresh();
+  if (c.loading) await c.loading;
+  assert.ok(c.events.some((e) => e.kind === 'user'), 'read at the next look');
   await c.close();
 });

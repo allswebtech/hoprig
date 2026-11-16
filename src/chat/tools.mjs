@@ -30,6 +30,13 @@ export function chatTool(v, cfg) {
 export const chatTools = (cfg) => enabledToolIds(cfg).filter((id) => engineIds().includes(id));
 
 /**
+ * Why a chat of `tool` runs nothing now (the tool was turned off since it was opened), as the page says it; null while
+ * it is on. Claude Code is never off.
+ */
+export const toolOffWords = (tool, cfg) => (tool === 'claude' || chatTools(cfg).includes(tool) ? null
+  : `${findTool(tool).name} is off on this computer: turn it on under Settings → Coding tools to go on with this chat`);
+
+/**
  * The same for the page's choice: [{ id, name, modes?, modeWords?, efforts? }] of the ones installed too (Claude Code
  * is always one; another tool brings its own choices, Claude Code's are the page's own words).
  */

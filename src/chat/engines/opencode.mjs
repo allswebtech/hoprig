@@ -337,10 +337,11 @@ export const opencode = {
   /**
    * The conversation from OpenCode's store (async). start: false (the chat's first read, when the dashboard starts)
    * reads only from a server that runs already, else null: a saved chat does not start OpenCode's server by itself.
+   * While OpenCode is off the same: a chat of it can still be read from a server that runs, and starts none.
    */
   transcript: async ({ id }, o = {}, { start = true } = {}) => {
     if (!isToolSessionId(TOOL, id)) return { events: [], tasks: [], todos: [], title: '', size: 0 };
-    const c = await reader(o, { start });
+    const c = await reader(o, { start: start && isOn(o) });
     return c ? readTranscript(c, id) : null;
   },
   /** When the conversation last changed (the chat reads it again when that moves), or 0. */
