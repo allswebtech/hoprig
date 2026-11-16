@@ -200,61 +200,81 @@ export function chatFeature(ctx, o = {}) {
     });
   }
 
+  /**
+   * Open a chat (POST /api/chats; the schedules too). b: { dir, profile?, model?, effort?, permissionMode?, ultracode?,
+   * sessionId?, text? }. What is left out: as the last chat in that folder ran, else the provider recommended now and
+   * Settings. A conversation an open chat already runs gives that chat. → { id }
+   */
+  async function openChat(b) {
+    load();
+    const dir = insideRoots(v.absPath(b.dir), roots());
+    if (!dir) throw bad('choose a folder inside the allowed roots');
+    const last = memory.last(dir) || {};
+    let profile = b.profile;
+    if (profile === undefined || profile === null || profile === '') {
+      // As the last chat here ran, while that provider is still there; else the one recommended now.
+      profile = last.profile && profileOk(last.profile) ? last.profile : (await ctx.state()).recommended;
+      if (!profile) throw bad('there is no provider yet: add one under Providers first');
+    }
+    if (typeof profile !== 'string' || !profileOk(profile)) throw bad('there is no such provider');
+    if (b.ultracode !== undefined && b.ultracode !== null && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
+    const d = cfg().sessionDefaults || {};
+    // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults.
+    const kept = (k, chosen, fallback) => (chosen !== undefined ? chosen : k in last ? last[k] : fallback);
+    const model = kept('model', pick(b.model, models(), 'model'), d.model || null);
+    const effort = kept('effort', pick(b.effort, EFFORTS, 'effort'), d.effort || null);
+    const permissionMode = kept('permissionMode', pick(b.permissionMode, PERMISSION_MODES, 'permission mode'), d.permissionMode || null);
+    const ultracode = kept('ultracode', b.ultracode ?? undefined, false) === true;
+    let id = crypto.randomUUID();
+    if (b.sessionId !== undefined && b.sessionId !== null) {
+      id = v.sessionId(b.sessionId);
+      if (!id || !sessionsIn(dir).some((s) => s.id === id)) throw bad('that conversation is not in this folder');
+      if (openChatOf(id)) return { id: openChatOf(id) };
+    }
+    let text = null;
+    if (b.text !== undefined && b.text !== null) {
+      text = v.message(b.text);
+      if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
+    }
+    if (chats.size >= OPEN_MAX) {
+      const old = [...chats.values()].filter((c) => !c.session).sort((a, b2) => a.statusAt - b2.statusAt)[0];
+      if (!old) throw new HttpError(409, `${OPEN_MAX} chats are open; close one first`);
+      chats.delete(old.id);
+      old.close();
+    }
+    const c = make({
+      id, cwd: dir, profile,
+      // a model the computer stopped offering is not forced on a new chat
+      model: model && models().includes(model) ? model : null, effort: EFFORTS.includes(effort) ? effort : null,
+      permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode,
+    });
+    save();
+    remember(c);
+    if (text && !(await terminalOf(id))) await c.send(text);
+    return { id };
+  }
+
+  /** A message to an open chat from the dashboard itself (a schedule): queued by the chat while Claude works. */
+  async function sendTo(id, text) {
+    const c = chatOr404(id);
+    const t = v.message(text);
+    if (!t) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
+    if (!c.busy()) {
+      const term = await terminalOf(c.conversationId);
+      if (term) throw inTerminal(term);
+    }
+    const r = await c.send(t);
+    save();
+    return { id: r.id, queued: r.queued };
+  }
+
   // ---------- routes ----------
   const routes = [
     ['GET', /^\/api\/chats$/, async () => {
       load();
       return { chats: [...chats.values()].map(card) };
     }],
-    ['POST', /^\/api\/chats$/, async (req) => {
-      load();
-      const b = await ctx.readJson(req);
-      const dir = insideRoots(v.absPath(b.dir), roots());
-      if (!dir) throw bad('choose a folder inside the allowed roots');
-      const last = memory.last(dir) || {};
-      let profile = b.profile;
-      if (profile === undefined || profile === null || profile === '') {
-        // As the last chat here ran, while that provider is still there; else the one recommended now.
-        profile = last.profile && profileOk(last.profile) ? last.profile : (await ctx.state()).recommended;
-        if (!profile) throw bad('there is no provider yet: add one under Providers first');
-      }
-      if (typeof profile !== 'string' || !profileOk(profile)) throw bad('there is no such provider');
-      if (b.ultracode !== undefined && b.ultracode !== null && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
-      const d = cfg().sessionDefaults || {};
-      // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults.
-      const kept = (k, chosen, fallback) => (chosen !== undefined ? chosen : k in last ? last[k] : fallback);
-      const model = kept('model', pick(b.model, models(), 'model'), d.model || null);
-      const effort = kept('effort', pick(b.effort, EFFORTS, 'effort'), d.effort || null);
-      const permissionMode = kept('permissionMode', pick(b.permissionMode, PERMISSION_MODES, 'permission mode'), d.permissionMode || null);
-      const ultracode = kept('ultracode', b.ultracode ?? undefined, false) === true;
-      let id = crypto.randomUUID();
-      if (b.sessionId !== undefined && b.sessionId !== null) {
-        id = v.sessionId(b.sessionId);
-        if (!id || !sessionsIn(dir).some((s) => s.id === id)) throw bad('that conversation is not in this folder');
-        if (openChatOf(id)) return { id: openChatOf(id) };
-      }
-      let text = null;
-      if (b.text !== undefined && b.text !== null) {
-        text = v.message(b.text);
-        if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
-      }
-      if (chats.size >= OPEN_MAX) {
-        const old = [...chats.values()].filter((c) => !c.session).sort((a, b2) => a.statusAt - b2.statusAt)[0];
-        if (!old) throw new HttpError(409, `${OPEN_MAX} chats are open; close one first`);
-        chats.delete(old.id);
-        old.close();
-      }
-      const c = make({
-        id, cwd: dir, profile,
-        // a model the computer stopped offering is not forced on a new chat
-        model: model && models().includes(model) ? model : null, effort: EFFORTS.includes(effort) ? effort : null,
-        permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode,
-      });
-      save();
-      remember(c);
-      if (text && !(await terminalOf(id))) await c.send(text);
-      return { id };
-    }],
+    ['POST', /^\/api\/chats$/, async (req) => openChat(await ctx.readJson(req))],
     ['POST', /^\/api\/chats\/from-session$/, async (req) => {
       load();
       const b = await ctx.readJson(req);
@@ -264,8 +284,22 @@ export function chatFeature(ctx, o = {}) {
       const run = found.run;
       if (!run || !isSessionId(run.sessionId)) throw new HttpError(409, 'Claude has not reported its conversation yet; try again in a moment');
       if (!chats.has(run.sessionId)) {
+        // As the terminal ran it (its flags), else as the last chat in that folder, else Settings: a conversation
+        // taken back from a terminal keeps its model, effort and mode.
         const d = cfg().sessionDefaults || {};
-        make({ id: run.sessionId, cwd: run.cwd, profile: run.profile, model: d.model || null, effort: d.effort || null, permissionMode: d.permissionMode || null });
+        const last = memory.last(run.cwd) || {};
+        const args = Array.isArray(run.carryArgs) ? run.carryArgs.filter((x) => typeof x === 'string') : [];
+        const flag = (name) => {
+          const i = args.indexOf(name);
+          const eq = args.find((x) => x.startsWith(`${name}=`));
+          return i >= 0 && i + 1 < args.length ? args[i + 1] : eq ? eq.slice(name.length + 1) : null;
+        };
+        const one = (name, key, list) => [flag(name), last[key], d[key]].find((x) => typeof x === 'string' && list.includes(x)) || null;
+        make({
+          id: run.sessionId, cwd: run.cwd, profile: run.profile,
+          model: one('--model', 'model', models()), effort: one('--effort', 'effort', EFFORTS), permissionMode: one('--permission-mode', 'permissionMode', PERMISSION_MODES),
+          ultracode: last.ultracode === true,
+        });
         save();
       }
       return { id: run.sessionId };
@@ -361,6 +395,7 @@ export function chatFeature(ctx, o = {}) {
       for (let i = 0; i < 40 && (await terminalOf(c.conversationId)); i++) await new Promise((r) => setTimeout(r, 200));
       if (await terminalOf(c.conversationId)) throw new HttpError(409, 'the terminal did not stop; stop Claude there and try again');
       c.refresh();
+      c.emit('state'); // a page that streams leaves its read-along mode now, not at the next news
       ctx.poke?.();
       return { ok: true };
     }],
@@ -422,6 +457,8 @@ export function chatFeature(ctx, o = {}) {
     name: 'chat',
     routes,
     handle: live.handle, // the event stream (server-sent events)
+    open: openChat, // a chat for the dashboard itself (the schedules)
+    send: sendTo,
     /** The open chats as session cards (server.mjs adds them to the sessions: Home, notifications). */
     cards() {
       load();

@@ -196,6 +196,7 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   const vb = await view();
   assert.ok(vb.terminal, 'read only until "Continue here"');
   assert.ok(vb.events.some((e) => e.kind === 'user' && e.text === 'hello chat'), 'the history comes from the transcript');
+  assert.deepEqual([vb.model, vb.effort], ['haiku', 'low'], 'taken back from the terminal with the model and effort it ran with');
   assert.equal((await owner('POST', `/api/chats/${id}/close`, {})).status, 200);
   assert.deepEqual((await owner('GET', '/api/chats')).json.chats, []);
 
