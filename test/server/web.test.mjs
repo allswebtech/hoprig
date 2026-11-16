@@ -283,7 +283,7 @@ test('session view: the header holds back, name and state, the account and one m
   assert.equal(items.at(-1), 'kill', 'ending the session is last');
   assert.match(src, /confirmSheet\(\{\s*title: `End "\$\{name\}"\?`/, 'and confirmed');
   assert.match(src, /title: 'Move to another provider'/);
-  assert.match(src, /prefs\.get\('session\.keys', true\)/, 'the key bar folds away and remembers it');
+  assert.match(src, /prefs\.get\('session\.keys', !finePointer\)/, 'the key bar folds away and remembers it: off by default with a mouse and keyboard, on on a phone');
   assert.match(src, /'Needs your OK'/, 'the same words as Home');
 });
 

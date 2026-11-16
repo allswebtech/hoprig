@@ -92,8 +92,9 @@ export function openSession(app, name) {
   const clipEl = h('textarea.term-clip', { readOnly: true, tabindex: '-1', 'aria-hidden': 'true' });
   const box = h('div.term-box', termEl, overlay, liveBtn, clipEl);
   const quick = h('div.quick', { role: 'toolbar', 'aria-label': 'Quick messages' });
-  // The key bar folds away (more room for the terminal on a phone); the choice is kept on this device.
-  let keysOn = prefs.get('session.keys', true);
+  // The key bar folds away; the choice is kept on this device. Without one: shown on a phone (no Esc, Tab or
+  // arrows there), hidden where there is a mouse and a keyboard (the real keys do it).
+  let keysOn = prefs.get('session.keys', !finePointer);
   const keysBtn = h('button.chip.keys-toggle', { type: 'button', 'aria-pressed': String(keysOn), title: 'Show or hide the key bar', onpointerdown: (e) => e.preventDefault(), onclick: () => {
     keysOn = !keysOn;
     prefs.set('session.keys', keysOn);
