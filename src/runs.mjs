@@ -204,13 +204,15 @@ export function removeRun(file) {
 
 /**
  * Record `run`, as listed a moment ago, is still its process's: read and judged again as listRuns does (one that is not
- * any more goes). For the moment before something is done to that process.
+ * any more goes), with what the system says now, not what it said a while ago. For the moment before something is done
+ * to that process.
  */
-export function stillRuns(run, ident = system) {
+export async function stillRuns(run, ident = system) {
+  const after = (await ident.refresh?.([run.pid])) || 0;
   const file = path.join(runsDir(), `${path.basename(String(run.runId))}.json`);
   const now = readRun(file);
   if (!now || now.pid !== run.pid) return false;
-  if (stillOwned([{ run: now, file }], ident)[0]) return true;
+  if (stillOwned([{ run: now, file }], ident, { after })[0]) return true;
   removeRun(file);
   return false;
 }

@@ -172,3 +172,31 @@ test('this process\'s own start is the one of when it was loaded, also after the
   }
   assert.ok(Math.abs(Number(token.slice(2)) - start) < 1000, `${token} against T:${Math.round(start)}`);
 });
+
+test('in the background (the dashboard): what is not known yet is not known, and asked without waiting', async () => {
+  let t = 1_800_000_000_000;
+  const started = t - 5_000;
+  const waited = [];
+  const asked = [];
+  let answer;
+  const id = makeIdentity({
+    platform: 'win32', pid: 7, now: () => t, ownStart: started,
+    run: () => (waited.push(1), ''),
+    runLater: (cmd, args) => (asked.push(args), new Promise((r) => (answer = () => r(`7 ${started}\r\n101 ${t - 60_000}\r\n`)))),
+  });
+  id.askInBackground();
+  assert.equal(id.of([101]).get(101), null, 'not known yet');
+  id.of([101, 202]);
+  assert.equal(asked.length, 1, 'one question on its way at a time');
+  answer();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(id.of([101]).get(101), `T:${t - 60_000}`, 'known once the system answered');
+  assert.equal(waited.length, 0, 'never waited for the system');
+  // Before a signal: asked now, and of() uses only that answer.
+  t += 1_000;
+  const at = id.refresh([101]);
+  answer();
+  assert.equal(await at, t);
+  assert.equal(id.of([101], { after: t }).get(101), `T:${t - 60_000}`);
+  assert.equal(asked.length, 2);
+});

@@ -89,13 +89,18 @@ export function sameProcess(a, b) {
 
 /**
  * The identity reader of one system. Tests hand in what a system would print: `read(path)` (a file's text, throws
- * when it cannot), `run(cmd, args, timeout)` (stdout, or null when it cannot run), `now`, `ownStart` (this process's
- * start in epoch ms, fixed), `osUptime` (seconds), `pid` (this process).
- *   self()       this process's identity (null on Linux when /proc cannot be read: its records carry none)
- *   of(pids)     Map pid → identity or null (not known); all pids in one call to the system
- *   bootAt()     when this boot began, in epoch ms
+ * when it cannot), `run(cmd, args, timeout)` (stdout, or null when it cannot run), `runLater` (the same as a promise),
+ * `now`, `ownStart` (this process's start in epoch ms, fixed), `osUptime` (seconds), `pid` (this process).
+ *   self()          this process's identity (null on Linux when /proc cannot be read: its records carry none)
+ *   of(pids, { after })  Map pid → identity or null (not known); all pids in one call to the system. `after` (epoch
+ *                   ms, or a Map pid → ms): an answer the system gave before then is not used, it is asked again
+ *   refresh(pids)   asks the system about them now, without waiting for it: a promise of when it asked (0: it did not),
+ *                   the `after` for of(). For the moment before a signal
+ *   askInBackground()  from now on of() never waits for the system: what it does not know yet is not known, and asked
+ *                   in the background. For the dashboard, whose requests must not wait for PowerShell
+ *   bootAt()        when this boot began, in epoch ms
  */
-export function makeIdentity({ platform = process.platform, read = (p) => fs.readFileSync(p, 'utf8'), run = runProgram, now = Date.now, ownStart = STARTED, osUptime = os.uptime, pid = process.pid } = {}) {
+export function makeIdentity({ platform = process.platform, read = (p) => fs.readFileSync(p, 'utf8'), run = runProgram, runLater = run === runProgram ? runProgramLater : async (...a) => run(...a), now = Date.now, ownStart = STARTED, osUptime = os.uptime, pid = process.pid } = {}) {
   let boot;
   const bootId = () => {
     if (boot === undefined) {
@@ -120,49 +125,76 @@ export function makeIdentity({ platform = process.platform, read = (p) => fs.rea
     if (mine === undefined) mine = platform === 'linux' ? linuxOf(pid) : `T:${Math.round(ownStart)}`;
     return mine;
   };
+  const valid = (pids) => [...new Set(pids)].filter((p) => Number.isInteger(p) && p > 0 && p !== pid);
 
   // macOS and Windows: what the system said about each pid, kept for a while (PowerShell takes most of a second, and
   // the dashboard lists the records every few seconds), and whether its answer about this process itself was right.
   const ask = platform === 'darwin'
-    ? { ttl: 30_000, starts: (pids) => { const out = run('ps', ['-o', 'pid=,etime=', '-p', pids.join(',')], 5000); return out === null ? null : parseEtimes(out, now()); } }
+    ? { ttl: 30_000, call: (pids) => ['ps', ['-o', 'pid=,etime=', '-p', pids.join(',')], 5000], starts: (out) => parseEtimes(out, now()) }
     : platform === 'win32'
-      ? { ttl: 300_000, starts: (pids) => { const out = run('powershell.exe', powershellArgs(creationScript(pids)), 15_000); return out === null ? null : parseCreations(out); } }
+      ? { ttl: 300_000, call: (pids) => ['powershell.exe', powershellArgs(creationScript(pids)), 15_000], starts: parseCreations }
       : null;
-  const memo = new Map(); // pid → { start (null: nothing said), answered (the system could be asked), at }
+  // pid → { start (null: nothing said), at (when the system was asked) }
+  const memo = new Map();
   // null until the system has said when this process started (an answer without it, or none, is asked again after the
   // while); false for good once that answer was wrong.
   let trusted = null;
-  const fresh = (p) => memo.has(p) && now() - memo.get(p).at < ask.ttl;
-  const learn = (pids) => {
-    const starts = ask.starts(pids);
-    const at = now();
-    for (const [p, m] of memo) if (at - m.at >= ask.ttl) memo.delete(p);
-    for (const p of pids) memo.set(p, { start: starts && Number.isFinite(starts.get(p)) ? Math.round(starts.get(p)) : null, answered: !!starts, at });
+  let background = false;
+  let asking = null; // the background question on its way
+  const learn = (pids, out, at) => {
+    const starts = out === null ? null : ask.starts(out);
+    for (const [p, m] of memo) if (now() - m.at >= ask.ttl) memo.delete(p);
+    for (const p of pids) memo.set(p, { start: starts && Number.isFinite(starts.get(p)) ? Math.round(starts.get(p)) : null, at });
+    const me = memo.get(pid);
+    if (trusted === null && me && me.start !== null) trusted = Math.abs(me.start - ownStart) < SAME_WITHIN;
   };
+  const askNow = (pids) => {
+    const at = now();
+    learn(pids, run(...ask.call(pids)), at);
+  };
+  const askLater = async (pids) => {
+    const at = now();
+    let out = null;
+    try {
+      out = await runLater(...ask.call(pids));
+    } catch {
+      /* could not be asked */
+    }
+    learn(pids, out, at);
+    return at;
+  };
+  const withSelf = (pids) => (trusted === null ? [...pids, pid] : pids); // the self check rides on the first call
 
-  function of(pids) {
+  function of(pids, { after = 0 } = {}) {
     const out = new Map();
-    const others = [...new Set(pids)].filter((p) => Number.isInteger(p) && p > 0 && p !== pid);
+    const others = valid(pids);
     if (pids.includes(pid)) out.set(pid, self());
     if (platform === 'linux') {
       for (const p of others) out.set(p, linuxOf(p));
       return out;
     }
+    const since = (p) => (typeof after === 'number' ? after : after.get(p) || 0);
+    const known = (p) => memo.has(p) && now() - memo.get(p).at < ask.ttl && memo.get(p).at >= since(p);
     if (ask && trusted !== false && others.length) {
-      const wanted = others.filter((p) => !fresh(p));
-      if (trusted === null && !fresh(pid)) wanted.push(pid); // the self check rides on the first call
-      if (wanted.length) learn(wanted);
-      const me = memo.get(pid);
-      if (trusted === null && me && me.start !== null) trusted = Math.abs(me.start - ownStart) < SAME_WITHIN;
+      const wanted = others.filter((p) => !known(p));
+      if (wanted.length || (trusted === null && !known(pid))) {
+        if (!background) askNow(withSelf(wanted));
+        else if (!asking) asking = askLater(withSelf(wanted)).finally(() => (asking = null));
+      }
     }
     for (const p of others) {
-      const m = trusted ? memo.get(p) : null;
+      const m = trusted && known(p) ? memo.get(p) : null;
       out.set(p, m && m.start !== null ? `T:${m.start}` : null);
     }
     return out;
   }
 
-  return { self, of, bootAt: () => now() - osUptime() * 1000 };
+  async function refresh(pids) {
+    const others = valid(pids);
+    return ask && trusted !== false && others.length ? askLater(withSelf(others)) : 0;
+  }
+
+  return { self, of, refresh, askInBackground: () => (background = true), bootAt: () => now() - osUptime() * 1000 };
 }
 
 export const system = makeIdentity();
@@ -181,11 +213,20 @@ export const alive = (pid) => {
  * For each { run, file } (a record that names its writer's pid, and its writer's identity in `proc` when it has one):
  * whether that process still runs. Its pid must be alive; then the identities decide when both are known; when they
  * cannot (a record of a launcher from before identities, or a system that cannot be asked), a file last written before
- * this boot is of a process that cannot be alive.
+ * this boot is of a process that cannot be alive. `after`: only what the system said since then is used (of()).
  */
-export function stillOwned(list, ident = system) {
+export function stillOwned(list, ident = system, { after = 0 } = {}) {
   const live = list.map(({ run }) => Number.isInteger(run.pid) && alive(run.pid));
-  const ids = ident.of(list.filter((e, i) => live[i] && e.run.proc).map((e) => e.run.pid));
+  const ids = ident.of(list.filter((e, i) => live[i] && e.run.proc).map((e) => e.run.pid), { after });
+  // A kept answer that says "another process" may be from before the record's process started, about the process that
+  // had its pid then (Windows hands a pid out again at once): it decides only when it was given after that start, and
+  // is asked again otherwise.
+  const doubt = new Map();
+  list.forEach(({ run }, i) => {
+    const start = live[i] && /^T:\d+$/.test(run.proc || '') ? Number(run.proc.slice(2)) : null;
+    if (start !== null && sameProcess(run.proc, ids.get(run.pid)) === false) doubt.set(run.pid, Math.max(doubt.get(run.pid) || 0, start, after));
+  });
+  if (doubt.size) for (const [p, id] of ident.of([...doubt.keys()], { after: doubt })) ids.set(p, id);
   const boot = ident.bootAt();
   return list.map(({ run, file }, i) => {
     if (!live[i]) return false;

@@ -97,7 +97,7 @@ export function handoffRoutes(ctx, o) {
     if (term.termId) {
       // The terminal stays, as a plain shell: the coding tool stops in it, the conversation goes on here.
       await ctx.backend.respawn(term.termId, term.cwd || c.cwd, [process.execPath, '-e', '']);
-    } else if (term.run && v.pid(term.run.pid) && stillRuns(term.run)) {
+    } else if (term.run && v.pid(term.run.pid) && (await stillRuns(term.run))) {
       // Judged again right before the signal: a record whose process has ended (its pid another process's now) goes
       // instead, and nothing is sent to that other process.
       try {

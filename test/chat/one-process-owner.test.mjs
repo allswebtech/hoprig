@@ -150,6 +150,84 @@ test('a chat record an earlier dashboard left behind, whose pid this dashboard h
   clear();
 });
 
+/**
+ * A macOS or Windows system as the dashboard sees it, on this test's clock: this process started a minute ago, and
+ * pid `pid` belongs to the process that started at `holder.start` (changed by the test). Counts its calls.
+ */
+const askedSystem = (platform, pid) => {
+  const clock = { now: Math.floor(Date.now() / 1000) * 1000 }; // whole seconds: ps says no less
+  const own = clock.now - 60_000;
+  const holder = { start: clock.now - 30_000 };
+  const el = (s) => { const x = Math.round((clock.now - s) / 1000); return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
+  const calls = [];
+  const run = () => (calls.push(1), platform === 'win32' ? `${process.pid} ${own}\r\n${pid} ${holder.start}\r\n` : `${process.pid} ${el(own)}\n${pid} ${el(holder.start)}\n`);
+  return { clock, holder, calls, ident: makeIdentity({ platform, run, now: () => clock.now, ownStart: own, osUptime: () => 3600 }) };
+};
+
+test('an answer the system gave before a record\'s process started never makes it another process\'s (macOS, Windows)', (t) => {
+  const other = sleeper(t);
+  for (const platform of ['win32', 'darwin']) {
+    clear();
+    const { clock, holder, calls, ident } = askedSystem(platform, other.pid);
+    const a = record({ pid: other.pid, proc: `T:${holder.start}` });
+    assert.deepEqual(listed({ ident }), [idOf(a)], `${platform}: launcher A, while it runs`);
+    // A ends; launcher B gets its pid 10 s later (Windows hands a pid out again at once), while the answer about A is
+    // still kept.
+    fs.rmSync(a);
+    clock.now += 10_000;
+    holder.start = clock.now;
+    const b = record({ pid: other.pid, proc: `T:${holder.start}`, conversation: 'another' });
+    clock.now += 5_000;
+    assert.deepEqual(listed({ ident }), [idOf(b)], `${platform}: B's record counts`);
+    assert.equal(fs.existsSync(b), true, `${platform}: and stays`);
+    assert.equal(calls.length, 2, `${platform}: the system was asked again`);
+    listed({ ident });
+    assert.equal(calls.length, 2, `${platform}: once`);
+    // A record whose process started before that answer and is not the one it names: gone, without asking again.
+    const ghost = path.join(path.dirname(b), 'ghost.json'); // its own name: record() names two in one millisecond alike
+    fs.writeFileSync(ghost, JSON.stringify({ ...JSON.parse(fs.readFileSync(b, 'utf8')), runId: 'ghost', proc: `T:${holder.start - 600_000}` }));
+    assert.deepEqual(listed({ ident }), [idOf(b)], platform);
+    assert.equal(fs.existsSync(ghost), false, `${platform}: the dead process's record goes`);
+    assert.equal(calls.length, 2, platform);
+  }
+  clear();
+});
+
+test('right before a signal the system is asked now, not what it said a while ago (macOS, Windows)', async (t) => {
+  const other = sleeper(t);
+  for (const platform of ['win32', 'darwin']) {
+    clear();
+    const { clock, holder, calls, ident } = askedSystem(platform, other.pid);
+    const a = record({ pid: other.pid, proc: `T:${holder.start}` });
+    assert.deepEqual(listed({ ident }), [idOf(a)], platform);
+    // A is killed hard (its record stays); another process gets its pid within the while.
+    clock.now += 10_000;
+    holder.start = clock.now - 2_000;
+    assert.deepEqual(listed({ ident }), [idOf(a)], `${platform}: a listing may use the kept answer`);
+    const run = JSON.parse(fs.readFileSync(a, 'utf8'));
+    assert.equal(await R.stillRuns(run, ident), false, `${platform}: not before a signal`);
+    assert.equal(calls.length, 2, `${platform}: asked again`);
+    assert.equal(fs.existsSync(a), false, `${platform}: and the record goes`);
+  }
+  clear();
+});
+
+test('the dashboard never waits for the system when it lists the records', async () => {
+  const { system: s } = await import('../../src/procid.mjs');
+  const { createServer } = await import('../../src/server/server.mjs');
+  const turnOn = s.askInBackground;
+  let on = false;
+  s.askInBackground = () => (on = true);
+  const app = createServer({ backend: { list: async () => [], capture: async () => '' }, watch: false, dashboardFile: false });
+  try {
+    await app.listen(0, '127.0.0.1');
+    assert.equal(on, true);
+  } finally {
+    s.askInBackground = turnOn;
+    await app.close();
+  }
+});
+
 test('Continue here judges the record again right before its signal: nothing is sent to a process that did not write it', { skip: process.platform === 'win32' && 'POSIX signals' }, async (t) => {
   class HttpError extends Error {
     constructor(status, message) {
