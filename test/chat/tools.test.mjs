@@ -46,7 +46,7 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   saveConfig({ server: { backend: 'pty', roots: [path.dirname(proj)], passwordHash: await hashPassword('pw-for-tests') } });
   writeProfile('sub', { label: 'Main' }); // a Claude subscription: Claude Code only
   writeProfile('gw', { label: 'Gateway', api: ['messages', 'models'], env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: 'gw-token-of-the-test' } });
-  const app = createServer({ watchTickMs: 300, dashboardFile: false, chat: { resolveEnv: async () => ({}), engineOpts: standInOpts(s), idleMs: 30_000 } });
+  const app = createServer({ watchTickMs: 300, dashboardFile: false, toolSessions: async () => [{ id: SESSION_ID, at: 1, title: 'Recorded session' }], chat: { resolveEnv: async () => ({}), engineOpts: standInOpts(s), idleMs: 30_000 } });
   const { port } = await app.listen(0, '127.0.0.1');
   const base = `http://127.0.0.1:${port}`;
   t.after(async () => {
@@ -111,6 +111,13 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   const hist = (await owner('GET', `/api/chats/${id}/history`)).json;
   assert.equal(hist.tool, 'opencode');
   assert.deepEqual(hist.conversations.map((c) => [c.id, c.current]), [[SESSION_ID, true]]);
+  // One place at a time: the conversation the chat runs is not started in a terminal too (resumed, or the folder's
+  // newest continued), so a terminal never changes the rules the chat keeps on it.
+  for (const how of [{ mode: 'resume', sessionId: SESSION_ID }, { mode: 'continue' }]) {
+    r = await owner('POST', '/api/sessions', { tool: 'opencode', dir: proj, profile: 'gw', permissionMode: 'bypassPermissions', ...how });
+    assert.equal(r.status, 409, how.mode);
+    assert.match(r.json.error, /open as a chat right now/);
+  }
 
   // The folder keeps its tool: a chat opened there without a choice is OpenCode's, as the last one.
   assert.equal((await owner('POST', `/api/chats/${id}/close`, {})).status, 200);

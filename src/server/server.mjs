@@ -144,7 +144,8 @@ function readJson(req) {
  * Build the server. `opts` override config.json (tests use them): host, port, tmuxSocket, tmuxConfigFile, backend,
  * autoswitch and claudecode (stand-ins for src/autoswitch.mjs and src/claudecode.mjs), watch (false: no watcher),
  * fetch (for notifications), autoSwitchGraceMs and watchTickMs (faster watcher for tests), machines (options for
- * src/machines: fake ssh, timeouts), dashboardFile (false: do not write <stateDir>/dashboard.json).
+ * src/machines: fake ssh, timeouts), dashboardFile (false: do not write <stateDir>/dashboard.json), toolSessions
+ * (a stand-in for the conversation lists of another coding tool's store).
  * Returns { server, deck, backend, watcher, listen(), close() }.
  */
 export function createServer(opts = {}) {
@@ -157,6 +158,8 @@ export function createServer(opts = {}) {
   const autoswitch = opts.autoswitch || autoswitchModule;
   // Loaded on first use, so the dashboard still starts if that module fails to load.
   const claudecode = async () => opts.claudecode || import('../claudecode.mjs');
+  // A coding tool's conversations of a folder, from its own store (opts.toolSessions: a stand-in, in tests).
+  const listToolSessions = opts.toolSessions || toolSessions;
   // The Computer tab's view of the system and its actions on it; the demo passes stand-ins, so it never shows or
   // touches the real computer.
   let loginTimer = null; // the half-hourly sign-in check started in listen()
@@ -428,7 +431,7 @@ export function createServer(opts = {}) {
       const tool = toolFromRequest(q.get('tool'));
       if (tool !== 'claude') {
         assertToolReady(tool, cfg());
-        return { tool, sessions: (await toolSessions(tool, dir)).slice(0, 30).map((s) => ({ ...s, title: s.title || '(untitled)' })) };
+        return { tool, sessions: (await listToolSessions(tool, dir)).slice(0, 30).map((s) => ({ ...s, title: s.title || '(untitled)' })) };
       }
       return { sessions: sessionsIn(dir).slice(0, 30).map((s) => ({ id: s.id, at: s.mtimeMs, title: sessionTitle(s.file) || '(untitled)' })) };
     }],
@@ -447,10 +450,10 @@ export function createServer(opts = {}) {
         let sid = null;
         if (mode === 'resume') {
           sid = isToolSessionId(tool, b.sessionId) ? b.sessionId : null;
-          if (!sid || !(await toolSessions(tool, dir)).some((s) => s.id === sid)) throw bad('that conversation is not in this folder');
+          if (!sid || !(await listToolSessions(tool, dir)).some((s) => s.id === sid)) throw bad('that conversation is not in this folder');
         }
         // One conversation runs in one place only, as for Claude Code ("continue": the folder's newest of the tool).
-        const runs = mode === 'resume' ? sid : mode === 'continue' ? ((await toolSessions(tool, dir))[0] || {}).id : null;
+        const runs = mode === 'resume' ? sid : mode === 'continue' ? ((await listToolSessions(tool, dir))[0] || {}).id : null;
         if (runs && chat.running(runs, tool)) throw new HttpError(409, 'this conversation is open as a chat right now; open it in a terminal from the chat');
         let prompt = null;
         if (b.prompt !== undefined && b.prompt !== null) {
