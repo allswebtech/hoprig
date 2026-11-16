@@ -84,6 +84,7 @@ export async function onServer(tool, profile, o = {}) {
   if (!r || !r.ok) throw fail(409, `OpenCode's server cannot be used: ${(r && r.why) || 'it did not start'}`);
   const prov = (o.providers || serverProviders)(tool, [profile])[0];
   if (!prov) throw fail(400, `the provider "${profile.name}" has no key for OpenCode`);
+  // Held from now on. The upkeep that stops an unused server leaves it alone meanwhile: the ask above made it fresh.
   return { server: r.server, prov, release: (o.hold || holdServer)(tool) };
 }
 
