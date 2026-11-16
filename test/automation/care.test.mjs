@@ -57,8 +57,24 @@ test('updates: the settings, and the old Claude-only setting read once into them
   assert.throws(() => updates.cleanUpdateSettings({ mode: 'always' }, {}), /"manual" or "auto"/);
   assert.throws(() => updates.cleanUpdateSettings({ notify: 'yes' }, {}), /on or off/);
   assert.throws(() => updates.cleanUpdateSettings({ claude: 'auto' }, {}), /not an update setting/);
-  assert.deepEqual(updates.fromLegacy('notify'), { itemModes: { claude: 'manual' }, notify: true });
+  assert.deepEqual(updates.fromLegacy('notify'), { itemModes: { claude: null }, notify: true });
+  assert.deepEqual(updates.fromLegacy('off'), { itemModes: { claude: null }, notify: false });
   assert.deepEqual(updates.fromLegacy('auto'), { itemModes: { claude: 'auto' } });
+  // Whatever the settings were, an old caller's value takes effect and reads back as sent; Claude Code gets its own
+  // mode only where it must differ from the mode for everything.
+  const starts = [
+    { mode: 'manual', notify: false }, { mode: 'manual', notify: true }, { mode: 'auto', notify: false }, { mode: 'auto', notify: true },
+    { mode: 'manual', notify: true, itemModes: { claude: 'auto' } }, { mode: 'auto', notify: false, itemModes: { claude: 'manual' } },
+  ];
+  for (const s of starts) {
+    for (const v of ['off', 'notify', 'auto']) {
+      const next = updates.cleanUpdateSettings(updates.fromLegacy(v, s), s);
+      assert.equal(updates.legacyValue(next), v, `${JSON.stringify(s)} + ${v}`);
+      if (v !== 'auto') assert.equal(next.notify, v === 'notify', `${v} sets telling`);
+      if (v !== 'auto' && s.mode === 'manual') assert.equal(next.itemModes, undefined, `${v} pins no choice the owner never made`);
+    }
+  }
+  assert.deepEqual(updates.cleanUpdateSettings(updates.fromLegacy('off', { mode: 'manual', notify: true }), { mode: 'manual', notify: true }), { mode: 'manual', notify: false });
   assert.throws(() => updates.fromLegacy('always'), /off, notify, auto/);
   assert.equal(updates.legacyValue({ mode: 'auto', notify: false }), 'auto');
   assert.equal(updates.legacyValue({ mode: 'manual', notify: true }), 'notify');

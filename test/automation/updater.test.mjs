@@ -320,6 +320,12 @@ test('the old Claude-only setting: moved once at start; an older page or Tia may
     assert.equal(a.api.status().settings.updates.claude, 'auto');
     assert.equal(f.config().automation.retry.enabled, false);
     assert.equal(f.config().automation.updates, undefined, 'never written back into the automations');
+    a.api.changeSettings({ updates: { claude: 'off' } });
+    assert.deepEqual(f.config().updates, { mode: 'manual', notify: false }, 'an older page\'s "off" also stops telling, and pins nothing');
+    assert.equal(a.api.status().settings.updates.claude, 'off');
+    a.api.changeSettings({ updates: { claude: 'notify' } });
+    assert.deepEqual(f.config().updates, { mode: 'manual', notify: true });
+    assert.equal(a.api.status().settings.updates.claude, 'notify');
     assert.throws(() => a.api.changeSettings({ updates: { claude: 'always' } }), /off, notify, auto/);
     assert.throws(() => a.api.changeSettings({ updates: { mode: 'auto' } }), /Settings → Updates/);
     await a.close();

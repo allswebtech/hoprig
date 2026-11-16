@@ -80,12 +80,17 @@ export function cleanUpdateSettings(patch, current) {
 export const legacyValue = (s) => (modeOf(s, 'claude') === 'auto' ? 'auto' : s.notify ? 'notify' : 'off');
 
 /**
- * The old setting's value sent by an older page (or Tia), as a change of the new settings. It was about Claude Code
- * only, so only Claude Code's own mode changes (and "notify" turns telling on). Throws for anything else.
+ * The old setting's value sent by an older page (or Tia), as a change of the new settings (`current`), such that
+ * legacyValue() then reads back what was sent. It was about Claude Code only:
+ *   auto           Claude Code updates itself (its own mode)
+ *   notify / off   telling on / off; Claude Code no longer goes its own way, unless everything is Automatic, where it
+ *                  must be held back by its own 'manual' (the old setting never installed anything in these two)
+ * Throws for anything else.
  */
-export function fromLegacy(v) {
+export function fromLegacy(v, current = { mode: 'manual' }) {
   if (!LEGACY.includes(v)) throw new Error(`Claude Code updates must be one of: ${LEGACY.join(', ')}`);
-  return { itemModes: { claude: v === 'auto' ? 'auto' : 'manual' }, ...(v === 'notify' ? { notify: true } : {}) };
+  if (v === 'auto') return { itemModes: { claude: 'auto' } };
+  return { notify: v === 'notify', itemModes: { claude: current.mode === 'auto' ? 'manual' : null } };
 }
 
 /**

@@ -271,7 +271,7 @@ export function createAutomation(ctx) {
       let up = null;
       if (old !== undefined) {
         if (!old || typeof old !== 'object' || Object.keys(old).some((k) => k !== 'claude')) throw new Error('updates are set in Settings → Updates');
-        if ('claude' in old) up = updates.fromLegacy(old.claude);
+        if ('claude' in old) up = updates.fromLegacy(old.claude, updater.settings());
       }
       const rest = old === undefined ? patch : Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'updates'));
       const next = cleanSettingsPatch(rest, settings());
