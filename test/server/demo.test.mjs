@@ -98,9 +98,10 @@ test('demo: free port, own temp folder, one-time sign-in link, sample data, clea
       if (!end) await new Promise((r) => setTimeout(r, 250));
     }
     assert.equal(end && end.error, 'OpenCode could not start: OpenCode does not run in the demo. On your own computer it runs as Claude Code does here.');
-    // A chat in another project gets the short demo reply, never the cart story (no cart there).
+    // A chat in another project gets the short demo reply, never the cart story (no cart there). It runs on Auto (on in
+    // the demo), as New session often picks: the demo starts no router for it.
     const api = path.join(root, 'home', 'Workspace', 'projects', 'api-server');
-    const other = await (await fetch(`${url}/api/chats`, { method: 'POST', headers: auth, body: JSON.stringify({ dir: api, tool: 'claude', profile: 'max', text: 'hello' }) })).json();
+    const other = await (await fetch(`${url}/api/chats`, { method: 'POST', headers: auth, body: JSON.stringify({ dir: api, tool: 'claude', profile: 'auto', text: 'hello' }) })).json();
     assert.ok(other.id, JSON.stringify(other));
     let evs = [];
     for (let i = 0; i < 80 && !evs.some((e) => e.kind === 'turn-end'); i++) {
@@ -109,6 +110,8 @@ test('demo: free port, own temp folder, one-time sign-in link, sample data, clea
     }
     assert.ok(evs.some((e) => e.kind === 'text' && /This chat talks to no model/.test(e.text)), JSON.stringify(evs));
     assert.ok(!evs.some((e) => e.kind === 'tool'), 'no Read, no Edit, no OK of a cart that is not there');
+    assert.ok(!evs.some((e) => e.error), `no error: ${JSON.stringify(evs.filter((e) => e.error))}`);
+    assert.equal(fs.existsSync(path.join(root, 'state', 'router.log')), false, 'no router was started');
 
     await hooks.stop();
     assert.equal(fs.existsSync(root), false, 'its folder is removed');
