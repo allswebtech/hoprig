@@ -126,6 +126,7 @@ export function createAssistantCore({
         f.session.screen = String(c.ask.subject || '');
         f.session.cut = c.ask.cut === true; // only a part of it came: never judged by that part
         f.session.owner = c.ask.owner === true;
+        f.session.known = c.ask.known === true; // a call her rules can judge; else (or not said) the OK is the owner's
         f.session.request = c.ask.request || null;
       }
       // What a permission prompt asks is on the screen, not in the notification: read it, so policy.mjs can judge
@@ -137,7 +138,10 @@ export function createAssistantCore({
           /* gone meanwhile */
         }
       }
-      f.mine = jobs.startedByTia(args.computer || LOCAL, args.session);
+      // Hers: a chat by its own mark (a chat id comes back when the owner opens that conversation later, so a mark
+      // by name would hand her his chat); a terminal session by the jobs' marks of this very terminal (its name and
+      // when it was made: the name of a session that ended is used again).
+      f.mine = c && c.kind === 'chat' ? c.byTia === true : !!c && jobs.startedByTia(args.computer || LOCAL, args.session, c.created);
     }
     return f;
   }

@@ -53,6 +53,9 @@ export class Chat extends Timeline {
     this.permissionMode = o.permissionMode || null;
     this.title = o.title || '';
     this.named = o.named === true; // the owner named it in the dashboard: that name wins over the transcript's
+    // Tia started this very chat (feature.mjs openChat): a fact of this chat, never of its id, which a chat opened
+    // later on the same conversation may get again. Her rules let her answer OKs only in a chat of hers.
+    this.byTia = o.byTia === true;
     this.openedAt = o.openedAt || Date.now();
     this.costTotal = Number.isFinite(o.costTotal) ? o.costTotal : null; // what the coding tool reported last (a running total)
     this.grants = keepGrants(o.grants); // what "allow in this chat" covered (asks.mjs)
@@ -382,23 +385,24 @@ export class Chat extends Timeline {
   /** Close the chat for good: what is still getting ready never starts, what runs ends. */
   close(ms) {
     this.closed = true;
+    this.emit('closed'); // the pages that follow it learn it at once (live.mjs ends their streams)
     return this.stopAndWait(ms);
   }
 
-  /** Continue on another provider: the next turn starts there with the conversation resumed. */
-  setProfile(name) {
+  /** Continue on another provider (`label`: its name as the owner reads it): the next turn starts there with the conversation resumed. */
+  setProfile(name, label = name) {
     if (this.busy()) throw fail(409, BUSY);
     this.stop();
     this.profile = name;
     this.limit = null;
-    this.push({ kind: 'notice', level: 'info', text: `The next message goes to another provider (${name}).` });
+    this.push({ kind: 'notice', level: 'info', text: `The next message goes to another provider (${label}).` });
   }
 
   record() {
     return {
       id: this.id, ...(this.conversationId !== this.id ? { conversationId: this.conversationId } : {}), engine: this.engine.id,
       cwd: this.cwd, profile: this.profile, model: this.model, effort: this.effort, ultracode: this.ultracode, permissionMode: this.permissionMode,
-      title: this.title, ...(this.named ? { named: true } : {}), openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
+      title: this.title, ...(this.named ? { named: true } : {}), ...(this.byTia ? { byTia: true } : {}), openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
       ...(this.fork ? { fork: this.fork } : {}),
     };
   }

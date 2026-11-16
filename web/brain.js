@@ -184,6 +184,7 @@ function viewBrain({ frame, sub }) {
   const id = sub ? decodeURIComponent(sub) : '';
   const list = h('nav.split-list.brain-list', { 'aria-label': 'What the AI knows' }, skeletonRows(4));
   const pane = h('div.split-pane');
+  const split = h(`div.split${id ? '.has-page' : '.no-page'}`, list, pane);
   frame({
     title: 'AI brain',
     page: 'brain',
@@ -193,7 +194,7 @@ function viewBrain({ frame, sub }) {
     backOnPhoneOnly: true,
     introOnPhone: !id,
     wide: true,
-    body: [h(`div.split${id ? '.has-page' : '.no-page'}`, list, pane)],
+    body: [split],
   });
   let alive = true;
   async function load() {
@@ -204,6 +205,7 @@ function viewBrain({ frame, sub }) {
       return fill(list, e.status === 404 ? h('p.hint', 'This computer runs an older version without the AI brain.') : errorBox(e.message, load));
     }
     if (!alive) return;
+    split.classList.toggle('pane-only', !b.brain.exists); // nothing to list: the empty state alone, centred
     if (!b.brain.exists) {
       fill(list);
       return fill(pane, emptyState('book', 'The AI brain is one folder with what your coding tools should know in every project: rules, memory, notes and logs. It is not set up on this computer yet.',

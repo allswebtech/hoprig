@@ -6,7 +6,7 @@
 import { icon } from '../icons.js';
 import { BARE, KIND, api, chooseSheet, fill, h, link, openApp, profileIcon, profileState, promptSheet, servesClaude, toast } from '../lib.js';
 import { store } from '../store.js';
-import { touchScreen, turnRuns } from './words.js';
+import { failText, touchScreen, turnRuns } from './words.js';
 
 const phone = () => typeof matchMedia !== 'undefined' && matchMedia('(max-width: 599px)').matches;
 const base = (p) => String(p || '').split('/').filter(Boolean).pop() || String(p || '');
@@ -16,6 +16,14 @@ export function usageWords(p) {
   const u = (p && p.usage) || {};
   return [['5-hour', u.fiveHour], ['weekly', u.week]].filter(([, x]) => x && Number.isFinite(x.pct)).map(([w, x]) => `${w} ${Math.round(x.pct)}%`).join(' · ');
 }
+
+/**
+ * The menus' terminal entry: while a terminal runs the conversation, it goes there (one conversation, one process);
+ * else it opens the conversation in a new one (the chat closes).
+ */
+export const terminalItem = (v) => (v && v.terminal
+  ? { value: 'terminal', label: 'Open the terminal', sub: v.terminal.name ? `This conversation runs in "${v.terminal.name}"` : 'It runs in a terminal outside the dashboard', icon: 'terminal' }
+  : { value: 'terminal', label: 'Open in terminal', sub: 'The same conversation, in a terminal session', icon: 'terminal' });
 
 /** The editor's address for a folder (another part of the dashboard draws it). */
 export const editorLink = (dir, view = null, m = undefined) => link(`#/code?dir=${encodeURIComponent(dir)}${view ? `&view=${view}` : ''}`, m);
@@ -49,7 +57,7 @@ export function createHeader(o) {
     try {
       await api(`${o.A}/title`, { title: title.trim() });
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(failText(e), { kind: 'error' });
     }
   }
 
@@ -62,7 +70,7 @@ export function createHeader(o) {
         { value: 'history', label: 'Earlier conversations', sub: 'Of this folder: continue one in a chat', icon: 'clock' },
         { value: 'files', label: 'Files', sub: 'Open the folder in the editor', icon: 'code' },
         { value: 'changes', label: 'Changes', sub: 'What changed in the folder (git), in the editor', icon: 'git' },
-        { value: 'terminal', label: 'Open in terminal', sub: 'The same conversation, in a terminal session', icon: 'terminal' },
+        terminalItem(v),
         { value: 'provider', label: 'Provider', sub: `Now ${v.profile ? v.profile.label : '…'}: move to another`, icon: 'user' },
       ],
     });
@@ -81,7 +89,7 @@ export function createHeader(o) {
       items: [
         { value: 'files', label: 'Files', sub: 'Open the folder in the editor', icon: 'code' },
         { value: 'changes', label: 'Changes', sub: 'What changed in the folder (git), in the editor', icon: 'git' },
-        { value: 'terminal', label: 'Open in terminal', sub: 'The same conversation, in a terminal session', icon: 'terminal' },
+        terminalItem(v),
       ],
     });
     if (pick === 'files') openEditor(v.cwd);
@@ -118,7 +126,7 @@ export function createHeader(o) {
         { value: 'clear', label: 'Clear', sub: 'A new chat in this folder with the same settings; this one is kept', icon: 'plus' },
         // Not while a terminal runs the conversation: a rewind runs Claude Code on it (one place at a time).
         (caps.rewind || caps.fork) && v && !v.terminal ? { value: 'rewind', label: 'Rewind…', sub: 'Go back to before one of your messages: the files, the conversation or both', icon: 'undo' } : null,
-        { value: 'terminal', label: 'Open in terminal', sub: 'The same conversation, in a terminal session', icon: 'terminal' },
+        terminalItem(v),
         touchScreen() ? null : { value: 'shortcuts', label: 'Keyboard shortcuts', sub: 'Enter, Esc, Shift+Tab, ↑, / and @', icon: 'info' },
         { value: 'close', label: 'Close this chat', sub: 'The conversation stays; it leaves Home', icon: 'x', danger: true },
       ].filter(Boolean),
@@ -129,6 +137,17 @@ export function createHeader(o) {
   return {
     el,
     providerMenu,
+    /**
+     * The chat is not open any more: the head names it and goes back, nothing else (its menus would act on nothing;
+     * the page's .chat-closed hides them).
+     */
+    closed(title) {
+      if (title) fill(titleText, title);
+      titleBtn.disabled = true;
+      titleBtn.removeAttribute('aria-label');
+      titleBtn.title = '';
+      fill(titleSub);
+    },
     paint(state) {
       v = state;
       fill(titleText, v.title || 'New chat');

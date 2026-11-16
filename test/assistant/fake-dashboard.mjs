@@ -15,9 +15,9 @@ export function baseState() {
   return {
     computers: [{ name: 'this', label: 'Laptop', online: true }, { name: 'box2', label: 'Build box', online: true }],
     sessions: [
-      { computer: 'this', name: 'api-fix', kind: 'claude', status: 'working', profile: { name: 'sub', label: 'Main', kind: 'subscription' }, cwd: '/home/owner/projects/api', title: 'Fix the login test', lastMessage: 'Running the tests now.', note: '', limit: null, sessionId: '11111111-1111-4111-8111-111111111111', statusAt: Date.now() - 60_000 },
-      { computer: 'this', name: 'web-ui', kind: 'claude', status: 'waiting', profile: { name: 'sub', label: 'Main', kind: 'subscription' }, cwd: '/home/owner/projects/web', title: 'Dark mode', lastMessage: 'Dark mode is done. Should I also update the screenshots?', note: '', limit: null, sessionId: '22222222-2222-4222-8222-222222222222', statusAt: Date.now() - 5 * 60_000 },
-      { computer: 'box2', name: 'shell', kind: 'shell', cwd: '/home/owner', title: '', statusAt: Date.now() - 3_600_000 },
+      { computer: 'this', name: 'api-fix', kind: 'claude', status: 'working', profile: { name: 'sub', label: 'Main', kind: 'subscription' }, cwd: '/home/owner/projects/api', title: 'Fix the login test', lastMessage: 'Running the tests now.', note: '', limit: null, sessionId: '11111111-1111-4111-8111-111111111111', statusAt: Date.now() - 60_000, created: 1_700_000_001_000 },
+      { computer: 'this', name: 'web-ui', kind: 'claude', status: 'waiting', profile: { name: 'sub', label: 'Main', kind: 'subscription' }, cwd: '/home/owner/projects/web', title: 'Dark mode', lastMessage: 'Dark mode is done. Should I also update the screenshots?', note: '', limit: null, sessionId: '22222222-2222-4222-8222-222222222222', statusAt: Date.now() - 5 * 60_000, created: 1_700_000_002_000 },
+      { computer: 'box2', name: 'shell', kind: 'shell', cwd: '/home/owner', title: '', statusAt: Date.now() - 3_600_000, created: 1_700_000_003_000 },
     ],
     screens: {
       'this|api-fix': '> npm test\n  ✔ 41 passing\n  ✖ 1 failing: login keeps the session\n',
@@ -94,6 +94,12 @@ export class FakeOps {
   #write(op, args) {
     this.calls.push({ op, args: clone(args) });
   }
+  #lastMade = 0;
+  // When a terminal was made, as its card's `created`: never the same twice, as a real terminal's.
+  #made() {
+    this.#lastMade = Math.max(Date.now(), this.#lastMade + 1);
+    return this.#lastMade;
+  }
 
   async listSessions({ computer }) {
     this.#read('listSessions', { computer });
@@ -141,10 +147,13 @@ export class FakeOps {
     this.#write('startSession', a);
     if (!this.s.roots.some((r) => a.folder === r || a.folder.startsWith(r + '/'))) throw Object.assign(new Error('choose a folder inside the allowed roots'), { status: 400 });
     if (!this.s.profiles.some((p) => p.name === a.profile) && !(a.profile === 'auto' && this.s.autoSwitch.enabled)) throw Object.assign(new Error('unknown profile'), { status: 400 });
+    // One conversation, one process (src/chat/handoff.mjs claim): a conversation that runs already gives that place.
+    const runs = a.sessionId && this.s.sessions.find((x) => x.sessionId === a.sessionId && (x.computer || 'this') === a.computer);
+    if (runs) return runs.kind === 'chat' ? { chat: runs.chatId, existing: true, ...(a.prompt ? { sent: false } : {}) } : { name: runs.name, existing: true, ...(a.prompt ? { sent: false } : {}) };
     const base = a.folder.split('/').pop() || 'session';
     let name = base;
     for (let i = 2; this.s.sessions.some((c) => c.computer === a.computer && c.name === name); i++) name = `${base}-${i}`;
-    this.s.sessions.push({ computer: a.computer, name, kind: 'claude', status: 'working', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.prompt ? a.prompt.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: '44444444-4444-4444-8444-44444444444' + (this.s.sessions.length % 10), statusAt: Date.now() });
+    this.s.sessions.push({ computer: a.computer, name, kind: 'claude', status: 'working', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.prompt ? a.prompt.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: '44444444-4444-4444-8444-44444444444' + (this.s.sessions.length % 10), statusAt: Date.now(), created: this.#made() });
     return { name };
   }
   // A chat (src/chat) is "chat:<id>" among the sessions.
@@ -156,7 +165,7 @@ export class FakeOps {
     const open = a.sessionId && this.s.sessions.find((x) => x.kind === 'chat' && x.sessionId === a.sessionId && (x.computer || 'this') === a.computer);
     if (open) return { id: open.chatId, existing: true, permissionMode: open.permissionMode || null, ...(a.text ? { sent: false, why: 'this conversation is already open in a chat; write to that chat' } : {}) };
     const id = a.sessionId || `55555555-5555-4555-8555-5555555555${String(this.s.sessions.length % 100).padStart(2, '0')}`;
-    this.s.sessions.push({ computer: a.computer, name: `chat:${id}`, kind: 'chat', chatId: id, status: a.text ? 'working' : 'waiting', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.text ? a.text.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: id, statusAt: Date.now() });
+    this.s.sessions.push({ computer: a.computer, name: `chat:${id}`, kind: 'chat', chatId: id, byTia: true, status: a.text ? 'working' : 'waiting', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.text ? a.text.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: id, statusAt: Date.now(), created: this.#made() });
     return { id };
   }
   async sendToChat(a) {

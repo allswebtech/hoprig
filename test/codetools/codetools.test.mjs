@@ -223,8 +223,8 @@ test('the coding tools for the page: on or off (never none), installed, the prov
   class HttpError extends Error { constructor(status, m) { super(m); this.status = status; } }
   const ctx = { config: () => cfg, saveConfig: (p) => (cfg = { ...cfg, ...p }), readJson: async (req) => req.body, HttpError, onTick: (fn) => (ticks.push(fn), () => {}) };
   const profiles = () => [
-    { name: 'gw', kind: 'api', api: ['messages', 'responses', 'chat'], env: {} },
-    { name: 'sub', kind: 'subscription', env: {} },
+    { name: 'gw', label: 'Gateway', kind: 'api', api: ['messages', 'responses', 'chat'], env: {} },
+    { name: 'sub', label: 'Main', kind: 'subscription', env: {} },
     { name: 'chatgpt', kind: 'chatgpt', signin: 'codex', env: {} },
     { name: 'oai', kind: 'openai', env: {} },
   ];
@@ -239,6 +239,8 @@ test('the coding tools for the page: on or off (never none), installed, the prov
   };
   let v = await call('GET', '/api/codetools');
   assert.deepEqual(v.tools.map((t) => [t.id, t.on, t.providers.join('+')]), [['claude', true, 'gw+sub'], ['codex', false, 'gw+oai+chatgpt'], ['opencode', false, 'gw+oai']]);
+  assert.deepEqual(v.tools[0].providerLabels, ['Gateway', 'Main'], 'the page shows the owner\'s names, not the short ones');
+  assert.deepEqual(v.tools[2].providerLabels, ['Gateway', 'oai'], 'a provider without a label: its name');
   assert.equal(v.tools[1].command, 'hoprig codex <provider>');
   v = await call('POST', '/api/codetools/codex', { on: true });
   assert.deepEqual(cfg.codingTools, ['claude', 'codex']);

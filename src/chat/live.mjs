@@ -130,6 +130,8 @@ export function liveRoutes(ctx, { chatOr404, save, remember, bad, models, folder
     c.on('status', onState);
     c.on('state', onState);
     c.on('live', onLive);
+    const onClosed = () => res.end(); // the page looks again, hears 404 and shows the chat as not open
+    c.once('closed', onClosed);
     let closed = false;
     const lookTerminal = async () => {
       const t = await terminalOf(c).catch(() => null);
@@ -156,6 +158,7 @@ export function liveRoutes(ctx, { chatOr404, save, remember, bad, models, folder
       c.off('status', onState);
       c.off('state', onState);
       c.off('live', onLive);
+      c.off('closed', onClosed);
     });
     return true;
   }

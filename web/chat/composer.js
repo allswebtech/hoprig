@@ -9,7 +9,7 @@ import { api, chooseSheet, fill, h, openSheet, prefs, toast } from '../lib.js';
 import { createAttachments } from './attach.js';
 import { recall } from './keys.js';
 import { createMenus } from './popovers.js';
-import { MODE, contextPercent, effortName, kilo, modeChip, modeOf, modelName, nextMode, touchScreen, turnRuns } from './words.js';
+import { contextPercent, effortName, failText, kilo, MODE, modeChip, modelName, modeOf, nextMode, touchScreen, turnRuns } from './words.js';
 
 // Enter sends unless the screen is touched (a phone's Enter makes a new line; its Send button sends).
 const finePointer = () => !touchScreen();
@@ -106,7 +106,7 @@ export function createComposer(o) {
       }
       menus.close();
     } catch (e) {
-      toast(`Not sent: ${e.message}`, { kind: 'error' });
+      toast(`Not sent: ${failText(e)}`, { kind: 'error' });
     } finally {
       sendBtn.disabled = false;
       paintButtons();
@@ -125,7 +125,7 @@ export function createComposer(o) {
         try {
           await api(`${o.A}/unqueue`, { id: m.id });
         } catch (err) {
-          toast(err.message, { kind: 'error' });
+          toast(failText(err), { kind: 'error' });
         }
       } }, icon('x', { size: 16 })))));
   }
@@ -141,7 +141,7 @@ export function createComposer(o) {
     try {
       await api(`${o.A}/mode`, { mode }); // the chip shows it
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(failText(e), { kind: 'error' });
     }
   }
   async function chooseMode() {
@@ -168,14 +168,14 @@ export function createComposer(o) {
       const r = await api(`${o.A}/settings`, { [what]: pick || null });
       if (r.restart) toast('It takes effect when Claude starts again with the next message');
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(failText(e), { kind: 'error' });
     }
   }
   async function toggleUltra() {
     try {
       await api(`${o.A}/settings`, { ultracode: !v.ultracode });
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(failText(e), { kind: 'error' });
     }
   }
   function contextSheet() {

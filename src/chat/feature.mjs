@@ -19,11 +19,12 @@
 //   POST /api/chats/<id>/close
 // and the routes of live.mjs (the event stream, mode, settings, queue, task stop, rewind, files, commands, usage) and
 // of handoff.mjs (from a terminal session to a chat and back: one conversation never runs in two places at once).
-// The other way round, running() tells the session start (server.mjs) that a chat runs a conversation.
+// The other way round, startTerminal() is how the session start (server.mjs) opens a terminal on a conversation: never
+// a second process on it.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getAutoSwitch } from '../autoswitch.mjs';
+import { getAutoSwitch, limitedProfiles } from '../autoswitch.mjs';
 import { EFFORTS, MODELS, PERMISSION_MODES } from '../config.mjs';
 import { stateDir, tilde } from '../paths.mjs';
 import { assertServes, listProfiles, publicProfile, readProfile, servesTools } from '../profiles.mjs';
@@ -37,6 +38,7 @@ import { gitBranch, readAttachments } from './files.mjs';
 import { folderMemory } from './folders.mjs';
 import { handoffRoutes, terminals } from './handoff.mjs';
 import { liveRoutes, stateOf } from './live.mjs';
+import { limitMark } from './providerlimit.mjs';
 
 const OPEN_MAX = 50;
 const WAIT_MAX_S = 25; // below the relay's 30 s idle limit, so a chat of another computer can wait too
@@ -57,6 +59,7 @@ export function chatFeature(ctx, o = {}) {
   const memory = folderMemory(() => o.foldersFile || path.join(path.dirname(file()), 'chat-folders.json'));
   const remember = (c) => memory.remember(c.record());
   const chats = new Map();
+  const shut = new Map(); // the chats closed since the start (the last 100): id → { cwd, conversationId, title }
   let loaded = false;
 
   // ---------- the list of open chats ----------
@@ -65,7 +68,14 @@ export function chatFeature(ctx, o = {}) {
     c.setMaxListeners(200); // one per page that waits for news
     c.on('status', () => ctx.poke?.()); // Home and the notifications see a new state at once
     c.on('turn', save);
+    c.on('turn', (ev) => limitMark(c, ev, { auto: AUTO.name, poke: () => ctx.poke?.() }));
     c.on('record', save); // "allow in this chat" was given: it is kept with the chat
+    c.on('closed', () => {
+      // Its page, opened later, still names it and can continue its conversation (chatOr404).
+      shut.delete(c.id);
+      shut.set(c.id, { cwd: c.cwd, conversationId: c.conversationId, title: c.title || null });
+      if (shut.size > 100) shut.delete(shut.keys().next().value);
+    });
     chats.set(c.id, c);
     return c;
   }
@@ -92,7 +102,11 @@ export function chatFeature(ctx, o = {}) {
   function chatOr404(id) {
     load();
     const c = chats.get(id);
-    if (!c) throw new HttpError(404, 'this chat is not open (it was closed or opened in a terminal)');
+    if (!c) {
+      const e = new HttpError(404, 'this chat is not open (it was closed or opened in a terminal)');
+      if (shut.has(id)) e.details = { closed: shut.get(id) }; // the page offers to continue it in a new chat
+      throw e;
+    }
     return c;
   }
 
@@ -123,8 +137,22 @@ export function chatFeature(ctx, o = {}) {
     return val;
   };
 
-  // One place at a time (handoff.mjs).
-  const { terminalOf, inTerminal } = terminals(ctx);
+  // One place at a time (handoff.mjs): the open chat whose process runs a conversation (or gets ready to) is one.
+  const chatOf = (id) => ([...chats.values()].find((c) => c.conversationId === id && (c.session || c.starting || c.busy())) || {}).id || null;
+  const { terminalOf, inTerminal, claim, serial, forget } = terminals(ctx, { chatOf });
+  /**
+   * A message that starts a turn in chat `c` (`fn` sends it): never while a terminal runs the conversation, also while
+   * this chat's process waits idle (a terminal may have resumed the conversation meanwhile).
+   */
+  async function sendOne(c, fn) {
+    const r = await claim(c.conversationId, fn, { self: c.id });
+    if (r.terminal) {
+      if (!c.busy()) c.stop();
+      throw inTerminal(r.terminal);
+    }
+    if (r.chat) throw new HttpError(409, 'another chat runs this conversation right now');
+    return r.started;
+  }
 
   // ---------- views ----------
   function card(c) {
@@ -133,16 +161,18 @@ export function chatFeature(ctx, o = {}) {
     return {
       name: cardName(c.id), kind: 'chat', chatId: c.id, display: c.title || 'New chat', title: c.title,
       cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), status, statusAt: c.statusAt, activity: c.statusAt,
+      byTia: c.byTia, // Tia started this chat: her rules let her answer its OKs (src/assistant/core.mjs facts)
       created: c.openedAt, attached: false, panes: 0, sessionId: c.conversationId, canSwitch: false,
       lastMessage: previewText(c.lastText), // plain words: a card shows no Markdown marks
       running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
       note: ask ? askNote(ask, c.cwd) : '',
       // The OK it waits for, so a card can answer it (Allow, Allow in this chat, Do not allow); a question or a plan
       // is answered in the chat itself. `subject` is what it is really about (the whole command or path; `cut` when it
-      // was too long to carry whole) and `owner` says the chat keeps it for the owner (his settings, a hook or a safety
-      // check ask him): Tia's rules judge all three.
+      // was too long to carry whole), `owner` says the chat keeps it for the owner (his settings, a hook or a safety
+      // check ask him) and `known` that it is a call Tia's rules can judge at all (claude-parse.mjs askSubject): her
+      // rules read all four.
       ask: ask ? {
-        request: ask.request, type: ask.type, tool: ask.tool, subject: ask.subject || '', cut: !!ask.subjectCut, owner: !!ask.owner,
+        request: ask.request, type: ask.type, tool: ask.tool, subject: ask.subject || '', cut: !!ask.subjectCut, owner: !!ask.owner, known: ask.known === true,
         canAlways: !!ask.grant, always: ask.grant ? (ask.grant.edits ? 'edits' : 'rule') : null, alwaysText: ask.grant && !ask.grant.edits ? ask.grant.text : '',
       } : null,
       // The turn is over but subagents, shells or a workflow still run (Home: "Working in the background").
@@ -152,7 +182,7 @@ export function chatFeature(ctx, o = {}) {
     };
   }
   /** What the page shows beside the chat's state. */
-  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), branch: gitBranch(c.cwd), profile: profileView(c.profile), choices: { models: models(), efforts: EFFORTS, modes: PERMISSION_MODES } });
+  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), conversationId: c.conversationId, branch: gitBranch(c.cwd), profile: profileView(c.profile), choices: { models: models(), efforts: EFFORTS, modes: PERMISSION_MODES } });
   /** The terminal that runs the chat's conversation, as the page names it ({ name }), or null. */
   const terminalView = async (c) => (c.session && c.busy() ? null : await terminalOf(c.conversationId).then((t) => (t ? { name: t.name } : null)));
   async function view(c, { from, epoch }) {
@@ -195,10 +225,14 @@ export function chatFeature(ctx, o = {}) {
 
   /**
    * Open a chat (POST /api/chats; the schedules too). b: { dir, profile?, model?, effort?, permissionMode?, ultracode?,
-   * sessionId?, text?, defaults? }. What is left out: as the last chat in that folder ran, else the provider
+   * sessionId?, text?, defaults?, byTia? }. What is left out: as the last chat in that folder ran, else the provider
    * recommended now and Settings. defaults: true (Tia, a schedule) takes Settings → New-session defaults and not the
    * folder's last chat, as a terminal session they start does: a mode the owner chose for himself (bypass) is not
    * carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
+   * byTia: true (Tia's start_chat) marks the chat this call creates as hers, and no other: not an open chat it gives
+   * back, nor a later chat on the same conversation (the mark goes with this chat when it closes for any reason). A
+   * message sent into it by anyone but her (the page, a schedule) takes the mark off for good: from then on the chat
+   * carries the owner's own instructions. An answer, a Stop or a settings change does not (he only steers her work).
    * → { id, sent, existing?, permissionMode? } (sent: false when the first message was not sent because a terminal or
    * an open chat runs the conversation; existing: true with that open chat's mode)
    */
@@ -211,11 +245,13 @@ export function chatFeature(ctx, o = {}) {
     let profile = b.profile;
     if (profile === undefined || profile === null || profile === '') {
       // As the last chat here ran, while that provider is still there; else the one recommended now.
-      profile = last.profile && servesChat(last.profile) ? last.profile : (await ctx.state()).recommended;
+      // A provider at its limit is not picked by itself (the owner may still choose it).
+      profile = last.profile && servesChat(last.profile) && !limitedProfiles()[last.profile] ? last.profile : (await ctx.state()).recommended;
       if (!profile) throw bad('there is no provider yet: add one under Providers first');
     }
     if (typeof profile !== 'string' || !profileOk(profile)) throw bad('there is no such provider');
     if (b.ultracode !== undefined && b.ultracode !== null && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
+    if (b.byTia !== undefined && typeof b.byTia !== 'boolean') throw bad('byTia is true or false');
     const d = cfg().sessionDefaults || {};
     // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults.
     const kept = (k, chosen, fallback) => (chosen !== undefined ? chosen : k in last ? last[k] : fallback);
@@ -253,13 +289,17 @@ export function chatFeature(ctx, o = {}) {
       id, ...(conversationId && conversationId !== id ? { conversationId } : {}), cwd: dir, profile,
       // a model the computer stopped offering is not forced on a new chat
       model: model && models().includes(model) ? model : null, effort: EFFORTS.includes(effort) ? effort : null,
-      permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode,
+      permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode, byTia: b.byTia === true,
     });
     save();
     if (owners) remember(c); // the folder's last chat is the owner's own choice, not Tia's or a schedule's
     if (!text) return { id };
-    if (await terminalOf(c.conversationId)) return { id, sent: false, why: 'a terminal session runs this conversation' };
-    await c.send(text);
+    try {
+      await sendOne(c, () => c.send(text));
+    } catch (e) {
+      if (e.code === 'in-terminal') return { id, sent: false, why: 'a terminal session runs this conversation' };
+      throw e;
+    }
     return { id, sent: true };
   }
 
@@ -268,11 +308,8 @@ export function chatFeature(ctx, o = {}) {
     const c = chatOr404(id);
     const t = v.message(text);
     if (!t) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
-    if (!c.busy()) {
-      const term = await terminalOf(c.conversationId);
-      if (term) throw inTerminal(term);
-    }
-    const r = await c.send(t);
+    const r = c.busy() ? await c.send(t) : await sendOne(c, () => c.send(t));
+    c.byTia = false; // the owner's schedule writes in it: a chat with his instructions, not Tia's any more
     save();
     return { id: r.id, queued: r.queued };
   }
@@ -302,21 +339,17 @@ export function chatFeature(ctx, o = {}) {
       const b = await ctx.readJson(req);
       let text = v.message(b.text);
       if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
+      if (b.byTia !== undefined && typeof b.byTia !== 'boolean') throw bad('byTia is true or false');
       let files = { images: [], mentions: [], attachments: [] };
       if (b.attachments !== undefined && b.attachments !== null) {
         const u = uploadsOf(c);
         files = readAttachments(b.attachments, { cwd: u.cwd, uploadsDir: u.dir });
         if (files.mentions.length) text = `${text}\n\n${files.mentions.join(' ')}`;
       }
-      // Also while this chat's process waits idle: a terminal may have resumed the conversation meanwhile.
-      if (!c.busy()) {
-        const term = await terminalOf(c.conversationId);
-        if (term) {
-          c.stop();
-          throw inTerminal(term);
-        }
-      }
-      const r = await c.send(text, { images: files.images, attachments: files.attachments });
+      // A turn that runs queues it; else it starts one, never while a terminal runs the conversation (one at a time).
+      const send = () => c.send(text, { images: files.images, attachments: files.attachments });
+      const r = c.busy() ? await send() : await sendOne(c, send);
+      if (b.byTia !== true) c.byTia = false; // a message of the owner's (not Tia's own send_to_chat): his chat from now on
       save();
       return { ok: true, id: r.id, queued: r.queued };
     }],
@@ -354,7 +387,7 @@ export function chatFeature(ctx, o = {}) {
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
       if (typeof b.profile !== 'string' || !profileOk(b.profile)) throw bad('there is no such provider');
-      c.setProfile(b.profile);
+      c.setProfile(b.profile, profileView(b.profile).label); // the owner's name for it in the timeline, not its id
       c.emit('state'); // a page that streams shows the new provider
       save();
       remember(c);
@@ -389,7 +422,7 @@ export function chatFeature(ctx, o = {}) {
   const openChatOf = (id) => ([...chats.values()].find((c) => c.conversationId === id) || {}).id || null;
   // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
   const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
-  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, auto: { name: AUTO.name, on: autoOn } }));
+  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn } }));
   const live = liveRoutes(ctx, { chatOr404, save, remember, bad, models, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
   routes.push(...live.routes);
 
@@ -407,8 +440,16 @@ export function chatFeature(ctx, o = {}) {
     /** True when a chat runs conversation `id` right now: its process, or one getting ready for a message. */
     running(id) {
       load();
-      const c = [...chats.values()].find((x) => x.conversationId === id);
-      return !!(c && (c.session || c.busy()));
+      return !!chatOf(id);
+    },
+    /**
+     * Start a terminal on conversation `id` (server.mjs: New session, Tia) with `start()` → { name }, unless something
+     * runs it already: → { name } of the new one, or { existing: { terminal: { name } } | { chat } } (handoff.mjs claim).
+     */
+    async startTerminal(id, start, tool = 'claude') {
+      load();
+      const r = await claim(id, start, { tool });
+      return r.started ? r.started : { existing: r.terminal ? { terminal: { name: r.terminal.name } } : { chat: r.chat } };
     },
     async close() {
       await Promise.all([...chats.values()].map((c) => c.close(3000)));

@@ -139,6 +139,21 @@ test('"Do the work": start_session runs, picks an allowed account, makes a job, 
   assert.equal(core.jobs.list()[0].sessions[0].startedByTia, true);
 });
 
+test('start_session on a conversation that runs already: nothing starts, nothing is sent, and it is not hers', async () => {
+  const state = baseState();
+  state.sessions.push({ computer: 'this', name: 'api-old', kind: 'claude', status: 'waiting', profile: { name: 'sub', label: 'Main', kind: 'subscription' }, cwd: '/home/owner/projects/api', title: 'Refactor', lastMessage: '', note: '', limit: null, sessionId: '33333333-3333-4333-8333-333333333333', statusAt: Date.now(), created: 1_700_000_003_000 });
+  const { call, ops, core } = setup({ state });
+  await showAll(call);
+  await call('list_projects', { folder: '/home/owner/projects/api' });
+  const before = state.sessions.length;
+  const r = await call('start_session', { folder: '/home/owner/projects/api', mode: 'resume', conversation: '33333333-3333-4333-8333-333333333333', message: 'go on', goal: 'done' });
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.text, /Nothing was started: this conversation already runs in the session api-old.*the first message was not sent/);
+  assert.equal(ops.s.sessions.length, before, 'no second session');
+  assert.equal(core.jobs.list().length, 0, 'no job on his session');
+  assert.equal(core.jobs.startedByTia('this', 'api-old', 1_700_000_003_000), false, 'his session is not marked hers');
+});
+
 test('account choice: never outside the allowed list, never at a limit; API only when allowed', async () => {
   const state = baseState();
   state.profiles[1].limited = { until: Date.now() + 3_600_000, text: 'limit' }; // sub2 at its limit
@@ -224,6 +239,34 @@ test('Tia may stop or move a session she started; never one she did not, without
   assert.equal((await call('stop_session', { session: 'shop' })).isError, false);
   assert.match((await call('stop_session', { session: 'api-fix' })).text, /Waiting for the owner's OK/);
   assert.deepEqual(ops.calls.map((c) => c.op), ['startSession', 'switchAccount', 'killSession']);
+});
+
+test('a session Tia started and stopped: the owner\'s next session gets its name, and it is his, not hers', async () => {
+  const { call, ops, core } = setup();
+  await call('list_sessions', {});
+  for (const goal of [undefined, 'all tests pass']) { // without a job (a mark) and with one
+    const r = await call('start_session', { folder: '/home/owner/projects/shop', account: 'sub', message: 'go', ...(goal ? { goal } : {}) });
+    assert.equal(r.isError, false, r.text);
+    assert.equal((await call('stop_session', { session: 'shop' })).isError, false, 'hers: stopped at once');
+    // The owner starts a session in the same folder (the page's New session): it gets the same name.
+    assert.equal((await ops.startSession({ computer: 'this', folder: '/home/owner/projects/shop', profile: 'sub', mode: 'new' })).name, 'shop');
+    const card = ops.s.sessions.find((x) => x.name === 'shop');
+    card.status = 'attention'; // asks for permission
+    card.note = 'Claude needs your permission to use Bash';
+    const kills = ops.calls.filter((c) => c.op === 'killSession').length;
+    assert.match((await call('stop_session', { session: 'shop' })).text, /Waiting for the owner's OK.*did not start/s);
+    assert.match((await call('switch_account', { session: 'shop', account: 'sub2' })).text, /Waiting for the owner's OK.*did not start/s);
+    assert.match((await call('send_to_session', { session: 'shop', key: 'Enter' })).text, /Waiting for the owner's OK.*did not start/s, 'his OK');
+    assert.equal(ops.calls.filter((c) => c.op === 'killSession').length, kills);
+    if (!goal) {
+      // A job that watches his session does not make it hers either.
+      const w = await call('watch_session', { session: 'shop', goal: 'see it through' });
+      assert.equal(w.isError, false, w.text);
+      assert.deepEqual(core.jobs.get(w.data ? w.data.job : /Job (j_\w+)/.exec(w.text)[1]).sessions.map((e) => [e.session, e.created, e.startedByTia]), [['shop', card.created, false]]);
+    }
+    await ops.killSession({ computer: 'this', session: 'shop' });
+    for (const j of core.jobs.list({ active: true })) core.jobs.finish(j.id, 'stopped');
+  }
 });
 
 test('confirm runs the card once; a second confirm, a decline, expiry and a changed state never run it', async () => {

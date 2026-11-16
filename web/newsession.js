@@ -291,10 +291,16 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     }
     busy(`Starting Claude in ${f.name}…`);
     try {
-      const { name } = await api(at(st.m, '/api/sessions'), {
+      const { name, chat, existing } = await api(at(st.m, '/api/sessions'), {
         dir: f.path, profile, mode, sessionId, permissionMode: st.permissionMode || null, effort: st.effort || null, model: st.model || null,
       });
-      markStarting(st.m, name);
+      // The conversation runs in a chat already (one conversation, one process): it goes on there.
+      if (chat) {
+        store.refresh();
+        location.hash = link(`#/chat/${chat}`, st.m);
+        return;
+      }
+      if (!existing) markStarting(st.m, name); // else it runs already: the terminal that has it opens
       store.refresh();
       location.hash = link(`#/s/${encodeURIComponent(name)}`, st.m);
     } catch (e) {

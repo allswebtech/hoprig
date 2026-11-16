@@ -404,6 +404,17 @@ export function createServer(opts = {}) {
     };
   }
 
+  /**
+   * A session start on a conversation that runs already (chat.startTerminal): nothing new starts, the answer is where it
+   * runs ({ name } of the terminal, or { chat } with the chat's id), and a first message is not sent there.
+   */
+  function runsAlready(where, prompt) {
+    const unsent = prompt ? { sent: false } : {};
+    if (where.chat) return { chat: where.chat, existing: true, ...unsent };
+    if (where.terminal && where.terminal.name) return { name: where.terminal.name, existing: true, ...unsent };
+    throw new HttpError(409, 'This conversation runs in a terminal outside the dashboard: it cannot run in a second one.');
+  }
+
   // ---- API routes: [method, regex, handler(req, match, query, res)] ----
   const routes = [
     ['GET', /^\/api\/state$/, async () => {
@@ -460,9 +471,11 @@ export function createServer(opts = {}) {
           prompt = v.message(b.prompt);
           if (!prompt) throw bad(`the first message must be 1 to ${v.MESSAGE_MAX} bytes`);
         }
-        const name = await deck.start({ tool, dir, profile, mode, sessionId: sid, prompt, flags: toolFlags(tool, b) });
+        const go = async () => ({ name: await deck.start({ tool, dir, profile, mode, sessionId: sid, prompt, flags: toolFlags(tool, b) }) });
+        const r = sid ? await chat.startTerminal(sid, go, tool) : await go();
+        if (r.existing) return runsAlready(r.existing, prompt);
         watcher.poke();
-        return { name, tool };
+        return { name: r.name, tool };
       }
       let sid = null;
       if (mode === 'resume') {
@@ -471,7 +484,6 @@ export function createServer(opts = {}) {
       }
       // One conversation runs in one place only. "continue" (-c) is the folder's newest conversation.
       const runs = mode === 'resume' ? sid : mode === 'continue' ? (sessionsIn(dir)[0] || {}).id : null;
-      if (runs && chat.running(runs)) throw new HttpError(409, 'this conversation is open as a chat right now; open it in a terminal from the chat');
       // An optional first message (Tia's start_session; one line, see deck.mjs promptArgs).
       let prompt = null;
       if (b.prompt !== undefined && b.prompt !== null) {
@@ -493,9 +505,11 @@ export function createServer(opts = {}) {
         if (!models.includes(b.model)) throw bad(`the model must be one of: ${models.join(', ')}`);
         flags.push('--model', b.model);
       }
-      const name = await deck.start({ dir, profile, mode, sessionId: sid, prompt, flags });
+      const go = async () => ({ name: await deck.start({ dir, profile, mode, sessionId: sid, prompt, flags }) });
+      const r = runs ? await chat.startTerminal(runs, go) : await go();
+      if (r.existing) return runsAlready(r.existing, prompt);
       watcher.poke();
-      return { name };
+      return { name: r.name };
     }],
     ['POST', /^\/api\/shells$/, async (req) => {
       const b = await readJson(req);

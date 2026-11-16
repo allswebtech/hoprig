@@ -2,10 +2,11 @@
 // (never from the model) and the owner's Tia level. Pure, so every rule is unit-tested.
 //
 //   facts: {
-//     session:  { status, note, cwd, screen, owner?, request? } | null   the session the call is about, as the
-//               dashboard sees it now (screen: the bottom of its screen, read only while it asks for permission; for
-//               a chat: what its OK is about, the whole command or path; owner: the chat keeps that OK for the owner)
-//     mine:     boolean                       Tia started that session for a job
+//     session:  { status, note, cwd, screen, owner?, known?, request? } | null   the session the call is about, as
+//               the dashboard sees it now (screen: the bottom of its screen, read only while it asks for permission; for
+//               a chat: what its OK is about, the whole command or path; owner: the chat keeps that OK for the owner;
+//               known: false for a chat's OK of a call her rules cannot judge)
+//     mine:     boolean                       Tia started that very session (a chat: by its own mark; a terminal: by its name and when it was made)
 //     account:  { name, kind, allowed } | null    the account a start or move would use
 //   }
 // Returns { level: "L0" | "L1" | "L2", why } or { refuse, next }.
@@ -44,6 +45,9 @@ export function decideLevel(tool, a, f, tia) {
   if (answering(name, a) && f.session && f.session.status === 'needs_ok') {
     if (f.session.owner) return { level: 'L2', why: 'the chat keeps this OK for the owner (his permission settings, a hook or a safety check ask him)' };
     if (!f.mine) return { level: 'L2', why: `the session is asking for permission and ${ASSISTANT_NAME} did not start it` };
+    // A chat's OK for a call that is not the coding tool's own in a shape it knows (an MCP tool, any other input): a
+    // deny-list cannot judge an input of unknown shape, whatever it says.
+    if (f.session.known === false) return { level: 'L2', why: `this tool's input is not one ${ASSISTANT_NAME} can judge` };
     if (f.session.cut) return { level: 'L2', why: 'what the session asks permission for is too long to judge whole' };
     if (riskyPermission(`${f.session.note || ''}\n${f.session.screen || ''}`, f.session.cwd || null)) return { level: 'L2', why: 'the session asks permission for something risky (fetching and running code, deleting, secrets, the system, the network, or a path outside its folder)' };
   }

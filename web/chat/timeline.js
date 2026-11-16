@@ -10,7 +10,7 @@ import { mdView } from '../mdtext.js';
 import { messageFiles } from './attach.js';
 import { OUTCOME, askCard } from './asks.js';
 import { outputView, rePaths, toolCard } from './tools.js';
-import { took, turnLine } from './words.js';
+import { failText, took, turnLine } from './words.js';
 
 const NEAR_PX = 120;
 
@@ -257,7 +257,7 @@ export function createTimeline(o) {
       o.scroll.scrollTop += o.scroll.scrollHeight - h0; // what was on screen stays where it was
     } catch (e) {
       btn.disabled = false;
-      toast(e.message, { kind: 'error' });
+      toast(failText(e), { kind: 'error' });
     }
   }
 

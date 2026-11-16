@@ -5,6 +5,7 @@
 // The chat: messages scroll above a message box that stays at the bottom of the window; while Tia works a line says
 // what she is doing; a confirm card asks in plain words (the accounts' display names, what it costs, why she asks)
 // and, once decided, shows what happened. Styles: page-automations.css (every class starts with "tia-").
+import { money } from './chat/words.js';
 import { icon } from './icons.js';
 import { BARE, add, api, btn, confirmSheet, copyText, fill, h, prefs, toast, url } from './lib.js';
 import { navChanged, registerHeadTool, registerPage, registerSessionAction, registerSettingsPage } from './registry.js';
@@ -338,7 +339,7 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
         return add(list, h('div.banner.error-box.tia-stopped', { role: 'alert' }, icon('alert', { size: 18 }),
           h('span', `${NAME} stopped: ${e.error || 'something went wrong'}. Send your message again; if it keeps happening, check her provider in `, h('a', { href: '#/settings/tia' }, `Settings → ${NAME}`), '.')));
       }
-      return Number.isFinite(e.costUsd) && e.costUsd > 0 ? add(list, h('p.tia-note', `This answer cost $${e.costUsd.toFixed(4)}`)) : null;
+      return Number.isFinite(e.costUsd) && e.costUsd > 0 ? add(list, h('p.tia-note', `This answer cost ${money(e.costUsd)}`)) : null;
     }
     return null;
   }

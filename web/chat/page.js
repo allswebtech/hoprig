@@ -6,7 +6,7 @@
 // live.mjs). Files dropped anywhere on the page go with the next message.
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
 import { icon } from '../icons.js';
-import { add, api, closeWindow, confirmSheet, fill, h, isClaudeCard, link, machine, prefs, toast } from '../lib.js';
+import { BARE, add, api, closeWindow, confirmSheet, fill, h, isClaudeCard, link, machine, prefs, toast } from '../lib.js';
 import { registerPage, registerSessionAction } from '../registry.js';
 import { pageNotify, store } from '../store.js';
 import { forgetHere, named, wayBack, windowWay } from '../trail.js';
@@ -19,7 +19,7 @@ import { chooseRewind, historySheet, rewindSheet } from './sheets.js';
 import { createStatusLine } from './statusline.js';
 import { follow } from './stream.js';
 import { createTimeline } from './timeline.js';
-import { turnRuns } from './words.js';
+import { failText, turnRuns } from './words.js';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -50,25 +50,26 @@ function viewChat({ sub }) {
         const back = (r && r.back) || [];
         if (back.length) {
           composer.putBack(back.map((x) => x.text).join('\n\n'));
+          // The box shows the words; only files that must be attached again are said (under the head, chat.css).
           const files = back.flatMap((x) => x.files || []);
-          toast(`${back.length === 1 ? 'The queued message is' : 'The queued messages are'} back in the box${files.length ? `; attach ${files.length === 1 ? 'its file' : 'their files'} again` : ''}`);
+          if (files.length) toast(`${back.length === 1 ? 'The queued message is' : 'The queued messages are'} back in the box; attach ${files.length === 1 ? 'its file' : 'their files'} again`);
         }
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(failText(e), { kind: 'error' });
       }
     },
     async stopTask(taskId) {
       try {
         await api(`${A}/tasks/${encodeURIComponent(taskId)}/stop`, {});
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(failText(e), { kind: 'error' });
       }
     },
     async compact() {
       try {
         await api(`${A}/send`, { text: '/compact' });
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(failText(e), { kind: 'error' });
       }
     },
     // Clear: a new chat in the same folder with the same settings; this conversation is kept (and can be resumed).
@@ -81,7 +82,7 @@ function viewChat({ sub }) {
         store.refresh();
         location.hash = link(`#/chat/${r.id}`);
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(failText(e), { kind: 'error' });
       }
     },
     async close() {
@@ -93,18 +94,24 @@ function viewChat({ sub }) {
         if (inWindow !== null) location.hash = way.hash;
         else if (!closeWindow()) gone();
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(failText(e), { kind: 'error' });
       }
     },
     async terminal() {
+      // A terminal runs the conversation already: that is where it goes on (the server never starts a second one).
+      if (v && v.terminal) {
+        if (v.terminal.name) location.hash = link(`#/s/${encodeURIComponent(v.terminal.name)}`);
+        else toast('This conversation runs in a terminal outside the dashboard.', { kind: 'error' });
+        return;
+      }
       if (!(await confirmSheet({ title: 'Open in a terminal?', text: 'The same conversation continues in a terminal session, with Claude Code as you know it. This chat closes; you can open the session as a chat again from its menu.', ok: 'Open in terminal' }))) return;
       try {
-        const { name } = await api(`${A}/terminal`, {});
+        const { name, existing } = await api(`${A}/terminal`, {});
         store.refresh();
-        forgetHere(); // the chat closes: the terminal goes back to where the chat would have
+        if (!existing) forgetHere(); // the chat closes: the terminal goes back to where the chat would have
         location.hash = link(`#/s/${encodeURIComponent(name)}`);
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(failText(e), { kind: 'error' });
       }
     },
     async moveTo(name, label) {
@@ -112,7 +119,7 @@ function viewChat({ sub }) {
         await api(`${A}/provider`, { profile: name });
         toast(`The next message goes to ${label}`);
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(failText(e), { kind: 'error' });
       }
     },
     history: () => v && historySheet({ A, v }),
@@ -124,7 +131,7 @@ function viewChat({ sub }) {
         await api(`${A}/take`, {});
         toast('The conversation continues here');
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(failText(e), { kind: 'error' });
       }
     },
   };
@@ -155,7 +162,7 @@ function viewChat({ sub }) {
     { name: 'mode', description: 'What Claude may do without asking', run: () => composer.chooseMode() },
     { name: 'history', description: 'Earlier conversations of this folder', run: act.history },
     canRewind() ? { name: 'rewind', description: 'Go back to before one of your messages: the files, the conversation or both', run: act.rewind } : null,
-    { name: 'terminal', description: 'Open this conversation in a terminal', run: act.terminal },
+    v && v.terminal ? { name: 'terminal', description: 'Go to the terminal that runs this conversation', run: act.terminal } : { name: 'terminal', description: 'Open this conversation in a terminal', run: act.terminal },
     { name: 'help', description: 'Keyboard shortcuts', run: act.shortcuts },
   ].filter(Boolean);
   const composer = createComposer({ A, id, stop: act.stop, compact: act.compact, own });
@@ -218,15 +225,39 @@ function viewChat({ sub }) {
     if (Array.isArray(v.pending)) timeline.pending(v.pending);
     paintTodos(v.todos);
   }
-  function gone() {
+  // A chat that is not open any more (closed, cleared, opened in a terminal) offers only what still makes sense: read
+  // what was drawn, continue the conversation in a new chat, go back. Its head and its cards act on nothing.
+  function gone(e) {
     unfollow();
     forgetHere(); // a chat that is not open any more is never a way back
-    fill(wrap, header.el, h('div.chat-mid', h('div.empty', icon('text', { size: 32 }),
-      h('p', 'This chat is not open any more: it was closed, or opened in a terminal.'),
-      // A window that started on this chat has no page to go back to: it offers to close instead.
-      inWindow === null
-        ? h('button.btn.primary', { type: 'button', onclick: () => closeWindow() }, icon('x', { size: 18 }), h('span', 'Close window'))
-        : h('a.btn.primary', { href: way.hash }, icon(way.label === 'Home' ? 'home' : 'back', { size: 18 }), h('span', way.label === 'Home' ? 'Home' : `Back to ${way.label}`)))));
+    // What is known of it: as the page saw it while it was open, else as the server remembers a chat it closed.
+    const was = v && v.cwd && v.conversationId ? v : (e && e.data && e.data.closed) || null;
+    const known = !!(was && was.cwd && was.conversationId); // its conversation can go on in a new chat
+    header.closed(was && was.title);
+    wrap.classList.add('chat-closed', 'chat-no-rewind');
+    const again = async () => {
+      try {
+        const r = await api('/api/chats', { dir: was.cwd, sessionId: was.conversationId });
+        store.refresh();
+        location.hash = link(`#/chat/${r.id}`);
+      } catch (e) {
+        toast(failText(e), { kind: 'error' });
+      }
+    };
+    // In a window of the desktop it also offers to close the window; a window that started on this chat has no way
+    // back (trail.js windowWay), so closing is its way out.
+    const shut = BARE ? h(`button.btn.${!known && inWindow === null ? 'primary' : 'secondary'}`, { type: 'button', onclick: () => closeWindow() }, icon('x', { size: 18 }), h('span', 'Close window')) : null;
+    const back = inWindow === null ? null : h(`a.btn.${known ? 'secondary' : 'primary'}`, { href: way.hash }, icon(way.label === 'Home' ? 'home' : 'back', { size: 18 }), h('span', way.label === 'Home' ? 'Home' : `Back to ${way.label}`));
+    const words = 'This chat is not open any more: it was closed, or opened in a terminal.';
+    const go = known ? h('button.btn.primary', { type: 'button', onclick: again }, icon('text', { size: 18 }), h('span', 'Continue in a new chat')) : null;
+    if (!v) {
+      // Nothing of it was drawn here: the conversation is read in the new chat, which shows it from its start.
+      fill(wrap, header.el, h('div.chat-mid', h('div.empty', icon('text', { size: 32 }), h('p', words), h('div.chat-gone-actions', go, back, shut))));
+      return;
+    }
+    fill(wrap, header.el, h('div.chat-mid', scroll, timeline.downBtn),
+      h('div.chat-dock', h('div.chat-col.chat-gone', h('p.chat-gone-text', words),
+        h('div.chat-gone-actions', go, back, shut))));
   }
   const unfollow = follow({
     A,
@@ -294,7 +325,7 @@ registerSessionAction({
       const { id } = await api('/api/chats/from-session', { session: me.name });
       location.hash = link(`#/chat/${id}`, me.machine);
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(failText(e), { kind: 'error' });
     }
   },
 });

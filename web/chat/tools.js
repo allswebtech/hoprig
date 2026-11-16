@@ -119,7 +119,7 @@ export function toolCard(ev, o = {}) {
     // when the owner said no: nothing changed).
     if (e.toolKind === 'edit' && e.input) {
       fill(detail, pathText(i.file_path || i.notebook_path, o.cwd));
-      if (now === 'refused') fill(end);
+      if (now === 'refused' || now === 'stopped') fill(end);
       else if (!added && e.name !== 'NotebookEdit') counts(e.name === 'Write' ? { added: lineCount(i.content), removed: 0 } : hunkCounts((Array.isArray(i.edits) ? i.edits : [i]).flatMap((x) => hunksOf(x.old_string || '', x.new_string || ''))));
     } else fill(detail, line.detail || e.title || '');
   };
@@ -143,15 +143,18 @@ export function toolCard(ev, o = {}) {
     // Claude Code wraps a refused or broken call in <tool_use_error>: the words inside are what the owner reads.
     const r = { ...res, text: String(res.text || '').replace(/^\s*<tool_use_error>([\s\S]*?)<\/tool_use_error>\s*$/, '$1') };
     el.classList.remove('chat-is-running');
-    // The owner stopped it, or said no: his act, said in grey, with no words that were written for Claude.
+    // The owner stopped it, or said no: his act, said in grey, with no words that were written for Claude. A call that
+    // never ran is never said in the past: Stop while its OK card was open, or an edit (one step: stopped, nothing
+    // was written). One that was running when he stopped it ran until then ("Ran … · stopped by you").
     if (r.stopped || r.denied) {
-      now = r.denied ? 'refused' : 'done';
+      const never = now === 'asking' || now === 'refused' || last.toolKind === 'edit';
+      now = r.denied ? 'refused' : never ? 'stopped' : 'done';
       head(last);
       el.classList.add('chat-is-stopped');
       fill(state, icon(r.denied ? 'x' : 'stop', { size: 14 }));
       fill(said, r.denied ? 'you said no' : 'stopped by you');
       if (r.denied && r.text) el.open = true; // his reason shows under the head (the head itself stays short)
-      if (r.denied && last.toolKind === 'edit') fill(input); // nothing was written: no diff (the head names the file)
+      if (now !== 'done' && last.toolKind === 'edit') fill(input); // nothing was written: no diff (the head names the file)
       return fill(out, r.denied && r.text ? h('p.chat-hint', `Your reason: “${r.text}”`) : null);
     }
     now = 'done';

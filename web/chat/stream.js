@@ -9,7 +9,7 @@ const backoff = (n) => Math.min(10_000, 1000 * 2 ** Math.min(n, 4));
 const STREAM_TRIES = 3; // the stream failed this often before it ever opened: the long poll from then on
 
 /**
- * o: { A (the chat's API path), remote (another computer: no stream), events(r), state(v), live(list), gone(),
+ * o: { A (the chat's API path), remote (another computer: no stream), events(r), state(v), live(list), gone(error),
  *      connection(ok) } → stop()
  * events(r) gets { reset, events, next, epoch, first?, older? }; state(v) the chat's state (the long poll's answer
  * carries both, so it calls both).
@@ -53,7 +53,7 @@ export function follow(o) {
         wait = 20;
       } catch (e) {
         if (!alive) return;
-        if (e.status === 404) return o.gone();
+        if (e.status === 404) return o.gone(e);
         lost();
         await sleep(backoff(failures));
         wait = 0;
@@ -81,7 +81,7 @@ export function follow(o) {
       try {
         await look(); // catch up, and learn whether the chat is still there
       } catch (err) {
-        if (err.status === 404) return o.gone();
+        if (err.status === 404) return o.gone(err);
       }
       await sleep(backoff(failures));
       if (!opened && tries + 1 >= STREAM_TRIES) return poll();
@@ -98,7 +98,7 @@ export function follow(o) {
         break;
       } catch (e) {
         if (!alive) return;
-        if (e.status === 404) return o.gone();
+        if (e.status === 404) return o.gone(e);
         lost();
         await sleep(backoff(failures));
       }

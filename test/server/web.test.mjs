@@ -246,6 +246,14 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
   assert.deepEqual(g.map((x) => x.title), ['What your coding tools are told everywhere', 'Memory', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
   assert.deepEqual(g[1].rows[1], { item: g[1].rows[1].item, title: 'How I work', sub: 'Short answers', chip: 'about you' });
   assert.equal(g[4].rows.length, 0, 'nothing pending: the group says so instead of an empty box');
+  // A coding tool's links to make: the count and the names agree (two to make, two named; the linked one is not).
+  const { todoWords } = await import('../../web/brainlink.js');
+  const entries = [
+    { tools: ['claude'], what: 'rules', action: 'link' }, { tools: ['claude'], what: 'skills', action: 'already' },
+    { tools: ['claude', 'opencode'], what: 'memory', action: 'link' }, { tools: ['claude'], what: 'settings', action: 'conflict' },
+  ];
+  assert.equal(todoWords({ id: 'claude', todo: 2, left: 1 }, entries), 'Not linked yet: 2 links to make (rules, memory), 1 in the way');
+  assert.equal(todoWords({ id: 'opencode', todo: 1, left: 0 }, entries), 'Not linked yet: 1 link to make (memory)');
   const { when, indexOrder } = await import('../../web/brain.js');
   assert.match(when(new Date(Date.now() - 3 * 86400_000).toISOString()), /^3 d/, 'an ISO date from the route');
   assert.match(when(Date.now() - 3 * 86400_000), /^3 d/);

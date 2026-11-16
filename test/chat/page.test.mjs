@@ -102,6 +102,16 @@ test('chat page words: the mode chip, Shift+Tab order, model and effort, paths, 
   assert.doesNotMatch(W.alwaysWords({ tool: 'Bash', input: { command: 'npm test' }, alwaysText: 'Bash(npm test)' }), /only part/, 'the whole command');
   assert.doesNotMatch(W.alwaysWords({ tool: 'Bash', input: { command: 'npm view x' }, alwaysText: 'Bash(npm view *)' }), /only part/, 'a prefix of a simple command');
   assert.equal(W.ruleWords('Bash(npm view *), WebFetch(domain:example.org)'), 'commands that start with “npm view”, pages on example.org');
+  // The rule is the whole command, and the grant adds a folder or all edits too: not "only part" (one splitter for both).
+  const chain = 'ls src; touch made2.txt';
+  for (const more of [', the folder /w/p, all edits', ', all edits', ', the folder /w/p', ', Read(//w/p/**)', '']) {
+    const w = W.alwaysWords({ tool: 'Bash', input: { command: chain }, alwaysText: `Bash(${chain})${more}` });
+    assert.doesNotMatch(w, /only part/, more);
+    assert.match(w, /without asking: the command “ls src; touch made2.txt”/, more);
+  }
+  assert.equal(W.ruleWords(`Bash(${chain}), all edits`), 'the command “ls src; touch made2.txt”, every edit of a file');
+  assert.equal(W.ruleWords('all edits, the folder /w/a, b, Bash(echo a, b)'), 'every edit of a file, the folder /w/a, b, the command “echo a, b”', 'a comma inside a rule or a path stays');
+  assert.match(W.alwaysWords({ tool: 'Bash', input: { command: 'ls x; exit 2' }, alwaysText: 'Bash(exit 2), the folder /w/p, all edits' }), /That is only part of this command\.$/, 'a rule for one part, with a folder and all edits');
   assert.equal(W.turnRuns({ working: true, turn: false }), false, 'background work alone is no turn (no Stop, no queue)');
   assert.equal(W.turnRuns({ working: true }), true, 'an older computer says only "working"');
   assert.equal(W.turnLine({ turnCostUsd: 0.02, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, durationMs: 1200 }), '$0.02 · 1 s', 'a turn that used no tokens (a compact) says no "0 tokens"');
@@ -166,6 +176,14 @@ test('status line: what Claude does now (the tool that runs, for how long), then
   assert.equal(St.stateWords({ ...base, status: 'attention' }), 'Needs your OK');
   assert.equal(St.stateWords({ ...base, status: 'attention', asking: 'question' }), 'Claude asks you a question');
   assert.equal(St.stateWords({ ...base, status: 'waiting', terminal: { name: 'x' } }), 'Runs in a terminal');
+  // The dot: the limit's colour at the limit, never Ready's green.
+  assert.equal(St.statusKey({ status: 'waiting', lastEnd: 'limit' }), 'limit');
+  assert.equal(St.statusKey({ status: 'waiting', limit: { at: 1 } }), 'limit');
+  assert.equal(St.statusKey({ status: 'waiting', lastEnd: 'ok' }), 'waiting');
+  assert.equal(St.statusKey({ status: 'waiting', lastEnd: 'stopped' }), 'stopped');
+  assert.equal(St.statusKey({ status: 'waiting', lastError: 'boom', lastEnd: 'error' }), 'error');
+  assert.equal(St.statusKey({ status: 'working', lastEnd: 'limit' }), 'working');
+  assert.equal(St.statusKey({ status: 'waiting', terminal: { name: 'x' } }), 'terminal');
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'stopped' }), 'Stopped', 'the owner\'s Stop is no error');
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'limit', limit: { text: 'x' } }), 'Stopped at the usage limit');
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'error', lastError: 'boom' }), 'Stopped with an error');
@@ -263,6 +281,43 @@ test('tool cards: never in the past before they ran; Stop and a no are the owner
   assert.ok(b.classList.contains('chat-is-stopped'));
   const long = toolCard({ id: 'l', name: 'Bash', toolKind: 'shell', input: { command: 'cd sub &&\nnpm test' } }, { cwd: '/p' });
   assert.match(texts(long).join(''), /\$ cd sub &&\nnpm test/, 'a command of several lines is shown whole');
+});
+
+test('tool cards: Stop while the OK card is open is never said in the past, and has no counts', async () => {
+  const { toolCard } = await import('../../web/chat/tools.js');
+  assert.equal(W.toolLine('Write', { file_path: '/p/a.txt', content: 'x' }, 'stopped').verb, 'Did not write');
+  assert.equal(W.toolLine('Bash', { command: 'ls' }, 'stopped').verb, 'Did not run');
+  assert.equal(W.toolLine('AskUserQuestion', {}, 'stopped').verb, 'Not answered', 'a verb without "Wants to" says it as refused');
+  const w = toolCard({ id: 'w', name: 'Write', toolKind: 'edit', input: { file_path: '/p/out.txt', content: 'x\n' } }, { cwd: '/p' });
+  w.quiet(); // its OK card opened
+  w.result({ ok: false, stopped: true, text: '' }); // Stop: the card was cancelled ("No longer waiting"), nothing written
+  const said = texts(w).join('');
+  assert.match(said, /^Did not writeout\.txtstopped by you/);
+  assert.doesNotMatch(said, /Wrote|\+1|−0/);
+  // An edit read back without its OK card (a reload after a restart): one step, stopped means not written.
+  const e = toolCard({ id: 'e', name: 'Edit', toolKind: 'edit', input: { file_path: '/p/a.js', old_string: 'a', new_string: 'b' } }, { cwd: '/p' });
+  e.result({ ok: false, stopped: true, text: '' });
+  assert.match(texts(e).join(''), /^Did not changea\.jsstopped by you$/);
+  // A command that ran until Stop ran.
+  const b = toolCard({ id: 'b', name: 'Bash', toolKind: 'shell', input: { command: 'sleep 20' } }, { cwd: '/p' });
+  b.result({ ok: false, stopped: true, text: '' });
+  assert.match(texts(b).join(''), /^Ransleep 20stopped by you/);
+});
+
+test('a failed action says the dashboard\'s sentence, never a script\'s own message', async () => {
+  const { ApiError } = await import('../../web/lib.js');
+  assert.equal(W.failText(new ApiError('This chat is not open', 404)), 'This chat is not open');
+  assert.equal(W.failText(new TypeError("Cannot read properties of null (reading 'cwd')")), 'That did not work. Reload the page and try again.');
+  assert.equal(W.failText(null), 'That did not work. Reload the page and try again.');
+});
+
+test('one money formatter: a cent that a sum of floats made 0.0099999 reads $0.01', () => {
+  assert.equal(W.money(0.03 - 0.02), '$0.01');
+  assert.equal(W.money(0.01), '$0.01');
+  assert.equal(W.money(1.234), '$1.23');
+  assert.equal(W.money(0.0042), '$0.0042', 'below a cent: four places');
+  assert.equal(W.money(0), '$0');
+  assert.match(W.turnLine({ ok: true, turnCostUsd: 0.03 - 0.02, usage: { input: 10, output: 5 } }), /^\$0\.01 · /);
 });
 
 test('tool cards: an error Claude Code wraps in tool_use_error shows only its words', async () => {

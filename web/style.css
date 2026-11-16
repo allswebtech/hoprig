@@ -288,6 +288,11 @@ article.card:hover { box-shadow: var(--shadow-2); }
   body.has-fab :is(.card, .si-row) :is(.ok-actions, .limit-actions, .card-actions) { padding-right: max(0px, calc(var(--fab-w, 150px) - 10px)); }
   /* A long label ("Continue on API (pay as you go)") wraps inside that room instead of running under the button. */
   body.has-fab :is(.card, .si-row) :is(.limit-actions, .card-actions) .btn { max-width: 100%; white-space: normal; text-align: left; line-height: 1.25; padding-top: 6px; padding-bottom: 6px; }
+  /* A session row's limit box (Workspace) also takes the room under the row's icon (34 px + the 12 px gap); its
+     buttons end 76 px from the screen's edge (the row's chevron and the box's padding), so they need 52 px less room
+     than a card's to stop left of the floating button. */
+  .si-row .limitbox { margin-left: -46px; }
+  body.has-fab .si-row .limitbox .limit-actions { padding-right: max(0px, calc(var(--fab-w, 150px) - 52px)); }
 }
 .card.skeleton { cursor: default; display: grid; gap: 10px; }
 .sk { height: 12px; border-radius: 6px; background: var(--surface-3); animation: pulse 1.6s ease-in-out infinite; }
@@ -902,6 +907,10 @@ body.is-demo .page-title::after { display: inline-block; }
   .split.no-page .row.split-current { background: var(--accent-soft); }
   .split.no-page .row.split-current .row-title { color: var(--accent-soft-text); }
 }
+/* Nothing to list yet (the AI brain before it exists): the pane alone, centred in the page at every width. */
+.split.pane-only { display: block; }
+.split.pane-only .split-list { display: none; }
+.split.pane-only .split-pane { display: block; }
 
 /* ---------- shared kit (shell.js): tabs, results, loading rows, a page that fills the window ---------- */
 .tabs { display: flex; gap: 4px; margin: 4px 0 14px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }

@@ -1,7 +1,7 @@
 // The coding chat in the real dashboard (createServer, built-in terminals): its routes behind the login, a chat as a
 // card among the sessions, the OK card through the page's route, and the owner's rule that one conversation never
 // runs in two places at once (a terminal runs it → the chat refuses to send and offers to take it over; a chat runs
-// it → a terminal resume is refused). Claude Code is the stand-in (fixtures/fake-claude.mjs), the terminal's
+// it → a terminal resume answers with that chat). Claude Code is the stand-in (fixtures/fake-claude.mjs), the terminal's
 // launcher the stand-in of Tia's tests (no Claude Code, no quota).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -147,8 +147,8 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   // ---- a chat runs it: a terminal may not resume it ----
   await until('the turn to end', async () => (await view()).status === 'waiting');
   const meanwhile = await owner('POST', '/api/sessions', { dir: proj, profile: 'sub', mode: 'resume', sessionId: id });
-  assert.equal(meanwhile.status, 409);
-  assert.match(meanwhile.json.error, /open as a chat/);
+  assert.equal(meanwhile.status, 200);
+  assert.deepEqual(meanwhile.json, { chat: id, existing: true }, 'the chat that runs it, and no terminal');
 
   // ---- a terminal runs it: the chat reads along, refuses to send, and takes it over ----
   await until('the idle chat process to stop', async () => !(await view()).running);
@@ -179,14 +179,14 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
 
   // ---- provider, next turn, Stop ----
   assert.equal((await owner('POST', `/api/chats/${id}/provider`, { profile: 'api' })).json.profile.label, 'Gateway');
+  assert.ok((await view()).events.some((e) => e.kind === 'notice' && e.text === 'The next message goes to another provider (Gateway).'), 'the owner\'s name for it, not its id');
   assert.equal((await owner('POST', `/api/chats/${id}/settings`, { model: 'haiku', effort: 'low' })).json.model, 'haiku');
   assert.equal((await owner('POST', `/api/chats/${id}/settings`, { effort: 'enormous' })).status, 400);
   await owner('POST', `/api/chats/${id}/send`, { text: 'sleep' });
   await until('the long command', async () => (await view()).events.some((e) => e.kind === 'tool' && e.name === 'Bash'));
   // "continue" (-c) means the folder's newest conversation: this one, which the chat works on right now.
   const cont = await owner('POST', '/api/sessions', { dir: proj, profile: 'sub', mode: 'continue' });
-  assert.equal(cont.status, 409);
-  assert.match(cont.json.error, /open as a chat/);
+  assert.deepEqual(cont.json, { chat: id, existing: true });
   assert.equal((await owner('POST', `/api/chats/${id}/stop`, {})).json.stopped, true);
   await until('stopped', async () => (await view()).status === 'waiting');
 
@@ -207,6 +207,10 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   assert.deepEqual([vb.model, vb.effort], ['haiku', 'low'], 'taken back from the terminal with the model and effort it ran with');
   assert.equal((await owner('POST', `/api/chats/${id}/close`, {})).status, 200);
   assert.deepEqual((await owner('GET', '/api/chats')).json.chats, []);
+  // Its page, opened again, can still name it and continue its conversation in a new chat.
+  const shut = await owner('GET', `/api/chats/${id}`);
+  assert.equal(shut.status, 404);
+  assert.deepEqual([shut.json.closed.cwd, shut.json.closed.conversationId], [realProj, id]);
 
   // the list of open chats is kept in a file of the state folder, 600, without secrets
   const { stateDir } = await import('../../src/paths.mjs');

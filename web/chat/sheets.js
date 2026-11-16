@@ -4,7 +4,7 @@
 import { icon } from '../icons.js';
 import { ago, api, chooseSheet, fill, h, link, openSheet, toast } from '../lib.js';
 import { store } from '../store.js';
-import { inFolder } from './words.js';
+import { failText, inFolder } from './words.js';
 
 /** The folder's earlier conversations. v: the chat's state (cwd, profile, model, effort, permissionMode). */
 export async function historySheet({ A, v }) {
@@ -12,7 +12,7 @@ export async function historySheet({ A, v }) {
   try {
     list = (await api(`${A}/history`)).conversations || [];
   } catch (e) {
-    return toast(e.message, { kind: 'error' });
+    return toast(failText(e), { kind: 'error' });
   }
   const pick = await openSheet({ title: 'Earlier conversations', subtitle: `In ${v.short || v.cwd}. One tap continues it in a chat.` }, (close) => {
     const rows = h('div.choice-list.chat-history');
@@ -36,7 +36,7 @@ export async function historySheet({ A, v }) {
     store.refresh();
     location.hash = link(`#/chat/${r.id}`);
   } catch (e) {
-    toast(e.message, { kind: 'error' });
+    toast(failText(e), { kind: 'error' });
   }
 }
 
@@ -56,7 +56,7 @@ export async function rewindSheet({ A, cwd, m, conversation = false, put }) {
   try {
     r = await api(`${A}/rewind`, { messageId: m.messageId, dryRun: true, files: true, conversation });
   } catch (e) {
-    return toast(e.message, { kind: 'error' });
+    return toast(failText(e), { kind: 'error' });
   }
   const files = r.canRewind && r.files.length ? r.files : [];
   const conv = r.conversation || null;
@@ -87,7 +87,7 @@ export async function rewindSheet({ A, cwd, m, conversation = false, put }) {
     if (choice.conversation && done.conversation && put) put(done.conversation.text || m.text);
     toast(choice.conversation ? 'Rewound: the conversation goes on from before your message' : `Rewound ${done.files.length === 1 ? '1 file' : `${done.files.length} files`}`);
   } catch (e) {
-    toast(e.message, { kind: 'error' });
+    toast(failText(e), { kind: 'error' });
   }
 }
 
