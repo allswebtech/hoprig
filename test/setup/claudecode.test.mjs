@@ -63,6 +63,8 @@ test('newest-version lookup: cached, null when offline (never guessed)', async (
   assert.equal(calls.length, 1, 'the second answer came from the cache');
   assert.equal(await C.latestVersion('native', 'latest', { fetchImpl: f, now: 1000 + 6 * 60_000 }), '2.1.325');
   assert.equal(calls.length, 2, 'after five minutes it asks again');
+  assert.equal(await C.latestVersion('native', 'latest', { fetchImpl: f, now: 1000 + 6 * 60_000 + 1, fresh: true }), '2.1.325');
+  assert.equal(calls.length, 3, 'Check now (fresh) asks at once');
   assert.equal(await C.latestVersion('npm', 'stable', { fetchImpl: f, now: 1000 }), '2.1.300');
   assert.equal(await C.latestVersion('native', 'stable', { fetchImpl: f, now: 1000 }), null, 'offline: null');
   const notOk = async () => ({ ok: false, status: 500, text: async () => '' });

@@ -58,9 +58,10 @@ export function fakeItem(id, o = {}) {
     title: o.title || id,
     whenRunning: 'test',
     installable: o.installable ?? false,
-    calls: { info: 0, update: 0 },
-    async info() {
+    calls: { info: 0, update: 0, fresh: 0 },
+    async info({ fresh = false } = {}) {
       it.calls.info++;
+      if (fresh) it.calls.fresh++;
       if (o.fail) throw new Error(o.fail);
       return typeof facts === 'function' ? facts() : facts;
     },

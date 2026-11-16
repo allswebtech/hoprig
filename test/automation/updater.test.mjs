@@ -60,6 +60,7 @@ test('facts are kept 10 minutes; Check now looks again (one item or all)', async
   assert.deepEqual([a.calls.info, b.calls.info], [1, 1]);
   await u.view({ fresh: true, id: 'a' });
   assert.deepEqual([a.calls.info, b.calls.info], [2, 1], 'only the one asked for');
+  assert.deepEqual([a.calls.fresh, b.calls.fresh], [1, 0], 'Check now tells the item to look past its own caches');
   tick(INFO_TTL_MS);
   await u.view();
   assert.deepEqual([a.calls.info, b.calls.info], [3, 2]);

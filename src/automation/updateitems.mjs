@@ -130,8 +130,8 @@ export function toolItem(id, deps = {}) {
       ? `Running sessions keep the version they started with and use the new one when they start again. Automatic updates wait until no ${tool.name} session is working.`
       : `Close its sessions first: the update replaces the program's files. Automatic updates wait until no ${tool.name} session is open.`,
     installable: true,
-    async info() {
-      const i = await tool.info();
+    async info({ fresh = false } = {}) {
+      const i = await tool.info({ fresh });
       const method = { hoprig: "Hoprig's tools folder", native: 'official installer', npm: 'npm', unknown: 'a package manager' }[i.method] || i.method || 'unknown';
       const note = !tool.managed ? null
         : !i.installed ? `Installs ${tool.pin}, the version this Hoprig is tested with.`

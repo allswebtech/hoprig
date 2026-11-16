@@ -32,9 +32,9 @@ const lookups = new Map();
 export const clearLookups = () => lookups.clear();
 
 /** The newest version of `pkg` on the npm registry (dist-tag "latest"), or null when it cannot be found out. Cached. */
-export async function registryLatest(pkg, { fetchImpl = globalThis.fetch, now = Date.now() } = {}) {
+export async function registryLatest(pkg, { fetchImpl = globalThis.fetch, now = Date.now(), fresh = false } = {}) {
   const hit = lookups.get(pkg);
-  if (hit && now - hit.at < (hit.value ? LOOKUP_TTL_MS : LOOKUP_FAIL_TTL_MS)) return hit.value;
+  if (!fresh && hit && now - hit.at < (hit.value ? LOOKUP_TTL_MS : LOOKUP_FAIL_TTL_MS)) return hit.value;
   let value = null;
   try {
     const res = await fetchImpl(`${REGISTRY}/-/package/${pkg}/dist-tags`, { signal: AbortSignal.timeout(8000), headers: { accept: 'application/json' } });
@@ -118,9 +118,9 @@ export function npmTool(spec) {
   }
 
   /** { installed, path, latest, method, pinned, updateAvailable } in the shape claudeInfo() has. */
-  async function info({ fetchImpl } = {}) {
+  async function info({ fetchImpl, fresh = false } = {}) {
     const installed = installedVersion();
-    const latest = await registryLatest(pkg, { fetchImpl });
+    const latest = await registryLatest(pkg, { fetchImpl, fresh });
     return {
       installed,
       path: installed ? binPath() : null,
@@ -191,7 +191,7 @@ export function npmTool(spec) {
 
   /** Install the newest version from the registry. Refused, with a reason, when it cannot be looked up. */
   async function update({ onLine = () => {}, fetchImpl, ...rest } = {}) {
-    const latest = await registryLatest(pkg, { fetchImpl });
+    const latest = await registryLatest(pkg, { fetchImpl, fresh: true }); // an update installs what is newest now
     if (!latest) {
       const output = `Could not look up the newest ${name} (offline?). Nothing changed.`;
       onLine(output);

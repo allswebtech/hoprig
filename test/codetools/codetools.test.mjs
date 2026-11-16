@@ -71,6 +71,8 @@ test('the newest version comes from the registry, is cached, and is "unknown" wh
   assert.equal(await N.registryLatest('@openai/codex', { fetchImpl: ok, now: 1000 }), '0.170.0');
   assert.equal(await N.registryLatest('@openai/codex', { fetchImpl: ok, now: 2000 }), '0.170.0');
   assert.equal(asked, 1, 'cached');
+  assert.equal(await N.registryLatest('@openai/codex', { fetchImpl: ok, now: 3000, fresh: true }), '0.170.0');
+  assert.equal(asked, 2, 'Check now (fresh) asks the registry again');
   N.clearLookups();
   assert.equal(await N.registryLatest('@openai/codex', { fetchImpl: async () => { throw new Error('offline'); } }), null);
   N.clearLookups();

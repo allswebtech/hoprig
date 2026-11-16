@@ -56,7 +56,7 @@ export function createUpdater({ items, cards, config, saveConfig, record = () =>
     let f;
     try {
       if (item.prepare) await item.prepare();
-      f = { at: now(), info: await item.info() };
+      f = { at: now(), info: await item.info({ fresh }) }; // fresh: Check now asks the servers again, past their caches
     } catch (e) {
       f = { at: now(), error: e.message };
     }

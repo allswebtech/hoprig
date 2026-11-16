@@ -192,13 +192,14 @@ export function clearLatestCache() {
   lookupCaches = new WeakMap();
 }
 
-/** The newest version for this install method and channel, or null when it cannot be found out. Cached. */
-export async function latestVersion(method, channel, { fetchImpl = globalThis.fetch, now = Date.now() } = {}) {
+/** The newest version for this install method and channel, or null when it cannot be found out. Cached, except when
+ * `fresh` (Check now: the owner asked to look again). */
+export async function latestVersion(method, channel, { fetchImpl = globalThis.fetch, now = Date.now(), fresh = false } = {}) {
   const src = latestSource(method, channel);
   const key = `${src.url}#${src.tag || ''}`;
   const lookupCache = cacheFor(fetchImpl);
   const hit = lookupCache.get(key);
-  if (hit && now - hit.at < (hit.value ? LOOKUP_TTL_MS : LOOKUP_FAIL_TTL_MS)) return hit.value;
+  if (!fresh && hit && now - hit.at < (hit.value ? LOOKUP_TTL_MS : LOOKUP_FAIL_TTL_MS)) return hit.value;
   let value = null;
   try {
     const res = await fetchImpl(src.url, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS), headers: { accept: src.kind === 'npm' ? 'application/json' : 'text/plain' } });
@@ -222,7 +223,7 @@ async function installedVersion(file, env) {
  * { installed, path, latest, method, updateAvailable }. `installed` and `path` are null when Claude Code is not
  * found; `latest` is null when it cannot be looked up (offline).
  */
-export async function claudeInfo({ env = process.env, fetchImpl } = {}) {
+export async function claudeInfo({ env = process.env, fetchImpl, fresh = false } = {}) {
   const found = resolveClaude({ env });
   let installed = null;
   let method = 'unknown';
@@ -237,7 +238,7 @@ export async function claudeInfo({ env = process.env, fetchImpl } = {}) {
     }
     method = methodOf(real);
   }
-  const latest = await latestVersion(method, channelFor(real, readChannel()), { fetchImpl });
+  const latest = await latestVersion(method, channelFor(real, readChannel()), { fetchImpl, fresh });
   return {
     installed,
     path: found ? found.path : null,
