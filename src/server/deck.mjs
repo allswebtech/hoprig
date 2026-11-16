@@ -157,7 +157,7 @@ export class Deck {
   }
 
   /**
-   * Terminal `name` was just started or restarted (at `at`) on conversation `id`, with the start's `mark` (newMark).
+   * Terminal `name` was just started or restarted (at `at`) on conversation `id`, with the start's `mark` (marks.mjs).
    * Its launcher names the conversation in its run record (runs.mjs: conversation) the moment it starts; this note
    * covers only the moment before, while the terminal holds no record written since and has not come back to its own
    * shell (handoff.mjs terminalOf reads it): a restart in place (a move) ends the old launcher and its record before

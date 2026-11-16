@@ -204,8 +204,8 @@ async function run(t, kind) {
     const T = await opened(id);
     late(2000);
     const out = await Promise.all([req(`/api/sessions/${T}/switch`, { profile: 'backup' }), req(`/api/sessions/${T}/switch`, { profile: 'work' })]);
-    for (const o of out) assert.ok([200, 409].includes(o.status), o.text);
-    assert.ok(out.some((o) => o.status === 200), 'one of them moved it');
+    // Both read the same record before either moved it: one moves it, the other is late (it restarts nothing).
+    assert.deepEqual(out.map((o) => o.status).sort(), [200, 409], out.map((o) => o.text).join(' | '));
     await until('reported after the move', async () => {
       const c = await card(T);
       return c && c.sessionId === id && c.status === 'waiting';
