@@ -401,6 +401,8 @@ test('a new session on a provider the running server lacks: when nobody else use
   assert.ok(!said.join('\n').includes('runs on its own'), `its own run did not keep the old server: ${said.join(' | ')}`);
   assert.equal(fs.readFileSync(process.env.HOPRIG_TEST_STARTS, 'utf8').split('\n').filter(Boolean).length, 2, 'started again, with the new provider');
   assert.equal(S.readServer('opencode'), null, 'and stopped when that last session ended');
+  const { lastProviderIn } = await import('../../src/defaultprovider.mjs');
+  assert.equal(lastProviderIn(tmp), null, 'another coding tool\'s start never becomes the folder\'s provider: that is Claude Code\'s launcher\'s');
   P.deleteProfile('late2');
 });
 
