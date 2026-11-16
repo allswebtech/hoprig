@@ -354,7 +354,7 @@ function updateMapSheet(refresh) {
         (r.takenOut || []).length ? list('Taken out by its project\'s project.json', r.takenOut.map((t) => `${t.project}: ${t.dir}`)) : null,
         notHereLine(r),
         r.notes && r.notes.length ? h('ul.hint', r.notes.map((n) => h('li', n))) : null,
-        h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'),
+        h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, nothing ? 'Close' : 'Cancel'),
           nothing ? null : btn('primary', { icon: 'check', label: 'Write the map', onclick: write })));
     }, (e) => fill(box, errorBox(e.message)));
     async function write() {

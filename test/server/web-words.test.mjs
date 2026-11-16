@@ -77,6 +77,7 @@ test('words: what any coding tool does is said without "Claude"; Codex is named 
   assert.match(read('web/sessiondefaults.js'), /'Which Claude model answers in Claude Code\./, 'the model setting is Claude Code\'s only');
   assert.match(read('web/automation.js'), /'In a Claude Code session: when the provider\\'s servers are busy/, 'the retry reads Claude Code\'s own error kinds');
   assert.match(read('web/accounts.js'), /Claude Code restarts on that provider/, 'Auto mode is Claude Code\'s');
+  assert.match(read('web/automation.js'), /'Claude Code sessions lost when the computer or the dashboard restarts/, 'restore brings back Claude Code\'s only (src/automation/restore.mjs)');
   // The command line and the package say both coding tools, and never Codex.
   const help = read('bin/hoprig.mjs');
   const helpText = help.slice(help.indexOf('const HELP = `'), help.indexOf('`;', help.indexOf('const HELP = `')));

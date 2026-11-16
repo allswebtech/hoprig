@@ -600,7 +600,7 @@ function rulesPart(st, after) {
       rule('Try again after a server error', s.retry.enabled, (v) => ({ retry: { enabled: v } }),
         'In a Claude Code session: when the provider\'s servers are busy or the connection breaks, it waits a little and sends "continue", up to three times; never at a usage limit.'),
       rule('Reopen sessions after a restart', !!st.restoreOn, (v) => ({ restore: { enabled: v } }),
-        'Sessions lost when the computer or the dashboard restarts come back with their conversation; nothing is typed into them.')),
+        'Claude Code sessions lost when the computer or the dashboard restarts come back with their conversation; nothing is typed into them.')),
     panel({ icon: 'settings', title: 'Housekeeping', desc: 'Keep the computer tidy. New versions have a page of their own: Settings → Updates.' },
       rule('Close idle terminals', s.idle.shells, (v) => ({ idle: { shells: v } }),
         'Closes a plain terminal that nobody uses after it has been quiet for a while; a coding tool\'s session is never closed.', (v) => (idleShells.hidden = !v)),
