@@ -50,6 +50,10 @@ const P = {
   text: ['M5 6h14', 'M5 10h14', 'M5 14h10', 'M5 18h7'],
   play: ['M8 5l11 7-11 7z'],
   code: ['M8 7l-5 5 5 5', 'M16 7l5 5-5 5', 'M13.5 5l-3 14'],
+  // A screen on a stand (the desktop); one square and two stacked ones (a window's maximise and restore).
+  monitor: ['M3 4.5h18v12H3z', 'M8.5 20.5h7', 'M12 16.5v4'],
+  square: ['M5 5h14v14H5z'],
+  restore: ['M8 8h11v11H8z', 'M5 15V5h10'],
   external: ['M14 4h6v6', 'M20 4l-9 9', 'M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5'],
 };
 

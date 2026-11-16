@@ -386,7 +386,9 @@ function viewPc({ frame, connectionBanner, sub }) {
   const content = part.id === 'setup' ? setupSection() : part.id === 'advanced' ? advanced(ctx) : overview(ctx);
   // A link back here names the part ("Setup"), and the computer once there are several.
   const place = () => (part.id ? (store.multi ? `${part.title} · ${label()}` : part.title) : label());
-  const draw = () => frame({ title: label(), place: place(), page: 'computer', back: '#/computers', backLabel: 'Computers', intro: 'One computer: how it is doing, what is set up on it, and its controls.', body: [tabs, h('p.cp-parttext', part.text), content] });
+  // Its desktop: the apps of this computer as windows (web/desktop/; a grid of the apps on a small screen).
+  const desktop = h('a.btn.secondary.small', { href: link('#/desktop') }, icon('monitor', { size: 16 }), h('span', 'Open desktop'));
+  const draw = () => frame({ title: label(), place: place(), page: 'computer', back: '#/computers', backLabel: 'Computers', intro: 'One computer: how it is doing, what is set up on it, and its controls.', actions: [desktop], body: [tabs, h('p.cp-parttext', part.text), content] });
   draw();
   const tell = () => listeners.forEach((fn) => fn());
   // The name may arrive after the first paint (and changes after Rename).
