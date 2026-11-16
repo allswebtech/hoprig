@@ -17,7 +17,7 @@
 // keep it and a new one on that provider starts on its own (its card then says "Live status: basic").
 //
 // State: <stateDir>/codetools/<tool>-server.json (pid, port, providers), the secret in <tool>-server.secret (0600).
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -27,6 +27,7 @@ import { AUTH_VARS, listProfiles, servesTools } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { codex } from './codex.mjs';
 import { opencode, NO_SELF_UPDATE } from './opencode.mjs';
+import { takeLock } from './lock.mjs';
 import { KEY_VAR, endpointOf, providerModels, tomlString } from './providers.mjs';
 
 export const SERVER_TOOLS = Object.freeze(['codex', 'opencode']);
@@ -129,6 +130,31 @@ const alive = (pid) => {
   }
 };
 
+// A state file outlives a server that died without stopLocked (a restart of the computer, a crash, a kill by hand),
+// and its pid may then belong to an unrelated process. Before any signal, the process must be the server: its command
+// line carries the address it was told to listen on. Where a command line cannot be read (Windows), the server must
+// answer on its port instead. Otherwise only the files go.
+function commandLine(pid) {
+  try {
+    if (process.platform === 'linux') return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').join(' ');
+    if (process.platform === 'win32') return null;
+    return execFileSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return '';
+  }
+}
+
+/** The words of the server's own command line that no other process has: where it listens. */
+export const serverMarker = (tool, port) => (tool === 'codex' ? `--listen ws://127.0.0.1:${port}` : `serve --hostname 127.0.0.1 --port ${port}`);
+
+/** Is the process the state file names really this server (and alive)? */
+export async function isServerProcess(tool, s, { fetchImpl = globalThis.fetch, cmdline = commandLine } = {}) {
+  if (!s || !alive(s.pid)) return false;
+  const cmd = cmdline(s.pid);
+  if (cmd === null) return healthy(tool, s, { fetchImpl });
+  return cmd.includes(serverMarker(tool, s.port));
+}
+
 export function readServer(tool) {
   try {
     const s = JSON.parse(fs.readFileSync(stateFile(tool), 'utf8'));
@@ -166,43 +192,24 @@ function freePort() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Run `fn` while holding the tool's server lock (a folder: creating one is atomic everywhere). */
+/** Run `fn` while holding the tool's server lock (./lock.mjs). */
 async function withLock(tool, fn) {
   fs.mkdirSync(serverDir(), { recursive: true, mode: 0o700 });
-  const lock = `${stateFile(tool)}.lock`;
-  const until = Date.now() + LOCK_WAIT_MS;
-  for (;;) {
-    try {
-      fs.mkdirSync(lock);
-      fs.writeFileSync(path.join(lock, 'pid'), String(process.pid));
-      break;
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      // A holder that died (a terminal closed under its launcher) leaves the lock behind: it is free again.
-      try {
-        const owner = Number(fs.readFileSync(path.join(lock, 'pid'), 'utf8'));
-        const old = Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS;
-        if (old || (Number.isInteger(owner) && owner > 0 && !alive(owner))) fs.rmSync(lock, { recursive: true, force: true });
-      } catch {
-        /* gone meanwhile, or its pid not written yet */
-      }
-      if (Date.now() > until) throw new Error('another start of this server is still busy');
-      await sleep(150);
-    }
-  }
+  const release = await takeLock(`${stateFile(tool)}.lock`, { waitMs: LOCK_WAIT_MS, staleMs: LOCK_STALE_MS });
+  if (!release) throw new Error('another start of this server is still busy');
   try {
     return await fn();
   } finally {
-    fs.rmSync(lock, { recursive: true, force: true });
+    release();
   }
 }
 
 /** The runs (terminal sessions) attached to the tool's server; `except`: a run id to leave out (one that is ending). */
 export const serverUsers = (tool, { except = null, runs = listRuns() } = {}) => runs.filter((r) => r.tool === tool && r.server === true && r.runId !== except);
 
-async function stopLocked(tool) {
+async function stopLocked(tool, { fetchImpl } = {}) {
   const s = readServer(tool);
-  if (s && alive(s.pid)) {
+  if (s && (await isServerProcess(tool, s, { fetchImpl }))) {
     const kill = (sig) => {
       try {
         process.kill(-s.pid, sig); // started detached: its own process group, with its helpers
@@ -215,6 +222,24 @@ async function stopLocked(tool) {
     if (alive(s.pid)) kill('SIGKILL');
   }
   for (const f of [stateFile(tool), secretFile(tool), ...(tool === 'opencode' ? [configFile()] : [])]) fs.rmSync(f, { force: true });
+}
+
+/** The terminal sessions of `tool` that run on this computer, wherever they were started (each has a run record). */
+export const toolRuns = (tool, runs = listRuns()) => runs.filter((r) => r.tool === tool);
+
+/**
+ * Before npm replaces a tool's program files, nothing of it may run: no session (`open`: what the caller knows of,
+ * e.g. the dashboard's cards of it) and not its server, which is stopped here when nobody uses it. Returns null, or
+ * the sentence that says why it must wait.
+ */
+export async function readyToReplace(tool, { open = 0 } = {}) {
+  if (!SERVER_TOOLS.includes(tool)) return null;
+  const name = DESCRIPTOR[tool].name;
+  const n = Math.max(open, toolRuns(tool).length);
+  if (n) return `${n} ${name} session${n === 1 ? ' is' : 's are'} open: close ${n === 1 ? 'it' : 'them'} first (the update replaces the program's files)`;
+  await stopIfUnused(tool);
+  if (readServer(tool)) return `${name}'s server is still in use: try again when its sessions have ended`;
+  return null;
 }
 
 /** Stop the tool's server now. */
@@ -238,24 +263,26 @@ export function stopIfUnused(tool, { except = null, idleMs = 0, now = Date.now()
 
 /**
  * The tool's server, started when it does not run. `need`: the provider a session wants. Resolves to
- * { ok: true, server: { tool, pid, port, url, secret, providers } } or { ok: false, why }.
+ * { ok: true, server: { tool, pid, port, url, secret, providers } } or { ok: false, why }. `except`: the caller's
+ * own run id.
  */
-export function ensureServer(tool, { need = null, base = process.env, fetchImpl = globalThis.fetch, profiles = listProfiles(), spawnImpl = null } = {}) {
+export function ensureServer(tool, { need = null, except = null, base = process.env, fetchImpl = globalThis.fetch, profiles = listProfiles(), spawnImpl = null } = {}) {
   if (!SERVER_TOOLS.includes(tool)) return Promise.resolve({ ok: false, why: `no server for ${tool}` });
   const bin = DESCRIPTOR[tool].binPath();
   if (!fs.existsSync(bin)) return Promise.resolve({ ok: false, why: `${DESCRIPTOR[tool].name} is not installed` });
   const provs = serverProviders(tool, profiles);
   return withLock(tool, async () => {
     const s = readServer(tool);
-    if (s && alive(s.pid) && (await healthy(tool, s, { fetchImpl }))) {
+    if (s && (await isServerProcess(tool, s, { fetchImpl })) && (await healthy(tool, s, { fetchImpl }))) {
       const has = !need || provs.some((p) => p.name === need && (s.providers || []).some((q) => q.name === p.name && q.fp === p.fp));
       if (has) {
         writeState(tool, { ...s, usedAt: Date.now() });
         return { ok: true, server: publicServer(tool, s) };
       }
-      if (serverUsers(tool).length) return { ok: false, why: 'the server was started before this provider was added or changed, and other sessions use it' };
+      // The caller's own run (a launcher marks itself a user before it asks) does not keep the server.
+      if (serverUsers(tool, { except }).length) return { ok: false, why: 'the server was started before this provider was added or changed, and other sessions use it' };
     }
-    await stopLocked(tool);
+    await stopLocked(tool, { fetchImpl });
     return start(tool, provs, { bin, base, fetchImpl, spawnImpl });
   });
 }
@@ -288,7 +315,8 @@ async function start(tool, provs, { bin, base, fetchImpl, spawnImpl }) {
     args = ['serve', '--hostname', '127.0.0.1', '--port', String(port)];
   }
   fs.writeFileSync(logFile(tool), '', { mode: 0o600 });
-  const pid = await (spawnImpl ? spawnDirect(spawnImpl, DESCRIPTOR[tool].binPath(), args, env, logFile(tool)) : spawnDaemon(DESCRIPTOR[tool].binPath(), args, env, logFile(tool)));
+  const [file, ...pre] = DESCRIPTOR[tool].argv(args);
+  const pid = await (spawnImpl ? spawnDirect(spawnImpl, file, pre, env, logFile(tool)) : spawnDaemon(file, pre, env, logFile(tool)));
   const s = { tool, pid, port, secret, providers: provs.map((p) => ({ name: p.name, id: p.id, fp: p.fp })), startedAt: Date.now(), usedAt: Date.now() };
   const until = Date.now() + START_WAIT_MS;
   while (Date.now() < until) {

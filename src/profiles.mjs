@@ -141,6 +141,16 @@ export function readProfile(name) {
 export const metaOf = (p) => ({ label: p.label, prerun: p.prerun, models: p.models, api: p.api || [], tools: p.tools || [], signin: p.signin || '' });
 
 /**
+ * The API shapes a key provider is known to answer: its API= line, else what its kind implies (a Claude key:
+ * Claude's API; an OpenAI key: the Responses and chat APIs).
+ */
+export function knownShapes(p) {
+  if (!p) return [];
+  if (p.api && p.api.length) return [...p.api];
+  return (p.kind || kindOf(p.env || {}, { SIGNIN: p.signin })) === 'openai' ? ['responses', 'chat'] : ['messages'];
+}
+
+/**
  * The coding tools a profile serves, in the fixed order. The one place of the rule (see the header). A Claude
  * sign-in ("login", "subscription") and Auto mode serve Claude Code and nothing else, whatever its file says.
  */
@@ -149,7 +159,7 @@ export function servesTools(p) {
   const kind = p.kind || kindOf(p.env || {}, { SIGNIN: p.signin }); // a profile object built in code may carry no kind
   if (kind === 'login' || kind === 'subscription' || kind === 'auto') return ['claude'];
   if (kind === 'chatgpt') return ['codex'];
-  const shapes = p.api && p.api.length ? p.api : kind === 'openai' ? ['responses', 'chat'] : ['messages'];
+  const shapes = knownShapes({ ...p, kind });
   const out = [];
   if (kind === 'api' && shapes.includes('messages')) out.push('claude'); // Claude Code reads only ANTHROPIC_* variables
   if (shapes.includes('responses')) out.push('codex'); // Codex speaks only the Responses API (0.169 refuses "chat")

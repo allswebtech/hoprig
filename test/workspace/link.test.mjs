@@ -125,6 +125,7 @@ test('every coding tool that is on: Codex and OpenCode read the same rules and s
   writeTree(a.brain, { 'skills/one/SKILL.md': 'one' });
   writeTree(a.base, { 'CLAUDE.md': 'my rules\n' }); // adopted into the brain: the Memory section is planned after it
   writeTree(homes.opencode, { 'opencode.json': JSON.stringify({ model: 'x/y', instructions: ['mine.md'] }) });
+  fs.chmodSync(path.join(homes.opencode, 'opencode.json'), 0o600); // it can hold the owner's provider keys
   const plan = planLink(all);
   assert.deepEqual(plan.map((p) => [p.id, p.action, p.tools.join('+')]), [
     ['rules', 'adopt', 'claude'], ['skills', 'link', 'claude'], ['memory', 'link', 'claude'],
@@ -143,6 +144,7 @@ test('every coding tool that is on: Codex and OpenCode read the same rules and s
   const oc = JSON.parse(fs.readFileSync(path.join(homes.opencode, 'opencode.json'), 'utf8'));
   assert.deepEqual(oc, { model: 'x/y', instructions: ['mine.md', `${path.join(a.base, 'rules')}/*.md`, 'ai_brain/claude-memory/MEMORY.md'] }, 'the owner\'s keys stay');
   assert.ok(fs.readdirSync(homes.opencode).some((f) => f.startsWith('opencode.json.backup-')), 'the old settings are kept');
+  assert.equal(fs.statSync(path.join(homes.opencode, 'opencode.json')).mode & 0o777, 0o600, 'the merged file keeps its private mode');
   const text = fs.readFileSync(rules, 'utf8');
   assert.ok(text.startsWith('my rules\n\n<!-- hoprig: memory'), 'the section goes after the owner\'s text');
   assert.match(text, /ai_brain\/claude-memory\/` \(in the project's own folder\); `MEMORY\.md` there is\nthe index/);
@@ -152,6 +154,10 @@ test('every coding tool that is on: Codex and OpenCode read the same rules and s
   assert.equal(fs.readFileSync(rules, 'utf8').split('<!-- hoprig: memory').length, 2);
   // Only Claude Code on: its three entries, no Memory section.
   assert.deepEqual(planLink({ ...a, tools: ['claude'] }).map((p) => p.id), ['rules', 'skills', 'memory']);
+  // A settings file Hoprig makes is the owner's only.
+  fs.rmSync(path.join(homes.opencode, 'opencode.json'));
+  applyLink(all);
+  assert.equal(fs.statSync(path.join(homes.opencode, 'opencode.json')).mode & 0o777, 0o600);
   // OpenCode alone: its own skills entry.
   assert.deepEqual(planLink({ ...a, homes, tools: ['opencode'] }).map((p) => p.id), ['opencode:rules', 'opencode:skills', 'opencode:instructions', 'memory-note']);
 });

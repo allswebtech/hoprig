@@ -222,6 +222,37 @@ function viewAccounts({ frame, sub }) {
 }
 
 /** One account's own page: usage, state, in Auto mode or not, rename, and the rest of what can be done with it. */
+// "Test" on a provider asks the service one tiny question per API (about ten seconds). The row stays busy until the
+// answer is there, and the answer stays on the provider's page (until the page is left), not only in a toast.
+const lastTest = new Map(); // provider name → { ok, text }
+const TOOL_WORDS = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
+
+function testResult(a) {
+  const t = lastTest.get(a.name);
+  return t ? h(`p.acct-test.${t.ok ? 'test-ok' : 'test-bad'}`, { role: 'status' }, icon(t.ok ? 'check' : 'alert', { size: 15 }), h('span', t.text)) : null;
+}
+
+function testRow(a, refresh) {
+  const sub = h('span.row-sub', 'Find out which coding tools can use it');
+  const row = h('button.row', { type: 'button', onclick: async () => {
+    if (!a.model) return modelSheet(a, refresh);
+    row.disabled = true;
+    row.setAttribute('aria-busy', 'true');
+    row.classList.add('row-busy');
+    sub.textContent = 'Testing: one short question per API, about ten seconds…';
+    try {
+      const r = await api(A(`/${encodeURIComponent(a.name)}/test`), {});
+      const tools = (r.tools || []).map((t) => TOOL_WORDS[t] || t).join(' · ') || 'no coding tool';
+      const kept = (r.kept || []).length ? ` Some APIs did not answer this time (busy or unreachable): what was known about them is kept.` : '';
+      lastTest.set(a.name, r.ok ? { ok: true, text: `Tested just now: works with ${tools}.${kept}` } : { ok: false, text: `Tested just now: ${r.error}` });
+    } catch (e) {
+      lastTest.set(a.name, { ok: false, text: `Tested just now: ${e.message}` });
+    }
+    refresh();
+  } }, h('span.row-icon', icon('check')), h('span.row-main', h('span.row-title', 'Test'), sub), h('span.row-end', icon('chevronRight', { size: 18 })));
+  return row;
+}
+
 function viewAccount(frame, name) {
   const body = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading…')));
   // The title is the account's name: drawn again once it is known (and after a rename).
@@ -261,6 +292,7 @@ function viewAccount(frame, name) {
             d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: () => signInAgain(a, d, refresh) }) : null)
           : CLAUDE_SIGNIN.includes(a.kind) || a.kind === 'api' ? usageBars(a.usage, a.usageReported, a.inUse > 0) || h('p.hint', 'No usage figures yet: they appear after the first answer on this provider.') : null,
         worksWith(a) ? h('p.acct-works', icon('check', { size: 15 }), h('span', worksWith(a))) : null,
+        testResult(a),
         a.kind === 'chatgpt' ? h('p.hint', 'Codex uses the ChatGPT account it is signed in to on this computer. To sign in, run ', h('code', 'codex login --device-auth'), ' in a terminal here.') : null,
         CLAUDE_SIGNIN.includes(a.kind) ? h('p.hint', 'A Claude subscription works with Claude Code only.') : null,
         d.full && claude ? toggle('Use in Auto mode', a.inAuto, async (on) => {
@@ -282,13 +314,7 @@ function viewAccount(frame, name) {
           refresh();
         }),
         KEYED.includes(a.kind) ? act('sparkle', 'Change model', a.model ? `Now: ${a.model}` : 'Pick the model this provider uses', () => modelSheet(a, refresh)) : null,
-        KEYED.includes(a.kind) ? act('check', 'Test', 'Find out which coding tools can use it', async () => {
-          if (!a.model) return modelSheet(a, refresh);
-          toast('Testing…');
-          const r = await api(A(`/${encodeURIComponent(a.name)}/test`), {});
-          toast(r.ok ? `${a.label} works with ${r.tools.map((t) => ({ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' })[t] || t).join(' · ') || 'no coding tool'}` : r.error, { kind: r.ok ? 'info' : 'error', ms: r.ok ? 5000 : 9000 });
-          refresh();
-        }) : null,
+        KEYED.includes(a.kind) ? testRow(a, refresh) : null,
         a.limited ? act('refresh', 'It is free again', 'Mark it as no longer at its limit', async () => {
           await api(at(machine.current, `/api/profiles/${encodeURIComponent(a.name)}/available`), {});
           toast(`${a.label} is available again`);

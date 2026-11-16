@@ -5,6 +5,7 @@ import { moveArgs } from '../launch.mjs';
 import { binFile, tilde } from '../paths.mjs';
 import { assertServes, publicProfile, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
+import { codexScreenQuestion } from '../codetools/codex.mjs';
 import { codexHas } from '../codetools/stores.mjs';
 import { hasConversation, sessionTitle, sessionsIn } from '../sessions.mjs';
 import { isOwnFolder } from './folders.mjs';
@@ -215,6 +216,12 @@ export class Deck {
             card.statusAt = t.activity || run.statusAt;
           }
           card.note = card.status === 'attention' ? String(run.note || '').slice(0, 300) : '';
+          // Before Codex has made its thread its server tells nothing, but its screen may already ask the owner
+          // something (whether to trust a new folder): that is "needs your OK", not "starting".
+          if (card.tool === 'codex' && (run.status === 'starting' || card.liveStatus === 'basic')) {
+            const ask = codexScreenQuestion(await this.backend.capture(t.id, 40).catch(() => ''));
+            if (ask) Object.assign(card, { status: 'attention', note: ask });
+          }
           out.push(card);
           continue;
         }

@@ -586,6 +586,13 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); border-ra
 /* Which coding tools a provider works with (src/profiles.mjs servesTools). */
 .acct-works { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font-size: 13px; color: var(--text-2); }
 .acct-works svg { color: var(--ok); flex: none; }
+.acct-test { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0; font-size: 13px; color: var(--text-2); }
+.acct-test svg { flex: none; margin-top: 2px; }
+.acct-test.test-ok svg { color: var(--ok); }
+.acct-test.test-bad svg { color: var(--danger); }
+.row.row-busy { cursor: progress; opacity: .85; }
+.row.row-busy .row-end svg { display: none; }
+.row.row-busy .row-end::before { content: ''; display: block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); border-top-color: transparent; animation: spin .7s linear infinite; }
 .mini-switch { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; font-size: var(--fs-xs); color: var(--muted); cursor: pointer; flex: none; }
 input.switch.small { width: 40px; height: 24px; border-radius: 12px; }
 input.switch.small::after { width: 18px; height: 18px; }

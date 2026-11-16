@@ -45,7 +45,7 @@ import path from 'node:path';
 import * as autoswitchModule from '../autoswitch.mjs';
 import { ptySpawn } from './backends/nodepty.mjs';
 import { findAddon } from '../addons/index.mjs';
-import { AUTH_VARS, deleteProfile, listProfiles, metaOf, readProfile, servesTools, validName, writeProfile } from '../profiles.mjs';
+import { API_SHAPES, AUTH_VARS, deleteProfile, knownShapes, listProfiles, metaOf, readProfile, servesTools, validName, writeProfile } from '../profiles.mjs';
 
 export const ANTHROPIC_URL = 'https://api.anthropic.com';
 export const OPENAI_URL = 'https://api.openai.com';
@@ -235,8 +235,14 @@ export async function testModel(fetchImpl, baseUrl, key, auth, model) {
     last = r;
     if (r.error || (r.status !== 401 && r.status !== 403)) break;
   }
-  return { ok: false, auth, error: explain(last, host, key) };
+  return { ok: false, auth, passing: passing(last), error: explain(last, host, key) };
 }
+
+/**
+ * A failure that says nothing about whether the endpoint serves an API: no answer, a timeout, too many requests,
+ * an overloaded or broken server. Only a clear answer (a refused key, an unknown route, a bad request) says it does not.
+ */
+export const passing = (r) => Boolean(r) && (Boolean(r.error) || r.status === 408 || r.status === 429 || r.status >= 500);
 
 /**
  * Which API shapes the endpoint answers ("Test" on a provider): one tiny request per shape with `model` —
@@ -244,17 +250,22 @@ export async function testModel(fetchImpl, baseUrl, key, auth, model) {
  *   responses   POST /v1/responses         (OpenAI's Responses API; Codex, OpenCode)
  *   chat        POST /v1/chat/completions  (OpenAI's chat completions; OpenCode)
  *   models      GET  /v1/models            (a model list, for the pickers)
- * A shape counts only on a 200. Returns { ok, shapes, auth, error? }: ok when at least one shape a coding tool can
- * use answered; error when none did (a refused key says so). `auth`: the header Claude's API took ('x'|'bearer').
+ * A shape counts only on a 200. Returns { ok, shapes, unsure, auth, error? }: ok when at least one shape a coding
+ * tool can use answered; error when none did (a refused key says so). `unsure`: the shapes whose request failed for
+ * a passing reason (see passing): this test cannot say they are missing. `auth`: the header Claude's API took.
  */
 export async function probeShapes(fetchImpl, baseUrl, key, auth, model, { only = null } = {}) {
   const host = new URL(baseUrl).host;
   const shapes = [];
+  const unsure = [];
   let refused = null;
   let other = null;
   const m = only && !only.includes('messages') ? { ok: false } : await testModel(fetchImpl, baseUrl, key, auth, model);
   if (m.ok) shapes.push('messages');
-  else other = m.error || null;
+  else {
+    other = m.error || null;
+    if (m.passing) unsure.push('messages');
+  }
   const openai = [
     ['responses', '/v1/responses', { model, input: 'Hi', max_output_tokens: 16 }],
     ['chat', '/v1/chat/completions', { model, messages: [{ role: 'user', content: 'Hi' }], max_completion_tokens: 16 }],
@@ -263,13 +274,26 @@ export async function probeShapes(fetchImpl, baseUrl, key, auth, model, { only =
     if (only && !only.includes(shape)) continue;
     const r = await call(fetchImpl, `${baseUrl}${p}`, { method: 'POST', key, auth: 'bearer', body });
     if (!r.error && r.status === 200) shapes.push(shape);
-    else if (r.status === 401 || r.status === 403) refused = r;
-    else if (!other) other = explain(r, host, key);
+    else {
+      if (passing(r)) unsure.push(shape);
+      if (r.status === 401 || r.status === 403) refused = r;
+      else if (!other) other = explain(r, host, key);
+    }
   }
   const list = await call(fetchImpl, `${baseUrl}/v1/models?limit=1000`, { key, auth: m.ok ? m.auth : 'bearer' });
   if (!list.error && list.status === 200 && modelsOf(list.json)) shapes.push('models');
+  else if (passing(list)) unsure.push('models');
   const ok = shapes.some((x) => x !== 'models');
-  return { ok, shapes, auth: m.ok ? m.auth : auth, ...(ok ? {} : { error: refused && !m.ok ? explain(refused, host, key) : other || 'The service answered none of the APIs a coding tool uses.' }) };
+  return { ok, shapes, unsure, auth: m.ok ? m.auth : auth, ...(ok ? {} : { error: refused && !m.ok ? explain(refused, host, key) : other || 'The service answered none of the APIs a coding tool uses.' }) };
+}
+
+/**
+ * The API= line after a Test: what answered now, plus what the provider was known to answer before and this test
+ * could not check (a passing failure). One overloaded moment never takes a coding tool away from a provider.
+ */
+export function shapesAfterTest(before, probe) {
+  const keep = (before || []).filter((x) => probe.unsure.includes(x) && !probe.shapes.includes(x));
+  return API_SHAPES.filter((x) => probe.shapes.includes(x) || keep.includes(x));
 }
 
 // ---------- the subscription sign-in (`claude setup-token` in a terminal we hold) ----------
@@ -647,9 +671,12 @@ export function accountsFeature(ctx, opts = {}) {
       }
       if (!model) throw fail(400, 'Pick the model this provider uses first (Change model)');
       const r = await probeShapes(fetchImpl, k.baseUrl, k.key, k.auth || 'x', model);
-      if (!r.ok) return { ok: false, shapes: r.shapes, tools: servesTools(prof), error: r.error };
-      writeProfile(prof.name, { ...metaOf(readProfile(prof.name)), api: r.shapes, env: readProfile(prof.name).env });
-      return { ok: true, shapes: r.shapes, tools: servesTools(readProfile(prof.name)) };
+      if (!r.ok) return { ok: false, shapes: r.shapes, unsure: r.unsure, tools: servesTools(prof), error: r.error };
+      const now = readProfile(prof.name);
+      const api = shapesAfterTest(knownShapes(now), r);
+      writeProfile(prof.name, { ...metaOf(now), api, env: now.env });
+      const kept = api.filter((x) => !r.shapes.includes(x));
+      return { ok: true, shapes: api, kept, tools: servesTools(readProfile(prof.name)) };
     }],
     ['POST', /^\/api\/accounts\/codex-signin$/, async (req) => {
       // The ChatGPT account Codex keeps itself: no key here; Codex signs in with `codex login` in a terminal.

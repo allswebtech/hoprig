@@ -52,14 +52,20 @@ test('Codex in a terminal attaches to the server by token variable and names its
   // A Codex sign-in is Codex's own "openai" provider: no block at all.
   const [signin] = S.serverProviders('codex', [P.readProfile('codexin')]);
   assert.deepEqual([signin.id, signin.keyVar], ['openai', null]);
-  assert.equal(T.codexTuiArgs({ port: 1, prov: signin, model: null, cwd: '/w', o: T.parseToolArgs([]) }).some((a) => a.startsWith('model_provider')), false);
+  const signinArgs = T.codexTuiArgs({ port: 1, prov: signin, model: null, cwd: '/w', o: T.parseToolArgs([]) });
+  assert.ok(signinArgs.includes('model_provider="openai"'), 'a session on the Codex sign-in names it: the server\'s default is a key provider');
+  assert.equal(signinArgs.some((a) => a.startsWith('model_providers.')), false, 'and needs no block');
   assert.throws(() => T.codexTuiArgs({ port: 1, prov, cwd: '/w', o: T.parseToolArgs(['--permission-mode', 'yolo']) }), /permission mode is one of/);
 });
 
 test('OpenCode in a terminal attaches to the server on one conversation; "ask" adds rules, bypass is its --auto', async () => {
   const { opencode } = await import('../../src/codetools/opencode.mjs');
   const args = T.opencodeTuiArgs({ url: 'http://127.0.0.1:9', id: 'ses_abcdefgh12345678', cwd: '/w', o: T.parseToolArgs(['--permission-mode', 'bypassPermissions', '--', 'hi']) });
-  assert.deepEqual(args, ['--server', 'http://127.0.0.1:9', '-s', 'ses_abcdefgh12345678', '--auto', '--prompt', 'hi', '/w']);
+  assert.deepEqual(args, ['--server', 'http://127.0.0.1:9', '-s', 'ses_abcdefgh12345678', '--auto', '--prompt=hi', '/w']);
+  // A first message that starts with "-" stays one argument: OpenCode would read `--prompt --auto` as its own option.
+  const dash = T.opencodeTuiArgs({ url: 'u', id: 'ses_abcdefgh12345678', cwd: '/w', o: T.parseToolArgs(['--permission-mode', 'ask', '--', '--auto']) });
+  assert.deepEqual(dash, ['--server', 'u', '-s', 'ses_abcdefgh12345678', '--prompt=--auto', '/w']);
+  assert.equal(dash.includes('--auto'), false, 'an "ask" session never gets --auto from its message');
   assert.deepEqual(opencode.sessionPermissions({ permissionMode: 'ask' }).permissions.map((r) => [r.action, r.effect]), [['edit', 'ask'], ['shell', 'ask'], ['webfetch', 'ask'], ['external_directory', 'ask']]);
   assert.deepEqual(opencode.sessionPermissions({}), {});
   assert.throws(() => opencode.flagsFor({ effort: 'ultra' }), /effort is one of/);
@@ -91,6 +97,7 @@ test('the servers\' providers: every provider that serves the tool, keys only in
   assert.equal(args.join(' ').includes(KEY), false);
   assert.ok(args.includes(`model_provider="${S.providerId('gw')}"`), 'the default is a Hoprig provider, not OpenAI\'s account');
   assert.deepEqual(args.slice(-6), ['--listen', 'ws://127.0.0.1:5', '--ws-auth', 'capability-token', '--ws-token-file', '/t']);
+  for (const a of ['check_for_update_on_startup=false', 'features.daemon_auto_start=false', 'features.in_app_updates=false']) assert.ok(args.includes(a), `the server never updates itself either: ${a}`);
   const env = S.serverEnv('codex', provs, { PATH: '/bin', ANTHROPIC_AUTH_TOKEN: 'shell-secret', OPENAI_API_KEY: 'shell-openai', HOPRIG_CODEX_KEY: 'old', OPENCODE_PASSWORD: 'pw' });
   assert.equal(env[S.keyVarOf('codex', 'gw')], KEY);
   assert.equal(env[S.keyVarOf('codex', 'my-gw')], `${KEY}-2`);
@@ -263,4 +270,108 @@ test('a session with basic live status sends no notification when its screen goe
   assert.deepEqual(r.events, []);
   r = transitions(new Map([['x', 'working']]), [card('attention')]);
   assert.deepEqual(r.events.map((e) => e.status), ['attention'], 'from the server: told as for Claude Code');
+});
+
+test('a state file left by a server that died: the process that has its pid now is never stopped, only the files go', { skip: process.platform === 'win32' && 'no sleep program' }, async () => {
+  const { spawn } = await import('node:child_process');
+  const runs = path.join(process.env.HOPRIG_STATE_DIR, 'runs');
+  fs.rmSync(runs, { recursive: true, force: true }); // no session uses the server
+  process.env.HOPRIG_TEST_SEEN = path.join(tmp, 'seen.json');
+  const other = spawn('sleep', ['30'], { stdio: 'ignore' });
+  await new Promise((r) => other.once('spawn', r));
+  try {
+    fs.mkdirSync(S.serverDir(), { recursive: true });
+    fs.writeFileSync(path.join(S.serverDir(), 'codex-server.json'), JSON.stringify({ tool: 'codex', pid: other.pid, port: 1, providers: [], startedAt: 1, usedAt: 1 }));
+    fs.writeFileSync(path.join(S.serverDir(), 'codex-server.secret'), 'x', { mode: 0o600 });
+    assert.equal(await S.isServerProcess('codex', S.readServer('codex')), false, 'its command line does not say it listens there');
+    assert.equal(await S.stopIfUnused('codex', { idleMs: 120_000 }), true);
+    assert.equal(S.readServer('codex'), null, 'the files are gone');
+    assert.doesNotThrow(() => process.kill(other.pid, 0), 'the other process lives');
+    assert.equal(other.exitCode, null);
+    assert.equal(other.signalCode, null);
+    // The same through a start: a new server is started, the other process is left alone.
+    fs.writeFileSync(path.join(S.serverDir(), 'codex-server.json'), JSON.stringify({ tool: 'codex', pid: other.pid, port: 1, providers: [] }));
+    fs.writeFileSync(path.join(S.serverDir(), 'codex-server.secret'), 'x', { mode: 0o600 });
+    installFake('codex', FAKE_SERVER);
+    const r = await S.ensureServer('codex', { need: 'gw' });
+    assert.equal(r.ok, true, r.why);
+    assert.notEqual(r.server.pid, other.pid);
+    assert.equal(other.signalCode, null);
+    assert.equal(await S.isServerProcess('codex', S.readServer('codex')), true, 'the server it started is known by its command line');
+    await S.stopServer('codex');
+  } finally {
+    other.kill();
+  }
+});
+
+// A stand-in OpenCode: `serve` is its server (password, a conversation made by the API, an event stream); any other
+// start is its screen, which ends at once. Every start of the server is counted.
+const FAKE_OC = `
+const http = require('node:http'); const fs = require('node:fs');
+const a = process.argv.slice(2);
+if (a[0] !== 'serve') process.exit(0);
+fs.appendFileSync(process.env.HOPRIG_TEST_STARTS, 'start\\n');
+const port = Number(a[a.indexOf('--port') + 1]);
+http.createServer((req, res) => {
+  if (req.headers.authorization !== 'Basic ' + Buffer.from('opencode:' + process.env.OPENCODE_PASSWORD).toString('base64')) { res.writeHead(401); return res.end(); }
+  if (req.url === '/api/event') { res.writeHead(200, { 'content-type': 'text/event-stream' }); return res.write(': hi\\n\\n'); }
+  if (req.method === 'POST' && req.url === '/api/session') { res.writeHead(200); return res.end(JSON.stringify({ data: { id: 'ses_abcdefgh12345678' } })); }
+  res.writeHead(200); res.end('{}');
+}).listen(port, '127.0.0.1');
+`;
+
+test('a new session on a provider the running server lacks: when nobody else uses it, the server starts again with it', async () => {
+  installFake('opencode', FAKE_OC);
+  process.env.HOPRIG_TEST_STARTS = path.join(tmp, 'oc-starts.txt');
+  fs.writeFileSync(process.env.HOPRIG_TEST_STARTS, '');
+  const quiet = { fetchImpl: async (url, o) => (String(url).includes('/v1/models') ? new Response('{"data":[]}') : fetch(url, o)) };
+  const first = await S.ensureServer('opencode', { need: 'gw', ...quiet });
+  assert.equal(first.ok, true, first.why);
+  P.writeProfile('late2', { api: ['messages'], env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: 'late2-key-000000000', ANTHROPIC_MODEL: 'm' } });
+  const said = [];
+  const err = console.error;
+  console.error = (...x) => said.push(x.join(' '));
+  let code;
+  try {
+    code = await T.launchTool('opencode', 'late2', [], { cwd: tmp });
+  } finally {
+    console.error = err;
+  }
+  assert.equal(code, 0, said.join('\n'));
+  assert.ok(!said.join('\n').includes('runs on its own'), `its own run did not keep the old server: ${said.join(' | ')}`);
+  assert.equal(fs.readFileSync(process.env.HOPRIG_TEST_STARTS, 'utf8').split('\n').filter(Boolean).length, 2, 'started again, with the new provider');
+  assert.equal(S.readServer('opencode'), null, 'and stopped when that last session ended');
+  P.deleteProfile('late2');
+});
+
+test('Codex: a new session claims only a new thread of its folder, never a subagent\'s or a copy made for a move', async () => {
+  const A = await import('../../src/codetools/attach.mjs');
+  assert.equal(A.isNewThreadOf({ id: 't1', cwd: tmp }, tmp), true);
+  assert.equal(A.isNewThreadOf({ id: 't2', cwd: tmp, forkedFromId: 't1' }, tmp), false, 'thread/fork announces its copy with forkedFromId');
+  assert.equal(A.isNewThreadOf({ id: 't3', cwd: tmp, parentThreadId: 't1' }, tmp), false);
+  assert.equal(A.isNewThreadOf({ id: 't4', cwd: tmp, ephemeral: true }, tmp), false);
+  assert.equal(A.isNewThreadOf({ id: 't5', cwd: '/elsewhere' }, tmp), false);
+});
+
+test('Codex asks on its screen whether to trust a new folder before its thread exists: the card needs your OK', async () => {
+  const { codexScreenQuestion } = await import('../../src/codetools/codex.mjs');
+  const trust = '  Folder access\n  /w/proj\n  Trust this folder? Codex can read, edit, and run files here.\n› 1. Trust and continue\n  2. Back';
+  assert.match(codexScreenQuestion(trust), /trust this folder/);
+  assert.match(codexScreenQuestion('3 hooks are new or changed\n 1. Trust all and continue'), /trust new hooks/);
+  assert.equal(codexScreenQuestion('› Ask Codex to do anything'), null);
+  const runs = path.join(process.env.HOPRIG_STATE_DIR, 'runs');
+  fs.rmSync(runs, { recursive: true, force: true });
+  fs.mkdirSync(runs, { recursive: true });
+  fs.writeFileSync(path.join(runs, 'r9.json'), JSON.stringify({ runId: 'r9', pid: process.pid, profile: 'gw', cwd: '/w', termId: 'pty-cccccccccccc', tmuxPane: null, status: 'starting', statusAt: 1, startedAt: 1, tool: 'codex', server: true, statusSource: 'server' }));
+  const now = Date.now();
+  let screen = trust;
+  const backend = { list: async () => [{ id: 'pty-cccccccccccc', session: 'three', cwd: '/w', pid: 3, activity: now }], capture: async () => screen };
+  const deck = new Deck({ backend, config: () => ({}), profiles: () => P.listProfiles(), now: () => now });
+  let [card] = await deck.list();
+  assert.deepEqual([card.status, card.note], ['attention', 'Codex asks whether to trust this folder. Open the session to answer.']);
+  assert.equal(C.busy(card), false, 'nothing waits on it as if it worked');
+  screen = '› Ask Codex to do anything';
+  [card] = await deck.list();
+  assert.equal(card.status, 'starting');
+  fs.rmSync(path.join(runs, 'r9.json'));
 });

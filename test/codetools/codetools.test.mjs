@@ -169,3 +169,46 @@ test('info and update: versions from the package and the registry; an update ins
   assert.match(lines[0], /Could not look up the newest Codex/);
   N.clearLookups();
 });
+
+test('a tool starts from the file its package names: Node for a JavaScript entry, the program itself otherwise (never a .cmd shim)', () => {
+  const lay = (tool, bin) => {
+    const pkgDir = path.join(tool.dir(), 'node_modules', ...tool.pkg.split('/'));
+    fs.mkdirSync(pkgDir, { recursive: true });
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: tool.pkg, version: '1.0.0', bin }));
+    return pkgDir;
+  };
+  const cx = lay(codex, { codex: 'bin/codex.js' });
+  assert.deepEqual(codex.argv(['--version']), [process.execPath, path.join(cx, 'bin', 'codex.js'), '--version']);
+  const oc = lay(opencode, { opencode: './bin/opencode.exe', opencode2: './bin/opencode.exe' });
+  assert.deepEqual(opencode.argv(['serve']), [path.join(oc, 'bin', 'opencode.exe'), 'serve']);
+  assert.match(codex.binPath('win32'), /codex\.cmd$/, 'npm\'s Windows shim is only used to see that it is installed');
+  lay(codex, { codex: '../../../../outside.js' });
+  assert.deepEqual(codex.argv([]), [codex.binPath()], 'an entry outside the tool\'s folder is not followed');
+});
+
+test('one install or update of a tool at a time, also across processes; a lock left by a process that died is free', async () => {
+  const { takeLock } = await import('../../src/codetools/lock.mjs');
+  const lockDir = path.join(toolsDir(), '.codex.lock');
+  const release = await takeLock(lockDir);
+  assert.ok(release);
+  assert.equal(await takeLock(lockDir), null, 'held by a living process');
+  const lines = [];
+  const r = await codex.install({ version: '0.170.0', onLine: (l) => lines.push(l), run: () => assert.fail('npm does not run') });
+  assert.deepEqual([r.ok, r.busy], [false, true]);
+  assert.match(lines[0], /Another install or update of Codex is running right now/);
+  release();
+  fs.mkdirSync(lockDir);
+  fs.writeFileSync(path.join(lockDir, 'pid'), '999999999');
+  const npm = fakeNpm(codex, { version: '0.170.0' });
+  assert.equal((await codex.install({ version: '0.170.0', run: npm.run, check: npm.check })).ok, true);
+  assert.equal(fs.existsSync(lockDir), false, 'released after the install');
+  // Two at once in one process: the second is refused while the first runs.
+  let go;
+  const slow = { run: async (argv, o) => { await new Promise((res) => { go = res; }); return npm.run(argv, o); }, check: npm.check };
+  const first = codex.install({ version: '0.170.0', ...slow });
+  await new Promise((res) => setTimeout(res, 50));
+  const second = await codex.install({ version: '0.170.0', run: () => assert.fail('never two npm') });
+  assert.equal(second.busy, true);
+  go();
+  assert.equal((await first).ok, true);
+});

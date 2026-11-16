@@ -27,6 +27,7 @@ const { createServer } = await import('../../src/server/server.mjs');
 
 // a gateway that wants Bearer and lists two models; refuses model "nope"
 const seen = [];
+let overloaded = false; // Claude's API of the stand-in answers 529 (overloaded) while this is on
 const gw = http.createServer((req, res) => {
   let body = '';
   req.on('data', (c) => (body += c));
@@ -35,6 +36,7 @@ const gw = http.createServer((req, res) => {
     const send = (s, b) => { res.writeHead(s, { 'content-type': 'application/json' }); res.end(JSON.stringify(b)); };
     if (req.headers.authorization !== `Bearer ${KEY}`) return send(401, { error: { message: 'unauthorized' } });
     if (req.url.startsWith('/v1/models')) return send(200, { data: [{ id: 'combo-best' }, { id: 'openai/gpt-5-mini' }] });
+    if (overloaded && req.url === '/v1/messages') return send(529, { error: { type: 'overloaded_error', message: 'Overloaded' } });
     const b = JSON.parse(body);
     if (b.model === 'nope') return send(400, { error: { message: 'no such model: nope' } });
     return send(200, { id: 'm', content: [] });
@@ -339,7 +341,7 @@ test('an OpenAI-compatible key and a Codex sign-in: added, which tools they serv
     await call('/api/accounts/openai/label', { label: 'My OpenAI' });
     hits.length = 0;
     r = await call('/api/accounts/openai/test', {});
-    assert.deepEqual(r.json, { ok: true, shapes: ['responses', 'chat', 'models'], tools: ['codex', 'opencode'] });
+    assert.deepEqual(r.json, { ok: true, shapes: ['responses', 'chat', 'models'], kept: [], tools: ['codex', 'opencode'] }, 'a clear "not here" (404) for Claude\'s API');
     assert.ok(hits.includes('/v1/messages') && hits.includes('/v1/responses') && hits.includes('/v1/chat/completions'));
     assert.equal(readProfile('openai').label, 'My OpenAI');
     assert.equal(readProfile('openai').models, '*=gpt-x');
@@ -355,8 +357,23 @@ test('an OpenAI-compatible key and a Codex sign-in: added, which tools they serv
     r = await call('/api/accounts');
     assert.deepEqual(r.json.accounts.find((x) => x.name === 'gw3').tools, ['claude', 'opencode'], 'before Test: Claude\'s API only');
     r = await call('/api/accounts/gw3/test', {});
-    assert.deepEqual(r.json, { ok: true, shapes: ['messages', 'responses', 'chat', 'models'], tools: ['claude', 'codex', 'opencode'] });
+    assert.deepEqual(r.json, { ok: true, shapes: ['messages', 'responses', 'chat', 'models'], kept: [], tools: ['claude', 'codex', 'opencode'] });
     assert.equal(readProfile('gw3').env.ANTHROPIC_MODEL, 'combo-best');
+    // Claude's API overloaded at the moment of a Test: it is not taken away (an overload says nothing about the API).
+    overloaded = true;
+    try {
+      r = await call('/api/accounts/gw3/test', {});
+      assert.deepEqual(r.json, { ok: true, shapes: ['messages', 'responses', 'chat', 'models'], kept: ['messages'], tools: ['claude', 'codex', 'opencode'] });
+      assert.deepEqual(readProfile('gw3').api, ['messages', 'responses', 'chat', 'models']);
+      r = await call('/api/sessions', { dir: os.homedir(), profile: 'gw3', mode: 'new' });
+      assert.doesNotMatch(String(r.json.error || ''), /cannot be used for Claude Code/, 'Claude Code still starts on it');
+      // ... and never added by one either: a provider not known to answer it before does not get it.
+      writeProfile('gw5', { label: 'GW5', api: ['responses', 'chat'], env: { ANTHROPIC_BASE_URL: GW, ANTHROPIC_AUTH_TOKEN: KEY, ANTHROPIC_MODEL: 'combo-best' } });
+      r = await call('/api/accounts/gw5/test', {});
+      assert.deepEqual([r.json.shapes, r.json.kept], [['responses', 'chat', 'models'], []]);
+    } finally {
+      overloaded = false;
+    }
     // A refused key: nothing saved, the reason said.
     writeProfile('gw4', { env: { ANTHROPIC_BASE_URL: GW, ANTHROPIC_AUTH_TOKEN: 'wrong-key-000000000', ANTHROPIC_MODEL: 'combo-best' } });
     r = await call('/api/accounts/gw4/test', {});
@@ -378,7 +395,7 @@ test('an OpenAI-compatible key and a Codex sign-in: added, which tools they serv
     r = await call('/api/sessions', { dir: os.homedir(), profile: 'openai', mode: 'new' });
     assert.equal(r.status, 400);
     assert.match(r.json.error, /cannot be used for Claude Code/);
-    for (const n of ['openai', 'chatgpt', 'gw3', 'gw4']) await call(`/api/accounts/${n}/delete`, {});
+    for (const n of ['openai', 'chatgpt', 'gw3', 'gw4', 'gw5']) await call(`/api/accounts/${n}/delete`, {});
   } finally {
     oai.closeAllConnections();
     oai.close();

@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { toolsDir } from '../paths.mjs';
+import { takeLock } from './lock.mjs';
 import { capture, compareVersions, npmArgv, showCommand, stream } from '../setup/system.mjs';
 
 export const REGISTRY = 'https://registry.npmjs.org';
@@ -86,6 +87,25 @@ export function npmTool(spec) {
   const dir = () => path.join(toolsDir(), id);
   const binPath = (platform = process.platform) => path.join(dir(), 'node_modules', '.bin', platform === 'win32' ? `${binName}.cmd` : binName);
   const pkgFile = () => path.join(dir(), 'node_modules', ...pkg.split('/'), 'package.json');
+  const lockDir = () => path.join(toolsDir(), `.${id}.lock`);
+
+  /**
+   * The command line that starts the tool with `args`. Started from the file the package names, not npm's shim in
+   * .bin: on Windows that shim is a .cmd file, which Node does not start without a shell. A JavaScript entry is
+   * started with this Node (Codex), a native program as it is (OpenCode).
+   */
+  function toolArgv(args = []) {
+    let entry = null;
+    try {
+      const j = JSON.parse(fs.readFileSync(pkgFile(), 'utf8'));
+      const rel = typeof j.bin === 'string' ? j.bin : j.bin && j.bin[binName];
+      if (typeof rel === 'string') entry = path.resolve(path.dirname(pkgFile()), rel);
+    } catch {
+      entry = null;
+    }
+    if (!entry || !entry.startsWith(dir() + path.sep)) return [binPath(), ...args];
+    return /\.[cm]?js$/i.test(entry) ? [process.execPath, entry, ...args] : [entry, ...args];
+  }
 
   /** The installed version, from the package itself; null when it is not there (or its program is missing). */
   function installedVersion() {
@@ -125,6 +145,21 @@ export function npmTool(spec) {
       say(`"${version}" is not a version (like ${pin}).`);
       return { ok: false, version: installedVersion(), output: lines.join('\n') };
     }
+    // One npm at a time in a tool's folder, whoever asks: the page, Setup and the command line are separate
+    // processes, and two installs into one prefix break each other.
+    const release = await takeLock(lockDir(), { staleMs: 30 * 60_000 });
+    if (!release) {
+      say(`Another install or update of ${name} is running right now. Nothing changed.`);
+      return { ok: false, busy: true, version: installedVersion(), output: lines.join('\n') };
+    }
+    try {
+      return await installLocked(version, say, lines, { run, check, env });
+    } finally {
+      release();
+    }
+  }
+
+  async function installLocked(version, say, lines, { run, check, env }) {
     fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
     writePrefixPackage(dir(), allowScript ? `${pkg}@${version}` : null);
     const scratch = fs.mkdtempSync(path.join(dir(), '.install-'));
@@ -141,7 +176,7 @@ export function npmTool(spec) {
         return { ok: false, version: now, output: lines.join('\n') };
       }
       // The program must start and say the same version the package says.
-      const v = await check([binPath(), '--version'], { env: own, timeout: 30_000 });
+      const v = await check(toolArgv(['--version']), { env: own, timeout: 30_000 });
       const ran = v.ok ? parseVersion(`${v.stdout}\n${v.stderr}`) : null;
       if (ran !== now) {
         say(`${name} ${now} is installed, but the program ${ran ? `says it is ${ran}` : 'did not start'}.`);
@@ -165,5 +200,5 @@ export function npmTool(spec) {
     return install({ ...rest, version: latest, onLine });
   }
 
-  return { id, name, pkg, pin, managed: true, dir, binPath, installedVersion, info, install, update };
+  return { id, name, pkg, pin, managed: true, dir, binPath, argv: toolArgv, installedVersion, info, install, update };
 }

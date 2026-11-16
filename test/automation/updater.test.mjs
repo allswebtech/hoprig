@@ -89,6 +89,20 @@ test('Update now: one at a time, refused with the reason when it must wait, the 
   assert.match(rec[0].outcome, /ok: now 1\.1\.0/);
 });
 
+test('two presses at once (a double click, two pages, the automatic rule) start one update, not two', async () => {
+  let active = 0;
+  let most = 0;
+  const item = fakeItem('codex', { info: newer(), update: async () => { active++; most = Math.max(most, active); await new Promise((r) => setTimeout(r, 30)); active--; return { ok: true, version: '1.1.0' }; } });
+  const { u } = make([item]);
+  const tries = await Promise.allSettled([u.start('codex'), u.start('codex'), u.start('all'), u.auto('codex')]);
+  assert.equal(tries.filter((t) => t.status === 'fulfilled' && t.value.started).length, 1);
+  assert.ok(tries.slice(1, 3).every((t) => t.status === 'rejected' && t.reason.status === 409));
+  assert.match(tries[3].value.waited, /another update is running/);
+  await settle(u);
+  assert.equal(item.calls.update, 1);
+  assert.equal(most, 1);
+});
+
 test('Update all: every installed item with a newer version that may go now; the others are said, nothing is installed', async () => {
   const items = [
     fakeItem('claude', { info: newer() }),
@@ -126,7 +140,8 @@ test('cards belong to a coding tool by their "tool", older ones to Claude Code',
 test('a coding tool: Claude Code waits only for working sessions; Codex and OpenCode for any open one', () => {
   const tool = (id, whenRunning) => ({ id, name: id === 'codex' ? 'Codex' : 'Claude Code', managed: id !== 'claude', pin: '1', updateItem: { whenRunning }, installedVersion: () => '1' });
   const cc = toolItem('claude', { tool: tool('claude', 'keeps-copy') });
-  const cx = toolItem('codex', { tool: tool('codex', 'wait-until-none') });
+  let outside = [];
+  const cx = toolItem('codex', { tool: tool('codex', 'wait-until-none'), runs: () => outside });
   const idle = [claude('a', { status: 'waiting' })];
   const busy = [claude('a', { status: 'working' })];
   const codexOpen = [{ name: 'c', kind: 'codex', tool: 'codex', status: 'waiting' }];
@@ -135,6 +150,9 @@ test('a coding tool: Claude Code waits only for working sessions; Codex and Open
   assert.match(cc.autoBlocked(busy), /1 working Claude Code session/);
   assert.equal(cx.blocked(busy), null, 'Claude sessions do not hold Codex back');
   assert.match(cx.blocked(codexOpen), /1 Codex session open: close it first/);
+  // A session started with `hoprig codex` in a terminal the dashboard does not hold has no card, only a run record.
+  outside = [{ runId: 'r1', tool: 'codex' }, { runId: 'r2', tool: 'codex' }];
+  assert.match(cx.blocked([]), /2 Codex sessions open: close them first/);
   assert.match(cx.whenRunning, /Close its sessions first/);
   assert.match(cc.whenRunning, /keep the version they started with/);
 });
@@ -144,7 +162,8 @@ test('a coding tool that is missing is installed by its row; one that is there i
   let have = null;
   const t = { id: 'codex', name: 'Codex', managed: true, pin: '0.169.0', updateItem: { whenRunning: 'wait-until-none' }, installedVersion: () => have, install: async () => (did.push('install'), { ok: true }), update: async () => (did.push('update'), { ok: true }), info: async () => ({ installed: have, latest: '0.169.0', method: 'hoprig' }) };
   const on = [];
-  const it = toolItem('codex', { tool: t, turnOn: (id) => on.push(id) });
+  let why = null;
+  const it = toolItem('codex', { tool: t, turnOn: (id) => on.push(id), readyToReplace: async () => why });
   assert.equal((await it.info()).method, "Hoprig's tools folder");
   assert.match((await it.info()).note, /Installs 0\.169\.0 at first/);
   await it.update();
@@ -152,6 +171,12 @@ test('a coding tool that is missing is installed by its row; one that is there i
   await it.update();
   assert.deepEqual(did, ['install', 'update']);
   assert.deepEqual(on, ['codex'], 'installing turns it on');
+  // Its server still in use (or a session the cards did not show): npm does not run.
+  why = 'Codex\'s server is still in use: try again when its sessions have ended';
+  const lines = [];
+  const r = await it.update({ onLine: (l) => lines.push(l) });
+  assert.deepEqual([r.ok, did.length], [false, 2]);
+  assert.match(lines[0], /server is still in use.*Nothing changed/);
   assert.equal(it.autoOk({ installed: null }), false, 'Automatic never installs');
 });
 

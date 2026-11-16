@@ -9,6 +9,7 @@
 // `hoprig claude status | update | install` stays as it was.
 import { loadConfig, saveConfig } from '../config.mjs';
 import { TOOL_IDS, enabledToolIds, findTool, withTool } from './index.mjs';
+import { readyToReplace } from './servers.mjs';
 
 const USAGE = `usage:
   hoprig tools [status] [--json]          the coding tools: on or off, installed, newest
@@ -51,9 +52,19 @@ export async function main(args = [], io = {}) {
     return 0;
   }
 
+  // npm replaces a tool's program files: the same rule as the Updates page (no open session, its server stopped).
+  const ready = io.ready || readyToReplace;
+  const mayReplace = async (t) => {
+    if (!t.managed || !t.installedVersion()) return true;
+    const why = await ready(t.id);
+    if (why) out(`${why}. Nothing changed.`);
+    return !why;
+  };
+
   if (sub === 'install') {
     const t = toolArg(rest[0], err);
     if (!t) return 2;
+    if (!(await mayReplace(t))) return 1;
     const r = await t.install({ version: rest[1], onLine: print });
     if (!r.ok) {
       out('That did not succeed (see above).');
@@ -72,6 +83,10 @@ export async function main(args = [], io = {}) {
         const i = await t.info();
         if (!i.installed || !i.updateAvailable) continue;
         out(`${t.name} ${i.installed} → ${i.latest}`);
+        if (!(await mayReplace(t))) {
+          code = 1;
+          continue;
+        }
         const r = await t.update({ onLine: print });
         if (!r.ok) code = 1;
       }
@@ -89,6 +104,7 @@ export async function main(args = [], io = {}) {
       out(`${t.name} ${i.installed} is the newest version.`);
       return 0;
     }
+    if (!(await mayReplace(t))) return 1;
     const r = await t.update({ onLine: print });
     out(r.ok ? `${t.name} is now ${r.version}.` : 'The update did not succeed (see above).');
     return r.ok ? 0 : 1;

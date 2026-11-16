@@ -62,3 +62,15 @@ function flagsFor({ permissionMode = null, effort = null } = {}) {
   if (effort) out.push('-c', `model_reasoning_effort="${effort}"`);
   return out;
 }
+
+/**
+ * A question on Codex's screen that its server does not report, as the card's note; or null. Codex asks it before a
+ * conversation exists: whether to trust a folder it has not seen (checked with 0.169: "Trust this folder? … 1. Trust
+ * and continue"), and whether to trust new or changed hooks ("Trust all and continue").
+ */
+export function codexScreenQuestion(screen) {
+  const s = String(screen || '');
+  if (/Trust this folder\?/.test(s) && /Trust and continue/.test(s)) return 'Codex asks whether to trust this folder. Open the session to answer.';
+  if (/hooks? (?:is|are) new or changed/i.test(s) && /Trust all and continue/.test(s)) return 'Codex asks whether to trust new hooks. Open the session to answer.';
+  return null;
+}

@@ -103,7 +103,7 @@ test('Codex: no self-update, then a model-provider block on the command line and
   assert.ok(!args.join(' ').includes(KEY), 'the key is never an argument');
   assert.deepEqual(T.codexArgs(P.readProfile('oai')).slice(8, 10), ['-c', 'model_providers.hoprig.name="OpenAI API"']);
   assert.ok(T.codexArgs(P.readProfile('oai')).includes('model_providers.hoprig.base_url="https://api.openai.com/v1"'));
-  assert.deepEqual(T.codexArgs(P.readProfile('codexin')), ['-c', 'check_for_update_on_startup=false', '-c', 'features.daemon_auto_start=false', '-c', 'features.in_app_updates=false']);
+  assert.deepEqual(T.codexArgs(P.readProfile('codexin')), ['-c', 'check_for_update_on_startup=false', '-c', 'features.daemon_auto_start=false', '-c', 'features.in_app_updates=false', '-c', 'model_provider="openai"'], 'a Codex sign-in names Codex\'s own OpenAI provider, so its config cannot pick another');
   assert.equal(T.tomlString('a "b" \\ c\x7f'), '"a \\"b\\" \\\\ c\\u007f"');
 });
 

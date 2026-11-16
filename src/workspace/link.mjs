@@ -197,7 +197,11 @@ export function applyLink({ platform = process.platform, now = new Date(), home 
         if (cur) fs.copyFileSync(p.link, backup, fs.constants.COPYFILE_EXCL);
         const next = { ...(cur || {}), [p.key]: [...((cur && cur[p.key]) || []), ...p.missing] };
         fs.mkdirSync(path.dirname(p.link), { recursive: true });
-        fs.writeFileSync(`${p.link}.tmp`, JSON.stringify(next, null, 2) + '\n');
+        // The file can hold the tool's provider keys: it keeps its own mode, and a new one is the owner's only.
+        const mode = cur ? fs.statSync(p.link).mode & 0o777 : 0o600;
+        fs.rmSync(`${p.link}.tmp`, { force: true });
+        fs.writeFileSync(`${p.link}.tmp`, JSON.stringify(next, null, 2) + '\n', { mode });
+        fs.chmodSync(`${p.link}.tmp`, mode); // the umask must not widen or narrow it
         fs.renameSync(`${p.link}.tmp`, p.link);
         return { ...p, done: cur ? `added to its settings (old file kept: ${path.basename(backup)})` : 'its settings file was made with them' };
       }

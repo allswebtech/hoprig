@@ -29,6 +29,10 @@ export function createUpdater({ items, cards, config, saveConfig, record = () =>
   const facts = new Map(); // id → { at, info } | { at, error }
   const last = new Map(); // id → { ok, version, at, error }
   let job = null; // { ids, id, running, lines, results }
+  // Taken at once, before anything is awaited: two presses (a double click, two pages, the automatic rule) that
+  // arrive together must not both start. Installs in other processes are kept apart by the tool's own lock.
+  let claimed = false;
+  const free = () => !claimed && !(job && job.running);
 
   const byId = (id) => {
     const it = items.find((i) => i.id === id);
@@ -124,7 +128,16 @@ export function createUpdater({ items, cards, config, saveConfig, record = () =>
   }
 
   async function start(which) {
-    if (job && job.running) throw fail(409, 'an update is already running; wait until it finishes');
+    if (!free()) throw fail(409, 'an update is already running; wait until it finishes');
+    claimed = true;
+    try {
+      return await startClaimed(which);
+    } finally {
+      claimed = false;
+    }
+  }
+
+  async function startClaimed(which) {
     const v = await view();
     let ids;
     const skipped = [];
@@ -147,14 +160,20 @@ export function createUpdater({ items, cards, config, saveConfig, record = () =>
   }
 
   async function auto(id) {
-    if (job && job.running) return { waited: 'another update is running' };
-    const item = byId(id);
-    if (item.prepare) await item.prepare();
-    const list = await cards();
-    const why = item.blocked(list) || (item.autoBlocked ? item.autoBlocked(list) : null);
-    if (why) return { waited: why };
-    const results = await run([id], 'auto');
-    return results[id];
+    if (!free()) return { waited: 'another update is running' };
+    claimed = true;
+    let running;
+    try {
+      const item = byId(id);
+      if (item.prepare) await item.prepare();
+      const list = await cards();
+      const why = item.blocked(list) || (item.autoBlocked ? item.autoBlocked(list) : null);
+      if (why) return { waited: why };
+      running = run([id], 'auto');
+    } finally {
+      claimed = false;
+    }
+    return (await running)[id];
   }
 
   return {

@@ -18,6 +18,7 @@
 // replaces their program files); the tunnel helper never while a public link is on (a Temporary link would come
 // back with a new address).
 import { findTool, turnOn } from '../codetools/index.mjs';
+import { readyToReplace, toolRuns } from '../codetools/servers.mjs';
 import { capture, compareVersions, npmMajor, showCommand, stream } from '../setup/system.mjs';
 import { busy, toolOf } from './cards.mjs';
 
@@ -123,15 +124,25 @@ export function toolItem(id, deps = {}) {
       return { installed: i.installed, latest: i.latest, method, updateAvailable: !!i.updateAvailable, canUpdate: true, note };
     },
     async update({ onLine = () => {} } = {}) {
-      // Missing: install it (a managed tool at its tested version) and turn it on. Present: update it.
-      if (tool.installedVersion()) return tool.update({ onLine });
+      // Missing: install it (a managed tool at its tested version) and turn it on. Present: update it, once nothing
+      // of it runs (its server is stopped here when nobody uses it).
+      if (tool.installedVersion()) {
+        const why = keepsCopy ? null : await (deps.readyToReplace || readyToReplace)(id);
+        if (why) {
+          onLine(`${why}. Nothing changed.`);
+          return { ok: false, version: tool.installedVersion(), output: why };
+        }
+        return tool.update({ onLine });
+      }
       const r = await tool.install({ onLine });
       if (r.ok) (deps.turnOn || turnOn)(id);
       return { ...r, installed: true };
     },
     blocked(cards) {
       if (keepsCopy) return null;
-      const n = mine(cards).length;
+      // The dashboard's cards, and the sessions started in a terminal it does not hold (`hoprig codex …`): each has
+      // a run record. Its server is looked at when the update starts (readyToReplace).
+      const n = Math.max(mine(cards).length, (deps.runs || toolRuns)(id).length);
       return n ? `${plural(n, tool.name)} open: close ${n === 1 ? 'it' : 'them'} first` : null;
     },
     autoBlocked(cards) {

@@ -112,7 +112,7 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
   let follow = null;
   let plan;
   try {
-    const r = await ensureServer(toolId, { need: profile.name, base });
+    const r = await ensureServer(toolId, { need: profile.name, except: run.runId, base });
     const model = await modelFor(o, profile);
     if (r.ok) {
       plan = toolId === 'codex' ? await codexPlan(r.server, { profile, model, cwd, o, base, report }) : await opencodePlan(r.server, { profile, model, cwd, o, base, report });
@@ -130,7 +130,7 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
   }
   if (plan.sessionId) updateRun(file, { sessionId: plan.sessionId });
   console.error(`hoprig: ${tool.name} · provider ${profile.name} · ${profile.label}`);
-  const { code, signalled } = await runChild(tool.binPath(), plan.args, { ...plan.env, HOPRIG_RUN_FILE: file }, follow, { report });
+  const { code, signalled } = await runChild(tool.argv(plan.args), { ...plan.env, HOPRIG_RUN_FILE: file }, follow, { report });
   removeRun(file);
   if (plan.cleanup) plan.cleanup();
   // The last session of the tool stops its server. Not when the terminal itself is closing or being restarted
@@ -158,7 +158,7 @@ function makeReporter(file) {
 }
 
 /** Start the program in this terminal; `follow(child)` watches the server meanwhile and returns a stop function. */
-function runChild(bin, args, env, follow, { report }) {
+function runChild([bin, ...args], env, follow, { report }) {
   return new Promise((resolve) => {
     const child = spawn(bin, args, { stdio: 'inherit', env });
     const onInt = () => {}; // Ctrl+C belongs to the program (it shares our terminal)

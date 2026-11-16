@@ -69,8 +69,9 @@ export function codexArgs(profile) {
   assertServes(profile, 'codex');
   const args = [...codex.noSelfUpdate.args];
   const ep = endpointOf(profile);
-  if (!ep) return args; // a Codex sign-in: Codex uses its own stored account
   const set = (k, v) => args.push('-c', `${k}=${tomlString(v)}`);
+  // A Codex sign-in: Codex's own OpenAI provider with its stored account, named so its config cannot choose another.
+  if (!ep) return set('model_provider', 'openai'), args;
   set('model_provider', PROVIDER_ID);
   set(`model_providers.${PROVIDER_ID}.name`, profile.label || profile.name);
   set(`model_providers.${PROVIDER_ID}.base_url`, `${ep.base}/v1`);

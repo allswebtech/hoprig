@@ -19,7 +19,10 @@ import { codexArgs, startSettings, tomlString } from './providers.mjs';
 import { cleanEnv, codexBlockArgs, serverProviders } from './servers.mjs';
 import { codexSessions, isToolSessionId, opencodeSessions } from './stores.mjs';
 
-const promptTail = (tool, prompt) => (!prompt ? [] : tool === 'opencode' ? ['--prompt', prompt] : prompt.startsWith('-') ? ['--', prompt] : [prompt]);
+// A first message is one argument that can never be read as an option: OpenCode reads `--prompt <text>` with a text
+// that starts with "-" as an option of its own (checked with 2.3: `--prompt --version` printed its version), so the
+// text is joined to its flag; Codex takes it after `--`.
+export const promptTail = (tool, prompt) => (!prompt ? [] : tool === 'opencode' ? [`--prompt=${prompt}`] : prompt.startsWith('-') ? ['--', prompt] : [prompt]);
 
 /** Codex's command line for a terminal attached to Hoprig's app server. */
 export function codexTuiArgs({ port, prov, model, cwd, resume = null, o }) {
@@ -27,7 +30,9 @@ export function codexTuiArgs({ port, prov, model, cwd, resume = null, o }) {
   return [
     '--remote', `ws://127.0.0.1:${port}`, '--remote-auth-token-env', 'HOPRIG_CODEX_WS',
     ...t.noSelfUpdate.args,
-    ...codexBlockArgs(prov), ...(prov.signin ? [] : ['-c', `model_provider=${tomlString(prov.id)}`]),
+    // Always named: a thread's provider is the one its terminal names, and without a name the server's default (a
+    // key provider) would get a session the owner started on the Codex sign-in.
+    ...codexBlockArgs(prov), '-c', `model_provider=${tomlString(prov.signin ? 'openai' : prov.id)}`,
     ...(model ? ['-m', model] : []),
     ...t.flagsFor(o), ...o.extra,
     '-C', cwd,
@@ -115,6 +120,13 @@ async function folderLock(cwd, ms = 20_000) {
 
 // ---- Codex ----
 
+/**
+ * Is a thread that Codex's server announced (thread/started) a new conversation of the folder `cwd`? Not a
+ * subagent's thread, not a passing one, and not a copy another launcher makes for a move (thread/fork announces its
+ * copy with forkedFromId, checked with 0.169).
+ */
+export const isNewThreadOf = (t, cwd) => Boolean(t && t.id) && !t.ephemeral && !t.parentThreadId && !t.forkedFromId && real(threadCwd(t)) === real(cwd);
+
 export async function codexPlan(server, { profile, model, cwd, o, base, report }) {
   const prov = serverProviders('codex', [profile])[0];
   const client = await codexClient({ port: server.port, secret: server.secret });
@@ -157,7 +169,7 @@ export async function codexPlan(server, { profile, model, cwd, o, base, report }
   const onNote = (method, p) => {
     if (method === 'thread/started' && !mine) {
       const t = p.thread || {};
-      if (t.ephemeral || t.parentThreadId || !t.id || real(threadCwd(t)) !== real(cwd)) return;
+      if (!isNewThreadOf(t, cwd)) return;
       mine = t.id;
       if (unlock) unlock();
       unlock = null;
