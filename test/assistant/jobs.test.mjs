@@ -32,6 +32,17 @@ test('planWakes: limit (not for auto), ended, expired, inactive jobs', () => {
   assert.deepEqual(planWakes([job()], [card()], 10_000_000).events.map((e) => e.reason), ['expired']);
   assert.equal(planWakes([job({ state: 'done' })], [], 10).events.length, 0);
   assert.equal(planWakes([armed('working')], [card({ computer: 'box2', status: 'waiting' }), card()], 10).events.length, 0, 'same name on another computer is another session');
+  // The job's terminal ended and the owner's next session got its name: that is not the job's session.
+  const made = job({ sessions: [{ computer: 'this', session: 's', created: 5000, since: 0, last: 'working', armed: true }] });
+  assert.deepEqual(planWakes([made], [card({ created: 9000, status: 'attention' })], 10).events.map((e) => e.reason), ['ended']);
+  assert.deepEqual(planWakes([made], [card({ created: 5000, status: 'attention' })], 10).events.map((e) => e.reason), ['needs_ok']);
+  // A chat: its name comes back when the owner opens that conversation again after hers closed. The job follows only
+  // the chat it was given (when it was opened); one whose time is not known follows nothing.
+  const chat = (created) => job({ sessions: [{ computer: 'this', session: 'chat:x', created, since: 0, last: 'working', armed: true }] });
+  const his = card({ name: 'chat:x', kind: 'chat', created: 9000, status: 'attention' });
+  assert.deepEqual(planWakes([chat(5000)], [his], 10).events.map((e) => e.reason), ['ended']);
+  assert.deepEqual(planWakes([chat(null)], [his], 10).events.map((e) => e.reason), ['ended'], 'not known: never his chat');
+  assert.deepEqual(planWakes([chat(9000)], [his], 10).events.map((e) => e.reason), ['needs_ok']);
 });
 
 test('decideMode and stateAfter', () => {
@@ -61,19 +72,27 @@ test('JobStore: create, attach, step cap, finish, persistence, tick', () => {
     let t = 1000;
     const store = new JobStore({ dir, now: () => t, settings: () => ({ maxSteps: 2, maxMinutes: 60 }) });
     const j = store.create({ conversation: 'c', goal: 'tests pass' });
-    store.attach(j.id, { computer: 'this', session: 's', startedByTia: true });
+    store.attach(j.id, { computer: 'this', session: 's', startedByTia: true, created: 5000 });
     assert.equal(store.forSession('this', 's').id, j.id);
-    assert.equal(store.startedByTia('this', 's'), true);
-    assert.equal(store.startedByTia('this', 'other'), false);
+    assert.equal(store.startedByTia('this', 's', 5000), true);
+    assert.equal(store.startedByTia('this', 'other', 5000), false);
+    // A mark is of one terminal: a later session with the same name (made later), or one not known, is not hers.
+    assert.equal(store.startedByTia('this', 's', 6000), false);
+    assert.equal(store.startedByTia('this', 's'), false);
     assert.equal(store.step(j.id), true);
     assert.equal(store.step(j.id), true);
     assert.equal(store.step(j.id), false);
-    store.markStarted('this', 'loose');
+    store.markStarted('this', 'loose', 7000);
+    store.markStarted('this', 'unknown'); // when it was made is not known: not marked
     const again = new JobStore({ dir, now: () => t });
     assert.equal(again.get(j.id).steps, 2, 'jobs survive a restart');
-    assert.equal(again.startedByTia('this', 'loose'), true);
+    assert.equal(again.startedByTia('this', 'loose', 7000), true);
+    assert.equal(again.startedByTia('this', 'loose', 8000), false, 'the owner\'s later session of that name');
+    assert.equal(again.startedByTia('this', 's', 5000), true);
+    assert.equal(again.startedByTia('this', 's', 6000), false);
+    assert.equal(again.startedByTia('this', 'unknown'), false);
     t += ARM_MS;
-    const evs = store.tick([card({ status: 'waiting' })]);
+    const evs = store.tick([card({ status: 'waiting', created: 5000 })]);
     assert.equal(evs.length, 1);
     assert.equal(evs[0].mode, 'notify', 'cap used up');
     assert.equal(store.get(j.id).state, 'waiting');

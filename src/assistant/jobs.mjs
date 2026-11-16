@@ -51,7 +51,9 @@ export function planWakes(jobs, cards, now, armMs = ARM_MS) {
         patches.push({});
         continue;
       }
-      const card = cards.find((c) => c.name === e.session && (c.computer || LOCAL) === e.computer) || null;
+      // The job's own terminal: a later session that got its name (made at another time) is someone else's. A chat's
+      // name comes back each time its conversation is opened again, so a chat whose time is not known is never its own.
+      const card = cards.find((c) => c.name === e.session && (c.computer || LOCAL) === e.computer && (e.created == null ? !e.session.startsWith('chat:') : c.created === e.created)) || null;
       const st = card ? statusOf(card) : 'gone';
       // A session that was just started shows as a plain shell until the launcher has registered its run: that
       // is not an end. It ends once it was seen running (armed) or the grace time has passed.
@@ -122,18 +124,25 @@ export function wakeMessage(event, mode, screen = '') {
   return screen && entry ? `${head.join('\n')}\n${fence('terminal_output', { session: entry.session }, screen, 12_000)}` : head.join('\n');
 }
 
+const startKey = (computer, session, created) => (Number.isSafeInteger(created) && created > 0 ? `${computer}|${session}|${created}` : null);
+
 export class JobStore {
   /** dir: a folder for the job files, or null to keep them in memory (tests). settings() → { maxSteps, maxMinutes }. */
   constructor({ dir = jobsDir(), now = Date.now, settings = () => ({ maxSteps: 20, maxMinutes: 240 }) } = {}) {
     Object.assign(this, { dir, now, settings });
     this.jobs = new Map();
-    this.started = new Set(); // "computer|session" Tia started outside any job
+    this.started = new Set(); // "computer|session|created" Tia started outside any job
     if (dir) this.#load();
   }
 
-  /** Remember a session Tia started without a job (so she may stop or move it later). */
-  markStarted(computer, session) {
-    const key = `${computer}|${session}`;
+  /**
+   * Remember a session Tia started without a job (so she may stop or move it later). `created` is when that terminal
+   * was made (its card's `created`): a session name is used again once the session ends (the owner's next session in
+   * that folder gets it), so a mark holds only for that one terminal. Without it, nothing is marked.
+   */
+  markStarted(computer, session, created) {
+    const key = startKey(computer, session, created);
+    if (!key) return;
     this.started.delete(key);
     this.started.add(key);
     if (this.started.size > 500) this.started.delete(this.started.values().next().value);
@@ -151,7 +160,7 @@ export class JobStore {
       return;
     }
     try {
-      for (const k of fs.readFileSync(path.join(this.dir, 'started.list'), 'utf8').split('\n')) if (/^[a-z0-9_-]+\|[A-Za-z0-9_.-]+$/.test(k)) this.started.add(k);
+      for (const k of fs.readFileSync(path.join(this.dir, 'started.list'), 'utf8').split('\n')) if (/^[a-z0-9_-]+\|[A-Za-z0-9_.-]+\|\d+$/.test(k)) this.started.add(k);
     } catch {
       /* none yet */
     }
@@ -193,12 +202,15 @@ export class JobStore {
     return { ...job };
   }
 
-  /** Add a session to a job (watching starts). startedByTia: Tia started it, so she may stop or move it. */
-  attach(id, { computer = LOCAL, session, startedByTia = false }) {
+  /**
+   * Add a session to a job (watching starts). startedByTia: Tia started it, so she may stop or move it; `created`
+   * (the terminal's card's) ties that to this one terminal, as in markStarted.
+   */
+  attach(id, { computer = LOCAL, session, startedByTia = false, created = null }) {
     const job = this.jobs.get(id);
     if (!job || !ACTIVE.has(job.state)) return null;
     if (!job.sessions.some((e) => e.computer === computer && e.session === session)) {
-      job.sessions.push({ computer, session, startedByTia, since: this.now(), last: null, armed: false, ended: false });
+      job.sessions.push({ computer, session, startedByTia, created: startKey(computer, session, created) ? created : null, since: this.now(), last: null, armed: false, ended: false });
       this.#log(job, `${startedByTia ? 'started' : 'watching'} ${session} on ${computer}`);
     }
     return { ...job };
@@ -219,10 +231,16 @@ export class JobStore {
     return null;
   }
 
-  /** Tia started this session for a job (any job, also a finished one). */
-  startedByTia(computer, session) {
-    if (this.started.has(`${computer}|${session}`)) return true;
-    for (const j of this.jobs.values()) if (j.sessions.some((e) => e.computer === computer && e.session === session && e.startedByTia)) return true;
+  /**
+   * Tia started this very session (for a job, also a finished one, or without one): its name and its terminal's
+   * `created` both match a mark. A later session that got the same name, and one whose `created` is not known, is not
+   * hers.
+   */
+  startedByTia(computer, session, created) {
+    const key = startKey(computer, session, created);
+    if (!key) return false;
+    if (this.started.has(key)) return true;
+    for (const j of this.jobs.values()) if (j.sessions.some((e) => e.computer === computer && e.session === session && e.startedByTia && e.created === created)) return true;
     return false;
   }
 

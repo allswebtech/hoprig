@@ -133,16 +133,18 @@ export function chatFeature(ctx, o = {}) {
     return {
       name: cardName(c.id), kind: 'chat', chatId: c.id, display: c.title || 'New chat', title: c.title,
       cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), status, statusAt: c.statusAt, activity: c.statusAt,
+      byTia: c.byTia, // Tia started this chat: her rules let her answer its OKs (src/assistant/core.mjs facts)
       created: c.openedAt, attached: false, panes: 0, sessionId: c.conversationId, canSwitch: false,
       lastMessage: previewText(c.lastText), // plain words: a card shows no Markdown marks
       running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
       note: ask ? askNote(ask, c.cwd) : '',
       // The OK it waits for, so a card can answer it (Allow, Allow in this chat, Do not allow); a question or a plan
       // is answered in the chat itself. `subject` is what it is really about (the whole command or path; `cut` when it
-      // was too long to carry whole) and `owner` says the chat keeps it for the owner (his settings, a hook or a safety
-      // check ask him): Tia's rules judge all three.
+      // was too long to carry whole), `owner` says the chat keeps it for the owner (his settings, a hook or a safety
+      // check ask him) and `known` that it is a call Tia's rules can judge at all (claude-parse.mjs askSubject): her
+      // rules read all four.
       ask: ask ? {
-        request: ask.request, type: ask.type, tool: ask.tool, subject: ask.subject || '', cut: !!ask.subjectCut, owner: !!ask.owner,
+        request: ask.request, type: ask.type, tool: ask.tool, subject: ask.subject || '', cut: !!ask.subjectCut, owner: !!ask.owner, known: ask.known === true,
         canAlways: !!ask.grant, always: ask.grant ? (ask.grant.edits ? 'edits' : 'rule') : null, alwaysText: ask.grant && !ask.grant.edits ? ask.grant.text : '',
       } : null,
       // The turn is over but subagents, shells or a workflow still run (Home: "Working in the background").
@@ -195,10 +197,14 @@ export function chatFeature(ctx, o = {}) {
 
   /**
    * Open a chat (POST /api/chats; the schedules too). b: { dir, profile?, model?, effort?, permissionMode?, ultracode?,
-   * sessionId?, text?, defaults? }. What is left out: as the last chat in that folder ran, else the provider
+   * sessionId?, text?, defaults?, byTia? }. What is left out: as the last chat in that folder ran, else the provider
    * recommended now and Settings. defaults: true (Tia, a schedule) takes Settings → New-session defaults and not the
    * folder's last chat, as a terminal session they start does: a mode the owner chose for himself (bypass) is not
    * carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
+   * byTia: true (Tia's start_chat) marks the chat this call creates as hers, and no other: not an open chat it gives
+   * back, nor a later chat on the same conversation (the mark goes with this chat when it closes for any reason). A
+   * message sent into it by anyone but her (the page, a schedule) takes the mark off for good: from then on the chat
+   * carries the owner's own instructions. An answer, a Stop or a settings change does not (he only steers her work).
    * → { id, sent, existing?, permissionMode? } (sent: false when the first message was not sent because a terminal or
    * an open chat runs the conversation; existing: true with that open chat's mode)
    */
@@ -216,6 +222,7 @@ export function chatFeature(ctx, o = {}) {
     }
     if (typeof profile !== 'string' || !profileOk(profile)) throw bad('there is no such provider');
     if (b.ultracode !== undefined && b.ultracode !== null && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
+    if (b.byTia !== undefined && typeof b.byTia !== 'boolean') throw bad('byTia is true or false');
     const d = cfg().sessionDefaults || {};
     // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults.
     const kept = (k, chosen, fallback) => (chosen !== undefined ? chosen : k in last ? last[k] : fallback);
@@ -253,7 +260,7 @@ export function chatFeature(ctx, o = {}) {
       id, ...(conversationId && conversationId !== id ? { conversationId } : {}), cwd: dir, profile,
       // a model the computer stopped offering is not forced on a new chat
       model: model && models().includes(model) ? model : null, effort: EFFORTS.includes(effort) ? effort : null,
-      permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode,
+      permissionMode: PERMISSION_MODES.includes(permissionMode) ? permissionMode : null, ultracode, byTia: b.byTia === true,
     });
     save();
     if (owners) remember(c); // the folder's last chat is the owner's own choice, not Tia's or a schedule's
@@ -273,6 +280,7 @@ export function chatFeature(ctx, o = {}) {
       if (term) throw inTerminal(term);
     }
     const r = await c.send(t);
+    c.byTia = false; // the owner's schedule writes in it: a chat with his instructions, not Tia's any more
     save();
     return { id: r.id, queued: r.queued };
   }
@@ -302,6 +310,7 @@ export function chatFeature(ctx, o = {}) {
       const b = await ctx.readJson(req);
       let text = v.message(b.text);
       if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
+      if (b.byTia !== undefined && typeof b.byTia !== 'boolean') throw bad('byTia is true or false');
       let files = { images: [], mentions: [], attachments: [] };
       if (b.attachments !== undefined && b.attachments !== null) {
         const u = uploadsOf(c);
@@ -317,6 +326,7 @@ export function chatFeature(ctx, o = {}) {
         }
       }
       const r = await c.send(text, { images: files.images, attachments: files.attachments });
+      if (b.byTia !== true) c.byTia = false; // a message of the owner's (not Tia's own send_to_chat): his chat from now on
       save();
       return { ok: true, id: r.id, queued: r.queued };
     }],

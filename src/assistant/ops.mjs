@@ -141,11 +141,11 @@ export function createOps(o) {
     switchAccount: ({ computer, session, profile }) => post(computer, `/api/sessions/${enc(session)}/switch`, { profile }),
     // ---- chats (src/chat; a chat is "chat:<id>" among the sessions) ----
     startChat: ({ computer, folder, profile, sessionId, text }) =>
-      post(computer, '/api/chats', { dir: dir(computer, folder), profile, ...(sessionId ? { sessionId } : {}), ...(text ? { text } : {}), defaults: true }).then((r) => {
+      post(computer, '/api/chats', { dir: dir(computer, folder), profile, ...(sessionId ? { sessionId } : {}), ...(text ? { text } : {}), defaults: true, byTia: true }).then((r) => {
         ctx.poke?.();
         return r;
       }),
-    sendToChat: ({ computer, id, text }) => post(computer, `/api/chats/${enc(id)}/send`, { text }).then((r) => {
+    sendToChat: ({ computer, id, text }) => post(computer, `/api/chats/${enc(id)}/send`, { text, byTia: true }).then((r) => {
       ctx.poke?.();
       return r;
     }),

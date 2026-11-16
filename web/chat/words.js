@@ -124,13 +124,16 @@ export function toolLine(name, input = {}, state = 'done') {
   }
 }
 
+// The items of a grant's text (src/chat/engines/claude-lines.mjs sessionGrant): "Tool", "Tool(rule)", "the folder
+// <path>" and "all edits", joined by ", ". A rule may hold ", " itself: a comma splits only where a next item starts.
+const grantItems = (text) => String(text || '').split(/,\s*(?=[A-Za-z_][\w-]*(?:\(|,|$)|the folder |all edits(?:,|$))/).map((x) => x.trim()).filter(Boolean);
+
 /**
  * What "Allow in this chat" covers, in words: Claude Code's rules ("Bash(npm view *)", "WebFetch(domain:x.org)")
  * as a person reads them. Only the rule's own part is allowed, which may be a part of a longer command.
  */
 export function ruleWords(text) {
-  const items = String(text || '').split(/,\s*(?=[A-Za-z_]+(?:\(|,|$))|,\s*(?=the folder )/).map((x) => x.trim()).filter(Boolean);
-  return items.map((r) => {
+  return grantItems(text).map((r) => {
     let m;
     if ((m = /^Bash\((.+?)(?::\*| \*)\)$/.exec(r))) return `commands that start with “${m[1]}”`;
     if ((m = /^Bash\((.+)\)$/.exec(r))) return `the command “${m[1]}”`;
@@ -151,8 +154,7 @@ export function alwaysWords(ev) {
   const what = ruleWords(ev.alwaysText);
   if (!what) return '';
   const cmd = ev.tool === 'Bash' && ev.input && typeof ev.input.command === 'string' ? ev.input.command.trim() : '';
-  const rules = String(ev.alwaysText).split(/,\s*(?=[A-Za-z_]+(?:\(|,|$))/).map((x) => x.trim());
-  const part = !!cmd && /[;&|\n]/.test(cmd) && !rules.includes(`Bash(${cmd})`);
+  const part = !!cmd && /[;&|\n]/.test(cmd) && !grantItems(ev.alwaysText).includes(`Bash(${cmd})`);
   return `“Allow in this chat” also lets Claude do this again in this chat without asking: ${what}.${part ? ' That is only part of this command.' : ''}`;
 }
 

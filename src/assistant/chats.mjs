@@ -51,10 +51,21 @@ export const start_chat = tool({
     let j = null;
     if (a.goal) j = ctx.jobs.create({ conversation: ctx.conversation, goal: a.goal });
     else if (a.job) j = ctx.jobs.get(a.job);
+    // A job follows this one chat, not its name: the owner opening that conversation again later gets the same name.
+    // The chat's card says when it was opened (`created`); not known, the job follows nothing (jobs.mjs planWakes).
+    let created = null;
+    if (j) {
+      try {
+        const made = (await ops.listSessions({ computer: comp(a) })).find((c) => c.name === name && (c.computer || LOCAL) === comp(a));
+        if (made) created = made.created;
+      } catch {
+        /* not known */
+      }
+    }
     if (r.existing) {
       // The conversation is open in a chat already, the owner's as a rule: she did not start it and it is not hers.
       // Its OKs and messages stay under the rules for someone else's chat, and it keeps its own mode (even bypass).
-      if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: false });
+      if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: false, created });
       const mode = r.permissionMode ? ` (permission mode: ${r.permissionMode})` : '';
       return {
         summary: `This conversation is already open in chat ${name} on ${comp(a)}, which you did not start: it runs with its own permission mode, model and effort${mode}, and its OKs are the owner's${sent}.${j ? ` Job ${j.id} watches it.` : ''}`,
@@ -62,8 +73,8 @@ export const start_chat = tool({
         shown: { session: [sessKey(comp(a), name)], ...(j ? { job: [j.id] } : {}) },
       };
     }
-    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: true });
-    else ctx.jobs.markStarted(comp(a), name);
+    // Hers by the chat's own mark (byTia, set by the dashboard on the chat this start created), not by its name.
+    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: true, created });
     const why = ctx.accountWhy ? ` (${ctx.accountWhy})` : '';
     return {
       summary: `Started chat ${name} on ${comp(a)} under ${a.account}${why}${a.conversation ? ', continuing the earlier conversation' : ''}${sent}. It runs with the permission mode, model and effort of Settings → New-session defaults. The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,

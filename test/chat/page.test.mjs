@@ -102,6 +102,16 @@ test('chat page words: the mode chip, Shift+Tab order, model and effort, paths, 
   assert.doesNotMatch(W.alwaysWords({ tool: 'Bash', input: { command: 'npm test' }, alwaysText: 'Bash(npm test)' }), /only part/, 'the whole command');
   assert.doesNotMatch(W.alwaysWords({ tool: 'Bash', input: { command: 'npm view x' }, alwaysText: 'Bash(npm view *)' }), /only part/, 'a prefix of a simple command');
   assert.equal(W.ruleWords('Bash(npm view *), WebFetch(domain:example.org)'), 'commands that start with “npm view”, pages on example.org');
+  // The rule is the whole command, and the grant adds a folder or all edits too: not "only part" (one splitter for both).
+  const chain = 'ls src; touch made2.txt';
+  for (const more of [', the folder /w/p, all edits', ', all edits', ', the folder /w/p', ', Read(//w/p/**)', '']) {
+    const w = W.alwaysWords({ tool: 'Bash', input: { command: chain }, alwaysText: `Bash(${chain})${more}` });
+    assert.doesNotMatch(w, /only part/, more);
+    assert.match(w, /without asking: the command “ls src; touch made2.txt”/, more);
+  }
+  assert.equal(W.ruleWords(`Bash(${chain}), all edits`), 'the command “ls src; touch made2.txt”, every edit of a file');
+  assert.equal(W.ruleWords('all edits, the folder /w/a, b, Bash(echo a, b)'), 'every edit of a file, the folder /w/a, b, the command “echo a, b”', 'a comma inside a rule or a path stays');
+  assert.match(W.alwaysWords({ tool: 'Bash', input: { command: 'ls x; exit 2' }, alwaysText: 'Bash(exit 2), the folder /w/p, all edits' }), /That is only part of this command\.$/, 'a rule for one part, with a folder and all edits');
   assert.equal(W.turnRuns({ working: true, turn: false }), false, 'background work alone is no turn (no Stop, no queue)');
   assert.equal(W.turnRuns({ working: true }), true, 'an older computer says only "working"');
   assert.equal(W.turnLine({ turnCostUsd: 0.02, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, durationMs: 1200 }), '$0.02 · 1 s', 'a turn that used no tokens (a compact) says no "0 tokens"');

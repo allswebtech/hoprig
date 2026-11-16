@@ -227,8 +227,17 @@ const start_session = tool({
     let j = null;
     if (a.goal) j = ctx.jobs.create({ conversation: ctx.conversation, goal: a.goal });
     else if (a.job) j = ctx.jobs.get(a.job);
-    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: r.name, startedByTia: true });
-    else ctx.jobs.markStarted(comp(a), r.name);
+    // Hers is this one terminal, not its name (the owner's next session in that folder gets the name once it ends):
+    // the mark carries the terminal's `created` from its card.
+    let created = null;
+    try {
+      const made = (await ops.listSessions({ computer: comp(a) })).find((c) => c.name === r.name && (c.computer || LOCAL) === comp(a) && c.kind !== 'chat');
+      if (made) created = made.created;
+    } catch {
+      /* not known: the session is not marked hers */
+    }
+    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: r.name, startedByTia: true, created });
+    else ctx.jobs.markStarted(comp(a), r.name, created);
     const why = ctx.accountWhy ? ` (${ctx.accountWhy})` : '';
     return {
       summary: `Started session ${r.name} on ${comp(a)} under ${a.account}${why}${a.message ? ' with the first message' : ''}.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
@@ -291,11 +300,11 @@ const watch_session = tool({
     if (!a.goal === !a.job) throw toolError('give either goal (a new job) or job (an existing one)', 'add one of them');
   },
   async run(ops, a, ctx) {
-    await findSession(ops, a);
+    const c = await findSession(ops, a);
     const other = ctx.jobs.forSession(comp(a), a.session);
     if (other && other.id !== a.job) throw toolError(`${a.session} already belongs to job ${other.id}`, `use job ${other.id}, or finish_job it first`);
     const j = a.job ? ctx.jobs.get(a.job) : ctx.jobs.create({ conversation: ctx.conversation, goal: a.goal, maxMinutes: a.max_minutes });
-    if (!j || !ctx.jobs.attach(j.id, { computer: comp(a), session: a.session, startedByTia: ctx.jobs.startedByTia(comp(a), a.session) })) throw toolError(`job ${a.job} is not active`, 'start a new job with goal');
+    if (!j || !ctx.jobs.attach(j.id, { computer: comp(a), session: a.session, startedByTia: ctx.jobs.startedByTia(comp(a), a.session, c.created), created: c.created })) throw toolError(`job ${a.job} is not active`, 'start a new job with goal');
     const cur = ctx.jobs.get(j.id);
     return { summary: `Job ${j.id} watches ${a.session} until ${new Date(cur.until).toISOString()}.`, data: { job: j.id, sessions: cur.sessions.map((e) => e.session), until: cur.until, max_steps: cur.maxSteps }, shown: { job: [j.id] } };
   },
