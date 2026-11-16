@@ -250,6 +250,31 @@ test('a chat\'s record goes when its process ends by itself, and a record of its
   clear();
 });
 
+test('a chat closed and opened again at once under the same id: the record the closing process holds is no leftover', { timeout: 30_000 }, async (t) => {
+  clear();
+  const cwd = fs.realpathSync(fs.mkdtempSync(path.join(box.root, 'proj-')));
+  // A process that takes its time to end (a real coding tool may: hooks, flushing); the stand-in: until SIGKILL.
+  const o = { id: crypto.randomUUID(), resolveEnv: async () => ({ ...process.env, FAKE_CLAUDE_STUBBORN: '1' }), idleMs: 60_000 };
+  const c1 = chatOn(t, cwd, o);
+  await turn(c1, 'hello');
+  const [rec] = R.listRuns({ chats: true });
+  // The close route: the chat leaves the dashboard's list at once (its id is free again), its process ends meanwhile.
+  const closing = c1.close(2000);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.ok(c1.ending, 'the first chat\'s process is still ending');
+  const c2 = chatOn(t, cwd, o);
+  await c2.send('second').catch(() => null);
+  assert.equal(c2.session, null, 'no second process on the conversation');
+  assert.match(c2.events.at(-1).error, /another chat runs this conversation right now/);
+  assert.deepEqual(R.listRuns({ chats: true }).map((r) => r.runId), [rec.runId], 'the closing process keeps its record');
+  await closing;
+  assert.deepEqual(R.listRuns({ chats: true }), [], 'gone with that process');
+  await turn(c2, 'again');
+  assert.ok(c2.session, 'once it has ended, the new chat runs the conversation');
+  await c2.close(300); // the stand-in ends only on SIGKILL
+  clear();
+});
+
 test('a chat closed while its start waits for the provider holds nothing from that moment ("Open in terminal")', { timeout: 30_000 }, async (t) => {
   clear();
   const cwd = fs.realpathSync(fs.mkdtempSync(path.join(box.root, 'proj-')));

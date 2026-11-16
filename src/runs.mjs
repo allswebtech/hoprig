@@ -111,13 +111,15 @@ export function heldBefore(mine, id, tool = 'claude') {
 }
 
 /**
- * The records of chat `chat` of this dashboard but `keep`: left over, never counted. A chat starts its process only
- * once the one before has ended (chat/run.mjs), so a record of its own that is still there belongs to no process; its
- * pid is the dashboard's, so nothing else would ever remove it.
+ * The records of chat `chat` of this dashboard that no process of it holds (`live`: the record files of the
+ * dashboard's chat processes that have not ended, and of starts getting ready): left over, never counted. Their pid is
+ * the dashboard's, so nothing else would ever remove them. A record in `live` stays, whichever chat object wrote it: a
+ * chat closed a moment ago may still be ending under the same id.
  */
-export function removeChatLeftovers(chat, keep) {
+export function removeChatLeftovers(chat, live) {
   for (const r of listRuns({ chats: true, usage: false })) {
-    if (r.kind === 'chat' && r.chat === chat && r.pid === process.pid && r.runId !== keep) removeRun(path.join(runsDir(), `${r.runId}.json`));
+    const file = path.join(runsDir(), `${r.runId}.json`);
+    if (r.kind === 'chat' && r.chat === chat && r.pid === process.pid && !live.has(file)) removeRun(file);
   }
 }
 

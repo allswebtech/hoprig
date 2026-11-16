@@ -8,6 +8,15 @@ import { hear, lostWork } from './hear.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
+// The record files of this dashboard's chat processes that have not ended yet, and of starts getting ready: of every
+// chat, so a record a closing chat's process still holds is never taken for a leftover by a new chat with the same id
+// (a chat closed and opened again at once: the closed one's process may take seconds to end).
+const live = new Set();
+const drop = (file) => {
+  live.delete(file);
+  removeRun(file);
+};
+
 /** Start the coding tool (once). Resolves false when a stop() came while it was getting ready. */
 export function start(chat) {
   if (chat.session) return Promise.resolve(true);
@@ -20,17 +29,18 @@ export function start(chat) {
     // The record that this chat runs the conversation (runs.mjs createChatRun), first: a launcher in any terminal reads
     // it before it starts the coding tool there. A launcher whose record came first keeps the conversation.
     const hold = createChatRun({ chat: chat.id, conversation: chat.conversationId, tool: chat.engine.id, cwd: chat.cwd, profile: chat.profile });
+    live.add(hold.file);
     chat.startHold = hold.file; // a stop() while it gets ready removes it at once (stop below)
     let session = null;
     try {
-      removeChatLeftovers(chat.id, hold.run.runId); // no earlier process of this chat runs now (chat.ending above)
+      removeChatLeftovers(chat.id, live); // a record of this chat's that no process of it holds any more
       const other = heldBefore(hold.run, chat.conversationId, chat.engine.id);
       if (other) throw fail(409, other.kind === 'chat' ? 'another chat runs this conversation right now' : 'This conversation runs in a terminal now. Continue it here (that terminal stops), or read along.');
       session = await open(chat, gen, hold);
       return !!session;
     } finally {
       if (chat.startHold === hold.file) chat.startHold = null;
-      if (!session) removeRun(hold.file);
+      if (!session) drop(hold.file);
     }
   })().finally(() => {
     chat.starting = null;
@@ -68,7 +78,7 @@ async function open(chat, gen, hold) {
 /** The process of `session` has ended: its record goes (it held the conversation; now nothing does). */
 function release(session) {
   if (!session || !session.hold) return;
-  removeRun(session.hold);
+  drop(session.hold);
   session.hold = null;
 }
 
@@ -108,7 +118,7 @@ export function stop(chat) {
   // …and holds nothing from now on: its record goes at once, not when its provider's environment is ready (a terminal
   // the chat is handed to must not find it).
   if (chat.startHold) {
-    removeRun(chat.startHold);
+    drop(chat.startHold);
     chat.startHold = null;
   }
   clearTimeout(chat.idleTimer);
