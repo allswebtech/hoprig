@@ -37,7 +37,8 @@ globalThis.document ??= {
   visibilityState: 'visible',
 };
 
-const { whenText, whatText, scheduleSentence, activityLine, foldActivity } = await import('../../web/automation.js');
+const { whenText, whatText, scheduleSentence, activityLine, foldActivity, queueChoices } = await import('../../web/automation.js');
+const { until } = await import('../../web/lib.js');
 const { plainCard, EXAMPLES, boldText } = await import('../../web/tia.js');
 
 test('a schedule reads as one sentence', () => {
@@ -54,6 +55,20 @@ test('a schedule reads as one sentence', () => {
   assert.equal(whatText({ type: 'start', dir: 'C:\\work\\shop', profile: 'max' }, label), 'start a session in shop on Claude Max');
   assert.equal(whatText({ type: 'send', session: 'data-pipeline', text: 'go' }), 'send a message to data-pipeline');
   assert.equal(whatText({ type: 'send', session: '' }), 'send a message to a session');
+});
+
+test('Next run uses the same 24-hour clock as the rule', () => {
+  const far = new Date(Date.now() + 3 * 86400_000);
+  far.setHours(18, 0, 0, 0);
+  assert.match(until(far.getTime()), /^\S+ 18:00$/, 'never "06:00 PM" next to "at 18:00"');
+  assert.match(until(Date.now() + 2 * 3600_000), /^in 2 h \d+ min$/);
+});
+
+test('Queue a message: Claude sessions only, the ones that need you first, with what waits', () => {
+  const s = (name, extra = {}) => ({ name, kind: 'claude', status: 'idle', ...extra });
+  const items = queueChoices([s('docs'), { name: 'sh', kind: 'shell' }, s('app', { status: 'attention' })], { docs: { count: 2 } });
+  assert.deepEqual(items.map((x) => x.value), ['app', 'docs'], 'a plain terminal is not offered; the one that needs you first');
+  assert.match(items.find((x) => x.value === 'docs').sub, /2 queued$/);
 });
 
 test('Activity: one sentence per entry, and what went wrong said plainly', () => {

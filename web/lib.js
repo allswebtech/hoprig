@@ -195,14 +195,19 @@ export function ago(ms) {
   return `${Math.floor(s / 86400)} d ago`;
 }
 
-/** "in 2 h 10 min" / "at 17:00" for a time in the future. */
+/**
+ * "in 2 h 10 min" / "Mon 17:00" for a time in the future. Always the 24-hour clock, as schedules write their rule
+ * ("Weekdays at 18:00"), so one list never mixes "18:00" with "06:00 PM".
+ */
 export function until(ms) {
   if (!ms) return '';
   const s = Math.round((ms - Date.now()) / 1000);
   if (s <= 60) return 'any moment';
   if (s < 3600) return `in ${Math.round(s / 60)} min`;
   if (s < 12 * 3600) return `in ${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
-  return new Date(ms).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const d = new Date(ms);
+  const day = d.toLocaleDateString([], { weekday: 'short' });
+  return `${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 export function bytes(n) {
