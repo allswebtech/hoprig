@@ -92,7 +92,8 @@ test('each rule refuses what it must', () => {
     ['pytest --basetemp=/tmp/x', WHY.outside], ['pytest -o cache_dir=../x', WHY.outside], ['pytest -c /etc/x', WHY.outside],
     ['pytest -c/home/owner/other/x.ini', WHY.outside], ['pytest -c../x.ini', WHY.outside], ['go test -coverprofile=/tmp/c.out', WHY.outside],
     ['go run .', WHY.command], ['go test -exec=sh ./...', WHY.command], ['go test -exec sh', WHY.command], ['go build -toolexec=x', WHY.command],
-    ['go vet -vettool=x', WHY.command], ['go build -o /usr/local/bin/x', WHY.outside], ['go test ../...', WHY.outside],
+    ['go vet -vettool=x', WHY.command], ['go build -ldflags=-extld=python3', WHY.command], ['go build -ldflags -extld=python3', WHY.command],
+    ['go build -gccgoflags=x', WHY.command], ['go build -o /usr/local/bin/x', WHY.outside], ['go test ../...', WHY.outside],
     ['cargo run', WHY.command], ['cargo build --config=build.rustc-wrapper=x', WHY.command], ['cargo check -Zunstable-options', WHY.command],
     ['cargo test --manifest-path=../x/Cargo.toml', WHY.outside], ['cargo build --target-dir=/tmp/t', WHY.outside],
   ];

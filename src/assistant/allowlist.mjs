@@ -213,8 +213,8 @@ export const COMMANDS = {
   yarn: script,
   node: nodeTest, // --test with paths inside the folder
   pytest: (args, root) => plainWords(args, root), // plain words and paths inside the folder
-  // -exec, -toolexec and -vettool run another program
-  go: sub(['test', 'build', 'vet'], (w) => /^--?(exec|toolexec|vettool)(=|$)/.test(w)),
+  // -exec, -toolexec and -vettool run another program; so can -ldflags (-extld) and -gccgoflags
+  go: sub(['test', 'build', 'vet'], (w) => /^--?(exec|toolexec|vettool|ldflags|gccgoflags)(=|$)/.test(w)),
   cargo: sub(['test', 'build', 'check'], (w) => /^--config(=|$)/.test(w) || /^-Z/.test(w)), // config can name a program
 };
 
