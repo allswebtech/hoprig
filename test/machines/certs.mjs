@@ -30,6 +30,8 @@ const octets = (buf) => tlv(0x04, buf);
 const name = (cn) => seq(set(seq(oid('2.5.4.3'), utf8(cn))));
 const ext = (id, critical, value) => seq(oid(id), ...(critical ? [tlv(0x01, Buffer.from([0xff]))] : []), octets(value));
 const ECDSA_SHA256 = seq(oid('1.2.840.10045.4.3.2'));
+// A positive serial whose first byte is never 0x00: DER integers are minimal, so 0x00 then a byte below 0x80 is illegal padding.
+const serial = () => { const b = crypto.randomBytes(12); b[0] = (b[0] & 0x7f) | 0x01; return b; };
 
 /** One certificate: { key, cert (PEM), x509 }. `issuer` signs it (itself when absent). */
 export function makeCert({ cn, issuer = null, ca = false, dns = [], ips = [], days = 30, notBefore = new Date(Date.now() - 60_000) } = {}) {
@@ -44,7 +46,7 @@ export function makeCert({ cn, issuer = null, ca = false, dns = [], ips = [], da
   }
   const tbs = seq(
     tlv(0xa0, int(Buffer.from([2]))),
-    int(crypto.randomBytes(12)),
+    int(serial()),
     ECDSA_SHA256,
     name(issuer ? issuer.cn : cn),
     seq(time(notBefore), time(new Date(notBefore.getTime() + days * 86_400_000))),
