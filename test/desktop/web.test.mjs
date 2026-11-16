@@ -41,12 +41,15 @@ test('no other company\'s names or marks in the desktop: the styles are "Taskbar
   assert.match(src('desktop/bar.js'), /src: 'icon\.svg'/, 'the start button and launcher show the product\'s own mark');
 });
 
-test('where it sits: the page, the sidebar on wide screens only, Settings → Appearance, a computer\'s page, Start view', () => {
+test('where it sits: one page beside the dashboard, opened from a page head and a computer\'s page; no sidebar entry, no Start view', () => {
   const idx = src('desktop/index.js');
-  assert.match(idx, /registerPage\(\{ id: 'desktop', title: 'Desktop', icon: 'monitor', group: 'main', order: 40, perComputer: true, render: viewDesktop, visible: wide \}\)/);
+  assert.match(idx, /registerPage\(\{ id: 'desktop', title: 'Desktop', icon: 'monitor', perComputer: true, render: viewDesktop \}\)/, 'no navigation group');
+  assert.match(idx, /registerHeadTool\(\(\) => h\('a\.icon-btn\.desk-headbtn', \{ href: link\('#\/desktop'\), title: 'Desktop mode'/);
+  assert.match(src('desktop/desktop.css'), /@media \(max-width: 1023px\), \(max-height: 599px\) \{ \.desk-headbtn \{ display: none; \} \}/, 'wide screens only');
+  assert.match(src('desktop/bar.js'), /desk-tray-btn\.desk-back', \{ type: 'button', title: 'Back to the dashboard'/, 'the way back in the tray');
   assert.match(idx, /WIDE = '\(min-width: 1024px\) and \(min-height: 600px\)'/);
   assert.match(idx, /prefs\.get\('desktop\.style', 'taskbar'\)/, 'Taskbar is the default style');
-  assert.match(idx, /prefs\.get\('desktop\.start', 'home'\)/, 'Home is the default start view');
+  for (const f of ['desktop/index.js', 'desktop/bar.js', 'settings.js']) assert.doesNotMatch(src(f), /desktop\.start|Start view|startView/, `${f}: no Start view`);
   assert.match(src('settings.js'), /lookPanel\(\), desktopSettings\(\)/);
   assert.match(src('pc.js'), /link\('#\/desktop'\).*'Open desktop'/);
 });

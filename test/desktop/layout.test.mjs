@@ -89,13 +89,14 @@ test('the window keys: halves, quarters from a half, maximise, back, minimise', 
 });
 
 test('the kept layout is read back only where it is sound', () => {
-  const good = { id: 'wabc123', app: 'workspace', hash: '#/workspace', title: 'Workspace', rect: { x: 10, y: 20, w: 600, h: 400 }, snap: 'l', min: false, z: 7 };
+  const good = { id: 'wabc123', app: 'tasks', hash: '#/desktop/tasks', title: 'Task manager', rect: { x: 10, y: 20, w: 600, h: 400 }, snap: 'l', min: false, z: 7 };
   const raw = {
     focus: 'wabc123',
     windows: [
       good,
       { ...good, id: 'wdef', app: 'terminal', hash: '#/m/laptop/s/shell-1', snap: 'sideways', z: 3, min: 'yes' },
       { ...good, id: 'wbad1', app: 'browser' }, // not an app
+      { ...good, id: 'wbad0', app: 'workspace', hash: '#/workspace' }, // a page that is no longer an app
       { ...good, id: 'wbad2', hash: 'javascript:alert(1)' }, // not an address of this page
       { ...good, id: 'wbad3', hash: '#/x" onload="y' },
       { ...good, id: 'wbad4', rect: { x: 'a', y: 0, w: 1, h: 1 } },
@@ -122,28 +123,52 @@ test('the kept layout is read back only where it is sound', () => {
   assert.equal(layoutKey('laptop'), 'desktop.laptop');
 });
 
-test('the catalog: the apps of this step, each with a known icon and an address of this page', async () => {
+test('the catalog: the computer\'s own apps, each with a known icon and an address of this page', async () => {
+  const fs = await import('node:fs');
   const { ICON_NAMES } = await import('../../web/icons.js');
-  assert.deepEqual(APPS.map((a) => a.id), ['sessions', 'terminal', 'workspace', 'providers', 'computers', 'automations', 'skills', 'brain', 'settings']);
+  // Sessions is the one dashboard page that is an app; the other pages of the dashboard are not apps.
+  assert.deepEqual(APPS.map((a) => a.id), ['sessions', 'terminal', 'tasks', 'services', 'logs']);
   for (const a of APPS) {
     assert.ok(ICON_NAMES.includes(a.icon), `${a.id}: icon ${a.icon}`);
-    assert.ok(['page', 'terminal'].includes(a.kind), a.id);
+    assert.ok(['page', 'terminal', 'native'].includes(a.kind), a.id);
     if (a.kind === 'page') assert.match(a.hash, /^#\/[a-z-]*$/, a.id);
+    if (a.kind === 'native') assert.ok(fs.existsSync(new URL(`../../web/desktop/${a.module}`, import.meta.url)), `${a.id}: ${a.module}`);
   }
   for (const name of ['monitor', 'square', 'restore']) assert.ok(ICON_NAMES.includes(name), name);
   assert.equal(appById('nope'), null);
-  // For another computer every page app opens there, except the list of every computer.
-  assert.equal(appHash(appById('workspace'), null), '#/workspace');
-  assert.equal(appHash(appById('workspace'), 'laptop'), '#/m/laptop/workspace');
+  assert.equal(appById('settings'), null, 'Settings stays in the dashboard');
+  // For another computer every app opens there; a native app as a page lives under the desktop.
+  assert.equal(appHash(appById('sessions'), null), '#/');
   assert.equal(appHash(appById('sessions'), 'laptop'), '#/m/laptop/');
-  assert.equal(appHash(appById('computers'), 'laptop'), '#/computers');
+  assert.equal(appHash(appById('tasks'), null), '#/desktop/tasks');
+  assert.equal(appHash(appById('logs'), 'laptop'), '#/m/laptop/desktop/logs');
   assert.equal(onComputer('#/settings/appearance', 'server-1'), '#/m/server-1/settings/appearance');
   assert.equal(sessionHash('a b/c', null), '#/s/a%20b%2Fc');
   assert.equal(sessionHash('x', 'laptop'), '#/m/laptop/s/x');
-  assert.equal(frameSrc('#/workspace'), '/?bare=1#/workspace');
+  assert.equal(frameSrc('#/'), '/?bare=1#/');
   assert.deepEqual(searchApps('term').map((a) => a.id), ['terminal']);
-  assert.equal(searchApps('set')[0].id, 'settings');
-  assert.equal(searchApps('memory')[0].id, 'brain', 'words besides the title');
+  assert.equal(searchApps('serv')[0].id, 'services');
+  assert.equal(searchApps('journal')[0].id, 'logs', 'words besides the title');
+  assert.equal(searchApps('kill')[0].id, 'tasks');
   assert.equal(searchApps('  ').length, APPS.length);
   assert.deepEqual(searchApps('zzz'), []);
+});
+
+test('the native apps\' shared words and sorting', async () => {
+  const { duration, errorText, pct, sortBy } = await import('../../web/desktop/native.js');
+  const { ApiError } = await import('../../web/lib.js');
+  assert.equal(pct(12.34), '12 %');
+  assert.equal(pct(3.14), '3.1 %');
+  assert.equal(pct(null), '–');
+  assert.equal(duration(40), '40 s');
+  assert.equal(duration(8 * 60 + 5), '8 min');
+  assert.equal(duration(5 * 3600 + 12 * 60), '5 h 12 min');
+  assert.equal(duration(3 * 86400 + 4 * 3600), '3 d 4 h');
+  const list = [{ n: 'b', v: 2 }, { n: 'a', v: null }, { n: 'c', v: 10 }];
+  assert.deepEqual(sortBy(list, 'v', true).map((x) => x.n), ['c', 'b', 'a'], 'numbers, the unknown last');
+  assert.deepEqual(sortBy(list, 'v', false).map((x) => x.n), ['b', 'c', 'a']);
+  assert.deepEqual(sortBy(list, 'n', false).map((x) => x.n), ['a', 'b', 'c']);
+  assert.equal(errorText(new ApiError('Not found', 404)), 'This computer needs a Hoprig update for this app.', 'an older computer');
+  assert.equal(errorText(new ApiError('Offline', 404, { code: 'offline' })), 'Offline');
+  assert.equal(errorText(new ApiError('No such process', 409)), 'No such process');
 });

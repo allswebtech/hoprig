@@ -1,26 +1,28 @@
-// The desktop (#/desktop, and #/m/<computer>/desktop for another computer): the apps of a computer as windows on a
-// wide screen, in the style "Taskbar" or "Dock" (Settings → Appearance; kept on this device). Below 1024 × 600
-// there are no windows: the same apps are a grid that opens them as normal pages.
+// The desktop (#/desktop, and #/m/<computer>/desktop for another computer): one page beside the dashboard with the
+// apps of a computer as windows on a wide screen, in the style "Taskbar" or "Dock" (Settings → Appearance; kept on
+// this device). It is opened by the "Desktop mode" button at the top right of every page head (wide screens) and by
+// "Open desktop" on a computer's page; inside it the same corner leads back to the dashboard. It has no entry in the
+// navigation. Below 1024 × 600 there are no windows: the same apps are a grid that opens them as pages, a native
+// app at #/desktop/<app>.
 //
 //   apps.js    the catalog          wm.js     the windows        bar.js     the bars, start menu and launcher
-//   layout.js  the window maths     menu.js   right-click menu   desktop.css its look
-// The windows show the dashboard's own pages in bare mode (lib.js BARE), each for the computer of the desktop.
+//   layout.js  the window maths     menu.js   right-click menu   native.js  what the native apps share
+//   tasks.js, services.js, logs.js  the native apps              desktop.css its look
 import { icon } from '../icons.js';
 import { BARE, api, at, fill, h, link, machine, prefs, tellDesktop, toast } from '../lib.js';
-import { navChanged, registerPage } from '../registry.js';
+import { registerHeadTool, registerPage } from '../registry.js';
 import { panel, savedMark } from '../shell.js';
 import { pageNotify, store } from '../store.js';
 import { APPS, appById, appHash, onComputer, sessionHash } from './apps.js';
 import { drawBars } from './bar.js';
 import { withMenu } from './menu.js';
+import { nativeBody } from './native.js';
 import { windowManager } from './wm.js';
 
 /** The screens that get windows; smaller ones get the grid of apps. */
 export const WIDE = '(min-width: 1024px) and (min-height: 600px)';
-const wide = () => typeof matchMedia === 'function' && matchMedia(WIDE).matches;
 export const STYLES = ['taskbar', 'dock'];
 export const deskStyle = () => (prefs.get('desktop.style', 'taskbar') === 'dock' ? 'dock' : 'taskbar');
-export const startView = () => (prefs.get('desktop.start', 'home') === 'desktop' ? 'desktop' : 'home');
 
 /** A new shell on computer `m` in its home folder: its session name. */
 const newShell = (m) => api(at(m, '/api/shells'), {}).then((r) => r.name);
@@ -40,7 +42,7 @@ function desktopIcons(getDesk) {
       }, h('span.desk-icon-img', icon(a.icon, { size: 26 })), h('span.desk-icon-name', a.title));
       withMenu(b, () => [
         { label: 'Open', icon: 'plus', run: open },
-        a.kind === 'page' ? { label: 'Open as a page', icon: 'external', run: () => (location.hash = appHash(a, getDesk().machineName)) } : null,
+        a.kind !== 'terminal' ? { label: 'Open as a page', icon: 'external', run: () => (location.hash = appHash(a, getDesk().machineName)) } : null,
       ].filter(Boolean), a.title);
       return b;
     }));
@@ -79,12 +81,13 @@ function mountDesktop() {
         }
         return;
       }
-      desk.wm.open(id, hash ? onComputer(hash, a.local ? null : machineName) : appHash(a, machineName), { title: a.title });
+      desk.wm.open(id, hash ? onComputer(hash, machineName) : appHash(a, machineName), { title: a.title });
     },
     openSession(s) {
       desk.wm.open(s.kind === 'shell' ? 'terminal' : 'sessions', sessionHash(s.name, machineName), { title: s.display || s.name });
     },
-    leave: () => (location.hash = link('#/', null)),
+    // Back to the dashboard: its Home, or this computer's own page for another computer.
+    leave: () => (location.hash = machineName ? link('#/computer', machineName) : '#/'),
     setStyle(next) {
       if (!STYLES.includes(next)) return;
       prefs.set('desktop.style', next);
@@ -114,9 +117,9 @@ function mountDesktop() {
     { label: 'Arrange the windows', icon: 'grid', run: () => desk.wm.arrange() },
     { label: 'Minimise all', icon: 'minus', run: () => desk.wm.minimiseAll() },
     { label: style === 'dock' ? 'Use the Taskbar style' : 'Use the Dock style', icon: 'swap', run: () => desk.setStyle(style === 'dock' ? 'taskbar' : 'dock') },
-    { label: 'Desktop settings', icon: 'settings', run: () => desk.launch('settings', '#/settings/appearance') },
+    { label: 'Desktop settings', icon: 'settings', run: () => (location.hash = '#/settings/appearance') },
     null,
-    { label: 'Leave the desktop', icon: 'logout', run: () => desk.leave() },
+    { label: 'Back to the dashboard', icon: 'grid', run: () => desk.leave() },
   ]), 'Desktop');
 
   // A choice made in a window (Settings there) or in another tab applies here at once.
@@ -150,7 +153,7 @@ function appsGrid(frame) {
   const m = machine.current;
   const tile = (a) => {
     const inner = [h('span.desk-tile-icon', icon(a.icon, { size: 24 })), h('span.desk-tile-name', a.title)];
-    if (a.kind === 'page') return h('a.desk-tile', { href: appHash(a, m) }, inner);
+    if (a.kind !== 'terminal') return h('a.desk-tile', { href: appHash(a, m), dataset: { app: a.id } }, inner);
     return h('button.desk-tile', { type: 'button', onclick: async (e) => {
       const b = e.currentTarget;
       b.disabled = true;
@@ -160,12 +163,14 @@ function appsGrid(frame) {
         toast(`No terminal: ${err.message}`, { kind: 'error' });
         b.disabled = false;
       }
-    } }, inner);
+    }, dataset: { app: a.id } }, inner);
   };
   frame({
     title: 'Desktop',
     page: 'desktop',
     intro: 'The apps of this computer. On a screen at least 1024 × 600 they open as windows.',
+    back: '#/',
+    backLabel: 'Dashboard',
     body: [h('div.desk-grid', APPS.map(tile))],
   });
   return () => {};
@@ -173,11 +178,25 @@ function appsGrid(frame) {
 
 // ---------- the page ----------
 
-function viewDesktop({ frame }) {
+/** A native app as a page of its own (#/desktop/<app>): on a small screen, and "Open as a page" from a window. */
+function appPage(a, frame) {
+  const body = nativeBody(a, { machine: machine.current });
+  body.el.classList.add('dapp-page');
+  frame({ title: a.title, page: 'desktop', back: link('#/desktop'), backLabel: 'Desktop', wide: true, body: [body.el] });
+  return () => body.stop();
+}
+
+function viewDesktop({ frame, sub }) {
   // A link to the desktop inside one of its windows: the desktop is already there; the window goes back home.
   if (BARE) {
     tellDesktop({ type: 'hoprig:desktop' });
     location.replace(link('#/'));
+    return () => {};
+  }
+  const a = sub ? appById(sub) : null;
+  if (a && a.kind === 'native') return appPage(a, frame);
+  if (sub) {
+    location.replace(link('#/desktop'));
     return () => {};
   }
   const mq = matchMedia(WIDE);
@@ -191,19 +210,16 @@ function viewDesktop({ frame }) {
   };
 }
 
-registerPage({ id: 'desktop', title: 'Desktop', icon: 'monitor', group: 'main', order: 40, perComputer: true, render: viewDesktop, visible: wide });
+// Not in the navigation: the desktop is beside the dashboard, reached from the button below and a computer's page.
+registerPage({ id: 'desktop', title: 'Desktop', icon: 'monitor', perComputer: true, render: viewDesktop });
 
-if (typeof window !== 'undefined' && typeof matchMedia === 'function' && !BARE) {
-  // The navigation shows "Desktop" only on a wide screen.
-  matchMedia(WIDE).addEventListener('change', navChanged);
-  // Start view: a fresh open of the dashboard (no address of a page in it) goes to the desktop when chosen. Before
-  // the router's first draw, without a second one.
-  if (!location.hash && startView() === 'desktop' && wide()) history.replaceState(null, '', '#/desktop');
-}
+// "Desktop mode" at the top right of every page head, on a wide screen only (desktop.css hides it below the line):
+// the desktop of the computer whose page is open.
+registerHeadTool(() => h('a.icon-btn.desk-headbtn', { href: link('#/desktop'), title: 'Desktop mode', 'aria-label': 'Desktop mode' }, icon('monitor', { size: 16 })));
 
 // ---------- Settings → Appearance ----------
 
-/** The desktop's two choices, kept on this device like the colours: its style and what the dashboard opens with. */
+/** The desktop's style, kept on this device like the colours. */
 export function desktopSettings() {
   const seg = (key, options, current, mark) => {
     const el = h('div.segmented', { role: 'radiogroup' });
@@ -220,7 +236,6 @@ export function desktopSettings() {
     const mark = savedMark();
     return h('div.fieldrow', h('span.field-label', label, mark), seg(key, options, current, mark), h('span.hint', hint));
   };
-  return panel({ id: 'desktop', icon: 'monitor', title: 'Desktop', desc: 'Windows for the apps of a computer, on a screen at least 1024 × 600. Saved on this device only.' },
-    group('Desktop style', 'desktop.style', [['taskbar', 'Taskbar', 'down'], ['dock', 'Dock', 'up']], deskStyle(), 'Where the apps and open windows are: a bar at the bottom, or a dock with a bar at the top.'),
-    group('Start view', 'desktop.start', [['home', 'Home', 'home'], ['desktop', 'Desktop', 'monitor']], startView(), 'What the dashboard opens with on a wide screen.'));
+  return panel({ id: 'desktop', icon: 'monitor', title: 'Desktop', desc: 'The apps of a computer as windows, on a screen at least 1024 × 600: Desktop mode at the top right of a page. Saved on this device only.' },
+    group('Desktop style', 'desktop.style', [['taskbar', 'Taskbar', 'down'], ['dock', 'Dock', 'up']], deskStyle(), 'Where the apps and open windows are: a bar at the bottom, or a dock with a bar at the top.'));
 }

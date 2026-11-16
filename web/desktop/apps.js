@@ -1,24 +1,23 @@
-// The apps of the desktop. A page app is a page of the dashboard shown in a window (a frame of this same page in
-// bare mode, lib.js BARE); Terminal opens a new shell, or a session that runs already, in a window. Each one is
-// opened for the computer the desktop belongs to. No DOM here: the tests read the catalog as it is.
+// The apps of the desktop: the computer's own things. Sessions is the one page of the dashboard that is also an app
+// (coding is what the computer is for), shown in a window as a frame of this same page in bare mode (lib.js BARE);
+// Terminal opens a new shell, or a session that runs already, in a window; Task manager, Services and Logs are native
+// apps: a module in this folder with mount(root, { machine }) that calls that computer's API. The other pages of the
+// dashboard are not apps: they stay in the dashboard, one press away. Each app is opened for the computer the desktop
+// belongs to. No DOM here: the tests read the catalog as it is.
 
 /**
  * kind 'page'      a page of the dashboard: `hash` is its address on this computer
  * kind 'terminal'  a new shell on the computer (POST /api/shells), shown as its session page
- * local            the page is about every computer at once, so it always opens on this dashboard
+ * kind 'native'    `module` (in this folder) exports mount(root, { machine }) → stop(); as a page: #/desktop/<id>
  * pinned           on the desktop as an icon, and in the dock
  * keep             words for the start menu's search besides the title
  */
 export const APPS = [
-  { id: 'sessions', title: 'Sessions', icon: 'sessions', kind: 'page', hash: '#/', pinned: true, keep: 'home chats conversations' },
+  { id: 'sessions', title: 'Sessions', icon: 'sessions', kind: 'page', hash: '#/', pinned: true, keep: 'home chats conversations coding' },
   { id: 'terminal', title: 'Terminal', icon: 'terminal', kind: 'terminal', pinned: true, keep: 'shell console command' },
-  { id: 'workspace', title: 'Workspace', icon: 'folder', kind: 'page', hash: '#/workspace', pinned: true, keep: 'projects repositories folders' },
-  { id: 'providers', title: 'Providers', icon: 'user', kind: 'page', hash: '#/providers', pinned: true, keep: 'accounts subscription api sign in' },
-  { id: 'computers', title: 'Computers', icon: 'cpu', kind: 'page', hash: '#/computers', local: true, pinned: true, keep: 'machines link pair' },
-  { id: 'automations', title: 'Automations', icon: 'clock', kind: 'page', hash: '#/automations', keep: 'queue schedules rules activity' },
-  { id: 'skills', title: 'Skills', icon: 'book', kind: 'page', hash: '#/skills', keep: 'install find' },
-  { id: 'brain', title: 'AI brain', icon: 'brain', kind: 'page', hash: '#/brain', keep: 'memory rules notes' },
-  { id: 'settings', title: 'Settings', icon: 'settings', kind: 'page', hash: '#/settings', pinned: true, keep: 'preferences appearance security' },
+  { id: 'tasks', title: 'Task manager', icon: 'cpu', kind: 'native', module: 'tasks.js', pinned: true, keep: 'processes programs performance memory disks network ports kill' },
+  { id: 'services', title: 'Services', icon: 'power', kind: 'native', module: 'services.js', pinned: true, keep: 'systemd daemons units start stop restart' },
+  { id: 'logs', title: 'Logs', icon: 'text', kind: 'native', module: 'logs.js', pinned: true, keep: 'journal journalctl syslog events' },
 ];
 
 export const APP_IDS = new Set(APPS.map((a) => a.id));
@@ -27,8 +26,8 @@ export const appById = (id) => APPS.find((a) => a.id === id) || null;
 /** An in-page address of computer `m` (null: this one): "#/x" → "#/m/<m>/x". The same rule as lib.js link(). */
 export const onComputer = (hash, m) => (m ? `#/m/${m}${hash.slice(1)}` : hash);
 
-/** The address a page app opens at on the desktop of computer `m`. */
-export const appHash = (app, m) => onComputer(app.hash, app.local ? null : m);
+/** The address an app opens at as a page of computer `m`: a page app's own, a native app's under the desktop. */
+export const appHash = (app, m) => onComputer(app.kind === 'native' ? `#/desktop/${app.id}` : app.hash, m);
 
 /** The address of a session's page on computer `m`: what a Terminal window shows. */
 export const sessionHash = (name, m) => onComputer(`#/s/${encodeURIComponent(name)}`, m);

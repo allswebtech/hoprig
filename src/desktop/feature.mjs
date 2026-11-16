@@ -20,7 +20,7 @@
 //   GET  /api/logs/file?path=&from=        { path, text, from, next, size, reset } (logs.mjs)
 //
 // `opts` (tests, the demo): { platform, os (an OS part), run, stream, readFile, adminNeeded, root, kill, parentLookup,
-// logDirs, cpus }. Nothing here returns a password or a token: command lines and log lines are masked (redact).
+// logDirs, cpus, interfaces, host ({ loadavg(), uptime() }) }. Nothing here returns a password or a token: command lines and log lines are masked (redact).
 import fs from 'node:fs';
 import nodeOs from 'node:os';
 import { tokenIdOf } from '../machines/index.mjs';
@@ -53,6 +53,7 @@ export function desktopFeature(ctx, opts = {}) {
   const os = opts.os || OS_PARTS[platform] || linux;
   const io = { run: opts.run || run, stream: opts.stream || stream, readFile: opts.readFile || readFileOrNull };
   const cpus = opts.cpus || (() => nodeOs.cpus());
+  const host = opts.host || nodeOs;
   const uid = typeof process.getuid === 'function' ? process.getuid() : null;
   const root = opts.root ?? uid === 0;
   const dirs = () => (opts.logDirs || os.logDirs)();
@@ -76,7 +77,7 @@ export function desktopFeature(ctx, opts = {}) {
   const routes = [
     ['GET', /^\/api\/system\/usage$/, async () => {
       const [c, mem] = await Promise.all([cpu(), os.memory(io)]);
-      return { cpu: c, mem, load: platform === 'win32' ? null : nodeOs.loadavg(), uptime: nodeOs.uptime(), cpus: cpus().length, platform };
+      return { cpu: c, mem, load: platform === 'win32' ? null : host.loadavg(), uptime: host.uptime(), cpus: cpus().length, platform };
     }],
     ['GET', /^\/api\/system\/processes$/, async () => {
       const list = await sampler.sample();

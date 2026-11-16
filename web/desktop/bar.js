@@ -1,6 +1,7 @@
 // The bars of the desktop, in its two styles:
 //   Taskbar  a bar at the bottom: the start button (the product's mark) with the start menu, a button per open
-//            window, and the tray: the computer, the sessions that need you, light or dark, the clock
+//            window, and the tray: the computer, the sessions that need you, light or dark, the clock, and at its
+//            end the way back to the dashboard (where "Desktop mode" is in a page head)
 //   Dock     a bar at the top: the launcher button, the front window's name with its menu, and the same tray; a
 //            dock at the bottom with the pinned apps and the open ones (a dot under an app that has a window)
 // The start menu and the launcher are one list: a search field, the apps, and the sessions of this computer that
@@ -60,7 +61,8 @@ export function drawBars({ root, top, bottom, style, desk }) {
       paint();
     } }, icon(dark() ? 'sun' : 'moon', { size: 15 }));
   }
-  const tray = () => h('div.desk-tray', computerPill(), waiting(), themeBtn(), clock);
+  const back = () => h('button.desk-tray-btn.desk-back', { type: 'button', title: 'Back to the dashboard', onclick: () => desk.leave() }, icon('grid', { size: 15 }), h('span', 'Dashboard'));
+  const tray = () => h('div.desk-tray', computerPill(), waiting(), themeBtn(), clock, back());
 
   // ---------- the start menu / the launcher ----------
 
@@ -108,12 +110,12 @@ export function drawBars({ root, top, bottom, style, desk }) {
       h('div.desk-pop-foot',
         h('button.btn.ghost.small', { type: 'button', onclick: () => {
           closePopup();
-          desk.launch('settings', '#/settings/appearance');
+          location.hash = '#/settings/appearance';
         } }, icon('settings', { size: 16 }), h('span', 'Desktop settings')),
         h('button.btn.ghost.small', { type: 'button', onclick: () => {
           closePopup();
           desk.leave();
-        } }, icon('logout', { size: 16 }), h('span', 'Leave the desktop'))));
+        } }, icon('grid', { size: 16 }), h('span', 'Back to the dashboard'))));
     add(root, el);
     const onDown = (e) => {
       if (!el.contains(e.target) && !anchor.contains(e.target)) closePopup();

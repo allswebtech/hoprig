@@ -2,15 +2,16 @@
 // quarters and the whole area, minimise, maximise, close and come to the front; one implementation for both
 // styles (desktop.css draws the difference). Pointer Events, so a mouse, a pen and a finger take the same path.
 //
-// A window shows a page of the dashboard in a frame (apps.js frameSrc). While a window is dragged or resized, and
-// over every window that is not in front, a shield lies over its frame: a frame would otherwise swallow the
-// pointer, and the first press on a window behind brings it to the front instead of pressing something in it.
+// A window shows a page of the dashboard in a frame (apps.js frameSrc), or a native app (native.js). While a window
+// is dragged or resized, and over every frame that is not in front, a shield lies over it: a frame would otherwise
+// swallow the pointer, and the first press on a window behind brings it to the front instead of pressing in it.
 // The layout of each computer's desktop is kept in this browser (layout.js) and comes back on a reload.
 import { icon } from '../icons.js';
 import { add, fill, h, prefs, toast } from '../lib.js';
 import { APP_IDS, appById, frameSrc } from './apps.js';
-import { MAX_WINDOWS, clampRect, cleanLayout, keepLayout, keySnap, layoutKey, placeNew, resizeRect, snapRect, snapZone } from './layout.js';
+import { MAX_WINDOWS, clampRect, cleanLayout, gridRects, keepLayout, keySnap, layoutKey, placeNew, resizeRect, snapRect, snapZone } from './layout.js';
 import { withMenu } from './menu.js';
+import { nativeBody } from './native.js';
 
 const DIRS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
 const newId = () => `w${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 5)}`;
@@ -92,6 +93,7 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
     if (i < 0) return;
     const [v] = wins.splice(i, 1);
     clearInterval(v.watch);
+    if (v.native) v.native.stop();
     v.el.remove();
     if (focusId === id) focusFront();
     changed();
@@ -119,10 +121,11 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
     } },
     h('span.dwin-icon', icon(app.icon, { size: 15 })), v.titleEl,
     h('div.dwin-ctl', ctl('minus', 'Minimise', () => minimise(v.id)), v.maxBtn, ctl('x', 'Close', () => close(v.id))));
-    v.frame = h('iframe.dwin-frame', { src: frameSrc(v.hash, location.pathname), title: v.title || app.title });
+    v.native = app.kind === 'native' ? nativeBody(app, { machine: machineName }) : null;
+    v.frame = v.native ? null : h('iframe.dwin-frame', { src: frameSrc(v.hash, location.pathname), title: v.title || app.title });
     const shield = h('div.dwin-shield', { 'aria-hidden': 'true' });
-    v.el = h('section.dwin', { 'aria-label': v.title || app.title, dataset: { id: v.id, app: v.app } },
-      bar, h('div.dwin-body', v.frame, shield),
+    v.el = h('section.dwin', { 'aria-label': v.title || app.title, dataset: { id: v.id, app: v.app, kind: app.kind } },
+      bar, h('div.dwin-body', v.native ? v.native.el : v.frame, shield),
       DIRS.map((d) => h('div.dwin-grip', { dataset: { dir: d }, 'aria-hidden': 'true' })));
     // Any press on the window brings it to the front (the shield takes the first one on a window behind).
     v.el.addEventListener('pointerdown', () => {
@@ -136,8 +139,8 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
     withMenu(bar, (e) => (e.target.closest && e.target.closest('.dwin-btn') ? null : windowMenu(v)), 'Window');
     // The page in the window names itself and may move on (a session opened from Sessions): kept for the bar, the
     // title and the next reload. Same origin, so it is read directly; a page still loading is read next time.
-    v.watch = setInterval(() => sync(v), 1000);
-    v.frame.addEventListener('load', () => {
+    if (v.frame) v.watch = setInterval(() => sync(v), 1000);
+    if (v.frame) v.frame.addEventListener('load', () => {
       sync(v);
       try {
         v.frame.contentWindow.addEventListener('hashchange', () => setTimeout(() => sync(v), 50));
@@ -189,7 +192,8 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
   }
   function reload(id) {
     const v = byId(id);
-    if (v) v.frame.src = frameSrc(v.hash, location.pathname);
+    if (v && v.native) v.native.reload();
+    else if (v) v.frame.src = frameSrc(v.hash, location.pathname);
   }
 
   // ---------- move and resize ----------
@@ -304,7 +308,7 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
   // this desktop, from this same site, is listened to.
   const onMessage = (e) => {
     if (e.origin !== location.origin || !e.data || typeof e.data.type !== 'string') return;
-    const v = wins.find((w) => w.frame.contentWindow === e.source);
+    const v = wins.find((w) => w.frame && w.frame.contentWindow === e.source);
     if (!v) return;
     if (e.data.type === 'hoprig:key' && typeof e.data.code === 'string') onKeyCode(e.data.code, v.id);
     else if (e.data.type === 'hoprig:logged-out') location.href = '/login';
@@ -370,15 +374,8 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
     /** Every window side by side in a grid, none minimised. */
     arrange() {
       const shown = wins.filter((v) => !v.min);
-      const n = shown.length;
-      if (!n) return;
-      const cols = Math.ceil(Math.sqrt(n));
-      const rows = Math.ceil(n / cols);
-      const s = size();
-      shown.forEach((v, i) => {
-        v.snap = null;
-        v.rect = clampRect({ x: (i % cols) * Math.floor(s.w / cols), y: Math.floor(i / cols) * Math.floor(s.h / rows), w: Math.floor(s.w / cols), h: Math.floor(s.h / rows) }, s);
-      });
+      if (!shown.length) return;
+      gridRects(shown.length, size()).forEach((r, i) => Object.assign(shown[i], { snap: null, rect: r }));
       placeAll();
       changed();
     },
@@ -391,7 +388,10 @@ export function windowManager({ root, area, machineName, onChange = () => {} }) 
     stop() {
       clearTimeout(saveTimer);
       prefs.set(key, keepLayout(wins, focusId));
-      for (const v of wins) clearInterval(v.watch);
+      for (const v of wins) {
+        clearInterval(v.watch);
+        if (v.native) v.native.stop();
+      }
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('message', onMessage);
       window.removeEventListener('blur', onBlur);

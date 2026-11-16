@@ -160,3 +160,12 @@ export const keepLayout = (windows, focus) => ({
 
 /** The storage key of a computer's layout: one desktop per computer ("~" is this one). */
 export const layoutKey = (machineName) => `desktop.${machineName || '~'}`;
+
+/** `n` windows side by side in a grid that fills an area of `size`: their rects. */
+export function gridRects(n, size) {
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  const w = Math.floor(size.w / cols);
+  const hh = Math.floor(size.h / rows);
+  return Array.from({ length: n }, (_, i) => clampRect({ x: (i % cols) * w, y: Math.floor(i / cols) * hh, w, h: hh }, size));
+}

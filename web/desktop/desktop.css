@@ -152,3 +152,99 @@ body.desk-mode[data-desk-style='dock'] .toasts { top: 42px; }
 .desk-tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 8px 14px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); color: var(--text); font: inherit; font-weight: 600; box-shadow: var(--shadow-1); cursor: pointer; text-align: center; }
 .desk-tile:hover { border-color: var(--ring); }
 .desk-tile-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; background: var(--accent-soft); color: var(--accent-soft-text); }
+
+/* ---------- the way in and the way back ---------- */
+/* "Desktop mode" in a page head: only where the desktop has windows. */
+@media (max-width: 1023px), (max-height: 599px) { .desk-headbtn { display: none; } }
+.desk-back { font-weight: 600; color: var(--text); }
+
+/* ---------- native apps: Task manager, Services, Logs (a window's body, or a page of its own) ---------- */
+.dwin[data-kind='native'] .dwin-body { display: flex; background: var(--bg); }
+.dwin[data-kind='native'][aria-current='false'] .dwin-shield { display: none; } /* the press goes to the app, which comes forward */
+.desk-busy .dwin[data-kind='native'] .dwin-shield { display: block; }
+.dapp { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: var(--fs-sm); }
+.dapp-page { min-height: 70vh; height: calc(100vh - 220px); padding: 0; }
+.dapp-view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.dapp-bar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.dapp-bar .segmented { flex: none; }
+.dapp-filter { flex: 1 1 200px; min-width: 140px; max-width: 360px; height: 34px; }
+.dapp-unit { flex-basis: 180px; }
+.dapp select.dapp-select { width: auto; max-width: 100%; height: 34px; padding-top: 0; padding-bottom: 0; }
+.dapp select.dapp-file { flex: 1 1 260px; max-width: 520px; }
+.dapp-status { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.dapp-note { color: var(--muted); margin: 8px 2px; }
+.dapp-error { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: var(--r); background: var(--danger-soft); color: var(--danger); }
+.dapp-hint { margin: 0; }
+.dapp .banner { margin: 0; }
+.dapp-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.dapp-sub { margin: 6px 2px 0; font-size: var(--fs-sm); color: var(--text-2); }
+
+/* the table: a head that stays, rows that scroll */
+.dapp-table { flex: 1; min-height: 140px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow: auto; }
+.dapp-th { position: sticky; top: 0; z-index: 1; }
+.dapp-tr { display: grid; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px; border-bottom: 1px solid var(--border); }
+.dapp-tbody .dapp-tr:hover { background: var(--surface-2); }
+.dapp-th { flex: none; min-height: 32px; background: var(--surface-2); font-size: var(--fs-xs); font-weight: 650; color: var(--muted); }
+.dapp-sort { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; min-width: 0; }
+.dapp-sort:hover, .dapp-sort[aria-sort='ascending'], .dapp-sort[aria-sort='descending'] { color: var(--text); }
+.dapp-td { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dapp-num { justify-content: flex-end; text-align: right; font-variant-numeric: tabular-nums; }
+.dapp-strong { font-weight: 600; color: var(--text); }
+.dapp-dim { color: var(--text-2); }
+.dapp-cmd { color: var(--text-2); font-size: var(--fs-xs); }
+.dapp-cmd-full { overflow-wrap: anywhere; color: var(--text-2); }
+.dapp-own { color: var(--muted); }
+.dapp-lock { display: inline-grid; place-items: center; width: 32px; color: var(--muted); }
+.dapp .dwin-btn:disabled { opacity: .4; cursor: default; }
+.dapp-end:hover { background: var(--danger-solid, var(--danger)); color: var(--on-solid); }
+.dapp-share { display: grid; grid-template-columns: 1fr 48px; align-items: center; gap: 8px; }
+.dapp-picked { background: var(--accent-soft); }
+.dapp-link { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dapp-link:hover { color: var(--accent); text-decoration: underline; }
+.dapp-acts { display: inline-flex; gap: 2px; }
+.pill.dapp-st-running { background: var(--ok-soft); color: var(--ok); }
+.pill.dapp-st-failed { background: var(--danger-soft); color: var(--danger); }
+
+/* cards of Performance and Network */
+.dapp-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
+.dapp-card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.dapp-card-head h3 { margin: 0; font-size: var(--fs-sm); color: var(--text-2); }
+.dapp-big { font-size: 22px; font-variant-numeric: tabular-nums; }
+.dapp-strip { height: 56px; display: flex; align-items: flex-end; gap: 2px; padding: 4px; border-radius: var(--r-sm); background: var(--surface-2); }
+.dapp-strip i { flex: 1; max-width: 10px; border-radius: 2px 2px 0 0; background: var(--accent); opacity: .75; }
+.dapp-cores { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; }
+.dapp-core { display: grid; grid-template-columns: 22px 1fr; align-items: center; gap: 6px; }
+.dapp-facts { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px 28px; }
+.dapp-facts > div { display: flex; flex-direction: column; gap: 2px; }
+.dapp-facts strong { font-variant-numeric: tabular-nums; }
+.dapp-ifaces { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.dapp-addrs { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.dapp-addrs li { display: flex; justify-content: space-between; gap: 8px; min-width: 0; }
+.dapp-addrs .mono { overflow: hidden; text-overflow: ellipsis; }
+
+/* Services: the list, with a service's log under it */
+.dapp-split { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.dapp-logpane { flex: 0 0 38%; min-height: 120px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+.dapp-loghead { flex: none; display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+
+/* Logs */
+.dapp-log { flex: 1; min-height: 0; margin: 0; padding: 10px 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; color: var(--text); background: var(--surface); }
+.dapp-logs .dapp-log { border: 1px solid var(--border); border-radius: var(--r); }
+.dapp-journal { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+.dapp-entry { display: grid; grid-template-columns: 112px minmax(80px, 160px) 64px 1fr; gap: 10px; padding: 2px 12px; }
+.dapp-entry:hover { background: var(--surface-2); }
+.dapp-time, .dapp-unit-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dapp-prio { font-weight: 700; }
+.dapp-msg { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.dapp-p0, .dapp-p1, .dapp-p2, .dapp-p3 { background: var(--danger-soft); }
+.dapp-p0 .dapp-prio, .dapp-p1 .dapp-prio, .dapp-p2 .dapp-prio, .dapp-p3 .dapp-prio { color: var(--danger); }
+.dapp-p4 .dapp-prio { color: var(--warn); }
+.dapp-p7 .dapp-msg { color: var(--muted); }
+.dapp-follow[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); border-color: transparent; }
+
+/* a native app as a page on a small screen */
+@media (max-width: 700px) {
+  .dapp-page { height: calc(100vh - 230px); }
+  .dapp-entry { grid-template-columns: 1fr; gap: 0; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+  .dapp-tr { gap: 6px; padding: 0 6px; min-width: 600px; }
+}
