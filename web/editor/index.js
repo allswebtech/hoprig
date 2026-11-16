@@ -140,7 +140,8 @@ function settingsBody() {
         h('div.stepper-inline', btn('icon secondary', { icon: 'minus', title: 'Smaller', onclick: () => step(-1) }), size, btn('icon secondary', { icon: 'plus', title: 'Larger', onclick: () => step(1) }))),
       h('div.fieldrow', h('span.field-label', 'Tab size', marks.tab), tabs, h('span.hint', 'Spaces for the Tab key and for an indent. A project\'s own .editorconfig is not read.')),
       toggle('Word wrap', p.wordWrap, (v) => setEditorPref('wrap', v), 'Long lines wrap at the edge instead of scrolling sideways.'),
-      toggle('Plain text editing', p.plain, (v) => setEditorPref('plain', v), 'A plain text box instead of the code editor, for a phone where the code editor cannot be typed into. Changes are still shown side by side.')),
+      // Plain text editing (for a phone where Monaco cannot be typed into) is switched in the editor's own menu.
+      h('p.hint', 'Plain text editing, for a phone where the code editor cannot be typed into, is in the editor\'s menu (…).')),
   ];
 }
 
@@ -149,7 +150,7 @@ registerSettingsPage({
   desc: 'The code editor: text size, tab size and word wrap, in this browser.',
   summary: () => {
     const p = editorPrefs();
-    return `${p.fontSize} px · tab ${p.tabSize}${p.wordWrap ? ' · wrap' : ''}${p.plain ? ' · plain text' : ''}`;
+    return `${p.fontSize} px · tab ${p.tabSize}${p.wordWrap ? ' · wrap' : ''}`;
   },
   render: () => settingsBody(),
 });
