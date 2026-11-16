@@ -65,12 +65,24 @@ export function planLink(opts = {}) {
       if (!st.isFile()) return { ...out, action: 'conflict', why: 'it is not a file' };
       if (!fs.existsSync(t.target)) return { ...out, action: 'adopt' };
       if (sameText(t.link, t.target)) return { ...out, action: 'backup' };
-      return { ...out, action: 'conflict', why: `it differs from the brain's ${tilde(t.target)}: keep one (copy what you want into the brain's file and delete or rename this one), then run this again` };
+      return { ...out, action: 'conflict', why: `it differs from the brain's ${tilde(t.target)}: keep one (copy what you want into the brain's file and delete or rename this one), then link again` };
     }
     if (!st) return { ...out, action: 'link' };
     if (st.isDirectory()) return { ...out, action: 'merge' };
     return { ...out, action: 'conflict', why: 'a file is in the way' };
   });
+}
+
+/** What will happen to one plan entry, in plain words for the page. */
+export function planWords(p) {
+  return {
+    already: 'already linked',
+    link: 'a new link',
+    merge: 'its files are merged into the brain, with a backup of the folder kept',
+    adopt: 'the rules file is moved into the brain, with a backup kept',
+    backup: 'it has the same text as the brain\'s, so it is kept as a backup and linked',
+    conflict: `left alone, because ${p.why || 'something is in the way'}`,
+  }[p.action] || p.action;
 }
 
 /** Do the plan. Returns the plan entries with `done` (what was done, in plain words) or `error`. */
