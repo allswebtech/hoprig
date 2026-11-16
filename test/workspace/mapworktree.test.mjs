@@ -86,7 +86,6 @@ test('an entry whose folder here is a worktree is kept and listed as not on this
   for (const manifests of [false, true]) {
     const r = await M.updateMap({ dir: C.ws, projects: C.projects, manifests });
     assert.deepEqual([r.diff.same, r.diff.removed, r.takenOut, r.manifests, r.otherChanges], [true, [], [], [], false], `manifests ${manifests}: nothing leaves the map`);
-    assert.equal('worktrees' in r, false);
     assert.deepEqual([...r.notHere].sort(), ['app-old-name', 'app/code/app-api', 'app/code/app-web-gone', ...linked, 'elsewhere', 'git/tool-old'].sort());
     assert.equal(fs.readFileSync(M.mapFile(C.ws), 'utf8'), before);
   }

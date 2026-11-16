@@ -17,7 +17,7 @@ import { cloneRepo, parseRepo, rememberDir } from '../pcsetup/projects.mjs';
 import { MANIFEST, git, readManifest, stamp } from '../pcsetup/workspace.mjs';
 import { capture, stream } from '../setup/system.mjs';
 import { loadConfig } from '../config.mjs';
-import { WORKTREE_LEFT, isDir, isGitRepo, isLinkedWorktree, projectsIn, workspaceDir } from './layout.mjs';
+import { WORKTREE_WHY, isDir, isGitRepo, isLinkedWorktree, projectsIn, workspaceDir } from './layout.mjs';
 import { MAP_FILE, readMap, sameUrl } from './map.mjs';
 import { brainScaffold, workspaceSetup } from './setup.mjs';
 
@@ -44,12 +44,12 @@ const emptyDir = (d) => {
 /** What is at `dest` for the repository `url`: clone | here | different | no-address (+ why). */
 export async function placeState(dest, url, run = capture) {
   if (!fs.existsSync(dest) || emptyDir(dest)) return url ? { action: 'clone' } : { action: 'no-address', why: 'not on a git server yet: copy it from the computer that has it' };
-  if (!isGitRepo(dest)) return { action: 'different', why: 'a folder that is not this repository is there: left alone' };
-  if (isLinkedWorktree(dest)) return { action: 'different', why: WORKTREE_LEFT }; // never cloned over, never counted as this one
+  if (!isGitRepo(dest)) return { action: 'different', why: 'a folder that is not this repository is there' };
+  if (isLinkedWorktree(dest)) return { action: 'different', why: WORKTREE_WHY }; // never cloned over, never counted as this one
   const r = await run(['git', '-C', dest, 'config', '--get', 'remote.origin.url'], { timeout: 10_000 });
   const have = r.ok ? r.stdout.trim() : '';
   if (!url || sameUrl(have, url)) return { action: 'here' };
-  return { action: 'different', why: `another repository is there (${have ? 'its address differs' : 'it has no remote'}): left alone` };
+  return { action: 'different', why: `another repository is there (${have ? 'its address differs' : 'it has no remote'})` };
 }
 
 /**
@@ -176,7 +176,7 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
           e.result = 'skipped: its project was not cloned';
           continue;
         }
-        if (parent && parent.why === WORKTREE_LEFT) {
+        if (parent && parent.why === WORKTREE_WHY) {
           e.result = 'skipped: its project\'s folder here is a linked worktree';
           continue;
         }
@@ -186,7 +186,7 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
     // A project's own project.json may name code repositories the map does not have yet: clone those too, except
     // one taken out with `workspace forget` (the map's skip list has it as <project>/<dir>).
     const forgotten = new Set(m.map.skip || []);
-    for (const p of plan.filter((x) => x.kind === 'project' && isGitRepo(x.dest) && x.why !== WORKTREE_LEFT)) {
+    for (const p of plan.filter((x) => x.kind === 'project' && isGitRepo(x.dest) && x.why !== WORKTREE_WHY)) {
       const { manifest, source } = await readManifest(p.dest, run);
       if (!manifest) continue;
       // Memory links: the project's own project.json says; without one, the map does (never a guess when it knows).
@@ -202,7 +202,7 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
     }
     rememberDir(projects);
     const ok = plan.every((e) => !String(e.result).startsWith('failed'));
-    for (const e of plan) if (e.why && e.action === 'different') said(`${e.label}: ${e.why}`);
+    for (const e of plan) if (e.why && e.action === 'different') said(`${e.label}: ${e.why}: left alone`);
     return { ok, dryRun, brain: repo.url, projectsDir: projects, plan, folders: made.did, notes };
   } finally {
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });

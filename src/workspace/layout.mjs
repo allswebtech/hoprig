@@ -114,8 +114,9 @@ export function isLinkedWorktree(d) {
   }
 }
 
-/** What restore and sync say of a map entry whose folder here is a linked worktree: they never touch it. */
-export const WORKTREE_LEFT = 'a linked worktree is in its folder here (a second checkout of another repository): left alone';
+/** Why restore and sync never touch a map entry whose folder here is a linked worktree, and what sync says of it. */
+export const WORKTREE_WHY = 'a linked worktree is in its folder here (a second checkout of another repository)';
+export const WORKTREE_LEFT = `${WORKTREE_WHY}: left alone`;
 
 /**
  * The address of a repository's first remote, read from its git config (no git process: this is read on every

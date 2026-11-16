@@ -219,6 +219,7 @@ export async function scanWorkspace({ dir = workspaceDir(), projects = projectsI
   const notes = [];
   const manifests = [];
   const sources = {}; // project name → 'project.json' | 'found': whether its own project.json speaks for it
+  const roots = {}; // project name → its folder here (mergeMap asks what is in a code repository's folder)
   // What a person set in the map stays: "sync" on an entry (a tool made syncable again, or the other way round).
   const kept = new Map();
   for (const p of previous.projects || []) {
@@ -251,6 +252,7 @@ export async function scanWorkspace({ dir = workspaceDir(), projects = projectsI
     if (!o.url) notes.push(`${p.name}: ${o.why}`);
     const { manifest, source } = await readManifest(p.dir, run);
     sources[p.name] = source;
+    roots[p.name] = p.dir;
     const forgotten = (d) => skip.has(`${p.name}/${d}`); // a code repository taken out with `workspace forget`
     const byDir = new Map();
     // What project.json names stays, whatever its folder here is: a linked worktree here may be a full clone with
@@ -280,7 +282,7 @@ export async function scanWorkspace({ dir = workspaceDir(), projects = projectsI
     map.others.push(withSync({ dir: r, url: o.url, ...(branch ? { branch } : {}) }, `other:${r}`, r.split('/')[0] === 'development' ? false : undefined));
   }
   const v = validateMap(map);
-  return { map: v.ok ? v.map : map, notes, manifests, sources };
+  return { map: v.ok ? v.map : map, notes, manifests, sources, roots };
 }
 
 /** Entries that are tools (sync false): labels, as `status` and `sync` show them. */
@@ -337,7 +339,9 @@ export function diffMap(before, after) {
  * added or updated; what the map has and this computer does not STAYS as it is ("in the map, not on this
  * computer"); only `forget` takes something out. One exception, because a project's own project.json is the truth
  * for that project: when the project IS here and its project.json no longer names a code repository the map has
- * (and its folder is not here either), that repository is taken out of the project. A brain without a remote here
+ * (and its folder is not here either), that repository is taken out of the project. A folder here that is a linked
+ * worktree does not count as "not here" for this: the same folder name may be a full clone on another computer, so
+ * taking it out here would only flip the map between the two on every upkeep. A brain without a remote here
  * and a projects folder this map cannot describe never blank what the map says.
  *
  * Nothing else ever leaves the map by itself: not because of its address (two entries with one address may be two
@@ -366,7 +370,9 @@ export function mergeMap(cur, scan) {
     if (!here.memories && old.memories) here.memories = { ...old.memories };
     for (const r of old.repos) {
       if (here.repos.some((x) => x.dir === r.dir) || skip.has(`${old.name}/${r.dir}`)) continue;
-      if (scan.sources && scan.sources[old.name] === MANIFEST) takenOut.push({ project: old.name, dir: r.dir });
+      const root = scan.roots && scan.roots[old.name];
+      const worktreeHere = root && isLinkedWorktree(path.join(root, r.dir));
+      if (scan.sources && scan.sources[old.name] === MANIFEST && !worktreeHere) takenOut.push({ project: old.name, dir: r.dir });
       else {
         here.repos.push(JSON.parse(JSON.stringify(r)));
         notHere.push(`${old.name}/${r.dir}`);

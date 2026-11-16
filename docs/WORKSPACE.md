@@ -84,8 +84,9 @@ the AI brain because the brain is the one repository every computer has.
   IS on this computer and whose own `project.json` no longer names one of its code repositories (whose folder is not
   here either): its `project.json` is the truth for it, so that repository is "taken out of <project> by its
   project.json". A linked worktree (`git worktree add`, a second checkout of another repository) is never added to
-  the map; an entry whose folder here is one is kept as not on this computer, and restore and sync leave that folder
-  alone. Apart from that one exception nothing leaves the map by itself: `forget` removes a stale entry. `map` shows
+  the map; an entry whose folder here is one is kept as not on this computer (also when the project's `project.json`
+  does not name it: the exception above is only for a folder that is not here at all), and restore and sync leave
+  that folder alone. Apart from that one exception nothing leaves the map by itself: `forget` removes a stale entry. `map` shows
   what changed (added, taken out, a changed address), never commits, and prints the
   `git add` and `git commit` to run in the brain. `project new`, `project clone` and `project add` keep it up to
   date by themselves when there is a brain.

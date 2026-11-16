@@ -15,7 +15,7 @@ const M = await import('../../src/workspace/map.mjs');
 const { upkeepMap } = await import('../../src/workspace/upkeep.mjs');
 const { restoreWorkspace } = await import('../../src/workspace/restore.mjs');
 const { syncAll } = await import('../../src/workspace/sync.mjs');
-const { WORKTREE_LEFT } = await import('../../src/workspace/layout.mjs');
+const { WORKTREE_LEFT, WORKTREE_WHY } = await import('../../src/workspace/layout.mjs');
 
 const urls = { brain: w.bare('brain'), br: w.bare('br'), np: w.bare('np'), app: w.bare('app'), tool: w.bare('tool') };
 // The repository has a second branch, "dev", which B keeps checked out in a full clone.
@@ -99,7 +99,6 @@ test('several rounds of the upkeep and of `workspace map` on A and B: the map an
       // On A, what the map has and A has only as a worktree is "not on this computer" (br/code/app-dev is named by
       // br's own project.json, so the scan has it from there).
       assert.deepEqual(r.notHere, c === A ? ['np/code/app-dev', 'git/tool-dev'] : [], where);
-      assert.equal('worktrees' in r, false);
       assert.equal(mapText(c), map0, `${where}: the map`);
       assert.equal(manifestText(c), manifest0, `${where}: br/project.json`);
       for (const d of [brain(c), path.join(c.projects, 'br'), path.join(c.projects, 'np')]) assert.equal(w.sh(d, 'status', '--porcelain'), '', `${where}: nothing to commit in ${path.basename(d)}`);
@@ -119,8 +118,9 @@ test('restore and sync on A leave each worktree alone and say so in one line; th
   assert.equal(r.ok, true);
   for (const l of WT) {
     const e = r.plan.find((x) => x.label === l);
-    assert.deepEqual([e.action, e.result], ['different', `left alone: ${WORKTREE_LEFT}`], l);
+    assert.deepEqual([e.action, e.result], ['different', `left alone: ${WORKTREE_WHY}`], l);
     assert.ok(text().includes(`${l}: ${WORKTREE_LEFT}`), `${l}: said in one line`);
+    assert.equal(`${e.result}\n${text()}`.split('\n').filter((x) => x.includes(l)).every((x) => x.split('left alone').length === 2), true, `${l}: "left alone" once a line`);
   }
   const s = await syncAll({ dir: A.ws, projects: A.projects });
   for (const l of WT) assert.deepEqual(s.repos.find((x) => x.label === l), { label: l, did: [WORKTREE_LEFT], todo: [] }, l);
@@ -138,4 +138,57 @@ test('a fresh computer clones every entry, the one on "dev" on its branch', asyn
   assert.equal(r.ok, true);
   for (const l of WT) assert.equal(r.plan.find((x) => x.label === l).result, 'cloned', l);
   assert.deepEqual([head(path.join(C.projects, 'br', 'code', 'app-dev')), head(path.join(C.ws, 'git', 'tool-dev'))], ['dev', 'dev']);
+});
+
+// The rule from before the worktrees: a project here whose own project.json no longer names a code repository the map
+// has, and whose folder is not here, loses it. A folder here that is a linked worktree is not "not here" for that rule:
+// on the computer that has it as a full clone the scan adds it, so taking it out here would flip the map on every upkeep.
+test('a project.json that does not name the folder, a worktree on D and a full clone on E: the upkeep never flips the map', async () => {
+  const u = { brain: w.bare('brain-pj'), pt: w.bare('pt'), app: w.bare('app-pj') };
+  {
+    const seed = w.clone(u.pt, path.join(w.root, 'seed', 'pt'));
+    fs.writeFileSync(path.join(seed, '.gitignore'), '/code/*\n');
+    fs.writeFileSync(path.join(seed, 'project.json'), JSON.stringify({ name: 'pt', repos: [{ dir: 'code/app', url: u.app }], memories: {} }, null, 2) + '\n');
+    push(seed, 'project.json names code/app only');
+  }
+  const D = w.computer('d');
+  const E = w.computer('e');
+  for (const c of [E, D]) {
+    c.use();
+    w.clone(u.brain, brain(c));
+    const p = w.clone(u.pt, path.join(c.projects, 'pt'));
+    const app = w.clone(u.app, path.join(p, 'code', 'app'));
+    if (c === E) w.clone(u.app, path.join(p, 'code', 'x'));
+    else w.sh(app, 'worktree', 'add', '-q', '-b', 'try', path.join(p, 'code', 'x'));
+  }
+  // The first map, on E (manifests off: project.json stays as it is and does not name code/x).
+  E.use();
+  const first = await M.updateMap({ dir: E.ws, projects: E.projects, manifests: false });
+  assert.deepEqual(first.map.projects.find((p) => p.name === 'pt').repos.map((x) => x.dir), ['code/app', 'code/x']);
+  push(brain(E), 'the first map');
+  const map0 = mapText(E);
+  const head0 = w.sh(brain(E), 'rev-parse', 'HEAD');
+  const pj0 = fs.readFileSync(path.join(E.projects, 'pt', 'project.json'), 'utf8');
+  for (let round = 1; round <= 3; round++) {
+    for (const c of [D, E]) {
+      c.use();
+      pull(brain(c));
+      const where = `round ${round}, computer ${path.basename(c.home)}`;
+      const up = await upkeepMap({ dir: c.ws, projects: c.projects, commit: true, push: true });
+      assert.deepEqual([up.changed, up.lines], [false, []], `${where}: the upkeep`);
+      assert.equal(mapText(c), map0, `${where}: the map`);
+      assert.equal(w.sh(brain(c), 'rev-parse', 'HEAD'), head0, `${where}: nothing committed`);
+      for (const d of [brain(c), path.join(c.projects, 'pt')]) assert.equal(w.sh(d, 'status', '--porcelain'), '', `${where}: nothing to commit in ${path.basename(d)}`);
+      assert.equal(fs.readFileSync(path.join(c.projects, 'pt', 'project.json'), 'utf8'), pj0, `${where}: project.json`);
+    }
+  }
+  assert.equal(w.sh(path.join(w.server, 'team', 'brain-pj.git'), 'rev-parse', 'main'), head0, 'nothing reached the git server');
+  D.use();
+  const look = await M.updateMap({ dir: D.ws, projects: D.projects, dryRun: true, manifests: false });
+  assert.deepEqual([look.takenOut, look.notHere, look.diff.same], [[], ['pt/code/x'], true], 'D: in the map, not on this computer');
+  assert.equal((await M.mapStatus({ dir: D.ws, projects: D.projects })).entries.find((e) => e.label === 'pt/code/x').state, 'missing');
+  // The rule from before stays: with the folder absent on D, project.json takes the entry out there.
+  w.sh(path.join(D.projects, 'pt', 'code', 'app'), 'worktree', 'remove', path.join(D.projects, 'pt', 'code', 'x'));
+  const gone = await M.updateMap({ dir: D.ws, projects: D.projects, dryRun: true, manifests: false });
+  assert.deepEqual([gone.takenOut, gone.diff.removed], [[{ project: 'pt', dir: 'code/x' }], ['pt/code/x']]);
 });
