@@ -277,7 +277,7 @@ export function accountsFeature(ctx, opts = {}) {
   const auto = opts.autoswitch || autoswitchModule;
   const addon = () => opts.trouteai || findAddon('trouteai');
   const now = opts.now || Date.now;
-  // Codex's own sign-in is a provider kind only while Codex is offered (src/codetools/index.mjs). `opts.findTool`:
+  // Codex's own sign-in is a provider kind only while Codex is offered (src/codetools/offered.mjs). `opts.findTool`:
   // tests of the kept Codex parts pass one that knows every built tool.
   const tool = opts.findTool || findTool;
   const codexOffered = () => !!tool('codex');

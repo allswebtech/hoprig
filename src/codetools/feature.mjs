@@ -5,7 +5,7 @@
 //   POST /api/codetools/<id>     { on: bool }: turn a tool on or off (never all off); which tools the page offers
 //   GET  /api/codetools/codex/signin   { installed, signedIn: true | false | null }: Codex's own sign-in
 //   POST /api/codetools/codex/signin   {}: a terminal with Codex's device sign-in (Hoprig's copy) → { name }
-//                                both answer 404 while Codex is not offered (src/codetools/index.mjs)
+//                                both answer 404 while Codex is not offered (src/codetools/offered.mjs)
 //
 // And Codex's and OpenCode's servers (./servers.mjs): a server that a list of conversations started, or whose last
 // launcher could not stop it, is stopped once no session has used it for a while. The sessions themselves are

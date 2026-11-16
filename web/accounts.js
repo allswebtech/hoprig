@@ -492,7 +492,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
           choice('user', 'Claude subscription', 'Another Claude Pro or Max account. You sign in through a link; nothing to install.', () => subscription()),
           choice('key', 'Claude API key', 'A key from console.anthropic.com, or a gateway that speaks Claude\'s API.', () => apiForm({ via: 'api' })),
           choice('key', 'OpenAI API key', 'For OpenCode: a key from platform.openai.com, or a service that speaks OpenAI\'s API.', () => apiForm({ via: 'openai' })),
-          // Only while Codex is offered (src/codetools/index.mjs): the server sends its defaults then.
+          // Only while Codex is offered (src/codetools/offered.mjs): the server sends its defaults then.
           data.defaults && data.defaults.codex ? choice('user', 'Codex sign-in', 'The ChatGPT account Codex signs in to on this computer. For Codex only.', () => codexSignin()) : null,
           choice('sparkle', 'Other providers through TRouteAI (for Claude Code)', 'OpenAI, Gemini, OpenRouter or a local model, translated for Claude Code by TRouteAI, a free gateway on this computer.', () => trouteai())),
         terminalLink());
