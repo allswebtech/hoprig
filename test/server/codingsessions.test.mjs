@@ -126,6 +126,12 @@ test('a move stays in the tool: refused to a provider that does not serve it, el
   r = await call('/api/sessions/oc/switch', { profile: 'gw2' });
   assert.equal(r.status, 200);
   assert.deepEqual(respawned.pop(), ['L', 'opencode', 'gw2', '--permission-mode', 'ask', '--resume', 'ses_abcdefgh12345678']);
+  // "Continue" after a usage limit is Claude Code's: it neither types nor restarts anything in another tool.
+  const before = respawned.length;
+  r = await call('/api/sessions/oc/continue', { restart: true });
+  assert.equal(r.status, 409);
+  assert.match(r.json.error, /only a Claude Code session/);
+  assert.equal(respawned.length, before);
   fs.rmSync(path.join(runs, 'oc.json'));
   terms = [];
 });

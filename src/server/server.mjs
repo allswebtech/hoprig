@@ -555,6 +555,8 @@ export function createServer(opts = {}) {
       const name = decodeURIComponent(m[1]);
       const { term, run } = await sessionOr404(name);
       if (!run) throw new HttpError(409, 'this is a plain shell, not a Claude session started by the launcher');
+      // Usage limits are followed for Claude Code only: a Codex or OpenCode session is never at one here.
+      if ((run.tool || 'claude') !== 'claude') throw new HttpError(409, 'only a Claude Code session waits at a usage limit here');
       if (run.profile === AUTO.name) throw new HttpError(409, 'a session on Auto goes on by itself');
       const prompt = autoswitch.getAutoSwitch().prompt;
       if (b.restart === true) {
