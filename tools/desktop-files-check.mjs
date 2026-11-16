@@ -159,7 +159,7 @@ try {
 
     // Delete into the trash, and put it back.
     await choose('old.txt');
-    await pressLabel(`${W} .dfiles-act`, 'Delete');
+    await pressText(`${W} .dfiles-delete`, 'Delete');
     check(P, 'Delete moves it to the trash', await toast(/to the trash/) && !fs.existsSync(path.join(tree, 'old.txt')));
     await pressText(`${W} .dfiles-tool`, 'Trash');
     check(P, 'the Trash shows it with where it was', await waitFor(`[...document.querySelectorAll('${W} .dapp-tbody .dapp-tr')].some((r) => r.textContent.includes('old.txt') && r.textContent.includes('notes'))`));

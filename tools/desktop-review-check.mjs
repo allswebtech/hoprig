@@ -52,7 +52,7 @@ try {
     await ev(`(() => { const a = document.querySelector('.desk-area'); a.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 700, clientY: 820 })); return true; })()`);
     await waitFor(`!!document.querySelector('.desk-menu')`);
     await ev(`[...document.querySelectorAll('.desk-menu button')].find((b) => b.textContent.includes('Desktop settings')).click()`);
-    check(P, 'Desktop settings opens Appearance, whose way back says "Desktop"', await waitFor(`location.hash === '#/settings/appearance' && (() => { const b = document.querySelector('.pagehead-back'); return b && b.textContent.trim() === 'Desktop'; })()`),
+    check(P, 'Desktop settings opens Appearance, whose way back says "Desktop"', await waitFor(`location.hash.startsWith('#/settings/appearance') && (() => { const b = document.querySelector('.pagehead-back'); return b && b.textContent.trim() === 'Desktop'; })()`),
       await ev(`(document.querySelector('.pagehead-back') || {}).textContent`));
   }
 

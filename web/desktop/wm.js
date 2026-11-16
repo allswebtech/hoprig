@@ -121,7 +121,7 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
   /** Bring a window to the front and give it the keyboard, as a window opened or raised on purpose does. */
   function raise(id) {
     focus(id);
-    giveKeys(byId(id));
+    giveKeys(byId(id), () => focusId === id);
   }
   const moves = pointerMoves({ root, area, size, place, changed });
 

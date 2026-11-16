@@ -38,7 +38,7 @@ try {
     check(P, 'a click on a desktop icon opens Sessions', await waitFor(`!!document.querySelector('.dwin[data-app="sessions"]')`));
     await click(...center(await rectOf('.desk-start')));
     check(P, 'the start menu opens with the search field focused', await waitFor(`document.activeElement && document.activeElement.classList.contains('desk-search')`));
-    check(P, 'the start menu has the computer\'s apps only', await ev(`[...document.querySelectorAll('.desk-app')].map((b) => b.textContent).join('|') === 'Sessions|Terminal|Task manager|Services|Logs'`), await ev(`[...document.querySelectorAll('.desk-app')].map((b) => b.textContent).join('|')`));
+    check(P, 'the start menu has the computer\'s apps only', await ev(`[...document.querySelectorAll('.desk-app')].map((b) => b.textContent).join('|') === 'Sessions|Terminal|Files|Editor|Task manager|Services|Logs'`), await ev(`[...document.querySelectorAll('.desk-app')].map((b) => b.textContent).join('|')`));
     const ws = await ev(`(() => { const b = [...document.querySelectorAll('.desk-app')].find((x) => x.textContent.includes('Task manager')); const r = b.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
     await click(...ws);
     check(P, 'the Task manager opens from the start menu, which closes', await waitFor(`!!document.querySelector('.dwin[data-app="tasks"]') && !document.querySelector('.desk-pop')`));
@@ -182,7 +182,7 @@ try {
     check(P, '1024 × 600: still windows', await ev(`!!document.querySelector('.desk .desk-taskbar')`));
     await shot('3-1024x600');
     await open('#/desktop', { w: 390, h: 844, mobile: true });
-    check(P, '390 × 844: no windows; a grid of the apps as pages, the bottom bar kept', await ev(`!document.querySelector('.desk') && document.querySelectorAll('.desk-tile').length === 5 && getComputedStyle(document.querySelector('.bottombar')).display !== 'none'`));
+    check(P, '390 × 844: no windows; a grid of the apps as pages, the bottom bar kept', await ev(`!document.querySelector('.desk') && document.querySelectorAll('.desk-tile').length === 7 && getComputedStyle(document.querySelector('.bottombar')).display !== 'none'`));
     check(P, '390 × 844: a native app\'s tile is a link to it as a page', await ev(`document.querySelector('a.desk-tile[href="#/desktop/tasks"]') !== null`));
     check(P, '390 × 844: no "Desktop mode" in the page head', await ev(`!document.querySelector('.desk-headbtn') || !document.querySelector('.desk-headbtn').offsetWidth`));
     check(P, 'no sideways scroll at 390', await ev(`document.documentElement.scrollWidth <= 390`));

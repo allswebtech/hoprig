@@ -6,16 +6,17 @@ import { h, openSheet } from '../lib.js';
 /**
  * The keyboard goes into window `v`: its page (the terminal, the editor) or the first field of a native app, so
  * what is typed next lands there. A page still loading gets it once it has loaded (wm.js, on the frame's load).
+ * `inFront()`: whether `v` is still the window in front; one that went behind meanwhile takes nothing.
  */
-export function giveKeys(v) {
+export function giveKeys(v, inFront = () => true) {
   if (!v) return;
   if (v.native) {
-    // Its module loads and draws a moment later: its first field takes the keyboard then, unless the keyboard went
-    // elsewhere meanwhile.
+    // Its module loads and draws a moment later: its first field takes the keyboard then, unless another window came
+    // to the front or the keyboard went elsewhere meanwhile.
     const from = document.activeElement;
     let n = 0;
     const take = () => {
-      if (!v.el.isConnected || (document.activeElement !== from && !v.el.contains(document.activeElement))) return;
+      if (!v.el.isConnected || !inFront() || (document.activeElement !== from && !v.el.contains(document.activeElement))) return;
       const el = v.native.el.querySelector('input:not([type=hidden]):not([disabled]), select, textarea');
       if (el) el.focus({ preventScroll: true });
       else if (++n < 30) setTimeout(take, 100);
