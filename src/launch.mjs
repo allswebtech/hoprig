@@ -9,6 +9,7 @@ import path from 'node:path';
 import { getAutoSwitch, limitedProfiles, markLimited, nextProfile, parseResets, preferredAvailable, usableOrder } from './autoswitch.mjs';
 import { claudeLoginStatus, claudeVersionQuick } from './claudecode.mjs';
 import { loadConfig, sessionArgs } from './config.mjs';
+import { rememberFolderProvider } from './defaultprovider.mjs';
 import { claudeDir, hookFile, hookSettingsDir } from './paths.mjs';
 import { listProfiles, profileEnv, readProfile } from './profiles.mjs';
 import { loginSeen, rememberLogin } from './routerstate.mjs';
@@ -247,6 +248,7 @@ export function statusScript(user) {
  */
 function runOnce(profile, args, cfg, { interactive = false, fallback = false } = {}) {
   const { file } = createRun({ profile: profile.name, cwd: process.cwd(), carryArgs: carryArgs(args) });
+  rememberFolderProvider(process.cwd(), profile.name); // the next new session here starts on it (defaultprovider.mjs)
   // `fallback`: this session is here only because a preferred profile reached its limit (see launch()).
   if (fallback) updateRun(file, { fallback: true });
   const env = profileEnv(profile);

@@ -40,6 +40,7 @@ import { fileURLToPath } from 'node:url';
 import { Readable, Writable } from 'node:stream';
 import { WebSocketServer } from 'ws';
 import * as autoswitchModule from '../autoswitch.mjs';
+import { chooseDefault, folderProviders, lastProviderIn } from '../defaultprovider.mjs';
 import { EFFORTS, MODELS, PERMISSION_MODES, cleanSessionDefaults, loadConfig, saveConfig } from '../config.mjs';
 import { stateDir, tilde } from '../paths.mjs';
 import { deleteProfile, listProfiles, publicProfile } from '../profiles.mjs';
@@ -260,6 +261,7 @@ export function createServer(opts = {}) {
 
   /** Auto mode is on: sessions may run on the virtual profile "auto" (the router picks the account). */
   const autoOn = () => autoswitch.getAutoSwitch().enabled === true;
+  const defaultFor = (profiles, last = null) => chooseDefault({ profiles, auto: { ...autoswitch.getAutoSwitch(), enabled: autoOn() }, autoName: AUTO.name, last });
   /** A profile name from the browser: a real profile, or "auto" while Auto mode is on. Full object or null. */
   const pickProfile = (name) => (name === AUTO.name ? (autoOn() ? { name: AUTO.name, env: {} } : null) : v.profile(name));
 
@@ -335,12 +337,17 @@ export function createServer(opts = {}) {
       // signed in (the provider's accountAt), to offer "Continue with the new account".
       if (c.limit || c.runLimit) c.limitAt = (c.runLimit && c.runLimit.at) || watcher.seen.get(c.runId) || null;
     }
-    const rec = autoswitch.recommendedProfile ? autoswitch.recommendedProfile() : null;
-    // Auto mode on: "Auto" is the first choice for a new session.
-    const recommended = autoOn() ? AUTO.name : (rec && names.has(rec) ? rec : null) || (profiles.find((p) => !p.limited && !p.virtual) || profiles[0] || {}).name || null;
+    // The provider a new session starts on (src/defaultprovider.mjs): "auto" while Auto mode is on. `recommendedIn`:
+    // the folders whose own default (the provider used last there) differs from it.
+    const recommended = defaultFor(profiles);
+    const recommendedIn = {};
+    if (!autoOn()) for (const [d, e] of Object.entries(folderProviders())) {
+      const r = defaultFor(profiles, e && e.profile);
+      if (r && r !== recommended) recommendedIn[d] = r;
+    }
     const qa = cfg().server.quickActions;
     return {
-      sessions: list, profiles, autoSwitch: auto, recommended,
+      sessions: list, profiles, autoSwitch: auto, recommended, recommendedIn,
       quickActions: Array.isArray(qa) ? qa : DEFAULT_QUICK_ACTIONS,
       backend: { kind: backend.kind, capabilities: backend.capabilities || {} },
       ...(opts.demo ? { demo: true } : {}), // `hoprig demo` (src/demo): the page shows a "Demo" marker
@@ -415,7 +422,8 @@ export function createServer(opts = {}) {
       const b = await readJson(req);
       const dir = insideRoots(v.absPath(b.dir), roots());
       if (!dir) throw bad('choose a folder inside the allowed roots');
-      const profile = pickProfile(b.profile);
+      // No provider chosen: the server's default for this folder (the one used last there, …: defaultprovider.mjs).
+      const profile = pickProfile(b.profile === undefined || b.profile === '' ? defaultFor(profileStates(await cards()), lastProviderIn(dir)) : b.profile);
       if (!profile) throw bad('there is no such provider');
       const mode = ['new', 'continue', 'resume'].includes(b.mode) ? b.mode : null;
       if (!mode) throw bad('bad mode');

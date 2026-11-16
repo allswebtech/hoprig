@@ -1,11 +1,10 @@
 // The terminal menus: choose a profile, continue a session elsewhere, add a profile.
 import { spawnSync } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import readline from 'node:readline';
-import { getAutoSwitch, limitedProfiles, recommendedProfile, usableOrder } from './autoswitch.mjs';
+import { getAutoSwitch, limitedProfiles, usableOrder } from './autoswitch.mjs';
 import { loadConfig } from './config.mjs';
-import { stateDir, tilde } from './paths.mjs';
+import { chooseDefault, lastProviderIn } from './defaultprovider.mjs';
+import { tilde } from './paths.mjs';
 import { AUTH_VARS, listProfiles, readProfile, validName, writeProfile } from './profiles.mjs';
 import { sessionsIn } from './sessions.mjs';
 
@@ -58,23 +57,6 @@ export function askHidden(question) {
     };
     stdin.on('data', onData);
   });
-}
-
-const lastFile = () => path.join(stateDir(), 'last.json');
-function lastUsed() {
-  try {
-    return JSON.parse(fs.readFileSync(lastFile(), 'utf8')).profile || null;
-  } catch {
-    return null;
-  }
-}
-export function rememberLast(profile) {
-  try {
-    fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(lastFile(), JSON.stringify({ profile }) + '\n', { mode: 0o600 });
-  } catch {
-    /* only a convenience */
-  }
 }
 
 export function ago(ms) {
@@ -160,9 +142,9 @@ export async function chooseProfile({ sessionChosen = false } = {}) {
     const profiles = menuProfiles();
     const limited = limitedProfiles();
     const as = getAutoSwitch();
-    // Enter takes the best profile to start on: "auto" when Auto mode is on, else the first of the order that is
-    // not at its limit, else the one used last (unless that one is at its limit), else the first.
-    const pick = [as.enabled ? 'auto' : null, recommendedProfile(), lastUsed()].find((n) => n && !(n in limited) && profiles.some((p) => p.name === n));
+    // Enter takes the default a dashboard gives a new session here (defaultprovider.mjs): "auto" when Auto mode is
+    // on, else the profile used last in this folder, else the first not at its limit in the Providers page's order.
+    const pick = chooseDefault({ profiles: profiles.map((p) => ({ ...p, virtual: p.kind === 'auto', limited: p.name in limited })), auto: as, last: lastProviderIn(process.cwd()) });
     const def = profiles.find((p) => p.name === pick) || profiles.find((p) => !(p.name in limited)) || profiles[0];
     const sessions = sessionChosen ? [] : sessionsIn(process.cwd());
     out();
