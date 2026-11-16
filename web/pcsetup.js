@@ -147,7 +147,8 @@ export function setupSection() {
     fill(head,
       h(`span.cp-result-icon.${s.fix.length ? 'warn' : 'ok'}`, icon(s.fix.length ? 'alert' : 'check')),
       h('div.cp-result-text', h('strong', s.text), h('span.hint', s.fix.length ? 'Fix installs one thing; Set up this computer installs everything that is missing.' : `This computer has what is needed for coding with Claude Code.${s.optional.length ? ` ${s.optional.length} optional extra${s.optional.length === 1 ? ' is' : 's are'} below, if you want ${s.optional.length === 1 ? 'it' : 'them'}.` : ''}`)),
-      btn('primary', { icon: 'download', label: 'Set up this computer', onclick: () => setupSheet(started) }));
+      // The main action only while something is missing; afterwards a quiet one (installing again is rare).
+      btn(s.fix.length ? 'primary' : 'secondary', { icon: 'download', label: 'Set up this computer', onclick: () => setupSheet(started) }));
     fill(fixBox, s.fix.length ? h('div.rows', s.fix.map(fixRow)) : null);
     // Optional extras: closed until opened, each with its own button; they never make the result "to fix".
     fill(optionalBox, s.optional.length ? fold('computer-optional', `Optional · ${s.optional.length}`, h('div.rows', s.optional.map(fixRow))) : null);
@@ -192,9 +193,10 @@ export function setupSection() {
     h('div.rows.ws-link', h('a.row', { href: link('#/settings/workspace') }, h('span.row-icon', icon('folder')),
       h('span.row-main', h('span.row-title', 'Workspace folders and the map'), h('span.row-sub', 'Settings → Workspace: the folder tree, every repository by its address, keeping it in step')),
       h('span.row-end', icon('chevronRight', { size: 18 })))),
-    h('h2.section-title', 'Recipe'),
-    h('p.hint', 'Make your next computer like this one: save what is installed here, then use it there.'),
-    recipeActions);
+    // Used once per new computer: closed until opened.
+    fold('computer-recipe', 'Advanced: recipe for another computer',
+      h('p.hint', 'Make your next computer like this one: save what is installed here, then use it there.'),
+      recipeActions));
   load();
   return root;
 }

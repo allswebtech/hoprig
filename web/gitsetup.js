@@ -179,7 +179,8 @@ export function gitPanel() {
     const again = (ok) => ok && load();
     const actionOf = (r) => {
       if (r.ok && r.id !== 'identity') return null;
-      if (r.id === 'identity' && g.git) return btn('small secondary', { icon: 'pencil', label: r.ok ? 'Change' : 'Set', onclick: async () => again(await identitySheet(g)) });
+      // Set: a real button. Change (it is fine already): a quiet one, so a green row does not look like a to-do.
+      if (r.id === 'identity' && g.git) return btn(r.ok ? 'small ghost' : 'small secondary', { icon: r.ok ? null : 'pencil', label: r.ok ? 'Change' : 'Set', title: r.ok ? 'Change the name and e-mail on your commits' : null, onclick: async () => again(await identitySheet(g)) });
       if (r.id === 'github' && g.gh && g.gh.installed) return btn('small primary', { icon: 'git', label: 'Sign in', onclick: async () => again(await signinSheet()) });
       if (r.id === 'brain' && g.gh && g.gh.signedIn && g.brain && g.brain.exists && g.brain.git !== false && !g.brain.remote) return btn('small secondary', { icon: 'git', label: 'Keep on GitHub', onclick: async () => again(await brainSheet(g)) });
       return null;
