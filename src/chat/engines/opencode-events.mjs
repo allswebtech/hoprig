@@ -292,6 +292,10 @@ export class OpencodeEvents {
       subject: subject.slice(0, SUBJECT_MAX), subjectCut: subject.length > SUBJECT_MAX || !!(about && about.cut),
       // A call the chat did not see whole: the owner's to answer.
       owner: known ? null : 'unknown',
+      // No `known: true`, seen whole or not: Tia answers an OK by herself only for Claude Code's own tools in their
+      // known shapes (claude-parse.mjs askSubject), and OpenCode's tools and shapes are not on that list in this
+      // version. So an OpenCode chat's OK is always the owner's card (the chat's card says known: false;
+      // src/assistant/policy.mjs).
       why: outside ? `It wants to reach outside the chat's folder: ${resources.join(', ')}` : known ? '' : 'OpenCode did not say the whole of what it wants to do: only you can allow this.',
       // "Allow in this chat": the patterns OpenCode itself would remember (kept by the chat only, never saved).
       grant: save.length && known ? { atoms: save.map((s) => `opencode:${action}:${s}`), updates: null, edits, text: edits ? '' : save.join(', ') } : null,

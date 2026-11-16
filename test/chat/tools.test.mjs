@@ -259,6 +259,19 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   r = await owner('POST', '/api/automation/schedules', schedule({ tool: 'opencode', profile: 'gw', in: 'terminal' }));
   assert.equal(r.status, 400);
   assert.match(r.json.error, /another coding tool only in a chat/);
+
+  // Tia's mark (byTia: only the chat that start created) holds for an OpenCode chat as for Claude Code's, and goes for
+  // good when the owner writes into it.
+  r = await owner('POST', '/api/chats', { dir: proj, tool: 'opencode', profile: 'gw', byTia: true, defaults: true });
+  assert.equal(r.status, 200, r.json && r.json.error);
+  const hers = r.json.id;
+  const cardOf = async () => (await owner('GET', '/api/chats')).json.chats.find((c) => c.chatId === hers);
+  assert.deepEqual([(await cardOf()).byTia, (await cardOf()).tool], [true, 'opencode']);
+  assert.equal((await owner('POST', `/api/chats/${hers}/send`, { text: 'hello', byTia: true })).status, 200);
+  assert.equal((await cardOf()).byTia, true, 'her own message');
+  assert.equal((await owner('POST', `/api/chats/${hers}/send`, { text: 'mine now' })).status, 200);
+  assert.equal((await cardOf()).byTia, false, 'the owner wrote: his chat from now on');
+  assert.equal((await owner('POST', `/api/chats/${hers}/close`, {})).status, 200);
 });
 
 test('a schedule that starts a terminal checks its provider again when it runs, as a chat schedule does', { skip: process.platform === 'win32' && 'POSIX paths' }, async (t) => {

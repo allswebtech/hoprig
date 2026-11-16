@@ -203,6 +203,35 @@ test('her own chat\'s OK of a call her rules cannot judge (an MCP tool, any tool
   assert.deepEqual(ops.calls.filter((c) => c.op === 'answerChat').map((c) => c.args.request), ran, 'only the two known, harmless ones ran');
 });
 
+test('her own OpenCode chat\'s OK is always the owner\'s, even a harmless command seen whole', async () => {
+  const { call, ops } = setup({ cards: [] });
+  await call('list_projects', {});
+  const name = /Started chat (chat:\S+) /.exec((await call('start_chat', { folder: '/home/owner/projects/api', account: 'sub' })).text)[1];
+  const card = ops.s.sessions.find((x) => x.name === name);
+  assert.equal(card.byTia, true, 'hers');
+  const { OpencodeEvents } = await import('../../src/chat/engines/opencode-events.mjs');
+  const { askNote } = await import('../../src/chat/events.mjs');
+  const cwd = '/home/owner/projects/api';
+  const m = new OpencodeEvents({ id: 'ses_tia' });
+  let n = 0;
+  // The OpenCode engine's ask, carried on the chat's card as src/chat/feature.mjs carries it (an OpenCode chat).
+  const judge = async (tool, input, action) => {
+    n++;
+    m.feed({ type: 'session.tool.called', data: { sessionID: 'ses_tia', assistantMessageID: `msg_${n}`, id: `call${n}`, name: tool, input } });
+    const [a] = m.feed({ type: 'permission.asked', data: { id: `per_${n}`, sessionID: 'ses_tia', action, resources: [], save: [], source: { type: 'tool', id: `call${n}` } } });
+    assert.equal(a.owner, null, 'seen whole: not the owner\'s by the engine\'s own rule');
+    Object.assign(card, { status: 'attention', tool: 'opencode', cwd, note: askNote(a, cwd, 'OpenCode'), ask: { request: a.request, type: a.type, tool: a.tool, subject: a.subject, cut: a.subjectCut, owner: !!a.owner, known: a.known === true, canAlways: false } });
+    return call('send_to_chat', { session: name, answer: 'allow' });
+  };
+  // What she would answer at once in a chat of Claude Code (npm test, a note in the folder) is a card here.
+  assert.match((await judge('shell', { command: 'npm test', description: 'Run the tests' }, 'shell')).text, cannotJudge);
+  assert.match((await judge('write', { path: `${cwd}/notes.txt`, content: 'x' }, 'edit')).text, cannotJudge);
+  assert.match((await judge('read', { path: `${cwd}/README.md` }, 'read')).text, cannotJudge);
+  assert.deepEqual(ops.calls.filter((c) => c.op === 'answerChat'), [], 'she answered none');
+  // Saying no is never held back, as in any chat of hers.
+  assert.equal((await call('send_to_chat', { session: name, answer: 'deny' })).isError, false);
+});
+
 test('the policy reads a chat\'s "known" before the risk check; a terminal session has no such fact', () => {
   const tool = byName.get('send_to_chat');
   const tia = { level: 'handsoff', allowed: ['sub'] };
