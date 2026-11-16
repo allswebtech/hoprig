@@ -69,7 +69,7 @@ import { onboardingFeature } from '../setup/onboarding.mjs';
 import { removeDashboardFile, writeDashboardFile } from './dashboardfile.mjs';
 import { createLoginLink, loginLinkStatus, qrRows, useLoginLink } from './loginlink.mjs';
 import { clientIp, isHttps, originOk, requestHost, securityHeaders } from './security.mjs';
-import { notePassword, passwordProblem, passwordState } from './strength.mjs';
+import { notePassword, passwordProblem } from './strength.mjs';
 import { resolveStatic, sendFile } from './static.mjs';
 import { attachTerminal } from './terminal.mjs';
 import { EVENTS, sendNotification } from './notify.mjs';
@@ -701,9 +701,10 @@ export function createServer(opts = {}) {
     ...features.flatMap((f) => f.routes || []),
   ];
 
-  // The overall cap of the sign-in limit (auth.mjs RateLimiter): left out for this computer itself, and once the
-  // password is known to be strong, so nobody can lock the owner out by failing on purpose from many addresses.
-  const overallFor = (req) => ({ overall: !sameComputer(req) && passwordState(cfg().server).state !== 'strong' });
+  // The overall cap of the sign-in limit (auth.mjs RateLimiter) counts every password try from elsewhere, whatever
+  // the password is like: it bounds a guess spread over many addresses and the hashes strangers can make us run.
+  // Left out for this computer itself; a sign-in link (loginByLink) never counts. Those are the owner's ways in.
+  const overallFor = (req) => ({ overall: !sameComputer(req) });
 
   async function login(req, res) {
     const ip = clientIp(req, proxyOpts());

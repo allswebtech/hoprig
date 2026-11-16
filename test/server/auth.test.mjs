@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from './helpers.mjs';
 import {
-  COOKIE, RateLimiter, SessionStore, clearCookie, generatePassword, hashPassword, parseCookies, sessionCookie, verifyPassword,
+  COOKIE, RateLimiter, SessionStore, visitorKey, clearCookie, generatePassword, hashPassword, parseCookies, sessionCookie, verifyPassword,
 } from '../../src/server/auth.mjs';
 
 const box = sandbox();
@@ -88,6 +88,20 @@ test('rate limiter: per IP, global, window, success resets the IP', () => {
   o.fail('s'); o.fail('t');
   o.succeed('u', { overall: false });
   assert.ok(o.retryAfter('v') > 0, 'a success that was not counted overall takes nothing back from it');
+});
+
+test('a visitor is counted by its IPv4 address, or by the /64 of its IPv6 one', () => {
+  assert.equal(visitorKey('198.51.100.7'), '198.51.100.7');
+  assert.equal(visitorKey('::ffff:198.51.100.7'), '198.51.100.7');
+  assert.equal(visitorKey('2001:db8:1:2:3:4:5:6'), '2001:db8:1:2::/64');
+  assert.equal(visitorKey('2001:DB8:0001:0002::9'), '2001:db8:1:2::/64');
+  assert.equal(visitorKey('[2001:db8:1:2:ffff::1]'), '2001:db8:1:2::/64');
+  assert.notEqual(visitorKey('2001:db8:1:3::1'), visitorKey('2001:db8:1:2::1'));
+  assert.equal(visitorKey('unknown'), 'unknown');
+  const r = new RateLimiter({ perIp: 2, global: 100, now: () => 0 });
+  r.fail('2001:db8:1:2::1'); r.fail('2001:db8:1:2::2');
+  assert.ok(r.retryAfter('2001:db8:1:2:9::9') > 0, 'one /64 is one visitor');
+  assert.equal(r.retryAfter('2001:db8:1:3::1'), 0);
 });
 
 test('cookies', () => {

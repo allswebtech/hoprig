@@ -58,10 +58,11 @@ test('good logins do not use up the limit; a cross-site login is refused before 
 });
 
 // Through a public link: cloudflared on this computer forwards each visitor with the address it reports
-// (X-Forwarded-For, last entry). Someone failing from many addresses must not lock the owner out.
-test('through the public link: limits per visitor address; the overall cap never locks out a sign-in link, this computer, or a strong password', async () => {
-  const { hashTag } = await import('../../src/server/strength.mjs');
+// (X-Forwarded-For, last entry). The per-visitor limit counts an IPv6 visitor by its /64. The overall cap holds for
+// every password try from elsewhere, also with a strong password; it never locks out a sign-in link or this computer.
+test('through the public link: limits per visitor (IPv6 by /64); the overall cap holds for any password, not for a sign-in link or this computer', async () => {
   const { createLoginLink } = await import('../../src/server/loginlink.mjs');
+  const { passwordState } = await import('../../src/server/strength.mjs');
   const hash = await hashPassword('right-password');
   saveConfig({ server: { passwordHash: hash, trustProxy: true, passwordCheck: undefined } });
   const app = createServer({ backend });
@@ -77,22 +78,24 @@ test('through the public link: limits per visitor address; the overall cap never
     for (let i = 0; i < 5; i++) assert.equal((await post('/api/login', { password: `wrong-${i}` }, '198.51.100.1')).status, 401);
     assert.equal((await post('/api/login', { password: 'right-password' }, '198.51.100.1')).status, 429);
     assert.equal((await post('/api/login', { password: 'right-password' }, '198.51.100.2')).status, 200);
-    // The good sign-in above judged the password strong (14 characters, not a common one). 30 failures spread over
-    // many visitors then do not lock the owner out: from a new address he still signs in.
-    const { passwordState } = await import('../../src/server/strength.mjs');
-    assert.equal(passwordState().state, 'strong');
-    for (let i = 0; i < 30; i++) await post('/api/login', { password: 'wrong' }, `198.51.100.${10 + i}`);
-    assert.equal((await post('/api/login', { password: 'right-password' }, '198.51.100.99')).status, 200, 'a strong password is never locked by the overall cap');
+    // Every address of one IPv6 /64 is one visitor: a host cannot get a new allowance per address.
+    for (let i = 0; i < 5; i++) assert.equal((await post('/api/login', { password: 'wrong' }, `2001:db8:5:6::${i + 1}`)).status, 401);
+    assert.equal((await post('/api/login', { password: 'wrong' }, '2001:db8:5:6:aaaa::99')).status, 429, 'the same /64 waits');
+    assert.equal((await post('/api/login', { password: 'right-password' }, '2001:db8:5:7::1')).status, 200, 'another /64 does not');
 
-    // A password judged weak keeps the overall cap: then a sign-in link and this computer itself still get in.
-    const weak = await hashPassword('short-pass');
-    saveConfig({ server: { passwordHash: weak, passwordCheck: { tag: hashTag(weak), strong: false, why: 'it has fewer than 12 characters' } } });
-    for (let i = 0; i < 30; i++) await post('/api/login', { password: 'wrong' }, `192.0.2.${10 + i}`);
-    assert.equal((await post('/api/login', { password: 'short-pass' }, '192.0.2.200')).status, 429, 'the overall cap holds for a weak password');
+    // The good sign-ins judged the password strong (14 characters, not a common one). A flood from many visitors
+    // still meets the overall cap: 30 wrong tries in all (10 of them above), then every password try from elsewhere waits.
+    assert.equal(passwordState().state, 'strong');
+    const codes = [];
+    for (let i = 0; i < 40; i++) codes.push((await post('/api/login', { password: 'wrong' }, `198.51.100.${10 + i}`)).status);
+    assert.equal(codes.filter((c) => c === 401).length, 20, codes.join(','));
+    assert.equal(codes.filter((c) => c === 429).length, 20, codes.join(','));
+    assert.equal((await post('/api/login', { password: 'right-password' }, '198.51.100.99')).status, 429, 'the overall cap holds for a strong password too');
+    // The owner's ways in stay open: a sign-in link, and this computer itself.
     const link = createLoginLink({ baseUrl: origin });
     const token = link.url.split('#link=').pop();
     assert.equal((await post('/api/login/link', { token }, '192.0.2.201')).status, 200, 'a sign-in link is never locked by the overall cap');
-    assert.equal((await post('/api/login', { password: 'short-pass' })).status, 200, 'this computer itself is never locked by the overall cap');
+    assert.equal((await post('/api/login', { password: 'right-password' })).status, 200, 'this computer itself is never locked by the overall cap');
   } finally {
     await app.close();
     saveConfig({ server: { trustProxy: undefined, passwordCheck: undefined } });

@@ -111,12 +111,32 @@ export class SessionStore {
 }
 
 /**
- * Failed-login limiter: at most `perIp` failures per visitor address and `global` failures overall in `windowMs`.
- * The overall cap stops a slow spread-out guess from many addresses, but it would also lock the owner out while
- * someone else guesses. So a try may leave it out (`{ overall: false }`): the server does that for this computer
- * itself, for a sign-in link (a random one-time token: nothing to guess), and once the password is known to be
- * strong (strength.mjs: then guessing it from many addresses is hopeless anyway). The per-address limit always
- * counts; behind a trusted proxy the address is the visitor's as the proxy reports it (security.mjs clientIp).
+ * The key a visitor is counted under: an IPv4 address as it is (also when written as ::ffff:a.b.c.d), an IPv6 address
+ * by its first 64 bits, anything else as it is.
+ */
+export function visitorKey(ip) {
+  const a = String(ip || '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  const v4 = /^(?:::ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/.exec(a);
+  if (v4) return v4[1];
+  if (!a.includes(':') || !/^[0-9a-f:.]+$/.test(a)) return a;
+  const [head, tail = ''] = a.split('::');
+  const h = head ? head.split(':') : [];
+  const t = tail ? tail.split(':') : [];
+  if (a.includes('::')) while (h.length + t.length < 8) h.push('0');
+  const all = [...h, ...t];
+  if (all.length < 4) return a;
+  return `${all.slice(0, 4).map((x) => (parseInt(x, 16) || 0).toString(16)).join(':')}::/64`;
+}
+
+/**
+ * Failed-login limiter: at most `perIp` failures per visitor and `global` failures overall in `windowMs`.
+ * The overall cap stops a slow spread-out guess from many addresses (a botnet, or the many addresses one IPv6 host
+ * owns), and it bounds how many slow password hashes strangers can make this computer run. It would also lock the
+ * owner's own password out while someone else guesses, so a try may leave it out (`{ overall: false }`): the server
+ * does that for this computer itself and for a sign-in link (a random one-time token: nothing to guess, no hash).
+ * Those stay the owner's ways in from outside. The per-visitor limit always counts; behind a trusted proxy the
+ * address is the visitor's as the proxy reports it (security.mjs clientIp), and an IPv6 visitor is counted by its
+ * /64, the block one host or one home line gets.
  */
 export class RateLimiter {
   constructor({ perIp = 5, global = 30, windowMs = 15 * 60 * 1000, now = Date.now } = {}) {
@@ -133,7 +153,7 @@ export class RateLimiter {
 
   /** Milliseconds until `ip` may try again, or 0 when it may try now. */
   retryAfter(ip, { overall = true } = {}) {
-    const mine = this.#prune(this.byIp.get(ip) || []);
+    const mine = this.#prune(this.byIp.get(visitorKey(ip)) || []);
     const all = this.#prune(this.all);
     let wait = 0;
     if (mine.length >= this.perIp) wait = Math.max(wait, mine[0] + this.windowMs - this.now());
@@ -142,9 +162,10 @@ export class RateLimiter {
   }
 
   fail(ip, { overall = true } = {}) {
-    const mine = this.#prune(this.byIp.get(ip) || []);
+    const key = visitorKey(ip);
+    const mine = this.#prune(this.byIp.get(key) || []);
     mine.push(this.now());
-    this.byIp.set(ip, mine);
+    this.byIp.set(key, mine);
     if (overall) this.all.push(this.now());
     if (this.byIp.size > 10000) this.byIp.clear(); // bound memory under a flood of addresses
   }
@@ -154,7 +175,7 @@ export class RateLimiter {
    * take it back: this address starts clean and the overall count loses the one entry it added (when it added one).
    */
   succeed(ip, { overall = true } = {}) {
-    this.byIp.delete(ip);
+    this.byIp.delete(visitorKey(ip));
     if (overall) this.all.pop();
   }
 }
