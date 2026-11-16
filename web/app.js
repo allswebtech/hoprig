@@ -47,7 +47,7 @@ export const PAGE_ADDRESSES = [
   '#/brain',
   '#/tia', '#/tia/jobs', '#/tia/activity',
   '#/code',
-  '#/settings', '#/settings/new-sessions', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/public-link', '#/settings/tia', '#/settings/editor', '#/settings/addons', '#/settings/about',
+  '#/settings', '#/settings/new-sessions', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/public-link', '#/settings/tia', '#/settings/editor', '#/settings/addons', '#/settings/codingtools', '#/settings/updates', '#/settings/about',
 ];
 
 /** Old addresses (and the screens Tia links to) → where that lives now. */
@@ -73,7 +73,7 @@ export const ALIASES = {
   '/settings/look': '/settings/appearance',
   '/settings/quick': '/settings/appearance',
   '/settings/terminals': '/settings/appearance',
-  '/settings/claude': '/settings/about',
+  '/settings/claude': '/settings/updates',
   '/settings/folders': '/settings/new-sessions',
   '/settings/vscode': '/settings/editor',
   '/settings/uploads': '/settings/new-sessions',
