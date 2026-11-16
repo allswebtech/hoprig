@@ -101,6 +101,7 @@ test('chat page words: the mode chip, Shift+Tab order, model and effort, paths, 
   assert.equal(W.ruleWords('Bash(npm view *), WebFetch(domain:example.org)'), 'commands that start with “npm view”, pages on example.org');
   assert.equal(W.turnRuns({ working: true, turn: false }), false, 'background work alone is no turn (no Stop, no queue)');
   assert.equal(W.turnRuns({ working: true }), true, 'an older computer says only "working"');
+  assert.equal(W.turnLine({ turnCostUsd: 0.02, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, durationMs: 1200 }), '$0.02 · 1 s', 'a turn that used no tokens (a compact) says no "0 tokens"');
   assert.equal(W.toolLine('Bash', { command: 'sleep 9', run_in_background: true }).verb, 'Started');
   assert.equal(W.toolLine('Agent', { description: 'x', run_in_background: true }).verb, 'Started a background agent');
 });
