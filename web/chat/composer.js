@@ -35,6 +35,12 @@ export function createComposer(o) {
   const chips = h('div.chat-chips', modeBtn, modelBtn, effortBtn, ultraBtn, h('span.chat-chips-gap'), ring);
   const el = h('div.chat-composer-wrap', menus.el, queueBox, files.el, h('div.chat-composer', attachBtn, textarea, sendBtn, stopBtn, fileInput), chips);
   let v = null;
+  // A message is on its way (its files upload, then POST /send): Send, Enter and a "/" command wait for it. The box
+  // is emptied only when the POST returns, so a second tap before that would send the same message twice.
+  let sending = false;
+  const paintSend = () => {
+    sendBtn.disabled = sending || !!(v && (v.terminal || v.toolOff)); // read only: the conversation runs elsewhere or its tool is off
+  };
 
   // ---------- the box ----------
   const grow = () => {
@@ -93,9 +99,11 @@ export function createComposer(o) {
   });
 
   async function send(given) {
+    if (sending) return;
     const text = given ?? textarea.value.replace(/\s+$/, '');
     if (!text) return textarea.focus();
-    sendBtn.disabled = true;
+    sending = true;
+    paintSend();
     try {
       const attachments = given ? [] : await files.ready();
       await api(`${o.A}/send`, { text, ...(attachments.length ? { attachments } : {}) });
@@ -108,7 +116,8 @@ export function createComposer(o) {
     } catch (e) {
       toast(`Not sent: ${failText(e)}`, { kind: 'error' });
     } finally {
-      sendBtn.disabled = !!(v && (v.terminal || v.toolOff));
+      sending = false;
+      paintSend();
       paintButtons();
       textarea.focus(); // the box keeps the focus (and a phone its keyboard) for the next message
     }
@@ -253,7 +262,7 @@ export function createComposer(o) {
       }
       paintQueue(v.queue);
       paintButtons();
-      sendBtn.disabled = ro; // nothing to send while the conversation runs elsewhere or its tool is off
+      paintSend(); // a state update while a message is on its way keeps Send disabled
       const mode = modeOf(v);
       const mw = modeInfo(v, mode);
       const chip = mw ? mw.chip : modeChip(mode);
