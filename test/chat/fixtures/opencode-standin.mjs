@@ -41,6 +41,7 @@ export async function standIn(o = {}) {
   let next = 0;
   let title = o.title || 'Recorded session';
   let updated = 1000;
+  let dir = '/work/proj'; // the folder of the conversation (the one it was made in)
   const send = (ev) => {
     for (const res of streams) res.write(`data: ${JSON.stringify({ id: `evt_${Math.random().toString(36).slice(2)}`, ...ev })}\n\n`);
   };
@@ -88,8 +89,12 @@ export async function standIn(o = {}) {
     if (p === '/api/model') {
       return json(res, 200, { data: [{ id: 'sample-model', providerID: 'hoprig_demo_000001', settings: { apiKey: KEY }, variants: ['low', 'medium', 'high', 'xhigh', 'max'].map((id) => ({ id })), limit: { context: 200000, output: 32000 } }] });
     }
-    if (p === '/api/session' && req.method === 'POST') return json(res, 200, { data: { id: SESSION_ID, model: body.model, permissions: body.permissions, location: body.location } });
-    if (p === '/api/session' && req.method === 'GET') return json(res, 200, { data: [{ id: SESSION_ID, title, time: { created: 1, updated }, location: { directory: '/work/proj' } }] });
+    if (p === '/api/session' && req.method === 'POST') {
+      if (body.location && body.location.directory) dir = body.location.directory;
+      return json(res, 200, { data: { id: SESSION_ID, model: body.model, permissions: body.permissions, location: body.location } });
+    }
+    // Like the real server asked with a filter it does not know: every folder's conversations.
+    if (p === '/api/session' && req.method === 'GET') return json(res, 200, { data: [{ id: SESSION_ID, title, time: { created: 1, updated }, location: { directory: dir } }, { id: 'ses_elsewhere0001', title: 'Elsewhere', time: { created: 1, updated: 1 }, location: { directory: '/somewhere/else' } }] });
     const m = /^\/api\/session\/(ses_[A-Za-z0-9]+)(\/.*)?$/.exec(p);
     if (!m || m[1] !== SESSION_ID) return json(res, 404, { error: 'no such session' });
     const rest = m[2] || '';
