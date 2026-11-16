@@ -137,7 +137,7 @@ test('the catalog: the apps of this step, each with a known icon and an address 
   assert.equal(appHash(appById('workspace'), 'laptop'), '#/m/laptop/workspace');
   assert.equal(appHash(appById('sessions'), 'laptop'), '#/m/laptop/');
   assert.equal(appHash(appById('computers'), 'laptop'), '#/computers');
-  assert.equal(onComputer('#/settings/appearance', 'laptop'), '#/m/laptop/settings/appearance');
+  assert.equal(onComputer('#/settings/appearance', 'server-1'), '#/m/server-1/settings/appearance');
   assert.equal(sessionHash('a b/c', null), '#/s/a%20b%2Fc');
   assert.equal(sessionHash('x', 'laptop'), '#/m/laptop/s/x');
   assert.equal(frameSrc('#/workspace'), '/?bare=1#/workspace');
