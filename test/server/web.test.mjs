@@ -565,6 +565,23 @@ test('Git and GitHub: three rows, done only when all are; a step of Get started'
   assert.equal(actionLabel({ kind: 'git' }), 'Set up git and GitHub');
 });
 
+test('Get started: the brain\'s unlinked skills reopen the skills step with the Link now button; the count stays what Claude Code loads', async () => {
+  const { withBrainSkills, actionLabel } = await import('../../web/getstarted.js');
+  const onb = { steps: [{ id: 'claude', done: true }, { id: 'skills', done: true, detail: '1 that Claude Code uses', action: null }], done: 2, total: 2 };
+  assert.equal(withBrainSkills(onb, 0), onb, 'nothing in the brain alone: as it came');
+  assert.equal(withBrainSkills(null, 3), null);
+  const w = withBrainSkills(onb, 2);
+  assert.deepEqual([w.done, w.total], [1, 2]);
+  assert.equal(w.steps[1].detail, '1 that Claude Code uses; 2 more in the AI brain are not used yet');
+  assert.deepEqual(w.steps[1].action, { kind: 'link-brain' });
+  assert.equal(actionLabel(w.steps[1].action), 'Link now');
+  const none = withBrainSkills({ steps: [{ id: 'skills', done: false, detail: 'none yet', action: { kind: 'page', target: 'settings/skills' } }], done: 0, total: 1 }, 1);
+  assert.equal(none.steps[0].detail, '1 more in the AI brain is not used yet');
+  assert.equal(none.done, 0);
+  // No page tells the owner to type the link command any more.
+  for (const f of fs.readdirSync(WEB).filter((x) => x.endsWith('.js') && x !== 'brainlink.js')) assert.ok(!/workspace link/.test(fs.readFileSync(path.join(WEB, f), 'utf8')), f);
+});
+
 // ---------- every helper of lib.js that a page module calls is imported there ----------
 // A module that calls one without importing it throws only when that code runs: the page then draws nothing (Setup was
 // blank once because `link` was missing from pcsetup.js's import). Checked from the source, without a browser.

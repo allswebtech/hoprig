@@ -4,6 +4,10 @@
 //   POST /api/workspace/setup { dryRun? }   create only what is missing; returns what was done (workspaceSetup)
 //   GET  /api/brain                     what the AI knows: the index (brainIndex)
 //   GET  /api/brain/item?id=<id>        the text of one item of that index (brainRead), size-capped, secrets masked
+//   GET  /api/workspace/link            what linking Claude Code's folder into the brain would do (link.mjs planLink):
+//                                       { brain (it exists), entries: [{ id, what, link, target, action, words, why? }],
+//                                       todo, already }
+//   POST /api/workspace/link {}         do it (applyLink); each entry with `done` or `error`; a conflict is left alone
 //   GET  /api/workspace/map             the map and, per repository, here | missing | different | unmapped; saved:
 //                                       { unsaved, command? } (the map differs from the brain's last commit)
 //   POST /api/workspace/map { dryRun? }                 write the map from what is on disk (never commits)
@@ -30,12 +34,14 @@
 // Behind the owner's login like every /api route, or another dashboard's machine token (the relay: the same owner
 // looking at this computer). Tia's token is refused here. The page never sends a path for the brain view (only an
 // id from the index); folders it sends for settings are checked like any typed folder.
+import fs from 'node:fs';
 import { jobUi, tildeText } from '../pcsetup/feature.mjs';
 import { brainIndex, brainRead } from './brain.mjs';
+import { applyLink, planLink, planWords } from './link.mjs';
 import { capture, stream } from '../setup/system.mjs';
 import { githubSignin } from './ghsignin.mjs';
 import { gitState, startNew } from './gitstep.mjs';
-import { projectsIn, workspaceDir, workspaceStatus } from './layout.mjs';
+import { brainDir, projectsIn, workspaceDir, workspaceStatus } from './layout.mjs';
 import { forget, mapSaved, mapStatus, updateMap } from './map.mjs';
 import { syncWith } from './peer.mjs';
 import { commitMap } from './upkeep.mjs';
@@ -68,6 +74,16 @@ export function workspaceFeature(sctx, opts = {}) {
   const where = () => ({ cfg: cfg(), ...(opts.projectsDir ? { projectsDir: opts.projectsDir() } : {}) });
   const ownerOnly = (req) => {
     if (/^Bearer\s+tia_/i.test(String((req.headers && req.headers.authorization) || ''))) throw fail(403, 'the workspace is the owner\'s only');
+  };
+
+  // The link plan for the page: short paths only (never a full path), and the plain words of each action.
+  const linkOpts = () => ({ brain: brainDir(places().dir), ...(opts.link || {}) });
+  const linkView = (list) => {
+    const entries = list.map((p) => ({
+      id: p.id, what: p.what, link: p.linkShort, target: p.targetShort, action: p.action, words: tildeText(planWords(p)),
+      ...(p.why ? { why: tildeText(p.why) } : {}), ...(p.done ? { done: tildeText(p.done) } : {}), ...(p.error ? { error: tildeText(p.error) } : {}),
+    }));
+    return { entries, todo: entries.filter((e) => !['already', 'conflict'].includes(e.action)).length, already: entries.every((e) => e.action === 'already') };
   };
 
   const signin = opts.signin || githubSignin();
@@ -116,6 +132,16 @@ export function workspaceFeature(sctx, opts = {}) {
       if (!id || id.length > 400) throw fail(400, 'name an item: ?id= from /api/brain');
       const p = places();
       return brainRead(id, { dir: p.dir, projects: p.projects });
+    }],
+    ['GET', /^\/api\/workspace\/link$/, async (req) => {
+      ownerOnly(req);
+      const o = linkOpts();
+      return { brain: fs.existsSync(o.brain), ...linkView(planLink(o)) };
+    }],
+    ['POST', /^\/api\/workspace\/link$/, async (req) => {
+      ownerOnly(req);
+      keys(await sctx.readJson(req), []);
+      return linkView(applyLink(linkOpts()));
     }],
     ['GET', /^\/api\/workspace\/map$/, async (req) => {
       ownerOnly(req);

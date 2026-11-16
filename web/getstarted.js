@@ -4,6 +4,7 @@
 // server (server.getStartedDismissed), so it stays closed on the phone too.
 import { icon } from './icons.js';
 import { add, api, btn, fill, h, link, openSheet, toast } from './lib.js';
+import { linkBrainSheet } from './brainlink.js';
 import { claudeSignIn } from './claudelogin.js';
 import { errorBox, okBox } from './shell.js';
 import { gitDone, gitRows, openGitSetup } from './gitsetup.js';
@@ -78,6 +79,18 @@ export function planGetStarted(onb, { dismissed = false } = {}) {
   };
 }
 
+/**
+ * The skills step with the AI brain's skills that Claude Code does not read yet (GET /api/brain `skills.brainOnly`):
+ * its detail says how many, and its button links the brain (the same sheet as the AI brain page). The count stays
+ * the skills Claude Code loads, as on Skills and the AI brain page.
+ */
+export function withBrainSkills(onb, brainOnly) {
+  if (!onb || !Array.isArray(onb.steps) || !(brainOnly > 0)) return onb;
+  const more = `${brainOnly} more in the AI brain ${brainOnly === 1 ? 'is' : 'are'} not used yet`;
+  return { ...onb, steps: onb.steps.map((s) => (s.id === 'skills' ? { ...s, done: false, detail: s.done ? `${s.detail}; ${more}` : more, action: { kind: 'link-brain' } } : s)),
+    done: onb.steps.some((s) => s.id === 'skills' && s.done) ? (onb.done ?? onb.steps.filter((s) => !s.optional && s.done).length) - 1 : onb.done };
+}
+
 /** The label of a step's one button. */
 export function actionLabel(a) {
   if (!a) return null;
@@ -85,6 +98,7 @@ export function actionLabel(a) {
   if (a.kind === 'git') return 'Set up git and GitHub';
   if (a.kind === 'install-claude') return a.label || 'Install Claude Code';
   if (a.kind === 'request') return 'Do it';
+  if (a.kind === 'link-brain') return 'Link now';
   return 'Open';
 }
 
@@ -129,6 +143,7 @@ export async function runAction(a, after) {
     if (a.kind === 'git') {
       if (await openGitSetup()) after?.();
     } else if (a.kind === 'install-claude') installClaude(after);
+    else if (a.kind === 'link-brain') await linkBrainSheet(after, { prefix: '~' });
     else if (a.kind === 'claude-login') await claudeSignIn({ done: after }); // in the page, no terminal
     else if (a.kind === 'page') location.hash = link(TARGETS[a.target] || '#/settings');
     else if (a.kind === 'terminal') {
@@ -204,7 +219,8 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
   const hub = () => isHub(own(), onb, store.all.length);
   // On a hub the checklist is the hub's own (hubOnboarding); elsewhere the coding one from the server.
   let git = null; // GET /api/workspace/git, for the Git and GitHub step
-  const steps = () => (onb && hub() ? hubOnboarding(onb, { https: location.protocol === 'https:', joined: store.all.length > 1 }) : withGitStep(onb, git));
+  let brainOnly = 0; // GET /api/brain skills.brainOnly, for the skills step
+  const steps = () => (onb && hub() ? hubOnboarding(onb, { https: location.protocol === 'https:', joined: store.all.length > 1 }) : withGitStep(withBrainSkills(onb, brainOnly), git));
   const paint = () => {
     fill(el, getStartedCard(steps(), {
       dismissed: dismissed(),
@@ -232,7 +248,9 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
   async function load() {
     clearTimeout(timer);
     try {
-      [onb, git] = await Promise.all([api('~/api/onboarding'), api('~/api/workspace/git').catch(() => null)]);
+      let brain;
+      [onb, git, brain] = await Promise.all([api('~/api/onboarding'), api('~/api/workspace/git').catch(() => null), api('~/api/brain').catch(() => null)]);
+      brainOnly = (brain && brain.skills && brain.skills.brainOnly) || 0;
     } catch {
       onb = null; // another dashboard's token, an old server: no checklist
     }

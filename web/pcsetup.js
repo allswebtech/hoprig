@@ -6,6 +6,7 @@ import { COMMAND } from './brand.js';
 import { icon } from './icons.js';
 import { api, btn, fill, h, link, machine, openSheet, promptSheet, toast } from './lib.js';
 import { fold } from './shell.js';
+import { linkBrainNote } from './brainlink.js';
 import { gitPanel, identitySheet, signinSheet } from './gitsetup.js';
 import { setupJobCard, startSetup } from './setupjob.js';
 import { claudeLoginButton } from './claudelogin.js';
@@ -189,7 +190,8 @@ export function setupSection() {
     job.el,
     fixBox, optionalBox, fineBox,
     git,
-    // The workspace's folders, its map and syncing live in Settings → Workspace.
+    // The workspace's folders, its map and syncing live in Settings → Workspace; linking the brain is offered here too.
+    linkBrainNote(),
     h('div.rows.ws-link', h('a.row', { href: link('#/settings/workspace') }, h('span.row-icon', icon('folder')),
       h('span.row-main', h('span.row-title', 'Workspace folders and the map'), h('span.row-sub', 'Settings → Workspace: the folder tree, every repository by its address, keeping it in step')),
       h('span.row-end', icon('chevronRight', { size: 18 })))),
