@@ -10,7 +10,7 @@ import { mdView } from '../mdtext.js';
 import { messageFiles } from './attach.js';
 import { OUTCOME, askCard } from './asks.js';
 import { outputView, rePaths, toolCard } from './tools.js';
-import { took, turnLine } from './words.js';
+import { askTitle, took, turnLine } from './words.js';
 
 const NEAR_PX = 120;
 
@@ -213,7 +213,7 @@ export function createTimeline(o) {
     for (const ev of events) {
       if (ev.agent) continue;
       if (ev.kind === 'text') words.push(`${who()}: ${ev.text.slice(0, 400)}`);
-      else if (ev.kind === 'ask') words.push(`${who()} needs your answer: ${ev.title || 'a question'}`);
+      else if (ev.kind === 'ask') words.push(ev.type === 'permission' ? `${askTitle(ev.tool, ev.input || {}, who())}: it needs your OK` : `${who()} needs your answer: ${ev.title || 'a question'}`);
       else if (ev.kind === 'notice' && (ev.local || ev.level === 'error')) words.push(ev.text.slice(0, 300));
       else if (ev.kind === 'turn-end' && !ev.ok && !ev.stopped) words.push(ev.error || 'The reply ended with an error.');
     }

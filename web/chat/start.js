@@ -25,6 +25,15 @@ export function knownChatTools(m = null) {
   if (!known.has(key)) chatTools(m);
   return known.get(key) || CLAUDE_ONLY;
 }
+/** Whether computer `m` offers a chat for coding tool `tool`: true or false when known, else null (it is asked for). */
+export function offersChat(m, tool) {
+  const key = m || '~';
+  if (!known.has(key)) {
+    chatTools(m);
+    return null;
+  }
+  return known.get(key).some((t) => t.id === tool);
+}
 
 /**
  * Open a chat in `dir` on computer `m` (null: this one) and go to it. o: { tool (the coding tool; left out: the one

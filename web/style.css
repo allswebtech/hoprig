@@ -211,6 +211,7 @@ body.has-nav .page { padding-bottom: calc(150px + env(safe-area-inset-bottom)); 
 .badge { display: inline-flex; align-items: center; margin-left: 8px; padding: 2.5px 8px; border-radius: 7px; font-size: 11px; font-weight: 700; letter-spacing: .02em; background: var(--accent-soft); color: var(--accent-soft-text); vertical-align: 1px; white-space: nowrap; }
 .badge.soft { background: color-mix(in srgb, var(--muted) 11%, transparent); color: var(--muted); }
 .badge.toolchip { margin-left: 0; } /* the coding tool's name on a session (lib.js toolChip): first in its row */
+.row-title .badge.toolchip { margin-left: 8px; } /* after a conversation's title (Workspace's earlier conversations) */
 .hint { font-size: var(--fs-sm); color: var(--muted); }
 .form-error { color: var(--danger); font-size: var(--fs-sm); min-height: 0; }
 .form-error:empty { display: none; }

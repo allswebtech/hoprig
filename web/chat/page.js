@@ -19,7 +19,7 @@ import { chooseRewind, historySheet, rewindSheet } from './sheets.js';
 import { createStatusLine } from './statusline.js';
 import { follow } from './stream.js';
 import { createTimeline } from './timeline.js';
-import { knownChatTools } from './start.js';
+import { offersChat } from './start.js';
 import { canCompact, caps as capsOf, toolWord, turnRuns } from './words.js';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -288,7 +288,8 @@ registerSessionAction({
     const s = ((store.data && store.data.sessions) || []).find((x) => x.name === me.name);
     if (!s || !s.sessionId) return null;
     // Only where that computer has a chat for the session's coding tool: else the conversation stays in its terminal.
-    return isClaudeCard(s) || knownChatTools(me.machine || null).some((t) => t.id === cardTool(s)) ? {} : null;
+    // Not known yet on this page (it is asked for now): offered, and the computer itself refuses a tool that is off.
+    return isClaudeCard(s) || offersChat(me.machine || null, cardTool(s)) !== false ? {} : null;
   },
   run: async (me) => {
     try {

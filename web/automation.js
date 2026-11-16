@@ -44,19 +44,23 @@ export function whenText(w) {
 
 /**
  * "start a chat in api-server on Auto mode" / "send a message to data-pipeline". `accountLabel(name)` gives a
- * provider's display name, `sessionLabel(name)` a session's (a chat is "chat:<id>": its title).
+ * provider's display name, `sessionLabel(name)` a session's (a chat is "chat:<id>": its title). o.named: the computer
+ * offers more than one coding tool, so the sentence names Claude Code too ("start Claude Code in a terminal").
  */
-export function whatText(a, accountLabel = (n) => n, sessionLabel = (n) => (n.startsWith('chat:') ? 'a chat' : n)) {
+export function whatText(a, accountLabel = (n) => n, sessionLabel = (n) => (n.startsWith('chat:') ? 'a chat' : n), o = {}) {
   if (a.type === 'start') {
     const where = folderName(a.dir);
-    const tool = a.in === 'chat' && a.tool && a.tool !== 'claude' ? ` with ${TOOL_NAMES[a.tool] || a.tool}` : '';
-    return `start ${a.in === 'chat' ? 'a chat' : 'a session'}${tool}${where ? ` in ${where}` : ''}${a.profile ? ` on ${accountLabel(a.profile)}` : ''}`;
+    const chat = a.in === 'chat';
+    const other = chat && a.tool && a.tool !== 'claude';
+    const what = !o.named ? (chat ? 'a chat' : 'a session') + (other ? ` with ${TOOL_NAMES[a.tool] || a.tool}` : '')
+      : chat ? `a chat with ${other ? TOOL_NAMES[a.tool] || a.tool : 'Claude Code'}` : 'Claude Code in a terminal';
+    return `start ${what}${where ? ` in ${where}` : ''}${a.profile ? ` on ${accountLabel(a.profile)}` : ''}`;
   }
   return `send a message to ${a.session ? sessionLabel(a.session) : 'a session'}`;
 }
 
 /** The whole schedule as one sentence: "Every day at 08:30, start a session in api-server on Auto mode." */
-export const scheduleSentence = (s, accountLabel, sessionLabel) => `${whenText(s.when)}, ${whatText(s.action, accountLabel, sessionLabel)}.`;
+export const scheduleSentence = (s, accountLabel, sessionLabel, o = {}) => `${whenText(s.when)}, ${whatText(s.action, accountLabel, sessionLabel, o)}.`;
 
 const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a restart', retry: 'Try again', updates: 'Updates', idle: 'Housekeeping', hub: 'Another dashboard' };
 
@@ -298,7 +302,7 @@ async function scheduleForm(old, preset = null) {
   const [recent, proj, tools] = await Promise.all([
     api('/api/folders/recent').catch(() => ({ folders: [] })),
     api('/api/pcsetup/projects').catch(() => null), // an older computer, or no projects folder
-    chatTools(), // the coding tools a chat can run here (Claude Code alone on most computers)
+    chatTools(machine.current), // the coding tools a chat can run on the open computer (Claude Code alone on most)
   ]);
   const folders = [...new Set([
     ...recent.folders.map((f) => f.path),
@@ -326,7 +330,7 @@ async function scheduleForm(old, preset = null) {
   return openSheet({ title: old ? 'Change schedule' : 'New schedule', subtitle: 'Read the sentence: that is what will happen.', wide: true }, (close) => {
     const err = h('p.form-error', { role: 'alert' });
     const sentence = h('p.au-sentence', { 'aria-live': 'polite' });
-    const paintSentence = () => (sentence.textContent = scheduleSentence(s, accountLabel, sessionLabel));
+    const paintSentence = () => (sentence.textContent = scheduleSentence(s, accountLabel, sessionLabel, { named: tools.length > 1 }));
     const whenBox = h('div.au-form-part');
     const whatBox = h('div.au-form-part');
     const seg = (label, options, cur, pick) => h('div.segmented', { role: 'radiogroup', 'aria-label': label },
@@ -383,6 +387,8 @@ async function scheduleForm(old, preset = null) {
               paintWhat();
               paintSentence();
             }),
+            // Where more than one coding tool is offered: a terminal a schedule starts is Claude Code's, said so.
+            a.in !== 'chat' && tools.length > 1 ? h('p.hint', 'A schedule starts Claude Code in a terminal; for another coding tool, choose A chat.') : null,
             // The coding tool of the chat, where this computer offers more than one.
             a.in === 'chat' && tools.length > 1 ? [
               h('div.field-label', 'Coding tool'),

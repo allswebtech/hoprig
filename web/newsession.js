@@ -9,6 +9,8 @@
 import { chatTools, knownChatTools, startChat } from './chat/start.js';
 import { icon } from './icons.js';
 import { KIND, TOOL_NAMES, ago, api, at, cardTool, chooseSheet, confirmSheet, fill, h, isCodingCard, link, machine, prefs, profileState, servesTool, tildePath, toast } from './lib.js';
+import { focusTool, otherToolOptions, select, terminalMode, toolButtons } from './newsession-tools.js';
+import { folderSub, outsideProjects, repoWords, runningIn } from './newsession-words.js';
 import { fold, frame, groupHead } from './shell.js';
 import { runsSessions, store } from './store.js';
 
@@ -30,45 +32,7 @@ export const startingPill = (s = null) => {
   return h('span.pill.st-starting', h('span.dot'), `Starting ${tool && tool !== 'claude' ? TOOL_NAMES[tool] || tool : 'Claude'}…`);
 };
 
-/**
- * True when `dir` is outside the projects folder: not it, not inside it, and not one of the folders that hold it (the
- * home folder is no project to make). Either separator, so Windows paths too.
- */
-export function outsideProjects(dir, projectsDir) {
-  if (!projectsDir || !dir) return false;
-  const norm = (x) => x.replace(/[\\/]+$/, '');
-  const under = (a, b) => a === b || a.startsWith(`${b}/`) || a.startsWith(`${b}\\`);
-  const root = norm(projectsDir);
-  const d = norm(dir);
-  return !under(d, root) && !under(root, d);
-}
-
-/**
- * The second line of a folder's row: its path only when it says something the name does not, i.e. when the folder is
- * not simply <projects folder>/<name>. `short` is the "~/…" path, `projectsShort` the projects folder written the same way.
- */
-export function folderSub(f, projectsShort) {
-  const norm = (x) => String(x || '').replace(/[\\/]+$/, '').replace(/\\/g, '/');
-  if (projectsShort && norm(f.short) === `${norm(projectsShort)}/${f.name}`) return 'project';
-  return f.short;
-}
-
-/** A repository of a project as a person names it: "bookshop-api", "repository in bookshop" (not "code/bookshop-api"). */
-export function repoWords(rel, project) {
-  if (!rel || rel === '.') return { name: project, sub: 'project' };
-  const name = rel.split(/[\\/]/).filter(Boolean).pop() || rel;
-  return { name, sub: project ? `repository in ${project}` : 'repository' };
-}
-
-/**
- * Where a tap on a recent folder goes when something already works there: the terminal session that runs in it, or
- * the chat at work in it (a second one there is what nobody tapping a "running" project means). Null: open a chat.
- */
-export function runningIn(f) {
-  if (!f || !f.live) return null;
-  if (f.chat) return `#/chat/${f.chat}`;
-  return f.session ? `#/s/${encodeURIComponent(f.session)}` : null;
-}
+export { folderSub, outsideProjects, repoWords, runningIn } from './newsession-words.js';
 
 export function viewNew({ query = new URLSearchParams() } = {}) {
   store.viewing = null;
@@ -151,10 +115,6 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
   const failed = (e, retry) => fill(body, h('div.empty', icon('alert', { size: 32 }), h('p', e.message), h('button.btn.secondary', { type: 'button', onclick: retry }, 'Try again')));
 
   // ---------- Options ----------
-  const select = (label, value, options, onchange, hint) =>
-    h('label.fieldrow', h('span.field-label', label),
-      h('select.field', { onchange: (e) => onchange(e.target.value) }, options.map(([v, t]) => h('option', { value: v, selected: v === value }, t))),
-      hint ? h('span.hint', hint) : null);
   function paintOptions() {
     const m = where();
     const tool = toolNow();
@@ -165,6 +125,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     // Left as it is, a chat takes what the last chat in that project had; a terminal takes Settings.
     const same = chat ? 'As your last chat in the project' : 'As in Settings';
     const run = select('Open in', st.run, [['chat', 'A chat (the default)'], ['claude', `${toolName()} in a terminal`], ['shell', `A plain terminal, without ${tool === 'claude' ? 'Claude' : toolName()}`]], (v) => {
+      if (toolInfo() && toolInfo().modes && (v === 'chat') !== chat) st.permissionMode = ''; // a chat's modes and a terminal's differ
       st.run = v;
       paintOptions();
     }, st.run === 'shell' ? 'A shell in the folder you pick; nothing else applies to it.' : null);
@@ -175,19 +136,13 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     const info = toolInfo();
     if (info && info.modes) {
       // Another coding tool: its own modes; the model is chosen from the provider's list in the chat itself.
-      const words = info.modeWords || {};
-      const modes = chat ? info.modes.map((x) => [x, words[x] ? words[x].chip : x]) : [['ask', 'Ask first'], ['bypassPermissions', 'Bypass']];
-      return fill(opts, run,
-        select('Provider', st.profile, [['', chat ? same : 'The first that serves it'], ...profiles.map((p) => [p.name, `${p.label} · ${KIND[p.kind] || p.kind} · ${profileState(p).text}`])], (v) => (st.profile = v)),
-        select(`What ${toolName()} may do without asking`, modes.some(([x]) => x === st.permissionMode) ? st.permissionMode : '', [['', chat ? same : `${toolName()}'s own rules`], ...modes], (v) => (st.permissionMode = v),
-          st.permissionMode === 'bypassPermissions' ? `${toolName()} can run any command and change any file without asking.` : null),
-        select('How hard it thinks', st.effort, [['', chat ? same : 'The model\'s own default'], ...(info.efforts || Object.keys(EFFORT)).map((x) => [x, EFFORT[x] || x])], (v) => (st.effort = v)),
+      return fill(opts, run, otherToolOptions({ st, info, name: toolName(), profiles, chat, same }),
         select('Conversation', st.conversation, [['new', 'A new conversation'], ['continue', 'Continue the last one in the folder'], ['pick', 'Pick an earlier one']], (v) => (st.conversation = v)));
     }
     fill(opts, run,
       select('Provider', st.profile, [['', chat ? `${same}${recLabel ? `, else ${recLabel}` : ''}` : recLabel ? `The default: ${recLabel}` : 'The default'], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${KIND[p.kind] || p.kind} · ${profileState(p).text}`])], (v) => (st.profile = v)),
       select('What Claude may do without asking', st.permissionMode, [['', same], ...Object.entries(MODES)], (v) => (st.permissionMode = v),
-        st.permissionMode === 'bypassPermissions' ? 'Claude can run any command and change any file without asking.' : null),
+        (v) => (v === 'bypassPermissions' ? 'Claude can run any command and change any file without asking.' : null)),
       select('How hard it thinks', st.effort, [['', same], ...Object.entries(EFFORT)], (v) => (st.effort = v)),
       // A model for this one session: try something cheaper without changing the setting for every session.
       select('Model', st.model, [['', same], ...(st.models || MODELS.map(([v]) => v)).map((v) => [v, (MODELS.find(([x]) => x === v) || [v, v])[1]])], (v) => (st.model = v),
@@ -322,19 +277,20 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
       busy(`Opening a chat in ${f.name}…`);
       try {
         // What is not chosen here is left out: the server takes what the last chat in this folder had.
-        await startChat(f.path, { tool: st.tool, sessionId, profile: st.profile, permissionMode: st.permissionMode, effort: st.effort, model: own ? '' : st.model }, st.m);
+        const permissionMode = own && !toolInfo().modes.includes(st.permissionMode) ? '' : st.permissionMode;
+        await startChat(f.path, { tool: st.tool, sessionId, profile: st.profile, permissionMode, effort: st.effort, model: own ? '' : st.model }, st.m);
       } catch (e) {
         failed(e, projects);
       }
       return;
     }
     if (own) {
-      // Another coding tool in a terminal: its own choices (OpenCode asks first, or allows everything).
+      // Another coding tool in a terminal: its own choices (it asks first unless the owner chose otherwise).
       busy(`Starting ${toolName()} in ${f.name}…`);
       try {
         const { name } = await api(at(st.m, '/api/sessions'), {
           tool, dir: f.path, profile, mode: sessionId ? 'resume' : mode === 'continue' ? 'continue' : 'new', sessionId,
-          permissionMode: ['ask', 'bypassPermissions'].includes(st.permissionMode) ? st.permissionMode : null, effort: st.effort || null,
+          permissionMode: terminalMode(st.permissionMode), effort: st.effort || null,
         });
         markStarting(st.m, name, tool);
         store.refresh();
@@ -379,28 +335,23 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     if (intro) intro.textContent = `Pick a project: a chat${st.tool ? ` with ${toolName()}` : ''} opens there, set up as your last chat in that project. A terminal instead, and the rest, are under Options.`;
     if (st.tool && !toolInfo() && st.tool !== 'claude') st.tool = '';
     fill(toolSlot, groupHead('Coding tool'),
-      h('div.ns-pcs', { role: 'radiogroup', 'aria-label': 'Coding tool' }, tools().map((t) => {
-        const on = st.tool === t.id;
-        return h(`button.ns-pc${on ? '.on' : ''}`, {
-          type: 'button', role: 'radio', 'aria-checked': String(on),
-          // A second tap leaves it to each project again.
-          onclick: () => {
-            st.tool = on ? '' : t.id;
-            st.profile = '';
-            st.permissionMode = '';
-            st.effort = '';
-            paintTools();
-            painted = '';
-            paintComputers();
-            paintOptions();
-            projects();
-          },
+      toolButtons({
+        tools: tools(), chosen: st.tool,
+        // A second press leaves it to each project again. The focus stays on the button (it is drawn anew).
+        choose: (id, pressed) => {
+          st.tool = id;
+          st.profile = '';
+          st.permissionMode = '';
+          st.effort = '';
+          paintTools();
+          focusTool(toolSlot, pressed);
+          painted = '';
+          paintComputers();
+          paintOptions();
+          projects();
         },
-        h('span.ns-pc-icon', icon(t.id === 'claude' ? 'sparkle' : 'code', { size: 18 })),
-        h('span.ns-pc-text', h('span.ns-pc-name', t.name), h('span.ns-pc-sub', on ? 'Opens in it' : 'Tap to open in it')),
-        on ? h('span.ns-pc-tick', icon('check', { size: 16 })) : null);
-      })),
-      h('p.hint.ns-toolhint', st.tool ? `Opens in ${toolName()}; tap it again to leave it to each project.` : 'Each project opens in the coding tool its last chat used.'));
+      }),
+      h('p.hint.ns-toolhint', st.tool ? `Opens in ${toolName()}; press it again to leave it to each project.` : 'Each project opens in the coding tool its last chat used.'));
   }
   chatTools(st.m).then(() => {
     if (!alive) return;

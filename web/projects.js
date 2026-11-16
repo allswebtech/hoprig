@@ -13,7 +13,7 @@
 // code/ (docs/PC-SETUP.md).
 import { chatTools, startChat } from './chat/start.js';
 import { icon } from './icons.js';
-import { add, ago, api, btn, fill, h, link, needsYouFirst, openSheet, promptSheet, tildePath, toast, toolBadge } from './lib.js';
+import { add, ago, api, btn, fill, h, link, machine, needsYouFirst, openSheet, promptSheet, tildePath, toast, toolBadge } from './lib.js';
 import { groupOf } from './home.js';
 import { sessionRow } from './sessionitem.js';
 import { projectBrain } from './brain.js';
@@ -77,12 +77,12 @@ const sessionsIn = (dir) => ((store.data && store.data.sessions) || []).filter((
 
 // A chat in `dir`, set up as the last chat there (the server keeps that per folder, its coding tool too); `sessionId`
 // continues that conversation of coding tool `tool` (the chat that already runs it opens instead), `prompt` is its
-// first message.
-const startIn = (dir, { sessionId = null, prompt = null, tool = null } = {}) => startChat(dir, { sessionId, text: prompt, tool });
+// first message. On the computer whose Workspace is open.
+const startIn = (dir, { sessionId = null, prompt = null, tool = null } = {}) => startChat(dir, { sessionId, text: prompt, tool }, machine.current);
 
 /** The earlier conversations of `dir` in every coding tool a chat can run here, newest first, each with its tool. */
 async function conversationsIn(dir) {
-  const tools = await chatTools();
+  const tools = await chatTools(machine.current); // the open computer's tools, as its folders are
   const lists = await Promise.all(tools.map((t) => api(`/api/folders/sessions?${new URLSearchParams({ path: dir, ...(t.id !== 'claude' ? { tool: t.id } : {}) })}`)
     .then((r) => r.sessions.map((c) => ({ ...c, tool: t.id })), (e) => (t.id === 'claude' ? Promise.reject(e) : []))));
   return lists.flat().sort((a, b) => b.at - a.at);
@@ -147,8 +147,9 @@ function repoOf(p, s) {
 // Earlier conversations per project folder, read once while the page is open (the page is drawn again often).
 const pastOf = new Map();
 async function pastIn(dir) {
-  if (!pastOf.has(dir)) pastOf.set(dir, conversationsIn(dir).catch(() => []));
-  return pastOf.get(dir);
+  const key = `${machine.current || '~'}:${dir}`;
+  if (!pastOf.has(key)) pastOf.set(key, conversationsIn(dir).catch(() => []));
+  return pastOf.get(key);
 }
 
 /** "Earlier conversations (n)", folded, only when there are some. */

@@ -159,12 +159,15 @@ export function createComposer(o) {
   async function choose(what) {
     const cur = v[what];
     const claude = toolWord(v) === 'Claude';
+    const first = v.choices.models[0]; // another tool's Auto: the provider's own model, else this one
     const items = what === 'model'
-      ? [{ value: '', label: 'Auto', sub: claude ? 'Claude Code\'s own model; each agent gets the model its task needs' : 'The provider\'s own model, else the first it lists' }, ...v.choices.models.map((m) => ({ value: m, label: modelName(m) }))]
+      ? [{ value: '', label: 'Auto', sub: claude ? 'Claude Code\'s own model; each agent gets the model its task needs' : `The provider's own model when it names one, else the first it lists${first ? ` (${modelName(first)})` : ''}` }, ...v.choices.models.map((m) => ({ value: m, label: modelName(m) }))]
       : [{ value: '', label: 'Auto', sub: claude ? 'Claude Code\'s own effort; each agent gets the effort its task needs' : 'The model\'s own default' }, ...v.choices.efforts.map((e) => ({ value: e, label: effortName(e) }))];
+    // Another tool's ultracode is its model's highest effort: while it is on, it decides, not this choice.
+    const over = what === 'effort' && !claude && v.ultracode;
     const pick = await chooseSheet({
       title: what === 'model' ? 'Model' : `How hard ${toolWord(v)} thinks`,
-      subtitle: what === 'model' ? 'Changes at once, in this chat. A new model reads the conversation again, which costs more once.' : 'Changes at once, in this chat.',
+      subtitle: what === 'model' ? 'Changes at once, in this chat. A new model reads the conversation again, which costs more once.' : over ? 'Ultracode is on: the model thinks as hard as it can, whatever is chosen here. Turn it off to use this choice.' : 'Changes at once, in this chat.',
       items: items.map((x) => ({ ...x, current: (x.value || null) === (cur || null) })),
     });
     if (pick === null || (pick || null) === (cur || null)) return;
@@ -258,8 +261,10 @@ export function createComposer(o) {
       modeBtn.setAttribute('aria-label', `Permission mode: ${chip}. Change it`);
       fill(modelBtn, icon('sparkle', { size: 13 }), h('span.chat-chip-k', 'Model'), h('span', v.model ? modelName(v.model) : 'Auto'));
       modelBtn.setAttribute('aria-label', `Model: ${v.model ? modelName(v.model) : 'Auto'}. Change it`);
-      fill(effortBtn, icon('zap', { size: 13 }), h('span.chat-chip-k', 'Effort'), h('span', v.effort ? effortName(v.effort) : 'Auto'));
-      effortBtn.setAttribute('aria-label', `Effort: ${v.effort ? effortName(v.effort) : 'Auto'}. Change it`);
+      // Another tool's ultracode is the model's highest effort: the chip says so instead of a choice it overrides.
+      const effortNow = v.ultracode && who !== 'Claude' ? 'Highest (ultracode)' : v.effort ? effortName(v.effort) : 'Auto';
+      fill(effortBtn, icon('zap', { size: 13 }), h('span.chat-chip-k', 'Effort'), h('span', effortNow));
+      effortBtn.setAttribute('aria-label', `Effort: ${effortNow}. Change it`);
       ultraBtn.setAttribute('aria-pressed', String(!!v.ultracode));
       fill(ultraWord, v.ultracode ? 'on' : 'off'); // said in words, not only by its colour
       const p = contextPercent(v.usage);

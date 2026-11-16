@@ -1,0 +1,42 @@
+// New session's words for a folder (newsession.js): whether it is a project, how its row and its repositories read,
+// and where a tap on it goes when something already works there.
+
+/**
+ * True when `dir` is outside the projects folder: not it, not inside it, and not one of the folders that hold it (the
+ * home folder is no project to make). Either separator, so Windows paths too.
+ */
+export function outsideProjects(dir, projectsDir) {
+  if (!projectsDir || !dir) return false;
+  const norm = (x) => x.replace(/[\\/]+$/, '');
+  const under = (a, b) => a === b || a.startsWith(`${b}/`) || a.startsWith(`${b}\\`);
+  const root = norm(projectsDir);
+  const d = norm(dir);
+  return !under(d, root) && !under(root, d);
+}
+
+/**
+ * The second line of a folder's row: its path only when it says something the name does not, i.e. when the folder is
+ * not simply <projects folder>/<name>. `short` is the "~/…" path, `projectsShort` the projects folder written the same way.
+ */
+export function folderSub(f, projectsShort) {
+  const norm = (x) => String(x || '').replace(/[\\/]+$/, '').replace(/\\/g, '/');
+  if (projectsShort && norm(f.short) === `${norm(projectsShort)}/${f.name}`) return 'project';
+  return f.short;
+}
+
+/** A repository of a project as a person names it: "bookshop-api", "repository in bookshop" (not "code/bookshop-api"). */
+export function repoWords(rel, project) {
+  if (!rel || rel === '.') return { name: project, sub: 'project' };
+  const name = rel.split(/[\\/]/).filter(Boolean).pop() || rel;
+  return { name, sub: project ? `repository in ${project}` : 'repository' };
+}
+
+/**
+ * Where a tap on a recent folder goes when something already works there: the terminal session that runs in it, or
+ * the chat at work in it (a second one there is what nobody tapping a "running" project means). Null: open a chat.
+ */
+export function runningIn(f) {
+  if (!f || !f.live) return null;
+  if (f.chat) return `#/chat/${f.chat}`;
+  return f.session ? `#/s/${encodeURIComponent(f.session)}` : null;
+}
