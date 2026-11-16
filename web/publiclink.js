@@ -83,6 +83,7 @@ function render({ here, isAlive }) {
   let shown = null; // the one line the Settings list showed for it
   let lastKey = null; // on/kind/state as last drawn: a job's leftover output goes when it changes
   let advancedOpen = false;
+  let lastCustom = null; // the Custom set-up's state as last drawn
 
   const input = (key, attrs) => h('input.field', { value: draft[key], autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'data-fk': key, oninput: (e) => (draft[key] = e.target.value.trim()), ...attrs });
   const secretInput = (key, attrs) => h('input.field', { value: secret[key], autocapitalize: 'off', spellcheck: 'false', 'data-fk': key, oninput: (e) => (secret[key] = e.target.value), ...attrs });
@@ -117,6 +118,9 @@ function render({ here, isAlive }) {
     const settingUp = ui.chosen === 'custom' && s.kind !== 'custom' && s.custom.state !== 'ready';
     if ((s.on && !settingUp) || ui.chosen === s.kind) ui.chosen = null;
     if (ui.need === 'custom-setup' && s.custom.state === 'ready') ui.need = null;
+    // The set-up goes on by itself (Cloudflare approved): the focus goes to what is next, the name.
+    if (lastCustom === 'signing-in' && s.custom.state === 'signed-in' && kind() === 'custom') ui.focus = 'hostname';
+    lastCustom = s.custom.state;
     // The Settings list beside this page says the state in one line: told to look again when that line changed.
     const line = linkSummary(s);
     if (shown !== null && line !== shown) window.dispatchEvent(new Event('saved'));
@@ -352,6 +356,7 @@ function render({ here, isAlive }) {
           }
           if (res.need) Object.assign(ui, { need: res.need, error: res.error });
           if (res.ok) clearOutput();
+          if (res.ok && step === 'sign-in') ui.focus = 'open-cloudflare';
           // The sign-in step only opens Cloudflare's page: nothing is done until the owner approves there.
           if (!res.ok) toast(res.error || 'That did not work', { kind: 'error' });
           else if (step !== 'sign-in') toast('Done');

@@ -68,11 +68,10 @@ export function strongForm(p, why, thenOn) {
   return h('form.stack.pl-need', { onsubmit: async (e) => {
     e.preventDefault();
     msg.textContent = ui.pwError = '';
-    const body = { current: cur.value, next: next.value, strong: true };
-    secret.current = ''; // the current password is kept no longer than the request
     try {
-      await p.api('/api/settings/password', body);
-      Object.assign(secret, { next: '', made: false });
+      await p.api('/api/settings/password', { current: cur.value, next: next.value, strong: true });
+      // Typed passwords are kept only while this form needs them (and only in this page, never trimmed).
+      Object.assign(secret, { current: '', next: '', made: false });
       ui.pwError = '';
       toast('The new password is saved. Other browsers sign in again with it.');
       ui.need = null;
@@ -81,8 +80,7 @@ export function strongForm(p, why, thenOn) {
       else p.load(true);
     } catch (er) {
       msg.textContent = ui.pwError = sentence(er.message);
-      ui.focus = 'current';
-      p.paint();
+      (/current password/i.test(er.message) ? cur : next).focus();
     }
   } },
     why ? h('p.hint', why) : null,
@@ -122,7 +120,7 @@ export function customBody(p) {
   if (f.state === 'signing-in') {
     first = [h('strong', 'Sign in to Cloudflare'), h('span.hint', 'Open Cloudflare, sign in (a free account is enough), pick the domain for this address and press Authorize. Then come back here: this page goes on by itself.'),
       h('div.mrow-actions',
-        f.loginUrl ? ext(f.loginUrl, [icon('external', { size: 16 }), h('span', 'Open Cloudflare')], 'a.btn.small.primary') : null,
+        f.loginUrl ? h('a.btn.small.primary', { href: f.loginUrl, target: '_blank', rel: 'noopener noreferrer', 'data-fk': 'open-cloudflare' }, icon('external', { size: 16 }), h('span', 'Open Cloudflare')) : null,
         btn('small ghost', { label: 'Cancel', disabled: busy, onclick: () => p.job('custom', 'cancel', {}) }))];
   } else if (f.state === 'signed-in') {
     first = [h('strong', 'Sign in to Cloudflare'), h('span.hint', 'Done.'),
