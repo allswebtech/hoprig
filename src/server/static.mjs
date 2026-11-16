@@ -26,7 +26,7 @@ let monacoFound;
 /**
  * monaco-editor as installed: { version, dir (the real min/vs folder), base (its URL, with the version in it, so the
  * files can be cached for good), workers: { editor, ts, json, css, html } (URLs) }, or null. Found once: an update
- * replaces the whole install and restarts the dashboard.
+ * replaces the whole install, and the dashboard takes it up only when it restarts (Settings → Updates says so).
  */
 export function monaco() {
   if (monacoFound !== undefined) return monacoFound;

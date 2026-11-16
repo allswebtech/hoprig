@@ -239,8 +239,9 @@ Good to know:
 - **A computer's page**: **Overview** (load, memory, disks, Claude Code and its sessions), **Setup** (what it
   has for coding, what is missing, and its workspace folders) and **Advanced** (programs, open ports, its name,
   power).
-- **Settings**: a short list of pages: New-session defaults, Notifications, Appearance and terminal, Security
-  and sign-in, Tia, Add-ons, Updates, About. Each option has one plain sentence under it.
+- **Settings**: a short list of pages: New-session defaults, Workspace, Notifications, Appearance and terminal,
+  Security and sign-in, Public link, Tia, Editor, Add-ons, Coding tools, Updates, About. Each option has one plain
+  sentence under it.
 - **Notifications**: a push to your phone when a session waits for you, needs your OK or reaches a limit.
 
 Sessions run in tmux when it is installed, 3.2 or newer (they survive a restart, and `tmux attach` over SSH

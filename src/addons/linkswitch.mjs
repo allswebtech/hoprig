@@ -52,7 +52,7 @@ export const KIND_WORDS = {
     title: 'Temporary',
     text: 'A new address each time it starts. Nothing to set up.',
     needs: 'Nothing. Hoprig installs Cloudflare\'s free helper (cloudflared) the first time you turn it on.',
-    gives: 'An https://….trycloudflare.com address through Cloudflare\'s free quick tunnel. It changes whenever Hoprig or the computer restarts (an update restarts Hoprig too); the new one is shown here and sent to your notifications.',
+    gives: 'An https://….trycloudflare.com address through Cloudflare\'s free quick tunnel. It changes whenever Hoprig or the computer restarts (also the restart that finishes an update of Hoprig); the new one is shown here and sent to your notifications.',
   },
   custom: {
     title: 'Custom',
