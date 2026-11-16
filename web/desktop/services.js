@@ -60,7 +60,7 @@ export function mount(root, { machine }) {
     { key: 'name', label: 'Name', w: 'minmax(150px, 1.3fr)', narrow: 'minmax(0, 1fr)' },
     { key: 'description', label: 'What it is', w: 'minmax(120px, 1.6fr)', narrow: false },
     { key: 'group', label: 'State', w: '104px', narrow: 'auto' },
-    { key: 'enabled', label: 'Starts with the computer', w: '104px', narrow: false },
+    { key: 'enabled', label: 'At start-up', w: '104px', narrow: false },
     { key: 'act', label: '', sort: false, w: '178px', narrow: 'auto' },
   ], { sort: { key: 'name', desc: false }, onSort: () => draw() });
   const logHead = h('div.dapp-loghead');

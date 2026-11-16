@@ -88,7 +88,7 @@ try {
     check(P, 'it says how far it reaches', await ev(`document.querySelector('${W} .dfiles-reach').textContent.includes('Files reaches one folder')`));
     await openRow('notes');
     check(P, 'a double press opens a folder; name, size, date and kind are shown', (await crumb()) === 'notes' && await waitFor(`(() => { const r = [...document.querySelectorAll('${W} .dapp-tbody .dapp-tr')].find((x) => x.textContent.includes('todo.txt')); return r && /26 B/.test(r.textContent) && /TXT file/.test(r.textContent); })()`), await ev(`document.querySelector('${W}').textContent.slice(0, 400)`));
-    check(P, 'the window is called after its folder', await waitFor(`document.querySelector('${W} .dwin-title').textContent === 'notes'`));
+    check(P, 'the window is called after its app and its folder', await waitFor(`document.querySelector('${W} .dwin-title').textContent === 'Files · notes'`));
     await shot('1-files-notes');
 
     // A text file opens in the Editor, as a window of the desktop.
@@ -270,6 +270,8 @@ try {
     check(P, 'Settings → Security has "Files reach", the allowed folders by default', await waitFor(`(() => { const p = document.getElementById('reach'); return !!p && p.querySelector('[aria-checked="true"]').textContent === 'Allowed folders'; })()`));
     await shot('12-settings-reach');
     await pressText('#reach .seg', 'Everything');
+    check(P, 'Everything asks first', await waitFor(`!!document.querySelector('dialog[open]') && document.querySelector('dialog[open]').textContent.includes('Let Files open everything?')`));
+    await pressText('dialog[open] button', 'Open everything');
     check(P, 'Everything is saved', await waitFor(`document.querySelector('#reach [aria-checked="true"]').textContent === 'Everything'`));
     await open('#/desktop', { w: 1440, h: 900, prefs: { 'desktop.~': null } });
     await openFiles();

@@ -117,8 +117,9 @@ try {
     await ev(`document.querySelectorAll('.toast').forEach((t) => t.remove())`);
     // Pressed from the keyboard (the windows cover the icons by now).
     const press = (app) => ev(`document.querySelector('.desk-icon[data-app="${app}"]').click()`);
+    // Files: an app of many windows (Logs, Sessions and the Task manager have one each).
     for (let i = 0; i < 14; i++) {
-      await press('logs');
+      await press('files');
       await sleep(120);
     }
     await sleep(400);

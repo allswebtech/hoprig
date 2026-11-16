@@ -123,6 +123,22 @@ export function openApp(app, hash) {
   if (!tellDesktop({ type: 'hoprig:open', app, hash })) location.hash = link(hash);
 }
 if (BARE) {
+  // The desktop gives a window the keyboard (web/desktop/frames.js giveKeys): the page's own place for typing takes
+  // it, as a press into it would (the terminal, the editor). A page still being drawn is waited for a moment.
+  const takeKeys = () => {
+    let n = 0;
+    const take = () => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      const el = document.querySelector('.xterm-helper-textarea, .monaco-editor textarea, [autofocus]');
+      if (el) el.focus();
+      else if (++n < 30 && document.hasFocus()) setTimeout(take, 100);
+    };
+    take();
+  };
+  window.addEventListener('focus', takeKeys);
+  window.addEventListener('message', (e) => {
+    if (e.source === window.parent && e.origin === location.origin && e.data && e.data.type === 'hoprig:keys') takeKeys();
+  });
   // The desktop's window keys work while the keyboard is inside a window too (web/desktop/wm.js, onKey).
   window.addEventListener('keydown', (e) => {
     if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
@@ -449,12 +465,17 @@ export function chooseSheet({ title, subtitle, items }) {
 // ---------- toasts ----------
 
 let toastBox = null;
-export function toast(text, { kind = 'info', ms = 3500 } = {}) {
+export function toast(text, { kind = 'info', ms = 3500, action = null } = {}) {
   if (!toastBox) {
     toastBox = h('div.toasts', { role: 'status', 'aria-live': 'polite' });
     document.body.append(toastBox);
   }
-  const t = h(`div.toast.${kind}`, icon(kind === 'error' ? 'alert' : 'check', { size: 18 }), h('span', text));
+  // `action` { label, run }: one button on the toast (Undo); pressing it runs it and the toast goes.
+  const t = h(`div.toast.${kind}`, icon(kind === 'error' ? 'alert' : 'check', { size: 18 }), h('span', text),
+    action ? h('button.btn.ghost.small.toast-action', { type: 'button', onclick: () => {
+      t.remove();
+      action.run();
+    } }, action.label) : null);
   toastBox.append(t);
   setTimeout(() => t.remove(), ms);
 }

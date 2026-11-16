@@ -117,7 +117,11 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
   }
 
   async function typePath() {
-    const p = await promptSheet({ title: 'Go to a folder', text: 'Its full path on this computer.', value: cur ? cur.path : '', ok: 'Go', label: 'Folder path', check: (v) => (v.trim() ? '' : 'Type a path.') });
+    const asked = promptSheet({ title: 'Go to a folder', text: 'Its full path on this computer.', value: cur ? cur.path : '', ok: 'Go', label: 'Folder path', check: (v) => (v.trim() ? '' : 'Type a path.') });
+    // The folder shown is there to change, not to add to: it is chosen, so what is typed replaces it.
+    const field = document.querySelector('dialog.sheet[open] input.field');
+    if (field) field.select();
+    const p = await asked;
     if (p) go(p.trim());
   }
 
@@ -139,7 +143,7 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
       cls: sel.has(e.key) ? 'dapp-picked' : null,
       cells: [
         h('button.dfiles-name', { type: 'button', title: e.path, dataset: { key: e.key } },
-          icon(e.kind === 'dir' ? 'folder' : ARCHIVE.test(e.name) ? 'download' : 'text', { size: 15 }),
+          icon(e.kind === 'dir' ? 'folder' : ARCHIVE.test(e.name) ? 'archive' : 'text', { size: 15 }),
           h('span.dfiles-label', e.name), e.link ? h('span.badge.soft', 'link') : null,
           isFind() ? h('span.dfiles-where.mono', splitPath(e.path).dir) : null),
         h('span.dapp-dim', e.kind === 'dir' ? '–' : bytes(e.size)),
@@ -161,13 +165,14 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
     const act = (ic, label, run) => h('button.dapp-btn.dfiles-act', { type: 'button', title: label, 'aria-label': label, onclick: run }, icon(ic, { size: 15 }));
     fill(selActs,
       h('span.dapp-status.dfiles-chosen', `${sel.size} chosen`),
-      one ? act(one.kind === 'dir' ? 'folder' : 'external', 'Open', () => openEntry(one)) : null,
+      one ? act('external', 'Open', () => openEntry(one)) : null,
       one && one.kind === 'file' ? act('download', 'Download', () => download(machine, one.path)) : null,
       one ? act('pencil', 'Rename', () => renameIt(one)) : null,
       act('copy', 'Copy to…', () => transfer(true)),
       act('swap', 'Move to…', () => transfer(false)),
-      isFind() ? null : act('plus', 'Pack into an archive', () => packIt()),
-      act('trash', 'Delete', () => trashIt()),
+      isFind() ? null : act('archive', 'Pack into an archive', () => packIt()),
+      // Deleting keeps its word at every width: it is the one that loses something.
+      h('button.btn.secondary.small.dfiles-delete', { type: 'button', title: 'Move to the trash', onclick: () => trashIt() }, icon('trash', { size: 14 }), h('span', 'Delete')),
       act('x', 'Choose none', () => {
         sel = new Set();
         draw();
@@ -218,6 +223,9 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
       actions.map(([v, label], i) => h(`button.btn.${i === actions.length - 1 ? 'primary' : 'secondary'}`, { type: 'button', onclick: () => close(v) }, label))),
   ]);
 
+  /** The editor on folder `dir`. */
+  const folderInEditor = (dir, name) => open('editor', `#/code?${new URLSearchParams({ dir })}`, { title: name });
+
   /** The editor on the repository the file is in (else its folder), at that file. */
   function inEditor(e) {
     const { dir } = splitPath(e.path);
@@ -252,11 +260,14 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
     found = null;
     findField.value = '';
     sel = new Set();
+    if (cur) place(new URLSearchParams({ path: cur.path }).toString(), splitPath(cur.path).name || cur.path);
     show();
   }
   function toTrash() {
     mode = 'trash';
     sel = new Set();
+    // The window says it shows the trash; its address keeps the folder, where a reload comes back to.
+    if (cur) place(new URLSearchParams({ path: cur.path }).toString(), 'Trash');
     show();
   }
 
@@ -270,11 +281,12 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
     return [
       many ? null : { label: e.kind === 'dir' ? 'Open' : openKind(e) === 'editor' ? 'Open in Editor' : 'Open', icon: e.kind === 'dir' ? 'folder' : 'external', run: () => openEntry(e) },
       !many && e.kind === 'file' ? { label: 'Download', icon: 'download', run: () => download(machine, e.path) } : null,
-      !many && ARCHIVE.test(e.name) ? { label: 'Unpack here', icon: 'folder', run: () => unpackIt(e) } : null,
+      !many && e.kind === 'dir' ? { label: 'Open in Editor', icon: 'code', run: () => folderInEditor(e.path, e.name) } : null,
+      !many && ARCHIVE.test(e.name) ? { label: 'Unpack here', icon: 'archive', run: () => unpackIt(e) } : null,
       !many ? { label: 'Rename', icon: 'pencil', run: () => renameIt(e) } : null,
       { label: 'Copy to…', icon: 'copy', run: () => transfer(true) },
       { label: 'Move to…', icon: 'swap', run: () => transfer(false) },
-      isFind() ? null : { label: 'Pack into an archive', icon: 'plus', run: () => packIt() },
+      isFind() ? null : { label: 'Pack into an archive', icon: 'archive', run: () => packIt() },
       !many ? { label: 'Copy the path', icon: 'clipboard', run: async () => toast((await copyText(e.path)) ? 'Path copied' : 'Could not copy') } : null,
       null,
       { label: 'Move to the trash', icon: 'trash', danger: true, run: () => trashIt() },
@@ -307,7 +319,8 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
   });
   withMenu(t.el, (e) => {
     const row = e.target.closest && e.target.closest('.dapp-tbody [data-key]');
-    return row ? rowMenu(row.dataset.key) : mode === 'folder' ? [{ label: 'New folder', icon: 'folder', run: () => make('dir') }, { label: 'New file', icon: 'plus', run: () => make('file') }, { label: 'Upload files', icon: 'upload', run: () => fileInput.click() }] : null;
+    return row ? rowMenu(row.dataset.key) : mode === 'folder' ? [{ label: 'New folder', icon: 'folderPlus', run: () => make('dir') }, { label: 'New file', icon: 'filePlus', run: () => make('file') }, { label: 'Upload files', icon: 'upload', run: () => fileInput.click() },
+      null, { label: 'Open this folder in Editor', icon: 'code', run: () => folderInEditor(cur.path, splitPath(cur.path).name || cur.path) }] : null;
   }, 'Files');
   root.addEventListener('keydown', (e) => {
     if (mode === 'trash' || e.target.closest('input, textarea, .sheet')) return;
@@ -354,8 +367,8 @@ export function mount(root, { machine, query = new URLSearchParams(), open = () 
 
   // ---------- the window ----------
 
-  fill(toolsBar, tool('folder', 'New folder', () => make('dir')), tool('plus', 'New file', () => make('file')), tool('upload', 'Upload', () => fileInput.click()),
-    findField, hiddenBtn, tool('trash', 'Trash', () => toTrash()), h('span.desk-grow'), selActs);
+  fill(toolsBar, tool('folderPlus', 'New folder', () => make('dir')), tool('filePlus', 'New file', () => make('file')), tool('upload', 'Upload', () => fileInput.click()),
+    findField, hiddenBtn, tool('trashBack', 'Trash', () => toTrash()), h('span.desk-grow'), selActs);
   const folderBars = [h('div.dapp-bar.dfiles-path', backBtn, upBtn, crumbs), toolsBar];
   const foot = h('div.dfiles-foot', status, busy, reach);
   const sizer = new ResizeObserver(() => root.classList.toggle('dfiles-tight', root.clientWidth > 0 && root.clientWidth < 1100));

@@ -11,16 +11,17 @@
  * kind 'terminal'  a new shell on the computer (POST /api/shells), shown as its session page
  * kind 'native'    `module` (in this folder) exports mount(root, { machine }) → stop(); as a page: #/desktop/<id>
  * pinned           on the desktop as an icon, and in the dock
+ * single           one window is enough (each shows the same): opening it again brings that window to the front
  * keep             words for the start menu's search besides the title
  */
 export const APPS = [
-  { id: 'sessions', title: 'Sessions', icon: 'sessions', kind: 'page', hash: '#/', pinned: true, keep: 'home chats conversations coding' },
+  { id: 'sessions', title: 'Sessions', icon: 'sessions', kind: 'page', hash: '#/', pinned: true, single: true, keep: 'home chats conversations coding' },
   { id: 'terminal', title: 'Terminal', icon: 'terminal', kind: 'terminal', pinned: true, keep: 'shell console command' },
   { id: 'files', title: 'Files', icon: 'folder', kind: 'native', module: 'files.js', pinned: true, keep: 'folders documents upload download trash archive zip' },
   { id: 'editor', title: 'Editor', icon: 'code', kind: 'page', hash: '#/code', pinned: true, keep: 'code source text edit' },
-  { id: 'tasks', title: 'Task manager', icon: 'cpu', kind: 'native', module: 'tasks.js', pinned: true, keep: 'processes programs performance memory disks network ports kill' },
-  { id: 'services', title: 'Services', icon: 'power', kind: 'native', module: 'services.js', pinned: true, keep: 'systemd daemons units start stop restart' },
-  { id: 'logs', title: 'Logs', icon: 'text', kind: 'native', module: 'logs.js', pinned: true, keep: 'journal journalctl syslog events' },
+  { id: 'tasks', title: 'Task manager', icon: 'cpu', kind: 'native', module: 'tasks.js', pinned: true, single: true, keep: 'processes programs performance memory disks network ports kill' },
+  { id: 'services', title: 'Services', icon: 'stack', kind: 'native', module: 'services.js', pinned: true, single: true, keep: 'systemd daemons units start stop restart' },
+  { id: 'logs', title: 'Logs', icon: 'text', kind: 'native', module: 'logs.js', pinned: true, single: true, keep: 'journal journalctl syslog events' },
 ];
 
 export const APP_IDS = new Set(APPS.map((a) => a.id));

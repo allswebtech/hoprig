@@ -72,9 +72,12 @@ export function poll(root, fn, ms) {
   return { stop: () => ((stopped = true), clearInterval(timer)), now: () => tick(true) };
 }
 
-/** An error of an app's request in plain words; a computer without these routes needs a newer Hoprig. */
+/**
+ * An error of an app's request in plain words. A computer without these routes needs a newer Hoprig: its server
+ * answers a route it does not have with 404 "not found" and no code; every other 404 (no such file) says its own.
+ */
 export function errorText(e) {
-  if (e instanceof ApiError && e.status === 404 && !e.code) return 'This computer needs a Hoprig update for this app.';
+  if (e instanceof ApiError && e.status === 404 && !e.code && (e.data || {}).error === 'not found') return 'This computer needs a Hoprig update for this app.';
   return e && e.message ? e.message : String(e);
 }
 export const errorLine = (e) => h('div.dapp-error', { role: 'alert' }, icon('alert', { size: 18 }), h('span', errorText(e)));

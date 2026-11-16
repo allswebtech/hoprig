@@ -196,7 +196,8 @@ test('the native apps\' shared words and sorting', async () => {
   assert.deepEqual(sortBy(list, 'v', true).map((x) => x.n), ['c', 'b', 'a'], 'numbers, the unknown last');
   assert.deepEqual(sortBy(list, 'v', false).map((x) => x.n), ['b', 'c', 'a']);
   assert.deepEqual(sortBy(list, 'n', false).map((x) => x.n), ['a', 'b', 'c']);
-  assert.equal(errorText(new ApiError('Not found', 404)), 'This computer needs a Hoprig update for this app.', 'an older computer');
+  assert.equal(errorText(new ApiError('Not found', 404, { error: 'not found' })), 'This computer needs a Hoprig update for this app.', 'an older computer: no such route');
+  assert.equal(errorText(new ApiError('There is no such file or folder', 404, { error: 'there is no such file or folder' })), 'There is no such file or folder', 'a missing file says so, not "update"');
   assert.equal(errorText(new ApiError('Offline', 404, { code: 'offline' })), 'Offline');
   assert.equal(errorText(new ApiError('No such process', 409)), 'No such process');
 });

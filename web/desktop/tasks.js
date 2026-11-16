@@ -7,6 +7,8 @@ import { icon } from '../icons.js';
 import { api, at, bytes, fill, h, openSheet, toast } from '../lib.js';
 import { choice, duration, errorLine, errorText, filterField, meter, pct, poll, sortBy, table } from './native.js';
 
+const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
 const PARTS = [['procs', 'Processes'], ['perf', 'Performance'], ['disks', 'Disks'], ['net', 'Network']];
 const SHOW_MAX = 400; // rows drawn at once; the filter finds the rest
 const HISTORY = 60; // CPU readings kept for the strip in Performance
@@ -42,14 +44,15 @@ function processes(view, call) {
     { key: 'cpu', label: 'CPU', num: true, w: '70px', narrow: '58px' },
     { key: 'rss', label: 'Memory', num: true, w: '86px', narrow: '74px' },
     { key: 'args', label: 'Command', w: 'minmax(160px, 2.4fr)', narrow: false },
-    { key: 'end', label: '', sort: false, w: '44px', narrow: '36px' },
+    // A finger gets a button with its word (desktop.css), so the column is wider on a touch screen.
+    { key: 'end', label: '', sort: false, w: COARSE ? '76px' : '44px', narrow: COARSE ? '76px' : '36px' },
   ], { sort: { key: 'cpu', desc: true }, onSort: () => draw() });
 
   const endBtn = (p) => {
     if (p.holdsSessions) return h('span.dapp-lock', { title: 'The server that holds every terminal and coding session: ending it would end them all, so it is not ended from here' }, icon('lock', { size: 14 }));
     if (p.guarded) return h('span.dapp-lock', { title: 'This dashboard, or a program it runs inside: it is not ended from here' }, icon('lock', { size: 14 }));
     if (p.mine === false) return h('span.dapp-lock', { title: 'Started by another user: it cannot be ended from here' }, icon('lock', { size: 14 }));
-    return h('button.dapp-btn.dapp-end', { type: 'button', title: `End ${p.name}`, 'aria-label': `End ${p.name} (${p.pid})`, onclick: () => endIt(p) }, icon('stop', { size: 14 }));
+    return h('button.dapp-btn.dapp-end', { type: 'button', title: `End ${p.name}`, 'aria-label': `End ${p.name} (${p.pid})`, onclick: () => endIt(p) }, icon('stop', { size: 14 }), h('span.dapp-word', 'End'));
   };
   function draw() {
     const s = q.trim().toLowerCase();

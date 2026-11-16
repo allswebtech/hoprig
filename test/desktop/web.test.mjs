@@ -44,7 +44,7 @@ test('no other company\'s names or marks in the desktop: the styles are "Taskbar
 test('where it sits: one page beside the dashboard, opened from a page head and a computer\'s page; no sidebar entry, no Start view', () => {
   const idx = src('desktop/index.js');
   assert.match(idx, /registerPage\(\{ id: 'desktop', title: 'Desktop', icon: 'monitor', perComputer: true, render: viewDesktop \}\)/, 'no navigation group');
-  assert.match(idx, /registerHeadTool\(\(\) => h\('a\.icon-btn\.desk-headbtn', \{ href: link\('#\/desktop'\), title: 'Desktop mode'/);
+  assert.match(idx, /registerHeadTool\(\(\) => \(.*\n\s+: h\('a\.icon-btn\.desk-headbtn', \{ href: link\('#\/desktop'\), title: 'Desktop mode'/);
   assert.match(src('desktop/desktop.css'), /@media \(max-width: 1023px\), \(max-height: 599px\) \{ \.desk-headbtn \{ display: none; \} \}/, 'wide screens only');
   assert.match(src('desktop/bar.js'), /desk-tray-btn\.desk-back', \{ type: 'button', title: 'Back to the dashboard'/, 'the way back in the tray');
   assert.match(idx, /WIDE = '\(min-width: 1024px\) and \(min-height: 600px\)'/);

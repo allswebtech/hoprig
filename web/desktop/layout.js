@@ -25,6 +25,19 @@ export function clampRect(r, area) {
   return { x, y, w, h };
 }
 
+/**
+ * A rect wholly inside the area, title-bar buttons included: shrunk to the area when larger, then moved in. For a
+ * layout read back on a smaller screen and for a browser window made smaller; a window the owner drags partly out
+ * stays where it is put (clampRect).
+ */
+export function fitRect(r, area) {
+  const w = Math.min(Math.max(int(r.w), MIN_W), Math.max(area.w, MIN_W));
+  const h = Math.min(Math.max(int(r.h), MIN_H), Math.max(area.h, MIN_H));
+  const x = Math.max(Math.min(int(r.x), area.w - w), 0);
+  const y = Math.max(Math.min(int(r.y), area.h - h), 0);
+  return { x, y, w, h };
+}
+
 /** The rect of a snap place in the area. */
 export function snapRect(snap, area) {
   const hw = Math.round(area.w / 2);
@@ -78,26 +91,31 @@ export function resizeRect(start, dir, dx, dy, area) {
   return { x: int(x), y: int(y), w: int(w), h: int(h) };
 }
 
+/** The width a window opens at: enough for a page's head with its main button (900 px), where the area has it. */
+export const OPEN_W = 900;
+
 /**
  * Where a new window opens: a size that suits the area, a little down and right of the last one opened so no two
- * sit exactly on top of each other, back to the top left when it would leave the area.
+ * sit exactly on top of each other, back to the top when it would leave the area. `left`: the desktop's icons take
+ * that much of the left side, so a window is put to the right of them where the area has the room.
  */
-export function placeNew(windows, area, size = {}) {
-  const w = Math.min(size.w || Math.round(area.w * 0.62), area.w);
+export function placeNew(windows, area, size = {}, { left = 0 } = {}) {
+  const w = Math.min(size.w || Math.max(Math.round(area.w * 0.62), Math.min(OPEN_W, area.w - left)), area.w);
   const h = Math.min(size.h || Math.round(area.h * 0.72), area.h);
   const step = 28;
-  let x = Math.round((area.w - w) / 4);
+  const x0 = Math.max(Math.round((area.w - w) / 4), area.w - w >= left ? left : 0);
+  let x = x0;
   let y = Math.round((area.h - h) / 6);
   const taken = new Set(windows.filter((v) => !v.min).map((v) => `${v.rect.x},${v.rect.y}`));
   for (let i = 0; i < 12 && taken.has(`${x},${y}`); i++) {
     x += step;
     y += step;
     if (x + w > area.w || y + h > area.h) {
-      x = step * (i % 3);
+      x = Math.min(x0, Math.max(area.w - w, 0)) + step * (i % 3);
       y = step * (i % 3);
     }
   }
-  return clampRect({ x, y, w, h }, area);
+  return fitRect({ x, y, w, h }, area);
 }
 
 /**

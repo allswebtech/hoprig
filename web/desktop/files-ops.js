@@ -68,7 +68,15 @@ export function fileOps(f) {
     try {
       const r = await call('/api/files/trash', { paths: items.map((e) => e.path) });
       if (r.failed.length) toast(failText(r), { kind: 'error', ms: 9000 });
-      if (r.done.length) toast(`Moved ${r.done.length === 1 ? items[0].name : `${r.done.length} items`} to the trash. Put it back from Trash.`);
+      if (r.done.length) {
+        const undo = async () => {
+          const back = await Promise.allSettled(r.done.map((d) => call('/api/files/trash/restore', { id: d.id })));
+          const lost = back.filter((x) => x.status === 'rejected');
+          if (lost.length) toast(`${lost.length} could not be put back: ${errorText(lost[0].reason)}`, { kind: 'error', ms: 8000 });
+          load();
+        };
+        toast(`Moved ${r.done.length === 1 ? items[0].name : `${r.done.length} items`} to the trash.`, { ms: 8000, action: { label: 'Undo', run: undo } });
+      }
       clear();
     } catch (e) {
       toast(errorText(e), { kind: 'error', ms: 7000 });

@@ -7,7 +7,7 @@
 //
 //   apps.js    the catalog          wm.js     the windows        bar.js     the bars, start menu and launcher
 //   layout.js  the window maths     menu.js   right-click menu   native.js  what the native apps share
-//   moves.js   moving and resizing windows with the pointer
+//   moves.js   moving and resizing windows with the pointer   frames.js  the keyboard and unsaved changes of a window
 //   files.js (with files-parts.js, files-ops.js), tasks.js, services.js, logs.js  the native apps
 //   desktop.css its look
 import { icon } from '../icons.js';
@@ -121,6 +121,9 @@ function mountDesktop() {
     async launch(id, hash = null) {
       const a = appById(id);
       if (!a) return;
+      // An app whose windows all show the same (Sessions, Task manager…) has one: it comes to the front.
+      const one = a.single && !hash ? desk.wm.list().find((w) => w.app === a.id) : null;
+      if (one) return desk.wm.raise(one.id);
       // Past the window limit nothing starts: a shell with no window would keep running unseen.
       if (!desk.wm.canOpen()) return;
       if (a.kind === 'terminal') {
@@ -140,6 +143,13 @@ function mountDesktop() {
         if (w && desk.wm.navigate(w.id, to)) return;
       }
       desk.wm.open(id, to, { title: a.title });
+    },
+    /** The Sessions window at its list (the sessions that need you are at its top), opened if there is none. */
+    showSessions() {
+      const w = desk.wm.list().find((x) => x.app === 'sessions');
+      if (!w) return desk.launch('sessions');
+      if (w.home && w.hash !== w.home) desk.wm.navigate(w.id, w.home);
+      desk.wm.raise(w.id);
     },
     openSession(s) {
       desk.wm.open(s.kind === 'shell' ? 'terminal' : 'sessions', sessionHash(s.name, machineName), { title: s.display || s.name });
@@ -188,7 +198,7 @@ function mountDesktop() {
     { label: 'Arrange the windows', icon: 'square', run: () => desk.wm.arrange() },
     { label: 'Minimise all', icon: 'minus', run: () => desk.wm.minimiseAll() },
     { label: style === 'dock' ? 'Use the Taskbar style' : 'Use the Dock style', icon: 'swap', run: () => desk.setStyle(style === 'dock' ? 'taskbar' : 'dock') },
-    { label: 'Desktop settings', icon: 'settings', run: () => (location.hash = '#/settings/appearance') },
+    { label: 'Desktop settings', icon: 'settings', run: () => (location.hash = '#/settings/appearance?show=desktop') },
     null,
     { label: 'Back to the dashboard', icon: 'back', run: () => desk.leave() },
   ]), 'Desktop');
@@ -199,6 +209,13 @@ function mountDesktop() {
     if (e.key === 'pref:page.theme') bars.paint();
   };
   window.addEventListener('storage', onStorage);
+  // A reload or a closed tab with unsaved changes in an Editor window: the browser asks first.
+  const onUnload = (e) => {
+    if (!desk.wm.unsaved()) return;
+    e.preventDefault();
+    e.returnValue = '';
+  };
+  window.addEventListener('beforeunload', onUnload);
   // Ctrl+K: the start menu or the launcher, the way a palette opens elsewhere.
   const onKey = (e) => {
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
@@ -208,15 +225,18 @@ function mountDesktop() {
   };
   document.addEventListener('keydown', onKey);
 
-  return () => {
+  const stop = () => {
     leaveGuard = null;
     window.removeEventListener('storage', onStorage);
+    window.removeEventListener('beforeunload', onUnload);
     document.removeEventListener('keydown', onKey);
     bars.stop();
     desk.wm.stop();
     document.body.classList.remove('desk-mode');
     delete document.body.dataset.deskStyle;
   };
+  stop.unsaved = () => desk.wm.unsaved();
+  return stop;
 }
 
 // ---------- the grid of apps on a small screen ----------
@@ -275,11 +295,36 @@ function viewDesktop({ frame, sub }) {
     return () => {};
   }
   const mq = matchMedia(WIDE);
-  // Crossing the line draws the page again: windows on one side, the grid on the other.
-  const again = () => window.dispatchEvent(new Event('hashchange'));
+  const windows = mq.matches;
+  // Crossing the line draws the page again: windows on one side, the grid on the other. Windows that hold unsaved
+  // changes (an Editor's) are never dropped for it: the desktop keeps them until nothing is unsaved any more, and
+  // draws the grid then (unless the screen is wide again by that time).
+  let wait = null;
+  const again = () => {
+    clearInterval(wait);
+    wait = null;
+    if (windows && mq.matches) return; // back on the windows' side before anything was redrawn
+    if (windows && stop.unsaved() > 0) {
+      toast('The windows stay while an Editor has unsaved changes: save them, or make the browser window wider.', { ms: 8000 });
+      wait = setInterval(() => {
+        if (mq.matches) {
+          clearInterval(wait);
+          wait = null;
+        } else if (!stop.unsaved()) {
+          clearInterval(wait);
+          wait = null;
+          window.dispatchEvent(new Event('hashchange'));
+        }
+      }, 1500);
+      return;
+    }
+    window.dispatchEvent(new Event('hashchange'));
+  };
   mq.addEventListener('change', again);
-  const stop = mq.matches ? mountDesktop() : appsGrid(frame);
+  const stop = windows ? mountDesktop() : appsGrid(frame);
+  if (!stop.unsaved) stop.unsaved = () => 0;
   return () => {
+    clearInterval(wait);
     mq.removeEventListener('change', again);
     stop();
   };
@@ -290,14 +335,16 @@ registerPage({ id: 'desktop', title: 'Desktop', icon: 'monitor', perComputer: tr
 
 // "Desktop mode" at the top right of every page head, on a wide screen only (desktop.css hides it below the line):
 // the desktop of the computer whose page is open.
-registerHeadTool(() => h('a.icon-btn.desk-headbtn', { href: link('#/desktop'), title: 'Desktop mode', 'aria-label': 'Desktop mode' }, icon('monitor', { size: 16 })));
+// A computer's page has its own "Open desktop" button for the same place: no second one there.
+registerHeadTool(() => (/^#(\/m\/[^/]+)?\/computer(\/|$)/.test(location.hash) ? null
+  : h('a.icon-btn.desk-headbtn', { href: link('#/desktop'), title: 'Desktop mode', 'aria-label': 'Desktop mode' }, icon('monitor', { size: 16 }))));
 
-// ---------- Settings → Security: how far the dashboard reaches ----------
+// ---------- Settings → Security: how far Files reach ----------
 
 /**
- * One setting for every place that opens a folder of this computer (Files, the editor, new sessions): the allowed
- * folders (New-session defaults → Folders; the home folder unless changed) or everything this user can open.
- * Hoprig's own folders and the files that hold a sign-in stay locked either way.
+ * How far Files and the editor reach on this computer: the allowed folders (New-session defaults → Folders; the home
+ * folder unless changed) or everything this user can open. New sessions, Tia and automations keep to the allowed
+ * folders either way, and Hoprig's own folders and the files that hold a sign-in stay locked.
  */
 export function reachSettings(settings) {
   const s = (settings && settings.server) || {};
@@ -308,6 +355,7 @@ export function reachSettings(settings) {
   const paint = (cur) => fill(seg, [['home', 'Allowed folders'], ['everything', 'Everything']].map(([v, label]) =>
     h('button.seg', { type: 'button', role: 'radio', 'aria-checked': String(cur === v), onclick: async () => {
       if (cur === v) return;
+      if (v === 'everything' && !(await confirmSheet({ title: 'Let Files open everything?', text: 'Files and the editor can then open, change and delete anything your user can on this computer, as a terminal can. Hoprig\'s own folders and sign-in files stay locked.', ok: 'Open everything' }))) return;
       err.textContent = '';
       try {
         await api('/api/settings', { server: { reach: v } });
@@ -318,9 +366,9 @@ export function reachSettings(settings) {
       }
     } }, label)));
   paint(s.reach === 'everything' ? 'everything' : 'home');
-  return panel({ id: 'reach', icon: 'folder', title: 'Files reach', desc: 'What Files, the editor and new sessions can open on this computer.' },
+  return panel({ id: 'reach', icon: 'folder', title: 'Files reach', desc: 'What Files and the editor can open on this computer.' },
     h('div.fieldrow', h('span.field-label', 'Reach', mark), seg,
-      h('span.hint', `Allowed folders: ${tops.join(', ') || 'your home folder'} (the home folder unless changed in New-session defaults). Everything: every folder your user can open on this computer, as a terminal can. Hoprig's own folders and sign-in files stay locked either way.`)),
+      h('span.hint', `Allowed folders: ${tops.join(', ') || 'your home folder'} (the home folder unless changed in New-session defaults). Everything: every folder your user can open on this computer, as a terminal can. New sessions, Tia and automations stay inside the allowed folders either way, and Hoprig's own folders and sign-in files stay locked.`)),
     err);
 }
 
@@ -343,6 +391,9 @@ export function desktopSettings() {
     const mark = savedMark();
     return h('div.fieldrow', h('span.field-label', label, mark), seg(key, options, current, mark), h('span.hint', hint));
   };
-  return panel({ id: 'desktop', icon: 'monitor', title: 'Desktop', desc: 'The apps of a computer as windows, on a screen at least 1024 × 600: Desktop mode at the top right of a page. Saved on this device only.' },
+  const el = panel({ id: 'desktop', icon: 'monitor', title: 'Desktop', desc: 'The apps of a computer as windows, on a screen at least 1024 × 600: Desktop mode at the top right of a page. Saved on this device only.' },
     group('Desktop style', 'desktop.style', [['taskbar', 'Taskbar'], ['dock', 'Dock']], deskStyle(), 'Where the apps and open windows are: a bar at the bottom, or a dock with a bar at the top.'));
+  // "Desktop settings" from the desktop lands on this card, not on the top of Appearance.
+  if (/[?&]show=desktop\b/.test(location.hash)) setTimeout(() => el.isConnected && el.scrollIntoView({ block: 'start' }), 60);
+  return el;
 }

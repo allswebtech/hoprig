@@ -7,9 +7,10 @@
 // swallow the pointer, and the first press on a window behind brings it to the front instead of pressing in it.
 // The layout of each computer's desktop is kept in this browser (layout.js) and comes back on a reload.
 import { icon } from '../icons.js';
-import { add, confirmSheet, fill, h, prefs, samePlace, toast } from '../lib.js';
+import { add, fill, h, prefs, samePlace, toast } from '../lib.js';
 import { APP_IDS, appById, appHash, frameSrc } from './apps.js';
-import { MAX_WINDOWS, clampRect, cleanLayout, gridRects, keepLayout, keySnap, layoutKey, placeNew, snapRect } from './layout.js';
+import { frameKeys, giveKeys, mayClose, unsavedOf } from './frames.js';
+import { MAX_WINDOWS, cleanLayout, fitRect, gridRects, keepLayout, keySnap, layoutKey, placeNew, snapRect } from './layout.js';
 import { pointerMoves } from './moves.js';
 import { withMenu } from './menu.js';
 import { nativeBody } from './native.js';
@@ -33,6 +34,11 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
 
   const size = () => ({ w: area.clientWidth, h: area.clientHeight });
   const byId = (id) => wins.find((v) => v.id === id) || null;
+  /** What a window is called in its title bar and the bar: the app's name, and what it shows when that differs. */
+  const labelOf = (v) => {
+    const app = appById(v.app);
+    return v.title && v.title !== app.title ? `${app.title} · ${v.title}` : app.title;
+  };
   const front = () => wins.filter((v) => !v.min).sort((a, b) => b.z - a.z)[0] || null;
 
   let saveTimer = null;
@@ -95,8 +101,7 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     const w = byId(id);
     if (!w) return;
     if (w.own && w.app === 'terminal' && (await askClose(w)) === null) return;
-    const n = unsavedOf(w);
-    if (n && !(await confirmSheet({ title: `Close ${w.title || 'the editor'}?`, text: `${n} ${n === 1 ? 'file has' : 'files have'} unsaved changes in this window. Closing it loses them.`, ok: 'Close without saving', danger: true }))) return;
+    if (!(await mayClose(w, labelOf(w)))) return;
     const i = wins.indexOf(w);
     if (i < 0) return; // closed meanwhile
     const [v] = wins.splice(i, 1);
@@ -106,25 +111,19 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     if (focusId === id) focusFront();
     changed();
   }
-  /** From the bar: the window in front is minimised, any other comes to the front. */
+  /** From the bar: the window in front is minimised, any other comes to the front with the keyboard. */
   function toggleFromBar(id) {
     const v = byId(id);
     if (!v) return;
     if (focusId === id && !v.min) minimise(id);
-    else focus(id);
+    else raise(id);
   }
-
+  /** Bring a window to the front and give it the keyboard, as a window opened or raised on purpose does. */
+  function raise(id) {
+    focus(id);
+    giveKeys(byId(id));
+  }
   const moves = pointerMoves({ root, area, size, place, changed });
-
-  /** Files with unsaved changes in a window's page (the editor says, web/editor/index.js). */
-  function unsavedOf(v) {
-    try {
-      const f = v.frame && v.frame.contentWindow.__hoprigUnsaved;
-      return typeof f === 'function' ? Number(f()) || 0 : 0;
-    } catch {
-      return 0;
-    }
-  }
 
   // ---------- one window ----------
 
@@ -134,7 +133,7 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
       e.stopPropagation();
       run();
     } }, icon(name, { size: 14 }));
-    v.titleEl = h('span.dwin-title', v.title || app.title);
+    v.titleEl = h('span.dwin-title', labelOf(v));
     v.maxBtn = ctl('square', 'Maximise', () => toggleMax(v.id));
     const bar = h('header.dwin-bar', { ondblclick: (e) => {
       if (!e.target.closest('.dwin-btn')) toggleMax(v.id);
@@ -144,12 +143,15 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     // A native app keeps where it is (Files: its folder) in the window's address and title, and opens other apps.
     v.native = app.kind === 'native' ? nativeBody(app, { machine: machineName, hash: () => v.hash, open: launch, place: (q, title) => {
       v.hash = `${appHash(app, machineName)}${q ? `?${q}` : ''}`;
-      if (title) v.titleEl.textContent = v.title = title;
+      if (title) {
+        v.title = title;
+        v.titleEl.textContent = labelOf(v);
+      }
       changed();
     } }) : null;
     v.frame = v.native ? null : h('iframe.dwin-frame', { src: frameSrc(v.hash, location.pathname, frameOpts(v)), title: v.title || app.title });
     const shield = h('div.dwin-shield', { 'aria-hidden': 'true' });
-    v.el = h('section.dwin', { 'aria-label': v.title || app.title, dataset: { id: v.id, app: v.app, kind: app.kind } },
+    v.el = h('section.dwin', { 'aria-label': labelOf(v), dataset: { id: v.id, app: v.app, kind: app.kind } },
       bar, h('div.dwin-body', v.native ? v.native.el : v.frame, shield),
       DIRS.map((d) => h('div.dwin-grip', { dataset: { dir: d }, 'aria-hidden': 'true' })));
     // Any press on the window brings it to the front (the shield takes the first one on a window behind).
@@ -167,6 +169,8 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     if (v.frame) v.watch = setInterval(() => sync(v), 1000);
     if (v.frame) v.frame.addEventListener('load', () => {
       sync(v);
+      // Opened on purpose while it loaded (not restored on a reload): the keyboard goes in now.
+      if (v.wantsKeys && focusId === v.id && document.activeElement === v.frame) frameKeys(v);
       try {
         v.frame.contentWindow.addEventListener('hashchange', () => setTimeout(() => sync(v), 50));
       } catch {
@@ -202,7 +206,7 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     if (title === v.title && hash === v.hash) return;
     v.title = title || v.title;
     v.hash = /^#\/[^\s<>"']{0,500}$/.test(hash) ? hash : v.hash;
-    v.titleEl.textContent = v.title || appById(v.app).title;
+    v.titleEl.textContent = labelOf(v);
     v.el.setAttribute('aria-label', v.titleEl.textContent);
     v.frame.title = v.titleEl.textContent;
     changed();
@@ -268,8 +272,12 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     const v = el && el.tagName === 'IFRAME' ? wins.find((w) => w.frame === el) : null;
     if (v && focusId !== v.id) focus(v.id);
   }, 0);
+  // A smaller area (a smaller browser window, a layout from a larger screen) moves every window inside it, its
+  // title bar's buttons included. An area not laid out yet has no size: nothing is moved then.
   const onResize = () => {
-    for (const v of wins) v.rect = clampRect(v.rect, size());
+    const s = size();
+    if (!s.w || !s.h) return;
+    for (const v of wins) v.rect = fitRect(v.rect, s);
     placeAll();
   };
   document.addEventListener('keydown', onKey);
@@ -300,10 +308,12 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     if (!APP_IDS.has(appId) || !canOpen()) return null;
     const app = appById(appId);
     const start = home || (app.kind === 'page' ? appHash(app, machineName) : app.kind === 'terminal' ? hash : null);
-    const v = { id: newId(), app: appId, hash, home: start, own: own === true, title, rect: rect || placeNew(wins, size()), snap, min: false, z: zTop + 1 };
+    const icons = area.querySelector('.desk-icons');
+    const left = icons ? icons.offsetLeft + icons.offsetWidth + 8 : 0;
+    const v = { id: newId(), app: appId, hash, home: start, own: own === true, title, rect: rect || placeNew(wins, size(), {}, { left }), snap, min: false, z: zTop + 1 };
     wins.push(v);
     build(v);
-    focus(v.id);
+    raise(v.id);
     return v.id;
   }
 
@@ -313,7 +323,7 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     const app = appById(k.app);
     // A page app starts where its app starts, whatever an older layout kept (it once kept "#/m/<pc>/" for Sessions).
     const home = app.kind === 'page' ? appHash(app, machineName) : k.home || (app.kind === 'terminal' ? k.hash : null);
-    const v = { ...k, home, rect: clampRect(k.rect, size()) };
+    const v = { ...k, home, rect: k.rect }; // fitted to this screen by the first measure (onResize)
     zTop = Math.max(zTop, v.z);
     wins.push(v);
     build(v);
@@ -325,6 +335,7 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     open,
     canOpen,
     focus,
+    raise,
     minimise,
     close,
     toggleFromBar,
@@ -346,7 +357,7 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     /** Files with unsaved changes in all the windows. */
     unsaved: () => wins.reduce((n, v) => n + unsavedOf(v), 0),
     /** The windows in the order they were opened, for the bars: { id, app, title, min, focused }. */
-    list: () => wins.map((v) => ({ id: v.id, app: v.app, title: v.title || appById(v.app).title, min: v.min, focused: v.id === focusId && !v.min, hash: v.hash, own: v.own })),
+    list: () => wins.map((v) => ({ id: v.id, app: v.app, title: v.title || appById(v.app).title, label: labelOf(v), min: v.min, focused: v.id === focusId && !v.min, hash: v.hash, home: v.home, own: v.own })),
     focused: () => (focusId ? byId(focusId) : null),
     /** The area changed size (the window, or the other style's bars): every window fits it again. */
     relayout: onResize,

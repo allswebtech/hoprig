@@ -54,9 +54,11 @@ export function drawBars({ root, top, bottom, style, desk }) {
     });
     return b;
   }
+  // The desktop is one computer's: it counts that computer's sessions, the ones its Sessions window lists.
+  const waitingCount = () => ((own() || {}).sessions || []).filter(needsYou).length;
   function waiting() {
-    const n = store.all.flatMap((m) => m.sessions || []).filter(needsYou).length;
-    return n ? h('button.desk-tray-btn.desk-waiting', { type: 'button', title: `${n} session${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you`, onclick: () => desk.launch('sessions') }, icon('bell', { size: 15 }), h('span', String(n))) : null;
+    const n = waitingCount();
+    return n ? h('button.desk-tray-btn.desk-waiting', { type: 'button', title: `${n} session${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you`, onclick: () => desk.showSessions() }, icon('bell', { size: 15 }), h('span', String(n))) : null;
   }
   function themeBtn() {
     const label = dark() ? 'Light colours' : 'Dark colours';
@@ -86,31 +88,35 @@ export function drawBars({ root, top, bottom, style, desk }) {
     closeMenu();
     const grid = h('div.desk-apps', { role: 'list' });
     const sessions = h('div.desk-sessions');
-    const input = h('input.field.desk-search', { type: 'search', placeholder: 'Search apps', 'aria-label': 'Search apps', autocomplete: 'off', spellcheck: 'false' });
+    const input = h('input.field.desk-search', { type: 'search', placeholder: 'Search apps and sessions', 'aria-label': 'Search apps and sessions', autocomplete: 'off', spellcheck: 'false' });
+    // What Enter opens: the first app found, else the first session found. It is marked while something is typed.
+    let next = null;
     const draw = () => {
+      const typed = input.value.trim().toLowerCase();
       const found = searchApps(input.value);
-      fill(grid, found.map((a) => h('button.desk-app', { type: 'button', role: 'listitem', onclick: () => {
+      const m = own();
+      const list = m ? [...(m.sessions || [])].filter((s) => s.kind !== 'chat' && (!typed || `${s.display || ''} ${s.name}`.toLowerCase().includes(typed))).sort(needsYouFirst).slice(0, 6) : [];
+      next = found.length ? { app: found[0] } : list.length ? { session: list[0] } : null;
+      const enterMark = (on) => (on && typed ? h('kbd.desk-enter', { title: 'Enter opens this' }, 'Enter') : null);
+      fill(grid, found.map((a, i) => h('button.desk-app', { type: 'button', role: 'listitem', dataset: { next: i === 0 && typed ? '1' : '' }, onclick: () => {
         closePopup();
         desk.launch(a.id);
-      } }, h('span.desk-app-icon', icon(a.icon, { size: 22 })), h('span.desk-app-name', a.title))));
+      } }, h('span.desk-app-icon', icon(a.icon, { size: 22 })), h('span.desk-app-name', a.title), enterMark(i === 0))));
       if (!found.length) fill(grid, h('p.hint', 'No app has that name.'));
-      const m = own();
-      const list = m ? [...(m.sessions || [])].filter((s) => s.kind !== 'chat').sort(needsYouFirst).slice(0, 6) : [];
       fill(sessions, list.length ? [h('h3.desk-pop-head', 'Open a session in a window'),
-        list.map((s) => h('button.desk-session', { type: 'button', onclick: () => {
+        list.map((s, i) => h('button.desk-session', { type: 'button', dataset: { next: !found.length && i === 0 && typed ? '1' : '' }, onclick: () => {
           closePopup();
           desk.openSession(s);
-        } }, icon(s.kind === 'shell' ? 'terminal' : 'sessions', { size: 16 }), h('span.desk-session-name', s.display || s.name), h('span.desk-session-state', stateOf(s).text)))] : null);
+        } }, icon(s.kind === 'shell' ? 'terminal' : 'sessions', { size: 16 }), h('span.desk-session-name', s.display || s.name), h('span.desk-session-state', stateOf(s).text), enterMark(!found.length && i === 0)))]
+        : typed && m && (m.sessions || []).length ? h('p.hint', 'No session has that name.') : null);
     };
     input.addEventListener('input', draw);
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        const first = searchApps(input.value)[0];
-        if (first) {
-          closePopup();
-          desk.launch(first.id);
-        }
-      }
+      if (e.key !== 'Enter' || !next) return;
+      const it = next;
+      closePopup();
+      if (it.app) desk.launch(it.app.id);
+      else desk.openSession(it.session);
     });
     draw();
     const el = h(`div.desk-pop.desk-pop-${style}`, { role: 'dialog', 'aria-label': style === 'dock' ? 'Launcher' : 'Start' },
@@ -118,7 +124,7 @@ export function drawBars({ root, top, bottom, style, desk }) {
       h('div.desk-pop-foot',
         h('button.btn.ghost.small', { type: 'button', onclick: () => {
           closePopup();
-          location.hash = '#/settings/appearance';
+          location.hash = '#/settings/appearance?show=desktop';
         } }, icon('settings', { size: 16 }), h('span', 'Desktop settings')),
         h('button.btn.ghost.small', { type: 'button', onclick: () => {
           closePopup();
@@ -151,7 +157,7 @@ export function drawBars({ root, top, bottom, style, desk }) {
   // ---------- the window buttons ----------
 
   const windowMenu = (w) => [
-    { label: w.min ? 'Restore' : 'Bring to front', icon: 'up', run: () => wm.focus(w.id) },
+    { label: w.min ? 'Restore' : 'Bring to front', icon: 'up', run: () => wm.raise(w.id) },
     { label: 'Minimise', icon: 'minus', disabled: w.min, run: () => wm.minimise(w.id) },
     { label: 'Maximise', icon: 'square', run: () => wm.setSnap(w.id, 'max') },
     null,
@@ -159,8 +165,8 @@ export function drawBars({ root, top, bottom, style, desk }) {
   ];
   function winButton(w) {
     const app = appById(w.app);
-    const b = h('button.desk-task', { type: 'button', title: w.title, 'aria-pressed': String(w.focused), dataset: { id: w.id, min: w.min ? '1' : '' }, onclick: () => wm.toggleFromBar(w.id) },
-      icon(app.icon, { size: 16 }), h('span.desk-task-name', w.title));
+    const b = h('button.desk-task', { type: 'button', title: w.label, 'aria-pressed': String(w.focused), dataset: { id: w.id, min: w.min ? '1' : '' }, onclick: () => wm.toggleFromBar(w.id) },
+      icon(app.icon, { size: 16 }), h('span.desk-task-name', w.label));
     withMenu(b, () => windowMenu(w), 'Window');
     return b;
   }
@@ -175,12 +181,12 @@ export function drawBars({ root, top, bottom, style, desk }) {
       else desk.launch(app.id);
     } }, icon(app.icon, { size: 22 }), h('span.desk-dock-dot', { 'aria-hidden': 'true' }));
     withMenu(b, () => [
-      { label: `New ${app.title} window`, icon: 'plus', run: () => desk.launch(app.id) },
-      ...open.map((w) => ({ label: w.title, icon: app.icon, run: () => wm.focus(w.id) })),
+      app.single && open.length ? null : { label: open.length ? `New ${app.title} window` : `Open ${app.title}`, icon: 'plus', run: () => desk.launch(app.id) },
+      ...open.map((w) => ({ label: w.title, icon: app.icon, run: () => wm.raise(w.id) })),
       ...(open.length ? [null, { label: open.length > 1 ? 'Close all its windows' : 'Close', icon: 'x', danger: true, run: async () => {
         for (const w of open) await wm.close(w.id); // one at a time: a shell's window asks first
       } }] : []),
-    ], app.title);
+    ].filter(Boolean), app.title);
     return b;
   }
 
@@ -191,7 +197,7 @@ export function drawBars({ root, top, bottom, style, desk }) {
   let shown = '';
   function paint(force = true) {
     const wins = wm.list();
-    const now = JSON.stringify([wins, !!popup, dark(), store.all.map((m) => [m.machine, m.machineLabel, m.status]), store.all.flatMap((m) => m.sessions || []).filter(needsYou).length]);
+    const now = JSON.stringify([wins, !!popup, dark(), store.all.map((m) => [m.machine, m.machineLabel, m.status]), waitingCount()]);
     if (!force && now === shown) return;
     shown = now;
     if (style === 'taskbar') {

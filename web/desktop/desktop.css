@@ -104,7 +104,7 @@ body.desk-mode { overflow: hidden; }
 .desk[data-desk-style='dock'] .dwin[data-snap='max'] { border-radius: 0; }
 .desk[data-desk-style='dock'] .dwin-bar { padding: 0 12px; }
 .desk[data-desk-style='dock'] .dwin-ctl { order: -1; gap: 8px; margin-right: 4px; }
-.desk[data-desk-style='dock'] .dwin-btn { width: 13px; height: 13px; border-radius: 50%; background: var(--border-strong); color: transparent; }
+.desk[data-desk-style='dock'] .dwin-btn { width: 13px; height: 13px; border-radius: 50%; background: var(--border-strong); color: var(--surface); }
 .desk[data-desk-style='dock'] .dwin-btn .icon { width: 9px; height: 9px; stroke-width: 3; }
 .desk[data-desk-style='dock'] .dwin-btn[data-act='x'] { order: -1; }
 .desk[data-desk-style='dock'] .dwin-ctl:hover .dwin-btn { color: var(--on-solid); }
@@ -124,6 +124,12 @@ body.desk-mode { overflow: hidden; }
 .desk-apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 4px; }
 .desk-app { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border: 0; border-radius: var(--r); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-xs); font-weight: 550; cursor: pointer; }
 .desk-app:hover, .desk-app:focus-visible { background: var(--surface-2); }
+/* What Enter opens while something is typed in the search. */
+.desk-app[data-next='1'], .desk-session[data-next='1'] { background: var(--accent-soft); }
+.desk-app { position: relative; }
+.desk-enter { padding: 0 5px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface); color: var(--muted); font: inherit; font-size: 10.5px; line-height: 16px; }
+.desk-app .desk-enter { position: absolute; top: 4px; right: 4px; }
+.desk-session .desk-enter { margin-left: auto; }
 .desk-app-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--accent-soft); color: var(--accent-soft-text); }
 .desk-pop-head { margin: 0 0 6px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .desk-session { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; }
@@ -145,7 +151,13 @@ body.desk-mode { overflow: hidden; }
 /* ---------- Tia's button and the toasts above the bars ---------- */
 body.desk-mode .tia-boxroot { right: 16px; bottom: 64px; }
 body.desk-mode[data-desk-style='dock'] .tia-boxroot { bottom: 96px; }
-body.desk-mode[data-desk-style='dock'] .toasts { top: 42px; }
+/* Toasts at the bottom right above Tia's button, never over the way back at the top right. */
+body.desk-mode .toasts { top: auto; bottom: 132px; right: 16px; }
+body.desk-mode[data-desk-style='dock'] .toasts { bottom: 164px; }
+
+/* ---------- a page in a window (lib.js BARE) ---------- */
+/* Its main action stays in its head at any window width: a window has no floating button. */
+body.bare .pagehead-primary { display: inline-flex; }
 
 /* ---------- a small screen: the apps as a grid of pages ---------- */
 .desk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px; }
@@ -204,6 +216,7 @@ body.desk-mode[data-desk-style='dock'] .toasts { top: 42px; }
 .dapp-btn:hover { background: var(--surface-3); color: var(--text); }
 .dapp-btn:disabled { opacity: .4; cursor: default; }
 .dapp-end:hover { background: var(--danger-solid, var(--danger)); color: var(--on-solid); }
+.dapp-end .dapp-word { display: none; }
 .dapp-share { display: grid; grid-template-columns: 1fr 48px; align-items: center; gap: 8px; }
 .dapp-picked { background: var(--accent-soft); }
 .dapp-link { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -215,6 +228,13 @@ body.desk-mode[data-desk-style='dock'] .toasts { top: 42px; }
 /* A narrow table keeps the buttons' icons; their words are in the tooltip and the screen reader's name. */
 .dapp-narrow .dapp-word { display: none; }
 .dapp-narrow .dapp-act { width: 32px; padding: 0; justify-content: center; }
+/* A finger: the row's buttons a finger's size, with their word, since nothing shows a title on a touch screen. */
+@media (pointer: coarse) {
+  .dapp-table .dapp-btn, .dapp-table .btn.dapp-act, .dapp-table .dapp-lock { min-height: 40px; min-width: 40px; }
+  .dapp-table .dapp-btn.dapp-end { width: auto; grid-auto-flow: column; gap: 6px; padding: 0 10px; color: var(--danger); font: inherit; font-size: var(--fs-xs); font-weight: 600; }
+  .dapp-table .dapp-end .dapp-word, .dapp-table.dapp-narrow .dapp-word { display: inline; }
+  .dapp-table.dapp-narrow .btn.dapp-act { width: auto; padding: 0 10px; }
+}
 .dapp-tr .badge { margin-left: 0; }
 .pill.dapp-st-running { background: var(--ok-soft); color: var(--ok); }
 .pill.dapp-st-failed { background: var(--danger-soft); color: var(--danger); }
@@ -275,6 +295,8 @@ button.dfiles-crumb:hover { background: var(--surface-3); color: var(--text); }
 .dfiles-act { color: var(--accent-soft-text); }
 .dfiles-tight .dfiles-tool .dapp-word { display: none; }
 .dfiles-tight .dfiles-tool { width: 32px; padding: 0; justify-content: center; }
+.dfiles-delete { height: 28px; margin-left: 2px; padding: 0 10px; gap: 6px; color: var(--danger); }
+.dfiles-delete:hover { background: var(--danger-soft); }
 .dfiles-foot { flex: none; display: flex; align-items: baseline; gap: 12px; min-width: 0; white-space: nowrap; }
 .dfiles-foot > * { flex: none; }
 .dfiles-name { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: default; }
