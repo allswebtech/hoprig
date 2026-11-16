@@ -81,11 +81,11 @@ export function codexBlockArgs(prov) {
   return [...set('name', prov.label), ...set('base_url', `${prov.base}/v1`), ...set('env_key', prov.keyVar), ...set('wire_api', 'responses')];
 }
 
-/** Codex's app server command line (after the program). */
-export function codexServerArgs(provs, { port, tokenFile }) {
+/** Codex's app server command line (after the program). `home`: Codex's folder (the owner's exclude list). */
+export function codexServerArgs(provs, { port, tokenFile, home = codex.home() }) {
   const first = provs.find((p) => !p.signin);
   return [
-    'app-server', ...codex.noSelfUpdate.args, ...codex.keyFilter,
+    'app-server', ...codex.noSelfUpdate.args, ...codex.keyFilter(home),
     // Its own default would be OpenAI's account: a terminal then asks to sign in before anything else.
     ...(first ? ['-c', `model_provider=${tomlString(first.id)}`] : []),
     ...provs.flatMap(codexBlockArgs),
@@ -306,7 +306,7 @@ async function start(tool, provs, { bin, base, fetchImpl, spawnImpl }) {
   const env = serverEnv(tool, provs, base);
   let args;
   if (tool === 'codex') {
-    args = codexServerArgs(provs, { port, tokenFile: secretFile(tool) });
+    args = codexServerArgs(provs, { port, tokenFile: secretFile(tool), home: codex.home(env) });
   } else {
     const models = new Map();
     await Promise.all(provs.map(async (p) => models.set(p.name, await providerModels({ name: p.name, kind: p.kind, env: keyEnv(p), api: p.shapes }, { fetchImpl }).catch(() => []))));

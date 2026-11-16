@@ -2,7 +2,7 @@
 // started process (for a tool's server: one variable per provider it serves); nothing is written into the tool's own
 // config file, and nothing of one provider (or of the surrounding shell) reaches another tool's environment.
 // What the tool passes on to the commands it runs for the model is its own business: Codex is told to drop the key
-// variables there (codex.keyFilter); OpenCode has no such filter (2.3), so a command in an OpenCode session can read
+// variables there (codex.keyFilter, which keeps the owner's own list); OpenCode has no such filter (2.3), so a command in an OpenCode session can read
 // the keys of the OpenCode providers and its server's password. The same user can read the provider files anyway;
 // this is a second layer, not the first.
 //
@@ -24,6 +24,7 @@ import { stateDir } from '../paths.mjs';
 import { AUTH_VARS, assertServes, kindOf } from '../profiles.mjs';
 import { codex } from './codex.mjs';
 import { opencode } from './opencode.mjs';
+import { tomlString } from './toml.mjs';
 
 /** The variable each tool reads the key from (named in its provider block). */
 export const KEY_VAR = Object.freeze({ codex: 'HOPRIG_CODEX_KEY', opencode: 'HOPRIG_OPENCODE_KEY' });
@@ -50,8 +51,7 @@ export function endpointOf(p) {
   return null;
 }
 
-/** A TOML string (Codex parses every -c value as TOML): JSON's escapes are TOML's, plus DEL. */
-export const tomlString = (s) => JSON.stringify(String(s)).replace(/\x7f/g, '\\u007f');
+export { tomlString };
 
 /**
  * The environment `tool` (codex | opencode) gets for `profile`: `base` without any provider variable of any tool,
@@ -69,10 +69,13 @@ export function toolEnv(tool, profile, base = process.env) {
   return env;
 }
 
-/** Codex: its command-line settings for `profile` (no self-update, and the provider block for a key). */
-export function codexArgs(profile) {
+/**
+ * Codex: its command-line settings for `profile` (no self-update, keys kept from its commands, and the provider block
+ * for a key). `home`: Codex's folder, whose config.toml holds the owner's own exclude list.
+ */
+export function codexArgs(profile, { home = codex.home() } = {}) {
   assertServes(profile, 'codex');
-  const args = [...codex.noSelfUpdate.args, ...codex.keyFilter];
+  const args = [...codex.noSelfUpdate.args, ...codex.keyFilter(home)];
   const ep = endpointOf(profile);
   const set = (k, v) => args.push('-c', `${k}=${tomlString(v)}`);
   // A Codex sign-in: Codex's own OpenAI provider with its stored account, named so its config cannot choose another.
@@ -129,7 +132,7 @@ export function writeOpencodeConfig(profile, models = [], dir = opencodeConfigDi
 
 /** What `tool` needs at start for `profile`: { args, env } (OpenCode's env names its config file). */
 export async function startSettings(tool, profile, { base = process.env, fetchImpl = globalThis.fetch, dir } = {}) {
-  if (tool === 'codex') return { args: codexArgs(profile), env: toolEnv('codex', profile, base) };
+  if (tool === 'codex') return { args: codexArgs(profile, { home: codex.home(base) }), env: toolEnv('codex', profile, base) };
   if (tool === 'opencode') {
     const env = toolEnv('opencode', profile, base);
     return { args: [...opencode.noSelfUpdate.args], env: { ...env, ...writeOpencodeConfig(profile, await providerModels(profile, { fetchImpl }), dir) } };

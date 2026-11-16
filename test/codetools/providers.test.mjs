@@ -12,6 +12,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-providers-'));
 process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
 process.env.HOPRIG_PROFILES_DIR = path.join(tmp, 'profiles');
+process.env.CODEX_HOME = path.join(tmp, 'codex-home'); // never the owner's own Codex folder
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const P = await import('../../src/profiles.mjs');
@@ -107,6 +108,59 @@ test('Codex: no self-update, then a model-provider block on the command line and
   assert.ok(T.codexArgs(P.readProfile('oai')).includes('model_providers.hoprig.base_url="https://api.openai.com/v1"'));
   assert.deepEqual(T.codexArgs(P.readProfile('codexin')), ['-c', 'check_for_update_on_startup=false', '-c', 'features.daemon_auto_start=false', '-c', 'features.in_app_updates=false', '-c', 'shell_environment_policy.exclude=["HOPRIG_CODEX_KEY*", "HOPRIG_CODEX_WS*"]', '-c', 'model_provider="openai"'], 'a Codex sign-in names Codex\'s own OpenAI provider, so its config cannot pick another');
   assert.equal(T.tomlString('a "b" \\ c\x7f'), '"a \\"b\\" \\\\ c\\u007f"');
+});
+
+test('Codex: the owner\'s own list of variables kept from commands stays; Hoprig\'s names are added to it', async () => {
+  const S = await import('../../src/codetools/servers.mjs');
+  const { ownerExcludes } = await import('../../src/codetools/codex.mjs');
+  const { parseToml } = await import('../../src/codetools/toml.mjs');
+  const home = path.join(tmp, 'owner-codex');
+  fs.mkdirSync(home, { recursive: true });
+  const write = (text) => fs.writeFileSync(path.join(home, 'config.toml'), text);
+  const filterOf = (args) => args.find((a) => a.startsWith('shell_environment_policy.'));
+  const OURS = '"HOPRIG_CODEX_KEY*", "HOPRIG_CODEX_WS*"';
+  // A -c value replaces the list at its path, so the owner's list must be in it, for the terminal and the server.
+  write([
+    'model = "gpt-x" # a comment',
+    'developer_instructions = """',
+    '[shell_environment_policy]',
+    'exclude = ["not a table"]',
+    '"""',
+    '[projects."/some/folder"]',
+    'trust_level = "trusted"',
+    '',
+    '[shell_environment_policy]',
+    'inherit = "all"',
+    'exclude = [',
+    '  "AWS_*",   # cloud',
+    "  'GITHUB_TOKEN',",
+    '  "HOPRIG_CODEX_KEY*",',
+    ']',
+    '[shell_environment_policy.set]',
+    'X = "1"',
+  ].join('\n'));
+  assert.deepEqual(ownerExcludes(home), ['AWS_*', 'GITHUB_TOKEN', 'HOPRIG_CODEX_KEY*']);
+  const want = `shell_environment_policy.exclude=["AWS_*", "GITHUB_TOKEN", ${OURS}]`;
+  assert.equal(filterOf(T.codexArgs(P.readProfile('gw'), { home })), want, 'the standalone start');
+  assert.equal(filterOf(S.codexServerArgs(S.serverProviders('codex', P.listProfiles()), { port: 5, tokenFile: '/t', home })), want, 'the app server');
+  // The other ways TOML can say the same.
+  write('shell_environment_policy.exclude = ["A_*"]\n[other]\nexclude = ["NOT_THIS"]\n');
+  assert.deepEqual(ownerExcludes(home), ['A_*']);
+  write('shell_environment_policy = { inherit = "core", exclude = ["B_*", "C"] }\n');
+  assert.deepEqual(ownerExcludes(home), ['B_*', 'C']);
+  // No list, no file, or a file this reader cannot read: Hoprig's names only.
+  write('[shell_environment_policy]\ninherit = "all"\n');
+  assert.equal(filterOf(T.codexArgs(P.readProfile('gw'), { home })), `shell_environment_policy.exclude=[${OURS}]`);
+  write('[shell_environment_policy\nexclude = ["A"]\n');
+  assert.deepEqual(ownerExcludes(home), []);
+  fs.rmSync(path.join(home, 'config.toml'));
+  assert.deepEqual(ownerExcludes(home), []);
+  // An owner's pattern with a quote or a backslash is written back as TOML reads it.
+  write('[shell_environment_policy]\nexclude = [\'A"B\', "C\\\\D"]\n');
+  assert.deepEqual(ownerExcludes(home), ['A"B', 'C\\D']);
+  assert.equal(filterOf(T.codexArgs(P.readProfile('gw'), { home })), `shell_environment_policy.exclude=["A\\"B", "C\\\\D", ${OURS}]`);
+  assert.deepEqual(parseToml('a = \'x\'\nb.c = [1, true, "s", { d = \'e\' }]\n[[t]]\nk = 1\n[[t]]\nk = 2\n'), { a: 'x', b: { c: [1, true, 's', { d: 'e' }] }, t: [{ k: 1 }, { k: 2 }] });
+  assert.throws(() => parseToml('a = 1\na = 2\n'), /twice/);
 });
 
 test('OpenCode: a provider block in a file of Hoprig\'s own, with no secret in it; the models from the provider', async () => {

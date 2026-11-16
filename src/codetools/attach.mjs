@@ -304,7 +304,7 @@ export async function standalonePlan(toolId, { profile, model, cwd, o, base }) {
   if (toolId === 'codex') {
     const { env } = await startSettings('codex', profile, { base: cleanEnv(base) });
     const resume = o.resume || (o.cont ? (codexSessions(cwd)[0] || {}).id || null : null);
-    const args = [...codexArgs(profile), ...(model && !profile.env?.ANTHROPIC_MODEL ? ['-m', model] : []), ...t.flagsFor(o), ...o.extra, '-C', cwd, ...(resume ? ['resume', resume] : []), ...promptTail('codex', o.prompt)];
+    const args = [...codexArgs(profile, { home: t.home(env) }), ...(model && !profile.env?.ANTHROPIC_MODEL ? ['-m', model] : []), ...t.flagsFor(o), ...o.extra, '-C', cwd, ...(resume ? ['resume', resume] : []), ...promptTail('codex', o.prompt)];
     return { args, env, sessionId: resume };
   }
   const { env } = await startSettings('opencode', profile, { base: cleanEnv(base) });

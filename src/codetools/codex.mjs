@@ -15,14 +15,18 @@
 //                      and that would also switch off every plugin the owner installed, so Hoprig leaves it on.
 //   commands it runs   take the environment of the process that runs them, filtered by shell_environment_policy
 //                      (no default filter in 0.169: a variable named *KEY* reaches them). keyFilter drops Hoprig's
-//                      key variables there (checked with `codex sandbox -- env`, which applies the same policy).
+//                      key variables there (checked with `codex sandbox -- env`, which applies the same policy). A -c
+//                      value replaces the list at its path, so keyFilter repeats the owner's own exclude list from
+//                      config.toml with Hoprig's names added: what the owner keeps from commands stays kept.
 //   what it reads      rules: $CODEX_HOME/AGENTS.md (a link is followed), then the project's AGENTS.md files; never
 //                      CLAUDE.md. Skills: ~/.agents/skills, $CODEX_HOME/skills (it keeps its own bundled ones in
 //                      skills/.system there, so that folder is not linked), and the project's .agents/skills. Memory: none
 //                      that can point at a folder (its own generated memories are off by default and left off).
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { npmTool } from './npmtool.mjs';
+import { parseToml, tomlString } from './toml.mjs';
 
 /** The version this Hoprig is tested with: what it installs first. */
 export const CODEX_PIN = '0.169.0';
@@ -42,8 +46,11 @@ export const codex = {
   home: (env = process.env) => env.CODEX_HOME || path.join(os.homedir(), '.codex'),
   /** Added to every start of Codex that Hoprig makes (terminal and app server). */
   noSelfUpdate: { args: ['-c', 'check_for_update_on_startup=false', '-c', 'features.daemon_auto_start=false', '-c', 'features.in_app_updates=false'], env: {} },
-  /** Commands Codex runs for the model never see the provider keys Hoprig hands it (nor the server's token). */
-  keyFilter: ['-c', 'shell_environment_policy.exclude=["HOPRIG_CODEX_KEY*", "HOPRIG_CODEX_WS*"]'],
+  /**
+   * Commands Codex runs for the model never see the provider keys Hoprig hands it (nor the server's token), and
+   * still never see what the owner's config.toml (in `home`) keeps from them.
+   */
+  keyFilter: (home) => keyFilter(home),
   /**
    * The choices of a terminal session (the launcher's --permission-mode and --effort, src/codetools/terminal.mjs).
    * readOnly: Codex may read, and asks before anything else; bypassPermissions: it never asks and runs unsandboxed.
@@ -63,6 +70,34 @@ export const codex = {
   about: 'OpenAI\'s coding tool',
   size: 'about 400 MB',
 };
+
+/** Hoprig's own variables, kept from the commands Codex runs. */
+export const HOPRIG_EXCLUDES = Object.freeze(['HOPRIG_CODEX_KEY*', 'HOPRIG_CODEX_WS*']);
+
+/**
+ * The owner's shell_environment_policy.exclude from <home>/config.toml: [] when there is none. A file Hoprig cannot
+ * read gives [] too; Codex reads that file itself, and refuses to start when it is broken.
+ */
+export function ownerExcludes(home = codex.home()) {
+  let text;
+  try {
+    text = fs.readFileSync(path.join(home, 'config.toml'), 'utf8');
+  } catch {
+    return [];
+  }
+  try {
+    const p = parseToml(text).shell_environment_policy;
+    const list = p && typeof p === 'object' ? p.exclude : null;
+    return Array.isArray(list) ? list.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function keyFilter(home = codex.home()) {
+  const list = [...new Set([...ownerExcludes(home), ...HOPRIG_EXCLUDES])];
+  return ['-c', `shell_environment_policy.exclude=[${list.map(tomlString).join(', ')}]`];
+}
 
 function flagsFor({ permissionMode = null, effort = null } = {}) {
   const out = [];
