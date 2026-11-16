@@ -252,7 +252,37 @@ export function statusPill(s, { time = true, text = true } = {}) {
   return h(`span.pill.st-${st.key}`, h('span.dot'), st.text, when ? h('span.pill-time', { dataset: { at } }, ` · ${when}`) : null);
 }
 
-export const KIND = { login: 'Subscription', subscription: 'Subscription', api: 'API', auto: 'Auto mode', unknown: 'Provider' };
+export const KIND = { login: 'Subscription', subscription: 'Subscription', api: 'API', openai: 'OpenAI API', chatgpt: 'Codex sign-in', auto: 'Auto mode', unknown: 'Provider' };
+
+/** The coding tools by id, as the page names them. */
+export const TOOL_NAMES = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
+/** "Claude Code · OpenCode": the coding tools a provider serves (src/profiles.mjs servesTools), or '' when unknown. */
+export const toolsText = (p) => (Array.isArray(p.tools) ? p.tools.map((t) => TOOL_NAMES[t] || t).join(' · ') : '');
+/**
+ * Providers a Claude Code session or chat may use: the ones that serve it. A computer too old to say (no `tools`)
+ * has only Claude Code providers; Auto mode is Claude Code's.
+ */
+export const servesClaude = (p) => Boolean(p) && (p.virtual || !Array.isArray(p.tools) || p.tools.includes('claude'));
+
+/**
+ * What a session card is (the same rules as src/automation/cards.mjs): a coding session in a terminal has kind
+ * "claude" whatever its coding tool, and `tool` names the tool (absent on older computers: Claude Code).
+ */
+export const isCodingCard = (s) => Boolean(s) && ['claude', 'codex', 'opencode'].includes(s.kind);
+export const cardTool = (s) => (s && typeof s.tool === 'string' ? s.tool : s && (s.kind === 'claude' || s.kind === 'chat') ? 'claude' : s && isCodingCard(s) ? s.kind : null);
+export const isClaudeCard = (s) => isCodingCard(s) && cardTool(s) === 'claude';
+/** A provider that may take a session of coding tool `tool` (Auto mode only for Claude Code). */
+export const servesTool = (p, tool) => (tool === 'claude' ? servesClaude(p) : Boolean(p) && !p.virtual && Array.isArray(p.tools) && p.tools.includes(tool));
+
+/** The small chip with the coding tool's name, on a session that is not Claude Code's. */
+export function toolChip(s) {
+  const t = cardTool(s);
+  return isCodingCard(s) && t && t !== 'claude' ? h('span.badge.toolchip', TOOL_NAMES[t] || t) : null;
+}
+/** A session whose status is read from its screen's activity only (Working or Waiting; never "Needs your OK"). */
+export const liveBasic = (s) => (s && s.liveStatus === 'basic'
+  ? h('span.badge.soft', { title: 'Hoprig sees only whether the screen changes: Working or Waiting. A question or a limit shows in the terminal.' }, 'Live status: basic')
+  : null);
 
 /** How a session's account reads: "Auto · now on Work" for Auto sessions, else the account's name. */
 export const profileText = (s) =>
@@ -263,6 +293,8 @@ export function profileState(p) {
   if (p.virtual) return { key: 'free', text: 'Uses your providers in order; never stops at a limit' };
   // A sign-in provider whose sign-in is gone (or never finished): it cannot be used until someone signs in again.
   if (p.signedIn === false) return { key: 'signin', text: 'Not signed in' };
+  // A Codex sign-in when Codex is not installed (or does not say whether it is signed in).
+  if (p.kind === 'chatgpt' && p.signedIn == null) return { key: 'signin', text: 'Codex is not installed' };
   if (p.limited) {
     const when = p.limited.until ? `${p.limited.exact === false ? 'about ' : ''}${until(p.limited.until)}` : '';
     return { key: 'limit', text: when ? `Limit reached · free ${when}` : 'Limit reached' };
@@ -397,7 +429,7 @@ export async function switchProfile(s, p) {
   const ok = await confirmSheet({
     title: `Continue on ${p.label}?`,
     text:
-      `Claude in "${s.name}" stops and the same conversation continues on ${p.label}. ` +
+      `${TOOL_NAMES[cardTool(s)] || 'Claude'} in "${s.name}" stops and the same conversation continues on ${p.label}. ` +
       'The conversation is saved as it goes, so at most the reply being written right now is lost.',
     ok: 'Switch',
   });
@@ -415,13 +447,15 @@ export async function switchProfile(s, p) {
 /** The switch sheet: every profile with its state; the current one marked. */
 export async function chooseProfileFor(s, profiles) {
   if (!s.canSwitch) {
-    toast('Claude has not reported its session yet. Try again in a moment.', { kind: 'error' });
+    toast('The session has not reported its conversation yet. Try again in a moment.', { kind: 'error' });
     return false;
   }
+  const tool = cardTool(s) || 'claude';
   const pick = await chooseSheet({
     title: 'Run this session on…',
-    subtitle: 'The conversation continues where it is.',
-    items: profiles.map((p) => ({
+    // Only the providers that serve its coding tool: a conversation stays in the tool it was started in.
+    subtitle: tool === 'claude' ? 'The conversation continues where it is.' : `The conversation stays in ${TOOL_NAMES[tool] || tool} and continues where it is.`,
+    items: profiles.filter((p) => servesTool(p, tool)).map((p) => ({
       value: p.name,
       label: p.label,
       sub: p.virtual ? profileState(p).text : `${KIND[p.kind] || p.kind} · ${profileState(p).text}`,
@@ -444,7 +478,7 @@ export const isPaid = (p) => p.paid === true || (p.paid === undefined && p.kind 
  */
 export function startOrder(accounts, payPerUse = false) {
   const rank = (a) => (SUBSCRIPTION_KINDS.has(a.kind) ? 0 : isPaid(a) ? 2 : 1);
-  return accounts.filter((a) => payPerUse || !isPaid(a)).map((a, i) => [rank(a), i, a.name]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map((x) => x[2]);
+  return accounts.filter((a) => servesClaude(a) && (payPerUse || !isPaid(a))).map((a, i) => [rank(a), i, a.name]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map((x) => x[2]);
 }
 
 /**
@@ -461,7 +495,7 @@ export function limitBox(s, profiles, after) {
   if (!s.limit && !s.runLimit) return null;
   const text = (s.limit && s.limit.text) || (s.runLimit && s.runLimit.error) || '';
   // Not one that is not signed in: the session would stop there at once.
-  const others = profiles.filter((p) => (!s.profile || p.name !== s.profile.name) && p.signedIn !== false);
+  const others = profiles.filter((p) => (!s.profile || p.name !== s.profile.name) && p.signedIn !== false && servesClaude(p));
   // Outside the order (Auto off, or not taking part): subscriptions before gateways, as Auto's own order starts.
   const place = (p) => (Number.isInteger(p.autoPlace) ? p.autoPlace : 1000 + (SUBSCRIPTION_KINDS.has(p.kind) ? 0 : 1));
   const free = others.filter((p) => !p.virtual && !p.limited).sort((a, b) => place(a) - place(b));
@@ -502,7 +536,8 @@ export function limitBox(s, profiles, after) {
  * its number), and Do not allow (Esc). `after` runs once an answer was sent. Null unless the session needs an OK.
  */
 export function permissionActions(s, after) {
-  if (stateOf(s).key !== 'attention' || s.kind === 'chat') return null;
+  // The answer keys are Claude Code's: in Codex and OpenCode the owner answers in the terminal.
+  if (stateOf(s).key !== 'attention' || s.kind === 'chat' || !isClaudeCard(s)) return null;
   const answer = (body, said) => async (e) => {
     e.preventDefault();
     e.stopPropagation(); // on a card: answer, do not open the session

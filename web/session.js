@@ -14,8 +14,9 @@ import { FitAddon } from './vendor/addon-fit/lib/addon-fit.mjs';
 import { Unicode11Addon } from './vendor/addon-unicode11/lib/addon-unicode11.mjs';
 import { icon } from './icons.js';
 import {
-  KIND, api, btn, bytes, chooseSheet, confirmSheet, fill, h, limitBox, needsYou, needsYouFirst, openSheet, permissionActions,
-  link, machine, prefs, profileIcon, profileState, profileText, promptSheet, stateOf, statusPill, switchProfile, toast, url, wsUrl,
+  KIND, TOOL_NAMES, api, btn, bytes, cardTool, chooseSheet, confirmSheet, fill, h, isClaudeCard, isCodingCard, limitBox, liveBasic, needsYou,
+  needsYouFirst, openSheet, permissionActions, link, machine, prefs, profileIcon, profileState, profileText, promptSheet, servesTool,
+  stateOf, statusPill, switchProfile, toast, toolChip, url, wsUrl,
 } from './lib.js';
 import { pageNotify, store } from './store.js';
 import { registeredSessionActions } from './registry.js';
@@ -84,6 +85,7 @@ export function openSession(app, name) {
   const profileBtn = h('button.profilebtn.hidden', { type: 'button', title: 'Move to another provider', onclick: () => moveAccount() },
     icon('user', { size: 16 }), h('span.profilebtn-label', '…'), icon('chevronDown', { size: 14 }));
   const statusSlot = h('div.sess-state');
+  const toolSlot = h('span.sess-tool'); // the coding tool's name, beside the session's name (not a line of its own on a phone)
   const needSlot = h('div.sess-need'); // a limit, or a question waiting for your OK: above the terminal
   const overlay = h('div.term-overlay', h('div.spinner', { 'aria-hidden': 'true' }), h('span', 'Connecting…'));
   const liveBtn = h('button.btn.small.primary.live.hidden', { type: 'button', onclick: () => scroller.exit() }, icon('down', { size: 16 }), h('span', 'Back to live'));
@@ -109,7 +111,9 @@ export function openSession(app, name) {
   });
   // The full hint only where it fits on one line; a narrow screen (a phone, a split window) gets the short one.
   const narrow = matchMedia('(max-width: 599px)');
-  const placeholder = () => (textarea.placeholder = !narrow.matches && finePointer ? 'Message Claude — Enter sends, Shift+Enter new line' : 'Message Claude');
+  // "Message Codex" in a Codex session (the card's tool; Claude until the first look at the sessions).
+  const toolName = () => (session && !isClaudeCard(session) && TOOL_NAMES[cardTool(session)]) || 'Claude';
+  const placeholder = () => (textarea.placeholder = !narrow.matches && finePointer ? `Message ${toolName()} — Enter sends, Shift+Enter new line` : `Message ${toolName()}`);
   placeholder();
   narrow.addEventListener('change', placeholder);
   const fileInput = h('input.hidden', { type: 'file', multiple: true });
@@ -126,7 +130,7 @@ export function openSession(app, name) {
   const wrap = h('div.term-wrap',
     h('header.sessbar',
       h('a.btn.ghost.sessback', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.sessback-label', way.label)),
-      h('div.sess-title', titleBtn, h('div.sess-sub', statusSlot)),
+      h('div.sess-title', h('div.sess-name-row', titleBtn, toolSlot), h('div.sess-sub', statusSlot)),
       h('div.sessbar-end', profileBtn, btn('icon ghost', { icon: 'more', title: 'More for this session', onclick: () => menu() }))),
     needSlot,
     box,
@@ -566,7 +570,9 @@ export function openSession(app, name) {
   const unsubscribe = store.subscribe((d) => {
     if (!d) return;
     fill(where, machine.current && store.multi ? ` · ${d.machineLabel}` : null);
-    profiles = d.profiles;
+    // The providers this session's coding tool may use (a conversation stays in its tool; Auto mode is Claude Code's).
+    const here = d.sessions.find((x) => x.name === name);
+    profiles = d.profiles.filter((p) => servesTool(p, cardTool(here) || 'claude'));
     const caps = (d.backend && d.backend.capabilities) || {};
     if (caps.nativeScrollback && !nativeScroll) {
       nativeScroll = true;
@@ -580,15 +586,18 @@ export function openSession(app, name) {
     otherBadge.classList.toggle('hidden', !others);
     otherBadge.title = `${others} other session${others === 1 ? '' : 's'} need${others === 1 ? 's' : ''} you`;
     if (!s) return;
+    const toolBefore = cardTool(session);
     session = s;
+    if (cardTool(s) !== toolBefore) placeholder();
     const key = JSON.stringify([s, profiles]);
     if (key === infoKey) return;
     infoKey = key;
     // Started from this page a moment ago, and Claude has not reported yet: "Starting", not "Terminal".
     const starting = isStarting(s, machine.current);
-    profileBtn.classList.toggle('hidden', s.kind !== 'claude');
+    profileBtn.classList.toggle('hidden', !isCodingCard(s));
     fill(profileBtn, icon(profileIcon(s.profile), { size: 16 }), h('span.profilebtn-label', profileText(s)), icon('chevronDown', { size: 14 }));
-    fill(statusSlot, starting ? startingPill() : statusPill(s, { time: false }));
+    fill(statusSlot, starting ? startingPill() : statusPill(s, { time: false }), liveBasic(s));
+    fill(toolSlot, toolChip(s));
     const before = needSlot.offsetHeight;
     fill(needSlot, limitBox(s, profiles, moved) || (stateOf(s).key === 'attention' ? needsOk(s) : null));
     if (needSlot.offsetHeight !== before) refit();
@@ -604,7 +613,7 @@ export function openSession(app, name) {
         value: x.name,
         label: x.display || x.name,
         sub: `${stateOf(x).text}${x.profile ? ` · ${x.profile.label}` : ''}`,
-        icon: x.kind === 'chat' ? 'text' : x.kind === 'claude' ? 'sparkle' : 'terminal',
+        icon: x.kind === 'chat' ? 'text' : isCodingCard(x) ? 'sparkle' : 'terminal',
         current: x.name === name,
         badge: x.name !== name && needsYou(x) ? '●' : '',
       })),
@@ -671,10 +680,13 @@ export function openSession(app, name) {
   async function moveAccount() {
     const s = session;
     if (!s) return;
-    if (!s.canSwitch) return toast('Claude has not reported its session yet. Try again in a moment.', { kind: 'error' });
+    if (!s.canSwitch) return toast('The session has not reported its conversation yet. Try again in a moment.', { kind: 'error' });
+    const tool = cardTool(s) || 'claude';
     const pick = await chooseSheet({
       title: 'Move to another provider',
-      subtitle: 'The conversation continues where it is.',
+      subtitle: tool === 'claude'
+        ? 'The conversation continues where it is.'
+        : `The conversation stays in ${TOOL_NAMES[tool] || tool}: only its providers are listed. Auto mode is for Claude Code only.`,
       items: profiles.map((p) => ({
         value: p.name,
         label: p.label,
@@ -692,7 +704,7 @@ export function openSession(app, name) {
   // ---------- more: everything else, each with a word; ending the session last ----------
   async function menu() {
     const s = session;
-    const working = s && s.kind === 'claude' && s.status === 'working';
+    const working = s && isCodingCard(s) && s.status === 'working';
     const pref = s && s.preferred && !s.limit && profiles.find((p) => p.name === s.preferred);
     // Rows features add (registry.js registerSessionAction, e.g. the queue), with their state if it comes quickly.
     const me = { name, machine: machine.current };
@@ -704,9 +716,9 @@ export function openSession(app, name) {
     const what = await chooseSheet({
       title: name,
       items: [
-        working ? { value: 'stop', label: 'Stop Claude', sub: 'Interrupts the reply it is writing (Esc)', icon: 'stop' } : null,
+        working ? { value: 'stop', label: `Stop ${isClaudeCard(s) ? 'Claude' : TOOL_NAMES[cardTool(s)] || 'it'}`, sub: 'Interrupts the reply it is writing (Esc)', icon: 'stop' } : null,
         pref ? { value: 'back', label: `Move back to ${pref.label}`, sub: 'It is free again', icon: 'swap' } : null,
-        s && s.kind === 'claude' && s.cwd ? { value: 'another', label: 'Start another session here', sub: `A new Claude session in ${s.short || s.cwd}`, icon: 'plus' } : null,
+        s && isClaudeCard(s) && s.cwd ? { value: 'another', label: 'Start another session here', sub: `A new Claude session in ${s.short || s.cwd}`, icon: 'plus' } : null,
         ...extra,
         { value: 'attach', label: 'Attach a file', sub: 'Upload into this folder; its path goes into your message', icon: 'paperclip' },
         { value: 'text', label: 'Text of this session', sub: 'Select and copy', icon: 'copy' },

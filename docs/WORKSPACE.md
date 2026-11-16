@@ -23,7 +23,7 @@ the environment variable `HOPRIG_WORKSPACE_DIR` wins over both. A project's pare
 ```sh
 hoprig workspace status [--json]           # every folder: there or not, what it is for; the map against this computer
 hoprig workspace setup [--dry-run] [--yes] # create only what is missing
-hoprig workspace link [--dry-run] [--yes]  # let Claude Code read its global rules, skills and home memory from the brain
+hoprig workspace link [--dry-run] [--yes]  # let every coding tool that is on read its rules, skills and memory from the brain
 hoprig workspace map [--dry-run]           # write the map of every git repository (ai_brain/workspace.json)
 hoprig workspace restore <brain address>   # a fresh computer: the brain, then everything its map names
 hoprig workspace sync [--memory] [--push] [--with <computer>]   # every repository in step
@@ -223,7 +223,7 @@ A file of npm's own in `~/.local/bin` is left alone.
   its own structure is adopted as it is. A projects folder chosen before (or `~/projects` from an earlier
   install) stays where it is. Claude Code's folder (`~/.claude`) is never touched by setup.
 
-## Linking Claude Code into the brain
+## Linking the coding tools into the brain
 
 `workspace link` is a separate, explicit step. It first lists exactly what it will do:
 
@@ -238,6 +238,23 @@ that is taken gets `.from-<time>` added; nothing is overwritten) and the folder 
 file moves into the brain only when the brain has none; when both exist with different text, nothing is changed
 and you are told to keep one. A link that points somewhere else is left alone. Windows: folders become junctions;
 a file link needs the right to make links, and without it the file is put back and the step reports the error.
+
+### Codex and OpenCode: the same brain
+
+When Codex or OpenCode is on (`hoprig tools on codex`, or installing it), `workspace link` covers them too, so all
+coding tools read the same rules, skills and memory:
+
+| Coding tool | what is linked or named | in the brain |
+|---|---|---|
+| Codex | `~/.codex/AGENTS.md` (`$CODEX_HOME`) | `ai_brain/claude/CLAUDE.md` |
+| Codex and OpenCode | `~/.agents/skills/` | `ai_brain/skills/` |
+| OpenCode | `~/.config/opencode/AGENTS.md` | `ai_brain/claude/CLAUDE.md` |
+| OpenCode | `"instructions"` in `~/.config/opencode/opencode.json`: Claude Code's `rules/*.md` and each project's `ai_brain/claude-memory/MEMORY.md` | (added to the list; the file's other settings stay, the old file is kept as a backup) |
+
+Neither keeps a memory of its own, so the shared rules file gets a short **Memory** section at its end (once,
+between two marker lines, after your own text) that tells them where each project's memory is and to keep it.
+Codex and OpenCode do not read `CLAUDE.md` in a project, only `AGENTS.md`: the projects Hoprig sets up have both.
+The **AI brain** page shows, per coding tool, whether it is linked, with one **Link** button.
 
 ## The AI brain in the dashboard
 

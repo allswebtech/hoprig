@@ -210,6 +210,7 @@ body.has-nav .page { padding-bottom: calc(150px + env(safe-area-inset-bottom)); 
 .section-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 26px 2px 12px; }
 .badge { display: inline-flex; align-items: center; margin-left: 8px; padding: 2.5px 8px; border-radius: 7px; font-size: 11px; font-weight: 700; letter-spacing: .02em; background: var(--accent-soft); color: var(--accent-soft-text); vertical-align: 1px; white-space: nowrap; }
 .badge.soft { background: color-mix(in srgb, var(--muted) 11%, transparent); color: var(--muted); }
+.badge.toolchip { margin-left: 0; } /* the coding tool's name on a session (lib.js toolChip): first in its row */
 .hint { font-size: var(--fs-sm); color: var(--muted); }
 .form-error { color: var(--danger); font-size: var(--fs-sm); min-height: 0; }
 .form-error:empty { display: none; }
@@ -590,6 +591,19 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); border-ra
 .acct-limit > span { flex: 1 1 200px; }
 .acct-limit > .btn { flex: 0 1 auto; }
 .acct-who strong { color: var(--text); font-weight: 600; }
+/* Which coding tools a provider works with (src/profiles.mjs servesTools). */
+.acct-works { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font-size: 13px; color: var(--text-2); }
+.acct-works svg { color: var(--ok); flex: none; }
+.acct-test { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0; font-size: 13px; color: var(--text-2); }
+.acct-test svg { flex: none; margin-top: 2px; }
+.acct-test.test-ok svg { color: var(--ok); }
+.acct-test.test-bad svg { color: var(--danger); }
+/* Settings → Coding tools */
+.ct-scope { margin: 0 0 12px; }
+.ct-start { margin-top: 10px; display: grid; gap: 8px; }
+.row.row-busy { cursor: progress; opacity: .85; }
+.row.row-busy .row-end svg { display: none; }
+.row.row-busy .row-end::before { content: ''; display: block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); border-top-color: transparent; animation: spin .7s linear infinite; }
 .mini-switch { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; font-size: var(--fs-xs); color: var(--muted); cursor: pointer; flex: none; }
 input.switch.small { width: 40px; height: 24px; border-radius: 12px; }
 input.switch.small::after { width: 18px; height: 18px; }

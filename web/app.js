@@ -27,6 +27,8 @@ import './addons.js';
 import './publiclink.js';
 import './editor/index.js';
 import './settings.js';
+import './updates.js';
+import './codingtools.js';
 
 const app = document.getElementById('app');
 let stopView = () => {};

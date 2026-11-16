@@ -40,6 +40,9 @@ export function mdView(text) {
       out.push(h('pre.md-code', code.join('\n')));
       continue;
     }
+    // A line that is only an HTML comment (a marker such as Hoprig's around the Memory section) is not shown, as in
+    // any rendered Markdown. Nothing else in the file is treated as markup.
+    if (/^\s*<!--.*-->\s*$/.test(line)) continue;
     const head = /^(#{1,6})\s+(.*)$/.exec(line);
     if (head) {
       endPara();

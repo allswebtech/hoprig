@@ -1,9 +1,12 @@
 // Providers (#/providers, #/providers/<name>): what happens when a provider reaches its limit (Auto mode and its order),
 // the accounts with their usage, each with a page of its own, and the Add account wizard (src/server/accounts.mjs).
-// Three ways to add one, none needing a terminal:
+// The ways to add one:
 //   Claude subscription   sign in through a link, paste the code back; the computer keeps the token
 //   Claude API            a key from console.anthropic.com or a gateway that speaks Claude's API
+//   OpenAI API key        a key for OpenAI's API or a service that speaks it (for Codex and OpenCode)
+//   Codex sign-in         the ChatGPT account Codex keeps itself (Sign in on its page opens Hoprig's `codex login`)
 //   Other providers       OpenAI, Gemini, OpenRouter, local models… through the TRouteAI add-on
+// Every provider says which coding tools it works with ("Test" asks the endpoint which APIs it answers).
 // "Use the terminal instead" stays for when the page flow does not work. Accounts are added on the computer whose
 // page this is (this dashboard's own): a key or a sign-in never travels to another computer through this page.
 import { COMMAND } from './brand.js';
@@ -12,7 +15,7 @@ import { claudeSignIn } from './claudelogin.js';
 import { icon } from './icons.js';
 import {
   KIND, add, ago, api, at, btn, confirmSheet, copyText, fill, h, insecure, link, machine, openSheet, profileState, promptSheet,
-  startOrder, subscriptionsNote, toast, until,
+  servesClaude, startOrder, subscriptionsNote, toast, toolsText, until,
 } from './lib.js';
 import { gatewaysPanel } from './gateways.js';
 import { registerPage } from './registry.js';
@@ -24,7 +27,11 @@ const A = (p) => at(machine.current, `/api/accounts${p}`); // the accounts of th
 const field = (label, input, hint) => h('label.fieldrow', h('span.field-label', label), input, hint ? h('span.hint', hint) : null);
 const busy = (text) => h('div.empty.compact', h('div.spinner', { 'aria-hidden': 'true' }), h('p', text));
 
-const kindIcon = (k) => (k === 'api' ? 'key' : 'user');
+const KEYED = ['api', 'openai']; // providers with an address and a key
+const kindIcon = (k) => (KEYED.includes(k) ? 'key' : 'user');
+/** "Works with Claude Code · OpenCode", or null for a computer too old to say. */
+const worksWith = (a) => (toolsText(a) ? `Works with ${toolsText(a)}` : null);
+const CLAUDE_SIGNIN = ['login', 'subscription'];
 // What a provider is, in words: a sign-in reads "Subscription" whether the computer's stored sign-in or its own
 // (after "Sign in again" the kind changes from one to the other: the row must not change), with its plan.
 const PLAN = (p) => p.charAt(0).toUpperCase() + p.slice(1);
@@ -68,7 +75,7 @@ const ORDINAL = (n) => `${n}${[, 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 
 
 /** The accounts in the Auto order; the others after it, subscriptions first. */
 function inOrder(accounts, order) {
-  const rank = (a) => (order.includes(a.name) ? order.indexOf(a.name) : order.length + (a.kind === 'api' ? 1 : 0));
+  const rank = (a) => (order.includes(a.name) ? order.indexOf(a.name) : order.length + (CLAUDE_SIGNIN.includes(a.kind) ? 0 : 1));
   return [...accounts].sort((a, b) => rank(a) - rank(b));
 }
 
@@ -127,7 +134,8 @@ function limitPanel(auto, accounts, refresh, flash) {
         h('li', 'On an API provider the session goes on without stopping.'),
         h('li', 'On another subscription, Claude restarts on that provider and carries on with the same conversation.'),
         h('li', 'Providers lower in the order are used only while the ones above are at their limit.'),
-        h('li', 'An API key straight to Anthropic costs money for every use; Auto mode uses one only when you allow it below.')),
+        h('li', 'An API key straight to Anthropic costs money for every use; Auto mode uses one only when you allow it below.'),
+        h('li', 'Auto mode, plan usage and Tia work with Claude Code only. A Codex or OpenCode session stays on the provider you start it on.')),
       subscriptionsNote(rows.map((n) => accounts.find((p) => p.name === n)))),
     choice === 'carry' ? [
       h('div.field-label', 'Order of providers'),
@@ -165,6 +173,7 @@ function accountRow(a, place, autoOn, signIn, another) {
   h('span.row-main',
     h('span.row-title', a.label, autoOn && place ? h('span.badge.soft', `${ORDINAL(place)} in the order`) : null),
     h('span.row-sub.state', [kindText(a), remoteText(a), ps.text].filter(Boolean).join(' · ')),
+    worksWith(a) ? h('span.row-sub.acct-tools', worksWith(a)) : null,
     ps.key === 'signin' ? null : usageBars(a.usage, a.usageReported, a.inUse > 0),
     // Under the figures, not beside them: its words would squeeze the row on a phone.
     ps.key === 'limit' && another && usesStoredLogin(a)
@@ -187,7 +196,7 @@ function viewAccounts({ frame, sub }) {
   frame({
     title: 'Providers',
     page: 'providers',
-    intro: 'The Claude subscriptions and API keys this computer uses, and what happens when one reaches its limit.',
+    intro: 'The subscriptions, sign-ins and API keys this computer\'s coding tools use, and what happens when one reaches its limit.',
     primary: here ? { label: 'Add provider', icon: 'plus', onclick: () => data && addWizard(data, refresh) } : null,
     body: [body],
   });
@@ -204,11 +213,11 @@ function viewAccounts({ frame, sub }) {
     const order = (auto.order || []).filter((n) => data.accounts.some((a) => a.name === n));
     const accounts = inOrder(data.accounts, order);
     fill(body,
-      limitPanel(auto, data.accounts, refresh, flash),
+      limitPanel(auto, data.accounts.filter(servesClaude), refresh, flash),
       groupHead('Providers', accounts.length),
       accounts.length
         ? h('div.rows', accounts.map((a) => accountRow(a, order.indexOf(a.name) + 1, auto.enabled, here ? (x) => signInAgain(x, data, refresh) : null, here ? () => switchAccount({ done: refresh }) : null)))
-        : emptyState('user', here ? 'No providers yet. Add the Claude subscription or API key Claude should use.' : `No providers on ${openLabel()} yet. Add one on that computer's own page.`,
+        : emptyState('user', here ? 'No providers yet. Add the subscription, sign-in or API key your coding tools should use.' : `No providers on ${openLabel()} yet. Add one on that computer's own page.`,
           here ? btn('primary', { icon: 'plus', label: 'Add provider', onclick: () => addWizard(data, refresh) }) : null),
       here ? null : h('p.hint', `Providers of ${openLabel()} are added on that computer's own page: a key or a sign-in never travels through this one.`),
       here ? gatewaysPanel({ useLocal: () => addWizard(data, refresh, { start: 'trouteai' }), changed: () => refresh() }) : null,
@@ -221,6 +230,62 @@ function viewAccounts({ frame, sub }) {
 }
 
 /** One account's own page: usage, state, in Auto mode or not, rename, and the rest of what can be done with it. */
+// "Test" on a provider asks the service one tiny question per API (about ten seconds). The row stays busy until the
+// answer is there, and the answer stays on the provider's page (until the page is left), not only in a toast.
+const lastTest = new Map(); // provider name → { ok, text }
+const TOOL_WORDS = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
+
+function testResult(a) {
+  const t = lastTest.get(a.name);
+  return t ? h(`p.acct-test.${t.ok ? 'test-ok' : 'test-bad'}`, { role: 'status' }, icon(t.ok ? 'check' : 'alert', { size: 15 }), h('span', t.text)) : null;
+}
+
+function testRow(a, refresh) {
+  const sub = h('span.row-sub', 'Find out which coding tools can use it');
+  const row = h('button.row', { type: 'button', onclick: async () => {
+    if (!a.model) return modelSheet(a, refresh);
+    row.disabled = true;
+    row.setAttribute('aria-busy', 'true');
+    row.classList.add('row-busy');
+    sub.textContent = 'Testing: one short question per API, about ten seconds…';
+    try {
+      const r = await api(A(`/${encodeURIComponent(a.name)}/test`), {});
+      const tools = (r.tools || []).map((t) => TOOL_WORDS[t] || t).join(' · ') || 'no coding tool';
+      const kept = (r.kept || []).length ? ` Some APIs did not answer this time (busy or unreachable): what was known about them is kept.` : '';
+      lastTest.set(a.name, r.ok ? { ok: true, text: `Tested just now: works with ${tools}.${kept}` } : { ok: false, text: `Tested just now: ${r.error}` });
+    } catch (e) {
+      lastTest.set(a.name, { ok: false, text: `Tested just now: ${e.message}` });
+    }
+    refresh();
+  } }, h('span.row-icon', icon('check')), h('span.row-main', h('span.row-title', 'Test'), sub), h('span.row-end', icon('chevronRight', { size: 18 })));
+  return row;
+}
+
+/**
+ * A Codex sign-in: whether Codex is signed in here, and Sign in, which opens a terminal in the page with Codex's own
+ * device sign-in (Hoprig's copy of Codex: a link and a code for the browser). The terminal ends when it is done.
+ */
+function codexSigninBox(a, d) {
+  if (a.signedIn === true) return h('p.acct-works', icon('check', { size: 15 }), h('span', 'Codex is signed in on this computer.'));
+  if (a.signedIn == null) {
+    return h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Codex is not installed on this computer yet.'),
+      h('a.btn.small.primary', { href: link('#/settings/codingtools') }, 'Coding tools'));
+  }
+  return h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Codex cannot use this provider until it is signed in.'),
+    d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      try {
+        const { name } = await api(at(machine.current, '/api/codetools/codex/signin'), {});
+        toast('Codex\'s sign-in opened in a terminal: follow its link and enter its code.', { ms: 8000 });
+        location.hash = link(`#/s/${encodeURIComponent(name)}`);
+      } catch (err) {
+        toast(err.message, { kind: 'error', ms: 8000 });
+        b.disabled = false;
+      }
+    } }) : null);
+}
+
 function viewAccount(frame, name) {
   const body = h('div', h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Loading…')));
   // The title is the account's name: drawn again once it is known (and after a rename).
@@ -244,6 +309,7 @@ function viewAccount(frame, name) {
     const ps = profileState(a);
     const what = [kindText(a), a.remote ? remoteText(a) : a.viaTrouteai ? 'via TRouteAI' : a.host || '', a.model ? `model ${a.model}` : ''].filter(Boolean).join(' · ');
     draw(a.label, what);
+    const claude = servesClaude(a);
     const act = (ic, label, sub, fn) => h('button.row', { type: 'button', onclick: async () => {
       try {
         await fn();
@@ -263,15 +329,19 @@ function viewAccount(frame, name) {
       panel({},
         h(`p.acct-state.ps-${ps.key}`, h('span.dot'), ps.text),
         who,
-        ps.key === 'signin'
+        a.kind === 'chatgpt' ? codexSigninBox(a, d) : ps.key === 'signin'
           ? h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Claude Code cannot use this provider until you sign in again.'),
             d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: () => signInAgain(a, d, refresh) }) : null)
-          : usageBars(a.usage, a.usageReported, a.inUse > 0) || h('p.hint', 'No usage figures yet: they appear after the first answer on this provider.'),
+          : CLAUDE_SIGNIN.includes(a.kind) || a.kind === 'api' ? usageBars(a.usage, a.usageReported, a.inUse > 0) || h('p.hint', 'No usage figures yet: they appear after the first answer on this provider.') : null,
         stored && ps.key === 'limit'
           ? h('div.banner.warn.mbanner.acct-limit', icon('alert', { size: 18 }), h('span', 'This account is at its limit. With another Claude account the work goes on under this provider.'),
             btn('small primary', { icon: 'user', label: 'Sign in with another Claude account', onclick: () => switchAccount({ done: refresh }) }))
           : null,
-        d.full ? toggle('Use in Auto mode', a.inAuto, async (on) => {
+        worksWith(a) ? h('p.acct-works', icon('check', { size: 15 }), h('span', worksWith(a))) : null,
+        testResult(a),
+        a.kind === 'chatgpt' ? h('p.hint', 'Codex uses the ChatGPT account it is signed in to on this computer. In a terminal, the same is ', h('code', `${COMMAND} codex login --device-auth`), '.') : null,
+        CLAUDE_SIGNIN.includes(a.kind) ? h('p.hint', 'A Claude subscription works with Claude Code only.') : null,
+        d.full && claude ? toggle('Use in Auto mode', a.inAuto, async (on) => {
           try {
             await api(A(`/${encodeURIComponent(a.name)}/auto`), { on });
             toast(on ? `${a.label} is used in Auto mode` : `${a.label} is no longer used in Auto mode`);
@@ -291,14 +361,8 @@ function viewAccount(frame, name) {
           toast('Renamed');
           refresh();
         }),
-        a.kind === 'api' ? act('sparkle', 'Change model', a.model ? `Now: ${a.model}` : 'Pick the model this provider uses', () => modelSheet(a, refresh)) : null,
-        a.kind === 'api' ? act('check', 'Test', 'Send one tiny request with this provider', async () => {
-          if (!a.model) return modelSheet(a, refresh);
-          toast('Testing…');
-          const { probe } = await api(A('/probe'), { account: a.name });
-          const r = await api(A('/test'), { probe, model: a.model });
-          toast(r.ok ? `${a.label} works` : r.error, { kind: r.ok ? 'info' : 'error', ms: r.ok ? 3500 : 9000 });
-        }) : null,
+        KEYED.includes(a.kind) ? act('sparkle', 'Change model', a.model ? `Now: ${a.model}` : 'Pick the model this provider uses', () => modelSheet(a, refresh)) : null,
+        KEYED.includes(a.kind) ? testRow(a, refresh) : null,
         a.limited ? act('refresh', 'It is free again', 'Mark it as no longer at its limit', async () => {
           await api(at(machine.current, `/api/profiles/${encodeURIComponent(a.name)}/available`), {});
           toast(`${a.label} is available again`);
@@ -337,7 +401,7 @@ async function modelSheet(a, done) {
         fill(panel, errorBox(e.message));
         return;
       }
-      const pick = modelPicker(probe, a.model, a.smallModel);
+      const pick = modelPicker(probe, a.model, a.smallModel, { withSmall: a.kind === 'api' });
       const out = h('div');
       const save = h('button.btn.primary', { type: 'button' }, 'Test and save');
       save.addEventListener('click', async () => {
@@ -367,7 +431,7 @@ async function modelSheet(a, done) {
 }
 
 /** The model list (or a free-text field when the service has none), plus the optional background model. */
-function modelPicker(probe, current = '', currentSmall = '') {
+function modelPicker(probe, current = '', currentSmall = '', { withSmall = true } = {}) {
   const list = probe.models || [];
   const has = list.length > 0;
   const options = (sel, withNone) => [
@@ -380,8 +444,8 @@ function modelPicker(probe, current = '', currentSmall = '') {
     node: h('div.fields',
       probe.note ? h('p.hint', probe.note) : null,
       field('Model', main, has ? `${list.length} model${list.length === 1 ? '' : 's'} found on this service. Every request on this provider goes to the one you pick.` : 'Type the exact model name the service uses.'),
-      h('details.adv', h('summary', 'Smaller, faster model for background work (optional)'),
-        field('Background model', small, 'Claude Code uses a small model for quick background tasks such as titles. Leave it empty to use the one above.'))),
+      withSmall ? h('details.adv', h('summary', 'Smaller, faster model for background work (optional)'),
+        field('Background model', small, 'Claude Code uses a small model for quick background tasks such as titles. Leave it empty to use the one above.')) : null),
     model: () => main.value.trim(),
     small: () => small.value.trim(),
   };
@@ -405,7 +469,9 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
         h('div.choice-list',
           choice('user', 'Claude subscription', 'Another Claude Pro or Max account. You sign in through a link; nothing to install.', () => subscription()),
           choice('key', 'Claude API key', 'A key from console.anthropic.com, or a gateway that speaks Claude\'s API.', () => apiForm({ via: 'api' })),
-          choice('sparkle', 'OpenAI, Gemini, OpenRouter or another provider', 'Through TRouteAI, a free gateway on this computer that translates them for Claude Code.', () => trouteai())),
+          choice('key', 'OpenAI API key', 'For Codex and OpenCode: a key from platform.openai.com, or a service that speaks OpenAI\'s API.', () => apiForm({ via: 'openai' })),
+          choice('user', 'Codex sign-in', 'The ChatGPT account Codex signs in to on this computer. For Codex only.', () => codexSignin()),
+          choice('sparkle', 'Other providers through TRouteAI (for Claude Code)', 'OpenAI, Gemini, OpenRouter or a local model, translated for Claude Code by TRouteAI, a free gateway on this computer.', () => trouteai())),
         terminalLink());
     const back = () => signIn ? null : h('button.btn.ghost.small.backlink', { type: 'button', onclick: async () => { await cleanup?.(); cleanup = null; choose(); } }, icon('back', { size: 16 }), h('span', 'Other ways'));
 
@@ -468,10 +534,37 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
     }
 
     // ---------- an API key (Claude's API directly, or through TRouteAI) ----------
+    // ---------- Codex's own sign-in: a provider that says so; the sign-in itself is Hoprig's `codex login` ----------
+    function codexSignin() {
+      const d = (data.defaults && data.defaults.codex) || { name: 'chatgpt', label: 'Codex sign-in' };
+      const name = h('input.field.mono', { value: d.name, autocapitalize: 'off', spellcheck: 'false', maxlength: 32 });
+      const label = h('input.field', { value: d.label, maxlength: 60 });
+      const out = h('div');
+      const add = h('button.btn.primary', { type: 'button' }, 'Add provider');
+      add.addEventListener('click', async () => {
+        add.disabled = true;
+        try {
+          const r = await api(A('/codex-signin'), { name: name.value, label: label.value });
+          finish(`${label.value || 'Codex sign-in'} added`);
+          location.hash = link(`#/providers/${encodeURIComponent(r.name)}`); // where Sign in is
+          return r;
+        } catch (e) {
+          fill(out, errorBox(e.message));
+          add.disabled = false;
+        }
+      });
+      fill(panel, back(),
+        h('p.sheet-text', 'Codex keeps its own sign-in to a ChatGPT account on this computer. This provider lets Codex sessions use it; it works with Codex only.'),
+        steps([h('p', 'Add the provider here.')], [h('p', 'On its page, press Sign in: a terminal opens with Codex\'s own sign-in, a link and a code for your browser. Until then it is "Not signed in".')]),
+        h('details.adv', h('summary', 'Names'), field('Short name', name, 'Used on the command line.'), field('Name to show', label)),
+        out,
+        h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'), add));
+    }
+
     function apiForm({ via, baseUrl: fixedBase = null, intro = null }) {
-      const d = via === 'trouteai' ? data.defaults.trouteai : data.defaults.api;
+      const d = via === 'trouteai' ? data.defaults.trouteai : via === 'openai' ? data.defaults.openai || { name: 'openai', label: 'OpenAI API', baseUrl: 'https://api.openai.com' } : data.defaults.api;
       const baseUrl = h('input.field.mono', { type: 'url', value: fixedBase || d.baseUrl, autocapitalize: 'off', spellcheck: 'false' });
-      const key = h('input.field.mono', { type: 'password', placeholder: via === 'trouteai' ? 'The key you created in TRouteAI' : 'sk-ant-…', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+      const key = h('input.field.mono', { type: 'password', placeholder: via === 'trouteai' ? 'The key you created in TRouteAI' : via === 'openai' ? 'sk-…' : 'sk-ant-…', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
       const name = h('input.field.mono', { value: d.name, autocapitalize: 'off', spellcheck: 'false', maxlength: 32 });
       const label = h('input.field', { value: d.label, maxlength: 60 });
       const find = h('button.btn.primary.block', { type: 'button' }, h('span', 'Find models'));
@@ -480,7 +573,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
         find.disabled = true;
         fill(out, busy('Asking the service for its models…'));
         try {
-          const probe = await api(A('/probe'), { baseUrl: baseUrl.value, key: key.value });
+          const probe = await api(A('/probe'), { baseUrl: baseUrl.value, key: key.value, ...(via === 'openai' ? { via } : {}) });
           key.value = ''; // sent once; it stays on the computer from here
           fill(panel, back(), h('div.picked-value', icon('key', { size: 18 }), h('span', probe.baseUrl), btn('small ghost', { label: 'Change', onclick: () => apiForm({ via, baseUrl: fixedBase, intro }) })), out);
           modelStep(probe, { via, name, label, out, find });
@@ -491,7 +584,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
       });
       fill(panel, back(),
         intro,
-        field('Address of the API', baseUrl, via === 'trouteai' ? 'TRouteAI on this computer. Change it only if you moved TRouteAI.' : 'Leave it for a key from console.anthropic.com; change it for a gateway.'),
+        field('Address of the API', baseUrl, via === 'trouteai' ? 'TRouteAI on this computer. Change it only if you moved TRouteAI.' : via === 'openai' ? 'Leave it for a key from platform.openai.com; change it for a service that speaks OpenAI\'s API.' : 'Leave it for a key from console.anthropic.com; change it for a gateway.'),
         insecure() ? h('div.banner.warn', icon('lock', { size: 18 }), h('span', 'This page is not encrypted: the key would travel over the network in plain text. Use it only on a network you trust, or ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); terminalWay(); } }, 'use the terminal instead'), '.')) : null,
         field('API key', key, 'Sent to the computer once, checked, and kept only in its provider file there.'),
         h('details.adv', h('summary', 'Names'), field('Short name', name, 'Used on the command line.'), field('Name to show', label)),
@@ -499,11 +592,13 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
     }
 
     function modelStep(probe, { via, name, label, out, find }) {
-      const pick = modelPicker(probe);
+      const pick = modelPicker(probe, '', '', { withSmall: via !== 'openai' });
       const result = h('div');
       const save = h('button.btn.primary', { type: 'button' }, 'Test and save');
       const doSave = async (model) => {
         const r = await api(A('/save'), { probe: probe.probe, via, name: name.value, label: label.value, model, smallModel: pick.small() });
+        // Which APIs it answers decides which coding tools may use it: asked once now (Test on its page does it again).
+        if (via !== 'openai') await api(A(`/${encodeURIComponent(r.name)}/test`), {}).catch(() => {});
         finish(`${label.value || 'Provider'} added`);
         return r;
       };
@@ -523,7 +618,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
       });
       find.classList.add('hidden');
       fill(out,
-        h('div.banner.ok-box', icon('check', { size: 18 }), h('span', `The key works${probe.auth ? ` (sent as ${probe.auth})` : ''}.`)),
+        h('div.banner.ok-box', icon('check', { size: 18 }), h('span', `The key works${probe.auth && via !== 'openai' ? ` (sent as ${probe.auth})` : ''}.`)),
         h('details.adv', h('summary', 'Names'), field('Short name', name, 'Used on the command line.'), field('Name to show', label)),
         pick.node, result,
         h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'), save));

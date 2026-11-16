@@ -1,7 +1,7 @@
 // A session as Home and Workspace show it: one part, so the words, the state chip and the action are the same on
 // both pages. Home draws it as a card (sessionCard); Workspace as a row under its project (sessionRow).
 import { icon } from './icons.js';
-import { h, limitBox, link, machinePill, permissionActions, profileIcon, profileText, stateOf, statusPill, switchProfile } from './lib.js';
+import { h, limitBox, link, liveBasic, machinePill, permissionActions, profileIcon, profileText, stateOf, statusPill, switchProfile, toolChip } from './lib.js';
 import { isStarting, markStarting, startingPill } from './newsession.js';
 import { registeredCardBadges } from './registry.js';
 
@@ -66,9 +66,11 @@ export function sessionCard(s, profiles, refresh, multi, { heading = null } = {}
     h('div.card-top', h('h3.card-name', nameOf(s)), chip(s, { text: st.key !== heading || Boolean(s.background) })),
     h('div.card-meta',
       chatTag(s),
+      toolChip(s),
       multi ? machinePill(s.machineLabel) : null,
       provider(s),
       folderWorthShowing(s) ? h('span.card-path', icon('folder', { size: 14 }), s.short) : null,
+      liveBasic(s),
       registeredCardBadges().map((b) => b(s))),
     s.lastMessage ? h('p.card-msg', s.lastMessage) : s.title && s.kind !== 'chat' ? h('p.card-msg.title', s.title) : null,
     st.key === 'attention' && s.note ? h('p.card-note', s.note) : null,
@@ -86,7 +88,7 @@ export function sessionRow(s, profiles, refresh, { where = null } = {}) {
     h('span.row-icon', icon(s.kind === 'chat' ? 'text' : 'terminal')),
     h('span.row-main',
       h('span.si-top', h('span.row-title', nameOf(s)), chip(s)),
-      h('span.si-meta', provider(s), where ? h('span.si-where', icon('folder', { size: 13 }), where) : null),
+      h('span.si-meta', toolChip(s), provider(s), where ? h('span.si-where', icon('folder', { size: 13 }), where) : null, liveBasic(s)),
       s.lastMessage ? h('span.row-sub.si-msg', s.lastMessage) : null,
       st.key === 'attention' && s.note ? h('span.si-note', s.note) : null,
       permissionActions(s, refresh),

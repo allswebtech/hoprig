@@ -119,7 +119,7 @@ rules, memory and code repositories sit together.
 ```sh
 hop workspace status        # every folder: there or not, and what it is for
 hop workspace setup         # create only what is missing; nothing that exists is changed
-hop workspace link          # let Claude Code read its global rules, skills and home memory from the brain
+hop workspace link          # let your coding tools read the same rules, skills and memory from the brain
 ```
 
 **A fresh computer gets all of it from git.** `hop workspace map` writes one file in the brain that lists every
@@ -240,7 +240,7 @@ Good to know:
   has for coding, what is missing, and its workspace folders) and **Advanced** (programs, open ports, its name,
   power).
 - **Settings**: a short list of pages: New-session defaults, Notifications, Appearance and terminal, Security
-  and sign-in, Tia, Add-ons, About and updates. Each option has one plain sentence under it.
+  and sign-in, Tia, Add-ons, Updates, About. Each option has one plain sentence under it.
 - **Notifications**: a push to your phone when a session waits for you, needs your OK or reaches a limit.
 
 Sessions run in tmux when it is installed, 3.2 or newer (they survive a restart, and `tmux attach` over SSH
@@ -406,6 +406,7 @@ No framework and no build step.
 hop                              choose a provider, start Claude Code
 hop <profile> [args]             start on that provider (args go to Claude Code)
 hop auto [args]                  Auto mode          hop auto on | off | order … | status
+hop codex | opencode [profile] [args]   Codex or OpenCode in this terminal, on a provider that serves it
 hop add | profiles | rm          providers (each one is a profile)
 hop setup | doctor | update      set everything up, check everything, update Hoprig
 hop pc setup | status | clone    this computer for coding;  hop pc recipe save: a recipe for the next one

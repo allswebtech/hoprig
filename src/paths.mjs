@@ -41,6 +41,12 @@ export const stateDir = () =>
 /** One JSON file per running launcher. */
 export const runsDir = () => path.join(stateDir(), 'runs');
 
+/**
+ * The coding tools Hoprig installs itself (Codex, OpenCode): one npm prefix per tool under $HOPRIG_TOOLS_DIR, else
+ * <stateDir>/tools. Never a global install.
+ */
+export const toolsDir = () => env.HOPRIG_TOOLS_DIR || path.join(stateDir(), 'tools');
+
 /** The per-launch settings file handed to Claude Code (our hooks), one per running launcher. */
 export const hookSettingsDir = () => path.join(stateDir(), 'hook-settings');
 

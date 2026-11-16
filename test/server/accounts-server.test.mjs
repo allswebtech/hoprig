@@ -27,6 +27,7 @@ const { createServer } = await import('../../src/server/server.mjs');
 
 // a gateway that wants Bearer and lists two models; refuses model "nope"
 const seen = [];
+let overloaded = false; // Claude's API of the stand-in answers 529 (overloaded) while this is on
 const gw = http.createServer((req, res) => {
   let body = '';
   req.on('data', (c) => (body += c));
@@ -35,6 +36,7 @@ const gw = http.createServer((req, res) => {
     const send = (s, b) => { res.writeHead(s, { 'content-type': 'application/json' }); res.end(JSON.stringify(b)); };
     if (req.headers.authorization !== `Bearer ${KEY}`) return send(401, { error: { message: 'unauthorized' } });
     if (req.url.startsWith('/v1/models')) return send(200, { data: [{ id: 'combo-best' }, { id: 'openai/gpt-5-mini' }] });
+    if (overloaded && req.url === '/v1/messages') return send(529, { error: { type: 'overloaded_error', message: 'Overloaded' } });
     const b = JSON.parse(body);
     if (b.model === 'nope') return send(400, { error: { message: 'no such model: nope' } });
     return send(200, { id: 'm', content: [] });
@@ -49,7 +51,8 @@ const trouteai = { status: async () => ({ installed: true, running: true, versio
 saveConfig({ claudeBin: FAKE_CLAUDE, server: { passwordHash: await hashPassword('right-password') } });
 writeProfile('work', { label: 'Work' });
 const backend = { list: async () => [], capture: async () => '', kind: 'pty', capabilities: {} };
-const app = createServer({ backend, watch: false, accounts: { trouteai, times: { link: 4000, token: 4000, ttl: 60_000 } } });
+let codexIn = false; // what Hoprig's Codex says of its own sign-in (a stand-in)
+const app = createServer({ backend, watch: false, accounts: { trouteai, times: { link: 4000, token: 4000, ttl: 60_000 }, codexSignedIn: async () => codexIn } });
 const { port } = await app.listen(0, '127.0.0.1');
 const base = `http://127.0.0.1:${port}`;
 test.after(() => app.close());
@@ -299,6 +302,108 @@ test('the whole flow times out', async () => {
     assert.match(st.error, /longer than 10 minutes/);
   } finally {
     await app2.close();
+  }
+});
+
+test('an OpenAI-compatible key and a Codex sign-in: added, which tools they serve, and Test saves the API shapes', async () => {
+  // A stand-in for OpenAI's API: Bearer only; responses and chat completions, no Claude messages.
+  const hits = [];
+  const oai = http.createServer((req, res) => {
+    hits.push(req.url);
+    const send = (st, b) => { res.writeHead(st, { 'content-type': 'application/json' }); res.end(JSON.stringify(b)); };
+    if (req.headers.authorization !== `Bearer ${KEY}`) return send(401, { error: { message: 'bad key' } });
+    if (req.url.startsWith('/v1/models')) return send(200, { data: [{ id: 'gpt-x' }, { id: 'gpt-y' }] });
+    if (req.url === '/v1/responses' || req.url === '/v1/chat/completions') return send(200, { id: 'r' });
+    return send(404, { error: { message: 'not here' } });
+  });
+  await new Promise((r) => oai.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${oai.address().port}`;
+  try {
+    let r = await call('/api/accounts');
+    assert.equal(r.json.defaults.openai.baseUrl, 'https://api.openai.com');
+    assert.equal(r.json.defaults.codex.name, 'chatgpt');
+    r = await call('/api/accounts/probe', { baseUrl: `${url}/v1`, key: KEY, via: 'openai' });
+    assert.equal(r.json.auth, 'Authorization: Bearer');
+    const probe = r.json.probe;
+    r = await call('/api/accounts/test', { probe, model: 'gpt-x' });
+    assert.deepEqual(r.json, { ok: true });
+    assert.ok(!hits.includes('/v1/messages'), 'an OpenAI key is not tried on Claude\'s API');
+    r = await call('/api/accounts/save', { probe, via: 'openai', name: '', label: '', model: 'gpt-x' });
+    assert.deepEqual(r.json, { ok: true, name: 'openai' });
+    const p = readProfile('openai');
+    assert.equal(p.kind, 'openai');
+    assert.deepEqual(p.env, { OPENAI_API_KEY: KEY, OPENAI_BASE_URL: url });
+    assert.deepEqual(p.api, ['responses', 'chat', 'models']);
+    r = await call('/api/accounts');
+    let a = r.json.accounts.find((x) => x.name === 'openai');
+    assert.deepEqual([a.kind, a.host, a.model, a.tools], ['openai', new URL(url).host, 'gpt-x', ['codex', 'opencode']]);
+
+    // Test on the provider: asks every shape again and saves what answered; the label and model stay.
+    await call('/api/accounts/openai/label', { label: 'My OpenAI' });
+    hits.length = 0;
+    r = await call('/api/accounts/openai/test', {});
+    assert.deepEqual(r.json, { ok: true, shapes: ['responses', 'chat', 'models'], kept: [], tools: ['codex', 'opencode'] }, 'a clear "not here" (404) for Claude\'s API');
+    assert.ok(hits.includes('/v1/messages') && hits.includes('/v1/responses') && hits.includes('/v1/chat/completions'));
+    assert.equal(readProfile('openai').label, 'My OpenAI');
+    assert.equal(readProfile('openai').models, '*=gpt-x');
+    // Change model keeps the shapes; an OpenAI provider cannot be "signed in again".
+    r = await call('/api/accounts/probe', { account: 'openai' });
+    assert.equal((await call('/api/accounts/openai/model', { probe: r.json.probe, model: 'gpt-y' })).status, 200);
+    assert.deepEqual([readProfile('openai').models, readProfile('openai').api, readProfile('openai').env.OPENAI_API_KEY], ['*=gpt-y', ['responses', 'chat', 'models'], KEY]);
+    r = await call('/api/accounts/subscription/start', { mode: 'signin', name: 'openai' });
+    assert.equal(r.status, 409);
+
+    // A gateway that answers everything: Test turns a Claude-only provider into one for all three tools.
+    writeProfile('gw3', { label: 'GW', env: { ANTHROPIC_BASE_URL: GW, ANTHROPIC_AUTH_TOKEN: KEY, ANTHROPIC_MODEL: 'combo-best' } });
+    r = await call('/api/accounts');
+    assert.deepEqual(r.json.accounts.find((x) => x.name === 'gw3').tools, ['claude', 'opencode'], 'before Test: Claude\'s API only');
+    r = await call('/api/accounts/gw3/test', {});
+    assert.deepEqual(r.json, { ok: true, shapes: ['messages', 'responses', 'chat', 'models'], kept: [], tools: ['claude', 'codex', 'opencode'] });
+    assert.equal(readProfile('gw3').env.ANTHROPIC_MODEL, 'combo-best');
+    // Claude's API overloaded at the moment of a Test: it is not taken away (an overload says nothing about the API).
+    overloaded = true;
+    try {
+      r = await call('/api/accounts/gw3/test', {});
+      assert.deepEqual(r.json, { ok: true, shapes: ['messages', 'responses', 'chat', 'models'], kept: ['messages'], tools: ['claude', 'codex', 'opencode'] });
+      assert.deepEqual(readProfile('gw3').api, ['messages', 'responses', 'chat', 'models']);
+      r = await call('/api/sessions', { dir: os.homedir(), profile: 'gw3', mode: 'new' });
+      assert.doesNotMatch(String(r.json.error || ''), /cannot be used for Claude Code/, 'Claude Code still starts on it');
+      // ... and never added by one either: a provider not known to answer it before does not get it.
+      writeProfile('gw5', { label: 'GW5', api: ['responses', 'chat'], env: { ANTHROPIC_BASE_URL: GW, ANTHROPIC_AUTH_TOKEN: KEY, ANTHROPIC_MODEL: 'combo-best' } });
+      r = await call('/api/accounts/gw5/test', {});
+      assert.deepEqual([r.json.shapes, r.json.kept], [['responses', 'chat', 'models'], []]);
+    } finally {
+      overloaded = false;
+    }
+    // A refused key: nothing saved, the reason said.
+    writeProfile('gw4', { env: { ANTHROPIC_BASE_URL: GW, ANTHROPIC_AUTH_TOKEN: 'wrong-key-000000000', ANTHROPIC_MODEL: 'combo-best' } });
+    r = await call('/api/accounts/gw4/test', {});
+    assert.equal(r.json.ok, false);
+    assert.match(r.json.error, /refused \(401\)/);
+    assert.deepEqual(readProfile('gw4').api, []);
+
+    // A Codex sign-in: a file that says so, no key; Codex only; no Auto mode, no model.
+    r = await call('/api/accounts/codex-signin', {});
+    assert.deepEqual(r.json, { ok: true, name: 'chatgpt' });
+    assert.equal(readProfile('chatgpt').kind, 'chatgpt');
+    a = (await call('/api/accounts')).json.accounts.find((x) => x.name === 'chatgpt');
+    assert.deepEqual([a.label, a.tools, a.host, a.signedIn], ['Codex sign-in', ['codex'], '', false], 'not signed in until Codex says so');
+    codexIn = true;
+    assert.equal((await call('/api/accounts')).json.accounts.find((x) => x.name === 'chatgpt').signedIn, true);
+    codexIn = null;
+    assert.equal((await call('/api/accounts')).json.accounts.find((x) => x.name === 'chatgpt').signedIn, null, 'Codex not installed: cannot tell');
+    assert.equal((await call('/api/accounts/chatgpt/test', {})).status, 409);
+    assert.equal((await call('/api/accounts/subscription/start', { mode: 'signin', name: 'chatgpt' })).status, 409);
+    // A Claude session or chat cannot start on these.
+    const st = (await call('/api/state')).json;
+    assert.deepEqual(st.profiles.find((x) => x.name === 'chatgpt').tools, ['codex']);
+    r = await call('/api/sessions', { dir: os.homedir(), profile: 'openai', mode: 'new' });
+    assert.equal(r.status, 400);
+    assert.match(r.json.error, /cannot be used for Claude Code/);
+    for (const n of ['openai', 'chatgpt', 'gw3', 'gw4', 'gw5']) await call(`/api/accounts/${n}/delete`, {});
+  } finally {
+    oai.closeAllConnections();
+    oai.close();
   }
 });
 

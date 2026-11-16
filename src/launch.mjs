@@ -10,7 +10,7 @@ import { getAutoSwitch, limitedProfiles, markLimited, nextProfile, parseResets, 
 import { claudeLoginStatus, claudeVersionQuick } from './claudecode.mjs';
 import { loadConfig, sessionArgs } from './config.mjs';
 import { claudeDir, hookFile, hookSettingsDir } from './paths.mjs';
-import { listProfiles, profileEnv, readProfile } from './profiles.mjs';
+import { listProfiles, profileEnv, readProfile, servesTools } from './profiles.mjs';
 import { loginSeen, rememberLogin } from './routerstate.mjs';
 import { createRun, noteUsage, readRun, readUsage, removeRun, updateRun, usageFile } from './runs.mjs';
 import { hasConversation } from './sessions.mjs';
@@ -418,6 +418,11 @@ export async function launch(profileName, args, { askNext = null } = {}) {
     if (!profile) {
       const known = listProfiles().map((p) => p.name).join(', ') || 'none yet';
       console.error(`hoprig: no profile "${name}" (profiles: ${known}). Add one with: hoprig add`);
+      return 2;
+    }
+    if (!servesTools(profile).includes('claude')) {
+      // An OpenAI key or a Codex sign-in: Claude Code cannot use it (profileEnv refuses it too).
+      console.error(`hoprig: the provider "${profile.name}" does not serve Claude Code (it works with: ${servesTools(profile).join(', ') || 'no coding tool'}).`);
       return 2;
     }
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !isPrintMode(current);

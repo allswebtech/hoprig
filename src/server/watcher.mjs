@@ -5,6 +5,7 @@
 //      (no `limit` in the run) for more than GRACE_MS and auto-switch is on, the watcher does the same move the
 //      Switch button does, sends the continue prompt once the new run waits, and marks the old profile limited.
 // It ticks every 5 s while there are Claude sessions or a move in progress, else every 30 s.
+import { isClaudeCard, isCodingCard } from '../automation/cards.mjs';
 import { describe, sendNotification } from './notify.mjs';
 
 export const GRACE_MS = 20_000;
@@ -16,7 +17,7 @@ const PENDING_MAX_MS = 3 * 60_000;
  */
 export function enrich(cards, runs) {
   return cards.map((c) => {
-    if (c.kind !== 'claude') return c;
+    if (!isCodingCard(c)) return c;
     let run = c.runId ? runs.find((r) => r.runId === c.runId) : null;
     if (!run && c.sessionId) {
       run = runs
@@ -35,8 +36,11 @@ export function enrich(cards, runs) {
   });
 }
 
-/** What a card is, for notifications: limit (wins), shell, or the run status. */
-export const stateOf = (c) => (c.limit || c.runLimit ? 'limit' : c.kind === 'shell' ? 'shell' : c.status || 'unknown');
+/**
+ * What a card is, for notifications: limit (wins), shell, or the run status. A session whose status is read from
+ * its screen's activity only ("Live status: basic") is never told about: that status is a guess.
+ */
+export const stateOf = (c) => (c.limit || c.runLimit ? 'limit' : c.kind === 'shell' ? 'shell' : c.liveStatus === 'basic' ? 'basic' : c.status || 'unknown');
 
 const NOTIFY = new Set(['waiting', 'attention', 'limit']);
 
@@ -71,7 +75,7 @@ export function planAutoSwitch({ cards, auto, now, seen, done, nextProfile, grac
   const limitedNow = new Set();
   for (const c of cards) {
     // Auto sessions never stop at a limit: the router moves their requests by itself.
-    if (c.kind !== 'claude' || !c.limit || c.runLimit || !c.runId || !c.profile || c.profile.name === 'auto') continue;
+    if (!isClaudeCard(c) || !c.limit || c.runLimit || !c.runId || !c.profile || c.profile.name === 'auto') continue;
     limitedNow.add(c.runId);
     if (!seen.has(c.runId)) seen.set(c.runId, now);
     if (!auto || !auto.enabled || done.has(c.runId) || !c.canSwitch) continue;
@@ -146,7 +150,7 @@ export class Watcher {
     let busy = false;
     try {
       const cards = await this.cards();
-      busy = cards.some((c) => c.kind === 'claude') || this.pending.size > 0;
+      busy = cards.some(isCodingCard) || this.pending.size > 0;
       await this.#notify(cards);
       await this.#autoSwitch(cards);
       await this.#followUp(cards);
@@ -222,7 +226,7 @@ export class Watcher {
       }
       // `notRun`: a restart on the same provider (server.mjs: continue). The run that was stopped may still be
       // listed for a moment, waiting: the prompt is for the one that comes after it.
-      if (c.kind === 'claude' && c.profile && c.profile.name === p.to && c.status === 'waiting' && (!p.notRun || (c.runId && c.runId !== p.notRun))) {
+      if (isClaudeCard(c) && c.profile && c.profile.name === p.to && c.status === 'waiting' && (!p.notRun || (c.runId && c.runId !== p.notRun))) {
         this.pending.delete(name);
         if (!p.prompt) continue;
         try {

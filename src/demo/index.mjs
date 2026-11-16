@@ -477,7 +477,7 @@ async function demoActivity() {
   const entries = [
     [9 * 60, { automation: 'restore', session: 'api-server', did: 'reopened api-server after the restart, with its conversation', outcome: 'ok' }],
     [8 * 60, { automation: 'schedules', session: 'api-server', did: 'started "Morning dependency check"', outcome: 'ok' }],
-    [5 * 60, { automation: 'updates', did: 'looked for a new Claude Code', outcome: 'nothing new' }],
+    [5 * 60, { automation: 'updates', did: 'looked for new versions', outcome: 'nothing new' }],
     [95, { automation: 'retry', session: 'shop-frontend', did: 'sent "continue" to shop-frontend after Claude\'s servers were busy (try 1 of 3)', outcome: 'ok' }],
     [40, { automation: 'queue', session: 'data-pipeline', did: 'sent the next queued message to data-pipeline: "Add a progress bar to the import"', outcome: 'ok' }],
     [12, { automation: 'queue', session: 'data-pipeline', did: 'could not send the next queued message to data-pipeline', outcome: 'failed: the session was waiting for your OK' }],
@@ -614,6 +614,7 @@ export async function main(args = [], hooks = {}) {
       watchTickMs: 1000,
       claudecode: { claudeInfo: async () => CLAUDE_INFO, claudeUpdate: async ({ onLine }) => { onLine('(demo) Claude Code is up to date'); return { ok: true, version: CLAUDE_INFO.installed, output: '' }; } },
       addons: { addons: [addon] },
+      automation: { updateItems: (await import('./updates.mjs')).demoUpdateItems() },
       onboarding: { facts: DEMO_FACTS },
       pcsetup: { status: async () => DEMO_CHECKS },
       // The workspace tree and the AI brain (sample files), then the map, sync, restore and git state samples.

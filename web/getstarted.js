@@ -235,7 +235,7 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
         try {
           await api('~/api/settings', { server: { getStartedDismissed: true } });
           await store.refresh();
-          toast('Closed. Settings → About and updates brings it back.');
+          toast('Closed. Settings → About brings it back.');
         } catch (e) {
           toast(e.message, { kind: 'error' });
         }

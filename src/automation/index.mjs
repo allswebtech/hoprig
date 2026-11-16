@@ -4,7 +4,8 @@
 //   schedules  start a session or send a message at a set time                        ./schedules.mjs
 //   restore    reopen the sessions a restart took away (resumed, nothing typed)        ./restore.mjs
 //   retry      after a server error, wait and send "continue" (1, 2, 4 … minutes)      ./retry.mjs
-//   updates    look for a new Claude Code; tell, or update it while nothing works      ./updates.mjs
+//   updates    look for new versions (Hoprig, coding tools, tunnel helper); show,      ./updates.mjs
+//              tell, or (Automatic) update each at a safe moment                      ./updater.mjs
 //   idle       close idle plain shells, stop an unused gateway add-on                  ./idle.mjs
 //   workspace  the map keeps building itself; keep the workspace in step (if chosen)   ./workspacesync.mjs
 //
@@ -23,7 +24,7 @@
 //   notify({ title, message, session }) a push notification (the server's notify module)
 //   log(line)                           the service log
 // Optional (real ones are used when left out; tests pass fakes):
-//   saveConfig(patch), stateDir (hoprig's state folder), now(), updates { claudeInfo, claudeUpdate }, addons [{ id, title,
+//   saveConfig(patch), stateDir (hoprig's state folder), now(), updateItems (./updateitems.mjs), addons [{ id, title,
 //   profile, status(), stop() }], autoOrder() → profile names, conversationExists(cwd, id), checks { dirOk(dir),
 //   profileOk(name) } for schedules, workspaceSync({ push }) and workspaceMap({ commit, push }) (the workspace rule's engines).
 import path from 'node:path';
@@ -38,21 +39,13 @@ import * as schedules from './schedules.mjs';
 import { brainDir, remoteOf } from '../workspace/layout.mjs';
 import { SCHEDULES_MAX, cleanSchedule, cleanSettingsPatch, commitMapState, effectiveSettings, newId, readSettings, restoreOn } from './settings.mjs';
 import { createActivityLog, createStore } from './store.mjs';
+import { realItems } from './updateitems.mjs';
+import { createUpdater } from './updater.mjs';
 import * as updates from './updates.mjs';
 import * as workspaceRule from './workspacesync.mjs';
 
 export const FAST_TICK_MS = 5_000; // while a queue or a retry waits for its moment
 export const SLOW_TICK_MS = 20_000;
-
-/** The real update checks, loaded only when updates are switched on. */
-const realUpdates = {
-  async claudeInfo() {
-    return (await import('../claudecode.mjs')).claudeInfo();
-  },
-  async claudeUpdate() {
-    return (await import('../claudecode.mjs')).claudeUpdate();
-  },
-};
 
 async function realAddons() {
   const { ADDONS } = await import('../addons/index.mjs');
@@ -72,7 +65,6 @@ export function createAutomation(ctx) {
   const activity = createActivityLog(path.join(base, 'automation.log'), { now });
   const saveConfig = ctx.saveConfig || realSaveConfig;
   const log = ctx.log || (() => {});
-  const updatesImpl = ctx.updates || realUpdates;
   const conversationExists = ctx.conversationExists || realConversationExists;
 
   let booted = false;
@@ -84,6 +76,12 @@ export function createAutomation(ctx) {
   // The address of the AI brain's git server, or null: decides "save a change of the map" when the owner never did.
   const brainRemote = ctx.brainRemote || (() => remoteOf(brainDir()));
   const saveSettings = (s) => saveConfig({ automation: s });
+  // The old Claude-only update setting is read once into Settings → Updates (./updates.mjs).
+  try {
+    updates.migrateUpdates(ctx.config() || {}, saveConfig);
+  } catch (e) {
+    log(`automation: the update settings could not be moved: ${e.message}`);
+  }
 
   const record = (entry) => {
     const e = activity.add(entry);
@@ -96,6 +94,8 @@ export function createAutomation(ctx) {
       log(`automation: a notification failed: ${e.message}`);
     }
   };
+
+  const updater = createUpdater({ items: ctx.updateItems || realItems(), cards: () => ctx.deck.list(), config: () => ctx.config() || {}, saveConfig, record, now });
 
   /** Add a message to a session's queue (schedules and the page use this). */
   const enqueue = (session, text, opts = {}) =>
@@ -166,10 +166,13 @@ export function createAutomation(ctx) {
         store.write('idle', d.data);
         plan.push(['idle', d.actions]);
       }
-      if (s.updates.claude !== 'off') {
-        const d = updates.decide({ cards, data: store.read('updates', {}), now: t, settings: s.updates });
-        store.write('updates', d.data);
-        plan.push(['updates', d.actions]);
+      // Updates look by themselves only to install (Automatic) or to tell (notify on); otherwise the Updates page
+      // looks when it is opened, so a default dashboard asks no server anything in the background.
+      const us = updater.settings();
+      if (updates.looksInBackground(us)) {
+        const u = updates.decide({ cards, data: store.read('updates', {}), now: t });
+        store.write('updates', u.data);
+        plan.push(['updates', u.actions]);
       }
       if (s.workspace.sync || s.workspace.map) {
         const d = workspaceRule.decide({ data: store.read('workspace', {}), now: t, boot, settings: effectiveSettings(s, brainRemote).workspace });
@@ -189,7 +192,7 @@ export function createAutomation(ctx) {
           else if (name === 'workspace') {
             await workspaceRule.apply(actions, { ...common, workspaceSync: ctx.workspaceSync || workspaceRule.realWorkspaceSync, workspaceMap: ctx.workspaceMap || workspaceRule.realWorkspaceMap, data: store.read('workspace', {}), save: (d) => store.write('workspace', d) });
           } else if (name === 'updates') {
-            await updates.apply(actions, { ...common, updates: updatesImpl, settings: s.updates, data: store.read('updates', {}), save: (d) => store.write('updates', d) });
+            await updates.apply(actions, { ...common, updater, settings: us, now, data: store.read('updates', {}), save: (d) => store.write('updates', d) });
           }
         } catch (e) {
           record({ automation: name, did: 'stopped with an unexpected error', outcome: `failed: ${e.message}` });
@@ -249,7 +252,8 @@ export function createAutomation(ctx) {
       const t = now();
       const last = store.read('schedules', {});
       return {
-        settings: effectiveSettings(s, brainRemote), // commitMap true or false, as it acts
+        // `updates.claude`: the old setting's value, for older pages and Tia's rule (Settings → Updates holds it now)
+        settings: { ...effectiveSettings(s, brainRemote), updates: { claude: updates.legacyValue(updater.settings()) } }, // commitMap true or false, as it acts
         commitMap: commitMapState(s.workspace, brainRemote()), // and why: chosen, or from the brain's address
         restoreDefault: !(ctx.backend && ctx.backend.capabilities && ctx.backend.capabilities.persistent),
         restoreOn: restoreOn(s, ctx.backend),
@@ -262,9 +266,18 @@ export function createAutomation(ctx) {
       };
     },
     changeSettings(patch) {
-      const next = cleanSettingsPatch(patch, settings());
+      // An older page (or Tia) may still send the old update setting { updates: { claude } }: it becomes the new one.
+      const old = patch && typeof patch === 'object' ? patch.updates : undefined;
+      let up = null;
+      if (old !== undefined) {
+        if (!old || typeof old !== 'object' || Object.keys(old).some((k) => k !== 'claude')) throw new Error('updates are set in Settings → Updates');
+        if ('claude' in old) up = updates.fromLegacy(old.claude, updater.settings());
+      }
+      const rest = old === undefined ? patch : Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'updates'));
+      const next = cleanSettingsPatch(rest, settings());
+      if (up) updater.changeSettings(up);
       saveSettings(next);
-      return effectiveSettings(next, brainRemote);
+      return { ...effectiveSettings(next, brainRemote), updates: { claude: updates.legacyValue(updater.settings()) } };
     },
     log: (limit) => activity.recent(limit),
     queueOf(session) {
@@ -315,5 +328,5 @@ export function createAutomation(ctx) {
     },
   };
 
-  return { tick, start, close, nextDelay, enqueue, api, store, activity };
+  return { tick, start, close, nextDelay, enqueue, api, store, activity, updater };
 }

@@ -8,13 +8,23 @@
 //                         accepts), tests one tiny request, and saves the profile.
 //   Other providers       through the TRouteAI add-on (it translates OpenAI, Gemini, … to Claude's API): the same as
 //                         above with its address prefilled and PRERUN set so the gateway starts on demand.
+//   OpenAI-compatible     base URL + key for OpenAI's API (or a service that speaks it), for Codex and OpenCode: the
+//                         same steps, tested with the Responses API and chat completions; saved as OPENAI_API_KEY.
+//   Codex sign-in         the ChatGPT account Codex keeps itself (`codex login`): a provider file that says so
+//                         (SIGNIN=codex), no key. For Codex only.
+//
+// Which coding tools a provider serves is profiles.mjs servesTools; "Test" on a provider asks the endpoint which API
+// shapes it answers (probeShapes) and saves them as its API= line.
 //
 // Routes (behind the login; cookie only — another dashboard's bearer token may not reach them):
 //   GET  /api/accounts                         accounts with kind, state, usage, model, Auto membership; defaults
 //   POST /api/accounts/probe                   { baseUrl, key } or { account }: models + which header works → { probe,
 //                                              auth, models|null, note }. The key stays on the server under `probe`.
 //   POST /api/accounts/test                    { probe, model } → { ok, error? }   one request, max_tokens 1
-//   POST /api/accounts/save                    { probe, name, label, model?, smallModel?, via: "api"|"trouteai" }
+//   POST /api/accounts/probe                   … with via: "openai" for an OpenAI-compatible key (Bearer first)
+//   POST /api/accounts/save                    { probe, name, label, model?, smallModel?, via: "api"|"trouteai"|"openai" }
+//   POST /api/accounts/<name>/test             {} the API shapes the provider answers, saved as API= → { ok, shapes, tools, error? }
+//   POST /api/accounts/codex-signin            { name?, label? } a provider for the sign-in Codex keeps itself
 //   POST /api/accounts/<name>/model            { probe, model, smallModel? }  pin another model
 //   POST /api/accounts/<name>/label            { label }
 //   POST /api/accounts/<name>/auto             { on }  add to / remove from Auto mode's order
@@ -35,27 +45,25 @@ import path from 'node:path';
 import * as autoswitchModule from '../autoswitch.mjs';
 import { ptySpawn } from './backends/nodepty.mjs';
 import { findAddon } from '../addons/index.mjs';
-import { AUTH_VARS, deleteProfile, listProfiles, readProfile, validName, writeProfile } from '../profiles.mjs';
+import { codexSignedIn } from '../codetools/codexsignin.mjs';
+import { MODEL_RE, listModels, probeShapes, scrub, shapesAfterTest, testModel } from './endpoint.mjs';
+import { AUTH_VARS, deleteProfile, knownShapes, listProfiles, metaOf, readProfile, servesTools, validName, writeProfile } from '../profiles.mjs';
 
 export const ANTHROPIC_URL = 'https://api.anthropic.com';
-const FETCH_TIMEOUT_MS = 15_000;
-const BODY_CAP = 2 * 1024 * 1024;
+export const OPENAI_URL = 'https://api.openai.com';
+// Older importers (claudelogin.mjs, tests) find these here too.
+export { explain, listModels, passing, probeShapes, scrub, shapesAfterTest, testModel } from './endpoint.mjs';
+
+const KEYED = ['api', 'openai']; // the kinds with an endpoint and a key
 const PROBE_TTL_MS = 15 * 60_000;
 const FLOW_TTL_MS = 10 * 60_000;
 const LINK_WAIT_MS = 45_000;
 const TOKEN_WAIT_MS = 60_000;
-const MODEL_RE = /^[A-Za-z0-9._:/@+\-[\]]{1,120}$/;
 const KEY_RE = /^[\x21-\x7e]{8,500}$/; // printable ASCII, no spaces
 const TOKEN_RE = /sk-ant-oat\d+-[A-Za-z0-9_-]{20,}/;
 const SIGNIN_HOSTS = /(^|\.)(claude\.com|claude\.ai|anthropic\.com)$/;
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
-/** Anything that could be a secret is cut out of text that leaves the server. */
-export const scrub = (s, ...secrets) => {
-  let out = String(s || '');
-  for (const x of secrets) if (x && x.length >= 6) out = out.split(x).join('***');
-  return out.replace(/sk-ant-[A-Za-z0-9_-]{8,}/g, '***').replace(/Bearer\s+\S+/gi, 'Bearer ***').slice(0, 300);
-};
 
 // ---------- validation ----------
 
@@ -107,126 +115,6 @@ export function freeName(base, { bare = true, from = 2 } = {}) {
   for (let i = from; i < 100; i++) if (!readProfile(`${base}${i}`)) return `${base}${i}`;
   return `${base}-${Date.now().toString(36)}`;
 }
-
-// ---------- talking to an endpoint ----------
-
-/** Read at most BODY_CAP bytes of a response as text. */
-async function readCapped(r) {
-  if (!r.body) return '';
-  const reader = r.body.getReader();
-  const chunks = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.length;
-    if (size > BODY_CAP) {
-      await reader.cancel().catch(() => {});
-      break;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8');
-}
-
-const HEADERS = { x: (key) => ({ 'x-api-key': key }), bearer: (key) => ({ Authorization: `Bearer ${key}` }) };
-
-/**
- * One request to the endpoint. Redirects are never followed (a redirect could carry the key to another host).
- * Resolves { status, json, text } or { error } for network failures.
- */
-async function call(fetchImpl, url, { method = 'GET', key, auth, body }) {
-  try {
-    const r = await fetchImpl(url, {
-      method,
-      redirect: 'manual',
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: { 'anthropic-version': '2023-06-01', ...(body ? { 'content-type': 'application/json' } : {}), ...HEADERS[auth](key) },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const text = await readCapped(r);
-    let json = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      /* not JSON */
-    }
-    return { status: r.status, json, text };
-  } catch (e) {
-    const cause = e.cause && (e.cause.code || e.cause.message);
-    return { error: e.name === 'TimeoutError' ? 'it did not answer within 15 seconds' : cause || e.message };
-  }
-}
-
-/** What went wrong, in plain words, from an HTTP answer. */
-export function explain(r, host, key) {
-  if (r.error) return `Cannot reach ${host}: ${scrub(r.error, key)}`;
-  const said = r.json && r.json.error ? (typeof r.json.error === 'string' ? r.json.error : r.json.error.message || r.json.error.type || '') : '';
-  const extra = said ? ` The service said: "${scrub(said, key)}"` : '';
-  if (r.status >= 300 && r.status < 400) return `${host} answered with a redirect (${r.status}). Use the final address instead; the key is not sent on to another address.`;
-  if (r.status === 401) return `The key was refused (401).${extra}`;
-  if (r.status === 403) return `The key may not do this (403).${extra}`;
-  if (r.status === 404) return `Not found at this address (404): check the address and the model name.${extra}`;
-  if (r.status === 429) return `Too many requests or no credit left (429).${extra}`;
-  if (r.status === 529 || r.status === 503) return `The service is overloaded right now (${r.status}). Try again in a moment.${extra}`;
-  if (r.status >= 500) return `The service had an error (${r.status}).${extra}`;
-  return `The request was not accepted (${r.status}).${extra}`;
-}
-
-function modelsOf(json) {
-  const list = json && Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : null;
-  if (!list) return null;
-  const out = [];
-  for (const m of list) {
-    const id = m && typeof m.id === 'string' ? m.id : typeof m === 'string' ? m : null;
-    if (!id || !MODEL_RE.test(id)) continue;
-    out.push({ id, name: m && typeof m.display_name === 'string' ? m.display_name.slice(0, 80) : id });
-    if (out.length >= 500) break;
-  }
-  return out;
-}
-
-/**
- * List the models with either header. Returns { auth: 'x'|'bearer'|null, models: [...]|null, note }.
- * `auth` is null when no list exists (the test request decides then); a refused key is an error.
- */
-export async function listModels(fetchImpl, baseUrl, key, prefer = 'x') {
-  const host = new URL(baseUrl).host;
-  const url = `${baseUrl}/v1/models?limit=1000`;
-  let last = null;
-  for (const auth of prefer === 'bearer' ? ['bearer', 'x'] : ['x', 'bearer']) {
-    const r = await call(fetchImpl, url, { key, auth });
-    if (r.error) throw fail(502, explain(r, host, key));
-    if (r.status === 200) {
-      const models = modelsOf(r.json);
-      if (models) return { auth, models, note: models.length ? '' : 'The service lists no models; type the model name.' };
-      return { auth, models: null, note: 'The service gave no model list; type the model name.' };
-    }
-    last = r;
-    if (r.status !== 401 && r.status !== 403) break; // only a refused key is worth the other header
-  }
-  if (last && (last.status === 401 || last.status === 403)) throw fail(400, explain(last, host, key));
-  return { auth: null, models: null, note: 'This service has no model list; type the model name.' };
-}
-
-/**
- * One tiny real request. Returns { ok, auth, error? }. `auth` is tried first; a refused key is tried once with the
- * other header (a model list may be open to anyone, so the header it accepted proves nothing).
- */
-export async function testModel(fetchImpl, baseUrl, key, auth, model) {
-  const host = new URL(baseUrl).host;
-  const body = { model, max_tokens: 1, messages: [{ role: 'user', content: 'Hi' }] };
-  let last = null;
-  for (const a of auth === 'bearer' ? ['bearer', 'x'] : ['x', 'bearer']) {
-    const r = await call(fetchImpl, `${baseUrl}/v1/messages`, { method: 'POST', key, auth: a, body });
-    if (!r.error && r.status === 200) return { ok: true, auth: a };
-    last = r;
-    if (r.error || (r.status !== 401 && r.status !== 403)) break;
-  }
-  return { ok: false, auth, error: explain(last, host, key) };
-}
-
-// ---------- the subscription sign-in (`claude setup-token` in a terminal we hold) ----------
 
 /** Plain text of terminal output: cursor jumps become spaces, other escape codes go. */
 export function plainText(s) {
@@ -408,6 +296,9 @@ export function accountsFeature(ctx, opts = {}) {
   /** Where an account's key is and what it is pinned to — server side only. */
   function stored(profile) {
     const env = profile.env || {};
+    if (profile.kind === 'openai') {
+      return { baseUrl: env.OPENAI_BASE_URL ? cleanBaseUrl(env.OPENAI_BASE_URL) : OPENAI_URL, key: env.OPENAI_API_KEY || '', auth: 'bearer', model: (/^\*=(.+)$/.exec(profile.models || '') || [])[1] || '', smallModel: '' };
+    }
     const key = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
     return {
       baseUrl: env.ANTHROPIC_BASE_URL ? cleanBaseUrl(env.ANTHROPIC_BASE_URL) : ANTHROPIC_URL,
@@ -445,7 +336,8 @@ export function accountsFeature(ctx, opts = {}) {
     if (!validName(name)) throw fail(400, `"${name.slice(0, 40)}" is not a provider's short name`);
     const prof = readProfile(name);
     if (!prof) throw fail(404, `There is no provider called "${name}"`);
-    if (prof.kind === 'api') throw fail(409, `"${name}" uses an API key, not a sign-in: there is nothing to sign in to`);
+    if (KEYED.includes(prof.kind)) throw fail(409, `"${name}" uses an API key, not a sign-in: there is nothing to sign in to`);
+    if (prof.kind === 'chatgpt') throw fail(409, `"${name}" is Codex's own sign-in: Sign in on its page, or hoprig codex login in a terminal`);
     return prof;
   }
 
@@ -460,22 +352,27 @@ export function accountsFeature(ctx, opts = {}) {
     const remote = opts.remote ? await opts.remote().catch(() => new Map()) : new Map();
     const st = await ctx.state();
     const order = auto.getAutoSwitch().order || [];
-    return listProfiles().map((p) => {
+    // A Codex sign-in: whether Codex is signed in on this computer (null: Codex is not installed or does not say).
+    const all = listProfiles();
+    const codexIn = all.some((p) => p.kind === 'chatgpt') ? await (opts.codexSignedIn || codexSignedIn)().catch(() => null) : null;
+    return all.map((p) => {
       const s = st.profiles.find((x) => x.name === p.name) || {};
       const k = stored(p);
       let host = '';
       try {
-        host = p.kind === 'api' ? new URL(k.baseUrl).host : '';
+        host = KEYED.includes(p.kind) ? new URL(k.baseUrl).host : '';
       } catch {
         /* bad address in the file */
       }
       return {
-        name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, host, model: p.kind === 'api' ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
+        name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, host, model: KEYED.includes(p.kind) ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
+        tools: servesTools(p), api: p.api || [],
         viaTrouteai: Boolean(p.prerun && /addons start trouteai/.test(p.prerun)),
         remote: remote.has(p.name) ? (({ computer, title, state, text }) => ({ computer, title: title || null, state, text }))(remote.get(p.name)) : null,
         limited: s.limited || null, usage: s.usage || null, inUse: s.inUse || 0, inAuto: order.includes(p.name),
         // providers that sign in: is the sign-in there, its plan, and whether that plan reports usage at all
         ...('signedIn' in s ? { signedIn: s.signedIn, plan: s.plan ?? null, usageReported: s.usageReported ?? null } : {}),
+        ...(p.kind === 'chatgpt' ? { signedIn: codexIn } : {}),
       };
     });
   }
@@ -495,6 +392,8 @@ export function accountsFeature(ctx, opts = {}) {
           subscription: { name: freeName('sub', { bare: false }), label: '' },
           api: { name: freeName('claude-api'), label: 'Claude API', baseUrl: ANTHROPIC_URL },
           trouteai: { name: freeName('api'), label: 'API via TRouteAI', baseUrl: tr ? tr.baseUrl : 'http://localhost:20017' },
+          openai: { name: freeName('openai'), label: 'OpenAI API', baseUrl: OPENAI_URL },
+          codex: { name: freeName('chatgpt'), label: 'Codex sign-in' },
         },
         trouteai: tr,
         signin: signinState(),
@@ -508,7 +407,7 @@ export function accountsFeature(ctx, opts = {}) {
       let account = null;
       if (b.account !== undefined) {
         const p = validName(b.account) ? readProfile(b.account) : null;
-        if (!p || p.kind !== 'api') throw fail(404, 'There is no such API provider');
+        if (!p || !KEYED.includes(p.kind)) throw fail(404, 'There is no such API provider');
         ({ baseUrl, key } = stored(p));
         if (!key) throw fail(400, 'This provider has no key stored');
         account = p.name;
@@ -516,12 +415,13 @@ export function accountsFeature(ctx, opts = {}) {
         baseUrl = cleanBaseUrl(b.baseUrl);
         key = cleanKey(b.key);
       }
-      let prefer = 'x';
-      if (account) prefer = stored(readProfile(account)).auth || 'x'; // the header the account already uses first
+      const openai = account ? readProfile(account).kind === 'openai' : b.via === 'openai';
+      let prefer = openai ? 'bearer' : 'x';
+      if (account) prefer = stored(readProfile(account)).auth || prefer; // the header the account already uses first
       const r = await listModels(fetchImpl, baseUrl, key, prefer);
       const id = crypto.randomBytes(12).toString('base64url');
       for (const [k, v] of probes) if (now() - v.at > PROBE_TTL_MS) probes.delete(k);
-      probes.set(id, { baseUrl, key, auth: r.auth, at: now(), account });
+      probes.set(id, { baseUrl, key, auth: r.auth, at: now(), account, openai });
       return { probe: id, auth: r.auth === 'bearer' ? 'Authorization: Bearer' : r.auth === 'x' ? 'x-api-key' : null, models: r.models, note: r.note, baseUrl };
     }],
     ['POST', /^\/api\/accounts\/test$/, async (req) => {
@@ -529,6 +429,12 @@ export function accountsFeature(ctx, opts = {}) {
       limit(req);
       const p = probeOf(b.probe);
       const model = cleanModel(b.model);
+      if (p.openai) {
+        // An OpenAI-compatible key: the APIs Codex and OpenCode use (Claude's is not asked for).
+        const r = await probeShapes(fetchImpl, p.baseUrl, p.key, 'bearer', model, { only: ['responses', 'chat'] });
+        if (r.ok) p.shapes = r.shapes;
+        return r.ok ? { ok: true } : { ok: false, error: r.error };
+      }
       const r = await testModel(fetchImpl, p.baseUrl, p.key, p.auth, model);
       if (r.ok) p.auth = r.auth;
       return r.ok ? { ok: true } : { ok: false, error: r.error };
@@ -537,10 +443,18 @@ export function accountsFeature(ctx, opts = {}) {
       const b = await ctx.readJson(req);
       const p = probeOf(b.probe);
       if (p.account) throw fail(400, 'Use "Change model" for a provider that exists');
+      const model = cleanModel(b.model, { optional: true });
+      if (p.openai) {
+        const name = cleanNewName(b.name, freeName('openai'));
+        const label = cleanLabel(b.label, 'OpenAI API');
+        const env = { OPENAI_API_KEY: p.key, ...(p.baseUrl !== OPENAI_URL ? { OPENAI_BASE_URL: p.baseUrl } : {}) };
+        writeProfile(name, { label, models: model ? `*=${model}` : '', api: p.shapes || [], env });
+        probes.delete(b.probe);
+        return { ok: true, name };
+      }
       const via = b.via === 'trouteai' ? 'trouteai' : 'api';
       const name = cleanNewName(b.name, via === 'trouteai' ? freeName('api') : freeName('claude-api'));
       const label = cleanLabel(b.label, via === 'trouteai' ? 'API via TRouteAI' : 'Claude API');
-      const model = cleanModel(b.model, { optional: true });
       const smallModel = cleanModel(b.smallModel, { optional: true });
       const prerun = via === 'trouteai' ? addon().profile().prerun : '';
       writeProfile(name, { label, prerun, models: model ? `*=${model}` : '', env: envFor({ ...p, auth: p.auth || 'x', model, smallModel }) });
@@ -554,14 +468,45 @@ export function accountsFeature(ctx, opts = {}) {
       if (p.account !== prof.name) throw fail(400, 'That check belongs to another provider');
       const model = cleanModel(b.model);
       const smallModel = cleanModel(b.smallModel, { optional: true });
-      writeProfile(prof.name, { label: prof.label, prerun: prof.prerun, models: `*=${model}`, env: envFor({ ...p, auth: p.auth || stored(prof).auth || 'x', model, smallModel }, prof.env) });
+      if (prof.kind === 'openai') writeProfile(prof.name, { ...metaOf(prof), models: `*=${model}`, env: prof.env });
+      else writeProfile(prof.name, { ...metaOf(prof), models: `*=${model}`, env: envFor({ ...p, auth: p.auth || stored(prof).auth || 'x', model, smallModel }, prof.env) });
       return { ok: true };
     }],
     ['POST', /^\/api\/accounts\/([^/]+)\/label$/, async (req, m) => {
       const prof = accountOr404(m);
       const b = await ctx.readJson(req);
-      writeProfile(prof.name, { label: cleanLabel(b.label, prof.label), prerun: prof.prerun, models: prof.models, env: prof.env });
+      writeProfile(prof.name, { ...metaOf(prof), label: cleanLabel(b.label, prof.label), env: prof.env });
       return { ok: true };
+    }],
+    ['POST', /^\/api\/accounts\/([^/]+)\/test$/, async (req, m) => {
+      // "Test": which API shapes the provider answers, saved as its API= line (servesTools reads it).
+      const prof = accountOr404(m);
+      await ctx.readJson(req);
+      if (!KEYED.includes(prof.kind)) throw fail(409, `"${prof.label}" signs in: there is no API address to test`);
+      limit(req);
+      const k = stored(prof);
+      if (!k.key) throw fail(400, 'This provider has no key stored');
+      let model = k.model;
+      if (!model) {
+        const l = await listModels(fetchImpl, k.baseUrl, k.key, k.auth || 'bearer');
+        model = (l.models || [])[0]?.id || '';
+      }
+      if (!model) throw fail(400, 'Pick the model this provider uses first (Change model)');
+      const r = await probeShapes(fetchImpl, k.baseUrl, k.key, k.auth || 'x', model);
+      if (!r.ok) return { ok: false, shapes: r.shapes, unsure: r.unsure, tools: servesTools(prof), error: r.error };
+      const now = readProfile(prof.name);
+      const api = shapesAfterTest(knownShapes(now), r);
+      writeProfile(prof.name, { ...metaOf(now), api, env: now.env });
+      const kept = api.filter((x) => !r.shapes.includes(x));
+      return { ok: true, shapes: api, kept, tools: servesTools(readProfile(prof.name)) };
+    }],
+    ['POST', /^\/api\/accounts\/codex-signin$/, async (req) => {
+      // The ChatGPT account Codex keeps itself: no key here; Codex signs in with `codex login` in a terminal.
+      const b = await ctx.readJson(req);
+      const name = cleanNewName(b.name, freeName('chatgpt'));
+      const label = cleanLabel(b.label, 'Codex sign-in');
+      writeProfile(name, { label, signin: 'codex' });
+      return { ok: true, name };
     }],
     ['POST', /^\/api\/accounts\/([^/]+)\/auto$/, async (req, m) => {
       const prof = accountOr404(m);
@@ -642,7 +587,7 @@ export function accountsFeature(ctx, opts = {}) {
           // the sign-in is replaced, in one atomic write. Up to here its file was never touched.
           const prof = signinProvider(f.name);
           label = prof.label;
-          writeProfile(prof.name, { label: prof.label, prerun: prof.prerun, models: prof.models, env: { ...prof.env, CLAUDE_CODE_OAUTH_TOKEN: token } });
+          writeProfile(prof.name, { ...metaOf(prof), env: { ...prof.env, CLAUDE_CODE_OAUTH_TOKEN: token } });
         } else {
           if (readProfile(f.name)) throw fail(409, `There is already a provider called "${f.name}"`);
           writeProfile(f.name, { label: f.label, env: { CLAUDE_CODE_OAUTH_TOKEN: token } });

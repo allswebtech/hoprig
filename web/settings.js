@@ -1,13 +1,14 @@
 // Settings (#/settings, #/settings/<page>): a list with one row per page — its title and one line with the current
 // state — and the chosen page. Desktop: the list on the left, the page on the right; a phone shows one at a time.
 // The pages: New-session defaults (sessiondefaults.js) · Notifications · Appearance and terminal · Security and
-// sign-in · Tia (tia.js) · Add-ons (addons.js) · About and updates. Features add theirs with registerSettingsPage.
+// sign-in · Tia (tia.js) · Add-ons (addons.js) · Updates (updates.js) · About. Features add theirs with
+// registerSettingsPage.
 // Settings stored on the computer are saved with POST /api/settings (checked there); look and in-page alerts are per
 // device (localStorage). With several computers the switcher picks whose settings these are (#/m/<computer>/settings).
 import { APP_NAME, COMMAND } from './brand.js';
 import { signIn } from './computers.js';
 import { icon } from './icons.js';
-import { add, api, applyPageTheme, btn, confirmSheet, fill, h, link, machine, prefs, toast, url } from './lib.js';
+import { api, applyPageTheme, btn, confirmSheet, fill, h, link, machine, prefs, toast, url } from './lib.js';
 import { registerPage, registerSettingsPage, registeredSettingsPages } from './registry.js';
 import { field, fold, info, openLabel, panel, saveBar, savedMark, toggle } from './shell.js';
 import { pageNotify, store } from './store.js';
@@ -192,74 +193,13 @@ function securityPage(ctx) {
 
 const securitySummary = ({ settings: s, here }) => [here ? 'Password set' : null, loopbackOnly(s) ? 'this computer only' : 'open to the network'].filter(Boolean).join(' · ');
 
-// ---------- About and updates ----------
-function claudePanel(isAlive) {
-  const box = h('div.info-list', h('p.muted', 'Checking the installed version…'));
-  const out = h('pre.output.hidden', { 'aria-live': 'polite' });
-  const updateBtn = btn('primary', { icon: 'download', label: 'Update now', disabled: true });
-  const show = (c) =>
-    fill(box,
-      info('Installed', c.installed || 'not found'),
-      info('Newest', c.latest || 'unknown'),
-      info('Installed as', c.method || 'unknown'),
-      c.updateAvailable ? h('p.banner.info', icon('download', { size: 18 }), h('span', 'A newer version is available.')) : c.installed ? h('p.hint', 'Up to date.') : null);
-  const check = async (fresh) => {
-    try {
-      const c = await api(`/api/claude${fresh ? '?fresh=1' : ''}`);
-      show(c);
-      updateBtn.disabled = !c.installed || !!c.updating;
-      if (c.updating) follow(0);
-    } catch (e) {
-      fill(box, h('p.form-error', e.message));
-    }
-  };
-  async function follow(from) {
-    out.classList.remove('hidden');
-    try {
-      const r = await api(`/api/claude/update?from=${from}`);
-      if (r.lines.length) add(out, `${r.lines.join('\n')}\n`);
-      out.scrollTop = out.scrollHeight;
-      if (r.running && isAlive()) setTimeout(() => follow(r.next), 1000);
-      else {
-        updateBtn.disabled = false;
-        if (r.result) toast(r.result.ok ? `Claude Code ${r.result.version || ''} is installed` : 'The update did not finish — see the output', { kind: r.result.ok ? 'info' : 'error' });
-        check(true);
-      }
-    } catch (e) {
-      toast(e.message, { kind: 'error' });
-      updateBtn.disabled = false;
-    }
-  }
-  updateBtn.addEventListener('click', async () => {
-    updateBtn.disabled = true;
-    fill(out);
-    try {
-      await api('/api/claude/update', {});
-      follow(0);
-    } catch (e) {
-      toast(e.message, { kind: 'error' });
-      updateBtn.disabled = false;
-    }
-  });
-  check(false);
-  const mark = savedMark();
-  const again = btn('secondary', { icon: 'refresh', label: 'Check again', onclick: async () => {
-    again.disabled = true;
-    fill(box, h('p.muted', 'Asking for the newest version…'));
-    await check(true);
-    again.disabled = false;
-    mark.show('Checked just now');
-  } });
-  return panel({ icon: 'sparkle', title: 'Claude Code', desc: 'The Claude Code program on the computer. Updating does not touch running sessions; they use the new version when they start again.' },
-    box, out, h('div.savebar', mark, again, updateBtn));
-}
-
-function aboutPage({ settings: s, here, isAlive }) {
+// ---------- About ----------
+// Updates (Claude Code's among them) have their own page: Settings → Updates (updates.js).
+function aboutPage({ settings: s, here }) {
   return [
     panel({ icon: 'info', title: APP_NAME, desc: 'Which version this is.' },
       info('Version', s.version || 'unknown'),
       info('Computer system', s.platform)),
-    claudePanel(isAlive),
     here ? panel({ icon: 'logout', title: 'This device' },
       store.data && store.data.getStartedDismissed
         ? h('div.savebar.start', h('p.hint', '"Get started" on Home is closed.'), btn('secondary', {
@@ -291,7 +231,7 @@ registerSettingsPage({
   render: ({ settings: s }) => [lookPanel(), quickPanel(s.server.quickActions), fold('settings-appearance', 'Advanced', terminalsPanel(s.backend))],
 });
 registerSettingsPage({ id: 'security', title: 'Security and sign-in', icon: 'lock', order: 40, desc: 'The password, signing in a phone, and where this page can be reached from.', summary: securitySummary, render: securityPage });
-registerSettingsPage({ id: 'about', title: 'About and updates', icon: 'info', order: 70, desc: 'Which version this is, Claude Code updates, and leaving this device.', summary: ({ settings: s }) => `${APP_NAME} ${s.version || ''}`.trim(), render: aboutPage });
+registerSettingsPage({ id: 'about', title: 'About', icon: 'info', order: 70, desc: 'Which version this is, and leaving this device.', summary: ({ settings: s }) => `${APP_NAME} ${s.version || ''}`.trim(), render: aboutPage });
 
 // ======================= the Settings page =======================
 

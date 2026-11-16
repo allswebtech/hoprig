@@ -212,6 +212,20 @@ export async function claudeChecks(sys, { offline = false } = {}) {
   }
 }
 
+/**
+ * Codex and OpenCode, which Hoprig installs into its own tools folder: fine when there, an optional extra with an
+ * Install button when not (POST /api/pcsetup/tool). `tools`: the descriptors (src/codetools; tests pass stand-ins).
+ */
+export async function codingToolChecks(tools = null) {
+  const list = tools || (await import('../codetools/index.mjs')).TOOLS.filter((t) => t.managed);
+  return list.map((t) => {
+    const v = t.installedVersion();
+    return v
+      ? r('codetools', `tool.${t.id}`, t.name, 'ok', `${v} (Hoprig's tools folder)`)
+      : r('codetools', `tool.${t.id}`, t.name, 'info', 'not installed (optional: another coding tool)', `hoprig tools install ${t.id}`, { action: 'tool-install', tool: t.id });
+  });
+}
+
 /** The opt-in working rules (rules.mjs): information when not added; a warning while an earlier version's import
  * line is still in CLAUDE.md (it points at a file that moved). */
 export function rulesCheck(state = rulesState()) {
@@ -247,20 +261,21 @@ export function repoLine(s, group = 'projects', name = path.basename(s.dir)) {
 /** Every check. Slow ones run in parallel. */
 export async function pcStatus({ sys, offline = false, projects, fetchImpl } = {}) {
   const found = await detectKits(sys);
-  const [os1, mem, clock, gh, claude, proj] = await Promise.all([
+  const [os1, mem, clock, gh, claude, tools, proj] = await Promise.all([
     updatesCheck(sys, { offline }),
     memoryChecks(sys),
     clockCheck(sys, { offline, fetchImpl }),
     githubChecks(sys),
     claudeChecks(sys, { offline }),
+    codingToolChecks(),
     projectChecks(projects, sys.run),
   ]);
   const kits = kitChecks(found, sys);
   const ghAt = kits.findLastIndex((c) => c.group === 'kit:github') + 1;
   kits.splice(ghAt, 0, ...gh);
-  return [os1, ...diskChecks([sys.home, projects]), ...mem, clock, ...kits, ...claude, ...proj];
+  return [os1, ...diskChecks([sys.home, projects]), ...mem, clock, ...kits, ...claude, ...tools, ...proj];
 }
 
-export const GROUPS = { system: 'This computer', ...Object.fromEntries(KITS.map((k) => [`kit:${k.id}`, k.title])), claude: 'Claude Code', projects: 'Projects' };
+export const GROUPS = { system: 'This computer', ...Object.fromEntries(KITS.map((k) => [`kit:${k.id}`, k.title])), claude: 'Claude Code', codetools: 'Coding tools', projects: 'Projects' };
 export const exitCode = (checks) => (checks.some((c) => c.status === 'fail') ? 1 : 0);
 export { kitById };

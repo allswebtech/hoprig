@@ -146,7 +146,7 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   }
   const settingsPages = [...webFiles().filter((f) => f.endsWith('.js')).map(src).join('\n').matchAll(/registerSettingsPage\(\{\s*id: '([a-z-]+)', title: ([^,]+), icon: '[a-z]+', order: (\d+)/g)]
     .sort((a, b) => a[3] - b[3]).map((m) => m[1]);
-  assert.deepEqual(settingsPages, ['new-sessions', 'workspace', 'notifications', 'appearance', 'security', 'public-link', 'tia', 'editor', 'addons', 'about']);
+  assert.deepEqual(settingsPages, ['new-sessions', 'workspace', 'notifications', 'appearance', 'security', 'public-link', 'tia', 'editor', 'addons', 'codingtools', 'updates', 'about']);
   const app = src('app.js');
   for (const [from, to] of [['/pc', '/computer'], ['/pc/projects', '/workspace'], ['/settings/accounts', '/providers'], ['/settings/computers', '/computers'], ['/settings/skills', '/skills'], ['/settings/signin', '/settings/security'], ['/settings/auto', '/providers'], ['/tia-settings', '/settings/tia']]) {
     assert.ok(app.includes(`'${from}': '${to}'`), `${from} → ${to}`);
@@ -231,6 +231,9 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
   assert.deepEqual(tags(v).filter((t) => !['div', 'p', 'ul', 'li', 'code', 'strong', 'h2', 'pre'].includes(t)), [], 'only the formatting it makes itself');
   assert.ok(texts(v).includes('<script>alert(1)</script>'), 'markup in the file is text');
   assert.ok(texts(v).includes('<b>x</b>'));
+  const c = texts(mdView('Rules.\n<!-- hoprig: memory -->\n## Memory\nKeep it.\n<!-- /hoprig: memory --> trailing'));
+  assert.ok(!c.some((t) => t.includes('<!-- hoprig: memory -->')), 'a marker line is not shown');
+  assert.ok(c.some((t) => t.includes('<!-- /hoprig: memory --> trailing')), 'a comment with text after it stays text');
   const { brainGroups } = await import('../../web/brain.js');
   const item = (id, extra = {}) => ({ id, title: id, file: `~/${id}`, size: 1, modified: 0, ...extra });
   const g = brainGroups({
@@ -240,7 +243,7 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
     dailyLogs: { count: 1, items: [item('d1', { date: '2026-11-14' })] },
     projects: [{ name: 'shop', agents: item('agents'), decisions: null, learnings: null, activeContext: null, memory: { count: 0, items: [] } }],
   });
-  assert.deepEqual(g.map((x) => x.title), ['What Claude is told everywhere', 'Memory', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
+  assert.deepEqual(g.map((x) => x.title), ['What your coding tools are told everywhere', 'Memory', 'Learnings and current context', 'Daily logs', 'Pending', 'shop']);
   assert.deepEqual(g[1].rows[1], { item: g[1].rows[1].item, title: 'How I work', sub: 'Short answers', chip: 'about you' });
   assert.equal(g[4].rows.length, 0, 'nothing pending: the group says so instead of an empty box');
   const { when, indexOrder } = await import('../../web/brain.js');
@@ -705,7 +708,9 @@ test('joining: the one line to paste on the main computer, the terminal line too
 test('session view: the short placeholder on a narrow screen', () => {
   const src = fs.readFileSync(path.join(WEB, 'session.js'), 'utf8');
   assert.match(src, /matchMedia\('\(max-width: 599px\)'\)/);
-  assert.match(src, /: 'Message Claude'\)/);
+  // The short one names the session's coding tool ("Message Codex"), Claude until the session is known.
+  assert.match(src, /: `Message \$\{toolName\(\)\}`\)/);
+  assert.match(src, /\|\| 'Claude';/);
 });
 
 // ---------- the workspace through git ----------

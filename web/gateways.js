@@ -195,5 +195,5 @@ export function gatewaysPanel({ useLocal, changed }) {
       h('div.savebar.start', btn('secondary', { icon: 'plus', label: 'Add a shared gateway', onclick: () => addSheet(done) })));
   }
   load();
-  return panel({ icon: 'swap', title: 'Gateways on your computers', desc: 'A gateway such as TRouteAI gives Claude Code other AI providers. Use one from this computer or from another one.' }, box);
+  return panel({ icon: 'swap', title: 'Gateways on your computers', desc: 'A gateway such as TRouteAI lets Claude Code use other AI providers (and Codex and OpenCode, when Test on its provider finds the APIs they need). Use one from this computer or from another one.' }, box);
 }

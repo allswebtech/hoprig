@@ -59,12 +59,13 @@ test('tmux calls are argument arrays (recorded)', async () => {
 });
 
 test('list-panes parsing (path may contain tabs)', () => {
-  assert.equal(PANE_FORMAT.split('\t').length, 11);
-  const line = ['proj', '1700000000', '1', '1700000100', '1', '1', '%3', '4242', '0', 'node', '/home/u/a\tb'].join('\t');
+  assert.equal(PANE_FORMAT.split('\t').length, 12);
+  // window_activity (1700000160) is the program's last output: the later of the two counts.
+  const line = ['proj', '1700000000', '1', '1700000100', '1700000160', '1', '1', '%3', '4242', '0', 'node', '/home/u/a\tb'].join('\t');
   const [p] = parsePanes(line + '\n\n');
   assert.deepEqual(p, {
     session: 'proj', id: '%3', pid: 4242, cwd: '/home/u/a\tb', command: 'node', created: 1700000000000,
-    attached: 1, activity: 1700000100000, active: true, dead: false,
+    attached: 1, activity: 1700000160000, active: true, dead: false,
   });
   assert.deepEqual(parsePanes('garbage\n'), []);
 });

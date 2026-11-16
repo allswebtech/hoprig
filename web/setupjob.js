@@ -12,11 +12,11 @@ import { icon } from './icons.js';
 import { ApiError, add, api, btn, confirmSheet, fill, h, insecure, link, machine, openSheet, toast } from './lib.js';
 import { errorBox, okBox } from './shell.js';
 
-export const SETUP_KINDS = ['setup', 'fix', 'recipe'];
+export const SETUP_KINDS = ['setup', 'fix', 'recipe', 'tool'];
 const MARK = { waiting: '·', running: '…', ok: '✓', fail: '✗', skipped: '–' };
 const MARK_CLASS = { waiting: 'info', running: 'info', ok: 'ok', fail: 'fail', skipped: 'info' };
 const MARK_LABEL = { waiting: 'Waiting', running: 'Running', ok: 'Done', fail: 'Failed', skipped: 'Skipped' };
-const TITLE = { setup: 'Setting up this computer', fix: 'Installing the fix', recipe: 'Setting up from the recipe' };
+const TITLE = { setup: 'Setting up this computer', fix: 'Installing the fix', recipe: 'Setting up from the recipe', tool: 'Installing a coding tool' };
 const RECENT_MS = 30 * 60_000; // a finished job is shown again for this long
 
 /** The password sheet. Resolves the password, "terminal" (the fallback) or null (cancelled). */
@@ -166,11 +166,14 @@ export function setupJobCard({ onEnd = () => {} } = {}) {
 
   function draw(j) {
     el.hidden = false;
-    fill(title, TITLE[j.kind] || 'Setup');
+    const tool = j.kind === 'tool' && j.data && j.data.name ? j.data : null; // a coding tool: named, not "a coding tool"
+    fill(title, tool ? `Installing ${tool.name}` : TITLE[j.kind] || 'Setup');
     fill(steps, (j.steps || []).filter(Boolean).map(stepRow));
     if (j.running) fill(state, h('div.inline-busy', h('div.spinner.small', { 'aria-hidden': 'true' }), h('span', 'Running. You can leave this page: it goes on, and shows here again.')));
     else if (j.result && j.result.ok && j.result.data && j.result.data.missing && j.result.data.missing.length) {
       fill(state, h('div.banner.warn', icon('alert', { size: 18 }), h('span', `Finished. Still to do: ${j.result.data.missing.join(', ')}. Check again shows what each needs.`)));
+    } else if (j.result && j.result.ok && tool) {
+      fill(state, okBox(`${tool.name}${tool.version ? ` ${tool.version}` : ''} is installed and turned on. `, h('a', { href: link('#/settings/codingtools') }, 'Settings → Coding tools'), ' says how to start a session.'));
     } else if (j.result && j.result.ok) fill(state, okBox('Done. Everything chosen is installed.'));
     else fill(state, errorBox((j.result && j.result.error) || 'Something did not work: see the steps and the output below.'));
     fill(actions, j.running ? null : [

@@ -47,7 +47,8 @@ test('kinds: login, subscription, api', () => {
 
 test('publicProfile carries no value', () => {
   const pub = P.publicProfile(P.readProfile('sub2'));
-  assert.deepEqual(Object.keys(pub).sort(), ['kind', 'label', 'name', 'paid']);
+  assert.deepEqual(Object.keys(pub).sort(), ['kind', 'label', 'name', 'paid', 'tools']);
+  assert.deepEqual(pub.tools, ['claude'], 'a subscription serves Claude Code only');
   assert.ok(!JSON.stringify(pub).includes('sk-ant'));
 });
 
@@ -257,6 +258,14 @@ process.exit(7);
   assert.ok(got.settings.hooks.SessionStart, 'the hooks arrive as a settings file');
   assert.equal(fs.existsSync(got.settingsFile), false, 'and the file is removed when Claude exits');
   assert.deepEqual(R.listRuns(), [], 'the run file is removed when Claude exits');
+  // A provider that does not serve Claude Code (an OpenAI key) is refused before anything starts.
+  P.writeProfile('oai', { env: { OPENAI_API_KEY: 'sk-not-for-claude' } });
+  fs.rmSync(outFile, { force: true });
+  const oai = spawnSync(process.execPath, [binFile(), 'oai'], { env: { ...process.env, FAKE_OUT: outFile }, encoding: 'utf8' });
+  assert.equal(oai.status, 2);
+  assert.match(oai.stderr, /does not serve Claude Code \(it works with: codex, opencode\)/);
+  assert.equal(fs.existsSync(outFile), false, 'Claude Code was not started');
+  P.deleteProfile('oai');
   // An unknown profile is an error, not a launch.
   const bad = spawnSync(process.execPath, [binFile(), 'run', 'nope'], { env: process.env, encoding: 'utf8' });
   assert.equal(bad.status, 2);
@@ -309,6 +318,12 @@ test('auto-switch: the next profile follows the order, goes round, and skips pro
   assert.equal(A.nextProfile('api', later), 'sub');
   assert.equal(A.clearLimited('sub2'), true);
   assert.equal(A.clearLimited('sub2'), false);
+  // A provider in the order that does not serve Claude Code (an OpenAI key) is never one Auto mode moves to.
+  P.writeProfile('oai', { env: { OPENAI_API_KEY: 'sk-x', OPENAI_BASE_URL: 'http://localhost:1' } });
+  A.setAutoSwitch({ order: ['oai', 'sub', 'sub2', 'api'] });
+  assert.deepEqual(A.usableOrder(), ['sub', 'sub2', 'api']);
+  assert.equal(A.recommendedProfile(later), 'sub');
+  P.deleteProfile('oai');
   A.setAutoSwitch({ enabled: false, order: [], returnToPreferred: false });
 });
 
@@ -554,4 +569,34 @@ test('hooks: the kind of failure is kept; "waiting for your input" stays plain w
   run = R.readRun(file);
   assert.deepEqual([run.failure, run.attentionKind, run.status], [null, null, 'working']);
   R.removeRun(file);
+});
+
+test('hoprig add offers an OpenAI key and the Codex sign-in, and saves them as their kinds', async () => {
+  const { spawn } = await import('node:child_process');
+  const bin = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'hoprig.mjs');
+  // Answers each prompt when it shows (a piped stdin: the secret is asked like any line).
+  const run = (name, answers) => new Promise((resolve) => {
+    const child = spawn(process.execPath, [bin, 'add', name], { env: { ...process.env, HOPRIG_WORKSPACE_DIR: path.join(tmp, 'ws') }, stdio: ['pipe', 'pipe', 'pipe'] });
+    let text = '';
+    const left = [...answers];
+    child.stdout.on('data', (d) => {
+      text += d;
+      if (left.length && left[0][0].test(text.split('\n').pop())) child.stdin.write(`${left.shift()[1]}\n`);
+    });
+    child.on('exit', (code) => resolve({ code, text }));
+  });
+  const a = await run('oai2', [[/^> $/, '5'], [/API key/, 'sk-test-key-123456'], [/Base URL/, 'https://gw.example/v1'], [/Model/, 'gpt-x'], [/Label/, '']]);
+  assert.equal(a.code, 0, a.text);
+  const o = P.readProfile('oai2');
+  assert.deepEqual([o.kind, o.env, o.models, o.label], ['openai', { OPENAI_API_KEY: 'sk-test-key-123456', OPENAI_BASE_URL: 'https://gw.example' }, '*=gpt-x', 'OpenAI API via gw.example']);
+  assert.deepEqual(P.servesTools(o), ['codex', 'opencode']);
+  assert.match(a.text, /hoprig codex oai2/);
+  const b = await run('cx', [[/^> $/, '6'], [/Label/, '']]);
+  assert.equal(b.code, 0, b.text);
+  const c = P.readProfile('cx');
+  assert.deepEqual([c.kind, c.env, c.label, P.servesTools(c)], ['chatgpt', {}, 'Codex sign-in', ['codex']]);
+  assert.match(b.text, /hoprig codex login --device-auth/);
+  const bad = await run('oai3', [[/^> $/, '5'], [/API key/, 'sk-test-key-123456'], [/Base URL/, ''], [/Model/, '--auto']]);
+  assert.match(bad.text, /not a model id/);
+  assert.equal(P.readProfile('oai3'), null);
 });

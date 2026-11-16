@@ -3,8 +3,10 @@
 import path from 'node:path';
 import { moveArgs } from '../launch.mjs';
 import { binFile, tilde } from '../paths.mjs';
-import { publicProfile, readProfile } from '../profiles.mjs';
+import { assertServes, publicProfile, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
+import { codexScreenQuestion } from '../codetools/codex.mjs';
+import { codexHas } from '../codetools/stores.mjs';
 import { hasConversation, sessionTitle, sessionsIn } from '../sessions.mjs';
 import { isOwnFolder } from './folders.mjs';
 import { detectLimit } from './limits.mjs';
@@ -30,7 +32,8 @@ import { safeSessionName, uniqueName } from './validate.mjs';
  */
 export const promptArgs = (prompt) => (prompt ? ['--', String(prompt).replace(/\s*[\r\n]+\s*/g, ' ').trim()] : []);
 
-export function launchArgv(launcher, { profile, mode = 'new', sessionId = null, carryArgs = [], prompt = null, flags = [], fresh = false }) {
+export function launchArgv(launcher, { tool = 'claude', profile, mode = 'new', sessionId = null, carryArgs = [], prompt = null, flags = [], fresh = false }) {
+  if (tool !== 'claude') return toolArgv(launcher, { tool, profile, mode, sessionId, carryArgs, prompt, flags, fresh });
   switch (mode) {
     case 'new':
       return [...launcher, profile.name, ...flags, ...promptArgs(prompt)];
@@ -42,6 +45,30 @@ export function launchArgv(launcher, { profile, mode = 'new', sessionId = null, 
     case 'move':
       if (!sessionId) throw new Error('moving needs a session id');
       return [...launcher, profile.name, ...moveArgs(profile, carryArgs, sessionId, { fresh })];
+    default:
+      throw new Error(`unknown mode ${mode}`);
+  }
+}
+
+/**
+ * The same for Codex and OpenCode: the launcher, then the tool's word, then the provider, then the launcher's own
+ * flags for that tool (src/codetools/terminal.mjs: -c, --resume <id>, --permission-mode, --effort, --model, -- prompt).
+ * A move keeps the run's carried flags and resumes the conversation; one nobody typed into yet (`fresh`) has nothing
+ * to resume and starts new.
+ */
+function toolArgv(launcher, { tool, profile, mode, sessionId, carryArgs, prompt, flags, fresh }) {
+  const head = [...launcher, tool, profile.name];
+  switch (mode) {
+    case 'new':
+      return [...head, ...flags, ...promptArgs(prompt)];
+    case 'continue':
+      return [...head, '-c', ...flags, ...promptArgs(prompt)];
+    case 'resume':
+      if (!sessionId) throw new Error('resume needs a session id');
+      return [...head, '--resume', sessionId, ...flags, ...promptArgs(prompt)];
+    case 'move':
+      if (!sessionId) throw new Error('moving needs a session id');
+      return [...head, ...carryArgs, ...(fresh ? [] : ['--resume', sessionId])];
     default:
       throw new Error(`unknown mode ${mode}`);
   }
@@ -91,6 +118,9 @@ function titleOf(cwd, id) {
 // Two looks at a screen further apart than this are not "idle all the time between them" (the watcher looks every
 // few seconds while a Claude session runs).
 const IDLE_GAP_MS = 20_000;
+
+// "Live status: basic": a screen that changed this recently is a tool at work.
+const BASIC_BUSY_MS = 4000;
 
 // The terminal that stands for a session: the one with a Claude run in it, else the active one.
 const pick = (terms, byId) => terms.find((t) => byId.has(t.id)) || terms.find((t) => t.active) || terms[0];
@@ -160,9 +190,10 @@ export class Deck {
         attached: t.attached,
         created: t.created,
         activity: t.activity,
-        kind: run ? 'claude' : 'shell',
+        kind: run ? 'claude' : 'shell', // every coding session; `tool` says which coding tool
         command: t.command,
       };
+      if (run) card.tool = run.tool || 'claude';
       if (isOwnFolder(cwd)) card.own = true; // Tia's working folder: shown on Home, not as a folder of the owner's
       if (run) {
         const p = profiles.get(run.profile);
@@ -172,9 +203,28 @@ export class Deck {
           statusAt: run.statusAt,
           sessionId: run.sessionId || null,
           canSwitch: !!run.sessionId,
-          title: titleOf(run.cwd, run.sessionId),
+          title: card.tool === 'claude' ? titleOf(run.cwd, run.sessionId) : String(run.title || '').slice(0, 120),
           limit: null,
         });
+        if (card.tool !== 'claude') {
+          // Codex and OpenCode: the run record is kept from the tool's server (src/codetools/terminal.mjs). Without it
+          // ("basic") only the screen's activity is known: busy while it changes, else waiting for a message. Their
+          // screens are not read for a limit or a question: the wording that would mean one is not known yet.
+          if (run.statusSource !== 'server') {
+            card.liveStatus = 'basic';
+            card.status = this.now() - (t.activity || 0) < BASIC_BUSY_MS ? 'working' : 'waiting';
+            card.statusAt = t.activity || run.statusAt;
+          }
+          card.note = card.status === 'attention' ? String(run.note || '').slice(0, 300) : '';
+          // Before Codex has made its thread its server tells nothing, but its screen may already ask the owner
+          // something (whether to trust a new folder): that is "needs your OK", not "starting".
+          if (card.tool === 'codex' && (run.status === 'starting' || card.liveStatus === 'basic')) {
+            const ask = codexScreenQuestion(await this.backend.capture(t.id, 40).catch(() => ''));
+            if (ask) Object.assign(card, { status: 'attention', note: ask });
+          }
+          out.push(card);
+          continue;
+        }
         let screen = '';
         try {
           screen = await this.backend.capture(t.id, 40);
@@ -213,10 +263,16 @@ export class Deck {
     return uniqueName(safeSessionName(base), taken);
   }
 
-  /** Start Claude under `profile` (full profile object) in `dir`. Returns the session name. */
-  async start({ dir, profile, mode = 'new', sessionId = null, prompt = null, flags = [] }) {
-    const argv = launchArgv(this.launcher(), { profile, mode, sessionId, prompt, flags });
+  /** Start a coding tool (Claude Code unless `tool` says another) under `profile` (full profile object) in `dir`. Returns the session name. */
+  async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, prompt = null, flags = [] }) {
+    const argv = launchArgv(this.launcher(), { tool, profile, mode, sessionId, prompt, flags });
     const { name } = await this.backend.create({ name: await this.#newName(path.basename(dir)), dir, argv });
+    return name;
+  }
+
+  /** A terminal that runs the launcher with `words` (e.g. Codex's own sign-in), named after `base`. Returns its name. */
+  async runLauncher(base, dir, words) {
+    const { name } = await this.backend.create({ name: await this.#newName(base), dir, argv: [...this.launcher(), ...words] });
     return name;
   }
 
@@ -246,6 +302,8 @@ export class Deck {
   async move(term, run, profileName) {
     const target = readProfile(profileName);
     if (!target) throw Object.assign(new Error('unknown provider'), { status: 400 });
+    // A conversation stays in the coding tool it was started in: only a provider that serves that tool takes it.
+    assertServes(target, run.tool || 'claude');
     await this.backend.respawn(term.id, run.cwd, this.moveArgv(target, run));
   }
 
@@ -254,8 +312,10 @@ export class Deck {
    * builds it). A session nobody typed into yet has no conversation on disk: it starts there under the same id.
    */
   moveArgv(profile, run) {
-    if (!run.sessionId) throw Object.assign(new Error('this session has no id yet; wait until Claude has started'), { status: 409 });
+    if (!run.sessionId) throw Object.assign(new Error('this session has no id yet; wait until it has started'), { status: 409 });
     const carry = Array.isArray(run.carryArgs) ? run.carryArgs.filter((a) => typeof a === 'string') : [];
-    return launchArgv(this.launcher(), { profile, mode: 'move', sessionId: run.sessionId, carryArgs: carry, fresh: !hasConversation(run.cwd, run.sessionId) });
+    const tool = run.tool || 'claude';
+    const fresh = tool === 'claude' ? !hasConversation(run.cwd, run.sessionId) : tool === 'codex' ? !codexHas(run.sessionId) : false;
+    return launchArgv(this.launcher(), { tool, profile, mode: 'move', sessionId: run.sessionId, carryArgs: carry, fresh });
   }
 }

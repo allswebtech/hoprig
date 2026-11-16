@@ -111,8 +111,79 @@ test('the route: login, Tia refused, the plan, then the result, then already lin
     assert.ok(again.entries.every((e) => e.done === 'already linked'));
     // Only the short forms of the paths go to the page (these temp folders are not under the home, so they
     // show in full: the point is that only the fields the page needs are sent).
-    assert.deepEqual(Object.keys(again.entries[0]).sort(), ['action', 'done', 'id', 'link', 'target', 'what', 'words']);
+    assert.deepEqual(Object.keys(again.entries[0]).sort(), ['action', 'done', 'id', 'link', 'target', 'tool', 'tools', 'what', 'words']);
+    assert.deepEqual(again.tools, [{ id: 'claude', name: 'Claude Code', state: 'linked', todo: 0, left: 0 }]);
   } finally {
     await app.close();
   }
+});
+
+test('every coding tool that is on: Codex and OpenCode read the same rules and skills; OpenCode names the rules folder and memory index; one Memory section', { skip: !posix && 'links need rights on Windows' }, () => {
+  const a = place();
+  const homes = { codex: path.join(a.home, '.codex'), opencode: path.join(a.home, '.config', 'opencode') };
+  const all = { ...a, homes, tools: ['claude', 'codex', 'opencode'] };
+  writeTree(a.brain, { 'skills/one/SKILL.md': 'one' });
+  writeTree(a.base, { 'CLAUDE.md': 'my rules\n' }); // adopted into the brain: the Memory section is planned after it
+  writeTree(homes.opencode, { 'opencode.json': JSON.stringify({ model: 'x/y', instructions: ['mine.md'] }) });
+  fs.chmodSync(path.join(homes.opencode, 'opencode.json'), 0o600); // it can hold the owner's provider keys
+  const plan = planLink(all);
+  assert.deepEqual(plan.map((p) => [p.id, p.action, p.tools.join('+')]), [
+    ['rules', 'adopt', 'claude'], ['skills', 'link', 'claude'], ['memory', 'link', 'claude'],
+    ['codex:rules', 'conflict', 'codex'], ['codex:skills', 'link', 'codex+opencode'],
+    ['opencode:rules', 'conflict', 'opencode'], ['opencode:instructions', 'link', 'opencode'],
+    ['memory-note', 'conflict', 'codex+opencode'],
+  ], 'nothing in the brain yet: the other rules links wait for the adopted file');
+  assert.equal(plan[4].what, 'your skills, for Codex and OpenCode');
+  assert.equal(planWords(plan[6]), `${path.join(a.base, 'rules')}/*.md and ai_brain/claude-memory/MEMORY.md added to its "instructions"`);
+  // Done in order, each planned again just before: the adopted rules file is there for the others.
+  const done = applyLink({ ...all, now: new Date('2026-11-16T10:00:00Z') });
+  assert.ok(done.every((d) => d.done && !d.error), JSON.stringify(done.map((d) => [d.id, d.action, d.done, d.error])));
+  const rules = path.join(a.brain, 'claude', 'CLAUDE.md');
+  for (const l of [path.join(a.base, 'CLAUDE.md'), path.join(homes.codex, 'AGENTS.md'), path.join(homes.opencode, 'AGENTS.md')]) assert.equal(fs.realpathSync(l), fs.realpathSync(rules), l);
+  assert.equal(fs.realpathSync(path.join(a.home, '.agents', 'skills')), fs.realpathSync(path.join(a.brain, 'skills')));
+  const oc = JSON.parse(fs.readFileSync(path.join(homes.opencode, 'opencode.json'), 'utf8'));
+  assert.deepEqual(oc, { model: 'x/y', instructions: ['mine.md', `${path.join(a.base, 'rules')}/*.md`, 'ai_brain/claude-memory/MEMORY.md'] }, 'the owner\'s keys stay');
+  assert.ok(fs.readdirSync(homes.opencode).some((f) => f.startsWith('opencode.json.backup-')), 'the old settings are kept');
+  assert.equal(fs.statSync(path.join(homes.opencode, 'opencode.json')).mode & 0o777, 0o600, 'the merged file keeps its private mode');
+  const text = fs.readFileSync(rules, 'utf8');
+  assert.ok(text.startsWith('my rules\n\n<!-- hoprig: memory'), 'the section goes after the owner\'s text');
+  assert.match(text, /ai_brain\/claude-memory\/` \(in the project's own folder\); `MEMORY\.md` there is\nthe index/);
+  // A second run: everything already, the section once.
+  const again = applyLink(all);
+  assert.deepEqual(again.map((d) => d.action), Array(8).fill('already'));
+  assert.equal(fs.readFileSync(rules, 'utf8').split('<!-- hoprig: memory').length, 2);
+  // Only Claude Code on: its three entries, no Memory section.
+  assert.deepEqual(planLink({ ...a, tools: ['claude'] }).map((p) => p.id), ['rules', 'skills', 'memory']);
+  // A settings file Hoprig makes is the owner's only.
+  fs.rmSync(path.join(homes.opencode, 'opencode.json'));
+  applyLink(all);
+  assert.equal(fs.statSync(path.join(homes.opencode, 'opencode.json')).mode & 0o777, 0o600);
+  // OpenCode alone: its own skills entry.
+  assert.deepEqual(planLink({ ...a, homes, tools: ['opencode'] }).map((p) => p.id), ['opencode:rules', 'opencode:skills', 'opencode:instructions', 'memory-note']);
+});
+
+test('settings OpenCode keeps in a form Hoprig does not write, and a different Codex rules file, are left alone', { skip: !posix && 'links need rights on Windows' }, () => {
+  const a = place();
+  const homes = { codex: path.join(a.home, '.codex'), opencode: path.join(a.home, '.config', 'opencode') };
+  writeTree(a.brain, { 'claude/CLAUDE.md': 'brain rules\n' });
+  writeTree(homes.codex, { 'AGENTS.md': 'codex only rules\n' });
+  const o = { ...a, homes, tools: ['codex', 'opencode'] };
+  const cases = [
+    [{ 'opencode.jsonc': '{ // mine\n}' }, /opencode\.jsonc \(with comments\)/],
+    [{ 'opencode.json': '{ not json' }, /not a settings file Hoprig can read/],
+    [{ 'opencode.json': '{"instructions":"one.md"}' }, /its "instructions" is not a list/],
+  ];
+  for (const [files, why] of cases) {
+    fs.rmSync(homes.opencode, { recursive: true, force: true });
+    writeTree(homes.opencode, files);
+    const before = Object.fromEntries(Object.keys(files).map((f) => [f, fs.readFileSync(path.join(homes.opencode, f), 'utf8')]));
+    const ins = applyLink(o).find((d) => d.id === 'opencode:instructions');
+    assert.equal(ins.action, 'conflict');
+    assert.match(ins.why, why);
+    for (const [f, t] of Object.entries(before)) assert.equal(fs.readFileSync(path.join(homes.opencode, f), 'utf8'), t, 'never changed');
+  }
+  const cx = planLink(o).find((p) => p.id === 'codex:rules');
+  assert.equal(cx.action, 'conflict');
+  assert.match(cx.why, /differs from the brain's/);
+  assert.equal(fs.readFileSync(path.join(homes.codex, 'AGENTS.md'), 'utf8'), 'codex only rules\n');
 });

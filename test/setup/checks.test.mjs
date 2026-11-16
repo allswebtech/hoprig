@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fakeBin, pathWith, scratch } from './helpers.mjs';
@@ -209,4 +210,22 @@ test('config check: missing is fine, broken JSON fails', () => {
 test('exit code: 1 only when something needed fails', () => {
   assert.equal(K.exitCodeFor([{ status: 'ok' }, { status: 'warn' }, { status: 'info' }]), 0);
   assert.equal(K.exitCodeFor([{ status: 'ok' }, { status: 'fail' }]), 1);
+});
+
+test('shared rules: an @import line is reported when Codex or OpenCode reads the file too', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-rules-'));
+  try {
+    const file = path.join(dir, 'CLAUDE.md');
+    fs.writeFileSync(file, '# Rules\n@~/notes/style.md\nPlain rule. Mail me @ noon.\n  @docs/more.md\n');
+    assert.equal(K.sharedRulesCheck({ tools: ['claude'], file }), null, 'Claude Code alone follows them: nothing to say');
+    const r = K.sharedRulesCheck({ tools: ['claude', 'codex', 'opencode'], file });
+    assert.equal(r.status, 'warn');
+    assert.match(r.detail, /^2 import lines \(@~\/notes\/style\.md, @docs\/more\.md\)/);
+    assert.match(r.detail, /Codex and OpenCode do not/);
+    fs.writeFileSync(file, '# Rules\nPlain rule.\n');
+    assert.equal(K.sharedRulesCheck({ tools: ['codex'], file }).status, 'ok');
+    assert.equal(K.sharedRulesCheck({ tools: ['codex'], file: path.join(dir, 'none.md') }), null, 'no brain: nothing to say');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -26,6 +26,8 @@
 //                                                        done and what needs a decision ({ kind, why, command })
 //   POST /api/pcsetup/projects-dir { dir }               change the projects folder (made when missing)
 //   POST /api/pcsetup/rules { action }   add | remove the opt-in working rules for Claude Code (no admin rights needed)
+//   POST /api/pcsetup/tool { id }        install Codex or OpenCode into Hoprig's tools folder as a background job, and
+//                                        turn it on (src/codetools; no admin rights needed)
 //   GET  /api/pcsetup/job?from=N          the background job's output: { kind, running, lines, next, steps, result,
 //                                         startedAt, endedAgo }; steps (setup, fix, recipe): [{ label, command, state:
 //                                         waiting | running | ok | fail | skipped }]
@@ -438,10 +440,29 @@ export function pcsetupFeature(sctx, opts = {}) {
       if (b.action !== 'add' && b.action !== 'remove') throw fail(400, 'action is add or remove');
       return b.action === 'add' ? (opts.rules || addRules)() : (opts.unrules || removeRules)();
     }],
+    ['POST', /^\/api\/pcsetup\/tool$/, async (req) => {
+      const b = await sctx.readJson(req);
+      const extra = Object.keys(b || {}).find((k) => k !== 'id');
+      if (extra) throw fail(400, `"${String(extra).slice(0, 40)}" is not a field here`);
+      const ct = opts.codingTools || (await import('../codetools/index.mjs'));
+      const t = typeof b.id === 'string' ? ct.findTool(b.id) : null;
+      if (!t || !t.managed) throw fail(400, 'that is not a coding tool Hoprig installs');
+      if (t.installedVersion()) throw fail(409, `${t.name} is already installed: Settings → Updates keeps it up to date`);
+      return startJob('tool', async (onLine, j) => {
+        j.data = { tool: t.id, name: t.name, version: null };
+        onLine(`${t.name} ${t.pin}: ${t.about}. A download of ${t.size}, into Hoprig's own tools folder; this takes a minute or two.`);
+        const r = await t.install({ onLine });
+        if (r.ok) ct.turnOn(t.id, { config: sctx.config, save: sctx.saveConfig });
+        j.data = { tool: t.id, name: t.name, version: r.version || null };
+        if (r.ok) onLine(`${t.name} ${r.version} is installed and turned on.`);
+        j.error = r.ok ? null : `${t.name} was not installed: see the output`;
+        return r.ok;
+      });
+    }],
     ['GET', /^\/api\/pcsetup\/job$/, async (req, m, q) => {
       const j = job || { kind: null, running: false, lines: [], steps: null, result: null, startedAt: null, endedAt: null };
       const from = Math.max(0, Math.min(j.lines.length, Number(q && q.get('from')) || 0));
-      return { kind: j.kind, running: j.running, lines: j.lines.slice(from), next: j.lines.length, steps: j.steps, result: j.result, startedAt: j.startedAt, endedAgo: j.endedAt ? Date.now() - j.endedAt : null };
+      return { kind: j.kind, running: j.running, lines: j.lines.slice(from), next: j.lines.length, steps: j.steps, result: j.result, ...(j.kind === 'tool' && j.data ? { data: j.data } : {}), startedAt: j.startedAt, endedAgo: j.endedAt ? Date.now() - j.endedAt : null };
     }],
   ];
 

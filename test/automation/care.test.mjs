@@ -3,67 +3,124 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as idle from '../../src/automation/idle.mjs';
 import * as updates from '../../src/automation/updates.mjs';
-import { claude, fakeDeck, recorder, shell } from './helpers.mjs';
+import { createUpdater } from '../../src/automation/updater.mjs';
+import { claude, fakeDeck, fakeItem, recorder, shell } from './helpers.mjs';
 
 const H = 3600_000;
 const MIN = 60_000;
 
 // ---- updates ----
 
-test('updates: off means no look; a working session postpones it; at most one look per 6 hours', () => {
-  const on = { claude: 'notify' };
-  assert.deepEqual(updates.decide({ cards: [], data: {}, now: 10 * H, settings: { claude: 'off' } }).actions, []);
-  assert.deepEqual(updates.decide({ cards: [claude('w', { status: 'working' })], data: {}, now: 10 * H, settings: on }).actions, []);
-  assert.deepEqual(updates.decide({ cards: [claude('w', { status: 'starting' })], data: {}, now: 10 * H, settings: on }).actions, []);
-  const r = updates.decide({ cards: [claude('w', { status: 'waiting' })], data: {}, now: 10 * H, settings: on });
+test('updates: a look every 6 hours in both modes, never while a session works; a wait is tried again in 10 minutes', () => {
+  assert.deepEqual(updates.decide({ cards: [claude('w', { status: 'working' })], data: {}, now: 10 * H }).actions, []);
+  assert.deepEqual(updates.decide({ cards: [claude('w', { status: 'starting' })], data: {}, now: 10 * H }).actions, []);
+  const r = updates.decide({ cards: [claude('w', { status: 'waiting' })], data: {}, now: 10 * H });
   assert.deepEqual(r.actions, [{ type: 'check' }]);
-  assert.deepEqual(updates.decide({ cards: [], data: r.data, now: 16 * H - 1, settings: on }).actions, []);
-  assert.deepEqual(updates.decide({ cards: [], data: r.data, now: 16 * H, settings: on }).actions, [{ type: 'check' }]);
+  assert.deepEqual(updates.decide({ cards: [], data: r.data, now: 16 * H - 1 }).actions, []);
+  assert.deepEqual(updates.decide({ cards: [], data: r.data, now: 16 * H }).actions, [{ type: 'check' }]);
+  const waiting = { ...r.data, retryAt: 10 * H + 10 * MIN };
+  assert.deepEqual(updates.decide({ cards: [], data: waiting, now: 10 * H + 10 * MIN - 1 }).actions, []);
+  const again = updates.decide({ cards: [], data: waiting, now: 10 * H + 10 * MIN });
+  assert.deepEqual(again.actions, [{ type: 'check' }]);
+  assert.equal(again.data.retryAt, 0);
 });
 
-test('updates: one message per new version; "auto" updates Claude Code', () => {
-  const claudeNew = { installed: '2.1.0', latest: '2.2.0', updateAvailable: true };
-  let r = updates.afterCheck({ claude: claudeNew, settings: { claude: 'notify' }, data: {} });
-  assert.deepEqual(r.actions, [{ type: 'tell', current: '2.1.0', latest: '2.2.0' }]);
-  r = updates.afterCheck({ claude: claudeNew, settings: { claude: 'notify' }, data: r.data });
-  assert.deepEqual(r.actions, [], 'already told');
-  r = updates.afterCheck({ claude: { ...claudeNew, latest: '2.3.0' }, settings: { claude: 'notify' }, data: r.data });
-  assert.deepEqual(r.actions.map((a) => a.latest), ['2.3.0'], 'a newer one is told again');
-  r = updates.afterCheck({ claude: claudeNew, settings: { claude: 'auto' }, data: {} });
-  assert.deepEqual(r.actions, [{ type: 'update-claude', current: '2.1.0', latest: '2.2.0' }]);
-  assert.deepEqual(updates.afterCheck({ claude: { ...claudeNew, updateAvailable: false }, settings: { claude: 'auto' }, data: {} }).actions, []);
+const row = (id, o = {}) => ({ id, title: id, installed: '1.0.0', latest: '1.1.0', updateAvailable: true, canUpdate: true, auto: true, ...o });
+
+test('updates: manual tells once per new version (only with notify on) and never installs; auto updates what may update itself', () => {
+  const rows = [row('claude'), row('hoprig', { auto: false }), row('codex', { installed: null }), row('cloudflared', { updateAvailable: false })];
+  assert.deepEqual(updates.afterCheck({ rows, settings: { mode: 'manual', notify: false }, data: {} }).actions, []);
+  let r = updates.afterCheck({ rows, settings: { mode: 'manual', notify: true }, data: {} });
+  assert.deepEqual(r.actions.map((a) => `${a.type}:${a.id}`), ['tell:claude', 'tell:hoprig'], 'not installed and up to date are not told');
+  assert.deepEqual(updates.afterCheck({ rows, settings: { mode: 'manual', notify: true }, data: r.data }).actions, [], 'already told');
+  r = updates.afterCheck({ rows: [row('claude', { latest: '1.2.0' })], settings: { mode: 'manual', notify: true }, data: r.data });
+  assert.deepEqual(r.actions.map((a) => a.latest), ['1.2.0'], 'a newer one is told again');
+  r = updates.afterCheck({ rows, settings: { mode: 'auto', notify: false }, data: {} });
+  assert.deepEqual(r.actions.map((a) => `${a.type}:${a.id}`), ['update:claude', 'tell:hoprig'], 'Hoprig (auto false) is never updated by itself, it is told; a missing tool is never installed');
+  r = updates.afterCheck({ rows, settings: { mode: 'auto', notify: true }, data: {} });
+  assert.deepEqual(r.actions.map((a) => `${a.type}:${a.id}`), ['update:claude', 'tell:hoprig'], 'what may not update itself is still told');
 });
 
-test('updates apply: updates only while nothing works; a session that started meanwhile postpones it', async () => {
-  const run = async (cards) => {
-    const deck = fakeDeck(cards);
-    const rec = recorder();
-    let saved = null;
-    let updated = 0;
-    await updates.apply([{ type: 'check' }], {
-      deck, record: rec.record, notify: rec.notify, settings: { claude: 'auto' }, data: { lastCheckAt: 5 },
-      save: (d) => { saved = d; },
-      updates: { claudeInfo: async () => ({ installed: '2.1.0', latest: '2.2.0', updateAvailable: true }), claudeUpdate: async () => { updated++; return { ok: true, version: '2.2.0' }; } },
-    });
-    return { rec, saved, updated };
-  };
-  const quiet = await run([claude('w', { status: 'waiting' })]);
-  assert.equal(quiet.updated, 1);
-  assert.match(quiet.rec.entries[0].outcome, /ok: now 2\.2\.0/);
-  assert.equal(quiet.rec.notes[0].title, 'Claude Code updated to 2.2.0');
-  const busy = await run([claude('w', { status: 'working' })]);
-  assert.equal(busy.updated, 0);
-  assert.match(busy.rec.entries[0].outcome, /postponed/);
-  assert.equal(busy.saved.lastCheckAt, 0, 'looks again at the next quiet moment');
+test('updates: the settings, and the old Claude-only setting read once into them', () => {
+  assert.deepEqual(updates.readUpdateSettings({}), { mode: 'manual', notify: false }, 'Manual by default');
+  assert.deepEqual(updates.readUpdateSettings({ automation: { updates: { claude: 'auto' } } }), { mode: 'manual', notify: false, itemModes: { claude: 'auto' } }, 'the old "auto" was Claude Code\'s only');
+  assert.deepEqual(updates.readUpdateSettings({ automation: { updates: { claude: 'notify' } } }), { mode: 'manual', notify: true });
+  assert.deepEqual(updates.readUpdateSettings({ automation: { updates: { claude: 'off' } } }), { mode: 'manual', notify: false });
+  assert.deepEqual(updates.readUpdateSettings({ updates: { mode: 'auto', notify: true }, automation: { updates: { claude: 'off' } } }), { mode: 'auto', notify: true }, 'the new one wins');
+  assert.deepEqual(updates.readUpdateSettings({ updates: { mode: 'sometimes' } }), { mode: 'manual', notify: false });
+  let saved = null;
+  const cfg = { automation: { retry: { enabled: true }, updates: { claude: 'auto' } } };
+  assert.equal(updates.migrateUpdates(cfg, (p) => { saved = p; }), true);
+  assert.deepEqual(saved, { updates: { mode: 'manual', notify: false, itemModes: { claude: 'auto' } }, automation: { retry: { enabled: true } } });
+  assert.equal(updates.migrateUpdates({ automation: { retry: {} } }, () => assert.fail('nothing to move')), false);
+  assert.deepEqual(updates.cleanUpdateSettings({ mode: 'auto' }, { mode: 'manual', notify: true }), { mode: 'auto', notify: true });
+  assert.throws(() => updates.cleanUpdateSettings({ mode: 'always' }, {}), /"manual" or "auto"/);
+  assert.throws(() => updates.cleanUpdateSettings({ notify: 'yes' }, {}), /on or off/);
+  assert.throws(() => updates.cleanUpdateSettings({ claude: 'auto' }, {}), /not an update setting/);
+  assert.deepEqual(updates.fromLegacy('notify'), { itemModes: { claude: null }, notify: true });
+  assert.deepEqual(updates.fromLegacy('off'), { itemModes: { claude: null }, notify: false });
+  assert.deepEqual(updates.fromLegacy('auto'), { itemModes: { claude: 'auto' } });
+  // Whatever the settings were, an old caller's value takes effect and reads back as sent; Claude Code gets its own
+  // mode only where it must differ from the mode for everything.
+  const starts = [
+    { mode: 'manual', notify: false }, { mode: 'manual', notify: true }, { mode: 'auto', notify: false }, { mode: 'auto', notify: true },
+    { mode: 'manual', notify: true, itemModes: { claude: 'auto' } }, { mode: 'auto', notify: false, itemModes: { claude: 'manual' } },
+  ];
+  for (const s of starts) {
+    for (const v of ['off', 'notify', 'auto']) {
+      const next = updates.cleanUpdateSettings(updates.fromLegacy(v, s), s);
+      assert.equal(updates.legacyValue(next), v, `${JSON.stringify(s)} + ${v}`);
+      if (v !== 'auto') assert.equal(next.notify, v === 'notify', `${v} sets telling`);
+      if (v !== 'auto' && s.mode === 'manual') assert.equal(next.itemModes, undefined, `${v} pins no choice the owner never made`);
+    }
+  }
+  assert.deepEqual(updates.cleanUpdateSettings(updates.fromLegacy('off', { mode: 'manual', notify: true }), { mode: 'manual', notify: true }), { mode: 'manual', notify: false });
+  assert.throws(() => updates.fromLegacy('always'), /off, notify, auto/);
+  assert.equal(updates.legacyValue({ mode: 'auto', notify: false }), 'auto');
+  assert.equal(updates.legacyValue({ mode: 'manual', notify: true }), 'notify');
+  assert.equal(updates.legacyValue({ mode: 'manual', notify: false }), 'off');
+  assert.equal(updates.legacyValue({ mode: 'manual', notify: false, itemModes: { claude: 'auto' } }), 'auto');
+  assert.equal(updates.legacyValue({ mode: 'auto', notify: false, itemModes: { claude: 'manual' } }), 'off');
 });
 
-test('updates apply: a failed look is logged, not thrown', async () => {
+/** An updater over stand-in items, for the apply tests. */
+function updaterOf(items, cards = []) {
+  let cfg = { updates: { mode: 'auto' } };
   const rec = recorder();
-  await updates.apply([{ type: 'check' }], {
-    deck: fakeDeck(), record: rec.record, notify: rec.notify, settings: { claude: 'notify' }, data: {}, save: () => {},
-    updates: { claudeInfo: async () => { throw new Error('offline'); } },
-  });
-  assert.deepEqual(rec.entries.map((e) => e.outcome), ['failed: offline']);
+  const u = createUpdater({ items, cards: async () => cards, config: () => cfg, saveConfig: (p) => (cfg = { ...cfg, ...p }), record: rec.record });
+  return { u, rec };
+}
+
+test('updates apply: Automatic updates only at a safe moment; a wait is logged once per version and tried again', async () => {
+  const newer = { installed: '2.1.0', latest: '2.2.0', method: 'native', updateAvailable: true, canUpdate: true };
+  let working = true;
+  const item = fakeItem('claude', { title: 'Claude Code', info: newer, autoBlocked: () => (working ? '1 working Claude Code session' : null) });
+  const { u } = updaterOf([item]);
+  const rec = recorder();
+  let data = { lastCheckAt: 5 };
+  const ctx = () => ({ updater: u, record: rec.record, notify: rec.notify, settings: { mode: 'auto', notify: false }, data, save: (d) => { data = d; }, now: () => 1000 });
+  await updates.apply([{ type: 'check' }], ctx());
+  assert.equal(item.calls.update, 0);
+  assert.match(rec.entries[0].outcome, /postponed: 1 working Claude Code session/);
+  assert.equal(data.retryAt, 1000 + updates.RETRY_MS, 'tried again in 10 minutes');
+  await updates.apply([{ type: 'check' }], ctx());
+  assert.equal(rec.entries.length, 1, 'the same wait is not logged again');
+  working = false;
+  await updates.apply([{ type: 'check' }], ctx());
+  assert.equal(item.calls.update, 1);
+  assert.match(rec.entries[1].outcome, /ok: now 2\.2\.0/);
+  assert.equal(rec.notes[0].title, 'Claude Code updated to 2.2.0');
+  assert.deepEqual(data.waiting, {});
+});
+
+test('updates apply: a failed look is logged as the item\'s error, not thrown; a refused update is reported', async () => {
+  const broken = fakeItem('codex', { fail: 'offline' });
+  const bad = fakeItem('opencode', { info: { installed: '2.3.0', latest: '2.4.0', updateAvailable: true, canUpdate: true }, update: () => ({ ok: false, output: 'npm error\nE404 no such version' }) });
+  const { u } = updaterOf([broken, bad]);
+  const rec = recorder();
+  await updates.apply([{ type: 'check' }], { updater: u, record: rec.record, notify: rec.notify, settings: { mode: 'auto', notify: false }, data: {}, save: () => {}, now: () => 0 });
+  assert.deepEqual(rec.entries.map((e) => e.outcome), ['failed: E404 no such version']);
+  assert.equal((await u.view()).items[0].error, 'offline');
 });
 
 // ---- idle care ----

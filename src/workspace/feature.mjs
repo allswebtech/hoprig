@@ -4,8 +4,9 @@
 //   POST /api/workspace/setup { dryRun? }   create only what is missing; returns what was done (workspaceSetup)
 //   GET  /api/brain                     what the AI knows: the index (brainIndex)
 //   GET  /api/brain/item?id=<id>        the text of one item of that index (brainRead), size-capped, secrets masked
-//   GET  /api/workspace/link            what linking Claude Code's folder into the brain would do (link.mjs planLink):
-//                                       { brain (it exists), entries: [{ id, what, link, target, action, words, why? }],
+//   GET  /api/workspace/link            what linking each coding tool's folders to the brain would do (link.mjs planLink):
+//                                       { brain (it exists), entries: [{ id, tool, tools, what, link, target, action,
+//                                       words, why? }], tools: [{ id, name, state: linked|todo|left, todo, left }],
 //                                       todo, already }
 //   POST /api/workspace/link {}         do it (applyLink); each entry with `done` or `error`; a conflict is left alone
 //   GET  /api/workspace/map             the map and, per repository, here | missing | different | unmapped; saved:
@@ -37,6 +38,7 @@
 import fs from 'node:fs';
 import { jobUi, tildeText } from '../pcsetup/feature.mjs';
 import { brainIndex, brainRead } from './brain.mjs';
+import { findTool } from '../codetools/index.mjs';
 import { applyLink, planLink, planWords } from './link.mjs';
 import { capture, stream } from '../setup/system.mjs';
 import { githubSignin } from './ghsignin.mjs';
@@ -80,10 +82,17 @@ export function workspaceFeature(sctx, opts = {}) {
   const linkOpts = () => ({ brain: brainDir(places().dir), ...(opts.link || {}) });
   const linkView = (list) => {
     const entries = list.map((p) => ({
-      id: p.id, what: p.what, link: p.linkShort, target: p.targetShort, action: p.action, words: tildeText(planWords(p)),
+      id: p.id, tool: p.tool, tools: p.tools, what: p.what, link: p.linkShort, target: p.targetShort, action: p.action, words: tildeText(planWords(p)),
       ...(p.why ? { why: tildeText(p.why) } : {}), ...(p.done ? { done: tildeText(p.done) } : {}), ...(p.error ? { error: tildeText(p.error) } : {}),
     }));
-    return { entries, todo: entries.filter((e) => !['already', 'conflict'].includes(e.action)).length, already: entries.every((e) => e.action === 'already') };
+    // Per coding tool that is on: linked (everything of it is), todo (something to link) or left (only conflicts left).
+    const tools = [...new Set(entries.flatMap((e) => e.tools || []))].map((id) => {
+      const mine = entries.filter((e) => (e.tools || []).includes(id));
+      const todo = mine.filter((e) => !['already', 'conflict'].includes(e.action) && !e.error).length;
+      const left = mine.filter((e) => e.action === 'conflict' || e.error).length;
+      return { id, name: findTool(id)?.name || id, state: !todo && !left ? 'linked' : todo ? 'todo' : 'left', todo, left };
+    });
+    return { entries, tools, todo: entries.filter((e) => !['already', 'conflict'].includes(e.action)).length, already: entries.every((e) => e.action === 'already') };
   };
 
   const signin = opts.signin || githubSignin();

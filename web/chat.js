@@ -10,7 +10,7 @@
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
 import { accountLimitActions } from './claudeaccount.js';
 import { icon } from './icons.js';
-import { KIND, add, api, bytes, chooseSheet, confirmSheet, fill, h, link, machine, profileIcon, profileState, prefs, statusPill, toast, url } from './lib.js';
+import { KIND, add, api, bytes, chooseSheet, confirmSheet, fill, h, link, machine, profileIcon, profileState, prefs, servesClaude, statusPill, toast, url } from './lib.js';
 import { mdView } from './mdtext.js';
 import { registerPage, registerSessionAction } from './registry.js';
 import { EFFORT, MODELS } from './sessiondefaults.js';
@@ -472,7 +472,7 @@ function viewChat({ sub }) {
   }
 
   async function moveProvider() {
-    const profiles = ((store.data && store.data.profiles) || []).filter((p) => p.name);
+    const profiles = ((store.data && store.data.profiles) || []).filter((p) => p.name && servesClaude(p));
     if (!profiles.length) return toast('No other provider on this computer', { kind: 'error' });
     const pick = await chooseSheet({
       title: 'Continue on…',
