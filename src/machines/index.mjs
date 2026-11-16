@@ -39,6 +39,7 @@ import { label as cleanLabel, machineName, tokenName } from './names.mjs';
 import { claimCode, codeStatus, createCode, machineInfo } from './pairing.mjs';
 import { errorBody, relayHttp, relayUpgrade, rejectUpgrade } from './relay.mjs';
 import { getMachine } from './store.mjs';
+import { auditToken } from './tokenaudit.mjs';
 import { bearerOf, createToken, listTokens, revokeToken, touchToken, verifyToken } from './tokens.mjs';
 
 const BODY_MAX = 64 * 1024;
@@ -296,6 +297,7 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
             send(res, 200, { revoked: revokeToken(req[TOKEN].id) });
             return true;
           }
+          auditToken(req, res, p, req[TOKEN]); // a change it makes goes into this computer's Activity log
           return false;
         }
         // The direct link's public requests: the code (claim) and leaving, each proven by what they carry.

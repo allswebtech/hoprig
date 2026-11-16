@@ -12,14 +12,33 @@
 // Making a provider of a gateway is done on the Providers page (Add provider), in the page; `hoprig addons setup <id>`
 // does the same in a terminal.
 // An add-on's attach() runs when the dashboard starts and detach() when it stops (the fixed address runs with it).
+//
+// A linked hub may run these with its machine token. Then start() and the actions get `by`, the token's id, and an
+// add-on that opens something to the network with it (the public link) records that id. When the token is revoked,
+// closeOpenedBy(gone) closes exactly what it opened; what the owner opened with his own login is never touched. The
+// sweep runs at once after a revoke in this process, when the dashboard starts, and every SWEEP_MS, which catches a
+// revoke by another process (`hoprig tokens revoke`).
+import { loadConfig } from '../config.mjs';
+import { tokenIdOf } from '../machines/index.mjs';
+import { recordHubActivity } from '../machines/tokenaudit.mjs';
+import { onRevoke, storedTokens } from '../machines/tokens.mjs';
 import { ADDONS } from './index.mjs';
 
 const ACTIONS = ['install', 'update', 'start', 'stop'];
 const LINES_MAX = 2000;
+const SWEEP_MS = 15_000;
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
-/** `opts.addons`: the add-on list (tests pass fakes). */
+/** The live tokens: id → { name, keys } (keys: how many gateway keys it made). */
+function liveTokens() {
+  const keys = loadConfig().gateways?.keys;
+  const count = new Map();
+  if (Array.isArray(keys)) for (const k of keys) if (k && typeof k.token === 'string') count.set(k.token, (count.get(k.token) || 0) + 1);
+  return new Map(storedTokens().map((t) => [t.id, { name: t.name, keys: count.get(t.id) || 0 }]));
+}
+
+/** `opts.addons`: the add-on list (tests pass fakes). `opts.record`, `opts.sweepMs`: for tests. */
 export function addonsFeature(sctx, opts = {}) {
   const list = () => opts.addons || ADDONS;
   const jobs = new Map(); // id → { running, lines, result }
@@ -30,7 +49,7 @@ export function addonsFeature(sctx, opts = {}) {
     return a;
   };
 
-  function run(a, action, body = {}) {
+  function run(a, action, body = {}, by = null) {
     const job = { running: true, lines: [], result: null };
     jobs.set(a.id, job);
     const onLine = (l) => {
@@ -38,8 +57,8 @@ export function addonsFeature(sctx, opts = {}) {
       if (job.lines.length > LINES_MAX) job.lines.splice(0, job.lines.length - LINES_MAX);
     };
     const go = ACTIONS.includes(action)
-      ? (action === 'install' || action === 'update' ? a[action]({ onLine }) : a[action]())
-      : a.actions[action](body, { onLine });
+      ? (action === 'install' || action === 'update' ? a[action]({ onLine }) : action === 'start' ? a.start({ by }) : a[action]())
+      : a.actions[action](body, { onLine, by });
     return Promise.resolve(go)
       .then((r) => {
         job.result = { ok: Boolean(r && r.ok), error: (r && r.error) || null, url: (r && r.url) || null, confirm: (r && typeof r.confirm === 'string' && r.confirm) || null };
@@ -67,7 +86,7 @@ export function addonsFeature(sctx, opts = {}) {
       const a = addonOf(m);
       if (!ACTIONS.includes(m[2])) throw fail(400, 'unknown action');
       if (jobs.get(a.id)?.running) throw fail(409, `${a.title} is busy with something else; wait until it finishes`);
-      run(a, m[2]);
+      run(a, m[2], {}, tokenIdOf(req));
       return { started: true };
     }],
     ['POST', /^\/api\/addons\/([^/]+)\/do\/([a-z-]{1,40})$/, async (req, m) => {
@@ -76,7 +95,7 @@ export function addonsFeature(sctx, opts = {}) {
       if (!a.actions || !Object.hasOwn(a.actions, m[2])) throw fail(404, 'no such action');
       if (body !== null && body !== undefined && (typeof body !== 'object' || Array.isArray(body))) throw fail(400, 'send a JSON object');
       if (jobs.get(a.id)?.running) throw fail(409, `${a.title} is busy with something else; wait until it finishes`);
-      run(a, m[2], body || {});
+      run(a, m[2], body || {}, tokenIdOf(req));
       return { started: true };
     }],
     ['GET', /^\/api\/addons\/([^/]+)\/job$/, async (req, m, q) => {
@@ -88,9 +107,47 @@ export function addonsFeature(sctx, opts = {}) {
   ];
 
   const each = (fn) => Promise.all(list().map((a) => Promise.resolve().then(() => fn(a)).catch((e) => console.error(`add-on ${a.id}: ${e.message}`))));
+
+  // ---- what a revoked token opened ends with it ----
+  const record = opts.record || recordHubActivity;
+  let known = new Map(); // the tokens at the last look: a token gone since then was revoked
+  const told = new Set(); // revoked tokens said already (a revoke in this process is seen by the listener and the timer)
+  let sweeping = Promise.resolve();
+  let timer = null;
+  let stopListening = null;
+  const who = (id) => (known.has(id) ? `the hub ${known.get(id).name}` : 'a linked hub');
+  async function sweepNow(ev) {
+    if (ev) known.set(ev.id, { name: ev.name, keys: ev.keys });
+    const live = liveTokens();
+    for (const [id, t] of known) {
+      if (live.has(id) || told.has(id)) continue;
+      told.add(id);
+      record(t.keys
+        ? `The token of the hub ${t.name} was revoked; the ${t.keys === 1 ? 'gateway key' : `${t.keys} gateway keys`} it made ended with it, and the sharing of the gateways stays as it is`
+        : `The token of the hub ${t.name} was revoked`);
+    }
+    const gone = (id) => typeof id === 'string' && !live.has(id);
+    await each(async (a) => {
+      for (const c of (await a.closeOpenedBy?.(gone)) || []) record(c.say(who(c.by)));
+    });
+    known = live;
+  }
+  // One at a time, and never a failure that reaches the caller.
+  const sweep = (ev) => (sweeping = sweeping.then(() => sweepNow(ev)).catch((e) => console.error(`add-ons: ${e.message}`)));
+
   return {
-    name: 'addons', routes, jobs,
-    start: () => { each((a) => a.attach?.()); },
-    close: () => each((a) => a.detach?.()),
+    name: 'addons', routes, jobs, sweep: () => sweep(),
+    start: () => {
+      each((a) => a.attach?.()).then(() => sweep());
+      stopListening = onRevoke((ev) => sweep(ev));
+      timer = setInterval(() => sweep(), opts.sweepMs || SWEEP_MS);
+      timer.unref();
+    },
+    close: async () => {
+      clearInterval(timer);
+      stopListening?.();
+      await sweeping;
+      return each((a) => a.detach?.());
+    },
   };
 }

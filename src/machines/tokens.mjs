@@ -48,6 +48,17 @@ export function verifyToken(token, list = storedTokens()) {
   return found;
 }
 
+const revokeListeners = new Set();
+/**
+ * Call `fn({ id, name, keys })` after each revoke (`keys`: how many gateway keys ended with it). Returns the function
+ * that removes it. Listeners run after the revoke is saved, never awaited and each on its own, so one that fails or
+ * takes long can never stop or slow a revoke.
+ */
+export function onRevoke(fn) {
+  revokeListeners.add(fn);
+  return () => revokeListeners.delete(fn);
+}
+
 /**
  * Revoke by id, or every token with that name. Returns the entries removed. The gateway keys a token made (a hub's
  * "Use here", src/gateway/keys.mjs) end with it, in the same write: every way of revoking comes through here.
@@ -56,12 +67,28 @@ export function revokeToken(idOrName) {
   const cfg = loadConfig();
   const list = storedTokens(cfg);
   const gone = list.filter((t) => t.id === idOrName || t.name === idOrName);
+  const keys = new Map();
   if (gone.length) {
     const ids = new Set(gone.map((t) => t.id));
     const patch = { server: { tokens: list.filter((t) => !gone.includes(t)) } };
     const g = cfg.gateways;
-    if (g && typeof g === 'object' && Array.isArray(g.keys)) patch.gateways = { ...g, keys: g.keys.filter((k) => !(k && ids.has(k.token))) };
+    if (g && typeof g === 'object' && Array.isArray(g.keys)) {
+      for (const k of g.keys) if (k && ids.has(k.token)) keys.set(k.token, (keys.get(k.token) || 0) + 1);
+      patch.gateways = { ...g, keys: g.keys.filter((k) => !(k && ids.has(k.token))) };
+    }
     saveConfig(patch);
+  }
+  for (const t of gone) {
+    const ev = { id: t.id, name: t.name, keys: keys.get(t.id) || 0 };
+    for (const fn of [...revokeListeners]) {
+      queueMicrotask(() => {
+        try {
+          Promise.resolve(fn(ev)).catch(() => {});
+        } catch {
+          /* a listener never fails a revoke */
+        }
+      });
+    }
   }
   return gone.map(publicToken);
 }
