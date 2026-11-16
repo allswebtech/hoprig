@@ -45,11 +45,12 @@ export function reachOf(settings, addons = []) {
   const link = addons.find((a) => a.id === 'public-link') || {};
   const fixed = link.fixed;
   if (fixed && fixed.enabled && fixed.url) {
-    return { level: 'anywhere', text: fixed.connected ? `Yes, at its fixed address ${fixed.url}.` : `At its fixed address ${fixed.url}, once it is connected (it is connecting now).` };
+    // The row's title already says "Yes, from anywhere": the text only says where.
+    return { level: 'anywhere', text: fixed.connected ? `At its fixed address ${fixed.url}.` : `At its fixed address ${fixed.url}, once it is connected (it is connecting now).` };
   }
-  if (link.running && link.url) return { level: 'anywhere', text: `Yes, through the public link ${link.url} (temporary: the address changes each time it starts).` };
+  if (link.running && link.url) return { level: 'anywhere', text: `Through the public link ${link.url} (temporary: the address changes each time it starts).` };
   const s = (settings && settings.server) || {};
-  if (s.publicUrl) return { level: 'anywhere', text: `Yes, at ${s.publicUrl}.` };
+  if (s.publicUrl) return { level: 'anywhere', text: `At ${s.publicUrl}.` };
   const n = (settings && settings.network) || {};
   if (n.host && !['127.0.0.1', '::1', 'localhost'].includes(n.host)) return { level: 'network', text: `From other devices that can reach it on port ${n.port}, such as the same network or Tailscale.` };
   return { level: 'local', text: 'Turn on the public link, or use Tailscale, to open it from anywhere.' };
@@ -103,6 +104,23 @@ async function updateClaude(m, label, done) {
 const meter = (frac) => h(`div.meter${frac > 0.9 ? '.hot' : ''}`, h('i', { style: { width: `${Math.round(Math.min(1, Math.max(0, frac || 0)) * 100)}%` } }));
 // Every tile has the same parts, so the four stay the same height; a tile without a share keeps its meter's room.
 const tile = (label, value, sub, frac) => h('div.tile', h('div.tile-label', label), h('div.tile-value', value), h('div.tile-sub', sub || ' '), frac === null ? h('div.meter.cp-nometer') : meter(frac));
+/**
+ * How busy the computer is, in plain words first: the last minute's load as a share of its CPUs ("Busy 18 %"); the
+ * raw load figures are the second line and the tooltip.
+ */
+export function busyFigures(load, cpus) {
+  const n = Math.max(1, cpus || 1);
+  const pct = Math.round((load[0] / n) * 100);
+  return { value: `${pct}%`, word: pct >= 90 ? 'Very busy' : pct >= 50 ? 'Busy' : 'Calm', sub: `load ${load[0].toFixed(2)} on ${n} CPUs`, title: `Load 1, 5 and 15 min: ${load.map((x) => x.toFixed(2)).join(', ')}`, frac: load[0] / n };
+}
+const busyTile = (load, cpus) => {
+  const b = busyFigures(load, cpus);
+  const t = tile(b.word, b.value, b.sub, b.frac);
+  t.title = b.title;
+  return t;
+};
+/** The disk the system lives on is "Main disk"; others keep their mount point (it is how one recognises them). */
+export const diskName = (mount) => (mount === '/' || /^[A-Za-z]:\\?$/.test(mount || '') ? 'Main disk' : mount);
 const section = (title, count, ...body) => h('section.cp-section', groupHead(title, count), ...body);
 
 // ======================= Overview =======================
@@ -131,13 +149,13 @@ function overview(ctx) {
         h('span.cp-dot.on', { 'aria-hidden': 'true' }),
         h('span', h('strong', 'Online'), [Number.isFinite(d.uptime) ? `up ${upFor(d.uptime)}` : null, osName(d.platform || i.platform), i.version ? `${APP_NAME} ${i.version}` : null].filter(Boolean).map((t) => ` · ${t}`).join(''))),
       h('div.tiles',
-        load ? tile('Load', load[0].toFixed(2), `${d.cpus} CPUs · 15 min ${load[2].toFixed(2)}`, load[0] / d.cpus) : tile('CPUs', String(d.cpus || '—'), 'no load figure on this system', null),
+        load ? busyTile(load, d.cpus) : tile('CPUs', String(d.cpus || '—'), 'no load figure on this system', null),
         tile('Memory', bytes(used), `of ${bytes(d.mem.total)}`, used / d.mem.total),
         hasSwap ? tile('Swap', bytes(swapUsed), d.mem.swapTotal ? `of ${bytes(d.mem.swapTotal)}` : 'none', d.mem.swapTotal ? swapUsed / d.mem.swapTotal : 0) : null,
         tile('Sessions', String(d.sessions.length), 'running', null)),
       section('Disks', undefined, h('div.rows', d.disks.map((x) =>
         h('div.row.static.col',
-          h('span.row-main', h('span.row-title', x.mount), h('span.row-sub', `${bytes(x.used)} of ${bytes(x.size)} used · ${bytes(x.avail)} free`)),
+          h('span.row-main', h('span.row-title', diskName(x.mount)), h('span.row-sub', `${bytes(x.avail)} free · ${bytes(x.used)} of ${bytes(x.size)} used${diskName(x.mount) === x.mount ? '' : ` · ${x.mount}`}`)),
           meter(x.used / x.size))))),
       section('Claude Code', undefined, h('div.rows', claudeRow(ctx, c))),
       section('Sessions', d.sessions.length, d.sessions.length
@@ -239,7 +257,7 @@ function advanced(ctx) {
     } }, t)));
 
   const stopBtn = (p) => (p.mine
-    ? btn('icon ghost', { icon: 'stop', title: `Stop ${p.name}`, onclick: async () => {
+    ? btn('small ghost', { icon: 'stop', label: 'Stop', title: `Stop ${p.name}`, 'aria-label': `Stop ${p.name}`, onclick: async () => {
       if (!(await confirmSheet({ title: `Stop ${p.name} on ${ctx.label()}?`, text: `Program ${p.pid}: ${p.args}. Unsaved work in it is lost.`, ok: 'Stop it', danger: true }))) return;
       try {
         await api('/api/pc/kill', { pid: p.pid });
@@ -249,7 +267,7 @@ function advanced(ctx) {
         toast(e.message, { kind: 'error', ms: 6000 });
       }
     } })
-    : h('span.cp-stop-none', { title: 'Started by another user: it cannot be stopped from here' }));
+    : h('span.cp-stop-none.muted', { title: 'Started by another user: it cannot be stopped from here' }, 'not yours'));
 
   function paint() {
     const c = cache.get(keyOf()) || {};

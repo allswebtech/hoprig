@@ -8,7 +8,8 @@
 import { icon } from './icons.js';
 import { add, api, btn, confirmSheet, copyText, fill, h, prefs, toast, url } from './lib.js';
 import { navChanged, registerHeadTool, registerPage, registerSessionAction, registerSettingsPage } from './registry.js';
-import { saveBar, tabBar, toggle } from './shell.js';
+import { fold, saveBar, tabBar, toggle } from './shell.js';
+import { MODELS } from './sessiondefaults.js';
 import { store } from './store.js';
 
 const NAME = 'Tia';
@@ -732,11 +733,16 @@ function tiaSettings({ isAlive }) {
         const cur = st.accounts || [...s.allowed];
         st.accounts = e.target.checked ? [...new Set([...cur, a.name])] : cur.filter((n) => n !== a.name);
       } }),
-      h('span', a.name === 'auto' ? 'Auto mode' : `${a.label || a.name}${a.kind === 'api' ? ' (paid per use)' : ''}`))));
+      h('span', providerWords(a)))));
+    const nameOf = (n) => (n === 'auto' ? 'Auto mode' : ((choices.find((a) => a.name === n) || {}).label || n));
     const runs = h('select.field', { onchange: (e) => (st.runsOn = e.target.value) },
-      h('option', { value: '', selected: !st.runsOn }, `Automatic (now: ${s.runsOn || 'none'})`),
-      choices.map((a) => h('option', { value: a.name, selected: st.runsOn === a.name }, a.name === 'auto' ? 'Auto mode' : a.label || a.name)));
-    const model = h('input.field', { value: st.model, placeholder: 'the provider\'s default', autocomplete: 'off', spellcheck: 'false', oninput: (e) => (st.model = e.target.value.trim()) });
+      h('option', { value: '', selected: !st.runsOn }, `Automatic (now: ${s.runsOn ? nameOf(s.runsOn) : 'none'})`),
+      choices.map((a) => h('option', { value: a.name, selected: st.runsOn === a.name }, nameOf(a.name))));
+    // The same choices as Settings → New-session defaults; a name set earlier by hand stays one of them.
+    const models = [...MODELS];
+    if (st.model && !models.some(([m]) => m === st.model)) models.push([st.model, st.model]);
+    const model = h('select.field', { onchange: (e) => (st.model = e.target.value) },
+      [['', 'The provider\'s default'], ...models].map(([m, t]) => h('option', { value: m, selected: m === st.model }, t)));
     const steps = h('input.field', { type: 'number', min: 1, max: 200, value: st.maxSteps, oninput: (e) => (st.maxSteps = Number(e.target.value)) });
     const mins = h('input.field', { type: 'number', min: 5, max: 10080, value: st.maxMinutes, oninput: (e) => (st.maxMinutes = Number(e.target.value)) });
     const field = (label, input, hint) => h('label.fieldrow', h('span.field-label', label), input, hint ? h('span.hint', hint) : null);
@@ -746,9 +752,10 @@ function tiaSettings({ isAlive }) {
         h('div.fieldrow', h('span.field-label', 'How far she may go'), levelSeg, levelHelp),
         h('div.fieldrow', h('span.field-label', 'Providers she may use'), checks, h('span.hint', v.help.accounts + (s.accountsDefault ? ' Now: the default — Auto mode when it is on, and every subscription; no API provider.' : ''))),
         field(`${NAME} runs on`, runs, v.help.runsOn),
-        field('Her model', model, v.help.model),
-        field('Answers per job', steps, v.help.maxSteps),
-        field('Minutes per job', mins, v.help.maxMinutes),
+        fold('tia-advanced', 'Advanced',
+          field('Her model', model, v.help.model),
+          field('Answers per job', steps, v.help.maxSteps),
+          field('Minutes per job', mins, v.help.maxMinutes)),
         saveBar('Save', async () => {
           await api(`${A}/settings`, { level: st.level, accounts: st.accounts, runsOn: st.runsOn || null, model: st.model || null, maxSteps: st.maxSteps, maxMinutes: st.maxMinutes });
           pollOverview();
@@ -775,8 +782,13 @@ function tiaSettings({ isAlive }) {
         v.client ? btn('secondary', { icon: 'trash', label: 'Revoke', onclick: async () => { await api(`${A}/client-token/revoke`, {}); toast('Revoked'); paint(); } }) : null));
   }
   paint();
-  return [box, usageBox, clientBox];
+  // What she has used and her tools for your own Claude Code: looked at rarely, so closed until opened.
+  return [box, fold('tia-usage', 'Usage, and her tools in your own Claude Code', usageBox, clientBox)];
 }
+
+/** A provider by its name, with "(paid per use)" for an API unless its own name already says so. */
+export const providerWords = (a) => (a.name === 'auto' ? 'Auto mode'
+  : `${a.label || a.name}${a.kind === 'api' && !/\b(pay|paid)\b/i.test(a.label || a.name) ? ' (paid per use)' : ''}`);
 
 registerSettingsPage({
   id: 'tia', title: NAME, icon: 'sparkle', order: 50, onlyHere: true, tag: 'experimental',

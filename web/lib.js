@@ -195,14 +195,19 @@ export function ago(ms) {
   return `${Math.floor(s / 86400)} d ago`;
 }
 
-/** "in 2 h 10 min" / "at 17:00" for a time in the future. */
+/**
+ * "in 2 h 10 min" / "Mon 17:00" for a time in the future. Always the 24-hour clock, as schedules write their rule
+ * ("Weekdays at 18:00"), so one list never mixes "18:00" with "06:00 PM".
+ */
 export function until(ms) {
   if (!ms) return '';
   const s = Math.round((ms - Date.now()) / 1000);
   if (s <= 60) return 'any moment';
   if (s < 3600) return `in ${Math.round(s / 60)} min`;
   if (s < 12 * 3600) return `in ${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
-  return new Date(ms).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const d = new Date(ms);
+  const day = d.toLocaleDateString([], { weekday: 'short' });
+  return `${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 export function bytes(n) {
@@ -236,10 +241,13 @@ export const needsYou = (s) => ['attention', 'limit'].includes(stateOf(s).key);
 export const needsYouFirst = (a, b) =>
   stateOf(a).rank - stateOf(b).rank || (b.statusAt || b.activity || 0) - (a.statusAt || a.activity || 0);
 
-export function statusPill(s, { time = true } = {}) {
+/** The state chip: "● Working · 2 min ago". `text: false` (its group's heading says the state): "● 2 min ago". */
+export function statusPill(s, { time = true, text = true } = {}) {
   const st = stateOf(s);
   const at = s.statusAt || s.activity;
-  return h(`span.pill.st-${st.key}`, h('span.dot'), st.text, time && at ? h('span.pill-time', { dataset: { at } }, ` · ${ago(at)}`) : null);
+  const when = time && at ? ago(at) : '';
+  if (!text && when) return h(`span.pill.st-${st.key}`, { title: st.text }, h('span.dot'), h('span.pill-time', { dataset: { at, bare: '1' } }, when));
+  return h(`span.pill.st-${st.key}`, h('span.dot'), st.text, when ? h('span.pill-time', { dataset: { at } }, ` · ${when}`) : null);
 }
 
 export const KIND = { login: 'Subscription', subscription: 'Subscription', api: 'API', auto: 'Auto mode', unknown: 'Provider' };

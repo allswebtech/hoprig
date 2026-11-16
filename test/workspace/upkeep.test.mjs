@@ -107,6 +107,17 @@ test('staged changes in the brain: the map is written, not committed, and it say
   assert.ok(r.needs.some((n) => /staged changes/.test(n)));
 });
 
+test('commitMap by itself (the page\'s "Save it now"): refused over staged changes, then only workspace.json', async () => {
+  const { commitMap } = await import('../../src/workspace/upkeep.mjs');
+  assert.equal((await M.mapStatus(o)).saved.unsaved, true, 'the round above wrote the map without committing it');
+  const refused = await commitMap({ dir: A.ws });
+  assert.deepEqual([refused.done, refused.staged], [false, true]);
+  w.sh(brain, 'reset', '-q', 'draft.md');
+  assert.deepEqual(await commitMap({ dir: A.ws }), { done: true });
+  assert.equal(w.sh(brain, 'show', '--name-only', '--format=', 'HEAD'), 'workspace.json');
+  assert.equal((await M.mapStatus(o)).saved.unsaved, false);
+});
+
 test('the automation: right after start, then on its schedule; one line per change; a notification only when the owner is needed, once', async () => {
   const H = 3600_000;
   const s = { map: true, commitMap: false, sync: false, push: false, everyHours: 6 };

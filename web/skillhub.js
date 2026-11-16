@@ -256,7 +256,7 @@ function viewSkills({ frame, sub }) {
               h('span.row-sub.sk-wrap', x.for),
               h('span.row-sub.sk-wrap.sk-why', `Why: ${x.why.join('; ')}`)),
             h('span.sk-act', x.installed ? h('span.badge.sk-done', 'Installed') : reviewBtn(x))))))
-        : emptyState('sparkle', project ? 'Nothing in the catalog fits this project yet. Find searches all skills.' : 'Nothing to suggest for you right now.', btn('secondary', { icon: 'send', label: 'Find a skill', onclick: () => show('find') })),
+        : emptyState('sparkle', project ? 'Nothing in the catalog fits this project yet. Find searches all skills.' : 'Nothing to suggest for you right now.', btn('secondary', { icon: 'search', label: 'Find a skill', onclick: () => show('find') })),
       suggest.ideas && suggest.ideas.length ? h('p.hint', 'Also worth a search: ', suggest.ideas.map((i) => i.replace(`${COMMAND} skills find `, '')).map((w, n) => [n ? ', ' : '', h('a', { href: '#', onclick: (e) => { e.preventDefault(); findWords = w; show('find'); } }, w)])) : null);
   }
 
@@ -296,7 +296,7 @@ function viewSkills({ frame, sub }) {
         found = { error: er.message };
       }
       if (alive && part === 'find') paintFound();
-    } }, query, btn('primary', { icon: 'send', label: 'Find', type: 'submit' }));
+    } }, query, btn('primary', { icon: 'search', label: 'Find', type: 'submit' }));
     fill(partBox, h('p.hint', 'Search the reviewed catalog and skills.sh by a word, or give a skill\'s address (owner/repo).'), form, out);
     paintFound();
     if (findWords && !found) form.requestSubmit();

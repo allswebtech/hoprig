@@ -10,7 +10,17 @@ export const sessionHref = (s) => link(s.kind === 'chat' ? `#/chat/${s.chatId}` 
 const open = (s) => (location.hash = sessionHref(s));
 const nameOf = (s) => s.display || s.name;
 const chatTag = (s) => (s.kind === 'chat' ? h('span.badge.soft', icon('text', { size: 13 }), 'Chat') : null);
-const chip = (s) => (isStarting(s) ? startingPill() : statusPill(s));
+const chip = (s, opts) => (isStarting(s) ? startingPill() : statusPill(s, opts));
+
+/**
+ * The folder line of a card: only when it says more than the name, i.e. not for <…>/projects/<name> (the folder a
+ * session of that project runs in). Either separator.
+ */
+export function folderWorthShowing(s) {
+  const parts = String(s.short || '').split(/[\\/]/).filter(Boolean);
+  const [parent, last] = parts.slice(-2);
+  return !(parent === 'projects' && (last === s.name || last === s.display));
+}
 // A plain terminal has no provider; its chip already says "Terminal".
 const provider = (s) => (s.profile
   ? h(`span.ppill${s.profile.name === 'auto' ? '.auto' : ''}`, icon(profileIcon(s.profile), { size: 14 }), profileText(s))
@@ -44,18 +54,21 @@ function backButton(s, profiles, after) {
     : null;
 }
 
-/** Home: a session as a card, with the computer's name when there are several. */
-export function sessionCard(s, profiles, refresh, multi) {
+/**
+ * Home: a session as a card, with the computer's name when there are several. `heading`: the state key its group's
+ * heading already names ("Working", "Waiting for your next message"): its pill then shows only the time.
+ */
+export function sessionCard(s, profiles, refresh, multi, { heading = null } = {}) {
   const st = stateOf(s);
   const after = moved(s, refresh);
   const back = backButton(s, profiles, after);
   return h(`article.card.st-${st.key}`, linkProps(s, `${nameOf(s)}${multi ? ` on ${s.machineLabel}` : ''}: ${st.text}`),
-    h('div.card-top', h('h3.card-name', nameOf(s)), chip(s)),
+    h('div.card-top', h('h3.card-name', nameOf(s)), chip(s, { text: st.key !== heading })),
     h('div.card-meta',
       chatTag(s),
       multi ? machinePill(s.machineLabel) : null,
       provider(s),
-      h('span.card-path', icon('folder', { size: 14 }), s.short),
+      folderWorthShowing(s) ? h('span.card-path', icon('folder', { size: 14 }), s.short) : null,
       registeredCardBadges().map((b) => b(s))),
     s.lastMessage ? h('p.card-msg', s.lastMessage) : s.title && s.kind !== 'chat' ? h('p.card-msg.title', s.title) : null,
     st.key === 'attention' && s.note ? h('p.card-note', s.note) : null,

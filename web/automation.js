@@ -7,7 +7,7 @@
 // "Pause all automations" sits above the parts; while it is on, a banner says so on every part.
 // The same file brings the session view's "Queue" button and the "3 queued" badge on Home's session cards.
 import { icon } from './icons.js';
-import { ago, api, at, btn, confirmSheet, fill, h, link, machine, openSheet, tildePath, toast, until } from './lib.js';
+import { ago, api, at, btn, chooseSheet, confirmSheet, fill, h, link, machine, needsYouFirst, openSheet, stateOf, tildePath, toast, until } from './lib.js';
 import { registerCardBadge, registerPage, registerSessionAction } from './registry.js';
 import { emptyState, errorBox, groupHead, panel, savedMark, tabBar, toggle } from './shell.js';
 import { store } from './store.js';
@@ -146,7 +146,7 @@ function viewAutomations({ frame, sub }) {
   frame({
     title: 'Automations',
     page: 'automations',
-    intro: 'Things the dashboard does for you by fixed rules, without AI: sessions at a set time, the next queued message, and care while you are away.',
+    intro: 'What the dashboard does for you by fixed rules, without AI.',
     primary: tab === 'schedules' ? { label: 'Add schedule', icon: 'plus', onclick: () => addSchedule() } : null,
     body: [pauseSlot, tabs, bannerSlot, content],
   });
@@ -420,6 +420,7 @@ function queuePart(st, reload) {
   const off = !st.settings.queue.enabled;
   return [
     off ? h('p.banner.info', icon('info', { size: 18 }), h('span', 'Sending the next queued message is turned off under Rules, so queued messages wait.')) : null,
+    h('div.savebar.start', btn('primary', { icon: 'plus', label: 'Queue a message', onclick: () => queueFor(reload) })),
     rows.length
       ? [groupHead('Sessions with a queue', rows.length),
         h('div.rows', rows.map(([name, q]) => h('button.row.au-queue', { type: 'button', onclick: () => queueSheet(name, reload) },
@@ -429,8 +430,32 @@ function queuePart(st, reload) {
             h('span.row-sub', `${q.count} ${q.count === 1 ? 'message waits' : 'messages wait'}${q.paused ? ' · paused: nothing is sent until you resume' : ' · sent one per finished reply'}`)),
           h('span.row-end', icon('chevronRight', { size: 18 })))))]
       : emptyState('send', 'Nothing is queued. A queue holds your next messages for a session and sends one each time Claude finishes a reply.'),
-    h('p.hint.au-foot', 'To queue a message, open a session, press the more button (…) at its top and choose Queue.'),
+    h('p.hint.au-foot', 'Tap a session to see, reorder or remove what waits. A session\'s more button (…) has Queue as well.'),
   ];
+}
+
+/** The Claude sessions of the open computer a message can be queued for, the ones that need you first. */
+export function queueChoices(sessions, queues = {}) {
+  return sessions.filter((x) => x.kind === 'claude').sort(needsYouFirst).map((x) => {
+    const q = queues[x.name];
+    return { value: x.name, label: x.display || x.name, icon: 'sparkle',
+      sub: `${stateOf(x).text}${q && q.count ? ` · ${q.count} queued` : ''}` };
+  });
+}
+
+/** "Queue a message": pick the session, then its queue sheet with the message box ready. */
+async function queueFor(reload) {
+  const d = store.data || { sessions: [] };
+  let queues = {};
+  try {
+    queues = (await api('/api/automation')).queues || {};
+  } catch {
+    /* the counts are only a help */
+  }
+  const items = queueChoices(d.sessions || [], queues);
+  if (!items.length) return toast('No Claude session runs on this computer. Start one first.', { kind: 'info' });
+  const name = items.length === 1 ? items[0].value : await chooseSheet({ title: 'Queue a message for', subtitle: 'Sent when Claude finishes its current reply', items });
+  if (name) queueSheet(name, reload);
 }
 
 // ---------- Rules ----------
@@ -629,6 +654,7 @@ function queueSheet(name, after) {
     paint();
   }).catch((e) => (err.textContent = e.message));
   paint();
+  setTimeout(() => input.focus(), 50); // the message box is what one came for
   return openSheet({ title: `Queue · ${name}`, subtitle: 'Each time Claude finishes a reply, the next message is sent. It waits while Claude needs your OK, hits a limit or an error.', wide: true }, (close) => [
     list,
     h('div.mrow-actions', pauseBtn, btn('small ghost', { icon: 'trash', label: 'Clear all', onclick: () => op({ op: 'clear' }) })),

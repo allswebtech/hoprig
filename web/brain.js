@@ -9,7 +9,7 @@ import { icon } from './icons.js';
 import { ago, api, bytes, fill, h, link, openSheet, toast } from './lib.js';
 import { mdView } from './mdtext.js';
 import { registerPage } from './registry.js';
-import { emptyState, errorBox, groupHead, okBox, panel, skeletonRows } from './shell.js';
+import { emptyState, errorBox, fold, groupHead, okBox, panel, skeletonRows } from './shell.js';
 import { store } from './store.js';
 
 const enc = encodeURIComponent;
@@ -67,24 +67,47 @@ export function workspaceFolders() {
       return fill(box, e.status === 404 ? h('p.hint', 'This computer runs an older version without a workspace.') : errorBox(e.message, load));
     }
     const missing = w.folders.filter((f) => !f.exists).length + (w.exists ? 0 : 1);
+    const rows = (list) => h('div.rows.ws-folders', list.map((f) => h('div.row.static',
+      h(`span.row-icon.ws-mark${f.exists ? '.ok' : ''}`, icon(f.exists ? 'check' : 'minus', { size: 16 })),
+      h('span.row-main',
+        h('span.row-title', h('code', `${f.rel}/`), f.exists ? null : h('span.badge.soft', f.kind === 'missing' ? 'missing' : f.kind)),
+        h('span.row-sub.ws-wrap', f.purpose),
+        f.warning ? h('span.row-sub.ws-warn', f.warning) : null,
+        f.note ? h('span.row-sub.ws-wrap', f.note) : null))));
+    // Only what is missing (or warns) shows as a row; the folders that are fine fold into one line.
+    const fine = w.folders.filter((f) => f.exists && !f.warning);
+    const other = w.folders.filter((f) => !fine.includes(f));
     fill(box,
       h('p.hint', 'In ', h('code', w.short), w.exists ? '' : ' (not made yet)', '.'),
-      h('div.rows.ws-folders', w.folders.map((f) => h('div.row.static',
-        h(`span.row-icon.ws-mark${f.exists ? '.ok' : ''}`, icon(f.exists ? 'check' : 'minus', { size: 16 })),
-        h('span.row-main',
-          h('span.row-title', h('code', `${f.rel}/`), f.exists ? null : h('span.badge.soft', f.kind === 'missing' ? 'missing' : f.kind)),
-          h('span.row-sub.ws-wrap', f.purpose),
-          f.warning ? h('span.row-sub.ws-warn', f.warning) : null,
-          f.note ? h('span.row-sub.ws-wrap', f.note) : null)))),
+      other.length ? rows(other) : null,
+      fine.length ? fold('workspace-folders-fine', fine.length === w.folders.length ? `All ${fine.length} folders are there` : `${fine.length} more folder${fine.length === 1 ? ' is' : 's are'} there`, rows(fine)) : null,
       missing
         ? h('div.savebar.start', h('button.btn.primary', { type: 'button', onclick: () => setUpWorkspace(load) }, icon('plus', { size: 16 }), h('span', 'Create what is missing')))
-        : h('p.hint', 'Everything is there.'));
+        : null);
   }
   load();
   return root;
 }
 
 // ======================= the AI brain page =======================
+
+/**
+ * The Skills part: the same count as Skills and Get started (the skills Claude Code loads), and the brain's own skills
+ * that it does not load yet on a line of their own. An older server sends only `count`.
+ */
+export function skillsPart(sk) {
+  const used = sk.used ?? sk.count;
+  const only = sk.brainOnly || 0;
+  const n = (k) => `${k} skill${k === 1 ? '' : 's'}`;
+  return [
+    groupHead('Skills', used),
+    h('div.rows', h('a.row', { href: link('#/skills') },
+      h('span.row-main', h('span.row-title', `${n(used)} Claude Code uses`), h('span.row-sub', 'See them, and find more, under Skills')),
+      h('span.row-end', icon('chevronRight', { size: 18 })))),
+    only ? h('p.hint.brain-none', `${n(only)} in the AI brain ${only === 1 ? 'is' : 'are'} not used by Claude Code yet: run `, h('code', 'hoprig workspace link'),
+      ' on this computer to let Claude Code read the brain\'s skills folder.') : null,
+  ];
+}
 
 const TYPE = { index: 'index', user: 'about you', feedback: 'feedback', project: 'project', reference: 'reference' };
 // A file's time arrives as milliseconds or as an ISO date.
@@ -191,8 +214,7 @@ function viewBrain({ frame, sub }) {
         g.rows.length ? h('div.rows', g.rows.map((r) => itemRow(r, r.item.id === (id || (first && first.item.id))))) : h('p.hint.brain-none', g.none),
         g.count > g.rows.length ? h('p.hint.brain-none', `The newest ${g.rows.length} of ${g.count}.`) : null,
       ]),
-      groupHead('Skills', b.skills.count),
-      h('div.rows', h('a.row', { href: link('#/skills') }, h('span.row-main', h('span.row-title', `${b.skills.count} skill${b.skills.count === 1 ? '' : 's'}`), h('span.row-sub', 'See them, and find more, under Skills')), h('span.row-end', icon('chevronRight', { size: 18 })))),
+      skillsPart(b.skills),
       h('p.hint.brain-none', 'Claude and you change these files in a session; this page only shows them.'));
     const show = id || (first && first.item.id);
     if (show) showItem(pane, show);

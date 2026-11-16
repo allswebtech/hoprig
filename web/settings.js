@@ -147,15 +147,23 @@ function passwordPanel() {
   const cur = h('input.field', { type: 'password', autocomplete: 'current-password' });
   const next = h('input.field', { type: 'password', autocomplete: 'new-password', minlength: 8 });
   const again = h('input.field', { type: 'password', autocomplete: 'new-password' });
-  return panel({ icon: 'key', title: 'Password', desc: 'Changing it logs out every other browser and phone; this one stays logged in.' },
+  // Done rarely: the three fields open only after "Change password".
+  const form = h('div.hidden',
     field('Current password', cur),
     field('New password', next, 'At least 8 characters.'),
     field('New password again', again),
-    saveBar('Change password', async () => {
+    saveBar('Save the new password', async () => {
       if (next.value !== again.value) throw new Error('The two new passwords are not the same.');
       await api('/api/settings/password', { current: cur.value, next: next.value });
       cur.value = next.value = again.value = '';
-    }));
+      setTimeout(() => { form.classList.add('hidden'); open.classList.remove('hidden'); }, 1500);
+    }, 'Changed'));
+  const open = h('div.savebar.start', btn('secondary', { icon: 'key', label: 'Change password', onclick: () => {
+    form.classList.remove('hidden');
+    open.classList.add('hidden');
+    cur.focus();
+  } }));
+  return panel({ icon: 'key', title: 'Password', desc: 'Changing it logs out every other browser and phone; this one stays logged in.' }, open, form);
 }
 
 function networkPanel(s) {
@@ -176,8 +184,8 @@ const loopbackOnly = (s) => ['127.0.0.1', '::1', 'localhost'].includes(s.network
 
 function securityPage(ctx) {
   return [
-    ctx.here ? passwordPanel() : h('p.banner.muted', icon('lock', { size: 18 }), h('span', `The password of ${openLabel()} is changed on that computer.`)),
     ctx.here ? panel({ icon: 'user', title: 'Sign in another device', desc: 'A phone or tablet signs in by scanning a code instead of typing the password.' }, ...signIn(ctx)) : null,
+    ctx.here ? passwordPanel() : h('p.banner.muted', icon('lock', { size: 18 }), h('span', `The password of ${openLabel()} is changed on that computer.`)),
     fold('settings-security', 'Advanced', networkPanel(ctx.settings)),
   ];
 }

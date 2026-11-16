@@ -58,6 +58,11 @@ test('routes: login needed, setup, index, one item; ids only; secrets masked', a
     assert.equal((await get(`/api/brain/item?id=${encodeURIComponent(path.join(t.ws, 'ai_brain', 'learnings.md'))}`)).status, 400);
     assert.equal((await get('/api/brain/item?id=brain:nothing')).status, 404);
     assert.equal((await get('/api/brain/item')).status, 400);
+    // Save the map now: nothing but an empty body; no change to save is not an error (the commit itself: upkeep.test).
+    assert.equal((await post('/api/workspace/map/commit', { x: 1 })).status, 400);
+    const none = await post('/api/workspace/map/commit', {});
+    assert.equal(none.status, 200);
+    assert.deepEqual(await none.json(), { done: true, already: true });
   } finally {
     await app.close();
   }

@@ -162,7 +162,9 @@ function collect({ dir = workspaceDir(), base = claudeDir(), home = os.homedir()
     },
     global,
     dailyLogs: { count: logs.length, items: logs.slice(0, MAX_LIST) },
-    skills: { count: skills.length, items: skills.slice(0, MAX_LIST) },
+    // used: the ones Claude Code loads (its own skills folder, also when that is linked to the brain's); brainOnly: in
+    // the brain's skills/ but not loaded until the folder is linked (hoprig workspace link).
+    skills: { count: skills.length, used: skills.filter((x) => x.where === 'claude').length, brainOnly: skills.filter((x) => x.where === 'brain').length, items: skills.slice(0, MAX_LIST) },
     memory: { home: { dir: tilde(homeMem), linked: homeMem === homeMemDir && inBrain(homeMemDir), count: homeItems.length, items: homeItems.slice(0, MAX_LIST) } },
     projects: projectList,
     limits: { maxBytes: MAX_BYTES },

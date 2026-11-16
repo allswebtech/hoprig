@@ -175,8 +175,13 @@ export function frame({ title, place = null, intro = null, page = null, back: pa
           return null;
         }
       }), themeButton())));
-  fill(app, side, h('div.shell-main', h(`main.page${wide ? '.wide' : ''}${fillWindow ? '.fill' : ''}`, head, body)), extra, primary ? go('fab') : null, bottom);
+  const fab = primary ? go('fab') : null;
+  fill(app, side, h('div.shell-main', h(`main.page${wide ? '.wide' : ''}${fillWindow ? '.fill' : ''}`, head, body)), extra, fab, bottom);
   document.body.classList.add('has-nav');
+  // A phone: the floating button covers the right of the screen while the page scrolls under it. Its width goes to
+  // the page (style.css, --fab-w), so the buttons on a card end before it and none of them can be under it.
+  document.body.classList.toggle('has-fab', !!fab);
+  if (fab) requestAnimationFrame(() => fab.offsetWidth && document.body.style.setProperty('--fab-w', `${fab.offsetWidth}px`));
 }
 
 /** A card with an icon, a title and one sentence; `tag` is a small word next to the title. */
