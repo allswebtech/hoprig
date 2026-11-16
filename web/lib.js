@@ -122,6 +122,13 @@ export const closeWindow = () => tellDesktop({ type: 'hoprig:close' });
 export function openApp(app, hash) {
   if (!tellDesktop({ type: 'hoprig:open', app, hash })) location.hash = link(hash);
 }
+/**
+ * Go to page `hash` (written without the computer) in place. Inside the desktop, a window that shows that page
+ * already comes forward instead (one window per session); else this window turns into it, as a page does.
+ */
+export function goTo(hash) {
+  if (!tellDesktop({ type: 'hoprig:goto', hash: link(hash) })) location.hash = link(hash);
+}
 if (BARE) {
   // The desktop gives a window the keyboard (web/desktop/frames.js giveKeys): the page's own place for typing takes
   // it, as a press into it would (the terminal, the editor, a chat's message box). A page still being drawn is

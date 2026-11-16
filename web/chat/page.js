@@ -6,7 +6,7 @@
 // live.mjs). Files dropped anywhere on the page go with the next message.
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
 import { icon } from '../icons.js';
-import { BARE, add, api, closeWindow, confirmSheet, fill, h, isClaudeCard, link, machine, prefs, toast } from '../lib.js';
+import { BARE, add, api, closeWindow, confirmSheet, fill, goTo, h, isClaudeCard, link, machine, prefs, toast } from '../lib.js';
 import { registerPage, registerSessionAction } from '../registry.js';
 import { pageNotify, store } from '../store.js';
 import { forgetHere, named, wayBack, windowWay } from '../trail.js';
@@ -100,7 +100,7 @@ function viewChat({ sub }) {
     async terminal() {
       // A terminal runs the conversation already: that is where it goes on (the server never starts a second one).
       if (v && v.terminal) {
-        if (v.terminal.name) location.hash = link(`#/s/${encodeURIComponent(v.terminal.name)}`);
+        if (v.terminal.name) goTo(`#/s/${encodeURIComponent(v.terminal.name)}`);
         else toast('This conversation runs in a terminal outside the dashboard.', { kind: 'error' });
         return;
       }
@@ -109,7 +109,7 @@ function viewChat({ sub }) {
         const { name, existing } = await api(`${A}/terminal`, {});
         store.refresh();
         if (!existing) forgetHere(); // the chat closes: the terminal goes back to where the chat would have
-        location.hash = link(`#/s/${encodeURIComponent(name)}`);
+        goTo(`#/s/${encodeURIComponent(name)}`);
       } catch (e) {
         toast(failText(e), { kind: 'error' });
       }
@@ -214,7 +214,7 @@ function viewChat({ sub }) {
         h('span', v.terminal.name ? `This conversation runs in the terminal session "${v.terminal.name}". You can read along here; to write, continue it here.` : 'This conversation runs in a terminal outside the dashboard. You can read along here; to write, continue it here.'),
         h('span.chat-banner-actions',
           h('button.btn.small.primary', { type: 'button', onclick: () => act.take() }, 'Continue here'),
-          v.terminal.name ? h('a.btn.small.secondary', { href: link(`#/s/${encodeURIComponent(v.terminal.name)}`) }, 'Open the terminal') : null)) : null,
+          v.terminal.name ? h('a.btn.small.secondary', { href: link(`#/s/${encodeURIComponent(v.terminal.name)}`), onclick: (e) => BARE && (e.preventDefault(), act.terminal()) }, 'Open the terminal') : null)) : null,
       limitCard(v, { id, moveProvider: header.providerMenu }));
     wrap.classList.toggle('chat-no-rewind', !canRewind());
     composer.paint(v);

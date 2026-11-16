@@ -229,6 +229,18 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
       { label: 'Close', icon: 'x', danger: true, run: () => close(v.id) },
     ];
   }
+  /** A window that shows a page goes to `hash` on that page (the editor opens a file of its folder in place). */
+  function navigate(id, hash) {
+    const v = byId(id);
+    if (!v || !v.frame) return false;
+    try {
+      v.frame.contentWindow.location.hash = hash;
+    } catch {
+      return false;
+    }
+    focus(id);
+    return true;
+  }
   function reload(id) {
     const v = byId(id);
     if (v && v.native) v.native.reload();
@@ -265,6 +277,12 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     else if (e.data.type === 'hoprig:logged-out') location.href = '/login';
     else if (e.data.type === 'hoprig:close') close(v.id); // its session ended on the window's start page
     else if (e.data.type === 'hoprig:open' && APP_IDS.has(e.data.app) && /^#\/[^\s<>"']{0,2000}$/.test(e.data.hash || '')) launch(e.data.app, e.data.hash); // Show in Files
+    else if (e.data.type === 'hoprig:goto' && /^#\/[^\s<>"']{0,2000}$/.test(e.data.hash || '')) {
+      // A chat's "Open the terminal": the window that shows that session comes forward, else this one goes there.
+      const there = wins.find((w) => w !== v && !w.native && samePlace(w.hash, e.data.hash));
+      if (there) raise(there.id);
+      else navigate(v.id, e.data.hash);
+    }
   };
   // The keyboard went into a window's page (Tab, or a press the shield did not take): that window comes forward.
   const onBlur = () => setTimeout(() => {
@@ -342,18 +360,7 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     toggleMax,
     setSnap,
     reload,
-    /** A window that shows a page goes to `hash` on that page (the editor opens a file of its folder in place). */
-    navigate(id, hash) {
-      const v = byId(id);
-      if (!v || !v.frame) return false;
-      try {
-        v.frame.contentWindow.location.hash = hash;
-      } catch {
-        return false;
-      }
-      focus(id);
-      return true;
-    },
+    navigate,
     /** Files with unsaved changes in all the windows. */
     unsaved: () => wins.reduce((n, v) => n + unsavedOf(v), 0),
     /** The windows in the order they were opened, for the bars: { id, app, title, min, focused }. */
