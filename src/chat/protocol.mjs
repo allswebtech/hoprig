@@ -4,15 +4,33 @@
 // Checked on Claude Code 2.1.325 against a stand-in Messages API (no model, no quota) and once against a real model:
 //   --permission-prompt-tool stdio   a tool use that needs the owner's OK arrives on stdout as
 //       {"type":"control_request","request_id":R,"request":{"subtype":"can_use_tool","tool_name","input",
-//        "tool_use_id","description","permission_suggestions"}}
+//        "tool_use_id","description","permission_suggestions", …}}
 //     and is answered on stdin with
 //       {"type":"control_response","response":{"subtype":"success","request_id":R,
-//        "response":{"behavior":"allow","updatedInput":{…}}}}      or  {"behavior":"deny","message":"…"}
+//        "response":{"behavior":"allow","updatedInput":{…},"updatedPermissions":[…]}}}  or {"behavior":"deny","message":"…"}
 //     This is the channel the Agent SDK's canUseTool callback uses (docs: agent-sdk/typescript, "CanUseTool" and
 //     "PermissionResult"); "stdio" is the value the SDK itself passes. /cli-reference documents the flag only with an
 //     MCP tool, which would need a server of ours in every coding chat; stdio needs nothing more.
+//     An answer of another shape is not asked again: the tool call fails ("invalid permission result").
+//   What still asks in bypassPermissions (everything else runs unasked there, .git/ and .claude/ included):
+//       AskUserQuestion and ExitPlanMode                     "requires_user_interaction": true (the card is the answer)
+//       an ask rule of the settings (permissions.ask)        "decision_reason_type": "rule" (or "matched_ask_rule")
+//       a hook that answers "ask"                            "decision_reason_type": "hook"
+//       a delete that could empty the disk (rm -rf $DIR/*)   "decision_reason_type": "safetyCheck", "classifier_approvable": false
+//       any change after Claude itself entered plan mode     "decision_reason_type": "mode" (EnterPlanMode does not ask;
+//                                                            system/status then reports permissionMode "plan")
+//     A deny rule never asks: Claude Code refuses the call itself, in every mode. Where the settings turn the mode off
+//     (disableBypassPermissionsMode), init reports permissionMode "default" and everything asks as usual.
+//   permission_suggestions are what the terminal's "don't ask again" would add. For an edit they are for the session
+//     ({"type":"setMode","mode":"acceptEdits","destination":"session"}); for a command, an MCP tool or a web page
+//     they name a settings file ({"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"npm view *"}],
+//     "behavior":"allow","destination":"localSettings"}). Sent back with "destination":"session" they hold for the
+//     running process only and nothing is written; a resumed process has forgotten them.
+//     A sensitive file (.git/, .claude/, a shell profile) asks with "decision_reason_type": "safetyCheck" in every
+//     mode but bypassPermissions, also after "acceptEdits" was set (which it still suggests in the default mode).
 //   Stop: {"type":"control_request","request_id":X,"request":{"subtype":"interrupt"}}. Claude Code answers with a
-//     control_response, ends the running tool, and the turn's result has subtype "error_during_execution".
+//     control_response, takes back an OK it still waits for (control_cancel_request), ends the running tool, and the
+//     turn's result has subtype "error_during_execution".
 //   A resumed conversation (--resume <id>) keeps writing the same transcript, <claudeDir>/projects/<slug>/<id>.jsonl,
 //     so a chat opens in the terminal (claude --resume <id>) and the other way round.
 //   total_cost_usd in a result is the conversation's total so far (it carries over a resume); usage is the turn's.
@@ -34,12 +52,82 @@ export function chatArgs({ sessionId, resume = false, permissionMode = null, eff
 const line = (o) => JSON.stringify(o) + '\n';
 /** One message of the owner as a stream-json input line. */
 export const userLine = (text) => line({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: String(text) }] } });
-/** The owner allowed a tool use. `permissions`: rule changes for this session only (Claude Code's own suggestions). */
+/** A tool use is allowed. `permissions`: rule changes for this session only (sessionGrant). */
 export const allowLine = (requestId, input, permissions = null) =>
   line({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow', updatedInput: input, ...(permissions && permissions.length ? { updatedPermissions: permissions } : {}) } } });
 export const denyLine = (requestId, message) =>
   line({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response: { behavior: 'deny', message } } });
 export const interruptLine = (requestId) => line({ type: 'control_request', request_id: requestId, request: { subtype: 'interrupt' } });
+
+// ---------- "allow in this chat" ----------
+
+const GRANT_MAX = 20; // rules or folders in one answer
+
+/**
+ * What "allow in this chat" adds for one ask: Claude Code's own suggestions, for this session only, whatever settings
+ * file they name. Only what makes Claude ask less about the same thing is taken: allow rules, more folders, and
+ * "edits without asking"; never another mode, a deny or ask rule, or a removal. Returns
+ * { updates (for allowLine), atoms (one word per rule, folder and mode, to remember the grant by), edits, text }
+ * or null when there is nothing to offer.
+ */
+export function sessionGrant(suggestions) {
+  const updates = [];
+  const atoms = [];
+  const words = [];
+  for (const s of Array.isArray(suggestions) ? suggestions : []) {
+    if (!s || typeof s !== 'object') continue;
+    if (s.type === 'setMode' && s.mode === 'acceptEdits') {
+      updates.push({ type: 'setMode', mode: 'acceptEdits', destination: 'session' });
+      atoms.push('mode:acceptEdits');
+      words.push('all edits');
+    } else if (s.type === 'addRules' && s.behavior === 'allow' && Array.isArray(s.rules)) {
+      const rules = s.rules.filter((r) => r && typeof r.toolName === 'string' && r.toolName && (r.ruleContent === undefined || typeof r.ruleContent === 'string'))
+        .map((r) => (r.ruleContent === undefined ? { toolName: r.toolName } : { toolName: r.toolName, ruleContent: r.ruleContent }));
+      if (!rules.length || rules.length !== s.rules.length) continue;
+      updates.push({ type: 'addRules', rules, behavior: 'allow', destination: 'session' });
+      for (const r of rules) {
+        atoms.push(`rule:${r.toolName}:${r.ruleContent ?? ''}`);
+        words.push(r.ruleContent === undefined ? r.toolName : `${r.toolName}(${r.ruleContent})`);
+      }
+    } else if (s.type === 'addDirectories' && Array.isArray(s.directories) && s.directories.length && s.directories.every((d) => typeof d === 'string' && d)) {
+      updates.push({ type: 'addDirectories', directories: [...s.directories], destination: 'session' });
+      for (const d of s.directories) {
+        atoms.push(`dir:${d}`);
+        words.push(`the folder ${d}`);
+      }
+    }
+  }
+  if (!updates.length || atoms.length > GRANT_MAX) return null;
+  return { updates, atoms, edits: atoms.every((a) => a === 'mode:acceptEdits'), text: clipText(words.join(', '), 300) };
+}
+
+// Claude Code marks these two itself (requires_user_interaction); their names hold where a version does not.
+const isQuestion = (ask) => ask.interactive || ask.tool === 'AskUserQuestion' || ask.tool === 'ExitPlanMode';
+
+/**
+ * Why an ask is the owner's to answer even where the chat answers by itself (bypassPermissions), or null:
+ *   "question"  the card is the answer (a question to the owner, a plan to approve): never a permission
+ *   "rule"      the owner's own settings say "ask" for this
+ *   "hook"      a hook of the owner's setup says a person must look
+ *   "safety"    Claude Code's stop before a delete that could empty the disk or the home folder
+ */
+export function ownerOnly(ask) {
+  if (isQuestion(ask)) return 'question';
+  if (ask.ruleForced) return 'rule';
+  if (ask.reasonType === 'hook') return 'hook';
+  if (ask.manualOnly) return 'safety';
+  return null;
+}
+
+/** One line for the card: why Claude Code asks, where that is not plain from the request itself. */
+export function askWhy(ask) {
+  if (isQuestion(ask)) return '';
+  if (ask.ruleForced) return 'Your permission settings say to ask for this.';
+  if (ask.reasonType === 'hook') return `A hook asks for your OK${ask.reason ? `: ${ask.reason}` : '.'}`;
+  if (ask.reasonType === 'mode') return 'Claude is in plan mode, where it asks before it changes anything.';
+  if (ask.reasonType === 'safetyCheck' || ask.reasonType === 'workingDir' || ask.manualOnly) return ask.reason;
+  return '';
+}
 
 // ---------- what the page shows ----------
 
@@ -63,6 +151,9 @@ export function clipInput(v, depth = 0) {
   }
   return v;
 }
+
+/** Text of Claude Code or a hook for the page: no escape sequences or other control characters, one line, cut. */
+const plainText = (s, max) => (typeof s === 'string' ? s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0, max) : '');
 
 const resultText = (content) => {
   if (typeof content === 'string') return content;
@@ -119,8 +210,10 @@ const usageOf = (u) => (u && typeof u === 'object'
  * One stdout line of the live process → events. Subagents' messages (parent_tool_use_id set) are left out: the
  * page shows the main conversation, with the subagent as one tool call. Never throws; unknown lines give [].
  *   { kind: "init", sessionId, model, permissionMode }
+ *   { kind: "mode", permissionMode }   the mode changed while it runs (Claude entered or left plan mode)
  *   { kind: "text", text } · { kind: "tool", id, name, input, full } · { kind: "result", id, isError, text }
- *   { kind: "ask", request, tool, title, description, input, full, suggestions }   a tool use waits for the owner's OK
+ *   { kind: "ask", request, tool, title, description, input, full, suggestions,    a tool use waits for an OK
+ *     interactive, reasonType, reason, ruleForced, manualOnly, noAlways }           (ownerOnly, askWhy read these)
  *   { kind: "ask-cancelled", request }
  *   { kind: "retry", attempt, error }
  *   { kind: "done", ok, subtype, error, costUsd, usage, durationMs }
@@ -135,6 +228,7 @@ export function parseLine(raw) {
   }
   if (!m || typeof m !== 'object') return [];
   if (m.type === 'system' && m.subtype === 'init') return [{ kind: 'init', sessionId: m.session_id || null, model: m.model || null, permissionMode: m.permissionMode || null }];
+  if (m.type === 'system' && m.subtype === 'status' && typeof m.permissionMode === 'string') return [{ kind: 'mode', permissionMode: m.permissionMode }];
   if (m.type === 'system' && m.subtype === 'api_retry') return [{ kind: 'retry', attempt: m.attempt ?? null, error: String(m.error || 'unknown') }];
   if (m.parent_tool_use_id) return [];
   if (m.type === 'assistant' && m.message) return assistantEvents(m.message.content);
@@ -145,6 +239,12 @@ export function parseLine(raw) {
       kind: 'ask', request: String(m.request_id), tool: String(r.tool_name || 'tool'), title: String(r.title || r.display_name || r.tool_name || 'tool'),
       description: typeof r.description === 'string' ? r.description.slice(0, 300) : '', input: clipInput(r.input || {}), full: r.input || {},
       toolUseId: r.tool_use_id || null, suggestions: Array.isArray(r.permission_suggestions) ? r.permission_suggestions : [],
+      interactive: r.requires_user_interaction === true,
+      reasonType: typeof r.decision_reason_type === 'string' ? r.decision_reason_type : null,
+      reason: plainText(r.decision_reason, 300),
+      ruleForced: r.decision_reason_type === 'rule' || (!!r.matched_ask_rule && typeof r.matched_ask_rule === 'object'),
+      manualOnly: r.classifier_approvable === false,
+      noAlways: r.suppress_always_allow_rule === true,
     }];
   }
   if (m.type === 'control_cancel_request' && m.request_id) return [{ kind: 'ask-cancelled', request: String(m.request_id) }];

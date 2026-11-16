@@ -13,6 +13,7 @@ let all = null;
 let error = null;
 let timer = null;
 let inflight = null;
+let again = false; // refresh() was asked for while a look was under way: what that look read may already be old
 let lastKeys = null; // session name → state key, for spotting changes
 let unread = 0;
 
@@ -60,7 +61,10 @@ export const store = {
 
 async function refresh() {
   clearTimeout(timer);
-  if (inflight) return inflight;
+  if (inflight) {
+    again = true;
+    return inflight;
+  }
   inflight = (async () => {
     try {
       const next = (await api('~/api/machines/sessions')).machines.map(tag);
@@ -74,7 +78,8 @@ async function refresh() {
     }
     inflight = null;
     for (const fn of listeners) fn(store.data, error);
-    timer = setTimeout(refresh, document.visibilityState === 'visible' ? 3000 : 15000);
+    timer = setTimeout(refresh, again ? 0 : document.visibilityState === 'visible' ? 3000 : 15000);
+    again = false;
   })();
   return inflight;
 }

@@ -2,6 +2,21 @@
 // terminal. One long-lived process per open chat, started on the first message and stopped after a quiet while; the
 // next message starts it again with --resume, so nothing but the process is lost.
 //
+// Who answers when Claude Code asks for an OK (protocol.mjs lists when it asks):
+//   - bypassPermissions ("Run anything without asking"): the chat allows it at once, with no card and no "needs your
+//     OK". Claude Code itself runs nearly everything unasked in that mode; what it still asks about (a change after it
+//     entered plan mode by itself, mostly) is not the owner's to click through. Three things stay the owner's, because
+//     they are his own word or cannot be taken back: a question to him or a plan to approve (never a permission), what
+//     his own settings insist on (an "ask" rule, a hook that says ask), and Claude Code's stop before a delete that
+//     could empty the disk. A deny rule of his settings stays denied: Claude Code refuses it without asking anyone.
+//     This holds only while Claude Code itself reports the mode (init): where the settings turn it off, cards show.
+//   - every other mode: a card. "Allow in this chat" adds Claude Code's own suggestion for the running process and
+//     is remembered in the chat (grants), so the same ask after the process started again (a quiet while, another
+//     model or provider, a dashboard restart) is answered from it instead of being shown again. Only an ask that
+//     such a rule settles is answered that way (SETTLED_BY_RULE). Claude Code's check of a sensitive file (.git/,
+//     .claude/, a shell profile) goes on asking whatever was allowed, so its card offers no "in this chat" and is
+//     always shown.
+//
 // What the page shows is a list of events (protocol.mjs parseLine), numbered from 0. When the transcript changed
 // without this process (a terminal ran the conversation meanwhile), the list is read again from the transcript and
 // `epoch` changes, so the page starts over.
@@ -13,7 +28,7 @@ import path from 'node:path';
 import { claudeCommand, providerEnv } from '../assistant/engine.mjs';
 import { modelArgs } from '../launch.mjs';
 import { projectDir } from '../sessions.mjs';
-import { allowLine, chatArgs, denyLine, interruptLine, newTodos, parseLine, todoStep, transcriptEvents, userLine } from './protocol.mjs';
+import { allowLine, askWhy, chatArgs, denyLine, interruptLine, newTodos, ownerOnly, parseLine, sessionGrant, todoStep, transcriptEvents, userLine } from './protocol.mjs';
 
 export const EVENTS_MAX = 5000; // kept in memory; the page asks for the last few hundred at a time
 export const IDLE_MS = 20 * 60_000; // a process with nothing to do is stopped after this (the next message resumes)
@@ -26,12 +41,18 @@ export const WINDOW_MAX = 400; // the most events one answer to the page carries
 const LIMIT_ERRORS = new Set(['rate_limit', 'billing_error']);
 const LIMIT_TEXT = /usage limit|limit reached|rate.?limit|out of (credit|quota)|credit balance/i;
 
+const GRANTS_MAX = 500; // what "allow in this chat" covered, kept per chat (the oldest go first)
+// The reasons (decision_reason_type) of an ask that a rule of the session settles for good, as seen on Claude Code:
+// none (an edit, a web page, an MCP tool), "other" (a command), "workingDir" (a path outside the project). An ask
+// with any other reason is never answered from what the chat remembers: its card is shown.
+const SETTLED_BY_RULE = new Set([null, 'other', 'workingDir']);
+
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const strip = ({ full, ...rest }) => rest; // the full tool input stays on the server (an answer needs it), not in the list
 
 export class Chat extends EventEmitter {
   /**
-   * o: { id, cwd, profile, model, effort, permissionMode, title, openedAt, costTotal,
+   * o: { id, cwd, profile, model, effort, permissionMode, title, openedAt, costTotal, grants,
    *      resolveEnv(profile) (tests), command { command, args } (tests: instead of claude), spawnImpl (tests) }
    */
   constructor(o) {
@@ -53,6 +74,10 @@ export class Chat extends EventEmitter {
     this.epoch = crypto.randomInt(1, 2 ** 40);
     this.todos = newTodos();
     this.pending = new Map(); // request id → the ask event (with the full input)
+    // What "allow in this chat" covered so far (sessionGrant atoms). Claude Code forgets it with the process.
+    this.grants = new Set((Array.isArray(o.grants) ? o.grants : []).filter((g) => typeof g === 'string').slice(-GRANTS_MAX));
+    this.liveMode = null; // the permission mode Claude Code reports for the running process
+    this.bypass = false; // … and whether that process was started in bypassPermissions (the chat answers then)
     this.state = 'idle'; // idle | working
     this.statusAt = Date.now();
     this.child = null;
@@ -185,6 +210,8 @@ export class Chat extends EventEmitter {
     const plan = this.o.command ? { command: this.o.command.command, args: [...this.o.command.args, ...args], options: {} } : claudeCommand(args, env);
     const child = (this.o.spawnImpl || spawn)(plan.command, plan.args, { cwd: this.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...plan.options });
     this.child = child;
+    this.liveMode = null;
+    this.bypass = false; // until this process says so itself (init)
     let buf = '';
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (d) => {
@@ -252,6 +279,12 @@ export class Chat extends EventEmitter {
     switch (ev.kind) {
       case 'init':
         this.liveModel = ev.model;
+        this.liveMode = ev.permissionMode;
+        this.bypass = ev.permissionMode === 'bypassPermissions';
+        this.emit('status');
+        return;
+      case 'mode': // Claude entered or left plan mode: the process is still the one that was started in its mode
+        this.liveMode = ev.permissionMode;
         this.emit('status');
         return;
       case 'text':
@@ -264,14 +297,23 @@ export class Chat extends EventEmitter {
         this.push(strip(ev));
         return;
       case 'ask': {
-        this.pending.set(ev.request, ev);
-        // The page gets the input to show and whether "allow in this chat" exists; Claude Code's rule suggestions
-        // and the full input stay here (an answer needs them).
-        const { full, suggestions, ...shown } = ev;
-        // What "allow in this chat" would do: Claude Code's own suggestion for this session (never a settings file).
-        const session = suggestions.filter((x) => x && x.destination === 'session');
-        const always = !session.length ? null : session.every((x) => x.type === 'setMode' && x.mode === 'acceptEdits') ? 'edits' : 'rule';
-        this.push({ ...shown, canAlways: !!always, always });
+        const owner = ownerOnly(ev);
+        // What "allow in this chat" would add. Not offered where the answer must be the owner's each time, nor on
+        // Claude Code's check of a sensitive file: it suggests "edits without asking" there too, and asks again
+        // for the next such file all the same.
+        const grant = owner || ev.noAlways || ev.reasonType === 'safetyCheck' ? null : sessionGrant(ev.suggestions);
+        // No card: the mode allows everything, or the owner already allowed exactly this for the chat and only the
+        // process is new (it gets the rule again with the answer).
+        const allowedBefore = !!grant && SETTLED_BY_RULE.has(ev.reasonType) && grant.atoms.every((a) => this.grants.has(a));
+        if (!owner && (this.bypass || allowedBefore)) {
+          this.#write(allowLine(ev.request, ev.full, this.bypass ? null : grant.updates));
+          return;
+        }
+        this.pending.set(ev.request, { ...ev, grant });
+        // The page gets the input to show and what "allow in this chat" covers; Claude Code's suggestions and the
+        // full input stay here (an answer needs them).
+        const { full, suggestions, interactive, reasonType, reason, ruleForced, manualOnly, noAlways, ...shown } = ev;
+        this.push({ ...shown, why: askWhy(ev), canAlways: !!grant, always: grant ? (grant.edits ? 'edits' : 'rule') : null, alwaysText: grant && !grant.edits ? grant.text : '' });
         this.#setState(this.state);
         return;
       }
@@ -354,14 +396,19 @@ export class Chat extends EventEmitter {
     if (!ask) throw fail(409, 'that question was already answered');
     if (a.allow) {
       const input = ask.tool === 'AskUserQuestion' && a.answers ? { ...ask.full, answers: a.answers } : ask.full;
-      const rules = a.always ? ask.suggestions.filter((s) => s && s.destination === 'session') : null;
-      this.#write(allowLine(request, input, rules));
+      const grant = a.always ? ask.grant : null;
+      this.#write(allowLine(request, input, grant ? grant.updates : null));
+      if (grant) {
+        for (const g of grant.atoms) this.grants.add(g);
+        for (const g of [...this.grants].slice(0, Math.max(0, this.grants.size - GRANTS_MAX))) this.grants.delete(g);
+        this.emit('record'); // kept with the chat (feature.mjs saves the open chats)
+      }
     } else {
       const why = a.message ? `: ${a.message}` : '.';
       this.#write(denyLine(request, `The user said no to this ${ask.tool} call in the dashboard${why} Do not do it another way; wait for the user to say how to go on.`));
     }
     this.pending.delete(request);
-    this.push({ kind: 'answer', request, allow: !!a.allow, always: !!(a.allow && a.always) });
+    this.push({ kind: 'answer', request, allow: !!a.allow, always: !!(a.allow && a.always && ask.grant) });
     this.#setState(this.state);
   }
 
@@ -483,7 +530,7 @@ export class Chat extends EventEmitter {
   record() {
     return {
       id: this.id, cwd: this.cwd, profile: this.profile, model: this.model, effort: this.effort, permissionMode: this.permissionMode,
-      title: this.title, openedAt: this.openedAt, costTotal: this.costTotal,
+      title: this.title, openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
     };
   }
 }
