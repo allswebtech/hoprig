@@ -316,6 +316,18 @@ test('a schedule that starts a terminal checks its provider again when it runs, 
   // When saved: the chat's tool decides which providers fit.
   assert.throws(() => a.checks.profileOk('sub', 'opencode'), /cannot be used for OpenCode/);
   assert.equal(a.checks.profileOk('auto', 'opencode'), false);
+  // A start on a conversation that runs already says where it runs, in words Activity shows: a terminal outside the
+  // dashboard has no name.
+  const SID = '33333333-3333-4333-8333-333333333333';
+  for (const [existing, words] of [
+    [{ chat: 'c1' }, /^a chat runs its conversation now$/],
+    [{ terminal: { name: 'api' } }, /^the terminal session "api" runs its conversation now$/],
+    [{ terminal: { name: null } }, /^a terminal outside the dashboard runs its conversation now$/],
+  ]) {
+    const busy = serverAdapter(sctx, { log: () => {}, chat: { startTerminal: async () => ({ existing }) } });
+    await assert.rejects(busy.deck.start({ dir: box.root, profile: 'sub', mode: 'move', sessionId: SID }), (e) => words.test(e.message) && e.existing === existing);
+  }
+  assert.equal(created.length, 1, 'nothing more started');
 });
 
 test('OpenCode\'s conversations of one folder only, though its server lists every folder\'s', async () => {

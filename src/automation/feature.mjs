@@ -86,7 +86,11 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
         // (a message sent right after a restart, before this terminal reports it, must find it too). A fresh start
         // under the id of a conversation nobody typed into goes through the same claim.
         const r = await chat.startTerminal(sessionId, go);
-        if (r.existing) throw Object.assign(new Error(r.existing.chat ? 'a chat runs its conversation now' : `the terminal session "${r.existing.terminal.name}" runs its conversation now`), { existing: r.existing });
+        if (r.existing) {
+          // Read on Automations → Activity. A terminal outside the dashboard has no name here.
+          const where = r.existing.chat ? 'a chat' : r.existing.terminal.name ? `the terminal session "${r.existing.terminal.name}"` : 'a terminal outside the dashboard';
+          throw Object.assign(new Error(`${where} runs its conversation now`), { existing: r.existing });
+        }
         return r.name;
       },
       async send(name, text) {
