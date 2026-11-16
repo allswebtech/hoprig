@@ -98,6 +98,17 @@ test('demo: free port, own temp folder, one-time sign-in link, sample data, clea
       if (!end) await new Promise((r) => setTimeout(r, 250));
     }
     assert.equal(end && end.error, 'OpenCode could not start: OpenCode does not run in the demo. On your own computer it runs as Claude Code does here.');
+    // A chat in another project gets the short demo reply, never the cart story (no cart there).
+    const api = path.join(root, 'home', 'Workspace', 'projects', 'api-server');
+    const other = await (await fetch(`${url}/api/chats`, { method: 'POST', headers: auth, body: JSON.stringify({ dir: api, tool: 'claude', profile: 'max', text: 'hello' }) })).json();
+    assert.ok(other.id, JSON.stringify(other));
+    let evs = [];
+    for (let i = 0; i < 80 && !evs.some((e) => e.kind === 'turn-end'); i++) {
+      evs = (await get(`/api/chats/${other.id}?from=0`)).events;
+      if (!evs.some((e) => e.kind === 'turn-end')) await new Promise((r) => setTimeout(r, 250));
+    }
+    assert.ok(evs.some((e) => e.kind === 'text' && /This chat talks to no model/.test(e.text)), JSON.stringify(evs));
+    assert.ok(!evs.some((e) => e.kind === 'tool'), 'no Read, no Edit, no OK of a cart that is not there');
 
     await hooks.stop();
     assert.equal(fs.existsSync(root), false, 'its folder is removed');

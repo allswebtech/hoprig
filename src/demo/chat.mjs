@@ -80,6 +80,16 @@ const todos = (done) => [
   { content: 'Round once, after the discount', status: done > 1 ? 'completed' : done === 1 ? 'in_progress' : 'pending', activeForm: 'Rounding once, after the discount' },
   { content: 'Run the tests', status: done > 2 ? 'completed' : done === 2 ? 'in_progress' : 'pending', activeForm: 'Running the tests' },
 ];
+const OLD = '  const sum = items.reduce((s, i) => s + Math.round(i.price * i.qty * 100) / 100, 0);\n  return sum * (1 - discount);';
+// The story is told once: to a new conversation (not one resumed after an idle stop, a restart or a model change)
+// in the folder whose cart still has the bug. Anywhere else, and after it, the short demo reply.
+const storyHere = () => {
+  try {
+    return !val('--resume') && fs.readFileSync(path.resolve(FILE), 'utf8').includes(OLD);
+  } catch {
+    return false; // no cart here (another project)
+  }
+};
 let told = 0;
 async function story() {
   out({ type: 'system', subtype: 'session_title_changed', title: 'Fix the cart total with a discount', session_id: sessionId });
@@ -93,7 +103,7 @@ async function story() {
   await assistant([{ type: 'text', text: 'Found it: `cartTotal` rounds every line, and only then takes the discount off. With a 15 % discount that loses a cent now and then. I will round once, at the end.' }]);
   id = await tool('TodoWrite', { todos: todos(1) });
   user([{ type: 'tool_result', tool_use_id: id, content: 'Todos have been modified successfully.' }]);
-  const old = '  const sum = items.reduce((s, i) => s + Math.round(i.price * i.qty * 100) / 100, 0);\n  return sum * (1 - discount);';
+  const old = OLD;
   const now = '  const sum = items.reduce((s, i) => s + i.price * i.qty, 0);\n  return Math.round(sum * (1 - discount) * 100) / 100;';
   id = await tool('Edit', { file_path: file, old_string: old, new_string: now });
   if (before.includes(old)) fs.writeFileSync(file, before.replace(old, now));
@@ -131,7 +141,7 @@ async function pump() {
     init();
     if (replay) out({ type: 'user', message: { role: 'user', content: m.content }, parent_tool_use_id: null, session_id: sessionId, uuid: m.uuid, isReplay: true });
     record('user', m.content, m.uuid ? { uuid: m.uuid } : {});
-    if (told++ === 0) await story();
+    if (told++ === 0 && storyHere()) await story();
     else await assistant([{ type: 'text', text: '(demo) This chat talks to no model. In a real chat, Claude Code answers here.' }]);
     result();
   }
