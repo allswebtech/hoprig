@@ -37,7 +37,7 @@ import { sendNotification } from '../server/notify.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 import { capture, showCommand, stream, which } from '../setup/system.mjs';
 import { addonsDir, alive, binDir, dashboardPort, findBin, fixedRestore, hasPassword, patchFor, quickStateFile, restoreFor, writeAtomic } from './cloudflared.mjs';
-import { attach, detach, fixedActions, fixedStatus } from './fixedlink.mjs';
+import { attach, detach, fixedActions, fixedCloseOpenedBy, fixedStatus } from './fixedlink.mjs';
 import { checkPort, exposureQuestion, serviceLogin } from './localservice.mjs';
 
 export { findBin, patchFor, restoreFor };
@@ -232,8 +232,11 @@ async function quickTunnel(bin, toPort, log, waitMs) {
   return { ok: false, error: `${seen.url ? 'cloudflared got an address but could not connect to Cloudflare' : 'cloudflared gave no address'}${why ? `: ${why}` : ''} (its log: ${log})` };
 }
 
-/** Start the tunnel in the background and wait for its address. Never called by itself: only by the owner. */
-async function start({ waitMs = 60_000, notify = notifyNewAddress } = {}) {
+/**
+ * Start the tunnel in the background and wait for its address. Never called by itself: only by the owner, or by a
+ * linked hub with its token (`by`: that token's id, kept so that its revoke stops it; never the token itself).
+ */
+async function start({ waitMs = 60_000, notify = notifyNewAddress, by = null } = {}) {
   const st = readState();
   if (st && alive(st.pid) && st.url) return { ok: true, url: st.url, already: true };
   if (st && !st.restored) undoConfig(st);
@@ -248,7 +251,7 @@ async function start({ waitMs = 60_000, notify = notifyNewAddress } = {}) {
   // The fixed address may be on: then the owner's own trustProxy is in its record, not in the config.
   const { patch, restore } = patchFor(loadConfig().server, t.url, { inherit: fixedRestore() });
   saveConfig(patch);
-  writeAtomic(stateFile(), JSON.stringify({ pid: t.pid, url: t.url, restore, restored: false, started: Date.now() }));
+  writeAtomic(stateFile(), JSON.stringify({ pid: t.pid, url: t.url, restore, restored: false, started: Date.now(), openedBy: by || null }));
   await notify(t.url, 'this dashboard');
   return { ok: true, url: t.url, already: false };
 }
@@ -257,7 +260,7 @@ async function start({ waitMs = 60_000, notify = notifyNewAddress } = {}) {
  * A temporary address for one more local service. Without a sign-in of its own it starts only after a confirm.
  * `fetchImpl`: for tests (the look at the service).
  */
-async function startService({ port: p, confirmed } = {}, { waitMs = 60_000, notify = notifyNewAddress, fetchImpl } = {}) {
+async function startService({ port: p, confirmed } = {}, { waitMs = 60_000, notify = notifyNewAddress, fetchImpl, by = null } = {}) {
   const want = checkPort(p, port());
   if (want.error) return { ok: false, error: want.error };
   const sv = readJson(serviceFile());
@@ -270,7 +273,7 @@ async function startService({ port: p, confirmed } = {}, { waitMs = 60_000, noti
   if (question && confirmed !== true) return { ok: false, confirm: question };
   const t = await quickTunnel(bin, want.port, serviceLog(), waitMs);
   if (!t.ok) return t;
-  writeAtomic(serviceFile(), JSON.stringify({ pid: t.pid, url: t.url, port: want.port }));
+  writeAtomic(serviceFile(), JSON.stringify({ pid: t.pid, url: t.url, port: want.port, openedBy: by || null }));
   await notify(t.url, `port ${want.port}`);
   return { ok: true, url: t.url };
 }
@@ -299,6 +302,25 @@ async function stop() {
   const ok = await stopPid(st.pid);
   undoConfig(st);
   return { ok };
+}
+
+/**
+ * A machine token was revoked (`gone(id)`: that token no longer exists): stop each temporary address it started and
+ * what it opened on the fixed address. What the owner started is never touched. → [{ by, say(who) }] (feature.mjs).
+ */
+async function closeOpenedBy(gone) {
+  const out = [];
+  const st = readState();
+  if (st && alive(st.pid) && gone(st.openedBy)) {
+    await stop();
+    out.push({ by: st.openedBy, say: (who) => `The public link ${who} started was stopped: its token was revoked` });
+  }
+  const sv = readJson(serviceFile());
+  if (sv && alive(sv.pid) && gone(sv.openedBy)) {
+    await stopService();
+    out.push({ by: sv.openedBy, say: (who) => `The temporary address of port ${sv.port} that ${who} started was stopped: its token was revoked` });
+  }
+  return [...out, ...(await fixedCloseOpenedBy(gone))];
 }
 
 /** For `hoprig addons start public-link`: say what it means, and ask, before anything starts. */
@@ -362,5 +384,6 @@ export const publicLink = {
   // The fixed address runs with the dashboard (feature.mjs calls these when it starts and stops).
   attach,
   detach,
+  closeOpenedBy,
   profile: null,
 };

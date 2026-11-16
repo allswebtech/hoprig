@@ -341,7 +341,7 @@ function cancelSignIn() {
 }
 
 /** Step 2: make the tunnel and its DNS record for `hostname`, then turn it on. */
-async function create({ hostname } = {}, { onLine = () => {} } = {}) {
+async function create({ hostname } = {}, { onLine = () => {}, by = null } = {}) {
   let host;
   try {
     host = cleanHostname(hostname);
@@ -379,11 +379,11 @@ async function create({ hostname } = {}, { onLine = () => {} } = {}) {
   }
   writeState({ mode: 'named', hostname: host, tunnelId: id, tunnelName: name, extra: [], enabled: false });
   onLine(`Done: https://${host}`);
-  return turnOn();
+  return turnOn(by);
 }
 
 /** Advanced: a tunnel made in the Cloudflare dashboard, run with its token. Its names are set there. */
-function useToken({ token, hostname } = {}) {
+function useToken({ token, hostname } = {}, { by = null } = {}) {
   let t;
   let host;
   try {
@@ -398,7 +398,7 @@ function useToken({ token, hostname } = {}) {
   prepare();
   writeAtomic(tokenFile(), t.token);
   writeState({ mode: 'token', hostname: host, tunnelId: t.tunnelId, extra: [], enabled: false });
-  return turnOn();
+  return turnOn(by);
 }
 
 /** The config file for this start (the dashboard's port as it is now), then the run. */
@@ -422,15 +422,18 @@ function startRunner() {
   supervisor().run(st.mode === 'token' ? runTokenArgv(bin, configFile(), tokenFile()) : runArgv(bin, configFile(), st.tunnelId), env());
 }
 
-/** Turn it on: the settings change, then it runs (now and at each start of the dashboard). */
-function turnOn() {
+/**
+ * Turn it on: the settings change, then it runs (now and at each start of the dashboard). `by`: the id of the
+ * machine token that turned it on (a linked hub), null for the owner; one that is on already keeps its opener.
+ */
+function turnOn(by = null) {
   const st = readFixed();
   if (!st || !st.mode) return fail('The fixed address is not set up.');
   if (!hasPassword()) return fail('Set a dashboard password first (Settings → Security): the address leads to the sign-in page.');
   if (!st.enabled) {
     const { patch, restore } = patchFor(loadConfig().server, `https://${st.hostname}`, { inherit: quickRestore() });
     saveConfig(patch);
-    writeState({ ...st, enabled: true, restore, restored: false });
+    writeState({ ...st, enabled: true, restore, restored: false, openedBy: by || null });
   }
   startRunner();
   return runnerError ? fail(runnerError) : { ok: true, url: `https://${st.hostname}` };
@@ -443,7 +446,7 @@ async function turnOff() {
   const st = readFixed();
   if (st && st.enabled) {
     if (st.restore && !st.restored) saveConfig(restoreFor(loadConfig().server, st.restore, { keepTrust: !!quickRestore() }));
-    writeState({ ...st, enabled: false, restored: true, pid: null });
+    writeState({ ...st, enabled: false, restored: true, pid: null, openedBy: null });
   }
   return { ok: true };
 }
@@ -471,7 +474,7 @@ async function forget(_body, { onLine = () => {} } = {}) {
 }
 
 /** One more local service under its own name on the same tunnel. Without its own sign-in, only after a confirm. */
-async function addService({ port, hostname, confirmed } = {}, { onLine = () => {}, fetchImpl } = {}) {
+async function addService({ port, hostname, confirmed } = {}, { onLine = () => {}, fetchImpl, by = null } = {}) {
   const st = readFixed();
   if (!st || st.mode !== 'named') return fail(st && st.mode === 'token' ? 'With a tunnel token, add the name in the Cloudflare dashboard (your tunnel → Public hostnames).' : 'Set up the fixed address first.');
   const p = checkPort(port, dashboardPort());
@@ -498,7 +501,7 @@ async function addService({ port, hostname, confirmed } = {}, { onLine = () => {
   if (route && route.taken) return fail(`There is already a DNS record for ${host} in Cloudflare. Pick another name, or delete that record in Cloudflare first.`);
   if (!d.ok || !made) return fail(`cloudflared could not point ${host} to the tunnel: ${d.last}`);
   if (made !== host) return fail(`Cloudflare made the record ${made} instead: use a name under the same domain as ${st.hostname}. Delete ${made} in Cloudflare (DNS → Records).`);
-  writeState({ ...readFixed(), extra: [...(st.extra || []), { hostname: host, port: p.port }] });
+  writeState({ ...readFixed(), extra: [...(st.extra || []), { hostname: host, port: p.port, ...(by ? { openedBy: by } : {}) }] });
   if (readFixed().enabled) startRunner();
   return { ok: true, url: `https://${host}` };
 }
@@ -523,6 +526,31 @@ function killLeftover() {
   } catch {
     /* gone, or not ours to read */
   }
+}
+
+/**
+ * A machine token was revoked: `gone(id)` is true for the id of a token that no longer exists. Turns off the fixed
+ * address when such a token turned it on, and removes each service such a token added. What the owner turned on or
+ * added is never touched. → [{ by, say(who) }], one per thing closed.
+ */
+export async function fixedCloseOpenedBy(gone) {
+  const out = [];
+  let st = readFixed();
+  if (!st || !st.mode) return out;
+  const extra = st.extra || [];
+  const dropped = extra.filter((x) => gone(x.openedBy));
+  if (dropped.length) {
+    writeState({ ...st, extra: extra.filter((x) => !dropped.includes(x)) });
+    for (const x of dropped) out.push({ by: x.openedBy, say: (who) => `The service ${x.hostname} that ${who} added to the fixed address was removed: its token was revoked` });
+    st = readFixed();
+    if (st.enabled && !gone(st.openedBy)) startRunner();
+  }
+  if (st.enabled && gone(st.openedBy)) {
+    const by = st.openedBy;
+    await turnOff();
+    out.push({ by, say: (who) => `The fixed address ${who} turned on was turned off: its token was revoked` });
+  }
+  return out;
 }
 
 /** When the dashboard starts: run it if it is on. */
@@ -565,8 +593,8 @@ export const fixedActions = {
   'fixed-sign-in': (b) => signIn(b),
   'fixed-cancel': () => cancelSignIn(),
   'fixed-create': (b, o) => create(b, o),
-  'fixed-token': (b) => useToken(b),
-  'fixed-on': () => turnOn(),
+  'fixed-token': (b, o) => useToken(b, o),
+  'fixed-on': (b, o) => turnOn(o && o.by),
   'fixed-off': () => turnOff(),
   'fixed-forget': (b, o) => forget(b, o),
   'fixed-add-service': (b, o) => addService(b, o),

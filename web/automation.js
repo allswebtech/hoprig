@@ -53,7 +53,7 @@ export function whatText(a, accountLabel = (n) => n) {
 /** The whole schedule as one sentence: "Every day at 08:30, start a session in api-server on Auto mode." */
 export const scheduleSentence = (s, accountLabel) => `${whenText(s.when)}, ${whatText(s.action, accountLabel)}.`;
 
-const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a restart', retry: 'Try again', updates: 'Claude Code versions', idle: 'Housekeeping' };
+const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a restart', retry: 'Try again', updates: 'Claude Code versions', idle: 'Housekeeping', hub: 'Another dashboard' };
 
 /**
  * One line of Activity in plain words: { title, sub, problem } — the title says what happened as a sentence, `problem`
