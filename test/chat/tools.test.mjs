@@ -304,7 +304,8 @@ test('a schedule that starts a terminal checks its provider again when it runs, 
   const created = [];
   const sctx = {
     config: () => ({ server: { roots: [box.root] } }), state: async () => ({ sessions: [] }),
-    deck: { launcher: () => ['hoprig'] }, backend: { list: async () => [], create: async (o) => (created.push(o), { name: o.name }) },
+    // The Deck's create (deck.mjs): a terminal named after `base`, noted when it starts on a conversation.
+    deck: { launcher: () => ['hoprig'], create: async (o) => (created.push(o), o.base) }, backend: { list: async () => [] },
   };
   const a = serverAdapter(sctx, { log: () => {} });
   // Saved while it served Claude Code; now it does not (here: a provider that never did, as after a change).
