@@ -83,6 +83,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     model: '',
     models: null, // the computer's list (GET /api/settings sessionChoices), null until known
     conversation: 'new',
+    dir: null, // the folder open under "Another folder" (its real path), for the Provider list's words
     run: 'chat', // chat | claude (Claude Code in a terminal) | shell (a plain terminal)
     hidden: false,
   };
@@ -135,12 +136,17 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
 
   // ---------- Options ----------
   // What "nothing chosen" means, in the Provider list. The server decides per folder (src/defaultprovider.mjs): the
-  // provider used last in that folder while it can work, else `recLabel` (the computer's default); Auto mode, when on,
-  // everywhere. A chat first takes what the last chat in the project had (`same`).
-  const defaultWords = (m, recLabel, same) => {
-    if (!recLabel) return same || 'The default';
-    const folder = m && m.recommendedIn && !(m.autoSwitch && m.autoSwitch.enabled) ? `the one used last in the folder, else ${recLabel}` : recLabel;
-    return same ? `${same}, else ${folder}` : `The default: ${folder}`;
+  // provider used last in that folder while it can work, else the computer's default; Auto mode, when on, everywhere.
+  // Once a folder is open (Another folder), its own default by name (`recommendedIn`, by real path). A chat first
+  // takes what the last chat in the project had (`same`).
+  const defaultWords = (m, profiles, same) => {
+    const label = (n) => (profiles.find((p) => p.name === n) || {}).label;
+    const rec = m && label(m.recommended);
+    if (!rec) return same || 'The default';
+    const perFolder = m.recommendedIn && !(m.autoSwitch && m.autoSwitch.enabled);
+    const here = perFolder && st.dir ? label(m.recommendedIn[st.dir]) || rec : null;
+    const folder = here || (perFolder ? `the one used last in the folder, else ${rec}` : rec);
+    return same ? `${same}, else ${folder}` : `The default${here ? ' here' : ''}: ${folder}`;
   };
   const select = (label, value, options, onchange, hint) =>
     h('label.fieldrow', h('span.field-label', label),
@@ -149,8 +155,6 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
   function paintOptions() {
     const m = where();
     const profiles = m ? m.profiles.filter(servesClaude) : []; // these sessions are Claude Code's
-    const rec = m && m.recommended;
-    const recLabel = (profiles.find((p) => p.name === rec) || {}).label;
     const chat = st.run === 'chat';
     // Left as it is, a chat takes what the last chat in that project had; a terminal takes Settings.
     const same = chat ? 'As your last chat in the project' : 'As in Settings';
@@ -161,7 +165,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     // A plain terminal runs no Claude: no provider, mode, model or conversation to choose.
     if (st.run === 'shell') return fill(opts, run);
     fill(opts, run,
-      select('Provider', st.profile, [['', defaultWords(m, recLabel, chat ? same : null)], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => (st.profile = v)),
+      select('Provider', st.profile, [['', defaultWords(m, profiles, chat ? same : null)], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => (st.profile = v)),
       select('What Claude may do without asking', st.permissionMode, [['', same], ...Object.entries(MODES)], (v) => (st.permissionMode = v),
         st.permissionMode === 'bypassPermissions' ? 'Claude can run any command and change any file without asking.' : null),
       select('How hard it thinks', st.effort, [['', same], ...Object.entries(EFFORT)], (v) => (st.effort = v)),
@@ -185,6 +189,10 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     : row(f, folderSub(f, projectsShort), () => start(f), f.live ? h('span.badge.soft', 'running') : null));
 
   async function projects() {
+    if (st.dir) {
+      st.dir = null;
+      paintOptions();
+    }
     const m = where();
     const c = m ? can(m) : { ok: true };
     if (m && !c.ok && (m.hub || m.status !== 'online' || claudeOf.get(m.machine || '~') === null)) {
@@ -242,6 +250,8 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
       return failed(e, () => browse(p));
     }
     if (!alive) return;
+    st.dir = d.path;
+    paintOptions();
     const folder = (x) => h('button.row', { type: 'button', onclick: () => browse(x.path) }, h('span.row-icon', icon('folder')), h('span.row-main', h('span.row-title', x.name)), h('span.row-end', icon('chevronRight', { size: 18 })));
     fill(body,
       h('div.crumbbar',
