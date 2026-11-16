@@ -4,6 +4,9 @@
 //
 //   runId      string
 //   pid        the launcher's process id (the file is stale once this process is gone)
+//   proc       the identity of the process that wrote it (procid.mjs: its pid and when it started), so that another
+//              process that has the same pid later (after a reboot) is not taken for it. Absent in records of older
+//              launchers: then a file last written before this boot is stale
 //   profile    profile name
 //   cwd        folder Claude runs in
 //   tmuxPane   $TMUX_PANE ("%3") when started inside tmux, else null
@@ -51,6 +54,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runsDir } from './paths.mjs';
+import { stillOwned, system } from './procid.mjs';
 import { rememberUsage, usageForgotten } from './routerstate.mjs';
 import { readRun, watchFile, writeRun as write } from './runfile.mjs';
 
@@ -65,6 +69,7 @@ export function createRun({ profile, cwd, carryArgs = [], tool = 'claude', conve
   const run = {
     runId,
     pid: process.pid,
+    proc: system.self(),
     profile,
     cwd,
     tmuxPane: process.env.TMUX_PANE || null,
@@ -90,7 +95,7 @@ export function createChatRun({ chat, conversation, tool = 'claude', cwd, profil
   const runId = `${Date.now().toString(36)}-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
   const file = path.join(runsDir(), `${runId}.json`);
   const now = Date.now();
-  const run = { runId, kind: 'chat', chat, pid: process.pid, profile, cwd, sessionId: null, conversation, status: 'working', tool, startedAt: now, statusAt: now };
+  const run = { runId, kind: 'chat', chat, pid: process.pid, proc: system.self(), profile, cwd, sessionId: null, conversation, status: 'working', tool, startedAt: now, statusAt: now };
   fs.mkdirSync(runsDir(), { recursive: true, mode: 0o700 });
   write(file, run);
   return { file, run };
@@ -195,37 +200,51 @@ export function removeRun(file) {
   }
 }
 
-const alive = (pid) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return e.code === 'EPERM';
-  }
-};
+/**
+ * Record `run`, as listed a moment ago, is still its process's: read and judged again as listRuns does (one that is not
+ * any more goes). For the moment before something is done to that process.
+ */
+export function stillRuns(run, ident = system) {
+  const file = path.join(runsDir(), `${path.basename(String(run.runId))}.json`);
+  const now = readRun(file);
+  if (!now || now.pid !== run.pid) return false;
+  if (stillOwned([{ run: now, file }], ident)[0]) return true;
+  removeRun(file);
+  return false;
+}
 
 /**
  * Every live run of a launcher. Files whose process is gone are deleted on the way. `chats`: the records of the
  * dashboard's chat processes too (they run a conversation, but in no terminal). `usage`: each run's plan usage is read
  * and kept for its provider (noteUsage); the readers of "who runs this conversation" need none of it, and leave the
- * provider's store to the dashboard instead of writing it from every launcher and chat start.
+ * provider's store to the dashboard instead of writing it from every launcher and chat start. A record counts while
+ * the process that wrote it runs (procid.mjs stillOwned), not while its pid does. `ident`: procid.mjs makeIdentity.
  */
-export function listRuns({ chats = false, usage: withUsage = true } = {}) {
+export function listRuns({ chats = false, usage: withUsage = true, ident = system } = {}) {
   let names;
   try {
     names = fs.readdirSync(runsDir());
   } catch {
     return [];
   }
-  const runs = [];
+  const read = [];
   for (const f of names) {
     if (!f.endsWith('.json')) continue;
     const file = path.join(runsDir(), f);
     const run = readRun(file);
-    if (!run || !Number.isInteger(run.pid) || !alive(run.pid)) {
+    if (!run || !Number.isInteger(run.pid)) {
       // Leave a file that is being written right now (unparsable for a moment) alone unless it is old.
       const old = (() => { try { return Date.now() - fs.statSync(file).mtimeMs > 60_000; } catch { return false; } })();
       if (run || old) removeRun(file);
+      continue;
+    }
+    read.push({ run, file });
+  }
+  const owned = stillOwned(read, ident); // all pids at once: on Windows asking the system takes most of a second
+  const runs = [];
+  for (const [i, { run, file }] of read.entries()) {
+    if (!owned[i]) {
+      removeRun(file);
       continue;
     }
     if (run.kind === 'chat') {

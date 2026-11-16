@@ -222,9 +222,11 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   // starts nothing: a first message is not sent, a message is refused, and it does not open in a second terminal.
   const { spawn } = await import('node:child_process');
   const { createRun, removeRun, updateRun } = await import('../../src/runs.mjs');
+  const { system } = await import('../../src/procid.mjs');
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   const { file: runFile } = createRun({ profile: 'gw', cwd: proj, tool: 'opencode' });
-  updateRun(runFile, { pid: child.pid, sessionId: SESSION_ID, status: 'working' });
+  // The child's record, as it would write it: its pid and its identity (procid.mjs).
+  updateRun(runFile, { pid: child.pid, proc: system.of([child.pid]).get(child.pid), sessionId: SESSION_ID, status: 'working' });
   try {
     const promptsBefore = s.calls.filter((x) => x.path.endsWith('/prompt')).length;
     r = await owner('POST', '/api/chats', { dir: proj, tool: 'opencode', sessionId: SESSION_ID, text: 'hello' });

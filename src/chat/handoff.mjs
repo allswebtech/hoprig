@@ -9,7 +9,7 @@
 //                                             terminal runs it already → { name, existing: true } (the chat stays)
 import crypto from 'node:crypto';
 import { assertServes, readProfile } from '../profiles.mjs';
-import { listRuns, runsConversation } from '../runs.mjs';
+import { listRuns, runsConversation, stillRuns } from '../runs.mjs';
 import { toolFlags } from '../codetools/start.mjs';
 import { matchRuns, queue } from '../server/deck.mjs';
 import { parentLookup, procParent } from '../server/platform.mjs';
@@ -97,7 +97,9 @@ export function handoffRoutes(ctx, o) {
     if (term.termId) {
       // The terminal stays, as a plain shell: the coding tool stops in it, the conversation goes on here.
       await ctx.backend.respawn(term.termId, term.cwd || c.cwd, [process.execPath, '-e', '']);
-    } else if (term.run && v.pid(term.run.pid)) {
+    } else if (term.run && v.pid(term.run.pid) && stillRuns(term.run)) {
+      // Judged again right before the signal: a record whose process has ended (its pid another process's now) goes
+      // instead, and nothing is sent to that other process.
       try {
         process.kill(term.run.pid, 'SIGTERM'); // the launcher ends the coding tool and removes its run record
       } catch {
