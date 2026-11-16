@@ -103,16 +103,18 @@ test('the table walked: every option it names is allowed; any other option, "--"
   }
 });
 
-test('npm, pnpm, yarn: "test", or "run" with one of the names on the list (and ":" and a plain tail); nothing after it', () => {
+test('npm, pnpm, yarn: "test", or "run" with one of the names on the list exactly, or test:/tests: and a plain tail; nothing after it', () => {
   for (const r of ['npm', 'pnpm', 'yarn']) {
     assert.deepEqual(TABLE[r], { script: true });
-    for (const n of ['test', 'tests', 'lint', 'build', 'typecheck', 'check', 'format', 'test:unit', 'lint:fix-all', 'build:prod_2']) allowed(bash(`${r} run ${n}`), `${r} run ${n}`);
+    for (const n of ['test', 'tests', 'lint', 'build', 'typecheck', 'check', 'test:unit', 'tests:e2e-ci', 'test:Unit_2']) allowed(bash(`${r} run ${n}`), `${r} run ${n}`);
     allowed(bash(`${r} test`), `${r} test`);
     for (const c of [
       'test --', 'test -- --watch', 'test -- --import=data:text/javascript,x', 'test x', 'test --silent', 'run test --', 'run test -- --watch',
       'run test x', 'run test:unit -- --watch', 'run x', 'run e2e-ci', 'run test:', 'run :x', 'run x:', 'run test:a/b', 'run test:a.b', 'run Test',
       'run', 'run -- test', 'run --x', 'run -lint', 'run --script-shell python3 test', 'run --prefix x test', 'run -w x test', 'install', 't',
       'run-script test', 'exec jest', 'test:unit', '--prefix=.. test',
+      // a script that may rewrite the source files: format, and any name other than test/tests with ":x"
+      'run format', 'run lint:fix', 'run lint:fix-all', 'run format:write', 'run build:prod', 'run build:prod_2', 'run check:fix', 'run typecheck:watch', 'run tests:',
     ]) card(bash(`${r} ${c}`), WHY.command, `${r} ${c}`);
   }
 });
@@ -335,6 +337,8 @@ const CHECKS_CARD = [
   'go build std', 'go vet all', 'go test -race all', 'go test ./x@latest', 'go  test', 'go test -run data:x', 'go build -run data:x', 'go vet -run data:x',
   'cargo test -q -q', 'cargo test -p serde', 'cargo build -p openssl-sys', 'cargo test -p data:x', 'cargo build -p data:x', 'cargo check -p data:x',
   'node --test scripts/release.mjs', 'node --test package.json', 'node --test @x',
+  // the check of v4: a script that rewrites source files is not one of the project's checks
+  'npm run format', 'npm run lint:fix', 'npm run format:write', 'npm run build:prod', 'pnpm run lint:fix', 'yarn run format:write', 'npm run build:deploy',
 ];
 const CHECKS_SECRET = ['cat .envrc', 'cat .npmrc', 'head secrets.pem', 'grep token .npmrc', 'git show HEAD:secret.key', 'cat .env.local'];
 const CHECKS_ALLOWED = [
@@ -342,7 +346,7 @@ const CHECKS_ALLOWED = [
   'grep -rn TODO src', 'rg TODO', 'git status', 'git diff', 'git log -p', 'git show HEAD', 'git rev-parse --show-toplevel', 'git describe',
   'git ls-files', 'git blame x', 'npm test', 'npm run test', 'npm run lint', 'npm run test:unit', 'node --test',
   // what the v2 checks tried that stays as it is: a pattern, a revision, a repeated flag, a script name with a tail
-  'grep -e data:x', 'rg -e data:x', 'cat -n -n x', 'git diff a..b', 'git log -5 -n 3', 'npm run build:deploy', 'npm run test:publish', 'yarn run format:write',
+  'grep -e data:x', 'rg -e data:x', 'cat -n -n x', 'git diff a..b', 'git log -5 -n 3', 'npm run test:publish', 'npm run tests:unit',
 ];
 
 // What the v2 checks found in the chat's folder: the folder and the call, a card (or allowed) now.
