@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import { listProfiles, readProfile, servesTools, validName } from '../profiles.mjs';
 import { createRun, removeRun, updateRun } from '../runs.mjs';
 import { codexPlan, opencodePlan, standalonePlan } from './attach.mjs';
-import { findTool } from './index.mjs';
+import { anyTool, findTool, notOffered, offeredOnly } from './index.mjs';
 import { providerModels } from './providers.mjs';
 import { cleanEnv, ensureServer, serverProviders, stopIfUnused } from './servers.mjs';
 import { isToolSessionId } from './stores.mjs';
@@ -80,14 +80,14 @@ async function modelFor(o, profile) {
  * Start Codex or OpenCode under `profileName` in this terminal and follow its status. Resolves to the exit code.
  */
 export async function launchTool(toolId, profileName, args, { cwd = process.cwd(), base = process.env } = {}) {
-  const tool = findTool(toolId);
+  const tool = anyTool(toolId); // toolCommand and the dashboard let only an offered tool through
   const profile = readProfile(profileName);
   if (!profile) {
     console.error(`hoprig: no provider "${profileName}". Add one on the Providers page, or with: hoprig add`);
     return 2;
   }
   if (!servesTools(profile).includes(toolId)) {
-    console.error(`hoprig: the provider "${profile.name}" does not serve ${tool.name} (it works with: ${servesTools(profile).join(', ') || 'no coding tool'}).`);
+    console.error(`hoprig: the provider "${profile.name}" does not serve ${tool.name} (it works with: ${offeredOnly(servesTools(profile)).join(', ') || 'no coding tool'}).`);
     return 2;
   }
   if (!fs.existsSync(tool.binPath())) {
@@ -187,7 +187,7 @@ function runChild([bin, ...args], env, follow, { report }) {
 
 /** `hoprig codex login|logout [args]`: Hoprig's copy of Codex signs in or out (its own sign-in, in its own folder). */
 function codexAccount(word, rest, { base = process.env } = {}) {
-  const tool = findTool('codex');
+  const tool = anyTool('codex');
   if (!tool.installedVersion()) {
     console.error('hoprig: Codex is not installed in Hoprig\'s tools folder. Install it: hoprig tools install codex');
     return Promise.resolve(127);
@@ -202,6 +202,11 @@ function codexAccount(word, rest, { base = process.env } = {}) {
 
 export async function toolCommand(toolId, args) {
   const tool = findTool(toolId);
+  if (!tool) {
+    // The leading word of a tool this version does not offer (src/codetools/index.mjs): one plain sentence.
+    console.error(`hoprig: ${notOffered(toolId)}`);
+    return 2;
+  }
   const [first, ...rest] = args;
   if (toolId === 'codex' && (first === 'login' || first === 'logout')) return codexAccount(first, rest);
   if (first === '--help' || first === '-h' || first === 'help') {
@@ -224,6 +229,6 @@ hoprig codex login [--device-auth] | login status | logout
   if (fit.length === 1) return launchTool(toolId, fit[0].name, args);
   console.error(fit.length
     ? `hoprig: name the provider for ${tool.name}: ${fit.map((p) => p.name).join(', ')} (hoprig ${toolId} <provider>)`
-    : `hoprig: no provider serves ${tool.name} yet. Add an OpenAI key, a gateway, or (Codex) a Codex sign-in on the Providers page, then Test it.`);
+    : `hoprig: no provider serves ${tool.name} yet. Add an OpenAI key or a gateway${toolId === 'codex' ? ', or a Codex sign-in,' : ''} on the Providers page, then Test it.`);
   return 2;
 }

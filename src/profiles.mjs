@@ -173,7 +173,7 @@ export function assertServes(p, tool) {
   const name = TOOL_NAMES[tool] || tool;
   const kind = p ? p.kind || kindOf(p.env || {}, { SIGNIN: p.signin }) : '';
   const why = kind === 'login' || kind === 'subscription' || kind === 'auto' ? 'a Claude subscription is for Claude Code only'
-    : kind === 'chatgpt' ? 'a Codex sign-in is for Codex only'
+    : kind === 'chatgpt' ? 'it is the sign-in of another coding tool'
       : 'it does not answer the API that tool speaks (Test it on the Providers page, or choose another provider)';
   throw Object.assign(new Error(`The provider "${p ? p.label || p.name : '?'}" cannot be used for ${name}: ${why}.`), { status: 400 });
 }

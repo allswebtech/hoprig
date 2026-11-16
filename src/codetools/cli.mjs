@@ -1,14 +1,14 @@
 // `hoprig tools`: the coding tools from the command line.
 //
 //   hoprig tools [status] [--json]          each tool: on or off, installed version, newest version
-//   hoprig tools install <tool> [version]   install it (Codex and OpenCode into Hoprig's tools folder, at the version
+//   hoprig tools install <tool> [version]   install it (OpenCode into Hoprig's tools folder, at the version
 //                                           this Hoprig is tested with unless one is named) and turn it on
 //   hoprig tools update <tool | all>        update it (all: every installed tool with a newer version)
 //   hoprig tools on | off <tool>            turn a tool on or off (which tools the dashboard offers)
 //
 // `hoprig claude status | update | install` stays as it was.
 import { loadConfig, saveConfig } from '../config.mjs';
-import { TOOL_IDS, enabledToolIds, findTool, withTool } from './index.mjs';
+import { TOOL_IDS, enabledToolIds, findTool, notOffered, withTool } from './index.mjs';
 import { readyToReplace } from './servers.mjs';
 
 const USAGE = `usage:
@@ -20,7 +20,7 @@ const USAGE = `usage:
 
 const toolArg = (id, out) => {
   const t = findTool(id);
-  if (!t) out(`"${id || ''}" is not a coding tool: ${TOOL_IDS.join(', ')}`);
+  if (!t) out(notOffered(id || ''));
   return t;
 };
 

@@ -65,7 +65,7 @@ test('which coding tools each provider serves; a Claude sign-in serves Claude Co
 
 test('refused where a tool starts: Claude Code on an OpenAI key or a Codex sign-in; Codex and OpenCode on a subscription', () => {
   assert.throws(() => P.profileEnv(P.readProfile('oai')), /cannot be used for Claude Code: it does not answer/);
-  assert.throws(() => P.profileEnv(P.readProfile('codexin')), /a Codex sign-in is for Codex only/);
+  assert.throws(() => P.profileEnv(P.readProfile('codexin')), /it is the sign-in of another coding tool/);
   assert.throws(() => P.profileEnv(P.readProfile('narrow')), /cannot be used for Claude Code/);
   for (const tool of ['codex', 'opencode']) {
     for (const name of ['sub', 'login']) {
@@ -75,7 +75,7 @@ test('refused where a tool starts: Claude Code on an OpenAI key or a Codex sign-
   assert.throws(() => T.codexArgs(P.readProfile('sub')), /Claude subscription/);
   assert.throws(() => T.opencodeConfig(P.readProfile('sub')), /Claude subscription/);
   assert.throws(() => T.codexArgs(P.readProfile('claudekey')), /cannot be used for Codex/, 'Claude\'s API only: no Responses API');
-  assert.throws(() => T.toolEnv('opencode', P.readProfile('codexin')), /Codex sign-in is for Codex only/);
+  assert.throws(() => T.toolEnv('opencode', P.readProfile('codexin')), /it is the sign-in of another coding tool/);
   assert.equal(P.profileEnv(P.readProfile('gw')).ANTHROPIC_AUTH_TOKEN, KEY, 'a gateway that answers Claude\'s API still serves Claude Code');
 });
 
