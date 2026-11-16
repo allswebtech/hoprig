@@ -143,12 +143,16 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   assert.equal(hist.tool, 'opencode');
   assert.deepEqual(hist.conversations.map((c) => [c.id, c.current]), [[SESSION_ID, true]]);
   // One place at a time: the conversation the chat runs is not started in a terminal too (resumed, or the folder's
-  // newest continued), so a terminal never changes the rules the chat keeps on it.
+  // newest continued), so a terminal never changes the rules the chat keeps on it. The answer is the chat that runs it
+  // (one conversation, one process: src/chat/handoff.mjs claim), as for Claude Code, and no terminal starts.
+  const terminalsNow = async () => (await owner('GET', '/api/state')).json.sessions.filter((x) => x.kind !== 'chat').length;
+  const before = await terminalsNow();
   for (const how of [{ mode: 'resume', sessionId: SESSION_ID }, { mode: 'continue' }]) {
     r = await owner('POST', '/api/sessions', { tool: 'opencode', dir: proj, profile: 'gw', permissionMode: 'bypassPermissions', ...how });
-    assert.equal(r.status, 409, how.mode);
-    assert.match(r.json.error, /open as a chat right now/);
+    assert.equal(r.status, 200, `${how.mode}: ${r.json && r.json.error}`);
+    assert.deepEqual([r.json.chat, r.json.existing, r.json.name], [id, true, undefined], how.mode);
   }
+  assert.equal(await terminalsNow(), before, 'no terminal started');
 
   // The folder keeps its tool: a chat opened there without a choice is OpenCode's, as the last one.
   assert.equal((await owner('POST', `/api/chats/${id}/close`, {})).status, 200);
@@ -203,6 +207,33 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   assert.equal((await owner('GET', `/api/chats/${open}/history`)).status, 200);
   assert.equal(s.calls.filter((x) => x.path.endsWith('/prompt')).length, prompts, 'nothing was sent while it was off');
   assert.equal((await owner('POST', `/api/chats/${open}/close`, {})).status, 200);
+
+  // The other way round: while a terminal runs the OpenCode conversation (its run record, by tool and id), a chat on it
+  // starts nothing: a first message is not sent, a message is refused, and it does not open in a second terminal.
+  const { spawn } = await import('node:child_process');
+  const { createRun, removeRun, updateRun } = await import('../../src/runs.mjs');
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const { file: runFile } = createRun({ profile: 'gw', cwd: proj, tool: 'opencode' });
+  updateRun(runFile, { pid: child.pid, sessionId: SESSION_ID, status: 'working' });
+  try {
+    const promptsBefore = s.calls.filter((x) => x.path.endsWith('/prompt')).length;
+    r = await owner('POST', '/api/chats', { dir: proj, tool: 'opencode', sessionId: SESSION_ID, text: 'hello' });
+    assert.equal(r.status, 200, r.json && r.json.error);
+    assert.deepEqual([r.json.sent, r.json.why], [false, 'a terminal session runs this conversation']);
+    const inTerm = r.json.id;
+    r = await owner('POST', `/api/chats/${inTerm}/send`, { text: 'hello again' });
+    assert.equal(r.status, 409);
+    assert.match(r.json.error, /runs in a terminal outside the dashboard/);
+    r = await owner('POST', `/api/chats/${inTerm}/terminal`, {});
+    assert.equal(r.status, 409, 'not a second terminal');
+    assert.equal(s.calls.filter((x) => x.path.endsWith('/prompt')).length, promptsBefore, 'nothing was sent');
+    // Its page is told that a terminal runs it (here one outside the dashboard: the stand-in has no terminal).
+    assert.equal((await owner('GET', `/api/chats/${inTerm}`)).json.terminal.name, null);
+    assert.equal((await owner('POST', `/api/chats/${inTerm}/close`, {})).status, 200);
+  } finally {
+    removeRun(runFile);
+    child.kill('SIGKILL');
+  }
 
   // A Claude Code conversation older than the newest 50 of the folder still opens as a chat (Tia's ids, a link).
   const { projectDir } = await import('../../src/sessions.mjs');

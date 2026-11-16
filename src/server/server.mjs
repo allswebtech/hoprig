@@ -498,16 +498,16 @@ export function createServer(opts = {}) {
           sid = isToolSessionId(tool, b.sessionId) ? b.sessionId : null;
           if (!sid || !(await listToolSessions(tool, dir)).some((s) => s.id === sid)) throw bad('that conversation is not in this folder');
         }
-        // One conversation runs in one place only, as for Claude Code ("continue": the folder's newest of the tool).
+        // One conversation runs in one place only, as for Claude Code ("continue": the folder's newest of the tool): a
+        // chat or a terminal that runs it already is the answer (chat.startTerminal, by the tool's own records).
         const runs = mode === 'resume' ? sid : mode === 'continue' ? ((await listToolSessions(tool, dir))[0] || {}).id : null;
-        if (runs && chat.running(runs, tool)) throw new HttpError(409, 'this conversation is open as a chat right now; open it in a terminal from the chat');
         let prompt = null;
         if (b.prompt !== undefined && b.prompt !== null) {
           prompt = v.message(b.prompt);
           if (!prompt) throw bad(`the first message must be 1 to ${v.MESSAGE_MAX} bytes`);
         }
         const go = async () => ({ name: await deck.start({ tool, dir, profile, mode, sessionId: sid, prompt, flags: toolFlags(tool, b) }) });
-        const r = sid ? await chat.startTerminal(sid, go, tool) : await go();
+        const r = runs ? await chat.startTerminal(runs, go, tool) : await go();
         if (r.existing) return runsAlready(r.existing, prompt);
         watcher.poke();
         return { name: r.name, tool };
