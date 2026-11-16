@@ -9,7 +9,7 @@
 // by the browser's layout while it is off screen (content-visibility, page-chat.css).
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
 import { icon } from './icons.js';
-import { KIND, add, api, bytes, chooseSheet, confirmSheet, fill, h, link, profileIcon, profileState, prefs, statusPill, toast, url } from './lib.js';
+import { KIND, add, api, bytes, chooseSheet, closeWindow, confirmSheet, fill, h, link, profileIcon, profileState, prefs, statusPill, toast, url } from './lib.js';
 import { mdView } from './mdtext.js';
 import { registerPage, registerSessionAction } from './registry.js';
 import { EFFORT, MODELS } from './sessiondefaults.js';
@@ -364,7 +364,10 @@ function viewChat({ sub }) {
     forgetHere(); // a chat that is not open any more is never a way back
     fill(wrap, bar, h('div.chat-mid', h('div.empty', icon('text', { size: 32 }),
       h('p', 'This chat is not open any more: it was closed, or opened in a terminal.'),
-      h('a.btn.primary', { href: way.hash }, icon(way.label === 'Home' ? 'home' : 'back', { size: 18 }), h('span', way.label === 'Home' ? 'Home' : `Back to ${way.label}`)))));
+      // A window that started on this chat has no page to go back to: it offers to close instead.
+      inWindow === null
+        ? h('button.btn.primary', { type: 'button', onclick: () => closeWindow() }, icon('x', { size: 18 }), h('span', 'Close window'))
+        : h('a.btn.primary', { href: way.hash }, icon(way.label === 'Home' ? 'home' : 'back', { size: 18 }), h('span', way.label === 'Home' ? 'Home' : `Back to ${way.label}`)))));
   }
 
   async function follow() {
@@ -512,7 +515,8 @@ function viewChat({ sub }) {
         await api(`${A}/close`, {});
         store.refresh();
         forgetHere();
-        location.hash = way.hash;
+        if (inWindow !== null) location.hash = way.hash;
+        else if (!closeWindow()) gone();
       } catch (e) {
         toast(e.message, { kind: 'error' });
       }

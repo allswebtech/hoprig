@@ -14,7 +14,7 @@ import { FitAddon } from './vendor/addon-fit/lib/addon-fit.mjs';
 import { Unicode11Addon } from './vendor/addon-unicode11/lib/addon-unicode11.mjs';
 import { icon } from './icons.js';
 import {
-  KIND, api, btn, bytes, chooseSheet, confirmSheet, fill, h, limitBox, needsYou, needsYouFirst, openSheet, permissionActions,
+  KIND, api, btn, bytes, chooseSheet, closeWindow, confirmSheet, fill, h, limitBox, needsYou, needsYouFirst, openSheet, permissionActions,
   link, machine, prefs, profileIcon, profileState, profileText, promptSheet, stateOf, statusPill, switchProfile, toast, url, wsUrl,
 } from './lib.js';
 import { pageNotify, store } from './store.js';
@@ -265,7 +265,10 @@ export function openSession(app, name) {
       const exists = await api(base).then(() => true, (err) => err.status !== 404);
       if (!exists || e.code === 4000) {
         forgetHere();
-        showOverlay(icon('check', { size: 28 }), h('p', 'This session has ended.'), h('a.btn.primary', { href: way.hash }, way.hash === '#/' ? 'Back to sessions' : `Back to ${way.label}`));
+        // A window that started on this session has no page to go back to: it offers to close instead.
+        showOverlay(icon('check', { size: 28 }), h('p', 'This session has ended.'), inWindow === null
+          ? h('button.btn.primary', { type: 'button', onclick: () => closeWindow() }, 'Close window')
+          : h('a.btn.primary', { href: way.hash }, way.hash === '#/' ? 'Back to sessions' : `Back to ${way.label}`));
         return;
       }
       const wait = Math.min(10_000, 500 * 2 ** retry++);
@@ -760,7 +763,9 @@ export function openSession(app, name) {
           toast(`${name} ended`);
           store.refresh();
           forgetHere();
-          location.hash = way.hash;
+          // In a window started on this session the window closes (else the overlay above stays); never Home.
+          if (inWindow !== null) location.hash = way.hash;
+          else closeWindow();
         } catch (e) {
           toast(e.message, { kind: 'error' });
         }

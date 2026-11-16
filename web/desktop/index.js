@@ -26,8 +26,14 @@ export const WIDE = '(min-width: 1024px) and (min-height: 600px)';
 export const STYLES = ['taskbar', 'dock'];
 export const deskStyle = () => (prefs.get('desktop.style', 'taskbar') === 'dock' ? 'dock' : 'taskbar');
 
-/** A new shell on computer `m` in its home folder: its session name. */
-const newShell = (m) => api(at(m, '/api/shells'), {}).then((r) => r.name);
+/**
+ * A new shell on computer `m` in its home folder: its session name. The sessions are read again at once, so its page
+ * knows from the start that it is a plain shell (no quick messages for Claude), not after the next poll.
+ */
+const newShell = (m) => api(at(m, '/api/shells'), {}).then((r) => {
+  store.refresh();
+  return r.name;
+});
 
 /**
  * The icons on the desktop: the pinned apps. One press opens one, as everywhere else in the dashboard (a double
@@ -58,6 +64,11 @@ function desktopIcons(getDesk) {
 async function askCloseShell(v, m) {
   const name = (/\/s\/([A-Za-z0-9_-]{1,40})$/.exec(v.hash) || [])[1];
   if (!name) return 'close';
+  const path = at(m, `/api/sessions/${encodeURIComponent(name)}`);
+  // A shell that has ended already (`exit`, or ended elsewhere) has nothing to keep or to end: the window just
+  // closes. Any other answer (the computer cannot be reached) still asks.
+  const ended = (e) => !!e && e.status === 404;
+  if (await api(path).then(() => false, ended)) return 'close';
   const how = await openSheet({ title: `Close ${v.title || name}?`, subtitle: 'The shell this window started' }, (close) => [
     h('p.sheet-text', 'Closing only the window keeps the shell running on the computer, with whatever runs in it; it stays in Sessions. Ending it stops all of that.'),
     h('div.sheet-actions',
@@ -67,9 +78,10 @@ async function askCloseShell(v, m) {
   ]);
   if (how !== 'end') return how || null;
   try {
-    await api(at(m, `/api/sessions/${encodeURIComponent(name)}/kill`), {});
+    await api(`${path}/kill`, {});
     return 'end';
   } catch (e) {
+    if (ended(e)) return 'end'; // it ended while the sheet was open: what was asked is done
     toast(`The shell was not ended: ${e.message}`, { kind: 'error', ms: 7000 });
     return null;
   }

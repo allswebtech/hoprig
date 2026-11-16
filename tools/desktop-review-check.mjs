@@ -11,7 +11,11 @@
 //             app; a Terminal window has none and no quick messages for Claude; closing a shell's window asks; at the window limit no shell starts
 //   tables    a poll keeps the keyboard on its button and a press that spans it; services in words, asked before
 //             a stop; the scope of a slow answer is dropped; Escape gives the keyboard back; safe sheets
-//   laptop    the Sessions window of another computer's desktop shows that computer's sessions only
+//   ended     a Terminal window whose shell ends (`exit`, End session) offers to close and never turns into Home;
+//             closing the window of a shell that has ended asks nothing
+//   laptop    the Sessions window of another computer's desktop shows that computer's sessions only, has no way back
+//             on its start page and no Get started; a session opened in it leads back to that list
+//   phone     390 × 844, dark: a session page outside the desktop still leads back when its session ends
 //   narrow    1024 × 600: a new Services or Task manager window keeps its buttons inside it
 import { startCheck } from './desktop-check-lib.mjs';
 
@@ -66,6 +70,7 @@ try {
     const ownCount = await store(`(s.all.find((m) => !m.machine) || { sessions: [] }).sessions.length`);
     const shown = await inFrame('sessions', `d.querySelectorAll('article.card').length`);
     check(P, 'it shows this computer\'s sessions only, with no computer chips', shown === ownCount && (await inFrame('sessions', `!d.querySelector('.mchips')`)), `${shown} of ${ownCount}`);
+    check(P, 'it has no Get started (that stays on the dashboard\'s Home)', await inFrame('sessions', `!d.querySelector('.gs-area')`));
     // Open a session in it: the window takes that page's name; its way back says Sessions and leads there.
     await inFrame('sessions', `(d.querySelector('article.card a, article.card[href], article.card') || {}).click && (d.querySelector('article.card a') || d.querySelector('article.card')).click()`);
     check(P, 'a session opened in it names the window after itself', await waitFor(`(() => { const t = document.querySelector('.dwin[data-app="sessions"] .dwin-title').textContent; return t && t !== 'Sessions'; })()`, 8000));
@@ -212,6 +217,78 @@ try {
     await closeAll();
   }
 
+  // ---------- a shell that ends inside its Terminal window ----------
+  if (want('ended')) {
+    const P = 'ended';
+    await open('#/desktop', { w: 1440, h: 900, prefs: { 'desktop.~': null, 'desktop.style': null, 'page.theme': 'light' } });
+    const frameDoc = `document.querySelector('.dwin[data-app="terminal"] iframe').contentDocument`;
+    const frameHash = () => ev(`(() => { const f = document.querySelector('.dwin[data-app="terminal"] iframe'); return f ? f.contentWindow.location.hash : null; })()`);
+    const titles = () => ev(`[...document.querySelectorAll('.dwin-title, .desk-task')].map((e) => e.textContent.trim())`);
+    const newTerminal = async () => {
+      await launch('terminal');
+      await waitFor(`!!document.querySelector('.dwin[data-app="terminal"] iframe')`, 10000);
+      await waitFor(`(() => { const d = ${frameDoc}; return d && d.querySelector('.sessbar') && d.querySelector('.term-overlay.hidden'); })()`, 10000);
+      await sleep(500);
+      return ev(`decodeURIComponent((/\\/s\\/([^/?]+)$/.exec(new URL(document.querySelector('.dwin[data-app="terminal"] iframe').src).hash) || [])[1] || '')`);
+    };
+    const gone = () => waitFor(`!document.querySelector('.dwin[data-app="terminal"]')`, 6000);
+    const noSheet = () => ev(`!document.querySelector('dialog.sheet[open]')`);
+    const noErrorToast = () => ev(`![...document.querySelectorAll('.toast.error')].length`);
+
+    // 1. `exit` typed in the shell: the window offers to close, and stays on its own page.
+    const name1 = await newTerminal();
+    const hash1 = await frameHash();
+    const plainShell = () => ev(`(() => { const d = ${frameDoc}; const q = d.querySelector('.quick'); return !!q && q.classList.contains('hidden'); })()`);
+    check(P, 'a new shell offers no quick messages for Claude from the start', await plainShell());
+    await click(...center(await rectOf(`${winSel('terminal')} .dwin-body`)));
+    await sleep(300);
+    await chrome.send('Input.insertText', { text: 'exit' });
+    await key('Enter', 'Enter', 0, 13);
+    const ended = await waitFor(`(() => { const d = ${frameDoc}; const o = d && d.querySelector('.term-overlay:not(.hidden)'); return o && o.textContent.includes('This session has ended.'); })()`, 10000);
+    check(P, '`exit` in a Terminal window: the window says the session has ended', ended, name1);
+    const offer = await ev(`(() => { const o = ${frameDoc}.querySelector('.term-overlay'); return [...o.querySelectorAll('a, button')].map((b) => b.textContent.trim() + (b.getAttribute('href') ? ' ' + b.getAttribute('href') : '')); })()`);
+    check(P, 'it offers "Close window", not a way to Home', J(offer) === J(['Close window']), J(offer));
+    check(P, 'and still none once it has ended', await plainShell());
+    check(P, 'the window still shows its own session (not Home)', (await frameHash()) === hash1 && !(await titles()).includes('Home'), `${await frameHash()} ${J(await titles())}`);
+    await shot('r6-terminal-ended');
+    await ev(`${frameDoc}.querySelector('.term-overlay button').click()`);
+    check(P, '"Close window" closes it, and asks nothing (the shell is gone)', (await gone()) && (await noSheet()) && (await noErrorToast()));
+
+    // 2. ⋯ → End session inside a Terminal window: the window closes; it never goes to Home.
+    await newTerminal();
+    const seen = [];
+    const watch = setInterval(async () => seen.push(await frameHash().catch(() => null)), 100);
+    await ev(`${frameDoc}.querySelector('.sessbar-end button[title="More for this session"]').click()`);
+    await waitFor(`!!${frameDoc}.querySelector('dialog.sheet[open] button.choice')`);
+    await ev(`[...${frameDoc}.querySelectorAll('dialog.sheet[open] button.choice')].find((b) => b.textContent.includes('End session')).click()`);
+    await waitFor(`!!${frameDoc}.querySelector('dialog.sheet[open] button.btn.danger')`);
+    await ev(`${frameDoc}.querySelector('dialog.sheet[open] button.btn.danger').click()`);
+    const closed2 = await gone();
+    clearInterval(watch);
+    check(P, 'End session in a Terminal window closes the window, asking nothing more', closed2 && (await noSheet()) && (await noErrorToast()));
+    check(P, 'and its page never went to Home on the way', !seen.includes('#/') && !(await titles()).includes('Home'), J([...new Set(seen)]));
+
+    // 3. The window of a shell that ended elsewhere: × closes it at once.
+    const name3 = await newTerminal();
+    await ev(`fetch('/api/sessions/${encodeURIComponent(name3)}/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then((r) => r.status)`);
+    await sleep(800);
+    await click(...center(await rectOf(`${winSel('terminal')} .dwin-btn[data-act="x"]`)));
+    const closed3 = await gone();
+    check(P, '× on the window of a shell that has ended closes it without asking', closed3 && (await noSheet()) && (await noErrorToast()), J(await sheetButtons()));
+    await shot('r6-ended-shell-closed');
+
+    // 4. The shell ends while the "End the shell?" sheet is open: End closes the window, no error.
+    const name4 = await newTerminal();
+    await click(...center(await rectOf(`${winSel('terminal')} .dwin-btn[data-act="x"]`)));
+    await waitFor(`!!document.querySelector('dialog.sheet[open]')`);
+    await ev(`fetch('/api/sessions/${encodeURIComponent(name4)}/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then((r) => r.status)`);
+    await sleep(500);
+    await pressSheet('End the shell');
+    check(P, '"End the shell" for a shell that ended meanwhile closes the window, with no error', (await gone()) && (await noErrorToast()),
+      await ev(`[...document.querySelectorAll('.toast')].map((t) => t.textContent).join(' | ')`));
+    await closeAll();
+  }
+
   // ---------- another computer: its Sessions only ----------
   if (want('laptop')) {
     const P = 'laptop';
@@ -225,8 +302,35 @@ try {
       const got = await inFrame('sessions', `d.querySelectorAll('article.card').length`);
       check(P, 'the Laptop\'s Sessions window shows the Laptop\'s sessions only', got === want2 && got > 0, `${got} of ${want2}`);
       check(P, 'it is called Sessions and has no computer chips', (await ev(`document.querySelector('.dwin[data-app="sessions"] .dwin-title').textContent`)) === 'Sessions' && (await inFrame('sessions', `!d.querySelector('.mchips')`)));
+      const start = await inFrame('sessions', `({ hash: w.location.hash, home: new URLSearchParams(w.location.search).get('home'), back: d.querySelectorAll('.pagehead-back').length, gs: d.querySelectorAll('.gs-area').length, add: (d.querySelector('a.pagehead-primary') || {}).getAttribute && d.querySelector('a.pagehead-primary').getAttribute('href') })`);
+      check(P, 'its start page has no way back: it starts where its page lands', start.hash === '#/' && start.home === '#/' && start.back === 0, J(start));
+      check(P, 'it has no Get started (that is the dashboard\'s, of this computer)', start.gs === 0, J(start));
+      check(P, 'its New session starts on the Laptop', start.add === '#/m/laptop/new', J(start));
       await shot('r4-laptop-sessions');
+      await inFrame('sessions', `(d.querySelector('article.card a') || d.querySelector('article.card')).click()`);
+      check(P, 'a Laptop session opened in it: its way back says "Sessions"', await waitFor(`(() => { const d = document.querySelector('.dwin[data-app="sessions"] iframe').contentDocument; const b = d.querySelector('.pagehead-back, .sessback, .chatback'); return b && b.textContent.trim() === 'Sessions'; })()`, 8000));
+      await inFrame('sessions', `d.querySelector('.pagehead-back, .sessback, .chatback').click()`);
+      await waitFor(`document.querySelector('.dwin[data-app="sessions"] .dwin-title').textContent === 'Sessions'`, 6000);
+      await waitFor(`(() => { const d = document.querySelector('.dwin[data-app="sessions"] iframe').contentDocument; return d.querySelectorAll('article.card').length > 0; })()`, 8000);
+      const back = await inFrame('sessions', `({ hash: w.location.hash, cards: d.querySelectorAll('article.card').length, back: d.querySelectorAll('.pagehead-back').length })`);
+      check(P, 'and leads back to the Laptop\'s list, with no way back there', back.hash === '#/' && back.cards === want2 && back.back === 0, J(back));
     }
+  }
+
+  // ---------- a session page outside the desktop, on a phone: unchanged ----------
+  if (want('phone')) {
+    const P = 'phone';
+    const made = await ev(`fetch('/api/shells', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then((r) => r.json())`);
+    await open('#/workspace', { w: 390, h: 844, mobile: true, theme: 'dark', prefs: { 'page.theme': 'dark' } });
+    await ev(`location.hash = ${J(`#/s/${encodeURIComponent(made.name)}`)}`);
+    await waitFor(`!!document.querySelector('.term-overlay.hidden')`, 10000);
+    await sleep(500);
+    await ev(`fetch('/api/sessions/${encodeURIComponent(made.name)}/kill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then((r) => r.status)`);
+    const shown = await waitFor(`(() => { const o = document.querySelector('.term-overlay:not(.hidden)'); return o && o.textContent.includes('This session has ended.'); })()`, 10000);
+    const offer = await ev(`[...document.querySelectorAll('.term-overlay a, .term-overlay button')].map((b) => [b.textContent.trim(), b.getAttribute('href')])`);
+    check(P, 'outside the desktop an ended session still leads back to where it came from (Workspace)', shown && offer.length === 1 && offer[0][0] === 'Back to Workspace' && offer[0][1] === '#/workspace', J(offer));
+    check(P, 'no sideways scroll', await ev(`document.documentElement.scrollWidth <= innerWidth`));
+    await shot('r7-phone-dark-ended');
   }
 
   // ---------- 1024 × 600: the buttons of a new window inside it ----------

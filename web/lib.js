@@ -112,6 +112,11 @@ export function tellDesktop(msg) {
   if (p) p.postMessage(msg, location.origin);
   return !!p;
 }
+/**
+ * Ask the desktop to close the window this page is in: a session that ended on the window's own start page has no
+ * page left to go back to (trail.js windowWay). False outside a window.
+ */
+export const closeWindow = () => tellDesktop({ type: 'hoprig:close' });
 if (BARE) {
   // The desktop's window keys work while the keyboard is inside a window too (web/desktop/wm.js, onKey).
   window.addEventListener('keydown', (e) => {

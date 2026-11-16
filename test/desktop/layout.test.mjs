@@ -148,7 +148,12 @@ test('the catalog: the computer\'s own apps, each with a known icon and an addre
   assert.equal(appById('settings'), null, 'Settings stays in the dashboard');
   // For another computer every app opens there; a native app as a page lives under the desktop.
   assert.equal(appHash(appById('sessions'), null), '#/');
-  assert.equal(appHash(appById('sessions'), 'laptop'), '#/m/laptop/');
+  // Home is every computer's at once: the router sends "#/m/<pc>/" to "#/", so a window's start page (the way back
+  // in it compares with where its page lands) must be "#/" for any computer; the Sessions app keeps to its computer by
+  // `only`. No app may start at an address the router moves on from.
+  assert.equal(appHash(appById('sessions'), 'laptop'), '#/');
+  assert.equal(onComputer('#/', 'laptop'), '#/');
+  for (const a of APPS.filter((x) => x.kind !== 'terminal')) assert.doesNotMatch(appHash(a, 'laptop'), /^#\/m\/[^/]+\/?$/, a.id);
   assert.equal(appHash(appById('tasks'), null), '#/desktop/tasks');
   assert.equal(appHash(appById('logs'), 'laptop'), '#/m/laptop/desktop/logs');
   assert.equal(onComputer('#/settings/appearance', 'server-1'), '#/m/server-1/settings/appearance');
@@ -156,9 +161,9 @@ test('the catalog: the computer\'s own apps, each with a known icon and an addre
   assert.equal(sessionHash('x', 'laptop'), '#/m/laptop/s/x');
   assert.equal(frameSrc('#/'), '/?bare=1#/');
   // What a window's page is told about its app: where it starts, its name, its computer (lib.js WINDOW reads it).
-  const src = frameSrc('#/m/laptop/s/x', '/', { home: '#/m/laptop/', label: 'Sessions', only: 'laptop' });
+  const src = frameSrc('#/m/laptop/s/x', '/', { home: '#/', label: 'Sessions', only: 'laptop' });
   const q = new URLSearchParams(src.slice(src.indexOf('?'), src.indexOf('#')));
-  assert.deepEqual([q.get('bare'), q.get('home'), q.get('label'), q.get('only')], ['1', '#/m/laptop/', 'Sessions', 'laptop']);
+  assert.deepEqual([q.get('bare'), q.get('home'), q.get('label'), q.get('only')], ['1', '#/', 'Sessions', 'laptop']);
   assert.ok(src.endsWith('#/m/laptop/s/x') && !src.slice(0, src.lastIndexOf('#/m/laptop/s/x')).includes('#'), 'the "#" of home is encoded in the query');
   assert.deepEqual(searchApps('term').map((a) => a.id), ['terminal']);
   assert.equal(searchApps('serv')[0].id, 'services');

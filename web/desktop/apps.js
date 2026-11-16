@@ -23,8 +23,12 @@ export const APPS = [
 export const APP_IDS = new Set(APPS.map((a) => a.id));
 export const appById = (id) => APPS.find((a) => a.id === id) || null;
 
-/** An in-page address of computer `m` (null: this one): "#/x" → "#/m/<m>/x". The same rule as lib.js link(). */
-export const onComputer = (hash, m) => (m ? `#/m/${m}${hash.slice(1)}` : hash);
+/**
+ * An in-page address of computer `m` (null: this one): "#/x" → "#/m/<m>/x", as lib.js link(). Home ("#/") is every
+ * computer's at once and stays "#/": the router sends "#/m/<m>/" there, and a window's start page is the address it
+ * lands on (the Sessions app of another computer keeps to it by `only`, frameSrc).
+ */
+export const onComputer = (hash, m) => (m && hash !== '#/' ? `#/m/${m}${hash.slice(1)}` : hash);
 
 /** The address an app opens at as a page of computer `m`: a page app's own, a native app's under the desktop. */
 export const appHash = (app, m) => onComputer(app.kind === 'native' ? `#/desktop/${app.id}` : app.hash, m);

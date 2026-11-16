@@ -234,7 +234,7 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
     if (onKeyCode(e.code)) e.preventDefault();
   };
-  // A window's page tells the desktop about its keys and about a sign-out (lib.js tellDesktop): only a window of
+  // A window's page tells the desktop about its keys, a sign-out and a close (lib.js tellDesktop): only a window of
   // this desktop, from this same site, is listened to.
   const onMessage = (e) => {
     if (e.origin !== location.origin || !e.data || typeof e.data.type !== 'string') return;
@@ -242,6 +242,7 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
     if (!v) return;
     if (e.data.type === 'hoprig:key' && typeof e.data.code === 'string') onKeyCode(e.data.code, v.id);
     else if (e.data.type === 'hoprig:logged-out') location.href = '/login';
+    else if (e.data.type === 'hoprig:close') close(v.id); // its session ended on the window's start page
   };
   // The keyboard went into a window's page (Tab, or a press the shield did not take): that window comes forward.
   const onBlur = () => setTimeout(() => {
@@ -292,7 +293,8 @@ export function windowManager({ root, area, machineName, onChange = () => {}, as
   const kept = cleanLayout(prefs.get(key, null), APP_IDS);
   for (const k of kept.windows) {
     const app = appById(k.app);
-    const home = k.home || (app.kind === 'page' ? appHash(app, machineName) : app.kind === 'terminal' ? k.hash : null);
+    // A page app starts where its app starts, whatever an older layout kept (it once kept "#/m/<pc>/" for Sessions).
+    const home = app.kind === 'page' ? appHash(app, machineName) : k.home || (app.kind === 'terminal' ? k.hash : null);
     const v = { ...k, home, rect: clampRect(k.rect, size()) };
     zTop = Math.max(zTop, v.z);
     wins.push(v);

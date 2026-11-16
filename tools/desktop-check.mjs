@@ -233,7 +233,8 @@ try {
       await dblclick(...center(await rectOf('.desk-icon[data-app="tasks"]')));
       check(P, 'its apps open for that computer: the Task manager asks the Laptop, through the hub', await waitFor(`performance.getEntriesByType('resource').some((e) => e.name.includes('/m/laptop/api/system/processes')) && document.querySelector('.dwin[data-app="tasks"]').textContent.includes('backup.mjs')`, 12000));
       await dblclick(...center(await rectOf('.desk-icon[data-app="sessions"]')));
-      check(P, 'a page app opens for that computer', await waitFor(`(() => { const f = document.querySelector('.dwin[data-app="sessions"] iframe'); return f && f.contentWindow.location.hash === '#/m/laptop/'; })()`));
+      // Home is every computer's at once (the router lands "#/m/laptop/" on "#/"): the Sessions app keeps to the Laptop by `only`.
+      check(P, 'a page app opens for that computer', await waitFor(`(() => { const f = document.querySelector('.dwin[data-app="sessions"] iframe'); return f && f.contentWindow.location.hash === '#/' && new URLSearchParams(f.contentWindow.location.search).get('only') === 'laptop'; })()`));
       await sleep(1500);
       await shot('5-laptop-desktop');
       await open('#/desktop', { w: 1440, h: 900 });
