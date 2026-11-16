@@ -353,12 +353,28 @@ test('the processes a terminal started: a pid that is another process by the tim
   // again), as procid.mjs would read them from /proc.
   const reused = kid();
   let asked = 0;
-  const ident = { of: (pids) => new Map(pids.map((p) => [p, `L:boot:${asked++ === 0 ? 1000 : 2000}`])) };
+  const ident = { self: () => 'L:boot:1', of: (pids) => new Map(pids.map((p) => [p, `L:boot:${asked++ === 0 ? 1000 : 2000}`])) };
   const { b } = backend('linux', { descendants: async () => [reused.pid], ident });
   await b.create({ name: 'r', dir: '/w' });
   await b.kill('r');
   await tick(200);
   assert.equal(reused.exitCode ?? reused.signalCode, null, 'another process now: no signal');
+  // Gone already when collected (/proc had nothing on it): whoever has its pid after the wait gets no signal either.
+  const later = kid();
+  const goneThen = { self: () => 'L:boot:1', of: (pids) => new Map(pids.map((p) => [p, null])) };
+  const { b: b3 } = backend('linux', { descendants: async () => [later.pid], ident: goneThen });
+  await b3.create({ name: 'g', dir: '/w' });
+  await b3.kill('g');
+  await tick(200);
+  assert.equal(later.exitCode ?? later.signalCode, null, 'gone when collected: no signal');
+  // /proc cannot be read at all: as before, only whether the pid is alive (the terminal's processes still end).
+  const blind = kid();
+  const noProc = { self: () => null, of: (pids) => new Map(pids.map((p) => [p, null])) };
+  const { b: b4 } = backend('linux', { descendants: async () => [blind.pid], ident: noProc });
+  await b4.create({ name: 'n', dir: '/w' });
+  await b4.kill('n');
+  await Promise.race([gone(blind), tick(5000)]);
+  assert.equal(blind.signalCode, 'SIGTERM');
   // The same process at both moments (the real reader): it is ended, as before.
   const same = kid();
   const { b: b2 } = backend('linux', { descendants: async () => [same.pid] });

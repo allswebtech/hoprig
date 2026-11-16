@@ -320,9 +320,10 @@ export class PtyBackend {
       return;
     }
     const kids = await this.descendants(proc.pid);
-    // Who each one is, where that costs nothing (Linux, /proc): one that ends during the wait below and whose pid is
-    // handed out again gets no signal. Elsewhere, as before: only whether its pid is alive.
-    const ids = this.platform === 'linux' && kids.length ? this.ident.of(kids) : null;
+    // Who each one is, where that costs nothing (Linux, /proc, when it can be read): one that ends during the wait below
+    // and whose pid is handed out again gets no signal, nor one that /proc had nothing on (gone already). Elsewhere, as
+    // before: only whether its pid is alive.
+    const ids = this.platform === 'linux' && kids.length && this.ident.self() ? this.ident.of(kids) : null;
     // SIGHUP, as when a terminal window closes: the shell passes it on to its jobs, and Claude saves and exits.
     try {
       proc.kill('SIGHUP');
@@ -338,7 +339,7 @@ export class PtyBackend {
       }
     }
     for (const pid of kids) {
-      if (!alive(pid) || (ids && sameProcess(ids.get(pid), this.ident.of([pid]).get(pid)) === false)) continue;
+      if (!alive(pid) || (ids && (!ids.get(pid) || sameProcess(ids.get(pid), this.ident.of([pid]).get(pid)) === false))) continue;
       try {
         process.kill(pid, done ? 'SIGTERM' : 'SIGKILL');
       } catch {
