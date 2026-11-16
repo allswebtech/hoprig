@@ -76,7 +76,10 @@ export function chatFeature(ctx, o = {}) {
   const memory = folderMemory(() => o.foldersFile || path.join(path.dirname(file()), 'chat-folders.json'));
   // Another coding tool's provider is also kept as that tool's own in the folder (src/defaultprovider.mjs): the next
   // chat of the tool there starts on it even after a chat of another tool (Claude Code's is the launcher's to keep).
-  const remember = (c) => {
+  // Only the owner's own choice is kept: not a change Tia makes (her door), nor anything of a chat that is hers (she
+  // moves it to another provider after a limit; the owner's next chat in the folder must not start there).
+  const remember = (c, req) => {
+    if (c.byTia || (req && fromTia(req))) return;
     memory.remember(c.record());
     if (c.engine.id !== 'claude') rememberFolderProvider(c.cwd, c.profile, c.engine.id);
   };
@@ -438,7 +441,7 @@ export function chatFeature(ctx, o = {}) {
       c.answer(b.request, { allow: b.allow, always: b.always === true, answers, mode, message });
       if (mode) {
         save();
-        remember(c);
+        remember(c, req);
       }
       return { ok: true };
     }],
@@ -456,7 +459,7 @@ export function chatFeature(ctx, o = {}) {
       c.setProfile(b.profile, profileView(b.profile).label); // the owner's name for it in the timeline, not its id
       c.emit('state'); // a page that streams shows the new provider
       save();
-      remember(c);
+      remember(c, req);
       return { profile: profileView(c.profile) };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/upload$`), async (req, m) => {

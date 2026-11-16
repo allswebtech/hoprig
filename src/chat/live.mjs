@@ -47,8 +47,8 @@ export function stateOf(c) {
 }
 
 /**
- * o: { chatOr404, toolStillOn(chat) (throws while its coding tool is off), save, remember(chat) (its settings are
- * its folder's last), bad, choices(chat) (its coding tool's modes, efforts and models), pickModel(value, tool,
+ * o: { chatOr404, toolStillOn(chat) (throws while its coding tool is off), save, remember(chat, req) (its settings are
+ * its folder's last, unless Tia made the change or the chat is hers), bad, choices(chat) (its coding tool's modes, efforts and models), pickModel(value, tool,
  * choices), folderOf(chat) (its folder while inside the allowed roots), about(chat) (what the page shows beside the
  * state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that runs the conversation now),
  * shutOf(id) (what is kept of a chat that closed: { cwd, conversationId, title, tool } or null), openNow(chat) (it is
@@ -234,7 +234,7 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
       if (!mode) throw bad('say which mode');
       const r = await c.setSettings({ mode });
       save();
-      remember(c);
+      remember(c, req);
       return { permissionMode: c.permissionMode, liveMode: c.liveMode, restart: r.restart };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/settings$`), async (req, m) => {
@@ -244,7 +244,7 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
       const ch = choices(c);
       const r = await c.setSettings({ model: pickModel(b.model, c.engine.id, ch), effort: pick(b.effort, ch.efforts, 'effort'), ultracode: b.ultracode });
       save();
-      remember(c);
+      remember(c, req);
       return { model: c.model, effort: c.effort, ultracode: c.ultracode, restart: r.restart };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/title$`), async (req, m) => {
