@@ -10,13 +10,13 @@
 .chat-tool.chat-is-running .chat-tool-state { border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: spin .9s linear infinite; }
 .chat-tool.chat-is-ok .chat-tool-state { background: var(--ok-solid); }
 .chat-tool.chat-is-err .chat-tool-state, .chat-tool.chat-is-taskfail .chat-tool-state { background: var(--danger-solid); }
-.chat-tool.chat-is-taskstop .chat-tool-state { background: var(--muted); }
+.chat-tool.chat-is-taskstop .chat-tool-state, .chat-tool.chat-is-stopped .chat-tool-state { background: var(--muted); }
 .chat-tool-verb { font-weight: 650; flex: none; }
 .chat-tool-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .chat-tool-detail.mono { font: 12.5px var(--mono); }
 .chat-tool-said { flex: none; color: var(--danger); font-weight: 650; font-size: var(--fs-xs); }
 .chat-tool-said:empty { display: none; }
-.chat-tool.chat-is-taskstop .chat-tool-said { color: var(--muted); }
+.chat-tool.chat-is-taskstop .chat-tool-said, .chat-tool.chat-is-stopped .chat-tool-said { color: var(--muted); }
 .chat-tool-end { margin-left: auto; flex: none; color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .chat-plus { color: var(--ok); font-weight: 650; }
 .chat-minus { color: var(--danger); font-weight: 650; }
@@ -33,7 +33,12 @@
 .chat-outwrap { display: grid; gap: 4px; justify-items: start; }
 .chat-outwrap > pre { justify-self: stretch; }
 .chat-showall { color: var(--accent); }
-.chat-prompt > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-xs); min-height: 24px; display: flex; align-items: center; }
+.chat-prompt > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-xs); min-height: 24px; display: flex; align-items: center; gap: 4px; list-style: none; }
+.chat-prompt > summary::-webkit-details-marker { display: none; }
+/* It opens: a turning arrow says so (a grey caption alone did not). */
+.chat-prompt > summary::before { content: ''; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform var(--tick); }
+.chat-prompt[open] > summary::before { transform: rotate(90deg); }
+.chat-prompt > summary:hover { color: var(--text-2); }
 .chat-prompt[open] > summary { margin-bottom: 4px; }
 .chat-agent-answer { padding: 8px 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); }
 .chat-agent-answer .md { font-size: var(--fs-sm); }

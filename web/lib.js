@@ -555,8 +555,9 @@ function chatAnswers(s, after) {
   };
   return h('div.ok-actions',
     h('button.btn.small.primary', { type: 'button', onclick: answer({ allow: true }, 'Allowed') }, icon('check', { size: 16 }), h('span', 'Allow')),
-    ask.canAlways ? h('button.btn.small.secondary', { type: 'button', title: ask.alwaysText || 'The same kind of request is allowed for the rest of this chat', onclick: answer({ allow: true, always: true }, 'Allowed for this chat') },
-      icon('checkAll', { size: 16 }), h('span', 'Allow in this chat')) : null,
+    // The chat card's words (web/chat/asks.js), so one OK reads the same on Home and in the chat.
+    ask.canAlways ? h('button.btn.small.secondary', { type: 'button', title: ask.always === 'edits' ? 'Claude changes files without asking for the rest of this chat' : ask.alwaysText || 'The same kind of request is allowed for the rest of this chat', onclick: answer({ allow: true, always: true }, 'Allowed for this chat') },
+      icon('checkAll', { size: 16 }), h('span', ask.always === 'edits' ? 'Allow all edits in this chat' : 'Allow in this chat')) : null,
     h('button.btn.small.secondary', { type: 'button', onclick: answer({ allow: false }, 'Not allowed') }, icon('x', { size: 16 }), h('span', 'Do not allow')));
 }
 

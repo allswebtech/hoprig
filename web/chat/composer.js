@@ -9,16 +9,16 @@ import { api, chooseSheet, fill, h, openSheet, prefs, toast } from '../lib.js';
 import { createAttachments } from './attach.js';
 import { recall } from './keys.js';
 import { createMenus } from './popovers.js';
-import { MODE, contextPercent, effortName, kilo, modeChip, modeOf, modelName, nextMode } from './words.js';
+import { MODE, contextPercent, effortName, kilo, modeChip, modeOf, modelName, nextMode, touchScreen, turnRuns } from './words.js';
 
 // Enter sends unless the screen is touched (a phone's Enter makes a new line; its Send button sends).
-const finePointer = typeof matchMedia !== 'undefined' && !matchMedia('(pointer: coarse)').matches;
+const finePointer = () => !touchScreen();
 
 /** o: { A (the chat's API path), id, stop(), compact(), own() (the page's own / commands) } → { el, paint(v), focus(), … } */
 export function createComposer(o) {
   const draftKey = `chat.draft.${o.id}`;
   const queueBox = h('ul.chat-queue', { 'aria-label': 'Queued messages' });
-  const textarea = h('textarea.msg.chat-input', { rows: 1, 'aria-label': 'Message to Claude', enterkeyhint: finePointer ? 'send' : 'enter' });
+  const textarea = h('textarea.msg.chat-input', { rows: 1, 'aria-label': 'Message to Claude', enterkeyhint: finePointer() ? 'send' : 'enter' });
   const files = createAttachments({ A: o.A, changed: () => paintButtons() });
   const menus = createMenus({ textarea, A: o.A, own: () => o.own(), send: (text) => send(text) });
   const sent = recall({ get: () => prefs.get(`chat.sent.${o.id}`, []), set: (list) => prefs.set(`chat.sent.${o.id}`, list) });
@@ -29,7 +29,8 @@ export function createComposer(o) {
   const modeBtn = h('button.chip.chat-chip.chat-modechip', { type: 'button', onclick: () => chooseMode() });
   const modelBtn = h('button.chip.chat-chip', { type: 'button', onclick: () => choose('model') });
   const effortBtn = h('button.chip.chat-chip', { type: 'button', onclick: () => choose('effort') });
-  const ultraBtn = h('button.chip.chat-chip.chat-ultra', { type: 'button', 'aria-pressed': 'false', title: 'Ultracode: Claude plans the work out to agents and workflows', onclick: () => toggleUltra() }, icon('grid', { size: 13 }), h('span', 'Ultracode'));
+  const ultraWord = h('span.chat-chip-v');
+  const ultraBtn = h('button.chip.chat-chip.chat-ultra', { type: 'button', 'aria-pressed': 'false', title: 'Ultracode: Claude plans the work out to agents and workflows', onclick: () => toggleUltra() }, icon('grid', { size: 13 }), h('span.chat-chip-k', 'Ultracode'), ultraWord);
   const ring = h('button.chat-ring', { type: 'button', onclick: () => contextSheet() }, h('span.chat-ring-pie', { 'aria-hidden': 'true' }), h('span.chat-ring-text'));
   const chips = h('div.chat-chips', modeBtn, modelBtn, effortBtn, ultraBtn, h('span.chat-chips-gap'), ring);
   const el = h('div.chat-composer-wrap', menus.el, queueBox, files.el, h('div.chat-composer', attachBtn, textarea, sendBtn, stopBtn, fileInput), chips);
@@ -67,7 +68,7 @@ export function createComposer(o) {
       e.stopPropagation(); // Escape closed the menu: it does not stop Claude too
       return;
     }
-    if (e.key === 'Enter' && !e.shiftKey && finePointer) {
+    if (e.key === 'Enter' && !e.shiftKey && finePointer()) {
       e.preventDefault();
       send();
     } else if (e.key === 'Tab' && e.shiftKey && v) {
@@ -193,7 +194,7 @@ export function createComposer(o) {
   }
 
   function paintButtons() {
-    const busy = v && v.working;
+    const busy = turnRuns(v); // background work alone is no turn: Send sends, and its Stop is in the agents strip
     const hasText = !!textarea.value.trim() || files.count() > 0;
     stopBtn.classList.toggle('hidden', !busy);
     // While Claude works: Stop is the main button; Send stays for a message to queue.
@@ -207,6 +208,13 @@ export function createComposer(o) {
     el,
     textarea,
     focus: () => textarea.focus(),
+    /** Text back into the box (a message taken back by Stop, the message a rewind went back to), before what is there. */
+    putBack(text) {
+      const t = String(text || '');
+      if (!t) return;
+      setText(textarea.value.trim() ? `${t}\n\n${textarea.value}` : t);
+      textarea.focus();
+    },
     /** Files dropped on the page, or chosen elsewhere: to go with the next message. */
     addFiles: (list) => {
       files.take(list);
@@ -222,8 +230,8 @@ export function createComposer(o) {
       attachBtn.disabled = ro;
       if (ro) menus.close();
       const words = ro ? 'Read only while the terminal runs this conversation'
-        : v.working ? 'Queue a message…'
-          : finePointer ? 'Message Claude · / commands · @ files · Shift+Tab mode · /help keys' : 'Message Claude · / commands · @ files';
+        : turnRuns(v) ? 'Queue a message…'
+          : finePointer() ? 'Message Claude · / commands · @ files · Shift+Tab mode · /help keys' : 'Message Claude · / commands · @ files';
       if (textarea.placeholder !== words) {
         textarea.placeholder = words;
         grow(); // an empty box is as high as its placeholder
@@ -239,6 +247,7 @@ export function createComposer(o) {
       fill(effortBtn, icon('zap', { size: 13 }), h('span.chat-chip-k', 'Effort'), h('span', v.effort ? effortName(v.effort) : 'Auto'));
       effortBtn.setAttribute('aria-label', `Effort: ${v.effort ? effortName(v.effort) : 'Auto'}. Change it`);
       ultraBtn.setAttribute('aria-pressed', String(!!v.ultracode));
+      fill(ultraWord, v.ultracode ? 'on' : 'off'); // said in words, not only by its colour
       const p = contextPercent(v.usage);
       ring.classList.toggle('hidden', p === null);
       ring.classList.toggle('chat-is-low', p !== null && p >= 85);

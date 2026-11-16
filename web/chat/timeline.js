@@ -9,7 +9,7 @@ import { add, api, fill, h, toast } from '../lib.js';
 import { mdView } from '../mdtext.js';
 import { messageFiles } from './attach.js';
 import { OUTCOME, askCard } from './asks.js';
-import { outputView, toolCard } from './tools.js';
+import { outputView, rePaths, toolCard } from './tools.js';
 import { took, turnLine } from './words.js';
 
 const NEAR_PX = 120;
@@ -105,11 +105,11 @@ export function createTimeline(o) {
       case 'user': {
         const g = group(at);
         const files = Array.isArray(ev.attachments) ? ev.attachments : [];
-        // Rewind (the files, to before this message): beside the message where the coding tool can.
+        // Rewind (the files, the conversation or both, to before this message): beside the message.
         const back = ev.messageId && o.canRewind() ? h('button.btn.icon.ghost.chat-rewindbtn', {
-          type: 'button', 'aria-label': 'Rewind the files to before this message', title: 'Rewind the files to before this message',
+          type: 'button', 'aria-label': 'Rewind to before this message', title: 'Rewind to before this message',
           onclick: () => o.rewind({ messageId: ev.messageId, text: ev.text }),
-        }, icon('refresh', { size: 15 })) : null;
+        }, icon('undo', { size: 15 })) : null;
         // A file sent with the message is named at its end for Claude Code (@path); the chip below says it already.
         const text = files.some((f) => f.type === 'file') ? ev.text.replace(/\n\n(?:@(?:"[^"]+"|\S+)\s*)+$/, '') : ev.text;
         const row = h('div.chat-item.chat-userrow', { dataset: { message: ev.messageId || '' } }, back, h('div.chat-user', text, messageFiles(files, o.A)));
@@ -155,6 +155,7 @@ export function createTimeline(o) {
       case 'ask': {
         // Always in the main conversation, where it is seen, even when an agent asks.
         const card = askCard(ev, { A: o.A, cwd: o.cwd(), after: o.after });
+        card.toolId = ev.toolId || null;
         asks.set(ev.request, card);
         if (ev.toolId) tools.get(ev.toolId)?.quiet(); // the card shows what it would do: not twice
         asked = true;
@@ -167,7 +168,8 @@ export function createTimeline(o) {
         const [text, ok] = OUTCOME[ev.outcome] || ['Answered', true];
         const plan = card.classList.contains('chat-ask-plan');
         const question = card.classList.contains('chat-ask-question');
-        card.closed(plan ? (ok ? 'Approved' : ev.outcome === 'denied' ? 'Keep planning' : text) : question && ok ? 'Answered' : text, ok);
+        card.closed(plan ? (ok ? 'You approved the plan' : ev.outcome === 'denied' ? 'Claude keeps planning' : text) : question && ok ? 'You answered' : text, ok);
+        if (card.toolId && ev.outcome !== 'cancelled') tools.get(card.toolId)?.answered(ok); // "Wants to write" → "Writing"
         return null;
       }
       case 'turn-end': {
@@ -175,15 +177,19 @@ export function createTimeline(o) {
         if (ev.ok) {
           const t = turnLine(ev);
           if (t) add(g, h('p.chat-item.chat-turnend', icon('check', { size: 13 }), h('span', t)));
-        } else if (ev.stopped || ev.subtype === 'stopped' || ev.subtype === 'error_during_execution' || ev.error === 'stopped') add(g, h('p.chat-item.chat-note', 'Stopped.'));
+        } else if (ev.stopped || ev.subtype === 'stopped' || ev.error === 'stopped') add(g, h('p.chat-item.chat-note', 'You stopped Claude.'));
+        // A usage limit is said once, by the limit card at the top with what to do next.
+        else if (ev.limited) add(g, h('p.chat-item.chat-note', 'Stopped at the provider\'s usage limit (see above).'));
         else add(g, h('div.chat-item.banner.error-box', { role: 'alert' }, icon('alert', { size: 18 }), h('span', ev.error || 'The reply ended with an error.')));
         at.group = null;
         return null;
       }
       case 'session-changed':
         at.group = null;
-        return add(at.root, h('div.chat-item.chat-divider', h('span', ev.reason === 'compact' ? 'Conversation compacted: Claude goes on from a summary' : ev.reason === 'clear' ? 'Conversation cleared' : 'A new conversation')));
+        return add(at.root, h('div.chat-item.chat-divider', h('span', ev.reason === 'compact' ? 'Conversation compacted: Claude goes on from a summary' : ev.reason === 'clear' ? 'Conversation cleared' : ev.reason === 'fork' ? 'Rewound to here' : 'A new conversation')));
       case 'notice':
+        // "Compacted" after /compact: the divider says it already.
+        if (ev.local && /^\s*Compacted\.?\s*$/i.test(ev.text)) return null;
         // What Claude Code answered by itself (/cost, /context): its text as it wrote it, in a box.
         if (ev.local) return add(groupOf(at), h('div.chat-item.chat-local', h('p.chat-local-head', icon('terminal', { size: 13 }), h('span', 'Claude Code')), outputView(ev.text, { cls: 'chat-local-text' })));
         return add(groupOf(at), h(`p.chat-item.chat-note${ev.level === 'error' ? '.chat-is-err' : ''}`, ev.text));
@@ -278,6 +284,10 @@ export function createTimeline(o) {
       if (!r.reset) announce(r.events);
       if (r.reset) toBottom(true);
       else if (r.events.length) follow();
+    },
+    /** The folder became known (the first state): paths drawn before it are said relative to it. */
+    folder(cwd) {
+      rePaths(list.parentNode || list, cwd);
     },
     /** Live deltas (never numbered). */
     live(evs) {

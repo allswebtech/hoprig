@@ -5,7 +5,7 @@
 // which conversation. Another folder is one row away.
 import { startChat } from './chat/start.js';
 import { icon } from './icons.js';
-import { KIND, ago, api, at, chooseSheet, fill, h, link, machine, prefs, profileState, tildePath, toast } from './lib.js';
+import { KIND, ago, api, at, chooseSheet, confirmSheet, fill, h, link, machine, prefs, profileState, tildePath, toast } from './lib.js';
 import { fold, frame, groupHead } from './shell.js';
 import { runsSessions, store } from './store.js';
 
@@ -302,17 +302,16 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     }
   }
 
-  // "#/new?dir=<folder>" (hoprig chat, a link): a chat there at once, set up as the last one in that folder.
+  // "#/new?dir=<folder>" (hoprig chat, a link): one tap opens a chat there, set up as the last one in that folder.
+  // A link from anywhere never opens one by itself (each open chat counts against the open ones, and evicts idle ones).
   const asked = query.get('dir');
   if (asked) {
-    busy('Opening a chat…');
-    startChat(asked, { replace: true }, st.m).catch((e) => {
-      history.replaceState(null, '', link('#/new', st.m)); // a reload must not try again
-      failed(e, projects);
+    history.replaceState(null, '', link('#/new', st.m)); // a reload or Back shows New session, not the question again
+    confirmSheet({ title: 'Open a chat here?', text: `A chat in ${tildePath(asked)}, set up as the last one in that folder. Nothing is sent until you write.`, ok: 'Open a chat' }).then((yes) => {
+      if (!yes || !alive) return;
+      busy('Opening a chat…');
+      startChat(asked, {}, st.m).catch((e) => failed(e, projects));
     });
-    return () => {
-      alive = false;
-    };
   }
   preselect();
   paintComputers();

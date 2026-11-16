@@ -134,3 +134,22 @@ export function readAttachments(list, { cwd, uploadsDir }) {
   }
   return out;
 }
+
+/**
+ * The git branch the folder is on, for the status line: read from .git/HEAD (a worktree's .git file names where its
+ * HEAD is), no git process. null when it is no repository or HEAD is detached.
+ */
+export function gitBranch(cwd) {
+  try {
+    let git = path.join(cwd, '.git');
+    if (fs.statSync(git).isFile()) {
+      const m = /^gitdir:\s*(.+)\s*$/m.exec(fs.readFileSync(git, 'utf8'));
+      if (!m) return null;
+      git = path.resolve(cwd, m[1].trim());
+    }
+    const m = /^ref:\s*refs\/heads\/(.+)\s*$/.exec(fs.readFileSync(path.join(git, 'HEAD'), 'utf8'));
+    return m ? m[1].trim().slice(0, 200) : null;
+  } catch {
+    return null;
+  }
+}

@@ -1,5 +1,6 @@
 // The chat's sheets beside its head: the history of the folder (its earlier conversations; one tap continues one in
-// a chat) and the rewind of files to before one of the owner's messages, with a confirm that says what happens.
+// a chat) and the rewind to before one of the owner's messages (files, conversation or both), with a confirm that
+// says what each does.
 import { icon } from '../icons.js';
 import { ago, api, chooseSheet, fill, h, link, openSheet, toast } from '../lib.js';
 import { store } from '../store.js';
@@ -44,15 +45,22 @@ const excerpt = (s, n = 140) => {
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 };
 
-/** Undo the file changes since a message: say which files first, then do it on a yes. m: { messageId, text } */
-export async function rewindFiles({ A, cwd, m }) {
+/**
+ * Rewind to before one of the owner's messages, as Claude Code's own rewind: the files (Claude's changes since), the
+ * conversation (it goes on from before the message, which comes back into the box; the old one stays in History),
+ * or both. A dry run first says what each would do. m: { messageId, text }; conversation: the coding tool can;
+ * put(text): back into the box.
+ */
+export async function rewindSheet({ A, cwd, m, conversation = false, put }) {
   let r;
   try {
-    r = await api(`${A}/rewind`, { messageId: m.messageId, dryRun: true });
+    r = await api(`${A}/rewind`, { messageId: m.messageId, dryRun: true, files: true, conversation });
   } catch (e) {
     return toast(e.message, { kind: 'error' });
   }
-  if (!r.canRewind || !r.files.length) {
+  const files = r.canRewind && r.files.length ? r.files : [];
+  const conv = r.conversation || null;
+  if (!files.length && !conv) {
     return openSheet({ title: 'Nothing to rewind', subtitle: `“${excerpt(m.text, 80)}”` }, (close) => [
       h('p.sheet-text', r.error && !/no changes/i.test(r.error) ? `Claude Code cannot rewind to this message: ${r.error}.` : 'Claude has not changed a file since this message (or not in a way it can undo).'),
       h('div.sheet-actions', h('button.btn.primary', { type: 'button', onclick: () => close() }, 'OK')),
@@ -60,33 +68,38 @@ export async function rewindFiles({ A, cwd, m }) {
   }
   // What the rewind itself does to the lines (Claude Code's own count).
   const counts = Number.isFinite(r.insertions) && Number.isFinite(r.deletions) && (r.insertions || r.deletions) ? ` (+${r.insertions} −${r.deletions} lines)` : '';
-  const ok = await openSheet({ title: 'Rewind the files?', subtitle: `To how they were before “${excerpt(m.text, 80)}”` }, (close) => [
-    h('p.sheet-text', `${r.files.length === 1 ? 'This file goes back to how it was' : `These ${r.files.length} files go back to how they were`} before that message${counts}. Changes made by hand to ${r.files.length === 1 ? 'it' : 'them'} since are lost too.`),
-    h('ul.chat-rewind-files', r.files.slice(0, 30).map((f) => h('li', inFolder(f, cwd))), r.files.length > 30 ? h('li', `… and ${r.files.length - 30} more`) : null),
-    h('p.sheet-text', 'The conversation is not changed: Claude still remembers what it did after that message. Tell it in your next message.'),
-    h('div.sheet-actions',
-      h('button.btn.secondary', { type: 'button', onclick: () => close(false) }, 'Cancel'),
-      h('button.btn.danger', { type: 'button', onclick: () => close(true) }, 'Rewind the files')),
+  const choice = await openSheet({ title: 'Rewind to before this message?', subtitle: `“${excerpt(m.text, 80)}”` }, (close) => [
+    files.length ? [
+      h('p.sheet-text', h('strong', 'Files: '), `${files.length === 1 ? 'this file goes back to how it was' : `these ${files.length} files go back to how they were`} before that message${counts}. Changes made by hand to ${files.length === 1 ? 'it' : 'them'} since are lost too.`),
+      h('ul.chat-rewind-files', files.slice(0, 30).map((f) => h('li', inFolder(f, cwd))), files.length > 30 ? h('li', `… and ${files.length - 30} more`) : null),
+    ] : h('p.sheet-text', h('strong', 'Files: '), 'Claude has not changed a file since this message.'),
+    conv ? h('p.sheet-text', h('strong', 'Conversation: '), `it goes on from before this message (${conv.messages === 1 ? 'this message goes' : `this and ${conv.messages - 1} later ${conv.messages === 2 ? 'message go' : 'messages go'}`}), and the message comes back into the box to change or send again. The conversation as it is now stays in History.`) : null,
+    h('div.sheet-actions.chat-rewind-actions',
+      h('button.btn.secondary', { type: 'button', onclick: () => close(null) }, 'Cancel'),
+      files.length ? h('button.btn.secondary', { type: 'button', onclick: () => close({ files: true, conversation: false }) }, 'Files only') : null,
+      conv ? h('button.btn.secondary', { type: 'button', onclick: () => close({ files: false, conversation: true }) }, 'Conversation only') : null,
+      files.length && conv ? h('button.btn.danger', { type: 'button', onclick: () => close({ files: true, conversation: true }) }, 'Both') : null),
   ]);
-  if (ok !== true) return;
+  if (!choice || typeof choice !== 'object') return;
   try {
-    const done = await api(`${A}/rewind`, { messageId: m.messageId });
-    if (!done.canRewind) throw new Error(done.error || 'Claude Code could not rewind');
-    toast(`Rewound ${done.files.length === 1 ? '1 file' : `${done.files.length} files`}`);
+    const done = await api(`${A}/rewind`, { messageId: m.messageId, ...choice });
+    if (choice.files && !done.canRewind) throw new Error(done.error || 'Claude Code could not rewind');
+    if (choice.conversation && done.conversation && put) put(done.conversation.text || m.text);
+    toast(choice.conversation ? 'Rewound: the conversation goes on from before your message' : `Rewound ${done.files.length === 1 ? '1 file' : `${done.files.length} files`}`);
   } catch (e) {
     toast(e.message, { kind: 'error' });
   }
 }
 
-/** The more menu's Rewind: choose one of the owner's messages (newest first), then rewindFiles. */
-export async function chooseRewind({ A, cwd, messages }) {
+/** The more menu's Rewind: choose one of the owner's messages (newest first), then rewindSheet. */
+export async function chooseRewind({ A, cwd, messages, conversation, put }) {
   const list = messages.filter((x) => x.messageId).slice(-30).reverse();
   if (!list.length) return toast('No message to rewind to yet', { kind: 'error' });
   const id = await chooseSheet({
-    title: 'Rewind files to before…',
-    subtitle: 'Claude Code undoes its file changes since the message you choose. The conversation stays as it is.',
+    title: 'Rewind to before…',
+    subtitle: 'Choose one of your messages: then the files, the conversation or both go back to before it.',
     items: list.map((x) => ({ value: x.messageId, label: excerpt(x.text, 90) || '(a picture)', icon: 'text' })),
   });
   const m = id && list.find((x) => x.messageId === id);
-  if (m) await rewindFiles({ A, cwd, m });
+  if (m) await rewindSheet({ A, cwd, m, conversation, put });
 }

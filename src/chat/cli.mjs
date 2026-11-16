@@ -21,8 +21,10 @@ export function browserAtHand(env = process.env, platform = process.platform, tt
   return !!(env.DISPLAY || env.WAYLAND_DISPLAY);
 }
 
+// Windows: rundll32 hands the address to the default browser as one argument; "cmd /c start" would split it at &
+// and Node's quoting of an empty title does not survive cmd. Not run on Windows here.
 function openBrowser(url) {
-  const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', url]] : ['xdg-open', [url]];
+  const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]] : ['xdg-open', [url]];
   try {
     spawn(cmd, args, { stdio: 'ignore', detached: true }).unref();
     return true;

@@ -15,10 +15,11 @@ import { createComposer } from './composer.js';
 import { createHeader } from './header.js';
 import { installKeys, shortcutsSheet } from './keys.js';
 import { limitCard } from './limit.js';
-import { chooseRewind, historySheet, rewindFiles } from './sheets.js';
+import { chooseRewind, historySheet, rewindSheet } from './sheets.js';
 import { createStatusLine } from './statusline.js';
 import { follow } from './stream.js';
 import { createTimeline } from './timeline.js';
+import { turnRuns } from './words.js';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -41,7 +42,14 @@ function viewChat({ sub }) {
   const act = {
     async stop() {
       try {
-        await api(`${A}/stop`, {});
+        // What was queued comes back into the box: after Stop nothing starts by itself.
+        const r = await api(`${A}/stop`, {});
+        const back = (r && r.back) || [];
+        if (back.length) {
+          composer.putBack(back.map((x) => x.text).join('\n\n'));
+          const files = back.flatMap((x) => x.files || []);
+          toast(`${back.length === 1 ? 'The queued message is' : 'The queued messages are'} back in the box${files.length ? `; attach ${files.length === 1 ? 'its file' : 'their files'} again` : ''}`);
+        }
       } catch (e) {
         toast(e.message, { kind: 'error' });
       }
@@ -104,7 +112,7 @@ function viewChat({ sub }) {
       }
     },
     history: () => v && historySheet({ A, v }),
-    rewind: () => v && chooseRewind({ A, cwd: v.cwd, messages: timeline.messages() }),
+    rewind: () => v && chooseRewind({ A, cwd: v.cwd, messages: timeline.messages(), conversation: canFork(), put: (t) => composer.putBack(t) }),
     shortcuts: () => shortcutsSheet(),
     async take() {
       if (!(await confirmSheet({ title: 'Continue here?', text: 'Claude stops in the terminal (the terminal stays, as a plain shell) and the conversation goes on in this chat. A reply the terminal is writing right now is cut off.', ok: 'Continue here' }))) return;
@@ -122,11 +130,14 @@ function viewChat({ sub }) {
   const notes = h('div.chat-notes'); // a terminal runs it, a limit
   const conn = h('div.chat-conn'); // the connection
   const scroll = h('div.chat-scroll', { role: 'region', 'aria-label': 'Conversation', tabindex: '-1' });
-  const canRewind = () => !!(v && v.engine && v.engine.capabilities && v.engine.capabilities.rewind && !v.terminal);
+  const caps = () => (v && v.engine && v.engine.capabilities) || {};
+  // Never while a terminal runs the conversation: a rewind runs Claude Code on it (one place at a time).
+  const canRewind = () => !!(v && (caps().rewind || caps().fork) && !v.terminal);
+  const canFork = () => !!caps().fork;
   const timeline = createTimeline({
     scroll, A, cwd: () => (v ? v.cwd : ''), stopTask: act.stopTask, after: () => store.refresh(),
     canRewind: () => !v || canRewind(), // before the first state: drawn, and hidden by the state's class if not
-    rewind: (m) => rewindFiles({ A, cwd: v ? v.cwd : '', m }),
+    rewind: (m) => rewindSheet({ A, cwd: v ? v.cwd : '', m, conversation: canFork(), put: (t) => composer.putBack(t) }),
   });
   add(scroll, timeline.el);
   const todos = h('div.chat-todos');
@@ -139,7 +150,7 @@ function viewChat({ sub }) {
     { name: 'effort', description: 'Choose how hard Claude thinks', run: () => composer.choose('effort') },
     { name: 'mode', description: 'What Claude may do without asking', run: () => composer.chooseMode() },
     { name: 'history', description: 'Earlier conversations of this folder', run: act.history },
-    canRewind() ? { name: 'rewind', description: 'Undo Claude\'s file changes since one of your messages', run: act.rewind } : null,
+    canRewind() ? { name: 'rewind', description: 'Go back to before one of your messages: the files, the conversation or both', run: act.rewind } : null,
     { name: 'terminal', description: 'Open this conversation in a terminal', run: act.terminal },
     { name: 'help', description: 'Keyboard shortcuts', run: act.shortcuts },
   ].filter(Boolean);
@@ -178,7 +189,10 @@ function viewChat({ sub }) {
   // ---------- following the server ----------
   function state(s) {
     const before = v ? v.status : null;
+    const folder = v ? v.cwd : null;
     v = { ...(v || {}), ...s };
+    if (Number.isFinite(s.now)) v.skew = Date.now() - s.now; // this computer's clock against the chat's (a tool's seconds)
+    if (v.cwd && v.cwd !== folder) timeline.folder(v.cwd); // cards drawn before the folder was known
     if (before && before !== v.status) store.refresh(); // Home's copy is old: an OK is needed, or was given
     header.paint(v);
     pageNotify.setTitleBase(v.title || 'Chat');
@@ -218,7 +232,8 @@ function viewChat({ sub }) {
   });
 
   // ---------- keys (keys.js) and files dropped on the page ----------
-  const unkeys = installKeys({ working: () => !!(v && v.working), stop: act.stop, nextMode: () => composer.nextMode(), openAsk: () => timeline.openAsk() });
+  // Esc and Stop end a turn: only while one runs (background work has its own Stop in the agents strip).
+  const unkeys = installKeys({ working: () => turnRuns(v), stop: act.stop, nextMode: () => composer.nextMode(), openAsk: () => timeline.openAsk(), box: composer.textarea });
   const dropHint = h('div.chat-drop.hidden', { 'aria-hidden': 'true' }, h('div.chat-drop-box', icon('paperclip', { size: 28 }), h('p', 'Drop to send with your message')));
   add(wrap, dropHint);
   const hasFiles = (e) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files') && !(v && v.terminal);
@@ -244,6 +259,7 @@ function viewChat({ sub }) {
   });
 
   return () => {
+    status.stop();
     unfollow();
     store.viewing = null;
     document.body.classList.remove('chat-mode');

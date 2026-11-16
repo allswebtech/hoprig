@@ -39,45 +39,108 @@ export function lineDiff(before, after, context = 2) {
   ];
 }
 
-/** One line for a tool call: { verb, detail, mono } — "Bash" + its command, "Edit" + the file and +/- lines, … */
-export function toolLine(name, input = {}) {
+// A call's verb by its state: [done, running, waiting for the owner's OK, refused by the owner]. A call is never
+// said in the past before it ran ("Wrote" while it still asks to write).
+const VERBS = {
+  Bash: ['Ran', 'Running', 'Wants to run', 'Not run'],
+  BashBg: ['Started', 'Starting', 'Wants to start', 'Not started'],
+  BashOutput: ['Read the output of', 'Reading the output of', 'Wants to read the output of', 'Not read'],
+  KillShell: ['Stopped', 'Stopping', 'Wants to stop', 'Not stopped'],
+  Read: ['Read', 'Reading', 'Wants to read', 'Not read'],
+  Write: ['Wrote', 'Writing', 'Wants to write', 'Not written'],
+  Edit: ['Edited', 'Editing', 'Wants to change', 'Not changed'],
+  Glob: ['Looked for files', 'Looking for files', 'Wants to look for files', 'Not looked for'],
+  Grep: ['Searched for', 'Searching for', 'Wants to search for', 'Not searched'],
+  ToolSearch: ['Looked for a tool', 'Looking for a tool', 'Wants to look for a tool', 'Not looked for'],
+  WebFetch: ['Read the page', 'Reading the page', 'Wants to read the page', 'Not read'],
+  WebSearch: ['Searched the web for', 'Searching the web for', 'Wants to search the web for', 'Not searched'],
+  Agent: ['Asked an agent', 'Asking an agent', 'Wants to ask an agent', 'Not asked'],
+  AgentBg: ['Started a background agent', 'Starting a background agent', 'Wants to start a background agent', 'Not started'],
+  SendMessage: ['Wrote to an agent', 'Writing to an agent', 'Wants to write to an agent', 'Not sent'],
+  Workflow: ['Ran a workflow', 'Running a workflow', 'Wants to run a workflow', 'Not run'],
+  Monitor: ['Watches', 'Watching', 'Wants to watch', 'Not watched'],
+  TaskCreate: ['Added a task', 'Adding a task', 'Wants to add a task', 'Not added'],
+  TaskUpdate: ['Updated task', 'Updating task', 'Wants to update task', 'Not updated'],
+  TodoWrite: ['Updated the to-do list', 'Updating the to-do list', 'Wants to update the to-do list', 'Not updated'],
+  Skill: ['Used the skill', 'Using the skill', 'Wants to use the skill', 'Not used'],
+  AskUserQuestion: ['Asked you', 'Asks you', 'Asks you', 'Not answered'],
+  EnterPlanMode: ['Started to plan', 'Starting to plan', 'Wants to plan', 'Not planned'],
+  ExitPlanMode: ['Made a plan', 'Has a plan', 'Has a plan for you to approve', 'Kept planning'],
+};
+VERBS.MultiEdit = VERBS.Edit;
+VERBS.NotebookEdit = VERBS.Edit;
+VERBS.Task = VERBS.Agent;
+const STATES = { done: 0, running: 1, asking: 2, refused: 3 };
+
+/**
+ * One line for a tool call: { verb, detail, mono } — "Ran" + its command, "Edited" + the file and +/- lines, …
+ * `state`: done (default), running, asking (waits for the owner's OK) or refused (he said no).
+ */
+export function toolLine(name, input = {}, state = 'done') {
   const i = input && typeof input === 'object' ? input : {};
+  const n = STATES[state] ?? 0;
   const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
-  if (mcp) return { verb: mcp[2].replace(/_/g, ' '), detail: mcp[1], mono: false };
+  if (mcp) return { verb: [mcp[2].replace(/_/g, ' '), `Using ${mcp[2].replace(/_/g, ' ')}`, `Wants to use ${mcp[2].replace(/_/g, ' ')}`, 'Not used'][n], detail: mcp[1], mono: false };
+  const key = (name === 'Bash' && i.run_in_background) ? 'BashBg' : ((name === 'Agent' || name === 'Task') && i.run_in_background) ? 'AgentBg' : name;
+  const verbs = VERBS[key];
+  const verb = verbs ? verbs[n] : [name, name, `Wants to use ${name}`, 'Not used'][n];
+  const line = (detail, mono) => ({ verb, detail, mono });
   switch (name) {
-    case 'Bash': return { verb: i.run_in_background ? 'Started' : 'Ran', detail: firstLine(i.command), mono: true };
-    case 'BashOutput': return { verb: 'Read the output of', detail: i.bash_id || i.shell_id || '', mono: true };
-    case 'KillShell': return { verb: 'Stopped', detail: i.shell_id || '', mono: true };
-    case 'Read': return { verb: 'Read', detail: fileName(i.file_path), mono: true };
-    case 'Write': return { verb: 'Wrote', detail: `${fileName(i.file_path)} · ${lineCount(i.content)} lines`, mono: true };
+    case 'Bash': return line(firstLine(i.command), true);
+    case 'BashOutput': return line(i.bash_id || i.shell_id || '', true);
+    case 'KillShell': return line(i.shell_id || '', true);
+    case 'Read': return line(fileName(i.file_path), true);
+    case 'Write': {
+      const n = lineCount(i.content);
+      return line(`${fileName(i.file_path)} · ${n} line${n === 1 ? '' : 's'}`, true);
+    }
     case 'Edit':
     case 'MultiEdit': {
       const c = editCounts(i);
-      return { verb: 'Edited', detail: `${fileName(i.file_path)} · +${c.added} −${c.removed}`, mono: true };
+      return line(`${fileName(i.file_path)} · +${c.added} −${c.removed}`, true);
     }
-    case 'NotebookEdit': return { verb: 'Edited', detail: fileName(i.notebook_path), mono: true };
-    case 'Glob': return { verb: 'Looked for files', detail: i.pattern || '', mono: true };
-    case 'Grep': return { verb: 'Searched for', detail: i.pattern || '', mono: true };
-    case 'ToolSearch': return { verb: 'Looked for a tool', detail: i.query || '', mono: false };
-    case 'WebFetch': return { verb: 'Read the page', detail: i.url || '', mono: false };
-    case 'WebSearch': return { verb: 'Searched the web for', detail: i.query || '', mono: false };
+    case 'NotebookEdit': return line(fileName(i.notebook_path), true);
+    case 'Glob':
+    case 'Grep': return line(i.pattern || '', true);
+    case 'ToolSearch': return line(i.query || '', false);
+    case 'WebFetch': return line(i.url || '', false);
+    case 'WebSearch': return line(i.query || '', false);
     case 'Task':
-    case 'Agent': return { verb: i.run_in_background ? 'Started a background agent' : 'Asked an agent', detail: i.description || '', mono: false };
-    case 'SendMessage': return { verb: 'Wrote to an agent', detail: i.to || '', mono: false };
-    case 'Workflow': return { verb: 'Ran a workflow', detail: i.name || '', mono: false };
-    case 'Monitor': return { verb: 'Watches', detail: i.description || firstLine(i.command), mono: false };
-    case 'TaskCreate': return { verb: 'Added a task', detail: i.subject || '', mono: false };
-    case 'TaskUpdate': return { verb: 'Updated task', detail: `#${i.taskId ?? '?'}${i.status ? ` · ${i.status.replace(/_/g, ' ')}` : ''}`, mono: false };
-    case 'TodoWrite': return { verb: 'Updated the to-do list', detail: '', mono: false };
-    case 'Skill': return { verb: 'Used the skill', detail: i.skill || i.name || '', mono: false };
-    case 'AskUserQuestion': return { verb: 'Asked you', detail: (i.questions && i.questions[0] && i.questions[0].question) || '', mono: false };
-    case 'EnterPlanMode': return { verb: 'Started to plan', detail: '', mono: false };
-    case 'ExitPlanMode': return { verb: 'Made a plan', detail: '', mono: false };
+    case 'Agent': return line(i.description || '', false);
+    case 'SendMessage': return line(i.to || '', false);
+    case 'Workflow': return line(i.name || '', false);
+    case 'Monitor': return line(i.description || firstLine(i.command), false);
+    case 'TaskCreate': return line(i.subject || '', false);
+    case 'TaskUpdate': return line(`#${i.taskId ?? '?'}${i.status ? ` · ${i.status.replace(/_/g, ' ')}` : ''}`, false);
+    case 'TodoWrite': return line('', false);
+    case 'Skill': return line(i.skill || i.name || '', false);
+    case 'AskUserQuestion': return line((i.questions && i.questions[0] && i.questions[0].question) || '', false);
+    case 'EnterPlanMode':
+    case 'ExitPlanMode': return line('', false);
     default: {
       const first = Object.values(i).find((x) => typeof x === 'string');
-      return { verb: name, detail: first ? firstLine(first) : '', mono: false };
+      return line(first ? firstLine(first) : '', false);
     }
   }
+}
+
+/**
+ * What "Allow in this chat" covers, in words: Claude Code's rules ("Bash(npm view *)", "WebFetch(domain:x.org)")
+ * as a person reads them. Only the rule's own part is allowed, which may be a part of a longer command.
+ */
+export function ruleWords(text) {
+  const items = String(text || '').split(/,\s*(?=[A-Za-z_]+(?:\(|,|$))|,\s*(?=the folder )/).map((x) => x.trim()).filter(Boolean);
+  return items.map((r) => {
+    let m;
+    if ((m = /^Bash\((.+?)(?::\*| \*)\)$/.exec(r))) return `commands that start with “${m[1]}”`;
+    if ((m = /^Bash\((.+)\)$/.exec(r))) return `the command “${m[1]}”`;
+    if (r === 'Bash') return 'every command';
+    if ((m = /^WebFetch\(domain:(.+)\)$/.exec(r))) return `pages on ${m[1]}`;
+    if ((m = /^(Read|Edit|Write)\((.+)\)$/.exec(r))) return `${m[1] === 'Read' ? 'reading' : 'changing'} ${m[2]}`;
+    if ((m = /^mcp__(.+?)__(.+)$/.exec(r))) return `${m[2].replace(/_/g, ' ')} of ${m[1]}`;
+    if (r === 'all edits') return 'every edit of a file';
+    return r;
+  }).join(', ');
 }
 
 /** What Claude asks to do, as the head of the OK card. */
@@ -115,7 +178,7 @@ export function turnLine(ev) {
   if (Number.isFinite(ev.turnCostUsd)) parts.push(money(ev.turnCostUsd));
   if (ev.usage) {
     const input = (ev.usage.input || 0) + (ev.usage.cacheRead || 0) + (ev.usage.cacheWrite || 0);
-    parts.push(`${kilo(input)} tokens in · ${kilo(ev.usage.output || 0)} out`);
+    if (input || ev.usage.output) parts.push(`${kilo(input)} tokens in · ${kilo(ev.usage.output || 0)} out`);
   }
   if (Number.isFinite(ev.durationMs)) parts.push(`${Math.max(1, Math.round(ev.durationMs / 1000))} s`);
   return parts.join(' · ');
@@ -178,3 +241,9 @@ export const exitCode = (text) => {
   const m = /(?:^|\n)\s*(?:Exit code|exit code:?|exited with code)\s+(-?\d+)/i.exec(String(text || ''));
   return m ? Number(m[1]) : null;
 };
+
+/** A turn runs (Stop and Esc end it; a message is queued). A chat of an older computer says only "working". */
+export const turnRuns = (v) => !!(v && (v.turn !== undefined ? v.turn : v.working));
+
+/** A screen that is touched, not pointed at: no keyboard hints there (Enter makes a new line). Asked each time. */
+export const touchScreen = () => typeof matchMedia !== 'undefined' && (matchMedia('(pointer: coarse)').matches || matchMedia('(any-pointer: coarse)').matches);

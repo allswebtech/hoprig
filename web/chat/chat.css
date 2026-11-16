@@ -14,8 +14,8 @@ body.chat-mode .tia-boxroot { display: none; }
 .chatback { flex: none; max-width: 28vw; padding: 0 10px 0 6px; gap: 4px; }
 .chatback-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 600; }
 .chat-head { flex: 1; min-width: 0; padding: 0 4px; display: grid; gap: 2px; }
-.chat-h1 { margin: 0; font-size: var(--fs-lg); line-height: 1.25; min-width: 0; }
-.chat-title { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 2px 4px; margin-left: -4px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font: 700 var(--fs-lg)/1.25 var(--font); cursor: pointer; }
+.chat-h1 { margin: 0; font-size: var(--fs-lg); line-height: 1.25; min-width: 0; display: flex; }
+.chat-title { display: flex; min-width: 0; align-items: center; gap: 6px; max-width: calc(100% + 4px); padding: 2px 4px; margin-left: -4px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font: 700 var(--fs-lg)/1.25 var(--font); cursor: pointer; }
 .chat-title:hover { background: var(--surface-2); }
 .chat-title svg { flex: none; color: var(--muted); opacity: 0; transition: opacity var(--tick); }
 .chat-title:hover svg, .chat-title:focus-visible svg { opacity: 1; }
@@ -109,6 +109,8 @@ textarea.chat-input:disabled { opacity: 0.6; }
 .chat-chip-k { color: var(--muted); font-weight: 500; }
 .chat-modechip.chat-is-danger { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
 .chat-ultra[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); border-color: var(--accent); }
+.chat-ultra[aria-pressed='true'] .chat-chip-k { color: inherit; }
+.chat-chip-v { font-weight: 650; }
 .chat-chips-gap { flex: 1; }
 .chat-ring { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 6px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font: 600 var(--fs-xs) var(--font); cursor: pointer; }
 .chat-ring:hover { background: var(--surface-2); }
@@ -122,6 +124,9 @@ textarea.chat-input:disabled { opacity: 0.6; }
 .chat-status[data-status='attention'] .chat-st-dot { background: var(--warn-solid); }
 .chat-status[data-status='terminal'] .chat-st-dot { background: var(--muted); }
 .chat-status[data-status='error'] .chat-st-dot { background: var(--danger-solid); }
+.chat-status[data-status='stopped'] .chat-st-dot { background: var(--muted); }
+.chat-st-timer { flex: none; margin-left: -8px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.chat-st-timer:empty { display: none; }
 .chat-st-state { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); font-weight: 600; }
 .chat-st-rest { display: flex; gap: 0; min-width: 0; overflow: hidden; }
 .chat-st-part { flex: none; }
@@ -156,9 +161,8 @@ textarea.chat-input:disabled { opacity: 0.6; }
   .chat-title svg { display: none; }
   /* Toasts at the top, under the head: at the bottom they would cover the composer and a card's buttons. */
   body.chat-mode .toasts { top: calc(66px + env(safe-area-inset-top)); bottom: auto; }
-  /* The status line keeps the state, the cost, the context and the plan's limits: the model, effort, mode and
-     ultracode are in the chips right above it. */
-  .chat-st-part:is([data-k='Model'], [data-k='Effort'], [data-k='Mode'], [data-k='Ultracode']) { display: none; }
+  /* The branch is the first to go where the line is short; the cost, context and limits stay. */
+  .chat-st-part[data-k='Git branch'] { display: none; }
 }
 @media (min-width: 600px) and (max-width: 899px) { body.chat-mode .toasts { bottom: calc(170px + env(safe-area-inset-bottom)); } }
 

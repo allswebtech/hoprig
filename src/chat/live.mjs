@@ -36,6 +36,7 @@ export function stateOf(c) {
     // working: a turn or background work runs; turn: a turn runs (only that one Stop ends, and only then is a
     // message queued). now: this computer's clock, so a page elsewhere counts a tool's seconds right.
     status: c.status(), running: !!c.session, working: c.busy(), turn: !!c.turn, activity: c.activity, pending: [...c.pending.keys()], now: Date.now(),
+    asking: c.pending.size ? [...c.pending.values()][0].type : null, // permission | question | plan: the status line's words
     todos: c.todos, tasks: [...c.tasks.values()], queue: c.queue.list(),
     live: [...c.live.values()], usage: c.usage, limits: c.limits, limit: c.limit, lastError: c.lastError, lastEnd: c.lastEnd, title: c.title,
     engine: { id: c.engine.id, label: c.engine.label, capabilities: c.engine.capabilities, version: c.info.version || null },

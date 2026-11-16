@@ -90,7 +90,17 @@ test('chat page words: the mode chip, Shift+Tab order, model and effort, paths, 
   assert.equal(W.took(65_000), '1 min 5 s');
   // A last newline ends the last line: one line, not two.
   assert.equal(W.lineCount('one\n'), 1);
-  assert.equal(W.toolLine('Write', { file_path: '/p/a.txt', content: 'one\n' }).detail, 'a.txt · 1 lines');
+  assert.equal(W.toolLine('Write', { file_path: '/p/a.txt', content: 'one\n' }).detail, 'a.txt · 1 line');
+  // Never in the past before it ran: running, waiting for the OK, refused.
+  assert.deepEqual(['running', 'asking', 'refused', 'done'].map((s) => W.toolLine('Write', { file_path: '/p/a.txt', content: 'x' }, s).verb), ['Writing', 'Wants to write', 'Not written', 'Wrote']);
+  assert.deepEqual(['running', 'asking', 'done'].map((s) => W.toolLine('Bash', { command: 'sleep 8' }, s).verb), ['Running', 'Wants to run', 'Ran']);
+  assert.equal(W.toolLine('ExitPlanMode', {}, 'running').verb, 'Has a plan');
+  assert.equal(W.toolLine('AskUserQuestion', {}, 'running').verb, 'Asks you');
+  // What "Allow in this chat" covers, in words (it may be a part of the command only).
+  assert.equal(W.ruleWords('Bash(exit 2)'), 'the command “exit 2”');
+  assert.equal(W.ruleWords('Bash(npm view *), WebFetch(domain:example.org)'), 'commands that start with “npm view”, pages on example.org');
+  assert.equal(W.turnRuns({ working: true, turn: false }), false, 'background work alone is no turn (no Stop, no queue)');
+  assert.equal(W.turnRuns({ working: true }), true, 'an older computer says only "working"');
   assert.equal(W.toolLine('Bash', { command: 'sleep 9', run_in_background: true }).verb, 'Started');
   assert.equal(W.toolLine('Agent', { description: 'x', run_in_background: true }).verb, 'Started a background agent');
 });
@@ -138,17 +148,25 @@ test('agents: the strip counts what runs, a task line names its model and effort
   assert.ok(t.some((x) => /done · sonnet-5-5 · 6\.5k tokens/.test(x)));
 });
 
-test('status line: what Claude does now, then model, effort, mode, cost, context and the plan limits', () => {
-  const base = { status: 'working', model: null, liveModel: 'claude-opus-5-5', effort: 'high', permissionMode: 'bypassPermissions', liveMode: null, costTotal: 0.5, usage: { contextUsed: 20_000, contextWindow: 200_000 }, limits: { five_hour: { percent: 63 } }, tasks: [], live: [] };
+test('status line: what Claude does now (the tool that runs, for how long), then branch, cost, context and the plan limits', () => {
+  const base = { status: 'working', turn: true, model: null, liveModel: 'claude-opus-5-5', effort: 'high', permissionMode: 'bypassPermissions', liveMode: null, costTotal: 0.5, usage: { contextUsed: 20_000, contextWindow: 200_000 }, limits: { five_hour: { percent: 63 } }, tasks: [], live: [], branch: 'main' };
   assert.equal(St.stateWords(base), 'Working…');
   assert.equal(St.stateWords({ ...base, activity: 'compacting' }), 'Compacting the conversation…');
-  assert.equal(St.stateWords({ ...base, live: [{ kind: 'tool', title: 'npm test' }] }), 'Working: npm test');
-  assert.equal(St.stateWords({ ...base, live: [], tasks: [{ status: 'running', background: true }] }), 'Working: 1 in the background');
+  assert.equal(St.stateWords({ ...base, activity: 'requesting' }), 'Claude is thinking…');
+  // A tool that runs comes first, even where "requesting" was left set: its command and its seconds.
+  const runAt = Date.now() - 4200;
+  assert.equal(St.stateWords({ ...base, activity: 'requesting', live: [{ kind: 'tool', written: true, title: 'mock bash', command: 'sleep 6', runAt }] }), 'Running: sleep 6 · 4 s');
+  assert.equal(St.stateWords({ ...base, live: [{ kind: 'tool', written: true, title: 'npm test', runAt, agent: 'x' }] }), 'Working…', 'a subagent\'s tool is in its card');
+  assert.equal(St.stateWords({ ...base, live: [{ kind: 'text', text: 'Hel' }] }), 'Claude is writing…');
+  assert.equal(St.stateWords({ ...base, turn: false, tasks: [{ status: 'running', background: true }] }), 'Working in the background: 1 task');
   assert.equal(St.stateWords({ ...base, status: 'attention' }), 'Needs your OK');
+  assert.equal(St.stateWords({ ...base, status: 'attention', asking: 'question' }), 'Claude asks you a question');
   assert.equal(St.stateWords({ ...base, status: 'waiting', terminal: { name: 'x' } }), 'Runs in a terminal');
-  assert.deepEqual(St.statusParts(base).map((x) => x[1]), ['Auto · opus', 'High', 'Bypass', '$0.50 so far', 'context 10%', '5 h 63%']);
-  // The owner's choice is shown, not what ran before it took effect.
-  assert.equal(St.statusParts({ ...base, model: 'sonnet' })[0][1], 'Sonnet');
+  assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'stopped' }), 'Stopped', 'the owner\'s Stop is no error');
+  assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'limit', limit: { text: 'x' } }), 'Stopped at the usage limit');
+  assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'error', lastError: 'boom' }), 'Stopped with an error');
+  // The model, effort and mode are the chips right above: not said twice.
+  assert.deepEqual(St.statusParts(base).map((x) => x[1]), ['main', '$0.50 so far', 'context 10%', '5 h 63%']);
 });
 
 test('the limit card: its actions are a list, so another part adds one line; none while a terminal runs it', () => {
@@ -214,6 +232,29 @@ test('tool cards: a search, a web page and a skill say what they did; a stopped 
   bg.result({ ok: true, text: 'Command running in background with ID: b1' });
   assert.ok(bg.classList.contains('chat-is-taskstop'));
   assert.match(texts(bg).join(''), /stopped/);
+});
+
+test('tool cards: never in the past before they ran; Stop and a no are the owner\'s act, in grey, with no words written for Claude', async () => {
+  const { toolCard } = await import('../../web/chat/tools.js');
+  const w = toolCard({ id: 'w', name: 'Write', toolKind: 'edit', input: { file_path: '/p/made.txt', content: 'x\n' } }, { cwd: '/p' });
+  assert.match(texts(w).join(''), /^Writingmade\.txt\+1/);
+  w.quiet(); // its OK card opened below
+  assert.match(texts(w).join(''), /^Wants to writemade\.txt/);
+  w.answered(false);
+  w.result({ ok: false, denied: true, text: 'Use notes.txt instead' });
+  const said = texts(w).join('');
+  assert.match(said, /^Not writtenmade\.txt/);
+  assert.doesNotMatch(said, /\+1|−0/, 'nothing was written: no counts');
+  assert.match(said, /you said no.*Your reason: “Use notes\.txt instead”/s);
+  assert.ok(w.classList.contains('chat-is-stopped') && !w.classList.contains('chat-is-err'), 'grey, not a failure');
+  const b = toolCard({ id: 'b', name: 'Bash', toolKind: 'shell', input: { command: 'sleep 20' } }, { cwd: '/p' });
+  assert.match(texts(b).join(''), /^Runningsleep 20/);
+  assert.doesNotMatch(texts(b).join(''), /\$ sleep 20/, 'a short command is said once, in the head');
+  b.result({ ok: false, stopped: true, text: '' });
+  assert.match(texts(b).join(''), /^Ransleep 20stopped by you/);
+  assert.ok(b.classList.contains('chat-is-stopped'));
+  const long = toolCard({ id: 'l', name: 'Bash', toolKind: 'shell', input: { command: 'cd sub &&\nnpm test' } }, { cwd: '/p' });
+  assert.match(texts(long).join(''), /\$ cd sub &&\nnpm test/, 'a command of several lines is shown whole');
 });
 
 test('tool cards: an error Claude Code wraps in tool_use_error shows only its words', async () => {

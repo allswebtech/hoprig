@@ -1,11 +1,12 @@
 // The chat's head: the way back, the title (tap to rename) with the folder's history beside it (its earlier
 // conversations), the folder chip (Files and Changes open the editor, and Open in terminal), the provider chip (move
 // to another provider, each with its usage), and the more menu (Stop, Compact, Clear = a new chat in the same folder
-// with the same settings, Rewind files, Keyboard shortcuts, Close). A conversation stays with the coding
+// with the same settings, Rewind, Keyboard shortcuts, Close). A conversation stays with the coding
 // tool it started with: the provider changes, the coding tool does not.
 import { icon } from '../icons.js';
 import { KIND, api, chooseSheet, fill, h, link, profileIcon, profileState, promptSheet, toast } from '../lib.js';
 import { store } from '../store.js';
+import { touchScreen, turnRuns } from './words.js';
 
 const phone = () => typeof matchMedia !== 'undefined' && matchMedia('(max-width: 599px)').matches;
 const base = (p) => String(p || '').split('/').filter(Boolean).pop() || String(p || '');
@@ -99,7 +100,8 @@ export function createHeader(o) {
   }
 
   async function more() {
-    const busy = v && v.working;
+    const busy = turnRuns(v);
+    const caps = (v && v.engine && v.engine.capabilities) || {};
     const what = await chooseSheet({
       title: (v && v.title) || 'Chat',
       subtitle: v ? v.short : null,
@@ -107,10 +109,11 @@ export function createHeader(o) {
         busy ? { value: 'stop', label: 'Stop Claude', sub: 'Ends the turn; agents in the background go on', icon: 'stop' } : null,
         { value: 'compact', label: 'Compact', sub: 'Claude goes on from a summary of the conversation, which frees context', icon: 'minus' },
         { value: 'clear', label: 'Clear', sub: 'A new chat in this folder with the same settings; this one is kept', icon: 'plus' },
-        v && v.engine && v.engine.capabilities && v.engine.capabilities.rewind ? { value: 'rewind', label: 'Rewind files…', sub: 'Undo Claude\'s file changes since one of your messages', icon: 'refresh' } : null,
+        // Not while a terminal runs the conversation: a rewind runs Claude Code on it (one place at a time).
+        (caps.rewind || caps.fork) && v && !v.terminal ? { value: 'rewind', label: 'Rewind…', sub: 'Go back to before one of your messages: the files, the conversation or both', icon: 'undo' } : null,
         { value: 'terminal', label: 'Open in terminal', sub: 'The same conversation, in a terminal session', icon: 'terminal' },
-        { value: 'shortcuts', label: 'Keyboard shortcuts', sub: 'Enter, Esc, Shift+Tab, ↑, / and @', icon: 'info' },
-        { value: 'close', label: 'Close this chat', sub: 'The conversation stays; it leaves Home', icon: 'trash', danger: true },
+        touchScreen() ? null : { value: 'shortcuts', label: 'Keyboard shortcuts', sub: 'Enter, Esc, Shift+Tab, ↑, / and @', icon: 'info' },
+        { value: 'close', label: 'Close this chat', sub: 'The conversation stays; it leaves Home', icon: 'x', danger: true },
       ].filter(Boolean),
     });
     if (what && o.act[what]) o.act[what]();

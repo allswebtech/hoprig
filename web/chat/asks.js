@@ -1,4 +1,4 @@
-// What waits for the owner: a permission card (Allow, Allow in this chat, Deny with a reason), Claude's questions
+// What waits for the owner: a permission card (Allow, Allow in this chat, Do not allow with a reason), Claude's questions
 // (one or several, each with its choices, several at once where it allows, and a free answer), and a plan with
 // Claude Code's three answers (approve and accept edits, approve and ask before edits, keep planning with a note).
 // The number keys answer the newest card (keys.js of the page routes them here). Answers go to POST /answer.
@@ -6,7 +6,7 @@ import { icon } from '../icons.js';
 import { api, fill, h, toast } from '../lib.js';
 import { mdView } from '../mdtext.js';
 import { inputView } from './tools.js';
-import { askTitle } from './words.js';
+import { askTitle, ruleWords } from './words.js';
 
 const FILE_TOOLS = ['Bash', 'Edit', 'MultiEdit', 'Write', 'Read', 'NotebookEdit'];
 
@@ -29,7 +29,8 @@ export function askCard(ev, o) {
     body,
     ev.why ? h('p.chat-hint.chat-ask-why', icon('info', { size: 14 }), h('span', ev.why)) : null,
     actions, extra,
-    ev.canAlways && ev.alwaysText ? h('p.chat-hint.chat-ask-scope', `“Allow in this chat” stops the asking for: ${ev.alwaysText}`) : null,
+    // Claude Code's rule in words; it may cover only a part of a longer command, and says which.
+    ev.canAlways && ev.alwaysText ? h('p.chat-hint.chat-ask-scope', `“Allow in this chat” also lets Claude do this again in this chat without asking: ${ruleWords(ev.alwaysText)}.`) : null,
     status);
   let keys = [];
   let busy = false;
@@ -130,16 +131,16 @@ export function askCard(ev, o) {
       h('button.btn.secondary', { type: 'button', onclick: keys[1] }, keyed(2, h('span', 'Yes, ask before edits'))),
       h('button.btn.secondary', { type: 'button', onclick: keys[2] }, keyed(3, h('span', 'No, keep planning'))));
   } else {
-    fill(body, inputView({ ...ev, name: ev.tool, toolKind: kindOf(ev.tool) }, o.cwd));
-    const deny = () => note('Why not? Claude reads this (optional)', 'Deny', (msg) => answer(false, msg ? { message: msg } : {}));
+    fill(body, inputView({ ...ev, name: ev.tool, toolKind: kindOf(ev.tool), asking: true }, o.cwd));
+    const deny = () => note('Why not? Claude reads this (optional)', 'Do not allow', (msg) => answer(false, msg ? { message: msg } : {}));
     keys = [() => answer(true), ev.canAlways ? () => answer(true, { always: true }) : null, deny].filter(Boolean);
     let n = 0;
     fill(actions,
       h('button.btn.primary', { type: 'button', onclick: () => answer(true) }, keyed(++n, icon('check', { size: 16 }), h('span', 'Allow'))),
       ev.canAlways ? h('button.btn.secondary', { type: 'button',
-        title: ev.always === 'edits' ? 'Claude changes files without asking for the rest of this chat' : `Claude does not ask again in this chat for: ${ev.alwaysText || 'this'}`,
+        title: ev.always === 'edits' ? 'Claude changes files without asking for the rest of this chat' : `Claude does not ask again in this chat for: ${ruleWords(ev.alwaysText) || 'this'}`,
         onclick: () => answer(true, { always: true }) }, keyed(++n, h('span', ev.always === 'edits' ? 'Allow all edits in this chat' : 'Allow in this chat'))) : null,
-      h('button.btn.secondary.danger-text', { type: 'button', onclick: deny }, keyed(++n, icon('x', { size: 16 }), h('span', 'Deny'))));
+      h('button.btn.secondary.danger-text', { type: 'button', onclick: deny }, keyed(++n, icon('x', { size: 16 }), h('span', 'Do not allow'))));
   }
   if (!el.keys) el.keys = (n) => (keys[n - 1] ? (keys[n - 1](), true) : false);
 
@@ -149,6 +150,10 @@ export function askCard(ev, o) {
     el.classList.add('chat-is-decided');
     fill(actions);
     fill(extra);
+    // Answered: one line. A permission's diff or command is on the tool card above; a question keeps its choices
+    // (what was picked shows) but no empty "own answer" box.
+    if (ev.type !== 'question' && ev.type !== 'plan') fill(body);
+    for (const i of el.querySelectorAll('.chat-q-other')) if (!i.value.trim()) i.remove();
     for (const i of el.querySelectorAll('button, input, textarea')) i.disabled = true;
     fill(status, icon(ok ? 'check' : 'x', { size: 14 }), h('span', text));
   };
@@ -160,8 +165,8 @@ const kindOf = (tool) => KINDS[tool] || 'other';
 
 /** The words of an ask-closed outcome: [text, ok]. */
 export const OUTCOME = {
-  allowed: ['Allowed', true],
-  'allowed-always': ['Allowed for this chat', true],
-  denied: ['Denied', false],
+  allowed: ['You allowed this', true],
+  'allowed-always': ['You allowed this for the rest of the chat', true],
+  denied: ['You said no', false],
   cancelled: ['No longer waiting', false],
 };

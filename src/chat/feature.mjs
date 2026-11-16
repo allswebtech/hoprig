@@ -33,7 +33,7 @@ import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName 
 import * as v from '../server/validate.mjs';
 import { Chat } from './chat.mjs';
 import { askNote, previewText } from './events.mjs';
-import { readAttachments } from './files.mjs';
+import { gitBranch, readAttachments } from './files.mjs';
 import { folderMemory } from './folders.mjs';
 import { handoffRoutes, terminals } from './handoff.mjs';
 import { liveRoutes, stateOf } from './live.mjs';
@@ -143,7 +143,7 @@ export function chatFeature(ctx, o = {}) {
     };
   }
   /** What the page shows beside the chat's state. */
-  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), profile: profileView(c.profile), choices: { models: models(), efforts: EFFORTS, modes: PERMISSION_MODES } });
+  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), branch: gitBranch(c.cwd), profile: profileView(c.profile), choices: { models: models(), efforts: EFFORTS, modes: PERMISSION_MODES } });
   /** The terminal that runs the chat's conversation, as the page names it ({ name }), or null. */
   const terminalView = async (c) => (c.session && c.busy() ? null : await terminalOf(c.conversationId).then((t) => (t ? { name: t.name } : null)));
   async function view(c, { from, epoch }) {

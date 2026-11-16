@@ -33,24 +33,35 @@ function editInput(name, i) {
   return diffView(pairs.flatMap((e) => hunksOf(e.old_string || '', e.new_string || '')), { numbers: false });
 }
 
+/**
+ * A path as the owner reads it: inside the chat's folder, relative to it. It keeps the whole path (data-path), so the
+ * page can say it again once it knows the folder (rePaths): a card drawn before the first state has no folder yet.
+ */
+export const pathText = (p, cwd) => h('span.chat-p', { dataset: { path: String(p || '') } }, inFolder(p, cwd));
+/** Every path drawn under `root`, said again relative to `cwd`. */
+export function rePaths(root, cwd) {
+  for (const el of root.querySelectorAll('[data-path]')) el.textContent = inFolder(el.dataset.path, cwd);
+}
+
 /** What a tool call was given, as a person reads it. */
 export function inputView(ev, cwd) {
   const i = ev.input || {};
-  const path = (p) => (p ? h('p.chat-path', inFolder(p, cwd)) : null);
+  const path = (p) => (p ? h('p.chat-path', pathText(p, cwd)) : null);
   switch (ev.toolKind) {
     case 'edit':
       return [path(i.file_path || i.notebook_path), editInput(ev.name, i)];
     case 'shell':
       return [
-        i.command ? h('pre.chat-cmd', h('span.chat-cmd-prompt', { 'aria-hidden': 'true' }, '$ '), i.command) : null,
+        // The head says a short command already: the block only for one it cuts (several lines, or long).
+        i.command && (ev.asking || /\n/.test(i.command.trim()) || i.command.length > 80) ? h('pre.chat-cmd', h('span.chat-cmd-prompt', { 'aria-hidden': 'true' }, '$ '), i.command) : null,
         i.description ? h('p.chat-hint', i.description) : null,
         i.run_in_background ? h('p.chat-hint', icon('clock', { size: 13 }), ' Runs in the background') : null,
       ];
     case 'read':
-      return i.file_path ? h('p.chat-path', inFolder(i.file_path, cwd), i.offset ? ` · from line ${i.offset}` : '', i.limit ? ` · ${i.limit} lines` : '') : null;
+      return i.file_path ? h('p.chat-path', pathText(i.file_path, cwd), i.offset ? ` · from line ${i.offset}` : '', i.limit ? ` · ${i.limit} lines` : '') : null;
     // The head already names the pattern, the address or the query: here only what it adds.
     case 'search':
-      return i.path || i.glob ? h('p.chat-path', i.path ? `in ${inFolder(i.path, cwd)}` : '', i.path && i.glob ? ' · ' : '', i.glob || '') : null;
+      return i.path || i.glob ? h('p.chat-path', i.path ? ['in ', pathText(i.path, cwd)] : '', i.path && i.glob ? ' · ' : '', i.glob || '') : null;
     case 'web':
       return i.prompt ? h('p.chat-hint', i.prompt) : null;
     case 'agent':
@@ -78,6 +89,7 @@ export function inputView(ev, cwd) {
  * subagent's own events go).
  */
 export function toolCard(ev, o = {}) {
+  const path = (p) => (p ? h('p.chat-path', pathText(p, o.cwd)) : null);
   const state = h('span.chat-tool-state', { 'aria-hidden': 'true' });
   const verb = h('span.chat-tool-verb');
   const detail = h('span.chat-tool-detail');
@@ -95,17 +107,20 @@ export function toolCard(ev, o = {}) {
   let last = ev;
   let added = null;
   let quiet = false; // a card that waits for the owner shows the input (a question, a plan): not twice
+  let now = 'running'; // running → asking (an OK card is open) → done | refused (the owner said no)
 
   const counts = (c) => fill(end, h('span.chat-plus', `+${c.added}`), ' ', h('span.chat-minus', `−${c.removed}`));
   const head = (e) => {
-    const line = e.input ? toolLine(e.name, e.input) : { verb: toolLine(e.name, {}).verb, detail: e.title || '', mono: e.toolKind !== 'agent' };
+    const line = e.input ? toolLine(e.name, e.input, now) : { verb: toolLine(e.name, {}, now).verb, detail: e.title || '', mono: e.toolKind !== 'agent' };
     fill(verb, line.verb);
     detail.className = `chat-tool-detail${line.mono ? ' mono' : ''}`;
     const i = e.input || {};
-    // An edit: the file, and what it changes at the end of the line (Claude Code's own count once it ran).
+    // An edit: the file, and what it changes at the end of the line (Claude Code's own count once it ran; nothing
+    // when the owner said no: nothing changed).
     if (e.toolKind === 'edit' && e.input) {
-      fill(detail, inFolder(i.file_path || i.notebook_path, o.cwd));
-      if (!added && e.name !== 'NotebookEdit') counts(e.name === 'Write' ? { added: lineCount(i.content), removed: 0 } : hunkCounts((Array.isArray(i.edits) ? i.edits : [i]).flatMap((x) => hunksOf(x.old_string || '', x.new_string || ''))));
+      fill(detail, pathText(i.file_path || i.notebook_path, o.cwd));
+      if (now === 'refused') fill(end);
+      else if (!added && e.name !== 'NotebookEdit') counts(e.name === 'Write' ? { added: lineCount(i.content), removed: 0 } : hunkCounts((Array.isArray(i.edits) ? i.edits : [i]).flatMap((x) => hunksOf(x.old_string || '', x.new_string || ''))));
     } else fill(detail, line.detail || e.title || '');
   };
   head(ev);
@@ -128,6 +143,19 @@ export function toolCard(ev, o = {}) {
     // Claude Code wraps a refused or broken call in <tool_use_error>: the words inside are what the owner reads.
     const r = { ...res, text: String(res.text || '').replace(/^\s*<tool_use_error>([\s\S]*?)<\/tool_use_error>\s*$/, '$1') };
     el.classList.remove('chat-is-running');
+    // The owner stopped it, or said no: his act, said in grey, with no words that were written for Claude.
+    if (r.stopped || r.denied) {
+      now = r.denied ? 'refused' : 'done';
+      head(last);
+      el.classList.add('chat-is-stopped');
+      fill(state, icon(r.denied ? 'x' : 'stop', { size: 14 }));
+      fill(said, r.denied ? 'you said no' : 'stopped by you');
+      if (r.denied && r.text) el.open = true; // his reason shows under the head (the head itself stays short)
+      if (r.denied && last.toolKind === 'edit') fill(input); // nothing was written: no diff (the head names the file)
+      return fill(out, r.denied && r.text ? h('p.chat-hint', `Your reason: “${r.text}”`) : null);
+    }
+    now = 'done';
+    head(last);
     el.classList.add(r.ok ? 'chat-is-ok' : 'chat-is-err');
     fill(state, icon(r.ok ? 'check' : 'x', { size: 14 }));
     const code = last.toolKind === 'shell' ? exitCode(r.text) : null;
@@ -137,7 +165,7 @@ export function toolCard(ev, o = {}) {
     if (kind === 'edit' && r.ok) {
       if (r.diff && r.diff.length) {
         // Claude Code's own patch: the file's real line numbers.
-        fill(input, h('p.chat-path', inFolder((last.input || {}).file_path, o.cwd)), diffView(r.diff));
+        fill(input, path((last.input || {}).file_path), diffView(r.diff));
         added = hunkCounts(r.diff);
         counts(added);
       }
@@ -185,8 +213,18 @@ export function toolCard(ev, o = {}) {
 
   el.quiet = () => {
     quiet = true;
+    if (now === 'running') {
+      now = 'asking'; // "Wants to write": it waits for the OK card below
+      head(last);
+    }
     fill(input);
     el.open = false; // one line: the card below shows it
+  };
+  /** The OK card below was answered: an allowed call runs now. */
+  el.answered = (allowed) => {
+    if (now !== 'asking') return;
+    now = allowed ? 'running' : 'refused';
+    head(last);
   };
   el.kindOf = () => last.toolKind;
   el.added = () => added;
