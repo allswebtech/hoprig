@@ -13,7 +13,7 @@ are free except the server you may already rent.
 | --- | --- | --- |
 | **One PC** | Nothing more: its own dashboard is all you need. For your phone on the same Wi-Fi, setup's "devices on my network" is enough. | `hoprig setup` |
 | **Two or more PCs on the same network** | No server needed: on one of them, add the others. | On the one you open: **Computers → Add a computer →** "It has an address: Tailscale, HTTPS or the same network"; on each other PC: `hoprig pair` |
-| **PCs at home, and you want them from elsewhere, no server** | Something both sides can reach is needed. Either a public link through Cloudflare ([below](#a-public-link-through-cloudflare): a fixed address on your own domain, or a free temporary one that changes every time), or Tailscale (a private network of your own devices, for always). | **Settings → Add-ons → Public link**. Always: [situation 3](#3-no-server-at-all-tailscale) |
+| **PCs at home, and you want them from elsewhere, no server** | Something both sides can reach is needed. Either the public link through Cloudflare ([below](#a-public-link-through-cloudflare): Temporary, a free address that changes at each start, or Custom, your own domain), or Tailscale (a private network of your own devices, for always). | **Settings → Public link** (`hoprig public on`). Always: [situation 3](#3-no-server-at-all-tailscale) |
 | **PCs at home plus one or more servers** | Make one server the hub; every PC joins it; the other servers join too or are added by SSH. | On the server: `hoprig setup --hub` (see [HUB.md](HUB.md)). On each PC: `hoprig join https://<hub> <code>`. Other servers: `hoprig join …` the same way, or on the hub `hoprig machines add user@server` |
 | **Servers only** | The same: one is the hub, the others join it or are added by SSH. | As above |
 
@@ -104,26 +104,34 @@ such computer at all, Tailscale (situation 3) plays that part, or a public link 
 
 ## A public link through Cloudflare
 
-**Settings → Add-ons → Public link** makes this dashboard reachable from anywhere, with no server of your own and
-nothing opened on your router: Cloudflare's program `cloudflared` connects out to Cloudflare and visitors arrive
-through it. **Install** fetches `cloudflared` into Hoprig's own folder. Anyone who has the address reaches the
-sign-in page, so a dashboard password is required (use a long random one: `hoprig passwd --generate FILE`), and
-your traffic passes through Cloudflare. There are two kinds:
+**Settings → Public link** (or `hoprig public on`) makes this dashboard reachable from anywhere, with no server of
+your own and nothing opened on your router: Cloudflare's program `cloudflared` connects out to Cloudflare and
+visitors arrive through it. It is one switch, off until you turn it on, with one of two kinds; turning one kind on
+turns the other off. The first time, Hoprig installs `cloudflared` into its own folder. Anyone who has the address
+reaches the sign-in page, so the switch turns on only with a strong dashboard password (at least 12 characters and
+not a common one; `hoprig public on --new-password FILE` makes one), and your traffic passes through Cloudflare.
+The switch is remembered: when it was on, it is on again after the dashboard or the computer restarts.
 
-**A fixed address** stays the same, such as `https://office.example.com`. It needs a free Cloudflare account with a
+**Temporary** (the default) needs nothing: Cloudflare's free quick tunnel gives this dashboard an
+`https://…trycloudflare.com` address. It is new each time the link starts (after a restart of the computer, too);
+each new address is shown on the page and sent to your phone when **Settings → Notifications** has a push address.
+Under **Advanced**, one more local service (such as TRouteAI's dashboard) can get a temporary address of its own.
+
+**Custom** keeps your own address, such as `https://office.example.com`. It needs a free Cloudflare account with a
 domain on it (a domain you own, added to Cloudflare). To set it up:
 
-1. Press **Set it up**, then **Open Cloudflare**. Sign in, pick the domain for this address and press **Authorize**.
+1. Press **Set up**, then **Open Cloudflare**. Sign in, pick the domain for this address and press **Authorize**.
    You can do this in any browser, also on your phone; the page goes on by itself.
 2. Type the address (a name under that domain; the computer's name is suggested) and press **Make it**. Hoprig
-   makes a tunnel named `hoprig-<address>` in your Cloudflare account and a DNS record for the address.
-3. Done. It runs with the dashboard: it starts when the dashboard starts and again by itself when it stops (after
-   2 seconds, then waiting longer each time, at most 5 minutes). **Turn off** stops it until you turn it on again.
+   makes a tunnel named `hoprig-<address>` in your Cloudflare account and a DNS record for the address, and turns
+   the public link on as Custom.
+3. Done. It runs with the dashboard and starts again by itself when it stops (after 2 seconds, then waiting longer
+   each time, at most 5 minutes).
 
-Everything cloudflared keeps for it (the sign-in to Cloudflare, the tunnel's key, its settings) stays in Hoprig's
-state folder, readable only by you; your own `~/.cloudflared` is never read or changed.
+Everything cloudflared keeps (the sign-in to Cloudflare, the tunnel's key, its settings) stays in Hoprig's state
+folder, readable only by you; your own `~/.cloudflared` is never read or changed.
 
-Under **Advanced**:
+Under **Advanced** for Custom:
 
 - **Another service on this computer**: one more local service under a name of its own, such as TRouteAI's own
   dashboard on port 20017 at `trouteai-office.example.com`. Hoprig looks whether the service has a sign-in page of
@@ -131,23 +139,23 @@ Under **Advanced**:
 - **Use a tunnel token instead**: for a tunnel made in the Cloudflare dashboard (Networks → Tunnels). Give it a
   public hostname there that leads to `http://127.0.0.1:7433` (the dashboard's port), then paste its install
   command or token.
-- **Stop using it**: Hoprig deletes the tunnel in your Cloudflare account and removes every file of it from this
-  computer. The DNS records stay in Cloudflare, because cloudflared cannot remove DNS records: delete them under
+- **Stop using my domain**: Hoprig deletes the tunnel in your Cloudflare account and removes every file of it from
+  this computer. The DNS records stay in Cloudflare, because cloudflared cannot remove DNS records: delete them under
   your domain → DNS → Records. Until then the address shows a Cloudflare error page (1016).
 
-**A temporary address** needs no account: Cloudflare's free quick tunnel gives this dashboard an
-`https://…trycloudflare.com` address until you stop it (also from the command line: `hoprig addons start
-public-link`). That address changes at every start, so it is meant for now and then. Each new address is sent to
-your phone when **Settings → Notifications** has a push address. Under **Advanced**, one more local service (such
-as TRouteAI's dashboard) can get a temporary address of its own.
+From a terminal: `hoprig public` (on or off, and the address), `hoprig public on [--temporary|--custom]` (it shows
+the address and a QR code that signs a phone in once), `hoprig public off`.
 
-**A hub that runs this computer's add-ons.** A hub this computer is linked to may start and stop the public link,
-the fixed address and their extra services, run Setup and share a gateway here, so one dashboard runs every
+**Signing in from outside.** Failed sign-ins are limited per visitor address. Someone failing on purpose from many
+addresses cannot lock you out: a sign-in QR made on a device that is already signed in always works, and so does
+this computer itself and, once the password is strong, your password from anywhere.
+
+**A hub that runs this computer's add-ons.** A hub this computer is linked to may turn the public link on and off
+and add its extra services, run Setup and share a gateway here, so one dashboard runs every
 computer. Each such change is in this computer's **Automations → Activity** under the hub's name, such as "The hub
 office-pc started the public link"; what the request carried (a password, a key) is never written there. When you
 revoke that hub's right (**Who may control this computer**, `hoprig tokens revoke`, or Remove on the hub), what it
-opened to the network closes with it: its temporary address stops, a fixed address it turned on is turned off and a
-service it added is removed. What you opened yourself stays, and so does a gateway's sharing switch (the keys the hub
+opened to the network closes with it: a public link it turned on is turned off and a service it added is removed. What you opened yourself stays, and so does a gateway's sharing switch (the keys the hub
 made end with its right).
 
 ## Put the hub behind HTTPS

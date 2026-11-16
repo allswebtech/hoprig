@@ -63,8 +63,8 @@ One part that fails does not stop the next ones: at the end, setup names it with
 - `1` only this computer
 - `2` devices on my network, e.g. your phone on the same Wi-Fi *(default; not offered on a server with a public
   address, where it would be the whole internet over plain http)*
-- `3` from anywhere: then *I have a server* (make it the hub: [HUB.md](HUB.md)), *a quick public link* (free,
-  through Cloudflare, the address changes every time), or *Tailscale* (shown when it is installed and signed in)
+- `3` from anywhere: then *I have a server* (make it the hub: [HUB.md](HUB.md)), *a public link* (free,
+  through Cloudflare, no server: a new address at each start, or your own domain; `hoprig public on`), or *Tailscale* (shown when it is installed and signed in)
 
 To take the safe defaults and not be asked at all (it installs the default tools, adds no project, and adds only
 skills that come with Hoprig or are pinned in its catalog):

@@ -242,7 +242,7 @@ still works), otherwise inside the dashboard's own service (the built-in termina
 | One computer, phone on the same Wi-Fi | `hoprig setup`, scan the QR |
 | Two or more computers on one network | On one of them: **Computers → Add a computer**, then pick how it is reached. No server |
 | Computers at home, a server on the internet | `hoprig setup --hub` on the server; `hoprig join https://your-hub <code>` on each computer |
-| Computers at home, no server, you are elsewhere | the public link add-on: a fixed address on your own domain through Cloudflare (a free account with a domain), or a free temporary one that changes at every start and is sent to your phone when notifications are set up ([how](docs/COMPUTERS.md#a-public-link-through-cloudflare)); or Tailscale |
+| Computers at home, no server, you are elsewhere | the public link (Settings → Public link, or `hoprig public on`) through Cloudflare: Temporary, a free address that changes at each start and is sent to your phone, or Custom, your own address on a domain in a free Cloudflare account ([how](docs/COMPUTERS.md#a-public-link-through-cloudflare)); or Tailscale |
 | Servers only | one is the hub; add the others by their SSH name |
 
 Two computers behind routers cannot find each other without a third one both can reach. Here that is your
@@ -393,7 +393,8 @@ hop skills suggest | find | add | list | update  skills
 hop serve | passwd | link        the dashboard, its password, a one-time sign-in link
 hop service install              run the dashboard in the background
 hop machines | join | pair | tokens   several computers
-hop addons                       add-ons: a gateway for other AI providers, a public link
+hop public on | off | status     the public link: this dashboard from anywhere, no server needed
+hop addons                       add-ons: a gateway for other AI providers
 hop claude status | update       Claude Code's version
 hop demo                         the dashboard with sample data
 hop mcp                          Hoprig's tools as an MCP server

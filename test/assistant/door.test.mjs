@@ -180,7 +180,7 @@ test('every route her tools use is in the table, and nothing else', async () => 
     ops.computers(), ops.computerStatus({ computer: c }), ops.setupStatus({ computer: c }), ops.setupKits({ computer: c }), ops.setupFix({ computer: c, id: 'i' }),
     ops.setUp({ computer: c, kits: ['k'] }), ops.updateClaude({ computer: c }), ops.killProcess({ computer: c, pid: 9 }), ops.power({ computer: c, action: 'reboot' }),
     ops.addComputer({ sshTarget: 'a@b' }), ops.renameComputer({ computer: c, label: 'l' }), ops.renameComputer({ computer: 'box2', label: 'l' }), ops.addons({ computer: c }),
-    ops.addon({ computer: c, id: 'a', action: 'stop' }), ops.automation({ computer: c }), ops.automationSettings({ computer: c, patch: { paused: true } }),
+    ops.addon({ computer: c, id: 'a', action: 'stop' }), ops.publicLink({ computer: c }), ops.setPublicLink({ computer: c, on: true, kind: 'temporary' }), ops.automation({ computer: c }), ops.automationSettings({ computer: c, patch: { paused: true } }),
     ops.schedules({ computer: c, body: { op: 'delete', id: 'x' } }), ops.queue({ computer: c, session: 's', body: { op: 'clear' } }), ops.skillsInstalled({ computer: c }),
     ops.skillsSuggested({ computer: c }), ops.skillsFind({ computer: c, query: 'q' }), ops.skillReview({ computer: c, spec: 's' }), ops.skillUpdateReview({ computer: c, name: 'n' }),
     ops.skillApprove({ computer: c, id: 'i' }), ops.skillRemove({ computer: c, name: 'n' }), ops.skillsCheck({ computer: c }), ops.projectsFolder({ computer: c, dir: '/p' }),
@@ -224,6 +224,13 @@ test('the other computer decides too: its gate refuses a hub token on the owner-
 
 test('setup and fix: Tia sends the kits or the check, never a password and never the terminal fallback', () => {
   assert.equal(checkRoute('POST', '/api/pcsetup/setup', { kits: ['basics'] }, stubCtx()).tool, 'manage_computer set_up');
+  // The public link: only through its own route, with on/kind and nothing else; never its old add-on routes or its set-up.
+  assert.equal(checkRoute('POST', '/api/public-link', { on: true, kind: 'custom' }, stubCtx()).tool, 'manage_computer public_link');
+  assert.throws(() => checkRoute('POST', '/api/public-link', { on: true, password: 'x' }, stubCtx()), /"password" is the owner's to send/);
+  for (const p of ['/api/addons/public-link/start', '/api/addons/public-link/do/fixed-on', '/api/public-link/custom/sign-in', '/api/public-link/temporary/add-service']) {
+    assert.throws(() => checkRoute('POST', p, {}, stubCtx()), `${p} is refused`);
+  }
+  assert.equal(checkRoute('POST', '/api/addons/trouteai/start', {}, stubCtx()).tool, 'manage_computer addon');
   assert.equal(checkRoute('POST', '/m/box2/api/pcsetup/fix', { id: 'extras.tmux' }, stubCtx()).computer, 'box2');
   for (const [p, b] of [['/api/pcsetup/setup', { kits: ['basics'], password: 'x' }], ['/api/pcsetup/setup', { kits: ['basics'], terminal: true }], ['/api/pcsetup/fix', { id: 'x', password: 'x' }], ['/api/pcsetup/fix', 'x']]) {
     refused(() => checkRoute('POST', p, b, stubCtx()));

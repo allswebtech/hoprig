@@ -192,7 +192,7 @@ async function computerRow(ops, c) {
 
 export const manage_computer = actionTool({
   name: 'manage_computer',
-  description: 'Act on a computer: add one by SSH (user@host), rename it, update Claude Code, fix one setup check or set it up (it runs as a job, output on that computer\'s Setup page; when it needs the administrator password nothing starts and the owner runs it there), end a process, install / start / stop / update an add-on, reboot or power off. Removing a computer or adding one by pairing code is the owner\'s own step (open_screen).',
+  description: 'Act on a computer: add one by SSH (user@host), rename it, update Claude Code, fix one setup check or set it up (it runs as a job, output on that computer\'s Setup page; when it needs the administrator password nothing starts and the owner runs it there), end a process, install / start / stop / update an add-on, turn its public link on or off (on opens its sign-in page to the internet), reboot or power off. Removing a computer or adding one by pairing code is the owner\'s own step (open_screen).',
   fields: {
     ssh_target: str({ max: 300, pattern: /^(?:ssh:\/\/)?(?:[A-Za-z0-9._][A-Za-z0-9._+-]{0,63}@)?[A-Za-z0-9_[][A-Za-z0-9._:\]-]{0,252}$/, desc: 'add: user@host.' }),
     name: str({ max: 32, pattern: /^[a-z0-9][a-z0-9_-]{0,31}$/, desc: 'add: the short name to use.' }),
@@ -203,6 +203,8 @@ export const manage_computer = actionTool({
     force: bool({ desc: 'end_process: SIGKILL instead of SIGTERM.' }),
     addon: str({ max: 31, pattern: ADDON, desc: 'addon: the add-on id (get_settings shows them).' }),
     addon_action: str({ enum: ['install', 'update', 'start', 'stop'] }),
+    turn: str({ enum: ['on', 'off'], desc: 'public_link: on or off.' }),
+    link_kind: str({ enum: ['temporary', 'custom'], desc: 'public_link: temporary (a new address at each start, nothing to set up) or custom (the owner\'s own domain, set up in Settings → Public link); default: the kind chosen before.' }),
   },
   actions: {
     add: {
@@ -296,6 +298,10 @@ export const manage_computer = actionTool({
       // (sessions may use it) need the owner.
       level: (a) => (a.addon_action === 'start' ? 'L1' : 'L2'),
       need: ['addon', 'addon_action'],
+      check(a) {
+        // The public link opens the computer to the internet: it has its own action, with a card for on.
+        if (a.addon === 'public-link') throw toolError('the public link is not switched as an add-on', 'use the action public_link with turn: on or off');
+      },
       before: async (ops, a) => {
         const r = await ops.addons({ computer: comp(a) });
         const x = (r.addons || []).find((y) => y.id === a.addon);
@@ -306,6 +312,38 @@ export const manage_computer = actionTool({
       async run(ops, a) {
         await ops.addon({ computer: comp(a), id: a.addon, action: a.addon_action });
         return { summary: `The add-on ${a.addon}: ${a.addon_action} started on ${comp(a)}.`, data: { addon: a.addon, action: a.addon_action } };
+      },
+    },
+    public_link: {
+      // On opens the computer's sign-in page to the internet: only with the owner's OK. Off only closes it.
+      level: (a) => (a.turn === 'on' ? 'L2' : 'L1'),
+      need: ['turn'],
+      allow: ['link_kind'],
+      check(a) {
+        if (a.turn === 'off' && a.link_kind) throw toolError('off needs no kind', 'leave link_kind out');
+      },
+      before: async (ops, a) => {
+        const s = await ops.publicLink({ computer: comp(a) });
+        return { on: s.on === true, kind: a.link_kind || (s.kind === 'custom' ? 'custom' : 'temporary'), customReady: !!(s.custom && s.custom.state === 'ready') };
+      },
+      cardLines: (a, b) => [
+        `Turn ON the public link of ${comp(a)}: ${b.kind === 'custom' ? 'Custom, its own address on the owner\'s domain' : 'Temporary, a new https address at each start'}`,
+        'Anyone who has the address reaches its sign-in page; the dashboard password protects it.',
+        `Now: ${b.on ? `on (${b.kind === 'custom' ? 'Custom' : 'Temporary'})` : 'off'}`,
+      ],
+      async run(ops, a) {
+        const on = a.turn === 'on';
+        const r = (await ops.setPublicLink({ computer: comp(a), on, ...(on && a.link_kind ? { kind: a.link_kind } : {}) })) || {};
+        if (r.ok === false) {
+          // Fixed words per reason: the computer's own text stays out of the summary.
+          const why = { password: 'it has no dashboard password', 'check-password': 'its password must be typed once in Settings → Public link', 'stronger-password': 'its dashboard password is too weak for a public link', 'custom-setup': 'Custom is not set up there yet' }[r.need] || 'it refused';
+          throw toolError(`the public link of ${comp(a)} did not turn on: ${why}`, 'tell the owner: Settings → Public link on that computer');
+        }
+        const kind = r.kind === 'custom' ? 'Custom' : 'Temporary';
+        return {
+          summary: on ? `The public link of ${comp(a)} is turning on (${kind}); its address shows in Settings → Public link.` : `The public link of ${comp(a)} is off.`,
+          data: { on, kind: r.kind === 'custom' ? 'custom' : 'temporary', state: typeof r.state === 'string' ? r.state : null },
+        };
       },
     },
     reboot: {
