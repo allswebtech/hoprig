@@ -1,32 +1,38 @@
 // The composer, laid out as Claude Code's: the queued messages above the box (each with a remove), the files to
-// send with the message, the box, Send (Enter on a desktop; while Claude works it queues) and Stop beside it while
-// Claude works; under it the chips that change the chat at once: the permission mode (Shift+Tab goes to the next;
-// bypass is marked), the model and the effort (Auto first in both) and ultracode, and the context ring.
+// send with the message (attach.js: the paperclip, a paste or a drop), the box with its "/" and "@" menus
+// (popovers.js), Send (Enter on a desktop; while Claude works it queues) and Stop beside it while Claude works; under
+// it the chips that change the chat at once: the permission mode (Shift+Tab goes to the next; bypass is marked), the
+// model and the effort (Auto first in both) and ultracode, and the context ring. Up in an empty box brings back the
+// last message (keys.js), Escape stops Claude.
 import { icon } from '../icons.js';
-import { api, bytes, chooseSheet, fill, h, openSheet, prefs, toast, url } from '../lib.js';
+import { api, chooseSheet, fill, h, openSheet, prefs, toast } from '../lib.js';
+import { createAttachments } from './attach.js';
+import { recall } from './keys.js';
+import { createMenus } from './popovers.js';
 import { MODE, contextPercent, effortName, kilo, modeChip, modeOf, modelName, nextMode } from './words.js';
 
-const finePointer = typeof matchMedia !== 'undefined' && matchMedia('(pointer: fine)').matches; // desktop: Enter sends
+// Enter sends unless the screen is touched (a phone's Enter makes a new line; its Send button sends).
+const finePointer = typeof matchMedia !== 'undefined' && !matchMedia('(pointer: coarse)').matches;
 
-/** o: { A (the chat's API path), id, state() (the last state), stop(), compact() } → { el, paint(v), focus() } */
+/** o: { A (the chat's API path), id, stop(), compact(), own() (the page's own / commands) } → { el, paint(v), focus(), … } */
 export function createComposer(o) {
   const draftKey = `chat.draft.${o.id}`;
-  let files = []; // uploaded, to go with the next message: { path, name, size }
   const queueBox = h('ul.chat-queue', { 'aria-label': 'Queued messages' });
-  const filesBox = h('div.chat-attach');
-  const upStatus = h('p.chat-hint.chat-upstatus.hidden', { role: 'status' });
   const textarea = h('textarea.msg.chat-input', { rows: 1, 'aria-label': 'Message to Claude', enterkeyhint: finePointer ? 'send' : 'enter' });
-  const fileInput = h('input.hidden', { type: 'file', multiple: true });
-  const attachBtn = h('button.btn.icon.ghost.chat-attachbtn', { type: 'button', 'aria-label': 'Attach files', title: 'Attach files (they go into the project\'s uploads folder)', onclick: () => fileInput.click() }, icon('paperclip'));
+  const files = createAttachments({ A: o.A, changed: () => paintButtons() });
+  const menus = createMenus({ textarea, A: o.A, own: () => o.own(), send: (text) => send(text) });
+  const sent = recall({ get: () => prefs.get(`chat.sent.${o.id}`, []), set: (list) => prefs.set(`chat.sent.${o.id}`, list) });
+  const fileInput = h('input.hidden', { type: 'file', multiple: true, tabindex: '-1', 'aria-hidden': 'true' });
+  const attachBtn = h('button.btn.icon.ghost.chat-attachbtn', { type: 'button', 'aria-label': 'Attach files or pictures', title: 'Attach files or pictures (or paste or drop them)', onclick: () => fileInput.click() }, icon('paperclip'));
   const sendBtn = h('button.btn.primary.icon.chat-send', { type: 'button', 'aria-label': 'Send', title: 'Send', onclick: () => send() }, icon('send', { size: 20 }));
-  const stopBtn = h('button.btn.danger.icon.chat-stop.hidden', { type: 'button', 'aria-label': 'Stop', title: 'Stop Claude (the turn ends; background agents go on)', onclick: () => o.stop() }, icon('stop', { size: 20 }));
+  const stopBtn = h('button.btn.danger.icon.chat-stop.hidden', { type: 'button', 'aria-label': 'Stop', title: 'Stop Claude (Esc; the turn ends, background agents go on)', onclick: () => o.stop() }, icon('stop', { size: 20 }));
   const modeBtn = h('button.chip.chat-chip.chat-modechip', { type: 'button', onclick: () => chooseMode() });
   const modelBtn = h('button.chip.chat-chip', { type: 'button', onclick: () => choose('model') });
   const effortBtn = h('button.chip.chat-chip', { type: 'button', onclick: () => choose('effort') });
   const ultraBtn = h('button.chip.chat-chip.chat-ultra', { type: 'button', 'aria-pressed': 'false', title: 'Ultracode: Claude plans the work out to agents and workflows', onclick: () => toggleUltra() }, icon('grid', { size: 13 }), h('span', 'Ultracode'));
   const ring = h('button.chat-ring', { type: 'button', onclick: () => contextSheet() }, h('span.chat-ring-pie', { 'aria-hidden': 'true' }), h('span.chat-ring-text'));
   const chips = h('div.chat-chips', modeBtn, modelBtn, effortBtn, ultraBtn, h('span.chat-chips-gap'), ring);
-  const el = h('div.chat-composer-wrap', queueBox, filesBox, upStatus, h('div.chat-composer', attachBtn, textarea, sendBtn, stopBtn, fileInput), chips);
+  const el = h('div.chat-composer-wrap', menus.el, queueBox, files.el, h('div.chat-composer', attachBtn, textarea, sendBtn, stopBtn, fileInput), chips);
   let v = null;
 
   // ---------- the box ----------
@@ -34,39 +40,76 @@ export function createComposer(o) {
     textarea.style.height = 'auto';
     textarea.style.height = `${Math.min(textarea.scrollHeight + 2, Math.round(innerHeight * 0.3))}px`;
   };
+  const setText = (t) => {
+    textarea.value = t;
+    textarea.setSelectionRange(t.length, t.length);
+    prefs.set(draftKey, t);
+    grow();
+    paintButtons();
+  };
   textarea.value = prefs.get(draftKey, '');
   textarea.addEventListener('input', () => {
     prefs.set(draftKey, textarea.value);
     grow();
     paintButtons();
+    menus.update();
   });
+  // The caret moved without typing (a click, the arrow keys): the menu follows it.
+  textarea.addEventListener('click', () => menus.update());
+  textarea.addEventListener('keyup', (e) => {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') menus.update();
+  });
+  textarea.addEventListener('blur', () => setTimeout(() => document.activeElement !== textarea && menus.close(), 150));
   textarea.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && finePointer && !e.isComposing) {
+    if (e.isComposing) return;
+    if (menus.key(e)) {
+      e.preventDefault();
+      e.stopPropagation(); // Escape closed the menu: it does not stop Claude too
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey && finePointer) {
       e.preventDefault();
       send();
     } else if (e.key === 'Tab' && e.shiftKey && v) {
       e.preventDefault();
+      e.stopPropagation();
       setMode(nextMode(modeOf(v), v.choices ? v.choices.modes : undefined));
+    } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && textarea.selectionStart === textarea.selectionEnd) {
+      const atEdge = e.key === 'ArrowUp' ? !textarea.value.slice(0, textarea.selectionStart).includes('\n') : !textarea.value.slice(textarea.selectionEnd).includes('\n');
+      const t = atEdge ? (e.key === 'ArrowUp' ? sent.up(textarea.value) : sent.down(textarea.value)) : null;
+      if (t !== null) {
+        e.preventDefault();
+        setText(t);
+      }
     }
   });
+  textarea.addEventListener('paste', (e) => {
+    const cd = e.clipboardData;
+    // Text wins: an app that copies text often adds a picture of it too.
+    if (!cd || !cd.files || !cd.files.length || cd.types.includes('text/plain')) return;
+    e.preventDefault();
+    files.take(cd.files);
+  });
 
-  async function send() {
-    const text = textarea.value.replace(/\s+$/, '');
+  async function send(given) {
+    const text = given ?? textarea.value.replace(/\s+$/, '');
     if (!text) return textarea.focus();
     sendBtn.disabled = true;
     try {
-      await api(`${o.A}/send`, { text, ...(files.length ? { attachments: files.map((f) => ({ path: f.path })) } : {}) });
-      textarea.value = '';
-      prefs.set(draftKey, '');
-      files = [];
-      paintFiles();
-      grow();
+      const attachments = given ? [] : await files.ready();
+      await api(`${o.A}/send`, { text, ...(attachments.length ? { attachments } : {}) });
+      sent.push(text);
+      if (!given) {
+        setText('');
+        files.clear();
+      }
+      menus.close();
     } catch (e) {
       toast(`Not sent: ${e.message}`, { kind: 'error' });
     } finally {
       sendBtn.disabled = false;
       paintButtons();
-      textarea.focus();
+      textarea.focus(); // the box keeps the focus (and a phone its keyboard) for the next message
     }
   }
 
@@ -86,47 +129,9 @@ export function createComposer(o) {
       } }, icon('x', { size: 16 })))));
   }
 
-  // ---------- attachments (the uploads folder, as for terminal sessions) ----------
-  const paintFiles = () => fill(filesBox, files.map((f, n) => h('span.chip.chat-file', icon('paperclip', { size: 12 }), h('span', f.name),
-    h('button.chat-file-x', { type: 'button', 'aria-label': `Do not send ${f.name}`, onclick: () => {
-      files.splice(n, 1);
-      paintFiles();
-    } }, icon('x', { size: 12 })))));
-  const upload = (file) => new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest(); // XHR, not fetch: it reports upload progress
-    xhr.open('POST', url(`${o.A}/upload`));
-    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-    xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name || 'upload'));
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) upStatus.textContent = `Uploading ${file.name}: ${Math.round((e.loaded / e.total) * 100)}% of ${bytes(e.total)}`;
-    };
-    xhr.onload = () => {
-      let body = {};
-      try {
-        body = JSON.parse(xhr.responseText);
-      } catch {
-        /* not JSON */
-      }
-      if (xhr.status === 200) resolve(body);
-      else reject(new Error(body.error || `Upload failed (${xhr.status})`));
-    };
-    xhr.onerror = () => reject(new Error('Upload failed: connection lost'));
-    xhr.send(file);
-  });
-  fileInput.addEventListener('change', async () => {
-    const list = [...fileInput.files];
+  fileInput.addEventListener('change', () => {
+    files.take(fileInput.files);
     fileInput.value = '';
-    upStatus.classList.remove('hidden');
-    for (const f of list) {
-      try {
-        const r = await upload(f);
-        files.push({ path: r.path, name: f.name, size: f.size });
-        paintFiles();
-      } catch (e) {
-        toast(e.message, { kind: 'error' });
-      }
-    }
-    upStatus.classList.add('hidden');
     textarea.focus();
   });
 
@@ -189,7 +194,7 @@ export function createComposer(o) {
 
   function paintButtons() {
     const busy = v && v.working;
-    const hasText = !!textarea.value.trim();
+    const hasText = !!textarea.value.trim() || files.count() > 0;
     stopBtn.classList.toggle('hidden', !busy);
     // While Claude works: Stop is the main button; Send stays for a message to queue.
     sendBtn.classList.toggle('hidden', !!busy && !hasText);
@@ -202,14 +207,23 @@ export function createComposer(o) {
     el,
     textarea,
     focus: () => textarea.focus(),
+    /** Files dropped on the page, or chosen elsewhere: to go with the next message. */
+    addFiles: (list) => {
+      files.take(list);
+      textarea.focus();
+    },
+    choose,
+    chooseMode,
+    nextMode: () => v && setMode(nextMode(modeOf(v), v.choices ? v.choices.modes : undefined)),
     paint(state) {
       v = state;
       const ro = !!v.terminal;
       textarea.disabled = ro;
       attachBtn.disabled = ro;
+      if (ro) menus.close();
       const words = ro ? 'Read only while the terminal runs this conversation'
         : v.working ? 'Queue a message…'
-          : finePointer ? 'Message Claude. Enter sends, Shift+Enter a new line, Shift+Tab the mode' : 'Message Claude';
+          : finePointer ? 'Message Claude · / commands · @ files · Shift+Tab mode · /help keys' : 'Message Claude. / commands, @ files';
       if (textarea.placeholder !== words) {
         textarea.placeholder = words;
         grow(); // an empty box is as high as its placeholder

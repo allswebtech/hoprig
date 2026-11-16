@@ -108,6 +108,9 @@ export function took(ms) {
 
 /** The line under a finished turn: what it cost and used, as Claude Code reported it. */
 export function turnLine(ev) {
+  const u = ev.usage || {};
+  // A command Claude Code answered by itself (/cost) used nothing: no line.
+  if (!ev.turnCostUsd && !(u.input || u.output || u.cacheRead || u.cacheWrite)) return '';
   const parts = [];
   if (Number.isFinite(ev.turnCostUsd)) parts.push(money(ev.turnCostUsd));
   if (ev.usage) {

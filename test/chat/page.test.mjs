@@ -210,3 +210,57 @@ test('tool cards: an error Claude Code wraps in tool_use_error shows only its wo
   assert.match(all, /Error: No such tool available: Grep\./);
   assert.doesNotMatch(all, /tool_use_error/);
 });
+
+test('the composer\'s menus: "/" at the start of the box, "@" anywhere, filtered as you type', async () => {
+  const { menuAt, filterCommands, toolCommands, mention } = await import('../../web/chat/popovers.js');
+  assert.deepEqual(menuAt('/', 1), { type: '/', q: '', from: 0 });
+  assert.deepEqual(menuAt('/comp', 5), { type: '/', q: 'comp', from: 0 });
+  assert.equal(menuAt('/compact now', 12), null, 'a command with its argument typed: the menu is gone');
+  assert.equal(menuAt('see a/b', 7), null, 'a slash inside the text is no command');
+  assert.deepEqual(menuAt('look at @src/th', 15), { type: '@', q: 'src/th', from: 8 });
+  assert.deepEqual(menuAt('@', 1), { type: '@', q: '', from: 0 });
+  assert.equal(menuAt('mail me@example', 15), null, 'an @ inside a word is no file');
+  assert.equal(menuAt('look at @src/a.js and', 21), null);
+  const list = [{ name: 'review', description: 'Review the changes' }, { name: 'compact', description: 'Summary' }, { name: 'security-review', description: 'Check' }, { name: 'init', description: 'Write a review file' }];
+  assert.deepEqual(filterCommands(list, 'rev').map((c) => c.name), ['review', 'security-review', 'init'], 'the name first, then the words');
+  assert.deepEqual(filterCommands(list, 'comp').map((c) => c.name), ['compact']);
+  assert.deepEqual(filterCommands(list, 'wr').map((c) => c.name), [], 'two letters look at the names only');
+  assert.equal(filterCommands(list, '').length, 4);
+  const tool = toolCommands([{ name: 'clear', builtin: true }, { name: 'compact', builtin: true }, { name: 'cost', description: 'Show the cost', builtin: true }, { name: 'tidy-notes', description: 'Tidy', argumentHint: '[file]', builtin: false }, { name: '' }, null]);
+  assert.deepEqual(tool, [{ name: 'cost', description: 'Show the cost', hint: '', skill: false }, { name: 'tidy-notes', description: 'Tidy', hint: '[file]', skill: true }], 'what the page does itself is left out');
+  assert.equal(mention('src/a.js'), '@src/a.js ');
+  assert.equal(mention('docs/my notes.md'), '@"docs/my notes.md" ', 'Claude Code reads a quoted path');
+});
+
+test('Up and Down in an empty box go through the messages sent from this chat', async () => {
+  const { recall, SHORTCUTS } = await import('../../web/chat/keys.js');
+  let kept = ['first'];
+  const r = recall({ get: () => kept, set: (l) => (kept = l) });
+  r.push('second');
+  r.push('third');
+  assert.deepEqual(kept, ['first', 'second', 'third']);
+  assert.equal(r.up(''), 'third');
+  assert.equal(r.up('third'), 'second');
+  assert.equal(r.up('second'), 'first');
+  assert.equal(r.up('first'), null, 'nothing older');
+  assert.equal(r.down('first'), 'second');
+  assert.equal(r.down('second'), 'third');
+  assert.equal(r.down('third'), '', 'past the newest: the empty box again');
+  assert.equal(r.up('something typed'), null, 'text of its own is never replaced');
+  r.push('first');
+  assert.deepEqual(kept, ['second', 'third', 'first'], 'sent again: it moves to the end, once');
+  for (const k of ['Esc', 'Shift+Tab', '/', '@']) assert.ok(SHORTCUTS.some(([key]) => key === k), k);
+});
+
+test('a command Claude Code answered by itself has no cost line; a message\'s picture is a thumbnail of this chat', async () => {
+  assert.equal(W.turnLine({ ok: true, turnCostUsd: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, durationMs: 18 }), '');
+  assert.match(W.turnLine({ ok: true, turnCostUsd: 0.01, usage: { input: 10, output: 2 }, durationMs: 1000 }), /^\$0\.01/);
+  const { messageFiles } = await import('../../web/chat/attach.js');
+  assert.equal(messageFiles([], '/api/chats/x'), null);
+  const box = messageFiles([{ type: 'image', name: 'shot 1.png', mime: 'image/png' }, { type: 'file', name: 'b.log' }, { type: 'image', name: '' }], '/api/chats/x');
+  const img = byClass(box, 'chat-thumb')[0];
+  assert.ok(img, 'a picture with a name is drawn');
+  assert.equal(img.getAttribute('src'), '/api/chats/x/attachment?name=shot%201.png');
+  assert.equal(img.getAttribute('alt'), 'Picture shot 1.png');
+  assert.deepEqual(texts(box).filter(Boolean), ['b.log', 'picture'], 'a file, and a picture without a name, as chips');
+});

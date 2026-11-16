@@ -1,6 +1,7 @@
-// The chat's head: the way back, the title (tap to rename), the folder chip (Files and Changes open the editor, and
-// Open in terminal), the provider chip (move to another provider, each with its usage), and the more menu (Stop,
-// Compact, Clear = a new chat in the same folder with the same settings, Close). A conversation stays with the coding
+// The chat's head: the way back, the title (tap to rename) with the folder's history beside it (its earlier
+// conversations), the folder chip (Files and Changes open the editor, and Open in terminal), the provider chip (move
+// to another provider, each with its usage), and the more menu (Stop, Compact, Clear = a new chat in the same folder
+// with the same settings, Rewind files, Keyboard shortcuts, Close). A conversation stays with the coding
 // tool it started with: the provider changes, the coding tool does not.
 import { icon } from '../icons.js';
 import { KIND, api, chooseSheet, fill, h, link, profileIcon, profileState, promptSheet, toast } from '../lib.js';
@@ -18,7 +19,7 @@ export function usageWords(p) {
 /** The editor's address for a folder (another part of the dashboard draws it). */
 export const editorLink = (dir, view = null) => link(`#/code?dir=${encodeURIComponent(dir)}${view ? `&view=${view}` : ''}`);
 
-/** o: { A, way: { hash, label }, act: { stop, compact, clear, close, terminal, moveTo(name) } } → { el, paint(v) } */
+/** o: { A, way: { hash, label }, act: { stop, compact, clear, close, terminal, moveTo(name), history, rewind, shortcuts } } → { el, paint(v) } */
 export function createHeader(o) {
   let v = null;
   const titleText = h('span.chat-title-text', 'Chat');
@@ -29,9 +30,10 @@ export function createHeader(o) {
   const folderBtn = h('button.chip.chat-hchip', { type: 'button', onclick: () => folderMenu() }, icon('folder', { size: 13 }), folderLabel, icon('chevronDown', { size: 12 }));
   const provLabel = h('span.chat-chip-label');
   const provBtn = h('button.chip.chat-hchip', { type: 'button', onclick: () => providerMenu() }, icon('user', { size: 13 }), provLabel, icon('chevronDown', { size: 12 }));
+  const histBtn = h('button.btn.icon.ghost.chat-histbtn', { type: 'button', 'aria-label': 'Earlier conversations of this folder', title: 'Earlier conversations of this folder', onclick: () => o.act.history() }, icon('clock', { size: 16 }));
   const el = h('header.chat-bar',
     h('a.btn.ghost.chatback', { href: o.way.hash, 'aria-label': `Back to ${o.way.label}`, title: `Back to ${o.way.label}` }, icon('back'), h('span.chatback-label', o.way.label)),
-    h('div.chat-head', h('h1.chat-h1', titleBtn), h('div.chat-sub', folderBtn, provBtn)),
+    h('div.chat-head', h('div.chat-h1row', h('h1.chat-h1', titleBtn), histBtn), h('div.chat-sub', folderBtn, provBtn)),
     h('button.btn.icon.ghost.chat-morebtn', { type: 'button', title: 'More for this chat', 'aria-label': 'More for this chat', onclick: () => more() }, icon('more')));
 
   async function rename() {
@@ -50,6 +52,7 @@ export function createHeader(o) {
       subtitle: v.short || v.cwd,
       items: [
         { value: 'rename', label: 'Rename', sub: 'Give this chat a name', icon: 'pencil' },
+        { value: 'history', label: 'Earlier conversations', sub: 'Of this folder: continue one in a chat', icon: 'clock' },
         { value: 'files', label: 'Files', sub: 'Open the folder in the editor', icon: 'code' },
         { value: 'changes', label: 'Changes', sub: 'What changed in the folder (git), in the editor', icon: 'git' },
         { value: 'terminal', label: 'Open in terminal', sub: 'The same conversation, in a terminal session', icon: 'terminal' },
@@ -57,6 +60,7 @@ export function createHeader(o) {
       ],
     });
     if (pick === 'rename') rename();
+    else if (pick === 'history') o.act.history();
     else if (pick === 'files') location.hash = editorLink(v.cwd);
     else if (pick === 'changes') location.hash = editorLink(v.cwd, 'changes');
     else if (pick === 'terminal') o.act.terminal();
@@ -103,7 +107,9 @@ export function createHeader(o) {
         busy ? { value: 'stop', label: 'Stop Claude', sub: 'Ends the turn; agents in the background go on', icon: 'stop' } : null,
         { value: 'compact', label: 'Compact', sub: 'Claude goes on from a summary of the conversation, which frees context', icon: 'minus' },
         { value: 'clear', label: 'Clear', sub: 'A new chat in this folder with the same settings; this one is kept', icon: 'plus' },
+        v && v.engine && v.engine.capabilities && v.engine.capabilities.rewind ? { value: 'rewind', label: 'Rewind files…', sub: 'Undo Claude\'s file changes since one of your messages', icon: 'refresh' } : null,
         { value: 'terminal', label: 'Open in terminal', sub: 'The same conversation, in a terminal session', icon: 'terminal' },
+        { value: 'shortcuts', label: 'Keyboard shortcuts', sub: 'Enter, Esc, Shift+Tab, ↑, / and @', icon: 'info' },
         { value: 'close', label: 'Close this chat', sub: 'The conversation stays; it leaves Home', icon: 'trash', danger: true },
       ].filter(Boolean),
     });

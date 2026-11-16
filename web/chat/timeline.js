@@ -2,17 +2,19 @@
 // (a message of the owner, or a turn Claude starts by itself, and everything up to its end); text that streams and
 // is replaced by its final block (same block id); thinking folded with its time; tool cards (tools.js) with a
 // subagent's steps inside the call that started it; cards that wait for the owner (asks.js); "Show earlier"; and the
-// view stays at the bottom unless the owner scrolled up.
+// view stays at the bottom unless the owner scrolled up. A screen reader hears only what is new and whole (a reply,
+// a card), never the list as it streams.
 import { icon } from '../icons.js';
 import { add, api, fill, h, toast } from '../lib.js';
 import { mdView } from '../mdtext.js';
+import { messageFiles } from './attach.js';
 import { OUTCOME, askCard } from './asks.js';
-import { toolCard } from './tools.js';
+import { outputView, toolCard } from './tools.js';
 import { took, turnLine } from './words.js';
 
 const NEAR_PX = 120;
 
-/** o: { scroll (the scrolling element), A (the chat's API path), cwd(), stopTask(id), after() } */
+/** o: { scroll (the scrolling element), A (the chat's API path), cwd(), stopTask(id), after(), canRewind(), rewind({ messageId, text }) } */
 export function createTimeline(o) {
   const moreSlot = h('div.chat-moreslot');
   const olderBox = h('div.chat-older');
@@ -22,6 +24,7 @@ export function createTimeline(o) {
   const asks = new Map(); // request id → its card
   const blocks = new Map(); // block id → its element (live while it streams, then final)
   const orphans = new Map(); // agent id → where its steps go when its call is not drawn (an earlier window)
+  const said = h('div.chat-sr', { role: 'status', 'aria-live': 'polite' }); // what a screen reader hears
   let main = { root: list, group: null }; // where new events go
   let first = 0; // the number of the first event drawn
   let stick = true;
@@ -102,8 +105,16 @@ export function createTimeline(o) {
       case 'user': {
         const g = group(at);
         const files = Array.isArray(ev.attachments) ? ev.attachments : [];
-        return add(g, h('div.chat-item.chat-user', { dataset: { message: ev.messageId || '' } }, ev.text,
-          files.length ? h('div.chat-files', files.map((f) => h('span.chip.small', icon(f.type === 'image' ? 'sparkle' : 'paperclip', { size: 12 }), f.name || (f.type === 'image' ? 'picture' : 'file')))) : null));
+        // Rewind (the files, to before this message): beside the message where the coding tool can.
+        const back = ev.messageId && o.canRewind() ? h('button.btn.icon.ghost.chat-rewindbtn', {
+          type: 'button', 'aria-label': 'Rewind the files to before this message', title: 'Rewind the files to before this message',
+          onclick: () => o.rewind({ messageId: ev.messageId, text: ev.text }),
+        }, icon('refresh', { size: 15 })) : null;
+        // A file sent with the message is named at its end for Claude Code (@path); the chip below says it already.
+        const text = files.some((f) => f.type === 'file') ? ev.text.replace(/\n\n(?:@(?:"[^"]+"|\S+)\s*)+$/, '') : ev.text;
+        const row = h('div.chat-item.chat-userrow', { dataset: { message: ev.messageId || '' } }, back, h('div.chat-user', text, messageFiles(files, o.A)));
+        row.said = ev.text;
+        return add(g, row);
       }
       case 'turn-start':
         if (ev.auto) group(at, { auto: true });
@@ -173,6 +184,8 @@ export function createTimeline(o) {
         at.group = null;
         return add(at.root, h('div.chat-item.chat-divider', h('span', ev.reason === 'compact' ? 'Conversation compacted: Claude goes on from a summary' : ev.reason === 'clear' ? 'Conversation cleared' : 'A new conversation')));
       case 'notice':
+        // What Claude Code answered by itself (/cost, /context): its text as it wrote it, in a box.
+        if (ev.local) return add(groupOf(at), h('div.chat-item.chat-local', h('p.chat-local-head', icon('terminal', { size: 13 }), h('span', 'Claude Code')), outputView(ev.text, { cls: 'chat-local-text' })));
         return add(groupOf(at), h(`p.chat-item.chat-note${ev.level === 'error' ? '.chat-is-err' : ''}`, ev.text));
       default:
         return null;
@@ -181,6 +194,21 @@ export function createTimeline(o) {
   const drawAll = (events, at) => {
     for (const ev of events) draw(ev, at);
   };
+
+  // ---------- what a screen reader hears: a whole reply, a card, an error; once each ----------
+  function announce(events) {
+    const words = [];
+    for (const ev of events) {
+      if (ev.agent) continue;
+      if (ev.kind === 'text') words.push(`Claude: ${ev.text.slice(0, 400)}`);
+      else if (ev.kind === 'ask') words.push(`Claude needs your answer: ${ev.title || 'a question'}`);
+      else if (ev.kind === 'notice' && (ev.local || ev.level === 'error')) words.push(ev.text.slice(0, 300));
+      else if (ev.kind === 'turn-end' && !ev.ok && !ev.stopped) words.push(ev.error || 'The reply ended with an error.');
+    }
+    if (!words.length) return;
+    said.textContent = '';
+    requestAnimationFrame(() => (said.textContent = words.slice(-3).join('. ')));
+  }
 
   // ---------- scrolling ----------
   const nearBottom = () => o.scroll.scrollHeight - o.scroll.scrollTop - o.scroll.clientHeight < NEAR_PX;
@@ -230,7 +258,9 @@ export function createTimeline(o) {
   const empty = () => h('div.chat-empty', icon('text', { size: 26 }), h('p', 'Write what Claude should do in this project. It works here as in the terminal: it reads, edits and runs commands, and asks you before anything that needs your OK.'));
 
   return {
-    el: h('div.chat-col.chat-timeline', moreSlot, olderBox, list),
+    el: h('div.chat-col.chat-timeline', moreSlot, olderBox, list, said),
+    /** The owner's messages drawn (for the more menu's Rewind): [{ messageId, text }], oldest first. */
+    messages: () => [...o.scroll.querySelectorAll('.chat-userrow')].map((e) => ({ messageId: e.dataset.message, text: e.said || '' })),
     downBtn,
     asks,
     /** Numbered events: { reset, events, first?, older? } */
@@ -245,6 +275,7 @@ export function createTimeline(o) {
         if (!r.events.length && !(r.older ?? first > 0)) add(list, empty());
       } else if (r.events.length) list.querySelector('.chat-empty')?.remove();
       drawAll(r.events, main);
+      if (!r.reset) announce(r.events);
       if (r.reset) toBottom(true);
       else if (r.events.length) follow();
     },
