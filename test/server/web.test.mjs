@@ -538,7 +538,10 @@ test('workspace: one line about it, the map in groups, commands that still work 
   assert.equal(notHereLine({ notHere: [] }), null);
   const src = fs.readFileSync(path.join(WEB, 'workspace.js'), 'utf8');
   assert.doesNotMatch(src, /Writing removes it from the map/, 'only Forget takes something out of the map');
-  assert.match(src, /import \{ startButton, syncRows \} from '\.\/projects\.js'/, 'the same result rows as a project\'s Sync');
+  assert.match(src, /import \{ syncRows \} from '\.\/projects\.js'/, 'the same result rows as a project\'s Sync');
+  assert.doesNotMatch(src, /Ask Claude to do it/, 'saving the map is a button, not a Claude session');
+  assert.match(src, /'Save it now'/);
+  assert.match(src, /api\('\/api\/workspace\/map\/commit'/);
   assert.match(src, /no password is typed into this dashboard|Nothing was moved/);
   assert.match(fs.readFileSync(path.join(WEB, 'gitsetup.js'), 'utf8'), /no password is typed into this dashboard/);
 });

@@ -24,6 +24,21 @@ export function changeLines(r) {
 }
 
 /**
+ * Save workspace.json, and only it, in the brain's history (the "commitMap" switch, and the page's "Save it now").
+ * Never while the brain has other staged changes: they would ride along. → { done, why?, staged?, failed? }
+ */
+export async function commitMap({ dir = workspaceDir(), run = capture } = {}) {
+  const brain = path.join(dir, 'ai_brain');
+  if (!isGitRepo(brain)) return { done: false, why: 'the brain is not a git repository' };
+  const staged = await git(brain, ['diff', '--cached', '--quiet'], run);
+  if (!staged.ok) return { done: false, staged: true, why: 'the brain has other staged changes: the map was written but not committed' };
+  await git(brain, ['add', '--', MAP_FILE], run);
+  const c = await git(brain, ['commit', '--quiet', '-m', COMMIT_MESSAGE, '--', MAP_FILE], run);
+  if (!c.ok) return { done: false, failed: true, why: (c.stderr || c.stdout || '').trim().split('\n').pop() || 'git failed' };
+  return { done: true };
+}
+
+/**
  * One round. → { skipped?: why, changed, lines: [activity lines], needs: [what needs the owner], commit?: { done,
  * why? }, pushed?: { done, why? } }
  */
@@ -40,23 +55,13 @@ export async function upkeepMap({ dir = workspaceDir(), projects = projectsIn(),
   const out = { changed: true, lines: changeLines(r), needs };
   if (!commit) return out;
   const brain = path.join(dir, 'ai_brain');
-  if (!isGitRepo(brain)) return { ...out, commit: { done: false, why: 'the brain is not a git repository' } };
-  // Other staged changes would ride along in our commit: never; the person decides about them.
-  const staged = await git(brain, ['diff', '--cached', '--quiet'], run);
-  if (!staged.ok) {
-    out.commit = { done: false, why: 'the brain has other staged changes: the map was written but not committed' };
-    out.needs.push(`the brain has staged changes, so the updated map was not committed: git -C "${brain}" status`);
+  const c = await commitMap({ dir, run });
+  out.commit = c.done ? { done: true } : { done: false, why: c.why };
+  if (!c.done) {
+    if (c.staged) out.needs.push(`the brain has staged changes, so the updated map was not committed: git -C "${brain}" status`);
+    else if (c.failed) out.needs.push(`the updated map could not be committed in the brain: ${c.why}`);
     return out;
   }
-  await git(brain, ['add', '--', MAP_FILE], run);
-  const c = await git(brain, ['commit', '--quiet', '-m', COMMIT_MESSAGE, '--', MAP_FILE], run);
-  if (!c.ok) {
-    const why = (c.stderr || c.stdout || '').trim().split('\n').pop() || 'git failed';
-    out.commit = { done: false, why };
-    out.needs.push(`the updated map could not be committed in the brain: ${why}`);
-    return out;
-  }
-  out.commit = { done: true };
   if (!push) return out;
   const s = await repoInfo(brain, run);
   if (!s.ok || !s.upstream || s.behind || !s.ahead) {

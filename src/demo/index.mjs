@@ -123,7 +123,7 @@ const DEMO_FACTS = {
   tools: async () => ({ missing: [] }),
   rules: async () => ({ installed: true, edited: false }),
   projects: async () => ['shop-frontend', 'api-server', 'data-pipeline'],
-  skills: async () => [],
+  skills: async () => ['commit-messages'], // the one handSkill() puts in the demo's Claude Code, as Skills shows
   machines: async () => [],
   sessions: async () => 1,
 };

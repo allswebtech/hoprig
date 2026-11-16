@@ -81,6 +81,7 @@ test('the index lists what there is: global rules, brain files, daily logs newes
   assert.deepEqual(ix.dailyLogs.items.map((i) => i.date), ['2026-11-14', '2026-11-13', '2026-11-12']);
   assert.equal(ix.dailyLogs.count, 3);
   assert.deepEqual(ix.skills.items.map((s) => [s.name, s.description, s.where]), [['commit', 'Write commit messages.', 'claude'], ['tidy', 'Keep the code tidy.', 'brain']]);
+  assert.deepEqual([ix.skills.count, ix.skills.used, ix.skills.brainOnly], [2, 1, 1], 'what Claude Code loads, apart from what is only in the brain');
   assert.deepEqual(ix.memory.home.items.map((m) => [m.name, m.type]), [['MEMORY', 'index'], ['Prefs', 'user']]);
   assert.equal(ix.memory.home.items[1].description, 'How the owner likes to work');
   assert.deepEqual(ix.projects.map((p) => p.name), ['leaky', 'shop']);

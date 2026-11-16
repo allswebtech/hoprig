@@ -5,9 +5,9 @@
 import { icon } from './icons.js';
 import { add, api, btn, confirmSheet, copyText, fill, h, link, openSheet, promptSheet, tildePath, toast } from './lib.js';
 import { workspaceFolders } from './brain.js';
-import { startButton, syncRows } from './projects.js';
+import { syncRows } from './projects.js';
 import { registerSettingsPage } from './registry.js';
-import { errorBox, groupHead, okBox, panel, toggle } from './shell.js';
+import { errorBox, fold, groupHead, okBox, panel, toggle } from './shell.js';
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -360,12 +360,13 @@ function updateMapSheet(refresh) {
       fill(box, busyLine('Writing the map…'));
       try {
         const r = await api('/api/workspace/map', {});
-        const brain = (r.file || '').replace(/[\\/][^\\/]+$/, '');
+        const res = h('div', { 'aria-live': 'polite' });
         fill(box,
-          okBox('The map is written. It is saved in the AI brain\'s history once it is committed:'),
-          commandLine(homeCommand(r.commit)),
-          h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Done'),
-            startButton(brain, { cls: 'primary', label: 'Ask Claude to do it', title: 'Start Claude in the AI brain to commit the map', prompt: 'Commit the updated workspace map (workspace.json) in this repository with the message "Update the workspace map", then push it if it has a git server.' })));
+          okBox('The map is written. Save it in the AI brain\'s history, so your other computers get it:'),
+          saveMapButtons(() => { close(); refresh(); }, res),
+          res,
+          r.commit ? fold('workspace-unsaved', 'Advanced', h('p.hint', 'The same, to run yourself:'), commandLine(homeCommand(r.commit))) : null,
+          h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Done')));
         refresh();
       } catch (e) {
         fill(box, errorBox(e.message));
@@ -476,14 +477,43 @@ function placesPanel(st, refresh) {
     res);
 }
 
-/** The map changed and is not committed in the brain: the command, and Claude to do it. */
-function unsavedBox(m) {
+/**
+ * Save the map in the brain's history now, the way the "Save a change of the map" switch would (only workspace.json);
+ * with `always`, that switch is turned on as well, so the warning does not come back.
+ */
+export async function saveMapNow({ always = false } = {}) {
+  await api('/api/workspace/map/commit', {});
+  if (always) await api('/api/automation/settings', { workspace: { map: true, commitMap: true } });
+}
+
+/** "Save it now" and "Always do this": the buttons under the warning and after writing the map. */
+function saveMapButtons(refresh, res) {
+  const run = (always) => async (e) => {
+    const b = e.currentTarget;
+    b.disabled = true;
+    try {
+      await saveMapNow({ always });
+      toast(always ? 'Saved. From now on a change of the map is saved by itself.' : 'Saved in the AI brain\'s history.');
+      refresh();
+    } catch (er) {
+      fill(res, errorBox(er.message));
+      b.disabled = false;
+    }
+  };
+  return h('div.btnrow',
+    btn('small primary', { icon: 'check', label: 'Save it now', onclick: run(false) }),
+    btn('small secondary', { label: 'Always do this', title: 'Turns on "Save a change of the map in the AI brain\'s history" (below)', onclick: run(true) }));
+}
+
+/** The map changed and is not committed in the brain: save it with one tap; the command only under Advanced. */
+function unsavedBox(m, refresh) {
   if (!m.saved || !m.saved.unsaved) return null;
-  const brain = ((m.entries || []).find((e) => e.kind === 'brain') || {}).path || (m.file || '').replace(/[\\/][^\\/]+$/, '');
+  const res = h('div', { 'aria-live': 'polite' });
   return h('div.map-unsaved',
     h('div.banner.warn', icon('alert', { size: 18 }), h('span', `${UNSAVED}.`)),
-    m.saved.command ? commandLine(homeCommand(m.saved.command)) : null,
-    h('div.btnrow', startButton(brain, { label: 'Ask Claude to do it', title: 'Start Claude in the AI brain to commit the map', prompt: 'Commit the workspace map (workspace.json) in this repository with the message "Update the workspace map", then push it if it has a git server.' })));
+    saveMapButtons(refresh, res),
+    res,
+    m.saved.command ? fold('workspace-unsaved', 'Advanced', h('p.hint', 'The same, to run yourself:'), commandLine(homeCommand(m.saved.command))) : null);
 }
 
 function mapPanel(m, refresh) {
@@ -493,7 +523,7 @@ function mapPanel(m, refresh) {
   return panel({ icon: 'git', title: 'The map', desc: 'Every repository of your workspace by its address, kept in the AI brain. A new computer gets everything it names.' },
     m.errors ? errorBox(`The map cannot be used: ${m.errors.join('; ')}`) : null,
     !m.exists ? h('p.hint', 'No map yet. Update the map writes the first one from what is on this computer.') : said ? h('p.hint', said) : null,
-    unsavedBox(m),
+    unsavedBox(m, refresh),
     groups.map((g) => [h('p.field-label.map-group', g.title), h('div.rows', g.rows.flatMap((e) => [mapRow(e, refresh), ...(e.repos || []).map((r) => mapRow(r, refresh, true))]))]),
     h('div.savebar.start', btn('primary', { icon: 'refresh', label: 'Update the map', onclick: () => updateMapSheet(refresh) }),
       m.exists ? btn('secondary', { icon: 'refresh', label: 'Sync', onclick: () => syncSheet(m, refresh) }) : null));

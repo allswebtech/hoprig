@@ -7,6 +7,9 @@
 //   GET  /api/workspace/map             the map and, per repository, here | missing | different | unmapped; saved:
 //                                       { unsaved, command? } (the map differs from the brain's last commit)
 //   POST /api/workspace/map { dryRun? }                 write the map from what is on disk (never commits)
+//   POST /api/workspace/map/commit                      save workspace.json, only it, in the brain's history
+//                                                       (what the commitMap switch does; refused over staged changes;
+//                                                       { done, already } when there is nothing to save)
 //   POST /api/workspace/restore { url, dryRun? }        dryRun: the plan at once; else a background job
 //   POST /api/workspace/sync { memory?, push?, with?, dryRun? }   a background job
 //   GET  /api/workspace/job?from=N      the background job: { kind, running, lines, next, result }
@@ -33,8 +36,9 @@ import { capture, stream } from '../setup/system.mjs';
 import { githubSignin } from './ghsignin.mjs';
 import { gitState, startNew } from './gitstep.mjs';
 import { projectsIn, workspaceDir, workspaceStatus } from './layout.mjs';
-import { forget, mapStatus, updateMap } from './map.mjs';
+import { forget, mapSaved, mapStatus, updateMap } from './map.mjs';
 import { syncWith } from './peer.mjs';
+import { commitMap } from './upkeep.mjs';
 import { setPlaces } from './places.mjs';
 import { restoreWorkspace } from './restore.mjs';
 import { workspaceSetup } from './setup.mjs';
@@ -122,6 +126,16 @@ export function workspaceFeature(sctx, opts = {}) {
       const b = await sctx.readJson(req);
       keys(b, ['dryRun']);
       return updateMap({ ...places(), dryRun: bool(b.dryRun, 'dryRun') });
+    }],
+    ['POST', /^\/api\/workspace\/map\/commit$/, async (req) => {
+      ownerOnly(req);
+      keys(await sctx.readJson(req), []);
+      const run = opts.run ? { run: opts.run } : {};
+      // Nothing changed since the brain's last commit (or no map, or no git): nothing to save, and that is fine.
+      if (!(await mapSaved({ dir: places().dir, ...run })).unsaved) return { done: true, already: true };
+      const r = await commitMap({ dir: places().dir, ...run });
+      if (!r.done) throw fail(409, r.staged ? 'the AI brain has other staged changes; nothing was saved, so they stay as they are' : `it could not be saved: ${tildeText(r.why)}`);
+      return { done: true };
     }],
     ['POST', /^\/api\/workspace\/restore$/, async (req) => {
       ownerOnly(req);

@@ -120,7 +120,7 @@ export function onboardingSteps(f) {
     },
     {
       id: 'skills', title: 'Skills for Claude', optional: false, done: f.skills.length > 0,
-      detail: f.skills.length ? `${f.skills.length} installed` : 'none yet: the one that comes with Hoprig is a good start',
+      detail: f.skills.length ? `${f.skills.length} that Claude Code uses` : 'none yet: the one that comes with Hoprig is a good start',
       action: f.skills.length ? null : page('settings/skills'),
     },
     {
