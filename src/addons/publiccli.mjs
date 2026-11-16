@@ -83,7 +83,29 @@ async function judgeHere(out) {
   return true;
 }
 
-async function on(args, { out, err }) {
+const PASSWORD_NEEDS = ['password', 'check-password', 'stronger-password'];
+
+/**
+ * The old `hoprig addons start public-link`, as a profile's PRERUN runs it before a session: a password that is not
+ * yet good enough for the link never stops the session from starting (nor waits at a hidden prompt there). The
+ * reason is said, and the page asks for what it needs (Settings → Public link). → the exit code, or null to go on.
+ */
+function prerunHeld(kind, { out, err }) {
+  const no = cannotTurnOn(kind);
+  if (!no || !PASSWORD_NEEDS.includes(no.need)) return null;
+  const now = statusOf();
+  if (now.on && now.kind === kind && now.url) {
+    // Carried over from an older version, it runs until the password is checked: where it is, and what is asked.
+    out(`The public link is on (${KIND_WORDS[kind].title}): ${now.url}`);
+    err(`It asks for one thing: ${no.error} (Settings → Public link)`);
+    return 0;
+  }
+  err(`The public link ${now.on ? 'is on but waits' : 'was not turned on'}: ${no.error}`);
+  err('Settings → Public link asks for it in place; or, in a terminal: hoprig public on');
+  return 0;
+}
+
+async function on(args, { out, err, prerun = false }) {
   const kind = args.includes('--custom') ? 'custom' : args.includes('--temporary') ? 'temporary' : readSwitch().kind;
   const i = args.indexOf('--new-password');
   if (i >= 0) {
@@ -94,6 +116,10 @@ async function on(args, { out, err }) {
     }
     const cli = await import('../server/cli.mjs');
     if ((await cli.main('passwd', ['--generate', file])) !== 0) return 1;
+  }
+  if (prerun) {
+    const held = prerunHeld(kind, { out, err });
+    if (held !== null) return held;
   }
   let no = cannotTurnOn(kind);
   if (no && no.need === 'check-password' && (await judgeHere(out))) no = cannotTurnOn(kind);
@@ -157,9 +183,10 @@ async function off({ out }) {
   return 0;
 }
 
-export async function main(args = [], { out = (s) => console.log(s), err = (s) => console.error(s) } = {}) {
+/** `prerun`: the old words from a profile's PRERUN (addons/cli.mjs), which must never stop a session from starting. */
+export async function main(args = [], { out = (s) => console.log(s), err = (s) => console.error(s), prerun = false } = {}) {
   const [word = 'status', ...rest] = args;
-  if (word === 'on') return on(rest, { out, err });
+  if (word === 'on') return on(rest, { out, err, prerun });
   if (word === 'off') return off({ out });
   if (word === 'status' || word === '--json') {
     const s = statusOf();

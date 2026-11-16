@@ -153,9 +153,10 @@ function render({ here, isAlive }) {
     const sw = h('input.switch', { type: 'checkbox', role: 'switch', checked: s.on, 'aria-label': 'Public link', 'data-fk': 'switch', onchange: (e) => turn(e.target.checked) });
     const busy = s.on && ['installing', 'starting'].includes(s.state);
     const wait = s.nextTryAt ? Math.max(1, Math.round((s.nextTryAt - Date.now()) / 1000)) : 0;
-    // A link that is on but held back asks for what it needs as a refused turn-on does.
-    const need = ui.need || (s.state === 'blocked' ? s.need : null);
-    const why = ui.need ? ui.error : s.error;
+    // A link that is on but held back (or carried over with a password never checked) asks for what it needs as a
+    // refused turn-on does.
+    const need = ui.need || s.need || null;
+    const why = ui.need ? ui.error : s.state === 'blocked' ? s.error : null;
     return panel({},
       h('label.switchrow.pl-switch',
         h('span.switchrow-text', h('span.switchrow-label', 'Public link'), h('span', pill(statePill(s)))),
@@ -229,7 +230,7 @@ function render({ here, isAlive }) {
   function visitorCard() {
     const pw = s.password || {};
     const live = s.on && s.state === 'on' && s.url;
-    const need = ui.need || (s.state === 'blocked' ? s.need : null);
+    const need = ui.need || s.need;
     return panel({ icon: 'lock', title: live ? 'Someone opening this address' : 'Someone opening the address' },
       h('p', live ? s.visitor : 'While the link is on, someone who opens its address sees the sign-in page. They need your Hoprig password, or a sign-in QR made on a device that is already signed in.'),
       pw.state === 'weak' && need !== 'stronger-password'

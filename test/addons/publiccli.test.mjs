@@ -140,3 +140,34 @@ test('a start that failed is tried again by the next `hoprig public on`, and its
   assert.equal(S.status().state, 'on');
   await S.detach();
 });
+
+test('the old start in a PRERUN (no terminal): a password not good enough for the link is said, and the session still starts', async () => {
+  try { fs.rmSync(path.join(box.state, 'dashboard.json')); } catch { /* none */ }
+  saveConfig({ publicLink: undefined });
+  const hash = await hashPassword('a-long-enough-password-2026');
+  // After an update: the password was never judged (no passwordCheck yet).
+  saveConfig({ server: { passwordHash: hash, passwordCheck: undefined } });
+  let r = await run(['addons', 'start', 'public-link']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /The public link was not turned on: Type your dashboard password once/);
+  assert.match(r.out, /Settings → Public link asks for it in place/);
+  assert.doesNotMatch(r.out, /Your dashboard password \(to check/, 'no hidden prompt');
+  assert.equal(loadConfig().publicLink, undefined, 'nothing switched');
+  // Judged weak, and none at all: the same.
+  saveConfig({ server: { passwordCheck: { tag: hashTag(hash), strong: false, why: 'it is one of the passwords people try first' } } });
+  r = await run(['addons', 'start', 'public-link']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /was not turned on: Your dashboard password is too weak/);
+  // On already but held back (from another computer's page, or a file): it says that it waits.
+  saveConfig({ publicLink: { on: true, kind: 'temporary' } });
+  r = await run(['addons', 'start', 'public-link']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /The public link is on but waits: Your dashboard password is too weak/);
+  saveConfig({ publicLink: undefined, server: { passwordHash: undefined, passwordCheck: undefined } });
+  r = await run(['addons', 'start', 'public-link']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /was not turned on: Set a dashboard password first/);
+  // The new words typed by a person still fail, so a script sees it did not turn on.
+  r = await run(['public', 'on', '--yes']);
+  assert.equal(r.code, 1);
+});

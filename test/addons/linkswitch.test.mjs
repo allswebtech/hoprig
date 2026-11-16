@@ -306,11 +306,25 @@ test('after an update: a Custom link that ran keeps running until the password i
   await S.attach({ notifyFn, everyMs: 100 });
   assert.ok(await until(() => S.status().state === 'on'), JSON.stringify(S.status()));
   assert.deepEqual([S.status().kind, S.status().password.state], ['custom', 'unknown']);
+  // It runs, and asks the owner to type the password once, so the check that ends this is made.
+  assert.equal(S.status().need, 'check-password', 'the page shows the password form while it runs unchecked');
+  // A profile's PRERUN with the old words (no terminal): the session starts, and the link is left as it runs.
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const pid = S.readRecord().pid;
+  const pre = await promisify(execFile)(process.execPath, [path.join(import.meta.dirname, '..', '..', 'bin', 'hoprig.mjs'), 'addons', 'start', 'public-link'], { env: process.env, encoding: 'utf8', timeout: 30_000 });
+  assert.match(pre.stderr, /The public link is on \(Custom\): https:\/\/office\.example\.com/);
+  assert.match(pre.stderr, /It asks for one thing: Type your dashboard password once/);
+  assert.equal(S.readRecord().pid, pid, 'left running');
   // The owner's next sign-in judges it weak: the link stops, and asks for a stronger one.
   saveConfig({ server: { passwordCheck: { tag: hashTag(HASH), strong: false, why: 'it has fewer than 12 characters' } } });
   assert.ok(await until(() => S.status().state === 'blocked'), JSON.stringify(S.status()));
   assert.equal(S.status().need, 'stronger-password');
   assert.deepEqual(raw().server.allowedOrigins, before.allowedOrigins);
+  // Turned off, it is a turn-on like any other the next time: the exception for the carried-over link ends.
+  assert.equal(S.readRecord().migratedCustom, true);
+  await S.turnOff();
+  assert.equal(S.readRecord().migratedCustom, null);
   await S.detach();
 
   // A Temporary link that ran: it would be a new address anyway, so it waits for the password like any turn-on.

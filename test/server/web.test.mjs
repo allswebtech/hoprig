@@ -427,8 +427,10 @@ test('public link: its own Settings page; refusals are asked for in place; the a
   for (const need of ['password', 'check-password', 'custom-setup']) assert.ok(forms.includes(`'${need}'`), need);
   assert.match(forms, /return strongForm\(p, why, true\)/, 'a weak password: "Make a strong password" in place, then on');
   assert.match(forms, /p\.api\('\/api\/settings\/password', \{ current: cur\.value, next: next\.value, strong: true \}\)/);
-  // A link that is on but held back (a weak password) asks for the same in place.
-  assert.match(page, /const need = ui\.need \|\| \(s\.state === 'blocked' \? s\.need : null\)/);
+  // A link that is on but held back (a weak password), or that runs with a password never checked (carried over
+  // from an older version: the server's need while it runs), asks for the same in place.
+  assert.match(page, /const need = ui\.need \|\| s\.need \|\| null;/);
+  assert.match(forms, /running \? 'Check it' : 'Check it and turn on'/);
   // Typed passwords are never trimmed and live only in the page's own closure, not in a module.
   assert.match(page, /oninput: \(e\) => \(secret\[key\] = e\.target\.value\)/);
   assert.doesNotMatch(page.split('function render')[0], /secret|password: ''/, 'no password kept at module level');

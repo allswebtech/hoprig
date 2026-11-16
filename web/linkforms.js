@@ -39,6 +39,8 @@ export function needBox(p, need, why) {
     return h('div.banner.warn', icon('lock', { size: 18 }), h('span', why, ' ', h('a', { href: link('#/settings/security') }, 'Settings → Security')));
   }
   if (need === 'check-password') {
+    // A link that runs already (carried over from an older version) stays on: the check is all that is asked.
+    const running = p.s.on && p.s.state !== 'blocked';
     const pw = p.secretInput('password', { type: 'password', autocomplete: 'current-password', 'aria-label': 'Dashboard password' });
     return h('form.stack.pl-need', { onsubmit: async (e) => {
       e.preventDefault();
@@ -46,9 +48,11 @@ export function needBox(p, need, why) {
       p.secret.password = ''; // kept no longer than the request
       await p.turn(true, undefined, { password: typed });
     } },
-      h('p.hint', why),
+      h('p.hint', why || (running
+        ? 'This link was turned on by an older version of Hoprig, and your password was never checked for strength. Type it once, so Hoprig can check it. A weak one stops the link until you make a stronger one.'
+        : 'Type your dashboard password once, so Hoprig can check that it is strong enough.')),
       field('Your dashboard password', pw),
-      h('div.savebar.start', h('button.btn.primary', { type: 'submit' }, 'Check it and turn on')));
+      h('div.savebar.start', h('button.btn.primary', { type: 'submit' }, running ? 'Check it' : 'Check it and turn on')));
   }
   return strongForm(p, why, true);
 }

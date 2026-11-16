@@ -83,7 +83,8 @@ export async function main(command, args) {
     const { readSwitch } = await import('./linkswitch.mjs');
     const sw = readSwitch();
     const start = ['on', `--${sw.on ? sw.kind : 'temporary'}`, '--yes', ...rest.filter((x) => x !== '--yes')];
-    return pub.main(action === 'start' ? start : action === 'stop' ? ['off'] : ['status'], { out: say, err: say });
+    // A password not yet good enough for the link is said, not a failure: a PRERUN that fails stops the session.
+    return pub.main(action === 'start' ? start : action === 'stop' ? ['off'] : ['status'], { out: say, err: say, prerun: action === 'start' });
   }
   const addon = findAddon(id);
   if (!addon) {

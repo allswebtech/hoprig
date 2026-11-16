@@ -212,7 +212,8 @@ function reconcile({ force = false, explicit = false, restart = false } = {}) {
     await stopExtra(want);
     if (!want.on) {
       if (cur || readRecord().restore) await stopRun();
-      writeRecord({ openedBy: null, error: null, errorAt: null });
+      // A Custom link carried over from an older version keeps running unchecked only until it is turned off.
+      writeRecord({ openedBy: null, error: null, errorAt: null, migratedCustom: null });
       phase = 'off';
       blocked = null;
       return;
@@ -327,7 +328,9 @@ function liveUrl() {
 /**
  * The state the page, Tia and `hoprig public status` show. Never a token, a certificate, a password or a file path.
  * `why`: say what makes the password weak; only the owner's own browser gets that (a hint for guessing otherwise).
- * `need` while it is on but held back (state 'blocked'): what the page asks for, as for a refused turn-on.
+ * `need` while it is on but held back (state 'blocked'): what the page asks for, as for a refused turn-on. Also
+ * 'check-password' while a Custom link carried over from an older version runs with a password never judged: it is
+ * kept running (cannotRun), and the owner is asked to type the password once, so the check that ends that is made.
  */
 export function status({ why = true } = {}) {
   const want = readSwitch();
@@ -343,7 +346,7 @@ export function status({ why = true } = {}) {
     on: want.on,
     kind: want.kind,
     state,
-    need: state === 'blocked' && blocked ? blocked.need : null,
+    need: state === 'blocked' && blocked ? blocked.need : want.on && cur && pw.state === 'unknown' ? 'check-password' : null,
     url: state === 'on' || (cur && cur.kind === 'custom') ? liveUrl() : null,
     error: phase === 'error' || state === 'blocked' ? lastError : (r && !r.connected && r.error) || null,
     nextTryAt: (r && r.nextTryAt) || null,
