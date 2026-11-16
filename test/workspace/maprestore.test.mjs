@@ -76,7 +76,7 @@ test('computer A: the map lists the brain, a project with its code repositories,
   const st = await M.mapStatus({ dir: A.ws, projects: A.projects });
   assert.deepEqual(st.entries.filter((e) => e.tool).map((e) => e.label), ['development/sdk/kit']);
   assert.ok(r.notes.some((n) => /local-only: not on a git server yet/.test(n)));
-  assert.deepEqual(r.manifests, [{ project: 'shop', added: ['code/shop-docs'] }], 'project.json gets the repository it lacked');
+  assert.deepEqual(r.manifests, [{ project: 'shop', added: ['code/shop-docs'], dropped: [] }], 'project.json gets the repository it lacked');
   assert.ok(JSON.parse(fs.readFileSync(path.join(shop, 'project.json'), 'utf8')).repos.some((x) => x.dir === 'code/shop-docs'));
   assert.match(r.commit, /git -C .* add workspace\.json && git -C .* commit/);
   assert.equal((await M.updateMap({ dir: A.ws, projects: A.projects })).diff.same, true, 'a second run: nothing changed');

@@ -258,17 +258,32 @@ export async function scanWorkspace({ dir = workspaceDir(), projects = projectsI
     const { manifest, source } = await readManifest(p.dir, run);
     sources[p.name] = source;
     const byDir = new Map();
-    for (const r of (manifest && manifest.repos) || []) if (!isLinkedWorktree(path.join(p.dir, r.dir))) byDir.set(r.dir, { dir: r.dir, url: r.url, ...(r.branch ? { branch: r.branch } : {}) });
+    const listed = (manifest && manifest.repos) || [];
+    const kids = (await discoverChildren(p.dir, run)).filter((c) => !c.dir.split('/').some(neverLook));
+    // A worktree an older map wrote into project.json is not one of its repositories: its folder here is a linked
+    // worktree, or its folder is gone while a repository of the project with the same address is here. It is left
+    // out (and `workspace map` takes it out of project.json, which a fresh computer would otherwise clone twice).
+    const isRepoHere = (r) => isGitRepo(path.join(p.dir, r.dir)) && !isLinkedWorktree(path.join(p.dir, r.dir));
+    const urlsHere = [...listed.filter(isRepoHere), ...kids].map((r) => r.url).filter(Boolean);
+    const dropFromManifest = [];
+    for (const r of listed) {
+      const abs = path.join(p.dir, r.dir);
+      if (isLinkedWorktree(abs) || (!fs.existsSync(abs) && r.url && urlsHere.some((u) => sameUrl(u, r.url)))) {
+        dropFromManifest.push(r.dir);
+        worktrees.add(`${p.name}/${r.dir}`);
+        continue;
+      }
+      byDir.set(r.dir, { dir: r.dir, url: r.url, ...(r.branch ? { branch: r.branch } : {}) });
+    }
     const missingFromManifest = [];
-    for (const c of await discoverChildren(p.dir, run)) {
-      if (c.dir.split('/').some(neverLook)) continue;
+    for (const c of kids) {
       if (!byDir.has(c.dir)) {
         byDir.set(c.dir, { dir: c.dir, url: c.url });
         if (c.url && source === MANIFEST) missingFromManifest.push({ dir: c.dir, url: c.url });
       }
       if (!c.url) notes.push(`${p.name}/${c.dir}: not on a git server yet (no remote)`);
     }
-    if (missingFromManifest.length) manifests.push({ name: p.name, root: p.dir, add: missingFromManifest });
+    if (source === MANIFEST && (missingFromManifest.length || dropFromManifest.length)) manifests.push({ name: p.name, root: p.dir, add: missingFromManifest, drop: dropFromManifest });
     const entry = { name: p.name, url: o.url, repos: [...byDir.values()].map((r) => withSync(r, `repo:${p.name}/${r.dir}`)) };
     if (manifest && Object.keys(manifest.memories || {}).length) entry.memories = { ...manifest.memories };
     map.projects.push(withSync(entry, `project:${p.name}`));
@@ -346,8 +361,11 @@ export function diffMap(before, after) {
  * A second exception: a linked worktree (`git worktree add`) is never a repository of the map, so an entry that is
  * one is dropped here, not kept as "not on this computer". It is a second checkout of a repository the map already
  * has (sessions make them for a while and remove them), and restoring it elsewhere would clone that repository
- * twice. It is one when its folder here is a linked worktree (scan.worktrees), or when its folder is not here and its
- * address is that of another entry of the same kind that IS here (the worktree is gone, its repository stayed).
+ * twice. It is one when its folder here is a linked worktree (scan.worktrees), or, for a code repository of a project
+ * that is here, when its folder is not here and another code repository of that project with the same address is
+ * (the worktree is gone, its repository stayed). Projects and other repositories are never dropped by address: one
+ * repository may sit under different names on two computers (an older layout), and each computer's upkeep would
+ * then keep undoing the other's map.
  * → { map, notHere: [label], takenOut: [{ project, dir }], worktrees: [label] }
  */
 export function mergeMap(cur, scan) {
@@ -358,7 +376,8 @@ export function mergeMap(cur, scan) {
   const takenOut = [];
   const worktrees = [];
   const wt = new Set(scan.worktrees || []);
-  const copyOf = (old, hereList, label) => {
+  // `hereList`: only for a code repository of a project that is here, its other repositories (see above).
+  const copyOf = (old, label, hereList = []) => {
     if (wt.has(label) || (old.url && hereList.some((x) => sameUrl(x.url, old.url)))) return worktrees.push(label), true;
     return false;
   };
@@ -369,7 +388,7 @@ export function mergeMap(cur, scan) {
     if (skip.has(old.name)) continue;
     const here = out.projects.find((p) => p.name === old.name);
     if (!here) {
-      if (copyOf(old, disk.projects, old.name)) continue;
+      if (copyOf(old, old.name)) continue;
       out.projects.push(JSON.parse(JSON.stringify(old)));
       notHere.push(old.name, ...old.repos.map((r) => `${old.name}/${r.dir}`));
       continue;
@@ -378,7 +397,7 @@ export function mergeMap(cur, scan) {
     if (!here.memories && old.memories) here.memories = { ...old.memories };
     for (const r of old.repos) {
       if (here.repos.some((x) => x.dir === r.dir)) continue;
-      if (copyOf(r, disk.projects.find((p) => p.name === old.name).repos, `${old.name}/${r.dir}`)) continue;
+      if (copyOf(r, `${old.name}/${r.dir}`, disk.projects.find((p) => p.name === old.name).repos)) continue;
       if (scan.sources && scan.sources[old.name] === MANIFEST) takenOut.push({ project: old.name, dir: r.dir });
       else {
         here.repos.push(JSON.parse(JSON.stringify(r)));
@@ -390,7 +409,7 @@ export function mergeMap(cur, scan) {
     if (skip.has(old.dir)) continue;
     const here = out.others.find((o) => o.dir === old.dir);
     if (!here) {
-      if (copyOf(old, disk.others, old.dir)) continue;
+      if (copyOf(old, old.dir)) continue;
       out.others.push(JSON.parse(JSON.stringify(old)));
       notHere.push(old.dir);
     } else if (!here.url && old.url) here.url = old.url;
@@ -418,7 +437,7 @@ export async function updateMap({ dir = workspaceDir(), projects = projectsIn(),
     // (The automatic upkeep leaves project.json files alone: they belong to their projects' own repositories.)
     for (const m of touchManifests ? scan.manifests : []) {
       const { manifest } = await readManifest(m.root, run);
-      if (manifest) writeManifest(m.root, { ...manifest, repos: [...manifest.repos, ...m.add] });
+      if (manifest) writeManifest(m.root, { ...manifest, repos: [...manifest.repos.filter((r) => !m.drop.includes(r.dir)), ...m.add] });
     }
   }
   const brain = path.join(dir, 'ai_brain');
@@ -434,7 +453,7 @@ export async function updateMap({ dir = workspaceDir(), projects = projectsIn(),
     tools: toolsOf(next),
     // Besides addresses: the projects folder, memory links, which entries are tools (shown as one line).
     otherChanges: cur.exists && diff.same && changed,
-    manifests: scan.manifests.map((m) => ({ project: m.name, added: m.add.map((r) => r.dir) })),
+    manifests: scan.manifests.map((m) => ({ project: m.name, added: m.add.map((r) => r.dir), dropped: m.drop })),
     commit: `git -C "${brain}" add ${MAP_FILE} && git -C "${brain}" commit -m "${COMMIT_MESSAGE}"`,
   };
 }

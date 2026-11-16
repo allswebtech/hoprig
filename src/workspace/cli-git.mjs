@@ -91,7 +91,10 @@ function printMap(ui, r) {
   if (r.otherChanges) ui.line('info', `${r.dryRun ? 'would update' : 'updated'}: the projects folder, memory links or which entries are tools`);
   if (r.tools.length) ui.note(`tools: restored on a fresh computer, never synced: ${r.tools.join(', ')}`);
   for (const n of r.notes) ui.note(n);
-  for (const m of r.manifests) ui.note(`${m.project}/project.json ${r.dryRun ? 'would get' : 'got'} ${m.added.join(', ')} (commit it in that project)`);
+  for (const m of r.manifests) {
+    const what = [m.added.length ? `${r.dryRun ? 'would get' : 'got'} ${m.added.join(', ')}` : '', m.dropped.length ? `${r.dryRun ? 'would lose' : 'lost'} ${m.dropped.join(', ')} (linked worktrees)` : ''].filter(Boolean).join('; ');
+    ui.note(`${m.project}/project.json ${what} (commit it in that project)`);
+  }
   if (!r.dryRun && !(d.same && !d.created && !r.otherChanges)) ui.note(`commit it:  ${r.commit}`);
 }
 
