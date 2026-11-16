@@ -57,10 +57,12 @@ export function processSampler(read, { cores = () => 1, now = Date.now, sleep = 
 
 /**
  * The pids that may never be ended from the page: this dashboard and every process above it (its service manager,
- * its terminal, its tmux server), up to the first process of the system. `parentOf(pid)` → parent pid or null.
+ * the terminal it was started in), up to the first process of the system, and `extra` (the tmux server that holds
+ * every session: it is not above the dashboard, yet ending it ends them all). `parentOf(pid)` → parent pid or null.
  */
-export function guardedPids(self, parentOf) {
+export function guardedPids(self, parentOf, extra = []) {
   const out = new Set([self, 0, 1]);
+  for (const pid of extra) if (Number.isInteger(pid) && pid > 1) out.add(pid);
   let p = self;
   for (let i = 0; i < 64; i++) {
     const next = parentOf(p);
@@ -72,12 +74,15 @@ export function guardedPids(self, parentOf) {
 }
 
 /**
- * End process `pid` (SIGTERM; `force`: SIGKILL). Refused: not a pid, this dashboard or a process above it, and a
- * process of another user (the OS part checks that). Resolves { ok } or { ok: false, error }.
+ * End process `pid` (SIGTERM; `force`: SIGKILL). Refused: not a pid, this dashboard or a process above it, the
+ * sessions' tmux server (`hosts()` → its pids), and a process of another user (the OS part checks that).
+ * `expect(pid)` → false when the process at that pid is no longer the one the page showed (the pid was used again).
+ * Resolves { ok } or { ok: false, error }.
  */
-export async function endProcess(pid, { force = false, self = process.pid, parentLookup, kill }) {
+export async function endProcess(pid, { force = false, self = process.pid, parentLookup, kill, hosts = async () => [], expect = async () => true }) {
   if (!Number.isInteger(pid) || pid <= 1 || pid >= 2 ** 31) return { ok: false, error: 'no such process' };
-  const guarded = guardedPids(self, await parentLookup());
-  if (guarded.has(pid)) return { ok: false, error: 'that is this dashboard, or a program it runs inside: it is not ended from here' };
+  const guarded = guardedPids(self, await parentLookup(), await hosts());
+  if (guarded.has(pid)) return { ok: false, error: 'that is this dashboard, a program it runs inside or the server that holds its sessions: it is not ended from here' };
+  if (!(await expect(pid))) return { ok: false, error: 'that process has ended already (its number now belongs to another one): nothing was ended' };
   return kill(pid, force ? 'SIGKILL' : 'SIGTERM');
 }

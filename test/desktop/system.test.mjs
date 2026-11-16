@@ -2,6 +2,7 @@
 // system's programs (no program is run), and the parts every OS shares: the CPU share from two readings, network
 // rates, which processes are guarded, and the log files (a temp folder stands in for the system's log folder).
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +13,7 @@ import * as W from '../../src/server/platform/win32-system.mjs';
 import { guardedPids, processSampler } from '../../src/desktop/procs.mjs';
 import { addressesOf, cpuShare, differ, netRates } from '../../src/desktop/usage.mjs';
 import { insideLogDirs, journalQuery, listLogFiles, readLogFile } from '../../src/desktop/logs.mjs';
+import { redact } from '../../src/server/platform/common.mjs';
 
 const TOKEN = 'sk-' + 'A'.repeat(30);
 
@@ -192,6 +194,109 @@ test('log files: listed and read only inside the log folders, from an offset, ro
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('log files: a FIFO or other special file is refused at once, never waited on; a link swapped in is not followed', { skip: process.platform === 'win32' && 'no FIFOs on Windows' }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-fifo-'));
+  try {
+    const logs = path.join(root, 'log');
+    fs.mkdirSync(logs);
+    const fifo = path.join(logs, 'pipe.log');
+    execFileSync('mkfifo', [fifo]);
+    // Synchronous: a blocking open would hang this very line (and the whole server with it), so the time says it.
+    const t0 = Date.now();
+    assert.throws(() => readLogFile(fifo, [logs]), (e) => e.status === 404);
+    assert.ok(Date.now() - t0 < 1000, 'answered at once');
+    assert.deepEqual(listLogFiles([logs]), [], 'not listed either');
+    // A followed file swapped for a link out of the log folders between two reads: refused, the outside not read.
+    const outside = path.join(root, 'secret.txt');
+    fs.writeFileSync(outside, 'outside\n');
+    const followed = path.join(logs, 'app.log');
+    fs.writeFileSync(followed, 'one\n');
+    assert.equal(readLogFile(followed, [logs]).text, 'one\n');
+    fs.rmSync(followed);
+    fs.symlinkSync(outside, followed);
+    assert.throws(() => readLogFile(followed, [logs], 0), (e) => e.status === 404);
+    // And for a FIFO swapped in for the followed file.
+    fs.rmSync(followed);
+    execFileSync('mkfifo', [followed]);
+    assert.throws(() => readLogFile(followed, [logs], 4), (e) => e.status === 404);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('log files: a line longer than one read is given in parts, so Follow moves on past it', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-long-'));
+  try {
+    const f = path.join(root, 'app.log');
+    fs.writeFileSync(f, 'first\n');
+    const a = readLogFile(f, [root]);
+    assert.equal(a.next, 6);
+    // 300 KiB with no line end (é is two bytes, so a cut could fall inside one), then more lines.
+    fs.appendFileSync(f, `${'é'.repeat(150 * 1024)}\nafter\n`);
+    const parts = [];
+    let at = a.next;
+    for (let i = 0; i < 5 && at < fs.statSync(f).size; i++) {
+      const r = readLogFile(f, [root], at);
+      assert.ok(r.next > at, `read ${i} moved on`);
+      parts.push(r.text);
+      at = r.next;
+    }
+    const all = parts.join('');
+    assert.ok(!all.includes('\ufffd'), 'no character cut in half');
+    assert.ok(all.startsWith('éé') && all.endsWith('\nafter\n'), 'the long line (clipped for the page) and the line after it');
+    assert.equal(at, fs.statSync(f).size);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('secrets on command lines and in log lines are masked: URL passwords, token shapes, password options', async () => {
+  const secrets = ['S3cretPw', 'ghp_abcdefghijklmnopqrstuvwxyz0123', 'glpat-abcdefghijklmnopqrstu', 'xoxb-1234567890-abcdef', 'AKIAABCDEFGHIJKLMNOP', `AIza${'b'.repeat(35)}`, 'YWRtaW46cGFzcw=='];
+  const lines = [
+    'git clone https://bot:ghp_abcdefghijklmnopqrstuvwxyz0123@github.com/x.git',
+    'DATABASE_URL=postgres://app:S3cretPw@db/x',
+    'mysql -uroot -pS3cretPw shop',
+    'curl -u admin:S3cretPw https://example.com',
+    'sshpass -p S3cretPw ssh host',
+    'git push https://glpat-abcdefghijklmnopqrstu@gitlab.example.com/x',
+    'notify --slack xoxb-1234567890-abcdef',
+    'aws AKIAABCDEFGHIJKLMNOP',
+    `maps key=AIza${'b'.repeat(35)}`,
+    'Authorization: Basic YWRtaW46cGFzcw==',
+  ];
+  const leaks = (text) => secrets.filter((x) => text.includes(x));
+  // Kept as they are: options that only look alike.
+  for (const plain of ['mkdir -p /tmp/x', 'ssh -p 22 host', 'tar -xpf a.tar', 'mysql -u root -p shop', 'https://example.com/a?b=c', 'Basic setup done']) {
+    assert.equal(redact(plain, 400), plain);
+  }
+  // The process list.
+  const ps = lines.map((l, i) => `   ${5000 + i}       1  1000 dev   2048   10 ${l}`).join('\n');
+  const procs = await L.processes({ run: async () => ({ ok: true, stdout: ps }), readFile: () => null });
+  assert.equal(procs.length, lines.length);
+  assert.deepEqual(leaks(procs.map((p) => p.args).join('\n')), []);
+  assert.ok(procs[0].args.includes('https://bot:***@github.com') && procs[3].args.includes('-u admin:***'));
+  // The journal.
+  const journal = lines.map((l, i) => JSON.stringify({ __CURSOR: `s=1;i=${i + 1}`, __REALTIME_TIMESTAMP: '1000', MESSAGE: l })).join('\n');
+  assert.deepEqual(leaks(L.parseJournal(journal, {}).map((e) => e.message).join('\n')), []);
+  // A log file.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'desk-mask-'));
+  try {
+    fs.writeFileSync(path.join(root, 'app.log'), `${lines.join('\n')}\n`);
+    const r = readLogFile(path.join(root, 'app.log'), [root]);
+    assert.deepEqual(leaks(r.text), []);
+    assert.equal(r.text.split('\n').length, lines.length + 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Linux: units that can cut the computer off ask for their name before a stop or restart', () => {
+  for (const u of ['ssh.service', 'sshd.service', 'NetworkManager.service', 'systemd-networkd.service', 'tailscaled.service', 'wg-quick@wg0.service', 'cloudflared.service', 'caddy.service', 'dbus.service', 'systemd-logind.service', 'user@1000.service']) {
+    assert.match(L.cutsOff(u) || '', /cut this computer off|end every program/, u);
+  }
+  for (const u of ['cron.service', 'docker.service', 'postgresql.service', 'nginx.service', 'networkd-dispatcher.service']) assert.equal(L.cutsOff(u), null, u);
 });
 
 test('the journal query from the page is checked: scope, unit, priority 0-7, one cursor', () => {

@@ -71,22 +71,59 @@ export function insideLogDirs(p, dirs) {
   return null;
 }
 
+// Opened without waiting (a FIFO opened to read would block the whole server until something writes to it) and
+// without following a link in the last part of the path. Windows has neither flag, nor FIFOs in a folder.
+const OPEN_FLAGS = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0) | (fs.constants.O_NOFOLLOW || 0);
+
 /**
- * Read a log file from byte `from` (null: its last 64 KiB, from a line start). { text, from, next, size, reset }:
- * `next` is where the next read starts; `reset` when the file is shorter than `from` (it was rotated or emptied).
+ * Open `p` for reading as a regular file inside `dirs`: { fd, real, st }. The path is checked, opened, and checked
+ * again: what was opened must be the very file (device and inode) the path leads to inside the folders after the
+ * open, so a link or folder swapped in between leads nowhere else. Anything but a regular file is refused before a
+ * byte is read.
  */
-export function readLogFile(p, dirs, from = null) {
+function openLogFile(p, dirs) {
+  const nope = () => fail(404, 'not found or not allowed');
   const real = insideLogDirs(p, dirs);
-  if (!real) throw fail(404, 'not found or not allowed');
+  if (!real) throw nope();
   let fd;
   try {
-    fd = fs.openSync(real, 'r');
+    fd = fs.openSync(real, OPEN_FLAGS);
   } catch {
-    throw fail(404, 'not found or not allowed');
+    throw nope();
   }
   try {
     const st = fs.fstatSync(fd);
-    if (!st.isFile()) throw fail(404, 'not found or not allowed');
+    if (!st.isFile()) throw nope();
+    const again = insideLogDirs(real, dirs);
+    const now = again ? fs.statSync(again) : null;
+    if (!now || now.dev !== st.dev || now.ino !== st.ino) throw nope();
+    return { fd, real, st };
+  } catch (e) {
+    fs.closeSync(fd);
+    throw e.status ? e : nope();
+  }
+}
+
+/** The length of `buf` cut back to the start of a UTF-8 character, so a cut line does not end in half of one. */
+function utf8Whole(buf) {
+  let n = buf.length;
+  for (let back = 0; back < 3 && n > 0 && (buf[n - 1] & 0xc0) === 0x80; back++) n--;
+  // n now points just after a lead byte (or at an ASCII byte): keep the lead byte only when its character is whole.
+  if (n > 0 && buf[n - 1] >= 0xc0) {
+    const need = buf[n - 1] >= 0xf0 ? 4 : buf[n - 1] >= 0xe0 ? 3 : 2;
+    return buf.length - (n - 1) >= need ? n - 1 + need : n - 1;
+  }
+  return buf.length;
+}
+
+/**
+ * Read a log file from byte `from` (null: its last 64 KiB, from a line start). { text, from, next, size, reset }:
+ * `next` is where the next read starts; `reset` when the file is shorter than `from` (it was rotated or emptied).
+ * A line longer than one read is given in parts, so a follow always moves on.
+ */
+export function readLogFile(p, dirs, from = null) {
+  const { fd, real, st } = openLogFile(p, dirs);
+  try {
     let start = from === null ? Math.max(0, st.size - FIRST_MAX) : from;
     let reset = false;
     if (start > st.size) {
@@ -103,9 +140,15 @@ export function readLogFile(p, dirs, from = null) {
       skip = chunk.indexOf(10) + 1; // begin at a whole line
       chunk = chunk.subarray(skip);
     }
-    // Stop at the last whole line, unless nothing else would be read: a line still being written comes next time.
+    // Stop at the last whole line. With no line end at all: at the file's end it is what there is; a full read is
+    // one part of a very long line (given cut, at a character's end); anything else is a line still being written.
     const lastNl = chunk.lastIndexOf(10);
-    const whole = lastNl >= 0 ? chunk.subarray(0, lastNl + 1) : start + skip + chunk.length >= st.size ? chunk : Buffer.alloc(0);
+    const atEnd = start + skip + chunk.length >= st.size;
+    let whole;
+    if (lastNl >= 0) whole = chunk.subarray(0, lastNl + 1);
+    else if (atEnd) whole = chunk;
+    else if (got === READ_MAX) whole = chunk.subarray(0, utf8Whole(chunk) || chunk.length);
+    else whole = Buffer.alloc(0);
     const text = whole.toString('utf8').split('\n').map((l) => redact(l, 4000)).join('\n');
     return { path: real, text, from: start + skip, next: start + skip + whole.length, size: st.size, reset };
   } finally {

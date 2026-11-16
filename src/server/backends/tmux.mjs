@@ -68,6 +68,19 @@ export class TmuxBackend {
   /** The server is stopping: tmux sessions keep running on their own, by design. */
   async close() {}
 
+  /**
+   * The pid of the tmux server that holds the sessions (null when none runs). It is not a parent of this dashboard,
+   * yet ending it ends every session: the desktop's Task manager guards it (src/desktop/procs.mjs).
+   */
+  async serverPid() {
+    try {
+      const n = Number(String(await this.run(['display-message', '-p', '#{pid}'])).trim());
+      return Number.isInteger(n) && n > 1 ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
   validName(name) {
     return typeof name === 'string' && NAME_RE.test(name);
   }

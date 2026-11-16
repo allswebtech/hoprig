@@ -115,11 +115,25 @@ export function ownUnits(io) {
 
 export const SSH_UNITS = new Set(['ssh.service', 'sshd.service']);
 
+// Besides SSH, units whose stop cuts the computer off the network or ends every program of a signed-in user (this
+// dashboard among them): stopping or restarting one asks for its name to be typed, like SSH.
+const NETWORK_UNITS = /^(NetworkManager|systemd-networkd|networking|wpa_supplicant|tailscaled|zerotier-one|cloudflared|caddy|wg-quick@[^/]+|openvpn(?:-client|-server)?(?:@[^/]+)?)\.service$/;
+const SESSION_UNITS = /^(dbus|dbus-broker|systemd-logind|user@\d+)\.service$/;
+
+/** Why stopping unit `name` could cut this computer or this dashboard off, or null. */
+export function cutsOff(name) {
+  if (SSH_UNITS.has(name)) return 'Stopping SSH can cut this computer off: nobody can sign in to it over the network until it runs again.';
+  if (NETWORK_UNITS.test(name)) return 'Stopping it can cut this computer off the network: nobody may reach it, or this page, until it runs again.';
+  if (SESSION_UNITS.test(name)) return 'Stopping it can end every program of the signed-in users, this dashboard among them.';
+  return null;
+}
+
 export const services = {
   scopes: ['user', 'system'],
   readOnly: false,
   nameOk: (name) => typeof name === 'string' && UNIT_RE.test(name),
   isSsh: (name) => SSH_UNITS.has(name),
+  cutsOff,
   own: ownUnits,
   /** { available, note, services: [{ name, description, active, sub, enabled }] }. Unit files that are not loaded show as stopped. */
   async list(io, scope) {

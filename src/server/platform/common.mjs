@@ -19,10 +19,26 @@ export function runSync(cmd, args, { timeout = 5000 } = {}) {
   }
 }
 
-// Secrets sometimes ride on command lines (--token=…, API keys). The browser only gets a masked, clipped copy.
-const SECRET_RE = /(\b[\w-]*(?:token|api[-_]?key|secret|passw(?:or)?d)[\w-]*(?:=|:\s*|\s+)|\bBearer\s+)\S+|\bsk-[A-Za-z0-9_-]{8,}/gi;
+// Secrets sometimes ride on command lines and in log lines (--token=…, API keys, a password in a URL). The browser
+// only gets a masked, clipped copy. In the order applied:
+//   a URL's password                 scheme://user:pass@host      → scheme://user:***@host
+//   values with a secret's shape     GitHub, GitLab, Slack, AWS, Google, OpenAI-style keys, JWTs
+//   a value after a secret's name    --token=…, PASSWORD=…, api_key: …, Bearer …, Basic …
+//   passwords given as options       mysql -pSECRET, curl -u user:SECRET, sshpass -p SECRET
+const URL_PASSWORD = /\b([a-z][a-z0-9+.-]{1,20}:\/\/[^\s:@/'"]*:)[^\s@/'"]+@/gi;
+const SHAPES = /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abposr]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})|\bsk-[A-Za-z0-9_-]{8,}/g;
+const SECRET_RE = /(\b[\w-]*(?:token|api[-_]?key|secret|passw(?:or)?d)[\w-]*(?:=|:\s*|\s+)|\bBearer\s+)\S+|\b(Basic\s+)[A-Za-z0-9+/]{8,}={0,2}/gi;
+const OPTION_PASSWORDS = [
+  // mysql, mariadb and their tools take the password glued to -p
+  [/(\b(?:mysql\w*|mariadb\w*)\b.*?\s-p)(?!\s)\S+/gi, '$1***'],
+  // curl and others: -u / --user name:password
+  [/(\s(?:-u|--user)(?:\s+|=)[^\s:]+:)\S+/g, '$1***'],
+  // sshpass -p password
+  [/(\bsshpass\b(?:\s+-[a-oq-zA-Z]\S*)*\s+-p\s*)\S+/g, '$1***'],
+];
 export const redact = (s, max = 160) => {
-  const masked = String(s).replace(SECRET_RE, (m, keep) => (keep ? `${keep}***` : '***'));
+  let masked = String(s).replace(URL_PASSWORD, '$1***@').replace(SHAPES, '***').replace(SECRET_RE, (m, keep, basic) => `${keep || basic}***`);
+  for (const [re, to] of OPTION_PASSWORDS) masked = masked.replace(re, to);
   return masked.length > max ? masked.slice(0, max - 1) + '…' : masked;
 };
 

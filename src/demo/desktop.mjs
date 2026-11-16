@@ -19,6 +19,7 @@ function sampleProcesses(secondary) {
       p(1, 0, 'root', 'systemd', '/sbin/init splash', 14, 900_000),
       p(612, 1, 'root', 'sshd', 'sshd: /usr/sbin/sshd -D [listener]', 9, 900_000),
       p(840, 1, 'postgres', 'postgres', 'postgres -D /var/lib/postgresql/16/main', 210, 880_000),
+      p(1975, 1, 'demo', 'tmux', 'tmux new-session -d -s blog-a1', 8, 86_000),
       p(1980, 1, 'demo', 'hoprig', 'node hoprig dashboard', 120, 86_000),
       p(2311, 1980, 'demo', 'node', 'node node_modules/.bin/next dev', 610, 7200),
       p(2402, 1980, 'demo', 'claude', 'claude --resume', 380, 5400),
@@ -136,6 +137,9 @@ export function demoDesktop(dir, secondary = false) {
     root: false,
     kill: async () => ({ ok: false, error: 'not in the demo: nothing on this computer is ended' }),
     parentLookup: async () => (pid) => (procs.find((p) => p.pid === pid) || {}).ppid ?? null,
+    // The sample dashboard and the tmux server of its sessions show locked, as the real ones do.
+    self: secondary ? process.pid : 1980,
+    sessionHosts: async () => (secondary ? [] : [1975]),
     logDirs: () => [logDir],
   };
 }

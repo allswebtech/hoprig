@@ -9,6 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
+import { killProcess } from '../../src/server/platform.mjs';
+import { TmuxBackend } from '../../src/server/backends/tmux.mjs';
+import { runSync } from '../../src/server/platform/common.mjs';
+
+const hasTmux = runSync('tmux', ['-V']) !== null;
 
 const box = sandbox('desktop-feature');
 const { desktopFeature } = await import('../../src/desktop/feature.mjs');
@@ -106,6 +111,28 @@ test('refused: this dashboard\'s own service; SSH until its name is typed', asyn
   assert.ok(!ran.flat().join(' ').includes(PASSWORD));
 });
 
+test('the network\'s units ask for their name like SSH; the list marks them; a start needs nothing', async () => {
+  const { call } = harness();
+  const q = await call('POST', '/api/services/action', { scope: 'system', name: 'NetworkManager.service', action: 'restart' });
+  assert.deepEqual([q.needsConfirm, /off the network/.test(q.why)], [true, true]);
+  assert.equal((await call('POST', '/api/services/action', { scope: 'user', name: 'dbus.service', action: 'stop' })).needsConfirm, true);
+  assert.equal((await call('POST', '/api/services/action', { scope: 'user', name: 'dbus.service', action: 'stop', confirm: 'dbus.service' })).ok, true);
+  assert.equal((await call('POST', '/api/services/action', { scope: 'user', name: 'tailscaled.service', action: 'start' })).ok, true);
+  const list = await call('GET', '/api/services?scope=system');
+  assert.deepEqual(list.services.map((x) => [x.name, x.critical]), [['cron.service', false], ['hoprig.service', false], ['ssh.service', true]]);
+});
+
+test('wrong passwords: after three from one caller the next try waits, and the password is not even checked', async () => {
+  const { call, streamed } = harness();
+  const body = { scope: 'system', name: 'cron.service', action: 'restart' };
+  const from = (ip) => ({ socket: { remoteAddress: ip } });
+  for (let i = 0; i < 3; i++) assert.equal((await call('POST', '/api/services/action', { ...body, password: `wrong ${i}` }, from('10.0.0.5'))).wrong, true);
+  const checked = streamed.length;
+  await assert.rejects(call('POST', '/api/services/action', { ...body, password: PASSWORD }, from('10.0.0.5')), (e) => e.status === 429 && /try again in \d+ min/.test(e.message));
+  assert.equal(streamed.length, checked, 'sudo was not asked');
+  assert.equal((await call('POST', '/api/services/action', { ...body, password: PASSWORD }, from('10.0.0.6'))).ok, true, 'another caller is not held up');
+});
+
 test('macOS uses launchctl; Windows lists its services and changes none', async () => {
   const mac = harness({ platform: 'darwin', run: async () => ({ ok: true, stdout: '' }) });
   const ran = [];
@@ -121,27 +148,69 @@ test('macOS uses launchctl; Windows lists its services and changes none', async 
   await assert.rejects(win.call('POST', '/api/services/action', { scope: 'system', name: 'sshd', action: 'stop' }), (e) => e.status === 409 && /read-only/.test(e.message));
 });
 
-test('processes: the dashboard and the processes above it are guarded; ending works on this test\'s own child only', async () => {
+test('processes: the dashboard, the processes above it and the sessions\' tmux server are guarded; ending works on this test\'s own child only', async () => {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' });
   await new Promise((r) => child.once('spawn', r));
   const gone = new Promise((r) => child.once('exit', (code, sig) => r(sig)));
-  const { call } = harness({ run: undefined, readFile: undefined }); // the real ps and /proc: read only
-  const list = await call('GET', '/api/system/processes');
-  const me = list.processes.find((p) => p.pid === process.pid);
-  assert.equal(me.guarded, true, 'the dashboard itself');
-  assert.equal(list.processes.find((p) => p.pid === process.ppid)?.guarded, true, 'its parent');
-  const kid = list.processes.find((p) => p.pid === child.pid);
-  assert.deepEqual([kid.guarded, kid.mine], [false, true]);
-  assert.ok(list.processes.every((p) => !('cpuTime' in p) && !('uid' in p)));
-  for (const pid of [process.pid, process.ppid, 1, 0, -5, 'x', 2 ** 31]) {
-    await assert.rejects(call('POST', '/api/system/processes/end', { pid }), (e) => e.status === 409, String(pid));
+  // The real kill only ever reaches the child: a guard that broke would show as a stand-in call, not as a signal to
+  // the test runner or this test itself.
+  const signalled = [];
+  const kill = (pid, sig) => (signalled.push(pid), pid === child.pid ? killProcess(pid, sig) : { ok: false, error: 'stand-in: not signalled' });
+  // A stand-in tmux server: this test's parent's parent is not above the dashboard in every runner, so a pid that is
+  // surely not above it stands for the tmux server (the child's own pid would be refused, which the end of this test
+  // relies on not happening).
+  const host = await new Promise((resolve) => {
+    const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' });
+    c.once('spawn', () => resolve(c));
+  });
+  try {
+    const { call } = harness({ run: undefined, readFile: undefined, kill, sessionHosts: async () => [host.pid] }); // the real ps and /proc: read only
+    const list = await call('GET', '/api/system/processes');
+    const me = list.processes.find((p) => p.pid === process.pid);
+    assert.equal(me.guarded, true, 'the dashboard itself');
+    assert.equal(list.processes.find((p) => p.pid === process.ppid)?.guarded, true, 'its parent');
+    const tmux = list.processes.find((p) => p.pid === host.pid);
+    assert.deepEqual([tmux.guarded, tmux.holdsSessions], [true, true], 'the server that holds every session');
+    const kid = list.processes.find((p) => p.pid === child.pid);
+    assert.deepEqual([kid.guarded, kid.mine, kid.holdsSessions], [false, true, false]);
+    assert.ok(list.processes.every((p) => !('cpuTime' in p) && !('uid' in p)));
+    for (const pid of [process.pid, process.ppid, host.pid, 1, 0, -5, 'x', 2 ** 31]) {
+      await assert.rejects(call('POST', '/api/system/processes/end', { pid }), (e) => e.status === 409 && !/stand-in/.test(e.message), String(pid));
+    }
+    assert.deepEqual(signalled, [], 'no refused pid reached kill');
+    // A pid the page showed under another name now (used again): refused before any signal.
+    await assert.rejects(call('POST', '/api/system/processes/end', { pid: child.pid, name: 'not-this-one' }), (e) => e.status === 409 && /ended already/.test(e.message));
+    assert.equal(child.exitCode, null, 'still running');
+    assert.deepEqual(await call('POST', '/api/system/processes/end', { pid: child.pid, name: kid.name }), { ok: true });
+    assert.equal(await gone, 'SIGTERM');
+    assert.deepEqual(signalled, [child.pid]);
+  } finally {
+    host.kill('SIGKILL');
+    child.kill('SIGKILL');
   }
-  assert.equal(child.exitCode, null, 'still running');
-  assert.deepEqual(await call('POST', '/api/system/processes/end', { pid: child.pid }), { ok: true });
-  assert.equal(await gone, 'SIGTERM');
   // Another user's process: the OS part refuses it (a stand-in here, so nothing real is even tried).
   const other = harness({ kill: () => ({ ok: false, error: 'not your process' }), parentLookup: async () => () => null });
   await assert.rejects(other.call('POST', '/api/system/processes/end', { pid: 4321 }), (e) => e.status === 409 && /not your process/.test(e.message));
+});
+
+test('the tmux server of the sessions is found on the backend\'s own socket and guarded by default', { skip: !hasTmux && 'tmux is not installed' }, async () => {
+  const socket = `hoprig-desk-test-${process.pid}`;
+  const tmux = new TmuxBackend({ socket, configFile: '/dev/null' });
+  assert.equal(await tmux.serverPid(), null, 'no server yet');
+  await tmux.create({ name: 'held', dir: os.tmpdir() });
+  try {
+    const pid = await tmux.serverPid();
+    assert.ok(Number.isInteger(pid) && pid > 1);
+    const signalled = [];
+    const f = desktopFeature({ readJson: async (req) => req.body || {}, backend: tmux }, { platform: 'linux', kill: (p) => (signalled.push(p), { ok: false, error: 'stand-in' }) });
+    const end = f.routes.find(([m, re]) => m === 'POST' && re.test('/api/system/processes/end'))[2];
+    await assert.rejects(end({ body: { pid }, headers: {}, socket: {} }), (e) => e.status === 409 && /holds its sessions/.test(e.message));
+    const list = await f.routes.find(([m, re]) => m === 'GET' && re.test('/api/system/processes'))[2]({ headers: {}, socket: {} });
+    assert.deepEqual(list.processes.filter((p) => p.holdsSessions).map((p) => [p.pid, p.guarded]), [[pid, true]]);
+    assert.deepEqual(signalled, []);
+  } finally {
+    await tmux.run(['kill-server']).catch(() => {});
+  }
 });
 
 test('usage, disks and network answer with numbers; the journal and the log files with checked input', async () => {
