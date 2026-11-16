@@ -85,17 +85,13 @@ function printMap(ui, r) {
   if (d.created) ui.line('ok', `${r.dryRun ? 'would write' : 'wrote'} the map: ${r.map.projects.length} project${r.map.projects.length === 1 ? '' : 's'}, ${r.map.others.length} other repositor${r.map.others.length === 1 ? 'y' : 'ies'}`);
   for (const a of d.added) ui.line('ok', `added: ${a}`);
   for (const t of r.takenOut) ui.line('warn', `taken out of ${t.project} by its project.json: ${t.dir} (the project's own project.json is the truth for a project on this computer)`);
-  for (const l of r.worktrees || []) ui.line('info', `taken out: ${l} (a linked worktree, a second checkout of another repository)`);
   if (r.notHere.length) ui.note(`in the map, not on this computer (kept; only forget takes something out): ${r.notHere.join(', ')}`);
   for (const c of d.changed) ui.line('info', `changed address: ${c.label}: ${c.from || 'none'} → ${c.to || 'none'}`);
   if (d.same && !d.created && !r.otherChanges) ui.line('ok', 'the map is up to date');
   if (r.otherChanges) ui.line('info', `${r.dryRun ? 'would update' : 'updated'}: the projects folder, memory links or which entries are tools`);
   if (r.tools.length) ui.note(`tools: restored on a fresh computer, never synced: ${r.tools.join(', ')}`);
   for (const n of r.notes) ui.note(n);
-  for (const m of r.manifests) {
-    const what = [m.added.length ? `${r.dryRun ? 'would get' : 'got'} ${m.added.join(', ')}` : '', m.dropped.length ? `${r.dryRun ? 'would lose' : 'lost'} ${m.dropped.join(', ')} (linked worktrees)` : ''].filter(Boolean).join('; ');
-    ui.note(`${m.project}/project.json ${what} (commit it in that project)`);
-  }
+  for (const m of r.manifests) ui.note(`${m.project}/project.json ${r.dryRun ? 'would get' : 'got'} ${m.added.join(', ')} (commit it in that project)`);
   if (!r.dryRun && !(d.same && !d.created && !r.otherChanges)) ui.note(`commit it:  ${r.commit}`);
 }
 

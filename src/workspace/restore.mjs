@@ -17,7 +17,7 @@ import { cloneRepo, parseRepo, rememberDir } from '../pcsetup/projects.mjs';
 import { MANIFEST, git, readManifest, stamp } from '../pcsetup/workspace.mjs';
 import { capture, stream } from '../setup/system.mjs';
 import { loadConfig } from '../config.mjs';
-import { isDir, isGitRepo, projectsIn, workspaceDir } from './layout.mjs';
+import { WORKTREE_LEFT, isDir, isGitRepo, isLinkedWorktree, projectsIn, workspaceDir } from './layout.mjs';
 import { MAP_FILE, readMap, sameUrl } from './map.mjs';
 import { brainScaffold, workspaceSetup } from './setup.mjs';
 
@@ -45,6 +45,7 @@ const emptyDir = (d) => {
 export async function placeState(dest, url, run = capture) {
   if (!fs.existsSync(dest) || emptyDir(dest)) return url ? { action: 'clone' } : { action: 'no-address', why: 'not on a git server yet: copy it from the computer that has it' };
   if (!isGitRepo(dest)) return { action: 'different', why: 'a folder that is not this repository is there: left alone' };
+  if (isLinkedWorktree(dest)) return { action: 'different', why: WORKTREE_LEFT }; // never cloned over, never counted as this one
   const r = await run(['git', '-C', dest, 'config', '--get', 'remote.origin.url'], { timeout: 10_000 });
   const have = r.ok ? r.stdout.trim() : '';
   if (!url || sameUrl(have, url)) return { action: 'here' };
@@ -175,13 +176,17 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
           e.result = 'skipped: its project was not cloned';
           continue;
         }
+        if (parent && parent.why === WORKTREE_LEFT) {
+          e.result = 'skipped: its project\'s folder here is a linked worktree';
+          continue;
+        }
       }
       await cloneOne(e);
     }
     // A project's own project.json may name code repositories the map does not have yet: clone those too, except
     // one taken out with `workspace forget` (the map's skip list has it as <project>/<dir>).
     const forgotten = new Set(m.map.skip || []);
-    for (const p of plan.filter((x) => x.kind === 'project' && isGitRepo(x.dest))) {
+    for (const p of plan.filter((x) => x.kind === 'project' && isGitRepo(x.dest) && x.why !== WORKTREE_LEFT)) {
       const { manifest, source } = await readManifest(p.dest, run);
       if (!manifest) continue;
       // Memory links: the project's own project.json says; without one, the map does (never a guess when it knows).

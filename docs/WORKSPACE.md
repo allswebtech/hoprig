@@ -80,13 +80,13 @@ the AI brain because the brain is the one repository every computer has.
   map` adds and updates what is on this computer (addresses, branches, tool flags, memory links, code
   repositories); what the map has and this computer does not **stays as it is** and is listed as "in the map, not
   on this computer" (never as removed). A computer without a brain remote, or with a projects folder the map cannot
-  describe, never blanks what the map says. Only `forget` takes something out. One exception: a project that
+  describe, never blanks what the map says. Only `forget` takes something out. The one exception: a project that
   IS on this computer and whose own `project.json` no longer names one of its code repositories (whose folder is not
   here either): its `project.json` is the truth for it, so that repository is "taken out of <project> by its
-  project.json". A second one: an entry whose folder on this computer is a linked worktree (`git worktree add`, a
-  second checkout of another repository) is taken out; the scan never adds one (a submodule stays a repository).
-  Nothing is ever taken out because of its address: two entries with one address may be two clones someone keeps.
-  `map` shows what changed (added, taken out, a changed address), never commits, and prints the
+  project.json". A linked worktree (`git worktree add`, a second checkout of another repository) is never added to
+  the map; an entry whose folder here is one is kept as not on this computer, and restore and sync leave that folder
+  alone. Apart from that one exception nothing leaves the map by itself: `forget` removes a stale entry. `map` shows
+  what changed (added, taken out, a changed address), never commits, and prints the
   `git add` and `git commit` to run in the brain. `project new`, `project clone` and `project add` keep it up to
   date by themselves when there is a brain.
 - A project's own `project.json` stays the truth for its code repositories. The map repeats them so that one file

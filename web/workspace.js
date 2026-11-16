@@ -349,9 +349,8 @@ function updateMapSheet(refresh) {
           : h('p.sheet-text', d.created ? 'There is no map yet: this writes the first one.' : d.same ? 'Settings changed (the projects folder, memory links or which entries are tools); no repository did.' : 'This changes the map:'),
         list('Added', d.added),
         list('A changed address', d.changed.map((c) => `${c.label}: ${c.from || 'none'} → ${c.to || 'none'}`)),
-        // Only a present project's own project.json takes a code repository out, and a linked worktree here goes.
+        // Only a present project's own project.json takes a code repository out; nothing else is ever removed.
         (r.takenOut || []).length ? list('Taken out by its project\'s project.json', r.takenOut.map((t) => `${t.project}: ${t.dir}`)) : null,
-        (r.worktrees || []).length ? list('Taken out: linked worktrees (second checkouts of another repository)', r.worktrees) : null,
         notHereLine(r),
         r.notes && r.notes.length ? h('ul.hint', r.notes.map((n) => h('li', n))) : null,
         h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'),

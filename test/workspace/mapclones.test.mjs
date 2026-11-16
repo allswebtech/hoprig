@@ -51,8 +51,7 @@ test('computer A keeps two full clones of one repository in a project, with and 
   w.clone(urls.web, path.join(pj, 'code', 'web-2'));
   const r = await M.updateMap({ dir: A.ws, projects: A.projects }); // `workspace map`
   assert.deepEqual([reposOf(r.map, 'dup'), reposOf(r.map, 'pj')], [['code/web', 'code/web-2'], ['code/web', 'code/web-2']]);
-  assert.deepEqual(r.manifests, [{ project: 'pj', added: ['code/web-2'], dropped: [] }], 'a repository found here is added, though another entry has its address');
-  assert.deepEqual(r.worktrees, []);
+  assert.deepEqual(r.manifests, [{ project: 'pj', added: ['code/web-2'] }], 'a repository found here is added, though another entry has its address');
   push(pj, 'project.json: web-2');
   push(brain(A), 'map');
 });
@@ -79,7 +78,7 @@ test('the map and project.json stay the same after every round of upkeep and `wo
       for (const manifests of [false, true]) {
         const r = await M.updateMap({ dir: c.ws, projects: c.projects, manifests });
         const where = `round ${round}, computer ${path.basename(c.home)}, manifests ${manifests}`;
-        assert.deepEqual([r.diff.same, r.otherChanges, r.manifests, r.worktrees, r.takenOut, r.notHere], [true, false, [], [], [], []], where);
+        assert.deepEqual([r.diff.same, r.otherChanges, r.manifests, r.takenOut, r.notHere], [true, false, [], [], []], where);
         assert.equal(mapText(c), map0, where);
         assert.equal(manifestText(c), manifest0, where);
         assert.equal(w.sh(brain(c), 'status', '--porcelain'), '', `${where}: nothing to commit in the brain`);
@@ -102,7 +101,7 @@ test('an entry not on this computer stays, also with the address of one that is;
   push(pj, 'project.json: an older map\'s worktree');
   const kept = await M.updateMap({ dir: A.ws, projects: A.projects });
   assert.deepEqual([reposOf(kept.map, 'dup'), reposOf(kept.map, 'pj')], [['code/web', 'code/web-2', 'code/web-wt'], ['code/web', 'code/web-2', 'code/web-wt']]);
-  assert.deepEqual([kept.worktrees, kept.manifests], [[], []]);
+  assert.deepEqual(kept.manifests, []);
   assert.deepEqual(kept.notHere, ['dup/code/web-wt'], 'pj/code/web-wt is named by its project.json, so the scan has it');
 
   const cli = (...args) => execFileSync(process.execPath, [BIN, 'workspace', ...args], { env: { ...process.env, ...A.env, HOPRIG_WORKSPACE_DIR: A.ws, NO_COLOR: '1' }, encoding: 'utf8' });

@@ -22,7 +22,7 @@ import { claudeDir } from '../paths.mjs';
 import { projectSlug } from '../sessions.mjs';
 import { capture, stream } from '../setup/system.mjs';
 import { PRIVATE_DIRS, READ_ONLY_GIT, cleanRemote, parseRepo, parseStatus, statusArgv } from './projects.mjs';
-import { isLinkedWorktree } from '../workspace/layout.mjs';
+import { WORKTREE_LEFT, isLinkedWorktree } from '../workspace/layout.mjs';
 
 export { PRIVATE_DIRS };
 
@@ -358,6 +358,7 @@ export async function syncRepo(dir, rel, run = capture, { push = true, dryRun = 
   const did = [];
   const todo = [];
   if (!isRepo(dir)) return { rel, did, todo: [{ why: 'not cloned', command: `hoprig project clone …` }] };
+  if (rel !== '.' && isLinkedWorktree(dir)) return { rel, did: [WORKTREE_LEFT], todo: [] }; // a second checkout, not this repository
   const f = await git(dir, ['fetch', '--prune', '--quiet'], run, { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
   if (!f.ok) todo.push({ why: `fetch failed: ${(f.stderr || '').trim().split('\n').pop()}`, command: `git -C "${dir}" fetch` });
   const s = await repoInfo(dir, run);

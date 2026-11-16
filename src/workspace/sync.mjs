@@ -8,7 +8,7 @@ import path from 'node:path';
 import { todoKind } from '../pcsetup/feature.mjs';
 import { commitMemory, syncRepo, syncWorkspace } from '../pcsetup/workspace.mjs';
 import { capture } from '../setup/system.mjs';
-import { isGitRepo, projectsIn, workspaceDir } from './layout.mjs';
+import { WORKTREE_LEFT, isGitRepo, isLinkedWorktree, projectsIn, workspaceDir } from './layout.mjs';
 import { readMap, scanWorkspace } from './map.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -62,6 +62,12 @@ export async function syncAll({ dir = workspaceDir(), projects = projectsIn(), m
     covered.add(t.dir);
     if (!isGitRepo(t.dir)) {
       add(t.label, notHere(t));
+      continue;
+    }
+    if (isLinkedWorktree(t.dir)) {
+      // A second checkout of another repository, not this project: it and what the map puts inside it are left alone.
+      add(t.label, { did: [WORKTREE_LEFT], todo: [] });
+      for (const x of targets) if (x.kind === 'repo' && x.project === t.project) covered.add(x.dir);
       continue;
     }
     // A project: its parent and the code repositories its project.json names, as `project sync` does.
