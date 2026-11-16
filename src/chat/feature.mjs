@@ -105,6 +105,8 @@ export function chatFeature(ctx, o = {}) {
     if (p && !servesTools(p).includes('claude')) assertServes(p, 'claude'); // says why, as a 400
     return !!p;
   };
+  // The same, without the sentence: may a chat fall back on this provider (the folder's last one)?
+  const servesChat = (name) => (name === AUTO.name ? autoOn() : servesTools(readProfile(name)).includes('claude'));
   function profileView(name) {
     if (name === AUTO.name) return AUTO;
     const p = listProfiles().find((x) => x.name === name);
@@ -209,7 +211,7 @@ export function chatFeature(ctx, o = {}) {
     let profile = b.profile;
     if (profile === undefined || profile === null || profile === '') {
       // As the last chat here ran, while that provider is still there; else the one recommended now.
-      profile = last.profile && profileOk(last.profile) ? last.profile : (await ctx.state()).recommended;
+      profile = last.profile && servesChat(last.profile) ? last.profile : (await ctx.state()).recommended;
       if (!profile) throw bad('there is no provider yet: add one under Providers first');
     }
     if (typeof profile !== 'string' || !profileOk(profile)) throw bad('there is no such provider');

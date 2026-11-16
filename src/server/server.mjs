@@ -346,8 +346,11 @@ export function createServer(opts = {}) {
       if (c.limit || c.runLimit) c.limitAt = (c.runLimit && c.runLimit.at) || watcher.seen.get(c.runId) || null;
     }
     const rec = autoswitch.recommendedProfile ? autoswitch.recommendedProfile() : null;
-    // Auto mode on: "Auto" is the first choice for a new session.
-    const recommended = autoOn() ? AUTO.name : (rec && names.has(rec) ? rec : null) || (profiles.find((p) => !p.limited && !p.virtual) || profiles[0] || {}).name || null;
+    // Auto mode on: "Auto" is the first choice for a new session. A new session and a chat run Claude Code: the
+    // recommended provider is one that serves it (an OpenAI key or a Codex sign-in is never offered for them).
+    const forClaude = profiles.filter((p) => p.virtual || !Array.isArray(p.tools) || p.tools.includes('claude'));
+    const claudeNames = new Set(forClaude.map((p) => p.name));
+    const recommended = autoOn() ? AUTO.name : (rec && claudeNames.has(rec) ? rec : null) || (forClaude.find((p) => !p.limited && !p.virtual) || forClaude[0] || {}).name || null;
     const qa = cfg().server.quickActions;
     return {
       sessions: list, profiles, autoSwitch: auto, recommended,

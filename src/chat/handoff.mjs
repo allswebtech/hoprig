@@ -7,7 +7,7 @@
 //   POST /api/chats/<id>/terminal             open the conversation in a terminal → { name } (the chat closes)
 import fs from 'node:fs';
 import { EFFORTS, PERMISSION_MODES } from '../config.mjs';
-import { readProfile } from '../profiles.mjs';
+import { assertServes, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { isSessionId } from '../sessions.mjs';
 import { matchRuns } from '../server/deck.mjs';
@@ -20,7 +20,8 @@ const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 export function terminals(ctx) {
   const { HttpError } = ctx;
   async function terminalOf(id) {
-    const runs = listRuns().filter((r) => r.sessionId === id && r.status !== 'ended');
+    // Only Claude Code's run records: a chat's conversation is Claude Code's (a record without `tool` is an older one of it).
+    const runs = listRuns().filter((r) => r.sessionId === id && r.status !== 'ended' && (r.tool || 'claude') === 'claude');
     if (!runs.length) return null;
     const terms = await ctx.backend.list();
     const byId = matchRuns(terms, runs, runs.some((r) => r.tmuxPane) ? await parentLookup() : procParent);
@@ -50,9 +51,13 @@ export function handoffRoutes(ctx, o) {
       const found = await ctx.deck.find(b.session);
       if (!found) throw new HttpError(404, 'no such session');
       const run = found.run;
+      // A chat runs Claude Code: a Codex or OpenCode conversation stays in its terminal.
+      if (run && (run.tool || 'claude') !== 'claude') throw new HttpError(409, 'Open as chat is for Claude Code sessions only: this conversation stays in its terminal');
       if (!run || !isSessionId(run.sessionId)) throw new HttpError(409, 'Claude has not reported its conversation yet; try again in a moment');
       const open = openChatOf(run.sessionId);
       if (open) return { id: open };
+      const prof = run.profile && run.profile !== auto.name ? readProfile(run.profile) : null;
+      if (prof) assertServes(prof, 'claude'); // says why, as a 400
       // As the terminal ran it (its flags), else as the last chat in that folder, else Settings: a conversation
       // taken back from a terminal keeps its model, effort and mode.
       const d = cfg().sessionDefaults || {};

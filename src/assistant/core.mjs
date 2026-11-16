@@ -18,6 +18,7 @@
 //
 // The core has no I/O of its own: `ops` is the dashboard (OPS in tools.mjs); the card store, job store, skills
 // and audit log are injected so tests can drive every rule.
+import { toolOf } from '../automation/cards.mjs';
 import { AuditLog } from './audit.mjs';
 import { CardError, CardStore } from './cards.mjs';
 import { fence, fenceData, neutralize } from './fence.mjs';
@@ -27,7 +28,7 @@ import { SchemaError, validate } from './schema.mjs';
 import { looksSecret, stringsIn } from './secrets.mjs';
 import { FIRST_CALL, LOCAL, ShownIds } from './shown.mjs';
 import { Skills } from './skills.mjs';
-import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, chooseAccount, freePct, resolveTia } from './tia.mjs';
+import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, chooseAccount, freePct, resolveTia, servesTool } from './tia.mjs';
 import { ToolError, TOOL_NAMES, byName, statusOf } from './tools.mjs';
 import { wakeMessage } from './jobs.mjs';
 
@@ -117,7 +118,7 @@ export function createAssistantCore({
     if (args.session && baseLevel(tool, args) !== 'L0') {
       const list = await ops.listSessions({ computer: args.computer || LOCAL });
       const c = list.find((x) => x.name === args.session && (x.computer || LOCAL) === (args.computer || LOCAL));
-      if (c) f.session = { status: statusOf(c), note: c.note || '', account: c.profile ? c.profile.name : null, cwd: c.cwd || null, screen: '' };
+      if (c) f.session = { status: statusOf(c), note: c.note || '', account: c.profile ? c.profile.name : null, cwd: c.cwd || null, screen: '', tool: toolOf(c) };
       // A chat (src/chat) has no screen: its card carries the OK it waits for, with what it is really about (the
       // whole command or path, not the model's label of it), whether the chat keeps it for the owner, and its request
       // id (send_to_chat answers that one and no other).
@@ -144,18 +145,21 @@ export function createAssistantCore({
   /** start_session / switch_account: fill in the account (Tia's choice when none is named) and its facts. */
   async function pickAccount(tool, args, f, tia) {
     const accounts = await ops.accounts({ computer: args.computer || LOCAL });
+    const need = (f.session && f.session.tool) || 'claude'; // the coding tool the provider must serve
     let why = null;
     if (!args.account) {
       const current = f.session && f.session.account;
       const pool = current ? { ...accounts, profiles: (accounts.profiles || []).map((p) => (p.name === current ? { ...p, limited: p.limited || { until: null } } : p)) } : accounts;
       const tiaPool = current ? { ...tia, allowed: tia.allowed.filter((n) => n !== current) } : tia;
-      const pick = chooseAccount(tiaPool, pool);
+      const pick = chooseAccount(tiaPool, pool, need);
       if (pick.error) throw new ToolError(pick.error, 'tell the owner; he can allow more providers in Settings → Tia (open_screen "settings/tia") or wait for a reset');
       args.account = pick.account;
       why = `picked by ${ASSISTANT_NAME}: ${pick.why}`;
     }
     const p = args.account === 'auto' ? { name: 'auto', kind: 'auto' } : (accounts.profiles || []).find((x) => x.name === args.account);
     if (!p) throw new ToolError(`there is no provider "${args.account}"`, 'call get_accounts for the names, or leave account out');
+    // A new session or chat of hers runs Claude Code; a session that moves stays in its coding tool.
+    if (!servesTool(p, need)) throw new ToolError(`the provider "${p.name}" does not serve ${need === 'claude' ? 'Claude Code' : need}`, `pick a provider whose tools in get_accounts include ${need}, or leave account out`);
     f.account = { name: p.name, kind: p.kind, allowed: tia.allowed.includes(p.name), why };
     return why;
   }

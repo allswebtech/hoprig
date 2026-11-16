@@ -23,7 +23,7 @@
 // name with the launcher's arguments, typing into a session by name.
 import path from 'node:path';
 import { getAutoSwitch } from '../autoswitch.mjs';
-import { readProfile, servesTools } from '../profiles.mjs';
+import { assertServes, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { launchArgv } from '../server/deck.mjs';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
@@ -98,7 +98,13 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
     log,
     checks: {
       dirOk: (d) => Boolean(insideRoots(d, resolveRoots(sctx.config().server.roots))),
-      profileOk: (p) => (p === 'auto' ? getAutoSwitch().enabled === true : servesTools(readProfile(p)).includes('claude')),
+      // A schedule starts Claude Code (in a terminal or a chat): a provider that does not serve it says why.
+      profileOk: (p) => {
+        if (p === 'auto') return getAutoSwitch().enabled === true;
+        const prof = readProfile(p);
+        if (prof) assertServes(prof, 'claude');
+        return Boolean(prof);
+      },
     },
   };
 }

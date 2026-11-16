@@ -6,7 +6,7 @@
 // live.mjs). Files dropped anywhere on the page go with the next message.
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
 import { icon } from '../icons.js';
-import { add, api, confirmSheet, fill, h, link, machine, prefs, toast } from '../lib.js';
+import { add, api, confirmSheet, fill, h, isClaudeCard, link, machine, prefs, toast } from '../lib.js';
 import { registerPage, registerSessionAction } from '../registry.js';
 import { pageNotify, store } from '../store.js';
 import { forgetHere, named, wayBack } from '../trail.js';
@@ -279,7 +279,8 @@ registerSessionAction({
   icon: 'text',
   describe: (me) => {
     const s = ((store.data && store.data.sessions) || []).find((x) => x.name === me.name);
-    return s && s.kind === 'claude' && s.sessionId ? {} : null;
+    // A chat runs Claude Code: a Codex or OpenCode conversation stays in its terminal.
+    return s && isClaudeCard(s) && s.sessionId ? {} : null;
   },
   run: async (me) => {
     try {

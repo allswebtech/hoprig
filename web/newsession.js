@@ -106,7 +106,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
       h('div.ns-pcs', { role: 'radiogroup', 'aria-label': 'Computer' }, store.all.map((m) => {
         const c = can(m);
         const on = m.machine === st.m;
-        const providers = (m.profiles || []).filter((p) => !p.virtual).length;
+        const providers = (m.profiles || []).filter((p) => !p.virtual && servesClaude(p)).length;
         return h(`button.ns-pc${on ? '.on' : ''}`, {
           type: 'button', role: 'radio', 'aria-checked': String(on), disabled: !c.ok && !on,
           onclick: () => {
@@ -185,7 +185,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
       return fill(body, h('div.empty.compact', icon('cpu', { size: 28 }), h('p', `${m.machineLabel}: ${c.why}.${other ? ' Choose a computer above.' : ''}`),
         other ? null : h('a.btn.secondary', { href: '#/computers' }, icon('cpu', { size: 18 }), h('span', 'Computers'))));
     }
-    if (m && st.run !== 'shell' && !m.profiles.some((p) => !p.virtual)) {
+    if (m && st.run !== 'shell' && !m.profiles.some((p) => !p.virtual && servesClaude(p))) {
       // Nothing could start: say what is missing and lead there.
       return fill(body, h('div.empty.compact', icon('user', { size: 28 }), h('p', `No provider on ${m.machineLabel} yet. Add the provider Claude should use first.`),
         h('a.btn.primary', { href: link('#/providers', st.m) }, icon('plus', { size: 18 }), h('span', 'Add provider'))));

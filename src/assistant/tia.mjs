@@ -109,19 +109,27 @@ export function freePct(p) {
 }
 
 /**
- * Tia's choice of account for a new session: "auto" when allowed (the router then picks per request); else the
- * allowed account with the most free quota, never one at its limit; unknown usage counts as half full; ties go to
- * the owner's order (Auto mode's order, then the allowed list). Returns { account, kind, why } or { error }.
+ * Whether a provider (as get_accounts lists it: `tools` = the coding tools it serves; absent on older computers, which
+ * know Claude Code only) serves coding tool `tool`. Auto mode serves Claude Code only.
  */
-export function chooseAccount(tia, accounts) {
+export const servesTool = (p, tool = 'claude') => Boolean(p) && (p.name === 'auto' || p.virtual ? tool === 'claude' : !Array.isArray(p.tools) ? tool === 'claude' : p.tools.includes(tool));
+
+/**
+ * Tia's choice of account for a new session (a terminal or a chat: both run Claude Code) or for a session that moves
+ * (`tool`: its coding tool), only among the providers that serve that tool: "auto" when allowed (the router then picks
+ * per request; Claude Code only); else the allowed account with the most free quota, never one at its limit; unknown
+ * usage counts as half full; ties go to the owner's order (Auto mode's order, then the allowed list). Returns
+ * { account, kind, why } or { error }.
+ */
+export function chooseAccount(tia, accounts, tool = 'claude') {
   const profiles = accounts.profiles || [];
-  if (tia.allowed.includes('auto')) return { account: 'auto', kind: 'auto', why: 'Auto mode is on and allowed: the router moves the session to the next provider at a limit' };
+  if (tool === 'claude' && tia.allowed.includes('auto')) return { account: 'auto', kind: 'auto', why: 'Auto mode is on and allowed: the router moves the session to the next provider at a limit' };
   const order = [...((accounts.autoSwitch && accounts.autoSwitch.order) || []), ...tia.allowed];
   const rank = (n) => {
     const i = order.indexOf(n);
     return i < 0 ? 999 : i;
   };
-  const candidates = tia.allowed.map((n) => profiles.find((p) => p.name === n)).filter(Boolean);
+  const candidates = tia.allowed.map((n) => profiles.find((p) => p.name === n)).filter((p) => servesTool(p, tool));
   const free = candidates.filter((p) => !p.limited);
   if (!candidates.length) return { error: `no provider is allowed for ${ASSISTANT_NAME}` };
   if (!free.length) {

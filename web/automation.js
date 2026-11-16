@@ -7,7 +7,7 @@
 // "Pause all automations" sits above the parts; while it is on, a banner says so on every part.
 // The same file brings the session view's "Queue" button and the "3 queued" badge on Home's session cards.
 import { icon } from './icons.js';
-import { ago, api, at, btn, chooseSheet, confirmSheet, fill, h, isCodingCard, link, machine, needsYouFirst, openSheet, stateOf, tildePath, toast, until } from './lib.js';
+import { ago, api, at, btn, chooseSheet, confirmSheet, fill, h, isCodingCard, link, machine, needsYouFirst, openSheet, servesClaude, stateOf, tildePath, toast, until } from './lib.js';
 import { registerCardBadge, registerPage, registerSessionAction } from './registry.js';
 import { emptyState, errorBox, groupHead, panel, savedMark, tabBar, toggle } from './shell.js';
 import { store } from './store.js';
@@ -301,7 +301,8 @@ async function scheduleForm(old, preset = null) {
     ...recent.folders.map((f) => f.path),
     ...(proj ? [...proj.workspaces.flatMap((w) => w.repos.map((r) => r.dir)), ...proj.repos.map((r) => r.dir)] : []),
   ])];
-  const accounts = (d.profiles || []).map((p) => [p.name, p.virtual ? 'Auto mode (the next provider at a limit)' : p.label]);
+  // A schedule starts Claude Code (in a chat or a terminal): only the providers that serve it.
+  const accounts = (d.profiles || []).filter(servesClaude).map((p) => [p.name, p.virtual ? 'Auto mode (the next provider at a limit)' : p.label]);
   const firstAccount = d.recommended || (accounts[0] || [''])[0];
   // Where a message can go: the coding sessions in a terminal and the open chats (by their title).
   const targets = (d.sessions || []).filter((x) => isCodingCard(x) || x.kind === 'chat')

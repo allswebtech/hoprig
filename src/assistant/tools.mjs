@@ -115,6 +115,7 @@ const get_accounts = tool({
     const pick = ctx.choose(tia, r);
     const profiles = (r.profiles || []).map((p) => ({
       account: p.name, label: short(p.label, 60), kind: p.kind, in_use: p.inUse || 0,
+      ...(Array.isArray(p.tools) ? { tools: p.tools } : {}), // the coding tools it serves (claude, codex, opencode)
       // a provider that signs in: whether its sign-in is there (never who it is). Signing in, out or as another
       // account is the owner's, on the Providers page (open_screen): it is not done by chat.
       ...(typeof p.signedIn === 'boolean' ? { signed_in: p.signedIn } : {}),
