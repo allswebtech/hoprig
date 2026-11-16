@@ -1,38 +1,25 @@
 // Find in files for the editor: ripgrep when this computer has it, else `git grep` inside a repository, else a plain
-// walk in JavaScript. Each skips git's folder, installed packages, private folders and binary files, and stops at the
-// limits below (a running program is killed there, never buffered whole).
+// walk in JavaScript (in a worker thread, walk.mjs). Each skips git's folder, installed packages, private folders and
+// binary files, and stops at the limits below (a running program or the worker is ended there, never buffered whole).
+// Whatever an engine prints, every hit is checked once more before it is shown (paths.mjs showable).
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import { which } from '../setup/system.mjs';
-import { repoOf } from './git.mjs';
-import { HIDDEN, PRIVATE_DIRS, fail, rootOf } from './paths.mjs';
-import { isBinary } from './files.mjs';
+import { excludes, gitEnv, repoOf } from './git.mjs';
+import { FOLD, HIDDEN, PRIVATE_DIRS, fail, rootOf, showable } from './paths.mjs';
+import { globRe, walk } from './walk.mjs';
 
+export { globRe };
 export const LIMITS = { matches: 2000, perFile: 50, ms: 10_000, text: 200, fileBytes: 1024 * 1024, query: 500 };
 const SKIP = [...HIDDEN, ...PRIVATE_DIRS];
 
-/** "src/**, *.md" → ['src/**', '*.md']: the page's include / exclude boxes. */
+/**
+ * "src/**, *.md" → ['src/**', '*.md']: the page's include / exclude boxes. A pattern stays inside the opened folder:
+ * no "..", no leading "/" or ":" (git would read that as its own pathspec magic), no backslash.
+ */
 const globs = (s) => String(s || '').split(',').map((g) => g.trim()).filter(Boolean).slice(0, 20).map((g) => {
-  if (g.length > 200 || /[\0\\]/.test(g) || g.startsWith('-')) throw fail(400, 'a file pattern is not usable');
+  if (g.length > 200 || /[\0\\]/.test(g) || /^[-/:!]/.test(g) || g.split('/').includes('..')) throw fail(400, 'a file pattern is not usable: it must stay inside the opened folder');
   return g;
 });
-
-/** A glob as a RegExp over a relative path; a pattern without "/" matches the name at any depth (as in VS Code). */
-export function globRe(g) {
-  let s = '';
-  for (let i = 0; i < g.length; i++) {
-    const c = g[i];
-    if (c === '*' && g[i + 1] === '*') {
-      s += '.*';
-      i++;
-      if (g[i + 1] === '/') i++;
-    } else if (c === '*') s += '[^/]*';
-    else if (c === '?') s += '[^/]';
-    else s += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  }
-  return new RegExp(g.includes('/') ? `^${s}(/.*)?$` : `(^|/)${s}(/.*)?$`);
-}
 
 /** The one line shown for a hit: at most LIMITS.text characters, around the match. */
 function excerpt(line, col) {
@@ -96,10 +83,14 @@ export async function search(rootArg, { q, regex = false, caseSensitive = false,
     const body = regex ? q : q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     re = new RegExp(word ? `\\b(?:${body})\\b` : body, caseSensitive ? 'u' : 'iu');
   } catch (e) {
-    throw fail(400, `that is not a valid regular expression: ${e.message}`);
+    throw fail(400, `that is not a valid regular expression (${e.message.replace(/^.*: /, '').toLowerCase()})`);
   }
   const matches = [];
+  const cache = new Map();
   const add = (p, line, col, text) => {
+    // Whatever an engine printed, a hit in a hidden or private folder, in git's folder or in a file with a sign-in is
+    // never shown (an include pattern could otherwise bring them back).
+    if (!showable(root, p, cache)) return true;
     if (matches.length >= LIMITS.matches) return false;
     matches.push({ path: p, line, ...excerpt(text, col) });
     return matches.length < LIMITS.matches;
@@ -108,7 +99,10 @@ export async function search(rootArg, { q, regex = false, caseSensitive = false,
   let res = { timedOut: false };
   if (pick === 'rg') res = await viaRg(root, { q, regex, caseSensitive, word, inc, exc }, env, add);
   else if (pick === 'git') res = await viaGit(root, { q, regex, caseSensitive, word, inc, exc }, env, add);
-  else res = await viaWalk(root, re, { inc, exc }, add);
+  else {
+    res = await walk(root, { mode: 'search', skip: SKIP, fold: FOLD, re: { source: re.source, flags: re.flags }, inc, exc, perFile: LIMITS.perFile, fileBytes: LIMITS.fileBytes, ms: LIMITS.ms },
+      (hits) => hits.every(([p, line, col, text]) => add(p, line, col, text) !== false));
+  }
   if (res.badPattern) throw fail(400, `that is not a valid regular expression: ${res.badPattern}`);
   return { engine: pick, matches, truncated: matches.length >= LIMITS.matches, timedOut: Boolean(res.timedOut) };
 }
@@ -122,7 +116,8 @@ export const FILES_MAX = 20_000;
  */
 export async function listFiles(rootArg, roots, { env = process.env } = {}) {
   const root = rootOf(rootArg, roots);
-  const usable = (p) => p && !p.startsWith('"') && !p.split('/').some((s) => SKIP.includes(s) || s.startsWith('-'));
+  const cache = new Map();
+  const usable = (p) => p && !p.startsWith('"') && !p.split('/').some((s) => s.startsWith('-')) && showable(root, p, cache);
   const files = [];
   const seen = new Set(); // git lists a file twice while it has a conflict
   let truncated = false;
@@ -138,37 +133,23 @@ export async function listFiles(rootArg, roots, { env = process.env } = {}) {
   };
   if ((await repoOf(root, roots)).top) {
     // Names with a quote, a backslash or a control character come back C-quoted: those are left out (keep).
-    const argv = ['git', '-c', 'core.quotePath=false', 'ls-files', '--cached', '--others', '--exclude-standard', '--', '.', ...SKIP.map((d) => `:(exclude,glob)**/${d}/**`)];
-    const r = await runLines(argv, { cwd: root, env: { ...env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' }, onLine: keep });
+    const argv = ['git', '-c', 'core.quotePath=false', 'ls-files', '--cached', '--others', '--exclude-standard', '--', '.', ...excludes(SKIP)];
+    const r = await runLines(argv, { cwd: root, env: gitEnv(env), onLine: keep });
     return { files: files.sort(), truncated: truncated || r.timedOut };
   }
-  const until = Date.now() + LIMITS.ms;
-  const stack = [''];
-  while (stack.length && !truncated) {
-    if (Date.now() > until) return { files, truncated: true };
-    const rel = stack.pop();
-    let list;
-    try {
-      list = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const d of list) {
-      if (SKIP.includes(d.name)) continue;
-      const p = rel ? `${rel}/${d.name}` : d.name;
-      if (d.isDirectory()) stack.push(p);
-      else if (d.isFile() && !keep(p)) break;
-    }
-  }
-  return { files: files.sort(), truncated };
+  const r = await walk(root, { mode: 'files', skip: SKIP, fold: FOLD, inc: [], exc: [], ms: LIMITS.ms }, (list) => list.every(keep));
+  return { files: files.sort(), truncated: truncated || Boolean(r.timedOut) };
 }
 
 async function viaRg(root, o, env, add) {
   const argv = [
     'rg', '--json', '--hidden', '--max-count', String(LIMITS.perFile), '--max-filesize', '1M', '--max-columns', '1000',
     o.caseSensitive ? '--case-sensitive' : '--ignore-case', ...(o.regex ? [] : ['--fixed-strings']), ...(o.word ? ['--word-regexp'] : []),
-    ...SKIP.flatMap((d) => ['--glob', `!${d}`]), // a name without "/" is that folder at any depth
+    '--path-separator', '/', // the page's paths, also on Windows
     ...o.inc.flatMap((g) => ['--glob', g]), ...o.exc.flatMap((g) => ['--glob', `!${g}`]),
+    // After the include patterns: of ripgrep's globs the last one that matches wins. A name without "/" is that
+    // folder at any depth.
+    ...SKIP.flatMap((d) => [FOLD ? '--iglob' : '--glob', `!${d}`]),
     '-e', o.q, '--', '.',
   ];
   const r = await runLines(argv, {
@@ -181,7 +162,7 @@ async function viaRg(root, o, env, add) {
         return true;
       }
       if (m.type !== 'match' || !m.data.path.text || m.data.lines.text === undefined) return true;
-      const p = m.data.path.text.replace(/^\.\//, '');
+      const p = (process.platform === 'win32' ? m.data.path.text.replace(/\\/g, '/') : m.data.path.text).replace(/^\.\//, '');
       const text = m.data.lines.text;
       const byte = m.data.submatches[0] ? m.data.submatches[0].start : 0;
       const col = Buffer.from(text).subarray(0, byte).toString('utf8').length + 1;
@@ -201,14 +182,15 @@ async function viaGit(root, o, env, add) {
   };
   const pathspecs = [
     ...(o.inc.length ? o.inc.flatMap((g) => spec('glob', g)) : ['.']),
-    ...[...o.exc, ...SKIP].flatMap((g) => spec('exclude,glob', g)),
+    ...o.exc.flatMap((g) => spec('exclude,glob', g)),
+    ...excludes(SKIP),
   ];
   const argv = [
     'git', 'grep', '-n', '--column', '-I', '-z', '--untracked', '--exclude-standard', '--max-count', String(LIMITS.perFile),
     ...(o.caseSensitive ? [] : ['-i']), ...(o.regex ? ['-P'] : o.ere ? ['-E'] : ['-F']), ...(o.word ? ['-w'] : []), '-e', o.q, '--', ...pathspecs,
   ];
   const r = await runLines(argv, {
-    cwd: root, env: { ...env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
+    cwd: root, env: gitEnv(env),
     onLine: (l) => {
       const [p, line, col, ...rest] = l.split('\0');
       if (!p || !line) return true;
@@ -221,50 +203,4 @@ async function viaGit(root, o, env, add) {
   if (r.code === 128 && o.regex && /not built with|support for perl|USE_LIBPCRE/i.test(r.err)) return viaGit(root, { ...o, regex: false, ere: true }, env, add);
   if (r.code === 128 && !r.stopped && /regex|pattern|PCRE|parse/i.test(r.err)) return { badPattern: r.err.split('\n')[0] };
   return r;
-}
-
-async function viaWalk(root, re, { inc, exc }, add) {
-  const until = Date.now() + LIMITS.ms;
-  const incRe = inc.map(globRe);
-  const excRe = exc.map(globRe);
-  const stack = [''];
-  while (stack.length) {
-    if (Date.now() > until) return { timedOut: true };
-    const rel = stack.pop();
-    let list;
-    try {
-      list = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    list.sort((a, b) => b.name.localeCompare(a.name));
-    for (const d of list) {
-      if (SKIP.includes(d.name)) continue;
-      const p = rel ? `${rel}/${d.name}` : d.name;
-      if (excRe.some((x) => x.test(p))) continue;
-      if (d.isDirectory()) {
-        stack.push(p);
-        continue;
-      }
-      if (!d.isFile() || (incRe.length && !incRe.some((x) => x.test(p)))) continue;
-      let buf;
-      try {
-        const full = path.join(root, p);
-        if (fs.statSync(full).size > LIMITS.fileBytes) continue;
-        buf = fs.readFileSync(full);
-      } catch {
-        continue;
-      }
-      if (isBinary(buf)) continue;
-      const lines = buf.toString('utf8').split('\n');
-      let inFile = 0;
-      for (let i = 0; i < lines.length && inFile < LIMITS.perFile; i++) {
-        const m = re.exec(lines[i]);
-        if (!m) continue;
-        inFile++;
-        if (!add(p, i + 1, m.index + 1, lines[i])) return {};
-      }
-    }
-  }
-  return {};
 }

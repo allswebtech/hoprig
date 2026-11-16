@@ -130,3 +130,50 @@ test('the dashboard runs it at start, in its own state folder', async () => {
     await app.close();
   }
 });
+
+test('only what the feature made goes: another program\'s files in a "vscode" folder stay, and so does the folder', async () => {
+  const { state, data } = stateWith('shared');
+  fs.writeFileSync(path.join(data, 'server.pid'), '{}');
+  fs.mkdirSync(path.join(data, 'theirs'));
+  fs.writeFileSync(path.join(data, 'theirs', 'keep.txt'), 'not ours');
+  const lines = [];
+  const r = await cleanupVscode(state, { tmpDir: path.join(box.root, 'shared', 'tmp'), log: (m) => lines.push(m) });
+  assert.equal(r.ran, true);
+  assert.deepEqual(fs.readdirSync(data), ['theirs'], 'cli/, server/ and server.pid went; the rest stays');
+  assert.equal(fs.readFileSync(path.join(data, 'theirs', 'keep.txt'), 'utf8'), 'not ours');
+  assert.match(lines.join('\n'), /holds files the dashboard did not make/);
+  assert.ok(fs.existsSync(path.join(state, MARKER)));
+});
+
+test('the run-once marker is written only when the files went: a failed removal is tried again at the next start', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async () => {
+  const { state, data } = stateWith('stuck');
+  fs.chmodSync(path.join(data, 'cli'), 0o500); // its file cannot be removed
+  try {
+    const r = await cleanupVscode(state, { tmpDir: path.join(box.root, 'stuck', 'tmp'), log: quiet });
+    assert.equal(r.ran, true);
+    assert.equal(fs.existsSync(path.join(state, MARKER)), false);
+  } finally {
+    fs.chmodSync(path.join(data, 'cli'), 0o700);
+  }
+  const again = await cleanupVscode(state, { tmpDir: path.join(box.root, 'stuck', 'tmp'), log: quiet });
+  assert.equal(again.ran, true);
+  assert.equal(fs.existsSync(data), false);
+  assert.ok(fs.existsSync(path.join(state, MARKER)));
+});
+
+test('temp folders: another user\'s, and a young one without a socket yet (a server still starting), stay', { skip: process.platform === 'win32' }, async () => {
+  const { state, tmp } = stateWith('tmpdirs');
+  for (const n of ['hoprig-vscode-old', 'hoprig-vscode-young']) fs.mkdirSync(path.join(tmp, n));
+  const later = Date.now() + 60 * 60_000;
+  fs.utimesSync(path.join(tmp, 'hoprig-vscode-young'), later / 1000, later / 1000);
+  // As another user: nothing in the temp folder is this user's.
+  const old = () => Date.now() + 30 * 60_000;
+  const other = await cleanupVscode(state, { tmpDir: tmp, uid: (process.getuid?.() ?? 0) + 1, now: old, log: quiet });
+  assert.deepEqual(other.removedTmp, []);
+  assert.deepEqual(fs.readdirSync(tmp).sort(), ['hoprig-vscode-old', 'hoprig-vscode-young']);
+  fs.rmSync(path.join(state, MARKER));
+  fs.mkdirSync(path.join(state, 'vscode'), { recursive: true });
+  const mine = await cleanupVscode(state, { tmpDir: tmp, now: old, log: quiet });
+  assert.deepEqual(mine.removedTmp.map((d) => path.basename(d)), ['hoprig-vscode-old']);
+  assert.deepEqual(fs.readdirSync(tmp), ['hoprig-vscode-young']);
+});

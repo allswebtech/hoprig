@@ -4,6 +4,8 @@
 //
 //   GET  /api/code/tree?root&dir                      one level: { entries: [{ name, kind, link?, size? }], truncated }
 //   GET  /api/code/file?root&path                     { text, version, size, eol } | { binary, version, size } | 413
+//   GET  /api/code/versions?root&paths                the versions of open files (paths: one per line), to tell
+//                                                     which changed on disk: { versions: { path: version | null } }
 //   POST /api/code/file { root, path, text, version } save over `version` only (409 { code: 'changed', version });
 //                                                     version null: a new file
 //   POST /api/code/create { root, path, kind }        a new empty file or folder ('file' | 'dir')
@@ -25,13 +27,14 @@
 import { stateDir } from '../paths.mjs';
 import { resolveRoots } from '../server/folders.mjs';
 import { cleanupVscode } from './cleanup.mjs';
-import { MAX_BYTES, create, readFile, remove, rename, tree, writeFile } from './files.mjs';
+import { MAX_BYTES, create, readFile, remove, rename, tree, versions, writeFile } from './files.mjs';
 import { commit, diffSides, discard, gitBranches, gitLog, gitStatus, stage, unstage } from './git.mjs';
 import { fail } from './paths.mjs';
 import { listFiles, search } from './search.mjs';
 
-// A save carries the whole file as JSON text: room for the size limit and its escapes.
+// A save carries the whole file as JSON text: room for the size limit and its escapes. Every other body is small.
 const BODY_MAX = MAX_BYTES * 2 + 64 * 1024;
+const SMALL_BODY = 64 * 1024;
 
 /** A JSON body up to `max` bytes (the server's own reader stops at 64 KB, too small for a file). */
 function readBody(req, max) {
@@ -67,20 +70,20 @@ export function editorFeature(sctx, opts = {}) {
   const notTia = (req) => {
     if (/^Bearer\s+tia_/i.test(String((req.headers && req.headers.authorization) || ''))) throw fail(403, 'the editor\'s files are the owner\'s; Tia opens the editor with a link');
   };
-  const body = async (req) => {
-    notTia(req);
-    return readBody(req, BODY_MAX);
-  };
   const get = (fn) => async (req, m, q) => {
     notTia(req);
     return fn(q);
   };
-  const post = (fn) => async (req) => fn(await body(req));
+  const post = (fn, max = SMALL_BODY) => async (req) => {
+    notTia(req);
+    return fn(await readBody(req, max));
+  };
 
   const routes = [
     ['GET', /^\/api\/code\/tree$/, get((q) => tree(q.get('root'), q.get('dir'), roots()))],
     ['GET', /^\/api\/code\/file$/, get((q) => readFile(q.get('root'), q.get('path'), roots()))],
-    ['POST', /^\/api\/code\/file$/, post((b) => writeFile(b.root, b.path, b.text, b.version, roots()))],
+    ['POST', /^\/api\/code\/file$/, post((b) => writeFile(b.root, b.path, b.text, b.version, roots()), BODY_MAX)],
+    ['GET', /^\/api\/code\/versions$/, get((q) => versions(q.get('root'), String(q.get('paths') || '').split('\n').filter(Boolean), roots()))],
     ['POST', /^\/api\/code\/create$/, post((b) => create(b.root, b.path, b.kind, roots()))],
     ['POST', /^\/api\/code\/rename$/, post((b) => rename(b.root, b.from, b.to, roots()))],
     ['POST', /^\/api\/code\/delete$/, post((b) => remove(b.root, b.path, b.confirm, roots()))],

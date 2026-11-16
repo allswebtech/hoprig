@@ -8,11 +8,15 @@ import path from 'node:path';
 import { READ_ONLY_GIT } from '../pcsetup/projects.mjs';
 import { within } from '../server/folders.mjs';
 import { MAX_BYTES, isBinary } from './files.mjs';
-import { HIDDEN, PRIVATE_DIRS, fail, resolveIn, rootOf, segments } from './paths.mjs';
+import { FOLD, PRIVATE_DIRS, fail, isHiddenName, isPrivateName, isSecret, resolveIn, rootOf, segments } from './paths.mjs';
 
-// The dashboard's own environment, without what would point git at another repository than the folder's.
-const ENV = Object.fromEntries(Object.entries(READ_ONLY_GIT).filter(([k]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|NAMESPACE|CEILING_DIRECTORIES|PREFIX)$/.test(k)));
-const PRIVATE_EXCLUDES = [...PRIVATE_DIRS, 'node_modules'].map((d) => `:(exclude,glob)**/${d}/**`);
+/** `base` without what would point git at another repository than the folder's, and without its locks or prompts. */
+export const gitEnv = (base = process.env) => Object.fromEntries(Object.entries({ ...base, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' })
+  .filter(([k]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|CEILING_DIRECTORIES|PREFIX|COMMON_DIR)$/.test(k)));
+const ENV = gitEnv(READ_ONLY_GIT);
+/** Pathspecs that leave out `dirs` at any depth (without regard to case where the disk ignores it). */
+export const excludes = (dirs) => dirs.map((d) => `:(exclude,glob${FOLD ? ',icase' : ''})**/${d}/**`);
+const PRIVATE_EXCLUDES = excludes([...PRIVATE_DIRS, 'node_modules']);
 const PATHS_MAX = 500;
 
 /** Run git in `cwd`: { ok, code, out (Buffer), err (text), tooLarge }. */
@@ -110,7 +114,7 @@ function nestedRepos(root) {
       return;
     }
     for (const d of list) {
-      if (!d.isDirectory() || d.name.startsWith('.') || HIDDEN.includes(d.name) || PRIVATE_DIRS.includes(d.name)) continue;
+      if (!d.isDirectory() || d.name.startsWith('.') || isHiddenName(d.name)) continue;
       const r = rel ? `${rel}/${d.name}` : d.name;
       if (fs.existsSync(path.join(root, r, '.git'))) out.push(r);
       else if (depth < 2) look(r, depth + 1);
@@ -126,16 +130,29 @@ export async function gitStatus(rootArg, roots) {
   const repos = nestedRepos(rp.root);
   if (!rp.top) return { repo: false, repos };
   const r = await git(['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all', '--', '.', ...PRIVATE_EXCLUDES], { cwd: rp.root, timeout: 30_000 });
+  if (r.tooLarge) throw fail(502, 'git lists too many changed or new files here (more than 16 MB of names): is a large folder missing from .gitignore?', { code: 'too-many' });
   if (!r.ok) throw fail(502, `git status failed: ${lastWords(r)}`);
   return { repo: true, top: rp.top, prefix: rp.prefix.replace(/\/$/, ''), repos, ...parseStatusV2(r.out, rp.prefix) };
 }
 
-/** The checked paths of a request: 1 to 500 relative paths, none private or inside .git. */
-function pathList(paths) {
+/**
+ * The checked paths of a request: 1 to 500 relative paths of files (a folder would take in what Source Control does
+ * not show: its private folders, its packages), none private, inside .git or a file with a sign-in.
+ */
+function pathList(paths, root) {
   if (!Array.isArray(paths) || !paths.length || paths.length > PATHS_MAX) throw fail(400, `send 1 to ${PATHS_MAX} paths`);
   return paths.map((p) => {
-    const s = segments(p, { write: true });
+    const s = segments(p);
     if (!s.length) throw fail(400, 'name the files, not the opened folder');
+    const abs = path.join(root, ...s);
+    if (isSecret(abs)) throw fail(403, 'that file holds a sign-in: the dashboard never changes it');
+    let st = null;
+    try {
+      st = fs.lstatSync(abs);
+    } catch {
+      /* deleted on disk: still a file to git */
+    }
+    if (st && st.isDirectory()) throw fail(400, 'name the files, not a folder');
     return s.join('/');
   });
 }
@@ -174,6 +191,7 @@ export async function diffSides(rootArg, rel, staged, roots) {
   const rp = await needRepo(rootArg, roots);
   const p = segments(rel).join('/');
   if (!p) throw fail(400, 'name a file');
+  if (isSecret(path.join(rp.root, p))) throw fail(403, 'that file holds a sign-in: the dashboard never shows it');
   const head = () => blob(rp.root, `HEAD:./${p}`);
   const index = () => blob(rp.root, `:./${p}`);
   const [a, b] = staged ? [await head(), await index()] : [await index(), working(rp.root, p, roots)];
@@ -193,14 +211,14 @@ async function must(r, what) {
 
 export async function stage(rootArg, paths, roots) {
   const rp = await needRepo(rootArg, roots);
-  const list = pathList(paths);
+  const list = pathList(paths, rp.root);
   await must(await git(['--literal-pathspecs', 'add', '-A', '--', ...list], { cwd: rp.root, timeout: 60_000 }), 'git add');
   return { staged: list };
 }
 
 export async function unstage(rootArg, paths, roots) {
   const rp = await needRepo(rootArg, roots);
-  const list = pathList(paths);
+  const list = pathList(paths, rp.root);
   // Before the first commit there is no HEAD to go back to: the files simply leave the index.
   const args = (await hasHead(rp.root)) ? ['restore', '--staged', '--', ...list] : ['rm', '--cached', '-r', '-q', '--ignore-unmatch', '--', ...list];
   await must(await git(['--literal-pathspecs', ...args], { cwd: rp.root, timeout: 60_000 }), 'git restore --staged');
@@ -211,7 +229,7 @@ export async function unstage(rootArg, paths, roots) {
 export async function discard(rootArg, paths, confirm, roots) {
   if (confirm !== true) throw fail(400, 'confirm the discard: the changes cannot be brought back');
   const rp = await needRepo(rootArg, roots);
-  const list = pathList(paths);
+  const list = pathList(paths, rp.root);
   const u = await must(await git(['--literal-pathspecs', 'ls-files', '-z', '--others', '--exclude-standard', '--', ...list], { cwd: rp.root }), 'git ls-files');
   const untracked = new Set(u.out.toString('utf8').split('\0').filter(Boolean));
   const tracked = list.filter((p) => !untracked.has(p));
@@ -231,10 +249,21 @@ export async function commit(rootArg, message, amend, roots) {
   if (message.length > 20_000) throw fail(400, 'the commit message is too long');
   if (amend !== undefined && typeof amend !== 'boolean') throw fail(400, 'amend is true or false');
   const rp = await needRepo(rootArg, roots);
-  if (!amend) {
-    const d = await git(['diff', '--cached', '--quiet'], { cwd: rp.root });
-    if (d.ok) throw fail(409, 'nothing is staged to commit', { code: 'nothing-staged' });
+  // A commit takes the whole index. Source Control shows only what is staged in the opened folder, outside private
+  // folders and packages: when the index holds more than that, nothing is committed (the owner would not see it).
+  const names = async (args) => new Set((await must(await git(['diff', '--cached', '--name-only', '-z', ...args], { cwd: rp.root }), 'git diff')).out.toString('utf8').split('\0').filter(Boolean));
+  const all = await names([]);
+  const shown = await names(['--', '.', ...PRIVATE_EXCLUDES]);
+  const hidden = [...all].filter((p) => !shown.has(p));
+  if (hidden.length) {
+    const priv = hidden.filter((p) => p.split('/').some((s) => isPrivateName(s))).length;
+    const n = hidden.length;
+    throw fail(409, priv
+      ? `${priv} staged file${priv === 1 ? ' is' : 's are'} in a private folder, which the dashboard never commits. Unstage ${priv === 1 ? 'it' : 'them'} in a terminal first.`
+      : `${n} staged file${n === 1 ? ' is' : 's are'} not shown here (outside this folder, or in a folder the editor hides). Open the repository's top folder to see ${n === 1 ? 'it' : 'them'}, or unstage ${n === 1 ? 'it' : 'them'} first.`,
+    { code: 'staged-elsewhere', count: n });
   }
+  if (!amend && !all.size) throw fail(409, 'nothing is staged to commit', { code: 'nothing-staged' });
   const r = await git(['commit', '-q', ...(amend ? ['--amend'] : []), '-m', message], { cwd: rp.root, timeout: 120_000 });
   if (!r.ok) throw fail(409, `the commit was not made: ${lastWords(r)}`, { code: 'commit-failed' });
   const h = await git(['log', '-1', '--format=%h%x00%s'], { cwd: rp.root });

@@ -4,10 +4,12 @@
 //      the system may have given to another program since;
 //   2. its private socket folders in the temp folder (hoprig-vscode-*), only this user's and only when nothing
 //      listens on the socket in them any more;
-//   3. its folder in the state directory (the downloaded server, its settings and caches: often hundreds of MB);
+//   3. what it kept in the state directory (the downloaded server, its settings and caches: often hundreds of MB):
+//      only the three entries it made (cli/, server/, server.pid), then the folder itself only when nothing else is in
+//      it (a state directory can be a shared data folder; another program's "vscode" folder is never touched);
 //   4. its key in config.json.
-// A marker file in the state directory makes sure this runs once. Remove this module two releases after the
-// feature went.
+// A marker file in the state directory makes sure this runs once: it is written only when step 3 is done, so a
+// removal that failed is tried again at the next start. Remove this module two releases after the feature went.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -16,6 +18,8 @@ import path from 'node:path';
 
 export const MARKER = 'cleaned-vscode';
 const TMP_PREFIX = 'hoprig-vscode-';
+const OURS = ['cli', 'server', 'server.pid']; // what the feature made in <stateDir>/vscode
+const TMP_AGE_MS = 10 * 60_000; // a socket folder younger than this may belong to a server that is still starting
 
 const sizeOf = (dir) => {
   let n = 0;
@@ -70,13 +74,15 @@ const defaultPs = () => execFileSync('ps', ['-A', '-o', 'pgid=', '-o', 'args='],
 
 /**
  * Run the cleanup once. `stateDir`: the dashboard's state directory. Options (tests): tmpDir, platform, ps (a
- * function giving `ps -A -o pgid= -o args=` output), kill (signal a process group), config / saveConfig, log.
+ * function giving `ps -A -o pgid= -o args=` output), kill (signal a process group), config / saveConfig, log, uid
+ * (this user's), waitMs (how long a stopped server may take to go), now.
  * Returns what was done: { ran, stopped: [pgid], removedTmp: [dir], removedBytes, configKey }.
  */
 export async function cleanupVscode(stateDir, opts = {}) {
   const {
     tmpDir = os.tmpdir(), platform = process.platform, ps = defaultPs, log = (m) => console.log(m),
     kill = (pgid) => process.kill(-pgid, 'SIGTERM'), config = null, saveConfig = null,
+    uid = typeof process.getuid === 'function' ? process.getuid() : null, waitMs = 3000, now = Date.now,
   } = opts;
   const out = { ran: false, stopped: [], removedTmp: [], removedBytes: 0, configKey: false };
   const marker = path.join(stateDir, MARKER);
@@ -84,6 +90,7 @@ export async function cleanupVscode(stateDir, opts = {}) {
   out.ran = true;
   const data = path.join(stateDir, 'vscode');
   const had = fs.existsSync(data);
+  let failed = false;
 
   if (had) {
     // 1. A leftover server. Its pid file names the group; the command line must still carry our own data folder.
@@ -103,6 +110,8 @@ export async function cleanupVscode(stateDir, opts = {}) {
       } catch {
         /* already gone */
       }
+      // A stopping server may still write into its folder for a moment: wait for the group to be gone.
+      for (const until = now() + waitMs; now() < until && groupsWith(ourMarker, ps).includes(pgid);) await new Promise((r) => setTimeout(r, 100));
     }
 
     // 2. Its socket folders: this user's, named like ours, with nothing listening any more. Looked for only where
@@ -113,7 +122,6 @@ export async function cleanupVscode(stateDir, opts = {}) {
     } catch {
       /* no temp folder */
     }
-    const uid = typeof process.getuid === 'function' ? process.getuid() : null;
     for (const n of names) {
       const dir = path.join(tmpDir, n);
       try {
@@ -123,6 +131,8 @@ export async function cleanupVscode(stateDir, opts = {}) {
         const justStopped = out.stopped.length > 0 && rec.run === dir;
         const sock = path.join(dir, 'vs.sock');
         if (!justStopped && fs.existsSync(sock) && (await listening(sock))) continue;
+        // No socket yet may mean a server of another install that is still starting: only old folders go.
+        if (!justStopped && !fs.existsSync(sock) && now() - st.mtimeMs < TMP_AGE_MS) continue;
         fs.rmSync(dir, { recursive: true, force: true });
         out.removedTmp.push(dir);
       } catch {
@@ -130,13 +140,21 @@ export async function cleanupVscode(stateDir, opts = {}) {
       }
     }
 
-    // 3. Its folder in the state directory.
-    out.removedBytes = sizeOf(data);
+    // 3. What it kept in the state directory: its own entries only, then the folder when that left it empty.
     try {
-      fs.rmSync(data, { recursive: true, force: true });
+      for (const n of OURS) {
+        const p = path.join(data, n);
+        const st = fs.lstatSync(p, { throwIfNoEntry: false });
+        if (!st) continue;
+        out.removedBytes += st.isDirectory() ? sizeOf(p) : st.size;
+        fs.rmSync(p, { recursive: true, force: true });
+      }
+      if (!fs.readdirSync(data).length) fs.rmdirSync(data);
+      else log(`Left ${data} in place: it holds files the dashboard did not make.`);
       log(`Removed the VS Code Server files the dashboard no longer uses (${words(out.removedBytes)}).`);
     } catch (e) {
-      log(`Could not remove ${data}: ${e.message}`);
+      log(`Could not remove the VS Code Server files in ${data} (tried again at the next start): ${e.message}`);
+      failed = true;
     }
   }
 
@@ -151,11 +169,12 @@ export async function cleanupVscode(stateDir, opts = {}) {
     /* the settings stay as they are */
   }
 
+  if (failed) return out; // runs again at the next start: every step is safe to repeat
   try {
     fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(marker, `${new Date().toISOString()}\n`, { mode: 0o600 });
   } catch {
-    /* runs again next start: every step is safe to repeat */
+    /* runs again at the next start */
   }
   return out;
 }

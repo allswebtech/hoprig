@@ -143,8 +143,11 @@ export function nodeSatisfies(have, wants) {
 export const PRIVATE_DIRS = ['no-ai', 'ignore', 'ai-ignore-dir'];
 // A status must not change anything: no optional locks, so git does not rewrite the index while it looks.
 export const READ_ONLY_GIT = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' };
-/** `git status` for counts only, never looking into a private folder at any depth. */
-export const statusArgv = (dir) => ['git', '-C', dir, 'status', '--porcelain=v1', '-b', '--', '.', ...PRIVATE_DIRS.map((d) => `:(exclude,glob)**/${d}/**`)];
+/**
+ * `git status` for counts only, never looking into a private folder at any depth. Every new file counts on its own
+ * (not a new folder as one), as the code editor's Source Control lists them, so "N changes" is the same number there.
+ */
+export const statusArgv = (dir) => ['git', '-C', dir, 'status', '--porcelain=v1', '-b', '--untracked-files=all', '--', '.', ...PRIVATE_DIRS.map((d) => `:(exclude,glob)**/${d}/**`)];
 
 /** "## main...origin/main [ahead 1, behind 2]" + porcelain lines → { branch, upstream, ahead, behind, changes }. */
 export function parseStatus(text) {

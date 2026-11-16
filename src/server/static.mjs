@@ -130,8 +130,9 @@ export function sendFile(res, file, headOnly = false) {
     'Content-Type': type,
     'Content-Length': body.length,
     // The page changes with each install; let the browser check every time (cheap on a LAN). The editor's files
-    // (several MB) are kept for good: a new version comes under a new URL.
-    'Cache-Control': immutable(file) ? 'public, max-age=31536000, immutable' : 'no-cache',
+    // (several MB) are kept for good: a new version comes under a new URL. "private": they are sent only after the
+    // login, so a shared cache in front of the dashboard must not keep them.
+    'Cache-Control': immutable(file) ? 'private, max-age=31536000, immutable' : 'no-cache',
   });
   res.end(headOnly ? undefined : body);
 }

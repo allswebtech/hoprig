@@ -93,7 +93,7 @@ test('the limits: the match cap marks the result truncated; the time limit stops
     const r = await runLines([process.execPath, '-e', 'setInterval(() => console.log("x"), 5)'], { cwd: plain, env: process.env, onLine: () => true });
     assert.equal(r.timedOut, true);
     assert.ok(Date.now() - t0 < 5000, 'killed at the time limit');
-    LIMITS.ms = -1;
+    LIMITS.ms = 1;
     assert.equal((await search(plain, { q: 'needle' }, roots, { engine: 'walk' })).timedOut, true);
   } finally {
     Object.assign(LIMITS, keep);

@@ -63,6 +63,13 @@ export const CHANGES = [
   ['POST', /^\/api\/workspace\/git\/signin$/, () => 'started the GitHub sign-in'],
   ['POST', /^\/api\/workspace\/git\/brain$/, () => "created the AI brain's repository"],
   ['POST', /^\/api\/workspace\/map\/commit$/, () => "saved the workspace map in the AI brain's history"],
+  // The code editor: what changed, never which file or what was in it (the body is not read).
+  ['POST', /^\/api\/code\/file$/, () => 'saved a file in the code editor'],
+  ['POST', /^\/api\/code\/create$/, () => 'made a file or folder in the code editor'],
+  ['POST', /^\/api\/code\/rename$/, () => 'renamed a file or folder in the code editor'],
+  ['POST', /^\/api\/code\/delete$/, () => 'deleted a file or folder in the code editor'],
+  ['POST', /^\/api\/code\/git\/discard$/, () => 'discarded changes in the code editor'],
+  ['POST', /^\/api\/code\/git\/commit$/, () => 'made a git commit in the code editor'],
 ];
 
 /** { did, asks } for `method p` done by the token called `name`, or null when it is not a change we log. */

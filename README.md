@@ -356,7 +356,9 @@ The dashboard is a remote control for your computer, and it is built that way:
 - Another computer gets a token you can revoke. A token cannot change the password, pair, or relay further.
 - The router listens on 127.0.0.1 under a secret path and keeps no request or answer text.
 - The editor reads and writes only inside the folders the dashboard may show; every path is checked on the
-  server. A file of a project shown as a page runs in a sandbox. A shared gateway's keys are kept as hashes, and only
+  server. Private folders (`no-ai`, `ignore`, `ai-ignore-dir`), git's own folder and sign-in files are never
+  shown, searched or changed, and a folder that holds one is not deleted from the page.
+- A file of a project shown as a page runs in a sandbox. A shared gateway's keys are kept as hashes, and only
   `/v1/` paths pass.
 - The administrator password for a setup step is asked in the page when `sudo` needs it, given to `sudo` on
   its input, and never saved or shown.

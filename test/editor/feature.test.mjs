@@ -178,3 +178,41 @@ test('who may: the login and this site; another computer\'s token yes; Tia\'s to
   assert.ok([401, 403].includes(r.status), `Tia's token: ${r.status}`);
   fs.rmSync(path.join(proj, 'from-hub.txt'));
 });
+
+test('git\'s folder as the opened folder: its config and hooks are never written, so git never runs what they say', async () => {
+  const marker = path.join(box.root, 'ran-by-git');
+  for (const [root, p] of [[path.join(proj, '.git'), 'config'], [path.join(proj, '.git', 'hooks'), 'pre-commit']]) {
+    assert.equal((await get('/api/code/file', { root, path: p })).status, 403, `${root} read`);
+    const r = await post('/api/code/file', { root, path: p, text: `[core]\n\tfsmonitor = "touch ${marker}"\n`, version: null });
+    assert.equal(r.status, 403, `${root} write`);
+  }
+  assert.equal((await get('/api/code/git/status', { root: proj })).status, 200);
+  assert.equal(fs.existsSync(marker), false);
+});
+
+test('the versions of open files: which changed on disk, which are gone', async () => {
+  fs.writeFileSync(path.join(proj, 'v.txt'), 'one\n');
+  const v1 = (await get('/api/code/file', { root: proj, path: 'v.txt' })).json.version;
+  let r = await get('/api/code/versions', { root: proj, paths: 'v.txt\ngone.txt\nno-ai/mine.md' });
+  assert.deepEqual(r.json.versions, { 'v.txt': v1, 'gone.txt': null }, 'a private path is left out');
+  fs.writeFileSync(path.join(proj, 'v.txt'), 'two\n');
+  r = await get('/api/code/versions', { root: proj, paths: 'v.txt' });
+  assert.notEqual(r.json.versions['v.txt'], v1);
+  fs.rmSync(path.join(proj, 'v.txt'));
+});
+
+test('only a save takes a large body; the editor\'s files are cached privately (they need the login)', async () => {
+  const r = await post('/api/code/create', { root: proj, path: 'x'.repeat(70 * 1024), kind: 'file' });
+  assert.equal(r.status, 413);
+  const m = (await get('/vendor/monaco.json', {})).json;
+  const loader = await fetch(`${base}${m.base}loader.js`, { headers: { Cookie: cookie } });
+  assert.equal(loader.status, 200);
+  assert.equal(loader.headers.get('cache-control'), 'private, max-age=31536000, immutable');
+  await loader.arrayBuffer();
+});
+
+test('a folder that is gone says so; outside the roots nothing is told about the disk', async () => {
+  assert.equal((await get('/api/code/tree', { root: path.join(proj, 'gone-folder') })).status, 404);
+  assert.equal((await get('/api/code/tree', { root: path.join(outside, 'gone-folder') })).status, 403);
+  assert.equal((await get('/api/code/tree', { root: outside })).status, 403);
+});

@@ -3,7 +3,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { HIDDEN, PRIVATE_DIRS, fail, resolveIn } from './paths.mjs';
+import { isOwnFolder } from '../server/folders.mjs';
+import { fail, isHiddenName, isSecret, mayChangeFolder, resolveIn, rootOf } from './paths.mjs';
 
 export const MAX_BYTES = 5 * 1024 * 1024; // a file larger than this is not opened as text
 export const TREE_MAX = 2000;
@@ -49,8 +50,9 @@ export function tree(root, dir, roots) {
   });
   const out = [];
   for (const e of entries) {
-    if (HIDDEN.includes(e.name) || PRIVATE_DIRS.includes(e.name)) continue;
+    if (isHiddenName(e.name)) continue;
     const full = path.join(at.abs, e.name);
+    if (isSecret(full) || isOwnFolder(full)) continue;
     let item = null;
     if (e.isSymbolicLink()) {
       // Shown only when it leads to something inside the opened folder (the same check a read makes).
@@ -87,7 +89,34 @@ export function readFile(root, rel, roots) {
   const version = versionOf(buf);
   if (isBinary(buf)) return { path: at.rel, binary: true, size: buf.length, version };
   const text = buf.toString('utf8');
-  return { path: at.rel, text, version, size: buf.length, eol: text.includes('\r\n') ? '\r\n' : '\n' };
+  return { path: at.rel, text, version, size: buf.length, eol: eolOf(text) };
+}
+
+/** The line end most lines of `text` use (as Monaco picks it): '\r\n' or '\n'. */
+export function eolOf(text) {
+  const crlf = (text.match(/\r\n/g) || []).length;
+  return crlf > (text.match(/\n/g) || []).length - crlf ? '\r\n' : '\n';
+}
+
+export const VERSIONS_MAX = 100;
+/**
+ * The versions of open files, to tell which changed on disk: { versions: { path: version | null } } (null: the file is
+ * gone). Paths the editor may not open are left out.
+ */
+export function versions(root, list, roots) {
+  rootOf(root, roots);
+  if (!Array.isArray(list) || list.length > VERSIONS_MAX) throw fail(400, `send up to ${VERSIONS_MAX} paths`);
+  const out = {};
+  for (const rel of new Set(list)) {
+    try {
+      const at = resolveIn(root, rel, roots);
+      const st = fs.statSync(at.abs);
+      out[rel] = st.isFile() && st.size <= MAX_BYTES ? versionOf(fs.readFileSync(at.abs)) : null;
+    } catch (e) {
+      if (e.status === 404 || e.code === 'ENOENT') out[rel] = null;
+    }
+  }
+  return { versions: out };
 }
 
 /**
@@ -105,7 +134,7 @@ export function writeFile(root, rel, text, version, roots) {
   if (version === null) {
     at = resolveIn(root, rel, roots, { mode: 'new' });
   } else {
-    at = resolveIn(root, rel, roots, { write: true });
+    at = resolveIn(root, rel, roots);
     const st = wrap(() => fs.statSync(at.abs));
     if (!st.isFile()) throw fail(400, 'that is not a file');
     const now = versionOf(wrap(() => fs.readFileSync(at.abs)));
@@ -145,6 +174,7 @@ export function create(root, rel, kind, roots) {
 export function rename(root, from, to, roots) {
   const a = resolveIn(root, from, roots, { mode: 'entry' });
   const b = resolveIn(root, to, roots, { mode: 'new' });
+  mayChangeFolder(a.abs);
   if (b.abs === a.abs || b.abs.startsWith(a.abs + path.sep)) throw fail(400, 'a folder cannot be moved into itself');
   wrap(() => fs.renameSync(a.abs, b.abs));
   return { from: a.rel, to: b.rel };
@@ -154,6 +184,8 @@ export function rename(root, from, to, roots) {
 export function remove(root, rel, confirm, roots) {
   if (confirm !== true) throw fail(400, 'confirm the delete');
   const at = resolveIn(root, rel, roots, { mode: 'entry' });
+  // The Explorer never shows a private folder or a file with a sign-in, so a folder holding one is not deleted blind.
+  mayChangeFolder(at.abs);
   wrap(() => fs.rmSync(at.abs, { recursive: true }));
   return { path: at.rel, deleted: true };
 }
