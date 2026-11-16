@@ -4,7 +4,7 @@
 // with the same settings, Rewind, Keyboard shortcuts, Close). A conversation stays with the coding
 // tool it started with: the provider changes, the coding tool does not.
 import { icon } from '../icons.js';
-import { BARE, KIND, api, chooseSheet, fill, h, link, openApp, profileIcon, profileState, promptSheet, servesClaude, toast } from '../lib.js';
+import { BARE, api, chooseSheet, fill, h, kindLabel, link, openApp, profileIcon, profileState, promptSheet, servesClaude, toast } from '../lib.js';
 import { store } from '../store.js';
 import { failText, touchScreen, turnRuns } from './words.js';
 
@@ -107,7 +107,7 @@ export function createHeader(o) {
       subtitle: `${(v.engine && v.engine.label) || 'Claude Code'} goes on with the same conversation on the provider you choose, from the next message.`,
       items: profiles.map((p) => ({
         value: p.name, label: p.label, icon: profileIcon(p),
-        sub: [p.virtual ? null : KIND[p.kind] || p.kind, profileState(p).text, usageWords(p)].filter(Boolean).join(' · '),
+        sub: [p.virtual ? null : kindLabel(p), profileState(p).text, usageWords(p)].filter(Boolean).join(' · '),
         current: p.name === cur, disabled: p.name === cur,
       })),
     });
