@@ -207,6 +207,10 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   assert.deepEqual([vb.model, vb.effort], ['haiku', 'low'], 'taken back from the terminal with the model and effort it ran with');
   assert.equal((await owner('POST', `/api/chats/${id}/close`, {})).status, 200);
   assert.deepEqual((await owner('GET', '/api/chats')).json.chats, []);
+  // Its page, opened again, can still name it and continue its conversation in a new chat.
+  const shut = await owner('GET', `/api/chats/${id}`);
+  assert.equal(shut.status, 404);
+  assert.deepEqual([shut.json.closed.cwd, shut.json.closed.conversationId], [realProj, id]);
 
   // the list of open chats is kept in a file of the state folder, 600, without secrets
   const { stateDir } = await import('../../src/paths.mjs');

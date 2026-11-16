@@ -385,6 +385,7 @@ export class Chat extends Timeline {
   /** Close the chat for good: what is still getting ready never starts, what runs ends. */
   close(ms) {
     this.closed = true;
+    this.emit('closed'); // the pages that follow it learn it at once (live.mjs ends their streams)
     return this.stopAndWait(ms);
   }
 

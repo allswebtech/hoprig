@@ -32,6 +32,15 @@ body.chat-mode .tia-boxroot { display: none; }
 .chat-banner > span:not(.chat-banner-actions) { flex: 1; min-width: 200px; }
 .chat-banner-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .btn.danger-text { color: var(--danger); }
+/* A chat that is not open any more: read only. Its menus, chips and the cards' buttons act on nothing. */
+.chat-closed :is(.chat-histbtn, .chat-morebtn, .chat-sub, .chat-ask-actions, .chat-q-opts, .chat-taskstop, .chat-moreslot) { display: none; }
+.chat-closed .chat-title { cursor: default; }
+.chat-closed .chat-title:hover { background: transparent; }
+.chat-closed .chat-title svg { display: none; }
+.chat-gone { display: grid; gap: 8px; padding: 6px 0; }
+.chat-gone-text { margin: 0; color: var(--text-2); font-size: var(--fs-sm); }
+.chat-gone-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.empty .chat-gone-actions { justify-content: center; }
 
 /* ---------- the conversation ---------- */
 .chat-mid { position: relative; flex: 1; min-height: 0; display: flex; }
@@ -156,7 +165,7 @@ textarea.chat-input:disabled { opacity: 0.6; }
   .chat-banner .btn, .btn.chat-more, .btn.chat-down { min-height: 44px; }
   /* The head is one row: the title opens a sheet with the name, folder and provider (header.js). */
   .chat-sub { display: none; }
-  .chat-title { display: grid; justify-items: start; align-content: center; min-height: 44px; width: 100%; text-align: left; }
+  .chat-title { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; align-content: center; min-height: 44px; width: 100%; text-align: left; }
   .chat-title-sub { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 var(--fs-xs) var(--font); color: var(--muted); }
   .chat-title svg { display: none; }
   /* Toasts at the top, under the head: at the bottom they would cover the composer and a card's buttons. */
@@ -169,3 +178,5 @@ textarea.chat-input:disabled { opacity: 0.6; }
 /* New session: Terminal or Chat (newsession.js) */
 .ns-as { display: grid; gap: 6px; margin: 0 0 14px; }
 .ns-as .hint { margin: 0; }
+/* A closed chat's page (nothing drawn): its note in the middle. */
+.chat-mid > .empty { flex: 1; }

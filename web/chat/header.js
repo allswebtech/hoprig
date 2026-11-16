@@ -6,7 +6,7 @@
 import { icon } from '../icons.js';
 import { KIND, api, chooseSheet, fill, h, link, profileIcon, profileState, promptSheet, servesClaude, toast } from '../lib.js';
 import { store } from '../store.js';
-import { touchScreen, turnRuns } from './words.js';
+import { failText, touchScreen, turnRuns } from './words.js';
 
 const phone = () => typeof matchMedia !== 'undefined' && matchMedia('(max-width: 599px)').matches;
 const base = (p) => String(p || '').split('/').filter(Boolean).pop() || String(p || '');
@@ -43,7 +43,7 @@ export function createHeader(o) {
     try {
       await api(`${o.A}/title`, { title: title.trim() });
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(failText(e), { kind: 'error' });
     }
   }
 
@@ -123,6 +123,17 @@ export function createHeader(o) {
   return {
     el,
     providerMenu,
+    /**
+     * The chat is not open any more: the head names it and goes back, nothing else (its menus would act on nothing;
+     * the page's .chat-closed hides them).
+     */
+    closed(title) {
+      if (title) fill(titleText, title);
+      titleBtn.disabled = true;
+      titleBtn.removeAttribute('aria-label');
+      titleBtn.title = '';
+      fill(titleSub);
+    },
     paint(state) {
       v = state;
       fill(titleText, v.title || 'New chat');

@@ -2,6 +2,12 @@
 // permission modes, models and efforts as the chips say them. Plain functions without the page, so the tests run
 // them directly.
 
+/**
+ * What a failed action says in a toast: the dashboard's own sentence (an ApiError has a status); a fault of the page
+ * itself never shows its script message ("Cannot read properties of null").
+ */
+export const failText = (e) => (e && Number.isInteger(e.status) && e.message ? e.message : 'That did not work. Reload the page and try again.');
+
 const fileName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '');
 const firstLine = (s) => String(s || '').split('\n').find((l) => l.trim()) || '';
 /** Lines of a text as an editor counts them: a last newline ends the last line, it does not start one. */

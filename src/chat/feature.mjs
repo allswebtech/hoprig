@@ -57,6 +57,7 @@ export function chatFeature(ctx, o = {}) {
   const memory = folderMemory(() => o.foldersFile || path.join(path.dirname(file()), 'chat-folders.json'));
   const remember = (c) => memory.remember(c.record());
   const chats = new Map();
+  const shut = new Map(); // the chats closed since the start (the last 100): id → { cwd, conversationId, title }
   let loaded = false;
 
   // ---------- the list of open chats ----------
@@ -66,6 +67,12 @@ export function chatFeature(ctx, o = {}) {
     c.on('status', () => ctx.poke?.()); // Home and the notifications see a new state at once
     c.on('turn', save);
     c.on('record', save); // "allow in this chat" was given: it is kept with the chat
+    c.on('closed', () => {
+      // Its page, opened later, still names it and can continue its conversation (chatOr404).
+      shut.delete(c.id);
+      shut.set(c.id, { cwd: c.cwd, conversationId: c.conversationId, title: c.title || null });
+      if (shut.size > 100) shut.delete(shut.keys().next().value);
+    });
     chats.set(c.id, c);
     return c;
   }
@@ -92,7 +99,11 @@ export function chatFeature(ctx, o = {}) {
   function chatOr404(id) {
     load();
     const c = chats.get(id);
-    if (!c) throw new HttpError(404, 'this chat is not open (it was closed or opened in a terminal)');
+    if (!c) {
+      const e = new HttpError(404, 'this chat is not open (it was closed or opened in a terminal)');
+      if (shut.has(id)) e.details = { closed: shut.get(id) }; // the page offers to continue it in a new chat
+      throw e;
+    }
     return c;
   }
 
@@ -154,7 +165,7 @@ export function chatFeature(ctx, o = {}) {
     };
   }
   /** What the page shows beside the chat's state. */
-  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), branch: gitBranch(c.cwd), profile: profileView(c.profile), choices: { models: models(), efforts: EFFORTS, modes: PERMISSION_MODES } });
+  const about = (c) => ({ cwd: c.cwd, short: tilde(c.cwd), conversationId: c.conversationId, branch: gitBranch(c.cwd), profile: profileView(c.profile), choices: { models: models(), efforts: EFFORTS, modes: PERMISSION_MODES } });
   /** The terminal that runs the chat's conversation, as the page names it ({ name }), or null. */
   const terminalView = async (c) => (c.session && c.busy() ? null : await terminalOf(c.conversationId).then((t) => (t ? { name: t.name } : null)));
   async function view(c, { from, epoch }) {

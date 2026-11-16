@@ -6,7 +6,7 @@ import { icon } from '../icons.js';
 import { api, fill, h, toast } from '../lib.js';
 import { mdView } from '../mdtext.js';
 import { inputView } from './tools.js';
-import { alwaysWords, askTitle, ruleWords } from './words.js';
+import { alwaysWords, askTitle, failText, ruleWords } from './words.js';
 
 const FILE_TOOLS = ['Bash', 'Edit', 'MultiEdit', 'Write', 'Read', 'NotebookEdit'];
 
@@ -46,7 +46,7 @@ export function askCard(ev, o) {
       busy = false;
       if (e.status === 409) return; // answered meanwhile (another tab, or the turn ended): the next news closes it
       for (const b of el.querySelectorAll('button')) b.disabled = false;
-      toast(e.message, { kind: 'error' });
+      toast(failText(e), { kind: 'error' });
     }
   };
 
