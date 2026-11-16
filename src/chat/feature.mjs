@@ -73,7 +73,7 @@ export function chatFeature(ctx, o = {}) {
     if (c.engine.id !== 'claude') rememberFolderProvider(c.cwd, c.profile, c.engine.id);
   };
   const chats = new Map();
-  const shut = new Map(); // the chats closed since the start (the last 100): id → { cwd, conversationId, title }
+  const shut = new Map(); // the chats closed since the start (the last 100): id → { cwd, conversationId, title, tool }
   let loaded = false;
 
   // ---------- the list of open chats ----------
@@ -87,7 +87,7 @@ export function chatFeature(ctx, o = {}) {
     c.on('closed', () => {
       // Its page, opened later, still names it and can continue its conversation (chatOr404).
       shut.delete(c.id);
-      shut.set(c.id, { cwd: c.cwd, conversationId: c.conversationId, title: c.title || null });
+      shut.set(c.id, { cwd: c.cwd, conversationId: c.conversationId, title: c.title || null, tool: c.engine.id });
       if (shut.size > 100) shut.delete(shut.keys().next().value);
     });
     chats.set(c.id, c);

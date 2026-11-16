@@ -159,6 +159,10 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
 
   // The folder keeps its tool: a chat opened there without a choice is OpenCode's, as the last one.
   assert.equal((await owner('POST', `/api/chats/${id}/close`, {})).status, 200);
+  // Its page, opened later, knows the closed chat's coding tool: "Continue in a new chat" goes on in it.
+  r = await owner('GET', `/api/chats/${id}`);
+  assert.equal(r.status, 404);
+  assert.deepEqual([r.json.closed.conversationId, r.json.closed.tool], [SESSION_ID, 'opencode']);
   r = await owner('POST', '/api/chats', { dir: proj });
   assert.equal(r.status, 200);
   assert.equal((await owner('GET', `/api/chats/${r.json.id}`)).json.engine.id, 'opencode');

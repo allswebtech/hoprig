@@ -245,7 +245,9 @@ function viewChat({ sub }) {
     wrap.classList.add('chat-closed', 'chat-no-rewind');
     const again = async () => {
       try {
-        const r = await api('/api/chats', { dir: was.cwd, sessionId: was.conversationId });
+        // In its own coding tool (a conversation stays in the tool it was started with); Claude Code's is the default.
+        const tool = (was.engine && was.engine.id) || was.tool;
+        const r = await api('/api/chats', { dir: was.cwd, sessionId: was.conversationId, ...(tool && tool !== 'claude' ? { tool } : {}) });
         store.refresh();
         const to = link(`#/chat/${r.id}`);
         // The new chat may take this address (a chat's id is its conversation's while that is free): the same
