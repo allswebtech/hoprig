@@ -6,6 +6,9 @@
 //   enabled            false by default: moving to an API profile costs money, so the owner turns it on
 //   order              profile names, most preferred first, e.g. ["sub", "sub2", "api"]. Only profiles in this
 //                      list are ever chosen automatically.
+//   payPerUse          "also use pay-per-use API keys" (profiles.mjs isPayPerUse). Off: Auto never moves a session
+//                      to one. Never chosen: on when the saved order already holds one (the owner put it there).
+//                      Turning it on adds them at the end of the order; turning it off takes them out.
 //   returnToPreferred  when a session runs on a later profile and an earlier one is available again, move it back
 //                      at the end of the current reply
 //   prompt             what is typed after a switch so Claude carries on with the interrupted work
@@ -24,13 +27,29 @@ export const DEFAULTS = {
   cooldownMinutes: 300, // the longest short window Claude plans have is five hours
 };
 
-export function getAutoSwitch() {
+function rawSettings() {
   const raw = loadConfig().autoSwitch;
-  const a = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+}
+
+const paidNames = () => new Set(listProfiles().filter((p) => p.paid).map((p) => p.name));
+
+// The default of a choice never made. The profile files are read once, and only when the order is not empty:
+// getAutoSwitch() runs on every state poll.
+function orderHasPaid(order, paid = null) {
+  if (!order.length) return false;
+  const set = paid || paidNames();
+  return order.some((n) => set.has(n));
+}
+
+export function getAutoSwitch() {
+  const a = rawSettings();
   const cooldown = Number(a.cooldownMinutes);
+  const order = Array.isArray(a.order) ? [...new Set(a.order.filter(validName))] : [];
   return {
     enabled: a.enabled === true,
-    order: Array.isArray(a.order) ? [...new Set(a.order.filter(validName))] : [],
+    order,
+    payPerUse: typeof a.payPerUse === 'boolean' ? a.payPerUse : orderHasPaid(order),
     returnToPreferred: a.returnToPreferred === true,
     prompt: typeof a.prompt === 'string' && a.prompt.trim() ? a.prompt.trim().slice(0, 500) : DEFAULTS.prompt,
     cooldownMinutes: Number.isFinite(cooldown) && cooldown >= 1 && cooldown <= 7 * 24 * 60 ? cooldown : DEFAULTS.cooldownMinutes,
@@ -40,6 +59,8 @@ export function getAutoSwitch() {
 /** Change some of the settings. Unknown profile names in `order` are refused, so a typo cannot hide a profile. */
 export function setAutoSwitch(patch) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('auto-switch settings must be an object');
+  // A choice never made stays unmade (it keeps following the order), unless this change makes it.
+  let chosen = typeof rawSettings().payPerUse === 'boolean';
   const next = { ...getAutoSwitch() };
   if ('enabled' in patch) next.enabled = patch.enabled === true;
   if ('returnToPreferred' in patch) next.returnToPreferred = patch.returnToPreferred === true;
@@ -48,6 +69,15 @@ export function setAutoSwitch(patch) {
     const known = new Set(listProfiles().map((p) => p.name));
     for (const n of patch.order) if (!known.has(n)) throw new Error(`there is no profile "${n}"`);
     next.order = [...new Set(patch.order)];
+  }
+  const paid = paidNames();
+  if ('payPerUse' in patch) {
+    next.payPerUse = patch.payPerUse === true;
+    next.order = next.payPerUse ? [...next.order, ...[...paid].filter((n) => !next.order.includes(n))] : next.order.filter((n) => !paid.has(n));
+    chosen = true;
+  } else if ('order' in patch && next.order.some((n) => paid.has(n))) {
+    next.payPerUse = true; // the owner put a pay-per-use key in the order
+    chosen = true;
   }
   if ('prompt' in patch) {
     if (typeof patch.prompt !== 'string' || !patch.prompt.trim() || /[\r\n]/.test(patch.prompt) || patch.prompt.length > 500) {
@@ -60,8 +90,9 @@ export function setAutoSwitch(patch) {
     if (!Number.isFinite(c) || c < 1 || c > 7 * 24 * 60) throw new Error('"cooldownMinutes" must be between 1 and 10080');
     next.cooldownMinutes = c;
   }
-  saveConfig({ autoSwitch: next });
-  return next;
+  const { payPerUse, ...rest } = next;
+  saveConfig({ autoSwitch: chosen ? next : rest });
+  return { ...rest, payPerUse: chosen ? payPerUse : orderHasPaid(rest.order, paid) };
 }
 
 // ---- which profile is at its limit, and until when ----
@@ -121,9 +152,13 @@ export function clearLimited(name) {
 
 // ---- choosing ----
 
-function usableOrder() {
-  const known = new Set(listProfiles().map((p) => p.name));
-  return getAutoSwitch().order.filter((n) => known.has(n));
+/** The order Auto mode really uses: providers that exist, without pay-per-use keys unless the owner allows them. */
+export function usableOrder() {
+  const profiles = listProfiles();
+  const known = new Set(profiles.map((p) => p.name));
+  const paid = new Set(profiles.filter((p) => p.paid).map((p) => p.name));
+  const as = getAutoSwitch();
+  return as.order.filter((n) => known.has(n) && (as.payPerUse || !paid.has(n)));
 }
 
 /**

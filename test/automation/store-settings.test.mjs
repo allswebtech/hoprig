@@ -158,6 +158,8 @@ test('routes: settings, queue and schedules through the plug-in, with refusals a
 
     const st = await call(feature, 'GET', '/api/automation');
     assert.equal(st.restoreOn, true);
+    assert.equal(st.settings.workspace.commitMap, false, 'never chosen, the brain has no address (the fake): off, as true or false');
+    assert.deepEqual(st.commitMap, { on: false, chosen: false, github: false });
     assert.deepEqual((await call(feature, 'POST', '/api/automation/settings', { retry: { enabled: true } })).settings.retry.enabled, true);
     assert.equal(f.config().automation.retry.enabled, true, 'saved under the "automation" key');
     await assert.rejects(call(feature, 'POST', '/api/automation/settings', { retry: { max: 50 } }), (e) => e.status === 400 && /from 1 to 10/.test(e.message));

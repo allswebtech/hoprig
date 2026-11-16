@@ -15,7 +15,7 @@ const { ensureCommand, commandCheck, wrapperText, MARK } = await import('../../s
 const H = 3600_000;
 
 test('the rule: off by default; every few hours; pushes only when that is on too; tells a list once', async () => {
-  assert.deepEqual(DEFAULTS.workspace, { map: true, commitMap: false, sync: false, push: false, everyHours: 6 });
+  assert.deepEqual(DEFAULTS.workspace, { map: true, commitMap: null, sync: false, push: false, everyHours: 6 }, 'commitMap: never chosen, it follows the brain');
   assert.deepEqual(rule.decide({ data: {}, now: 10 * H, settings: DEFAULTS.workspace }).actions, [{ type: 'map', commit: false, push: false }], 'only the map upkeep is on by default');
   const on = { sync: true, push: false, everyHours: 6 };
   const d = rule.decide({ data: {}, now: 10 * H, settings: on });
@@ -81,4 +81,39 @@ test('doctor: the tree, the brain on a git server or not, the map against this c
   assert.match(made[1].detail, /not on a git server yet/);
   assert.equal(made[2].status, 'info');
   assert.match(made[2].detail, /none yet/);
+});
+
+test('save a change of the map: never chosen follows the brain\'s address; a choice always wins; the page and Tia see true or false', async () => {
+  const { commitMapState, effectiveSettings, readSettings } = await import('../../src/automation/settings.mjs');
+  const { remoteOf } = await import('../../src/workspace/layout.mjs');
+  const fsm = await import('node:fs');
+  const os = await import('node:os');
+  const p = await import('node:path');
+  assert.deepEqual(commitMapState({ commitMap: null }, 'git@github.com:me/brain.git'), { on: true, chosen: false, github: true });
+  assert.deepEqual(commitMapState({ commitMap: null }, 'https://git.example.com/brain.git'), { on: true, chosen: false, github: false });
+  assert.deepEqual(commitMapState({ commitMap: null }, null), { on: false, chosen: false, github: false });
+  assert.deepEqual(commitMapState({ commitMap: false }, 'git@github.com:me/brain.git'), { on: false, chosen: true, github: false }, 'a saved choice wins');
+  assert.equal(readSettings({ workspace: { commitMap: false } }).workspace.commitMap, false, 'an existing config keeps its value');
+  assert.equal(readSettings({}).workspace.commitMap, null);
+  assert.equal(effectiveSettings(readSettings({}), () => 'x').workspace.commitMap, true);
+  assert.equal(effectiveSettings(readSettings({ workspace: { commitMap: false } }), () => { throw new Error('not asked'); }).workspace.commitMap, false);
+  // The address is read from the git config, for a plain repository and a worktree.
+  const dir = fsm.mkdtempSync(p.join(os.tmpdir(), 'hop-remote-'));
+  try {
+    const brain = p.join(dir, 'ai_brain');
+    fsm.mkdirSync(p.join(brain, '.git'), { recursive: true });
+    fsm.writeFileSync(p.join(brain, '.git', 'config'), '[core]\n\tbare = false\n');
+    assert.equal(remoteOf(brain), null);
+    fsm.writeFileSync(p.join(brain, '.git', 'config'), '[core]\n\turl = not-this\n[remote "origin"]\n\turl = git@github.com:me/brain.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n');
+    assert.equal(remoteOf(brain), 'git@github.com:me/brain.git');
+    const wt = p.join(dir, 'wt');
+    fsm.mkdirSync(p.join(brain, '.git', 'worktrees', 'wt'), { recursive: true });
+    fsm.writeFileSync(p.join(brain, '.git', 'worktrees', 'wt', 'commondir'), '../..\n');
+    fsm.mkdirSync(wt);
+    fsm.writeFileSync(p.join(wt, '.git'), `gitdir: ${p.join(brain, '.git', 'worktrees', 'wt')}\n`);
+    assert.equal(remoteOf(wt), 'git@github.com:me/brain.git');
+    assert.equal(remoteOf(p.join(dir, 'none')), null);
+  } finally {
+    fsm.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -48,7 +48,8 @@ async function auto(args, { ui, json, failed, usage }) {
   const o = flags(args, { map: 'v', commit: 'v', sync: 'v', push: 'v', every: 'v', json: 'bool' });
   if (o.errors.length || o._.length) return usage();
   const { loadConfig, saveConfig } = await import('../config.mjs');
-  const { cleanSettingsPatch, readSettings } = await import('../automation/settings.mjs');
+  const { cleanSettingsPatch, commitMapState, readSettings } = await import('../automation/settings.mjs');
+  const { brainDir, remoteOf } = await import('./layout.mjs');
   const cur = readSettings(loadConfig().automation);
   const patch = {};
   for (const [flag, key] of [['map', 'map'], ['commit', 'commitMap'], ['sync', 'sync'], ['push', 'push']]) {
@@ -66,11 +67,12 @@ async function auto(args, { ui, json, failed, usage }) {
     }
     saveConfig({ automation: next });
   }
-  const w = next.workspace;
+  const cm = commitMapState(next.workspace, remoteOf(brainDir()));
+  const w = { ...next.workspace, commitMap: cm.on };
   if (o.json) return json(w);
   const say = (on, text) => ui.line(on ? 'ok' : 'info', `${on ? 'on ' : 'off'}  ${text}`);
   say(w.map, 'map: the map keeps building itself (only where a map exists; written only when something changed)');
-  say(w.commitMap, 'commit: a change of the map is saved in the brain\'s history (that one file only)');
+  say(w.commitMap, `commit: a change of the map is saved in the brain's history (that one file only)${cm.chosen ? '' : cm.on ? '; not chosen, on because the brain has a git server address' : '; not chosen, off because the brain has no git server address'}`);
   say(w.sync, 'sync: every repository is fetched and fast-forwarded (tools are left alone)');
   say(w.push, 'push: what is purely ahead is uploaded (the map\'s commit, and sync)');
   ui.note(`every ${w.everyHours} hour${w.everyHours === 1 ? '' : 's'}, and right after the dashboard starts${next.paused ? ' (all automations are paused now)' : ''}. The dashboard runs it: hoprig serve / service.`);

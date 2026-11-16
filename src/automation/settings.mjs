@@ -12,7 +12,9 @@
 //   updates    { claude: off|notify|auto }               default off
 //   idle       { shells, shellHours, gateway, gatewayMinutes } default off
 //   workspace  { map, commitMap, sync, push, everyHours } map on (it acts only where a map exists, and writes only
-//                                                         when something changed); commitMap, sync, push off:
+//                                                         when something changed); commitMap null = never chosen:
+//                                                         on when the AI brain has a git server address
+//                                                         (commitMapState); sync, push off:
 //                                                         saving the map in the brain's history, keeping the
 //                                                         workspace in step (fetch and fast-forward), uploading
 import path from 'node:path';
@@ -30,8 +32,23 @@ export const DEFAULTS = Object.freeze({
   retry: { enabled: false, max: 3, firstMinutes: 1, prompt: 'Continue from where you stopped.' },
   updates: { claude: 'off' },
   idle: { shells: false, shellHours: 12, gateway: false, gatewayMinutes: 30 },
-  workspace: { map: true, commitMap: false, sync: false, push: false, everyHours: 6 },
+  workspace: { map: true, commitMap: null, sync: false, push: false, everyHours: 6 },
 });
+
+/**
+ * "Save a change of the map in the AI brain's history": the owner's choice, else on when the brain has a git server
+ * address (`remote`, its first remote's address or null). → { on, chosen, github }
+ */
+export function commitMapState(workspace, remote) {
+  if (typeof workspace.commitMap === 'boolean') return { on: workspace.commitMap, chosen: true, github: false };
+  return { on: !!remote, chosen: false, github: !!remote && /github\.com[:/]/i.test(remote) };
+}
+
+/** The settings with commitMap as true or false, the way everything that acts on it or shows it reads it. */
+export function effectiveSettings(s, remote) {
+  if (typeof s.workspace.commitMap === 'boolean') return s;
+  return { ...s, workspace: { ...s.workspace, commitMap: commitMapState(s.workspace, remote()).on } };
+}
 
 // For each section: key → check(value) returning the clean value or throwing.
 const bool = (what) => (v) => {

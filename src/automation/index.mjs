@@ -35,7 +35,8 @@ import * as queue from './queue.mjs';
 import * as restore from './restore.mjs';
 import * as retry from './retry.mjs';
 import * as schedules from './schedules.mjs';
-import { SCHEDULES_MAX, cleanSchedule, cleanSettingsPatch, newId, readSettings, restoreOn } from './settings.mjs';
+import { brainDir, remoteOf } from '../workspace/layout.mjs';
+import { SCHEDULES_MAX, cleanSchedule, cleanSettingsPatch, commitMapState, effectiveSettings, newId, readSettings, restoreOn } from './settings.mjs';
 import { createActivityLog, createStore } from './store.mjs';
 import * as updates from './updates.mjs';
 import * as workspaceRule from './workspacesync.mjs';
@@ -80,6 +81,8 @@ export function createAutomation(ctx) {
   let timer = null;
 
   const settings = () => readSettings((ctx.config() || {}).automation);
+  // The address of the AI brain's git server, or null: decides "save a change of the map" when the owner never did.
+  const brainRemote = ctx.brainRemote || (() => remoteOf(brainDir()));
   const saveSettings = (s) => saveConfig({ automation: s });
 
   const record = (entry) => {
@@ -169,7 +172,7 @@ export function createAutomation(ctx) {
         plan.push(['updates', d.actions]);
       }
       if (s.workspace.sync || s.workspace.map) {
-        const d = workspaceRule.decide({ data: store.read('workspace', {}), now: t, boot, settings: s.workspace });
+        const d = workspaceRule.decide({ data: store.read('workspace', {}), now: t, boot, settings: effectiveSettings(s, brainRemote).workspace });
         store.write('workspace', d.data);
         plan.push(['workspace', d.actions]);
       }
@@ -246,7 +249,8 @@ export function createAutomation(ctx) {
       const t = now();
       const last = store.read('schedules', {});
       return {
-        settings: s,
+        settings: effectiveSettings(s, brainRemote), // commitMap true or false, as it acts
+        commitMap: commitMapState(s.workspace, brainRemote()), // and why: chosen, or from the brain's address
         restoreDefault: !(ctx.backend && ctx.backend.capabilities && ctx.backend.capabilities.persistent),
         restoreOn: restoreOn(s, ctx.backend),
         schedules: s.schedules.list.map((x) => ({
@@ -260,7 +264,7 @@ export function createAutomation(ctx) {
     changeSettings(patch) {
       const next = cleanSettingsPatch(patch, settings());
       saveSettings(next);
-      return next;
+      return effectiveSettings(next, brainRemote);
     },
     log: (limit) => activity.recent(limit),
     queueOf(session) {

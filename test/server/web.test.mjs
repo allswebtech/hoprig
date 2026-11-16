@@ -281,9 +281,11 @@ test('session view: the header holds back, name and state, the account and one m
   assert.doesNotMatch(src, /statusline/, 'no second bar under the header');
   const items = [...src.slice(src.indexOf('async function menu()')).matchAll(/\{ value: '([a-z]+)'/g)].map((m) => m[1]);
   assert.equal(items.at(-1), 'kill', 'ending the session is last');
+  assert.ok(items.includes('another'), 'a second session in the same folder');
+  assert.match(src, /api\('\/api\/sessions', \{ dir: s\.cwd, profile, mode: 'new' \}\)/, 'in the same folder, on the recommended provider');
   assert.match(src, /confirmSheet\(\{\s*title: `End "\$\{name\}"\?`/, 'and confirmed');
   assert.match(src, /title: 'Move to another provider'/);
-  assert.match(src, /prefs\.get\('session\.keys', true\)/, 'the key bar folds away and remembers it');
+  assert.match(src, /prefs\.get\('session\.keys', !finePointer\)/, 'the key bar folds away and remembers it: off by default with a mouse and keyboard, on on a phone');
   assert.match(src, /'Needs your OK'/, 'the same words as Home');
 });
 
@@ -432,6 +434,49 @@ test('wording: "provider" and "computer" in everything a visitor reads; Auto mod
   assert.match(note, /restarts Claude as the next one/);
   assert.match(note, /one subscription, then an API provider/);
   assert.match(note, /Is this allowed\?/);
+});
+
+test('Auto mode: subscriptions first, then gateways; pay-per-use keys only when allowed, and last', async () => {
+  const { startOrder, isPaid } = await import('../../web/lib.js');
+  const accts = [
+    { name: 'key', kind: 'api', paid: true }, { name: 'tr', kind: 'api', paid: false }, { name: 'max', kind: 'subscription' },
+    { name: 'gw', kind: 'api', paid: false }, { name: 'login', kind: 'login' },
+  ];
+  assert.deepEqual(startOrder(accts), ['max', 'login', 'tr', 'gw']);
+  assert.deepEqual(startOrder(accts, true), ['max', 'login', 'tr', 'gw', 'key']);
+  assert.equal(isPaid({ kind: 'api' }), true, 'an older computer that does not say: the safe side');
+  assert.equal(isPaid({ kind: 'api', paid: false }), false);
+});
+
+test('limit card: the main button is the first free provider of the order, never a paid one; Auto says where it goes', async () => {
+  const { limitBox } = await import('../../web/lib.js');
+  const texts = (n) => (n instanceof FakeText ? [n.text] : n.children.flatMap(texts));
+  const buttons = (n) => (n instanceof FakeText ? [] : [...(n.tag === 'button' ? [n] : []), ...n.children.flatMap(buttons)]);
+  const s = { name: 'w', canSwitch: true, limit: { text: 'limit reached' }, profile: { name: 'max' } };
+  const profiles = [
+    { name: 'auto', label: 'Auto', kind: 'auto', virtual: true },
+    { name: 'key', label: 'Claude API', kind: 'api', paid: true, autoPlace: 1 },
+    { name: 'max', label: 'Claude Max', kind: 'subscription', autoPlace: 0, limited: { until: 1 } },
+    { name: 'tr', label: 'API via TRouteAI', kind: 'api', paid: false, autoPlace: 2 },
+    { name: 'team', label: 'Team plan', kind: 'subscription', autoPlace: null },
+  ];
+  const card = (ps) => buttons(limitBox(s, ps)).map((b) => [/primary/.test(b.className), texts(b).join('')]);
+  assert.deepEqual(card(profiles), [
+    [true, 'Continue on API via TRouteAI'],
+    [false, 'Continue on Auto (next: Claude API)'],
+    [false, 'Continue on Team plan'],
+    [false, 'Continue on Claude API (paid per use)'],
+  ], 'Auto with the paid key allowed goes to it; the main button does not');
+  // The paid key is the only free one: no main button at all.
+  const onlyPaid = card([profiles[1], profiles[2]]);
+  assert.deepEqual(onlyPaid, [[false, 'Continue on Claude API (paid per use)']]);
+});
+
+test('Settings → Workspace says why saving the map is on or off when the owner never chose', async () => {
+  const { commitMapWhy } = await import('../../web/workspace.js');
+  assert.match(commitMapWhy({ on: true, github: true }), /^On: the AI brain has a GitHub address\./);
+  assert.match(commitMapWhy({ on: true, github: false }), /^On: the AI brain has a git server address\./);
+  assert.match(commitMapWhy({ on: false }), /^Off: the AI brain has no git server address yet\./);
 });
 
 // ---------- several computers, a hub, providers that sign in ----------

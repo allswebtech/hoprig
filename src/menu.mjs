@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import { getAutoSwitch, limitedProfiles, recommendedProfile } from './autoswitch.mjs';
+import { getAutoSwitch, limitedProfiles, recommendedProfile, usableOrder } from './autoswitch.mjs';
 import { loadConfig } from './config.mjs';
 import { stateDir, tilde } from './paths.mjs';
 import { AUTH_VARS, listProfiles, readProfile, validName, writeProfile } from './profiles.mjs';
@@ -135,7 +135,7 @@ export function parseChoice(answer, profiles) {
 export function menuProfiles() {
   const real = listProfiles();
   const as = getAutoSwitch();
-  const names = as.order.filter((n) => real.some((p) => p.name === n));
+  const names = usableOrder();
   if (!names.length) return real;
   // The line says what is true now: with Auto mode off nothing starts under "auto" by itself, but a session that
   // is started under it by name still goes through the router and moves on at a limit.

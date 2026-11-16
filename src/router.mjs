@@ -24,7 +24,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
-import { getAutoSwitch, limitedProfiles, markLimited } from './autoswitch.mjs';
+import { limitedProfiles, markLimited, usableOrder } from './autoswitch.mjs';
 import { binFile, stateDir } from './paths.mjs';
 import { listProfiles } from './profiles.mjs';
 import { routerAddress, routerSessions, saveProfileUsage, saveRouterSessions, usageFromHeaders } from './routerstate.mjs';
@@ -245,7 +245,7 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
     if (as) rest = as[2];
     const body = await readBody(req, BODY_MAX);
     const profiles = listProfiles();
-    const { order } = getAutoSwitch();
+    const order = usableOrder(); // pay-per-use keys only when the owner allows them
     const identity = (as && profiles.find((p) => p.name === as[1])) || autoIdentity(order, profiles, limitedProfiles());
     if (!identity) {
       res.writeHead(503, { 'content-type': 'application/json' });

@@ -47,7 +47,7 @@ test('kinds: login, subscription, api', () => {
 
 test('publicProfile carries no value', () => {
   const pub = P.publicProfile(P.readProfile('sub2'));
-  assert.deepEqual(Object.keys(pub).sort(), ['kind', 'label', 'name']);
+  assert.deepEqual(Object.keys(pub).sort(), ['kind', 'label', 'name', 'paid']);
   assert.ok(!JSON.stringify(pub).includes('sk-ant'));
 });
 
@@ -258,7 +258,7 @@ test('profiles command: tab-separated and JSON, never a value', () => {
 const A = await import('../src/autoswitch.mjs');
 
 test('auto-switch: off and empty by default; settings are validated', () => {
-  assert.deepEqual(A.getAutoSwitch(), { enabled: false, order: [], returnToPreferred: false, prompt: 'Continue from where you stopped.', cooldownMinutes: 300 });
+  assert.deepEqual(A.getAutoSwitch(), { enabled: false, order: [], payPerUse: false, returnToPreferred: false, prompt: 'Continue from where you stopped.', cooldownMinutes: 300 });
   assert.throws(() => A.setAutoSwitch({ order: ['sub', 'nope'] }), /no profile "nope"/);
   assert.throws(() => A.setAutoSwitch({ prompt: 'two\nlines' }));
   assert.throws(() => A.setAutoSwitch({ cooldownMinutes: 0 }));
@@ -291,6 +291,58 @@ test('auto-switch: the next profile follows the order, goes round, and skips pro
   assert.equal(A.clearLimited('sub2'), true);
   assert.equal(A.clearLimited('sub2'), false);
   A.setAutoSwitch({ enabled: false, order: [], returnToPreferred: false });
+});
+
+test('pay-per-use: an Anthropic API key straight to Anthropic; a gateway, a proxy or a subscription is not', () => {
+  assert.equal(P.isPayPerUse({ ANTHROPIC_API_KEY: 'k' }), true);
+  assert.equal(P.isPayPerUse({ ANTHROPIC_API_KEY: 'k', ANTHROPIC_BASE_URL: 'https://api.anthropic.com' }), true);
+  assert.equal(P.isPayPerUse({ ANTHROPIC_AUTH_TOKEN: 'k', ANTHROPIC_BASE_URL: 'https://api.anthropic.com/' }), true);
+  assert.equal(P.isPayPerUse({ ANTHROPIC_AUTH_TOKEN: 'k', ANTHROPIC_BASE_URL: 'http://localhost:20017' }), false, 'TRouteAI');
+  assert.equal(P.isPayPerUse({ ANTHROPIC_AUTH_TOKEN: 'k', ANTHROPIC_BASE_URL: 'https://pc2.example.net:7433/gw' }), false, 'a gateway on another computer');
+  assert.equal(P.isPayPerUse({ ANTHROPIC_BASE_URL: 'http://localhost:1234' }), false, 'an address without a key');
+  assert.equal(P.isPayPerUse({ CLAUDE_CODE_OAUTH_TOKEN: 't' }), false);
+  assert.equal(P.isPayPerUse({}), false);
+  assert.equal(P.isPayPerUse({ ANTHROPIC_API_KEY: 'k', ANTHROPIC_BASE_URL: 'not an address' }), true, 'unreadable: the safe side');
+  assert.equal(P.readProfile('api').paid, false, 'the test profile goes through a proxy');
+});
+
+test('auto-switch: a pay-per-use key is used only when allowed; an existing order that holds one keeps it', async () => {
+  const { loadConfig, saveConfig } = await import('../src/config.mjs');
+  const now = 1_800_000_000_000;
+  P.writeProfile('key', { label: 'Key', env: { ANTHROPIC_API_KEY: 'demo-not-a-key' } });
+  try {
+    // An owner from before the choice existed, with the key in the order: nothing changes for them.
+    saveConfig({ autoSwitch: { enabled: true, order: ['sub', 'key'] } });
+    assert.equal(A.getAutoSwitch().payPerUse, true, 'never chosen, and the order holds a paid key: on');
+    assert.deepEqual(A.usableOrder(), ['sub', 'key']);
+    assert.equal(A.nextProfile('sub', now), 'key');
+    A.setAutoSwitch({ returnToPreferred: true });
+    assert.equal('payPerUse' in loadConfig().autoSwitch, false, 'another change does not make the choice for them');
+    assert.deepEqual(loadConfig().autoSwitch.order, ['sub', 'key']);
+    // Never chosen, no paid key in the order: off, and a key put there by hand in the file is skipped.
+    saveConfig({ autoSwitch: { enabled: true, order: ['sub', 'sub2', 'api'] } });
+    assert.equal(A.getAutoSwitch().payPerUse, false);
+    saveConfig({ autoSwitch: { enabled: true, order: ['sub', 'sub2', 'api', 'key'], payPerUse: false } });
+    assert.deepEqual(A.usableOrder(), ['sub', 'sub2', 'api'], 'the gateway stays, the paid key goes');
+    A.markLimited('sub', {}, now);
+    A.markLimited('sub2', {}, now);
+    A.markLimited('api', {}, now);
+    assert.equal(A.nextProfile('sub', now), null, 'everything free is paid: stay');
+    A.clearLimited('api');
+    assert.equal(A.nextProfile('sub', now), 'api');
+    // Turning it on adds the paid keys at the end; off takes them out again.
+    saveConfig({ autoSwitch: { enabled: true, order: ['sub', 'api'] } });
+    assert.deepEqual(A.setAutoSwitch({ payPerUse: true }).order, ['sub', 'api', 'key']);
+    assert.equal(A.nextProfile('api', now), 'key');
+    assert.deepEqual(A.setAutoSwitch({ payPerUse: false }).order, ['sub', 'api']);
+    assert.equal(loadConfig().autoSwitch.payPerUse, false, 'an explicit choice is kept');
+    assert.equal(A.setAutoSwitch({ order: ['sub', 'key'] }).payPerUse, true, 'putting a paid key in the order is choosing it');
+  } finally {
+    A.clearLimited('sub');
+    A.clearLimited('sub2');
+    P.deleteProfile('key');
+    saveConfig({ autoSwitch: {} });
+  }
 });
 
 test('parseResets reads the forms Claude Code prints, in the zone it names', () => {

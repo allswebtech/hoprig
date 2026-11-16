@@ -6,7 +6,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getAutoSwitch, limitedProfiles, markLimited, nextProfile, parseResets, preferredAvailable } from './autoswitch.mjs';
+import { getAutoSwitch, limitedProfiles, markLimited, nextProfile, parseResets, preferredAvailable, usableOrder } from './autoswitch.mjs';
 import { claudeLoginStatus } from './claudecode.mjs';
 import { loadConfig, sessionArgs } from './config.mjs';
 import { binFile, claudeDir, hookSettingsDir } from './paths.mjs';
@@ -23,7 +23,7 @@ import { resolveWindowsBin, windowsSpawnPlan } from './winspawn.mjs';
  */
 export async function autoProfile({ loginStatus = claudeLoginStatus } = {}) {
   const profiles = listProfiles();
-  const names = getAutoSwitch().order.filter((n) => profiles.some((p) => p.name === n));
+  const names = usableOrder();
   const limited = limitedProfiles();
   let identity = autoIdentity(names, profiles, limited);
   if (!identity) return null;
@@ -53,7 +53,7 @@ export async function autoProfile({ loginStatus = claudeLoginStatus } = {}) {
  */
 export function autoMove(current, why) {
   const profiles = listProfiles();
-  const names = getAutoSwitch().order.filter((n) => profiles.some((p) => p.name === n));
+  const names = usableOrder();
   const limited = limitedProfiles();
   const best = autoIdentity(names, profiles, limited);
   if (!best || best.name === current || best.name in limited) return null;
