@@ -426,8 +426,7 @@ test('public link: its own Settings page; refusals are asked for in place; the a
   assert.match(page, /registerSettingsPage\(\{\s*id: 'public-link', title: 'Public link'/);
   for (const need of ['password', 'check-password', 'custom-setup']) assert.ok(forms.includes(`'${need}'`), need);
   assert.match(forms, /return strongForm\(p, why, true\)/, 'a weak password: "Make a strong password" in place, then on');
-  assert.match(forms, /const body = \{ current: cur\.value, next: next\.value, strong: true \};/);
-  assert.match(forms, /p\.api\('\/api\/settings\/password', body\)/);
+  assert.match(forms, /p\.api\('\/api\/settings\/password', \{ current: cur\.value, next: next\.value, strong: true \}\)/);
   // A link that is on but held back (a weak password) asks for the same in place.
   assert.match(page, /const need = ui\.need \|\| \(s\.state === 'blocked' \? s\.need : null\)/);
   // Typed passwords are never trimmed and live only in the page's own closure, not in a module.
