@@ -1,6 +1,6 @@
 # Set up a computer for coding, and see what it is missing
 
-Take a fresh computer (Linux, macOS or Windows; Xubuntu 26.04 is a good choice) and install Hoprig: its
+Take a fresh computer (Linux, macOS or Windows; a current Ubuntu is a good choice) and install Hoprig: its
 first run ([INSTALL.md](INSTALL.md)) includes this part. To run it on its own, or again:
 
 ```sh

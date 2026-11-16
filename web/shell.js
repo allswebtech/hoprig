@@ -49,7 +49,7 @@ function paintNav(side, bottom, pageId) {
       waiting ? h('span.nav-badge', { 'aria-label': `${waiting} waiting for you` }, String(waiting)) : null));
 }
 
-/** The label of the open computer for titles ("Providers · pc2"), or null on this computer. */
+/** The label of the open computer for titles ("Providers · laptop"), or null on this computer. */
 export const openLabel = () => {
   const d = store.data;
   return machine.current ? (d && d.machineLabel) || machine.current : null;

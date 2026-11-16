@@ -156,7 +156,7 @@ if (BARE) {
   });
 }
 
-/** An in-page link to a screen of computer `m` (default: the open one): "#/s/x" -> "#/m/pc2/s/x". */
+/** An in-page link to a screen of computer `m` (default: the open one): "#/s/x" -> "#/m/laptop/s/x". */
 export const link = (hash, m = MACHINE) => (m ? `#/m/${m}${hash.slice(1)}` : hash);
 
 export class ApiError extends Error {
