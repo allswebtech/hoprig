@@ -81,7 +81,8 @@ export const ALLOW = [
   // A chat she starts takes Settings → New-session defaults (defaults: true), never the folder's last chat of the owner,
   // and is marked hers (byTia: the chat it creates, see src/chat/feature.mjs openChat).
   r('POST', '/api/chats', 'start_chat', (b) => onlyKeys(['dir', 'profile', 'sessionId', 'text', 'defaults', 'byTia'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)),
-  r('POST', `/api/chats/${CHAT_ID}/send`, 'send_to_chat (text)', onlyKeys(['text'])),
+  // Her message says it is hers (byTia: true): a message from anyone else takes her mark off the chat.
+  r('POST', `/api/chats/${CHAT_ID}/send`, 'send_to_chat (text)', (b) => onlyKeys(['text', 'byTia'])(b) || (b.byTia !== true ? 'a message Tia sends says it is hers (byTia: true)' : null)),
   r('POST', `/api/chats/${CHAT_ID}/answer`, 'send_to_chat (answer)', onlyKeys(['request', 'allow', 'always'])),
   r('POST', `/api/chats/${CHAT_ID}/stop`, 'send_to_chat (stop)', onlyKeys([])),
   r('GET', '/api/folders/recent', 'list_projects'),

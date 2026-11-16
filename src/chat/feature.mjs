@@ -194,7 +194,9 @@ export function chatFeature(ctx, o = {}) {
    * folder's last chat, as a terminal session they start does: a mode the owner chose for himself (bypass) is not
    * carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
    * byTia: true (Tia's start_chat) marks the chat this call creates as hers, and no other: not an open chat it gives
-   * back, nor a later chat on the same conversation (the mark goes with this chat when it closes for any reason).
+   * back, nor a later chat on the same conversation (the mark goes with this chat when it closes for any reason). A
+   * message sent into it by anyone but her (the page, a schedule) takes the mark off for good: from then on the chat
+   * carries the owner's own instructions. An answer, a Stop or a settings change does not (he only steers her work).
    * → { id, sent, existing?, permissionMode? } (sent: false when the first message was not sent because a terminal or
    * an open chat runs the conversation; existing: true with that open chat's mode)
    */
@@ -270,6 +272,7 @@ export function chatFeature(ctx, o = {}) {
       if (term) throw inTerminal(term);
     }
     const r = await c.send(t);
+    c.byTia = false; // the owner's schedule writes in it: a chat with his instructions, not Tia's any more
     save();
     return { id: r.id, queued: r.queued };
   }
@@ -299,6 +302,7 @@ export function chatFeature(ctx, o = {}) {
       const b = await ctx.readJson(req);
       let text = v.message(b.text);
       if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
+      if (b.byTia !== undefined && typeof b.byTia !== 'boolean') throw bad('byTia is true or false');
       let files = { images: [], mentions: [], attachments: [] };
       if (b.attachments !== undefined && b.attachments !== null) {
         const u = uploadsOf(c);
@@ -314,6 +318,7 @@ export function chatFeature(ctx, o = {}) {
         }
       }
       const r = await c.send(text, { images: files.images, attachments: files.attachments });
+      if (b.byTia !== true) c.byTia = false; // a message of the owner's (not Tia's own send_to_chat): his chat from now on
       save();
       return { ok: true, id: r.id, queued: r.queued };
     }],

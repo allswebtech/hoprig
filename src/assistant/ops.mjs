@@ -145,7 +145,7 @@ export function createOps(o) {
         ctx.poke?.();
         return r;
       }),
-    sendToChat: ({ computer, id, text }) => post(computer, `/api/chats/${enc(id)}/send`, { text }).then((r) => {
+    sendToChat: ({ computer, id, text }) => post(computer, `/api/chats/${enc(id)}/send`, { text, byTia: true }).then((r) => {
       ctx.poke?.();
       return r;
     }),
