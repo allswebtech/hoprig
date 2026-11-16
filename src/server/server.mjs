@@ -152,6 +152,8 @@ export function createServer(opts = {}) {
   // touches the real computer.
   let loginTimer = null; // the half-hourly sign-in check started in listen()
   let firstLoginCheck = null; // its first run, a few seconds after start
+  let closed = false;
+  let signInTimer = null; // the look every 10 s at whether the stored sign-in changed (claudecode.mjs signInWatch)
   const system = { snapshot, killProcess, power, ...opts.system };
   const notifyFetch = opts.fetch || fetch;
   const watcher = new Watcher({
@@ -913,6 +915,16 @@ export function createServer(opts = {}) {
             firstLoginCheck.unref();
             loginTimer = setInterval(ask, 30 * 60_000);
             loginTimer.unref();
+            // An account changed with /login in a session or a terminal: noticed within seconds, not at the next
+            // half-hourly check, so the earlier account's limit mark does not keep the provider out of use.
+            import('../claudecode.mjs')
+              .then((m) => {
+                const w = m.signInWatch();
+                if (closed) return;
+                signInTimer = setInterval(() => w.check().catch(() => {}), 10_000);
+                signInTimer.unref();
+              })
+              .catch(() => {});
           }
           // Where this dashboard really listens, for `hoprig pair --json`, `link` and setup (dashboardfile.mjs).
           const a = server.address();
@@ -929,6 +941,7 @@ export function createServer(opts = {}) {
       });
     },
     async close() {
+      closed = true;
       for (const f of features) {
         try {
           await f.close?.();
@@ -939,6 +952,7 @@ export function createServer(opts = {}) {
       removeDashboardFile();
       clearTimeout(firstLoginCheck);
       clearInterval(loginTimer);
+      clearInterval(signInTimer);
       watcher.stop();
       for (const ws of wss.clients) ws.terminate();
       wss.close();

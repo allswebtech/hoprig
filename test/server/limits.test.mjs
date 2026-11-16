@@ -47,28 +47,47 @@ test('only the last lines count', () => {
   assert.ok(detectLimit(old, 50));
 });
 
-// As Claude Code 2.1.325 draws it (taken from a session run against a stand-in API that answered with a 5-hour limit).
-const AT_LIMIT = [
+// As Claude Code 2.1.325 draws it (taken from a session run against a stand-in API that answered with a 5-hour limit):
+// the conversation, the prompt box, and the footer under it.
+const TALK = [
   '❯ first message',
   "  ⎿  You've hit your 5-hour limit · resets 2:29pm (Europe/Berlin)",
   '● Usage limit reached · continuing automatically at 2:29pm · esc to cancel',
   '✻ Baked for 0s',
-  '────────────────────────────────',
-  '❯ ',
-  '────────────────────────────────',
-  '  ⚠ Usage limit reached · limit resets 2:29pm',
-  '    Continuing automatically at 2:29pm · Esc to cancel',
-].join('\n');
+];
+const BOX = ['────────────────────────────────', '❯ ', '────────────────────────────────'];
+const FOOTER = ['  ⚠ Usage limit reached · limit resets 2:29pm', '    Continuing automatically at 2:29pm · Esc to cancel'];
+const screen = (talk, footer = FOOTER) => [...talk, ...BOX, ...footer].join('\n');
+const AT_LIMIT = screen(TALK);
 
 test('a limit Claude has answered past is history: the session went on', () => {
   assert.ok(detectLimit(AT_LIMIT), 'standing at the limit');
-  const typed = `${AT_LIMIT}\n❯ Continue from where you stopped.\n✢ Honking…\n`;
-  assert.ok(detectLimit(typed), 'a message was typed, nothing came back yet: still at the limit as far as the screen says');
-  assert.equal(detectLimit(`${typed}● Picking up where I left off.\n✻ Crunched for 2s\n`), null, 'a reply under it');
-  assert.equal(detectLimit(`${typed}⏺ Bash(npm test)\n  ⎿  ok\n`), null, 'a tool call under it');
+  const typed = [...TALK, '❯ Continue from where you stopped.', '✢ Honking…'];
+  assert.ok(detectLimit(screen(typed)), 'a message was typed, nothing came back yet: still at the limit as far as the screen says');
+  assert.equal(detectLimit(screen([...typed, '● Picking up where I left off.', '✻ Crunched for 2s'], [])), null, 'a reply under it');
+  assert.equal(detectLimit(screen([...typed, '⏺ Bash(npm test)', '  ⎿  ok'], [])), null, 'a tool call under it');
   // a new limit after the session went on is a limit again
-  const again = `${typed}● Picking up.\n  ⎿  You've hit your weekly limit · resets Nov 18, 9am (UTC)\n`;
+  const again = screen([...typed, '● Picking up.', "  ⎿  You've hit your weekly limit · resets Nov 18, 9am (UTC)"], []);
   assert.equal(detectLimit(again).resets, 'Nov 18, 9am (UTC)');
+  // without a prompt box on the screen (a plain transcript) the rest of the screen is the conversation
+  assert.equal(detectLimit(`${TALK.join('\n')}\n● Picking up.\n`), null);
   // a bulleted limit line is not a reply
   assert.ok(detectLimit("● You've hit your 5-hour limit · resets 5pm\n● Usage limit reached · continuing automatically in 2h · esc to cancel\n"));
+});
+
+test('the owner\'s own status line under the prompt box is not a reply, bullet or not', () => {
+  for (const status of ['  ● main* · Opus · 42%', '⏺ ctx 40%', '● 5h 100% · resets 2:29pm']) {
+    const r = detectLimit(screen(TALK, [...FOOTER, status]));
+    assert.ok(r, status);
+    assert.equal(r.resets, '', 'the line found is the one above the box');
+    assert.ok(detectLimit(screen(TALK, [status])), `${status}, without the notice`);
+  }
+  // an older prompt box with sides, and a status line under it
+  const old = [...TALK, '╭──────────────────────╮', '│ >                    │', '╰──────────────────────╯', '  ● main · 42%'].join('\n');
+  assert.ok(detectLimit(old));
+  // a limit notice in the footer is about now, whatever the conversation above it shows
+  const footer = screen(['❯ hi', '● Hello.'], ["  ● You've hit your 5-hour limit · resets 5pm", '  ● main · 42%']);
+  assert.equal(detectLimit(footer).resets, '5pm');
+  // and a reply between the limit line and the box still means the session went on, status line or not
+  assert.equal(detectLimit(screen([...TALK, '❯ go on', '● Going on.'], ['  ● main · 42%'])), null);
 });

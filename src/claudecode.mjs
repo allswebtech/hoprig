@@ -34,7 +34,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadConfig } from './config.mjs';
 import { claudeDir } from './paths.mjs';
-import { clearLimited } from './autoswitch.mjs';
+import { clearLimited, limitedProfiles } from './autoswitch.mjs';
 import { AUTH_VARS, listProfiles } from './profiles.mjs';
 import { forgetUsage, rememberLogin } from './routerstate.mjs';
 import { capture, compareVersions, npmArgv, stream, which } from './setup/system.mjs';
@@ -439,6 +439,70 @@ async function askAuthStatus(env, remember) {
 /** Is an account logged in on this machine (the stored login, without any profile's variables)? */
 export async function claudeLoginStatus({ env = process.env, remember = true } = {}) {
   return (await askAuthStatus(env, remember)).s;
+}
+
+/**
+ * Notice soon that the stored sign-in changed outside the page — /login or /logout typed in a session, `claude auth
+ * login` in a terminal — instead of at the half-hourly check: until the check runs, the earlier account's limit mark
+ * stays, Home says "at its limit", and Auto mode passes the provider by. `check()` is cheap and meant to be called
+ * every few seconds: it only looks at the modification time of Claude Code's credentials file (Linux and Windows
+ * keep the sign-in there; Hoprig never reads it) and asks `claude auth status` (`ask`) once when it changed. Where
+ * there is no such file (macOS keeps the sign-in in the Keychain, or nobody is signed in) a change cannot be seen,
+ * so while a provider on the stored sign-in has a limit mark it asks every `blindEveryMs` (5 minutes) instead.
+ * A token refresh rewrites the file as well; that costs one check, which finds the same account and clears nothing.
+ */
+export function signInWatch({
+  file = path.join(claudeDir(), '.credentials.json'),
+  ask = () => claudeLoginStatus(),
+  marked = storedSignInMarked,
+  platform = process.platform,
+  now = Date.now,
+  blindEveryMs = 5 * 60_000,
+} = {}) {
+  let asking = null;
+  let askedAt = now(); // the server asks once at start anyway
+  const look = () => {
+    try {
+      const st = fs.statSync(file);
+      return `${st.mtimeMs}:${st.size}:${st.ino}`;
+    } catch {
+      return null;
+    }
+  };
+  let last = look(); // what the file looked like at the last look; a change from now on counts
+  const run = async () => {
+    askedAt = now();
+    try {
+      await ask();
+    } catch {
+      /* the next change or the half-hourly check asks again */
+    }
+    last = look(); // what the check itself wrote (a refreshed token) is not another change
+    asking = null;
+  };
+  return {
+    check() {
+      if (asking) return asking;
+      const seen = look();
+      const changed = seen !== last;
+      last = seen;
+      let due = false;
+      if (!changed && (platform === 'darwin' || seen === null) && now() - askedAt >= blindEveryMs) {
+        try {
+          due = marked();
+        } catch {
+          due = false;
+        }
+      }
+      return changed || due ? (asking = run()) : Promise.resolve();
+    },
+  };
+}
+
+/** A provider that uses the stored sign-in has a limit mark. */
+function storedSignInMarked() {
+  const marks = limitedProfiles();
+  return listProfiles().some((p) => p.kind === 'login' && marks[p.name]);
 }
 
 /**

@@ -365,6 +365,110 @@ test('sign out: Claude Code forgets the sign-in, Providers says so; a failure is
   signOut();
 });
 
+test('another account signed in with /login in a terminal: noticed at the next look, not at the half-hourly check', async () => {
+  const { signInWatch } = await import('../../src/claudecode.mjs');
+  signOut();
+  await signInAs('good');
+  markLimited('sub', { until: Date.now() + 2 * HOUR, text: "You've hit your 5-hour limit" });
+  saveProfileUsage('sub', { at: Date.now() - 1000, fiveHour: { pct: 100, resetsAt: Date.now() + 2 * HOUR } });
+  // the stand-in keeps its sign-in in MARK, as Claude Code keeps it in .credentials.json; `ask` is the real check
+  const w = signInWatch({ file: MARK, platform: 'linux' });
+  await w.check();
+  assert.ok(limitedProfiles().sub, 'nothing changed: the mark stays');
+  await w.check();
+  assert.ok(limitedProfiles().sub);
+  // /login in a terminal: Claude Code writes the new sign-in
+  fs.writeFileSync(MARK, 'other');
+  const t = new Date(Date.now() + 5000);
+  fs.utimesSync(MARK, t, t);
+  await w.check();
+  assert.equal(limitedProfiles().sub, undefined, 'the earlier account\'s limit mark is gone');
+  assert.equal(profileUsage().sub, undefined, 'and its figures');
+  const sub = (await call('/api/state')).json.profiles.find((p) => p.name === 'sub');
+  assert.deepEqual([sub.limited, sub.plan], [null, 'pro']);
+  signOut();
+});
+
+test('the sign-in watch: one check per change, none for its own write; blind (Keychain) only while a mark stands', async () => {
+  const { signInWatch } = await import('../../src/claudecode.mjs');
+  const file = path.join(box.root, 'creds-watch');
+  let clock = 1_000_000;
+  let asks = 0;
+  let marked = false;
+  let touchOnAsk = false;
+  const touch = (s) => {
+    fs.writeFileSync(file, 'x');
+    fs.utimesSync(file, s, s);
+  };
+  const make = (platform) =>
+    signInWatch({
+      file,
+      platform,
+      now: () => clock,
+      marked: () => marked,
+      ask: async () => {
+        asks++;
+        if (touchOnAsk) touch(clock / 1000 + 77); // `claude auth status` refreshed the token
+      },
+    });
+  // Linux, a file: only a change asks, and only once
+  touch(100);
+  let w = make('linux');
+  await w.check();
+  await w.check();
+  assert.equal(asks, 0);
+  touch(200);
+  const a = w.check();
+  assert.equal(w.check(), a, 'one check at a time');
+  await a;
+  assert.equal(asks, 1);
+  await w.check();
+  assert.equal(asks, 1, 'seen once');
+  touchOnAsk = true;
+  touch(300);
+  await w.check();
+  await w.check();
+  assert.equal(asks, 2, 'what the check itself wrote is no new change');
+  touchOnAsk = false;
+  // a file is trustworthy: no asking on a timer, mark or not
+  marked = true;
+  clock += 3600_000;
+  await w.check();
+  assert.equal(asks, 2);
+  // removed (signed out in a terminal): a change too
+  fs.rmSync(file);
+  await w.check();
+  assert.equal(asks, 3);
+  // no file (signed out, or the Keychain): every 5 minutes while a provider on the stored sign-in has a mark
+  clock += 60_000;
+  await w.check();
+  assert.equal(asks, 3, 'not before 5 minutes');
+  clock += 4 * 60_000;
+  await w.check();
+  assert.equal(asks, 4);
+  marked = false;
+  clock += 10 * 60_000;
+  await w.check();
+  assert.equal(asks, 4, 'no mark: nothing to set right');
+  // macOS keeps the sign-in in the Keychain: a file there may be a stale fallback, so the timer applies as well
+  touch(400);
+  marked = true;
+  w = make('darwin');
+  await w.check();
+  assert.equal(asks, 4, 'not at once: the server asks at start anyway');
+  clock += 5 * 60_000;
+  await w.check();
+  assert.equal(asks, 5);
+  // a failing check is not fatal and is tried again at the next change
+  w = signInWatch({ file, platform: 'linux', now: () => clock, marked: () => false, ask: async () => { asks++; throw new Error('no'); } });
+  await w.check();
+  touch(500);
+  await w.check();
+  touch(600);
+  await w.check();
+  assert.equal(asks, 7);
+});
+
 test('nothing of the account or a key in any response but the account route\'s', () => {
   const all = bodies.join('\n');
   for (const secret of ['someone@example.invalid', 'other@example.invalid', 'Example Org', 'Other Org', 'provider-key-should-not-leak', 'shouldnotleak', 'sk-ant-']) assert.equal(all.includes(secret), false, secret);

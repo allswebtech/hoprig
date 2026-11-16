@@ -161,7 +161,9 @@ chat, on Home and on **Providers**. You sign in in the browser (from a phone: a 
 that is complete the account of now stays. The sessions and chats on that provider keep running and
 answer as the new account from their next request, without a restart (seen with Claude Code 2.1.325 on
 Linux), and the ones that stood at the limit continue. The provider's own page also shows who is signed
-in and has **Sign out**. See [Is this allowed?](#is-this-allowed)
+in and has **Sign out**. A new account has its own limits, so the provider's limit mark goes when the account
+changes, also after `/login` typed in a session: within seconds on Linux and Windows, where Claude Code keeps
+the sign-in in a file; on macOS (the Keychain) within 5 minutes. See [Is this allowed?](#is-this-allowed)
 
 <p align="center">
   <img src="docs/screenshots/accounts-desktop-light.webp" alt="The Providers page: each subscription, API key and gateway with its usage and limits" width="760">

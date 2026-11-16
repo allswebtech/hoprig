@@ -18,6 +18,9 @@
 // another account signed in) the line stays on the screen for a while, above Claude's next reply. Claude Code
 // starts every reply and tool call with a bullet (● or ⏺), and prints none while it is stopped at a limit, so such
 // a line below the limit line means the session is working again (seen on 2.1.325: "● reply" under "❯ <message>").
+// Only the conversation counts, which ends at the prompt box (a rule of ─ above and below the input, or an empty
+// "❯" line): under the box are the footer, notices and the owner's own status line, which may start with a bullet
+// as well ("● main* · Opus · 42%") and says nothing about the limit.
 
 // Openings of a "you are at a limit" line (Claude Code's own list, plus the older "session limit" wording).
 export const LIMIT_PREFIXES = [
@@ -49,7 +52,17 @@ const LEAD = /^[\s│┃⎿●⏺✻❯>*·•-]*/;
 
 // A reply or a tool call of Claude: its bullet, then text.
 const REPLY = /^\s*[●⏺]\s+\S/;
+// The prompt box: its rule (2.x draws a plain ─ line above and below the input; older ones ╭─…─╮), or an empty prompt.
+const BOX = /^\s*(?:[╭╰]?─{4,}|[│┃]?\s*[❯>]\s*[│┃]?\s*$)/;
 const isLimitLine = (line) => LIMIT_PREFIXES.some((p) => line.startsWith(p) && /limit|usage|credits/i.test(line)) || LIMIT_LINES.some((re) => re.test(line));
+
+// A reply of Claude between the limit line at `i` and the prompt box. A limit line under the box (a notice in the
+// footer) is about now, whatever the conversation above shows.
+function answeredPast(tail, i) {
+  const box = tail.findIndex((l, j) => j > i && BOX.test(l));
+  if (box === -1 && tail.slice(0, i).some((l) => BOX.test(l))) return false;
+  return tail.slice(i + 1, box === -1 ? tail.length : box).some((l) => REPLY.test(l) && !isLimitLine(l.replace(LEAD, '')));
+}
 
 /**
  * Look at the last `lines` non-empty lines of `screen`. Returns null, or { text, resets } with the matching line
@@ -61,7 +74,7 @@ export function detectLimit(screen, lines = 25) {
   for (let i = tail.length - 1; i >= 0; i--) {
     const line = tail[i].replace(LEAD, '').replace(/^\d{1,2}\.\s+/, ''); // menu items are numbered "1. Stop and wait…"
     if (isLimitLine(line)) {
-      if (tail.slice(i + 1).some((l) => REPLY.test(l) && !isLimitLine(l.replace(LEAD, '')))) return null; // answered past
+      if (answeredPast(tail, i)) return null;
       const m = /\bresets (?:at )?([^·\n]{1,60})/i.exec(line);
       return { text: line.slice(0, 200), resets: m ? m[1].trim() : '' };
     }

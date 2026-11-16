@@ -29,7 +29,9 @@
 //     saved with the sign-in (its sign-ins to MCP servers).
 // A new account has its own limits: the sign-in check that sees another account (claudecode.mjs) clears the limit
 // marks and usage figures of the providers that use the stored sign-in — also when the account was changed with
-// /login in a terminal.
+// /login in a terminal: the server looks at the credentials file's time every 10 s and checks when it changed
+// (claudecode.mjs signInWatch); where there is no such file (macOS: the Keychain) it checks every 5 minutes while
+// such a provider has a limit mark.
 //
 // Who is signed in (e-mail, organisation) is shown to the owner on this dashboard's own page and nowhere else: it
 // is asked from Claude Code when the page asks, never stored, never logged, and not in any other route's answer.
