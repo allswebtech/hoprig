@@ -146,7 +146,7 @@ function viewAutomations({ frame, sub }) {
   frame({
     title: 'Automations',
     page: 'automations',
-    intro: 'Things the dashboard does for you by fixed rules, without AI: sessions at a set time, the next queued message, and care while you are away.',
+    intro: 'What the dashboard does for you by fixed rules, without AI.',
     primary: tab === 'schedules' ? { label: 'Add schedule', icon: 'plus', onclick: () => addSchedule() } : null,
     body: [pauseSlot, tabs, bannerSlot, content],
   });

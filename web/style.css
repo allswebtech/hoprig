@@ -280,6 +280,11 @@ article.card:hover { box-shadow: var(--shadow-2); }
 .card .ok-actions { margin-top: 10px; }
 .si-row .ok-actions { margin-top: 8px; }
 .si-row .ok-actions .btn { margin-top: 0; }
+/* A phone with the floating button (16 px from the right, --fab-w wide, shell.js): a card's buttons stop 8 px left of
+   it (the card's content ends 34 px from the screen's edge), so a button never passes under it while scrolling. */
+@media (max-width: 899px) {
+  body.has-fab :is(.card, .si-row) :is(.ok-actions, .limit-actions, .card-actions) { padding-right: max(0px, calc(var(--fab-w, 150px) - 10px)); }
+}
 .card.skeleton { cursor: default; display: grid; gap: 10px; }
 .sk { height: 12px; border-radius: 6px; background: var(--surface-3); animation: pulse 1.6s ease-in-out infinite; }
 .sk.w40 { width: 40%; height: 16px; } .sk.w70 { width: 70%; } .sk.w90 { width: 90%; }
@@ -708,12 +713,15 @@ body.is-demo .page-title::after {
   .pagehead-text, .head-tools { display: contents; }
   .pagehead-back { grid-column: 1; grid-row: 1; }
   .pagehead-title-row { grid-column: 2; grid-row: 1; }
-  .switcher-slot { grid-column: 3; grid-row: 1; }
   .head-icons { grid-column: 4; grid-row: 1; }
   .pagehead .page-intro { grid-column: 1 / -1; grid-row: 2; }
   .pagehead-actions { grid-column: 1 / -1; grid-row: 3; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
-  .switch-menu { max-width: 112px; } /* with Tia's and the light/dark buttons, the title keeps room for a whole word */
-  .switch-pill > .icon:last-child { display: none; } /* the name gets the room of the chevron */
+  /* The computer pill goes under the title, whole, instead of squeezing it ("Workstat…"); the hint after it. */
+  .switcher-slot { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
+  .pagehead:has(.switcher-slot:not(:empty)) .page-intro { grid-row: 3; }
+  .pagehead:has(.switcher-slot:not(:empty)) .pagehead-actions { grid-row: 4; }
+  .switch-menu { max-width: 100%; }
+  .switch-pill { min-height: 30px; }
 }
 .pagehead-actions { display: flex; gap: 8px; }
 body.is-demo .page-title::after { display: inline-block; }

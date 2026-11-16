@@ -4,6 +4,7 @@ const P = {
   chevronRight: ['M9 6l6 6-6 6'],
   chevronDown: ['M6 9l6 6 6-6'],
   up: ['M6 15l6-6 6 6'],
+  search: ['M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z', 'M20 20l-4-4'],
   down: ['M6 9l6 6 6-6'],
   plus: ['M12 5v14', 'M5 12h14'],
   minus: ['M5 12h14'],
