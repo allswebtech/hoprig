@@ -107,3 +107,31 @@ test('a chat at its usage limit marks its provider everywhere, and no default pi
   await until('the answer', async () => (await owner('GET', `/api/chats/${again.json.id}`)).json.lastEnd === 'ok');
   await until('the mark to go', async () => (await provider('sub2')).limited === null);
 });
+
+test('another coding tool\'s chat: an error that only mentions a limit marks no provider; one its engine calls a usage limit does', async (t) => {
+  const box = sandbox('chatlimit-oc');
+  t.after(() => box.cleanup());
+  const { Chat } = await import('../../src/chat/chat.mjs');
+  const { hear } = await import('../../src/chat/hear.mjs');
+  const { limitMark } = await import('../../src/chat/providerlimit.mjs');
+  const { limitedProfiles } = await import('../../src/autoswitch.mjs');
+  const cwd = fs.mkdtempSync(path.join(box.root, 'proj-'));
+  const c = new Chat({ id: '6f1d2c3b-4a5e-4f6a-8b7c-9d0e1f2a3b4c', engine: 'opencode', cwd, profile: 'gw' });
+  const end = (ev) => {
+    hear(c, { kind: 'turn-end', costUsd: null, usage: null, durationMs: 1, ...ev });
+    limitMark(c, ev, { auto: 'auto' });
+  };
+  // The gateway's passing "rate limit" (Claude Code's words for its plan's limit, read from another tool) and a retry
+  // that refused: an error, not a usage limit.
+  hear(c, { kind: 'status', state: 'retrying', retry: { attempt: 1, error: 'rate_limit' } });
+  assert.equal(c.limit, null, 'a retry of another coding tool is not a limit');
+  end({ ok: false, subtype: 'error', error: 'Rate limit exceeded, please slow down (429)' });
+  assert.equal(c.lastEnd, 'error');
+  assert.equal(c.limit, null);
+  assert.equal(limitedProfiles().gw, undefined, 'the provider is not marked');
+  // Its engine says it is the provider's usage limit: then it is marked, as a Claude Code chat's would be.
+  end({ ok: false, subtype: 'error', error: 'The provider\'s usage limit is reached', limited: true });
+  assert.equal(c.lastEnd, 'limit');
+  assert.ok(limitedProfiles().gw, 'marked');
+  c.close();
+});

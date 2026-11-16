@@ -43,7 +43,8 @@ export function hear(chat, ev) {
       chat.activity = ev.state || null;
       if (ev.retry) {
         const e = ev.retry.error;
-        if (LIMIT_ERRORS.has(e)) chat.limit = { at: Date.now(), error: e, text: `The provider refused (${e})` };
+        // Claude Code's refusals only: another coding tool's "rate limit" while it tries again is a passing one.
+        if (LIMIT_ERRORS.has(e) && chat.engine.id === 'claude') chat.limit = { at: Date.now(), error: e, text: `The provider refused (${e})` };
         if (ev.retry.attempt === 1 || LIMIT_ERRORS.has(e)) chat.push({ kind: 'notice', level: 'warning', text: `The provider did not answer (${e.replace(/_/g, ' ')}); trying again…` });
       }
       chat.emit('state');
@@ -156,7 +157,10 @@ function turnEnd(chat, ev) {
   // Stop was pressed: the end is the owner's, not an error. A usage limit says itself in the banner (with what to do
   // next): not also as the turn's error box.
   const stopped = !ev.ok && (ev.error === 'stopped' || chat.stopping);
-  const limited = !ev.ok && !stopped && !!ev.error && LIMIT_TEXT.test(ev.error);
+  // LIMIT_TEXT is Claude Code's own words for a usage limit. Another coding tool's turn is a usage limit only when its
+  // engine says so (ev.limited): a gateway's passing "rate limit" through it is an error, and never marks the provider
+  // as at its limit for hours (providerlimit.mjs).
+  const limited = !ev.ok && !stopped && (ev.limited === true || (chat.engine.id === 'claude' && !!ev.error && LIMIT_TEXT.test(ev.error)));
   chat.stopping = false;
   chat.lastError = ev.ok || stopped || limited ? null : ev.error;
   chat.lastEnd = ev.ok ? 'ok' : stopped ? 'stopped' : limited ? 'limit' : 'error';

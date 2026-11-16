@@ -12,6 +12,8 @@ import { clearLimited, limitedProfiles, markLimited, parseResets } from '../auto
 export function limitMark(c, ev, o = {}) {
   if (!c.profile || c.profile === o.auto) return;
   try {
+    // Only a turn that really ended at a usage limit (hear.mjs: Claude Code's words, or another coding tool's engine
+    // saying so): an error that merely mentions a limit marks nothing.
     if (c.lastEnd === 'limit') {
       const text = (c.limit && c.limit.text) || '';
       const refused = Object.values(c.limits || {}).filter((w) => w && w.status === 'rejected' && Number.isFinite(w.resetsAt)).map((w) => w.resetsAt);
