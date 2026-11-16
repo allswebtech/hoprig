@@ -298,7 +298,7 @@ test('pay-per-use: an Anthropic API key straight to Anthropic; a gateway, a prox
   assert.equal(P.isPayPerUse({ ANTHROPIC_API_KEY: 'k', ANTHROPIC_BASE_URL: 'https://api.anthropic.com' }), true);
   assert.equal(P.isPayPerUse({ ANTHROPIC_AUTH_TOKEN: 'k', ANTHROPIC_BASE_URL: 'https://api.anthropic.com/' }), true);
   assert.equal(P.isPayPerUse({ ANTHROPIC_AUTH_TOKEN: 'k', ANTHROPIC_BASE_URL: 'http://localhost:20017' }), false, 'TRouteAI');
-  assert.equal(P.isPayPerUse({ ANTHROPIC_AUTH_TOKEN: 'k', ANTHROPIC_BASE_URL: 'https://pc2.example.net:7433/gw' }), false, 'a gateway on another computer');
+  assert.equal(P.isPayPerUse({ ANTHROPIC_AUTH_TOKEN: 'k', ANTHROPIC_BASE_URL: 'https://office.example.net:7433/gw' }), false, 'a gateway on another computer');
   assert.equal(P.isPayPerUse({ ANTHROPIC_BASE_URL: 'http://localhost:1234' }), false, 'an address without a key');
   assert.equal(P.isPayPerUse({ CLAUDE_CODE_OAUTH_TOKEN: 't' }), false);
   assert.equal(P.isPayPerUse({}), false);
