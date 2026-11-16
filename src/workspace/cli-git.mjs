@@ -20,7 +20,8 @@ export const GIT_USAGE = `  hoprig workspace map [--dry-run] [--json]   write th
                                                --with: straight from another computer over SSH (pull only)
   hoprig workspace set [--dir <folder>] [--projects <folder>] [--json]
                                                where the workspace and the projects folder are (nothing is moved)
-  hoprig workspace forget <project or folder> [--json]   take it out of the map (no file is deleted)
+  hoprig workspace forget <entry> [--json]     take a project, a code repository (project/code/name) or a folder
+                                               out of the map (no file is deleted)
   hoprig workspace git                         git's name and e-mail, the GitHub sign-in, your workspace on GitHub
   hoprig workspace auto [--map on|off] [--commit on|off] [--sync on|off] [--push on|off] [--every <hours>] [--json]
                                                the upkeep the dashboard does by itself: show or set its switches`;

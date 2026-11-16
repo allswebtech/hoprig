@@ -295,7 +295,7 @@ test('session view: the header holds back, name and state, the account and one m
   const items = [...src.slice(src.indexOf('async function menu()')).matchAll(/\{ value: '([a-z]+)'/g)].map((m) => m[1]);
   assert.equal(items.at(-1), 'kill', 'ending the session is last');
   assert.ok(items.includes('another'), 'a second session in the same folder');
-  assert.match(src, /api\('\/api\/sessions', \{ dir: s\.cwd, profile, mode: 'new' \}\)/, 'in the same folder, on the recommended provider');
+  assert.match(src, /api\('\/api\/sessions', \{ dir: s\.cwd, mode: 'new' \}\)/, 'in the same folder, on the folder\'s default provider (the server chooses it)');
   assert.match(src, /confirmSheet\(\{\s*title: `End "\$\{name\}"\?`/, 'and confirmed');
   assert.match(src, /title: 'Move to another provider'/);
   assert.match(src, /prefs\.get\('session\.keys', !finePointer\)/, 'the key bar folds away and remembers it: off by default with a mouse and keyboard, on on a phone');

@@ -7,7 +7,7 @@ import { hookMain } from '../src/hook.mjs';
 import { hasSessionFlag, launch } from '../src/launch.mjs';
 import { routerMain } from '../src/router.mjs';
 import { profileUsage, routerAddress } from '../src/routerstate.mjs';
-import { addProfile, ago, askNext, chooseProfile, clock, menuProfiles, rememberLast } from '../src/menu.mjs';
+import { addProfile, ago, askNext, chooseProfile, clock, menuProfiles } from '../src/menu.mjs';
 import { profilesDir } from '../src/paths.mjs';
 import { deleteProfile, listProfiles, publicProfile, readProfile, validName } from '../src/profiles.mjs';
 
@@ -88,12 +88,7 @@ async function startFromMenu(args) {
 }
 
 function start(name, args) {
-  rememberLast(name);
-  return launch(name, args, { askNext: async (ctx) => {
-    const next = await askNext(ctx);
-    if (next) rememberLast(next);
-    return next;
-  } });
+  return launch(name, args, { askNext });
 }
 
 function autoCommand(args) {

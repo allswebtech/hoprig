@@ -28,7 +28,7 @@ hoprig workspace map [--dry-run]           # write the map of every git reposito
 hoprig workspace restore <brain address>   # a fresh computer: the brain, then everything its map names
 hoprig workspace sync [--memory] [--push] [--with <computer>]   # every repository in step
 hoprig workspace set --dir <folder> --projects <folder>         # where things are, for future work (nothing moves)
-hoprig workspace forget <project or folder>                     # out of the map (no file is touched)
+hoprig workspace forget <entry>   # a project, project/code/<name> or a folder out of the map (no file is touched)
 hoprig workspace git                       # git's name and e-mail, the GitHub sign-in, your workspace on GitHub
 hoprig workspace auto [--map|--commit|--sync|--push on|off] [--every <hours>]   # the upkeep's switches
 ```
@@ -83,7 +83,11 @@ the AI brain because the brain is the one repository every computer has.
   describe, never blanks what the map says. Only `forget` takes something out. The one exception: a project that
   IS on this computer and whose own `project.json` no longer names one of its code repositories (whose folder is not
   here either): its `project.json` is the truth for it, so that repository is "taken out of <project> by its
-  project.json". `map` shows what changed (added, taken out, a changed address), never commits, and prints the
+  project.json". A linked worktree (`git worktree add`, a second checkout of another repository) is never added to
+  the map; an entry whose folder here is one is kept as not on this computer (also when the project's `project.json`
+  does not name it: the exception above is only for a folder that is not here at all), and restore and sync leave
+  that folder alone. Apart from that one exception nothing leaves the map by itself: `forget` removes a stale entry. `map` shows
+  what changed (added, taken out, a changed address), never commits, and prints the
   `git add` and `git commit` to run in the brain. `project new`, `project clone` and `project add` keep it up to
   date by themselves when there is a brain.
 - A project's own `project.json` stays the truth for its code repositories. The map repeats them so that one file
@@ -108,7 +112,8 @@ the AI brain because the brain is the one repository every computer has.
   memory lives where, as in its `project.json`). Restore puts the projects there unless this computer chose a
   projects folder before, and links each project's memory as `project.json` says, or as the map says when the
   project has no `project.json`. Nothing from `credentials/`, no host names, no tokens.
-- `forget` takes a project or folder out of the map and adds it to `skip`, so `map` does not add it back.
+- `forget` takes a project, a code repository (`<project>/code/<name>`, as `map` lists it) or another folder out of
+  the map and adds it to `skip`, so `map` does not add it back and restore does not clone it from a `project.json`.
 - A map read from a repository is checked strictly (unknown keys, names and folders that would lead out of the
   workspace, bad addresses or branch names): a map that fails is not used, and nothing is changed.
 

@@ -1,13 +1,12 @@
 // The terminal menus: choose a profile, continue a session elsewhere, add a profile.
 import { spawnSync } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import readline from 'node:readline';
-import { getAutoSwitch, limitedProfiles, recommendedProfile, usableOrder } from './autoswitch.mjs';
+import { getAutoSwitch, limitedProfiles, usableOrder } from './autoswitch.mjs';
 import { isOffered } from './codetools/offered.mjs';
 import { loadConfig } from './config.mjs';
-import { stateDir, tilde } from './paths.mjs';
-import { AUTH_VARS, listProfiles, readProfile, servesTools, validName, writeProfile } from './profiles.mjs';
+import { chooseDefault, lastProviderIn } from './defaultprovider.mjs';
+import { tilde } from './paths.mjs';
+import { AUTH_VARS, listProfiles, publicProfile, readProfile, servesTools, validName, writeProfile } from './profiles.mjs';
 import { sessionsIn } from './sessions.mjs';
 
 const out = (s = '') => process.stdout.write(s + '\n');
@@ -59,23 +58,6 @@ export function askHidden(question) {
     };
     stdin.on('data', onData);
   });
-}
-
-const lastFile = () => path.join(stateDir(), 'last.json');
-function lastUsed() {
-  try {
-    return JSON.parse(fs.readFileSync(lastFile(), 'utf8')).profile || null;
-  } catch {
-    return null;
-  }
-}
-export function rememberLast(profile) {
-  try {
-    fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(lastFile(), JSON.stringify({ profile }) + '\n', { mode: 0o600 });
-  } catch {
-    /* only a convenience */
-  }
 }
 
 export function ago(ms) {
@@ -158,6 +140,21 @@ export function ensureFirstProfile() {
 }
 
 /**
+ * The profile Enter takes in the start menu: the default a dashboard gives a new session in `cwd`
+ * (defaultprovider.mjs). Each profile goes in as the dashboard sees it (publicProfile), so the same facts decide in
+ * both places, among them which coding tools a provider serves. "auto" while Auto mode is on; Auto mode on without
+ * an order to run has no "auto" in the menu, so then the choice is made as with it off. null: none can start here.
+ */
+export function enterDefault(profiles = menuProfiles(), limited = limitedProfiles(), cwd = process.cwd()) {
+  const states = profiles.map((p) => (p.kind === 'auto' ? { name: p.name, kind: 'auto', virtual: true } : { ...publicProfile(p), limited: p.name in limited }));
+  const as = getAutoSwitch();
+  const last = lastProviderIn(cwd);
+  let pick = chooseDefault({ profiles: states, auto: as, last });
+  if (!profiles.some((p) => p.name === pick)) pick = chooseDefault({ profiles: states, auto: { ...as, enabled: false }, last });
+  return profiles.find((p) => p.name === pick) || null;
+}
+
+/**
  * The start menu. `sessionChosen` is true when the caller already passed -c / --resume.
  * Resolves to { name, extraArgs } or null (quit).
  */
@@ -167,10 +164,7 @@ export async function chooseProfile({ sessionChosen = false } = {}) {
     const profiles = menuProfiles();
     const limited = limitedProfiles();
     const as = getAutoSwitch();
-    // Enter takes the best profile to start on: "auto" when Auto mode is on, else the first of the order that is
-    // not at its limit, else the one used last (unless that one is at its limit), else the first.
-    const pick = [as.enabled ? 'auto' : null, recommendedProfile(), lastUsed()].find((n) => n && !(n in limited) && profiles.some((p) => p.name === n));
-    const def = profiles.find((p) => p.name === pick) || profiles.find((p) => !(p.name in limited)) || profiles[0] || null;
+    const def = enterDefault(profiles, limited) || profiles[0] || null;
     const sessions = sessionChosen ? [] : sessionsIn(process.cwd());
     out();
     out(`${bold('Hoprig')} ${dim('·')} ${tilde(process.cwd())}`);

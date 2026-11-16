@@ -28,6 +28,7 @@
 //
 // Features (plug-ins) are registered in ONE list, `features`, at the top of createServer(). Each is built from `ctx`
 // (deck, backend, config, saveConfig, state, poke, authed, originOk, clientIp, onTick, notify, readJson, HttpError,
+// defaultProvider: the provider a new session in a folder starts on when nobody chose one,
 // dispatch: the owner's own request run in-process through the same handling, for Tia's tools) and
 // returns { name, routes?, handle?, upgrade?, trusted?, start?, close? }:
 //   handle(req, res) / upgrade(req, socket, head)  called first, in order; true = answered, false = go on
@@ -43,6 +44,7 @@ import { fileURLToPath } from 'node:url';
 import { Readable, Writable } from 'node:stream';
 import { WebSocketServer } from 'ws';
 import * as autoswitchModule from '../autoswitch.mjs';
+import { chooseDefault, folderProviders, lastProviderIn } from '../defaultprovider.mjs';
 import { EFFORTS, MODELS, PERMISSION_MODES, cleanSessionDefaults, loadConfig, saveConfig } from '../config.mjs';
 import { stateDir, tilde } from '../paths.mjs';
 import { assertServes, deleteProfile, listProfiles, publicProfile } from '../profiles.mjs';
@@ -215,6 +217,9 @@ export function createServer(opts = {}) {
       return n && n.url ? sendNotification(n, ev, { fetchImpl: notifyFetch }) : Promise.resolve({ sent: false });
     },
     readJson: (req) => readJson(req),
+    // The provider a new Claude Code session in `dir` starts on when nobody chose one (src/defaultprovider.mjs).
+    // `last`: the provider the caller's own record says ran there last (a chat's); else the launcher's record.
+    defaultProvider: (dir, last = null) => defaultProviderIn(dir, last),
     HttpError,
   };
   // ---- the features: one line each ----
@@ -270,6 +275,8 @@ export function createServer(opts = {}) {
 
   /** Auto mode is on: sessions may run on the virtual profile "auto" (the router picks the account). */
   const autoOn = () => autoswitch.getAutoSwitch().enabled === true;
+  const defaultFor = (profiles, last = null) => chooseDefault({ profiles, auto: { ...autoswitch.getAutoSwitch(), enabled: autoOn() }, autoName: AUTO.name, last });
+  const defaultProviderIn = async (dir, last = null) => defaultFor(profileStates(await cards()), last || (dir ? lastProviderIn(dir) : null));
   /** A profile name from the browser: a real profile, or "auto" while Auto mode is on. Full object or null. */
   // A provider that does not serve the session's coding tool is refused (400). Auto mode is Claude Code's.
   const pickProfile = (name, tool = 'claude') => {
@@ -350,15 +357,17 @@ export function createServer(opts = {}) {
       // signed in (the provider's accountAt), to offer "Continue with the new account".
       if (c.limit || c.runLimit) c.limitAt = (c.runLimit && c.runLimit.at) || watcher.seen.get(c.runId) || null;
     }
-    const rec = autoswitch.recommendedProfile ? autoswitch.recommendedProfile() : null;
-    // Auto mode on: "Auto" is the first choice for a new session. A new session and a chat run Claude Code: the
-    // recommended provider is one that serves it (an OpenAI key or a Codex sign-in is never offered for them).
-    const forClaude = profiles.filter((p) => p.virtual || !Array.isArray(p.tools) || p.tools.includes('claude'));
-    const claudeNames = new Set(forClaude.map((p) => p.name));
-    const recommended = autoOn() ? AUTO.name : (rec && claudeNames.has(rec) ? rec : null) || (forClaude.find((p) => !p.limited && !p.virtual) || forClaude[0] || {}).name || null;
+    // The provider a new session starts on (src/defaultprovider.mjs): "auto" while Auto mode is on. `recommendedIn`:
+    // the folders whose own default (the provider used last there) differs from it.
+    const recommended = defaultFor(profiles);
+    const recommendedIn = {};
+    if (!autoOn()) for (const [d, e] of Object.entries(folderProviders())) {
+      const r = defaultFor(profiles, e && e.profile);
+      if (r && r !== recommended) recommendedIn[d] = r;
+    }
     const qa = cfg().server.quickActions;
     return {
-      sessions: list, profiles, autoSwitch: auto, recommended,
+      sessions: list, profiles, autoSwitch: auto, recommended, recommendedIn,
       quickActions: Array.isArray(qa) ? qa : DEFAULT_QUICK_ACTIONS,
       backend: { kind: backend.kind, capabilities: backend.capabilities || {} },
       ...(opts.demo ? { demo: true } : {}), // `hoprig demo` (src/demo): the page shows a "Demo" marker
@@ -451,6 +460,11 @@ export function createServer(opts = {}) {
     }],
     ['POST', /^\/api\/sessions$/, async (req) => {
       const b = await readJson(req);
+      // No provider chosen for Claude Code: the default for this folder (the one used last there, …: defaultprovider.mjs).
+      if ((b.profile === undefined || b.profile === null || b.profile === '') && (b.tool === undefined || b.tool === null || b.tool === '' || b.tool === 'claude')) {
+        b.profile = await defaultProviderIn(insideRoots(v.absPath(b.dir), roots()));
+        if (!b.profile) throw bad('there is no provider on this computer yet: add one under Providers first');
+      }
       const dir = insideRoots(v.absPath(b.dir), roots());
       if (!dir) throw bad('choose a folder inside the allowed roots');
       // `tool`: the coding tool (absent: Claude Code, as before). Codex and OpenCode take their own choices.

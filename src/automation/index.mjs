@@ -257,6 +257,8 @@ export function createAutomation(ctx) {
         commitMap: commitMapState(s.workspace, brainRemote()), // and why: chosen, or from the brain's address
         restoreDefault: !(ctx.backend && ctx.backend.capabilities && ctx.backend.capabilities.persistent),
         restoreOn: restoreOn(s, ctx.backend),
+        // The computer's time zone: the page shows when a schedule runs next on this computer's clock, as its rule.
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         schedules: s.schedules.list.map((x) => ({
           ...x,
           nextAt: x.enabled ? schedules.nextSlot(x.when, Math.max(t, (last[x.id] && last[x.id].last) || 0)) : null,

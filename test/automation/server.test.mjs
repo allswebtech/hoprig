@@ -179,7 +179,10 @@ async function run(t, kind) {
     await tick();
     return (await screen(started.name)).includes('DONE: scheduled hello');
   });
-  for (let i = 0; i < 2; i++) await tick(); // restore learns the new session
+  // A session opened and never typed into (its own flag: --model haiku): it has no conversation on disk.
+  await app.backend.create({ name: 'beta', dir: work, argv: [...app.deck.launcher(), 'work', '--model', 'haiku'] });
+  await until('beta waits', async () => (await card('beta'))?.status === 'waiting' && (await card('beta')).sessionId);
+  for (let i = 0; i < 2; i++) await tick(); // restore learns the new sessions
 
   // ---- restart: the sessions come back the way they ran, with nothing typed ----
   const before = {};
@@ -200,8 +203,18 @@ async function run(t, kind) {
   assert.equal(back[back.indexOf('--resume') + 1], before.alpha, 'resumed the same conversation');
   assert.equal(back[back.indexOf('--model') + 1], 'opus', 'its own flag came back');
   assert.equal(back[back.indexOf('--permission-mode') + 1], 'plan');
+  // The one nobody typed into is back too: the same id, started fresh (nothing to resume), its own flag kept.
+  const beta = argsLine(await until('beta\'s new command line', async () => {
+    const s = await screen('beta');
+    return s.includes('--session-id') ? s : null;
+  }));
+  note('beta after restart', { args: beta });
+  assert.equal(beta[beta.indexOf('--session-id') + 1], before.beta, 'the same session id');
+  assert.equal(beta.includes('--resume'), false);
+  assert.equal(beta[beta.indexOf('--model') + 1], 'haiku');
   for (let i = 0; i < 3; i++) await tick();
   assert.equal((await screen('alpha')).includes('GOT:'), false, 'a restart types nothing');
+  assert.equal((await screen('beta')).includes('GOT:'), false);
 
   const log = (await req('/api/automation/log?limit=100')).json.entries.reverse();
   note('activity log', { entries: log.map((e) => `${e.time} ${e.automation} [${e.session}] ${e.did} → ${e.outcome}`) });
@@ -209,6 +222,6 @@ async function run(t, kind) {
   assert.equal(kinds.filter((k) => k === 'queue:ok').length, 5, 'three jobs, the failing one, the scheduled first message, and nothing else');
   assert.ok(kinds.includes('retry:ok'));
   assert.ok(kinds.includes('schedules:ok'));
-  assert.equal(kinds.filter((k) => k === 'restore:ok').length, 2);
+  assert.equal(kinds.filter((k) => k === 'restore:ok').length, 3);
   if (process.env.AUTOMATION_EVIDENCE) fs.writeFileSync(`${process.env.AUTOMATION_EVIDENCE}.${kind}.json`, JSON.stringify(evidence, null, 2));
 }

@@ -3,6 +3,12 @@
 // the service), reopen them the way they ran: the launcher's move arguments (`moveArgs` in src/launch.mjs), which
 // keep --model, --permission-mode and the like and add `--resume <id>`. Nothing is typed into them.
 //
+// A session nobody typed into yet comes back too: the owner had it open, and after a restart the dashboard should
+// look as it did. It has no conversation on disk (Claude Code writes that with the first message), so there is
+// nothing to resume: it starts fresh under the same id, in the same folder, with the same arguments
+// (`--session-id <id>`, as a move of such a session does). The same holds for one whose conversation file was
+// removed while it was open: it was open, so it comes back.
+//
 // "Closed on purpose" needs no hook into the Close button: a session that disappears while the service runs was
 // closed (by the owner, or by Claude exiting) and is forgotten. Only a session that was still there at the last
 // tick, or vanished within GONE_WINDOW_MS before it (the shutdown that took tmux down with it), is reopened.
@@ -66,19 +72,17 @@ export function decide({ cards, data, now, boot, enabled }) {
 }
 
 /**
- * Carry out the actions. ctx: { deck.start({ dir, profile, mode: 'move', sessionId, carryArgs, name }),
+ * Carry out the actions. ctx: { deck.start({ dir, profile, mode: 'move', sessionId, carryArgs, name, fresh? }),
  * conversationExists(cwd, id) → bool, record(entry) }.
  */
 export async function apply(actions, ctx) {
   for (const a of actions) {
     const s = a.session;
-    if (!ctx.conversationExists(s.cwd, s.sessionId)) {
-      ctx.record({ automation: 'restore', session: s.name, did: 'did not reopen', outcome: 'skipped: its conversation is no longer on disk' });
-      continue;
-    }
+    const fresh = !ctx.conversationExists(s.cwd, s.sessionId);
     try {
-      const name = await ctx.deck.start({ dir: s.cwd, profile: s.profile, mode: 'move', sessionId: s.sessionId, carryArgs: s.carryArgs || [], name: s.name });
-      ctx.record({ automation: 'restore', session: name, did: `reopened on ${s.profile} (resumed ${s.sessionId.slice(0, 8)})`, outcome: 'ok' });
+      const name = await ctx.deck.start({ dir: s.cwd, profile: s.profile, mode: 'move', sessionId: s.sessionId, carryArgs: s.carryArgs || [], name: s.name, ...(fresh ? { fresh } : {}) });
+      const how = fresh ? 'started fresh: it had no conversation to resume' : `resumed ${s.sessionId.slice(0, 8)}`;
+      ctx.record({ automation: 'restore', session: name, did: `reopened on ${s.profile} (${how})`, outcome: 'ok' });
     } catch (e) {
       ctx.record({ automation: 'restore', session: s.name, did: 'could not reopen', outcome: `failed: ${e.message}` });
     }

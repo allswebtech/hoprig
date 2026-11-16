@@ -59,16 +59,20 @@ test('restore: Claude exited (a shell for a while) is forgotten; a just-reopened
   assert.deepEqual(r.data.sessions, {});
 });
 
-test('restore: follows a new session id (/clear), skips a conversation no longer on disk', async () => {
+test('restore: follows a new session id (/clear); a session with no conversation on disk (nobody typed into it) comes back fresh under its id', async () => {
   let r = restore.decide({ cards: [claude('w')], data: null, now: 0, boot: true, enabled: true });
-  r = restore.decide({ cards: [claude('w', { sessionId: SID })], data: r.data, now: 1, boot: false, enabled: true });
+  r = restore.decide({ cards: [claude('w', { sessionId: SID, cwd: '/p', profile: { name: 'api' }, carryArgs: ['--model', 'opus'] })], data: r.data, now: 1, boot: false, enabled: true });
   assert.equal(r.data.sessions.w.sessionId, SID);
   r = restore.decide({ cards: [], data: r.data, now: 2, boot: true, enabled: true });
   const deck = fakeDeck();
   const rec = recorder();
   await restore.apply(r.actions, { deck, record: rec.record, conversationExists: () => false });
-  assert.deepEqual(deck.started, []);
-  assert.match(rec.entries[0].outcome, /no longer on disk/);
+  assert.deepEqual(deck.started, [{ dir: '/p', profile: 'api', mode: 'move', sessionId: SID, carryArgs: ['--model', 'opus'], name: 'w', fresh: true }]);
+  assert.equal(rec.entries[0].outcome, 'ok');
+  assert.match(rec.entries[0].did, /reopened on api \(started fresh: it had no conversation to resume\)/);
+  // What the server's deck makes of it: the same id, started fresh, the session's own flags kept.
+  const { launchArgv } = await import('../../src/server/deck.mjs');
+  assert.deepEqual(launchArgv(['hoprig'], { ...deck.started[0], profile: { name: 'api', env: {} } }), ['hoprig', 'api', '--model', 'opus', '--session-id', SID]);
 });
 
 test('restore: a renamed session is reopened once, under its new name', () => {

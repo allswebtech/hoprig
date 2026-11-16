@@ -184,12 +184,6 @@ export function preferredAvailable(current, now = Date.now()) {
   return order.slice(0, i).find((n) => !(n in limited)) || null;
 }
 
-/** The profile to offer first for a new session: the first in the order that is not at its limit. */
-export function recommendedProfile(now = Date.now()) {
-  const limited = limitedProfiles(now);
-  return usableOrder().find((n) => !(n in limited)) || null;
-}
-
 // ---- reading "resets 5pm (Europe/Berlin)" ----
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];

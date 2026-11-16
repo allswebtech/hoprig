@@ -22,6 +22,7 @@ import { claudeDir } from '../paths.mjs';
 import { projectSlug } from '../sessions.mjs';
 import { capture, stream } from '../setup/system.mjs';
 import { PRIVATE_DIRS, READ_ONLY_GIT, cleanRemote, parseRepo, parseStatus, statusArgv } from './projects.mjs';
+import { WORKTREE_LEFT, isLinkedWorktree } from '../workspace/layout.mjs';
 
 export { PRIVATE_DIRS };
 
@@ -69,12 +70,15 @@ const readJson = (f) => {
 };
 const isRepo = (d) => fs.existsSync(path.join(d, '.git'));
 
-/** Child repositories found under code/ (one level), with their origin addresses. */
+/**
+ * Child repositories found under code/ (one level), with their origin addresses. A linked worktree there is a
+ * second checkout of another repository (often a session's temporary one), not a child repository; a submodule is.
+ */
 export async function discoverChildren(root, run = capture) {
   const code = path.join(root, 'code');
   let names = [];
   try {
-    names = fs.readdirSync(code, { withFileTypes: true }).filter((d) => d.isDirectory() && !PRIVATE_DIRS.includes(d.name) && isRepo(path.join(code, d.name))).map((d) => d.name).sort();
+    names = fs.readdirSync(code, { withFileTypes: true }).filter((d) => d.isDirectory() && !PRIVATE_DIRS.includes(d.name) && isRepo(path.join(code, d.name)) && !isLinkedWorktree(path.join(code, d.name))).map((d) => d.name).sort();
   } catch {
     return [];
   }
@@ -354,6 +358,7 @@ export async function syncRepo(dir, rel, run = capture, { push = true, dryRun = 
   const did = [];
   const todo = [];
   if (!isRepo(dir)) return { rel, did, todo: [{ why: 'not cloned', command: `hoprig project clone …` }] };
+  if (rel !== '.' && isLinkedWorktree(dir)) return { rel, did: [WORKTREE_LEFT], todo: [] }; // a second checkout, not this repository
   const f = await git(dir, ['fetch', '--prune', '--quiet'], run, { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
   if (!f.ok) todo.push({ why: `fetch failed: ${(f.stderr || '').trim().split('\n').pop()}`, command: `git -C "${dir}" fetch` });
   const s = await repoInfo(dir, run);

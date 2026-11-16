@@ -9,6 +9,7 @@ import path from 'node:path';
 import { getAutoSwitch, limitedProfiles, markLimited, nextProfile, parseResets, preferredAvailable, usableOrder } from './autoswitch.mjs';
 import { claudeLoginStatus, claudeVersionQuick } from './claudecode.mjs';
 import { loadConfig, sessionArgs } from './config.mjs';
+import { rememberFolderProvider } from './defaultprovider.mjs';
 import { claudeDir, hookFile, hookSettingsDir } from './paths.mjs';
 import { listProfiles, notServedLines, profileEnv, readProfile, servesTools } from './profiles.mjs';
 import { loginSeen, rememberLogin } from './routerstate.mjs';
@@ -249,6 +250,11 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false } =
   const { file } = createRun({ profile: profile.name, cwd: process.cwd(), carryArgs: carryArgs(args) });
   // `fallback`: this session is here only because a preferred profile reached its limit (see launch()).
   if (fallback) updateRun(file, { fallback: true });
+  // A new conversation started here on purpose makes this the folder's provider: the next new session here starts
+  // on it (defaultprovider.mjs). A resume, a move (a limit card's "Continue on"), a restore and a limit fallback
+  // carry a conversation on (they always name it: --resume, --session-id, -c) and say nothing about where the next
+  // one should start.
+  if (!hasSessionFlag(args)) rememberFolderProvider(process.cwd(), profile.name);
   const env = profileEnv(profile);
   env.HOPRIG_RUN_FILE = file;
 
