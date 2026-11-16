@@ -5,7 +5,7 @@ import { moveArgs } from '../launch.mjs';
 import { binFile, tilde } from '../paths.mjs';
 import { publicProfile, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
-import { sessionTitle, sessionsIn } from '../sessions.mjs';
+import { hasConversation, sessionTitle, sessionsIn } from '../sessions.mjs';
 import { isOwnFolder } from './folders.mjs';
 import { detectLimit } from './limits.mjs';
 import { alwaysOption } from './prompts.mjs';
@@ -17,7 +17,9 @@ import { safeSessionName, uniqueName } from './validate.mjs';
  *   new        [profile]
  *   continue   [profile, -c]                    newest session of the folder
  *   resume     [profile, --resume, id]
- *   move       [profile, ...moveArgs(...)]      the run's own arguments, adjusted for the target profile
+ *   move       [profile, ...moveArgs(...)]      the run's own arguments, adjusted for the target profile; they end
+ *                                               with --resume <id>, or with --session-id <id> for a session nobody
+ *                                               typed into yet (`fresh`: it has no conversation to resume)
  * A first message (`prompt`, new/continue/resume only) goes last, after "--": Claude Code then takes it as the
  * prompt even when it starts with "-" (checked on 2.1.325), and the launcher passes it through unchanged. It is
  * one line: the tmux backend types the command into a shell, where a line break would end it. It is not carried
@@ -27,7 +29,7 @@ import { safeSessionName, uniqueName } from './validate.mjs';
  */
 export const promptArgs = (prompt) => (prompt ? ['--', String(prompt).replace(/\s*[\r\n]+\s*/g, ' ').trim()] : []);
 
-export function launchArgv(launcher, { profile, mode = 'new', sessionId = null, carryArgs = [], prompt = null, flags = [] }) {
+export function launchArgv(launcher, { profile, mode = 'new', sessionId = null, carryArgs = [], prompt = null, flags = [], fresh = false }) {
   switch (mode) {
     case 'new':
       return [...launcher, profile.name, ...flags, ...promptArgs(prompt)];
@@ -38,7 +40,7 @@ export function launchArgv(launcher, { profile, mode = 'new', sessionId = null, 
       return [...launcher, profile.name, '--resume', sessionId, ...flags, ...promptArgs(prompt)];
     case 'move':
       if (!sessionId) throw new Error('moving needs a session id');
-      return [...launcher, profile.name, ...moveArgs(profile, carryArgs, sessionId)];
+      return [...launcher, profile.name, ...moveArgs(profile, carryArgs, sessionId, { fresh })];
     default:
       throw new Error(`unknown mode ${mode}`);
   }
@@ -202,11 +204,18 @@ export class Deck {
    * flight is lost.
    */
   async move(term, run, profileName) {
-    if (!run.sessionId) throw Object.assign(new Error('this session has no id yet; wait until Claude has started'), { status: 409 });
     const target = readProfile(profileName);
     if (!target) throw Object.assign(new Error('unknown provider'), { status: 400 });
+    await this.backend.respawn(term.id, run.cwd, this.moveArgv(target, run));
+  }
+
+  /**
+   * The command that carries `run`'s session on under `profile` (a full profile object, or "auto" as the server
+   * builds it). A session nobody typed into yet has no conversation on disk: it starts there under the same id.
+   */
+  moveArgv(profile, run) {
+    if (!run.sessionId) throw Object.assign(new Error('this session has no id yet; wait until Claude has started'), { status: 409 });
     const carry = Array.isArray(run.carryArgs) ? run.carryArgs.filter((a) => typeof a === 'string') : [];
-    const argv = launchArgv(this.launcher(), { profile: target, mode: 'move', sessionId: run.sessionId, carryArgs: carry });
-    await this.backend.respawn(term.id, run.cwd, argv);
+    return launchArgv(this.launcher(), { profile, mode: 'move', sessionId: run.sessionId, carryArgs: carry, fresh: !hasConversation(run.cwd, run.sessionId) });
   }
 }

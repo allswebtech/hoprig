@@ -114,6 +114,24 @@ test('moveArgs: the chosen model moves along, except to a profile that names its
   assert.deepEqual(L.moveArgs({ env: { ANTHROPIC_MODEL: 'opus' } }, ['--model=sonnet', '--verbose'], id), ['--verbose', '--resume', id]);
 });
 
+test('moveArgs: a session nobody typed into starts under its id; one with a conversation resumes it', () => {
+  // Claude Code writes a conversation's file with its first message. Before that `--resume <id>` ends with
+  // "No conversation found with session ID": moving such a session failed, and failed again from the menu.
+  const id = '22222222-2222-4222-8222-222222222222';
+  const cwd = path.join(tmp, 'fresh-proj');
+  assert.equal(S.hasConversation(cwd, id), false);
+  assert.deepEqual(L.moveArgs({ env: {} }, ['--effort', 'high', 'a prompt'], id, { fresh: !S.hasConversation(cwd, id) }), ['--effort', 'high', '--session-id', id]);
+  assert.deepEqual(L.carryArgs(['--effort', 'high', '--session-id', id]), ['--effort', 'high'], 'the next move decides again');
+  fs.mkdirSync(S.projectDir(cwd), { recursive: true });
+  fs.writeFileSync(path.join(S.projectDir(cwd), `${id}.jsonl`), '{"type":"user","message":{"content":"hi"}}\n');
+  assert.equal(S.hasConversation(cwd, id), true);
+  assert.deepEqual(L.moveArgs({ env: {} }, ['--effort', 'high'], id, { fresh: !S.hasConversation(cwd, id) }), ['--effort', 'high', '--resume', id]);
+  // A conversation kept under another folder is still one to resume; an id that is no id is none.
+  assert.equal(S.hasConversation(path.join(tmp, 'elsewhere'), id), true);
+  assert.equal(S.hasConversation(cwd, '../x'), false);
+  assert.equal(S.hasConversation(cwd, '33333333-3333-4333-8333-333333333333'), false);
+});
+
 test('session and print flags are recognised', () => {
   assert.equal(L.hasSessionFlag(['--effort', 'high']), false);
   for (const a of [['-c'], ['--continue'], ['-r'], ['--resume', 'id'], ['--resume=id'], ['--session-id', 'x']]) assert.equal(L.hasSessionFlag(a), true, a.join(' '));

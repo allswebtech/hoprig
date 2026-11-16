@@ -36,6 +36,26 @@ export function sessionsIn(cwd) {
   return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
+/**
+ * Whether conversation `id` has anything on disk to continue. Claude Code writes a conversation's file with its
+ * first message: a session nobody has typed into yet has none, and `claude --resume <id>` then ends at once with
+ * "No conversation found with session ID". Looked for in the folder's own session directory first, then in every
+ * other one (a conversation that lives under another folder is still one to resume, as before).
+ */
+export function hasConversation(cwd, id) {
+  if (!isSessionId(id)) return false;
+  const name = `${id}.jsonl`;
+  if (typeof cwd === 'string' && cwd && fs.existsSync(path.join(projectDir(cwd), name))) return true;
+  const root = path.join(claudeDir(), 'projects');
+  let dirs;
+  try {
+    dirs = fs.readdirSync(root);
+  } catch {
+    return false;
+  }
+  return dirs.some((d) => fs.existsSync(path.join(root, d, name)));
+}
+
 const textOf = (content) => {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) return content.filter((c) => c && c.type === 'text' && typeof c.text === 'string').map((c) => c.text).join(' ');

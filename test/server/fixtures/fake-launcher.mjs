@@ -3,12 +3,21 @@
 // It prints how it was called, registers a run record the way the launcher does, then echoes what it is sent.
 // Sending "LIMIT" makes it print a real Claude Code usage-limit line; "SLOW x" makes it "work" for 1.5 s before it
 // answers (status working → waiting, like the hooks report), and every answer becomes the run's lastMessage.
+// Like Claude Code, it keeps the conversation's file from the first message on (not before): what the dashboard
+// looks for to decide between --resume and --session-id when a session moves to another provider.
+import fs from 'node:fs';
+import path from 'node:path';
 import readline from 'node:readline';
 import { createRun, removeRun, updateRun } from '../../../src/runs.mjs';
+import { projectDir } from '../../../src/sessions.mjs';
 
 const [profile, ...args] = process.argv.slice(2);
-const i = args.indexOf('--resume');
+const i = Math.max(args.indexOf('--resume'), args.indexOf('--session-id'));
 const sessionId = i >= 0 ? args[i + 1] : '0b6c3c9e-1f7e-4e4b-9b1a-3f6a1e2d4c5b';
+const said = (line) => {
+  fs.mkdirSync(projectDir(process.cwd()), { recursive: true });
+  fs.appendFileSync(path.join(projectDir(process.cwd()), `${sessionId}.jsonl`), `${JSON.stringify({ type: 'user', message: { content: line } })}\n`);
+};
 const { file } = createRun({ profile, cwd: process.cwd(), carryArgs: ['--verbose'] });
 updateRun(file, { sessionId, status: 'waiting', lastMessage: 'Ready when you are.' });
 process.stdout.write(`FAKE-LAUNCH profile=${profile} args=${JSON.stringify(args)} cwd=${process.cwd()}\n`);
@@ -21,6 +30,7 @@ const bye = () => {
 process.on('SIGHUP', bye);
 process.on('SIGTERM', bye);
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  said(line);
   if (line === 'LIMIT') process.stdout.write("  ⎿  You've hit your 5-hour limit · resets 5pm (UTC)\n");
   else if (line.startsWith('SLOW ')) {
     updateRun(file, { status: 'working' });

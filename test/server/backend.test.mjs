@@ -122,6 +122,8 @@ test('launch command contract', () => {
   // a profile with its own model drops --model on the move (src/launch.mjs moveArgs)
   const api = { name: 'api', env: { ANTHROPIC_MODEL: 'x' } };
   assert.deepEqual(launchArgv(L, { profile: api, mode: 'move', sessionId: id, carryArgs: ['--model', 'opus'] }), [...L, 'api', '--resume', id]);
+  // a session nobody typed into has no conversation to resume: it starts there under the same id
+  assert.deepEqual(launchArgv(L, { profile: p, mode: 'move', sessionId: id, carryArgs: ['--verbose'], fresh: true }), [...L, 'work', '--verbose', '--session-id', id]);
   assert.throws(() => launchArgv(L, { profile: p, mode: 'resume' }));
   assert.throws(() => launchArgv(L, { profile: p, mode: 'bogus' }));
 });
