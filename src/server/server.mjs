@@ -508,7 +508,8 @@ export function createServer(opts = {}) {
           prompt = v.message(b.prompt);
           if (!prompt) throw bad(`the first message must be 1 to ${v.MESSAGE_MAX} bytes`);
         }
-        const go = async () => ({ name: await deck.start({ tool, dir, profile, mode, sessionId: sid, prompt, flags: toolFlags(tool, b) }) });
+        // The newest is started by its id, as for Claude Code: its launcher names it in its run record from the start.
+        const go = async () => ({ name: await deck.start({ tool, dir, profile, mode: runs ? 'resume' : mode, sessionId: runs || sid, prompt, flags: toolFlags(tool, b) }) });
         const r = runs ? await chat.startTerminal(runs, go, tool) : await go();
         if (r.existing) return runsAlready(r.existing, prompt);
         watcher.poke();

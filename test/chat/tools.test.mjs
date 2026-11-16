@@ -168,6 +168,9 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   assert.equal((await owner('GET', `/api/chats/${r.json.id}`)).json.engine.id, 'opencode');
   assert.equal((await owner('GET', `/api/chats/${r.json.id}`)).json.permissionMode, 'acceptEdits', 'with its mode');
   assert.equal((await owner('POST', `/api/chats/${r.json.id}/close`, {})).status, 200);
+  // Closed before its first message: OpenCode never named a conversation for it, so there is none to continue.
+  const emptyShut = await owner('GET', `/api/chats/${r.json.id}`);
+  assert.deepEqual([emptyShut.status, emptyShut.json.closed.conversationId, emptyShut.json.closed.tool], [404, null, 'opencode']);
   // Continued from OpenCode's store: the conversation is read back, in its tool.
   r = await owner('POST', '/api/chats', { dir: proj, tool: 'opencode', sessionId: SESSION_ID });
   assert.equal(r.status, 200);
