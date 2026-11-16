@@ -2,6 +2,7 @@
 // or closed; one line about the accounts (a warning only when one is at its limit); then the sessions in three
 // groups: Needs you, Working, Idle. With several computers, chips filter by computer.
 import { APP_NAME } from './brand.js';
+import { limitStripAction } from './claudeaccount.js';
 import { getStartedArea } from './getstarted.js';
 import { icon } from './icons.js';
 import { MACHINE_STATE, WINDOW, ago, btn, fill, h, insecure, link, needsYouFirst, prefs, stateOf, until } from './lib.js';
@@ -129,7 +130,9 @@ export function viewHome() {
       icon(line.warn ? 'alert' : 'user', { size: 18 }),
       // One line per computer when several have something near a limit (a phone then reads them one by one).
       h('span.accountsline-text', line.lines.length > 1 ? line.lines.map((l) => h('span.accountsline-one', l)) : line.text),
-      icon('chevronRight', { size: 18 })));
+      icon('chevronRight', { size: 18 })),
+    // The stored Claude sign-in of this computer is at its limit: go on with another account (claudeaccount.js).
+    limitStripAction(shown));
     const profilesOf = new Map(all.map((m) => [m.machine, m.profiles]));
     const sessions = shown.flatMap((m) => m.sessions).sort(needsYouFirst);
     noSessions = !sessions.length;

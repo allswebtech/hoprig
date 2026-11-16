@@ -8,8 +8,9 @@
 // added as they come (a long poll, so no event is drawn twice and nothing is drawn again); and every item is skipped
 // by the browser's layout while it is off screen (content-visibility, page-chat.css).
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
+import { accountLimitActions } from './claudeaccount.js';
 import { icon } from './icons.js';
-import { KIND, add, api, bytes, chooseSheet, closeWindow, confirmSheet, fill, h, link, profileIcon, profileState, prefs, statusPill, toast, url } from './lib.js';
+import { KIND, add, api, bytes, chooseSheet, closeWindow, confirmSheet, fill, h, link, machine, profileIcon, profileState, prefs, statusPill, toast, url } from './lib.js';
 import { mdView } from './mdtext.js';
 import { registerPage, registerSessionAction } from './registry.js';
 import { EFFORT, MODELS } from './sessiondefaults.js';
@@ -38,7 +39,7 @@ function inputView(name, input) {
   if (name === 'Write') return [h('p.chat-path', i.file_path || ''), h('pre.chat-diff', String(i.content || '').split('\n').slice(0, 400).map((t) => h('span.dadd', `+ ${t}\n`)))];
   if (name === 'Bash') return [h('pre.chat-cmd', i.command || ''), i.description ? h('p.chat-hint', i.description) : null];
   if (name === 'Read') return h('p.chat-path', `${i.file_path || ''}${i.offset ? ` · from line ${i.offset}` : ''}`);
-  if (name === 'ExitPlanMode' && i.plan) return mdView(i.plan);
+  if (name === 'ExitPlanMode') return i.plan ? mdView(i.plan) : h('p.chat-hint', 'Claude wrote no plan text. Its messages above say what it wants to do.');
   return h('pre.chat-json', JSON.stringify(i, null, 2));
 }
 
@@ -187,14 +188,23 @@ function viewChat({ sub }) {
       h('div.chat-ask-head', icon(ev.tool === 'AskUserQuestion' ? 'info' : 'alert', { size: 18 }), h('strong', askTitle(ev.tool, ev.input))),
       // For a file the description is its name, which the path below already shows.
       ev.description && !['Bash', 'Edit', 'MultiEdit', 'Write', 'Read', 'NotebookEdit'].includes(ev.tool) ? h('p.chat-hint', ev.description) : null,
-      body, buttons, status);
+      body,
+      // Why Claude Code asks, where the request does not say it: your own rule or hook, plan mode, a risky delete.
+      ev.why ? h('p.chat-hint.chat-ask-why', icon('info', { size: 14 }), h('span', ev.why)) : null,
+      buttons,
+      // "Allow in this chat" may cover more than this one call (npm view *): say what, before it is pressed.
+      ev.canAlways && ev.alwaysText ? h('p.chat-hint.chat-ask-scope', `“Allow in this chat” stops the asking for: ${ev.alwaysText}`) : null,
+      status);
     el.status = status;
     el.buttons = buttons;
     const answer = async (allow, extra = {}) => {
       for (const b of buttons.querySelectorAll('button')) b.disabled = true;
       try {
         await api(`${A}/answer`, { request: ev.request, allow, ...extra });
+        store.refresh(); // Home and the tab title follow at once, not at the next look
       } catch (e) {
+        // Answered meanwhile (another tab, or the turn ended): the card closes with the next news, not with an error.
+        if (e.status === 409) return;
         for (const b of buttons.querySelectorAll('button')) b.disabled = false;
         toast(e.message, { kind: 'error' });
       }
@@ -229,7 +239,7 @@ function viewChat({ sub }) {
       fill(buttons,
         h('button.btn.primary', { type: 'button', onclick: () => answer(true) }, icon('check', { size: 16 }), h('span', ev.tool === 'ExitPlanMode' ? 'Start with this plan' : 'Allow')),
         ev.canAlways ? h('button.btn.secondary', { type: 'button',
-          title: ev.always === 'edits' ? 'Claude changes files without asking for the rest of this chat' : 'Claude does not ask again for this in this chat',
+          title: ev.always === 'edits' ? 'Claude changes files without asking for the rest of this chat' : `Claude does not ask again in this chat for: ${ev.alwaysText || 'this'}`,
           onclick: () => answer(true, { always: true }) }, ev.always === 'edits' ? 'Allow all edits in this chat' : 'Allow in this chat') : null,
         h('button.btn.secondary.danger-text', { type: 'button', onclick: () => answer(false) }, icon('x', { size: 16 }), h('span', ev.tool === 'ExitPlanMode' ? 'Keep planning' : 'Deny')));
     }
@@ -263,9 +273,7 @@ function viewChat({ sub }) {
           h('button.btn.small.primary', { type: 'button', onclick: () => takeOver() }, 'Continue here'),
           s.terminal.name ? h('a.btn.small.secondary', { href: link(`#/s/${encodeURIComponent(s.terminal.name)}`) }, 'Open the terminal') : null))
         : null,
-      s.limit && !ro ? h('div.banner.error-box.chat-banner', { role: 'alert' }, icon('alert', { size: 18 }), h('span', `${s.profile.label} cannot answer now: ${s.limit.text}`),
-        h('span.chat-banner-actions', h('button.btn.small.primary', { type: 'button', onclick: () => moveProvider() }, icon('swap', { size: 16 }), h('span', 'Move to another provider'))))
-        : null);
+      s.limit && !ro ? limitBanner(s) : null);
     const busy = s.status !== 'waiting';
     working.classList.toggle('hidden', s.status !== 'working');
     sendBtn.classList.toggle('hidden', busy);
@@ -278,6 +286,17 @@ function viewChat({ sub }) {
     for (const [r, el] of asks) if (!s.pending.includes(r)) decided(el, 'No longer waiting', false);
     paintTodos(s.todos);
     paintNext();
+  }
+
+  // The provider cannot answer: move the chat to another one, or (on Claude Code's stored sign-in) go on with another
+  // Claude account (claudeaccount.js). Once another account signed in, going on here leads.
+  function limitBanner(s) {
+    const account = (accountLimitActions({ kind: 'chat', chatId: s.id, name: `chat:${s.id}`, display: s.title || 'This chat', profile: s.profile, limit: s.limit, limitAt: s.limit.at || null, machine: machine.current },
+      (store.data && store.data.profiles) || []) || []).filter(Boolean);
+    const leads = account.filter((b) => /(^|\s)primary(\s|$)/.test(b.className));
+    const move = h(`button.btn.small.${leads.length ? 'secondary' : 'primary'}`, { type: 'button', onclick: () => moveProvider() }, icon('swap', { size: 16 }), h('span', 'Move to another provider'));
+    return h('div.banner.error-box.chat-banner', { role: 'alert' }, icon('alert', { size: 18 }), h('span', `${s.profile.label} cannot answer now: ${s.limit.text}`),
+      h('span.chat-banner-actions', leads, move, account.filter((b) => !leads.includes(b))));
   }
 
   let todosOpen = prefs.get('chat.todos', true);
@@ -331,6 +350,8 @@ function viewChat({ sub }) {
       add(list, draw(r.events));
     }
     next = r.next;
+    // The state changed (an OK is needed, was given here or in another tab, the reply ended): Home's copy is old.
+    if (v && v.status !== r.status) store.refresh();
     v = r;
     if (r.reset) paintMore(r.older);
     if (!r.events.length && r.reset && !r.older) fill(list, h('div.chat-empty', icon('text', { size: 26 }), h('p', 'Write what Claude should do in this project. It works here as in the terminal: it reads, edits and runs commands, and asks you before anything that needs your OK.')));

@@ -14,7 +14,8 @@ no framework, no build step. Runtime dependencies are few and pinned.
 | Where | What |
 |---|---|
 | `bin/hoprig.mjs` | the command: dispatch only |
-| `src/*.mjs` | the launcher: providers (`profiles`), sessions, run records (`runs`), launch and hooks (`launch`), Auto mode (`autoswitch`, `router`), menus |
+| `bin/hoprig-hook.mjs` | what Claude Code starts for a hook event: small on purpose, Claude waits for it |
+| `src/*.mjs` | the launcher: providers (`profiles`), sessions, run records (`runs`), launch (`launch`), the hook that keeps a session's status (`hook`), Auto mode (`autoswitch`, `router`), menus |
 | `src/server/` | the dashboard: HTTP and WebSocket server, login, terminal backends (`backends/`: tmux and built-in), per-OS information (`platform/`), background service (`service/`) |
 | `src/machines/` | several computers: hub, pairing, tokens, relay, `join` |
 | `src/assistant/` | Tia: tools, policy, confirm cards, jobs, MCP server, eval |

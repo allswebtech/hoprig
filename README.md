@@ -33,8 +33,8 @@ curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh 
   for you.
 - **Code from anywhere, phone included.** A self-hosted dashboard with the real terminal, built for one thumb.
   It shows which session is working, which is waiting for your next message and which needs you. Prefer no
-  terminal? The same Claude Code as a chat, with Allow and Deny buttons. A project opens in VS Code in the
-  browser too.
+  terminal? The same Claude Code as a chat, with Allow and Deny buttons. A project opens in a built-in code
+  editor with its git changes.
 - **Several computers in one place.** Home PC, office PC, servers: one page shows every session and starts
   work on any of them. Computers behind a router connect out by themselves. No VPN, no third-party service.
 - **It keeps going without you.** Queue the next messages, schedule work, reopen sessions after a restart.
@@ -155,6 +155,16 @@ hop work -c         # continue this folder's last session on the provider "work"
 When Claude Code exits, Hoprig asks whether to continue the session on another provider. In the
 dashboard it is one tap on the session (**Move to another provider**).
 
+A provider that uses Claude Code's own sign-in can also go on with another Claude account of yours, as
+`/login` does in a terminal: **Sign in with another Claude account**, on the limit card of a session or
+chat, on Home and on **Providers**. You sign in in the browser (from a phone: a link and a code); until
+that is complete the account of now stays. The sessions and chats on that provider keep running and
+answer as the new account from their next request, without a restart (seen with Claude Code 2.1.325 on
+Linux), and the ones that stood at the limit continue. The provider's own page also shows who is signed
+in and has **Sign out**. A new account has its own limits, so the provider's limit mark goes when the account
+changes, also after `/login` typed in a session: within seconds on Linux and Windows, where Claude Code keeps
+the sign-in in a file; on macOS (the Keychain) within 5 minutes. See [Is this allowed?](#is-this-allowed)
+
 <p align="center">
   <img src="docs/screenshots/accounts-desktop-light.webp" alt="The Providers page: each subscription, API key and gateway with its usage and limits" width="760">
 </p>
@@ -209,10 +219,19 @@ Good to know:
   the card on Home, including Claude's own "Yes, and don't ask again".
 - **Chat**: the same Claude Code without the terminal (**New session**: Terminal or Chat, or **Open as chat** in
   a session's menu): messages, each tool call on one line with its diff, Allow and Deny buttons, its to-do list,
-  Stop. A conversation runs in one place at a time, and **Open in terminal** takes it back.
-- **VS Code**: **Open in VS Code** on a project, a repository or a session opens the folder in VS Code in the
-  browser, behind the dashboard's own sign-in (off until you accept VS Code Server's license), or on this
-  computer's own screen.
+  Stop. A conversation runs in one place at a time, and **Open in terminal** takes it back. **Allow in this
+  chat** stops the asking for that kind of call until the chat is closed (nothing is written to a settings
+  file). In the mode "Run anything without asking" the chat never asks for a permission; what it still shows
+  is a question Claude puts to you, a plan to approve, what your own Claude Code settings insist on (an "ask"
+  rule, a hook that says ask) and Claude Code's stop before a delete that could empty the disk. A "deny" rule
+  of your settings stays denied in every mode.
+- **Code editor**: **Open code** on a project, a repository or in a session's menu opens the folder in VS Code's
+  editor core, inside the page and behind its sign-in, also for another computer's folders. **Explorer** (new,
+  rename, delete), **Search** in files, and **Source Control** (the changes side by side, stage, unstage,
+  discard, commit, the log); **N changes** on a project goes straight there. Ctrl+S, Ctrl+P, Ctrl+Shift+F and
+  Ctrl+G work as in VS Code. A save never overwrites a file that changed on disk without asking. On a phone one
+  pane shows at a time, with **Plain text editing** where the code editor cannot be typed into. Text size, tab
+  size and word wrap are in **Settings → Editor**; the colours follow the page.
 - **The way back**: a page another page sent you to links back to it (Setup → the session its Fix opened →
   back to Setup), not only to its parent.
 - **The menu**: Home, **Workspace** (your projects, each with its sessions under it), **Providers**,
@@ -242,11 +261,11 @@ still works), otherwise inside the dashboard's own service (the built-in termina
 | One computer, phone on the same Wi-Fi | `hoprig setup`, scan the QR |
 | Two or more computers on one network | On one of them: **Computers → Add a computer**, then pick how it is reached. No server |
 | Computers at home, a server on the internet | `hoprig setup --hub` on the server; `hoprig join https://your-hub <code>` on each computer |
-| Computers at home, no server, you are elsewhere | the public link add-on: a fixed address on your own domain through Cloudflare (a free account with a domain), or a free temporary one that changes at every start and is sent to your phone when notifications are set up ([how](docs/COMPUTERS.md#a-public-link-through-cloudflare)); or Tailscale |
+| Computers at home, no server, you are elsewhere | the public link on the main one (Settings → Public link, or `hoprig public on`): Temporary, a free address that changes at each start, or Custom, your own address on a domain in a free Cloudflare account; the others: **Computers → Link to my main Hoprig** ([how](docs/COMPUTERS.md#from-anywhere-the-public-link)) |
 | Servers only | one is the hub; add the others by their SSH name |
 
-Two computers behind routers cannot find each other without a third one both can reach. Here that is your
-own hub: every other computer keeps one connection out to it, so nothing has to be opened on a router. A hub
+Every other computer keeps one connection out to the main one (a server, or a computer with its public link
+on), so nothing has to be opened on a router. A hub
 is small: about 80 MB of memory, measured with 20 computers and 20 open terminals; 512 MB RAM and one core
 are enough. Guides: [docs/COMPUTERS.md](docs/COMPUTERS.md), [docs/HUB.md](docs/HUB.md).
 
@@ -303,7 +322,7 @@ stop work or run commands are shown to you as a card to confirm; secrets never p
 **What Tia does not do.** These are your own steps; the dashboard refuses them even if she tried
 (`NEVER` in the same file). She opens the right page for you instead:
 
-- adding a provider, or its sign-in or key;
+- adding a provider, signing it in or out or in with another Claude account, or its key;
 - removing a computer, pairing codes, joining and connecting computers;
 - the dashboard password and sign-in, the network, signed-in devices and one-time sign-in links;
 - notifications;
@@ -332,8 +351,9 @@ never attaches a subscription's sign-in to a request itself; only Claude Code do
 
 What is yours to judge: plan limits assume ordinary, individual use, Anthropic's policies forbid getting
 around restrictions and sharing accounts, and Anthropic can restrict an account without notice. Whether
-continuing past a limit on a second subscription of your own is acceptable is not something the terms
-clearly settle. The surest setup is one subscription, then an API key. Never use someone else's account.
+continuing past a limit on a second subscription of your own (as another provider, or by signing in with
+another Claude account) is acceptable is not something the terms clearly settle. The surest setup is one
+subscription, then an API key. Never use someone else's account.
 Read the sources yourself:
 [Claude Code: legal and compliance](https://code.claude.com/docs/en/legal-and-compliance),
 [authentication](https://code.claude.com/docs/en/authentication),
@@ -351,8 +371,10 @@ The dashboard is a remote control for your computer, and it is built that way:
   cookies, an Origin check on every change, a strict content security policy.
 - Another computer gets a token you can revoke. A token cannot change the password, pair, or relay further.
 - The router listens on 127.0.0.1 under a secret path and keeps no request or answer text.
-- VS Code in the browser listens on a private socket only and is reached through the dashboard's sign-in; a
-  file of a project shown as a page runs in a sandbox. A shared gateway's keys are kept as hashes, and only
+- The editor reads and writes only inside the folders the dashboard may show; every path is checked on the
+  server. Private folders (`no-ai`, `ignore`, `ai-ignore-dir`), git's own folder and sign-in files are never
+  shown, searched or changed, and a folder that holds one is not deleted from the page.
+- A file of a project shown as a page runs in a sandbox. A shared gateway's keys are kept as hashes, and only
   `/v1/` paths pass.
 - The administrator password for a setup step is asked in the page when `sudo` needs it, given to `sudo` on
   its input, and never saved or shown.
@@ -393,7 +415,8 @@ hop skills suggest | find | add | list | update  skills
 hop serve | passwd | link        the dashboard, its password, a one-time sign-in link
 hop service install              run the dashboard in the background
 hop machines | join | pair | tokens   several computers
-hop addons                       add-ons: a gateway for other AI providers, a public link
+hop public on | off | status     the public link: this dashboard from anywhere, no server needed
+hop addons                       add-ons: a gateway for other AI providers
 hop claude status | update       Claude Code's version
 hop demo                         the dashboard with sample data
 hop mcp                          Hoprig's tools as an MCP server

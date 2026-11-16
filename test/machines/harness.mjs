@@ -75,6 +75,10 @@ export function miniDashboard({ createMachines, opts = {}, sessions = [{ name: '
         onRequest?.(req);
         if (url.pathname === '/api/state') return send(200, { sessions });
         if (url.pathname === '/api/slow') return; // never answers
+        if (url.pathname === '/api/code/git/commit') { // a commit whose hooks take a while
+          await new Promise((r) => setTimeout(r, 1500));
+          return send(200, { committed: true });
+        }
         const chunks = [];
         let firstAt = 0;
         for await (const c of req) {

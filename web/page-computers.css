@@ -78,3 +78,7 @@
 .cp-nometer { visibility: hidden; }
 .cp-how .bigcode { margin-bottom: 4px; }
 .cp-status { gap: 8px; }
+/* The buttons of linking computers (joinlink.js): 44 px for a finger on a phone. */
+@media (max-width: 600px) {
+  .cp-tap .btn { min-height: 44px; }
+}

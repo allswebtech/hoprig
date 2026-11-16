@@ -1,6 +1,6 @@
 // The page's router. Pages draw themselves in the frame of shell.js; Home is home.js, New session newsession.js,
 // a session session.js; every other page is registered by its feature (registry.js) and imported below.
-// Routes: #/  #/new  #/s/<session>  #/more  #/<page>  #/<page>/<sub>
+// Routes: #/  #/new  #/s/<session>  #/more  #/<page>  #/<page>/<sub>  #/<page>?<query> (the code editor's deep links)
 //         #/m/<computer>/...   the same pages for another computer (Home is always every computer at once)
 // Addresses from before the pages were split keep working: ALIASES sends them to where the thing lives now.
 import { applyPageTheme, h, link, machine } from './lib.js';
@@ -24,7 +24,8 @@ import './workspace.js';
 import './tia.js';
 import './chat.js';
 import './addons.js';
-import './vscode.js';
+import './publiclink.js';
+import './editor/index.js';
 import './settings.js';
 import './desktop/index.js';
 
@@ -44,7 +45,8 @@ export const PAGE_ADDRESSES = [
   '#/skills', '#/skills/installed', '#/skills/suggested', '#/skills/find',
   '#/brain',
   '#/tia', '#/tia/jobs', '#/tia/activity',
-  '#/settings', '#/settings/new-sessions', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/tia', '#/settings/vscode', '#/settings/addons', '#/settings/about',
+  '#/code',
+  '#/settings', '#/settings/new-sessions', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/public-link', '#/settings/tia', '#/settings/editor', '#/settings/addons', '#/settings/about',
 ];
 
 /** Old addresses (and the screens Tia links to) → where that lives now. */
@@ -72,6 +74,7 @@ export const ALIASES = {
   '/settings/terminals': '/settings/appearance',
   '/settings/claude': '/settings/about',
   '/settings/folders': '/settings/new-sessions',
+  '/settings/vscode': '/settings/editor',
   '/settings/uploads': '/settings/new-sessions',
   // open_screen (src/assistant/tools.mjs SCREENS)
   '/add-account': '/providers',
@@ -149,7 +152,10 @@ function route(e) {
   const mm = /^#\/m\/([a-z0-9][a-z0-9_-]{0,31})(\/.*)?$/.exec(hash);
   machine.set(mm ? mm[1] : null);
   if (mm) hash = `#${mm[2] || '/'}`;
-  const path = hash.slice(1);
+  // A page's query ("#/code?dir=…&file=…") goes to the page as ctx.query; it does not change which page it is.
+  const q = hash.indexOf('?');
+  const path = hash.slice(1, q < 0 ? undefined : q);
+  const query = new URLSearchParams(q < 0 ? '' : hash.slice(q + 1));
   const to = ALIASES[path] || renamed(path);
   if (to) return location.replace(mm ? `#/m/${mm[1]}${to}` : `#${to}`);
   const s = /^\/s\/(.+)$/.exec(path);
@@ -164,7 +170,7 @@ function route(e) {
     stop = openSession(app, decodeURIComponent(s[1]));
   } else if (path === '/new' || path === '/new/here') stop = viewNew();
   else if (path === '/more') stop = viewMore();
-  else if (page) stop = page.render({ frame, connectionBanner, sub: p[2] || '' });
+  else if (page) stop = page.render({ frame, connectionBanner, sub: p[2] || '', query });
   else stop = viewHome();
   stopView = typeof stop === 'function' ? stop : () => {};
   window.scrollTo(0, 0);

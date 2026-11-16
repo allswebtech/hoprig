@@ -189,3 +189,23 @@ test('Remove on the hub: the link is dropped and the computer stops connecting',
   assert.equal(hub.machines.links.sessions.size, 0);
   await until('forgotten here', async () => join.loadJoined().length === 0 && !keeper.map.has(h.id));
 });
+
+test('"Link to my main": the one pasted line (address#join=CODE) links this computer; a line of another shape is refused', async () => {
+  const { joinLine } = await import('../../src/machines/joinline.mjs');
+  const here = asBrowser(me.base);
+  const bad = await here('/api/joins', { body: { line: 'K7QM-4XP2' } });
+  assert.equal(bad.status, 400);
+  assert.match(bad.json.error, /paste the whole line/);
+  const c = await code();
+  const r = await here('/api/joins', { body: { line: `  ${joinLine(`${hub.base}/`, c.code)}\n` } });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.joined.via, 'link');
+  assert.deepEqual((await browser(`/api/links/code?id=${c.id}`)).json, { status: 'claimed', by: 'Home PC' });
+  await until('online on the hub', async () => (await stateOnHub()) === 'online');
+  // The code worked once: the same line again is refused by the hub.
+  const again = await here('/api/joins', { body: { line: joinLine(hub.base, c.code) } });
+  assert.notEqual(again.status, 200);
+  const h = join.loadJoined().find((x) => x.via === 'link');
+  await join.leaveHub(h.url, { keeper });
+  assert.equal(join.loadJoined().length, 0);
+});

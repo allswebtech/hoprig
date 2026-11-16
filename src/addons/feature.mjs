@@ -9,6 +9,7 @@
 //                                            another service) with the JSON body, as a job like the ones above. Its
 //                                            result may carry `confirm`: a question the page asks before it is sent
 //                                            again with { confirmed: true }.
+// The public link has a page of its own (Settings → Public link): its routes are in linkroutes.mjs, served here.
 // Making a provider of a gateway is done on the Providers page (Add provider), in the page; `hoprig addons setup <id>`
 // does the same in a terminal.
 // An add-on's attach() runs when the dashboard starts and detach() when it stops (the fixed address runs with it).
@@ -22,6 +23,8 @@ import { tokenIdOf } from '../machines/index.mjs';
 import { recordHubActivity } from '../machines/tokenaudit.mjs';
 import { onRevoke, storedTokens } from '../machines/tokens.mjs';
 import { ADDONS } from './index.mjs';
+import { publicLink } from './linkaddon.mjs';
+import { linkRoutes } from './linkroutes.mjs';
 
 const ACTIONS = ['install', 'update', 'start', 'stop'];
 const LINES_MAX = 2000;
@@ -55,11 +58,11 @@ export function addonsFeature(sctx, opts = {}) {
       : a.actions[action](body, { onLine, by });
     return Promise.resolve(go)
       .then((r) => {
-        job.result = { ok: Boolean(r && r.ok), error: (r && r.error) || null, url: (r && r.url) || null, confirm: (r && typeof r.confirm === 'string' && r.confirm) || null };
+        job.result = { ok: Boolean(r && r.ok), error: (r && r.error) || null, url: (r && r.url) || null, confirm: (r && typeof r.confirm === 'string' && r.confirm) || null, need: (r && typeof r.need === 'string' && r.need) || null };
         if (r && r.error) onLine(r.error);
       })
       .catch((e) => {
-        job.result = { ok: false, error: e.message, url: null, confirm: null };
+        job.result = { ok: false, error: e.message, url: null, confirm: null, need: null };
         onLine(e.message);
       })
       .finally(() => {
@@ -98,6 +101,7 @@ export function addonsFeature(sctx, opts = {}) {
       const from = Math.max(0, Math.min(job.lines.length, Number(q && q.get('from')) || 0));
       return { running: job.running, lines: job.lines.slice(from), next: job.lines.length, result: job.result };
     }],
+    ...linkRoutes(sctx, { run, jobs, addon: opts.link || publicLink }),
   ];
 
   const each = (fn) => Promise.all(list().map((a) => Promise.resolve().then(() => fn(a)).catch((e) => console.error(`add-on ${a.id}: ${e.message}`))));

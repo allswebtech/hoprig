@@ -60,6 +60,7 @@ export function chatFeature(ctx, o = {}) {
     c.setMaxListeners(200); // one per page that waits for news
     c.on('status', () => ctx.poke?.()); // Home and the notifications see a new state at once
     c.on('turn', save);
+    c.on('record', save); // "allow in this chat" was given: it is kept with the chat
     chats.set(c.id, c);
     return c;
   }
@@ -135,6 +136,7 @@ export function chatFeature(ctx, o = {}) {
       running: !!c.child, // its process runs on the provider now (idle care keeps that provider's gateway up)
       note: ask ? `Allow ${ask.title}${ask.description ? `: ${ask.description}` : ''}?` : '',
       limit: c.limit ? { text: c.limit.text } : null,
+      ...(c.limit ? { limitAt: c.limit.at || null } : {}), // since when: the page compares it with the provider's accountAt
     };
   }
   async function view(c, { from, epoch }) {

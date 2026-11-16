@@ -98,10 +98,11 @@ export class Watcher {
     this.prev = null;
     this.seen = new Map();
     this.done = new Set();
-    this.pending = new Map(); // session name → { to, prompt, since }
+    this.pending = new Map(); // session name → { to, prompt, since, notRun? (the run that was stopped: not that one) }
     this.timer = null;
     this.nextAt = 0;
     this.running = false;
+    this.again = false; // a poke came during a look
     this.stopped = true;
     this.tickListeners = new Set();
   }
@@ -125,7 +126,10 @@ export class Watcher {
   /** Look again soon (a session was just started or a page is watching). */
   poke() {
     // Only ever brings the next tick forward: pokes arriving faster than 200 ms must not keep postponing it.
-    if (!this.stopped && !this.running && this.nextAt - Date.now() > 200) this.#schedule(200);
+    // During a look the sessions were already read: what changed since is seen by one more look right after it
+    // (a chat that needs an OK would otherwise be told up to 30 s late).
+    if (this.running) this.again = true;
+    else if (!this.stopped && this.nextAt - Date.now() > 200) this.#schedule(200);
   }
 
   #schedule(ms) {
@@ -138,6 +142,7 @@ export class Watcher {
   async tick() {
     if (this.running) return;
     this.running = true;
+    this.again = false;
     let busy = false;
     try {
       const cards = await this.cards();
@@ -154,7 +159,7 @@ export class Watcher {
       }
     } finally {
       this.running = false;
-      if (!this.stopped) this.#schedule(busy ? this.tickMs : Math.max(this.tickMs, 30_000));
+      if (!this.stopped) this.#schedule(this.again ? 200 : busy ? this.tickMs : Math.max(this.tickMs, 30_000));
     }
   }
 
@@ -215,7 +220,9 @@ export class Watcher {
         this.pending.delete(name);
         continue;
       }
-      if (c.kind === 'claude' && c.profile && c.profile.name === p.to && c.status === 'waiting') {
+      // `notRun`: a restart on the same provider (server.mjs: continue). The run that was stopped may still be
+      // listed for a moment, waiting: the prompt is for the one that comes after it.
+      if (c.kind === 'claude' && c.profile && c.profile.name === p.to && c.status === 'waiting' && (!p.notRun || (c.runId && c.runId !== p.notRun))) {
         this.pending.delete(name);
         if (!p.prompt) continue;
         try {

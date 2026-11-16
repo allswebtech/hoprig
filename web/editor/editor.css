@@ -1,0 +1,209 @@
+/* The code editor (web/editor/). Every class starts with "ed-"; buttons, fields, sheets and toasts come from
+   style.css. The page fills the window like a session: no navigation, its own bar at the top. */
+
+body.code-mode { overflow: hidden; }
+body.code-mode .tia-boxroot { display: none; }
+.ed-wrap { position: fixed; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto; background: var(--bg); --ed-side: 300px; }
+
+/* ---------- the bar at the top ---------- */
+.ed-bar { display: flex; align-items: center; gap: 4px; min-height: 52px; padding: calc(4px + env(safe-area-inset-top)) 8px 4px 6px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.ed-back { flex: none; max-width: 28vw; padding: 0 10px 0 6px; gap: 4px; }
+.ed-back-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 600; }
+.ed-head { flex: 1; min-width: 0; padding: 0 4px; }
+.ed-title { margin: 0; font-size: var(--fs-lg); font-weight: 700; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-sub { font-size: var(--fs-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-bar-end { display: flex; align-items: center; gap: 2px; }
+.ed-savebtn { margin-right: 4px; }
+.ed-wrap:not(.ed-has-dirty) .ed-savebtn { display: none; }
+
+/* ---------- activity bar, side panel, editor ---------- */
+.ed-main { display: grid; grid-template-columns: 48px var(--ed-side) 4px minmax(0, 1fr); min-height: 0; }
+.ed-wrap.ed-noside .ed-main { grid-template-columns: 48px 0 0 minmax(0, 1fr); }
+.ed-wrap.ed-noside .ed-side, .ed-wrap.ed-noside .ed-resize { visibility: hidden; }
+.ed-activity { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; background: var(--surface-3); border-right: 1px solid var(--border); }
+.ed-act { position: relative; display: flex; align-items: center; justify-content: center; height: 46px; border: 0; border-left: 2px solid transparent; background: none; color: var(--muted); cursor: pointer; }
+.ed-act:hover { color: var(--text); }
+.ed-act.on { color: var(--text); border-left-color: var(--accent); }
+.ed-badge { position: absolute; right: 5px; bottom: 6px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--accent); color: var(--accent-text); font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center; }
+.ed-side { min-width: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--border); }
+.ed-resize { cursor: col-resize; background: transparent; touch-action: none; }
+.ed-resize:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+.ed-panel { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
+.ed-panelhead { display: flex; align-items: center; gap: 4px; min-height: 38px; padding: 0 6px 0 12px; }
+.ed-paneltitle { flex: 1; min-width: 0; margin: 0; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-paneltools { display: flex; gap: 0; }
+.ed-panelnote { margin: 6px 12px; font-size: var(--fs-sm); color: var(--muted); }
+.ed-count { flex: none; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); font-size: 11px; font-weight: 600; text-align: center; line-height: 18px; }
+
+/* Explorer */
+.ed-tree { flex: 1; overflow: auto; padding-bottom: 12px; }
+.ed-row { position: relative; display: flex; align-items: center; gap: 5px; min-height: 26px; padding-right: 6px; font-size: var(--fs-sm); color: var(--text-2); cursor: pointer; white-space: nowrap; user-select: none; }
+.ed-row:hover { background: var(--surface-2); }
+.ed-row.sel { background: var(--surface-3); }
+.ed-row.on { background: var(--accent-soft); color: var(--accent-soft-text); }
+.ed-row:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); border-radius: 0; }
+.ed-row .icon { color: var(--muted); }
+.ed-row-gap { flex: none; width: 14px; }
+.ed-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ed-row-link { color: var(--muted); }
+.ed-row-wait { color: var(--muted); cursor: default; }
+.ed-row-mark { flex: none; width: 14px; font: 700 11px/1 var(--mono); text-align: center; }
+.ed-row-more { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; opacity: 0; }
+.ed-row:hover .ed-row-more, .ed-row:focus-within .ed-row-more, .ed-row.sel .ed-row-more { opacity: 1; }
+.ed-row-more:hover { background: var(--surface-3); color: var(--text); }
+@media (pointer: coarse) { .ed-row { min-height: var(--tap); } .ed-row-more { opacity: 1; width: var(--tap); height: var(--tap); } }
+.ed-row-note { margin: 2px 12px 4px; }
+/* git's state: changed, new, deleted, in conflict; a folder with changes in it */
+.git-mod .ed-row-name, .git-mod .ed-change-name, .git-mod .ed-row-mark { color: var(--warn); }
+.git-new .ed-row-name, .git-new .ed-change-name, .git-new .ed-row-mark { color: var(--ok); }
+.git-del .ed-change-name { color: var(--danger); text-decoration: line-through; }
+.git-del .ed-row-mark { color: var(--danger); }
+.git-conflict .ed-row-name, .git-conflict .ed-change-name, .git-conflict .ed-row-mark { color: var(--danger); }
+.git-in .ed-row-name::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--warn); vertical-align: 2px; }
+
+/* Search */
+.ed-search-box { position: relative; margin: 0 10px 6px; }
+.ed-search-q { width: 100%; padding-right: 92px; min-height: 34px; }
+.ed-flags { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 2px; }
+.ed-flag { min-width: 26px; height: 24px; padding: 0 4px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); font: 600 12px/1 var(--mono); cursor: pointer; }
+.ed-flag:hover { color: var(--text); background: var(--surface-2); }
+.ed-flag[aria-pressed='true'] { color: var(--accent-soft-text); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.ed-search-more { display: grid; gap: 6px; margin: 0 10px 6px; }
+.ed-search-label { display: grid; gap: 3px; font-size: var(--fs-xs); color: var(--muted); }
+.ed-search-glob { min-height: 32px; }
+.ed-results { flex: 1; overflow: auto; padding-bottom: 12px; }
+.ed-hitfile-head { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 26px; padding: 0 8px 0 10px; border: 0; background: none; color: var(--text); font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.ed-hitfile-head:hover { background: var(--surface-2); }
+.ed-hitfile-name { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ed-hitfile-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--muted); }
+.ed-hit { display: flex; align-items: baseline; gap: 8px; width: 100%; min-height: 24px; padding: 2px 8px 2px 30px; border: 0; background: none; color: var(--text-2); text-align: left; cursor: pointer; }
+.ed-hit:hover { background: var(--surface-2); }
+.ed-hit-line { flex: none; min-width: 26px; font: 11px/1.6 var(--mono); color: var(--muted); text-align: right; }
+.ed-hit-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; font: 12px/1.6 var(--mono); }
+.ed-hit-mark { background: color-mix(in srgb, var(--warm) 35%, transparent); color: inherit; border-radius: 2px; }
+
+/* Source Control */
+.ed-scm { overflow: auto; }
+.ed-branch { display: flex; align-items: center; gap: 6px; margin: 0 12px 8px; font-size: var(--fs-sm); color: var(--text-2); }
+.ed-branch:empty { display: none; }
+.ed-branch-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-branch-sync { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+.ed-commit { display: grid; gap: 6px; margin: 0 10px 8px; }
+.ed-commit-msg { min-height: 64px; resize: vertical; font-size: var(--fs-sm); }
+.ed-commit-row { display: flex; justify-content: flex-end; }
+.ed-commit-row .btn { flex: 1; }
+.ed-group { margin-bottom: 6px; }
+.ed-group-head { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 6px 0 12px; }
+.ed-group-title { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+p.ed-group-title { margin: 10px 12px 4px; }
+.ed-group-tools { margin-left: auto; display: flex; }
+.ed-change { position: relative; display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 8px 0 22px; font-size: var(--fs-sm); cursor: pointer; }
+.ed-change:hover, .ed-change:focus-within { background: var(--surface-2); }
+.ed-change-name { flex: 0 1 auto; min-width: 4em; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The folder is cut from its start, so its last part (the one that tells files apart) stays: "…/components/forms". */
+.ed-change-dir { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-size: var(--fs-xs); color: var(--muted); }
+.ed-change-more { display: none; }
+/* Its buttons sit over the end of the row while it is pointed at (as in VS Code), so the folder keeps its room. */
+.ed-change-tools { position: absolute; right: 24px; top: 0; bottom: 0; display: none; align-items: center; padding-left: 6px; background: var(--surface-2); }
+.ed-change:hover .ed-change-tools, .ed-change:focus-within .ed-change-tools { display: flex; }
+.ed-change-tools .btn.icon.small { width: 26px; min-height: 26px; }
+/* A finger: one actions button per change at the kit's tap size, instead of three small ones side by side. */
+@media (pointer: coarse) {
+  .ed-change { min-height: calc(var(--tap) + 4px); padding-right: 2px; }
+  .ed-change-tools { display: none; }
+  .ed-change .btn.ed-change-more { display: inline-flex; width: var(--tap); min-height: var(--tap); }
+}
+.ed-scm .fold { margin: 8px 10px; }
+.ed-log { display: grid; gap: 2px; }
+.ed-commitrow { display: grid; padding: 4px 2px; border-bottom: 1px solid var(--border); }
+.ed-commit-subject { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-commit-meta { font-size: var(--fs-xs); color: var(--muted); }
+.ed-repos { margin-bottom: 12px; }
+.ed-reporow { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 12px; font-size: var(--fs-sm); color: var(--text-2); }
+.ed-reporow span { flex: 1; }
+.ed-reporow:hover { background: var(--surface-2); color: var(--accent); }
+
+/* ---------- tabs and the editor ---------- */
+.ed-area { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--surface); }
+.ed-tabs { display: flex; overflow-x: auto; overflow-y: hidden; background: var(--surface-3); border-bottom: 1px solid var(--border); scrollbar-width: thin; }
+.ed-tabs:empty { display: none; }
+.ed-tab { flex: none; display: flex; align-items: center; gap: 6px; max-width: 240px; height: 36px; padding: 0 4px 0 12px; border-right: 1px solid var(--border); color: var(--muted); font-size: var(--fs-sm); cursor: pointer; user-select: none; }
+.ed-tab:hover { color: var(--text); }
+.ed-tab.on { background: var(--surface); color: var(--text); box-shadow: inset 0 2px 0 var(--accent); }
+.ed-tab.preview .ed-tab-name { font-style: italic; }
+.ed-tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-tab-x { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: inherit; cursor: pointer; opacity: 0; }
+.ed-tab:hover .ed-tab-x, .ed-tab.on .ed-tab-x, .ed-tab.dirty .ed-tab-x { opacity: 1; }
+.ed-tab-x:hover { background: var(--surface-2); }
+/* Unsaved: a dot where the close button is, the close button on hover. */
+.ed-dot { position: absolute; inset: 0; margin: auto; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.ed-tab.dirty .ed-tab-x .icon { visibility: hidden; }
+.ed-tab.dirty .ed-tab-x:hover .icon { visibility: visible; }
+.ed-tab.dirty .ed-tab-x:hover .ed-dot { display: none; }
+@media (pointer: coarse) { .ed-tab { height: calc(var(--tap) + 4px); } .ed-tab-x { opacity: 1; width: var(--tap); height: var(--tap); } }
+.ed-tab.gone .ed-tab-name { text-decoration: line-through; }
+
+.ed-body { position: relative; display: flex; flex-direction: column; min-height: 0; }
+.ed-host { flex: 1; min-height: 0; }
+.ed-plain { flex: 1; min-height: 0; width: 100%; margin: 0; padding: 10px 12px; border: 0; outline: none; resize: none; background: var(--surface); color: var(--text); font: 14px/1.55 var(--mono); tab-size: 2; white-space: pre; overflow: auto; }
+.ed-plain[wrap='soft'] { white-space: pre-wrap; }
+.ed-note { padding: 28px 24px; display: grid; gap: 6px; align-content: start; color: var(--text-2); }
+.ed-note-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ed-empty { flex: 1; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; color: var(--muted); text-align: center; }
+.ed-diffbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); font-size: var(--fs-sm); }
+.ed-diffbar-text { flex: 1; min-width: 180px; color: var(--text-2); }
+
+/* ---------- the status bar ---------- */
+.ed-status { display: flex; align-items: center; gap: 2px; min-height: 24px; padding: 0 8px; background: var(--surface-3); border-top: 1px solid var(--border); font-size: 12px; color: var(--text-2); overflow: hidden; white-space: nowrap; }
+.ed-st { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; }
+button.ed-st { cursor: pointer; }
+button.ed-st:hover { background: var(--surface-2); color: var(--text); }
+.ed-st-gap { flex: 1; }
+
+/* ---------- quick open ---------- */
+.ed-quick-veil { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: center; align-items: flex-start; padding: 64px 12px 12px; background: color-mix(in srgb, var(--overlay) 40%, transparent); }
+.ed-quick { width: min(620px, 100%); max-height: min(70vh, 520px); display: flex; flex-direction: column; border: 1px solid var(--border-strong); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-2); overflow: hidden; }
+.ed-quick-q { flex: none; width: auto; margin: 8px; min-height: 36px; }
+.ed-quick-list { overflow: auto; padding-bottom: 6px; }
+.ed-quick-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 0 12px; border: 0; background: none; color: var(--text); font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.ed-quick-item:hover { background: var(--surface-2); }
+.ed-quick-item.on { background: var(--accent-soft); color: var(--accent-soft-text); }
+
+/* ---------- a phone: one pane at a time, switched from the bar at the bottom ---------- */
+.ed-phonebar { display: none; }
+@media (max-width: 699px) {
+  .ed-main { grid-template-columns: minmax(0, 1fr); }
+  .ed-activity, .ed-resize { display: none; }
+  .ed-side { border-right: 0; }
+  .ed-wrap.ed-noside .ed-side { visibility: visible; }
+  .ed-wrap.ed-pane-editor .ed-side, .ed-wrap:not(.ed-pane-editor) .ed-area { display: none; }
+  .ed-st-wide { display: none; }
+  .ed-back { width: var(--tap); padding: 0; }
+  .ed-back-label { display: none; }
+  .ed-phonebar { display: grid; grid-template-columns: repeat(4, 1fr); padding: 0 0 env(safe-area-inset-bottom); background: var(--surface); border-top: 1px solid var(--border); }
+  .ed-pb { position: relative; display: grid; justify-items: center; gap: 2px; padding: 7px 0 6px; border: 0; background: none; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; }
+  .ed-pb.on { color: var(--accent); }
+  .ed-pb .ed-badge { right: calc(50% - 22px); bottom: auto; top: 3px; }
+  body.code-mode .toasts { bottom: calc(80px + env(safe-area-inset-bottom)); }
+}
+/* The log's fold reads like the groups above it. */
+.ed-scm .fold-summary { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.ed-plain:focus-visible { box-shadow: none; border-radius: 0; }
+
+/* ---------- the kit's tap size for a finger: the tools of the panels, the bar and the lists ---------- */
+@media (pointer: coarse) {
+  .ed-paneltools .btn.icon, .ed-group-tools .btn.icon, .ed-bar-end .btn.icon { width: var(--tap); min-height: var(--tap); }
+  .ed-wrap .btn.ed-savebtn, a.btn.ed-open { min-height: var(--tap); } /* above .btn.small's 30px */
+  a.btn.icon.ed-open { width: var(--tap); }
+  .ed-hit, .ed-hitfile-head, .ed-quick-item { min-height: var(--tap); }
+}
+
+/* ---------- a folder that cannot be opened: one message for the whole page ---------- */
+.ed-wrap.ed-failed .ed-bar-end, .ed-wrap.ed-failed .ed-status, .ed-wrap.ed-failed .ed-phonebar { display: none; }
+.ed-wrap.ed-failed .ed-main { display: block; overflow: auto; }
+.ed-fail { max-width: 560px; margin: 48px auto; padding: 0 16px; display: grid; justify-items: center; gap: 8px; text-align: center; color: var(--text-2); }
+.ed-fail .icon { color: var(--muted); }
+.ed-fail-title { margin: 6px 0 0; font-size: var(--fs-lg); font-weight: 700; color: var(--text); }
+.ed-fail-text { margin: 0; overflow-wrap: anywhere; }
+.ed-fail-tools { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }

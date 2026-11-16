@@ -68,6 +68,7 @@ export function baseState() {
     setup: { ok: false, checks: [{ id: 'kit:node.node', label: 'Node.js', status: 'ok', detail: 'v26' }, { id: 'kit:tools.gh', label: 'GitHub CLI', status: 'missing', detail: 'missing', fixKit: 'tools' }, { id: 'os.updates', label: 'System updates', status: 'warn', detail: '3 pending', fix: 'sudo apt upgrade' }] },
     kits: [{ id: 'tools', title: 'Developer tools', items: [{ name: 'gh', state: 'missing' }], commands: ['apt install gh'], admin: true }, { id: 'node', title: 'Node.js', items: [], commands: [], admin: false }],
     addons: [{ id: 'trouteai', title: 'TRouteAI', installed: true, running: false, version: '1.2.0' }],
+    publicLink: { on: false, kind: 'temporary', state: 'off', url: null, custom: { state: 'none' } },
     automation: { settings: { paused: false, queue: { enabled: true }, schedules: { enabled: true, list: [] }, restore: { enabled: null }, retry: { enabled: false }, updates: { claude: 'off' }, idle: { shells: false, gateway: false } }, schedules: [{ id: 'abcd1234', label: 'Morning tests', enabled: true, when: { kind: 'daily', time: '08:00' }, action: { type: 'start', dir: '/home/owner/projects/shop', profile: 'sub', prompt: 'run the tests' }, nextAt: null }], queues: {} },
     skills: { user: { skills: [{ name: 'tdd', source: 'catalog' }] }, settings: { weekly: false } },
     reviews: { 'pdf-tools': { id: 'r1', name: 'pdf-tools', description: 'Read PDFs.', source: { type: 'git', repo: 'acme/skills', path: 'pdf', commit: 'abcdef123' }, scope: { kind: 'user' }, files: [{ path: 'SKILL.md' }, { path: 'run.sh' }], findings: [{ severity: 'warn', rule: 'script', message: 'runs a shell script', file: 'run.sh' }], counts: { block: 0 }, skillMd: '# PDF tools\nUse pdftotext.' } },
@@ -278,6 +279,15 @@ export class FakeOps {
   async addon(a) {
     this.#write('addon', a);
     return { started: true };
+  }
+  async publicLink() {
+    return clone(this.s.publicLink);
+  }
+  async setPublicLink(a) {
+    this.#write('setPublicLink', a);
+    if (a.on && this.s.publicLink.refuse) return { ok: false, need: this.s.publicLink.refuse, error: 'Some text from that computer' };
+    Object.assign(this.s.publicLink, { on: a.on, kind: a.kind || this.s.publicLink.kind, state: a.on ? 'starting' : 'off' });
+    return { ok: true, ...clone(this.s.publicLink) };
   }
   // ---- automations ----
   async automation() {

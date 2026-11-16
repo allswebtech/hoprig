@@ -108,3 +108,27 @@ test('watcher: moves, marks the old profile, sends the prompt once the new run w
   assert.deepEqual(calls.filter((c) => c[0] === 'send'), [['send', '%1', 'continue']], 'prompt sent exactly once');
   w.stop();
 });
+
+test('watcher: after a restart on the same provider the prompt is for the new run, never the one that was stopped', async () => {
+  let cards = [card({ runId: 'r1', status: 'waiting' })];
+  const calls = [];
+  const w = new Watcher({
+    cards: async () => cards,
+    deck: { find: async () => ({ term: { id: '%1' }, run: { runId: 'r1' } }), move: async () => {}, send: async (id, text) => calls.push([id, text]) },
+    auto: { getAutoSwitch: () => ({ enabled: false, prompt: 'continue', order: [] }), nextProfile: () => null, markLimited: () => {} },
+    settings: () => ({ notify: null, publicUrl: '' }),
+    log: () => {},
+  });
+  // what POST /api/sessions/<name>/continue { restart: true } leaves (server.mjs)
+  w.pending.set('p', { to: 'sub', prompt: 'continue', since: Date.now(), notRun: 'r1' });
+  await w.tick();
+  assert.deepEqual(calls, [], 'the stopped run is still listed, waiting: not into that one');
+  cards = [card({ runId: 'r2', status: 'starting' })];
+  await w.tick();
+  assert.deepEqual(calls, [], 'not before the new one waits');
+  cards = [card({ runId: 'r2', status: 'waiting' })];
+  await w.tick();
+  await w.tick();
+  assert.deepEqual(calls, [['%1', 'continue']], 'once');
+  w.stop();
+});

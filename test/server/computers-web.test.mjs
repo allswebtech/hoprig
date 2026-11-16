@@ -55,20 +55,27 @@ test('Advanced: the busiest and the largest programs as ONE list, sorted by CPU 
 test('Overview: whether the computer can be reached from anywhere, in plain words', () => {
   const s = (host, publicUrl = '') => ({ network: { host, port: 7433 }, server: { publicUrl } });
   assert.equal(reachOf(s('127.0.0.1')).level, 'local');
+  assert.match(reachOf(s('127.0.0.1')).text, /public link/);
   assert.equal(reachOf(s('0.0.0.0')).level, 'network');
   assert.match(reachOf(s('0.0.0.0')).text, /port 7433/);
   assert.equal(reachOf(s('127.0.0.1', 'https://pc.example.net')).level, 'anywhere');
-  // The add-on's real id is "public-link" (an older check looked for "publiclink" and never matched it).
-  const link = reachOf(s('127.0.0.1'), [{ id: 'public-link', running: true, url: 'https://a-b.trycloudflare.com' }, { id: 'trouteai', running: true, url: 'http://localhost:20017' }]);
-  assert.equal(link.level, 'anywhere');
-  assert.match(link.text, /a-b\.trycloudflare\.com/);
-  assert.match(link.text, /temporary/);
-  assert.equal(reachOf(s('127.0.0.1'), [{ id: 'public-link', running: false }]).level, 'local');
-  // The fixed address comes first, and says whether it is connected yet.
-  const fixed = (o) => [{ id: 'public-link', running: true, url: 'https://a-b.trycloudflare.com', fixed: { url: 'https://pc.example.com', enabled: true, connected: true, ...o } }];
-  assert.deepEqual(reachOf(s('127.0.0.1'), fixed({})), { level: 'anywhere', text: 'At its fixed address https://pc.example.com.' });
-  assert.match(reachOf(s('127.0.0.1'), fixed({ connected: false })).text, /once it is connected/);
-  assert.match(reachOf(s('127.0.0.1'), fixed({ enabled: false })).text, /a-b\.trycloudflare\.com/, 'turned off: the temporary one, when it runs');
+  // From GET /api/public-link: the kind and its address once it is on.
+  const temp = reachOf(s('127.0.0.1'), { on: true, kind: 'temporary', state: 'on', url: 'https://a-b.trycloudflare.com' });
+  assert.equal(temp.level, 'anywhere');
+  assert.match(temp.text, /a-b\.trycloudflare\.com/);
+  assert.match(temp.text, /changes whenever Hoprig or the computer restarts/);
+  assert.deepEqual(reachOf(s('127.0.0.1'), { on: true, kind: 'custom', state: 'on', url: 'https://pc.example.com' }), { level: 'anywhere', text: 'Through its public link https://pc.example.com (Custom).' });
+  assert.match(reachOf(s('127.0.0.1'), { on: true, kind: 'custom', state: 'starting', url: null }).text, /once it is connected/);
+  assert.equal(reachOf(s('127.0.0.1'), { on: false, kind: 'temporary', state: 'off' }).level, 'local');
+  // On but not working: never "from anywhere".
+  for (const state of ['error', 'retrying', 'blocked']) {
+    const r = reachOf(s('127.0.0.1'), { on: true, kind: 'temporary', state, url: null });
+    assert.equal(r.level, 'local', state);
+    assert.match(r.text, /is on but/, state);
+  }
+  assert.equal(reachOf(s('0.0.0.0'), { on: true, kind: 'custom', state: 'error', url: null }).level, 'network');
+  assert.equal(reachOf(s('127.0.0.1'), null).level, 'local', 'an older computer without the route');
+  for (const f of ['pc.js', 'settings.js', 'computers.js', 'gateways.js']) assert.doesNotMatch(src(f), /Tailscale|SSH tunnel/, `${f}: the public link is the way from anywhere`);
   assert.equal(upFor(3 * 86400 + 5 * 3600 + 120), '3 d 5 h');
   assert.equal(upFor(3600 + 120), '1 h 2 min');
   assert.equal(upFor(NaN), '');
@@ -102,7 +109,7 @@ test('the pages: one list, Add a computer by situation, Rename/Test/Remove on th
   const list = src('computers.js');
   assert.doesNotMatch(list, /Open a computer|Your computers/, 'the computers appear once');
   assert.match(list, /primary: \{ label: 'Add a computer', icon: 'plus', href: '#\/computers\/add' \}/);
-  for (const t of ['I can reach it by SSH from this computer', 'It is at home or behind a router and cannot be reached from here', 'It has an address: Tailscale, HTTPS or the same network']) assert.ok(list.includes(t), t);
+  for (const t of ['I can reach it by SSH from this computer', 'It is at home or behind a router and cannot be reached from here', 'It has an address (the same network, or its public link)']) assert.ok(list.includes(t), t);
   assert.match(list, /fold\('computers-add', 'Advanced'/, 'the rare things are under a closed Advanced');
   assert.doesNotMatch(list, /\/rename|\/remove|\/test`/, 'renaming, testing and removing live on the computer\'s page');
   const pc = src('pc.js');

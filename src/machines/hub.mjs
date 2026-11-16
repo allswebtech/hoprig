@@ -240,7 +240,7 @@ export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(O
     };
     putMachine(m);
     probeCache.delete(m.name);
-    return { machine: await probe(m, { fresh: true }), hint: url.startsWith('http://') && !/^http:\/\/(127\.|localhost|\[::1\])/.test(url) ? 'This address is not encrypted: the token travels in the clear. Prefer SSH, Tailscale or HTTPS.' : null };
+    return { machine: await probe(m, { fresh: true }), hint: url.startsWith('http://') && !/^http:\/\/(127\.|localhost|\[::1\])/.test(url) ? 'This address is not encrypted: the token travels in the clear. Prefer SSH, or an https:// address such as the other computer\'s public link.' : null };
   }
 
   /** Remove a machine. By SSH its token there is revoked as well; by address that has to be done there. */

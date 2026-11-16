@@ -112,7 +112,10 @@ export const ALLOW = [
   r('POST', '/api/machine/label', 'manage_computer rename (this computer)'),
   r('POST', `/api/machines/${SEG}/rename`, 'manage_computer rename (another computer)'),
   r('GET', '/api/addons', 'manage_computer addon'),
-  r('POST', `/api/addons/${SEG}/(install|update|start|stop)`, 'manage_computer addon'),
+  // Not the public link's: it opens the computer to the internet, through its own route and a card.
+  r('POST', `/api/addons/(?!public-link/)${SEG}/(install|update|start|stop)`, 'manage_computer addon'),
+  r('GET', '/api/public-link', 'manage_computer public_link'),
+  r('POST', '/api/public-link', 'manage_computer public_link', onlyKeys(['on', 'kind'])),
   r('GET', '/api/automation', 'manage_automation'),
   r('POST', '/api/automation/settings', 'manage_automation set_rule, pause, resume', automationBody),
   r('POST', '/api/automation/schedules', 'manage_automation add / change / delete_schedule'),
@@ -152,6 +155,8 @@ export const NEVER = [
   /^\/api\/profiles(\/|$)/,
   /^\/api\/accounts(\/|$)/,
   /^\/api\/addons\/[^/]+\/setup$/,
+  /^\/api\/addons\/public-link\//, // the old routes of the public link: Tia uses its own route, with a card
+  /^\/api\/public-link\/.+$/, // the Custom set-up (a Cloudflare sign-in) and its extra addresses: the owner's own steps
   /^\/api\/notify(\/|$)/,
   /^\/api\/onboarding(\/|$)/,
   /^\/api\/pcsetup\/recipe$/,

@@ -582,6 +582,14 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); border-ra
 .gw-row .row-title .mpill { margin-left: 6px; vertical-align: 1px; }
 .acct { cursor: pointer; }
 .acct-signin { flex: none; align-self: center; }
+.acct-more { display: block; margin-top: 8px; }
+.acct-more .btn, .acct-limit > .btn { max-width: 100%; white-space: normal; text-align: left; line-height: 1.25; padding-top: 6px; padding-bottom: 6px; }
+.acct-who { margin: 2px 0 10px; overflow-wrap: anywhere; }
+/* The limit banner of a provider on the stored sign-in: its button has many words, so on a narrow screen it goes under the text. */
+.acct-limit { flex-wrap: wrap; }
+.acct-limit > span { flex: 1 1 200px; }
+.acct-limit > .btn { flex: 0 1 auto; }
+.acct-who strong { color: var(--text); font-weight: 600; }
 .mini-switch { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; font-size: var(--fs-xs); color: var(--muted); cursor: pointer; flex: none; }
 input.switch.small { width: 40px; height: 24px; border-radius: 12px; }
 input.switch.small::after { width: 18px; height: 18px; }
@@ -659,6 +667,30 @@ body.is-demo .page-title::after {
 .addon-form .field.addon-port { flex: 0 0 96px; }
 .addon-svc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: var(--fs-sm); min-width: 0; }
 .addon-svc a, .addon-address a { overflow-wrap: anywhere; }
+/* Settings → Public link (publiclink.js): the switch, the two kinds side by side where they fit, the address */
+.pl { display: grid; gap: 16px; min-width: 0; }
+.pl-switch { border-bottom: 0; }
+.pl-progress { margin: 0; padding-left: 18px; font-size: var(--fs-sm); color: var(--text-2); display: grid; gap: 2px; overflow-wrap: anywhere; }
+.pl-need { border-top: 1px solid var(--border); padding-top: 10px; }
+.pl-kinds { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: start; }
+.radiocard.pl-kind { flex-direction: column; align-items: stretch; cursor: default; min-width: 0; }
+.pl-kind-head { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
+.pl-kind-more { font-size: var(--fs-xs); color: var(--text-2); }
+.pl-kind-body { display: grid; gap: 8px; padding-left: 30px; min-width: 0; }
+.pl-url { font: 600 18px/1.35 var(--mono); overflow-wrap: anywhere; }
+.pl-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pl-qr { display: grid; justify-items: center; }
+.pl-qr .qrbox { background: #fff; padding: 8px; border-radius: var(--r-sm); }
+.pl-fail { display: grid; gap: 4px; }
+.pl-details { font-size: var(--fs-xs); color: var(--text-2); }
+.pl-details summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.pl-details code { display: block; overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 600px) {
+  .pl-actions .btn { flex: 1 1 0; min-height: 44px; justify-content: center; }
+  .pl-kind-body { padding-left: 0; }
+  /* A finger needs 44 px: every button of the page on a phone, not only the address card's. */
+  .pl .btn, .pl a.btn, .pl-details summary { min-height: 44px; }
+}
 
 /* ---------- shell (shell.js): sidebar, page head, computer pill, bottom bar ----------
    Each page's own styles live in its page-*.css with class names that start with the page's prefix; shared parts
@@ -794,6 +826,7 @@ body.is-demo .page-title::after { display: inline-block; }
 .accountsline-one { display: block; }
 .accountsline.warn { background: var(--warn-soft); border-color: transparent; color: var(--warn); font-weight: 600; }
 .accountsline.warn > .icon:first-child { color: var(--warn); }
+.accountsline-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 2px; }
 .home-group:first-child .group-head { margin-top: 18px; }
 
 /* ---------- Accounts (accounts.js) ---------- */
@@ -902,8 +935,4 @@ body.has-nav .page.fill { padding-bottom: calc(59px + env(safe-area-inset-bottom
 /* Rows inside a card sit in a hairline frame, not in a second floating card. */
 .panel .rows, .card .rows { box-shadow: none; border: 1px solid var(--border); border-radius: var(--r); }
 
-/* Open in VS Code (vscode.js): a choice that is a link looks like the others; the card that turns it on. */
-a.choice { color: inherit; }
-.vs-setup { display: grid; gap: 8px; padding: 12px; }
-.vs-setup .choice-label { margin: 0; }
 .mrow-actions:empty { display: none; }

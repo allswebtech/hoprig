@@ -3,7 +3,8 @@
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { getAutoSwitch, limitedProfiles, setAutoSwitch } from '../src/autoswitch.mjs';
-import { hasSessionFlag, hookMain, launch } from '../src/launch.mjs';
+import { hookMain } from '../src/hook.mjs';
+import { hasSessionFlag, launch } from '../src/launch.mjs';
 import { routerMain } from '../src/router.mjs';
 import { profileUsage, routerAddress } from '../src/routerstate.mjs';
 import { addProfile, ago, askNext, chooseProfile, clock, menuProfiles, rememberLast } from '../src/menu.mjs';
@@ -47,6 +48,8 @@ const HELP = `Hoprig — Claude Code under several profiles, with one shared ses
   hoprig update               update Hoprig itself
 
   hoprig link                 a one-time link and QR code that signs a phone or another browser in
+  hoprig public on | off      open this dashboard from anywhere through Cloudflare, no server needed
+                                 (public on --temporary | --custom; public status)
   hoprig machines             the other computers this dashboard also shows (add, list, remove)
   hoprig join <ssh target>    connect THIS computer out to another dashboard (for a PC behind a router)
   hoprig pair                 let another computer's dashboard control this one
@@ -205,6 +208,10 @@ async function main() {
     case 'addons': {
       const addons = await import('../src/addons/cli.mjs');
       return addons.main(cmd, rest);
+    }
+    case 'public': {
+      const pub = await import('../src/addons/publiccli.mjs');
+      return pub.main(rest);
     }
     case 'mcp': {
       const assistant = await import('../src/assistant/cli.mjs');

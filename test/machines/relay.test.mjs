@@ -159,6 +159,9 @@ test('offline, slow and too old: clear errors, never a 401', async () => {
   assert.match(oldie.json.error, /hoprig update/);
   // A route that hangs on a live machine also times out.
   assert.equal((await browser('/m/rem/api/slow')).json.code, 'timeout');
+  // A git commit in the code editor may wait for slow hooks: it is given longer than an ordinary request.
+  const commit = await browser('/m/rem/api/code/git/commit', { body: { message: 'x' } });
+  assert.deepEqual([commit.status, commit.json.committed], [200, true]);
 });
 
 test('the machine list and the sessions of all machines: in parallel, a dead one does not block', async () => {

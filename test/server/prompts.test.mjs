@@ -2,7 +2,7 @@
 // offered only when the question on screen has one, in Claude's own words, with its own number.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { alwaysOption, permissionOptions } from '../../src/server/prompts.mjs';
+import { alwaysOption, menuOpen, permissionOptions } from '../../src/server/prompts.mjs';
 
 const bash = [
   '╭──────────────────────────────────────────╮',
@@ -43,4 +43,15 @@ test('nothing is guessed: no such answer, no menu, a menu that is not a permissi
   assert.equal(alwaysOption(['❯ 1. Yes', "  3. Yes, and don't ask again"].join('\n')), null, 'numbers out of order');
   assert.equal(alwaysOption(''), null);
   assert.equal(alwaysOption(null), null);
+});
+
+test('a menu of any kind at the bottom of the screen: typing now would answer it', () => {
+  assert.equal(menuOpen(bash), true, 'a permission question');
+  const limit = ["  ⎿  You've hit your 5-hour limit · resets 5pm (UTC)", '', '  What do you want to do?', '  ❯ 1. Stop and wait for limit to reset', '    2. Switch to extra usage'].join('\n');
+  assert.equal(menuOpen(limit), true, 'the menu Claude Code may open at a limit');
+  assert.equal(permissionOptions(limit), null, 'which is not a permission question');
+  assert.equal(menuOpen("  ⎿  You've hit your 5-hour limit · resets 5pm (UTC)\n● Usage limit reached · continuing automatically at 5pm · esc to cancel\n────\n❯ \n────\n"), false, 'the plain message box');
+  assert.equal(menuOpen('1. first\n2. second\n' + 'more text\n'.repeat(12)), false, 'a numbered list further up is no menu');
+  assert.equal(menuOpen(''), false);
+  assert.equal(menuOpen(undefined), false);
 });

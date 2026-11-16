@@ -39,21 +39,26 @@ export function processList(d, sort = 'cpu') {
   return [...byPid.values()].sort((a, b) => val(b) - val(a));
 }
 
-/** Can the computer's dashboard be opened from anywhere? From its settings and add-ons: { level, text }. */
-export function reachOf(settings, addons = []) {
-  // The public link add-on (id "public-link"): its fixed address first, then the temporary one.
-  const link = addons.find((a) => a.id === 'public-link') || {};
-  const fixed = link.fixed;
-  if (fixed && fixed.enabled && fixed.url) {
-    // The row's title already says "Yes, from anywhere": the text only says where.
-    return { level: 'anywhere', text: fixed.connected ? `At its fixed address ${fixed.url}.` : `At its fixed address ${fixed.url}, once it is connected (it is connecting now).` };
+/**
+ * Can the computer's dashboard be opened from anywhere? From its settings and its public link (GET /api/public-link,
+ * null for a computer too old to have it): { level, text }.
+ */
+export function reachOf(settings, link = null) {
+  // The row's title already says "Yes, from anywhere": the text only says where.
+  let broken = null; // the public link is on but does not work: said instead of the advice to turn it on
+  if (link && link.on) {
+    const kind = link.kind === 'custom' ? 'Custom' : 'Temporary';
+    if (link.state === 'on' && link.url) return { level: 'anywhere', text: `Through its public link ${link.url} (${kind}${link.kind === 'custom' ? '' : ': the address changes whenever Hoprig or the computer restarts'}).` };
+    if (link.state === 'starting' || link.state === 'installing') return { level: 'anywhere', text: `Through its public link (${kind}), once it is connected (it is starting now).` };
+    broken = link.state === 'blocked'
+      ? `Its public link (${kind}) is on but held back: its password must be made strong first (Settings → Public link).`
+      : `Its public link (${kind}) is on but not working now${link.state === 'retrying' ? '; it keeps trying' : ''} (Settings → Public link says why).`;
   }
-  if (link.running && link.url) return { level: 'anywhere', text: `Through the public link ${link.url} (temporary: the address changes each time it starts).` };
   const s = (settings && settings.server) || {};
   if (s.publicUrl) return { level: 'anywhere', text: `At ${s.publicUrl}.` };
   const n = (settings && settings.network) || {};
-  if (n.host && !['127.0.0.1', '::1', 'localhost'].includes(n.host)) return { level: 'network', text: `From other devices that can reach it on port ${n.port}, such as the same network or Tailscale.` };
-  return { level: 'local', text: 'Turn on the public link, or use Tailscale, to open it from anywhere.' };
+  if (n.host && !['127.0.0.1', '::1', 'localhost'].includes(n.host)) return { level: 'network', text: `From other devices on the same network, on port ${n.port}. ${broken || 'Turn on the public link to open it from anywhere.'}` };
+  return { level: 'local', text: broken || 'Turn on the public link to open it from anywhere.' };
 }
 
 /** The open computer as the list of computers knows it (state, system, versions). */
@@ -196,7 +201,7 @@ function claudeRow(ctx, c) {
 function reachRow(reach) {
   if (!reach) return h('div.row.static', h('span.row-icon', icon('lock')), h('span.row-main', h('span.row-title', 'Checking…'), h('span.row-sub', ' ')));
   const title = { anywhere: 'Yes, from anywhere', network: 'From the network', local: 'No: only on the computer itself', unknown: 'Could not tell' }[reach.level];
-  return h('a.row', { href: link(reach.level === 'local' ? '#/settings/addons' : '#/settings/security') },
+  return h('a.row', { href: link('#/settings/public-link') },
     h('span.row-icon', icon(reach.level === 'anywhere' ? 'check' : 'lock')),
     h('span.row-main.cp-wrap', h('span.row-title', title), h('span.row-sub', reach.text)),
     h('span.row-end', icon('chevronRight', { size: 18 })));
@@ -419,8 +424,8 @@ function viewPc({ frame, connectionBanner, sub }) {
   async function facts() {
     computerInfo().then((info) => set({ info })).catch(() => {});
     api(at(machine.current, '/api/claude')).then((claude) => set({ claude })).catch(() => set({ claude: { installed: null } }));
-    Promise.all([api('/api/settings'), api('/api/addons').catch(() => ({ addons: [] }))])
-      .then(([s, a]) => set({ reach: reachOf(s, a.addons) }))
+    Promise.all([api('/api/settings'), api('/api/public-link').catch(() => null)])
+      .then(([s, l]) => set({ reach: reachOf(s, l) }))
       .catch(() => set({ reach: { level: 'unknown', text: 'Its settings could not be read.' } }));
   }
   if (part.id !== 'setup') {
