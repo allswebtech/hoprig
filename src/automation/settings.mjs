@@ -178,6 +178,7 @@ const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ID_RE = /^[a-z0-9]{4,32}$/;
 const SESSION_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,39}$/;
+const CHAT_RE = /^chat:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/; // an open chat (src/chat)
 
 const idOf = (v) => {
   if (typeof v !== 'string' || !ID_RE.test(v)) throw new Error('bad schedule id');
@@ -230,16 +231,17 @@ export function cleanSchedule(s, checks = {}) {
   const a = s.action;
   if (!isObj(a)) throw new Error('say what the schedule does');
   if (a.type === 'start') {
-    strictKeys(a, ['type', 'dir', 'profile', 'prompt'], 'starting a session');
+    strictKeys(a, ['type', 'dir', 'profile', 'prompt', 'in'], 'starting a session');
+    if (a.in !== undefined && a.in !== 'chat' && a.in !== 'terminal') throw new Error('a session starts in a chat or in a terminal');
     if (typeof a.dir !== 'string' || !path.isAbsolute(a.dir) || a.dir.includes('\0') || a.dir.length > 4096) throw new Error('choose the folder to start in');
     if (checks.dirOk && !checks.dirOk(a.dir)) throw new Error(`${a.dir} is not a folder the dashboard may use`);
     if (typeof a.profile !== 'string' || (a.profile !== 'auto' && !NAME_RE.test(a.profile))) throw new Error('choose a provider (or Auto)');
     if (checks.profileOk && !checks.profileOk(a.profile)) throw new Error(`there is no provider "${a.profile}"`);
-    out.action = { type: 'start', dir: a.dir, profile: a.profile };
+    out.action = { type: 'start', dir: a.dir, profile: a.profile, ...(a.in === 'chat' ? { in: 'chat' } : {}) }; // without "in": a terminal, as before
     if (a.prompt !== undefined && a.prompt !== '') out.action.prompt = cleanText(a.prompt, 'the first message');
   } else if (a.type === 'send') {
     strictKeys(a, ['type', 'session', 'text'], 'sending a message');
-    if (typeof a.session !== 'string' || !SESSION_RE.test(a.session)) throw new Error('choose the session to send to');
+    if (typeof a.session !== 'string' || !(SESSION_RE.test(a.session) || CHAT_RE.test(a.session))) throw new Error('choose the session to send to');
     out.action = { type: 'send', session: a.session, text: cleanText(a.text) };
   } else {
     throw new Error('a schedule either starts a session or sends a message');

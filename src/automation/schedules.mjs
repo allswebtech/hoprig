@@ -1,5 +1,6 @@
 // Schedules: "at this time (once / daily / on these weekdays) start a session in this folder on this account
-// with this first message", or "send this message to that session". Times are the computer's local time.
+// with this first message" (in a chat, or in a terminal), or "send this message to that session" (a terminal, or a
+// chat: "chat:<id>"). Times are the computer's local time.
 //
 // A schedule's `when` is { kind: 'once'|'daily'|'weekly', time: 'HH:MM', days?: [0-6], date?: 'YYYY-MM-DD' }
 // (days: 0 = Sunday). No cron syntax: these three kinds are what people ask for.
@@ -86,8 +87,10 @@ export function decide({ schedules, lateHours, data, now }) {
 
 /**
  * Carry out the actions. ctx: { deck.start({ dir, profile, mode, name? }) → name, deck.has(name) → bool,
- * enqueue(session, text), record(entry), notify({ title, message, session }) }.
- * A message goes through the session's queue, so it waits until Claude is free instead of typing over its work.
+ * deck.startChat({ dir, profile, text }) → chat id, deck.sendChat(id, text), enqueue(session, text), record(entry),
+ * notify({ title, message, session }) }.
+ * A message to a terminal goes through the session's queue, so it waits until Claude is free instead of typing over
+ * its work; a chat queues a message by itself (Claude takes it at its next step).
  */
 export async function apply(actions, ctx) {
   for (const a of actions) {
@@ -100,13 +103,20 @@ export async function apply(actions, ctx) {
     }
     const lateNote = a.late > ON_TIME_MS ? ` (ran ${Math.round(a.late / 60_000)} minutes late)` : '';
     try {
-      if (s.action.type === 'start') {
+      if (s.action.type === 'start' && s.action.in === 'chat') {
+        if (!ctx.deck.startChat) throw new Error('chats are not available here');
+        const id = await ctx.deck.startChat({ dir: s.action.dir, profile: s.action.profile, text: s.action.prompt || null });
+        ctx.record({ automation: 'schedules', session: `chat:${id}`, did: `started "${label}" in a chat${lateNote}`, outcome: 'ok' });
+      } else if (s.action.type === 'start') {
         const name = await ctx.deck.start({ dir: s.action.dir, profile: s.action.profile, mode: 'new' });
         if (s.action.prompt) ctx.enqueue(name, s.action.prompt);
         ctx.record({ automation: 'schedules', session: name, did: `started "${label}"${lateNote}`, outcome: 'ok' });
       } else {
         if (!(await ctx.deck.has(s.action.session))) throw new Error(`there is no session "${s.action.session}"`);
-        ctx.enqueue(s.action.session, s.action.text);
+        if (s.action.session.startsWith('chat:')) {
+          if (!ctx.deck.sendChat) throw new Error('chats are not available here');
+          await ctx.deck.sendChat(s.action.session.slice(5), s.action.text);
+        } else ctx.enqueue(s.action.session, s.action.text);
         ctx.record({ automation: 'schedules', session: s.action.session, did: `queued "${label}"${lateNote}`, outcome: 'ok' });
       }
     } catch (e) {
@@ -116,4 +126,4 @@ export async function apply(actions, ctx) {
   }
 }
 
-export const describeAction = (a) => (a.type === 'start' ? `start in ${a.dir} on ${a.profile}` : `message to ${a.session}`);
+export const describeAction = (a) => (a.type === 'start' ? `start ${a.in === 'chat' ? 'a chat ' : ''}in ${a.dir} on ${a.profile}` : `message to ${a.session}`);

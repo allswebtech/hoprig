@@ -149,3 +149,32 @@ test('schedule validation: plain refusals, strict keys', () => {
   assert.throws(() => cleanSchedule(ok, { dirOk: () => false }), /not a folder the dashboard may use/);
   assert.throws(() => cleanSchedule(ok, { profileOk: () => false }), /no provider "auto"/);
 });
+
+test('a schedule can start a chat (with that folder\'s last settings) and message an open chat; a terminal stays as before', async () => {
+  const ID = '44444444-4444-4444-8444-444444444444';
+  const deck = fakeDeck([{ name: `chat:${ID}`, kind: 'chat' }]);
+  deck.has = async (n) => deck.cards.some((c) => c.name === n);
+  const chats = [];
+  const sent = [];
+  deck.startChat = async (o) => (chats.push(o), '55555555-5555-4555-8555-555555555555');
+  deck.sendChat = async (id, text) => sent.push([id, text]);
+  const rec = recorder();
+  const queued = [];
+  const start = make({ kind: 'daily', time: '07:00' }, { label: 'Morning', action: { type: 'start', in: 'chat', dir: '/w', profile: 'sub', prompt: 'check the build' } });
+  const bare = make({ kind: 'daily', time: '07:00' }, { id: 'abcd4', action: { type: 'start', in: 'chat', dir: '/w', profile: 'sub' } });
+  const send = make({ kind: 'daily', time: '07:00' }, { id: 'abcd2', action: { type: 'send', session: `chat:${ID}`, text: 'status?' } });
+  await sch.apply([start, bare, send].map((schedule) => ({ type: 'run', schedule, slot: 1, late: 0 })), { deck, record: rec.record, notify: rec.notify, enqueue: (s, t) => queued.push([s, t]) });
+  assert.deepEqual(chats, [{ dir: '/w', profile: 'sub', text: 'check the build' }, { dir: '/w', profile: 'sub', text: null }], 'the first message goes with the chat');
+  assert.deepEqual(sent, [[ID, 'status?']], 'a chat queues a message itself: not through the terminal queue');
+  assert.deepEqual(queued, [], 'nothing in the terminal queue');
+  assert.deepEqual(deck.started, [], 'no terminal started');
+  assert.equal(rec.entries[0].session, 'chat:55555555-5555-4555-8555-555555555555');
+  assert.match(rec.entries[0].did, /started "Morning" in a chat/);
+  assert.equal(sch.describeAction(start.action), 'start a chat in /w on sub');
+  // validation: "in" is chat or terminal; a chat's name is a target; a terminal start keeps its old shape
+  assert.deepEqual(cleanSchedule({ when: { kind: 'daily', time: '07:00' }, action: { type: 'start', in: 'chat', dir: '/w', profile: 'sub' } }).action, { type: 'start', dir: '/w', profile: 'sub', in: 'chat' });
+  assert.deepEqual(cleanSchedule({ when: { kind: 'daily', time: '07:00' }, action: { type: 'start', in: 'terminal', dir: '/w', profile: 'sub' } }).action, { type: 'start', dir: '/w', profile: 'sub' });
+  assert.throws(() => cleanSchedule({ when: { kind: 'daily', time: '07:00' }, action: { type: 'start', in: 'browser', dir: '/w', profile: 'sub' } }), /a chat or in a terminal/);
+  assert.equal(cleanSchedule({ when: { kind: 'daily', time: '07:00' }, action: { type: 'send', session: `chat:${ID}`, text: 'hi' } }).action.session, `chat:${ID}`);
+  assert.throws(() => cleanSchedule({ when: { kind: 'daily', time: '07:00' }, action: { type: 'send', session: 'chat:nope', text: 'hi' } }), /choose the session/);
+});

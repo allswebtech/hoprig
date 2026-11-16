@@ -146,6 +146,30 @@ test('the chat is the default: the folder\'s last settings, Home\'s card, the re
   assert.equal(recent.live, true);
   await until('the follow-up turn and the end', async () => (await cardOf(id)).status === 'waiting', 30_000);
   assert.equal((await cardOf(id)).background, false);
+
+  // ---- a schedule starts a chat (the folder's last settings) and messages an open chat ----
+  const auto = app.features.find((f) => f.name === 'automation').automation;
+  const soon = new Date(Date.now() + 120_000);
+  const hhmm = `${String(soon.getHours()).padStart(2, '0')}:${String(soon.getMinutes()).padStart(2, '0')}`;
+  const slot = new Date(soon.getFullYear(), soon.getMonth(), soon.getDate(), soon.getHours(), soon.getMinutes()).getTime();
+  for (const action of [{ type: 'start', in: 'chat', dir: shop, profile: 'sub', prompt: 'hello from a schedule' }, { type: 'send', session: `chat:${id}`, text: 'scheduled hello' }]) {
+    const r = await owner('POST', '/api/automation/schedules', { op: 'add', schedule: { when: { kind: 'daily', time: hhmm }, action } });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+  }
+  const before = new Set((await owner('GET', '/api/chats')).json.chats.map((c) => c.chatId));
+  const started = await until('the scheduled chat', async () => {
+    await auto.tick(slot + 1000);
+    return (await owner('GET', '/api/chats')).json.chats.find((c) => !before.has(c.chatId));
+  });
+  const sv = await until('its reply', async () => {
+    const x = await view(started.chatId);
+    return x.events.some((e) => e.kind === 'text' && e.text === 'echo: hello from a schedule') && x;
+  });
+  assert.deepEqual([sv.cwd, sv.profile.name, sv.permissionMode, sv.model, sv.effort], [fs.realpathSync(shop), 'sub', 'acceptEdits', null, 'high'], 'the provider the schedule names, the rest as the last chat there (the "chosen" one)');
+  await until('the message in the open chat', async () => (await view(id)).events.some((e) => e.kind === 'text' && e.text === 'echo: scheduled hello'));
+  const log = (await owner('GET', '/api/automation/log')).json.entries.filter((e) => e.automation === 'schedules');
+  assert.ok(log.some((e) => /in a chat/.test(e.did) && e.outcome === 'ok'), JSON.stringify(log));
+  assert.ok(log.some((e) => e.session === `chat:${id}` && e.outcome === 'ok'), JSON.stringify(log));
 });
 
 test('hoprig chat prints the address that opens a chat in the folder, and opens it where a browser is at hand', async () => {

@@ -218,7 +218,7 @@ export function createServer(opts = {}) {
     gateway, // /gateway/…: a gateway shared with a gateway key (before the machines gate, which takes any bearer as its own)
     machines, // other computers: relay, pairing, bearer tokens
     editorFeature(ctx, opts.editor), // the code editor's files and git under /api/code/ (another computer's token too); removes VS Code Server's leftovers once
-    automationFeature(ctx, { tick: opts.watch !== false, ...opts.automation }), // queue, schedules, restore, retry, updates, idle care
+    automationFeature(ctx, { tick: opts.watch !== false, chat, ...opts.automation }), // queue, schedules (also of chats), restore, retry, updates, idle care
     addonsFeature(ctx, opts.addons), // Settings → Add-ons: install, start, stop, update, set up as an account
     accountsFeature(ctx, { remote: gateway.states, removing: gateway.forget, ...opts.accounts }), // Providers: add a subscription, an API key or a TRouteAI gateway in the page
     claudeLoginFeature(ctx, opts.claudeLogin), // Claude Code's own sign-in from the page (Setup, Get started, Providers)
