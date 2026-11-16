@@ -6,7 +6,6 @@ import { COMMAND } from './brand.js';
 import { icon } from './icons.js';
 import { api, btn, fill, h, link, machine, openSheet, promptSheet, toast } from './lib.js';
 import { fold } from './shell.js';
-import { linkBrainNote } from './brainlink.js';
 import { gitPanel, identitySheet, signinSheet } from './gitsetup.js';
 import { setupJobCard, startSetup } from './setupjob.js';
 import { claudeLoginButton } from './claudelogin.js';
@@ -155,7 +154,7 @@ export function setupSection() {
     const s = setupSummary(d.checks);
     fill(head,
       h(`span.cp-result-icon.${s.fix.length ? 'warn' : 'ok'}`, icon(s.fix.length ? 'alert' : 'check')),
-      h('div.cp-result-text', h('strong', s.text), h('span.hint', s.fix.length ? 'Fix installs one thing; Set up this computer installs everything that is missing.' : `This computer has what is needed for coding with Claude Code.${s.optional.length ? ` ${s.optional.length} optional extra${s.optional.length === 1 ? ' is' : 's are'} below, if you want ${s.optional.length === 1 ? 'it' : 'them'}.` : ''}`)),
+      h('div.cp-result-text', h('strong', s.text), h('span.hint', s.fix.length ? 'Fix installs one thing; Set up this computer installs everything that is missing.' : `This computer has what is needed for coding.${s.optional.length ? ` ${s.optional.length} optional extra${s.optional.length === 1 ? ' is' : 's are'} below, if you want ${s.optional.length === 1 ? 'it' : 'them'}.` : ''}`)),
       // The main action only while something is missing; afterwards a quiet one (installing again is rare).
       btn(s.fix.length ? 'primary' : 'secondary', { icon: 'download', label: 'Set up this computer', onclick: () => setupSheet(started) }));
     fill(fixBox, s.fix.length ? h('div.rows', s.fix.map(fixRow)) : null);
@@ -198,8 +197,8 @@ export function setupSection() {
     job.el,
     fixBox, optionalBox, fineBox,
     git,
-    // The workspace's folders, its map and syncing live in Settings → Workspace; linking the brain is offered here too.
-    linkBrainNote(),
+    // The workspace's folders, its map and syncing live in Settings → Workspace; linking the brain to the coding tools
+    // on the AI brain page (and in Get started and Skills while something is not linked).
     h('div.rows.ws-link', h('a.row', { href: link('#/settings/workspace') }, h('span.row-icon', icon('folder')),
       h('span.row-main', h('span.row-title', 'Workspace folders and the map'), h('span.row-sub', 'Settings → Workspace: the folder tree, every repository by its address, keeping it in step')),
       h('span.row-end', icon('chevronRight', { size: 18 })))),

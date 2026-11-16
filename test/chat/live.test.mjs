@@ -243,7 +243,18 @@ test('the routes of a running chat', { timeout: 120_000, skip: process.platform 
   assert.notEqual(again, id, 'the old conversation opens in a chat of its own');
   assert.equal((await owner('GET', `/api/chats/${again}`)).json.events.find((e) => e.kind === 'user').text, 'think', 'with its history');
   assert.equal((await owner('POST', '/api/chats', { dir: proj, profile: 'sub', sessionId: id })).json.id, again, 'and only one');
+  // A page that follows a chat learns at once that it closed, with what a look would answer: it never asks once more.
+  const vAgain = (await owner('GET', `/api/chats/${again}`)).json;
+  const sa = stream(base, `/api/chats/${again}/stream?from=${vAgain.next}&epoch=${vAgain.epoch}`, { Cookie: cookie });
+  t.after(() => sa.close());
+  await until('the stream of the second chat', () => sa.got.some((e) => e.event === 'state'));
   await owner('POST', `/api/chats/${again}/close`, {});
+  const closedEv = await until('the closed event', () => sa.got.find((e) => e.event === 'closed'));
+  assert.equal(sa.got.at(-1).event, 'closed', 'the last thing the stream says');
+  assert.deepEqual([closedEv.data.closed.conversationId, closedEv.data.closed.tool], [id, 'claude']);
+  assert.ok([proj, fs.realpathSync(proj)].includes(closedEv.data.closed.cwd));
+  const look = await owner('GET', `/api/chats/${again}`);
+  assert.deepEqual([look.status, look.json.closed], [404, closedEv.data.closed], 'the same as the 404 of a look');
 
   // ---- a folder whose uploads folder is a link out of it (a repository can commit one): nothing is read there ----
   const evil = path.join(work, 'evil');

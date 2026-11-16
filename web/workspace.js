@@ -64,7 +64,7 @@ export function workspaceLine(map, job) {
 
 const UNSAVED = 'The map changed and is not saved in the AI brain\'s history yet';
 
-/** The label → folder of each repository the map knows (for "Ask Claude to sort it out"). */
+/** The label → folder of each repository the map knows (for "Sort it out in a chat"). */
 const dirsOf = (map) => new Map(((map && map.entries) || []).map((e) => [e.label, e.path]));
 
 /** The sync sheet: the choices, the progress, the result per repository. `after` runs when it is closed. */
@@ -259,7 +259,7 @@ export function freshFork(after) {
     h('p.ws-fresh-lead', 'No projects on this computer yet.'),
     h('div.choice-list',
       card('git', 'Bring my workspace from git', 'Your AI brain and every project its map names, cloned in their places. For a new computer of yours.', async () => restoreSheet(await git, after)),
-      card('plus', 'Start a new project', 'An empty project folder, ready for Claude.', () => (location.hash = link('#/new-project')))),
+      card('plus', 'Start a new project', 'An empty project folder, ready for coding.', () => (location.hash = link('#/new-project')))),
     h('p.hint', 'Already have one project on GitHub? ', h('a', { href: link('#/get-project') }, 'Get an existing project'), '.'));
 }
 
@@ -337,7 +337,8 @@ export function notHereLine(r) {
 
 /** "Update the map": what would change, then write it; then the commit to run in the brain. */
 function updateMapSheet(refresh) {
-  openSheet({ title: 'Update the map', subtitle: 'From what is on this computer', wide: true }, (close) => {
+  // Not a wide sheet: those keep a fixed height for output that grows, and this one is a few lines.
+  openSheet({ title: 'Update the map', subtitle: 'From what is on this computer' }, (close) => {
     const box = h('div', busyLine('Looking at every repository…'));
     const list = (title, items) => (items.length ? [h('p.field-label', title), h('ul.map-diff', items.map((x) => h('li', x)))] : []);
     api('/api/workspace/map', { dryRun: true }).then((r) => {
@@ -524,25 +525,36 @@ function unsavedBox(m, refresh) {
     m.saved.command ? fold('workspace-unsaved', 'Advanced', h('p.hint', 'The same, to run yourself:'), commandLine(homeCommand(m.saved.command))) : null);
 }
 
-function mapPanel(m, refresh) {
+/**
+ * The map: how many repositories are where, a change to save, Sync. Every repository with its Forget is a long list
+ * kept for the rare look, under Advanced; so is "Update the map" while the map is kept up to date by itself (`kept`).
+ */
+function mapPanel(m, refresh, kept = false) {
   const groups = mapGroups(m);
   const counts = m.counts || {};
+  const rare = kept && m.exists; // the upkeep adds what is new: writing it by hand is the rare case
+  const update = () => btn(rare ? 'secondary' : 'primary', { icon: 'refresh', label: 'Update the map', onclick: () => updateMapSheet(refresh) });
   const said = [counts.here ? `${counts.here} here` : '', counts.missing ? `${counts.missing} not on this computer` : '', counts.different ? `${counts.different} with something else in the folder` : '', counts.unmapped ? `${counts.unmapped} not in the map yet` : ''].filter(Boolean).join(' · ');
   return panel({ icon: 'git', title: 'The map', desc: 'Every repository of your workspace by its address, kept in the AI brain. A new computer gets everything it names.' },
     m.errors ? errorBox(`The map cannot be used: ${m.errors.join('; ')}`) : null,
     !m.exists ? h('p.hint', 'No map yet. Update the map writes the first one from what is on this computer.') : said ? h('p.hint', said) : null,
     unsavedBox(m, refresh),
-    groups.map((g) => [h('p.field-label.map-group', g.title), h('div.rows', g.rows.flatMap((e) => [mapRow(e, refresh), ...(e.repos || []).map((r) => mapRow(r, refresh, true))]))]),
-    h('div.savebar.start', btn('primary', { icon: 'refresh', label: 'Update the map', onclick: () => updateMapSheet(refresh) }),
-      m.exists ? btn('secondary', { icon: 'refresh', label: 'Sync', onclick: () => syncSheet(m, refresh) }) : null));
+    h('div.savebar.start', rare ? null : update(),
+      m.exists ? btn(rare ? 'primary' : 'secondary', { icon: 'refresh', label: 'Sync', onclick: () => syncSheet(m, refresh) }) : null),
+    groups.length || rare ? fold('settings-map-list', 'Advanced',
+      groups.length ? h('p.hint', 'Every repository of the map. Forget takes one out of it; no file is deleted.') : null,
+      groups.map((g) => [h('p.field-label.map-group', g.title), h('div.rows', g.rows.flatMap((e) => [mapRow(e, refresh), ...(e.repos || []).map((r) => mapRow(r, refresh, true))]))]),
+      rare ? [h('p.hint', 'The map is kept up to date by itself (By itself, below). To write it now:'), h('div.savebar.start', update())] : null) : null);
 }
 
 function settingsRender() {
   const box = h('div', busyLine('Reading the workspace…'));
   const draw = async () => {
     try {
-      const [st, m] = await Promise.all([api('/api/workspace'), api('/api/workspace/map')]);
-      fill(box, placesPanel(st, draw), workspaceFolders(), mapPanel(m, draw), peerPanel(), autoPanel());
+      const [st, m, auto] = await Promise.all([api('/api/workspace'), api('/api/workspace/map'), api('/api/automation').catch(() => null)]);
+      // "Keep the map up to date" (By itself): on unless the owner turned it off (automation's own default).
+      const kept = !!auto && ((auto.settings && auto.settings.workspace) || {}).map !== false;
+      fill(box, placesPanel(st, draw), workspaceFolders(), mapPanel(m, draw, kept), peerPanel(), autoPanel());
     } catch (e) {
       fill(box, errorBox(`The workspace could not be read: ${e.message}`, draw));
     }

@@ -192,7 +192,7 @@ export function createTimeline(o) {
       }
       case 'session-changed':
         at.group = null;
-        return add(at.root, h('div.chat-item.chat-divider', h('span', ev.reason === 'compact' ? 'Conversation compacted: Claude goes on from a summary' : ev.reason === 'clear' ? 'Conversation cleared' : ev.reason === 'fork' ? 'Rewound to here' : 'A new conversation')));
+        return add(at.root, h('div.chat-item.chat-divider', h('span', ev.reason === 'compact' ? `Conversation compacted: ${who()} goes on from a summary` : ev.reason === 'clear' ? 'Conversation cleared' : ev.reason === 'fork' ? 'Rewound to here' : 'A new conversation')));
       case 'notice':
         // "Compacted" after /compact: the divider says it already.
         if (ev.local && /^\s*Compacted\.?\s*$/i.test(ev.text)) return null;

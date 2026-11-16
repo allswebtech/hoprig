@@ -6,7 +6,7 @@
     {
       "id": "hoprig",
       "skill": "hoprig",
-      "for": "Teaches Claude Code to use Hoprig itself: check the setup, providers, limits, computers, projects and skills, read-only first, the user decides changes.",
+      "for": "Teaches your coding tools to use Hoprig itself: check the setup, providers, limits, computers, projects and skills, read-only first, the user decides changes.",
       "bundled": "templates/skills/hoprig",
       "scope": "user",
       "license": "same as Hoprig (bundled)",

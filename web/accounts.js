@@ -136,7 +136,7 @@ function limitPanel(auto, accounts, refresh, flash) {
     fold('auto-how', 'How it works',
       h('ul.howlist',
         h('li', 'On an API provider the session goes on without stopping.'),
-        h('li', 'On another subscription, Claude restarts on that provider and carries on with the same conversation.'),
+        h('li', 'On another subscription, Claude Code restarts on that provider and carries on with the same conversation.'),
         h('li', 'Providers lower in the order are used only while the ones above are at their limit.'),
         h('li', 'An API key straight to Anthropic costs money for every use; Auto mode uses one only when you allow it below.'),
         h('li', 'Auto mode, plan usage and Tia work with Claude Code only. An OpenCode session stays on the provider you start it on.')),
@@ -156,7 +156,7 @@ function fixedPanel(auto) {
     toggle('Go back to the first provider', st.returnToPreferred, (v) => { st.returnToPreferred = v; return false; }, // kept by Save below
       'When a provider higher in the order is free again, the session moves back at the end of its current reply.'),
     h('label.fieldrow', h('span.field-label', 'Message after a move'), h('input.field', { value: st.prompt, maxlength: 500, oninput: (e) => (st.prompt = e.target.value) }),
-      h('span.hint', 'Typed into the session after it moved to another provider, so Claude carries on with the work.')),
+      h('span.hint', 'Typed into the session after it moved to another provider, so Claude Code carries on with the work.')),
     saveBar('Save', () => api('/api/settings', { autoSwitch: { returnToPreferred: st.returnToPreferred, prompt: st.prompt } })));
 }
 

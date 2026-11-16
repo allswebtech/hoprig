@@ -2,7 +2,8 @@
 // change without a restart, the queue, one task's stop, rewind, and what the composer's menus need.
 //
 //   GET  /api/chats/<id>/stream?from=N&epoch=E    server-sent events: "events" { epoch, reset, events, next },
-//                                                 "state" (the chat's state, as in the long poll), "live" [deltas …]
+//                                                 "state" (the chat's state, as in the long poll), "live" [deltas …],
+//                                                 last "closed" { closed } (what a 404 of the chat would carry)
 //   POST /api/chats/<id>/mode                     { mode }   the permission mode, in the running process
 //   POST /api/chats/<id>/settings                 { model?, effort?, ultracode? }   (null: Auto) → { restart }
 //   POST /api/chats/<id>/title                    { title }  the owner names the chat
@@ -47,10 +48,10 @@ export function stateOf(c) {
  * o: { chatOr404, toolStillOn(chat) (throws while its coding tool is off), save, remember(chat) (its settings are
  * its folder's last), bad, choices(chat) (its coding tool's modes, efforts and models), pickModel(value, tool,
  * choices), folderOf(chat) (its folder while inside the allowed roots), about(chat) (what the page shows beside the
- * state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that runs the conversation now) }
- * from feature.mjs
+ * state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that runs the conversation now),
+ * shutOf(id) (what is kept of a chat that closed: { cwd, conversationId, title, tool } or null) } from feature.mjs
  */
-export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf }) {
+export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf, shutOf = () => null }) {
   const { HttpError } = ctx;
   const pick = (val, list, what) => {
     if (val === undefined) return undefined;
@@ -133,7 +134,16 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
     c.on('status', onState);
     c.on('state', onState);
     c.on('live', onLive);
-    const onClosed = () => res.end(); // the page looks again, hears 404 and shows the chat as not open
+    // The page learns it here, with what a look would answer, so it does not ask once more for a chat that is gone
+    // (at a hand-off to a terminal that request was a 404 in its console).
+    const onClosed = () => {
+      if (timer) {
+        clearTimeout(timer); // what waited is sent first; nothing is written after the end
+        flush();
+      }
+      send('closed', { closed: shutOf(c.id) });
+      res.end();
+    };
     c.once('closed', onClosed);
     let closed = false;
     const lookTerminal = async () => {

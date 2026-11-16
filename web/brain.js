@@ -5,7 +5,7 @@
 // (mdtext.js), never as HTML from the file.
 // Also here: "Workspace folders" (the tree the product sets up, GET /api/workspace) for a computer's Setup tab, and
 // the one way to create what is missing (POST /api/workspace/setup: the dry run first, then the real run).
-import { linkBrainNote, linkBrainSheet, toolsPart } from './brainlink.js';
+import { linkBrainSheet, toolsPart } from './brainlink.js';
 import { icon } from './icons.js';
 import { ago, api, btn, bytes, fill, h, link, openSheet, toast } from './lib.js';
 import { mdView } from './mdtext.js';
@@ -80,7 +80,6 @@ export function workspaceFolders() {
     const other = w.folders.filter((f) => !fine.includes(f));
     fill(box,
       h('p.hint', 'In ', h('code', w.short), w.exists ? '' : ' (not made yet)', '.'),
-      w.exists ? linkBrainNote({ after: load }) : null,
       other.length ? rows(other) : null,
       fine.length ? fold('workspace-folders-fine', fine.length === w.folders.length ? `All ${fine.length} folders are there` : `${fine.length} more folder${fine.length === 1 ? ' is' : 's are'} there`, rows(fine)) : null,
       missing

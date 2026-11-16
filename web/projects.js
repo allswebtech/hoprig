@@ -89,7 +89,7 @@ async function conversationsIn(dir) {
 }
 
 /** A button that opens a chat and says so while it does; an error stays next to it until the next press. */
-export function startButton(dir, { cls = 'small secondary', label = 'Start', title = 'Open a chat with Claude here', ...how } = {}) {
+export function startButton(dir, { cls = 'small secondary', label = 'Start', title = 'Open a chat here', ...how } = {}) {
   const b = btn(cls, { icon: 'play', label, title });
   b.addEventListener('click', async (e) => {
     e.preventDefault();
@@ -185,7 +185,7 @@ function projectCard(p, sessions, profiles, home) {
           h('span.row-sub', tildePath(p.dir, home)),
           h(`span.row-sub.pj-git${needsLook(p) ? '.attn' : ''}`, projectWords(p)))),
       h('span.ws-tools',
-        startButton(p.dir, { label: 'New session', title: `Open a chat with Claude in ${p.name}, set up as your last one there` }),
+        startButton(p.dir, { label: 'New session', title: `Open a chat in ${p.name}, set up as your last one there` }),
         changesButton(p),
         editorButton(p.dir, { name: p.name, compact: true }),
         h('a.btn.icon.ghost.small', { href: page, title: `Open ${p.name}`, 'aria-label': `Open ${p.name}` }, icon('chevronRight', { size: 18 })))),
@@ -199,7 +199,7 @@ function projectCard(p, sessions, profiles, home) {
 function otherFolders(sessions, profiles) {
   return h('section.ws-other',
     groupHead('Other folders', sessions.length),
-    h('p.hint.ws-advice', 'These run outside the projects folder. Inside a project, Claude gets its memory, rules and skills: make it a project when you keep working there.'),
+    h('p.hint.ws-advice', 'These run outside the projects folder. Inside a project, your coding tools get its memory, rules and skills: make it a project when you keep working there.'),
     h('div.rows', [...sessions].sort(needsYouFirst).map((s) => sessionRow(s, profiles, () => store.refresh()))));
 }
 
@@ -293,8 +293,8 @@ function folderLine(d, reload) {
  */
 export const TODO = {
   'to-push': () => 'Changes saved here are not uploaded yet: Sync with "also upload my saved changes" does it.',
-  'not-online': () => 'Not on GitHub yet, so there is no online copy to sync with. Claude can put it there for you: ask in a session.',
-  diverged: () => 'Changed here and online at the same time. This needs a decision: Claude can bring the two together.',
+  'not-online': () => 'Not on GitHub yet, so there is no online copy to sync with. Your coding tool can put it there for you: ask in a session.',
+  diverged: () => 'Changed here and online at the same time. This needs a decision: your coding tool can bring the two together.',
   'pull-blocked': () => 'There are new changes online in the same files you changed here. Save (commit) your changes first, then sync again.',
   uncommitted: (t) => `${(/^(\d+)/.exec(t.why) || [, 'Some'])[1]} change${/^1 /.test(t.why) ? ' is' : 's are'} not saved to git yet; sync leaves ${/^1 /.test(t.why) ? 'it' : 'them'} alone.`,
   'fetch-failed': () => 'Could not reach the online copy. Check the internet connection and the GitHub sign-in.',
@@ -305,7 +305,7 @@ export const TODO = {
 const DID = { pulled: (n) => `Downloaded ${plural(n, 'new change')}.`, pushed: (n) => `Uploaded ${plural(n, 'saved change')}.` };
 
 /**
- * The result of a sync, one row per repository: what it did, what it left in words, "Ask Claude to sort it out" where
+ * The result of a sync, one row per repository: what it did, what it left in words, "Sort it out in a chat" where
  * a decision is needed (in `dir`, the repository's folder when known) and the git command under "Show the git
  * command". `items`: [{ label, did: [{ kind, count } | string], todo: [{ kind, why, command }], dir }].
  */
@@ -318,7 +318,7 @@ export function syncRows(items) {
       h('div.mrow-top',
         h(`span.row-icon.pj-mark${fine ? '.ok' : '.warn'}`, icon(fine ? 'check' : 'alert')),
         h('span.row-main', h('span.row-title', x.label), h('span.row-sub.pj-wrap', lines.length ? lines.join(' ') : 'Already up to date.'))),
-      decide ? h('div.mrow-actions', startButton(x.dir, { label: 'Ask Claude to sort it out', prompt: `The repository ${x.label} and its online copy have both changed. Show me what differs, then ask me before you merge or rebase.` })) : null,
+      decide ? h('div.mrow-actions', startButton(x.dir, { label: 'Sort it out in a chat', prompt: `The repository ${x.label} and its online copy have both changed. Show me what differs, then ask me before you merge or rebase.` })) : null,
       x.todo.some((t) => t.command) ? h('details.pj-cmd', h('summary', 'Show the git command'), h('code.mono', x.todo.filter((t) => t.command).map((t) => t.command).join('\n'))) : null);
   }));
 }
@@ -351,7 +351,7 @@ function viewProject(frame, id) {
     page: 'workspace',
     back: link('#/workspace'),
     backLabel: 'Workspace',
-    intro: 'Everything about this project: the sessions in it, its code and the skills Claude uses here.',
+    intro: 'Everything about this project: the sessions in it, its code and the skills used here.',
     primary: { label: 'Start a session', icon: 'play', onclick: () => p && startIn(p.dir).catch((e) => toast(e.message, { kind: 'error', ms: 7000 })) },
     body: [
       groupHead('Sessions'), sessionsBox, pastBox,
@@ -609,8 +609,8 @@ function viewNewProject({ frame, sub }) {
     named = decodeURIComponent(sub || '');
   } catch {}
   if (!NAME_RE.test(named)) named = '';
-  frame({ title: 'New project', page: 'new-project', back: link('#/workspace'), backLabel: 'Workspace', intro: 'A new, empty project folder, ready for Claude. You see everything it creates before anything is made.',
-    body: [named ? h('p.banner.info.pj-from', icon('folder', { size: 18 }), h('span', `Named after the folder you picked. The project is made new in your projects folder; that folder stays where it is: move its files into the project, or ask Claude there to.`)) : null, box] });
+  frame({ title: 'New project', page: 'new-project', back: link('#/workspace'), backLabel: 'Workspace', intro: 'A new, empty project folder, ready for coding. You see everything it creates before anything is made.',
+    body: [named ? h('p.banner.info.pj-from', icon('folder', { size: 18 }), h('span', `Named after the folder you picked. The project is made new in your projects folder; that folder stays where it is: move its files into the project, or ask in a session there.`)) : null, box] });
   let alive = true;
   const st = { name: named, github: false, preview: null };
 
@@ -663,7 +663,7 @@ function viewNewProject({ frame, sub }) {
         h('ul.pj-will',
           h('li', 'The folder ', h('strong.pj-wrap', tildePath(pv.dir, pv.home))),
           pv.template === 'built-in'
-            ? h('li', 'A small set of starting files: the rules Claude and other AI tools read (AGENTS.md), a place for the AI memory and notes (ai_brain), docs and decisions, and a code folder for the project\'s code repositories.')
+            ? h('li', 'A small set of starting files: the rules your coding tools read (AGENTS.md), a place for the AI memory and notes (ai_brain), docs and decisions, and a code folder for the project\'s code repositories.')
             : h('li', 'The files of your own project template.'),
           h('li', 'A first save in git, so every later change can be seen and undone.'),
           st.github ? h('li', 'A private GitHub repository, with the project uploaded to it.') : null),

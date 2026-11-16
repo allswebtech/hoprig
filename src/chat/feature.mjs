@@ -488,7 +488,7 @@ export function chatFeature(ctx, o = {}) {
   // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
   const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
   routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn } }));
-  const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
+  const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView, shutOf: (id) => shut.get(id) || null });
   routes.push(...live.routes);
 
   return {

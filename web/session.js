@@ -429,7 +429,7 @@ export function openSession(app, name) {
   async function stop() {
     try {
       await api(`${base}/key`, { key: 'Escape' });
-      toast('Asked Claude to stop');
+      toast(`Asked ${toolName()} to stop`);
     } catch (e) {
       toast(e.message, { kind: 'error' });
     }
@@ -736,7 +736,7 @@ export function openSession(app, name) {
       items: [
         working ? { value: 'stop', label: `Stop ${isClaudeCard(s) ? 'Claude' : TOOL_NAMES[cardTool(s)] || 'it'}`, sub: 'Interrupts the reply it is writing (Esc)', icon: 'stop' } : null,
         pref ? { value: 'back', label: `Move back to ${pref.label}`, sub: 'It is free again', icon: 'swap' } : null,
-        s && isClaudeCard(s) && s.cwd ? { value: 'another', label: 'Start another session here', sub: `A new Claude session in ${s.short || s.cwd}`, icon: 'plus' } : null,
+        s && isClaudeCard(s) && s.cwd ? { value: 'another', label: 'Start another session here', sub: `A new Claude Code session in ${s.short || s.cwd}`, icon: 'plus' } : null,
         ...extra,
         { value: 'attach', label: 'Attach a file', sub: 'Upload into this folder; its path goes into your message', icon: 'paperclip' },
         { value: 'text', label: 'Text of this session', sub: 'Select and copy', icon: 'copy' },
@@ -771,7 +771,7 @@ export function openSession(app, name) {
     } else if (what === 'kill') {
       const ok = await confirmSheet({
         title: `End "${name}"?`,
-        text: 'Everything running in this session stops. A Claude conversation can be continued later from its folder.',
+        text: 'Everything running in this session stops. A coding tool\'s conversation can be continued later from its folder.',
         ok: 'End session',
         danger: true,
       });

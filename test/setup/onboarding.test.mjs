@@ -23,6 +23,8 @@ test('each step done or not, with what to open', () => {
   const e = byId(ON.onboardingSteps(empty));
   assert.deepEqual(Object.keys(e), ['claude', 'tools', 'rules', 'project', 'skills', 'phone', 'account2', 'computer']);
   for (const x of Object.values(e)) assert.equal(x.done, false, x.id);
+  // The rules and the skills are every coding tool's (the brain links them to each); only the first step is Claude Code's.
+  assert.deepEqual([e.claude.title, e.rules.title, e.skills.title], ['Claude Code installed and signed in', 'Working rules', 'Skills']);
   assert.deepEqual(e.claude.action, { kind: 'install-claude', label: 'Install Claude Code' });
   assert.deepEqual(e.tools.action, { kind: 'page', target: 'pc/setup' });
   assert.deepEqual(e.rules.action, { kind: 'request', method: 'POST', path: '/api/pcsetup/rules', body: { action: 'add' } });

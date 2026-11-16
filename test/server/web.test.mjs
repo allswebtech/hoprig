@@ -487,7 +487,7 @@ test('wording: "provider" and "computer" in everything a visitor reads; Auto mod
   assert.match(accounts, /'Stop and ask me'/);
   assert.match(accounts, /Work continues on the next provider in the order below, without you doing anything\. This is called Auto mode\./);
   assert.match(accounts, /On an API provider the session goes on without stopping\./);
-  assert.match(accounts, /On another subscription, Claude restarts on that provider/);
+  assert.match(accounts, /On another subscription, Claude Code restarts on that provider/);
   const { subscriptionsNote, manySubscriptions } = await import('../../web/lib.js');
   const sub = (n) => ({ name: n, kind: 'subscription' });
   assert.equal(manySubscriptions([sub('a'), { name: 'api', kind: 'api' }]), false);
@@ -853,7 +853,7 @@ test('new session: a folder where a session runs opens that session, one where a
   const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
   assert.doesNotMatch(src, /role: 'radiogroup', 'aria-label': 'Work in'/, 'no Terminal | Chat switch at the top');
   // One row under Options: a chat, the coding tool in a terminal (Claude Code unless another is chosen), a plain shell.
-  assert.match(src, /\['chat', 'A chat \(the default\)'\], \['claude', `\$\{toolName\(\)\} in a terminal`\], \['shell', `A plain terminal, without \$\{tool === 'claude' \? 'Claude' : toolName\(\)\}`\]/, 'one row under Options');
+  assert.match(src, /\['chat', 'A chat \(the default\)'\], \['claude', `\$\{toolName\(\)\} in a terminal`\], \['shell', `A plain terminal, without \$\{toolName\(\)\}`\]/, 'one row under Options');
   assert.match(src, /const toolNow = \(\) => st\.tool \|\| 'claude';/, 'Claude Code where none is chosen');
   assert.match(src, /const toolName = \(id = toolNow\(\)\) => TOOL_NAMES\[id\] \|\| id;/);
 });

@@ -3,9 +3,6 @@
 
 
 /* ---------- Pause all, and the banner under the parts ---------- */
-.au-pause { margin: 0 0 10px; padding: 4px 16px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-1); }
-.au-pause .switchrow { border-bottom: 0; min-height: 60px; }
-.au-pause:empty { display: none; }
 .au-banner .banner { margin: 0 0 14px; }
 .au-content { min-height: 240px; }
 .au-loading { min-height: 200px; justify-content: center; }

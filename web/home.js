@@ -76,7 +76,7 @@ export function viewHome() {
   frame({
     title: fixed && WINDOW.label ? WINDOW.label : 'Home',
     page: 'home',
-    intro: fixed ? 'The coding sessions of this computer, the ones that need you first.' : 'Your Claude Code sessions on every computer, the ones that need you first.',
+    intro: fixed ? 'The coding sessions of this computer, the ones that need you first.' : 'Your coding sessions on every computer, the ones that need you first.',
     // In the Sessions app of another computer a new session starts on that computer.
     primary: { label: 'New session', icon: 'plus', href: fixed && fixed !== '~' ? link('#/new', fixed) : '#/new' },
     body: [
@@ -144,7 +144,7 @@ export function viewHome() {
         fill(list, p.mode !== 'hidden' && !p.claudeReady
           ? emptyState('sessions', 'No sessions yet. Finish the first step above, then start one here.')
           : noAccount
-            ? emptyState('sessions', 'No sessions yet. Add the provider Claude should use, then start a session.',
+            ? emptyState('sessions', 'No sessions yet. Add a provider for your coding tool, then start a session.',
               h('a.btn.primary', { href: '#/providers' }, icon('plus', { size: 18 }), h('span', 'Add provider')))
             : emptyState('sessions', 'No sessions yet. Start one in a project; it keeps running when you close this page.',
               h('a.btn.primary', { href: '#/new' }, icon('plus', { size: 18 }), h('span', 'New session'))));

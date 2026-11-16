@@ -70,7 +70,7 @@ async function reviewSheet(r) {
       h('p.sheet-text', oneLine(r.description, 400) || 'No description.'),
       h('div', risky ? tag('high', `${risky} thing${risky > 1 ? 's' : ''} to look at`) : tag('low', 'Nothing risky found'),
         r.catalog ? (r.pinned ? tag('low', 'In the reviewed catalog') : tag('medium', 'Newer than the catalog\'s reviewed version')) : tag('medium', 'Not from the catalog: read it all')),
-      h('p.hint', 'A skill is instructions (and sometimes scripts) Claude Code follows with your permissions. Read what it says below before you install it.'),
+      h('p.hint', 'A skill is instructions (and sometimes scripts) your coding tool follows with your permissions. Read what it says below before you install it.'),
       h('div.rows', h('div.row.static.col',
         h('span.sk-mono', `Source: ${short(s)}`),
         s.commit ? h('span.sk-mono', `Commit: ${s.commit}`) : null,
@@ -87,7 +87,7 @@ async function reviewSheet(r) {
           f.excerpt ? h('code.sk-mono', { style: { background: SEV[f.severity][0], padding: '4px 6px', borderRadius: '6px' } }, f.excerpt) : null)))
         : h('p.hint', 'Nothing risky found. The scan points at lines; it cannot prove a skill safe.'),
       r.localEdits && r.localEdits.length ? h('label.toggle-line', h('input', { type: 'checkbox', onchange: (e) => (overwrite = e.target.checked) }), `Replace my edits here (${r.localEdits.join(', ')}); they are kept for undo`) : null,
-      h('h3.sk-h3', 'SKILL.md: what Claude will read'),
+      h('h3.sk-h3', 'SKILL.md: what your coding tool will read'),
       h('pre.output', { style: { maxHeight: '360px' } }, r.skillMd),
       h('h3.sk-h3', `Files (${r.files.length}, ${Math.max(1, Math.round(r.total / 1024))} KB)`),
       h('div.sk-mono.sk-files', r.files.map((f) =>
@@ -126,7 +126,7 @@ function viewSkills({ frame, sub }) {
   frame({
     title: 'Skills',
     page: 'skills',
-    intro: 'A skill teaches Claude Code one kind of work, like testing a web app or writing Flutter code. Add the ones that fit you and your projects.',
+    intro: 'A skill teaches your coding tools one kind of work, like testing a web app or writing Flutter code. Add the ones that fit you and your projects.',
     body: [h('div.sk-for', h('label.sk-for-label', { for: 'sk-for' }, 'Skills for:'), picker),
       // The brain's skills, not read by Claude Code until its skills folder is linked: the same button as the AI brain page.
       project ? null : linkBrainNote({ only: ['skills'], text: () => 'The skills in your AI brain are not used by Claude Code yet.', after: () => load() }),
@@ -178,7 +178,7 @@ function viewSkills({ frame, sub }) {
     const u = updates.get(`${scope}:${s.name}`);
     const body = scope === 'project' ? { name: s.name, project } : { name: s.name };
     const remove = btn('small ghost', { icon: 'trash', label: 'Remove', onclick: async () => {
-      if (!(await confirmSheet({ title: `Remove "${s.name}"?`, text: 'Claude Code stops using it. A copy is kept, so you can bring it back.', ok: 'Remove', danger: true }))) return;
+      if (!(await confirmSheet({ title: `Remove "${s.name}"?`, text: 'Your coding tools stop using it. A copy is kept, so you can bring it back.', ok: 'Remove', danger: true }))) return;
       remove.disabled = true;
       try {
         await api('/api/skillhub/remove', body);
@@ -237,7 +237,7 @@ function viewSkills({ frame, sub }) {
         btn('primary', { icon: 'sparkle', label: 'See suggested', onclick: () => show('suggested') })));
     }
     fill(partBox, banner,
-      h('div.sk-head', h('p.hint', project ? `Claude uses these in ${scopeName()}.` : 'Claude uses these in every project.'), checkButton()),
+      h('div.sk-head', h('p.hint', project ? `Used in ${scopeName()}.` : 'Used in every project.'), checkButton()),
       project ? [h('p.field-label', `In this project (${here.length})`), here.length ? h('div.rows', here.map((s) => skillRow(s, 'project'))) : h('p.hint', 'None yet: Suggested shows the ones that fit it.')] : null,
       project ? h('p.field-label', `For you, in every project (${mine.length})`) : null,
       mine.length ? h('div.rows', mine.map((s) => skillRow(s, 'user'))) : project ? h('p.hint', 'None.') : null,

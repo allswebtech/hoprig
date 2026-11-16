@@ -1,7 +1,7 @@
-// New session (#/new): one tap — pick a project (the recent ones first) and a chat with Claude opens there, with
+// New session (#/new): one tap — pick a project (the recent ones first) and a chat opens there, with
 // the provider, mode, model and effort the last chat in that project had (kept on the server; the first time: the
 // default provider and Settings). Everything else waits under a closed "Options": the computer, a terminal or a
-// plain shell instead of the chat, the provider, what Claude may do without asking, how hard it thinks, the model,
+// plain shell instead of the chat, the provider, what it may do without asking, how hard it thinks, the model,
 // which conversation. Another folder is one row away.
 // Where a computer offers more than one coding tool for a chat (GET /api/chats/tools), the coding tool comes first:
 // left unchosen, each project opens in the tool its last chat used; chosen, only the providers that serve it are
@@ -18,18 +18,18 @@ import { runsSessions, store } from './store.js';
 import { EFFORT, MODELS, MODES } from './sessiondefaults.js';
 
 /**
- * Sessions this page just started or moved to another account: until Claude reports itself again (a few seconds),
- * they read "Starting Claude…" instead of "Terminal" (Home, session.js).
+ * Sessions this page just started or moved to another account: until the coding tool reports itself (a few seconds),
+ * they read "Starting Claude Code…" (or the tool's name) instead of "Terminal" (Home, session.js).
  */
 const justStarted = new Map(); // key → { at, tool }
 const keyOf = (machineName, name) => `${machineName || ''}/${name}`;
 export const markStarting = (machineName, name, tool = 'claude') => justStarted.set(keyOf(machineName, name), { at: Date.now(), tool });
 const started = (s, machineName = s.machine) => justStarted.get(keyOf(machineName, s.name)) || { at: 0, tool: 'claude' };
 export const isStarting = (s, machineName = s.machine) => !isCodingCard(s) && Date.now() - started(s, machineName).at < 30_000;
-/** "Starting Claude…", or the coding tool that was started (s: the card, when known). */
+/** "Starting Claude Code…": the coding tool that was started, by its own name (s: the card, when known). */
 export const startingPill = (s = null) => {
   const tool = s ? started(s).tool || cardTool(s) : 'claude';
-  return h('span.pill.st-starting', h('span.dot'), `Starting ${tool && tool !== 'claude' ? TOOL_NAMES[tool] || tool : 'Claude'}…`);
+  return h('span.pill.st-starting', h('span.dot'), `Starting ${TOOL_NAMES[tool] || 'Claude Code'}…`);
 };
 
 export { folderSub, outsideProjects, repoWords, runningIn } from './newsession-words.js';
@@ -45,7 +45,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     page: 'home',
     back: '#/',
     backLabel: 'Home',
-    intro: 'Pick a project: a chat with Claude opens there, set up as your last chat in that project. A terminal instead, and the rest, are under Options.',
+    intro: 'Pick a project: a chat opens there, set up as your last chat in that project. A terminal instead, and the rest, are under Options.',
     body: [computers, toolSlot, body, fold('new-options', 'Options', opts)],
   });
   const st = {
@@ -123,7 +123,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     const chat = st.run === 'chat';
     // Left as it is, a chat takes what the last chat in that project had; a terminal takes Settings.
     const same = chat ? 'As your last chat in the project' : 'As in Settings';
-    const run = select('Open in', st.run, [['chat', 'A chat (the default)'], ['claude', `${toolName()} in a terminal`], ['shell', `A plain terminal, without ${tool === 'claude' ? 'Claude' : toolName()}`]], (v) => {
+    const run = select('Open in', st.run, [['chat', 'A chat (the default)'], ['claude', `${toolName()} in a terminal`], ['shell', `A plain terminal, without ${toolName()}`]], (v) => {
       if (toolInfo() && toolInfo().modes && (v === 'chat') !== chat) st.permissionMode = ''; // a chat's modes and a terminal's differ
       st.run = v;
       paintOptions();
@@ -140,8 +140,8 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
     }
     fill(opts, run,
       select('Provider', st.profile, [['', defaultWords(m, profiles, chat ? same : null, 'claude', st.dir)], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => (st.profile = v)),
-      select('What Claude may do without asking', st.permissionMode, [['', same], ...Object.entries(MODES)], (v) => (st.permissionMode = v),
-        (v) => (v === 'bypassPermissions' ? 'Claude can run any command and change any file without asking.' : null)),
+      select('What Claude Code may do without asking', st.permissionMode, [['', same], ...Object.entries(MODES)], (v) => (st.permissionMode = v),
+        (v) => (v === 'bypassPermissions' ? 'Claude Code can run any command and change any file without asking.' : null)),
       select('How hard it thinks', st.effort, [['', same], ...Object.entries(EFFORT)], (v) => (st.effort = v)),
       // A model for this one session: try something cheaper without changing the setting for every session.
       select('Model', st.model, [['', same], ...(st.models || MODELS.map(([v]) => v)).map((v) => [v, (MODELS.find(([x]) => x === v) || [v, v])[1]])], (v) => (st.model = v),
@@ -179,7 +179,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
       // Nothing could start: say what is missing and lead there.
       return fill(body, h('div.empty.compact', icon('user', { size: 28 }), h('p', st.tool && st.tool !== 'claude'
         ? `No provider for ${toolName()} on ${m.machineLabel} yet. Add a provider that serves it first (an API key or a gateway; a Claude subscription is for Claude Code only).`
-        : `No provider on ${m.machineLabel} yet. Add the provider Claude should use first.`),
+        : `No provider on ${m.machineLabel} yet. Add a provider for ${toolName()} first.`),
         h('a.btn.primary', { href: link('#/providers', st.m) }, icon('plus', { size: 18 }), h('span', 'Add provider'))));
     }
     busy('Loading projects…');
@@ -245,7 +245,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
   function projectAdvice(d) {
     const name = (d.short.split(/[\\/]/).pop() || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[^A-Za-z0-9]+/, '').slice(0, 100);
     return h('p.hint.ns-advice', icon('folder', { size: 15 }),
-      h('span', 'This folder is outside your projects folder. Inside a project, Claude gets its memory, rules and skills. ',
+      h('span', 'This folder is outside your projects folder. Inside a project, your coding tools get its memory, rules and skills. ',
         h('a', { href: link(name ? `#/new-project/${encodeURIComponent(name)}` : '#/new-project', st.m) }, 'Make it a project')));
   }
 
@@ -314,7 +314,7 @@ export function viewNew({ query = new URLSearchParams() } = {}) {
       }
       return;
     }
-    busy(`Starting Claude in ${f.name}…`);
+    busy(`Starting ${toolName()} in ${f.name}…`);
     try {
       const { name, chat, existing } = await api(at(st.m, '/api/sessions'), {
         dir: f.path, profile: st.profile || (m && !m.recommendedIn ? m.recommended : undefined), mode, sessionId, permissionMode: st.permissionMode || null, effort: st.effort || null, model: st.model || null,
