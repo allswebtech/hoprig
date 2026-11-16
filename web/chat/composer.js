@@ -38,8 +38,10 @@ export function createComposer(o) {
   // A message is on its way (its files upload, then POST /send): Send, Enter and a "/" command wait for it. The box
   // is emptied only when the POST returns, so a second tap before that would send the same message twice.
   let sending = false;
+  // Read only: the conversation runs in a terminal or its coding tool is off. One rule for the box and for Send.
+  const readOnly = () => !!(v && (v.terminal || v.toolOff));
   const paintSend = () => {
-    sendBtn.disabled = sending || !!(v && (v.terminal || v.toolOff)); // read only: the conversation runs elsewhere or its tool is off
+    sendBtn.disabled = sending || readOnly();
   };
 
   // ---------- the box ----------
@@ -244,7 +246,7 @@ export function createComposer(o) {
     nextMode: () => v && setMode(nextMode(modeOf(v), v.choices ? v.choices.modes : undefined)),
     paint(state) {
       v = state;
-      const ro = !!v.terminal || !!v.toolOff;
+      const ro = readOnly();
       textarea.disabled = ro;
       attachBtn.disabled = ro;
       if (ro) menus.close();

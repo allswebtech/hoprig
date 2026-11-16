@@ -109,6 +109,8 @@ test('Send: a message on its way is sent once, even when a state update of the c
 
   c.paint({ ...idle, toolOff: true });
   assert.equal(send.disabled, true, 'read only still disables Send');
+  c.paint({ ...idle, terminal: { id: 't1' } });
+  assert.equal(send.disabled, true, 'a terminal that runs the conversation disables Send too');
   c.paint(idle);
   assert.equal(send.disabled, false);
 });
