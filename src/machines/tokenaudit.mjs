@@ -63,6 +63,8 @@ export const CHANGES = [
   ['POST', /^\/api\/workspace\/git\/signin$/, () => 'started the GitHub sign-in'],
   ['POST', /^\/api\/workspace\/git\/brain$/, () => "created the AI brain's repository"],
   ['POST', /^\/api\/workspace\/map\/commit$/, () => "saved the workspace map in the AI brain's history"],
+  ['POST', /^\/api\/system\/processes\/end$/, () => 'ended a process from the Task manager'],
+  ['POST', /^\/api\/services\/action$/, () => 'started, stopped or restarted a service', true],
 ];
 
 /** { did, asks } for `method p` done by the token called `name`, or null when it is not a change we log. */
@@ -77,7 +79,7 @@ export function changeOf(method, p, name) {
 /**
  * Called by the machines gate for a request it let in with `entry` (the token's stored entry). Records when the
  * answer is finished with a status below 400. On a route that may ask first, an answer that asks (needsPassword,
- * needsTerminal) did nothing yet and is not recorded; only those two flags of that answer are looked at, and only
+ * needsTerminal) did nothing yet and is not recorded; only those flags of that answer are looked at, and only
  * on those routes (no other answer is read: the gateway's carries a new key).
  */
 export function auditToken(req, res, p, entry, record = recordHubActivity) {
@@ -91,7 +93,7 @@ export function auditToken(req, res, p, entry, record = recordHubActivity) {
         const text = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : '';
         if (text.length < 4096 && text.startsWith('{')) {
           const a = JSON.parse(text);
-          asked = a.needsPassword === true || a.needsTerminal === true;
+          asked = a.needsPassword === true || a.needsTerminal === true || a.needsConfirm === true;
         }
       } catch {
         /* not JSON: a change like any other */

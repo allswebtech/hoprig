@@ -64,6 +64,9 @@ export function parseSs(text) {
   return uniquePorts(out);
 }
 
+/** df for the disks a person cares about: sizes in bytes, without memory and image file systems. */
+export const DF_ARGS = ['-P', '-B1', '-x', 'tmpfs', '-x', 'devtmpfs', '-x', 'squashfs', '-x', 'overlay', '-x', 'efivarfs'];
+
 const myUid = () => (typeof process.getuid === 'function' ? process.getuid() : -1);
 
 export async function snapshot() {
@@ -74,7 +77,7 @@ export async function snapshot() {
     mem = { total: os.totalmem(), available: os.freemem(), swapTotal: null, swapFree: null };
   }
   const [df, ps, ss] = await Promise.all([
-    run('df', ['-P', '-B1', '-x', 'tmpfs', '-x', 'devtmpfs', '-x', 'squashfs', '-x', 'overlay', '-x', 'efivarfs']),
+    run('df', DF_ARGS),
     run('ps', ['-eo', 'pid=,uid=,pcpu=,rss=,etimes=,comm=,args=']),
     run('ss', ['-Htlnp']),
   ]);

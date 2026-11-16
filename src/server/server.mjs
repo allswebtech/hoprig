@@ -66,6 +66,7 @@ import { workspaceFeature } from '../workspace/feature.mjs';
 import { vscodeFeature } from '../vscode/feature.mjs';
 import { chatFeature } from '../chat/feature.mjs';
 import { onboardingFeature } from '../setup/onboarding.mjs';
+import { desktopFeature } from '../desktop/feature.mjs';
 import { removeDashboardFile, writeDashboardFile } from './dashboardfile.mjs';
 import { createLoginLink, loginLinkStatus, qrRows, useLoginLink } from './loginlink.mjs';
 import { clientIp, isHttps, originOk, requestHost, securityHeaders } from './security.mjs';
@@ -218,6 +219,7 @@ export function createServer(opts = {}) {
     onboardingFeature(ctx, opts.onboarding), // Home → Get started: the steps a new user goes through, done or not
     workspaceFeature(ctx, opts.workspace), // Workspace: the tree, its map, restore and sync, Git and GitHub, the AI brain (read-only)
     chat, // coding without the terminal: a Claude Code conversation as a chat (its cards are among the sessions)
+    desktopFeature(ctx, opts.desktop), // the desktop's Task manager, Services and Logs: processes, usage, services, the journal and log files
   ];
   const trusted = (req) => features.some((f) => f.trusted && f.trusted(req));
 
