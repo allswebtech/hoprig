@@ -13,7 +13,8 @@
 //                        Automatic); `autoBlocked(cards)` (optional) adds what only Automatic waits for
 //   autoOk(info)       may Automatic update this install at all
 //
-// The rules: Hoprig from a git checkout never updates by itself; a coding tool updates by itself only while none of
+// The rules: Hoprig never updates by itself (a running dashboard loads a new version only when it restarts), and a
+// git checkout is never part of "Update all" nor pulled with uncommitted changes; a coding tool updates by itself only while none of
 // its sessions is working (Claude Code: a running session keeps its own copy) or open at all (Codex, OpenCode: npm
 // replaces their program files); the tunnel helper never while a public link is on (a Temporary link would come
 // back with a new address).
@@ -31,8 +32,11 @@ const plural = (n, one) => `${n} ${one} session${n === 1 ? '' : 's'}`;
  * A git checkout's facts without changing anything in it (no fetch: `ls-remote` only reads the server).
  * → { head, upstream, remoteHead, newer: true|false|null, error }
  */
+// git never asks for a password here: a server that wants one is "could not reach", not a 20-second wait.
+const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
+
 export async function gitFacts(root, run = capture) {
-  const git = (...a) => run(['git', '-C', root, ...a], { timeout: 20_000 });
+  const git = (...a) => run(['git', '-C', root, ...a], { timeout: 20_000, env: GIT_ENV });
   const head = (await git('rev-parse', 'HEAD')).stdout.trim() || null;
   const up = await git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}');
   const upstream = up.ok ? up.stdout.trim() : '';
@@ -56,7 +60,7 @@ export function hoprigItem(deps = {}) {
     id: 'hoprig',
     title: 'Hoprig',
     whenRunning:
-      'The new version is used after the dashboard restarts: sessions kept by tmux go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). From a git checkout Hoprig never updates by itself.',
+      'The new version is used after the dashboard restarts: sessions kept by tmux go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). Hoprig never updates itself: Automatic tells you, and you choose the moment.',
     installable: false,
     async info() {
       const [{ installKind, publishedVersion }, { appRoot, appVersion }] = await Promise.all([sel(), chk()]);
@@ -65,11 +69,13 @@ export function hoprigItem(deps = {}) {
       const installed = appVersion();
       if (kind === 'git') {
         const g = await gitFacts(root, run);
+        // Never part of "Update all": it pulls into the folder the dashboard runs from (a developer's checkout).
+        const git = { notInAll: 'a git checkout is updated on its own (Update now on its card)' };
         const short = (h) => (h ? h.slice(0, 7) : '');
         const base = { installed: g.head ? `${installed} (${short(g.head)})` : installed, method: 'git checkout' };
         if (!g.upstream) return { ...base, latest: null, updateAvailable: false, canUpdate: false, why: 'This checkout follows no branch on a server: update it with git yourself.' };
-        if (g.newer === null) return { ...base, latest: null, updateAvailable: false, canUpdate: true, note: g.error || null };
-        return { ...base, latest: g.newer ? `newer commits on ${g.upstream}` : base.installed, updateAvailable: g.newer, canUpdate: true };
+        if (g.newer === null) return { ...base, ...git, latest: null, updateAvailable: false, canUpdate: true, note: g.error || null };
+        return { ...base, ...git, latest: g.newer ? `newer commits on ${g.upstream}` : base.installed, updateAvailable: g.newer, canUpdate: true };
       }
       if (kind === 'npm') {
         const latest = await publishedVersion();
@@ -81,6 +87,15 @@ export function hoprigItem(deps = {}) {
       const [{ installKind, updatePlan }, { appRoot, appVersion }] = await Promise.all([sel(), chk()]);
       const root = appRoot();
       const kind = installKind(root);
+      if (kind === 'git') {
+        // A pull into a checkout with work in it is the developer's to do, not a button's.
+        const st = await run(['git', '-C', root, 'status', '--porcelain', '--untracked-files=no'], { timeout: 20_000, env: GIT_ENV });
+        if (!st.ok || st.stdout.trim()) {
+          const why = st.ok ? 'The checkout has changes that are not committed: update it with git yourself.' : 'git could not read the checkout.';
+          onLine(why);
+          return { ok: false, version: appVersion(), output: why };
+        }
+      }
       const plan = updatePlan(kind, root, process.platform, kind === 'npm' ? await npmMajor() : null);
       if (!plan.length) {
         onLine('This install cannot update itself: install it again the way you did first.');
@@ -92,15 +107,13 @@ export function hoprigItem(deps = {}) {
         if (!r.ok && step.ifFails) onLine(step.ifFails);
         else if (!r.ok) return { ok: false, version: appVersion(), output: `exit code ${r.code}` };
       }
-      onLine('Done. The new version is used after the dashboard restarts (hoprig service install restarts the background one).');
-      return { ok: true, version: appVersion(), output: '' };
+      onLine('Done. Restart the dashboard to use the new version (hoprig service install restarts the background one). Until then it runs the version it started with.');
+      return { ok: true, version: appVersion(), output: '', restart: true };
     },
     blocked: () => null,
-    autoBlocked: (cards) => {
-      const n = cards.filter(busy).length;
-      return n ? `${plural(n, 'working')} would be cut off by the restart` : null;
-    },
-    autoOk: (info) => info.method === 'npm',
+    // Never by itself: the files change under the running dashboard, and only a restart loads the new version as a
+    // whole (until then a part loaded later would come from the new files next to the old ones). Automatic tells.
+    autoOk: () => false,
   };
 }
 
@@ -120,7 +133,9 @@ export function toolItem(id, deps = {}) {
     async info() {
       const i = await tool.info();
       const method = { hoprig: "Hoprig's tools folder", native: 'official installer', npm: 'npm', unknown: 'a package manager' }[i.method] || i.method || 'unknown';
-      const note = tool.managed ? `Installs ${tool.pin} at first, the version this Hoprig is tested with.` : null;
+      const note = !tool.managed ? null
+        : !i.installed ? `Installs ${tool.pin}, the version this Hoprig is tested with.`
+          : i.latest && compareVersions(i.latest, tool.pin) > 0 ? `This Hoprig is tested with ${tool.pin}: a newer version may behave differently.` : null;
       return { installed: i.installed, latest: i.latest, method, updateAvailable: !!i.updateAvailable, canUpdate: true, note };
     },
     async update({ onLine = () => {} } = {}) {

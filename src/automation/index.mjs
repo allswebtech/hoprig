@@ -169,7 +169,7 @@ export function createAutomation(ctx) {
       // Updates look by themselves only to install (Automatic) or to tell (notify on); otherwise the Updates page
       // looks when it is opened, so a default dashboard asks no server anything in the background.
       const us = updater.settings();
-      if (us.mode === 'auto' || us.notify) {
+      if (updates.looksInBackground(us)) {
         const u = updates.decide({ cards, data: store.read('updates', {}), now: t });
         store.write('updates', u.data);
         plan.push(['updates', u.actions]);

@@ -6,8 +6,11 @@
 //                         and never one that is not installed
 // An update that has to wait is tried again 10 minutes later, and the wait is written to the log once per version.
 //
-// config.json "updates": { mode: 'manual' | 'auto', notify: true | false }. It replaced the Claude-only automation
-// setting automation.updates.claude (off | notify | auto), which is read once into it (migrateUpdates).
+// config.json "updates": { mode: 'manual' | 'auto', notify: true | false, itemModes?: { <id>: 'manual' | 'auto' } }.
+// `itemModes` lets one item go its own way. It exists for the Claude-only automation setting this replaced
+// (automation.updates.claude: off | notify | auto), read once into it (migrateUpdates): an owner who let Claude Code
+// update itself keeps exactly that (itemModes.claude 'auto'), and nothing else starts installing by itself without
+// a new choice.
 //
 // Stored (automation store "updates"): { lastCheckAt, retryAt, told: { id: version }, waiting: { id: version } }.
 import { busy } from './cards.mjs';
@@ -15,41 +18,74 @@ import { busy } from './cards.mjs';
 export const CHECK_EVERY_MS = 6 * 3600_000;
 export const RETRY_MS = 10 * 60_000;
 export const UPDATE_MODES = ['manual', 'auto'];
+/** What Settings → Updates lists (./updateitems.mjs realItems). */
+export const UPDATE_ITEMS = ['hoprig', 'claude', 'codex', 'opencode', 'cloudflared'];
 const LEGACY = ['off', 'notify', 'auto'];
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
+function cleanItemModes(v) {
+  const out = {};
+  if (isObj(v)) for (const id of UPDATE_ITEMS) if (UPDATE_MODES.includes(v[id])) out[id] = v[id];
+  return out;
+}
+
+/** The settings with `itemModes` only when an item goes its own way (the plain shape otherwise). */
+const shaped = (mode, notify, itemModes) => ({ mode, notify, ...(Object.keys(itemModes).length ? { itemModes } : {}) });
+
 /** The update settings from config.json; until they exist, from the old Claude-only setting. Never throws. */
 export function readUpdateSettings(cfg) {
   const u = cfg && cfg.updates;
-  if (isObj(u) && UPDATE_MODES.includes(u.mode)) return { mode: u.mode, notify: u.notify === true };
+  if (isObj(u) && UPDATE_MODES.includes(u.mode)) return shaped(u.mode, u.notify === true, cleanItemModes(u.itemModes));
   const old = cfg && isObj(cfg.automation) && isObj(cfg.automation.updates) ? cfg.automation.updates.claude : undefined;
-  return { mode: old === 'auto' ? 'auto' : 'manual', notify: old === 'notify' };
+  // Old "auto" meant Claude Code updates itself, nothing more: only that item does.
+  return shaped('manual', old === 'notify', old === 'auto' ? { claude: 'auto' } : {});
 }
 
-/** A change from the page: { mode?, notify? }. Unknown keys and values are refused with a plain sentence. */
+/** How `id` is updated: its own mode when it has one, else the one for everything. */
+export const modeOf = (s, id) => (s.itemModes && s.itemModes[id]) || s.mode;
+
+/** Does anything look by itself in the background? Only to install (Automatic, for all or one item) or to tell. */
+export const looksInBackground = (s) => s.mode === 'auto' || s.notify || Object.values(s.itemModes || {}).includes('auto');
+
+/**
+ * A change from the page: { mode?, notify?, itemModes? } (itemModes: { <id>: 'manual' | 'auto' | null }, null: the
+ * item follows the mode for everything again). Unknown keys and values are refused with a plain sentence.
+ */
 export function cleanUpdateSettings(patch, current) {
   if (!isObj(patch)) throw new Error('send the update settings as an object');
-  const next = { ...current };
+  let { mode, notify } = current;
+  const itemModes = { ...(current.itemModes || {}) };
   for (const [k, v] of Object.entries(patch)) {
     if (k === 'mode') {
       if (!UPDATE_MODES.includes(v)) throw new Error('updates are "manual" or "auto"');
-      next.mode = v;
+      mode = v;
     } else if (k === 'notify') {
       if (typeof v !== 'boolean') throw new Error('notify must be on or off (true or false)');
-      next.notify = v;
+      notify = v;
+    } else if (k === 'itemModes') {
+      if (!isObj(v)) throw new Error('itemModes is an object of item and mode');
+      for (const [id, m] of Object.entries(v)) {
+        if (!UPDATE_ITEMS.includes(id)) throw new Error(`"${String(id).slice(0, 40)}" is not updated here`);
+        if (m === null) delete itemModes[id];
+        else if (UPDATE_MODES.includes(m)) itemModes[id] = m;
+        else throw new Error('an item\'s updates are "manual", "auto" or null');
+      }
     } else throw new Error(`"${String(k).slice(0, 40)}" is not an update setting`);
   }
-  return next;
+  return shaped(mode, notify, itemModes);
 }
 
 /** The old setting's value from the new settings, for pages and helpers that still ask for it. */
-export const legacyValue = (s) => (s.mode === 'auto' ? 'auto' : s.notify ? 'notify' : 'off');
+export const legacyValue = (s) => (modeOf(s, 'claude') === 'auto' ? 'auto' : s.notify ? 'notify' : 'off');
 
-/** The old setting's value sent by an older page (or Tia) as the new settings. Throws for anything else. */
+/**
+ * The old setting's value sent by an older page (or Tia), as a change of the new settings. It was about Claude Code
+ * only, so only Claude Code's own mode changes (and "notify" turns telling on). Throws for anything else.
+ */
 export function fromLegacy(v) {
   if (!LEGACY.includes(v)) throw new Error(`Claude Code updates must be one of: ${LEGACY.join(', ')}`);
-  return { mode: v === 'auto' ? 'auto' : 'manual', notify: v === 'notify' };
+  return { itemModes: { claude: v === 'auto' ? 'auto' : 'manual' }, ...(v === 'notify' ? { notify: true } : {}) };
 }
 
 /**
@@ -83,8 +119,11 @@ export function afterCheck({ rows, settings, data }) {
   for (const r of rows) {
     if (!r.installed || !r.updateAvailable || !r.latest) continue;
     const a = { id: r.id, title: r.title, current: r.installed, latest: r.latest };
-    if (settings.mode === 'auto' && r.canUpdate && r.auto) actions.push({ type: 'update', ...a });
-    else if (settings.notify && d.told[r.id] !== r.latest) {
+    const auto = modeOf(settings, r.id) === 'auto';
+    if (auto && r.canUpdate && r.auto) actions.push({ type: 'update', ...a });
+    // Told once per version: with notify on, and also in Automatic for what Automatic does not install itself
+    // (Hoprig: the running dashboard would need a restart), so the owner learns of it.
+    else if ((settings.notify || auto) && d.told[r.id] !== r.latest) {
       actions.push({ type: 'tell', ...a });
       d.told[r.id] = r.latest;
     }

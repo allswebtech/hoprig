@@ -82,6 +82,7 @@ export function createUpdater({ items, cards, config, saveConfig, record = () =>
       error: (f && f.error) || null,
       action,
       blocked: action ? item.blocked(list) : null,
+      notInAll: i.notInAll || null,
       auto: known && !!i.installed && !!item.autoOk(i),
       checkedAt: f ? f.at : null,
       last: last.get(item.id) || null,
@@ -116,7 +117,7 @@ export function createUpdater({ items, cards, config, saveConfig, record = () =>
           r = { ok: false, version: null, output: e.message };
           line(e.message);
         }
-        const res = { ok: !!r.ok, version: r.version || null, at: now(), error: r.ok ? null : tildeText(String(r.output || '').split('\n').filter(Boolean).pop() || 'see the output') };
+        const res = { ok: !!r.ok, version: r.version || null, at: now(), installed: !!r.installed, restart: !!r.restart, error: r.ok ? null : tildeText(String(r.output || '').split('\n').filter(Boolean).pop() || 'see the output') };
         j.results[id] = res;
         last.set(id, res);
         facts.delete(id); // look again: the version changed
@@ -145,7 +146,8 @@ export function createUpdater({ items, cards, config, saveConfig, record = () =>
       ids = [];
       for (const r of v.items) {
         if (r.action !== 'update' || !r.updateAvailable) continue;
-        if (r.blocked) skipped.push({ id: r.id, why: r.blocked });
+        if (r.notInAll) skipped.push({ id: r.id, why: r.notInAll });
+        else if (r.blocked) skipped.push({ id: r.id, why: r.blocked });
         else ids.push(r.id);
       }
       if (!ids.length) return { started: false, ids, skipped };

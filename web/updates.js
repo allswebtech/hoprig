@@ -19,8 +19,23 @@ export function stateOf(it) {
   if (it.error) return 'Could not look';
   if (!it.installed) return 'Not installed';
   if (it.updateAvailable) return 'Update available';
-  if (!it.latest) return it.canUpdate ? 'Newest unknown' : 'Installed';
+  if (!it.latest) return it.method === 'git checkout' ? 'Git checkout' : it.canUpdate ? 'Newest unknown' : 'Installed';
   return 'Up to date';
+}
+
+/** The line about the last update or install of an item, or null. */
+function lastLine(l) {
+  if (!l.ok) return `The last ${l.installed ? 'install' : 'update'} failed ${ago(l.at)}: ${l.error}`;
+  const what = `${l.installed ? 'Installed' : 'Updated'} ${ago(l.at)}${l.version ? `: now ${l.version}` : ''}.`;
+  return l.restart ? `${what} Restart the dashboard to use it.` : what;
+}
+
+/** Put focus back where it was after a part of the page was drawn again (a keyboard user keeps their place). */
+function keepFocus(root, redraw) {
+  const all = () => [...root.querySelectorAll('input, button, select, textarea, a[href]')];
+  const at = all().indexOf(document.activeElement);
+  redraw();
+  if (at >= 0) all()[at]?.focus();
 }
 
 /** The one line in the Settings list: the mode and how many updates wait. */
@@ -29,19 +44,24 @@ export function summaryOf(v) {
   return `${v.mode === 'auto' ? 'Automatic' : 'Manual'} · ${n ? `${n} update${n === 1 ? '' : 's'} available` : 'nothing new'}`;
 }
 
-function itemCard(it, act) {
+function itemCard(it, act, own) {
   const out = h('pre.output.hidden', { 'aria-live': 'polite', 'data-item': it.id });
   const mark = savedMark();
+  // Nothing to look up (an install Hoprig does not update): no "Newest" and no "Looked" line, the hint says why.
+  const looks = !(it.why && !it.canUpdate && !it.error);
   const rows = [
     info('Installed', it.installed || 'not installed'),
-    info('Newest', it.latest || (it.error ? 'could not look' : it.why ? 'not looked up' : 'unknown (offline?)')),
+    looks ? info('Newest', it.latest || (it.error ? 'could not look' : 'unknown (offline?)')) : null,
     it.method ? info('Installed by', it.method) : null,
   ];
-  const check = btn('secondary', { icon: 'refresh', label: 'Check now', onclick: async () => {
+  const check = looks ? btn('secondary', { icon: 'refresh', label: 'Check now', onclick: async () => {
     check.disabled = true;
+    check.classList.add('busy');
     await act.check(it.id);
     check.disabled = false;
-  } });
+    check.classList.remove('busy');
+  } }) : null;
+  const fresh = it.last && it.last.ok && it.last.version && it.last.version === it.latest;
   const doIt = it.action
     ? btn(it.updateAvailable || it.action === 'install' ? 'primary' : 'secondary', {
       icon: 'download',
@@ -53,17 +73,19 @@ function itemCard(it, act) {
     : null;
   return {
     out,
-    el: panel({ icon: it.id === 'hoprig' ? 'info' : it.id === 'cloudflared' ? 'lock' : 'code', title: it.title, desc: it.whenRunning, tag: stateOf(it) },
+    // What an update does to running work matters only once it is installed.
+    el: panel({ icon: it.id === 'hoprig' ? 'info' : it.id === 'cloudflared' ? 'lock' : 'code', title: it.title, desc: it.installed ? it.whenRunning : null, tag: stateOf(it) },
       h('div.info-list', rows),
-      it.updateAvailable ? h('p.banner.info', icon('download', { size: 18 }), h('span', `${it.latest} is available.`)) : null,
+      own ? h('p.banner.info', icon('clock', { size: 18 }), h('span', `${it.title} ${own === 'auto' ? 'updates by itself' : 'is only updated when you press Update now'}: your earlier choice for it, kept when this page replaced it.`),
+        btn('small secondary', { label: 'Follow the choice above', onclick: () => act.follow(it.id) })) : null,
+      it.updateAvailable && !fresh ? h('p.banner.info', icon('download', { size: 18 }), h('span', `${it.latest} is available.`)) : null,
       it.blocked && it.action ? h('p.banner.warn', icon('clock', { size: 18 }), h('span', `${it.blocked}.`)) : null,
       it.why ? h('p.hint', it.why) : null,
       it.note ? h('p.hint', it.note) : null,
       it.error ? h('p.form-error', it.error) : null,
-      it.last ? h(`p.banner.${it.last.ok ? 'ok-box' : 'error-box'}`, icon(it.last.ok ? 'check' : 'alert', { size: 18 }),
-        h('span', it.last.ok ? `Updated ${ago(it.last.at)}${it.last.version ? `: now ${it.last.version}` : ''}.` : `The last update failed ${ago(it.last.at)}: ${it.last.error}`)) : null,
+      it.last ? h(`p.banner.${it.last.ok ? 'ok-box' : 'error-box'}`, icon(it.last.ok ? 'check' : 'alert', { size: 18 }), h('span', lastLine(it.last))) : null,
       out,
-      h('div.savebar', it.checkedAt ? h('span.hint', `Looked ${ago(it.checkedAt)}`) : null, mark, check, doIt)),
+      h('div.savebar', looks && it.checkedAt ? h('span.hint', `Looked ${ago(it.checkedAt)}`) : null, mark, check, doIt)),
   };
 }
 
@@ -81,6 +103,14 @@ function updatesPage({ isAlive }) {
     async check(id) {
       try {
         draw(await api('/api/updates/check', id ? { id } : {}));
+      } catch (e) {
+        toast(e.message, { kind: 'error' });
+      }
+    },
+    async follow(id) {
+      try {
+        await api('/api/updates/settings', { itemModes: { [id]: null } });
+        await load();
       } catch (e) {
         toast(e.message, { kind: 'error' });
       }
@@ -135,7 +165,7 @@ function updatesPage({ isAlive }) {
         await api('/api/updates/settings', patch);
         view = { ...view, ...patch };
         mark.show();
-        drawTop();
+        keepFocus(top, drawTop);
         return true;
       } catch (e) {
         toast(e.message, { kind: 'error' });
@@ -143,6 +173,12 @@ function updatesPage({ isAlive }) {
       }
     };
     const waiting = v.items.filter((i) => i.updateAvailable && i.action === 'update').length;
+    const checkAll = btn('secondary', { icon: 'refresh', label: 'Check all now', onclick: async () => {
+      checkAll.disabled = true;
+      checkAll.classList.add('busy');
+      fill(list, h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Looking for new versions…')));
+      await act.check(null);
+    } });
     function drawTop() {
       fill(top,
         panel({ icon: 'download', title: 'How updates happen', desc: 'One choice for everything below.' },
@@ -150,19 +186,13 @@ function updatesPage({ isAlive }) {
           toggle('Tell me about new versions', view.notify, (on) => set({ notify: on }),
             'A notification once per new version (Settings → Notifications says where). Hoprig then looks every 6 hours.'),
           h('div.savebar', mark,
-            btn('secondary', { icon: 'refresh', label: 'Check all now', onclick: async (e) => {
-              const b = e.currentTarget;
-              b.disabled = true;
-              fill(list, h('div.empty', h('div.spinner', { 'aria-hidden': 'true' }), h('p', 'Looking for new versions…')));
-              await act.check(null);
-              b.disabled = false;
-            } }),
+            checkAll,
             btn(waiting ? 'primary' : 'secondary', { icon: 'download', label: 'Update all', disabled: !waiting || act.busy(), title: waiting ? '' : 'Nothing to update', onclick: () => act.run('all') }))));
     }
     drawTop();
     outs = new Map();
     fill(list, v.items.map((it) => {
-      const c = itemCard(it, act);
+      const c = itemCard(it, act, (v.itemModes || {})[it.id] || null);
       outs.set(it.id, c.out);
       return c.el;
     }));

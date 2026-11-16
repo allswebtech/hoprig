@@ -103,6 +103,20 @@ test('two presses at once (a double click, two pages, the automatic rule) start 
   assert.equal(most, 1);
 });
 
+test('Update all leaves a git checkout of Hoprig out; Automatic tells about what it does not install', async () => {
+  const items = [fakeItem('hoprig', { info: newer({ notInAll: 'a git checkout is updated on its own (Update now on its card)' }), autoOk: () => false }), fakeItem('claude', { info: newer() })];
+  const { u } = make(items);
+  const r = await u.start('all');
+  assert.deepEqual(r, { started: true, ids: ['claude'], skipped: [{ id: 'hoprig', why: 'a git checkout is updated on its own (Update now on its card)' }] });
+  await settle(u);
+  const { afterCheck } = await import('../../src/automation/updates.mjs');
+  const rows = [{ id: 'hoprig', title: 'Hoprig', installed: '0.1.0', latest: '0.2.0', updateAvailable: true, canUpdate: true, auto: false }];
+  const a = afterCheck({ rows, settings: { mode: 'auto', notify: false }, data: {} });
+  assert.deepEqual(a.actions.map((x) => x.type), ['tell'], 'Automatic does not install Hoprig: it tells, once');
+  assert.deepEqual(afterCheck({ rows, settings: { mode: 'auto', notify: false }, data: a.data }).actions, []);
+  assert.deepEqual(afterCheck({ rows, settings: { mode: 'manual', notify: false }, data: {} }).actions, [], 'Manual without notify: nothing');
+});
+
 test('Update all: every installed item with a newer version that may go now; the others are said, nothing is installed', async () => {
   const items = [
     fakeItem('claude', { info: newer() }),
@@ -165,7 +179,7 @@ test('a coding tool that is missing is installed by its row; one that is there i
   let why = null;
   const it = toolItem('codex', { tool: t, turnOn: (id) => on.push(id), readyToReplace: async () => why });
   assert.equal((await it.info()).method, "Hoprig's tools folder");
-  assert.match((await it.info()).note, /Installs 0\.169\.0 at first/);
+  assert.match((await it.info()).note, /Installs 0\.169\.0, the version this Hoprig is tested with/);
   await it.update();
   have = '0.169.0';
   await it.update();
@@ -214,11 +228,26 @@ test('Hoprig from a git checkout: read with ls-remote only, never updated by its
   assert.match(noUp.why, /with git yourself/);
   const npm = hoprigItem(deps('npm', {}));
   const ni = await npm.info();
-  assert.deepEqual([ni.latest, ni.updateAvailable, npm.autoOk(ni)], ['0.2.0', true, true]);
+  assert.deepEqual([ni.latest, ni.updateAvailable, npm.autoOk(ni)], ['0.2.0', true, false], 'not even from npm: a running dashboard needs a restart for it');
   assert.equal(npm.blocked([claude('a', { status: 'working' })]), null, 'Update now is the owner\'s choice');
-  assert.match(npm.autoBlocked([claude('a', { status: 'working' })]), /cut off by the restart/);
   assert.equal((await hoprigItem(deps('other', {})).info()).canUpdate, false);
-  assert.match(git.whenRunning, /never updates by itself/);
+  assert.match(git.whenRunning, /Hoprig never updates itself: Automatic tells you/);
+  assert.match(gi.notInAll, /git checkout is updated on its own/);
+  assert.ok(calls.some((c) => c.startsWith('ls-remote')));
+  // ls-remote never waits for a password.
+  const envs = [];
+  await gitFacts('/app', async (argv, o) => (envs.push(o.env), { ok: false, code: 1, stdout: '' }));
+  assert.equal(envs[0].GIT_TERMINAL_PROMPT, '0');
+  // Update now on a checkout with uncommitted work: refused, nothing pulled.
+  const ran = [];
+  const dirty = hoprigItem({ ...deps('git', { 'status --porcelain': { ok: true, code: 0, stdout: ' M src/x.mjs\n' } }), stream: async (argv) => (ran.push(argv), { ok: true }), selfupdate: { installKind: () => 'git', updatePlan: () => [{ argv: ['git', 'pull'] }] } });
+  const lines = [];
+  const r = await dirty.update({ onLine: (l) => lines.push(l) });
+  assert.deepEqual([r.ok, ran.length], [false, 0]);
+  assert.match(lines[0], /changes that are not committed/);
+  const clean = hoprigItem({ ...deps('git', { 'status --porcelain': { ok: true, code: 0, stdout: '' } }), stream: async (argv) => (ran.push(argv), { ok: true }), selfupdate: { installKind: () => 'git', updatePlan: () => [{ argv: ['git', 'pull'] }] } });
+  const done = await clean.update({ onLine: () => {} });
+  assert.deepEqual([done.ok, done.restart, ran.length], [true, true, 1]);
 });
 
 test('the tunnel helper: the version Hoprig ships, only its own copy is updated, never while a public link is on', async () => {
@@ -280,17 +309,34 @@ test('the old Claude-only setting: moved once at start; an older page or Tia may
   const t = tmpDir('updlegacy');
   try {
     const f = fakeCtx({ deck: fakeDeck(), stateDir: t.dir, now: () => 1000, automation: { retry: { enabled: true }, updates: { claude: 'notify' } } });
-    const a = createAutomation(f.ctx);
+    let a = createAutomation(f.ctx);
     assert.deepEqual(f.config().updates, { mode: 'manual', notify: true });
     assert.equal(f.config().automation.updates, undefined, 'the old row is gone');
     assert.equal(f.config().automation.retry.enabled, true, 'the rest stays');
     assert.equal(a.api.status().settings.updates.claude, 'notify', 'older pages still read it');
     a.api.changeSettings({ updates: { claude: 'auto' }, retry: { enabled: false } });
-    assert.deepEqual(f.config().updates, { mode: 'auto', notify: false });
+    assert.deepEqual(f.config().updates, { mode: 'manual', notify: true, itemModes: { claude: 'auto' } }, 'an older page\'s "auto" is about Claude Code only');
+    assert.equal(a.api.status().settings.updates.claude, 'auto');
     assert.equal(f.config().automation.retry.enabled, false);
     assert.equal(f.config().automation.updates, undefined, 'never written back into the automations');
     assert.throws(() => a.api.changeSettings({ updates: { claude: 'always' } }), /off, notify, auto/);
     assert.throws(() => a.api.changeSettings({ updates: { mode: 'auto' } }), /Settings → Updates/);
+    await a.close();
+    // An owner who had Claude Code update itself: after the move, only Claude Code does; nothing else starts
+    // installing by itself without a new choice.
+    const g = fakeCtx({ deck: fakeDeck(), stateDir: t.dir, now: () => 1000, automation: { updates: { claude: 'auto' } } });
+    a = createAutomation(g.ctx);
+    assert.deepEqual(g.config().updates, { mode: 'manual', notify: false, itemModes: { claude: 'auto' } });
+    const U = await import('../../src/automation/updates.mjs');
+    const s = U.readUpdateSettings(g.config());
+    assert.deepEqual(['hoprig', 'claude', 'codex', 'opencode', 'cloudflared'].map((id) => U.modeOf(s, id)), ['manual', 'auto', 'manual', 'manual', 'manual']);
+    assert.equal(U.looksInBackground(s), true, 'it still looks, to update Claude Code');
+    const rows = ['claude', 'codex'].map((id) => ({ id, title: id, installed: '1', latest: '2', updateAvailable: true, canUpdate: true, auto: true }));
+    assert.deepEqual(U.afterCheck({ rows, settings: s, data: {} }).actions.map((x) => [x.type, x.id]), [['update', 'claude']]);
+    // The page sets it back to the mode for everything.
+    assert.deepEqual(U.cleanUpdateSettings({ itemModes: { claude: null } }, s), { mode: 'manual', notify: false });
+    assert.throws(() => U.cleanUpdateSettings({ itemModes: { vim: 'auto' } }, s), /not updated here/);
+    assert.throws(() => U.cleanUpdateSettings({ itemModes: { claude: 'always' } }, s), /"manual", "auto" or null/);
     await a.close();
   } finally {
     t.cleanup();

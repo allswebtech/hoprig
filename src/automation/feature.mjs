@@ -14,7 +14,7 @@
 // Settings → Updates (./updater.mjs; the old /api/claude routes stay for older pages and other computers):
 //   GET  /api/updates                        { mode, notify, running, items: [row] }
 //   POST /api/updates/check                  { id? }: look again now (one item, or all)
-//   POST /api/updates/settings               { mode?: 'manual' | 'auto', notify?: bool }
+//   POST /api/updates/settings               { mode?: 'manual' | 'auto', notify?: bool, itemModes?: { <id>: 'manual' | 'auto' | null } }
 //   POST /api/updates/run                    { id: <item> | 'all' }: update (or install) in the background
 //   GET  /api/updates/log?from=N             the output of the update that runs or ran last
 //
