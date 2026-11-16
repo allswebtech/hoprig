@@ -68,6 +68,21 @@ export function ownMessage(content) {
   if (!text.trim() && !attachments.length) return null;
   return { text, attachments };
 }
+// The model name of a message Claude Code writes itself (a local command's answer, an error it reports).
+const SYNTHETIC = '<synthetic>';
+/** What a local command answered, as the notice the page shows in a box of its own. */
+export const localNotice = (text) => ({ kind: 'notice', level: 'info', local: true, text: clipText(String(text).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').trim(), 4000), agent: null });
+// A command the owner typed, as Claude Code keeps it in the transcript.
+const COMMAND = /^\s*<command-name>\/?([^<]{1,100})<\/command-name>/;
+const ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
+/** The command line the owner typed ("/model sonnet") from Claude Code's wrapper, or null. */
+export function typedCommand(content) {
+  const text = textOf(content);
+  const m = COMMAND.exec(text);
+  if (!m) return null;
+  const args = (ARGS.exec(text) || [])[1];
+  return `/${m[1].trim()}${args && args.trim() ? ` ${args.trim()}` : ''}`;
+}
 /** What a local command printed (/cost, /model …), or null. */
 export const localOutput = (content) => {
   const m = LOCAL_OUT.exec(textOf(content));
@@ -206,6 +221,8 @@ export class ClaudeParser {
         if (!m.message) return [];
         const id = m.message.id || `m${++this.n}`;
         const out = assistantEvents(m.message.content, this.#blockId(id), agent);
+        // What Claude Code answers by itself (/cost, /context, /model …) is no reply of the model: a notice.
+        if (m.message.model === SYNTHETIC && !m.error && !m.isApiErrorMessage) return out.filter((e) => e.kind === 'text').map((e) => localNotice(e.text));
         for (const e of out) {
           if (e.kind === 'tool') this.#call(e.id, e.name, e.full);
           // How long it thought: Claude Code's own figure where the line has it, else since its first delta.
@@ -225,7 +242,7 @@ export class ClaudeParser {
         const content = m.message.content;
         if (m.isReplay) {
           const out = localOutput(content);
-          if (out !== null) return out ? [{ kind: 'notice', level: 'info', text: out, agent: null }] : [];
+          if (out !== null) return out ? [localNotice(out)] : [];
           const own = ownMessage(content);
           return own ? [{ kind: 'user', messageId: m.uuid ? String(m.uuid) : null, ...own, agent: null }] : [];
         }

@@ -487,7 +487,11 @@ export class Chat extends Timeline {
     if (!this.engine.capabilities.rewind) throw fail(409, `${this.engine.label} cannot undo changes`);
     if (this.busy()) throw fail(409, 'Claude is working. Wait until it is done, or press Stop first.');
     const s = await this.#ensure();
-    return s.rewind(messageId, { dryRun });
+    const r = await s.rewind(messageId, { dryRun });
+    const n = r && Array.isArray(r.filesChanged) ? r.filesChanged.length : 0;
+    // The conversation shows it: Claude Code itself is not told, its next message should say so.
+    if (!dryRun && r && r.canRewind !== false && !r.error) this.push({ kind: 'notice', level: 'info', text: `Files rewound to before a message${n ? ` (${n === 1 ? '1 file' : `${n} files`})` : ''}. The conversation itself goes on as it was.` });
+    return r;
   }
 
   /** The / menu: the coding tool's commands and skills for this folder. */

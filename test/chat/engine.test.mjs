@@ -85,6 +85,28 @@ test('the queue, the owner\'s echoed message, local command output, limits, a ne
   assert.equal(ev.length, 9, 'unknown lines and machine-made turns give nothing');
 });
 
+test('what Claude Code answers by itself (/cost, /context) is a notice, live and read back; the command typed is the owner\'s message', () => {
+  const live = P.parseLines([
+    { type: 'user', isReplay: true, uuid: 'c1', message: { content: [{ type: 'text', text: '/cost' }] } },
+    { type: 'assistant', message: { id: 'syn1', model: '<synthetic>', content: [{ type: 'text', text: 'Total cost:  $0.0088\u001b[0m' }] } },
+    { type: 'assistant', message: { id: 'syn2', model: '<synthetic>', content: [{ type: 'text', text: 'API Error: 500' }] }, error: 'unknown' },
+  ]);
+  assert.deepEqual([live[0].kind, live[0].text], ['user', '/cost']);
+  assert.deepEqual({ ...live[1] }, { kind: 'notice', level: 'info', local: true, text: 'Total cost:  $0.0088', agent: null });
+  assert.equal(live[2].kind, 'text', 'an error Claude Code reports stays where it was');
+  const dir = path.join(box.root, 'local');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'c.jsonl'), [
+    { type: 'user', isMeta: true, message: { content: '<local-command-caveat>Caveat: …</local-command-caveat>' } },
+    { type: 'user', uuid: 'k1', message: { content: '<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>sonnet</command-args>' } },
+    { type: 'system', subtype: 'local_command', content: '<local-command-stdout>Set model to `Sonnet 5.5`</local-command-stdout>' },
+    { type: 'user', uuid: 'k2', message: { content: '<command-name>/context</command-name>\n<command-message>context</command-message>\n<command-args></command-args>' } },
+  ].map((l) => JSON.stringify(l)).join('\n'));
+  const t = P.transcriptEvents(path.join(dir, 'c.jsonl')).events;
+  assert.deepEqual(t.map((e) => [e.kind, e.text, e.local || false]), [['user', '/model sonnet', false], ['notice', 'Set model to `Sonnet 5.5`', true], ['user', '/context', false]]);
+  assert.equal(t[0].messageId, 'k1');
+});
+
 test('a conversation read back: subagents nested under their call, a workflow, compacting, the title, unknown lines skipped', () => {
   const dir = path.join(box.root, 'proj');
   fs.mkdirSync(path.join(dir, 'conv', 'subagents'), { recursive: true });

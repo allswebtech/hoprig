@@ -72,8 +72,8 @@ export async function searchFiles(cwd, q) {
   return hit.files.map((f) => [f, score(f, query)]).filter(([, s]) => s >= 0).sort((a, b) => b[1] - a[1]).slice(0, SHOWN_MAX).map(([f]) => f);
 }
 
-const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
-const IMAGE_MAX = 5 * 1024 * 1024; // the Messages API's limit for one image
+export const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
+export const IMAGE_MAX = 5 * 1024 * 1024; // the Messages API's limit for one image
 const ATTACH_MAX = 10;
 
 /**

@@ -12,13 +12,20 @@
 //   GET  /api/chats/<id>/files?q=                 the @ picker: files of the chat's folder
 //   GET  /api/chats/<id>/commands                 the / menu: the coding tool's commands and skills
 //   GET  /api/chats/<id>/usage                    context and plan usage, asked of the running process
-// The stream is for a page on this computer (behind its login); a chat of another computer is read through the
-// relay with the long poll of feature.mjs, which stays.
+//   GET  /api/chats/<id>/history                  the folder's conversations (to continue one in a chat)
+//   GET  /api/chats/<id>/attachment?name=         a picture sent with a message (the timeline's thumbnail)
+// The stream and the pictures are for a page on this computer (behind its login); a chat of another computer is read
+// through the relay with the long poll of feature.mjs, which stays.
+import fs from 'node:fs';
+import path from 'node:path';
 import { EFFORTS, PERMISSION_MODES } from '../config.mjs';
-import { searchFiles } from './files.mjs';
+import { within } from '../server/folders.mjs';
+import { IMAGE_MAX, IMAGE_TYPES, searchFiles } from './files.mjs';
+import { folderHistory } from './history.mjs';
 
 const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
-const STREAM = new RegExp(`^/api/chats/${ID}/stream$`);
+const STREAM = new RegExp(`^/api/chats/${ID}/(stream|attachment)$`);
+const UPLOAD_NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,150}$/; // what the upload route names a file (uploads.mjs)
 const BATCH_MS = 50; // deltas and changes sent together at most this often
 const PING_MS = 20_000;
 
@@ -39,7 +46,7 @@ export function stateOf(c) {
  * the page shows beside the state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that
  * runs the conversation now) } from feature.mjs
  */
-export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf, about, terminalOf }) {
+export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf, uploadsDir, openChatOf, about, terminalOf }) {
   const { HttpError } = ctx;
   const pick = (val, list, what) => {
     if (val === undefined) return undefined;
@@ -67,6 +74,10 @@ export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf, about,
       c = chatOr404(m[1]);
     } catch (e) {
       json(e.status || 404, { error: e.message });
+      return true;
+    }
+    if (m[2] === 'attachment') {
+      picture(c, url.searchParams.get('name'), res, json);
       return true;
     }
     c.refresh();
@@ -140,7 +151,31 @@ export function liveRoutes(ctx, { chatOr404, save, bad, models, folderOf, about,
     return true;
   }
 
+  /** A picture of this chat's uploads folder, by the name the upload route gave it: nothing else is served. */
+  function picture(c, name, res, json) {
+    const type = IMAGE_TYPES[path.extname(String(name || '')).toLowerCase()];
+    if (!type || !UPLOAD_NAME.test(name)) return json(400, { error: 'bad picture name' });
+    let file;
+    try {
+      const dir = fs.realpathSync(uploadsDir(c));
+      file = fs.realpathSync(path.join(dir, name));
+      if (!within(file, dir) || file === dir) throw new Error('outside');
+      const st = fs.statSync(file);
+      if (!st.isFile() || st.size > IMAGE_MAX) throw new Error('not a picture');
+    } catch {
+      return json(404, { error: 'no such picture' });
+    }
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'" });
+    fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+  }
+
   const routes = [
+    ['GET', new RegExp(`^/api/chats/${ID}/history$`), async (req, m) => {
+      const c = chatOr404(m[1]);
+      return {
+        conversations: folderHistory(folderOf(c)).map((x) => ({ ...x, current: x.id === c.conversationId, chat: openChatOf(x.id) })),
+      };
+    }],
     ['POST', new RegExp(`^/api/chats/${ID}/mode$`), async (req, m) => {
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);

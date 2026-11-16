@@ -204,7 +204,7 @@ export function chatFeature(ctx, o = {}) {
       if (b.sessionId !== undefined && b.sessionId !== null) {
         id = v.sessionId(b.sessionId);
         if (!id || !sessionsIn(dir).some((s) => s.id === id)) throw bad('that conversation is not in this folder');
-        if (chats.has(id)) return { id };
+        if (openChatOf(id)) return { id: openChatOf(id) };
       }
       let text = null;
       if (b.text !== undefined && b.text !== null) {
@@ -381,7 +381,9 @@ export function chatFeature(ctx, o = {}) {
     }],
   ];
 
-  const live = liveRoutes(ctx, { chatOr404, save, bad, models, folderOf: (c) => uploadsOf(c).cwd, about, terminalOf: terminalView });
+  // The open chat that runs conversation `id` (its own id, or one whose conversation went on under a new id), or null.
+  const openChatOf = (id) => (chats.has(id) ? id : ([...chats.values()].find((c) => c.conversationId === id) || {}).id || null);
+  const live = liveRoutes(ctx, { chatOr404, save, bad, models, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
   routes.push(...live.routes);
 
   return {

@@ -28,16 +28,17 @@ function request(base, method, p, { body, raw, headers = {} } = {}) {
   return new Promise((resolve, reject) => {
     const data = raw || (body === undefined ? null : JSON.stringify(body));
     const req = http.request(new URL(p, base), { method, headers: { ...(data ? { 'Content-Type': raw ? 'application/octet-stream' : 'application/json', Origin: base } : {}), ...headers } }, (res) => {
-      let t = '';
-      res.on('data', (c) => (t += c));
+      const parts = [];
+      res.on('data', (c) => parts.push(c));
       res.on('end', () => {
+        const bytes = Buffer.concat(parts);
         let json = null;
         try {
-          json = JSON.parse(t);
+          json = JSON.parse(bytes.toString('utf8'));
         } catch {
           /* not JSON */
         }
-        resolve({ status: res.statusCode, json });
+        resolve({ status: res.statusCode, json, bytes, type: res.headers['content-type'] || '' });
       });
     });
     req.on('error', reject);
@@ -167,6 +168,7 @@ test('the routes of a running chat', { timeout: 120_000, skip: process.platform 
   assert.deepEqual(dry.files, [fs.realpathSync(path.join(proj, 'made.txt'))]);
   assert.equal((await owner('POST', `${A}/rewind`, { messageId: msg.messageId })).json.canRewind, true);
   assert.ok(!fs.existsSync(path.join(proj, 'made.txt')));
+  assert.match((await view()).events.filter((e) => e.kind === 'notice').at(-1).text, /^Files rewound to before a message \(1 file\)/, 'the conversation says so');
   assert.equal((await owner('POST', `${A}/rewind`, { messageId: '../x' })).status, 400);
 
   // ---- the composer's menus ----
@@ -192,4 +194,26 @@ test('the routes of a running chat', { timeout: 120_000, skip: process.platform 
   assert.deepEqual(va.events.filter((e) => e.kind === 'user').at(-1).attachments.map((x) => x.type), ['image', 'file']);
   assert.equal((await owner('POST', `${A}/send`, { text: 'x', attachments: [{ path: path.join(proj, 'README.md') }] })).status, 400, 'only files uploaded to this chat');
   assert.equal((await owner('POST', `${A}/send`, { text: 'x', attachments: [{ path: '/etc/passwd' }] })).status, 400);
+
+  // ---- the picture of a message, for the timeline: only this chat's uploads, only pictures, only with the login ----
+  const pic = va.events.filter((e) => e.kind === 'user').at(-1).attachments[0].name;
+  assert.equal(pic, path.basename(png));
+  const got = await owner('GET', `${A}/attachment?name=${encodeURIComponent(pic)}`);
+  assert.equal(got.status, 200);
+  assert.equal(got.type, 'image/png');
+  assert.equal(got.bytes.toString('hex'), '89504e470d0a1a0a');
+  assert.equal((await request(base, 'GET', `${A}/attachment?name=${encodeURIComponent(pic)}`)).status, 401, 'behind the login');
+  assert.equal((await owner('GET', `${A}/attachment?name=${encodeURIComponent(path.basename(log))}`)).status, 400, 'pictures only');
+  assert.equal((await owner('GET', `${A}/attachment?name=..%2F..%2FREADME.png`)).status, 400);
+  assert.equal((await owner('GET', `${A}/attachment?name=nothing-here.png`)).status, 404);
+  fs.symlinkSync(path.join(proj, 'README.md'), path.join(path.dirname(png), 'link.png'));
+  assert.equal((await owner('GET', `${A}/attachment?name=link.png`)).status, 404, 'a link out of the uploads folder is not followed');
+
+  // ---- the folder's history: earlier conversations with a title; one that a chat has open says which ----
+  const hist = (await owner('GET', `${A}/history`)).json.conversations;
+  const mine = hist.find((x) => x.current);
+  assert.ok(mine, 'this chat\'s conversation is listed');
+  assert.equal(mine.chat, id);
+  assert.equal(mine.title, 'think');
+  assert.equal((await owner('POST', '/api/chats', { dir: proj, profile: 'sub', sessionId: mine.id })).json.id, id, 'continuing it opens this chat');
 });

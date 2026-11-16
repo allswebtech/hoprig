@@ -14,7 +14,7 @@
 //   turn-start    { auto, messageId? }                    auto: the coding tool went on by itself (a task ended)
 //   turn-end      { ok, subtype, error, turnCostUsd, usage, durationMs, stopped }
 //   session-changed { id, reason: clear | compact | fork, … }
-//   notice        { level, text }
+//   notice        { level, text, local? }                local: what the coding tool answered by itself (/cost)
 // Live only (sent to a page that streams, folded into the state, never numbered):
 //   text-delta, thinking-delta { blockId, text, tokens? } · tool-start { id, name, title } · tool-progress { id, elapsedS }
 // Engine to chat only (the chat keeps them as its state): session, status, mode, settings, usage, limits, title, task,

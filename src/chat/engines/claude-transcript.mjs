@@ -11,9 +11,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { plainText } from '../events.mjs';
-import { INTERRUPTED, assistantEvents, newTodos, ownMessage, todoStep, toolResults, workflowTree } from './claude-parse.mjs';
+import { INTERRUPTED, assistantEvents, localNotice, localOutput, newTodos, ownMessage, todoStep, toolResults, typedCommand, workflowTree } from './claude-parse.mjs';
 
-const KNOWN = ['"type":"user"', '"type":"assistant"', '"compact_boundary"', '"custom-title"'];
+const KNOWN = ['"type":"user"', '"type":"assistant"', '"compact_boundary"', '"custom-title"', '"local_command"'];
 
 /** The events of the lines of one transcript file. `agent`: the tool call a subagent's lines nest under. */
 function linesToEvents(text, agent) {
@@ -33,6 +33,10 @@ function linesToEvents(text, agent) {
     else if (m.type === 'system' && m.subtype === 'compact_boundary') {
       const c = m.compactMetadata || m.compact_metadata || {};
       events.push({ kind: 'session-changed', id: m.sessionId || null, reason: 'compact', trigger: typeof c.trigger === 'string' ? c.trigger : null, at, agent });
+    } else if (m.type === 'system' && m.subtype === 'local_command' && !agent) {
+      // What a command the owner typed printed (/cost, /context …): kept as the notice it was in the chat.
+      const out = localOutput(m.content);
+      if (out) events.push({ ...localNotice(out), at });
     } else if (!m.message || (!agent && m.isSidechain)) continue;
     else if (m.type === 'assistant') {
       const id = m.message.id || m.uuid || 'x';
@@ -44,6 +48,8 @@ function linesToEvents(text, agent) {
       else if (agent) continue; // a subagent's prompt: its Agent call shows it
       else if (INTERRUPTED.test(typeof m.message.content === 'string' ? m.message.content : (m.message.content || []).map((c) => (c && c.text) || '').join('\n'))) {
         events.push({ kind: 'notice', level: 'info', text: 'Stopped.', at, agent: null });
+      } else if (typedCommand(m.message.content)) {
+        events.push({ kind: 'user', messageId: m.uuid || null, text: typedCommand(m.message.content), attachments: [], at, agent: null });
       } else {
         const own = ownMessage(m.message.content);
         if (own) events.push({ kind: 'user', messageId: m.uuid || null, ...own, at, agent: null });
