@@ -45,6 +45,8 @@ const HELP = `Hoprig — Claude Code under several profiles, with one shared ses
   hoprig setup                install what is missing and set everything up, step by step
   hoprig doctor               check that everything works
   hoprig claude status        Claude Code's version (also: claude update, claude install <version>)
+  hoprig tools                the coding tools: Claude Code, Codex, OpenCode (tools install <tool>,
+                                 tools update <tool | all>, tools on | off <tool>)
   hoprig update               update Hoprig itself
 
   hoprig link                 a one-time link and QR code that signs a phone or another browser in
@@ -184,6 +186,10 @@ async function main() {
     case 'update': {
       const setup = await import('../src/setup/cli.mjs');
       return (await setup.main(cmd, rest)) ?? 0;
+    }
+    case 'tools': {
+      const tools = await import('../src/codetools/cli.mjs');
+      return tools.main(rest);
     }
     case 'pc':
     case 'project': {

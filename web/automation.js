@@ -53,7 +53,7 @@ export function whatText(a, accountLabel = (n) => n) {
 /** The whole schedule as one sentence: "Every day at 08:30, start a session in api-server on Auto mode." */
 export const scheduleSentence = (s, accountLabel) => `${whenText(s.when)}, ${whatText(s.action, accountLabel)}.`;
 
-const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a restart', retry: 'Try again', updates: 'Claude Code versions', idle: 'Housekeeping', hub: 'Another dashboard' };
+const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a restart', retry: 'Try again', updates: 'Updates', idle: 'Housekeeping', hub: 'Another dashboard' };
 
 /**
  * One line of Activity in plain words: { title, sub, problem } — the title says what happened as a sentence, `problem`
@@ -508,9 +508,7 @@ function rulesPart(st, after) {
         'When Claude\'s servers are busy or the connection breaks, it waits a little and sends "continue", up to three times; never at a usage limit.'),
       rule('Reopen sessions after a restart', !!st.restoreOn, (v) => ({ restore: { enabled: v } }),
         'Sessions lost when the computer or the dashboard restarts come back with their conversation; nothing is typed into them.')),
-    panel({ icon: 'settings', title: 'Housekeeping', desc: 'Keep the computer tidy and up to date.' },
-      choiceRow('New Claude Code versions', s.updates.claude, [['off', 'Do nothing'], ['notify', 'Tell me'], ['auto', 'Update by itself']],
-        (v) => set({ updates: { claude: v } }), 'Looks every 6 hours, never while a session is working; running sessions keep their version.'),
+    panel({ icon: 'settings', title: 'Housekeeping', desc: 'Keep the computer tidy. New versions have a page of their own: Settings → Updates.' },
       rule('Close idle terminals', s.idle.shells, (v) => ({ idle: { shells: v } }),
         'Closes a plain terminal that nobody uses after it has been quiet for a while; Claude sessions are never closed.', (v) => (idleShells.hidden = !v)),
       idleShells,

@@ -13,7 +13,7 @@ import { claudeLoginButton } from './claudelogin.js';
 
 const MARK = { ok: '✓', fail: '✗', warn: '!', info: '·' };
 const STATE = { ok: '✓', missing: '✗', old: '!' };
-const GROUP_TITLES = { system: 'This computer', 'kit:basics': 'Basics', 'kit:node': 'Node.js', 'kit:python': 'Python', 'kit:github': 'GitHub', 'kit:extras': 'Terminal extras', 'kit:docker': 'Docker', claude: 'Claude Code', projects: 'Projects' };
+const GROUP_TITLES = { system: 'This computer', 'kit:basics': 'Basics', 'kit:node': 'Node.js', 'kit:python': 'Python', 'kit:github': 'GitHub', 'kit:extras': 'Terminal extras', 'kit:docker': 'Docker', claude: 'Claude Code', codetools: 'Coding tools', projects: 'Projects' };
 async function post(path, body) {
   try {
     return await api(path, body);
@@ -141,7 +141,15 @@ export function setupSection() {
         load();
       }
     } }) : null,
-    c.action === 'claude-login' ? claudeLoginButton(load) : null);
+    c.action === 'claude-login' ? claudeLoginButton(load) : null,
+    // Codex or OpenCode: into Hoprig's own tools folder, as a job on this page (its card shows the output).
+    c.action === 'tool-install' ? btn('small secondary', { icon: 'download', label: 'Install', title: `Install ${c.label} into Hoprig's tools folder`, onclick: async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      const r = await post('/api/pcsetup/tool', { id: c.tool });
+      if (r && r.started) started();
+      else b.disabled = false;
+    } }) : null);
 
   function paint(d) {
     const s = setupSummary(d.checks);

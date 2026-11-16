@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { createAutomation } from '../../src/automation/index.mjs';
-import { claude, fakeCtx, fakeDeck, shell, tmpDir } from './helpers.mjs';
+import { claude, fakeCtx, fakeDeck, fakeItem, shell, tmpDir } from './helpers.mjs';
 
 const day = (h, m = 0, s = 0) => new Date(2026, 5, 2, h, m, s).getTime(); // Tuesday 2 June 2026
 const SID = (n) => `${String(n).repeat(8)}-0000-4000-8000-000000000000`;
@@ -44,14 +44,9 @@ test('a day with the automations', async () => {
       ],
     },
   };
-  let looks = 0;
-  const f = fakeCtx({
-    deck, automation, stateDir: t.dir, now: () => clock,
-    updates: {
-      claudeInfo: async () => { looks++; return { installed: '2.1.0', latest: '2.2.0', updateAvailable: true }; },
-      claudeUpdate: async () => assert.fail('notify mode never updates'),
-    },
-  });
+  // The old setting "notify" (read once into Settings → Updates: Manual, with a notification).
+  const cc = fakeItem('claude', { title: 'Claude Code', info: { installed: '2.1.0', latest: '2.2.0', method: 'native', updateAvailable: true, canUpdate: true }, update: () => assert.fail('manual mode never updates') });
+  const f = fakeCtx({ deck, automation, stateDir: t.dir, now: () => clock, updateItems: [cc] });
   let a = createAutomation(f.ctx);
   const at = async (h, m = 0, s = 0) => {
     clock = day(h, m, s);
@@ -63,7 +58,7 @@ test('a day with the automations', async () => {
     await at(6, 0);
     assert.deepEqual(deck.started, [{ dir: '/api', profile: 'api', mode: 'move', sessionId: SID(1), carryArgs: ['--model', 'opus'], name: 'api-work' }]);
     assert.deepEqual(deck.sent, []);
-    assert.equal(looks, 1);
+    assert.equal(cc.calls.info, 1);
     await at(6, 5);
 
     // 07:00 the morning schedule starts a session on Auto; its first message goes as soon as it waits.
@@ -102,7 +97,7 @@ test('a day with the automations', async () => {
 
     // Noon: the 6-hourly look finds the same version: no second message.
     await at(12, 0, 5);
-    assert.equal(looks, 2);
+    assert.equal(cc.calls.info, 2);
 
     // 12:30 the owner pauses everything; the 18:00 schedule waits; at 18:30 it runs, 30 minutes late.
     a.api.changeSettings({ paused: true });
@@ -128,6 +123,8 @@ test('a day with the automations', async () => {
     await at(23, 0, 5);
     assert.deepEqual(deck.started.slice(2), [{ dir: '/api', profile: 'api', mode: 'move', sessionId: SID(1), carryArgs: ['--model', 'opus'], name: 'api-work' }], 'only the session the owner did not close');
     assert.equal(deck.sent.length, 5, 'a restart sends nothing');
+    assert.deepEqual(f.config().updates, { mode: 'manual', notify: true }, 'the old setting moved once');
+    assert.equal(f.config().automation.updates, undefined);
 
     assert.deepEqual(f.notes.map((n) => n.title), [
       'Claude Code 2.2.0 is available',
@@ -137,7 +134,7 @@ test('a day with the automations', async () => {
       'restore:ok', 'updates:told the owner', 'schedules:ok', 'queue:ok', 'queue:ok', 'retry:ok', 'queue:ok',
       'idle:ok', 'updates:nothing new', 'schedules:ok', 'updates:nothing new' /* 18:30, six hours on */, 'queue:ok', 'restore:ok',
     ]);
-    assert.equal(looks, 3, '06:00, 12:00 and 18:30; none while paused, none at the restart (6 hours not over)');
+    assert.equal(cc.calls.info, 3, '06:00, 12:00 and 18:30; none while paused, none at the restart (6 hours not over)');
     assert.match(log.find((e) => e.automation === 'schedules' && /Summary/.test(e.did)).did, /ran 30 minutes late/);
   } finally {
     await a.close();

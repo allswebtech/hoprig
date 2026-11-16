@@ -26,6 +26,7 @@ import './chat.js';
 import './addons.js';
 import './vscode.js';
 import './settings.js';
+import './updates.js';
 
 const app = document.getElementById('app');
 let stopView = () => {};

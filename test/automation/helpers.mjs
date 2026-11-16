@@ -47,6 +47,36 @@ export function tmpDir(prefix = 'auto') {
   return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
+/**
+ * An update item (src/automation/updateitems.mjs) that touches nothing: `info` is what it reports, `update` what an
+ * update returns; `calls` counts both. `blocked`/`autoBlocked` (cards) → a reason or null.
+ */
+export function fakeItem(id, o = {}) {
+  const facts = o.info || { installed: '1.0.0', latest: '1.0.0', method: 'test', updateAvailable: false, canUpdate: true };
+  const it = {
+    id,
+    title: o.title || id,
+    whenRunning: 'test',
+    installable: o.installable ?? false,
+    calls: { info: 0, update: 0 },
+    async info() {
+      it.calls.info++;
+      if (o.fail) throw new Error(o.fail);
+      return typeof facts === 'function' ? facts() : facts;
+    },
+    async update({ onLine = () => {} } = {}) {
+      it.calls.update++;
+      onLine(`updating ${id}`);
+      if (o.update) return o.update();
+      return { ok: true, version: typeof facts === 'function' ? null : facts.latest };
+    },
+    blocked: o.blocked || (() => null),
+    autoBlocked: o.autoBlocked || (() => null),
+    autoOk: o.autoOk || (() => true),
+  };
+  return it;
+}
+
 /** A ctx for createAutomation with an in-memory config. */
 export function fakeCtx({ deck, automation = {}, persistent = false, now, stateDir, ...rest }) {
   let cfg = { automation };
@@ -65,7 +95,7 @@ export function fakeCtx({ deck, automation = {}, persistent = false, now, stateD
     now,
     stateDir,
     conversationExists: () => true,
-    updates: { claudeInfo: async () => ({ installed: '1.0.0', latest: '1.0.0', updateAvailable: false }), claudeUpdate: async () => ({ ok: true }) },
+    updateItems: [fakeItem('claude')],
     addons: [],
     autoOrder: () => [],
     // The workspace rule's engines: never the real ones, which look at the real workspace.

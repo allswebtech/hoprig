@@ -77,7 +77,7 @@ test('Activity: one sentence per entry, and what went wrong said plainly', () =>
   const bad = activityLine({ automation: 'queue', session: 'docs', did: 'could not send: hi', outcome: 'failed: the session is gone' });
   assert.equal(bad.problem, 'It did not work: the session is gone.');
   assert.equal(activityLine({ automation: 'retry', did: 'stopped retrying after 3 tries', outcome: 'gave up' }).problem, 'It gave up; open the session to see why.');
-  assert.equal(activityLine({ automation: 'updates', did: 'looked for a new Claude Code', outcome: 'nothing new' }).sub, 'Claude Code versions · Nothing new');
+  assert.equal(activityLine({ automation: 'updates', did: 'looked for new versions', outcome: 'nothing new' }).sub, 'Updates · Nothing new');
   assert.match(activityLine({ automation: 'schedules', did: 'skipped "x"', outcome: 'missed: 3 hours late, more than allowed' }).problem, /^Missed: 3 hours late/);
 });
 

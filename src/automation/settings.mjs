@@ -9,7 +9,7 @@
 //   schedules  { enabled, lateHours, list }              default on: it only acts on schedules you made
 //   restore    { enabled }                               null = on for the built-in terminals, off for tmux
 //   retry      { enabled, max, firstMinutes, prompt }    default off
-//   updates    { claude: off|notify|auto }               default off
+//   (updates have their own top-level key "updates": ./updates.mjs, Settings → Updates)
 //   idle       { shells, shellHours, gateway, gatewayMinutes } default off
 //   workspace  { map, commitMap, sync, push, everyHours } map on (it acts only where a map exists, and writes only
 //                                                         when something changed); commitMap null = never chosen:
@@ -30,7 +30,6 @@ export const DEFAULTS = Object.freeze({
   schedules: { enabled: true, lateHours: 2, list: [] },
   restore: { enabled: null },
   retry: { enabled: false, max: 3, firstMinutes: 1, prompt: 'Continue from where you stopped.' },
-  updates: { claude: 'off' },
   idle: { shells: false, shellHours: 12, gateway: false, gatewayMinutes: 30 },
   workspace: { map: true, commitMap: null, sync: false, push: false, everyHours: 6 },
 });
@@ -60,10 +59,6 @@ const int = (what, lo, hi) => (v) => {
   if (typeof v === 'boolean' || v === '' || v === null || !Number.isInteger(n) || n < lo || n > hi) throw new Error(`${what} must be a whole number from ${lo} to ${hi}`);
   return n;
 };
-const oneOf = (what, values) => (v) => {
-  if (!values.includes(v)) throw new Error(`${what} must be one of: ${values.join(', ')}`);
-  return v;
-};
 const oneLine = (what, max) => (v) => {
   if (typeof v !== 'string' || !v.trim() || /[\r\n\0]/.test(v) || v.length > max) throw new Error(`${what} must be one line of 1 to ${max} characters`);
   return v.trim();
@@ -83,9 +78,6 @@ const SECTIONS = {
     max: int('the number of retries', 1, 10),
     firstMinutes: int('the first wait before a retry (minutes)', 1, 60),
     prompt: oneLine('the retry message', 500),
-  },
-  updates: {
-    claude: oneOf('Claude Code updates', ['off', 'notify', 'auto']),
   },
   idle: {
     shells: bool('closing idle shells'),

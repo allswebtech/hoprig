@@ -1,5 +1,6 @@
 // Recipes: "make my next computer like this one". A small JSON file with the kits, the projects folder and the
-// repository addresses; tool versions only as information. Never a key, a token, a password or (unless the
+// repository addresses, and the coding tools Hoprig installs itself (codingTools: ids only); tool versions only as
+// information. Never a key, a token, a password or (unless the
 // user says yes) an e-mail address.
 //
 // A recipe comes from outside (a file someone sent, an https address), so validateRecipe is strict: only known
@@ -14,7 +15,9 @@ import { parseRepo } from './projects.mjs';
 export const RECIPE_VERSION = 1;
 const MAX_BYTES = 64 * 1024;
 const MAX_REPOS = 200;
-const KEYS = ['hoprigRecipe', 'kits', 'tools', 'projectsDir', 'repos', 'git', 'projectTemplate', 'workspaces'];
+const KEYS = ['hoprigRecipe', 'kits', 'tools', 'codingTools', 'projectsDir', 'repos', 'git', 'projectTemplate', 'workspaces'];
+/** The coding tools a recipe may ask for: the ones Hoprig installs into its own tools folder (src/codetools). */
+export const RECIPE_CODING_TOOLS = ['codex', 'opencode'];
 
 /** A home-relative form of `dir` for another computer ("~/projects"); null when it is outside the home folder. */
 export function homeRelative(dir, home = os.homedir()) {
@@ -22,9 +25,10 @@ export function homeRelative(dir, home = os.homedir()) {
   return dir.startsWith(home + path.sep) ? `~/${dir.slice(home.length + 1).split(path.sep).join('/')}` : null;
 }
 
-export function makeRecipe({ kits, tools = {}, projectsDir, repos = [], identity = null, withEmail = false, workspaces = [] }) {
+export function makeRecipe({ kits, tools = {}, codingTools = [], projectsDir, repos = [], identity = null, withEmail = false, workspaces = [] }) {
   const r = { hoprigRecipe: RECIPE_VERSION, kits: [...kits] };
   if (Object.keys(tools).length) r.tools = tools;
+  if (codingTools.length) r.codingTools = [...new Set(codingTools)];
   const rel = projectsDir ? homeRelative(projectsDir) : null;
   if (rel) r.projectsDir = rel;
   if (repos.length) r.repos = [...new Set(repos)];
@@ -54,6 +58,16 @@ export function validateRecipe(input) {
       for (const [k, v] of Object.entries(input.tools)) {
         if (!/^[a-z0-9-]{1,30}$/.test(k) || typeof v !== 'string' || !/^[0-9A-Za-z.+-]{1,40}$/.test(v)) errors.push(`"tools.${String(k).slice(0, 30)}" is not a name with a version`);
         else out.tools[k] = v;
+      }
+    }
+  }
+  if (input.codingTools !== undefined) {
+    if (!Array.isArray(input.codingTools)) errors.push('"codingTools" must be a list');
+    else {
+      out.codingTools = [];
+      for (const t of input.codingTools) {
+        if (typeof t !== 'string' || !RECIPE_CODING_TOOLS.includes(t)) errors.push(`"${String(t).slice(0, 40)}" is not a coding tool a recipe installs (${RECIPE_CODING_TOOLS.join(', ')})`);
+        else if (!out.codingTools.includes(t)) out.codingTools.push(t);
       }
     }
   }

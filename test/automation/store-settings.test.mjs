@@ -80,8 +80,7 @@ test('settings: strict validation with plain messages', () => {
     [{ retry: { max: '3' } }, null],
     [{ retry: { enabled: 'yes' } }, /on or off/],
     [{ retry: { prompt: 'two\nlines' } }, /one line/],
-    [{ updates: { claude: 'always' } }, /off, notify, auto/],
-    [{ updates: { self: 'notify' } }, /"updates.self" is not an automation setting/],
+    [{ updates: { claude: 'auto' } }, /"updates" is not an automation setting/], // Settings → Updates (src/automation/updates.mjs)
     [{ remind: { enabled: true } }, /"remind" is not an automation setting/],
     [{ idle: { gatewayMinutes: 1 } }, /from 5 to 1440/],
     [{ schedules: { list: [] } }, /one at a time/],

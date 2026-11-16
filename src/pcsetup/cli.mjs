@@ -66,7 +66,9 @@ export async function currentRecipe({ withEmail = false, sys } = {}) {
     if (r.ok) wsUrls.push(r.stdout.trim());
   }
   const repos = all.filter((u) => !wsUrls.includes(u));
-  return makeRecipe({ kits, tools, projectsDir: dir, repos, workspaces: all.filter((u) => wsUrls.includes(u)), identity: await gitIdentity(s), withEmail });
+  const { TOOLS } = await import('../codetools/index.mjs');
+  const codingTools = TOOLS.filter((t) => t.managed && t.installedVersion()).map((t) => t.id);
+  return makeRecipe({ kits, tools, codingTools, projectsDir: dir, repos, workspaces: all.filter((u) => wsUrls.includes(u)), identity: await gitIdentity(s), withEmail });
 }
 
 export async function main(command, args = []) {

@@ -230,7 +230,7 @@ async function rulesStep(ui, want) {
  * `ui` is setup/ui.mjs makeUi(); `kits` a list of kit ids (default: the kits that miss something);
  * `missing` lists "kit.item" still missing afterwards; `changed` is true when anything was installed or set.
  */
-export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null, recipe = null, projects = false, rules = null, hold = false, sys: sysOver, runner = stream, ghList, onStep } = {}) {
+export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null, recipe = null, projects = false, rules = null, hold = false, sys: sysOver, runner = stream, ghList, onStep, codingTools: tools = null } = {}) {
   ui.yes = ui.yes || yes;
   ui.dryRun = ui.dryRun || dryRun;
   const sys = sysOver || (await sysFacts());
@@ -243,7 +243,9 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
   const asks = chosen.includes('github') && (found.github || []).some((i) => ['identity', 'signin'].includes(i.id) && i.state === 'missing');
   const rulesDue = rules === true || (rules === null && ui.interactive && !ui.yes && !(rulesState().installed && !rulesState().oldBlock));
   const repos = recipe && ((recipe.repos && recipe.repos.length) || (recipe.workspaces && recipe.workspaces.length));
-  if (!plan.steps.length && !asks && !rulesDue && !repos && !projects) {
+  const ct = tools || (await import('../codetools/index.mjs'));
+  const toolsDue = ((recipe && recipe.codingTools) || []).map(ct.findTool).filter((t) => t && !t.installedVersion());
+  if (!plan.steps.length && !asks && !rulesDue && !repos && !projects && !toolsDue.length) {
     ui.out(`\n  ${bold('Everything is here.')} Nothing to do.`);
     return { ok: true, changed: false, missing: [], code: 0 };
   }
@@ -264,6 +266,24 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     else if (!ui.dryRun) ui.note('Nothing installed.');
   }
   let changed = results.some((x) => x.ok);
+  // The recipe's coding tools (Codex, OpenCode): into Hoprig's own tools folder, after the kits (they need npm).
+  const toolsFailed = [];
+  for (const t of toolsDue) {
+    ui.out(`\n${bold(t.name)}  ${dim("into Hoprig's tools folder")}`);
+    if (ui.dryRun) {
+      ui.note(`would install ${t.name} ${t.pin}`);
+      continue;
+    }
+    const r = await t.install({ onLine: (l) => ui.out(`    ${l}`) });
+    if (r.ok) {
+      changed = true;
+      ui.line('ok', `${t.name} ${r.version}`);
+      ct.turnOn(t.id);
+    } else {
+      toolsFailed.push(t.id);
+      ui.line('fail', `${t.name} was not installed: hoprig tools install ${t.id}`);
+    }
+  }
   if (chosen.includes('github')) {
     found = await detectKits(sys);
     if ((await github(ui, sys, found, recipe, runner)).length) changed = true;
@@ -303,10 +323,11 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
   }
   for (const f of failed) ui.out(`  ${dim('retry:')} ${showCommand(f.step.argv)}${f.skipped ? dim('  (skipped: an earlier step failed)') : ''}`);
   for (const f of (proj && proj.failed) || []) ui.out(`  ${dim('retry:')} ${f.command}`);
+  for (const id of toolsFailed) ui.out(`  ${dim('retry:')} hoprig tools install ${id}`);
   if (results.some((x) => x.ok) && sys.platform !== 'win32') ui.note('Open a new terminal (or log in again) so every new program is found.');
   if (hold && ui.interactive) await ui.ask('\nPress Enter to close. ');
-  const code = failed.length || (proj && proj.failed.length) ? 1 : 0;
-  return { ok: code === 0, changed, missing, code };
+  const code = failed.length || (proj && proj.failed.length) || toolsFailed.length ? 1 : 0;
+  return { ok: code === 0, changed, missing: [...missing, ...toolsFailed.map((id) => `codingTools.${id}`)], code };
 }
 
 /** `hoprig pc setup …`. Returns the exit code. */

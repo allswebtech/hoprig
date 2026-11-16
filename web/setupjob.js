@@ -12,11 +12,11 @@ import { icon } from './icons.js';
 import { ApiError, add, api, btn, confirmSheet, fill, h, insecure, link, machine, openSheet, toast } from './lib.js';
 import { errorBox, okBox } from './shell.js';
 
-export const SETUP_KINDS = ['setup', 'fix', 'recipe'];
+export const SETUP_KINDS = ['setup', 'fix', 'recipe', 'tool'];
 const MARK = { waiting: '·', running: '…', ok: '✓', fail: '✗', skipped: '–' };
 const MARK_CLASS = { waiting: 'info', running: 'info', ok: 'ok', fail: 'fail', skipped: 'info' };
 const MARK_LABEL = { waiting: 'Waiting', running: 'Running', ok: 'Done', fail: 'Failed', skipped: 'Skipped' };
-const TITLE = { setup: 'Setting up this computer', fix: 'Installing the fix', recipe: 'Setting up from the recipe' };
+const TITLE = { setup: 'Setting up this computer', fix: 'Installing the fix', recipe: 'Setting up from the recipe', tool: 'Installing a coding tool' };
 const RECENT_MS = 30 * 60_000; // a finished job is shown again for this long
 
 /** The password sheet. Resolves the password, "terminal" (the fallback) or null (cancelled). */
