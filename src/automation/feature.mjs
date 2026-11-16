@@ -28,7 +28,6 @@ import { chatToolList } from '../chat/tools.mjs';
 import { listRuns } from '../runs.mjs';
 import { launchArgv } from '../server/deck.mjs';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
-import { safeSessionName, uniqueName } from '../server/validate.mjs';
 import { createAutomation } from './index.mjs';
 
 const BODY_MAX = 64 * 1024; // a 32 KiB message plus JSON escaping
@@ -77,10 +76,8 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
         if (p.name === 'auto' && getAutoSwitch().enabled !== true) throw new Error('Auto mode is off: choose a provider for this schedule');
         if (p.name !== 'auto') assertServes(p, 'claude');
         const argv = launchArgv(sctx.deck.launcher(), { profile: p, mode, sessionId, carryArgs, fresh });
-        const go = async () => {
-          const taken = new Set((await sctx.backend.list()).map((t) => t.session));
-          return { name: (await sctx.backend.create({ name: uniqueName(safeSessionName(name || path.basename(dir)), taken), dir, argv })).name };
-        };
+        // A start on a conversation is noted for the moment before its launcher's record (deck.mjs create).
+        const go = async () => ({ name: await sctx.deck.create({ base: name || path.basename(dir), dir, argv, conversation: sessionId }) });
         if (!sessionId || !chat) return (await go()).name;
         // One conversation, one process: a conversation that a chat or a terminal runs already is not started again
         // (a message sent right after a restart, before this terminal reports it, must find it too). A fresh start

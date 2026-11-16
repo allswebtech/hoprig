@@ -11,12 +11,15 @@ import net from 'node:net';
 import path from 'node:path';
 import { loadConfig } from '../config.mjs';
 import { binFile, stateDir } from '../paths.mjs';
+import { filedProcess, system } from '../procid.mjs';
 import { capture, npmArgv, stream, which } from '../setup/system.mjs';
 
 export const DEFAULT_PORT = 20017;
 
 const port = () => Number(loadConfig().addons?.trouteai?.port) || DEFAULT_PORT;
 const url = () => `http://localhost:${port()}`;
+// The gateway this add-on started (only start() writes it): { pid, proc } (proc: its identity, procid.mjs), or the bare
+// pid an older version wrote.
 const pidFile = () => path.join(stateDir(), 'addons', 'trouteai.pid');
 const logFile = () => path.join(stateDir(), 'addons', 'trouteai.log');
 
@@ -72,7 +75,10 @@ async function start() {
   const child = spawn(viaShell ? `"${bin}"` : bin, ['--port', String(port())], { detached: true, stdio: ['ignore', log, log], windowsHide: true, shell: viaShell });
   child.unref();
   fs.closeSync(log);
-  if (child.pid) fs.writeFileSync(pidFile(), String(child.pid), { mode: 0o600 });
+  if (child.pid) {
+    const after = await system.refresh([child.pid]);
+    fs.writeFileSync(pidFile(), JSON.stringify({ pid: child.pid, proc: system.of([child.pid], { after }).get(child.pid) || null }), { mode: 0o600 });
+  }
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 500));
     if (await listening()) return { ok: true, url: url(), already: false };
@@ -100,18 +106,55 @@ async function pidOnPort() {
   }
 }
 
+function readPidFile() {
+  try {
+    const text = fs.readFileSync(pidFile(), 'utf8').trim();
+    const rec = /^\d+$/.test(text) ? { pid: Number(text) } : JSON.parse(text);
+    return Number.isInteger(rec?.pid) && rec.pid > 0 ? rec : null;
+  } catch {
+    return null; // not started by us
+  }
+}
+
+/** The parent of `pid` where it can be read (Linux, macOS), else null. */
+async function parentOf(pid) {
+  try {
+    if (process.platform === 'linux') {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      return Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]) || null; // field 4, after the name and state
+    }
+    if (process.platform === 'darwin') return Number((await capture(['ps', '-o', 'ppid=', '-p', String(pid)], { timeout: 5000 })).stdout.trim()) || null;
+  } catch {
+    /* gone */
+  }
+  return null;
+}
+
+/**
+ * The file's pid, when it is shown to be the gateway this add-on started (procid.mjs filedProcess): its identity, or for
+ * a file without one, being what listens on the port (`onPort`), its parent (a .cmd shim, a shell) or its child. Else
+ * null: after a restart of the computer that pid may be another program's.
+ */
+async function startedByUs(rec, onPort) {
+  if (!rec) return null;
+  const [up, down] = onPort ? await Promise.all([parentOf(onPort), parentOf(rec.pid)]) : [null, null];
+  // Without the process on the port nothing is related to it (null === null is no relation).
+  const related = !onPort ? null : rec.pid === onPort || up === rec.pid || down === onPort ? true : up && down ? false : null;
+  const after = (await system.refresh([rec.pid])) || 0;
+  return filedProcess(pidFile(), rec, { fact: () => related, after }) === true ? rec.pid : null;
+}
+
+/** Stop it: what listens on its port is the gateway; the file's pid only when it is shown to be ours (startedByUs). */
 async function stop() {
   if (!(await listening())) return { ok: true, already: true };
-  let pid = null;
-  try {
-    pid = Number(fs.readFileSync(pidFile(), 'utf8').trim()) || null;
-  } catch {
-    /* not started by us */
-  }
-  const candidates = [...new Set([await pidOnPort(), pid].filter(Boolean))];
-  for (const p of candidates) {
-    try { process.kill(p, 'SIGTERM'); } catch { /* gone */ }
-  }
+  const rec = readPidFile();
+  const signal = async (sig) => {
+    const onPort = await pidOnPort();
+    for (const p of new Set([onPort, await startedByUs(rec, onPort)])) {
+      if (p) try { process.kill(p, sig); } catch { /* gone */ }
+    }
+  };
+  await signal('SIGTERM');
   for (let i = 0; i < 20; i++) {
     await new Promise((r) => setTimeout(r, 500));
     if (!(await listening())) {
@@ -119,9 +162,7 @@ async function stop() {
       return { ok: true };
     }
   }
-  for (const p of candidates) {
-    try { process.kill(p, 'SIGKILL'); } catch { /* gone */ }
-  }
+  await signal('SIGKILL');
   fs.rmSync(pidFile(), { force: true });
   return { ok: !(await listening()) };
 }

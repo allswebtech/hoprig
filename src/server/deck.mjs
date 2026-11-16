@@ -1,8 +1,10 @@
 // The dashboard's model: sessions of the backend joined with the launcher's run records, plus the actions on
 // them (start, send, switch profile). The HTTP layer validates input and calls these.
+import fs from 'node:fs';
 import path from 'node:path';
 import { moveArgs } from '../launch.mjs';
 import { binFile, tilde } from '../paths.mjs';
+import { dropMark, newMark, sweepMarks } from './marks.mjs';
 import { assertServes, publicProfile, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { codexScreenQuestion } from '../codetools/codex.mjs';
@@ -101,6 +103,17 @@ async function runsAndParents() {
   return { runs, parentOf: runs.some((r) => r.tmuxPane) ? await parentLookup() : procParent };
 }
 
+/** A queue per key: serial(key, fn) runs `fn` after every earlier step under the same key, one at a time. */
+export function queue() {
+  const lines = new Map(); // key → the step in flight
+  return (key, fn) => {
+    const p = (lines.get(key) || Promise.resolve()).catch(() => {}).then(fn);
+    lines.set(key, p);
+    p.catch(() => {}).finally(() => lines.get(key) === p && lines.delete(key));
+    return p;
+  };
+}
+
 // sessionTitle reads a file; remember results by file and mtime so polling stays cheap.
 const titleCache = new Map();
 function titleOf(cwd, id) {
@@ -136,37 +149,62 @@ export class Deck {
     Object.assign(this, { backend, config, profiles, now });
     this.idle = new Map(); // session name → { key, since, last }: how long its screen has looked idle (see #shown)
     this.shown = new Map(); // session name → { key, status, at }: a card that differs from its run record, and since when
-    this.launches = new Map(); // `${tool}:${conversation}` → { name, at }: see noteLaunch
+    this.launches = new Map(); // `${tool}:${conversation}` → { name, at, mark }: see noteLaunch
+    // The conversation's own queue (handoff.mjs claim, move): one start, take-over or move at a time.
+    this.serial = queue();
+    this.movedFrom = new Map(); // terminal id → the run record it was last moved away from: a move of that record is late
+    sweepMarks();
   }
 
   /**
-   * Terminal `name` was just started or restarted (at `at`) on conversation `id`. Its launcher names the conversation
-   * in its run record (runs.mjs: conversation) the moment it starts; this note covers only the moment before, while the
-   * terminal holds no record written since (handoff.mjs terminalOf reads it): a restart in place (a move) ends the
-   * old launcher and its record before the new one has written its own.
+   * Terminal `name` was just started or restarted (at `at`) on conversation `id`, with the start's `mark` (marks.mjs).
+   * Its launcher names the conversation in its run record (runs.mjs: conversation) the moment it starts; this note
+   * covers only the moment before, while the terminal holds no record written since and has not come back to its own
+   * shell (handoff.mjs terminalOf reads it): a restart in place (a move) ends the old launcher and its record before
+   * the new one has written its own.
    */
-  noteLaunch(name, id, tool = 'claude', at = Date.now()) {
-    if (!id || !name) return;
-    this.launches.set(`${tool}:${id}`, { name, at });
-    if (this.launches.size > 200) this.launches.delete(this.launches.keys().next().value);
+  noteLaunch(name, id, tool = 'claude', at = Date.now(), mark = null) {
+    if (!id || !name) return void dropMark(mark);
+    const key = `${tool}:${id}`;
+    const was = this.launches.get(key);
+    if (was && was.mark !== mark) dropMark(was.mark);
+    this.launches.delete(key);
+    this.launches.set(key, { name, at, mark });
+    if (this.launches.size > 200) {
+      const [oldest, n] = this.launches.entries().next().value;
+      this.launches.delete(oldest);
+      dropMark(n.mark);
+    }
+  }
+
+  /** The terminal of `note` is back at its own shell: its launcher ended (whether it wrote a record or not) or never ran. */
+  launchEnded(note) {
+    return !!(note && note.mark) && !fs.existsSync(note.mark);
   }
 
   /**
-   * Every look at the sessions (the watcher's tick, a page) ends the notes whose terminal is gone or holds a record
-   * written since, as terminalOf does: a launcher that wrote its record and ended leaves no note behind.
+   * Every look at the sessions (the watcher's tick, a page) ends the notes whose terminal is gone, holds a record
+   * written since or is back at its own shell, as terminalOf does: a launcher that has ended leaves no note behind.
    */
   #settleLaunches(notes, terms, runs, parentOf) {
     for (const [key, note] of notes) {
       if (this.launches.get(key) !== note) continue;
       const ts = terms.filter((t) => t.session === note.name);
-      if (!ts.length || matchRuns(ts, runs.filter((r) => r.startedAt >= note.at), parentOf).size) this.launches.delete(key);
+      if (!ts.length || this.launchEnded(note) || matchRuns(ts, runs.filter((r) => r.startedAt >= note.at), parentOf).size) {
+        this.launches.delete(key);
+        dropMark(note.mark);
+      }
     }
   }
 
   /** The note of conversation `id` (noteLaunch), or null. `drop`: it ends (its terminal is gone, or holds a newer record). */
   launchOf(id, tool = 'claude', { drop = false } = {}) {
-    if (drop) this.launches.delete(`${tool}:${id}`);
-    return this.launches.get(`${tool}:${id}`) || null;
+    const key = `${tool}:${id}`;
+    if (drop) {
+      dropMark(this.launches.get(key)?.mark);
+      this.launches.delete(key);
+    }
+    return this.launches.get(key) || null;
   }
 
   /**
@@ -277,6 +315,7 @@ export class Deck {
       out.push(card);
     }
     for (const m of [this.idle, this.shown]) for (const k of m.keys()) if (!groups.has(k)) m.delete(k);
+    for (const k of this.movedFrom.keys()) if (!terms.some((t) => t.id === k)) this.movedFrom.delete(k);
     return out.sort((a, b) => (b.statusAt || b.activity || 0) - (a.statusAt || a.activity || 0));
   }
 
@@ -299,9 +338,24 @@ export class Deck {
   /** Start a coding tool (Claude Code unless `tool` says another) under `profile` (full profile object) in `dir`. Returns the session name. */
   async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, prompt = null, flags = [] }) {
     const argv = launchArgv(this.launcher(), { tool, profile, mode, sessionId, prompt, flags });
+    return this.create({ base: path.basename(dir), dir, argv, conversation: mode === 'resume' ? sessionId : null, tool });
+  }
+
+  /**
+   * A new terminal named after `base` that runs the launcher's `argv` in `dir`. `conversation`: the one it starts the
+   * coding tool on, noted for the moment before its launcher's record (noteLaunch). Returns the session name.
+   */
+  async create({ base, dir, argv, conversation = null, tool = 'claude' }) {
     const at = Date.now(); // the clock of the launcher's record (startedAt)
-    const { name } = await this.backend.create({ name: await this.#newName(path.basename(dir)), dir, argv });
-    if (mode === 'resume') this.noteLaunch(name, sessionId, tool, at);
+    const mark = conversation ? newMark() : null;
+    let name;
+    try {
+      ({ name } = await this.backend.create({ name: await this.#newName(base), dir, argv, ...(mark ? { mark } : {}) }));
+    } catch (e) {
+      dropMark(mark);
+      throw e;
+    }
+    if (conversation) this.noteLaunch(name, conversation, tool, at, mark);
     return name;
   }
 
@@ -334,14 +388,30 @@ export class Deck {
    * launcher with --resume (in a fresh shell, except on Windows, where the pty backend starts it directly). Claude writes its transcript as it goes, so at most the turn in
    * flight is lost.
    */
-  async move(term, run, profileName) {
-    const target = readProfile(profileName);
+  async move(term, run, profileName, { profile = null } = {}) {
+    const target = profile || readProfile(profileName);
     if (!target) throw Object.assign(new Error('unknown provider'), { status: 400 });
+    const tool = run.tool || 'claude';
     // A conversation stays in the coding tool it was started in: only a provider that serves that tool takes it.
-    assertServes(target, run.tool || 'claude');
+    if (!profile) assertServes(target, tool);
     const argv = this.moveArgv(target, run);
-    this.noteLaunch(term.session, run.sessionId, run.tool || 'claude');
-    await this.backend.respawn(term.id, run.cwd, argv);
+    // One move at a time, in the conversation's own queue (with its starts and take-overs), on every kind of terminal.
+    // `run` is the record the caller saw (two pages, a page and the watcher, however late each one asks): once the
+    // terminal was moved away from it, a move of it again is late (409), and starts no second launcher. A move of the
+    // record the new launcher wrote is a move again.
+    return this.serial(`${tool}:${run.sessionId}`, async () => {
+      if (run.runId && this.movedFrom.get(term.id) === run.runId) throw Object.assign(new Error('This session has just moved to another provider. Look at it again before moving it.'), { status: 409 });
+      this.movedFrom.set(term.id, run.runId || null);
+      const mark = newMark();
+      this.noteLaunch(term.session, run.sessionId, tool, Date.now(), mark);
+      try {
+        await this.backend.respawn(term.id, run.cwd, argv, { mark });
+      } catch (e) {
+        if (this.launchOf(run.sessionId, tool)?.mark === mark) this.launchOf(run.sessionId, tool, { drop: true });
+        if (this.movedFrom.get(term.id) === (run.runId || null)) this.movedFrom.delete(term.id); // not moved: it may be asked again
+        throw e;
+      }
+    });
   }
 
   /**

@@ -31,9 +31,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../config.mjs';
+import { filedProcess, system } from '../procid.mjs';
 import { sendNotification } from '../server/notify.mjs';
 import { showCommand, stream, which } from '../setup/system.mjs';
 import { addonsDir, alive, binDir, dashboardPort, findBin, patchFor, readJsonFile, restoreFor, writeAtomic } from './cloudflared.mjs';
+import { tunnelFact } from './linkmigrate.mjs';
 import { checkPort, exposureQuestion, serviceLogin } from './localservice.mjs';
 
 export { findBin, patchFor, restoreFor };
@@ -43,7 +45,8 @@ export const CLOUDFLARED_VERSION = '2026.10.1';
 const RELEASES = 'https://github.com/cloudflare/cloudflared/releases/download';
 
 const dir = addonsDir;
-// The second temporary address, for one more local service.
+// The second temporary address, for one more local service: { pid, proc, url, port, openedBy } (proc: its cloudflared's
+// identity, procid.mjs; none in a file of an older version).
 const serviceFile = () => path.join(dir(), 'public-link-service.json');
 const serviceLog = () => path.join(dir(), 'public-link-service.log');
 
@@ -157,7 +160,7 @@ export async function update({ onLine = () => {} } = {}) {
 
 /**
  * Start `cloudflared tunnel --url http://127.0.0.1:<port>` in the background, its output in `log`, and wait until it
- * is connected. { ok, pid, url } or { ok: false, error }.
+ * is connected. { ok, pid, proc, url } (proc: its identity, read at once) or { ok: false, error }.
  */
 async function quickTunnel(bin, toPort, log, waitMs) {
   fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
@@ -166,13 +169,15 @@ async function quickTunnel(bin, toPort, log, waitMs) {
   const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: ['ignore', fd, fd], windowsHide: true });
   child.unref();
   fs.closeSync(fd);
+  const after = await system.refresh([child.pid]);
+  const proc = system.of([child.pid], { after }).get(child.pid) || null;
   let seen = { url: null, registered: false, errors: [] };
   for (let waited = 0; waited < waitMs && !seen.registered; waited += 500) {
     await new Promise((r) => setTimeout(r, 500));
     seen = tunnelState(fs.readFileSync(log, 'utf8'));
     if (!alive(child.pid)) break;
   }
-  if (seen.url && seen.registered) return { ok: true, pid: child.pid, url: seen.url };
+  if (seen.url && seen.registered) return { ok: true, pid: child.pid, proc, url: seen.url };
   try { process.kill(child.pid, 'SIGTERM'); } catch { /* gone */ }
   const text = fs.readFileSync(log, 'utf8');
   let why = seen.errors.length ? seen.errors.join(' ') : text.trim().split('\n').slice(-1).join('');
@@ -188,7 +193,7 @@ async function startService({ port: p, confirmed } = {}, { waitMs = 60_000, noti
   const want = checkPort(p, port());
   if (want.error) return { ok: false, error: want.error };
   const sv = readJson(serviceFile());
-  if (sv && alive(sv.pid) && sv.url) return { ok: false, error: `Port ${sv.port} has a temporary address already: stop it first.` };
+  if (sv && sv.url && seen(sv) !== false) return { ok: false, error: `Port ${sv.port} has a temporary address already: stop it first.` };
   const bin = findBin();
   if (!bin) return { ok: false, error: 'cloudflared is not installed yet: turn the public link on once, and Hoprig installs it.' };
   const look = await serviceLogin(want.port, { fetchImpl });
@@ -197,37 +202,59 @@ async function startService({ port: p, confirmed } = {}, { waitMs = 60_000, noti
   if (question && confirmed !== true) return { ok: false, confirm: question };
   const t = await quickTunnel(bin, want.port, serviceLog(), waitMs);
   if (!t.ok) return t;
-  writeAtomic(serviceFile(), JSON.stringify({ pid: t.pid, url: t.url, port: want.port, openedBy: by || null }));
+  writeAtomic(serviceFile(), JSON.stringify({ pid: t.pid, proc: t.proc, url: t.url, port: want.port, openedBy: by || null }));
   await notify(t.url, `port ${want.port}`);
   return { ok: true, url: t.url };
 }
 
-async function stopPid(pid) {
-  if (!alive(pid)) return true;
-  try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ }
-  for (let i = 0; i < 20 && alive(pid); i++) await new Promise((r) => setTimeout(r, 250));
-  if (alive(pid)) try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
-  return !alive(pid);
+/**
+ * Whether the file's cloudflared is ours (procid.mjs filedProcess; its pid may belong to another program after a
+ * restart of the computer): true, null (cannot be told: it may be said to run, never signalled) or false. The fact for
+ * a file without an identity: a quick tunnel to its port. `wait` false for a status, which never waits for ps.
+ */
+const mine = (sv, { after = 0, wait = true } = {}) => filedProcess(serviceFile(), sv, { fact: (p) => tunnelFact(p, { port: sv.port, wait }), after });
+const seen = (sv) => mine(sv, { wait: false });
+/** mine() with what the system says now: for the moment before a signal. */
+const mineNow = async (sv) => mine(sv, { after: (await system.refresh([sv.pid])) || 0 });
+
+/**
+ * Stop the file's cloudflared when it is shown to be ours; the file goes once nothing of ours runs. When it cannot be
+ * told (Windows, a file of an older version), it gets no signal and the file stays: it may still be our tunnel, open to
+ * everyone. → { ok, stopped, error }
+ */
+async function stopIt(sv) {
+  const now = sv ? await mineNow(sv) : false;
+  if (now === null) return { ok: false, stopped: false, error: `Hoprig cannot tell whether process ${sv.pid} is the cloudflared of port ${sv.port}'s temporary address: end that cloudflared by hand.` };
+  if (now !== true) {
+    fs.rmSync(serviceFile(), { force: true });
+    return { ok: true, stopped: false };
+  }
+  try { process.kill(sv.pid, 'SIGTERM'); } catch { /* gone */ }
+  for (let i = 0; i < 20 && alive(sv.pid); i++) await new Promise((r) => setTimeout(r, 250));
+  if (alive(sv.pid) && (await mineNow(sv)) === true) try { process.kill(sv.pid, 'SIGKILL'); } catch { /* gone */ }
+  const ok = mine(sv) !== true;
+  if (ok) fs.rmSync(serviceFile(), { force: true });
+  return { ok, stopped: ok };
 }
 
 export async function stopService() {
-  const sv = readJson(serviceFile());
-  const ok = sv ? await stopPid(sv.pid) : true;
-  if (ok) fs.rmSync(serviceFile(), { force: true });
-  return { ok };
+  const { ok, error } = await stopIt(readJson(serviceFile()));
+  return error ? { ok, error } : { ok };
 }
 
 /** The second temporary address while it runs: { port, url }, else null. */
 export function serviceStatus() {
   const sv = readJson(serviceFile());
-  return sv && alive(sv.pid) && sv.url ? { port: sv.port, url: sv.url } : null;
+  return sv && sv.url && seen(sv) !== false ? { port: sv.port, url: sv.url } : null;
 }
 
 /** A machine token was revoked (`gone(id)`): stop the second temporary address when that token started it. */
 export async function closeServiceOpenedBy(gone) {
   const sv = readJson(serviceFile());
-  if (!(sv && alive(sv.pid) && gone(sv.openedBy))) return [];
-  await stopService();
+  if (!(sv && seen(sv) !== false && gone(sv.openedBy))) return [];
+  const r = await stopIt(sv);
+  if (r.error) return [{ by: sv.openedBy, say: (who) => `The temporary address of port ${sv.port} that ${who} started could not be stopped after its token was revoked. ${r.error}` }];
+  if (!r.stopped) return [];
   return [{ by: sv.openedBy, say: (who) => `The temporary address of port ${sv.port} that ${who} started was stopped: its token was revoked` }];
 }
 

@@ -21,12 +21,14 @@
 // the id (and so HOPRIG_TERM_ID) and the attached browsers stay; the old screen and history are cleared.
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import unicode11 from '@xterm/addon-unicode11';
 import { ptySpawn } from './nodepty.mjs';
 import { parseParents } from '../platform/common.mjs';
+import { sameProcess, system } from '../../procid.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
 import { shellLine } from './shell.mjs';
 
@@ -69,17 +71,20 @@ export function defaultShell(platform = process.platform, env = process.env) {
  * (POSIX); `then` is what starts in the same terminal when the command ends (Windows). Pure, so it can be tested
  * for every OS on any OS.
  */
-export function startPlan({ platform = process.platform, dir, argv = null, shell = defaultShell(platform) }) {
+export function startPlan({ platform = process.platform, dir, argv = null, shell = defaultShell(platform), mark = null }) {
   if (platform === 'win32') {
     if (!argv) return { file: shell.file, args: shell.args, cwd: dir, type: null, then: null };
-    return { file: argv[0], args: argv.slice(1), cwd: dir, type: null, then: shell };
+    // `mark` (marks.mjs) goes when the command exits: the terminal is back at its own shell then.
+    return { file: argv[0], args: argv.slice(1), cwd: dir, type: null, then: shell, ...(mark ? { mark } : {}) };
   }
-  return { file: shell.file, args: shell.args, cwd: dir, type: argv ? shellLine(dir, argv) : null, then: null };
+  return { file: shell.file, args: shell.args, cwd: dir, type: argv ? shellLine(dir, argv, { mark }) : null, then: null };
 }
 
-/** The environment of a terminal's process. */
-export function termEnv(id, platform = process.platform, base = process.env) {
+/** The environment of a terminal's process. `name`: the session's name, for a launcher that has to say where it runs. */
+export function termEnv(id, platform = process.platform, base = process.env, name = null) {
   const env = { ...base, TERM: 'xterm-256color', COLORTERM: 'truecolor', HOPRIG_TERM_ID: id };
+  if (name) env.HOPRIG_TERM_NAME = name;
+  else delete env.HOPRIG_TERM_NAME;
   // The dashboard may itself run inside tmux; a run must not record the dashboard's own pane as its terminal.
   delete env.TMUX;
   delete env.TMUX_PANE;
@@ -135,13 +140,15 @@ export class PtyBackend {
    * @param {string} [o.platform]     for tests
    * @param {Function} [o.spawn]      node-pty's spawn, replaceable in tests
    * @param {Function} [o.descendants] pid → its descendants' pids; with a test spawn, none (its pids are not real)
+   * @param {object} [o.ident]        who a process is beyond its pid (procid.mjs), replaceable in tests
    */
-  constructor({ shell, scrollback = 5000, platform = process.platform, spawn = ptySpawn, descendants: below } = {}) {
+  constructor({ shell, scrollback = 5000, platform = process.platform, spawn = ptySpawn, descendants: below, ident = system } = {}) {
     this.platform = platform;
     this.shell = shell || defaultShell(platform);
     this.scrollback = scrollback;
     this.spawn = spawn;
     this.descendants = below || (spawn === ptySpawn ? descendants : async () => []);
+    this.ident = ident;
     if (spawn === ptySpawn) ensureSpawnHelper();
     this.terms = new Map(); // session name → terminal
     this.kind = 'pty';
@@ -192,7 +199,7 @@ export class PtyBackend {
     }
   }
 
-  async create({ name, dir, argv = null, cols = 80, rows = 24 }) {
+  async create({ name, dir, argv = null, cols = 80, rows = 24, mark = null }) {
     if (!this.validName(name)) throw new Error('bad session name');
     if (this.terms.has(name)) throw new Error(`duplicate session: ${name}`);
     const id = `pty-${crypto.randomBytes(6).toString('hex')}`;
@@ -221,7 +228,7 @@ export class PtyBackend {
     });
     this.terms.set(name, t);
     try {
-      this.#start(t, startPlan({ platform: this.platform, dir, argv, shell: this.shell }));
+      this.#start(t, startPlan({ platform: this.platform, dir, argv, shell: this.shell, mark }));
     } catch (e) {
       this.terms.delete(name);
       vt.dispose();
@@ -231,15 +238,22 @@ export class PtyBackend {
   }
 
   #start(t, plan) {
-    const proc = this.spawn(plan.file, plan.args, {
-      name: 'xterm-256color', cols: t.cols, rows: t.rows, cwd: plan.cwd, env: termEnv(t.id, this.platform),
-    });
+    let proc;
+    try {
+      proc = this.spawn(plan.file, plan.args, {
+        name: 'xterm-256color', cols: t.cols, rows: t.rows, cwd: plan.cwd, env: termEnv(t.id, this.platform, process.env, t.name),
+      });
+    } catch (e) {
+      if (plan.mark) fs.rmSync(plan.mark, { force: true }); // nothing started
+      throw e;
+    }
     t.proc = proc;
     t.dir = plan.cwd;
     proc.onData((data) => {
       if (t.proc === proc) this.#output(t, data);
     });
     proc.onExit(({ exitCode }) => {
+      if (plan.mark) fs.rmSync(plan.mark, { force: true });
       if (t.proc !== proc) return; // replaced by respawn or being killed: that code path handles it
       t.proc = null;
       if (plan.then && !t.closing) {
@@ -306,6 +320,10 @@ export class PtyBackend {
       return;
     }
     const kids = await this.descendants(proc.pid);
+    // Who each one is, where that costs nothing (Linux, /proc, when it can be read): one that ends during the wait below
+    // and whose pid is handed out again gets no signal, nor one that /proc had nothing on (gone already). Elsewhere, as
+    // before: only whether its pid is alive.
+    const ids = this.platform === 'linux' && kids.length && this.ident.self() ? this.ident.of(kids) : null;
     // SIGHUP, as when a terminal window closes: the shell passes it on to its jobs, and Claude saves and exits.
     try {
       proc.kill('SIGHUP');
@@ -321,7 +339,7 @@ export class PtyBackend {
       }
     }
     for (const pid of kids) {
-      if (!alive(pid)) continue;
+      if (!alive(pid) || (ids && (!ids.get(pid) || sameProcess(ids.get(pid), this.ident.of([pid]).get(pid)) === false))) continue;
       try {
         process.kill(pid, done ? 'SIGTERM' : 'SIGKILL');
       } catch {
@@ -454,14 +472,14 @@ export class PtyBackend {
     if (!['up', 'down', 'exit'].includes(action)) throw new Error(`unknown scroll action ${action}`);
   }
 
-  async respawn(id, dir, argv) {
+  async respawn(id, dir, argv, { mark = null } = {}) {
     const t = this.#byId(id);
     await this.#stop(t);
     // The old program's lines (a usage-limit message among them) would otherwise stay in the history and keep the
     // card in "limit hit". The conversation itself is in Claude's transcript, which --resume shows again. The
     // reset goes to the browsers too, so their screens match.
     this.#output(t, RIS);
-    this.#start(t, startPlan({ platform: this.platform, dir, argv, shell: this.shell }));
+    this.#start(t, startPlan({ platform: this.platform, dir, argv, shell: this.shell, mark }));
   }
 
   async rename(name, next) {

@@ -19,6 +19,7 @@ const { runningDashboard } = await import('../../src/server/dashboardfile.mjs');
 const { dashboardAddress } = await import('../../src/machines/pairing.mjs');
 const { linkBase } = await import('../../src/machines/cli.mjs');
 const { reachableUrl } = await import('../../src/addons/reach.mjs');
+const { system } = await import('../../src/procid.mjs');
 
 const backend = { kind: 'pty', capabilities: {}, list: async () => [], capture: async () => '', create: async ({ name }) => ({ name }) };
 saveConfig({ server: { passwordHash: await hashPassword('right-password'), port: 1 } });
@@ -73,10 +74,11 @@ test('while the public link is on, the join line and `hoprig link` use its addre
     assert.equal(app.watcher.settings().publicUrl, 'https://office.example.com');
     // Temporary: only while its cloudflared runs (a stopped one's address is dead).
     saveConfig({ publicLink: { on: true, kind: 'temporary' } });
-    // While cloudflared starts again (after a crash) the record still holds the old address: not handed out.
-    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: process.pid, connected: false }));
+    // While cloudflared starts again (after a crash) the record still holds the old address: not handed out. This
+    // process stands in for cloudflared: the record names it with its identity, as the switch writes it.
+    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: process.pid, proc: system.self(), connected: false }));
     assert.equal(reachableUrl(), null, 'not connected: not offered');
-    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: process.pid, connected: true }));
+    fs.writeFileSync(path.join(addons, 'link.json'), JSON.stringify({ kind: 'temporary', url: 'https://stem-wonder.trycloudflare.com', pid: process.pid, proc: system.self(), connected: true }));
     assert.equal(reachableUrl(), 'https://stem-wonder.trycloudflare.com');
     const t = await joinCode();
     assert.equal(t.url, 'https://stem-wonder.trycloudflare.com');

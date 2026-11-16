@@ -18,6 +18,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, saveConfig } from '../config.mjs';
+import { system } from '../procid.mjs';
 import { passwordState } from '../server/strength.mjs';
 import { addonsDir, cloudflaredEnv, dashboardPort, findBin, hasPassword, linkRecordFile, patchFor, readFixed, readJsonFile, restoreFor, writeAtomic } from './cloudflared.mjs';
 import { migrate, ours } from './linkmigrate.mjs';
@@ -87,7 +88,12 @@ const keyOf = (w) => (w.on ? `on:${w.kind}:${w.at}` : 'off');
 const supervisor = () => (sup ||= makeSupervisor({
   onPid: (pid) => {
     if (cur) Object.assign(cur, { pending: null, connected: false }); // a new run of the quick tunnel gets a new address
-    writeRecord({ pid, connected: false });
+    writeRecord({ pid, proc: null, connected: false });
+    // Its identity (procid.mjs), so that its pid handed out again is never taken for it (reach.mjs, `hoprig public`).
+    // Asked without holding the dashboard up: macOS and Windows answer through another program.
+    system.refresh([pid]).then((after) => {
+      if (readRecord().pid === pid) writeRecord({ proc: system.of([pid], { after }).get(pid) || null });
+    }, () => {});
   },
   onLine: (l) => {
     if (!cur) return;
@@ -138,7 +144,7 @@ async function stopRun() {
   killLeftover();
   putBack();
   cur = null;
-  writeRecord({ kind: null, url: null, pid: null, connected: false });
+  writeRecord({ kind: null, url: null, pid: null, proc: null, connected: false });
 }
 
 /** Start `kind`. A failure is { error } and leaves nothing running; { cancelled } when the switch changed meanwhile. */

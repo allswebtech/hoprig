@@ -10,10 +10,12 @@ export function shellQuote(s) {
 /**
  * The line typed into a fresh login shell: change to the folder first (a shell rc may cd elsewhere on start),
  * then run the command. No `exec`, on purpose: when Claude exits the shell is still there, so the terminal
- * survives and shows what happened.
+ * survives and shows what happened. `mark`: a file removed once the shell is back (marks.mjs): after the
+ * command ended, and also when it could not start (the folder is gone, the program is missing). `command rm`: the
+ * program itself, never an alias or a function of the owner's shell named rm (one that moves files to a trash).
  */
-export function shellLine(dir, argv) {
-  return `${CLEAR}; cd ${shellQuote(dir)} && ${argv.map(shellQuote).join(' ')}`;
+export function shellLine(dir, argv, { mark = null } = {}) {
+  return `${CLEAR}; cd ${shellQuote(dir)} && ${argv.map(shellQuote).join(' ')}${mark ? `; command rm -f ${shellQuote(mark)}` : ''}`;
 }
 
 /**

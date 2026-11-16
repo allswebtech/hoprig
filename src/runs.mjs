@@ -4,6 +4,9 @@
 //
 //   runId      string
 //   pid        the launcher's process id (the file is stale once this process is gone)
+//   proc       the identity of the process that wrote it (procid.mjs: its pid and when it started), so that another
+//              process that has the same pid later (after a reboot) is not taken for it. Absent in records of older
+//              launchers: then a file last written before this boot is stale
 //   profile    profile name
 //   cwd        folder Claude runs in
 //   tmuxPane   $TMUX_PANE ("%3") when started inside tmux, else null
@@ -38,10 +41,20 @@
 //   statusSource  (codex, opencode) 'server': the status comes from the server's events; 'basic': it does not (the
 //              tool runs on its own, or the server cannot be reached), and the card reads the screen's activity only
 //   title      (codex, opencode) the conversation's name as the tool gave it
-//   startedAt, statusAt   epoch milliseconds
+//   startedAt, statusAt   epoch milliseconds. startedAt is when the record first named its conversation: kept when the
+//              launcher writes its record anew for its own move, so who held a conversation first stays known
+//   termName   the dashboard's name of the terminal it runs in ($HOPRIG_TERM_NAME; the built-in terminals set it), or null
+//   tmuxSocket the tmux server of its pane (from $TMUX), so another launcher can name that session
+//
+// A chat of the dashboard (src/chat) writes a record of the same kind while its coding tool's process runs on a
+// conversation: kind 'chat', its chat's id (chat), pid the dashboard's own, conversation and tool, and sessionId once
+// the process goes on in another conversation (a clear; OpenCode names a new chat's conversation itself). It holds no terminal,
+// so only the readers of "who runs this conversation" (heldBefore, the dashboard's claim) list it: listRuns({ chats }).
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runsDir } from './paths.mjs';
+import { stillOwned, system } from './procid.mjs';
 import { rememberUsage, usageForgotten } from './routerstate.mjs';
 import { readRun, watchFile, writeRun as write } from './runfile.mjs';
 
@@ -52,25 +65,69 @@ export function createRun({ profile, cwd, carryArgs = [], tool = 'claude', conve
   const runId = again ? path.basename(again, '.json') : `${Date.now().toString(36)}-${process.pid}`;
   const file = again || path.join(runsDir(), `${runId}.json`);
   const now = Date.now();
+  const before = again ? readRun(again) : null;
   const run = {
     runId,
     pid: process.pid,
+    proc: system.self(),
     profile,
     cwd,
     tmuxPane: process.env.TMUX_PANE || null,
     termId: process.env.HOPRIG_TERM_ID || null,
+    termName: process.env.HOPRIG_TERM_NAME || null,
+    tmuxSocket: process.env.TMUX_PANE && process.env.TMUX ? process.env.TMUX.split(',')[0] : null,
     sessionId: null,
     conversation: conversation || null,
     status: 'starting',
     note: '',
     carryArgs,
     tool,
-    startedAt: now,
+    startedAt: before && Number.isFinite(before.startedAt) ? before.startedAt : now,
     statusAt: now,
   };
   fs.mkdirSync(runsDir(), { recursive: true, mode: 0o700 });
   write(file, run);
   return { file, run };
+}
+
+/** The record of a chat's process on `conversation` (see the top of this file). Removed with removeRun when it ends. */
+export function createChatRun({ chat, conversation, tool = 'claude', cwd, profile }) {
+  const runId = `${Date.now().toString(36)}-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+  const file = path.join(runsDir(), `${runId}.json`);
+  const now = Date.now();
+  const run = { runId, kind: 'chat', chat, pid: process.pid, proc: system.self(), profile, cwd, sessionId: null, conversation, status: 'working', tool, startedAt: now, statusAt: now };
+  fs.mkdirSync(runsDir(), { recursive: true, mode: 0o700 });
+  write(file, run);
+  return { file, run };
+}
+
+/** Record `r` runs conversation `id` of coding tool `tool`: the tool's own report first, else the id it was started on. */
+export const runsConversation = (r, id, tool = 'claude') => (r.tool || 'claude') === tool && (r.sessionId === id || (!r.sessionId && r.conversation === id));
+
+/**
+ * One conversation, one process, between processes that do not know of each other (a launcher in any terminal, a chat
+ * of the dashboard): each writes its record first and asks this second. The live record (a terminal's or a chat's)
+ * that runs conversation `id` and was there before `mine`, or null. Of two that start at the same moment, each sees
+ * the other or only the later one sees the earlier: the earlier goes on, the later starts nothing.
+ */
+export function heldBefore(mine, id, tool = 'claude') {
+  const earlier = (r) => r.startedAt < mine.startedAt || (r.startedAt === mine.startedAt && r.runId < mine.runId);
+  // Only the records on this conversation are judged: on Windows asking the system about other processes takes most of
+  // a second, and every launcher start asks this.
+  return listRuns({ chats: true, usage: false, only: (r) => r.runId !== mine.runId && r.status !== 'ended' && runsConversation(r, id, tool) && earlier(r) })[0] || null;
+}
+
+/**
+ * The records of chat `chat` of this dashboard that no process of it holds (`live`: the record files of the
+ * dashboard's chat processes that have not ended, and of starts getting ready): left over, never counted. Their pid is
+ * the dashboard's, so nothing else would ever remove them. A record in `live` stays, whichever chat object wrote it: a
+ * chat closed a moment ago may still be ending under the same id.
+ */
+export function removeChatLeftovers(chat, live) {
+  for (const r of listRuns({ chats: true, usage: false })) {
+    const file = path.join(runsDir(), `${r.runId}.json`);
+    if (r.kind === 'chat' && r.chat === chat && r.pid === process.pid && !live.has(file)) removeRun(file);
+  }
 }
 
 /** Where the launch's status line script saves Claude Code's status data (see statusScript in launch.mjs). */
@@ -145,35 +202,61 @@ export function removeRun(file) {
   }
 }
 
-const alive = (pid) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return e.code === 'EPERM';
-  }
-};
+/**
+ * Record `run`, as listed a moment ago, is still its process's: read and judged again as listRuns does (one that is not
+ * any more goes), with what the system says now, not what it said a while ago. For the moment before something is done
+ * to that process.
+ */
+export async function stillRuns(run, ident = system) {
+  const after = (await ident.refresh?.([run.pid])) || 0;
+  const file = path.join(runsDir(), `${path.basename(String(run.runId))}.json`);
+  const now = readRun(file);
+  if (!now || now.pid !== run.pid) return false;
+  if (stillOwned([{ run: now, file }], ident, { after })[0]) return true;
+  removeRun(file);
+  return false;
+}
 
-/** Every live run. Files whose launcher is gone are deleted on the way. */
-export function listRuns() {
+/**
+ * Every live run of a launcher. Files whose process is gone are deleted on the way. `chats`: the records of the
+ * dashboard's chat processes too (they run a conversation, but in no terminal). `usage`: each run's plan usage is read
+ * and kept for its provider (noteUsage); the readers of "who runs this conversation" need none of it, and leave the
+ * provider's store to the dashboard instead of writing it from every launcher and chat start. A record counts while
+ * the process that wrote it runs (procid.mjs stillOwned), not while its pid does. `ident`: procid.mjs makeIdentity.
+ * `only(run)`: the records asked about; the others are neither judged, removed nor listed.
+ */
+export function listRuns({ chats = false, usage: withUsage = true, ident = system, only = null } = {}) {
   let names;
   try {
     names = fs.readdirSync(runsDir());
   } catch {
     return [];
   }
-  const runs = [];
+  const read = [];
   for (const f of names) {
     if (!f.endsWith('.json')) continue;
     const file = path.join(runsDir(), f);
     const run = readRun(file);
-    if (!run || !Number.isInteger(run.pid) || !alive(run.pid)) {
+    if (!run || !Number.isInteger(run.pid)) {
       // Leave a file that is being written right now (unparsable for a moment) alone unless it is old.
       const old = (() => { try { return Date.now() - fs.statSync(file).mtimeMs > 60_000; } catch { return false; } })();
       if (run || old) removeRun(file);
       continue;
     }
-    const usage = noteUsage(file, run.profile);
+    if (!only || only(run)) read.push({ run, file });
+  }
+  const owned = stillOwned(read, ident); // all pids at once: on Windows asking the system takes most of a second
+  const runs = [];
+  for (const [i, { run, file }] of read.entries()) {
+    if (!owned[i]) {
+      removeRun(file);
+      continue;
+    }
+    if (run.kind === 'chat') {
+      if (chats) runs.push(run);
+      continue;
+    }
+    const usage = withUsage ? noteUsage(file, run.profile) : null;
     if (usage) run.usage = usage;
     runs.push(run);
   }

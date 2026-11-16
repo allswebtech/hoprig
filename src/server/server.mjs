@@ -49,6 +49,7 @@ import { EFFORTS, MODELS, PERMISSION_MODES, cleanSessionDefaults, loadConfig, sa
 import { stateDir, tilde } from '../paths.mjs';
 import { assertServes, deleteProfile, listProfiles, publicProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
+import { system as processes } from '../procid.mjs';
 import { sessionTitle, sessionsIn } from '../sessions.mjs';
 import {
   COOKIE, RateLimiter, SessionStore, clearCookie, hashPassword, parseCookies, sessionCookie, sha256, verifyPassword,
@@ -310,10 +311,7 @@ export function createServer(opts = {}) {
 
   /** Move a session to another profile; "auto" is not a profile file, so it is built here. */
   async function moveTo(term, run, name) {
-    if (name !== AUTO.name) return deck.move(term, run, name);
-    const argv = deck.moveArgv({ name: AUTO.name, env: {} }, run);
-    deck.noteLaunch(term.session, run.sessionId, run.tool || 'claude'); // as deck.move does
-    await backend.respawn(term.id, run.cwd, argv);
+    return deck.move(term, run, name, name === AUTO.name ? { profile: { name: AUTO.name, env: {} } } : {});
   }
 
   /**
@@ -1039,6 +1037,8 @@ export function createServer(opts = {}) {
         server.once('error', reject);
         server.listen(port, host, () => {
           if (opts.watch !== false) watcher.start();
+          // Its requests list the run records: on Windows asking the system who runs a pid takes most of a second.
+          processes.askInBackground();
           // Whether a Claude account is signed in here, and on which plan: asked once now and then every half hour,
           // so the Providers page is right from the first minute. Before, only doctor, setup or a session start
           // asked, and after a restart the page knew nothing. Only the real `serve` command turns it on (the demo and

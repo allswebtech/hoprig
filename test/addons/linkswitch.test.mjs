@@ -183,6 +183,10 @@ test('Custom set up: turning it on stops the Temporary link first, so never both
   const t = await S.settled();
   assert.equal(t.state, 'on');
   const tempPid = S.readRecord().pid;
+  // Its identity beside its pid (procid.mjs), so that a pid handed out again is never taken for it (reach.mjs).
+  const { system } = await import('../../src/procid.mjs');
+  assert.ok(await until(() => S.readRecord().proc), 'the record carries its identity');
+  assert.equal(S.readRecord().proc, system.of([tempPid]).get(tempPid));
   assert.equal((await S.turnOn('custom')).ok, true);
   const c = await S.settled();
   assert.deepEqual([c.kind, c.state, c.url], ['custom', 'on', 'https://office.example.com']);

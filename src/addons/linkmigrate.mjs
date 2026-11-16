@@ -8,11 +8,14 @@ import { alive, fixedDir, fixedStateFile, linkRecordFile, quickStateFile, readFi
 
 const writeRecord = (patch) => writeAtomic(linkRecordFile(), JSON.stringify({ ...(readJsonFile(linkRecordFile()) || {}), ...patch }));
 
-/** The command line of `pid` with its words joined by spaces, or null when it cannot be read here. */
-function commandLine(pid) {
+/**
+ * The command line of `pid` with its words joined by spaces, or null when it cannot be read here. `wait`: false where
+ * reading it would wait for another program (macOS: ps), as on the way of a dashboard's request.
+ */
+function commandLine(pid, wait = true) {
   try {
     if (process.platform === 'linux') return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').join(' ');
-    if (process.platform === 'darwin') return execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+    if (process.platform === 'darwin' && wait) return execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
   } catch {
     /* gone, or not ours to read */
   }
@@ -22,13 +25,21 @@ function commandLine(pid) {
 /**
  * Is `pid` a cloudflared tunnel of ours? Its command line must say so: after a restart of the computer the number in
  * an old record may belong to another program. Where the command line cannot be read, nothing is ours, so nothing is
- * ended or adopted on a number alone.
+ * ended or adopted on a number alone; `unread` is the answer then (null: "cannot tell", for procid.mjs filedProcess).
+ * `port`: only a quick tunnel to that local port (the second temporary address's is not the switch's). `wait`: as for
+ * commandLine.
  */
-export function ours(pid) {
+export function ours(pid, { unread = false, port, wait = true } = {}) {
   if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !alive(pid)) return false;
-  const cmd = commandLine(pid);
-  return !!cmd && / tunnel /.test(` ${cmd} `) && (cmd.includes(fixedDir()) || cmd.includes('--url http://127.0.0.1:'));
+  const cmd = commandLine(pid, wait);
+  if (cmd === null) return unread;
+  const words = ` ${cmd} `;
+  if (!/ tunnel /.test(words)) return false;
+  return port === undefined ? cmd.includes(fixedDir()) || cmd.includes('--url http://127.0.0.1:') : words.includes(` --url http://127.0.0.1:${port} `);
 }
+
+/** ours() as the fact for procid.mjs filedProcess: null where the command line cannot be read (or not without waiting). */
+export const tunnelFact = (pid, { port, wait = true } = {}) => ours(pid, { unread: null, port, wait });
 
 /**
  * The first start of a version with this switch: the older one kept a detached Temporary tunnel and a Custom

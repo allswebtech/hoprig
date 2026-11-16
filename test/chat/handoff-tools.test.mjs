@@ -33,6 +33,7 @@ test('Open as chat, Open in terminal and Continue here for an OpenCode conversat
   const { Chat } = await import('../../src/chat/chat.mjs');
   const { handoffRoutes, terminals } = await import('../../src/chat/handoff.mjs');
   const { createRun, updateRun } = await import('../../src/runs.mjs');
+  const { system } = await import('../../src/procid.mjs');
 
   const chats = new Map();
   const turnsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-handoff-'));
@@ -111,7 +112,8 @@ test('Open as chat, Open in terminal and Continue here for an OpenCode conversat
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   t.after(() => child.kill('SIGKILL'));
   const { file } = createRun({ profile: 'gw', cwd, tool: 'opencode' });
-  updateRun(file, { pid: child.pid, sessionId: SESSION_ID, status: 'working' });
+  // The child's record, as it would write it: its pid and its identity (procid.mjs).
+  updateRun(file, { pid: child.pid, proc: system.of([child.pid]).get(child.pid), sessionId: SESSION_ID, status: 'working' });
   assert.ok(await terminalOf(SESSION_ID, 'opencode'), 'the terminal runs it');
   assert.equal(await terminalOf(SESSION_ID, 'claude'), null, 'by tool and id');
   r = await call('POST', `/api/chats/${d.id}/take`);

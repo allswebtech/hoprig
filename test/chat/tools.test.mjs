@@ -222,9 +222,11 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   // starts nothing: a first message is not sent, a message is refused, and it does not open in a second terminal.
   const { spawn } = await import('node:child_process');
   const { createRun, removeRun, updateRun } = await import('../../src/runs.mjs');
+  const { system } = await import('../../src/procid.mjs');
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   const { file: runFile } = createRun({ profile: 'gw', cwd: proj, tool: 'opencode' });
-  updateRun(runFile, { pid: child.pid, sessionId: SESSION_ID, status: 'working' });
+  // The child's record, as it would write it: its pid and its identity (procid.mjs).
+  updateRun(runFile, { pid: child.pid, proc: system.of([child.pid]).get(child.pid), sessionId: SESSION_ID, status: 'working' });
   try {
     const promptsBefore = s.calls.filter((x) => x.path.endsWith('/prompt')).length;
     r = await owner('POST', '/api/chats', { dir: proj, tool: 'opencode', sessionId: SESSION_ID, text: 'hello' });
@@ -304,7 +306,8 @@ test('a schedule that starts a terminal checks its provider again when it runs, 
   const created = [];
   const sctx = {
     config: () => ({ server: { roots: [box.root] } }), state: async () => ({ sessions: [] }),
-    deck: { launcher: () => ['hoprig'] }, backend: { list: async () => [], create: async (o) => (created.push(o), { name: o.name }) },
+    // The Deck's create (deck.mjs): a terminal named after `base`, noted when it starts on a conversation.
+    deck: { launcher: () => ['hoprig'], create: async (o) => (created.push(o), o.base) }, backend: { list: async () => [] },
   };
   const a = serverAdapter(sctx, { log: () => {} });
   // Saved while it served Claude Code; now it does not (here: a provider that never did, as after a change).
