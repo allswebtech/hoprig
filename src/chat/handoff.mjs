@@ -218,12 +218,17 @@ export function handoffRoutes(ctx, o) {
         handed.set(c.id, { conversation, tool });
         if (handed.size > 50) handed.delete(handed.keys().next().value);
         await c.close();
+        // Its page learns the outcome only now (live.mjs): gone once the terminal runs, kept when it did not start.
+        let name;
         try {
-          return { name: await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: conversation, flags }) };
+          name = await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: conversation, flags });
         } catch (e) {
           make(c.record()); // the terminal did not start: the chat stays open
+          c.emit('kept');
           throw e;
         }
+        c.emit('gone');
+        return { name };
       }, { tool, self: c.id });
       if (r.terminal) return there(r.terminal);
       if (r.chat) throw new HttpError(409, 'another chat runs this conversation right now');

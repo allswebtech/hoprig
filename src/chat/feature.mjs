@@ -346,6 +346,7 @@ export function chatFeature(ctx, o = {}) {
       if (!old) throw new HttpError(409, `${OPEN_MAX} chats are open; close one first`);
       chats.delete(old.id);
       old.close();
+      old.emit('gone'); // its page shows it as not open (live.mjs)
     }
     const c = make({
       id, ...(conversationId && conversationId !== id ? { conversationId } : {}), engine: tool, cwd: dir, profile,
@@ -476,7 +477,9 @@ export function chatFeature(ctx, o = {}) {
       await ctx.readJson(req);
       chats.delete(c.id);
       save();
-      await c.close();
+      const ended = c.close();
+      c.emit('gone'); // closed for good: its page shows it as not open, without asking again (live.mjs)
+      await ended;
       ctx.poke?.();
       return { ok: true };
     }],
@@ -488,7 +491,7 @@ export function chatFeature(ctx, o = {}) {
   // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
   const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
   routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn } }));
-  const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView, shutOf: (id) => shut.get(id) || null });
+  const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView, shutOf: (id) => shut.get(id) || null, openNow: (c) => chats.get(c.id) === c });
   routes.push(...live.routes);
 
   return {
