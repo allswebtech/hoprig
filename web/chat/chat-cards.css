@@ -9,12 +9,14 @@
 .chat-tool-state { display: grid; place-items: center; width: 18px; height: 18px; flex: none; border-radius: 50%; color: var(--on-solid); }
 .chat-tool.chat-is-running .chat-tool-state { border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: spin .9s linear infinite; }
 .chat-tool.chat-is-ok .chat-tool-state { background: var(--ok-solid); }
-.chat-tool.chat-is-err .chat-tool-state { background: var(--danger-solid); }
+.chat-tool.chat-is-err .chat-tool-state, .chat-tool.chat-is-taskfail .chat-tool-state { background: var(--danger-solid); }
+.chat-tool.chat-is-taskstop .chat-tool-state { background: var(--muted); }
 .chat-tool-verb { font-weight: 650; flex: none; }
 .chat-tool-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .chat-tool-detail.mono { font: 12.5px var(--mono); }
 .chat-tool-said { flex: none; color: var(--danger); font-weight: 650; font-size: var(--fs-xs); }
 .chat-tool-said:empty { display: none; }
+.chat-tool.chat-is-taskstop .chat-tool-said { color: var(--muted); }
 .chat-tool-end { margin-left: auto; flex: none; color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .chat-plus { color: var(--ok); font-weight: 650; }
 .chat-minus { color: var(--danger); font-weight: 650; }

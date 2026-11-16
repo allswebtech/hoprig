@@ -158,8 +158,9 @@ textarea.chat-input:disabled { opacity: 0.6; }
   .chat-title svg { display: none; }
   /* Toasts at the top, under the head: at the bottom they would cover the composer and a card's buttons. */
   body.chat-mode .toasts { top: calc(66px + env(safe-area-inset-top)); bottom: auto; }
-  /* The status line keeps the state and the model; the rest is in the chips and the head. */
-  .chat-st-part:nth-child(n + 3) { display: none; }
+  /* The status line keeps the state, the cost, the context and the plan's limits: the model, effort, mode and
+     ultracode are in the chips right above it. */
+  .chat-st-part:is([data-k='Model'], [data-k='Effort'], [data-k='Mode'], [data-k='Ultracode']) { display: none; }
 }
 @media (min-width: 600px) and (max-width: 899px) { body.chat-mode .toasts { bottom: calc(170px + env(safe-area-inset-bottom)); } }
 

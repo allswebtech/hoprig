@@ -48,10 +48,11 @@ export function inputView(ev, cwd) {
       ];
     case 'read':
       return i.file_path ? h('p.chat-path', inFolder(i.file_path, cwd), i.offset ? ` · from line ${i.offset}` : '', i.limit ? ` · ${i.limit} lines` : '') : null;
+    // The head already names the pattern, the address or the query: here only what it adds.
     case 'search':
-      return h('p.chat-path', i.pattern || i.query || '', i.path ? ` in ${inFolder(i.path, cwd)}` : '', i.glob ? ` · ${i.glob}` : '');
+      return i.path || i.glob ? h('p.chat-path', i.path ? `in ${inFolder(i.path, cwd)}` : '', i.path && i.glob ? ' · ' : '', i.glob || '') : null;
     case 'web':
-      return h('p.chat-path', i.url || i.query || '');
+      return i.prompt ? h('p.chat-hint', i.prompt) : null;
     case 'agent':
       return [
         h('p.chat-hint', [i.subagent_type, i.model, i.effort ? `effort ${i.effort}` : null].filter(Boolean).join(' · ')),
@@ -66,7 +67,7 @@ export function inputView(ev, cwd) {
     case 'workflow':
       return i.script ? h('details.chat-prompt', h('summary', 'Its script'), outputView(i.script, { cls: 'chat-code' })) : null;
     default:
-      if (ev.name === 'Skill') return h('p.chat-path', i.skill || i.name || '');
+      if (ev.name === 'Skill') return i.args ? h('p.chat-path', i.args) : null;
       return Object.keys(i).length ? outputView(JSON.stringify(i, null, 2), { cls: 'chat-code' }) : null;
   }
 }
@@ -123,7 +124,9 @@ export function toolCard(ev, o = {}) {
     if (el.classList.contains('chat-is-running') && Number.isFinite(s)) fill(end, `${Math.round(s)} s`);
   };
 
-  el.result = (r) => {
+  const result = (res) => {
+    // Claude Code wraps a refused or broken call in <tool_use_error>: the words inside are what the owner reads.
+    const r = { ...res, text: String(res.text || '').replace(/^\s*<tool_use_error>([\s\S]*?)<\/tool_use_error>\s*$/, '$1') };
     el.classList.remove('chat-is-running');
     el.classList.add(r.ok ? 'chat-is-ok' : 'chat-is-err');
     fill(state, icon(r.ok ? 'check' : 'x', { size: 14 }));
@@ -156,15 +159,28 @@ export function toolCard(ev, o = {}) {
     return fill(out, r.text ? outputView(r.text, { err: !r.ok }) : h('p.chat-hint', 'No output.'));
   };
 
+  let task = null;
+  el.result = (r) => {
+    const x = result(r);
+    if (task) el.task(task); // a result that comes after the task ended does not hide how it ended
+    return x;
+  };
+
   // The task this call started (an agent, a background shell, a workflow): its state, model, use and Stop.
   el.task = (t) => {
+    task = t || null;
     if (!t) return fill(taskBox);
     const running = t.status === 'running';
     el.classList.toggle('chat-is-taskrun', running);
     fill(taskBox,
       h('div.chat-task-line', h('span', taskLine(t)), running && o.stopTask ? taskStop(t, o.stopTask) : null),
       t.type === 'workflow' ? workflowView(t) : null);
-    if (t.status === 'failed' || t.status === 'stopped') fill(said, t.status === 'failed' ? 'failed' : 'stopped');
+    // The call itself went well (it started the task); how the task ended is told by the icon and in words too.
+    if (t.status === 'failed' || t.status === 'stopped') {
+      fill(said, t.status);
+      fill(state, icon(t.status === 'failed' ? 'x' : 'stop', { size: 14 }));
+      el.classList.add(t.status === 'failed' ? 'chat-is-taskfail' : 'chat-is-taskstop');
+    }
   };
 
   el.quiet = () => {

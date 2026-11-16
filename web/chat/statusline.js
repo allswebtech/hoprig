@@ -46,7 +46,7 @@ export function createStatusLine() {
     paint(v) {
       el.dataset.status = v.terminal ? 'terminal' : v.status === 'waiting' && v.lastError ? 'error' : v.status;
       fill(state, stateWords(v));
-      fill(rest, statusParts(v).map(([label, text]) => h('span.chat-st-part', { title: label }, text)));
+      fill(rest, statusParts(v).map(([label, text]) => h('span.chat-st-part', { title: label, 'data-k': label }, text)));
     },
   };
 }

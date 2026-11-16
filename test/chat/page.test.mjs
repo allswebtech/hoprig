@@ -176,3 +176,37 @@ test('the provider sheet: each provider with its plan usage', async () => {
   assert.equal(usageWords({}), '');
   assert.equal(editorLink('/p/my shop', 'changes'), '#/code?dir=%2Fp%2Fmy%20shop&view=changes');
 });
+
+test('tool cards: a search, a web page and a skill say what they did; a stopped task shows it in words and by its icon', async () => {
+  globalThis.window = globalThis.window || { addEventListener() {} };
+  const { toolCard } = await import('../../web/chat/tools.js');
+  const card = (name, toolKind, input, result) => {
+    const el = toolCard({ id: 't', name, toolKind, input }, { cwd: '/p' });
+    if (result) el.result(result);
+    return el;
+  };
+  const grep = card('Grep', 'search', { pattern: 'line t', path: '/p/src' }, { ok: true, text: 'notes.txt:2:line two' });
+  assert.equal(grep.dataset.kind, 'search');
+  assert.ok(grep.classList.contains('chat-is-ok'));
+  assert.match(texts(grep).join(''), /^Searched forline tin src.*notes\.txt:2:line two/s);
+  const web = card('WebFetch', 'web', { url: 'http://example.test/page', prompt: 'what' }, { ok: false, text: 'fetch failed' });
+  assert.ok(web.classList.contains('chat-is-err'));
+  assert.match(texts(web).join(''), /Read the pagehttp:\/\/example\.test\/pagefailed/);
+  const skill = card('Skill', 'other', { skill: 'tidy-notes' }, { ok: true, text: 'Launching skill: tidy-notes' });
+  assert.match(texts(skill).join(''), /^Used the skilltidy-notes/);
+  // A background shell: the call started it (ok); it was stopped later, and a late result does not hide that.
+  const bg = card('Bash', 'shell', { command: 'sleep 3', run_in_background: true });
+  bg.task({ taskId: 'b1', type: 'shell', status: 'stopped', title: 'sleep 3' });
+  bg.result({ ok: true, text: 'Command running in background with ID: b1' });
+  assert.ok(bg.classList.contains('chat-is-taskstop'));
+  assert.match(texts(bg).join(''), /stopped/);
+});
+
+test('tool cards: an error Claude Code wraps in tool_use_error shows only its words', async () => {
+  const { toolCard } = await import('../../web/chat/tools.js');
+  const el = toolCard({ id: 't', name: 'Grep', toolKind: 'search', input: { pattern: 'x' } });
+  el.result({ ok: false, text: '<tool_use_error>Error: No such tool available: Grep.</tool_use_error>' });
+  const all = texts(el).join('');
+  assert.match(all, /Error: No such tool available: Grep\./);
+  assert.doesNotMatch(all, /tool_use_error/);
+});
