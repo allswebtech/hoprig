@@ -5,6 +5,7 @@
 // whole dashboard is reachable.
 import { obj, ref, str } from './schema.mjs';
 import { isCodingCard } from '../automation/cards.mjs';
+import { OFFERED } from '../codetools/offered.mjs';
 import { LOCAL } from './shown.mjs';
 
 // A terminal session's name, or a chat's (src/chat: "chat:<conversation id>", 41 characters).
@@ -21,6 +22,26 @@ export const account = str({ max: 32, pattern: ACCOUNT, desc: 'Provider name fro
 export const job = ref('job', str({ max: 12, pattern: /^j_[0-9a-f]{10}$/, desc: 'Job id from start_session, start_chat, watch_session or list_sessions.' }));
 export const conversation = ref('conversation', str({ max: 36, pattern: UUID, desc: 'Conversation id from list_projects with folder.' }));
 export const folder = str({ max: 1024, pattern: ABS, oneLine: true, desc: 'Absolute folder path (or ~/...) inside the folders the dashboard allows.' });
+
+// The coding tools this version offers (src/codetools/offered.mjs, the one switch), by their names in the page.
+export const CODING_TOOL_NAMES = Object.freeze({ claude: 'Claude Code', opencode: 'OpenCode', codex: 'Codex' });
+export const toolName = (id) => CODING_TOOL_NAMES[id] || id;
+/** "a Claude Code …" / "an OpenCode …" */
+export const aTool = (id) => `${/^[AEIOU]/.test(toolName(id)) ? 'an' : 'a'} ${toolName(id)}`;
+export const codingTool = str({ enum: [...OFFERED], desc: `The coding tool: ${OFFERED.map((id) => `"${id}" (${toolName(id)})`).join(', ')}. Leave it out for Claude Code; give it only when the owner named a coding tool.` });
+
+/**
+ * A start of another coding tool may be refused by the computer (not turned on, not installed, no provider for it):
+ * the dashboard's own sentence, and where to look next.
+ */
+export async function startOf(promise, tool) {
+  try {
+    return await promise;
+  } catch (e) {
+    if (!tool || tool === 'claude' || e.status !== 400) throw e;
+    throw toolError(`${toolName(tool)} could not start: ${String(e.message || 'refused').slice(0, 200)}`, 'get_computer_status with coding_tools: true shows which coding tools are on and installed there; manage_computer coding_tool turns one on and manage_computer update installs it (both cards), or leave coding_tool out for Claude Code');
+  }
+}
 
 export const KEYS = ['Enter', 'Escape', 'Up', 'Down', 'Tab', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 // Slash commands that only report or tidy up. Anything else typed with a leading "/" changes how the session

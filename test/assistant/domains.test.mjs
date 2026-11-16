@@ -124,7 +124,7 @@ test('manage_computer: rename is L1; setup fix and set up show what runs; add-on
   assert.match((await call('manage_computer', { action: 'set_up', kits: ['nope'] })).text, /not setup kits: nope/);
   assert.equal((await call('manage_computer', { action: 'addon', addon: 'trouteai', addon_action: 'start' })).isError, false);
   assert.ok(staged(await call('manage_computer', { action: 'addon', addon: 'trouteai', addon_action: 'install' })));
-  assert.ok(staged(await call('manage_computer', { action: 'update_claude_code' })));
+  assert.ok(staged(await call('manage_computer', { action: 'update', item: 'claude' })));
   assert.ok(staged(await call('manage_computer', { action: 'add', ssh_target: 'me@box3' })));
   assert.match((await call('manage_computer', { action: 'remove', computer: 'box2' })).text, /action: must be one of/, 'removing a computer is the owner\'s own step');
   assert.deepEqual(writes(ops), ['renameComputer', 'addon']);

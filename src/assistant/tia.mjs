@@ -6,11 +6,13 @@
 //   level        "ask" | "work" | "handsoff"                                  default "work"
 //     ask        Tia proposes; every action that types into a session is a card the owner taps.
 //     work       Tia gets the job done: starts sessions, picks the account, sends the task, answers Claude
-//                Code's questions within the goal, carries on after a limit, checks the result, reports.
+//                Code's questions within the goal (never another coding tool's OKs), carries on after a limit,
+//                checks the result, reports.
 //     handsoff   as "work", and the actions that only cost money within the owner's bounds (start on or move
 //                to an API account he allowed) need no card either.
 //     In every level the destructive or system-changing actions stay cards (stop a session she did not start,
-//     run_command, ending a process, updating Claude Code, setting up a computer, settings, schedules, skills, power), and secrets stay out (L3).
+//     run_command, ending a process, installing, updating or switching a coding tool, setting up a computer, settings,
+//     schedules, skills, power), and secrets stay out (L3).
 //   accounts     null (default) or a list of account names Tia may use (may include "auto")
 //                default: "auto" when Auto mode is on, then every subscription/login account; never an API
 //                account unless the owner lists it; only providers that serve a coding tool of this version
@@ -21,6 +23,7 @@
 //   model        null (default: the account's own) or the model her engine uses, e.g. "haiku"
 
 import path from 'node:path';
+import { toolName } from './toolkit.mjs';
 
 /** One constant for the name, so a fork can rename her. */
 export const ASSISTANT_NAME = 'Tia';
@@ -165,7 +168,7 @@ export function chooseAccount(tia, accounts, tool = 'claude') {
   };
   const candidates = tia.allowed.map((n) => profiles.find((p) => p.name === n)).filter((p) => servesTool(p, tool));
   const free = candidates.filter((p) => !p.limited);
-  if (!candidates.length) return { error: `no provider is allowed for ${ASSISTANT_NAME}` };
+  if (!candidates.length) return { error: tool === 'claude' ? `no provider is allowed for ${ASSISTANT_NAME}` : `no provider ${ASSISTANT_NAME} may use serves ${toolName(tool)}` };
   if (!free.length) {
     const soonest = candidates.map((p) => p.limited && p.limited.until).filter(Boolean).sort((a, b) => a - b)[0];
     return { error: `every provider ${ASSISTANT_NAME} may use is at its limit${soonest ? ` (the first frees up at ${new Date(soonest).toISOString()})` : ''}` };

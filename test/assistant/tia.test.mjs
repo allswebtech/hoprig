@@ -149,7 +149,7 @@ test('policy: destructive and system tools stay cards at every level', () => {
     for (const level of LEVELS) assert.equal(lv(t, {}, f({ mine: true }), tia(level)).level, 'L2', `${t} ${level}`);
   }
   const cards = {
-    manage_computer: ['add', 'update_claude_code', 'setup_fix', 'set_up', 'end_process', 'reboot', 'power_off'],
+    manage_computer: ['add', 'update', 'coding_tool', 'setup_fix', 'set_up', 'end_process', 'reboot', 'power_off'],
     manage_project: ['new', 'get', 'add_repository', 'install', 'create_folders'],
     manage_automation: ['add_schedule', 'change_schedule', 'delete_schedule', 'set_rule', 'resume'],
     manage_skills: ['install', 'remove'],

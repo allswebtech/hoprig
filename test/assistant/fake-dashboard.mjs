@@ -69,6 +69,20 @@ export function baseState() {
     kits: [{ id: 'tools', title: 'Developer tools', items: [{ name: 'gh', state: 'missing' }], commands: ['apt install gh'], admin: true }, { id: 'node', title: 'Node.js', items: [], commands: [], admin: false }],
     addons: [{ id: 'trouteai', title: 'TRouteAI', installed: true, running: false, version: '1.2.0' }],
     publicLink: { on: false, kind: 'temporary', state: 'off', url: null, custom: { state: 'none' } },
+    // Settings → Coding tools and Settings → Updates (src/codetools/feature.mjs, src/automation/updater.mjs)
+    codingTools: [
+      { id: 'claude', name: 'Claude Code', on: true, managed: false, installed: '2.1.325', providers: ['sub', 'sub2', 'api'] },
+      { id: 'opencode', name: 'OpenCode', on: false, managed: true, installed: null, providers: [] },
+    ],
+    updates: {
+      mode: 'manual', notify: true, running: null,
+      items: [
+        { id: 'hoprig', title: 'Hoprig', whenRunning: 'The new version is used after the dashboard restarts.', installed: '0.9.0', latest: '0.9.0', updateAvailable: false, canUpdate: true, action: null, blocked: null },
+        { id: 'claude', title: 'Claude Code', whenRunning: 'Running sessions keep the version they started with and use the new one when they start again.', installed: '2.1.325', latest: '2.1.330', updateAvailable: true, canUpdate: true, action: 'update', blocked: null },
+        { id: 'opencode', title: 'OpenCode', whenRunning: 'Close its sessions first: the update replaces the program\'s files.', installed: null, latest: '2.3.0', updateAvailable: false, canUpdate: true, action: 'install', blocked: null, note: 'Installs 2.3.0, the version this Hoprig is tested with.' },
+        { id: 'cloudflared', title: 'Tunnel helper (cloudflared)', whenRunning: 'Never while a public link is on.', installed: '2025.1.0', latest: '2025.1.0', updateAvailable: false, canUpdate: true, action: null, blocked: null },
+      ],
+    },
     automation: { settings: { paused: false, queue: { enabled: true }, schedules: { enabled: true, list: [] }, restore: { enabled: null }, retry: { enabled: false }, updates: { claude: 'off' }, idle: { shells: false, gateway: false } }, schedules: [{ id: 'abcd1234', label: 'Morning tests', enabled: true, when: { kind: 'daily', time: '08:00' }, action: { type: 'start', dir: '/home/owner/projects/shop', profile: 'sub', prompt: 'run the tests' }, nextAt: null }], queues: {} },
     skills: { user: { skills: [{ name: 'tdd', source: 'catalog' }] }, settings: { weekly: false } },
     reviews: { 'pdf-tools': { id: 'r1', name: 'pdf-tools', description: 'Read PDFs.', source: { type: 'git', repo: 'acme/skills', path: 'pdf', commit: 'abcdef123' }, scope: { kind: 'user' }, files: [{ path: 'SKILL.md' }, { path: 'run.sh' }], findings: [{ severity: 'warn', rule: 'script', message: 'runs a shell script', file: 'run.sh' }], counts: { block: 0 }, skillMd: '# PDF tools\nUse pdftotext.' } },
@@ -145,6 +159,7 @@ export class FakeOps {
 
   async startSession(a) {
     this.#write('startSession', a);
+    this.#toolReady(a);
     if (!this.s.roots.some((r) => a.folder === r || a.folder.startsWith(r + '/'))) throw Object.assign(new Error('choose a folder inside the allowed roots'), { status: 400 });
     if (!this.s.profiles.some((p) => p.name === a.profile) && !(a.profile === 'auto' && this.s.autoSwitch.enabled)) throw Object.assign(new Error('unknown profile'), { status: 400 });
     // One conversation, one process (src/chat/handoff.mjs claim): a conversation that runs already gives that place.
@@ -153,19 +168,20 @@ export class FakeOps {
     const base = a.folder.split('/').pop() || 'session';
     let name = base;
     for (let i = 2; this.s.sessions.some((c) => c.computer === a.computer && c.name === name); i++) name = `${base}-${i}`;
-    this.s.sessions.push({ computer: a.computer, name, kind: 'claude', status: 'working', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.prompt ? a.prompt.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: '44444444-4444-4444-8444-44444444444' + (this.s.sessions.length % 10), statusAt: Date.now(), created: this.#made() });
+    this.s.sessions.push({ computer: a.computer, name, kind: a.tool && a.tool !== 'claude' ? a.tool : 'claude', status: 'working', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.prompt ? a.prompt.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: '44444444-4444-4444-8444-44444444444' + (this.s.sessions.length % 10), statusAt: Date.now(), created: this.#made() });
     return { name };
   }
   // A chat (src/chat) is "chat:<id>" among the sessions.
   async startChat(a) {
     this.#write('startChat', a);
+    this.#toolReady(a);
     if (!this.s.roots.some((r) => a.folder === r || a.folder.startsWith(r + '/'))) throw Object.assign(new Error('choose a folder inside the allowed roots'), { status: 400 });
     if (!this.s.profiles.some((p) => p.name === a.profile) && !(a.profile === 'auto' && this.s.autoSwitch.enabled)) throw Object.assign(new Error('there is no such provider'), { status: 400 });
     // As the dashboard does: a conversation an open chat runs gives that chat, as it is (feature.mjs openChat).
     const open = a.sessionId && this.s.sessions.find((x) => x.kind === 'chat' && x.sessionId === a.sessionId && (x.computer || 'this') === a.computer);
     if (open) return { id: open.chatId, existing: true, permissionMode: open.permissionMode || null, ...(a.text ? { sent: false, why: 'this conversation is already open in a chat; write to that chat' } : {}) };
     const id = a.sessionId || `55555555-5555-4555-8555-5555555555${String(this.s.sessions.length % 100).padStart(2, '0')}`;
-    this.s.sessions.push({ computer: a.computer, name: `chat:${id}`, kind: 'chat', chatId: id, byTia: true, status: a.text ? 'working' : 'waiting', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.text ? a.text.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: id, statusAt: Date.now(), created: this.#made() });
+    this.s.sessions.push({ computer: a.computer, name: `chat:${id}`, kind: 'chat', ...(a.tool && a.tool !== 'claude' ? { tool: a.tool } : {}), chatId: id, byTia: true, status: a.text ? 'working' : 'waiting', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.text ? a.text.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: id, statusAt: Date.now(), created: this.#made() });
     return { id };
   }
   async sendToChat(a) {
@@ -220,6 +236,42 @@ export class FakeOps {
   async updateClaude(a) {
     this.#write('updateClaude', a);
     return { started: true };
+  }
+  // ---- the coding tools and Settings → Updates ----
+  async codingTools({ computer }) {
+    this.#read('codingTools', { computer });
+    return { tools: clone(this.s.codingTools) };
+  }
+  async setCodingTool(a) {
+    this.#write('setCodingTool', a);
+    const t = this.s.codingTools.find((x) => x.id === a.id);
+    if (!t) throw Object.assign(new Error('there is no such coding tool'), { status: 404 });
+    if (!a.on && !this.s.codingTools.some((x) => x.on && x.id !== a.id)) throw Object.assign(new Error('choose at least one coding tool'), { status: 400 });
+    t.on = a.on;
+    return { tools: clone(this.s.codingTools) };
+  }
+  async updates({ computer }) {
+    this.#read('updates', { computer });
+    return clone(this.s.updates);
+  }
+  async checkUpdates({ computer }) {
+    this.#read('checkUpdates', { computer });
+    return clone(this.s.updates);
+  }
+  async runUpdate(a) {
+    this.#write('runUpdate', a);
+    const r = this.s.updates.items.find((x) => x.id === a.id);
+    if (a.id !== 'all' && (!r || !r.action)) throw Object.assign(new Error('nothing to update'), { status: 409 });
+    return { started: true, ids: a.id === 'all' ? this.s.updates.items.filter((x) => x.action === 'update' && x.updateAvailable).map((x) => x.id) : [a.id], skipped: [] };
+  }
+  /** As the computer checks a start of another coding tool: on, installed, and a provider that serves it. */
+  #toolReady(a) {
+    if (!a.tool || a.tool === 'claude') return;
+    const t = this.s.codingTools.find((x) => x.id === a.tool);
+    if (!t) throw Object.assign(new Error('there is no such coding tool'), { status: 400 });
+    if (!t.on || !t.installed) throw Object.assign(new Error(`${t.name} is not ${t.installed ? 'turned on' : 'installed'} on this computer`), { status: 400 });
+    const p = this.s.profiles.find((x) => x.name === a.profile);
+    if (!p || !(p.tools || ['claude']).includes(a.tool)) throw Object.assign(new Error(`The provider cannot be used for ${t.name}.`), { status: 400 });
   }
   // ---- projects, workspace, brain ----
   async projects() {
