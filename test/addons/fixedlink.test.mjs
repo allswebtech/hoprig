@@ -1,7 +1,8 @@
-// The fixed address (src/addons/fixedlink.mjs): its pure parts (names, argv, cloudflared's output, the token, the
-// config file, the backoff), the supervisor that starts it again, and the whole flow against a stand-in cloudflared
-// that prints what the real 2026.10.1 prints: sign in, make, run, start again after a crash, another service, off,
-// on, stop using it. No real Cloudflare account, tunnel or DNS record is touched.
+// The Custom address (src/addons/fixedlink.mjs): its pure parts (names, argv, cloudflared's output, the token, the
+// config file, the backoff), the supervisor that starts it again, and the whole flow through the one switch
+// (linkswitch.mjs) against a stand-in cloudflared that prints what the real 2026.10.1 prints: sign in, make, run,
+// start again after a crash, another service, off, on, stop using it. No real Cloudflare account, tunnel or DNS
+// record is touched.
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
@@ -77,8 +78,14 @@ process.env.ANTHROPIC_AUTH_TOKEN = 'must-not-reach-cloudflared';
 const F = await import('../../src/addons/fixedlink.mjs');
 const C = await import('../../src/addons/cloudflared.mjs');
 const L = await import('../../src/addons/localservice.mjs');
-const { publicLink } = await import('../../src/addons/publiclink.mjs');
+const S = await import('../../src/addons/linkswitch.mjs');
+const { publicLink } = await import('../../src/addons/linkaddon.mjs');
 const { loadConfig, saveConfig } = await import('../../src/config.mjs');
+const choice = () => { const { on, kind } = loadConfig().publicLink || {}; return { on, kind }; };
+const { hashTag } = await import('../../src/server/strength.mjs');
+// A password judged strong (strength.mjs): the switch turns nothing on without one.
+const strongPassword = () => saveConfig({ server: { passwordHash: 'scrypt$x', passwordCheck: { tag: hashTag('scrypt$x'), strong: true } } });
+const on = () => S.status().state === 'on';
 const raw = () => JSON.parse(fs.readFileSync(path.join(tmp, 'config', 'config.json'), 'utf8'));
 const calls = () => (fs.existsSync(LOG) ? fs.readFileSync(LOG, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -98,7 +105,8 @@ const fixedDir = path.join(tmp, 'state', 'addons', 'fixed-link');
 const mode = (f) => (fs.statSync(f).mode & 0o777).toString(8);
 
 test.after(async () => {
-  await F.resetForTests();
+  F.resetForTests();
+  await S.resetForTests();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -205,19 +213,6 @@ test('starting again: 2 s, then twice as long each time up to 5 min; a run of a 
   assert.equal(sup.state().running, false);
 });
 
-test('both links at once: the last one to end puts back exactly what the owner had', () => {
-  const owner = { allowedOrigins: ['https://deck.example.net'] }; // no trustProxy of his own
-  const q = C.patchFor(owner, 'https://a-b.trycloudflare.com');
-  const s1 = { ...owner, ...q.patch.server };
-  const f = C.patchFor(s1, 'https://office.example.com', { inherit: q.restore });
-  const s2 = { ...s1, ...f.patch.server };
-  assert.deepEqual(s2, { trustProxy: true, allowedOrigins: ['https://deck.example.net', 'https://a-b.trycloudflare.com', 'https://office.example.com'] });
-  const s3 = { ...s2, ...C.restoreFor(s2, q.restore, { keepTrust: true }).server }; // the temporary one ends first
-  assert.deepEqual(s3, { trustProxy: true, allowedOrigins: ['https://deck.example.net', 'https://office.example.com'] });
-  const s4 = JSON.parse(JSON.stringify({ ...s3, ...C.restoreFor(s3, f.restore).server }));
-  assert.deepEqual(s4, owner);
-});
-
 test('another service: its port, and whether it has a sign-in of its own', async () => {
   assert.deepEqual(L.checkPort('20017', 7433), { port: 20017 });
   assert.match(L.checkPort(7433, 7433).error, /dashboard itself/);
@@ -267,8 +262,8 @@ function service(withLogin, { openApi = false } = {}) {
 test('set up from the page: sign in, make it, it runs and comes back after a crash; another service; off and on; stop using it', async () => {
   saveConfig({ server: { port: 7433, allowedOrigins: ['https://deck.example.net'] } });
   const before = raw().server;
-  assert.equal(C.fixedRestore(), null);
   assert.equal((await publicLink.status()).fixed.state, 'none');
+  assert.equal(S.status().kinds.find((k) => k.id === 'custom').ready, false);
 
   // 1. Sign in: the link comes back; cloudflared waits until Cloudflare is approved, then the certificate is ours.
   const s1 = await act('fixed-sign-in');
@@ -287,36 +282,40 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
 
   // 2. Make it: without a password, no.
   assert.match((await act('fixed-create', { hostname: 'office.example.com' })).error, /password/);
-  saveConfig({ server: { passwordHash: 'scrypt$x' } });
+  strongPassword();
   const beforeOn = raw().server;
   assert.match((await act('fixed-create', { hostname: 'office' })).error, /not an address/);
   const made = await act('fixed-create', { hostname: 'Office.example.com' });
   assert.equal(made.ok, true, made.error);
   assert.equal(made.url, 'https://office.example.com');
   assert.ok(made.lines.some((l) => /Created tunnel hoprig-office-example-com with id/.test(l)), made.lines.join('\n'));
-  for (const f of ['tunnel.json', 'config.yml', 'fixed.json', 'base.yml']) assert.equal(mode(path.join(fixedDir, f)), '600', f);
-  assert.equal(mode(fixedDir), '700');
+  assert.deepEqual(choice(), { on: true, kind: 'custom' }, 'made: the switch is on as Custom');
   const create = calls().find((c) => c.a.includes('create'));
   assert.deepEqual(create.a.slice(-3), ['--cred-file', path.join(fixedDir, 'tunnel.json'), 'hoprig-office-example-com']);
   assert.deepEqual(calls().find((c) => c.a.includes('route')).a.slice(-3), ['dns', ID, 'office.example.com']);
 
-  // 3. It runs, connects, and the settings are as for the quick tunnel.
-  assert.ok(await until(() => F.fixedStatus().connected), 'connected');
+  // 3. It runs, connects, and the settings are as for any public link.
+  assert.ok(await until(on), 'connected');
+  for (const f of ['tunnel.json', 'config.yml', 'fixed.json', 'base.yml']) assert.equal(mode(path.join(fixedDir, f)), '600', f);
+  assert.equal(mode(fixedDir), '700');
   st = F.fixedStatus();
-  assert.deepEqual([st.state, st.mode, st.url, st.enabled, st.running, st.error], ['ready', 'named', 'https://office.example.com', true, true, null]);
+  assert.deepEqual([st.state, st.mode, st.url], ['ready', 'named', 'https://office.example.com']);
+  const sw = S.status();
+  assert.deepEqual([sw.on, sw.kind, sw.url, sw.error], [true, 'custom', 'https://office.example.com', null]);
   assert.equal(loadConfig().server.trustProxy, true);
   assert.deepEqual(loadConfig().server.allowedOrigins, ['https://deck.example.net', 'https://office.example.com']);
   assert.match(fs.readFileSync(mark('last-config.yml'), 'utf8'), /hostname: "office\.example\.com"\n {4}service: "http:\/\/127\.0\.0\.1:7433"/);
   assert.ok(!JSON.stringify(await publicLink.status()).includes('c2VjcmV0'), 'no secret in the status');
+  assert.ok(!JSON.stringify(S.status()).includes('c2VjcmV0'), 'no secret in the switch\'s state');
 
   // 4. cloudflared dies: it is started again by itself.
-  const pid = JSON.parse(fs.readFileSync(path.join(fixedDir, 'fixed.json'), 'utf8')).pid;
+  const pid = S.readRecord().pid;
   assert.ok(pid);
   process.kill(pid, 'SIGKILL');
-  assert.ok(await until(() => !F.fixedStatus().running, 3000));
-  assert.ok(F.fixedStatus().nextTryAt > Date.now(), 'waits before the next start');
-  assert.ok(await until(() => F.fixedStatus().connected, 6000), 'started again and connected');
-  assert.equal(F.fixedStatus().restarts, 1);
+  assert.ok(await until(() => S.status().state === 'retrying', 3000));
+  assert.ok(S.status().nextTryAt > Date.now(), 'waits before the next start');
+  assert.ok(await until(on, 6000), 'started again and connected');
+  assert.equal(S.status().restarts, 1);
 
   // 5. Another service: with a sign-in of its own it is added; without, only after a confirm.
   const withLogin = await service(true);
@@ -334,7 +333,7 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
     const added = await act('fixed-add-service', { port: p1, hostname: 'trouteai-office.example.com' });
     assert.equal(added.ok, true, added.error);
     assert.deepEqual(F.fixedStatus().extra, [{ hostname: 'trouteai-office.example.com', port: p1, url: 'https://trouteai-office.example.com' }]);
-    assert.ok(await until(() => F.fixedStatus().connected && /trouteai-office/.test(fs.readFileSync(mark('last-config.yml'), 'utf8'))), 'runs again with the new rule');
+    assert.ok(await until(() => on() && /trouteai-office/.test(fs.readFileSync(mark('last-config.yml'), 'utf8'))), 'runs again with the new rule');
     const p2 = open.address().port;
     const ask = await act('fixed-add-service', { port: p2, hostname: 'files-office.example.com' });
     assert.deepEqual([ask.ok, /no sign-in page of its own/.test(ask.confirm)], [false, true]);
@@ -352,19 +351,19 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
 
   // 6. Off: it stops and the settings go back; on again: the same address.
   assert.equal((await act('fixed-off')).ok, true);
-  st = F.fixedStatus();
-  assert.deepEqual([st.enabled, st.running, st.url], [false, false, 'https://office.example.com']);
+  assert.deepEqual([S.status().on, S.status().state, F.fixedStatus().url], [false, 'off', 'https://office.example.com']);
   assert.deepEqual(raw().server, beforeOn);
   assert.equal((await act('fixed-on')).ok, true);
-  assert.ok(await until(() => F.fixedStatus().connected));
+  assert.ok(await until(on));
 
   // 7. When the dashboard stops it stops too, and when it starts it runs again.
-  await F.detach();
-  assert.equal(F.fixedStatus().running, false);
-  F.attach();
-  assert.ok(await until(() => F.fixedStatus().connected), 'back with the dashboard');
+  await S.detach();
+  assert.equal(S.readRecord().pid, null);
+  assert.deepEqual(raw().server, beforeOn, 'the settings go back while the dashboard is stopped');
+  await S.attach({ everyMs: 60_000 });
+  assert.ok(await until(on), 'back with the dashboard');
 
-  // 8. Stop using it: the tunnel is deleted in Cloudflare, the DNS records are named, every file here goes.
+  // 8. Stop using it: the switch goes off, the tunnel is deleted in Cloudflare, the DNS records are named, every file here goes.
   const forget = await act('fixed-forget');
   assert.equal(forget.ok, true);
   assert.deepEqual(calls().filter((c) => c.a.includes('delete')).at(-1).a.slice(-3), ['delete', '-f', ID]);
@@ -373,6 +372,7 @@ test('set up from the page: sign in, make it, it runs and comes back after a cra
   assert.match(said, /DNS records for office\.example\.com, trouteai-office\.example\.com stay in Cloudflare/);
   assert.equal(fs.existsSync(fixedDir), false);
   assert.equal(F.fixedStatus().state, 'none');
+  assert.deepEqual(loadConfig().publicLink, { on: false, kind: 'temporary' });
   assert.deepEqual(raw().server, beforeOn, 'settings exactly as before');
   assert.notDeepEqual(before, beforeOn); // (only the password was added in between)
 });
@@ -427,7 +427,7 @@ test('a tunnel of that name made before is used; the token cloudflared prints ne
     assert.equal(r.ok, true, r.error);
     assert.ok(r.lines.some((l) => /is there already/.test(l)));
     assert.ok(!r.lines.join('\n').includes('MUST-NOT-SHOW'), r.lines.join('\n'));
-    assert.ok(await until(() => F.fixedStatus().connected));
+    assert.ok(await until(on));
   } finally {
     fs.rmSync(mark('taken-name'));
   }
@@ -440,12 +440,13 @@ test('when cloudflared keeps failing, the page says why and when it tries again'
   fs.writeFileSync(mark('crash'), '');
   try {
     assert.equal((await act('fixed-create', { hostname: 'pc4.example.com' })).ok, true);
-    assert.ok(await until(() => F.fixedStatus().error && F.fixedStatus().nextTryAt), 'an error and a next try');
-    assert.match(F.fixedStatus().error, /stand-in crash/);
+    assert.ok(await until(() => S.status().error && S.status().nextTryAt), 'an error and a next try');
+    assert.equal(S.status().state, 'retrying');
+    assert.match(S.status().error, /stand-in crash/);
   } finally {
     fs.rmSync(mark('crash'));
   }
-  assert.ok(await until(() => F.fixedStatus().connected, 8000), 'it recovers by itself once cloudflared works');
+  assert.ok(await until(on, 8000), 'it recovers by itself once cloudflared works');
   assert.equal((await act('fixed-forget')).ok, true);
 });
 
@@ -456,11 +457,11 @@ test('Advanced: a tunnel token from the Cloudflare dashboard; it is kept in a fi
   assert.equal(r.ok, true, r.error);
   assert.equal(fs.readFileSync(path.join(fixedDir, 'token'), 'utf8'), token);
   assert.equal(mode(path.join(fixedDir, 'token')), '600');
-  assert.ok(await until(() => F.fixedStatus().connected));
+  assert.ok(await until(on));
   const run = calls().filter((c) => c.a.includes('run')).at(-1);
   assert.deepEqual(run.a.slice(-3), ['run', '--token-file', path.join(fixedDir, 'token')]);
   assert.ok(!run.a.includes(token), 'the token is not on the command line');
-  const all = JSON.stringify(await publicLink.status());
+  const all = JSON.stringify([await publicLink.status(), S.status()]);
   assert.ok(!all.includes(token) && !all.includes('c2VjcmV0'), 'never in the status');
   assert.equal(F.fixedStatus().mode, 'token');
   assert.match((await act('fixed-add-service', { port: 20017, hostname: 'x.example.com' })).error, /Cloudflare dashboard/);

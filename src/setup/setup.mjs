@@ -269,7 +269,7 @@ export async function stepAccess(ui, sys, opts, state) {
     if (key === '3') {
       const ways = [
         { key: 'a', label: 'I have a server: make it the hub, and connect this computer to it' },
-        { key: 'b', label: 'a quick public link (free, through Cloudflare; the address changes every time)' },
+        { key: 'b', label: 'a public link (free, through Cloudflare, no server: a new address at each start, or your own domain)' },
       ];
       if (tsOrigin) ways.push({ key: 'c', label: `Tailscale (${tailscaleUrl(ts.dnsName)}, only your own devices)` });
       const way = await ui.choose('How?', ways, tsOrigin ? 'c' : 'a');
@@ -280,7 +280,7 @@ export async function stepAccess(ui, sys, opts, state) {
           ui.note(`On the server: ${APP} setup --hub   (it shows a one-time code)`);
           ui.note(`Then here:     ${APP} join https://<the server's address> <code>`);
         } else if (way === 'b') {
-          ui.note(`Start it when you need it: ${APP} addons start public-link   (it shows the address and a QR code)`);
+          ui.note(`Turn it on: ${APP} public on   (it shows the address and a QR code; also in Settings → Public link)`);
         }
       }
     }

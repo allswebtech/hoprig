@@ -130,6 +130,40 @@ test('manage_computer: rename is L1; setup fix and set up show what runs; add-on
   assert.deepEqual(writes(ops), ['renameComputer', 'addon']);
 });
 
+test('manage_computer public_link: on opens the computer to the internet, so it is a card; off runs; never as an add-on', async () => {
+  const { call, ops, core } = setup();
+  // The old way around the card is closed: the public link is not started as an add-on.
+  const old = await call('manage_computer', { action: 'addon', addon: 'public-link', addon_action: 'start' });
+  assert.match(old.text, /not switched as an add-on.*public_link/);
+  assert.match((await call('manage_computer', { action: 'public_link' })).text, /needs "turn"/);
+  assert.match((await call('manage_computer', { action: 'public_link', turn: 'off', link_kind: 'custom' })).text, /off needs no kind/);
+  const r = await call('manage_computer', { action: 'public_link', turn: 'on', link_kind: 'temporary' });
+  assert.ok(staged(r), r.text);
+  assert.match(r.text, /Turn ON the public link of this: Temporary, a new https address at each start/);
+  assert.match(r.text, /Anyone who has the address reaches its sign-in page/);
+  assert.deepEqual(writes(ops), [], 'nothing before the owner\'s OK');
+  const id = /card (c_[0-9a-f]{12})/.exec(r.text)[1];
+  const done = await core.confirm(id);
+  assert.equal(done.ok, true, JSON.stringify(done));
+  assert.deepEqual(ops.calls.map((c) => c.args), [{ computer: 'this', on: true, kind: 'temporary' }]);
+  // Off: no card.
+  const off = await call('manage_computer', { action: 'public_link', turn: 'off' });
+  assert.equal(off.isError, false, off.text);
+  assert.match(off.text, /The public link of this is off/);
+  assert.deepEqual(ops.calls.map((c) => c.args).at(-1), { computer: 'this', on: false });
+});
+
+test('manage_computer public_link: a refusal is told in fixed words, never the computer\'s own text', async () => {
+  const s = baseState();
+  s.publicLink.refuse = 'stronger-password';
+  const { call, core } = setup({ state: s });
+  const id = /card (c_[0-9a-f]{12})/.exec((await call('manage_computer', { action: 'public_link', turn: 'on' })).text)[1];
+  const r = await core.confirm(id);
+  const text = JSON.stringify(r);
+  assert.match(text, /did not turn on: its dashboard password is too weak for a public link/);
+  assert.ok(!text.includes('Some text from that computer'));
+});
+
 test('manage_automation: list shows the page\'s sentence; schedules and rules are cards; pause L1, resume L2', async () => {
   const { call, ops } = setup();
   const l = await call('manage_automation', { action: 'list' });

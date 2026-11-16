@@ -24,6 +24,7 @@ import './workspace.js';
 import './tia.js';
 import './chat.js';
 import './addons.js';
+import './publiclink.js';
 import './vscode.js';
 import './settings.js';
 
@@ -43,7 +44,7 @@ export const PAGE_ADDRESSES = [
   '#/skills', '#/skills/installed', '#/skills/suggested', '#/skills/find',
   '#/brain',
   '#/tia', '#/tia/jobs', '#/tia/activity',
-  '#/settings', '#/settings/new-sessions', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/tia', '#/settings/vscode', '#/settings/addons', '#/settings/about',
+  '#/settings', '#/settings/new-sessions', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/public-link', '#/settings/tia', '#/settings/vscode', '#/settings/addons', '#/settings/about',
 ];
 
 /** Old addresses (and the screens Tia links to) → where that lives now. */

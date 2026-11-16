@@ -1,8 +1,8 @@
 {
-  "recordedAt": "2026-11-14T17:43:12.669Z",
+  "recordedAt": "2026-11-16T08:06:20.698Z",
   "profileKind": "api",
   "model": "haiku",
-  "cases": 41,
+  "cases": 43,
   "categories": {
     "happy": {
       "pass": 12,
@@ -13,8 +13,8 @@
       "total": 3
     },
     "level": {
-      "pass": 1,
-      "total": 1
+      "pass": 3,
+      "total": 3
     },
     "refusal": {
       "pass": 10,
@@ -25,5 +25,5 @@
       "total": 15
     }
   },
-  "costUsd": 0.2399
+  "costUsd": 0.2516
 }

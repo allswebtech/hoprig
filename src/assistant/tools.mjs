@@ -342,7 +342,7 @@ export const SCREENS = [
   'workspace', 'new-project', 'get-project', 'providers', 'computers', 'computers/add', 'computer', 'computer/setup', 'computer/advanced',
   'automations', 'automations/queue', 'automations/rules', 'automations/activity', 'skills', 'skills/installed', 'skills/suggested',
   'skills/find', 'brain', 'tia', 'tia/jobs', 'tia/activity', 'settings', 'settings/new-sessions', 'settings/notifications',
-  'settings/appearance', 'settings/security', 'settings/tia', 'settings/addons', 'settings/about',
+  'settings/appearance', 'settings/security', 'settings/public-link', 'settings/tia', 'settings/addons', 'settings/about',
 ];
 const PER_COMPUTER = /^(computer|workspace|new-project|get-project|automations|skills|providers)(\/|$)/;
 const open_screen = tool({

@@ -72,6 +72,20 @@ export async function main(command, args) {
     await show(await listAddons());
     return 0;
   }
+  // The public link has its own words now (hoprig public); the old ones still work, as a profile's PRERUN may use them.
+  if (id === 'public-link' && ['start', 'stop', 'status'].includes(action)) {
+    const pub = await import('./publiccli.mjs');
+    const rest = args.slice(2).filter((a) => a !== '--temporary' && a !== '--custom');
+    // Written to stderr: as a PRERUN, stdout belongs to Claude Code.
+    const say = (s) => process.stderr.write(`${s}\n`);
+    // --yes: whoever wrote `addons start public-link` (in a PRERUN too) chose it then; it worked without a question.
+    // A link that is on already stays as it is (also a Custom one): start only ever turned something on.
+    const { readSwitch } = await import('./linkswitch.mjs');
+    const sw = readSwitch();
+    const start = ['on', `--${sw.on ? sw.kind : 'temporary'}`, '--yes', ...rest.filter((x) => x !== '--yes')];
+    // A password not yet good enough for the link is said, not a failure: a PRERUN that fails stops the session.
+    return pub.main(action === 'start' ? start : action === 'stop' ? ['off'] : ['status'], { out: say, err: say, prerun: action === 'start' });
+  }
   const addon = findAddon(id);
   if (!addon) {
     console.error(id ? `There is no add-on "${id}".\n${USAGE}` : USAGE);

@@ -11,9 +11,9 @@
 // cloudflared 2026.10.1: it writes $HOME/.cloudflared/cert.pem and refuses when one exists), and every later command
 // names its files itself (--origincert, --cred-file, --config), so no file of the computer's (/etc/cloudflared) is read.
 //
-// Once set up it runs with the dashboard: it starts when the dashboard starts and again when it ends (waiting 2 s,
-// then twice as long each time, at most 5 min), until the owner turns it off. While it is on, the settings change as
-// for the quick tunnel (cloudflared.mjs: trustProxy, the allowed origin), and like it, it needs the dashboard password.
+// Once set up it is the "Custom" kind of the one Public link switch (linkswitch.mjs), which runs it under the
+// supervisor below: it starts when the dashboard starts and again when it ends (waiting 2 s, then twice as long each
+// time, at most 5 min), until the owner turns the switch off. This file holds the set-up and the command line.
 //
 // What Cloudflare's documentation says (read 15 Nov 2026), and so what the page says on "Stop using it":
 //   - "If a tunnel stops, the DNS record is not deleted — visitors will see a 1016 error." "The DNS record and the
@@ -26,10 +26,9 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig, saveConfig } from '../config.mjs';
 import { hostName } from '../paths.mjs';
 import { capture } from '../setup/system.mjs';
-import { alive, cloudflaredEnv, dashboardPort, findBin, fixedDir, fixedStateFile, hasPassword, patchFor, quickRestore, readFixed, restoreFor, writeAtomic } from './cloudflared.mjs';
+import { cloudflaredEnv, dashboardPort, findBin, fixedDir, fixedStateFile, hasPassword, readFixed, writeAtomic } from './cloudflared.mjs';
 import { checkPort, exposureQuestion, serviceLogin } from './localservice.mjs';
 
 const homeDir = () => path.join(fixedDir(), 'home');
@@ -142,9 +141,10 @@ export const STABLE_MS = 60_000;
 
 /**
  * Keeps one program running: started again when it ends, with backoff, until stop(). Its output says whether the
- * tunnel is connected and the last error. spawnFn / timers / now: for tests.
+ * tunnel is connected and the last error. `onPid(pid)`: each start; `onLine(line)`: each output line, after the
+ * supervisor read it (the Temporary address is in one). spawnFn / timers / now: for tests.
  */
-export function makeSupervisor({ spawnFn = spawn, setTimer = setTimeout, clearTimer = clearTimeout, now = Date.now, onPid = () => {} } = {}) {
+export function makeSupervisor({ spawnFn = spawn, setTimer = setTimeout, clearTimer = clearTimeout, now = Date.now, onPid = () => {}, onLine = () => {} } = {}) {
   let want = null;
   let child = null;
   let timer = null;
@@ -159,6 +159,7 @@ export function makeSupervisor({ spawnFn = spawn, setTimer = setTimeout, clearTi
       s.connected = true;
       s.error = null;
     } else if (/\s(ERR|FTL)\s/.test(l)) s.error = l.replace(/^\S+\s+(ERR|FTL)\s+/, '').slice(0, 300);
+    onLine(l);
   };
   const feed = (stream) => {
     if (!stream) return;
@@ -249,11 +250,13 @@ export function makeSupervisor({ spawnFn = spawn, setTimer = setTimeout, clearTi
   };
 }
 
-// ---------- the add-on's part ----------
+// ---------- the set-up (the switch in linkswitch.mjs runs it) ----------
 
 const writeState = (st) => writeAtomic(fixedStateFile(), JSON.stringify(st));
 const fail = (error) => ({ ok: false, error });
 const env = () => cloudflaredEnv(homeDir(), emptyDir());
+const NO_BIN = 'cloudflared is not installed yet: turn the public link on once, and Hoprig installs it.';
+const NO_PASSWORD = 'Set a dashboard password first (Settings → Security): the address leads to the sign-in page.';
 
 function prepare() {
   for (const d of [fixedDir(), homeDir(), emptyDir()]) fs.mkdirSync(d, { recursive: true, mode: 0o700 });
@@ -284,15 +287,12 @@ const credsTunnelId = () => {
 // The sign-in in progress (one at a time) and the last one that failed.
 let login = null;
 let loginError = null;
-let sup = null;
-let runnerError = null;
-const supervisor = () => (sup ||= makeSupervisor({ onPid: (pid) => writeState({ ...(readFixed() || {}), pid }) }));
 
 /** Step 1: start `tunnel login` and answer with the link the owner opens. cloudflared waits for the approval. */
 async function signIn({ again = false } = {}, { waitMs = 30_000 } = {}) {
   const bin = findBin();
-  if (!bin) return fail('cloudflared is not installed: press Install first.');
-  if (readFixed()?.mode) return fail('The fixed address is set up already.');
+  if (!bin) return fail(NO_BIN);
+  if (readFixed()?.mode) return fail('The Custom address is set up already.');
   if (login && login.child && login.url) return { ok: true, url: login.url };
   if (again) fs.rmSync(certFile(), { force: true });
   if (fs.existsSync(certFile())) return { ok: true, already: true };
@@ -340,8 +340,8 @@ function cancelSignIn() {
   return { ok: true };
 }
 
-/** Step 2: make the tunnel and its DNS record for `hostname`, then turn it on. */
-async function create({ hostname } = {}, { onLine = () => {}, by = null } = {}) {
+/** Step 2: make the tunnel and its DNS record for `hostname`. The switch turns it on after (linkswitch.mjs). */
+async function create({ hostname } = {}, { onLine = () => {} } = {}) {
   let host;
   try {
     host = cleanHostname(hostname);
@@ -349,10 +349,10 @@ async function create({ hostname } = {}, { onLine = () => {}, by = null } = {}) 
     return fail(e.message);
   }
   const bin = findBin();
-  if (!bin) return fail('cloudflared is not installed: press Install first.');
-  if (!hasPassword()) return fail('Set a dashboard password first (Settings → Security): the address leads to the sign-in page.');
+  if (!bin) return fail(NO_BIN);
+  if (!hasPassword()) return fail(NO_PASSWORD);
   if (!fs.existsSync(certFile())) return fail('Sign in to Cloudflare first.');
-  if (readFixed()?.mode) return fail('The fixed address is set up already.');
+  if (readFixed()?.mode) return fail('The Custom address is set up already.');
   const name = tunnelName(host);
   prepare();
   fs.rmSync(credsFile(), { force: true });
@@ -377,13 +377,13 @@ async function create({ hostname } = {}, { onLine = () => {}, by = null } = {}) 
     if (made && made !== host) return fail(`Cloudflare made the record ${made} instead: ${host} is not under the domain you picked when you signed in. Delete ${made} in Cloudflare (DNS → Records), then use a name under that domain, or sign in again for the other domain.`);
     return fail(`cloudflared could not point ${host} to the tunnel: ${d.last}`);
   }
-  writeState({ mode: 'named', hostname: host, tunnelId: id, tunnelName: name, extra: [], enabled: false });
+  writeState({ mode: 'named', hostname: host, tunnelId: id, tunnelName: name, extra: [] });
   onLine(`Done: https://${host}`);
-  return turnOn(by);
+  return { ok: true, url: `https://${host}` };
 }
 
 /** Advanced: a tunnel made in the Cloudflare dashboard, run with its token. Its names are set there. */
-function useToken({ token, hostname } = {}, { by = null } = {}) {
+function useToken({ token, hostname } = {}) {
   let t;
   let host;
   try {
@@ -392,69 +392,34 @@ function useToken({ token, hostname } = {}, { by = null } = {}) {
   } catch (e) {
     return fail(e.message);
   }
-  if (!findBin()) return fail('cloudflared is not installed: press Install first.');
-  if (!hasPassword()) return fail('Set a dashboard password first (Settings → Security): the address leads to the sign-in page.');
-  if (readFixed()?.mode) return fail('The fixed address is set up already.');
+  if (!findBin()) return fail(NO_BIN);
+  if (!hasPassword()) return fail(NO_PASSWORD);
+  if (readFixed()?.mode) return fail('The Custom address is set up already.');
   prepare();
   writeAtomic(tokenFile(), t.token);
-  writeState({ mode: 'token', hostname: host, tunnelId: t.tunnelId, extra: [], enabled: false });
-  return turnOn(by);
+  writeState({ mode: 'token', hostname: host, tunnelId: t.tunnelId, extra: [] });
+  return { ok: true, url: `https://${host}` };
 }
 
-/** The config file for this start (the dashboard's port as it is now), then the run. */
-function startRunner() {
+/**
+ * What the switch runs for the Custom address: { argv, env, origin }, or { error }. The config file is written for
+ * this start (the dashboard's port as it is now).
+ */
+export function customRun(bin = findBin()) {
   const st = readFixed();
-  const bin = findBin();
-  runnerError = null;
-  if (!st || !st.mode) return;
-  if (!bin) {
-    runnerError = 'cloudflared is not installed: press Install.';
-    return;
-  }
-  if (!hasPassword()) {
-    runnerError = 'The dashboard has no password, so the fixed address does not start.';
-    return;
-  }
+  if (!st || !st.mode) return { error: 'The Custom address is not set up yet: press Set up.' };
+  if (!bin) return { error: NO_BIN };
+  prepare();
   const yml = st.mode === 'token'
     ? '# Written by Hoprig: a tunnel run by its token; its names are set in the Cloudflare dashboard.\nno-autoupdate: true\n'
     : configYaml({ tunnelId: st.tunnelId, creds: credsFile(), hostname: st.hostname, port: dashboardPort(), extra: st.extra || [] });
   writeAtomic(configFile(), yml);
-  supervisor().run(st.mode === 'token' ? runTokenArgv(bin, configFile(), tokenFile()) : runArgv(bin, configFile(), st.tunnelId), env());
+  return { argv: st.mode === 'token' ? runTokenArgv(bin, configFile(), tokenFile()) : runArgv(bin, configFile(), st.tunnelId), env: env(), origin: `https://${st.hostname}` };
 }
 
-/**
- * Turn it on: the settings change, then it runs (now and at each start of the dashboard). `by`: the id of the
- * machine token that turned it on (a linked hub), null for the owner; one that is on already keeps its opener.
- */
-function turnOn(by = null) {
-  const st = readFixed();
-  if (!st || !st.mode) return fail('The fixed address is not set up.');
-  if (!hasPassword()) return fail('Set a dashboard password first (Settings → Security): the address leads to the sign-in page.');
-  if (!st.enabled) {
-    const { patch, restore } = patchFor(loadConfig().server, `https://${st.hostname}`, { inherit: quickRestore() });
-    saveConfig(patch);
-    writeState({ ...st, enabled: true, restore, restored: false, openedBy: by || null });
-  }
-  startRunner();
-  return runnerError ? fail(runnerError) : { ok: true, url: `https://${st.hostname}` };
-}
-
-/** Turn it off: it stops, the settings go back. The tunnel and its address stay for the next time. */
-async function turnOff() {
-  if (sup) await sup.stop();
-  killLeftover();
-  const st = readFixed();
-  if (st && st.enabled) {
-    if (st.restore && !st.restored) saveConfig(restoreFor(loadConfig().server, st.restore, { keepTrust: !!quickRestore() }));
-    writeState({ ...st, enabled: false, restored: true, pid: null, openedBy: null });
-  }
-  return { ok: true };
-}
-
-/** "Stop using it": off, the tunnel deleted in Cloudflare when cloudflared can, and every file of it removed here. */
+/** "Stop using it" (the switch is off by then): the tunnel deleted in Cloudflare when cloudflared can, every file of it removed here. */
 async function forget(_body, { onLine = () => {} } = {}) {
   cancelSignIn();
-  await turnOff();
   const st = readFixed() || {};
   const bin = findBin();
   if (st.mode === 'named' && st.tunnelId && bin && fs.existsSync(certFile())) {
@@ -469,14 +434,14 @@ async function forget(_body, { onLine = () => {} } = {}) {
   }
   if (st.mode === 'token') onLine('The tunnel and its address stay in your Cloudflare dashboard: delete them there under Tunnels if you no longer need them.');
   fs.rmSync(fixedDir(), { recursive: true, force: true });
-  onLine('The sign-in to Cloudflare and every file of the fixed address are removed from this computer.');
+  onLine('The sign-in to Cloudflare and every file of the Custom address are removed from this computer.');
   return { ok: true };
 }
 
 /** One more local service under its own name on the same tunnel. Without its own sign-in, only after a confirm. */
 async function addService({ port, hostname, confirmed } = {}, { onLine = () => {}, fetchImpl, by = null } = {}) {
   const st = readFixed();
-  if (!st || st.mode !== 'named') return fail(st && st.mode === 'token' ? 'With a tunnel token, add the name in the Cloudflare dashboard (your tunnel → Public hostnames).' : 'Set up the fixed address first.');
+  if (!st || st.mode !== 'named') return fail(st && st.mode === 'token' ? 'With a tunnel token, add the name in the Cloudflare dashboard (your tunnel → Public hostnames).' : 'Set up the Custom address first.');
   const p = checkPort(port, dashboardPort());
   if (p.error) return fail(p.error);
   let host;
@@ -492,7 +457,7 @@ async function addService({ port, hostname, confirmed } = {}, { onLine = () => {
   const question = exposureQuestion(p.port, look);
   if (question && confirmed !== true) return { ok: false, confirm: question };
   const bin = findBin();
-  if (!bin || !fs.existsSync(certFile())) return fail('cloudflared or its sign-in is missing: stop using the fixed address and set it up again.');
+  if (!bin || !fs.existsSync(certFile())) return fail('cloudflared or its sign-in is missing: stop using the Custom address and set it up again.');
   prepare();
   onLine(`Pointing ${host} to the tunnel…`);
   const d = await cf(routeArgv(bin, files(), st.tunnelId, host), onLine);
@@ -502,73 +467,35 @@ async function addService({ port, hostname, confirmed } = {}, { onLine = () => {
   if (!d.ok || !made) return fail(`cloudflared could not point ${host} to the tunnel: ${d.last}`);
   if (made !== host) return fail(`Cloudflare made the record ${made} instead: use a name under the same domain as ${st.hostname}. Delete ${made} in Cloudflare (DNS → Records).`);
   writeState({ ...readFixed(), extra: [...(st.extra || []), { hostname: host, port: p.port, ...(by ? { openedBy: by } : {}) }] });
-  if (readFixed().enabled) startRunner();
-  return { ok: true, url: `https://${host}` };
+  return { ok: true, url: `https://${host}`, changed: true };
 }
 
 async function removeService({ hostname } = {}, { onLine = () => {} } = {}) {
   const st = readFixed();
   if (!st || !(st.extra || []).some((x) => x.hostname === hostname)) return fail('There is no such service.');
   writeState({ ...st, extra: st.extra.filter((x) => x.hostname !== hostname) });
-  if (st.enabled) startRunner();
   onLine(`${hostname} no longer leads here. Its DNS record stays in Cloudflare (cloudflared cannot remove it): delete it under your domain → DNS → Records.`);
-  return { ok: true };
-}
-
-// A cloudflared of ours still running from before (the dashboard ended without stopping it): only a process whose
-// command line names our folder is ended, never another program that got the same number.
-function killLeftover() {
-  const st = readFixed();
-  if (!st || !st.pid || !alive(st.pid) || process.platform !== 'linux') return;
-  try {
-    if (!fs.readFileSync(`/proc/${st.pid}/cmdline`, 'utf8').includes(fixedDir())) return;
-    process.kill(st.pid, 'SIGTERM');
-  } catch {
-    /* gone, or not ours to read */
-  }
+  return { ok: true, changed: true };
 }
 
 /**
- * A machine token was revoked: `gone(id)` is true for the id of a token that no longer exists. Turns off the fixed
- * address when such a token turned it on, and removes each service such a token added. What the owner turned on or
- * added is never touched. → [{ by, say(who) }], one per thing closed.
+ * A machine token was revoked: `gone(id)` is true for the id of a token that no longer exists. Removes each service
+ * such a token added (what the owner added stays). → [{ by, say(who) }], one per service removed; the switch runs the
+ * tunnel again without them.
  */
-export async function fixedCloseOpenedBy(gone) {
-  const out = [];
-  let st = readFixed();
-  if (!st || !st.mode) return out;
+export function fixedCloseOpenedBy(gone) {
+  const st = readFixed();
+  if (!st || !st.mode) return [];
   const extra = st.extra || [];
   const dropped = extra.filter((x) => gone(x.openedBy));
-  if (dropped.length) {
-    writeState({ ...st, extra: extra.filter((x) => !dropped.includes(x)) });
-    for (const x of dropped) out.push({ by: x.openedBy, say: (who) => `The service ${x.hostname} that ${who} added to the fixed address was removed: its token was revoked` });
-    st = readFixed();
-    if (st.enabled && !gone(st.openedBy)) startRunner();
-  }
-  if (st.enabled && gone(st.openedBy)) {
-    const by = st.openedBy;
-    await turnOff();
-    out.push({ by, say: (who) => `The fixed address ${who} turned on was turned off: its token was revoked` });
-  }
-  return out;
+  if (!dropped.length) return [];
+  writeState({ ...st, extra: extra.filter((x) => !dropped.includes(x)) });
+  return dropped.map((x) => ({ by: x.openedBy, say: (who) => `The service ${x.hostname} that ${who} added to the Custom address was removed: its token was revoked` }));
 }
 
-/** When the dashboard starts: run it if it is on. */
-export function attach() {
-  killLeftover();
-  if (readFixed()?.enabled) startRunner();
-}
-
-/** When the dashboard stops. */
-export async function detach() {
-  cancelSignIn();
-  if (sup) await sup.stop();
-}
-
-/** What the page shows. Never a token, a certificate or a file path. */
+/** The set-up as the page shows it. Never a token, a certificate or a file path. */
 export function fixedStatus() {
   const st = readFixed() || {};
-  const r = sup ? sup.state() : null;
   return {
     state: st.mode ? 'ready' : login ? 'signing-in' : fs.existsSync(certFile()) ? 'signed-in' : 'none',
     loginUrl: !st.mode && login ? login.url : null,
@@ -576,35 +503,30 @@ export function fixedStatus() {
     mode: st.mode || null,
     hostname: st.hostname || null,
     url: st.hostname ? `https://${st.hostname}` : null,
-    enabled: !!st.enabled,
-    running: !!(r && r.running),
-    connected: !!(r && r.connected),
-    nextTryAt: (r && r.nextTryAt) || null,
-    restarts: (r && r.restarts) || 0,
-    error: st.enabled ? runnerError || (r && r.error) || null : null,
     extra: (st.extra || []).map((x) => ({ hostname: x.hostname, port: x.port, url: `https://${x.hostname}` })),
     suggested: suggestName(),
     port: dashboardPort(),
   };
 }
 
-/** The page's actions (Settings → Add-ons → Public link): POST /api/addons/public-link/do/<name>. */
-export const fixedActions = {
-  'fixed-sign-in': (b) => signIn(b),
-  'fixed-cancel': () => cancelSignIn(),
-  'fixed-create': (b, o) => create(b, o),
-  'fixed-token': (b, o) => useToken(b, o),
-  'fixed-on': (b, o) => turnOn(o && o.by),
-  'fixed-off': () => turnOff(),
-  'fixed-forget': (b, o) => forget(b, o),
-  'fixed-add-service': (b, o) => addService(b, o),
-  'fixed-remove-service': (b, o) => removeService(b, o),
+/** The set-up steps (the switch's routes run them: POST /api/public-link/custom/<name>). */
+export const customSteps = {
+  'sign-in': (b) => signIn(b),
+  cancel: () => cancelSignIn(),
+  create: (b, o) => create(b, o),
+  token: (b) => useToken(b),
+  forget: (b, o) => forget(b, o),
+  'add-service': (b, o) => addService(b, o),
+  'remove-service': (b, o) => removeService(b, o),
 };
 
-/** For tests: forget the in-process state (the supervisor, a sign-in). */
-export async function resetForTests() {
-  await detach();
-  sup = null;
+/** When the dashboard stops: a sign-in that waits ends with it. */
+export function stopSignIn() {
+  cancelSignIn();
+}
+
+/** For tests: forget the in-process state (a sign-in). */
+export function resetForTests() {
+  cancelSignIn();
   loginError = null;
-  runnerError = null;
 }
