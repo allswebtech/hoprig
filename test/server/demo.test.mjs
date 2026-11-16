@@ -88,6 +88,16 @@ test('demo: free port, own temp folder, one-time sign-in link, sample data, clea
     const oc = (tools.tools || tools).find((t) => t.id === 'opencode');
     assert.equal(oc.on, true);
     assert.equal(oc.installed, '2.3.0');
+    // A chat of it says in one plain line that it does not run in the demo: no server log, no code word.
+    const shop = path.join(root, 'home', 'Workspace', 'projects', 'shop-frontend');
+    const made = await (await fetch(`${url}/api/chats`, { method: 'POST', headers: auth, body: JSON.stringify({ dir: shop, tool: 'opencode', text: 'hello' }) })).json();
+    assert.ok(made.id, JSON.stringify(made));
+    let end = null;
+    for (let i = 0; i < 80 && !end; i++) {
+      end = (await get(`/api/chats/${made.id}?from=0`)).events.find((e) => e.kind === 'turn-end') || null;
+      if (!end) await new Promise((r) => setTimeout(r, 250));
+    }
+    assert.equal(end && end.error, 'OpenCode could not start: OpenCode does not run in the demo. On your own computer it runs as Claude Code does here.');
 
     await hooks.stop();
     assert.equal(fs.existsSync(root), false, 'its folder is removed');

@@ -229,7 +229,8 @@ test('a provider that does not serve OpenCode never starts it; the server going 
   const c = await chatOn(s, { engineOpts: { enabled: () => true, ...standInOpts(s), providerFor: refuse } });
   await c.send('hello');
   await until(() => turnEnds(c).length === 1, 'the refusal');
-  assert.match(turnEnds(c)[0].error, /OpenCode stopped \(provider\): .*a Claude subscription is for Claude Code only/);
+  // In plain words, without the engine's code word ("stopped (provider)").
+  assert.match(turnEnds(c)[0].error, /^OpenCode cannot use this provider: .*a Claude subscription is for Claude Code only/);
   assert.ok(!s.calls.some((x) => x.path === '/api/session'), 'no conversation was made');
   await c.close();
 

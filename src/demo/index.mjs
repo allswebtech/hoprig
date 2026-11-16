@@ -675,7 +675,9 @@ export async function main(args = [], hooks = {}) {
       // certificate answers (the address in server.publicUrl below; a made-up fingerprint), so the page shows it whole.
       machines: { claudeVersion: async () => CLAUDE_INFO.installed, certOf: async () => ({ kind: 'own', pin: DEMO_PIN }) },
       accounts: { trouteai: addon },
-      chat: { command: { command: process.execPath, args: [CHAT] } }, // the demo's chat talks to no model
+      // The demo's chat talks to no model. OpenCode is on (its pages show it) but has no server here: a chat of it says
+      // so in one plain line instead of a server that did not start.
+      chat: { command: { command: process.execPath, args: [CHAT] }, engineOpts: { served: { ensure: async () => ({ ok: false, why: 'OpenCode does not run in the demo. On your own computer it runs as Claude Code does here.' }) } } },
       assistant: {
         claudecode: async () => ({ claudeInfo: async () => CLAUDE_INFO }),
         engine: { command: { command: process.execPath, args: [TIA] }, resolveEnv: async () => ({ ...process.env }) },

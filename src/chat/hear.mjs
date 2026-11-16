@@ -183,13 +183,17 @@ function turnEnd(chat, ev) {
   chat.emit('turn', ev);
 }
 
+// What an engine's own end codes mean, in the owner's words (a process's exit code or signal is shown as it is).
+const ENDS = { start: 'could not start', provider: 'cannot use this provider', server: 'lost its server' };
+
 function exited(chat, { code, why }) {
   chat.session = null;
   clearTimeout(chat.stopTimer);
   if (chat.turn || chat.pending.size) {
     cancelAsks(chat);
-    chat.push({ kind: 'turn-end', ok: false, subtype: 'exit', error: `${chat.engine.label} stopped (${code})${why ? `: ${why}` : ''}`, stopped: false });
-    chat.lastError = `${chat.engine.label} stopped (${code})`;
+    const head = `${chat.engine.label} ${Object.hasOwn(ENDS, code) ? ENDS[code] : `stopped (${code})`}`;
+    chat.push({ kind: 'turn-end', ok: false, subtype: 'exit', error: `${head}${why ? `: ${why}` : ''}`, stopped: false });
+    chat.lastError = head;
     chat.lastEnd = 'error';
     chat.turn = null;
   }
