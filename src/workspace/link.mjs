@@ -1,9 +1,17 @@
-// `hoprig workspace link`: make Claude Code read its global rules, its skills and the home folder's memory from
-// the AI brain, so they travel with the brain's git repository:
+// `hoprig workspace link`: make every coding tool that is on read the same global rules, skills and memory from
+// the AI brain, so they travel with the brain's git repository. Each tool's descriptor says what it reads
+// (src/codetools: brainLinks); the entries of the tools that are on (config.json "codingTools") are linked:
 //
-//   <claude dir>/CLAUDE.md                          → ai_brain/claude/CLAUDE.md
-//   <claude dir>/skills                             → ai_brain/skills
-//   <claude dir>/projects/<home as a name>/memory   → ai_brain/claude-memory/home
+//   Claude Code   <claude dir>/CLAUDE.md                          → ai_brain/claude/CLAUDE.md
+//                 <claude dir>/skills                             → ai_brain/skills
+//                 <claude dir>/projects/<home as a name>/memory   → ai_brain/claude-memory/home
+//   Codex         <codex home>/AGENTS.md                          → ai_brain/claude/CLAUDE.md (the same file)
+//                 ~/.agents/skills                                → ai_brain/skills
+//   OpenCode      <opencode config>/AGENTS.md                     → ai_brain/claude/CLAUDE.md
+//                 ~/.agents/skills (one link, shared with Codex)  → ai_brain/skills
+//                 <opencode config>/opencode.json "instructions"  + Claude Code's rules folder, each project's memory index
+//   Codex and OpenCode keep no memory of their own: a short section in the shared rules file tells them where each
+//   project's memory is and to keep it (id "memory-note", added at the end of the file, never over the owner's text).
 //
 // (<claude dir> is ~/.claude, or $CLAUDE_CONFIG_DIR.) Nothing is lost and nothing is overwritten, the same way
 // project memory is linked (pcsetup/workspace.mjs linkMemories): a real folder's files are merged into the brain
@@ -13,10 +21,25 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { enabledToolIds, findTool } from '../codetools/index.mjs';
+import { MEMORY_INDEX } from '../codetools/opencode.mjs';
+import { loadConfig } from '../config.mjs';
 import { claudeDir, tilde } from '../paths.mjs';
 import { linkMemories, mergeInto, safeReal, stamp } from '../pcsetup/workspace.mjs';
-import { projectSlug } from '../sessions.mjs';
 import { brainDir } from './layout.mjs';
+
+/** The section the shared rules file gets for tools without a memory of their own (kept to a few lines). */
+export const MEMORY_BEGIN = '<!-- hoprig: memory for coding tools without their own -->';
+export const MEMORY_END = '<!-- /hoprig: memory -->';
+export const MEMORY_SECTION = `${MEMORY_BEGIN}
+## Memory
+
+Each project keeps its AI memory in \`${path.posix.dirname(MEMORY_INDEX)}/\` (in the project's own folder); \`${path.posix.basename(MEMORY_INDEX)}\` there is
+the index. Read the index when you start work in a project. When you learn something that will matter next time
+(a decision, a fact about the project, how the owner wants things done), keep it: a short file in that folder and one
+line for it in the index. Claude Code keeps this memory by itself; other coding tools keep it by these lines.
+${MEMORY_END}
+`;
 
 const lstat = (p) => {
   try {
@@ -33,13 +56,101 @@ const sameText = (a, b) => {
   }
 };
 
-/** The three links: [{ id, what, link, target, kind: 'file' | 'dir' }]. */
-export function linkTargets({ base = claudeDir(), brain = brainDir(), home = os.homedir() } = {}) {
-  return [
-    { id: 'rules', what: 'the rules Claude gets everywhere', link: path.join(base, 'CLAUDE.md'), target: path.join(brain, 'claude', 'CLAUDE.md'), kind: 'file' },
-    { id: 'skills', what: 'your skills', link: path.join(base, 'skills'), target: path.join(brain, 'skills'), kind: 'dir' },
-    { id: 'memory', what: 'the memory for work started in your home folder', link: path.join(base, 'projects', projectSlug(home), 'memory'), target: path.join(brain, 'claude-memory', 'home'), kind: 'dir' },
-  ];
+/** Each tool's own folder, from `home` and the variables the tools themselves read. */
+export function toolHomes(home = os.homedir(), env = process.env) {
+  return {
+    codex: env.CODEX_HOME || path.join(home, '.codex'),
+    opencode: env.OPENCODE_CONFIG_DIR || path.join(env.XDG_CONFIG_HOME || path.join(home, '.config'), 'opencode'),
+  };
+}
+
+/**
+ * The entries of the tools that are on: [{ id, tool, tools, what, link, target, kind: 'file'|'dir'|'json'|'section' }].
+ * Claude Code's ids are the short ones ("rules", "skills", "memory") older pages filter on; the others are
+ * "<tool>:<id>". One place linked for two tools (~/.agents/skills) is one entry with both in `tools`.
+ * `tools`: the tool ids (default: config.json "codingTools"); `homes`: { codex, opencode } folders.
+ */
+export function linkTargets({ base = claudeDir(), brain = brainDir(), home = os.homedir(), tools = null, homes = null } = {}) {
+  const ids = tools || enabledToolIds(loadConfig());
+  const where = { ...toolHomes(home), ...(homes || {}) };
+  const out = [];
+  for (const id of ids) {
+    const t = findTool(id);
+    if (!t || !t.brainLinks) continue;
+    for (const e of t.brainLinks({ base, brain, home, toolHome: where[id] })) {
+      const same = e.kind !== 'json' && out.find((o) => o.link === e.link);
+      if (same) {
+        same.tools.push(id);
+        same.what = `your skills, for ${same.tools.map((x) => findTool(x).name).join(' and ')}`;
+        continue;
+      }
+      out.push({ ...e, id: id === 'claude' ? e.id : `${id}:${e.id}`, tool: id, tools: [id] });
+    }
+  }
+  const forgetful = ids.filter((id) => findTool(id) && findTool(id).ownMemory === false);
+  if (forgetful.length) {
+    const names = forgetful.map((x) => findTool(x).name).join(' and ');
+    out.push({
+      id: 'memory-note', tool: forgetful[0], tools: forgetful, kind: 'section', what: `a Memory section in the shared rules, so ${names} read and keep each project's memory`,
+      link: path.join(brain, 'claude', 'CLAUDE.md'), target: 'a short "Memory" section at its end',
+    });
+  }
+  return out;
+}
+
+const readJson = (file) => {
+  try {
+    return { ok: true, value: JSON.parse(fs.readFileSync(file, 'utf8')) };
+  } catch (e) {
+    return { ok: e.code === 'ENOENT', value: null };
+  }
+};
+
+/** A settings entry (kind json): the values it must hold, which are missing, or why it cannot be changed. */
+function planJson(t, out) {
+  if (fs.existsSync(`${t.link}c`)) return { ...out, action: 'conflict', why: `its settings are in ${path.basename(t.link)}c (with comments): add ${t.values.join(', ')} to "${t.key}" there yourself` };
+  const st = lstat(t.link);
+  if (st && !st.isFile()) return { ...out, action: 'conflict', why: 'it is not a file' };
+  const r = readJson(t.link);
+  if (!r.ok || (r.value !== null && (typeof r.value !== 'object' || Array.isArray(r.value)))) return { ...out, action: 'conflict', why: 'it is not a settings file Hoprig can read (JSON): add them yourself' };
+  const cur = r.value ? r.value[t.key] : undefined;
+  if (cur !== undefined && !Array.isArray(cur)) return { ...out, action: 'conflict', why: `its "${t.key}" is not a list` };
+  const missing = t.values.filter((v) => !(cur || []).includes(v));
+  return missing.length ? { ...out, action: 'link', missing, how: r.value ? `${missing.join(' and ')} added to its "${t.key}"` : `a new settings file naming ${t.values.join(' and ')}` } : { ...out, action: 'already' };
+}
+
+/** The memory section (kind section): already there, to be added, or no rules file to add it to. */
+function planSection(t, out) {
+  let text;
+  try {
+    text = fs.readFileSync(t.link, 'utf8');
+  } catch {
+    return { ...out, action: 'conflict', why: `the brain has no ${path.basename(t.link)} yet (link the rules first)` };
+  }
+  return text.includes(MEMORY_BEGIN) ? { ...out, action: 'already' } : { ...out, action: 'link', how: 'a short "Memory" section is added at the end of the shared rules file' };
+}
+
+/** The plan of one entry (see planLink). */
+function planOne(t) {
+  const out = { ...t, linkShort: tilde(t.link), targetShort: t.kind === 'json' ? t.values.join(', ') : t.kind === 'section' ? t.target : tilde(t.target) };
+  if (t.kind === 'json') return planJson(t, out);
+  if (t.kind === 'section') return planSection(t, out);
+  const st = lstat(t.link);
+  if (st && st.isSymbolicLink()) {
+    const to = path.resolve(path.dirname(t.link), fs.readlinkSync(t.link));
+    if (to === t.target || safeReal(to) === safeReal(t.target)) return { ...out, action: 'already' };
+    return { ...out, action: 'conflict', why: `it is a link to ${tilde(to)}: remove it yourself if the brain's copy should be used` };
+  }
+  if (t.kind === 'file') {
+    if (!st) return fs.existsSync(t.target) ? { ...out, action: 'link' } : { ...out, action: 'conflict', why: `the brain has no ${path.basename(t.target)} to link to` };
+    if (!st.isFile()) return { ...out, action: 'conflict', why: 'it is not a file' };
+    if (!fs.existsSync(t.target)) return { ...out, action: 'adopt' };
+    if (sameText(t.link, t.target)) return { ...out, action: 'backup' };
+    return { ...out, action: 'conflict', why: `it differs from the brain's ${tilde(t.target)}: keep one (copy what you want into the brain's file and delete or rename this one), then link again` };
+  }
+  if (!st) return { ...out, action: 'link' };
+  if (st.isDirectory()) return { ...out, action: 'merge' };
+  return { ...out, action: 'conflict', why: 'a file is in the way' };
 }
 
 /**
@@ -50,34 +161,17 @@ export function linkTargets({ base = claudeDir(), brain = brainDir(), home = os.
  *   adopt     a rules file and none in the brain: the file moves into the brain (a backup stays), then the link
  *   backup    a rules file with the same text as the brain's: kept as a backup, then the link
  *   conflict  left alone (`why` says what is in the way)
+ * A settings entry (json) and the memory section are "link" when something is to be added (`how` says what).
  */
 export function planLink(opts = {}) {
-  return linkTargets(opts).map((t) => {
-    const out = { ...t, linkShort: tilde(t.link), targetShort: tilde(t.target) };
-    const st = lstat(t.link);
-    if (st && st.isSymbolicLink()) {
-      const to = path.resolve(path.dirname(t.link), fs.readlinkSync(t.link));
-      if (to === t.target || safeReal(to) === safeReal(t.target)) return { ...out, action: 'already' };
-      return { ...out, action: 'conflict', why: `it is a link to ${tilde(to)}: remove it yourself if the brain's copy should be used` };
-    }
-    if (t.kind === 'file') {
-      if (!st) return fs.existsSync(t.target) ? { ...out, action: 'link' } : { ...out, action: 'conflict', why: `the brain has no ${path.basename(t.target)} to link to` };
-      if (!st.isFile()) return { ...out, action: 'conflict', why: 'it is not a file' };
-      if (!fs.existsSync(t.target)) return { ...out, action: 'adopt' };
-      if (sameText(t.link, t.target)) return { ...out, action: 'backup' };
-      return { ...out, action: 'conflict', why: `it differs from the brain's ${tilde(t.target)}: keep one (copy what you want into the brain's file and delete or rename this one), then link again` };
-    }
-    if (!st) return { ...out, action: 'link' };
-    if (st.isDirectory()) return { ...out, action: 'merge' };
-    return { ...out, action: 'conflict', why: 'a file is in the way' };
-  });
+  return linkTargets(opts).map(planOne);
 }
 
 /** What will happen to one plan entry, in plain words for the page. */
 export function planWords(p) {
   return {
     already: 'already linked',
-    link: 'a new link',
+    link: p.how || 'a new link',
     merge: 'its files are merged into the brain, with a backup of the folder kept',
     adopt: 'the rules file is moved into the brain, with a backup kept',
     backup: 'it has the same text as the brain\'s, so it is kept as a backup and linked',
@@ -87,7 +181,9 @@ export function planWords(p) {
 
 /** Do the plan. Returns the plan entries with `done` (what was done, in plain words) or `error`. */
 export function applyLink({ platform = process.platform, now = new Date(), home = os.homedir(), ...opts } = {}) {
-  return planLink({ home, ...opts }).map((p) => {
+  // Each entry is planned again right before it is done: an earlier one may have made the brain's rules file.
+  return linkTargets({ home, ...opts }).map((t) => {
+    const p = planOne(t);
     try {
       if (p.action === 'already' || p.action === 'conflict') return { ...p, done: p.action === 'already' ? 'already linked' : 'left alone' };
       if (p.id === 'memory') {
@@ -96,6 +192,20 @@ export function applyLink({ platform = process.platform, now = new Date(), home 
         return { ...p, done: r.done };
       }
       const backup = `${p.link}.backup-${stamp(now)}`;
+      if (p.kind === 'json') {
+        const cur = readJson(p.link).value;
+        if (cur) fs.copyFileSync(p.link, backup, fs.constants.COPYFILE_EXCL);
+        const next = { ...(cur || {}), [p.key]: [...((cur && cur[p.key]) || []), ...p.missing] };
+        fs.mkdirSync(path.dirname(p.link), { recursive: true });
+        fs.writeFileSync(`${p.link}.tmp`, JSON.stringify(next, null, 2) + '\n');
+        fs.renameSync(`${p.link}.tmp`, p.link);
+        return { ...p, done: cur ? `added to its settings (old file kept: ${path.basename(backup)})` : 'its settings file was made with them' };
+      }
+      if (p.kind === 'section') {
+        const text = fs.readFileSync(p.link, 'utf8');
+        fs.appendFileSync(p.link, `${text.endsWith('\n') ? '\n' : '\n\n'}${MEMORY_SECTION}`);
+        return { ...p, done: 'the Memory section was added at the end' };
+      }
       let said = 'linked';
       if (p.action === 'merge') {
         fs.renameSync(p.link, backup);

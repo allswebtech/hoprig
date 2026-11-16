@@ -10,6 +10,10 @@
 //                      screen (feature in_app_updates, on by default). Hoprig updates Codex itself, at a moment the
 //                      owner chose, so every start Hoprig makes switches all three off (noSelfUpdate; `codex features
 //                      list` with these -c values shows both features false).
+//   what it reads      rules: $CODEX_HOME/AGENTS.md (a link is followed), then the project's AGENTS.md files; never
+//                      CLAUDE.md. Skills: ~/.agents/skills, $CODEX_HOME/skills (it keeps its own bundled ones in
+//                      skills/.system there, so that folder is not linked), and the project's .agents/skills. Memory: none
+//                      that can point at a folder (its own generated memories are off by default and left off).
 import os from 'node:os';
 import path from 'node:path';
 import { npmTool } from './npmtool.mjs';
@@ -34,4 +38,11 @@ export const codex = {
   noSelfUpdate: { args: ['-c', 'check_for_update_on_startup=false', '-c', 'features.daemon_auto_start=false', '-c', 'features.in_app_updates=false'], env: {} },
   /** npm replaces the program's files: an update waits until no Codex session is open. */
   updateItem: { whenRunning: 'wait-until-none' },
+  /** What Codex reads from the AI brain: the same rules file as Claude Code, the same skills folder. */
+  brainLinks: ({ brain, home, toolHome }) => [
+    { id: 'rules', what: 'the rules Codex gets everywhere', link: path.join(toolHome, 'AGENTS.md'), target: path.join(brain, 'claude', 'CLAUDE.md'), kind: 'file' },
+    { id: 'skills', what: 'your skills, for Codex', link: path.join(home, '.agents', 'skills'), target: path.join(brain, 'skills'), kind: 'dir' },
+  ],
+  /** No memory of its own: the shared rules carry a section that tells it where each project's memory is. */
+  ownMemory: false,
 };

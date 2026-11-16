@@ -8,13 +8,23 @@
 //                         accepts), tests one tiny request, and saves the profile.
 //   Other providers       through the TRouteAI add-on (it translates OpenAI, Gemini, … to Claude's API): the same as
 //                         above with its address prefilled and PRERUN set so the gateway starts on demand.
+//   OpenAI-compatible     base URL + key for OpenAI's API (or a service that speaks it), for Codex and OpenCode: the
+//                         same steps, tested with the Responses API and chat completions; saved as OPENAI_API_KEY.
+//   Codex sign-in         the ChatGPT account Codex keeps itself (`codex login`): a provider file that says so
+//                         (SIGNIN=codex), no key. For Codex only.
+//
+// Which coding tools a provider serves is profiles.mjs servesTools; "Test" on a provider asks the endpoint which API
+// shapes it answers (probeShapes) and saves them as its API= line.
 //
 // Routes (behind the login; cookie only — another dashboard's bearer token may not reach them):
 //   GET  /api/accounts                         accounts with kind, state, usage, model, Auto membership; defaults
 //   POST /api/accounts/probe                   { baseUrl, key } or { account }: models + which header works → { probe,
 //                                              auth, models|null, note }. The key stays on the server under `probe`.
 //   POST /api/accounts/test                    { probe, model } → { ok, error? }   one request, max_tokens 1
-//   POST /api/accounts/save                    { probe, name, label, model?, smallModel?, via: "api"|"trouteai" }
+//   POST /api/accounts/probe                   … with via: "openai" for an OpenAI-compatible key (Bearer first)
+//   POST /api/accounts/save                    { probe, name, label, model?, smallModel?, via: "api"|"trouteai"|"openai" }
+//   POST /api/accounts/<name>/test             {} the API shapes the provider answers, saved as API= → { ok, shapes, tools, error? }
+//   POST /api/accounts/codex-signin            { name?, label? } a provider for the sign-in Codex keeps itself
 //   POST /api/accounts/<name>/model            { probe, model, smallModel? }  pin another model
 //   POST /api/accounts/<name>/label            { label }
 //   POST /api/accounts/<name>/auto             { on }  add to / remove from Auto mode's order
@@ -35,9 +45,11 @@ import path from 'node:path';
 import * as autoswitchModule from '../autoswitch.mjs';
 import { ptySpawn } from './backends/nodepty.mjs';
 import { findAddon } from '../addons/index.mjs';
-import { AUTH_VARS, deleteProfile, listProfiles, readProfile, validName, writeProfile } from '../profiles.mjs';
+import { AUTH_VARS, deleteProfile, listProfiles, metaOf, readProfile, servesTools, validName, writeProfile } from '../profiles.mjs';
 
 export const ANTHROPIC_URL = 'https://api.anthropic.com';
+export const OPENAI_URL = 'https://api.openai.com';
+const KEYED = ['api', 'openai']; // the kinds with an endpoint and a key
 const FETCH_TIMEOUT_MS = 15_000;
 const BODY_CAP = 2 * 1024 * 1024;
 const PROBE_TTL_MS = 15 * 60_000;
@@ -226,6 +238,40 @@ export async function testModel(fetchImpl, baseUrl, key, auth, model) {
   return { ok: false, auth, error: explain(last, host, key) };
 }
 
+/**
+ * Which API shapes the endpoint answers ("Test" on a provider): one tiny request per shape with `model` —
+ *   messages    POST /v1/messages          (Claude's API; Claude Code, OpenCode)
+ *   responses   POST /v1/responses         (OpenAI's Responses API; Codex, OpenCode)
+ *   chat        POST /v1/chat/completions  (OpenAI's chat completions; OpenCode)
+ *   models      GET  /v1/models            (a model list, for the pickers)
+ * A shape counts only on a 200. Returns { ok, shapes, auth, error? }: ok when at least one shape a coding tool can
+ * use answered; error when none did (a refused key says so). `auth`: the header Claude's API took ('x'|'bearer').
+ */
+export async function probeShapes(fetchImpl, baseUrl, key, auth, model, { only = null } = {}) {
+  const host = new URL(baseUrl).host;
+  const shapes = [];
+  let refused = null;
+  let other = null;
+  const m = only && !only.includes('messages') ? { ok: false } : await testModel(fetchImpl, baseUrl, key, auth, model);
+  if (m.ok) shapes.push('messages');
+  else other = m.error || null;
+  const openai = [
+    ['responses', '/v1/responses', { model, input: 'Hi', max_output_tokens: 16 }],
+    ['chat', '/v1/chat/completions', { model, messages: [{ role: 'user', content: 'Hi' }], max_completion_tokens: 16 }],
+  ];
+  for (const [shape, p, body] of openai) {
+    if (only && !only.includes(shape)) continue;
+    const r = await call(fetchImpl, `${baseUrl}${p}`, { method: 'POST', key, auth: 'bearer', body });
+    if (!r.error && r.status === 200) shapes.push(shape);
+    else if (r.status === 401 || r.status === 403) refused = r;
+    else if (!other) other = explain(r, host, key);
+  }
+  const list = await call(fetchImpl, `${baseUrl}/v1/models?limit=1000`, { key, auth: m.ok ? m.auth : 'bearer' });
+  if (!list.error && list.status === 200 && modelsOf(list.json)) shapes.push('models');
+  const ok = shapes.some((x) => x !== 'models');
+  return { ok, shapes, auth: m.ok ? m.auth : auth, ...(ok ? {} : { error: refused && !m.ok ? explain(refused, host, key) : other || 'The service answered none of the APIs a coding tool uses.' }) };
+}
+
 // ---------- the subscription sign-in (`claude setup-token` in a terminal we hold) ----------
 
 /** Plain text of terminal output: cursor jumps become spaces, other escape codes go. */
@@ -408,6 +454,9 @@ export function accountsFeature(ctx, opts = {}) {
   /** Where an account's key is and what it is pinned to — server side only. */
   function stored(profile) {
     const env = profile.env || {};
+    if (profile.kind === 'openai') {
+      return { baseUrl: env.OPENAI_BASE_URL ? cleanBaseUrl(env.OPENAI_BASE_URL) : OPENAI_URL, key: env.OPENAI_API_KEY || '', auth: 'bearer', model: (/^\*=(.+)$/.exec(profile.models || '') || [])[1] || '', smallModel: '' };
+    }
     const key = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
     return {
       baseUrl: env.ANTHROPIC_BASE_URL ? cleanBaseUrl(env.ANTHROPIC_BASE_URL) : ANTHROPIC_URL,
@@ -445,7 +494,8 @@ export function accountsFeature(ctx, opts = {}) {
     if (!validName(name)) throw fail(400, `"${name.slice(0, 40)}" is not a provider's short name`);
     const prof = readProfile(name);
     if (!prof) throw fail(404, `There is no provider called "${name}"`);
-    if (prof.kind === 'api') throw fail(409, `"${name}" uses an API key, not a sign-in: there is nothing to sign in to`);
+    if (KEYED.includes(prof.kind)) throw fail(409, `"${name}" uses an API key, not a sign-in: there is nothing to sign in to`);
+    if (prof.kind === 'chatgpt') throw fail(409, `"${name}" is Codex's own sign-in: sign in with codex login in a terminal`);
     return prof;
   }
 
@@ -465,12 +515,13 @@ export function accountsFeature(ctx, opts = {}) {
       const k = stored(p);
       let host = '';
       try {
-        host = p.kind === 'api' ? new URL(k.baseUrl).host : '';
+        host = KEYED.includes(p.kind) ? new URL(k.baseUrl).host : '';
       } catch {
         /* bad address in the file */
       }
       return {
-        name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, host, model: p.kind === 'api' ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
+        name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, host, model: KEYED.includes(p.kind) ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
+        tools: servesTools(p), api: p.api || [],
         viaTrouteai: Boolean(p.prerun && /addons start trouteai/.test(p.prerun)),
         remote: remote.has(p.name) ? (({ computer, title, state, text }) => ({ computer, title: title || null, state, text }))(remote.get(p.name)) : null,
         limited: s.limited || null, usage: s.usage || null, inUse: s.inUse || 0, inAuto: order.includes(p.name),
@@ -495,6 +546,8 @@ export function accountsFeature(ctx, opts = {}) {
           subscription: { name: freeName('sub', { bare: false }), label: '' },
           api: { name: freeName('claude-api'), label: 'Claude API', baseUrl: ANTHROPIC_URL },
           trouteai: { name: freeName('api'), label: 'API via TRouteAI', baseUrl: tr ? tr.baseUrl : 'http://localhost:20017' },
+          openai: { name: freeName('openai'), label: 'OpenAI API', baseUrl: OPENAI_URL },
+          codex: { name: freeName('chatgpt'), label: 'Codex sign-in' },
         },
         trouteai: tr,
         signin: signinState(),
@@ -508,7 +561,7 @@ export function accountsFeature(ctx, opts = {}) {
       let account = null;
       if (b.account !== undefined) {
         const p = validName(b.account) ? readProfile(b.account) : null;
-        if (!p || p.kind !== 'api') throw fail(404, 'There is no such API provider');
+        if (!p || !KEYED.includes(p.kind)) throw fail(404, 'There is no such API provider');
         ({ baseUrl, key } = stored(p));
         if (!key) throw fail(400, 'This provider has no key stored');
         account = p.name;
@@ -516,12 +569,13 @@ export function accountsFeature(ctx, opts = {}) {
         baseUrl = cleanBaseUrl(b.baseUrl);
         key = cleanKey(b.key);
       }
-      let prefer = 'x';
-      if (account) prefer = stored(readProfile(account)).auth || 'x'; // the header the account already uses first
+      const openai = account ? readProfile(account).kind === 'openai' : b.via === 'openai';
+      let prefer = openai ? 'bearer' : 'x';
+      if (account) prefer = stored(readProfile(account)).auth || prefer; // the header the account already uses first
       const r = await listModels(fetchImpl, baseUrl, key, prefer);
       const id = crypto.randomBytes(12).toString('base64url');
       for (const [k, v] of probes) if (now() - v.at > PROBE_TTL_MS) probes.delete(k);
-      probes.set(id, { baseUrl, key, auth: r.auth, at: now(), account });
+      probes.set(id, { baseUrl, key, auth: r.auth, at: now(), account, openai });
       return { probe: id, auth: r.auth === 'bearer' ? 'Authorization: Bearer' : r.auth === 'x' ? 'x-api-key' : null, models: r.models, note: r.note, baseUrl };
     }],
     ['POST', /^\/api\/accounts\/test$/, async (req) => {
@@ -529,6 +583,12 @@ export function accountsFeature(ctx, opts = {}) {
       limit(req);
       const p = probeOf(b.probe);
       const model = cleanModel(b.model);
+      if (p.openai) {
+        // An OpenAI-compatible key: the APIs Codex and OpenCode use (Claude's is not asked for).
+        const r = await probeShapes(fetchImpl, p.baseUrl, p.key, 'bearer', model, { only: ['responses', 'chat'] });
+        if (r.ok) p.shapes = r.shapes;
+        return r.ok ? { ok: true } : { ok: false, error: r.error };
+      }
       const r = await testModel(fetchImpl, p.baseUrl, p.key, p.auth, model);
       if (r.ok) p.auth = r.auth;
       return r.ok ? { ok: true } : { ok: false, error: r.error };
@@ -537,10 +597,18 @@ export function accountsFeature(ctx, opts = {}) {
       const b = await ctx.readJson(req);
       const p = probeOf(b.probe);
       if (p.account) throw fail(400, 'Use "Change model" for a provider that exists');
+      const model = cleanModel(b.model, { optional: true });
+      if (p.openai) {
+        const name = cleanNewName(b.name, freeName('openai'));
+        const label = cleanLabel(b.label, 'OpenAI API');
+        const env = { OPENAI_API_KEY: p.key, ...(p.baseUrl !== OPENAI_URL ? { OPENAI_BASE_URL: p.baseUrl } : {}) };
+        writeProfile(name, { label, models: model ? `*=${model}` : '', api: p.shapes || [], env });
+        probes.delete(b.probe);
+        return { ok: true, name };
+      }
       const via = b.via === 'trouteai' ? 'trouteai' : 'api';
       const name = cleanNewName(b.name, via === 'trouteai' ? freeName('api') : freeName('claude-api'));
       const label = cleanLabel(b.label, via === 'trouteai' ? 'API via TRouteAI' : 'Claude API');
-      const model = cleanModel(b.model, { optional: true });
       const smallModel = cleanModel(b.smallModel, { optional: true });
       const prerun = via === 'trouteai' ? addon().profile().prerun : '';
       writeProfile(name, { label, prerun, models: model ? `*=${model}` : '', env: envFor({ ...p, auth: p.auth || 'x', model, smallModel }) });
@@ -554,14 +622,42 @@ export function accountsFeature(ctx, opts = {}) {
       if (p.account !== prof.name) throw fail(400, 'That check belongs to another provider');
       const model = cleanModel(b.model);
       const smallModel = cleanModel(b.smallModel, { optional: true });
-      writeProfile(prof.name, { label: prof.label, prerun: prof.prerun, models: `*=${model}`, env: envFor({ ...p, auth: p.auth || stored(prof).auth || 'x', model, smallModel }, prof.env) });
+      if (prof.kind === 'openai') writeProfile(prof.name, { ...metaOf(prof), models: `*=${model}`, env: prof.env });
+      else writeProfile(prof.name, { ...metaOf(prof), models: `*=${model}`, env: envFor({ ...p, auth: p.auth || stored(prof).auth || 'x', model, smallModel }, prof.env) });
       return { ok: true };
     }],
     ['POST', /^\/api\/accounts\/([^/]+)\/label$/, async (req, m) => {
       const prof = accountOr404(m);
       const b = await ctx.readJson(req);
-      writeProfile(prof.name, { label: cleanLabel(b.label, prof.label), prerun: prof.prerun, models: prof.models, env: prof.env });
+      writeProfile(prof.name, { ...metaOf(prof), label: cleanLabel(b.label, prof.label), env: prof.env });
       return { ok: true };
+    }],
+    ['POST', /^\/api\/accounts\/([^/]+)\/test$/, async (req, m) => {
+      // "Test": which API shapes the provider answers, saved as its API= line (servesTools reads it).
+      const prof = accountOr404(m);
+      await ctx.readJson(req);
+      if (!KEYED.includes(prof.kind)) throw fail(409, `"${prof.label}" signs in: there is no API address to test`);
+      limit(req);
+      const k = stored(prof);
+      if (!k.key) throw fail(400, 'This provider has no key stored');
+      let model = k.model;
+      if (!model) {
+        const l = await listModels(fetchImpl, k.baseUrl, k.key, k.auth || 'bearer');
+        model = (l.models || [])[0]?.id || '';
+      }
+      if (!model) throw fail(400, 'Pick the model this provider uses first (Change model)');
+      const r = await probeShapes(fetchImpl, k.baseUrl, k.key, k.auth || 'x', model);
+      if (!r.ok) return { ok: false, shapes: r.shapes, tools: servesTools(prof), error: r.error };
+      writeProfile(prof.name, { ...metaOf(readProfile(prof.name)), api: r.shapes, env: readProfile(prof.name).env });
+      return { ok: true, shapes: r.shapes, tools: servesTools(readProfile(prof.name)) };
+    }],
+    ['POST', /^\/api\/accounts\/codex-signin$/, async (req) => {
+      // The ChatGPT account Codex keeps itself: no key here; Codex signs in with `codex login` in a terminal.
+      const b = await ctx.readJson(req);
+      const name = cleanNewName(b.name, freeName('chatgpt'));
+      const label = cleanLabel(b.label, 'Codex sign-in');
+      writeProfile(name, { label, signin: 'codex' });
+      return { ok: true, name };
     }],
     ['POST', /^\/api\/accounts\/([^/]+)\/auto$/, async (req, m) => {
       const prof = accountOr404(m);
@@ -642,7 +738,7 @@ export function accountsFeature(ctx, opts = {}) {
           // the sign-in is replaced, in one atomic write. Up to here its file was never touched.
           const prof = signinProvider(f.name);
           label = prof.label;
-          writeProfile(prof.name, { label: prof.label, prerun: prof.prerun, models: prof.models, env: { ...prof.env, CLAUDE_CODE_OAUTH_TOKEN: token } });
+          writeProfile(prof.name, { ...metaOf(prof), env: { ...prof.env, CLAUDE_CODE_OAUTH_TOKEN: token } });
         } else {
           if (readProfile(f.name)) throw fail(409, `There is already a provider called "${f.name}"`);
           writeProfile(f.name, { label: f.label, env: { CLAUDE_CODE_OAUTH_TOKEN: token } });

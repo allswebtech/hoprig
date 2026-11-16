@@ -42,7 +42,7 @@ import { WebSocketServer } from 'ws';
 import * as autoswitchModule from '../autoswitch.mjs';
 import { EFFORTS, MODELS, PERMISSION_MODES, cleanSessionDefaults, loadConfig, saveConfig } from '../config.mjs';
 import { stateDir, tilde } from '../paths.mjs';
-import { deleteProfile, listProfiles, publicProfile } from '../profiles.mjs';
+import { assertServes, deleteProfile, listProfiles, publicProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { sessionTitle, sessionsIn } from '../sessions.mjs';
 import {
@@ -252,7 +252,12 @@ export function createServer(opts = {}) {
   /** Auto mode is on: sessions may run on the virtual profile "auto" (the router picks the account). */
   const autoOn = () => autoswitch.getAutoSwitch().enabled === true;
   /** A profile name from the browser: a real profile, or "auto" while Auto mode is on. Full object or null. */
-  const pickProfile = (name) => (name === AUTO.name ? (autoOn() ? { name: AUTO.name, env: {} } : null) : v.profile(name));
+  // The sessions started and moved here are Claude Code's: a provider that does not serve it is refused (400).
+  const pickProfile = (name) => {
+    const p = name === AUTO.name ? (autoOn() ? { name: AUTO.name, env: {} } : null) : v.profile(name);
+    if (p) assertServes(p, 'claude');
+    return p;
+  };
 
   const cards = async () => {
     const list = enrich(await deck.list(), listRuns());

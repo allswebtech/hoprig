@@ -26,7 +26,7 @@ import path from 'node:path';
 import { getAutoSwitch } from '../autoswitch.mjs';
 import { EFFORTS, MODELS, PERMISSION_MODES } from '../config.mjs';
 import { stateDir, tilde } from '../paths.mjs';
-import { listProfiles, publicProfile, readProfile } from '../profiles.mjs';
+import { assertServes, listProfiles, publicProfile, readProfile, servesTools } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { isSessionId, sessionsIn } from '../sessions.mjs';
 import { matchRuns } from '../server/deck.mjs';
@@ -93,7 +93,13 @@ export function chatFeature(ctx, o = {}) {
 
   // ---------- providers, models ----------
   const autoOn = () => getAutoSwitch().enabled === true;
-  const profileOk = (name) => (name === AUTO.name ? autoOn() : !!readProfile(name));
+  // The chat runs Claude Code: a provider that does not serve it (an OpenAI key, a Codex sign-in) is not one to offer.
+  const profileOk = (name) => {
+    if (name === AUTO.name) return autoOn();
+    const p = readProfile(name);
+    if (p && !servesTools(p).includes('claude')) assertServes(p, 'claude'); // says why, as a 400
+    return !!p;
+  };
   function profileView(name) {
     if (name === AUTO.name) return AUTO;
     const p = listProfiles().find((x) => x.name === name);

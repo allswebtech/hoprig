@@ -23,7 +23,7 @@
 // name with the launcher's arguments, typing into a session by name.
 import path from 'node:path';
 import { getAutoSwitch } from '../autoswitch.mjs';
-import { readProfile } from '../profiles.mjs';
+import { readProfile, servesTools } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { launchArgv } from '../server/deck.mjs';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
@@ -92,7 +92,7 @@ export function serverAdapter(sctx, { log = console.log } = {}) {
     log,
     checks: {
       dirOk: (d) => Boolean(insideRoots(d, resolveRoots(sctx.config().server.roots))),
-      profileOk: (p) => (p === 'auto' ? getAutoSwitch().enabled === true : Boolean(readProfile(p))),
+      profileOk: (p) => (p === 'auto' ? getAutoSwitch().enabled === true : servesTools(readProfile(p)).includes('claude')),
     },
   };
 }

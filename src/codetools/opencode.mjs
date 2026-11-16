@@ -16,8 +16,13 @@
 //                      OPENCODE_DISABLE_AUTOUPDATE. Hoprig updates it itself, so both are switched off.
 //   free cloud models  without any setup it offers free models of its own cloud service ("opencode" provider);
 //                      code must never go there unasked, so OPENCODE_DISABLE_FREE_MODELS and disabled_providers.
+//   what it reads      rules: <config>/AGENTS.md and the project's AGENTS.md (never CLAUDE.md, unlike OpenCode 1), plus
+//                      every file named in "instructions" of its config (a "~" path and a glob work; a relative path
+//                      is looked up in the project). Skills: ~/.claude/skills, ~/.agents/skills, the project's
+//                      .claude/skills and its own folders. Memory: none of its own.
 import os from 'node:os';
 import path from 'node:path';
+import { claudeDir, tilde } from '../paths.mjs';
 import { npmTool } from './npmtool.mjs';
 
 /** The version this Hoprig is tested with: what it installs first. */
@@ -55,4 +60,22 @@ export const opencode = {
   noSelfUpdate: { args: [], env: NO_SELF_UPDATE.env, config: NO_SELF_UPDATE.config },
   /** npm replaces the program's files: an update waits until no OpenCode session is open. */
   updateItem: { whenRunning: 'wait-until-none' },
+  /**
+   * What OpenCode reads from the AI brain: the same rules file (as its global AGENTS.md), and, named in its
+   * settings, Claude Code's rules folder and each project's memory index. Its skills come from the folders Claude
+   * Code and Codex read already, so the skills link is the same one as Codex's (link.mjs keeps one of the two).
+   */
+  brainLinks: ({ base = claudeDir(), brain, home, toolHome }) => [
+    { id: 'rules', what: 'the rules OpenCode gets everywhere', link: path.join(toolHome, 'AGENTS.md'), target: path.join(brain, 'claude', 'CLAUDE.md'), kind: 'file' },
+    { id: 'skills', what: 'your skills, for OpenCode', link: path.join(home, '.agents', 'skills'), target: path.join(brain, 'skills'), kind: 'dir' },
+    {
+      id: 'instructions', what: 'Claude Code\'s rules folder and each project\'s memory index, named in OpenCode\'s settings', kind: 'json',
+      link: path.join(toolHome, 'opencode.json'), key: 'instructions',
+      values: [`${tilde(path.join(base, 'rules')).split(path.sep).join('/')}/*.md`, MEMORY_INDEX],
+    },
+  ],
+  ownMemory: false,
 };
+
+/** Where a project keeps its memory index, from the project's folder (the layout of src/pcsetup/workspace.mjs). */
+export const MEMORY_INDEX = 'ai_brain/claude-memory/MEMORY.md';

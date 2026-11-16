@@ -47,7 +47,8 @@ test('kinds: login, subscription, api', () => {
 
 test('publicProfile carries no value', () => {
   const pub = P.publicProfile(P.readProfile('sub2'));
-  assert.deepEqual(Object.keys(pub).sort(), ['kind', 'label', 'name', 'paid']);
+  assert.deepEqual(Object.keys(pub).sort(), ['kind', 'label', 'name', 'paid', 'tools']);
+  assert.deepEqual(pub.tools, ['claude'], 'a subscription serves Claude Code only');
   assert.ok(!JSON.stringify(pub).includes('sk-ant'));
 });
 
@@ -257,6 +258,14 @@ process.exit(7);
   assert.ok(got.settings.hooks.SessionStart, 'the hooks arrive as a settings file');
   assert.equal(fs.existsSync(got.settingsFile), false, 'and the file is removed when Claude exits');
   assert.deepEqual(R.listRuns(), [], 'the run file is removed when Claude exits');
+  // A provider that does not serve Claude Code (an OpenAI key) is refused before anything starts.
+  P.writeProfile('oai', { env: { OPENAI_API_KEY: 'sk-not-for-claude' } });
+  fs.rmSync(outFile, { force: true });
+  const oai = spawnSync(process.execPath, [binFile(), 'oai'], { env: { ...process.env, FAKE_OUT: outFile }, encoding: 'utf8' });
+  assert.equal(oai.status, 2);
+  assert.match(oai.stderr, /does not serve Claude Code \(it works with: codex, opencode\)/);
+  assert.equal(fs.existsSync(outFile), false, 'Claude Code was not started');
+  P.deleteProfile('oai');
   // An unknown profile is an error, not a launch.
   const bad = spawnSync(process.execPath, [binFile(), 'run', 'nope'], { env: process.env, encoding: 'utf8' });
   assert.equal(bad.status, 2);
@@ -309,6 +318,12 @@ test('auto-switch: the next profile follows the order, goes round, and skips pro
   assert.equal(A.nextProfile('api', later), 'sub');
   assert.equal(A.clearLimited('sub2'), true);
   assert.equal(A.clearLimited('sub2'), false);
+  // A provider in the order that does not serve Claude Code (an OpenAI key) is never one Auto mode moves to.
+  P.writeProfile('oai', { env: { OPENAI_API_KEY: 'sk-x', OPENAI_BASE_URL: 'http://localhost:1' } });
+  A.setAutoSwitch({ order: ['oai', 'sub', 'sub2', 'api'] });
+  assert.deepEqual(A.usableOrder(), ['sub', 'sub2', 'api']);
+  assert.equal(A.recommendedProfile(later), 'sub');
+  P.deleteProfile('oai');
   A.setAutoSwitch({ enabled: false, order: [], returnToPreferred: false });
 });
 

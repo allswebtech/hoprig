@@ -3,7 +3,7 @@
 import path from 'node:path';
 import { moveArgs } from '../launch.mjs';
 import { binFile, tilde } from '../paths.mjs';
-import { publicProfile, readProfile } from '../profiles.mjs';
+import { assertServes, publicProfile, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { hasConversation, sessionTitle, sessionsIn } from '../sessions.mjs';
 import { isOwnFolder } from './folders.mjs';
@@ -246,6 +246,7 @@ export class Deck {
   async move(term, run, profileName) {
     const target = readProfile(profileName);
     if (!target) throw Object.assign(new Error('unknown provider'), { status: 400 });
+    assertServes(target, 'claude'); // the sessions this moves are Claude Code's
     await this.backend.respawn(term.id, run.cwd, this.moveArgv(target, run));
   }
 

@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, saveConfig } from './config.mjs';
 import { stateDir } from './paths.mjs';
-import { listProfiles, validName } from './profiles.mjs';
+import { listProfiles, servesTools, validName } from './profiles.mjs';
 
 export const DEFAULTS = {
   enabled: false,
@@ -155,7 +155,8 @@ export function clearLimited(name) {
 /** The order Auto mode really uses: providers that exist, without pay-per-use keys unless the owner allows them. */
 export function usableOrder() {
   const profiles = listProfiles();
-  const known = new Set(profiles.map((p) => p.name));
+  // Auto mode moves Claude Code sessions: only providers that serve Claude Code take part.
+  const known = new Set(profiles.filter((p) => servesTools(p).includes('claude')).map((p) => p.name));
   const paid = new Set(profiles.filter((p) => p.paid).map((p) => p.name));
   const as = getAutoSwitch();
   return as.order.filter((n) => known.has(n) && (as.payPerUse || !paid.has(n)));
