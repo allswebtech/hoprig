@@ -116,7 +116,8 @@ export function createHeader(o) {
       subtitle: v ? v.short : null,
       items: [
         busy ? { value: 'stop', label: 'Stop Claude', sub: 'Ends the turn; agents in the background go on', icon: 'stop' } : null,
-        { value: 'compact', label: 'Compact', sub: 'Claude goes on from a summary of the conversation, which frees context', icon: 'minus' },
+        // Not while a terminal runs the conversation: the box is read only, and a compact is a message to Claude.
+        v && v.terminal ? null : { value: 'compact', label: 'Compact', sub: 'Claude goes on from a summary of the conversation, which frees context', icon: 'minus' },
         { value: 'clear', label: 'Clear', sub: 'A new chat in this folder with the same settings; this one is kept', icon: 'plus' },
         // Not while a terminal runs the conversation: a rewind runs Claude Code on it (one place at a time).
         (caps.rewind || caps.fork) && v && !v.terminal ? { value: 'rewind', label: 'Rewind…', sub: 'Go back to before one of your messages: the files, the conversation or both', icon: 'undo' } : null,

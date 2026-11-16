@@ -151,7 +151,7 @@ function viewChat({ sub }) {
   const strip = agentsStrip({ stop: act.stopTask, jump: (toolId) => timeline.jump(toolId) });
   // The page's own "/" commands, before the coding tool's (popovers.js).
   const own = () => [
-    { name: 'compact', description: 'Claude goes on from a summary of the conversation, which frees context', run: act.compact },
+    v && v.terminal ? null : { name: 'compact', description: 'Claude goes on from a summary of the conversation, which frees context', run: act.compact },
     { name: 'clear', description: 'A new chat in this folder with the same settings; this one is kept', run: act.clear },
     { name: 'model', description: 'Choose the model', run: () => composer.choose('model') },
     { name: 'effort', description: 'Choose how hard Claude thinks', run: () => composer.choose('effort') },
@@ -178,6 +178,12 @@ function viewChat({ sub }) {
   vv?.addEventListener('resize', onViewport);
   vv?.addEventListener('scroll', onViewport);
   onViewport();
+  // The chat's toasts sit under the head and the banners under it (a terminal runs it, a limit, the connection),
+  // where they cover none of their buttons (chat.css: --chat-toast-top).
+  const toastPlace = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+    document.body.style.setProperty('--chat-toast-top', `${Math.round(Math.max(...[header.el, notes, conn].map((x) => x.getBoundingClientRect().bottom)))}px`);
+  }) : null;
+  for (const x of [header.el, notes, conn]) toastPlace?.observe(x);
 
   // ---------- the to-do list (one line on a phone until opened) ----------
   let todosOpen = prefs.get('chat.todos', !matchMedia('(max-width: 599px)').matches);
@@ -297,6 +303,8 @@ function viewChat({ sub }) {
     unkeys();
     vv?.removeEventListener('resize', onViewport);
     vv?.removeEventListener('scroll', onViewport);
+    toastPlace?.disconnect();
+    document.body.style.removeProperty('--chat-toast-top');
   };
 }
 
