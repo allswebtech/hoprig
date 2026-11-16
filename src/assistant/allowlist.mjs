@@ -25,7 +25,10 @@
 // - Paths are judged as text, so a link in the folder that points outside it is not seen.
 // - npm, git and the coding tool's own search look upward and around inside the repository: in a chat whose folder is a
 //   subfolder of one, they can read what the repository holds above it.
+// - In a partial clone, git's reading commands fetch what is missing from the repository's remote.
 // - A test run runs the project's own code as it is on the disk: code the owner allowed to be written, or that was there.
+//   A script runner may first fetch the package manager version the project names. A build writes its own output and a
+//   linter may write a cache: what a check always writes.
 import os from 'node:os';
 import path from 'node:path';
 import { ASSISTANT_NAME, SECRET_FILES } from './tia.mjs';
@@ -66,9 +69,10 @@ export const TABLE = {
   // Exactly these two words: node finds the project's test files by itself.
   'node --test': { exact: true },
 };
-// A script runner takes "test", or "run" and one of these names (test:unit too), and nothing after it: whatever follows
-// (an option, "--" and what the script passes on) is read by npm or by the program the script starts.
-const SCRIPT = /^(test|tests|lint|build|typecheck|check|format)(:[A-Za-z0-9_-]+)?$/;
+// A script runner takes "test", or "run" and one of these names exactly, or test:<x> / tests:<x>, and nothing after it:
+// whatever follows (an option, "--" and what the script passes on) is read by npm or by the program the script starts.
+// "format" and any other name with ":x" (lint:fix, format:write) are a card: such scripts rewrite the source files.
+const SCRIPT = /^(?:test|tests|lint|build|typecheck|check|tests?:[A-Za-z0-9_-]+)$/;
 
 export const WHY = {
   noFolder: 'the chat\'s folder is not known',
