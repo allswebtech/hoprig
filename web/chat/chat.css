@@ -27,6 +27,9 @@ body.chat-mode .tia-boxroot { display: none; }
 .chat-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-hchip svg { flex: none; }
 .chat-morebtn { flex: none; }
+/* The chat's toasts sit under its head, where they cover no control: not over the head's menu (desktop), not over the
+   message box (phone). */
+body.chat-mode .toasts { top: calc(66px + env(safe-area-inset-top)); bottom: auto; }
 .chat-notes:empty, .chat-conn:empty { display: none; }
 .chat-banner { margin: 0; border-radius: 0; flex-wrap: wrap; }
 .chat-banner > span:not(.chat-banner-actions) { flex: 1; min-width: 200px; }

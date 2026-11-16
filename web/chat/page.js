@@ -47,8 +47,9 @@ function viewChat({ sub }) {
         const back = (r && r.back) || [];
         if (back.length) {
           composer.putBack(back.map((x) => x.text).join('\n\n'));
+          // The box shows the words; only files that must be attached again are said (under the head, chat.css).
           const files = back.flatMap((x) => x.files || []);
-          toast(`${back.length === 1 ? 'The queued message is' : 'The queued messages are'} back in the box${files.length ? `; attach ${files.length === 1 ? 'its file' : 'their files'} again` : ''}`);
+          if (files.length) toast(`${back.length === 1 ? 'The queued message is' : 'The queued messages are'} back in the box; attach ${files.length === 1 ? 'its file' : 'their files'} again`);
         }
       } catch (e) {
         toast(failText(e), { kind: 'error' });
