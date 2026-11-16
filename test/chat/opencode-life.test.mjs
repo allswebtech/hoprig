@@ -146,12 +146,19 @@ test('OpenCode turned off: an open chat runs nothing and starts no server; a sav
   assert.match(turnEnds(off).at(-1).error, /OpenCode is off on this computer/);
   assert.equal(ensured, 0, 'no server was started');
   assert.ok(!s.calls.some((x) => x.path.endsWith('/prompt')));
+  await off.close();
+  // A new chat (no conversation yet to ask about): refused where it starts, no conversation made.
+  const fresh = await chatOn(s, {}, { enabled: () => false, running: () => null, ...counting });
+  await fresh.send('hello');
+  assert.match(turnEnds(fresh).at(-1).error, /OpenCode is off on this computer/);
+  assert.ok(!s.calls.some((x) => x.method === 'POST' && x.path === '/api/session'), 'no conversation made');
+  assert.equal(ensured, 0);
+  await fresh.close();
   const { opencode } = await import('../../src/chat/engines/opencode.mjs');
   await assert.rejects(opencode.history(CWD, { enabled: () => false, ...counting }), /off on this computer/);
   assert.equal(await opencode.stamp({ id: SESSION_ID }, { running: () => null, ...counting }), 0, 'looking for news never starts it');
   assert.equal(await opencode.transcript({ id: SESSION_ID }, { running: () => null, ...counting }, { start: false }), null);
   assert.equal(ensured, 0);
-  await off.close();
   // On, and no server ran at the start: the chat reads its conversation when a page looks at it.
   const later = await chatOn(s, { conversationId: SESSION_ID }, { running: () => null });
   assert.equal(later.events.length, 0);
