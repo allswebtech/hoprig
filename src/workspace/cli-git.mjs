@@ -84,6 +84,7 @@ function printMap(ui, r) {
   if (d.created) ui.line('ok', `${r.dryRun ? 'would write' : 'wrote'} the map: ${r.map.projects.length} project${r.map.projects.length === 1 ? '' : 's'}, ${r.map.others.length} other repositor${r.map.others.length === 1 ? 'y' : 'ies'}`);
   for (const a of d.added) ui.line('ok', `added: ${a}`);
   for (const t of r.takenOut) ui.line('warn', `taken out of ${t.project} by its project.json: ${t.dir} (the project's own project.json is the truth for a project on this computer)`);
+  for (const l of r.worktrees || []) ui.line('info', `taken out: ${l} (a linked worktree, a second checkout of a repository the map has)`);
   if (r.notHere.length) ui.note(`in the map, not on this computer (kept; only forget takes something out): ${r.notHere.join(', ')}`);
   for (const c of d.changed) ui.line('info', `changed address: ${c.label}: ${c.from || 'none'} → ${c.to || 'none'}`);
   if (d.same && !d.created && !r.otherChanges) ui.line('ok', 'the map is up to date');

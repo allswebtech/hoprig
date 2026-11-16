@@ -95,6 +95,26 @@ const kindOf = (p) => {
 export const isGitRepo = (d) => fs.existsSync(path.join(d, '.git'));
 
 /**
+ * A linked worktree (`git worktree add`): its .git is a file pointing into another repository's
+ * ".git/worktrees/<name>", whose folder holds a "commondir" file. It is a second checkout of that repository, never
+ * a repository of its own. A submodule's .git file points into ".git/modules/<name>" (no commondir): not a worktree.
+ * When the folder pointed to is gone (the worktree was pruned), where it pointed decides.
+ */
+export function isLinkedWorktree(d) {
+  try {
+    const dotGit = path.join(d, '.git');
+    if (!fs.lstatSync(dotGit).isFile()) return false;
+    const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
+    if (!m) return false;
+    const gitDir = path.resolve(d, m[1].trim());
+    if (fs.existsSync(gitDir)) return fs.existsSync(path.join(gitDir, 'commondir'));
+    return path.basename(path.dirname(gitDir)) === 'worktrees';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The address of a repository's first remote, read from its git config (no git process: this is read on every
  * automation round), or null. It may hold a token: it never leaves the server.
  */
