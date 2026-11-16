@@ -441,7 +441,7 @@ test('the dashboard\'s git never runs a repository\'s fsmonitor command', { skip
 });
 
 // A .zip as Info-ZIP writes it (stored, no compression), with a link when `link` is set and an entry marked as
-// encrypted when `locked` is: enough for unzip.
+// encrypted when `locked` is, and an unpacked size of `claim` in its listing when that is given: enough for unzip.
 function zipOf(entries) {
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;
@@ -465,7 +465,7 @@ function zipOf(entries) {
     l.writeUInt32LE(data.length, 18); l.writeUInt32LE(data.length, 22); l.writeUInt16LE(name.length, 26);
     const c = Buffer.alloc(46);
     c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE((3 << 8) | 30, 4); c.writeUInt16LE(10, 6); c.writeUInt16LE(e.locked ? 1 : 0, 8); c.writeUInt32LE(crc(data), 16);
-    c.writeUInt32LE(data.length, 20); c.writeUInt32LE(data.length, 24); c.writeUInt16LE(name.length, 28);
+    c.writeUInt32LE(data.length, 20); c.writeUInt32LE(e.claim ?? data.length, 24); c.writeUInt16LE(name.length, 28);
     c.writeUInt32LE((mode << 16) >>> 0, 38); c.writeUInt32LE(offset, 42);
     locals.push(l, name, data);
     centrals.push(c, name);
@@ -528,4 +528,53 @@ test('tar and unzip run without the dashboard\'s terminal: in a session of their
   const src = fs.readFileSync(new URL('../../src/editor/archive.mjs', import.meta.url), 'utf8');
   assert.equal((src.match(/noTerminal: true/g) || []).length, 2, 'tar and unzip both');
   assert.match(src, /'-P', ''/, 'unzip is given an empty password, so it never asks');
+});
+
+test('an archive that unpacks to more than the disk has free is refused before anything is written', { skip: !which('unzip') && 'no unzip here' }, async () => {
+  const { listedBytes } = await import('../../src/editor/archive.mjs');
+  assert.equal(listedBytes(['-rw-rw-r-- me/me         7 2026-11-16 17:58 a.txt', 'drwxr-xr-x me/me 0 2026-11-16 17:58 d/']), 7, 'GNU tar');
+  assert.equal(listedBytes(['-rw-r--r--  0 me     staff       7 Nov 16 17:58 a.txt']), 7, 'bsdtar');
+  assert.equal(listedBytes(['Archive:  x.zip', '-rw-rw-r--  3.0 unx        6 tx stor 26-Nov-16 17:58 b.txt', '-rw-rw-r--  3.0 unx        7 BX defN 26-Nov-16 17:58 a.txt', '2 files, 13 bytes uncompressed']), 13, 'zipinfo');
+  assert.equal(listedBytes(['what is this']), null, 'no size it reads: no bound');
+  const dir = path.join(home, 'bomb');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, 'big.zip'), zipOf([{ name: 'huge.bin', data: 'x', claim: 0xfffffff0 }, { name: 'huge2.bin', data: 'x', claim: 0xfffffff0 }]));
+  const free = fs.statfsSync(dir);
+  if (free.bavail * free.bsize > 2 * 0xfffffff0) return; // a disk with 8 GB free: this archive fits
+  const r = await call('/api/files/unpack', { body: { path: path.join(dir, 'big.zip') } });
+  assert.equal(r.status, 409, r.text);
+  assert.match(r.json.error, /MB free/);
+  assert.deepEqual(fs.readdirSync(dir), ['big.zip'], 'nothing was unpacked');
+});
+
+test('delete for good: asked for, with the same refusals as the trash; the trash refuses a big thing from another disk', async () => {
+  put('gone/forever/a.txt', 'bye\n');
+  put('keep/no-ai/mine.txt', 'private\n');
+  assert.equal((await call('/api/files/delete', { body: { paths: [path.join(home, 'gone')] } })).status, 400, 'not without confirm');
+  let r = await call('/api/files/delete', { body: { paths: [path.join(home, 'gone'), path.join(home, 'keep'), home], confirm: true } });
+  assert.equal(r.status, 200, r.text);
+  assert.deepEqual(r.json.done.map((d) => d.path), [path.join(home, 'gone')]);
+  assert.equal(r.json.failed.length, 2, 'a folder with a private one, and the top of the reach');
+  assert.ok(!fs.existsSync(path.join(home, 'gone')) && fs.existsSync(path.join(home, 'keep', 'no-ai', 'mine.txt')) && fs.existsSync(home));
+  // Another disk than the trash's: the trash moves for a moment to this checkout's disk, which is another one than the
+  // temporary folder's where /tmp is kept in memory (elsewhere this part has nothing to compare and stops).
+  const { toTrash, sizeUpTo } = await import('../../src/editor/trash.mjs');
+  const f = put('sized/b.bin', 'x'.repeat(5000));
+  assert.equal(await sizeUpTo(path.join(home, 'sized'), 1e6), 5000);
+  assert.equal(await sizeUpTo(path.join(home, 'sized'), 100), Infinity);
+  const state = process.env.HOPRIG_STATE_DIR;
+  const disk = fs.mkdtempSync(path.join(path.dirname(new URL(import.meta.url).pathname), '.trash-'));
+  try {
+    if (fs.statSync(disk).dev === fs.statSync(f).dev) return;
+    process.env.HOPRIG_STATE_DIR = disk;
+    put('far/big.bin', 'x'.repeat(5000));
+    put('far/small.bin', 'x');
+    const t = await toTrash([path.join(home, 'far', 'big.bin'), path.join(home, 'far', 'small.bin')], [home], { copyMax: 1000 });
+    assert.deepEqual(t.failed.map((x) => [path.basename(x.path), x.code]), [['big.bin', 'other-disk']]);
+    assert.deepEqual(t.done.map((x) => path.basename(x.path)), ['small.bin'], 'a small one is still copied into the trash');
+    assert.ok(fs.existsSync(path.join(home, 'far', 'big.bin')));
+  } finally {
+    process.env.HOPRIG_STATE_DIR = state;
+    fs.rmSync(disk, { recursive: true, force: true });
+  }
 });

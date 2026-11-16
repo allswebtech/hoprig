@@ -13,7 +13,9 @@
 //   POST /api/files/new { dir, name, kind: file | dir }
 //   POST /api/files/rename { path, name }        in the same folder, never over something there
 //   POST /api/files/move | copy { paths, to }    { done, failed }
-//   POST /api/files/trash { paths }              into Hoprig's own trash: { done, failed }
+//   POST /api/files/trash { paths }              into Hoprig's own trash: { done, failed } (code 'other-disk': too big
+//                                                to copy there from another disk)
+//   POST /api/files/delete { paths, confirm: true }  for good, past the trash: { done, failed }
 //   GET  /api/files/trash                        { items: [{ id, name, from, at, kind, size }] }
 //   POST /api/files/trash/restore { id }         put back where it came from: { path }
 //   POST /api/files/trash/empty { confirm: true }
@@ -28,7 +30,7 @@ import { pack, unpack } from '../editor/archive.mjs';
 import { create, rename } from '../editor/files.mjs';
 import { findByName, listFolder, receive, sendFile, transfer } from '../editor/manage.mjs';
 import { checkName, fail, locate } from '../editor/paths.mjs';
-import { emptyTrash, listTrash, restore, toTrash } from '../editor/trash.mjs';
+import { deleteForGood, emptyTrash, listTrash, restore, toTrash } from '../editor/trash.mjs';
 
 const flag = (q, k) => q.get(k) === '1' || q.get(k) === 'true';
 
@@ -80,6 +82,7 @@ export function filesRoutes(ctx) {
     ['POST', /^\/api\/files\/move$/, post((b) => transfer(b.paths, b.to, roots()))],
     ['POST', /^\/api\/files\/copy$/, post((b) => transfer(b.paths, b.to, roots(), { copy: true }))],
     ['POST', /^\/api\/files\/trash$/, post((b) => toTrash(b.paths, roots()))],
+    ['POST', /^\/api\/files\/delete$/, post((b) => deleteForGood(b.paths, roots(), b.confirm))],
     ['GET', /^\/api\/files\/trash$/, get(() => listTrash())],
     ['POST', /^\/api\/files\/trash\/restore$/, post((b) => restore(b.id, roots()))],
     ['POST', /^\/api\/files\/trash\/empty$/, post((b) => emptyTrash(b.confirm))],

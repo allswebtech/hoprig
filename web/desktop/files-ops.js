@@ -1,6 +1,6 @@
 // The changes Files makes (files.js): new folder or file, rename, copy and move, the trash, pack, unpack, upload.
 // Each says what it did in a toast, or why not, and reads the folder again.
-import { api, at, promptSheet, toast } from '../lib.js';
+import { api, at, confirmSheet, promptSheet, toast } from '../lib.js';
 import { pickFolder, splitPath, uploadFile } from './files-parts.js';
 import { errorText } from './native.js';
 
@@ -67,7 +67,11 @@ export function fileOps(f) {
     if (!items.length) return;
     try {
       const r = await call('/api/files/trash', { paths: items.map((e) => e.path) });
-      if (r.failed.length) toast(failText(r), { kind: 'error', ms: 9000 });
+      // Too big to copy into the trash from another disk: deleting it for good is offered, and asked first.
+      const far = r.failed.filter((x) => x.code === 'other-disk');
+      const rest = { failed: r.failed.filter((x) => x.code !== 'other-disk') };
+      if (rest.failed.length) toast(failText(rest), { kind: 'error', ms: 9000 });
+      if (far.length) await deleteForGood(far.map((x) => x.path));
       if (r.done.length) {
         const undo = async () => {
           const back = await Promise.allSettled(r.done.map((d) => call('/api/files/trash/restore', { id: d.id })));
@@ -82,6 +86,18 @@ export function fileOps(f) {
       toast(errorText(e), { kind: 'error', ms: 7000 });
     }
     load();
+  }
+  async function deleteForGood(paths) {
+    const what = paths.length === 1 ? splitPath(paths[0]).name : `${paths.length} items`;
+    const yes = await confirmSheet({ title: `Delete ${what} for good?`, text: `${paths.length === 1 ? 'It is' : 'They are'} on another disk than the trash and too big to copy there, so ${paths.length === 1 ? 'it' : 'they'} cannot go to the trash. Deleting for good cannot be undone.`, ok: 'Delete for good', danger: true });
+    if (!yes) return;
+    try {
+      const r = await call('/api/files/delete', { paths, confirm: true });
+      if (r.failed.length) toast(failText(r), { kind: 'error', ms: 9000 });
+      if (r.done.length) toast(`Deleted ${r.done.length === 1 ? splitPath(r.done[0].path).name : `${r.done.length} items`} for good.`);
+    } catch (e) {
+      toast(errorText(e), { kind: 'error', ms: 7000 });
+    }
   }
   async function packIt() {
     const items = chosen();

@@ -47,7 +47,7 @@ import { bearerOf, createToken, listTokens, revokeToken, touchToken, verifyToken
 
 const BODY_MAX = 64 * 1024;
 // Changes that can take minutes on the computer (git, and large files in Files): the hub waits longer for them.
-const SLOW = /^\/api\/code\/git\/(commit|stage|unstage|discard)$|^\/api\/files\/(copy|move|trash|pack|unpack)$/;
+const SLOW = /^\/api\/code\/git\/(commit|stage|unstage|discard)$|^\/api\/files\/(copy|move|trash|delete|pack|unpack)$/;
 const TOKEN = Symbol('hoprig.token');
 
 // Never reachable with a token, even where the server has the route.

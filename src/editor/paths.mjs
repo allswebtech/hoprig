@@ -232,33 +232,60 @@ export function resolveIn(root, rel, roots, { mode = 'existing', typed = mode ==
 /**
  * A folder that is about to be deleted or moved must not hold a private folder or a file with a sign-in at any depth
  * (the Explorer never shows them, so the owner could not know they would go too). Symlinks are not followed.
+ * mayChangeFolder is the editor's (one folder of a project); Files, which can reach the whole disk, checks with
+ * mayChangeFolderAsync, so the dashboard keeps answering while a large tree is read.
  */
+export const FOLDER_ENTRIES_MAX = 200_000;
 export function mayChangeFolder(abs) {
-  let st;
-  try {
-    st = fs.lstatSync(abs);
-  } catch {
-    return;
-  }
-  if (!st.isDirectory()) return;
-  if (holdsSecret(abs) || ownRoots().some((r) => within(r, abs))) throw fail(403, 'that folder holds the dashboard\'s own files or a file with a sign-in, which are never changed from here', { code: 'holds-protected' });
-  const stack = [abs];
-  let seen = 0;
-  while (stack.length) {
-    const dir = stack.pop();
+  const walk = folderWalk(abs);
+  for (let dir = walk.next(); dir; dir = walk.next()) {
     let list;
     try {
       list = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
-      throw fail(403, 'a folder inside it cannot be read, so it is not changed from here', { code: 'holds-protected' });
+      throw unreadable();
     }
-    for (const d of list) {
-      if (++seen > 200_000) throw fail(409, 'that folder holds too many files to check here: change it in a terminal', { code: 'too-many' });
-      if (!d.isDirectory()) continue;
-      if (isPrivateName(d.name)) throw fail(403, 'that folder holds a private folder, which the dashboard never changes: change it in a terminal', { code: 'holds-protected' });
-      stack.push(path.join(dir, d.name));
-    }
+    walk.take(dir, list);
   }
+}
+export async function mayChangeFolderAsync(abs) {
+  const walk = folderWalk(abs);
+  for (let dir = walk.next(); dir; dir = walk.next()) {
+    let list;
+    try {
+      list = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      throw unreadable();
+    }
+    walk.take(dir, list);
+  }
+}
+const unreadable = () => fail(403, 'a folder inside it cannot be read, so it is not changed from here', { code: 'holds-protected' });
+/** The walk both share: next() → the next folder to read or null; take(dir, its entries) checks them. */
+function folderWalk(abs) {
+  let st;
+  try {
+    st = fs.lstatSync(abs);
+  } catch {
+    st = null;
+  }
+  const stack = [];
+  if (st && st.isDirectory()) {
+    if (holdsSecret(abs) || ownRoots().some((r) => within(r, abs))) throw fail(403, 'that folder holds the dashboard\'s own files or a file with a sign-in, which are never changed from here', { code: 'holds-protected' });
+    stack.push(abs);
+  }
+  let seen = 0;
+  return {
+    next: () => stack.pop() || null,
+    take(dir, list) {
+      for (const d of list) {
+        if (++seen > FOLDER_ENTRIES_MAX) throw fail(409, 'that folder holds too many files to check here: change it in a terminal', { code: 'too-many' });
+        if (!d.isDirectory()) continue;
+        if (isPrivateName(d.name)) throw fail(403, 'that folder holds a private folder, which the dashboard never changes: change it in a terminal', { code: 'holds-protected' });
+        stack.push(path.join(dir, d.name));
+      }
+    },
+  };
 }
 
 /**

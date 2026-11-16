@@ -85,6 +85,7 @@ export const CHANGES = [
   ['POST', /^\/api\/files\/trash$/, () => 'moved files to the trash in Files'],
   ['POST', /^\/api\/files\/trash\/restore$/, () => 'put a file back from the trash in Files'],
   ['POST', /^\/api\/files\/trash\/empty$/, () => 'emptied the trash in Files'],
+  ['POST', /^\/api\/files\/delete$/, () => 'deleted files for good in Files'],
   ['POST', /^\/api\/files\/pack$/, () => 'packed files into an archive in Files'],
   ['POST', /^\/api\/files\/unpack$/, () => 'unpacked an archive in Files'],
 ];

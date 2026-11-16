@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { run } from '../server/platform/common.mjs';
 import { clipBytes, freeName, pathList, placeNew } from './manage.mjs';
-import { checkName, fail, isGitName, isPrivateName, locate, mayChangeFolder } from './paths.mjs';
+import { checkName, fail, isGitName, isPrivateName, locate, mayChangeFolderAsync } from './paths.mjs';
 
 const TIMEOUT = 10 * 60_000;
 export const ENTRIES_MAX = 50_000;
@@ -32,7 +32,7 @@ export async function pack(paths, roots, { name } = {}) {
   const list = pathList(paths).map((p) => locate(p, roots, { mode: 'entry' }));
   const dir = path.dirname(list[0].abs);
   if (list.some((a) => path.dirname(a.abs) !== dir)) throw fail(400, 'pack things of one folder at a time');
-  for (const a of list) mayChangeFolder(a.abs);
+  for (const a of list) await mayChangeFolderAsync(a.abs);
   const base = name === undefined || name === null || name === '' ? (list.length === 1 ? path.basename(list[0].abs) : 'Archive') : checkName(String(name));
   // "<name>.tar.gz" and its temporary ".<name>.tar.gz.<8 hex>.tmp" stay within the disk's 255 bytes.
   const file = freeName(dir, `${clipBytes(base.replace(/\.tar\.gz$/i, ''), 200)}.tar.gz`);
@@ -48,6 +48,7 @@ export async function pack(paths, roots, { name } = {}) {
   return { path: out.abs };
 }
 
+const mb = (n) => `${Math.ceil(n / 1048576)} MB`;
 const clip = (s) => String(s || '').trim().split('\n').slice(-2).join(' ').slice(0, 300);
 
 /** Why the entry names `names` (tar -tf) must not be unpacked, or null. */
@@ -67,6 +68,37 @@ export function badEntries(names) {
 export function linkEntries(lines) {
   const l = lines.find((x) => /^[lh]/.test(x) || / link to /.test(x));
   return l ? 'it holds links, which are not unpacked here: unpack it in a terminal' : null;
+}
+
+/**
+ * The bytes an archive unpacks to, from its long listing (zipinfo -Z, GNU tar -tvf, bsdtar -tvf), or null when the
+ * listing has no size this reads.
+ */
+export function listedBytes(lines) {
+  const SIZE = [
+    /^\S+\s+\S+\s+\S+\s+(\d+)\s+[tbTB][xX-]?\s/, // zipinfo: mode, version, system, size, text/binary
+    /^\S+\s+\S+\s+(\d+)\s+\d{4}-\d\d-\d\d\s/, // GNU tar: mode, owner/group, size, date
+    /^\S+\s+\d+\s+\S+\s+\S+\s+(\d+)\s+[A-Z][a-z]{2}\s/, // bsdtar: mode, links, owner, group, size, month
+  ];
+  let total = 0;
+  let found = false;
+  for (const l of lines) {
+    const m = SIZE.map((re) => re.exec(l)).find(Boolean);
+    if (!m) continue;
+    found = true;
+    total += Number(m[1]);
+  }
+  return found ? total : null;
+}
+
+/** The bytes free for this user on the disk of `dir`, or null where the computer does not say. */
+function freeBytes(dir) {
+  try {
+    const s = fs.statfsSync(dir);
+    return s.bavail * s.bsize;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -122,6 +154,10 @@ export async function unpack(p, roots) {
   const why = badEntries(list) || (lines ? linkEntries(lines) || (rd.locked && rd.locked(lines)) : 'it could not be listed');
   if (why) throw fail(409, `it is not unpacked: ${why}`);
   const dir = path.dirname(a.abs);
+  // An archive that unpacks to more than the disk has free is refused before it fills the disk.
+  const need = listedBytes(lines);
+  const free = freeBytes(dir);
+  if (need !== null && free !== null && need > free) throw fail(409, `it is not unpacked: it holds ${mb(need)} and the disk has ${mb(free)} free`, { code: 'disk-full' });
   const stem = path.basename(a.abs).replace(ARCHIVE, '') || 'Archive';
   const out = locate(path.join(dir, freeName(dir, stem)), roots, { mode: 'new', typed: false });
   fs.mkdirSync(out.abs);

@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isOwnFolder } from '../server/folders.mjs';
 import { fsError } from './files.mjs';
-import { checkName, fail, isGitName, isPrivateName, isSecret, locate, mayChangeFolder } from './paths.mjs';
+import { checkName, fail, isGitName, isPrivateName, isSecret, locate, mayChangeFolderAsync } from './paths.mjs';
 
 export const LIST_MAX = 5000;
 export const MANY_MAX = 500; // paths in one move, copy, trash or pack
@@ -241,7 +241,7 @@ export async function transfer(paths, to, roots, { copy = false } = {}) {
   for (const p of list) {
     try {
       const src = locate(p, roots, { mode: 'entry' });
-      mayChangeFolder(src.abs);
+      await mayChangeFolderAsync(src.abs);
       if (dest.abs === src.abs || dest.abs.startsWith(src.abs + path.sep)) throw fail(400, 'a folder cannot go into itself');
       let name = path.basename(src.abs);
       if (copy && path.dirname(src.abs) === dest.abs) name = freeName(dest.abs, name);
