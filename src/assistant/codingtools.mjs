@@ -16,6 +16,12 @@ import { str } from './schema.mjs';
 import { codingTool, comp, short, toolError, toolName } from './toolkit.mjs';
 
 const ITEM = /^[a-z][a-z0-9-]{0,30}$/;
+const VERSION = /^\d{1,6}(\.\d{1,6}){0,3}([-+][0-9A-Za-z.-]{1,30})?$/;
+// The summary is built only from validated ids, versions and fixed words (the checklist in tools.mjs): what another
+// computer says of itself (a name, a title, a version) stays in the fenced data.
+const sumTool = (id) => (ITEM.test(String(id)) ? toolName(id) : 'a coding tool');
+const sumVersion = (v) => (typeof v === 'string' && VERSION.test(v) ? v : v ? 'a version' : 'not installed');
+const sumItem = (id) => (ITEM.test(String(id)) ? toolName(id) : 'an item');
 
 /** A row of Settings → Updates in Tia's words. */
 const rowView = (r) => ({
@@ -37,10 +43,10 @@ export async function codingToolsView(ops, c, { fresh = false } = {}) {
     coding_tool: x.id, name: x.name, on: !!x.on, installed: x.installed || null, providers: (x.providers || []).slice(0, 20),
   }));
   const rows = u.error ? null : (u.items || []).map(rowView);
-  const said = Array.isArray(tools) ? tools.map((x) => `${x.name} ${x.installed || 'not installed'} (${x.on ? 'on' : 'off'})`).join(', ') : 'not known';
+  const said = Array.isArray(tools) ? tools.map((x) => `${sumTool(x.coding_tool)} ${sumVersion(x.installed)} (${x.on ? 'on' : 'off'})`).join(', ') : 'not known';
   const avail = rows ? rows.filter((r) => r.action === 'update' && r.update_available) : [];
   return {
-    summary: `${fresh ? 'Looked again: c' : 'C'}oding tools on ${c}: ${said}. Updates: ${!rows ? 'not known' : avail.length ? `${avail.length} available (${avail.map((r) => r.title).join(', ')})` : 'nothing newer'}${u.running ? `; an update of ${u.running} runs now` : ''}.`,
+    summary: `${fresh ? 'Looked again: c' : 'C'}oding tools on ${c}: ${said}. Updates: ${!rows ? 'not known' : avail.length ? `${avail.length} available (${avail.map((r) => sumItem(r.item)).join(', ')})` : 'nothing newer'}${u.running ? `; an update of ${sumItem(u.running)} runs now` : ''}.`,
     data: {
       computer: c, coding_tools: tools,
       updates: rows ? { by_themselves: u.mode === 'auto', running: u.running || null, items: rows } : unknown(u.error),

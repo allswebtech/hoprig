@@ -16,6 +16,9 @@ import path from 'node:path';
 import { stateDir } from '../paths.mjs';
 import { fence, neutralize } from './fence.mjs';
 import { LOCAL } from './shown.mjs';
+
+/** A session in the job's log as the owner reads it: "the chat 77777777 on this computer", "web-ui on laptop". */
+const named = (session, computer) => `${/^chat:[0-9a-f-]{36}$/.test(session) ? `the chat ${session.slice(5, 13)}` : session} on ${computer === LOCAL ? 'this computer' : computer}`;
 import { ASSISTANT_NAME } from './tia.mjs';
 import { statusOf } from './tools.mjs';
 
@@ -213,12 +216,12 @@ export class JobStore {
     const entry = job.sessions.find((e) => e.computer === computer && e.session === session);
     if (!entry) {
       job.sessions.push({ computer, session, startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false });
-      this.#log(job, `${startedByTia ? 'started' : 'watching'} ${session} on ${computer}`);
+      this.#log(job, `${startedByTia ? 'started' : 'watching'} ${named(session, computer)}`);
     } else if (at !== null && entry.created !== at) {
       // The same name, made at another time: the conversation goes on in a new chat (or terminal) within this job, and
       // the job follows that one now.
       Object.assign(entry, { startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false });
-      this.#log(job, `${startedByTia ? 'started' : 'watching'} ${session} on ${computer} again`);
+      this.#log(job, `${startedByTia ? 'started' : 'watching'} ${named(session, computer)} again`);
     }
     return { ...job };
   }

@@ -7,61 +7,18 @@
 // and, once decided, shows what happened. Styles: page-automations.css (every class starts with "tia-").
 import { money } from './chat/words.js';
 import { icon } from './icons.js';
-import { BARE, add, api, btn, confirmSheet, copyText, fill, h, link, prefs, toast, url } from './lib.js';
+import { BARE, add, api, btn, confirmSheet, copyText, fill, h, prefs, toast, url } from './lib.js';
 import { navChanged, registerHeadTool, registerPage, registerSessionAction, registerSettingsPage } from './registry.js';
 import { fold, saveBar, tabBar, toggle } from './shell.js';
 import { MODELS } from './sessiondefaults.js';
 import { store } from './store.js';
+import { DID, DOING, TOOL_WORDS, jobChip, jobLabel, wordFor } from './tiawords.js';
 
 const NAME = 'Tia';
 const A = '~/api/assistant';
 
-// What she did, in plain words (the chips under her answer and the Activity list).
-const TOOL_WORDS = {
-  list_sessions: 'looked at the sessions', read_session: 'read a session', list_projects: 'looked at the projects', list_conversations: 'looked at earlier conversations',
-  get_accounts: 'looked at the providers', get_computer_status: 'looked at the computers', get_settings: 'read the settings', find_skill: 'looked up how to do it',
-  start_session: 'start a session', send_to_session: 'type into a session', press_key: 'press a key in a session', rename_session: 'rename a session',
-  start_chat: 'start a chat', send_to_chat: 'act in a chat',
-  watch_session: 'watch a session', finish_job: 'finish the job', notify_owner: 'notify you', open_screen: 'open a screen',
-  stop_session: 'stop a session', switch_account: 'move a session to another provider', set_auto_mode: 'change Auto mode',
-  update_claude_code: 'update Claude Code', kill_process: 'end a process', change_setting: 'change a setting', run_command: 'run a command',
-  manage_computer: 'change a computer', draft_skill: 'add a skill',
-};
-// What she is doing right now (the line while she works).
-const DOING = {
-  list_sessions: 'looking at the sessions', read_session: 'reading a session', list_projects: 'looking at your projects', list_conversations: 'looking at earlier conversations',
-  get_accounts: 'checking the providers', get_computer_status: 'checking the computers', get_settings: 'reading the settings', find_skill: 'looking up how to do it',
-  start_session: 'starting a session', send_to_session: 'typing into a session', press_key: 'pressing a key in a session', rename_session: 'renaming a session',
-  start_chat: 'starting a chat', send_to_chat: 'writing to a chat',
-  watch_session: 'watching a session', finish_job: 'finishing the job', notify_owner: 'writing to you', open_screen: 'opening a screen',
-  stop_session: 'stopping a session', switch_account: 'moving a session to another provider', set_auto_mode: 'changing Auto mode',
-  update_claude_code: 'updating Claude Code', kill_process: 'ending a process', change_setting: 'changing a setting', run_command: 'running a command',
-  manage_computer: 'changing a computer', draft_skill: 'writing a skill',
-};
-// The chip once a call has an answer.
-const DID = {
-  ...Object.fromEntries(Object.entries(TOOL_WORDS).filter(([, v]) => v.startsWith('looked') || v.startsWith('read'))),
-  start_session: 'started a session', send_to_session: 'typed into a session', press_key: 'pressed a key', rename_session: 'renamed a session',
-  start_chat: 'started a chat', send_to_chat: 'wrote to a chat',
-  watch_session: 'watches a session', finish_job: 'finished the job', notify_owner: 'notified you', open_screen: 'opened a screen',
-  stop_session: 'stopped a session', switch_account: 'moved a session', set_auto_mode: 'changed Auto mode', update_claude_code: 'updated Claude Code',
-  kill_process: 'ended a process', change_setting: 'changed a setting', run_command: 'ran a command', manage_computer: 'changed a computer', draft_skill: 'added a skill',
-};
 const JOB_WORDS = { working: 'Working', waiting: 'Waiting for you', done: 'Done', stuck: 'Stuck', stopped: 'Stopped' };
 const JOB_PILL = { working: 'st-working', waiting: 'st-waiting', done: 'st-starting', stuck: 'st-limit', stopped: 'st-starting' };
-
-/**
- * A session of a job as a chip that opens it: a chat ("chat:<id>") on its chat page by its id, a terminal on its
- * session page by its name; another computer's through its own address.
- */
-const chatOf = (s) => (/^chat:([0-9a-f-]{36})$/.exec(s.session) || [])[1] || null;
-export const jobLabel = (s) => (chatOf(s) ? `Chat ${chatOf(s).slice(0, 8)}` : s.session);
-export function jobChip(s) {
-  const chat = chatOf(s);
-  const m = s.computer && s.computer !== 'this' ? s.computer : null;
-  const href = chat ? link(`#/chat/${chat}`, m) : link(`#/s/${encodeURIComponent(s.session)}`, m);
-  return h('a.chip', { href }, icon(chat ? 'text' : 'terminal', { size: 14 }), jobLabel(s));
-}
 const OUTCOME = { done: 'Done', staged: 'Waiting for your OK', confirmed: 'You confirmed', declined: 'You declined', refused: 'Refused', failed: 'Failed', stale: 'Not run (things changed)', expired: 'Expired' };
 // Three things to ask, for the empty chat: each is sent as it is when tapped.
 export const EXAMPLES = [
@@ -158,7 +115,7 @@ export function plainCard(card, { accounts = [], computerLabel = null } = {}) {
   } else if (card.tool === 'draft_skill') {
     question = `Add the skill "${a.name}"?`;
   } else {
-    question = `${cap(TOOL_WORDS[card.tool] || card.tool)}${on}?`;
+    question = `${cap(wordFor(TOOL_WORDS, card.tool, a.action) || card.tool)}${on}?`;
   }
   const asks = lines.find((l) => l.startsWith('The session asks: '));
   if (asks) notes.push(`The session asks: ${asks.slice('The session asks: '.length)}`);
@@ -313,15 +270,17 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
         tools = h('div.tia-tools');
         add(list, tools);
       }
-      busy(DOING[e.tool] || 'working');
+      const doing = wordFor(DOING, e.tool, e.input && e.input.action);
+      busy(doing || 'working');
       const arg = e.input && (e.input.session || e.input.folder || e.input.query || e.input.job || '');
-      return add(tools, h('span.tia-tool', { id: `tc-${e.id}`, 'data-tool': e.tool }, icon('zap', { size: 13 }), h('span', `${cap(DOING[e.tool] || e.tool)}${arg && !/^j_/.test(arg) ? ` · ${short(arg)}` : ''}`)));
+      return add(tools, h('span.tia-tool', { id: `tc-${e.id}`, 'data-tool': e.tool, 'data-action': (e.input && e.input.action) || '' }, icon('zap', { size: 13 }), h('span', `${cap(doing || e.tool)}${arg && !/^j_/.test(arg) ? ` · ${short(arg)}` : ''}`)));
     }
     if (e.kind === 'tool_result') {
       const chip = list.querySelector(`#tc-${CSS.escape(e.id)}`);
       if (chip) {
-        const t = chip.dataset.tool;
-        const words = e.card ? 'waits for your OK' : e.isError ? `could not ${TOOL_WORDS[t] && !/^(looked|read)/.test(TOOL_WORDS[t]) ? TOOL_WORDS[t] : 'do it'}` : DID[t] || 'done';
+        const [t, act] = [chip.dataset.tool, chip.dataset.action];
+        const would = wordFor(TOOL_WORDS, t, act);
+        const words = e.card ? 'waits for your OK' : e.isError ? `could not ${would && !/^(looked|read)/.test(would) ? would : 'do it'}` : wordFor(DID, t, act) || 'done';
         chip.classList.add(e.card ? 'card' : e.isError ? 'err' : 'ok');
         chip.lastChild.textContent = cap(words);
         chip.title = e.summary || '';
@@ -671,7 +630,7 @@ function viewTia({ frame, sub }) {
     fill(body, h('div.rows', r.entries.map((e) => h('div.row.static',
       h('span.row-icon', icon(e.actor === 'owner' ? 'user' : 'sparkle')),
       h('span.row-main',
-        h('span.row-title.tia-wrap', `${e.actor === 'owner' ? 'You' : NAME}: ${TOOL_WORDS[e.tool] || e.tool}`),
+        h('span.row-title.tia-wrap', `${e.actor === 'owner' ? 'You' : NAME}: ${wordFor(TOOL_WORDS, e.tool, e.input && e.input.action) || e.tool}`),
         h('span.row-sub.tia-wrap', `${new Date(e.at).toLocaleString()} · ${OUTCOME[e.outcome] || e.outcome}${e.error ? ` · ${e.error}` : ''}`),
         Object.keys(e.input || {}).length ? h('span.row-sub.tia-wrap', Object.entries(e.input).map(([k, v]) => `${k}: ${short(v)}`).join(' · ')) : null)))));
   }

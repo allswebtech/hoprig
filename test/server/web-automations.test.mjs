@@ -192,7 +192,7 @@ test('Activity: no setting key reaches the page, and the same entry in a row is 
 });
 
 test('a job\'s sessions: a chat opens its chat page by its id, a terminal its session page, on its own computer', async () => {
-  const { jobChip, jobLabel } = await import('../../web/tia.js');
+  const { jobChip, jobLabel } = await import('../../web/tiawords.js');
   const id = '77777777-7777-4777-8777-777777777777';
   const href = (el) => el.attrs.href ?? el.href;
   assert.equal(href(jobChip({ computer: 'this', session: `chat:${id}` })), `#/chat/${id}`);
@@ -201,4 +201,14 @@ test('a job\'s sessions: a chat opens its chat page by its id, a terminal its se
   assert.equal(href(jobChip({ computer: 'box2', session: 'web-ui' })), '#/m/box2/s/web-ui');
   assert.equal(jobLabel({ session: `chat:${id}` }), 'Chat 77777777');
   assert.equal(jobLabel({ session: 'web-ui' }), 'web-ui');
+});
+
+test('Tia\'s words: manage_computer says what each action does; no words for a tool she no longer has', async () => {
+  const { DID, DOING, TOOL_WORDS, wordFor } = await import('../../web/tiawords.js');
+  assert.equal(wordFor(TOOL_WORDS, 'manage_computer', 'update'), 'update or install on a computer');
+  assert.equal(wordFor(DOING, 'manage_computer', 'check_updates'), 'checking for updates');
+  assert.equal(wordFor(DID, 'manage_computer', 'coding_tool'), 'turned a coding tool on or off');
+  assert.equal(wordFor(TOOL_WORDS, 'manage_computer', 'rename'), 'change a computer', 'any other action: the tool\'s own words');
+  assert.equal(wordFor(DID, 'start_chat'), 'started a chat');
+  for (const m of [TOOL_WORDS, DOING, DID]) assert.equal(m.update_claude_code, undefined, 'folded into manage_computer update');
 });

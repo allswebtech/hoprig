@@ -66,6 +66,15 @@ test('wakeMessage: trusted header, goal neutralised, screen fenced', () => {
   assert.match(m, /finish_job/);
 });
 
+test('a job\'s log names what the owner reads: this computer in words, a chat by its short id', () => {
+  const store = new JobStore({ dir: null, now: () => 1000 });
+  const j = store.create({ conversation: 'c', goal: 'tests pass' });
+  store.attach(j.id, { computer: 'this', session: 's', startedByTia: true });
+  assert.equal(store.get(j.id).log.at(-1).text, 'started s on this computer');
+  store.attach(j.id, { computer: 'laptop', session: 'chat:77777777-7777-4777-8777-777777777777' });
+  assert.equal(store.get(j.id).log.at(-1).text, 'watching the chat 77777777 on laptop');
+});
+
 test('JobStore: create, attach, step cap, finish, persistence, tick', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hop-jobs-'));
   try {
