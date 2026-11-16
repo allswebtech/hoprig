@@ -133,6 +133,10 @@ export function chatFeature(ctx, o = {}) {
 
   // One place at a time (handoff.mjs).
   const { terminalOf, inTerminal } = terminals(ctx);
+  /** A chat of a coding tool that was turned off since: it runs nothing any more (it can still be read and closed). */
+  const toolStillOn = (c) => {
+    if (c.engine.id !== 'claude' && !chatTools(cfg()).includes(c.engine.id)) throw new HttpError(409, `${c.engine.label} is off on this computer: turn it on under Settings → Coding tools to go on with this chat`);
+  };
 
   // ---------- views ----------
   function card(c) {
@@ -216,9 +220,10 @@ export function chatFeature(ctx, o = {}) {
     const dir = insideRoots(v.absPath(b.dir), roots());
     if (!dir) throw bad('choose a folder inside the allowed roots');
     const owners = b.defaults !== true;
-    // The coding tool: chosen, else as the last chat here (while that tool is still offered), else Claude Code.
+    // The coding tool: chosen, else as the last chat here (while that tool is still offered: on and installed), else
+    // Claude Code.
     const lastOne = lastTool(owners && memory.last(dir));
-    const tool = chatTool(b.tool === undefined || b.tool === null || b.tool === '' ? (chatTools(cfg()).includes(lastOne) ? lastOne : 'claude') : b.tool, cfg());
+    const tool = chatTool(b.tool === undefined || b.tool === null || b.tool === '' ? (lastOne !== 'claude' && chatToolList(cfg()).some((t) => t.id === lastOne) ? lastOne : 'claude') : b.tool, cfg());
     const before = (owners && memory.last(dir)) || {};
     // What the last chat here chose counts only for a chat of the same coding tool.
     const last = (before.engine || 'claude') === tool ? before : {};
@@ -243,7 +248,8 @@ export function chatFeature(ctx, o = {}) {
     let conversationId = null;
     if (b.sessionId !== undefined && b.sessionId !== null) {
       conversationId = conversationIdOk(tool, b.sessionId) ? b.sessionId : null;
-      if (!conversationId || !(await engineOf(tool).history(dir, o.engineOpts)).some((s) => s.id === conversationId)) throw bad('that conversation is not in this folder');
+      // Every conversation of the folder in the tool's store (not only the newest few the history list shows).
+      if (!conversationId || !(await engineOf(tool).sessions(dir, o.engineOpts)).some((s) => s.id === conversationId)) throw bad('that conversation is not in this folder');
       const open = openChatOf(conversationId);
       if (open) {
         // That chat is someone's already (the owner's, as a rule): it keeps its own settings, and `existing` says so,
@@ -282,6 +288,7 @@ export function chatFeature(ctx, o = {}) {
   /** A message to an open chat from the dashboard itself (a schedule): queued by the chat while Claude works. */
   async function sendTo(id, text) {
     const c = chatOr404(id);
+    toolStillOn(c);
     const t = v.message(text);
     if (!t) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
     if (!c.busy()) {
@@ -316,6 +323,7 @@ export function chatFeature(ctx, o = {}) {
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/send$`), async (req, m) => {
       const c = chatOr404(m[1]);
+      toolStillOn(c);
       const b = await ctx.readJson(req);
       let text = v.message(b.text);
       if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
@@ -407,7 +415,7 @@ export function chatFeature(ctx, o = {}) {
   // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
   const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
   routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, auto: { name: AUTO.name, on: autoOn } }));
-  const live = liveRoutes(ctx, { chatOr404, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
+  const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
   routes.push(...live.routes);
 
   return {
@@ -421,10 +429,13 @@ export function chatFeature(ctx, o = {}) {
       load();
       return [...chats.values()].map(card);
     },
-    /** True when a chat runs conversation `id` right now: its process, or one getting ready for a message. */
-    running(id) {
+    /**
+     * True when a chat runs conversation `id` (of coding tool `tool`, Claude Code when left out) right now: its
+     * process, or one getting ready for a message.
+     */
+    running(id, tool = 'claude') {
       load();
-      const c = [...chats.values()].find((x) => x.conversationId === id);
+      const c = [...chats.values()].find((x) => x.conversationId === id && x.engine.id === tool);
       return !!(c && (c.session || c.busy()));
     },
     async close() {

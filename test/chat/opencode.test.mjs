@@ -24,7 +24,7 @@ async function until(fn, what, ms = 5000) {
 async function chatOn(s, o = {}) {
   const { Chat } = await import('../../src/chat/chat.mjs');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-occhat-'));
-  const c = new Chat({ id: '7d9c2a4e-1b3f-4c5d-8e6f-0a1b2c3d4e5f', engine: 'opencode', cwd: CWD, profile: 'gw', turnsDir: dir, resolveEnv: async () => ({}), engineOpts: standInOpts(s), idleMs: 60_000, stopGraceMs: 3000, ...o });
+  const c = new Chat({ id: '7d9c2a4e-1b3f-4c5d-8e6f-0a1b2c3d4e5f', engine: 'opencode', cwd: CWD, profile: 'gw', turnsDir: dir, resolveEnv: async () => ({}), engineOpts: { enabled: () => true, ...standInOpts(s) }, idleMs: 60_000, stopGraceMs: 3000, ...o });
   await c.loading;
   return c;
 }
@@ -46,8 +46,8 @@ test('the mapper: what the real server sent becomes the chat\'s events', async (
   assert.deepEqual(results[0].diff[0].lines, ['+alpha'], 'the new file\'s diff comes from its OK (its result has none)');
   assert.deepEqual(results[1].diff[0], { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-alpha', '+beta'] });
   assert.equal(results[2].ok, false);
-  assert.equal(results[2].text, 'The user said no: not now');
-  assert.equal(results[3].stopped, true);
+  assert.deepEqual([results[2].denied, results[2].text], [true, 'not now'], 'refused: "you said no", with his reason only');
+  assert.deepEqual([results[3].stopped, results[3].text], [true, ''], 'stopped: no words of OpenCode\'s own files and shell ids');
   // An OK carries the whole of what the call does: the command as the call gave it, not OpenCode's pieces of it.
   const asks = kinds('ask');
   assert.equal(asks.length, 4);
@@ -182,6 +182,12 @@ test('a chat on OpenCode: streamed answer, edits with diffs, OKs, Stop, a queued
   assert.deepEqual(again.events.find((e) => e.kind === 'tool' && e.name === 'Edit').input, { file_path: '/work/proj/oc-notes.txt', old_string: 'alpha', new_string: 'beta' });
   assert.deepEqual(again.events.find((e) => e.kind === 'tool-result' && e.diff).diff[0].lines, ['-alpha', '+beta']);
   assert.equal(again.title, 'My chat', 'the name it has at OpenCode');
+  // Read back as it was drawn live: the stopped command is the owner's act, not a failure with OpenCode's file path.
+  const sleepId = again.events.find((e) => e.kind === 'tool' && /sleep 40/.test(e.input.command || '')).id;
+  const stopped = again.events.find((e) => e.kind === 'tool-result' && e.id === sleepId);
+  assert.deepEqual([stopped.stopped, stopped.text], [true, '']);
+  assert.ok(!JSON.stringify(again.events).includes('output file'));
+  assert.ok(again.events.filter((e) => e.kind === 'thinking').every((e) => e.text.trim()), 'no empty "Thought" lines');
   await again.close();
 });
 
@@ -210,7 +216,7 @@ test('a provider that does not serve OpenCode never starts it; the server going 
   const refuse = () => {
     throw Object.assign(new Error('The provider "Main" cannot be used for OpenCode: a Claude subscription is for Claude Code only.'), { status: 400 });
   };
-  const c = await chatOn(s, { engineOpts: { ...standInOpts(s), providerFor: refuse } });
+  const c = await chatOn(s, { engineOpts: { enabled: () => true, ...standInOpts(s), providerFor: refuse } });
   await c.send('hello');
   await until(() => turnEnds(c).length === 1, 'the refusal');
   assert.match(turnEnds(c)[0].error, /OpenCode stopped \(provider\): .*a Claude subscription is for Claude Code only/);

@@ -449,6 +449,9 @@ export function createServer(opts = {}) {
           sid = isToolSessionId(tool, b.sessionId) ? b.sessionId : null;
           if (!sid || !(await toolSessions(tool, dir)).some((s) => s.id === sid)) throw bad('that conversation is not in this folder');
         }
+        // One conversation runs in one place only, as for Claude Code ("continue": the folder's newest of the tool).
+        const runs = mode === 'resume' ? sid : mode === 'continue' ? ((await toolSessions(tool, dir))[0] || {}).id : null;
+        if (runs && chat.running(runs, tool)) throw new HttpError(409, 'this conversation is open as a chat right now; open it in a terminal from the chat');
         let prompt = null;
         if (b.prompt !== undefined && b.prompt !== null) {
           prompt = v.message(b.prompt);

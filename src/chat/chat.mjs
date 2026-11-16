@@ -89,7 +89,8 @@ export class Chat extends Timeline {
     this.closed = false;
     this.ending = null; // the previous process's exit, while it is still stopping
     this.starting = null; // the start under way
-    this.load();
+    this.unread = false; // a tool read through its server: not read yet (its server did not run at the first look)
+    this.load({ wake: false });
   }
 
   /** The conversation's file (null for a tool whose conversations are kept by its server). */
@@ -100,23 +101,29 @@ export class Chat extends Timeline {
   /**
    * Read the conversation from its files (the page starts over). A rewound one: the old one up to its message. A tool
    * whose store is read through its server answers later: what it read is taken unless a turn started meanwhile.
+   * wake: false (when the dashboard starts) reads such a store only from a server that runs already; the chat reads
+   * it once a page looks at it (refresh), so a saved chat never starts the tool's server by itself.
    */
-  load() {
+  load({ wake = true } = {}) {
     if (this.fork && this.engine.exists(this.cwd, this.conversationId) === true) this.fork = null;
     const f = this.fork;
     const id = f ? f.from : this.conversationId;
-    const t = this.engine.transcript({ cwd: this.cwd, id }, this.o.engineOpts);
+    const t = this.engine.transcript({ cwd: this.cwd, id }, this.o.engineOpts, { start: wake });
     if (!t || typeof t.then !== 'function') return this.#loaded(t, f, id);
     const gen = this.gen;
     this.loading = t.then((x) => {
-      if (!this.closed && gen === this.gen && !this.session && !this.turn && id === this.conversationId) this.#loaded(x, f, id);
-    }, () => {}).finally(() => {
+      if (!x) this.unread = true;
+      else if (!this.closed && gen === this.gen && !this.session && !this.turn && id === this.conversationId) this.#loaded(x, f, id);
+    }, () => {
+      this.unread = true; // asked again at the next look
+    }).finally(() => {
       this.loading = null;
     });
     return this.loading;
   }
 
   #loaded(t, f, id) {
+    this.unread = false;
     t = { ...t, events: withTurns(t.events, readTurns(this.o.turnsDir, id)) }; // each turn's cost and time (turns.mjs)
     if (f) t = cutAt(t, f.messageId);
     this.reset(t.events);
@@ -154,6 +161,10 @@ export class Chat extends Timeline {
   #restamp() {
     if (this.loading || Date.now() - (this.stampAt || 0) < STAMP_MS) return false;
     this.stampAt = Date.now();
+    if (this.unread) {
+      this.load();
+      return false;
+    }
     Promise.resolve(this.engine.stamp({ cwd: this.cwd, id: this.conversationId }, this.o.engineOpts)).then((n) => {
       if (n && n !== this.knownSize && !this.session && !this.turn) this.load();
     }, () => {});
@@ -232,7 +243,11 @@ export class Chat extends Timeline {
     if (this.closed) throw fail(409, 'this chat is closed');
     clearTimeout(this.idleTimer);
     // A terminal may have gone on with the conversation meanwhile: read it first, so the page shows it all.
-    if (!this.session && !this.starting) this.refresh();
+    if (!this.session && !this.starting) {
+      // Never read yet (its server did not run when the dashboard started): the conversation first, then the message.
+      if (this.unread && !this.turn) await (this.loading || this.load());
+      else this.refresh();
+    }
     if (!this.title) this.title = oneLine(text, 80);
     const msg = { id: crypto.randomUUID(), text, images, attachments };
     if (this.turn) {

@@ -30,7 +30,12 @@ export function recordedTurns() {
   return turns;
 }
 
-/** Start it. o: { turns (default: the recorded ones), title } → { port, secret, server, calls, close(), drop() } */
+/**
+ * Start it. o: { turns (default: the recorded ones), title, children (ids of subagents' conversations it knows),
+ * waiting ({ permission: [], form: [] }: what the conversation waits for when it is asked), busy (a turn runs on it),
+ * modelMs, messageMs (slower answers), deliverFirst (a queued message is taken before its answer comes) } →
+ * { port, secret, server, calls, send(event), came(kind) (what a turn's { wait } step waits for), close(), drop() }
+ */
 export async function standIn(o = {}) {
   const turns = (o.turns || recordedTurns()).map((t) => ({ ...t, steps: [...t.steps] }));
   const calls = [];
@@ -42,6 +47,8 @@ export async function standIn(o = {}) {
   let title = o.title || 'Recorded session';
   let updated = 1000;
   let dir = '/work/proj'; // the folder of the conversation (the one it was made in)
+  const known = new Set([SESSION_ID, ...(o.children || [])]);
+  const pause = (ms) => (ms ? new Promise((r) => setTimeout(r, ms)) : null);
   const send = (ev) => {
     for (const res of streams) res.write(`data: ${JSON.stringify({ id: `evt_${Math.random().toString(36).slice(2)}`, ...ev })}\n\n`);
   };
@@ -87,6 +94,7 @@ export async function standIn(o = {}) {
     }
     if (p === '/api/info') return json(res, 200, { version: '2.3.0' });
     if (p === '/api/model') {
+      await pause(o.modelMs);
       return json(res, 200, { data: [{ id: 'sample-model', providerID: 'hoprig_demo_000001', settings: { apiKey: KEY }, variants: ['low', 'medium', 'high', 'xhigh', 'max'].map((id) => ({ id })), limit: { context: 200000, output: 32000 } }] });
     }
     if (p === '/api/session' && req.method === 'POST') {
@@ -96,18 +104,28 @@ export async function standIn(o = {}) {
     // Like the real server asked with a filter it does not know: every folder's conversations.
     if (p === '/api/session' && req.method === 'GET') return json(res, 200, { data: [{ id: SESSION_ID, title, time: { created: 1, updated }, location: { directory: dir } }, { id: 'ses_elsewhere0001', title: 'Elsewhere', time: { created: 1, updated: 1 }, location: { directory: '/somewhere/else' } }] });
     const m = /^\/api\/session\/(ses_[A-Za-z0-9]+)(\/.*)?$/.exec(p);
-    if (!m || m[1] !== SESSION_ID) return json(res, 404, { error: 'no such session' });
+    if (!m || !known.has(m[1])) return json(res, 404, { error: 'no such session' });
     const rest = m[2] || '';
-    if (!rest && req.method === 'GET') return json(res, 200, { data: { id: SESSION_ID, title, time: { created: 1, updated } } });
+    if (!rest && req.method === 'GET') return json(res, 200, { data: { id: m[1], title, time: { created: 1, updated, ...(o.busy ? { busy: 900, idle: 800 } : { busy: 800, idle: 900 }) } } });
+    if (rest === '/permission' && req.method === 'GET') return json(res, 200, { data: (o.waiting && o.waiting.permission) || [] });
+    if (rest === '/form' && req.method === 'GET') return json(res, 200, { data: (o.waiting && o.waiting.form) || [] });
+    if (!rest && req.method === 'PATCH' && m[1] !== SESSION_ID) return json(res, 200, null); // a subagent's
     if (!rest && req.method === 'PATCH') {
       if (body && typeof body.title === 'string') title = body.title;
       return json(res, 200, null);
     }
-    if (rest === '/message') return json(res, 200, { data: MESSAGES.data, cursor: { next: null } });
+    if (rest === '/message') {
+      await pause(o.messageMs);
+      return json(res, 200, { data: MESSAGES.data, cursor: { next: null } });
+    }
     if (rest === '/model') return json(res, 200, null);
     if (rest === '/prompt') {
       const turn = turns[next++] || { text: body.text, steps: [{ event: { type: 'session.execution.started', data: { sessionID: SESSION_ID } } }, { event: { type: 'session.execution.succeeded', data: { sessionID: SESSION_ID } } }] };
       const inboxId = inboxOf(turn);
+      if (o.deliverFirst && running) {
+        send({ type: 'session.inbox.delivered', data: { sessionID: SESSION_ID, inboxID: inboxId } });
+        await new Promise((r) => setTimeout(r, 30));
+      }
       json(res, 200, { data: { id: inboxId, sessionID: SESSION_ID, type: 'user', payload: { text: body.text }, delivery: 'steer' } });
       if (running) queue.push({ turn, inboxId });
       else setImmediate(() => play(turn));
@@ -128,7 +146,7 @@ export async function standIn(o = {}) {
     }
     if (rest === '/interrupt') {
       json(res, 200, { interrupted: true });
-      return came('interrupt', {});
+      return came('interrupt', { session: m[1] });
     }
     r = /^\/form\/(frm_[A-Za-z0-9]+)(\/reply)?$/.exec(rest);
     if (r) {
@@ -143,6 +161,7 @@ export async function standIn(o = {}) {
     port, secret: SECRET, key: KEY, calls,
     server: { tool: 'opencode', port, secret: SECRET, url: `http://127.0.0.1:${port}` },
     send,
+    came,
     /** The event stream ends (the server stopped). */
     drop: () => {
       for (const s of streams) s.end();
@@ -156,11 +175,15 @@ export async function standIn(o = {}) {
   };
 }
 
-/** What a chat's engine is given to use the stand-in instead of a real server (engineOpts of the chat). */
+/**
+ * What a chat's engine is given to use the stand-in instead of a real server (engineOpts of the chat). Whether
+ * OpenCode is on is read from the config as in the dashboard (a test that has none passes `enabled`).
+ */
 export function standInOpts(s) {
   const ensure = async () => ({ ok: true, server: s.server });
   return {
     ensure,
+    running: () => s.server, // the server runs: a look that never starts it finds it
     served: { ensure, providers: () => [{ name: 'gw', id: 'hoprig_demo_000001', model: 'sample-model' }], hold: () => () => {} },
     providerFor: (name) => ({ name, label: 'Gateway', kind: 'api' }),
   };

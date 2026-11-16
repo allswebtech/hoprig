@@ -41,8 +41,26 @@ const TOOLS = {
 /** An OK's action → the tool it is about, where no call was seen for it. */
 const ACTION_TOOL = { shell: 'shell', edit: 'edit', read: 'read', webfetch: 'webfetch', websearch: 'websearch', glob: 'glob', grep: 'grep', subagent: 'subagent', skill: 'skill' };
 
-/** A call the owner refused, in words: the reason he gave (the chat's own sentence says it already), or that he said no. */
-export const refused = (message) => (typeof message === 'string' && message.startsWith('The user said no') ? message.replace(/ Do not do it another way.*$/s, '') : `The user said no${message ? `: ${message}` : ''}`);
+/**
+ * A call the owner refused: only the reason he gave (inside the chat's own sentence to the coding tool, asks.mjs), as
+ * Claude Code's refused calls are drawn (denied: "you said no", with his reason).
+ */
+export function refusedReason(message) {
+  if (typeof message !== 'string') return '';
+  const m = /^The user said no to this \S+ call in the dashboard(?:: ([\s\S]*?))?\. Do not do it another way/.exec(message);
+  return plainText(m ? m[1] || '' : message, 1000);
+}
+
+/**
+ * The result of a call that did not succeed: refused by the owner, stopped by him (Stop: OpenCode's words then name
+ * its own files and shell ids, which are nobody's business), or failed with the tool's words.
+ */
+export function failedResult(error, metadata) {
+  const err = error && typeof error === 'object' ? error : {};
+  if (err.type === 'permission.rejected') return { denied: true, text: refusedReason(err.message) };
+  if (metadata && metadata.interrupted) return { stopped: true, text: '' };
+  return { text: String(err.message || 'failed') };
+}
 
 const drop = (o) => Object.fromEntries(Object.entries(o).filter(([, x]) => x !== undefined && x !== null));
 /** { name, toolKind, input } of an OpenCode call (its own name and input) in the page's words. */
@@ -88,6 +106,7 @@ export class OpencodeEvents {
     this.calls = new Map(); // call id → { name, input (OpenCode's own), agent }
     this.patches = new Map(); // call id → the diff its OK showed (a write's result carries none)
     this.waiting = new Map(); // a call that started a subagent, whose conversation has not come yet
+    this.running = new Set(); // the subagents' conversations whose turn has not ended (Stop of one task, close)
     this.asks = new Map(); // request id → { kind: permission | form, form }
     this.turn = null; // { at, usage }
     this.cost = null; // the conversation's cost so far (what the server says)
@@ -130,8 +149,8 @@ export class OpencodeEvents {
         return typeof d.text === 'string' && d.text.trim() ? [{ kind: 'text', blockId: block('t'), text: d.text, agent }] : [];
       case 'session.reasoning.delta':
         return typeof d.delta === 'string' ? [{ kind: 'thinking-delta', blockId: block('r'), text: d.delta, agent }] : [];
-      case 'session.reasoning.ended':
-        return [{ kind: 'thinking', blockId: block('r'), text: clipText(String(d.text || ''), 20000), agent }];
+      case 'session.reasoning.ended': // an empty one (a model that thinks without saying it) is no line to open
+        return typeof d.text === 'string' && d.text.trim() ? [{ kind: 'thinking', blockId: block('r'), text: clipText(d.text, 20000), agent }] : [];
       case 'session.tool.input.started': {
         const id = str(d.id, 200);
         if (!id) return [];
@@ -159,12 +178,17 @@ export class OpencodeEvents {
         const m = d.metadata && typeof d.metadata === 'object' ? d.metadata : {};
         const diff = ok ? filesDiff(m.files) || this.patches.get(id) || null : null;
         this.patches.delete(id);
-        const err = d.error && typeof d.error === 'object' ? d.error : {};
-        const text = ok ? resultText(d) : err.type === 'permission.rejected' ? refused(err.message) : String(err.message || 'failed');
-        const out = [{ kind: 'tool-result', id, ok, text: clipText(text), ...(diff ? { diff } : {}), ...(m.interrupted ? { stopped: true } : {}), agent }];
+        const r = ok ? { text: resultText(d) } : failedResult(d.error, m);
+        const out = [{ kind: 'tool-result', id, ok, ...r, text: clipText(r.text), ...(diff ? { diff } : {}), agent }];
         // A subagent runs in the background (its call only starts it): its task ends with its own conversation's
         // turn, below. A call that failed started nothing.
-        if (!ok) for (const [child, call] of this.children) if (call === id) out.push({ kind: 'task', taskId: child, toolId: id, status: 'failed', agent: null });
+        if (!ok) {
+          for (const [child, call] of this.children) {
+            if (call !== id) continue;
+            this.running.delete(child);
+            out.push({ kind: 'task', taskId: child, toolId: id, status: 'failed', agent: null });
+          }
+        }
         return out;
       }
       case 'session.step.ended':
@@ -209,6 +233,7 @@ export class OpencodeEvents {
         const how = e.type.slice('session.execution.'.length);
         if (main) return this.#end(how, d);
         // A subagent's turn ended: its task (the main conversation goes on by itself when it reads the result).
+        this.running.delete(sid);
         const err = d.error && typeof d.error === 'object' ? d.error : {};
         return [{ kind: 'task', taskId: sid, toolId: agent, status: how === 'succeeded' ? 'completed' : how === 'interrupted' ? 'stopped' : 'failed', ...(how === 'failed' ? { error: plainText(String(err.message || 'it failed'), 300) } : {}), agent: null }];
       }
@@ -227,6 +252,7 @@ export class OpencodeEvents {
     const call = queue.shift() || null;
     this.children.set(sid, call);
     if (!call) return [];
+    this.running.add(sid);
     const input = (this.calls.get(call) || {}).input || {};
     return [{
       kind: 'task', taskId: sid, toolId: call, type: 'agent', status: 'running', background: true,
@@ -238,7 +264,7 @@ export class OpencodeEvents {
   /** An OK the owner (or the chat) gives: what the call does, whole, is its subject. */
   #ask(d, agent) {
     const request = str(d.id);
-    if (!request) return [];
+    if (!request || this.asks.has(request)) return []; // also read from the server's list of what waits
     const action = String(d.action || 'tool');
     const callId = d.source && typeof d.source.id === 'string' ? d.source.id : null;
     const call = callId ? this.calls.get(callId) : null;
@@ -276,7 +302,7 @@ export class OpencodeEvents {
    */
   #form(f) {
     const agent = this.agentOf(f.sessionID);
-    if (agent === undefined || typeof f.id !== 'string') return [];
+    if (agent === undefined || typeof f.id !== 'string' || this.asks.has(f.id)) return [];
     const fields = (Array.isArray(f.fields) ? f.fields : []).filter((x) => x && typeof x.key === 'string' && !x.hidden).slice(0, 10);
     const questions = [];
     const keys = new Map(); // question → field

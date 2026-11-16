@@ -9,7 +9,7 @@ import { api, chooseSheet, fill, h, openSheet, prefs, toast } from '../lib.js';
 import { createAttachments } from './attach.js';
 import { recall } from './keys.js';
 import { createMenus } from './popovers.js';
-import { MODE, caps, contextPercent, effortName, kilo, modeChip, modeInfo, modeOf, modelName, nextMode, toolWord, touchScreen, turnRuns } from './words.js';
+import { MODE, canCompact, caps, contextPercent, effortName, kilo, modeChip, modeInfo, modeOf, modelName, nextMode, toolWord, touchScreen, turnRuns } from './words.js';
 
 // Enter sends unless the screen is touched (a phone's Enter makes a new line; its Send button sends).
 const finePointer = () => !touchScreen();
@@ -187,7 +187,7 @@ export function createComposer(o) {
     const p = contextPercent(u);
     const who = toolWord(v);
     // Compact is Claude Code's: another coding tool's chat only says how full the context is.
-    const compact = !!caps(v).compact;
+    const compact = canCompact(v);
     openSheet({ title: 'Context', subtitle: `How much of what ${who} can keep in mind this conversation fills.` }, (close) => [
       h('p.sheet-text', p === null ? `Not known yet: it comes with ${who}'s next answer.` : `${p}% used${Number.isFinite(u.contextUsed) ? ` · ${kilo(u.contextUsed)} of ${kilo(u.contextWindow || 0)} tokens` : ''}.`),
       compact ? h('p.sheet-text', 'When it is nearly full Claude compacts by itself: it goes on from a summary of the conversation. Compact now to do that at a moment you choose.') : null,

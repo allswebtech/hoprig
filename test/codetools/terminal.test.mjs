@@ -224,6 +224,35 @@ test('OpenCode\'s server always has a password, and a lock left by a holder that
   assert.equal(S.readServer('opencode'), null);
 });
 
+test('a server that answers late is never stopped under the chats that hold it; a slow one nobody uses starts again', async () => {
+  installFake('opencode', FAKE_SERVER);
+  const models = (url, o) => (String(url).includes('/v1/models') ? new Response('{"data":[]}') : fetch(url, o));
+  const first = await S.ensureServer('opencode', { fetchImpl: models });
+  assert.equal(first.ok, true, first.why);
+  // Its info route does not answer in time (a busy server): asked again, then refused, never restarted.
+  let asked = 0;
+  const slow = async (url, o) => {
+    if (String(url).endsWith('/api/info')) {
+      asked++;
+      throw new Error('timed out');
+    }
+    return models(url, o);
+  };
+  const release = S.holdServer('opencode');
+  const held = await S.ensureServer('opencode', { fetchImpl: slow });
+  assert.equal(held.ok, false);
+  assert.match(held.why, /does not answer just now/);
+  assert.ok(asked >= 2, 'asked again before giving up');
+  assert.equal(S.readServer('opencode').pid, first.server.pid, 'the same server');
+  assert.doesNotThrow(() => process.kill(first.server.pid, 0), 'still running under the chat');
+  release();
+  // Nobody holds it: a server that does not answer is started anew.
+  const fresh = await S.ensureServer('opencode', { fetchImpl: async (url, o) => (String(url).includes(`:${first.server.port}/api/info`) ? slow(url, o) : models(url, o)) });
+  assert.equal(fresh.ok, true, fresh.why);
+  assert.notEqual(fresh.server.pid, first.server.pid);
+  await S.stopServer('opencode');
+});
+
 test('Codex\'s conversations of a folder come from its own store, with the name it gave them', async () => {
   const day = path.join(process.env.CODEX_HOME, 'sessions', '2026', '11', '16');
   fs.mkdirSync(day, { recursive: true });

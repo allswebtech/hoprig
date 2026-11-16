@@ -12,7 +12,7 @@ import { toolFlags } from '../codetools/start.mjs';
 import { matchRuns } from '../server/deck.mjs';
 import { parentLookup, procParent } from '../server/platform.mjs';
 import * as v from '../server/validate.mjs';
-import { chatTools, choicesOf, conversationIdOk, modeFor } from './tools.mjs';
+import { chatTools, choicesOf, conversationIdOk, modeFor, modelOk } from './tools.mjs';
 
 const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 
@@ -75,12 +75,14 @@ export function handoffRoutes(ctx, o) {
         return i >= 0 && i + 1 < args.length ? args[i + 1] : eq ? eq.slice(name.length + 1) : null;
       };
       const one = (name, key, list) => [flag(name), last[key], d[key]].find((x) => typeof x === 'string' && list.includes(x)) || null;
+      // Another tool's model: one the provider lists, or (its list not known yet) a well-formed model id.
+      const toolModel = [flag('--model'), last.model].find((x) => typeof x === 'string' && modelOk(tool, x, ch)) || null;
       // OpenCode's terminal words for its modes: "ask" is the chat's "manual".
       const mode = tool === 'claude' ? one('--permission-mode', 'permissionMode', ch.modes) : modeFor(tool, flag('--permission-mode') === 'ask' ? 'manual' : flag('--permission-mode')) || modeFor(tool, last.permissionMode);
       const id = tool === 'claude' ? freeId(run.sessionId) : crypto.randomUUID();
       make({
         id, ...(id !== run.sessionId ? { conversationId: run.sessionId } : {}), engine: tool, cwd: run.cwd, profile: run.profile,
-        model: tool === 'claude' ? one('--model', 'model', ch.models) : flag('--model') || last.model || null,
+        model: tool === 'claude' ? one('--model', 'model', ch.models) : toolModel,
         effort: one('--effort', 'effort', ch.efforts), permissionMode: mode,
         ultracode: last.ultracode === true,
       });
@@ -104,6 +106,9 @@ export function handoffRoutes(ctx, o) {
       }
       for (let i = 0; i < 40 && (await terminalOf(c.conversationId, c.engine.id)); i++) await new Promise((r) => setTimeout(r, 200));
       if (await terminalOf(c.conversationId, c.engine.id)) throw new HttpError(409, `the terminal did not stop; stop ${c.engine.label} there and try again`);
+      // A coding tool whose turns run on its server (OpenCode) goes on without its terminal: that turn stops too, as
+      // Claude Code's does with its process. The chat goes on from where it ended.
+      if (c.engine.interrupt) await c.engine.interrupt(c.conversationId, c.o.engineOpts);
       if (c.engine.stamp) c.load(); // kept by the tool's server: read it again now
       else c.refresh();
       c.emit('state'); // a page that streams leaves its read-along mode now, not at the next news
@@ -113,20 +118,21 @@ export function handoffRoutes(ctx, o) {
     ['POST', new RegExp(`^/api/chats/${ID}/terminal$`), async (req, m) => {
       const c = chatOr404(m[1]);
       await ctx.readJson(req);
-      if (!(await c.engine.exists(c.cwd, c.conversationId, c.o.engineOpts))) throw new HttpError(409, 'send a first message: a conversation that has not started cannot be resumed in a terminal');
-      if (c.busy()) throw new HttpError(409, `${c.engine.id === 'claude' ? 'Claude' : c.engine.label} is working. Wait until it is done, or press Stop first.`);
       const tool = c.engine.id;
       if (tool !== 'claude' && !chatTools(cfg()).includes(tool)) throw new HttpError(409, `${c.engine.label} is off on this computer: turn it on to open its conversations in a terminal`);
+      if (!(await c.engine.exists(c.cwd, c.conversationId, c.o.engineOpts))) throw new HttpError(409, 'send a first message: a conversation that has not started cannot be resumed in a terminal');
+      if (c.busy()) throw new HttpError(409, `${c.engine.id === 'claude' ? 'Claude' : c.engine.label} is working. Wait until it is done, or press Stop first.`);
       const profile = c.profile === auto.name ? (auto.on() ? { name: auto.name, env: {} } : null) : readProfile(c.profile);
       if (!profile) throw bad('the provider of this chat is gone; choose another one first');
-      chats.delete(c.id);
-      await c.close();
+      // The terminal's flags first: a choice it refuses leaves the chat as it is.
       // OpenCode's terminal has fewer modes: it asks (for edits too) unless the chat allowed everything.
       const flags = tool === 'claude' ? [
         ...(c.permissionMode ? ['--permission-mode', c.permissionMode] : []),
         ...(c.effort ? ['--effort', c.effort] : []),
         ...(c.model ? ['--model', c.model] : []),
       ] : toolFlags(tool, { permissionMode: c.permissionMode === 'bypassPermissions' ? 'bypassPermissions' : 'ask', effort: c.effort, model: c.model });
+      chats.delete(c.id);
+      await c.close();
       let name;
       try {
         name = await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: c.conversationId, flags });

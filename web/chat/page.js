@@ -20,7 +20,7 @@ import { createStatusLine } from './statusline.js';
 import { follow } from './stream.js';
 import { createTimeline } from './timeline.js';
 import { knownChatTools } from './start.js';
-import { caps as capsOf, toolWord, turnRuns } from './words.js';
+import { canCompact, caps as capsOf, toolWord, turnRuns } from './words.js';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -147,7 +147,7 @@ function viewChat({ sub }) {
   // The page's own "/" commands, before the coding tool's (popovers.js).
   const own = () => [
     // Compact is Claude Code's own: not offered where the coding tool has none.
-    caps().compact ? { name: 'compact', description: 'Claude goes on from a summary of the conversation, which frees context', run: act.compact } : null,
+    canCompact(v) ? { name: 'compact', description: 'Claude goes on from a summary of the conversation, which frees context', run: act.compact } : null,
     { name: 'clear', description: 'A new chat in this folder with the same settings; this one is kept', run: act.clear },
     { name: 'model', description: 'Choose the model', run: () => composer.choose('model') },
     { name: 'effort', description: `Choose how hard ${toolWord(v)} thinks`, run: () => composer.choose('effort') },
@@ -227,7 +227,11 @@ function viewChat({ sub }) {
   const unfollow = follow({
     A,
     remote: !!machine.current,
-    events: (r) => timeline.apply(r),
+    events: (r) => {
+      // The coding tool comes before the first state on a fresh page: the events are drawn in its words.
+      if (r.engine && !(v && v.engine)) v = { ...(v || {}), engine: r.engine };
+      timeline.apply(r);
+    },
     state,
     live: (list) => timeline.live(list),
     gone,

@@ -2,7 +2,7 @@
 // keeps, oldest first here) → the chat's events (src/chat/events.mjs), as opencode-events.mjs draws them live. What
 // a subagent did inside is not read back (it is a conversation of its own); its call and its result are.
 import { clipInput, clipText, oneLine, plainText } from '../events.mjs';
-import { filesDiff, pageTool, refused } from './opencode-events.mjs';
+import { failedResult, filesDiff, pageTool } from './opencode-events.mjs';
 
 const PAGE = 200; // messages per request
 const PAGES_MAX = 10; // a longer conversation shows its newest 2000 messages
@@ -25,7 +25,7 @@ export function transcriptEvents(messages) {
         if (!c || typeof c !== 'object') continue;
         const blockId = `${m.id}:${n}`;
         if (c.type === 'text' && typeof c.text === 'string' && c.text.trim()) events.push({ kind: 'text', blockId, text: c.text, agent: null, at });
-        else if (c.type === 'reasoning' && typeof c.text === 'string') events.push({ kind: 'thinking', blockId, text: clipText(c.text, 20000), agent: null, at });
+        else if (c.type === 'reasoning' && typeof c.text === 'string' && c.text.trim()) events.push({ kind: 'thinking', blockId, text: clipText(c.text, 20000), agent: null, at });
         else if (c.type === 'tool' && typeof c.id === 'string') {
           const s = c.state && typeof c.state === 'object' ? c.state : {};
           const p = pageTool(c.name, s.input);
@@ -33,10 +33,10 @@ export function transcriptEvents(messages) {
           events.push({ kind: 'tool', id: c.id, name: p.name, title, toolKind: p.toolKind, input: clipInput(p.input), agent: null, at });
           if (s.status === 'completed' || s.status === 'error') {
             const ok = s.status === 'completed';
-            const text = ok ? (Array.isArray(s.content) ? s.content.filter((x) => x && x.type === 'text').map((x) => x.text).join('\n') : '')
-              : s.error && s.error.type === 'permission.rejected' ? refused(s.error.message) : String((s.error && s.error.message) || 'failed');
+            // As drawn live (opencode-events.mjs): a call the owner stopped or refused is his act, not a failure.
+            const r = ok ? { text: Array.isArray(s.content) ? s.content.filter((x) => x && x.type === 'text').map((x) => x.text).join('\n') : '' } : failedResult(s.error, s.metadata);
             const diff = ok ? filesDiff(s.metadata && s.metadata.files) : null;
-            events.push({ kind: 'tool-result', id: c.id, ok, text: clipText(text), ...(diff ? { diff } : {}), agent: null, at });
+            events.push({ kind: 'tool-result', id: c.id, ok, ...r, text: clipText(r.text), ...(diff ? { diff } : {}), agent: null, at });
           }
           if (p.toolKind === 'agent') tasks.push({ kind: 'task', taskId: `call-${c.id}`, toolId: c.id, type: 'agent', status: s.status === 'completed' ? 'completed' : s.status === 'error' ? 'failed' : 'stopped', title: plainText(String(p.input.description || 'Subagent'), 200) });
         }

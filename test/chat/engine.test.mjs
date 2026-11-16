@@ -153,6 +153,6 @@ test('the engine contract: Claude Code and OpenCode, found by id, each with what
   for (const k of ['liveMode', 'liveModel', 'liveEffort', 'ultracode', 'queue', 'stopTask', 'rewind', 'commands', 'compact', 'usage']) assert.equal(e.capabilities[k], true, k);
   // What is Claude Code's alone is said so by OpenCode's engine (the page shows no button for it).
   const oc = engineOf('opencode').capabilities;
-  for (const k of ['liveMode', 'liveModel', 'liveEffort', 'ultracode', 'queue', 'rename', 'ownIds']) assert.equal(oc[k], true, k);
-  for (const k of ['stopTask', 'rewind', 'fork', 'commands', 'compact', 'usage']) assert.equal(oc[k], false, k);
+  for (const k of ['liveMode', 'liveModel', 'liveEffort', 'ultracode', 'queue', 'stopTask', 'rename', 'ownIds']) assert.equal(oc[k], true, k);
+  for (const k of ['rewind', 'fork', 'commands', 'compact', 'usage']) assert.equal(oc[k], false, k);
 });

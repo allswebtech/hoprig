@@ -35,6 +35,8 @@ const DESCRIPTOR = { codex, opencode };
 const START_WAIT_MS = 60_000; // OpenCode fetches a small helper of its own on its very first start
 const LOCK_WAIT_MS = 30_000;
 const LOCK_STALE_MS = 90_000;
+const HEALTH_TRIES = 2; // asked again this often before a server that does not answer counts as stuck
+const HEALTH_PAUSE_MS = 500;
 
 export const serverDir = () => path.join(stateDir(), 'codetools');
 const stateFile = (tool) => path.join(serverDir(), `${tool}-server.json`);
@@ -329,16 +331,28 @@ export function ensureServer(tool, { need = null, except = null, base = process.
   return withLock(tool, async () => {
     const s = readServer(tool);
     const proc = !!s && (await isServerProcess(tool, s, { fetchImpl }));
-    if (proc && (await healthy(tool, s, { fetchImpl }))) {
-      const has = !need || provs.some((p) => p.name === need && (s.providers || []).some((q) => q.name === p.name && q.fp === p.fp));
-      if (has) {
-        writeState(tool, { ...s, usedAt: Date.now() });
-        return { ok: true, server: publicServer(tool, s) };
+    // The caller's own run (a launcher marks itself a user before it asks) does not keep the server.
+    const used = () => serverUsers(tool, { except }).length > 0;
+    if (proc) {
+      // A server that works hard (a turn, a loaded computer) may answer late: ask again before anything is decided.
+      let ok = await healthy(tool, s, { fetchImpl });
+      for (let i = 0; !ok && i < HEALTH_TRIES; i++) {
+        await sleep(HEALTH_PAUSE_MS);
+        ok = await healthy(tool, s, { fetchImpl });
       }
-      // The caller's own run (a launcher marks itself a user before it asks) does not keep the server.
-      if (serverUsers(tool, { except }).length) return { ok: false, why: 'the server was started before this provider was added or changed, and other sessions use it' };
+      if (ok) {
+        const has = !need || provs.some((p) => p.name === need && (s.providers || []).some((q) => q.name === p.name && q.fp === p.fp));
+        if (has) {
+          writeState(tool, { ...s, usedAt: Date.now() });
+          return { ok: true, server: publicServer(tool, s) };
+        }
+        if (used()) return { ok: false, why: 'the server was started before this provider was added or changed, and other sessions use it' };
+      } else if (used()) {
+        // Its process runs and sessions use it (their turns go on in it): a slow answer never stops it under them.
+        return { ok: false, why: `${DESCRIPTOR[tool].name}'s server does not answer just now; try again in a moment` };
+      }
     }
-    await stopLocked(tool, { fetchImpl, why: proc ? 'it did not answer, or a provider changed' : 'it was gone' });
+    await stopLocked(tool, { fetchImpl, why: proc ? 'it did not answer and no session uses it, or a provider changed' : 'it was gone' });
     return start(tool, provs, { bin, base, fetchImpl, spawnImpl });
   });
 }

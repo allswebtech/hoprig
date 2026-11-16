@@ -6,7 +6,7 @@
 import { icon } from '../icons.js';
 import { KIND, api, chooseSheet, fill, h, link, profileIcon, profileState, promptSheet, servesTool, toast, toolBadge } from '../lib.js';
 import { store } from '../store.js';
-import { caps, toolWord, touchScreen, turnRuns } from './words.js';
+import { canCompact, caps, toolWord, touchScreen, turnRuns } from './words.js';
 
 const phone = () => typeof matchMedia !== 'undefined' && matchMedia('(max-width: 599px)').matches;
 const base = (p) => String(p || '').split('/').filter(Boolean).pop() || String(p || '');
@@ -110,7 +110,7 @@ export function createHeader(o) {
       subtitle: v ? v.short : null,
       items: [
         busy ? { value: 'stop', label: `Stop ${toolWord(v)}`, sub: can.stopTask ? 'Ends the turn; agents in the background go on' : 'Ends the turn', icon: 'stop' } : null,
-        can.compact ? { value: 'compact', label: 'Compact', sub: 'Claude goes on from a summary of the conversation, which frees context', icon: 'minus' } : null,
+        canCompact(v) ? { value: 'compact', label: 'Compact', sub: 'Claude goes on from a summary of the conversation, which frees context', icon: 'minus' } : null,
         { value: 'clear', label: 'Clear', sub: 'A new chat in this folder with the same settings; this one is kept', icon: 'plus' },
         // Not while a terminal runs the conversation: a rewind runs Claude Code on it (one place at a time).
         (can.rewind || can.fork) && v && !v.terminal ? { value: 'rewind', label: 'Rewind…', sub: 'Go back to before one of your messages: the files, the conversation or both', icon: 'undo' } : null,

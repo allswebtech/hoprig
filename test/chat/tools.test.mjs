@@ -131,6 +131,45 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   assert.equal((await owner('POST', '/api/chats', { dir: proj, tool: 'opencode', sessionId: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' })).status, 400, 'a Claude Code id is no OpenCode conversation');
   assert.equal((await owner('POST', `/api/chats/${r.json.id}/close`, {})).status, 200);
 
+  // Tia and the schedules take Settings, not the folder's last tool (the folder's last chat was OpenCode's).
+  r = await owner('POST', '/api/chats', { dir: proj, defaults: true });
+  assert.equal((await owner('GET', `/api/chats/${r.json.id}`)).json.engine.id, 'claude');
+  assert.equal((await owner('POST', `/api/chats/${r.json.id}/close`, {})).status, 200);
+  // On but its program gone (uninstalled, a failed update): the folder's last tool is not used, Claude Code is.
+  fs.renameSync(bin, `${bin}.away`);
+  r = await owner('POST', '/api/chats', { dir: proj });
+  assert.equal(r.status, 200, r.json && r.json.error);
+  assert.equal((await owner('GET', `/api/chats/${r.json.id}`)).json.engine.id, 'claude');
+  assert.equal((await owner('POST', `/api/chats/${r.json.id}/close`, {})).status, 200);
+  fs.renameSync(`${bin}.away`, bin);
+
+  // Turned off while one of its chats is open: that chat runs nothing and lists nothing until it is on again.
+  r = await owner('POST', '/api/chats', { dir: proj, tool: 'opencode', sessionId: SESSION_ID });
+  const open = r.json.id;
+  saveConfig({ codingTools: ['claude'] });
+  r = await owner('POST', `/api/chats/${open}/send`, { text: 'hello' });
+  assert.equal(r.status, 409);
+  assert.match(r.json.error, /OpenCode is off on this computer/);
+  assert.equal((await owner('GET', `/api/chats/${open}/history`)).status, 409);
+  const prompts = s.calls.filter((x) => x.path.endsWith('/prompt')).length;
+  saveConfig({ codingTools: ['claude', 'opencode'] });
+  assert.equal((await owner('GET', `/api/chats/${open}/history`)).status, 200);
+  assert.equal(s.calls.filter((x) => x.path.endsWith('/prompt')).length, prompts, 'nothing was sent while it was off');
+  assert.equal((await owner('POST', `/api/chats/${open}/close`, {})).status, 200);
+
+  // A Claude Code conversation older than the newest 50 of the folder still opens as a chat (Tia's ids, a link).
+  const { projectDir } = await import('../../src/sessions.mjs');
+  fs.mkdirSync(projectDir(proj), { recursive: true });
+  const ids = Array.from({ length: 52 }, (_, i) => `0a1b2c3d-4e5f-4a6b-8c7d-${String(i).padStart(12, '0')}`);
+  for (const [i, sid] of ids.entries()) {
+    const f = path.join(projectDir(proj), `${sid}.jsonl`);
+    fs.writeFileSync(f, `${JSON.stringify({ type: 'user', message: { role: 'user', content: `message ${i}` }, sessionId: sid, cwd: proj })}\n`);
+    fs.utimesSync(f, new Date(1e12 + i * 1000), new Date(1e12 + i * 1000));
+  }
+  r = await owner('POST', '/api/chats', { dir: proj, tool: 'claude', sessionId: ids[0] });
+  assert.equal(r.status, 200, r.json && r.json.error);
+  assert.equal((await owner('POST', `/api/chats/${r.json.id}/close`, {})).status, 200);
+
   // Schedules: a chat in OpenCode on a provider that serves it; never a terminal of another tool, never a subscription.
   const schedule = (action) => ({ op: 'add', schedule: { when: { kind: 'daily', time: '07:00' }, action: { type: 'start', in: 'chat', dir: proj, ...action } } });
   const added = await owner('POST', '/api/automation/schedules', schedule({ tool: 'opencode', profile: 'gw' }));
@@ -214,4 +253,16 @@ test('the chat page in another tool\'s words: its name, its modes, its OK cards 
   assert.equal(St.stateWords({ ...v, status: 'working', turn: true, activity: 'requesting', live: [] }), 'OpenCode is thinking…');
   const { askNote } = await import('../../src/chat/events.mjs');
   assert.equal(askNote({ type: 'permission', tool: 'Bash', subject: 'ls -la .' }, '/w', 'OpenCode'), 'OpenCode wants to run: ls -la .');
+});
+
+test('the engine itself refuses a provider that does not serve its coding tool, also where a chat resumes or moves', async (t) => {
+  const box = sandbox('servedprov');
+  t.after(() => box.cleanup());
+  const { writeProfile } = await import('../../src/profiles.mjs');
+  const { providerFor } = await import('../../src/chat/engines/served.mjs');
+  writeProfile('sub', { label: 'Main' });
+  writeProfile('gw', { label: 'Gateway', api: ['messages'], env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: 'gw-token-of-the-test' } });
+  assert.throws(() => providerFor('sub', 'opencode'), (e) => e.status === 400 && /a Claude subscription is for Claude Code only/.test(e.message));
+  assert.throws(() => providerFor('auto', 'opencode'), /Auto mode is for Claude Code only/);
+  assert.equal(providerFor('gw', 'opencode').name, 'gw');
 });

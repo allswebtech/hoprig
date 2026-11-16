@@ -44,12 +44,13 @@ export function stateOf(c) {
 }
 
 /**
- * o: { chatOr404, save, remember(chat) (its settings are its folder's last), bad, choices(chat) (its coding tool's modes, efforts
- * and models), pickModel(value, tool, choices), folderOf(chat) (its folder while inside the allowed roots), about(chat) (what
- * the page shows beside the state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that
- * runs the conversation now) } from feature.mjs
+ * o: { chatOr404, toolStillOn(chat) (throws while its coding tool is off), save, remember(chat) (its settings are
+ * its folder's last), bad, choices(chat) (its coding tool's modes, efforts and models), pickModel(value, tool,
+ * choices), folderOf(chat) (its folder while inside the allowed roots), about(chat) (what the page shows beside the
+ * state: folder, provider, choices), terminalOf(chat) → { name } | null (a terminal that runs the conversation now) }
+ * from feature.mjs
  */
-export function liveRoutes(ctx, { chatOr404, save, remember, bad, choices, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf }) {
+export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf }) {
   const { HttpError } = ctx;
   const pick = (val, list, what) => {
     if (val === undefined) return undefined;
@@ -101,7 +102,10 @@ export function liveRoutes(ctx, { chatOr404, save, remember, bad, choices, pickM
       timer = null;
       if (dirty.events) {
         const w = c.window(from, epoch);
-        if (w.reset || w.events.length) send('events', { epoch: c.epoch, reset: w.reset, events: w.events, next: c.next });
+        // A page that starts over learns the coding tool with the events, before its state: what it draws first is
+        // said in that tool's words ("OpenCode wants to…"), not the default's.
+        const tool = w.reset ? { engine: { id: c.engine.id, label: c.engine.label, capabilities: c.engine.capabilities } } : {};
+        if (w.reset || w.events.length) send('events', { epoch: c.epoch, reset: w.reset, events: w.events, next: c.next, ...tool });
         from = c.next;
         epoch = c.epoch;
       }
@@ -180,6 +184,7 @@ export function liveRoutes(ctx, { chatOr404, save, remember, bad, choices, pickM
   const routes = [
     ['GET', new RegExp(`^/api/chats/${ID}/history$`), async (req, m) => {
       const c = chatOr404(m[1]);
+      toolStillOn(c);
       // The coding tool's own store: a conversation stays in the tool it was started with.
       const list = await c.engine.history(folderOf(c), c.o.engineOpts);
       return {
