@@ -46,14 +46,25 @@ export const start_chat = tool({
   async run(ops, a, ctx) {
     const r = await ops.startChat({ computer: comp(a), folder: a.folder, profile: a.account, sessionId: a.conversation || null, text: a.message || null });
     const name = `chat:${r.id}`;
+    // The first message is not sent where the conversation already runs elsewhere (a terminal, an open chat).
+    const sent = !a.message ? '' : r.sent === false ? `. The first message was NOT sent: ${r.why || 'the conversation runs elsewhere'}` : ' with the first message';
     let j = null;
     if (a.goal) j = ctx.jobs.create({ conversation: ctx.conversation, goal: a.goal });
     else if (a.job) j = ctx.jobs.get(a.job);
+    if (r.existing) {
+      // The conversation is open in a chat already, the owner's as a rule: she did not start it and it is not hers.
+      // Its OKs and messages stay under the rules for someone else's chat, and it keeps its own mode (even bypass).
+      if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: false });
+      const mode = r.permissionMode ? ` (permission mode: ${r.permissionMode})` : '';
+      return {
+        summary: `This conversation is already open in chat ${name} on ${comp(a)}, which you did not start: it runs with its own permission mode, model and effort${mode}, and its OKs are the owner's${sent}.${j ? ` Job ${j.id} watches it.` : ''}`,
+        data: { session: name, computer: comp(a), already_open: true, permission_mode: r.permissionMode || null, job: j ? j.id : null, message_sent: a.message ? r.sent !== false : null },
+        shown: { session: [sessKey(comp(a), name)], ...(j ? { job: [j.id] } : {}) },
+      };
+    }
     if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: true });
     else ctx.jobs.markStarted(comp(a), name);
     const why = ctx.accountWhy ? ` (${ctx.accountWhy})` : '';
-    // The first message is not sent where the conversation already runs elsewhere (a terminal, an open chat).
-    const sent = !a.message ? '' : r.sent === false ? `. The first message was NOT sent: ${r.why || 'the conversation runs elsewhere'}` : ' with the first message';
     return {
       summary: `Started chat ${name} on ${comp(a)} under ${a.account}${why}${a.conversation ? ', continuing the earlier conversation' : ''}${sent}. It runs with the permission mode, model and effort of Settings → New-session defaults. The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
       data: { session: name, computer: comp(a), account: a.account, account_why: ctx.accountWhy || null, job: j ? j.id : null, message_sent: a.message ? r.sent !== false : null },

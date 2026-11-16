@@ -25,7 +25,7 @@ export function askArrived(chat, ev) {
   }
   chat.pending.set(ev.request, ev);
   // The page gets the input to show and what "allow in this chat" covers; the rest stays here.
-  const { full, interactive, reasonType, reason, ruleForced, manualOnly, noAlways, settled, owner, grant: g, ...shown } = ev;
+  const { full, interactive, reasonType, reason, ruleForced, manualOnly, noAlways, settled, owner, subjectCut, grant: g, ...shown } = ev;
   chat.push({ ...shown, canAlways: !!grant, always: grant ? (grant.edits ? 'edits' : 'rule') : null, alwaysText: grant && !grant.edits ? grant.text : '' });
   chat.changed();
 }

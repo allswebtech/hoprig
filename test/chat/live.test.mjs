@@ -215,7 +215,10 @@ test('the routes of a running chat', { timeout: 120_000, skip: process.platform 
   assert.ok(mine, 'this chat\'s conversation is listed');
   assert.equal(mine.chat, id);
   assert.equal(mine.title, 'think');
-  assert.equal((await owner('POST', '/api/chats', { dir: proj, profile: 'sub', sessionId: mine.id })).json.id, id, 'continuing it opens this chat');
+  const cont = (await owner('POST', '/api/chats', { dir: proj, profile: 'sub', sessionId: mine.id, defaults: true })).json;
+  assert.equal(cont.id, id, 'continuing it opens this chat');
+  assert.equal(cont.existing, true, 'said to be an open chat already (Tia does not take it for hers)');
+  assert.equal(cont.permissionMode, (await owner('GET', `/api/chats/${id}`)).json.permissionMode ?? null, 'with its own mode: defaults do not apply to it');
 
   // ---- rewind of the conversation through the route: the message comes back for the box ----
   await owner('POST', `${A}/send`, { text: 'first of the new one' });

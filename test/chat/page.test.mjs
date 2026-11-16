@@ -98,6 +98,9 @@ test('chat page words: the mode chip, Shift+Tab order, model and effort, paths, 
   assert.equal(W.toolLine('AskUserQuestion', {}, 'running').verb, 'Asks you');
   // What "Allow in this chat" covers, in words (it may be a part of the command only).
   assert.equal(W.ruleWords('Bash(exit 2)'), 'the command “exit 2”');
+  assert.equal(W.alwaysWords({ tool: 'Bash', input: { command: 'ls nosuchdir; exit 2' }, alwaysText: 'Bash(exit 2)' }), '“Allow in this chat” also lets Claude do this again in this chat without asking: the command “exit 2”. That is only part of this command.');
+  assert.doesNotMatch(W.alwaysWords({ tool: 'Bash', input: { command: 'npm test' }, alwaysText: 'Bash(npm test)' }), /only part/, 'the whole command');
+  assert.doesNotMatch(W.alwaysWords({ tool: 'Bash', input: { command: 'npm view x' }, alwaysText: 'Bash(npm view *)' }), /only part/, 'a prefix of a simple command');
   assert.equal(W.ruleWords('Bash(npm view *), WebFetch(domain:example.org)'), 'commands that start with “npm view”, pages on example.org');
   assert.equal(W.turnRuns({ working: true, turn: false }), false, 'background work alone is no turn (no Stop, no queue)');
   assert.equal(W.turnRuns({ working: true }), true, 'an older computer says only "working"');

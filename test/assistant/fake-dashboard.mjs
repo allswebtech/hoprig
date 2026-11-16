@@ -152,6 +152,9 @@ export class FakeOps {
     this.#write('startChat', a);
     if (!this.s.roots.some((r) => a.folder === r || a.folder.startsWith(r + '/'))) throw Object.assign(new Error('choose a folder inside the allowed roots'), { status: 400 });
     if (!this.s.profiles.some((p) => p.name === a.profile) && !(a.profile === 'auto' && this.s.autoSwitch.enabled)) throw Object.assign(new Error('there is no such provider'), { status: 400 });
+    // As the dashboard does: a conversation an open chat runs gives that chat, as it is (feature.mjs openChat).
+    const open = a.sessionId && this.s.sessions.find((x) => x.kind === 'chat' && x.sessionId === a.sessionId && (x.computer || 'this') === a.computer);
+    if (open) return { id: open.chatId, existing: true, permissionMode: open.permissionMode || null, ...(a.text ? { sent: false, why: 'this conversation is already open in a chat; write to that chat' } : {}) };
     const id = a.sessionId || `55555555-5555-4555-8555-5555555555${String(this.s.sessions.length % 100).padStart(2, '0')}`;
     this.s.sessions.push({ computer: a.computer, name: `chat:${id}`, kind: 'chat', chatId: id, status: a.text ? 'working' : 'waiting', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.text ? a.text.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: id, statusAt: Date.now() });
     return { id };

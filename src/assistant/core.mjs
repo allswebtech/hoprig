@@ -123,6 +123,7 @@ export function createAssistantCore({
       // id (send_to_chat answers that one and no other).
       if (f.session && c.kind === 'chat' && c.ask) {
         f.session.screen = String(c.ask.subject || '');
+        f.session.cut = c.ask.cut === true; // only a part of it came: never judged by that part
         f.session.owner = c.ask.owner === true;
         f.session.request = c.ask.request || null;
       }

@@ -171,6 +171,10 @@ test('manage_automation: list shows the page\'s sentence; schedules and rules ar
   let r = await call('manage_automation', { action: 'add_schedule', time: '09:30', days: ['mon', 'fri'], folder: '/home/owner/projects/shop', account: 'sub', text: 'run the tests' });
   assert.match(r.text, /New schedule on this: every mon, fri at 09:30, start a session in \/home\/owner\/projects\/shop on sub/);
   assert.ok(staged(r));
+  r = await call('manage_automation', { action: 'add_schedule', time: '07:00', folder: '/home/owner/projects/shop', account: 'sub', in: 'chat', text: 'run the tests' });
+  assert.match(r.text, /New schedule on this: every day at 07:00, start a chat in \/home\/owner\/projects\/shop on sub/, 'a schedule that opens a chat');
+  assert.ok(staged(r));
+  assert.match((await call('manage_automation', { action: 'add_schedule', time: '07:00', send_to: 'web-ui', in: 'chat', text: 'x' })).text, /send_to or folder, not both/);
   assert.match((await call('manage_automation', { action: 'add_schedule', time: '09:30', send_to: 'web-ui' })).text, /needs text/);
   assert.match((await call('manage_automation', { action: 'add_schedule', time: '09:30', folder: '/home/owner/projects/shop', account: 'api' })).text, /provider "api" is not one Tia may use/);
   assert.ok(staged(await call('manage_automation', { action: 'delete_schedule', schedule: 'abcd1234' })));

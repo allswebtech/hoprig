@@ -44,6 +44,7 @@ export function decideLevel(tool, a, f, tia) {
   if (answering(name, a) && f.session && f.session.status === 'needs_ok') {
     if (f.session.owner) return { level: 'L2', why: 'the chat keeps this OK for the owner (his permission settings, a hook or a safety check ask him)' };
     if (!f.mine) return { level: 'L2', why: `the session is asking for permission and ${ASSISTANT_NAME} did not start it` };
+    if (f.session.cut) return { level: 'L2', why: 'what the session asks permission for is too long to judge whole' };
     if (riskyPermission(`${f.session.note || ''}\n${f.session.screen || ''}`, f.session.cwd || null)) return { level: 'L2', why: 'the session asks permission for something risky (fetching and running code, deleting, secrets, the system, the network, or a path outside its folder)' };
   }
   if (STARTS.has(name)) {

@@ -130,10 +130,11 @@ export function chatFeature(ctx, o = {}) {
       running: !!c.session, // its process runs on the provider now (idle care keeps that provider's gateway up)
       note: ask ? askNote(ask, c.cwd) : '',
       // The OK it waits for, so a card can answer it (Allow, Allow in this chat, Do not allow); a question or a plan
-      // is answered in the chat itself. `subject` is what it is really about (the whole command or path) and `owner`
-      // says the chat keeps it for the owner (his settings, a hook or a safety check ask him): Tia's rules judge both.
+      // is answered in the chat itself. `subject` is what it is really about (the whole command or path; `cut` when it
+      // was too long to carry whole) and `owner` says the chat keeps it for the owner (his settings, a hook or a safety
+      // check ask him): Tia's rules judge all three.
       ask: ask ? {
-        request: ask.request, type: ask.type, tool: ask.tool, subject: ask.subject || '', owner: !!ask.owner,
+        request: ask.request, type: ask.type, tool: ask.tool, subject: ask.subject || '', cut: !!ask.subjectCut, owner: !!ask.owner,
         canAlways: !!ask.grant, always: ask.grant ? (ask.grant.edits ? 'edits' : 'rule') : null, alwaysText: ask.grant && !ask.grant.edits ? ask.grant.text : '',
       } : null,
       // The turn is over but subagents, shells or a workflow still run (Home: "Working in the background").
@@ -189,8 +190,9 @@ export function chatFeature(ctx, o = {}) {
    * sessionId?, text?, defaults? }. What is left out: as the last chat in that folder ran, else the provider
    * recommended now and Settings. defaults: true (Tia, a schedule) takes Settings → New-session defaults and not the
    * folder's last chat, as a terminal session they start does: a mode the owner chose for himself (bypass) is not
-   * carried into a chat nobody watches. A conversation an open chat already runs gives that chat.
-   * → { id, sent } (sent: false when the first message was not sent because a terminal runs the conversation)
+   * carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
+   * → { id, sent, existing?, permissionMode? } (sent: false when the first message was not sent because a terminal or
+   * an open chat runs the conversation; existing: true with that open chat's mode)
    */
   async function openChat(b) {
     load();
@@ -220,8 +222,11 @@ export function chatFeature(ctx, o = {}) {
       if (!conversationId || !sessionsIn(dir).some((s) => s.id === conversationId)) throw bad('that conversation is not in this folder');
       const open = openChatOf(conversationId);
       if (open) {
-        if (b.text === undefined || b.text === null) return { id: open };
-        return { id: open, sent: false, why: 'this conversation is already open in a chat; write to that chat' };
+        // That chat is someone's already (the owner's, as a rule): it keeps its own settings, and `existing` says so,
+        // so a caller does not take it for a chat it started (Tia's rules let her answer OKs only in her own chats).
+        const mode = chats.get(open).permissionMode || null;
+        if (b.text === undefined || b.text === null) return { id: open, existing: true, permissionMode: mode };
+        return { id: open, existing: true, permissionMode: mode, sent: false, why: 'this conversation is already open in a chat; write to that chat' };
       }
       id = freeId(conversationId);
     }

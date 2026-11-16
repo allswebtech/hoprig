@@ -34,18 +34,26 @@ export function toolTitle(input) {
   for (const k of TITLE_KEYS) if (typeof input[k] === 'string' && input[k].trim()) return plainText(input[k], 200);
   return '';
 }
-// What an OK is really about: the command it runs, the file it writes, the page it reads. Not `description`: for a
-// command that is the model's own label of it ("Install the helper"), which says nothing of what runs.
+// What an OK is really about: the command it runs, the file it writes, the page it reads, and every other string of
+// its input (a search's folder and pattern both). Not `description`: for a command that is the model's own label of it
+// ("Install the helper"), which says nothing of what runs; nor what an edit writes into its file, or a page fetch's
+// question to the model: text, not what runs or where. The main key comes first, for a card's one line.
 const SUBJECT_KEYS = ['command', 'file_path', 'notebook_path', 'url', 'path', 'pattern', 'query', 'skill'];
-/** The subject of a tool call in full (clipped at 2000 characters): what the owner and Tia's rules judge. */
+const NOT_SUBJECT = new Set(['description', 'content', 'old_string', 'new_string', 'new_source', 'prompt']);
+/** How much of a subject an ask carries; one that is longer is marked cut, and Tia's rules never judge a part. */
+export const SUBJECT_MAX = 16000;
+/** The subject of a tool call, whole: what the owner and Tia's rules judge. */
 export function askSubject(input) {
   if (!input || typeof input !== 'object') return '';
-  for (const k of SUBJECT_KEYS) if (typeof input[k] === 'string' && input[k].trim()) return input[k].slice(0, 2000);
-  try {
-    return JSON.stringify(input).slice(0, 2000); // an MCP tool's input: all of it
-  } catch {
-    return '';
+  if (!SUBJECT_KEYS.some((k) => typeof input[k] === 'string' && input[k].trim())) {
+    try {
+      return JSON.stringify(input); // an MCP tool's input: all of it
+    } catch {
+      return '';
+    }
   }
+  const keys = [...SUBJECT_KEYS, ...Object.keys(input).filter((k) => !SUBJECT_KEYS.includes(k))];
+  return keys.filter((k) => !NOT_SUBJECT.has(k) && typeof input[k] === 'string' && input[k].trim()).map((k) => input[k]).join('\n');
 }
 // The same from a tool's input while it still streams (partial JSON): the first of those keys whose string is whole.
 const PARTIAL = new RegExp(`"(${TITLE_KEYS.join('|')})"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`);
@@ -350,7 +358,7 @@ export class ClaudeParser {
     const full = r.input && typeof r.input === 'object' ? r.input : {};
     const a = {
       kind: 'ask', request, tool, title: String(r.title || r.display_name || tool), toolId: r.tool_use_id ? String(r.tool_use_id) : null,
-      description: typeof r.description === 'string' ? r.description.slice(0, 300) : '', subject: askSubject(full), input: clipInput(full), full,
+      description: typeof r.description === 'string' ? r.description.slice(0, 300) : '', input: clipInput(full), full,
       interactive: r.requires_user_interaction === true,
       reasonType: typeof r.decision_reason_type === 'string' ? r.decision_reason_type : null,
       reason: plainText(r.decision_reason, 300),
@@ -359,6 +367,9 @@ export class ClaudeParser {
       noAlways: r.suppress_always_allow_rule === true,
       agent: r.agent_id ? this.taskTool.get(String(r.agent_id)) || null : null,
     };
+    const subject = askSubject(full);
+    a.subject = subject.slice(0, SUBJECT_MAX);
+    a.subjectCut = subject.length > SUBJECT_MAX; // too long to carry whole: judged as risky, never by a part
     a.type = tool === 'ExitPlanMode' ? 'plan' : tool === 'AskUserQuestion' ? 'question' : 'permission';
     // The plan's text is in the tool call, not in the ask.
     if (a.type === 'plan') a.plan = clipText(String(full.plan || (call && call.input && call.input.plan) || ''), 40000);
