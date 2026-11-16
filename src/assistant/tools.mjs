@@ -224,6 +224,15 @@ const start_session = tool({
   },
   async run(ops, a, ctx) {
     const r = await ops.startSession({ computer: comp(a), folder: a.folder, profile: a.account, mode: a.mode || 'new', sessionId: a.conversation || null, prompt: a.message || null });
+    // The conversation runs already (one conversation, one process): nothing was started and nothing was sent. That
+    // session is not hers: no mark, no job on it.
+    if (r.existing) {
+      const where = r.chat ? `the chat chat:${r.chat}` : `the session ${r.name}`;
+      return {
+        summary: `Nothing was started: this conversation already runs in ${where} on ${comp(a)}${a.message ? '; the first message was not sent' : ''}. Read it there (read_session), or ask the owner.`,
+        data: { session: r.chat ? `chat:${r.chat}` : r.name, computer: comp(a), existing: true, sent: false },
+      };
+    }
     let j = null;
     if (a.goal) j = ctx.jobs.create({ conversation: ctx.conversation, goal: a.goal });
     else if (a.job) j = ctx.jobs.get(a.job);

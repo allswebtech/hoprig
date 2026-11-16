@@ -139,6 +139,21 @@ test('"Do the work": start_session runs, picks an allowed account, makes a job, 
   assert.equal(core.jobs.list()[0].sessions[0].startedByTia, true);
 });
 
+test('start_session on a conversation that runs already: nothing starts, nothing is sent, and it is not hers', async () => {
+  const state = baseState();
+  state.sessions.push({ computer: 'this', name: 'api-old', kind: 'claude', status: 'waiting', profile: { name: 'sub', label: 'Main', kind: 'subscription' }, cwd: '/home/owner/projects/api', title: 'Refactor', lastMessage: '', note: '', limit: null, sessionId: '33333333-3333-4333-8333-333333333333', statusAt: Date.now(), created: 1_700_000_003_000 });
+  const { call, ops, core } = setup({ state });
+  await showAll(call);
+  await call('list_projects', { folder: '/home/owner/projects/api' });
+  const before = state.sessions.length;
+  const r = await call('start_session', { folder: '/home/owner/projects/api', mode: 'resume', conversation: '33333333-3333-4333-8333-333333333333', message: 'go on', goal: 'done' });
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.text, /Nothing was started: this conversation already runs in the session api-old.*the first message was not sent/);
+  assert.equal(ops.s.sessions.length, before, 'no second session');
+  assert.equal(core.jobs.list().length, 0, 'no job on his session');
+  assert.equal(core.jobs.startedByTia('this', 'api-old', 1_700_000_003_000), false, 'his session is not marked hers');
+});
+
 test('account choice: never outside the allowed list, never at a limit; API only when allowed', async () => {
   const state = baseState();
   state.profiles[1].limited = { until: Date.now() + 3_600_000, text: 'limit' }; // sub2 at its limit

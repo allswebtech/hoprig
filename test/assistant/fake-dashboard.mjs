@@ -147,6 +147,9 @@ export class FakeOps {
     this.#write('startSession', a);
     if (!this.s.roots.some((r) => a.folder === r || a.folder.startsWith(r + '/'))) throw Object.assign(new Error('choose a folder inside the allowed roots'), { status: 400 });
     if (!this.s.profiles.some((p) => p.name === a.profile) && !(a.profile === 'auto' && this.s.autoSwitch.enabled)) throw Object.assign(new Error('unknown profile'), { status: 400 });
+    // One conversation, one process (src/chat/handoff.mjs claim): a conversation that runs already gives that place.
+    const runs = a.sessionId && this.s.sessions.find((x) => x.sessionId === a.sessionId && (x.computer || 'this') === a.computer);
+    if (runs) return runs.kind === 'chat' ? { chat: runs.chatId, existing: true, ...(a.prompt ? { sent: false } : {}) } : { name: runs.name, existing: true, ...(a.prompt ? { sent: false } : {}) };
     const base = a.folder.split('/').pop() || 'session';
     let name = base;
     for (let i = 2; this.s.sessions.some((c) => c.computer === a.computer && c.name === name); i++) name = `${base}-${i}`;

@@ -93,11 +93,17 @@ function viewChat({ sub }) {
       }
     },
     async terminal() {
+      // A terminal runs the conversation already: that is where it goes on (the server never starts a second one).
+      if (v && v.terminal) {
+        if (v.terminal.name) location.hash = link(`#/s/${encodeURIComponent(v.terminal.name)}`);
+        else toast('This conversation runs in a terminal outside the dashboard.', { kind: 'error' });
+        return;
+      }
       if (!(await confirmSheet({ title: 'Open in a terminal?', text: 'The same conversation continues in a terminal session, with Claude Code as you know it. This chat closes; you can open the session as a chat again from its menu.', ok: 'Open in terminal' }))) return;
       try {
-        const { name } = await api(`${A}/terminal`, {});
+        const { name, existing } = await api(`${A}/terminal`, {});
         store.refresh();
-        forgetHere(); // the chat closes: the terminal goes back to where the chat would have
+        if (!existing) forgetHere(); // the chat closes: the terminal goes back to where the chat would have
         location.hash = link(`#/s/${encodeURIComponent(name)}`);
       } catch (e) {
         toast(failText(e), { kind: 'error' });
@@ -151,7 +157,7 @@ function viewChat({ sub }) {
     { name: 'mode', description: 'What Claude may do without asking', run: () => composer.chooseMode() },
     { name: 'history', description: 'Earlier conversations of this folder', run: act.history },
     canRewind() ? { name: 'rewind', description: 'Go back to before one of your messages: the files, the conversation or both', run: act.rewind } : null,
-    { name: 'terminal', description: 'Open this conversation in a terminal', run: act.terminal },
+    v && v.terminal ? { name: 'terminal', description: 'Go to the terminal that runs this conversation', run: act.terminal } : { name: 'terminal', description: 'Open this conversation in a terminal', run: act.terminal },
     { name: 'help', description: 'Keyboard shortcuts', run: act.shortcuts },
   ].filter(Boolean);
   const composer = createComposer({ A, id, stop: act.stop, compact: act.compact, own });

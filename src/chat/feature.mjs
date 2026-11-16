@@ -19,7 +19,8 @@
 //   POST /api/chats/<id>/close
 // and the routes of live.mjs (the event stream, mode, settings, queue, task stop, rewind, files, commands, usage) and
 // of handoff.mjs (from a terminal session to a chat and back: one conversation never runs in two places at once).
-// The other way round, running() tells the session start (server.mjs) that a chat runs a conversation.
+// The other way round, startTerminal() is how the session start (server.mjs) opens a terminal on a conversation: never
+// a second process on it.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -134,8 +135,22 @@ export function chatFeature(ctx, o = {}) {
     return val;
   };
 
-  // One place at a time (handoff.mjs).
-  const { terminalOf, inTerminal } = terminals(ctx);
+  // One place at a time (handoff.mjs): the open chat whose process runs a conversation (or gets ready to) is one.
+  const chatOf = (id) => ([...chats.values()].find((c) => c.conversationId === id && (c.session || c.starting || c.busy())) || {}).id || null;
+  const { terminalOf, inTerminal, claim, serial, forget } = terminals(ctx, { chatOf });
+  /**
+   * A message that starts a turn in chat `c` (`fn` sends it): never while a terminal runs the conversation, also while
+   * this chat's process waits idle (a terminal may have resumed the conversation meanwhile).
+   */
+  async function sendOne(c, fn) {
+    const r = await claim(c.conversationId, fn, { self: c.id });
+    if (r.terminal) {
+      if (!c.busy()) c.stop();
+      throw inTerminal(r.terminal);
+    }
+    if (r.chat) throw new HttpError(409, 'another chat runs this conversation right now');
+    return r.started;
+  }
 
   // ---------- views ----------
   function card(c) {
@@ -276,8 +291,12 @@ export function chatFeature(ctx, o = {}) {
     save();
     if (owners) remember(c); // the folder's last chat is the owner's own choice, not Tia's or a schedule's
     if (!text) return { id };
-    if (await terminalOf(c.conversationId)) return { id, sent: false, why: 'a terminal session runs this conversation' };
-    await c.send(text);
+    try {
+      await sendOne(c, () => c.send(text));
+    } catch (e) {
+      if (e.code === 'in-terminal') return { id, sent: false, why: 'a terminal session runs this conversation' };
+      throw e;
+    }
     return { id, sent: true };
   }
 
@@ -286,11 +305,7 @@ export function chatFeature(ctx, o = {}) {
     const c = chatOr404(id);
     const t = v.message(text);
     if (!t) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
-    if (!c.busy()) {
-      const term = await terminalOf(c.conversationId);
-      if (term) throw inTerminal(term);
-    }
-    const r = await c.send(t);
+    const r = c.busy() ? await c.send(t) : await sendOne(c, () => c.send(t));
     c.byTia = false; // the owner's schedule writes in it: a chat with his instructions, not Tia's any more
     save();
     return { id: r.id, queued: r.queued };
@@ -328,15 +343,9 @@ export function chatFeature(ctx, o = {}) {
         files = readAttachments(b.attachments, { cwd: u.cwd, uploadsDir: u.dir });
         if (files.mentions.length) text = `${text}\n\n${files.mentions.join(' ')}`;
       }
-      // Also while this chat's process waits idle: a terminal may have resumed the conversation meanwhile.
-      if (!c.busy()) {
-        const term = await terminalOf(c.conversationId);
-        if (term) {
-          c.stop();
-          throw inTerminal(term);
-        }
-      }
-      const r = await c.send(text, { images: files.images, attachments: files.attachments });
+      // A turn that runs queues it; else it starts one, never while a terminal runs the conversation (one at a time).
+      const send = () => c.send(text, { images: files.images, attachments: files.attachments });
+      const r = c.busy() ? await send() : await sendOne(c, send);
       if (b.byTia !== true) c.byTia = false; // a message of the owner's (not Tia's own send_to_chat): his chat from now on
       save();
       return { ok: true, id: r.id, queued: r.queued };
@@ -410,7 +419,7 @@ export function chatFeature(ctx, o = {}) {
   const openChatOf = (id) => ([...chats.values()].find((c) => c.conversationId === id) || {}).id || null;
   // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
   const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
-  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, auto: { name: AUTO.name, on: autoOn } }));
+  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn } }));
   const live = liveRoutes(ctx, { chatOr404, save, remember, bad, models, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView });
   routes.push(...live.routes);
 
@@ -428,8 +437,16 @@ export function chatFeature(ctx, o = {}) {
     /** True when a chat runs conversation `id` right now: its process, or one getting ready for a message. */
     running(id) {
       load();
-      const c = [...chats.values()].find((x) => x.conversationId === id);
-      return !!(c && (c.session || c.busy()));
+      return !!chatOf(id);
+    },
+    /**
+     * Start a terminal on conversation `id` (server.mjs: New session, Tia) with `start()` → { name }, unless something
+     * runs it already: → { name } of the new one, or { existing: { terminal: { name } } | { chat } } (handoff.mjs claim).
+     */
+    async startTerminal(id, start, tool = 'claude') {
+      load();
+      const r = await claim(id, start, { tool });
+      return r.started ? r.started : { existing: r.terminal ? { terminal: { name: r.terminal.name } } : { chat: r.chat } };
     },
     async close() {
       await Promise.all([...chats.values()].map((c) => c.close(3000)));
