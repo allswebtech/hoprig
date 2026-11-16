@@ -83,10 +83,17 @@ function strictWord(w, root) {
   }
   return null;
 }
-// A word that may be a path: every piece with a slash or a ".." must lie inside the folder; none names a secret file.
+// The part of an option word that may be a path: from its first "/" or "..", or after its first "=". A value glued to a
+// short option (-f/etc/x, -zf../x, -O/srv/x) is read by the program as much as one after "=" or in the next word.
+function glued(w) {
+  const at = [w.indexOf('/'), w.indexOf('..'), w.includes('=') ? w.indexOf('=') + 1 : -1].filter((i) => i >= 0);
+  return at.length ? w.slice(Math.min(...at)) : '';
+}
+// A word that may be a path: every piece with a slash or a ".." must lie inside the folder (of an option, the part
+// glued() finds); none names a secret file.
 function looseWord(w, root) {
   if (SECRET_FILES.test(w)) return WHY.secret;
-  for (const x of w.split(/[=:,]/)) {
+  for (const x of (w.startsWith('-') ? glued(w) : w).split(/[=:,]/)) {
     const why = (x.includes('/') || x.includes('..')) && pathWhy(x, root);
     if (why) return why;
   }
@@ -105,7 +112,7 @@ const longIs = (w, names) => {
   return n.length > 2 && names.some((x) => x === n || x.startsWith(n));
 };
 
-/** Any options; every other word (and an option's value after "=") is a path inside the folder. */
+/** Any options; every other word (and an option's value, after "=" or glued to it) is a path inside the folder. */
 function lookAt(args, root) {
   let ended = false;
   return first(args, (w) => {
@@ -113,7 +120,7 @@ function lookAt(args, root) {
       ended = true;
       return null;
     }
-    if (!ended && w.startsWith('-')) return w.includes('=') ? strictWord(w.slice(w.indexOf('=') + 1), root) : null;
+    if (!ended && w.startsWith('-')) return SECRET_FILES.test(w) ? WHY.secret : strictWord(glued(w), root);
     return strictWord(w, root);
   });
 }

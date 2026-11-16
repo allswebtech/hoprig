@@ -20,18 +20,18 @@ const PLAIN = {
   head: ['head -n 20 src/a.js'],
   tail: ['tail -n 50 build.log'],
   wc: ['wc -l src/a.js src/b.js'],
-  file: ['file logo.png'],
+  file: ['file logo.png', 'file -f names.txt', `file -f${ROOT}/names.txt`],
   stat: ['stat package.json'],
-  du: ['du -sh src', 'du --max-depth=1 .'],
+  du: ['du -sh src', 'du --max-depth=1 .', `du -X${ROOT}/skip.txt .`],
   tree: ['tree -L 2 src'],
   grep: ['grep -rn TODO src', 'grep -e foo -- src/a.js', 'grep --files-with-matches foo .'],
   rg: ['rg TODO', 'rg -n --hidden foo src'],
-  git: ['git status', 'git diff', 'git diff --cached', 'git log --oneline -20', 'git show HEAD', 'git ls-files', 'git blame src/a.js', 'git rev-parse HEAD', 'git describe --tags', 'git log main..feature'],
+  git: ['git status', 'git diff', 'git diff --cached', 'git log --oneline -20', 'git show HEAD', 'git ls-files', 'git blame src/a.js', 'git rev-parse HEAD', 'git describe --tags', 'git log main..feature', 'git log --since=2.weeks --format=%h:%s'],
   npm: ['npm test', 'npm run lint', 'npm run test:unit', 'npm test -- --watch'],
   pnpm: ['pnpm test', 'pnpm run build'],
   yarn: ['yarn test', 'yarn run e2e-ci'],
   node: ['node --test', 'node --test test/a.test.mjs'],
-  pytest: ['pytest', 'pytest -x -q tests/unit'],
+  pytest: ['pytest', 'pytest -x -q tests/unit', 'pytest -csetup.cfg', 'pytest -c tests/pytest.ini'],
   go: ['go test ./...', 'go build ./cmd/app', 'go vet ./...'],
   cargo: ['cargo test', 'cargo build --release', 'cargo check'],
 };
@@ -60,6 +60,12 @@ test('each rule refuses what it must', () => {
     ['cat .env', WHY.secret], ['cat config/credentials.json', WHY.secret], ['ls .ssh', WHY.secret],
     ['du --files0-from=/etc/shadow', WHY.outside], ['tree -o /tmp/x', WHY.outside], ['file -f /etc/passwd', WHY.outside],
     ['head -c 100 /dev/urandom', WHY.outside], ['cat a.js:/etc/passwd', WHY.outside], ['ls /w/projX', WHY.outside],
+    // a value glued to a short option is a path too (file -f prints every line of the file it names)
+    ['file -f/home/owner/.npmrc', WHY.outside], ['file -zf/etc/passwd', WHY.outside], ['file -m/home/owner/.docker/config.json x', WHY.outside],
+    ['du -X/home/owner/x .', WHY.outside], ['file -f../x', WHY.outside], ['file -zf..', WHY.outside], ['du -X/w/projX/x .', WHY.outside],
+    ['file -f.env', WHY.secret], ['file -fsrc/../../x', WHY.outside], ['cat -X/abs=x', WHY.outside],
+    // where the option letters end and a relative value begins cannot be told: the part from the slash is the path
+    ['file -fsrc/names.txt', WHY.outside],
     // grep, rg: no option that reads patterns from a file or runs a command
     ['grep -f /etc/x foo', WHY.command], ['grep -f pats.txt src', WHY.command], ['grep -rnf pats.txt src', WHY.command],
     ['grep --file=pats.txt src', WHY.command], ['grep --fil=pats.txt src', WHY.command], ['grep --exclude-from=x src', WHY.command],
@@ -71,6 +77,8 @@ test('each rule refuses what it must', () => {
     ['git -c core.pager=x log', WHY.command], ['git log -c', WHY.command], ['git ls-files -o', WHY.command], ['git log --git-dir=x', WHY.command],
     ['git status --work-tree=..', WHY.command], ['git log --exec-path=x', WHY.command], ['git diff --output=x', WHY.command],
     ['git diff --out=x', WHY.command], ['git diff --no-index /etc/passwd x', WHY.command], ['git log -- ../other', WHY.outside],
+    ['git log -O/srv/x', WHY.outside], ['git diff -O/var/x', WHY.outside], ['git diff -O../x', WHY.outside], ['grep -rnX/etc/x foo', WHY.outside],
+    ['rg -j1/../../x foo', WHY.outside],
     // npm, pnpm, yarn: test or run <name>, then plain words; an option only after "--"
     ['npm install', WHY.command], ['npm run', WHY.command], ['npm run a/b', WHY.command], ['npm exec jest', WHY.command],
     ['npm test --prefix=/x', WHY.command], ['npm run build --prefix ..', WHY.command], ['npm test --script-shell=sh', WHY.command],
@@ -79,6 +87,7 @@ test('each rule refuses what it must', () => {
     ['node app.js', WHY.command], ['node --test --require=x', WHY.command], ['node --test ../x.test.mjs', WHY.outside], ['node -e x', WHY.command],
     // pytest, go, cargo: plain words and paths inside the folder; none of the options that name another program
     ['pytest --basetemp=/tmp/x', WHY.outside], ['pytest -o cache_dir=../x', WHY.outside], ['pytest -c /etc/x', WHY.outside],
+    ['pytest -c/home/owner/other/x.ini', WHY.outside], ['pytest -c../x.ini', WHY.outside], ['go test -coverprofile=/tmp/c.out', WHY.outside],
     ['go run .', WHY.command], ['go test -exec=sh ./...', WHY.command], ['go test -exec sh', WHY.command], ['go build -toolexec=x', WHY.command],
     ['go vet -vettool=x', WHY.command], ['go build -o /usr/local/bin/x', WHY.outside], ['go test ../...', WHY.outside],
     ['cargo run', WHY.command], ['cargo build --config=build.rustc-wrapper=x', WHY.command], ['cargo check -Zunstable-options', WHY.command],
