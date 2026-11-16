@@ -472,6 +472,102 @@ test('limit card: the main button is the first free provider of the order, never
   assert.deepEqual(onlyPaid, [[false, 'Continue on Claude API (paid per use)']]);
 });
 
+test('limit card on Claude Code\'s stored sign-in: another Claude account next to another provider; "Continue" once one signed in', async () => {
+  const { limitBox } = await import('../../web/lib.js');
+  const { limitStripAction, accountText, onStoredLogin } = await import('../../web/claudeaccount.js');
+  const texts = (n) => (n instanceof FakeText ? [n.text] : n.children.flatMap(texts));
+  const buttons = (n) => (!n || n instanceof FakeText ? [] : [...(n.tag === 'button' ? [n] : []), ...n.children.flatMap(buttons)]);
+  const card = (s, ps) => buttons(limitBox(s, ps)).map((b) => [/primary/.test(b.className), texts(b).join('')]);
+  const profiles = [
+    { name: 'sub', label: 'Claude Max', kind: 'login', signedIn: true, limited: { until: 1 }, accountAt: null },
+    { name: 'tr', label: 'API via TRouteAI', kind: 'api', paid: false },
+  ];
+  const s = { name: 'w', machine: null, canSwitch: true, limit: { text: "You've hit your 5-hour limit" }, limitAt: 2000, profile: { name: 'sub', kind: 'login' } };
+  assert.deepEqual(card(s, profiles), [[true, 'Continue on API via TRouteAI'], [false, 'Sign in with another Claude account']]);
+  // another account signed in after the limit was seen: going on here leads, the move is second
+  const since = [{ ...profiles[0], accountAt: 3000 }, profiles[1]];
+  assert.deepEqual(card(s, since), [[true, 'Continue with the new account'], [false, 'Continue on API via TRouteAI'], [false, 'Sign in with another Claude account']]);
+  assert.deepEqual(card({ ...s, limitAt: 4000 }, since), [[true, 'Continue on API via TRouteAI'], [false, 'Sign in with another Claude account']], 'a limit of the new account itself');
+  assert.equal(card({ ...s, limitAt: null }, [{ ...profiles[0], accountAt: Date.now() - 60_000 }, profiles[1]])[0][1], 'Continue with the new account', 'since when is not known: a sign-in of the last hours counts');
+  // a chat (it cannot be moved from its card) gets the same
+  assert.deepEqual(card({ ...s, kind: 'chat', chatId: 'c1', canSwitch: false }, profiles), [[false, 'Sign in with another Claude account']]);
+  // not for a provider with its own account token or an API key, and not through another computer's page
+  assert.deepEqual(card({ ...s, profile: { name: 'own', kind: 'subscription' } }, [{ name: 'own', label: 'Second', kind: 'subscription' }, profiles[1]]), [[true, 'Continue on API via TRouteAI']]);
+  assert.deepEqual(card({ ...s, machine: 'laptop' }, profiles), [[true, 'Continue on API via TRouteAI']], 'a sign-in never goes through another computer\'s page');
+  // Home's line about the providers: the button only while this computer's stored sign-in is at its limit
+  assert.deepEqual(buttons(limitStripAction([{ machine: null, profiles }])).map((b) => texts(b).join('')), ['Sign in with another Claude account']);
+  assert.equal(limitStripAction([{ machine: null, profiles: [{ ...profiles[0], limited: null }] }]), null);
+  assert.equal(limitStripAction([{ machine: 'laptop', profiles }]), null);
+  assert.equal(limitStripAction([{ machine: null, profiles: [{ name: 'own', kind: 'subscription', limited: {} }] }]), null);
+  assert.equal(accountText({ email: 'someone@example.invalid', org: 'Example Org', plan: 'max' }), 'someone@example.invalid · Example Org · Max');
+  assert.equal(accountText({ email: null, org: null, plan: null }), '');
+  // what runs on the stored sign-in: its own sessions and chats, and an Auto session while that provider serves it
+  const sessions = [{ name: 'a', profile: { name: 'sub' } }, { name: 'b', profile: { name: 'tr' } }, { name: 'c', profile: { name: 'auto' }, autoOn: { name: 'sub' } }, { name: 'd' }];
+  assert.deepEqual(onStoredLogin(sessions, profiles).map((x) => x.name), ['a', 'c']);
+  // Providers: the two actions on the provider's own page, said plainly before anything happens
+  const acc = fs.readFileSync(path.join(WEB, 'accounts.js'), 'utf8');
+  assert.match(acc, /'Sign in with another account'/);
+  assert.match(acc, /'Sign out'/);
+  const src = fs.readFileSync(path.join(WEB, 'claudeaccount.js'), 'utf8');
+  assert.match(src, /No restart is needed/, 'what happens to running sessions is said before the owner confirms');
+  assert.match(src, /Until that is complete nothing changes/);
+  assert.match(src, /Their next request ends in "Not logged in"/, 'and what a sign-out means for them');
+  assert.doesNotMatch(src, /logout'\), \{\}\)[\s\S]{0,200}claudeSignIn/, 'another account is one step: no sign-out before the sign-in');
+});
+
+test('a sheet opened over another takes its place: the earlier one is answered, its late close does not end the new one', async () => {
+  const src = fs.readFileSync(path.join(WEB, 'lib.js'), 'utf8');
+  // A stand-in <dialog>: close() reports a moment later, as browsers do.
+  const made = [];
+  const realCreate = document.createElement;
+  document.createElement = (t) => {
+    const el = realCreate(t);
+    if (t === 'dialog') {
+      Object.assign(el, {
+        open: false,
+        classList: { toggle() {} },
+        querySelector: () => null,
+        showModal() { this.open = true; },
+        close() {
+          if (!this.open) return;
+          this.open = false;
+          setTimeout(() => this.listeners.close && this.listeners.close(), 0);
+        },
+      });
+      made.push(el);
+    }
+    return el;
+  };
+  document.body = { append() {} };
+  try {
+    const { openSheet } = await import('../../web/lib.js');
+    let closeSecond;
+    const first = openSheet({ title: 'one' }, () => []);
+    const second = openSheet({ title: 'two' }, (close) => { closeSecond = close; return []; });
+    assert.equal(await first, null, 'the earlier sheet is answered at once');
+    let done = false;
+    second.then(() => (done = true));
+    await new Promise((r) => setTimeout(r, 20)); // the first sheet's close is reported now
+    assert.equal(done, false, 'the sheet that is open stays open');
+    assert.equal(made[0].open, true);
+    closeSecond('value');
+    assert.equal(await second, 'value');
+    // closed and another opened in the same moment (close(); openSheet()): each gets its own answer
+    let closeA;
+    const a = openSheet({ title: 'a' }, (close) => { closeA = close; return []; });
+    closeA('a');
+    let closeB;
+    const b = openSheet({ title: 'b' }, (close) => { closeB = close; return []; });
+    assert.equal(await a, 'a');
+    await new Promise((r) => setTimeout(r, 20));
+    closeB('b');
+    assert.equal(await b, 'b');
+  } finally {
+    document.createElement = realCreate;
+  }
+  assert.match(src, /sheetSkip/);
+});
+
 test('Settings → Workspace says why saving the map is on or off when the owner never chose', async () => {
   const { commitMapWhy } = await import('../../web/workspace.js');
   assert.match(commitMapWhy({ on: true, github: true }), /^On: the AI brain has a GitHub address\./);

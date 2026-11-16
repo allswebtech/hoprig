@@ -1,5 +1,6 @@
 // Claude Code's own sign-in from the page (Setup → Claude login, Home → Get started, Providers → a provider that uses
-// Claude Code's stored login), as a server feature: { name, routes, close }.
+// Claude Code's stored login), as a server feature: { name, routes, close }. Sign in, sign out, and sign in with
+// another account (at a usage limit: the work goes on under the same provider).
 //
 // The server holds `claude auth login` in a terminal of its own and the page opens the sign-in link in the same
 // browser. Claude Code does the OAuth and keeps its credentials where it always does (its own config folder);
@@ -14,22 +15,48 @@
 // The server picks the way from the request (sameComputer): a browser on another computer cannot reach this
 // computer's localhost, and a wrong guess only costs the owner one click on "Use a code instead".
 //
+// Another account (2.1.325, probed with a Claude folder of its own and a stand-in sign-in):
+//   - `claude auth login` starts a new sign-in while one is stored, and the stored one stays untouched until the new
+//     one succeeds. So "Sign in with another account" is ONE step, with no sign-out first: a sign-in that is
+//     cancelled or fails leaves everything as it was. `--email <address>` only pre-fills the sign-in page.
+//   - Sessions and chats that run on the stored sign-in need no restart: Claude Code reads the stored sign-in again
+//     before its next request (a terminal session and a headless chat process, both seen to send the next request
+//     as the new account, also from a session standing at its 5-hour limit). After a sign-out their next request
+//     ends in "Not logged in · Please run /login", and goes through again once someone has signed in.
+//     Seen on Linux, where the sign-in is the file .credentials.json in Claude Code's folder (Windows: the same
+//     file; macOS: the Keychain, with that file as the fallback). Not run on macOS or Windows.
+//   - `claude auth logout` prints one line and exits 0, signed in or not. It also removes what else Claude Code
+//     saved with the sign-in (its sign-ins to MCP servers).
+// A new account has its own limits: the sign-in check that sees another account (claudecode.mjs) clears the limit
+// marks and usage figures of the providers that use the stored sign-in — also when the account was changed with
+// /login in a terminal.
+//
+// Who is signed in (e-mail, organisation) is shown to the owner on this dashboard's own page and nowhere else: it
+// is asked from Claude Code when the page asks, never stored, never logged, and not in any other route's answer.
+//
 // Routes (behind the login, cookie only: /api/accounts/ is closed to another dashboard's token and to Tia):
 //   GET  /api/accounts/claude-login          { state: none|starting|link|checking|verifying|done|error,
-//                                              way?, url?, codeUrl?, error?, plan? }
-//   POST /api/accounts/claude-login/start    → { state: "link", way: "local"|"code", url, codeUrl }
-//   POST /api/accounts/claude-login/code     { code } → { state: "done", plan } or an error
+//                                              way?, url?, codeUrl?, error?, plan?, changed? }
+//   POST /api/accounts/claude-login/start    { email? } → { state: "link", way: "local"|"code", url, codeUrl }
+//   POST /api/accounts/claude-login/code     { code } → { state: "done", plan, changed } or an error
 //   POST /api/accounts/claude-login/cancel
+//   GET  /api/accounts/claude-login/account  { loggedIn, plan, email, org }   (?fresh=1: ask Claude Code now)
+//   POST /api/accounts/claude-login/logout   → { ok: true }
+// `changed`: another account than the one seen before (its limit marks and figures were cleared).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { claudeLoginStatus, resolveClaude } from '../claudecode.mjs';
+import { claudeAccount, claudeLogout, resolveClaude } from '../claudecode.mjs';
 import { LINK_HEADER } from '../machines/link.mjs';
 import { findSigninError, findSigninUrl, plainText, scrub, signinEnv } from './accounts.mjs';
 import { ptySpawn } from './backends/nodepty.mjs';
 
 const TIMES = { link: 45_000, browser: 3000, done: 60_000, verify: 10_000, ttl: 10 * 60_000 };
 const CODE_RE = /^[A-Za-z0-9_\-.~]{4,400}#[A-Za-z0-9_\-.~]{4,400}$/;
+// An address to pre-fill the sign-in page with. It becomes one argument of `claude auth login` (never a shell
+// string), and may not look like an option.
+const EMAIL_RE = /^[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,180}[A-Za-z0-9])?\.[A-Za-z]{2,24}$/;
+const ACCOUNT_TTL_MS = 15_000; // `claude auth status` is a program start: not one per look at the page
 // Headers a proxy or tunnel adds (cloudflared, Caddy, nginx, Tailscale Serve, …), and the marks of a request that
 // came from another computer (a bearer token, the hub's link). Any of them: not the browser of this computer.
 const NOT_LOCAL = new Set(['forwarded', 'via', 'x-real-ip', 'cf-connecting-ip', 'cf-ray', 'true-client-ip', 'fly-client-ip', 'tailscale-user-login', 'authorization', LINK_HEADER]);
@@ -103,14 +130,14 @@ export function browserHelper(dir, platform = process.platform) {
 }
 
 class LoginFlow {
-  constructor({ bin, spawn = ptySpawn, times, status }) {
-    Object.assign(this, { times, status, state: 'starting', out: '', codeUrl: null, localUrl: null, error: null, plan: null, ended: false, exited: false });
+  constructor({ bin, spawn = ptySpawn, times, status, email = null, onDone = () => {} }) {
+    Object.assign(this, { times, status, onDone, state: 'starting', out: '', codeUrl: null, localUrl: null, error: null, plan: null, changed: false, ended: false, exited: false });
     this.waiters = [];
     this.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-login-'));
     try {
       const env = loginEnv(process.env, browserHelper(this.dir));
       // Wide, so the link is not wrapped.
-      this.term = spawn(bin, ['auth', 'login'], { name: 'xterm-256color', cols: 1000, rows: 50, cwd: os.homedir(), env });
+      this.term = spawn(bin, ['auth', 'login', ...(email ? ['--email', email] : [])], { name: 'xterm-256color', cols: 1000, rows: 50, cwd: os.homedir(), env });
     } catch (e) {
       fs.rmSync(this.dir, { recursive: true, force: true });
       throw e;
@@ -210,8 +237,10 @@ class LoginFlow {
     if (this.ended) return;
     if (s.loggedIn === true) {
       this.plan = s.plan || null;
+      this.changed = s.changed === true;
       this.state = 'done';
       this.end();
+      this.onDone();
     } else this.end(s.loggedIn === false ? 'Claude Code finished, but it does not report a sign-in. Start again.' : `The sign-in could not be checked: ${s.reason || 'Claude Code gave no answer'}.`);
   }
 
@@ -232,43 +261,92 @@ class LoginFlow {
   }
 
   view() {
-    if (this.state === 'done') return { state: 'done', plan: this.plan };
+    if (this.state === 'done') return { state: 'done', plan: this.plan, changed: this.changed };
     if (this.state === 'error') return { state: 'error', error: this.error };
     return { state: this.state, way: this.way, url: this.localUrl || this.codeUrl, codeUrl: this.codeUrl };
   }
 }
 
-/** opts: { spawn, status, addresses, times } — stand-ins for tests. */
+/** opts: { spawn, status, logout, addresses, times } — stand-ins for tests. */
 export function claudeLoginFeature(ctx, opts = {}) {
   const times = { ...TIMES, ...(opts.times || {}) };
-  const status = opts.status || (() => claudeLoginStatus({ env: process.env }));
+  // { loggedIn, plan, email, org, changed }: who is signed in, asked from Claude Code (and kept for Providers).
+  const status = opts.status || (() => claudeAccount({ env: process.env }));
+  const logout = opts.logout || (() => claudeLogout({ env: process.env }));
   let flow = null; // the last one, kept after it ended so the page can read how it ended
+  let seen = null; // { at, account }: the last answer, for a page that looks again within a few seconds
 
   const owner = (req) => {
     if (!ctx.authed(req)) throw fail(403, 'Only the owner of this dashboard can sign in Claude Code');
   };
+  const changed = () => {
+    seen = null;
+    ctx.poke?.(); // Providers, Home and the session pages read the new state at once
+  };
+  async function account(fresh) {
+    if (!fresh && seen && Date.now() - seen.at < ACCOUNT_TTL_MS) return seen.account;
+    let s;
+    try {
+      s = await status();
+    } catch {
+      s = { loggedIn: null };
+    }
+    const one = (v) => (typeof v === 'string' && v ? v : null);
+    const a = { loggedIn: typeof s.loggedIn === 'boolean' ? s.loggedIn : null, plan: s.loggedIn ? one(s.plan) : null, email: s.loggedIn ? one(s.email) : null, org: s.loggedIn ? one(s.org) : null };
+    seen = { at: Date.now(), account: a };
+    if (s.changed) ctx.poke?.();
+    return a;
+  }
 
   const routes = [
     ['GET', /^\/api\/accounts\/claude-login$/, async (req) => {
       owner(req);
       return flow ? flow.view() : { state: 'none' };
     }],
+    ['GET', /^\/api\/accounts\/claude-login\/account$/, async (req, m, q) => {
+      owner(req);
+      return account(q.get('fresh') === '1');
+    }],
     ['POST', /^\/api\/accounts\/claude-login\/start$/, async (req) => {
       owner(req);
-      await ctx.readJson(req);
+      const b = await ctx.readJson(req);
+      let email = null;
+      if (b.email !== undefined && b.email !== null && b.email !== '') {
+        email = typeof b.email === 'string' ? b.email.trim() : '';
+        if (!EMAIL_RE.test(email) || email.length > 254) throw fail(400, 'That does not look like an e-mail address. Leave it empty to choose the account on the sign-in page.');
+      }
       if (flow && !flow.ended) throw fail(409, 'A sign-in is already in progress. Finish or cancel it first.');
       const found = resolveClaude({ bin: ctx.config().claudeBin || 'claude' });
       if (!found) throw fail(409, 'Claude Code is not installed on this computer yet. Set it up first.');
       const local = sameComputer(req, opts.addresses ? { addresses: opts.addresses } : undefined);
+      // Who is signed in now, before anything changes: the check afterwards then knows whether it is another account.
+      await account(true);
+      if (flow && !flow.ended) throw fail(409, 'A sign-in is already in progress. Finish or cancel it first.');
       let f;
       try {
-        f = new LoginFlow({ bin: found.path, spawn: opts.spawn, times, status });
+        f = new LoginFlow({ bin: found.path, spawn: opts.spawn, times, status, email, onDone: changed });
       } catch (e) {
         throw fail(500, `Claude Code could not be started (${scrub(e.message)}). Use the terminal instead.`);
       }
       flow = f;
       await f.link(local);
       return f.view();
+    }],
+    ['POST', /^\/api\/accounts\/claude-login\/logout$/, async (req) => {
+      owner(req);
+      await ctx.readJson(req);
+      if (flow && !flow.ended) throw fail(409, 'A sign-in is in progress. Finish or cancel it first.');
+      let r;
+      try {
+        r = await logout();
+      } catch (e) {
+        r = { ok: false, error: e.message };
+      }
+      if (!r || !r.ok) throw fail(502, `Claude Code did not sign out${r && r.error ? ` (${scrub(r.error)})` : ''}. Try again, or run "claude auth logout" in a terminal.`);
+      const now = await account(true); // also kept for Providers: "Not signed in"
+      changed();
+      if (now.loggedIn === true) throw fail(502, 'Claude Code still reports a sign-in. Try again, or run "claude auth logout" in a terminal.');
+      return { ok: true };
     }],
     ['POST', /^\/api\/accounts\/claude-login\/code$/, async (req) => {
       owner(req);

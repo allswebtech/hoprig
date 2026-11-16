@@ -26,7 +26,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { runsDir } from './paths.mjs';
-import { rememberUsage } from './routerstate.mjs';
+import { rememberUsage, usageForgotten } from './routerstate.mjs';
 
 export function createRun({ profile, cwd, carryArgs = [] }) {
   const runId = `${Date.now().toString(36)}-${process.pid}`;
@@ -108,6 +108,8 @@ export function noteUsage(file, profile) {
     /* the file went away just now: the figures were read a moment ago */
   }
   try {
+    // Figures of the account that was signed in before (the session has not asked anything since): not this run's.
+    if (usageForgotten(profile, usage)) return null;
     rememberUsage(profile, usage, at);
   } catch {
     /* the store is a convenience: a run is listed without it */

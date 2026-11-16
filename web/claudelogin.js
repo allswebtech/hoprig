@@ -12,6 +12,9 @@ import { store } from './store.js';
 const R = (p = '') => `~/api/accounts/claude-login${p}`; // always this dashboard's own computer
 const busy = (text) => h('div.empty.compact', h('div.spinner', { 'aria-hidden': 'true' }), h('p', text));
 
+// The sign-in page of Anthropic signs in whoever the browser is signed in as: for another account that has to change.
+const otherAccountHint = () => h('p.hint', 'If the sign-in page shows the account you are on now, switch the account there first, or copy the link into a private window.');
+
 /** Run the command in a terminal session instead (Get started's old way), for when the page way does not work. */
 async function terminalWay(close) {
   try {
@@ -37,22 +40,45 @@ function blankTab() {
 /**
  * The sign-in sheet. Resolves true when Claude Code is signed in. `done()` runs after a sign-in, so the part that
  * opened it can draw itself again (the store is refreshed here: Providers and the rest follow).
+ *
+ * `another` (claudeaccount.js): the sign-in is for another account than the one signed in now. The account signed
+ * in so far stays until the new sign-in is complete; when the same account comes back, the sheet says so and
+ * offers to try again. `email` pre-fills the sign-in page. `after(result, body, close)` may draw what comes next
+ * into the sheet (the sessions that go on); it returns true when it did, and the sheet then stays open.
  */
-export function claudeSignIn({ done = () => {} } = {}) {
+export function claudeSignIn({ done = () => {}, another = false, email = '', after = null } = {}) {
   let tab = blankTab();
   let finished = false;
   let poll = null;
-  return openSheet({ title: 'Sign in to Claude Code', subtitle: 'With your Claude account. Claude Code keeps the sign-in on this computer; it never comes to this page.' }, (close) => {
+  const head = another
+    ? { title: 'Sign in with another Claude account', subtitle: 'The account signed in now stays until the new sign-in is complete.' }
+    : { title: 'Sign in to Claude Code', subtitle: 'With your Claude account. Claude Code keeps the sign-in on this computer; it never comes to this page.' };
+  return openSheet(head, (close) => {
     const body = h('div.wizard', busy('Starting Claude Code on the computer…'));
     const terminal = () => h('p.hint', 'Not working? ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); terminalWay(close); } }, 'Use the terminal instead'), '.');
     const success = (r) => {
       if (finished) return; // the look and the code's answer may both bring it
-      finished = true;
       clearInterval(poll);
-      fill(body, okBox(`Claude Code is signed in${r.plan ? ` (${r.plan.charAt(0).toUpperCase()}${r.plan.slice(1)})` : ''}.`));
-      toast('Claude Code is signed in');
+      const plan = r.plan ? ` (${r.plan.charAt(0).toUpperCase()}${r.plan.slice(1)})` : '';
+      if (another && r.changed !== true) {
+        // The sign-in page signed in the account the browser already had: nothing is different, and its limit is
+        // the same. Said plainly, with the way to another account.
+        finished = true;
+        store.refresh();
+        done();
+        return fill(body,
+          h('div.banner.warn', icon('alert', { size: 18 }), h('span', `Claude Code is signed in with the same account as before${plan}. Its limits are unchanged.`)),
+          h('p.sheet-text', 'The sign-in page uses the account your browser is signed in to at claude.ai. Switch the account there first, or copy the sign-in link into a private window, then try again.'),
+          h('div.sheet-actions',
+            h('button.btn.secondary', { type: 'button', onclick: () => close(true) }, 'Close'),
+            btn('primary', { icon: 'refresh', label: 'Try again', onclick: () => { finished = false; tab = blankTab(); start(); } })));
+      }
+      finished = true;
+      fill(body, okBox(another ? `Claude Code is signed in with another account${plan}.` : `Claude Code is signed in${plan}.`));
+      toast(another ? 'Signed in with another account' : 'Claude Code is signed in');
       store.refresh();
       done();
+      if (after && after(r, body, close)) return;
       setTimeout(() => close(true), 1200);
     };
     const failed = (message) => {
@@ -101,6 +127,7 @@ export function claudeSignIn({ done = () => {} } = {}) {
         [h('p', opened ? 'Sign in and allow access in the tab that opened.' : 'Open the sign-in page and allow access.'), openButton(r.codeUrl, opened ? 'Open it again' : 'Open the sign-in page')],
         [h('p', 'The page then shows a code. Copy it and paste it here.'), code]),
       out,
+      another ? otherAccountHint() : null,
       h('p.hint', 'The sign-in stays open for 10 minutes.'), terminal(),
       // The sticky action bar is the sheet's last part (style.css .sheet-actions): nothing may sit under it.
       h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'), go));
@@ -113,6 +140,7 @@ export function claudeSignIn({ done = () => {} } = {}) {
         opened ? h('p.sheet-text', 'Sign in and allow access in the tab that opened. This page notices by itself when it is done.')
           : h('div', h('p.sheet-text', 'Open the sign-in page and allow access. This page notices by itself when it is done.'), openButton(r.url, 'Open the sign-in page')),
         busy('Waiting for the sign-in…'),
+        another ? otherAccountHint() : null,
         h('p.hint', 'Ended on a page with a code? ', h('a', { href: '#', onclick: (e) => {
           e.preventDefault();
           const w = blankTab();
@@ -127,7 +155,7 @@ export function claudeSignIn({ done = () => {} } = {}) {
       fill(body, busy('Starting Claude Code on the computer…'));
       let r;
       try {
-        r = await api(R('/start'), {});
+        r = await api(R('/start'), email ? { email } : {});
       } catch (e) {
         if (tab) tab.close();
         tab = null;

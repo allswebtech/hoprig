@@ -34,8 +34,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadConfig } from './config.mjs';
 import { claudeDir } from './paths.mjs';
-import { AUTH_VARS } from './profiles.mjs';
-import { rememberLogin } from './routerstate.mjs';
+import { clearLimited } from './autoswitch.mjs';
+import { AUTH_VARS, listProfiles } from './profiles.mjs';
+import { forgetUsage, rememberLogin } from './routerstate.mjs';
 import { capture, compareVersions, npmArgv, stream, which } from './setup/system.mjs';
 
 export const INSTALL_SH = 'https://claude.ai/install.sh';
@@ -330,7 +331,8 @@ export async function claudeUpdate({ onLine = () => {} } = {}) {
  * Read `claude auth status` (JSON; exit 0 = logged in, 1 = not). Returns { loggedIn: true|false|null, method, plan }.
  * null means "could not tell" (an old Claude Code without `auth status`, or an answer we do not understand).
  * Only the login method and the plan type ("pro", "max", "team", …: it decides whether usage figures exist) are
- * kept: the answer also carries the account's e-mail and organisation, which we never pass on.
+ * kept. The answer also names the account (e-mail, organisation): that part is read by parseAuthAccount, and only
+ * for the owner's own page (claudeAccount).
  */
 export function parseAuthStatus({ code, stdout }) {
   let j = null;
@@ -347,16 +349,90 @@ export function parseAuthStatus({ code, stdout }) {
   return { loggedIn: null, method, plan: null };
 }
 
-/** Is an account logged in on this machine (the stored login, without any profile's variables)? */
-export async function claudeLoginStatus({ env = process.env, remember = true } = {}) {
+const oneLine = (v, max) => (typeof v === 'string' && v.trim() ? v.replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, max) : null);
+
+/**
+ * Who is signed in, from the same answer (Claude Code 2.1.325: "email", "orgName", "orgId"): { email, org, id }.
+ * `id` tells one account from another (address and organisation); routerstate.mjs keeps only a salted fingerprint
+ * of it, for noticing that another account signed in. All null when the answer names nobody (not signed in, an API
+ * key, an older Claude Code).
+ */
+export function parseAuthAccount(stdout) {
+  let j = null;
+  try {
+    j = JSON.parse(String(stdout || '').trim());
+  } catch {
+    j = null;
+  }
+  const email = j && j.loggedIn !== false ? oneLine(j.email, 200) : null;
+  const org = j && j.loggedIn !== false ? oneLine(j.orgName, 120) : null;
+  const orgId = j && j.loggedIn !== false ? oneLine(j.orgId, 80) : null;
+  const who = [email, orgId || org].filter(Boolean);
+  return { email, org, id: who.length ? who.join('\n').toLowerCase() : null };
+}
+
+/**
+ * Another account is signed in than the last one seen: what was known about the earlier one's limits no longer
+ * holds for the providers that use the stored sign-in. Their limit marks and usage figures go.
+ */
+function accountChanged() {
+  for (const p of listProfiles()) {
+    if (p.kind !== 'login') continue;
+    try {
+      clearLimited(p.name);
+      forgetUsage(p.name);
+    } catch {
+      /* a state folder that cannot be written must not break a check */
+    }
+  }
+}
+
+async function askAuthStatus(env, remember) {
   const found = resolveClaude({ env });
-  if (!found) return { loggedIn: null, method: null, reason: 'Claude Code is not installed' };
+  if (!found) return { s: { loggedIn: null, method: null, reason: 'Claude Code is not installed' }, account: { email: null, org: null, id: null }, changed: false };
   const r = await capture([found.path, 'auth', 'status', '--json'], { env: cleanEnv(env), timeout: 20_000 });
   const s = parseAuthStatus(r);
+  const account = parseAuthAccount(r.stdout);
   // The answer is kept for the page (routerstate.mjs: providerFacts), which must not start a program per request.
   // `remember: false` for a run that may change nothing at all (setup --dry-run).
-  if (remember) rememberLogin(s);
-  return s.loggedIn === null ? { ...s, reason: 'this Claude Code cannot report its login (update it)' } : s;
+  let changed = false;
+  if (remember) {
+    try {
+      ({ changed } = rememberLogin({ ...s, account: account.id }));
+      if (changed) accountChanged();
+    } catch {
+      /* the answer still stands */
+    }
+  }
+  return { s: s.loggedIn === null ? { ...s, reason: 'this Claude Code cannot report its login (update it)' } : s, account, changed };
+}
+
+/** Is an account logged in on this machine (the stored login, without any profile's variables)? */
+export async function claudeLoginStatus({ env = process.env, remember = true } = {}) {
+  return (await askAuthStatus(env, remember)).s;
+}
+
+/**
+ * The same check with who is signed in: { loggedIn, method, plan, email, org, changed }. `changed`: another account
+ * than the last one seen (its providers' limit marks and figures were cleared just now). For the owner's own page
+ * only: nothing else may pass the address on, and it is never written to a file or a log.
+ */
+export async function claudeAccount({ env = process.env } = {}) {
+  const { s, account, changed } = await askAuthStatus(env, true);
+  return { ...s, email: s.loggedIn ? account.email : null, org: s.loggedIn ? account.org : null, changed };
+}
+
+/**
+ * Sign out (`claude auth logout`; 2.1.325 prints one line and exits 0, signed in or not). Claude Code removes the
+ * stored sign-in and what else it saved with it. Returns { ok, error? }; the next sign-in check tells the rest.
+ */
+export async function claudeLogout({ env = process.env } = {}) {
+  const found = resolveClaude({ env });
+  if (!found) return { ok: false, error: 'Claude Code is not installed' };
+  const r = await capture([found.path, 'auth', 'logout'], { env: cleanEnv(env), timeout: 30_000 });
+  if (r.code === 0) return { ok: true };
+  const said = String(r.stderr || r.stdout || '').trim().split('\n').pop() || '';
+  return { ok: false, error: said.slice(0, 200) || `claude auth logout ended with code ${r.code}` };
 }
 
 /** Start the browser sign-in in this terminal (`claude auth login`). Interactive only. */

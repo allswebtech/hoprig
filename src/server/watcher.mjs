@@ -98,7 +98,7 @@ export class Watcher {
     this.prev = null;
     this.seen = new Map();
     this.done = new Set();
-    this.pending = new Map(); // session name → { to, prompt, since }
+    this.pending = new Map(); // session name → { to, prompt, since, notRun? (the run that was stopped: not that one) }
     this.timer = null;
     this.nextAt = 0;
     this.running = false;
@@ -215,7 +215,9 @@ export class Watcher {
         this.pending.delete(name);
         continue;
       }
-      if (c.kind === 'claude' && c.profile && c.profile.name === p.to && c.status === 'waiting') {
+      // `notRun`: a restart on the same provider (server.mjs: continue). The run that was stopped may still be
+      // listed for a moment, waiting: the prompt is for the one that comes after it.
+      if (c.kind === 'claude' && c.profile && c.profile.name === p.to && c.status === 'waiting' && (!p.notRun || (c.runId && c.runId !== p.notRun))) {
         this.pending.delete(name);
         if (!p.prompt) continue;
         try {

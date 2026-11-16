@@ -7,6 +7,7 @@
 // "Use the terminal instead" stays for when the page flow does not work. Accounts are added on the computer whose
 // page this is (this dashboard's own): a key or a sign-in never travels to another computer through this page.
 import { COMMAND } from './brand.js';
+import { accountText, loadAccount, signOut, switchAccount, usesStoredLogin } from './claudeaccount.js';
 import { claudeSignIn } from './claudelogin.js';
 import { icon } from './icons.js';
 import {
@@ -147,8 +148,11 @@ function fixedPanel(auto) {
     saveBar('Save', () => api('/api/settings', { autoSwitch: { returnToPreferred: st.returnToPreferred, prompt: st.prompt } })));
 }
 
-/** One provider in the list. `signIn(a)`: starts its sign-in again (a sign-in provider that is not signed in). */
-function accountRow(a, place, autoOn, signIn) {
+/**
+ * One provider in the list. `signIn(a)`: starts its sign-in again (a sign-in provider that is not signed in).
+ * `another(a)`: signs in with another Claude account (a provider on the stored sign-in that is at its limit).
+ */
+function accountRow(a, place, autoOn, signIn, another) {
   const ps = profileState(a);
   const page = link(`#/providers/${encodeURIComponent(a.name)}`);
   // A row with its own button is not a link element (a button inside a link is not allowed): it opens on a tap.
@@ -163,6 +167,7 @@ function accountRow(a, place, autoOn, signIn) {
     h('span.row-sub.state', [kindText(a), remoteText(a), ps.text].filter(Boolean).join(' · ')),
     ps.key === 'signin' ? null : usageBars(a.usage, a.usageReported, a.inUse > 0)),
   ps.key === 'signin' && signIn ? h('button.btn.small.primary.acct-signin', { type: 'button', onclick: (e) => { e.stopPropagation(); signIn(a); } }, icon('user', { size: 15 }), h('span', 'Sign in')) : null,
+  ps.key === 'limit' && another && usesStoredLogin(a) ? h('button.btn.small.secondary.acct-signin', { type: 'button', title: 'Sign in with another Claude account: the work goes on under this provider', onclick: (e) => { e.stopPropagation(); another(a); } }, icon('user', { size: 15 }), h('span', 'Use another account')) : null,
   h('span.row-end', icon('chevronRight', { size: 18 })));
 }
 
@@ -199,7 +204,7 @@ function viewAccounts({ frame, sub }) {
       limitPanel(auto, data.accounts, refresh, flash),
       groupHead('Providers', accounts.length),
       accounts.length
-        ? h('div.rows', accounts.map((a) => accountRow(a, order.indexOf(a.name) + 1, auto.enabled, here ? (x) => signInAgain(x, data, refresh) : null)))
+        ? h('div.rows', accounts.map((a) => accountRow(a, order.indexOf(a.name) + 1, auto.enabled, here ? (x) => signInAgain(x, data, refresh) : null, here ? () => switchAccount({ done: refresh }) : null)))
         : emptyState('user', here ? 'No providers yet. Add the Claude subscription or API key Claude should use.' : `No providers on ${openLabel()} yet. Add one on that computer's own page.`,
           here ? btn('primary', { icon: 'plus', label: 'Add provider', onclick: () => addWizard(data, refresh) }) : null),
       here ? null : h('p.hint', `Providers of ${openLabel()} are added on that computer's own page: a key or a sign-in never travels through this one.`),
@@ -243,13 +248,26 @@ function viewAccount(frame, name) {
         toast(e.message, { kind: 'error', ms: 8000 });
       }
     } }, h('span.row-icon', icon(ic)), h('span.row-main', h('span.row-title', label), sub ? h('span.row-sub', sub) : null), h('span.row-end', icon('chevronRight', { size: 18 })));
+    // Claude Code's stored sign-in, on this dashboard's own computer: who is signed in, and the two things to do
+    // with it. (A provider with its own account token is signed in again through its wizard, as before.)
+    const stored = usesStoredLogin(a) && d.full && !machine.current;
+    const who = stored && ps.key !== 'signin' ? h('p.acct-who.hint', 'Asking Claude Code who is signed in…') : null;
+    if (who) {
+      loadAccount().then((x) => alive && fill(who, x.loggedIn ? ['Signed in as ', h('strong', accountText(x) || 'a Claude account')] : 'Claude Code reports no sign-in.'))
+        .catch(() => alive && fill(who));
+    }
     fill(body,
       panel({},
         h(`p.acct-state.ps-${ps.key}`, h('span.dot'), ps.text),
+        who,
         ps.key === 'signin'
           ? h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Claude Code cannot use this provider until you sign in again.'),
             d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: () => signInAgain(a, d, refresh) }) : null)
           : usageBars(a.usage, a.usageReported, a.inUse > 0) || h('p.hint', 'No usage figures yet: they appear after the first answer on this provider.'),
+        stored && ps.key === 'limit'
+          ? h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'This account is at its limit. With another Claude account the work goes on under this provider.'),
+            btn('small primary', { icon: 'user', label: 'Sign in with another Claude account', onclick: () => switchAccount({ done: refresh }) }))
+          : null,
         d.full ? toggle('Use in Auto mode', a.inAuto, async (on) => {
           try {
             await api(A(`/${encodeURIComponent(a.name)}/auto`), { on });
@@ -261,6 +279,8 @@ function viewAccount(frame, name) {
           }
         }, 'When on, Auto mode moves a session here when the providers above it in the order are at their limit.') : null),
       d.full ? h('div.rows',
+        stored && ps.key !== 'signin' ? act('user', 'Sign in with another account', 'Sessions on this provider keep running and use the new account; the account of now stays until the new sign-in is complete', () => switchAccount({ done: refresh })) : null,
+        stored && ps.key !== 'signin' ? act('logout', 'Sign out', 'Claude Code forgets this sign-in on this computer', () => signOut({ done: refresh })) : null,
         act('pencil', 'Rename', 'The name shown everywhere', async () => {
           const label = await promptSheet({ title: 'Rename provider', value: a.label, ok: 'Rename', check: (v) => (v.trim() && v.length <= 60 ? '' : 'One line, up to 60 characters') });
           if (!label) return;

@@ -8,8 +8,9 @@
 // added as they come (a long poll, so no event is drawn twice and nothing is drawn again); and every item is skipped
 // by the browser's layout while it is off screen (content-visibility, page-chat.css).
 // Text from Claude, tools and files is only ever set as text (h(), mdView).
+import { accountLimitActions } from './claudeaccount.js';
 import { icon } from './icons.js';
-import { KIND, add, api, bytes, chooseSheet, confirmSheet, fill, h, link, profileIcon, profileState, prefs, statusPill, toast, url } from './lib.js';
+import { KIND, add, api, bytes, chooseSheet, confirmSheet, fill, h, link, machine, profileIcon, profileState, prefs, statusPill, toast, url } from './lib.js';
 import { mdView } from './mdtext.js';
 import { registerPage, registerSessionAction } from './registry.js';
 import { EFFORT, MODELS } from './sessiondefaults.js';
@@ -263,7 +264,11 @@ function viewChat({ sub }) {
           s.terminal.name ? h('a.btn.small.secondary', { href: link(`#/s/${encodeURIComponent(s.terminal.name)}`) }, 'Open the terminal') : null))
         : null,
       s.limit && !ro ? h('div.banner.error-box.chat-banner', { role: 'alert' }, icon('alert', { size: 18 }), h('span', `${s.profile.label} cannot answer now: ${s.limit.text}`),
-        h('span.chat-banner-actions', h('button.btn.small.primary', { type: 'button', onclick: () => moveProvider() }, icon('swap', { size: 16 }), h('span', 'Move to another provider'))))
+        h('span.chat-banner-actions',
+          h('button.btn.small.primary', { type: 'button', onclick: () => moveProvider() }, icon('swap', { size: 16 }), h('span', 'Move to another provider')),
+          // On Claude Code's stored sign-in: go on with another Claude account (claudeaccount.js).
+          accountLimitActions({ kind: 'chat', chatId: s.id, name: `chat:${s.id}`, display: s.title || 'This chat', profile: s.profile, limit: s.limit, limitAt: s.limit.at || null, machine: machine.current },
+            (store.data && store.data.profiles) || [])))
         : null);
     const busy = s.status !== 'waiting';
     working.classList.toggle('hidden', s.status !== 'working');

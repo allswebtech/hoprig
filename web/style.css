@@ -582,6 +582,8 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); border-ra
 .gw-row .row-title .mpill { margin-left: 6px; vertical-align: 1px; }
 .acct { cursor: pointer; }
 .acct-signin { flex: none; align-self: center; }
+.acct-who { margin: 2px 0 10px; overflow-wrap: anywhere; }
+.acct-who strong { color: var(--text); font-weight: 600; }
 .mini-switch { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; font-size: var(--fs-xs); color: var(--muted); cursor: pointer; flex: none; }
 input.switch.small { width: 40px; height: 24px; border-radius: 12px; }
 input.switch.small::after { width: 18px; height: 18px; }
@@ -794,6 +796,7 @@ body.is-demo .page-title::after { display: inline-block; }
 .accountsline-one { display: block; }
 .accountsline.warn { background: var(--warn-soft); border-color: transparent; color: var(--warn); font-weight: 600; }
 .accountsline.warn > .icon:first-child { color: var(--warn); }
+.accountsline-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 2px; }
 .home-group:first-child .group-head { margin-top: 18px; }
 
 /* ---------- Accounts (accounts.js) ---------- */
