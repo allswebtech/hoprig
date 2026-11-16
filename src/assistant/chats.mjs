@@ -122,8 +122,15 @@ export const send_to_chat = tool({
       // confirmed on the card): another one that came meanwhile, even with the same words, is not answered.
       const ask = c.ask;
       if (statusOf(c) !== 'needs_ok' || !ask) throw toolError(`${a.session} does not wait for an OK now`, 'read_session shows what it does now');
+      // No OK was in view when the call was decided (it came after), or another one came meanwhile: it is not answered,
+      // and she is told, so she can look at it and ask again (that call is judged with this OK in view).
       const judged = ctx.before ? ctx.before.request : ctx.judged ? ctx.judged.request : null;
-      if (judged && judged !== ask.request) throw toolError(`the OK ${a.session} waits for changed meanwhile`, 'look at it again (list_sessions) and decide anew');
+      if (!judged || judged !== ask.request) {
+        return {
+          summary: `Not answered: ${a.session} waits for an OK now that was not in view when this answer was decided. Look at it (list_sessions shows what it asks) and call send_to_chat again if you still want to answer it.`,
+          data: { session: a.session, computer: comp(a), answered: false, ok_open: true },
+        };
+      }
       if (ask.type !== 'permission') throw toolError(`${a.session} asks the owner a ${ask.type === 'plan' ? 'plan to approve' : 'question'}, which is answered in its page`, 'notify_owner with your suggested answer, or send it as text');
       if (a.answer === 'allow_always' && !ask.canAlways) throw toolError('this OK has no "do not ask again" answer', 'answer allow or deny');
       await ops.answerChat({ computer: comp(a), id, request: ask.request, allow: a.answer !== 'deny', always: a.answer === 'allow_always' });

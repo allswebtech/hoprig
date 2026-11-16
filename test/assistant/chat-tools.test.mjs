@@ -63,7 +63,7 @@ test('send_to_chat on a chat Tia did not start: an OK is a card, saying no and s
   assert.equal(ops.calls.at(-1).op, 'stopChat');
 });
 
-test('send_to_chat answers only the OK that was judged: a card goes stale, and a run refuses, when another one opened meanwhile', async () => {
+test('send_to_chat answers only the OK that was judged: a card goes stale, and a run does not answer, when another one opened meanwhile', async () => {
   const { call, ops, core } = setup();
   await call('list_sessions', {});
   const s = `chat:${ID}`;
@@ -77,7 +77,11 @@ test('send_to_chat answers only the OK that was judged: a card goes stale, and a
   assert.equal(done.code, 'stale');
   assert.deepEqual(writes(ops), []);
   const { send_to_chat: tool } = await import('../../src/assistant/chats.mjs');
-  await assert.rejects(tool.run(ops, { session: s, answer: 'allow', computer: 'this' }, { judged: { request: 'req-1' } }), /changed meanwhile/);
+  for (const ctx of [{ judged: { request: 'req-1' } }, { judged: { request: null } }, { judged: null }, {}]) {
+    const r = await tool.run(ops, { session: s, answer: 'allow', computer: 'this' }, ctx);
+    assert.equal(r.data.answered, false, JSON.stringify(ctx));
+    assert.match(r.summary, /Not answered: .* waits for an OK now that was not in view .* call send_to_chat again/);
+  }
   assert.deepEqual(writes(ops), [], 'nothing answered');
 });
 

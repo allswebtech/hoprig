@@ -35,6 +35,53 @@ function core(sessions = []) {
 }
 const answered = (ops) => ops.calls.filter((c) => c.op === 'answerChat').map((c) => c.args.request);
 
+// ---------- the race ----------
+
+const herChat = {
+  computer: 'this', name: `chat:${ID}`, kind: 'chat', chatId: ID, title: 'x', byTia: true, profile: { name: 'sub', label: 'Main', kind: 'subscription' },
+  cwd: '/home/owner/projects/web', lastMessage: '', limit: null, sessionId: ID, statusAt: Date.now(), created: 1000,
+};
+const working = { ...herChat, status: 'working', note: '', ask: null };
+const asks = (request, command) => ({ ...herChat, status: 'attention', note: `Claude wants to run: ${command}`, ask: { request, type: 'permission', tool: 'Bash', known: true, subject: command, judged: { command }, owner: false, cut: false, canAlways: false } });
+
+/** A stand-in dashboard that opens `then` between the list her call is judged on and the one it runs on. */
+function racing(first, then) {
+  const t = core([structuredClone(first)]);
+  const list = t.ops.listSessions.bind(t.ops);
+  let n = 0;
+  t.ops.listSessions = async (a) => {
+    const r = await list(a);
+    if (++n === 2) t.ops.s.sessions.splice(t.ops.s.sessions.findIndex((x) => x.name === first.name), 1, structuredClone(then)); // after the facts' list
+    return r;
+  };
+  return t;
+}
+
+test('the race: an answer goes only to the OK that was judged; one that opened meanwhile is not answered, and she may look and ask again', async () => {
+  for (const [first, then, what] of [
+    [working, asks('req-new', 'ls'), 'nothing open when judged, a harmless OK when run'],
+    [working, { ...asks('req-mcp', 'x'), ask: { request: 'req-mcp', type: 'permission', tool: 'mcp__shell__execute', known: false, subject: 'mcp__shell__execute {"command":"rm"}', owner: false } }, 'nothing open when judged, an MCP OK when run'],
+    [asks('req-old', 'ls'), asks('req-new', 'ls'), 'one OK judged, another one with the same words when run'],
+  ]) {
+    const { ops, call } = racing(first, then);
+    await call('list_sessions', {});
+    const r = await call('send_to_chat', { session: `chat:${ID}`, answer: 'allow' });
+    assert.equal(r.isError, false, `${what}: ${r.text}`);
+    assert.match(r.text, /Not answered: .* waits for an OK now that was not in view/, what);
+    assert.deepEqual(answered(ops), [], `${what}: nothing answered`);
+    // She looks and asks again: judged with that OK in view now.
+    await call('list_sessions', {});
+    const again = await call('send_to_chat', { session: `chat:${ID}`, answer: 'allow' });
+    if (then.ask.known) assert.deepEqual(answered(ops), [then.ask.request], `${what}: the harmless one, judged now, is answered`);
+    else assert.match(again.text, /Waiting for the owner's OK/, `${what}: the MCP one, judged now, is a card`);
+  }
+  // Without a race, saying no and allowing a harmless OK run as before.
+  const { ops, call } = core([asks('r1', 'git status')]);
+  await call('list_sessions', {});
+  assert.equal((await call('send_to_chat', { session: `chat:${ID}`, answer: 'allow' })).isError, false);
+  assert.deepEqual(answered(ops), ['r1']);
+});
+
 // ---------- the whole way, in the real dashboard ----------
 
 function request(base, method, p, { body, headers = {} } = {}) {
