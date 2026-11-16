@@ -1,6 +1,6 @@
 // Opening a chat: the one way the dashboard starts coding (New session, Workspace, a new project, a conversation
 // to continue). What is not chosen is left out, so the server uses what the last chat in that folder ran with
-// (src/chat/folders.mjs), else the provider recommended now and Settings → New-session defaults.
+// (src/chat/folders.mjs), else the folder's default provider (src/defaultprovider.mjs) and Settings → New-session defaults.
 import { api, at, link } from '../lib.js';
 import { store } from '../store.js';
 

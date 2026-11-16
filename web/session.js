@@ -671,10 +671,14 @@ export function openSession(app, name) {
   }
 
   // A second session in the same folder, on that folder's default provider: no provider is sent, so the server
-  // chooses it (the one started there last, else the Providers page's order: src/defaultprovider.mjs).
+  // chooses it (the one started there last, else the Providers page's order: src/defaultprovider.mjs). An older
+  // computer (its state has no `recommendedIn`) refuses a start without a provider: it gets its recommended one, as
+  // New session does.
   async function startAnother(s) {
     try {
-      const { name: next } = await api('/api/sessions', { dir: s.cwd, mode: 'new' });
+      const d = store.data || {};
+      const older = !('recommendedIn' in d) && d.recommended ? { profile: d.recommended } : {};
+      const { name: next } = await api('/api/sessions', { dir: s.cwd, mode: 'new', ...older });
       markStarting(machine.current, next);
       store.refresh();
       location.hash = link(`#/s/${encodeURIComponent(next)}`);
