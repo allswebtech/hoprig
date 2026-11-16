@@ -83,6 +83,9 @@ test('each rule refuses what it must', () => {
     ['npm install', WHY.command], ['npm run', WHY.command], ['npm run a/b', WHY.command], ['npm exec jest', WHY.command],
     ['npm test --prefix=/x', WHY.command], ['npm run build --prefix ..', WHY.command], ['npm test --script-shell=sh', WHY.command],
     ['npm test -- --out=/tmp/x', WHY.outside], ['yarn add left-pad', WHY.command], ['pnpm dlx x', WHY.command], ['npm test #x', WHY.command],
+    // the name of a script is never an option
+    ['npm run --script-shell python3 test', WHY.command], ['npm run --x', WHY.command], ['npm run -lint', WHY.command], ['npm run -- x', WHY.command],
+    ['npm run --prefix x test', WHY.command], ['pnpm run --filter x test', WHY.command], ['yarn run --cwd x test', WHY.command], ['npm run :x', WHY.command],
     // node --test, then only paths inside the folder
     ['node app.js', WHY.command], ['node --test --require=x', WHY.command], ['node --test ../x.test.mjs', WHY.outside], ['node -e x', WHY.command],
     // pytest, go, cargo: plain words and paths inside the folder; none of the options that name another program

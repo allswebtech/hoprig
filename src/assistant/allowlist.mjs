@@ -75,7 +75,8 @@ export const FILE_TOOLS = {
 const NOT_SIMPLE = /[;&|<>(){}$`\\'"~*?[\]]|[^\x20-\x7e\t]/;
 // A word of a test or build command: letters, digits and a few marks, nothing the shell or the tool reads further.
 const PLAIN = /^[A-Za-z0-9_.,:=@%+/-]+$/;
-const SCRIPT = /^[A-Za-z0-9:_-]+$/;
+// A script's name, never an option (npm run --script-shell python3 test would run another program).
+const SCRIPT = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
 
 // A word every piece of which (split at = : ,) is a path inside the folder.
 function strictWord(w, root) {
