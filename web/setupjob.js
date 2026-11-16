@@ -48,10 +48,22 @@ export function passwordSheet({ wrong = false } = {}) {
  * Another computer reached over a plain leg (src/machines/legs.mjs): its password is never typed here. The sheet says
  * so in one sentence, with that computer's own page as a link when the address is known. Resolves when closed.
  */
+/** `v` as a link target: only an http: or https: address, else null (the sentence is shown without a link). */
+export function pageHref(v) {
+  if (typeof v !== 'string' || !v) return null;
+  try {
+    const u = new URL(v);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
 export function plainLegSheet({ label = 'that computer', page = null } = {}) {
+  const href = pageHref(page);
   return openSheet({ title: 'The computer\'s password', subtitle: 'Some steps need administrator rights (sudo).' }, (close) => [
     h('p.sheet-text', `The password is asked only on ${label}'s own page, because the connection from this dashboard to ${label} is not encrypted.`),
-    page ? h('p.sheet-text', h('a', { href: page, target: '_blank', rel: 'noopener' }, `Open ${label}'s own page`)) : null,
+    href ? h('p.sheet-text', h('a', { href, target: '_blank', rel: 'noopener' }, `Open ${label}'s own page`)) : null,
     h('div.sheet-actions', h('button.btn.primary', { type: 'button', onclick: () => close(null) }, 'OK')),
   ]);
 }

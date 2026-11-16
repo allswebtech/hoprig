@@ -106,15 +106,18 @@ export async function relayLeg(req, m, encrypted, { path = '' } = {}) {
 
 // ---- the computer's end ----
 
-// The local port of each connection the direct link opened to this dashboard, and whether that link is encrypted.
-const linkPorts = new Map();
+// Each connection the direct link opened to this dashboard, by its local end (address and port, as the dashboard sees
+// it as the remote end), and whether that link is encrypted. The address is part of the key, so a loopback connection
+// of the other address family that happens to have the same port number is never judged by a link's entry.
+const linkEnds = new Map();
+const endKey = (address, port) => `${String(address || '').replace(/^::ffff:/i, '')}|${port}`;
 
 /** Note a connection the link (link.mjs) makes to this dashboard, so a request on it is judged by that link. */
 export function noteLinkSocket(sock, encrypted) {
   sock.once('connect', () => {
-    const port = sock.localPort;
-    linkPorts.set(port, encrypted === true);
-    sock.once('close', () => linkPorts.delete(port));
+    const key = endKey(sock.localAddress, sock.localPort);
+    linkEnds.set(key, encrypted === true);
+    sock.once('close', () => linkEnds.delete(key));
   });
   return sock;
 }
@@ -126,7 +129,7 @@ export function arrivedEncrypted(req) {
   if (!loopbackPeer(s.remoteAddress)) return false;
   const proto = forwardedProto(req);
   if (proto !== null && proto !== 'https') return false;
-  const viaLink = linkPorts.get(s.remotePort);
+  const viaLink = linkEnds.get(endKey(s.remoteAddress, s.remotePort));
   if (viaLink !== undefined) return viaLink;
   return first(req.headers && req.headers[LEG_HEADER]) === 'encrypted';
 }
