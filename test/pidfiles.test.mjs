@@ -41,7 +41,7 @@ const SERVICE_PORT = 7975;
 
 const { saveConfig } = await import('../src/config.mjs');
 saveConfig({ addons: { trouteai: { port: GATEWAY_PORT } }, server: { port: 7971 } });
-const { alive, system } = await import('../src/procid.mjs');
+const { alive, sameProcess, system } = await import('../src/procid.mjs');
 const P = await import('../src/addons/publiclink.mjs');
 const { findAddon } = await import('../src/addons/index.mjs');
 const { linkRecordFile, writeAtomic } = await import('../src/addons/cloudflared.mjs');
@@ -331,7 +331,11 @@ test('a hold of another dashboard process of ours counts while it lives', async 
   const c = spawn(process.execPath, ['--input-type=module', '-e', `const m = await import(${JSON.stringify(servers)}); m.holdServer('opencode'); console.log('held'); setInterval(() => {}, 1 << 30);`], { env: process.env, stdio: ['ignore', 'pipe', 'inherit'] });
   started.push(c);
   await new Promise((r) => c.stdout.once('data', r));
-  assert.equal(JSON.parse(fs.readFileSync(holdOf(c.pid), 'utf8')).proc, identity(c.pid));
+  // What the process wrote about itself and what the system says of its pid: one process (the same text only where
+  // both read the kernel's own number).
+  const own = JSON.parse(fs.readFileSync(holdOf(c.pid), 'utf8')).proc;
+  assert.equal(sameProcess(own, identity(c.pid)), true, `${own} and ${identity(c.pid)}`);
+  if (own.startsWith('L:')) assert.equal(own, identity(c.pid));
   assert.deepEqual(users(), [`chat-${c.pid}`]);
   c.kill('SIGKILL');
   assert.ok(await dead(c.pid));
