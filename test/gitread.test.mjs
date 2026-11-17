@@ -2,16 +2,18 @@
 // programs (test/fixtures/hostile-repo.mjs): each kind of read starts none of them and still answers right; a
 // submodule's own settings do not reach a status or a diff either; the caller's GIT_* and the caller's own arguments
 // cannot take a guard back; a settings read answers with the folder's own value; a read whose folder settings cannot
-// be listed, or that this git cannot guard, is refused and not run; a command that changes a repository is no read.
+// be listed, or that this git cannot guard, is refused and not run; a command that changes a repository is no read; a
+// signature check, however it is spelled, starts none of the folder's signature programs (the fixed settings alone
+// see to it); cat-file is a content read; each read takes only its own long options, named whole.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { hostileRepo } from './fixtures/hostile-repo.mjs';
 
-const { FIXED, REFUSED, REFUSED_MANY, REFUSED_OLD, gitRead, overridesFor, readCommand, readEnv } = await import('../src/gitread.mjs');
+const { FIXED, LONG_OPTIONS, REFUSED, REFUSED_MANY, REFUSED_OLD, gitRead, overridesFor, readCommand, readEnv } = await import('../src/gitread.mjs');
 
 const posix = process.platform !== 'win32';
 const skip = !posix && 'the programs are shell scripts';
@@ -185,6 +187,14 @@ test('only git\'s own reads go through: a write, a program, an alias or another 
     ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all', '--', '.'], ['diff', '--cached', '--no-renames', '--name-only', '-z'],
     ['ls-files', '-co', '--exclude-standard'], ['grep', '-n', '--column', '-I', '-z', '--untracked', '--max-count', '5', '-i', '-F', '-e', 'x', '--', '.'],
     ['diff', '--text'], ['rev-list', '--filter=blob:none', 'HEAD'], ['log', '--pretty=oneline'], ['log', '--format=tformat:%s'],
+    // Every other read a module under src makes.
+    ['rev-parse', 'HEAD'], ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], ['rev-parse', '--verify', '-q', 'HEAD'],
+    ['status', '--porcelain', '--untracked-files=no'], ['status', '--porcelain', '--', 'MAP.json'], ['diff', '--cached', '--quiet'], ['diff', '--cached', '--quiet', '--', 'a'],
+    ['status', '--porcelain=v1', '-b', '--untracked-files=all', '--', '.', ':(exclude,glob)**/node_modules/**'], ['log', '--format=%s'], ['log', '-1', '--format=%h%x00%s'],
+    ['cat-file', 'blob', 'HEAD:a'], ['symbolic-ref', '--short', '-q', 'HEAD'], ['ls-files', '-co', '--exclude-standard'],
+    ['-c', 'core.quotePath=false', 'ls-files', '--cached', '--others', '--exclude-standard', '--', '.'], ['--literal-pathspecs', 'ls-files', '-z', '--others', '--exclude-standard', '--', 'a'],
+    ['grep', '-n', '--column', '-I', '-z', '--untracked', '--exclude-standard', '--max-count', '5', '-P', '-w', '-e', 'x', '--', '.'],
+    ['diff', '--cached', '--no-renames', '--name-only', '-z', '--', '.'], ['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'],
   ];
   for (const args of reads) assert.ok((await readCommand(root, args, { env, run })).argv, args.join(' '));
 });
@@ -210,5 +220,96 @@ test('a caller\'s own arguments cannot take a guard back', async () => {
   // own value.
   for (const args of [['-c', 'core.quotePath=false', 'ls-files'], ['grep', '-e', '--textconv'], ['grep', '-e', '-nO'], ['log', '--', '--ext-diff'], ['status', '--ignore-submodules=all']]) {
     assert.ok((await readCommand(root, args, { env, run })).argv, args.join(' '));
+  }
+});
+
+// The read as the reader composes it (fixed settings, the folder's drivers set to nothing, the guards it adds), but
+// with the caller's words after the command put on without the argument check: what the fixed settings alone stop.
+async function unchecked(cmd, words) {
+  const c = await readCommand(h.dir, [cmd], { env });
+  assert.ok(c.argv, c.refused);
+  h.clear();
+  const r = spawnSync(c.argv[0], [...c.argv.slice(1), ...words], { env: c.env, encoding: 'utf8', timeout: 15_000 });
+  return { ...r, ran: h.ran() };
+}
+
+// Each spelling of a signature check that got past the first argument check and started the folder's gpg program
+// (git 2.53), and the same checks on commits signed the two other ways and through a tag.
+const SIGNATURE_READS = [
+  ['log', '-1', '--format=%+G?'], ['log', '-1', '--format=%-G?'], ['log', '-1', '--format=% G?'], ['log', '-1', '--format=%<(5)%+G?'],
+  ['show', '-s', '--pretty=tformat:%+GS', 'HEAD'], ['rev-list', '-1', '--format=%+G?', 'HEAD'],
+  ['for-each-ref', '--format=%(*signature)'], ['for-each-ref', '--format=%(signature:grade)'], ['for-each-ref', '--format=%(if)%(signature)%(then)s%(end)'],
+  ['for-each-ref', '--sort=signature'], ['for-each-ref', '--sort=-signature:grade'], ['for-each-ref', '--sort=*signature'], ['for-each-ref', '--sort', 'signature'],
+  ['log', '-1', '--format=%G?', 'ssh-signed'], ['log', '-1', '--format=%G?', 'x509-signed'], ['log', '-1', '--format=%G?', 'v1'],
+  ['log', '-1', '--show-signature', 'ssh-signed'], ['show', '-s', '--show-signature', 'x509-signed'], ['for-each-ref', '--format=%(signature)', 'refs/tags'],
+];
+
+test('a signature check is refused however it is spelled', { skip }, async () => {
+  for (const args of SIGNATURE_READS) await assert.rejects(readCommand(h.dir, args, { env }), /cannot ask/, args.join(' '));
+  h.clear();
+  assert.deepEqual(h.ran(), []);
+});
+
+test('the fixed settings alone stop every signature program of the folder: the read answers that nothing was checked', { skip }, async () => {
+  for (const args of SIGNATURE_READS) {
+    const r = await unchecked(args[0], args.slice(1));
+    assert.deepEqual(r.ran, [], `git ${args.join(' ')} started a program the folder's settings name`);
+    assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
+  }
+  // git's own answer when no program could check the signature: N (none could be checked) for OpenPGP and X.509;
+  // for SSH, git 2.53 says B.
+  const grade = async (ref) => (await unchecked('log', ['-1', '--format=%G?', ref])).stdout.trim();
+  assert.deepEqual([await grade('HEAD'), await grade('v1'), await grade('x509-signed'), await grade('ssh-signed')], ['N', 'N', 'N', 'B']);
+  assert.equal((await unchecked('log', ['-1', '--format=%s', 'HEAD'])).stdout.trim(), 'signed', 'the read itself answers');
+  // The alternate object store's refs: the folder's command for listing them does not start either.
+  for (const [cmd, words] of [['log', ['--alternate-refs', '-1', '--format=%s']], ['rev-list', ['--alternate-refs', '--count', 'HEAD']]]) {
+    const r = await unchecked(cmd, words);
+    assert.deepEqual(r.ran, [], `git ${cmd} ${words.join(' ')} started a program the folder's settings name`);
+    assert.equal(r.status, 0, r.stderr);
+  }
+});
+
+test('cat-file is a content read: --text is git\'s --textconv, and the folder\'s converters and filters are nothing for it', { skip }, async () => {
+  for (const args of [['cat-file', '--text', 'HEAD:a.txt'], ['cat-file', '--text', '--path=a.txt', 'HEAD'], ['cat-file', '--textconv', 'HEAD:a.txt'], ['cat-file', '--filters', 'HEAD:a.txt']]) {
+    await assert.rejects(readCommand(h.dir, args, { env }), /cannot ask/, args.join(' '));
+  }
+  assert.equal((await read(['cat-file', '-p', 'HEAD:a.txt'])).stdout, 'one\n');
+  // Without the argument check: nothing of the folder's runs; a filter set to nothing passes the stored text through,
+  // a converter set to nothing makes git stop with its own error.
+  for (const words of [['--filters', 'HEAD:a.txt'], ['--filters', '--path=a.txt', 'HEAD:a.txt'], ['--text', 'HEAD:a.txt'], ['--textconv', 'HEAD:a.txt'], ['--text', '--path=a.txt', 'HEAD:a.txt']]) {
+    const r = await unchecked('cat-file', words);
+    assert.deepEqual(r.ran, [], `git cat-file ${words.join(' ')} started a program the folder's settings name`);
+    if (words[0] === '--filters') assert.deepEqual([r.status, r.stdout], [0, 'one\n'], r.stderr);
+  }
+});
+
+test('each read takes only its own long options, named whole: an abbreviation or another command\'s option is refused', async () => {
+  const run = async () => ({ ok: true, stdout: '' });
+  const no = [
+    ['cat-file', '--tex', 'HEAD:a'], ['cat-file', '--path=a', 'HEAD'], ['cat-file', '--batch', '--filt'], ['status', '--porc'], ['status', '--cached'],
+    ['ls-files', '--exclude-st'], ['grep', '--untrack', 'x'], ['grep', '--max-count', '-1', 'x'], ['for-each-ref', '--form=%(refname)'],
+    ['merge-base', '--is-anc', 'a', 'b'], ['log', '--alternate-refs'], ['rev-list', '--alternate-refs', 'HEAD'], ['log', '--end-of-options', 'x'],
+    ['diff', '--no-index', 'a', 'b'], ['rev-parse', '--resolve-git-dir', 'x'], ['symbolic-ref', '--delete', 'HEAD'], ['remote', '--verb'],
+    ['status', '--short=x'], ['grep', '--max-count'],
+  ];
+  for (const args of no) await assert.rejects(readCommand(root, args, { env, run }), /cannot ask/, args.join(' '));
+  const repo = path.join(root, 'whole-names');
+  execFileSync('git', ['init', '-q', repo], { env });
+  execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'x'], { env, cwd: repo });
+  // In the commands whose options git takes by any unique start (parse-options), every name on the reader's list is
+  // a whole name of that command in this git, so it can never stand for another option.
+  const listed = (cmd, sub = []) => new Set(execFileSync('git', [cmd, ...sub, '--git-completion-helper-all'], { env, cwd: repo }).toString().split(/\s+/).map((w) => w.replace(/=$/, '')));
+  for (const cmd of ['status', 'ls-files', 'grep', 'cat-file', 'for-each-ref', 'merge-base', 'symbolic-ref']) {
+    const own = listed(cmd);
+    for (const name of LONG_OPTIONS.get(cmd).keys()) assert.ok(own.has(name), `git ${cmd} has no option named ${name}`);
+  }
+  const remote = new Set([...listed('remote'), ...listed('remote', ['get-url'])]);
+  for (const name of LONG_OPTIONS.get('remote').keys()) assert.ok(remote.has(name), `git remote has no option named ${name}`);
+  // The others take only whole names: an abbreviation is an error of git's own.
+  for (const args of [['log', '--max-count=1'], ['show', '--name-only'], ['diff', '--cached'], ['rev-list', '--count', 'HEAD'], ['diff-tree', '--name-only', 'HEAD'], ['diff-index', '--cached', 'HEAD'], ['diff-files', '--name-only']]) {
+    assert.equal(spawnSync('git', args, { env, cwd: repo }).status, 0, `the whole name works: ${args.join(' ')}`);
+  }
+  for (const args of [['log', '--max-cou=1'], ['show', '--name-on'], ['diff', '--cach'], ['rev-list', '--cou', 'HEAD'], ['diff-tree', '--name-on', 'HEAD'], ['diff-index', '--cach', 'HEAD'], ['diff-files', '--name-on']]) {
+    assert.notEqual(spawnSync('git', args, { env, cwd: repo }).status, 0, args.join(' '));
   }
 });

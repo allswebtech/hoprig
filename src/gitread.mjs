@@ -1,21 +1,30 @@
 // The one door for every read of a folder's git state (status, file lists, diffs, logs, branches, settings). The
 // dashboard looks at folders it did not make: a project cloned or unpacked from elsewhere, one a coding tool writes
 // into. A repository's own settings can name programs that git then starts by itself: an fsmonitor command, hooks,
-// content filters, diff converters. A read through here never starts one of them:
+// content filters, diff converters, signature checkers. A read through here never starts one of them:
 // - fixed settings on the command line (-c outranks the folder's file): no fsmonitor, hooks from the null device,
-//   no signature checks, no submodule recursion, no transport (a partial clone would fetch a missing object);
+//   every signature program (OpenPGP, SSH, X.509) and the alternate refs command set to nothing (a signature check
+//   then answers that nothing could be checked), no submodule recursion, no transport (a partial clone would fetch a
+//   missing object);
 // - diff, show and log never use an external diff or a text converter (--no-ext-diff --no-textconv), and neither
 //   they nor status look inside a submodule's files (--ignore-submodules=dirty: a submodule's own settings are not
 //   listed here, and git would compare its files with its own filters);
-// - a filter or diff driver has a free name, so no fixed setting reaches it: before a read that can compare file
-//   contents, the folder's own settings are listed (that runs nothing) and every driver command found there is set
-//   to nothing; when the list cannot be read, the read is refused with a plain sentence;
+// - a filter or diff driver has a free name, so no fixed setting reaches it: before a read that can compare or print
+//   file contents (cat-file among them), the folder's own settings are listed (that runs nothing) and every driver
+//   command found there is set to nothing; when the list cannot be read, the read is refused with a plain sentence;
 // - only git's own read commands go through (an allow-list: a write, difftool, verify-commit or a folder's alias is
-//   no read), and a caller's arguments cannot take any of this back: a later --textconv, --submodule=diff,
-//   --show-signature or a %G placeholder, an abbreviation of a guarded option, a -c of its own are refused;
+//   no read), each with only its own long options, named whole (git takes any unique start of an option's name:
+//   cat-file --text is its --textconv), so a caller's arguments cannot take any of this back: --textconv,
+//   --submodule=diff, --show-signature, --alternate-refs, a -c of its own are refused, and so, as a second line
+//   behind the fixed settings, is a signature placeholder (%G, %+G, ...) or a for-each-ref word naming a signature;
 // - a settings read (git config --get) gets none of the fixed settings, which would otherwise be its answer;
 // - the environment is a short list of its own: the caller's GIT_DIR, GIT_EXTERNAL_DIFF or GIT_CONFIG_COUNT never
 //   reach git. The owner's own global settings stay in force (HOME, XDG_CONFIG_HOME, GIT_CONFIG_GLOBAL).
+// Settings that name a program but that no read reaches: transport (core.sshCommand, core.askPass, credential.helper,
+// core.gitProxy, remote.*.uploadpack; protocol.allow=never comes first), the pager (--no-pager, GIT_PAGER=cat), the
+// editors, tools and filters of commands that are no read (core.editor, sequence.editor, diff.tool, merge.*,
+// interactive.diffFilter; gpg.ssh.defaultKeyCommand is for signing), help (web.browser, man.*: --help is refused) and
+// the server's hooks (uploadpack.packObjectsHook, receive). Proven on git 2.53 only.
 // What the owner presses (stage, commit, discard) is not a read: it runs as git runs it from his terminal.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -25,8 +34,13 @@ import { capture } from './setup/system.mjs';
 export const FIXED = [
   'core.fsmonitor=false',
   `core.hooksPath=${os.devNull}`,
-  'log.showSignature=false', // would start gpg.program, which the folder can name
+  'log.showSignature=false', // git's default; a signature check would otherwise come with every log
   'format.pretty=medium', // git's default; the folder's own could be a format with %G (a signature check)
+  // Every program a signature check can start, whatever spelling asks for one (%G?, %(signature), --sort=signature,
+  // ...): an empty name runs nothing (git: "cannot run"), and the read answers that the signature could not be checked.
+  // (gpg.openpgp.program is gpg.program's other name: git keeps the one it reads last, both are set here.)
+  'gpg.program=', 'gpg.openpgp.program=', 'gpg.ssh.program=', 'gpg.x509.program=',
+  'core.alternateRefsCommand=', // started for --alternate-refs, with the alternate object store's path
   'submodule.recurse=false',
   'status.submoduleSummary=false',
   'diff.submodule=short', // "diff" would run a diff inside the submodule, with the submodule's own drivers
@@ -35,21 +49,46 @@ export const FIXED = [
 ];
 const FLAGS = ['--no-pager', ...FIXED.flatMap((c) => ['-c', c])];
 
-// Reads that compare the contents of files (a clean filter runs there) or print them (textconv, external diff).
-// (cat-file prints a stored object as it is: the reader never asks it to filter or convert.)
-const CONTENT = new Set(['status', 'diff', 'diff-files', 'diff-index', 'diff-tree', 'ls-files', 'grep', 'show', 'log']);
+// Reads that compare the contents of files (a clean filter runs there) or print them (textconv, a smudge filter,
+// external diff). cat-file is one: --textconv and --filters print an object through the folder's drivers.
+const CONTENT = new Set(['status', 'diff', 'diff-files', 'diff-index', 'diff-tree', 'ls-files', 'grep', 'show', 'log', 'cat-file']);
 const NO_CONVERT = new Set(['diff', 'diff-files', 'diff-index', 'diff-tree', 'show', 'log']);
 // The reads the reader offers: git's own commands (a built-in name is never a folder's alias). Not offered: blame
 // reads the working file through its clean filter, which the reader sets to nothing (git then fails on the empty
 // command); difftool, verify-commit and the like start programs; whatchanged is being removed from git.
 const READS = new Set(['status', 'ls-files', 'diff', 'diff-files', 'diff-index', 'diff-tree', 'show', 'log', 'grep', 'cat-file', 'rev-parse', 'rev-list', 'symbolic-ref', 'for-each-ref', 'merge-base', 'config', 'remote']);
-// Long options that would take a guard back, start a program or write a file: --textconv and --ext-diff (converters),
-// --recurse-submodules, --submodule and --[no-]ignore-submodules (a submodule's own settings), --show-signature (gpg),
-// --output (a file), --open-files-in-pager (grep), --filters (cat-file), --help (a man page or a browser). git takes
-// an option by any unambiguous start of its name, so any start of one of these is refused too ...
-const GUARDED = ['--textconv', '--ext-diff', '--recurse-submodules', '--submodule', '--ignore-submodules', '--no-ignore-submodules', '--show-signature', '--output', '--open-files-in-pager', '--filters', '--help'];
-// ... except an option of its own that happens to be such a start (diff --text, rev-list --filter=<spec>).
-const OWN_NAMES = new Set(['--text', '--filter']);
+// Each read's long options, named whole. git takes an option by any start of its name that fits only one option
+// (cat-file --text is --textconv), so a word not on its command's list is refused: an abbreviation can never stand
+// for another option. Left out on purpose: --textconv, --ext-diff, --filters, --path (cat-file), --submodule,
+// --recurse-submodules, --no-ignore-submodules, --show-signature, --alternate-refs, --output, --open-files-in-pager,
+// --no-index, --stdin, --help, --end-of-options. "x=": takes a value, with "=" or as the next word (which may not
+// start with "-"); "x[=]": a value only with "="; plain: no value.
+const REVS = '--all --branches[=] --tags[=] --remotes[=] --max-count= --skip= --since= --until= --after= --before= --author= --committer= --grep= --all-match --invert-grep --regexp-ignore-case --first-parent --no-merges --merges --reverse --topo-order --date-order --left-right --left-only --right-only --cherry-pick --cherry-mark --ancestry-path --boundary --parents --children --no-walk[=] --full-history --simplify-by-decoration';
+const PRETTY = '--format= --pretty[=] --oneline --abbrev-commit --no-abbrev-commit --date= --relative-date --decorate[=] --no-decorate --use-mailmap --mailmap --source';
+const DIFFS = '--patch --no-patch --stat[=] --numstat --shortstat --name-only --name-status --summary --raw --patch-with-stat --patch-with-raw --compact-summary --dirstat[=] --unified= --function-context --text --binary --full-index --abbrev[=] --no-abbrev --no-renames --find-renames[=] --find-copies[=] --find-copies-harder --irreversible-delete --break-rewrites[=] --diff-filter= --relative[=] --no-relative --ignore-all-space --ignore-space-change --ignore-space-at-eol --ignore-blank-lines --ignore-cr-at-eol --minimal --patience --histogram --diff-algorithm= --word-diff[=] --word-diff-regex= --color[=] --no-color --quiet --exit-code --no-ext-diff --no-textconv --ignore-submodules[=] --src-prefix= --dst-prefix= --no-prefix --default-prefix';
+const OPTS = {
+  status: '--porcelain[=] --short --long --branch --show-stash --null --untracked-files[=] --ignored[=] --ignore-submodules[=] --ahead-behind --no-ahead-behind --renames --no-renames --find-renames[=]',
+  'ls-files': '--cached --others --deleted --modified --ignored --stage --unmerged --killed --directory --no-empty-directory --exclude-standard --exclude= --full-name --error-unmatch --eol --abbrev[=] --deduplicate',
+  grep: '--cached --untracked --exclude-standard --invert-match --ignore-case --word-regexp --text --extended-regexp --basic-regexp --fixed-strings --perl-regexp --line-number --column --full-name --files-with-matches --name-only --files-without-match --null --only-matching --count --heading --break --max-depth= --max-count= --context= --before-context= --after-context= --show-function --function-context --quiet --all-match --and --or --not --threads=',
+  'cat-file': '--batch[=] --batch-check[=] --batch-all-objects --buffer --follow-symlinks --unordered --use-mailmap --mailmap',
+  diff: `${DIFFS} --cached --staged --merge-base`,
+  'diff-files': DIFFS,
+  'diff-index': `${DIFFS} --cached --merge-base`,
+  'diff-tree': `${DIFFS} ${PRETTY} --root --no-commit-id --merge-base`,
+  show: `${DIFFS} ${PRETTY}`,
+  log: `${DIFFS} ${PRETTY} ${REVS} --follow --graph`,
+  'rev-list': `${REVS} ${PRETTY} --count --objects --quiet --filter=`,
+  'rev-parse': '--show-toplevel --show-prefix --show-cdup --verify --quiet --short[=] --abbrev-ref[=] --symbolic --symbolic-full-name --git-dir --absolute-git-dir --git-common-dir --is-inside-work-tree --is-inside-git-dir --is-bare-repository --is-shallow-repository',
+  'symbolic-ref': '--quiet --short --no-short --recurse --no-recurse',
+  'for-each-ref': '--format= --sort= --count= --shell --perl --python --tcl --points-at= --merged[=] --no-merged[=] --contains[=] --no-contains[=] --ignore-case --omit-empty --exclude=',
+  'merge-base': '--all --octopus --independent --is-ancestor --fork-point',
+  remote: '--verbose --push --all',
+};
+/** cmd → Map(name → 'flag' | 'value' | 'eq') (git config has its own list, CONFIG_OPTS). */
+export const LONG_OPTIONS = new Map(Object.entries(OPTS).map(([cmd, list]) => [cmd, new Map(list.split(' ').map((o) => {
+  const m = /^(--[a-z-]+)(=|\[=\])?$/.exec(o);
+  return [m[1], m[2] === '=' ? 'value' : m[2] ? 'eq' : 'flag'];
+}))]));
 // The log formats git has by name: any other name may be the folder's own pretty.<name>, a format with %G.
 const PRETTY_NAMES = new Set(['oneline', 'short', 'medium', 'full', 'fuller', 'reference', 'email', 'mboxrd', 'raw']);
 // git's own options before the command word that a read may give (-c only as CALLER_SETTINGS says).
@@ -109,12 +148,24 @@ function checkArgs(args, at, cmd) {
     if (cmd === 'grep' && a === '-e') i++;
     else own.push(a);
   }
-  for (const a of own) {
-    const name = a.split('=')[0];
-    const guarded = a.startsWith('--') && name.length > 2 && !OWN_NAMES.has(name) && GUARDED.some((g) => g.startsWith(name));
-    if (guarded && !/^--ignore-submodules(=(dirty|all))?$/.test(a)) throw new Error(`a read cannot ask for ${a}`);
+  const long = LONG_OPTIONS.get(cmd);
+  for (let i = 0; i < own.length; i++) {
+    const a = own[i];
+    // git config: its own list (CONFIG_OPTS, below).
+    if (long && a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      const kind = long.get(eq < 0 ? a : a.slice(0, eq));
+      if (!kind || (kind === 'flag' && eq >= 0)) throw new Error(`a read cannot ask for ${a}`);
+      if (kind === 'value' && eq < 0) {
+        const v = own[i + 1];
+        if (v === undefined || v.startsWith('-')) throw new Error(`a read cannot ask for ${a} without its value`);
+      }
+      if (/^--ignore-submodules=/.test(a) && !/^--ignore-submodules=(dirty|all)$/.test(a)) throw new Error(`a read cannot ask for ${a}`);
+    }
     if (/^-[^-]/.test(a) && a.includes('O')) throw new Error(`a read cannot ask for ${a} (-O opens files in a program)`);
-    if (/%G|%\(signature/.test(a)) throw new Error(`a read cannot ask for a signature check (${a})`);
+    // A second line behind the fixed signature settings: a placeholder of a signature check (%G?, %+GS, % GK, ...),
+    // or any word of for-each-ref naming one (--sort=signature, --sort signature, %(*signature), %(signature:grade)).
+    if (/%[-+ ]?G/.test(a) || (cmd === 'for-each-ref' && /signature/i.test(a))) throw new Error(`a read cannot ask for a signature check (${a})`);
     const f = /^--(pretty|format)=([^]*)$/.exec(a);
     if (f && cmd !== 'for-each-ref' && !/^t?format:|%/.test(f[2]) && !PRETTY_NAMES.has(f[2].toLowerCase())) throw new Error(`a read cannot ask for ${a} (a format the folder may name)`);
   }
