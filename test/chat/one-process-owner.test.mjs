@@ -8,13 +8,20 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { sandbox } from '../server/helpers.mjs';
+import { earlierIdentity, sandbox } from '../server/helpers.mjs';
 
 const box = sandbox('owner');
 test.after(() => box.cleanup());
 for (const k of ['TMUX', 'TMUX_PANE', 'HOPRIG_TERM_ID', 'HOPRIG_TERM_NAME']) delete process.env[k];
 
 const R = await import('../../src/runs.mjs');
+const { makeIdentity, system } = await import('../../src/procid.mjs');
+/** The identity of the process that had `pid` before the one that has it now (a launcher that died, its pid handed out again). */
+const earlier = (pid) => {
+  const id = system.of([pid]).get(pid);
+  assert.ok(id, 'this system tells a process\'s identity');
+  return earlierIdentity(id);
+};
 const ID = '6b0e7c1a-2d3f-4a5b-8c6d-7e8f9a0b1c2d';
 const clear = () => fs.rmSync(path.join(box.state, 'runs'), { recursive: true, force: true });
 // A process of this test's that sleeps: alive, and not the writer of any record.
@@ -30,7 +37,7 @@ test('a record whose pid another living process has now does not count, and goes
     clear();
     const left = R.createRun({ profile: 'work', cwd: box.root, conversation: ID });
     // What a launcher that died left behind, once its pid belongs to another process (pid 1 answers EPERM: alive).
-    fs.writeFileSync(left.file, JSON.stringify({ ...left.run, pid }));
+    fs.writeFileSync(left.file, JSON.stringify({ ...left.run, pid, proc: earlier(pid) }));
     const mine = R.createChatRun({ chat: 'c1', conversation: ID, tool: 'claude', cwd: box.root, profile: 'work' });
     assert.equal(R.heldBefore(mine.run, ID), null, `pid ${pid}: the conversation is free`);
     assert.deepEqual(R.listRuns().map((r) => r.runId), [], `pid ${pid}: not listed`);
@@ -39,7 +46,6 @@ test('a record whose pid another living process has now does not count, and goes
   clear();
 });
 
-const { makeIdentity, system } = await import('../../src/procid.mjs');
 // A record of this test's, then changed as given (its pid, its identity) in place.
 const record = (patch = {}) => {
   const r = R.createRun({ profile: 'work', cwd: box.root, conversation: ID });
@@ -100,7 +106,7 @@ test('an identity that is not known never removes a record', (t) => {
   assert.deepEqual(listed({ ident: blind }), []);
   assert.equal(fs.existsSync(file), false);
   // The system knows it: another process.
-  const known = record({ pid: other.pid, proc: 'L:not-this-boot:1' });
+  const known = record({ pid: other.pid, proc: earlier(other.pid) });
   assert.deepEqual(listed(), []);
   assert.equal(fs.existsSync(known), false);
   clear();
@@ -257,7 +263,7 @@ test('Continue here judges the record again right before its signal: nothing is 
   const other = sleeper(t);
   const exited = new Promise((r) => other.once('exit', (code, signal) => r(signal)));
   // Written by this test, naming the other process's pid: its writer is gone as far as the record knows.
-  const ghost = record({ pid: other.pid });
+  const ghost = record({ pid: other.pid, proc: earlier(other.pid) });
   assert.deepEqual(await take(ghost), { ok: true });
   assert.equal(fs.existsSync(ghost), false, 'the record goes');
   await new Promise((r) => setTimeout(r, 200));

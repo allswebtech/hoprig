@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { sandbox } from './server/helpers.mjs';
+import { earlierIdentity, sandbox } from './server/helpers.mjs';
 
 const box = sandbox('pidfiles');
 const bin = path.join(box.root, 'bin');
@@ -85,8 +85,7 @@ const identity = (pid) => system.of([pid]).get(pid);
 function earlier(pid) {
   const id = identity(pid);
   assert.ok(id, 'this system tells a process\'s identity');
-  const i = id.lastIndexOf(':');
-  return id.startsWith('T:') ? `T:${Number(id.slice(2)) - 3_600_000}` : `${id.slice(0, i + 1)}${Number(id.slice(i + 1)) - 1}`;
+  return earlierIdentity(id);
 }
 /** Make `file` look written before this boot (and before the 10 minutes a clock may be corrected by). */
 function beforeBoot(file) {

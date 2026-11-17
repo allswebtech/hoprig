@@ -48,3 +48,13 @@ export function launched(argv) {
   if (i < 0) return argv;
   return [...argv.slice(0, i), ...JSON.parse(fs.readFileSync(argv[i + 1], 'utf8')).argv];
 }
+
+/**
+ * The identity (src/procid.mjs) of a process that had a pid before the process whose identity is `id`: the same pid,
+ * an earlier start. An hour earlier where a start is a time (well outside what counts as one process there), one tick
+ * where it is the kernel's own number.
+ */
+export function earlierIdentity(id) {
+  const i = id.lastIndexOf(':');
+  return id.startsWith('T:') ? `T:${Number(id.slice(2)) - 3_600_000}` : `${id.slice(0, i + 1)}${Number(id.slice(i + 1)) - 1}`;
+}
