@@ -116,8 +116,11 @@ async function rig(kind, shell, { c = false, launcher = [process.execPath, RECOR
     const socket = `hoprig-f1-${process.pid}-${path.basename(shell)}${c ? '-c' : ''}`;
     sockets.push(socket);
     const conf = path.join(box.root, `${socket}.conf`);
-    // A pane's environment is the server's global one: the C locale there, for every pane.
-    fs.writeFileSync(conf, `set -g default-shell ${shell}\n${c ? 'set-environment -g LANG C\nset-environment -g LC_ALL C\nset-environment -g LC_CTYPE C\n' : ''}`);
+    // A pane's environment is the server's global one: the C locale there, for every pane. The server is also given
+    // another state folder, as one started long ago by someone else: the launcher must still find its launch file in
+    // the dashboard's own (the pane gets HOPRIG_STATE_DIR from the dashboard).
+    const foreign = path.join(box.root, 'another-state');
+    fs.writeFileSync(conf, `set -g default-shell ${shell}\nset-environment -g HOPRIG_STATE_DIR ${foreign}\n${c ? 'set-environment -g LANG C\nset-environment -g LC_ALL C\nset-environment -g LC_CTYPE C\n' : ''}`);
     backend = new TmuxBackend({ socket, configFile: conf });
     const run = backend.run.bind(backend);
     backend.run = (args, o) => {
