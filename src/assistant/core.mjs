@@ -30,7 +30,7 @@ import { FIRST_CALL, LOCAL, ShownIds } from './shown.mjs';
 import { Skills } from './skills.mjs';
 import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, chooseAccount, freePct, resolveTia, servesTool } from './tia.mjs';
 import { ToolError, TOOL_NAMES, byName, statusOf } from './tools.mjs';
-import { toolName } from './toolkit.mjs';
+import { errorDetail, errorText, failedText, toolName } from './toolkit.mjs';
 import { wakeMessage } from './jobs.mjs';
 
 const SESSION_TOOLS = new Set(['send_to_session', 'send_to_chat', 'switch_account', 'stop_session']);
@@ -81,14 +81,6 @@ class BoundedMap extends Map {
     return super.set(k, v);
   }
 }
-
-/**
- * An error as she reads it. The message and the next step are this code's own words (and ids it validated); what a
- * computer said in its own words (a route's error text, a title, a why) comes only as `detail`, inside the fence.
- */
-const errorText = (message, next, detail, tool) => `Error: ${message}.${next ? ` Next: ${next}.` : ''}${detail !== undefined ? `\n${fenceData({ tool, said: 'error' }, detail)}` : ''}`;
-/** What an error that is not a ToolError said (a route's answer, as a rule): data, never words of the message. */
-const errorDetail = (e) => ({ error: String((e && e.message) || 'unknown error').slice(0, 300) });
 
 export function createAssistantCore({
   ops,
@@ -296,7 +288,7 @@ export function createAssistantCore({
     } catch (e) {
       if (cards.get(id)?.status === 'pending') cards.markStale(id);
       log('stale', { error: e.message });
-      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it could not run. Nothing was done.\n${e instanceof ToolError ? errorText(e.message, e.next, e.detail, card.tool) : fenceData({ tool: card.tool, said: 'error' }, errorDetail(e))}`);
+      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it could not run. Nothing was done.\n${failedText(e, card.tool)}`);
       return { ok: false, error: e.message, code: 'stale' };
     }
     try {
@@ -318,7 +310,7 @@ export function createAssistantCore({
     } catch (e) {
       cards.finish(id, { ok: false, error: e.message });
       log('failed', { error: e.message });
-      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it failed.\n${e instanceof ToolError ? errorText(e.message, e.next, e.detail, card.tool) : fenceData({ tool: card.tool, said: 'error' }, errorDetail(e))}`);
+      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it failed.\n${failedText(e, card.tool)}`);
       return { ok: false, error: e.message };
     }
   }

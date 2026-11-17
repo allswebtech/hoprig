@@ -58,6 +58,21 @@ function loaded(chat, t, f, id) {
   chat.emit('state');
 }
 
+/**
+ * Tia's mark on a chat saved before the dashboard stopped (feature.mjs load: `restored`): hers again only once its
+ * conversation has been read and is exactly what the record knew of it (`known`: the file's size, or the stamp of a
+ * tool whose server keeps the conversation), since the owner may have gone on with it while the dashboard was down. A
+ * record without `known` (saved by an older version) is never hers again. Null when there is no mark to check.
+ */
+export const restoredMark = (o, byTia) => (o.restored === true && byTia ? { known: Number.isFinite(o.known) ? o.known : null } : null);
+
+/** Her mark as it is saved: with what the chat knew of its conversation then (see restoredMark). */
+export function markRecord(chat) {
+  if (chat.restoredMark) return { byTia: true, ...(chat.restoredMark.known !== null ? { known: chat.restoredMark.known } : {}) };
+  if (!chat.byTia) return {};
+  return { byTia: true, ...(Number.isFinite(chat.knownSize) && chat.knownSize >= 0 ? { known: chat.knownSize } : {}) };
+}
+
 /** The transcript changed without the chat (a terminal ran it): read it again. Cheap when nothing changed. */
 export function refresh(chat) {
   if (chat.session) return false;

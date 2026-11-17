@@ -16,7 +16,7 @@ import { allowPending, answerAsk, cancelAsks, keepGrants } from './asks.mjs';
 import { applySettings, renameChat, usageNow } from './controls.mjs';
 import { oneLine } from './events.mjs';
 import { MessageQueue } from './queue.mjs';
-import { knowSize, load, refresh } from './reading.mjs';
+import { knowSize, load, markRecord, refresh, restoredMark } from './reading.mjs';
 import { ensure, start, stop, stopAndWait } from './run.mjs';
 import { LiveBlocks } from './streaming.mjs';
 import { OWED_MS, TaskTable } from './tasks.mjs';
@@ -56,11 +56,8 @@ export class Chat extends Timeline {
     // Tia started this very chat (feature.mjs openChat): a fact of this chat, never of its id, which a chat opened
     // later on the same conversation may get again. Her rules let her answer OKs only in a chat of hers.
     this.byTia = o.byTia === true;
-    // A chat of hers saved before the dashboard stopped (feature.mjs load: restored) is hers again only once its
-    // conversation has been read and is exactly what the record knew of it (`known`: the file's size, or the stamp of a
-    // tool whose server keeps the conversation): the owner may have gone on with it while the dashboard was down. A
-    // record without `known` (saved by an older version) is never hers again. Until it is read, it is not hers.
-    this.restoredMark = o.restored === true && this.byTia ? { known: Number.isFinite(o.known) ? o.known : null } : null;
+    // After a restart her mark waits until the conversation is read (reading.mjs restoredMark); until then not hers.
+    this.restoredMark = restoredMark(o, this.byTia);
     if (this.restoredMark) this.byTia = false;
     this.openedAt = o.openedAt || Date.now();
     this.costTotal = Number.isFinite(o.costTotal) ? o.costTotal : null; // what the coding tool reported last (a running total)
@@ -393,18 +390,11 @@ export class Chat extends Timeline {
     return had;
   }
 
-  /** Her mark as it is saved: with what the chat knew of its conversation then (see restoredMark). */
-  markRecord() {
-    if (this.restoredMark) return { byTia: true, ...(this.restoredMark.known !== null ? { known: this.restoredMark.known } : {}) };
-    if (!this.byTia) return {};
-    return { byTia: true, ...(Number.isFinite(this.knownSize) && this.knownSize >= 0 ? { known: this.knownSize } : {}) };
-  }
-
   record() {
     return {
       id: this.id, ...(this.conversationId !== this.id ? { conversationId: this.conversationId } : {}), engine: this.engine.id,
       cwd: this.cwd, profile: this.profile, model: this.model, effort: this.effort, ultracode: this.ultracode, permissionMode: this.permissionMode,
-      title: this.title, ...(this.named ? { named: true } : {}), ...this.markRecord(), openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
+      title: this.title, ...(this.named ? { named: true } : {}), ...markRecord(this), openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
       ...(this.fork ? { fork: this.fork } : {}),
     };
   }
