@@ -427,9 +427,13 @@ Said plainly, so nothing here is a surprise:
   provider kind offers it.
 - **OpenCode's sessions are not reopened after a restart**; Restore brings back Claude Code's terminal sessions only.
   Tia cannot continue an earlier OpenCode conversation by its id; she can only continue the folder's newest one.
+- **Restore can bring back a terminal a chat took over**: when the dashboard ends within about 20 seconds of
+  **Continue here** in a chat, Restore reopens the terminal on that conversation after the restart.
 - **Other computers report Claude Code's version only**, not OpenCode's, on the Computers page.
 - **Not seen from a real model**: OpenCode's own question forms (the page has them; a real model never asked one in
   the tests).
+- **The last checks of this version ran on stand-ins** for the coding tools (small programs that answer the way
+  Claude Code and OpenCode do), not on real Claude Code or real OpenCode.
 - **Files on the desktop**: dragging between two Files windows is not built.
 - **Run only on Linux**: everything new in this version (the chat, OpenCode, the editor, the desktop, the public
   link switch, Updates, one process per conversation). It was not run on macOS or Windows. How Hoprig tells that a
