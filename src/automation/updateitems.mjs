@@ -100,7 +100,7 @@ export function hoprigItem(deps = {}) {
           return { ok: false, version: appVersion(), output: why };
         }
       }
-      const plan = updatePlan(kind, root, process.platform, kind === 'npm' ? await npmMajor() : null);
+      const plan = updatePlan(kind, root, process.platform, kind === 'npm' ? await npmMajor({ env: withoutSecrets(process.env) }) : null);
       if (!plan.length) {
         onLine('This install cannot update itself: install it again the way you did first.');
         return { ok: false, version: appVersion(), output: '' };

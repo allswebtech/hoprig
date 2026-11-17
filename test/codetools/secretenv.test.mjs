@@ -86,10 +86,20 @@ test('every place that starts npm, an install script or a download hands on none
     assert.ok(r1.calls.length >= 1, 'npm ran');
     for (const c of r1.calls) assert.deepEqual(leaks(c.env), [], c.argv.join(' '));
 
-    // Hoprig's own update (from a checkout: git pull, npm install), in the command and on the Updates page.
+    // Hoprig's own update, from a checkout (git pull, npm install) and from an npm install (npm install -g), in the
+    // command and on the Updates page. Both kinds are made here: where the suite itself runs (a checkout or an
+    // unpacked copy) decides nothing.
     const { selfUpdate } = await import('../../src/setup/selfupdate.mjs');
+    const checkout = path.join(tmp, 'checkout');
+    fs.mkdirSync(path.join(checkout, '.git'), { recursive: true });
+    const installed = path.join(tmp, 'prefix', 'lib', 'node_modules', 'hoprig');
+    fs.mkdirSync(installed, { recursive: true });
     const r2 = recorder();
-    await selfUpdate([], { write: () => {}, run: r2.run });
+    const newer = async () => ({ version: '999.0.0', note: null });
+    assert.equal(await selfUpdate([], { write: () => {}, run: r2.run, root: checkout, lookup: newer }), 0);
+    const fromGit = r2.calls.length;
+    assert.equal(await selfUpdate([], { write: () => {}, run: r2.run, root: installed, lookup: newer }), 0);
+    assert.ok(fromGit >= 1 && r2.calls.length > fromGit, `${fromGit} ${r2.calls.length}`);
     const { hoprigItem } = await import('../../src/automation/updateitems.mjs');
     const r3 = recorder();
     const item = hoprigItem({

@@ -109,7 +109,7 @@ export async function selfUpdate(args = [], { write = (s) => process.stdout.writ
     }
     write(`Version ${latest} is available.\n`);
   }
-  const plan = updatePlan(kind, root, process.platform, kind === 'npm' ? await npmMajor() : null);
+  const plan = updatePlan(kind, root, process.platform, kind === 'npm' ? await npmMajor({ env: withoutSecrets(process.env) }) : null);
   for (const step of plan) {
     write(`${dryRun ? 'would run' : 'running'}: ${showCommand(step.argv)}\n`);
     if (dryRun) continue;
