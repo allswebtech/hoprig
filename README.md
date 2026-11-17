@@ -52,7 +52,8 @@ yet. Not affiliated with Anthropic or with OpenCode's makers; "Claude" and "Clau
 curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
 ```
 
-It installs what is missing (Node.js and Claude Code, after asking once), then runs `hoprig setup`, which ends
+It installs what is missing (Node.js 22 or newer and Claude Code, after asking once), then Hoprig itself from the
+main branch of this repository, then runs `hoprig setup`, which ends
 with a QR code: scan it and your phone is signed in to the dashboard. Until everything is set up, Home shows a
 Get started checklist.
 
@@ -325,7 +326,9 @@ the AI knows on a computer, and never anything in folders named `no-ai`, `ignore
 
 No AI involved, just rules you switch on, on the **Automations** page (Schedules, Queue, Rules, Activity):
 
-- **Queue**: give a session its next messages; each goes in when a reply ends.
+- **Queue**: give a session its next messages; each goes in when a reply ends, and only while the coding tool is
+  the program in front in that terminal. When it is not (it has ended, or another program runs there), the
+  message waits and its row says why.
 - **Schedules**: start a chat (or a session in a terminal) or send a message to one, once, daily or on chosen
   weekdays.
 - **Restore**: after a restart, Claude Code's terminal sessions come back where they were.
@@ -348,6 +351,10 @@ what is running. One choice for all:
 - **Automatic**: it also installs each update by itself, at a safe moment: Claude Code when none of its sessions
   is working, OpenCode when none of its sessions is open, the tunnel helper when the public link is off. Hoprig
   itself is never updated by itself; Automatic tells you, and you choose the moment.
+
+Hoprig's newest version is read from where it is installed from: the version in `package.json` on the main branch
+of this repository (a git checkout asks its own remote). When it cannot be read, the row says why in one sentence.
+`hop update` updates Hoprig from the same place.
 
 `hop tools` does the same for the coding tools in a terminal (`tools install | update | on | off <tool>`).
 
@@ -432,7 +439,10 @@ Terminal sessions run in tmux when it is installed, 3.2 or newer (they survive a
 A terminal session starts in your own shell, which is given only Hoprig's command and a file that is readable by you
 alone and works once: the folder, the provider and the first message are never typed into the shell, so a first
 message arrives as it was written, several lines included (on Windows, a coding tool installed as a `.cmd` script
-gets it on one line: cmd.exe cannot carry a line break).
+gets it on one line: cmd.exe cannot carry a line break). What anyone but you types into a running session (the
+queue, a schedule, the continue prompt, Tia, another computer) goes in only while the coding tool is the program in
+front there, without control characters; your own typing on the page goes in as before. A move to another provider,
+a restart and **Close** end the programs in the terminal first, and only then start the new one or close it.
 
 <p align="center">
   <img src="docs/screenshots/settings-desktop-light.webp" alt="Settings: one row per page, each with its current state in one line" width="760">
@@ -458,13 +468,15 @@ Said plainly, so nothing here is a surprise:
   read git without looking inside a submodule's files (its own settings could start programs). A submodule with
   uncommitted changes shows them when you open it as its own folder; a new commit in it still shows in the parent.
 - **Run only on Linux**: everything new in this version (the chat, OpenCode, the editor, the desktop, the public
-  link switch, Updates, one process per conversation). It was not run on macOS or Windows. How Hoprig tells that a
+  link switch, Updates, one process per conversation, the start of a terminal session by its start file, the text
+  typed only for a coding tool in front, the ending of a terminal's programs before it closes, the safe git reads).
+  It was not run on macOS or Windows. How Hoprig tells that a
   process is still the one it started (a process id can belong to another program after a restart of the computer)
   is exact on Linux; on macOS and Windows it is written and tested with recorded answers of the system only.
 - **Two gaps around one process per conversation**: pressing Ctrl+C in a new terminal session before its shell has
   read the start line leaves the conversation shown as running there until you choose **Continue here** or that
-  terminal ends. A `hop` launcher that is killed hard while its coding tool goes on leaves that coding tool unseen by
-  Hoprig.
+  terminal ends (its unused start file is removed after ten minutes). A `hop` launcher that is killed hard while its
+  coding tool goes on leaves that coding tool unseen by Hoprig.
 - **On Windows**, a second temporary address of the public link whose file names no process identity (one an earlier
   version started) cannot be stopped by Hoprig: it says so, and that helper is ended by hand.
 - **Not proven on real devices**: a phone's on-screen keyboard in the editor and the chat; changing the Claude
@@ -512,9 +524,16 @@ The dashboard is a remote control for your computer, and it is built that way:
 - It listens on this computer only until you choose otherwise. On a network it speaks plain HTTP, so use a network
   you trust; on the internet use the public link (HTTPS through the tunnel) or `hoprig setup --hub`, which puts it
   behind HTTPS and refuses plain HTTP.
-- One password stored as a scrypt hash, a sign-in rate limit per visitor, one-time sign-in links, HttpOnly
-  SameSite=Strict cookies, an Origin check on every change, a strict content security policy. The public link asks
-  for a strong password before it turns on.
+- One password stored as a scrypt hash, one-time sign-in links, HttpOnly SameSite=Strict cookies, an Origin check
+  on every change, a strict content security policy. The public link asks for a strong password before it turns on.
+- Five wrong passwords and a visitor waits: this computer counts as one visitor whatever local address it uses,
+  every visitor through the public link counts on its own, a limit for all wrong passwords together never locks
+  this computer out, and a one-time sign-in link has its own count, so guesses do not lock it.
+- When the dashboard reads a project's git state (Source Control, quick open, the chat's `@` files, the project
+  counts), the repository's own settings never start a program: hooks, filters, diff and signature programs are
+  switched off for that read. A git command a coding tool runs is the coding tool's own.
+- Installs, updates, downloads and the demo get an environment without provider keys; the tunnel helper is checked
+  against its known SHA-256 before it is used.
 - Another computer gets a token you can revoke. A token cannot change the password, pair, or relay further.
 - The router listens on 127.0.0.1 under a secret path and keeps no request or answer text.
 - The editor and the desktop's Files reach only the folders the dashboard may show (**Settings → Security and
@@ -539,11 +558,12 @@ The dashboard is a remote control for your computer, and it is built that way:
 | macOS | run and tested | run and tested (built-in terminals) before this version; what is new in it was not run there (see above); the launchd service is written, not yet installed for real | checked read-only; installs not yet run |
 | Windows | **not ready**: written, the tests do not pass on Windows yet | not ready | not ready |
 
-Requires Node.js 22 or newer (Node 20 is past its end of life, and it aborts when a terminal is closed under it). The tests run on Linux and macOS with Node 22, 24 and 26 on every change. On Windows
-they have been run and do not pass yet, so Windows is not supported. tmux is used from version 3.2 on; with an
-older one (or none) the built-in terminals are used. With npm 12 there is nothing to do yourself: setup builds the
-one module that needs a build (`node-pty`, the only install script Hoprig's `package.json` approves), and
-`hoprig doctor` names the cause when it did not build.
+Requires Node.js 22 or newer (Node 20 is past its end of life, and it aborts when a terminal is closed under it;
+`hoprig` says so in one sentence on an older Node.js). The tests run on Linux and macOS with Node 22, 24 and 26 on
+every change. On Windows they have been run and do not pass yet, so Windows is not supported. tmux is used from
+version 3.2 on; with an older one (or none) the built-in terminals are used. With npm 12 there is nothing to do
+yourself: setup builds the one module that needs a build (`node-pty`, the only install script Hoprig's
+`package.json` approves), and `hoprig doctor` names the cause when it did not build.
 
 Runtime dependencies: `ws`, xterm.js, Monaco (VS Code's editor core), `qrcode-terminal`, and optionally `node-pty`
 for the built-in terminals. No framework and no build step.
