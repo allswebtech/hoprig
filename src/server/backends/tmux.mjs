@@ -55,10 +55,13 @@ const paneEnv = () => ['-e', 'COLORTERM=truecolor', '-e', `HOPRIG_STATE_DIR=${st
 
 /**
  * A folder as tmux's -c takes it. tmux reads that argument as a format, and "#(…)" in a format runs a command through
- * /bin/sh: a folder named "x#(touch y)" would run it. "##" is a plain "#" in a format, so every "#" is doubled and the
- * name stays a name (checked on tmux 3.6 with "#(…)", "#{…}", "##" and a trailing "#"). The -e values are not formats.
+ * /bin/sh: a folder named "x#(touch y)" would run it. "##" is a plain "#" in a format, so a run of "#" is doubled and
+ * the name stays a name. A run of "#" right before "[" is a style, which tmux copies through as it is: doubled, it would
+ * stay doubled and name another folder (tmux then starts in the home folder without a word), so that run is left as
+ * it is. Checked on tmux 3.6 with 300 random names of "#", "[", "]", "(", ")", "{", "}" and "touch": each pane started
+ * in its own folder and nothing ran. The -e values are not formats.
  */
-export const tmuxDir = (dir) => String(dir).replaceAll('#', '##');
+export const tmuxDir = (dir) => String(dir).replace(/(#+)(\[?)/g, (run, hashes, style) => (style ? run : hashes + hashes));
 
 export class TmuxBackend {
   /**

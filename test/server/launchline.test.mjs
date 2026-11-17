@@ -49,8 +49,9 @@ const BIG = [
 ].join('\n');
 const FOLDER = 'x\u0015touch PWNED_DIR; #';
 // tmux reads its start folder (-c) as a format: "#(…)" would run a command, "#{…}" would be replaced by a value.
-// $HOME: the job would run with tmux's own folder as its working directory, so the file is named from HOME.
-const FORMATS = ['f#(touch $HOME.PWNED_FMT)x', 'p#{pane_id}q', 'a##b #'];
+// $HOME: the job would run with tmux's own folder as its working directory, so the file is named from HOME. A run of "#"
+// before "[" is a style, which tmux copies through as it is: such a folder must not be escaped into another one.
+const FORMATS = ['f#(touch $HOME.PWNED_FMT)x', 'p#{pane_id}q', 'a##b #', 'notes #[draft]', '#[#(touch $HOME.PWNED_FMT)', 'x##[y'];
 const fmtRan = () => fs.existsSync(`${box.home}.PWNED_FMT`);
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -128,6 +129,27 @@ async function rig(kind, shell, { c = false, launcher = [process.execPath, RECOR
   return { backend, deck, typed, shown };
 }
 
+/**
+ * The folder the terminal's own shell is in, once the program started in it has ended: what the owner's next command
+ * runs in. Asked of the shell itself (pwd, written to a file), not of the launcher, which goes to its folder by itself.
+ */
+let asked = 0;
+async function shellFolder(r, term, { plain = false } = {}) {
+  const out = path.join(box.root, `shell-pwd-${++asked}`);
+  // Typed while the shell is not yet reading, the line waits in the terminal's input: only the stand-in has to be gone.
+  if (!plain) await until('the shell is back', async () => (await r.backend.capture(term.id, 20)).includes('RECORDED'));
+  await r.backend.sendText(term.id, `pwd -P > '${out}'`);
+  await r.backend.sendKey(term.id, 'Enter');
+  return until('the shell\'s folder', () => {
+    try {
+      const v = fs.readFileSync(out, 'utf8');
+      return v.endsWith('\n') ? v.slice(0, -1) : null;
+    } catch {
+      return null;
+    }
+  });
+}
+
 /** Start through the deck, wait for the stand-in's record, and check what every start must hold. */
 async function startAndRecord(r, { dir, prompt = null, tool = 'claude' }) {
   const before = recorded().length;
@@ -189,21 +211,30 @@ for (const kind of kinds) {
       await r.backend.kill(name);
     });
 
-    test(`${label}: folders named like tmux formats (#(…), #{…}, ##, a trailing #): started and moved there, nothing runs`, { skip: !POSIX && 'POSIX shells' }, async () => {
+    test(`${label}: folders named like tmux formats (#(…), #{…}, ##, #[…], a trailing #): the launcher, its shell and a plain shell are there, moved too, nothing runs`, { skip: !POSIX && 'POSIX shells' }, async () => {
       const r = await rig(kind, shell);
       const parent = fs.mkdtempSync(path.join(box.root, 'w-'));
       for (const folder of FORMATS) {
         const dir = path.join(parent, folder);
         fs.mkdirSync(dir);
         const { rec, name, term } = await startAndRecord(r, { dir, prompt: 'go' });
-        assert.ok(Buffer.from(rec.cwd).equals(Buffer.from(fs.realpathSync(dir))), `${JSON.stringify(rec.cwd)} is the folder ${JSON.stringify(folder)}`);
+        const real = fs.realpathSync(dir);
+        assert.ok(Buffer.from(rec.cwd).equals(Buffer.from(real)), `${JSON.stringify(rec.cwd)} is the folder ${JSON.stringify(folder)}`);
+        // The shell left after the coding tool ends is in the folder too, not in the home folder.
+        assert.equal(await shellFolder(r, term), real, `the shell after the launcher, ${JSON.stringify(folder)}`);
         // A move starts the launcher again in the same terminal (tmux: respawn-pane -c), in the run's folder.
         const count = recorded().length;
         const run = { runId: `fmt-${FORMATS.indexOf(folder)}`, sessionId: '0b6c3c9e-1f7e-4e4b-9b1a-3f6a1e2d4c5b', cwd: dir, carryArgs: [], tool: 'claude' };
         await r.deck.move(term, run, 'other', { profile: { name: 'other', env: {} } });
         const moved = await until('the moved launcher', () => recorded()[count]);
-        assert.ok(Buffer.from(moved.cwd).equals(Buffer.from(fs.realpathSync(dir))), `moved: ${JSON.stringify(moved.cwd)}`);
+        assert.ok(Buffer.from(moved.cwd).equals(Buffer.from(real)), `moved: ${JSON.stringify(moved.cwd)}`);
+        assert.equal(await shellFolder(r, term), real, `the shell after a move, ${JSON.stringify(folder)}`);
         await r.backend.kill(name);
+        // A plain shell, no coding tool.
+        const plain = await r.deck.shell(dir);
+        const pterm = await until('the plain shell', async () => (await r.backend.list()).find((t) => t.session === plain));
+        assert.equal(await shellFolder(r, pterm, { plain: true }), real, `a plain shell, ${JSON.stringify(folder)}`);
+        await r.backend.kill(plain);
       }
       await wait(300); // a tmux job runs in the background
       assert.equal(fmtRan(), false, 'tmux ran no command from a folder\'s name');

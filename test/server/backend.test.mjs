@@ -53,6 +53,10 @@ test('tmux calls are argument arrays (recorded)', async () => {
   assert.deepEqual(calls[1][0], ['clear-history', '-t', '%7']);
   assert.deepEqual(calls[2][0], ['send-keys', '-t', '%7', '-l', '--', `${CLEAR}; n p2 --resume id`]);
   calls.length = 0;
+  // A run of "#" before "[" is a style to tmux, copied through as it is: left alone, or the folder would be another one.
+  await b.respawn('%7', '/w/notes #[draft] a##[b ##(x) #', ['n', 'p2']);
+  assert.deepEqual(calls[0][0].slice(4, 6), ['-c', '/w/notes #[draft] a##[b ####(x) ##']);
+  calls.length = 0;
   await assert.rejects(b.respawn('%7', '/w', ['n', 'a\u0015b']), (e) => e.status === 400);
   assert.deepEqual(calls, [], 'refused before what runs there is stopped');
   calls.length = 0;
