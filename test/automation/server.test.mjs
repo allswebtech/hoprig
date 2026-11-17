@@ -94,12 +94,14 @@ async function run(t, kind) {
     return null;
   };
 
+  // tmux leaves its socket file behind; with no server left to ask at the end, the path seen before the restart.
+  let sockSeen = '';
   t.after(async () => {
     if (app) await app.close().catch(() => {});
     if (kind === 'tmux' && app) {
-      const sock = await app.backend.run(['display', '-p', '#{socket_path}']).catch(() => '');
+      const sock = (await app.backend.run(['display', '-p', '#{socket_path}']).catch(() => '')).trim() || sockSeen;
       await app.backend.killServer().catch(() => {});
-      if (sock.trim()) fs.rmSync(sock.trim(), { force: true });
+      if (sock) fs.rmSync(sock, { force: true });
     }
     box.cleanup();
   });
@@ -188,7 +190,16 @@ async function run(t, kind) {
   const before = {};
   for (const s of (await req('/api/state')).json.sessions) before[s.name] = s.sessionId;
   await app.close();
-  if (kind === 'tmux') await app.backend.killServer(); // a reboot takes tmux with it
+  if (kind === 'tmux') {
+    // A reboot takes tmux with it, and every program of its sessions is gone before the dashboard starts again.
+    // killServer ends the programs of every pane, then tmux; the wait for their run records to go models the reboot
+    // itself. (A tmux that ends without a reboot closes the terminals under their programs: they end a moment later,
+    // and a restore meanwhile finds the conversations running and tries once more: restore-retry.test.mjs.)
+    sockSeen = (await app.backend.run(['display', '-p', '#{socket_path}']).catch(() => '')).trim();
+    await app.backend.killServer();
+    const { listRuns } = await import('../../src/runs.mjs');
+    await until('the programs of the sessions ended, as after a reboot', async () => !listRuns().length);
+  }
   await start();
   await tick();
   await until('both sessions back', async () => {

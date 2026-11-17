@@ -380,12 +380,27 @@ test('the processes a terminal started: a pid that is another process by the tim
   await b4.create({ name: 'n', dir: '/w' });
   await b4.kill('n');
   await Promise.race([gone(blind), tick(5000)]);
-  assert.equal(blind.signalCode, 'SIGTERM');
+  assert.equal(blind.signalCode, 'SIGHUP');
   // The same process at both moments (the real reader): it is ended, as before.
   const same = kid();
   const { b: b2 } = backend('linux', { descendants: async () => [same.pid] });
   await b2.create({ name: 's', dir: '/w' });
   await b2.kill('s');
   await gone(same);
-  assert.equal(same.signalCode, 'SIGTERM');
+  assert.equal(same.signalCode, 'SIGHUP');
+});
+
+test('what ignores SIGHUP (a nohup job) does not outlive a closed terminal: SIGTERM once the shell has ended', { skip: process.platform === 'win32', timeout: 15_000 }, async () => {
+  const { spawn } = await import('node:child_process');
+  const deaf = spawn(process.execPath, ['-e', "process.on('SIGHUP', () => {}); setInterval(() => {}, 1 << 30); console.log('ready')"], { stdio: ['ignore', 'pipe', 'ignore'] });
+  test.after(() => deaf.kill('SIGKILL'));
+  await new Promise((r) => deaf.stdout.once('data', r)); // its SIGHUP handler is in place
+  const { b } = backend('linux', { descendants: async () => [deaf.pid] });
+  await b.create({ name: 'n', dir: '/w' });
+  const t0 = Date.now();
+  await b.kill('n');
+  // SIGHUP first (ignored), the wait for it, then the shell (here it ends at once), then SIGTERM.
+  await new Promise((r) => (deaf.exitCode !== null || deaf.signalCode !== null ? r() : deaf.once('exit', r)));
+  assert.equal(deaf.signalCode, 'SIGTERM');
+  assert.ok(Date.now() - t0 < 5000, 'the wait for it is bounded');
 });

@@ -76,23 +76,44 @@ export function decide({ cards, data, now, boot, enabled }) {
 }
 
 /**
+ * A start skipped because the conversation still ran is tried once more after this long. tmux can end without a
+ * reboot (an out-of-memory kill, `tmux kill-server`) and the dashboard start again at once: the programs whose terminal
+ * closed are still ending then (on Node 20 a crash report holds each for a second or more), and their run records
+ * still say they run. A conversation that really runs elsewhere is skipped the second time too.
+ */
+export const RETRY_MS = 5000;
+
+/**
  * Carry out the actions. ctx: { deck.start({ dir, profile, mode: 'move', sessionId, carryArgs, name, fresh? }),
- * conversationExists(cwd, id) → bool, record(entry), label(profile)? → its shown name }. A start that finds the
- * conversation running already (a chat, a terminal) throws with `existing`: nothing is reopened.
+ * conversationExists(cwd, id) → bool, record(entry), label(profile)? → its shown name, later(fn, ms)?, closed()? }. A
+ * start that finds the conversation running already (a chat, a terminal) throws with `existing`: nothing is reopened,
+ * after one more try RETRY_MS later. That try runs by itself (`later`), outside the tick: the other automations do
+ * not wait for it.
  */
 export async function apply(actions, ctx) {
-  for (const a of actions) {
-    const s = a.session;
-    const fresh = !ctx.conversationExists(s.cwd, s.sessionId);
-    try {
-      const name = await ctx.deck.start({ dir: s.cwd, profile: s.profile, mode: 'move', sessionId: s.sessionId, carryArgs: s.carryArgs || [], name: s.name, ...(fresh ? { fresh } : {}) });
-      // The provider as the owner named it: this line is read on Automations → Activity.
-      const shown = (ctx.label && ctx.label(s.profile)) || s.profile;
-      const how = fresh ? 'started fresh: it had no conversation to resume' : `resumed ${s.sessionId.slice(0, 8)}`;
-      ctx.record({ automation: 'restore', session: name, did: `reopened on ${shown} (${how})`, outcome: 'ok' });
-    } catch (e) {
-      if (e.existing) ctx.record({ automation: 'restore', session: s.name, did: 'did not reopen', outcome: `skipped: ${e.message}` });
-      else ctx.record({ automation: 'restore', session: s.name, did: 'could not reopen', outcome: `failed: ${e.message}` });
-    }
+  const busy = [];
+  for (const a of actions) if (await reopen(a.session, ctx, false)) busy.push(a.session);
+  if (!busy.length) return;
+  const again = async () => {
+    for (const s of busy) if (!ctx.closed?.()) await reopen(s, ctx, true);
+  };
+  const later = ctx.later || ((fn, ms) => setTimeout(() => fn().catch(() => {}), ms).unref());
+  later(again, RETRY_MS);
+}
+
+/** One start; true when the conversation ran already and this was the first try (the caller tries again). */
+async function reopen(s, ctx, last) {
+  const fresh = !ctx.conversationExists(s.cwd, s.sessionId);
+  try {
+    const name = await ctx.deck.start({ dir: s.cwd, profile: s.profile, mode: 'move', sessionId: s.sessionId, carryArgs: s.carryArgs || [], name: s.name, ...(fresh ? { fresh } : {}) });
+    // The provider as the owner named it: this line is read on Automations → Activity.
+    const shown = (ctx.label && ctx.label(s.profile)) || s.profile;
+    const how = fresh ? 'started fresh: it had no conversation to resume' : `resumed ${s.sessionId.slice(0, 8)}`;
+    ctx.record({ automation: 'restore', session: name, did: `reopened on ${shown} (${how})`, outcome: 'ok' });
+  } catch (e) {
+    if (e.existing && !last) return true;
+    if (e.existing) ctx.record({ automation: 'restore', session: s.name, did: 'did not reopen', outcome: `skipped: ${e.message}` });
+    else ctx.record({ automation: 'restore', session: s.name, did: 'could not reopen', outcome: `failed: ${e.message}` });
   }
+  return false;
 }

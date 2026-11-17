@@ -4,8 +4,10 @@
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import os from 'node:os';
+import { system } from '../../procid.mjs';
 import { ptySpawn } from './nodepty.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
+import { descendants, endAll } from './proctree.mjs';
 import { shellLine } from './shell.mjs';
 import { assertFront, notInFront, FRONT_GONE } from './front.mjs';
 import { stateDir } from '../../paths.mjs';
@@ -62,6 +64,8 @@ const paneEnv = () => ['-e', 'COLORTERM=truecolor', '-e', `HOPRIG_STATE_DIR=${st
  * in its own folder and nothing ran. The -e values are not formats.
  */
 export const tmuxDir = (dir) => String(dir).replace(/(#+)(\[?)/g, (run, hashes, style) => (style ? run : hashes + hashes));
+// A pane's shell, for ending what runs under it: whether the pane is dead (remain-on-exit), and the shell's pid.
+const SHELL_FORMAT = '#{pane_dead} #{pane_pid}';
 
 export class TmuxBackend {
   /**
@@ -69,9 +73,13 @@ export class TmuxBackend {
    * @param {string} [o.socket]      tmux -L name; empty = the user's default server
    * @param {string} [o.configFile]  tmux -f file (tests use an empty file so the user's tmux.conf does not apply)
    * @param {string} [o.bin]         tmux executable
+   * @param {Function} [o.descendants] pid → its descendants' pids (proctree.mjs), replaceable in tests
+   * @param {object} [o.ident]        who a process is beyond its pid (procid.mjs), replaceable in tests
    */
-  constructor({ socket = '', configFile = '', bin = 'tmux' } = {}) {
+  constructor({ socket = '', configFile = '', bin = 'tmux', descendants: below = descendants, ident = system } = {}) {
     this.bin = bin;
+    this.descendants = below;
+    this.ident = ident;
     // -u on every call: this client speaks UTF-8 even when the dashboard runs without a UTF-8 locale (a service, a
     // container, a CI step). Without it tmux turns every tab and non-ASCII character it prints into "_": list()
     // then finds no session at all (its fields are split on tabs), and a folder named "café" reads "caf_".
@@ -222,8 +230,13 @@ export class TmuxBackend {
     throw new Error(`unknown scroll action ${action}`);
   }
 
-  async respawn(id, dir, argv, { mark = null } = {}) {
-    const line = shellLine(argv, { mark }); // refused (plainly) before what runs there is stopped
+  /**
+   * In this order: the line is built and checked (refused plainly before anything is touched), the programs in the pane
+   * end (`hold`, the pid that holds the conversation, given longer), the pane starts anew, the line is typed.
+   */
+  async respawn(id, dir, argv, { mark = null, hold = null } = {}) {
+    const line = shellLine(argv, { mark });
+    await this.#endPrograms(['display-message', '-p', '-t', id, SHELL_FORMAT], hold);
     await this.run(['respawn-pane', '-k', '-t', id, '-c', tmuxDir(dir), ...paneEnv()]);
     // The old program's lines (a usage-limit message among them) would otherwise stay in the history and keep
     // the card in "limit hit". The conversation itself is in Claude's transcript, which --resume shows again.
@@ -231,12 +244,36 @@ export class TmuxBackend {
     await this.#type(id, line);
   }
 
+  /**
+   * What runs under the shells of the panes `query` lists (SHELL_FORMAT) ends, while their terminals are still open,
+   * before a pane is started anew or the session is closed; the shells stay (a pane would close with its shell) and go
+   * with respawn-pane -k or kill-session. Those alone close the terminal first: the programs in it end only afterwards,
+   * while a respawn's new command already starts. A launcher still ending then holds its conversation, and the new
+   * launcher on the same conversation refuses to start. And a program that sets its terminal back on its way out finds
+   * it gone: Node 20 aborts there (and a crash report takes a second or more). A dead pane (remain-on-exit) is skipped:
+   * its pane_pid is that of a shell that has ended, and may be another process's by now.
+   */
+  async #endPrograms(query, hold = null) {
+    const out = String(await this.run(query).catch(() => ''));
+    const shells = [];
+    for (const line of out.split('\n')) {
+      const [dead, pid] = line.trim().split(' ');
+      if (dead === '0' && /^\d+$/.test(pid || '') && Number(pid) > 1) shells.push(Number(pid));
+    }
+    if (!shells.length) return;
+    const pids = (await Promise.all(shells.map((s) => this.descendants(s)))).flat();
+    // What ignores SIGHUP (nohup) stays, as it did when the terminal closed under it.
+    await endAll(pids, { ident: this.ident, hold });
+  }
+
   /** "=" makes tmux match the session name exactly instead of by prefix. */
   rename(name, next) {
     return this.run(['rename-session', '-t', `=${name}`, next]);
   }
 
-  kill(name) {
+  /** Every pane of the session (-s), its programs first, as in respawn. */
+  async kill(name) {
+    await this.#endPrograms(['list-panes', '-s', '-t', `=${name}`, '-F', SHELL_FORMAT]);
     return this.run(['kill-session', '-t', `=${name}`]);
   }
 
@@ -271,7 +308,9 @@ export class TmuxBackend {
     };
   }
 
-  killServer() {
+  /** The whole tmux server (tests; the dashboard never ends it): every pane's programs first, as in kill. */
+  async killServer() {
+    await this.#endPrograms(['list-panes', '-a', '-F', SHELL_FORMAT]);
     return this.run(['kill-server']).catch(() => {});
   }
 }

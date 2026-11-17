@@ -382,11 +382,15 @@ export class Deck {
     }
   }
 
-  /** Stop what runs in terminal `id` and start `argv` there (#command), keeping its name and id. */
-  async respawn(id, dir, argv, { mark = null } = {}) {
+  /**
+   * Stop what runs in terminal `id` and start `argv` there (#command), keeping its name and id. The line is built and
+   * checked before anything is touched; the backend then ends the old programs (and `hold`, the pid that holds the
+   * conversation, given longer) before the terminal starts anew and the line is typed.
+   */
+  async respawn(id, dir, argv, { mark = null, hold = null } = {}) {
     const cmd = this.#command(dir, argv, mark);
     try {
-      await this.backend.respawn(id, dir, cmd.argv, { mark });
+      await this.backend.respawn(id, dir, cmd.argv, { mark, hold });
     } catch (e) {
       dropLaunch(cmd.file);
       throw e;
@@ -455,7 +459,8 @@ export class Deck {
       const mark = newMark();
       this.noteLaunch(term.session, run.sessionId, tool, Date.now(), mark);
       try {
-        await this.respawn(term.id, run.cwd, argv, { mark });
+        // The old launcher holds the conversation until its coding tool has saved and ended: the new one would refuse it.
+        await this.respawn(term.id, run.cwd, argv, { mark, hold: Number.isInteger(run.pid) ? run.pid : null });
       } catch (e) {
         if (this.launchOf(run.sessionId, tool)?.mark === mark) this.launchOf(run.sessionId, tool, { drop: true });
         if (this.movedFrom.get(term.id) === (run.runId || null)) this.movedFrom.delete(term.id); // not moved: it may be asked again
