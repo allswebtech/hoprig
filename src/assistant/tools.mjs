@@ -275,16 +275,24 @@ const send_to_session = tool({
   },
   async run(ops, a) {
     await findSession(ops, a);
+    // The dashboard types her text and keys only while the coding tool is the program in front in that terminal
+    // (src/server/typing.mjs). The sentences are ours, not the other computer's.
+    const notInFront = (what) => toolError(`${what} ${a.session}: its coding tool is not the program in front in that terminal (it has ended, or another program runs there)`, 'read_session shows its screen; start_session in its folder (mode continue or resume) starts the coding tool again, then send the message');
     if (a.key !== undefined) {
-      await ops.pressKey({ computer: comp(a), session: a.session, key: a.key });
+      try {
+        await ops.pressKey({ computer: comp(a), session: a.session, key: a.key });
+      } catch (e) {
+        if (e.code === 'not_in_front') throw notInFront('Nothing was pressed in');
+        throw e;
+      }
       return { summary: `Pressed ${a.key} in ${a.session}.`, data: { session: a.session, key: a.key } };
     }
     try {
       await ops.sendText({ computer: comp(a), session: a.session, text: a.text });
     } catch (e) {
-      // The dashboard types her text only while the coding tool is the program in front in that terminal (deck.mjs
-      // sendToTool). The sentence is ours, not the other computer's.
-      if (e.code === 'not_in_front') throw toolError(`Nothing was typed into ${a.session}: its coding tool is not the program in front in that terminal (it has ended, or another program runs there)`, 'read_session shows its screen; start_session in its folder (mode continue or resume) starts the coding tool again, then send the message');
+      if (e.code === 'not_in_front') throw notInFront('Nothing was typed into');
+      // The text went in, its Enter did not: sending it again could type it twice.
+      if (e.code === 'typed_not_sent') throw toolError(`The message was typed into ${a.session} but not sent: its coding tool ended or changed before the Enter`, 'read_session shows what stands there now; do not send the message again before you have looked');
       throw e;
     }
     return { summary: `Typed the message into ${a.session} and pressed Enter.`, data: { session: a.session, computer: comp(a) } };

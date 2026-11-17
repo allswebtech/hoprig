@@ -13,9 +13,10 @@ import { rememberFolderProvider } from './defaultprovider.mjs';
 import { claudeDir, hookFile, hookSettingsDir } from './paths.mjs';
 import { listProfiles, notServedLines, profileEnv, readProfile, servesTools } from './profiles.mjs';
 import { loginSeen, rememberLogin } from './routerstate.mjs';
-import { createRun, noteUsage, readRun, readUsage, removeRun, updateRun, usageFile } from './runs.mjs';
+import { createRun, noteUsage, readRun, readUsage, updateRun, usageFile } from './runs.mjs';
 import { hasConversation, isSessionId } from './sessions.mjs';
 import { refuseIfHeld } from './held.mjs';
+import { endRun, removeLocked, settleInput } from './typinglock.mjs';
 import { compareVersions } from './setup/system.mjs';
 import { AUTO, autoIdentity, ensureRouter } from './router.mjs';
 import { resolveWindowsBin, windowsSpawnPlan } from './winspawn.mjs';
@@ -284,9 +285,8 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
     // `shell: true` is sh on Linux and macOS and cmd on Windows.
     const r = spawnSync(profile.prerun, { shell: true, stdio: ['inherit', 2, 'inherit'], env });
     if (r.status !== 0) {
-      removeRun(file);
       console.error(`hoprig: the profile's PRERUN command failed (${r.status ?? r.signal}): ${profile.prerun}`);
-      return Promise.resolve({ code: 1, sessionId: null, signalled: true });
+      return endRun(file).then(() => ({ code: 1, sessionId: null, signalled: true }));
     }
   }
 
@@ -328,7 +328,7 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
       /* never in the way of ending a run */
     }
     if (keep) createRun({ profile: profile.name, cwd: process.cwd(), carryArgs: carryArgs(args), conversation: keep, file });
-    else removeRun(file);
+    else removeLocked(file); // after a text being typed for the tool right now (typinglock.mjs)
     fs.rmSync(usageFile(file), { force: true });
     if (settingsFile) fs.rmSync(settingsFile, { force: true });
     if (scriptFile) fs.rmSync(scriptFile, { force: true });
@@ -413,12 +413,16 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
       const run = readRun(file);
       const keep = auto && !signalled && run?.sessionId ? run.sessionId : null;
       cleanup(keep);
-      if (auto && process.stdout.isTTY) {
-        // We stopped Claude ourselves: make sure its full-screen mode, mouse reporting and hidden cursor are off.
-        process.stdout.write('\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[0m\r\n');
-        if (process.platform !== 'win32') spawnSync('stty', ['sane'], { stdio: 'inherit' });
-      }
-      resolve({ code, sessionId: run?.sessionId || null, signalled, auto, kept: keep ? file : null });
+      // The record is gone: text typed for Claude that it did not read is thrown away before the menu or the shell
+      // reads this terminal (typinglock.mjs). A kept record goes on with the next run, which reads the terminal.
+      (keep ? Promise.resolve() : settleInput()).then(() => {
+        if (auto && process.stdout.isTTY) {
+          // We stopped Claude ourselves: make sure its full-screen mode, mouse reporting and hidden cursor are off.
+          process.stdout.write('\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[0m\r\n');
+          if (process.platform !== 'win32') spawnSync('stty', ['sane'], { stdio: 'inherit' });
+        }
+        resolve({ code, sessionId: run?.sessionId || null, signalled, auto, kept: keep ? file : null });
+      });
     };
     child.on('error', (e) => {
       console.error(e.code === 'ENOENT'
@@ -445,13 +449,14 @@ export async function launch(profileName, args, { askNext = null } = {}) {
   let menu = null; // while a choice of the launcher's own menu starts: { ask (what askNext was given), args, fresh }
   // Whatever ends the launch, no record names a conversation that nothing runs (a record of a launcher that has
   // ended goes by itself too: runs.mjs listRuns).
-  const drop = () => {
-    if (kept) removeRun(kept);
+  const drop = async () => {
+    const was = kept;
     kept = null;
+    if (was) await endRun(was); // under the typing lock, then the terminal's input settled (typinglock.mjs)
   };
   // The start was refused: the launch ends with `code`, or, from the launcher's own menu, the menu asks again (→ null).
   const refused = async (code) => {
-    drop();
+    await drop();
     if (!menu) return code;
     const next = await askNext(menu.ask);
     const target = next ? await profileNamed(next).catch(() => null) : null;
@@ -512,7 +517,7 @@ export async function launch(profileName, args, { askNext = null } = {}) {
         continue;
       }
     }
-    drop();
+    await drop();
     if (!interactive || signalled || !askNext || !sessionId) return code;
     const ask = { current: profile.name, sessionId, saved: !fresh };
     const next = await askNext(ask);

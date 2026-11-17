@@ -128,7 +128,7 @@ async function run(t, kind) {
   assert.match(menu, new RegExp(`Nothing was said in session ${id2.slice(0, 8)} yet\\. Start it on another profile\\?`));
   assert.ok(!menu.includes('is saved'));
   // The menu is the launcher's, not the coding tool's: only the owner answers it (the page's message box, owner: true).
-  // Text from anyone else is not typed while no coding tool is in front (deck.mjs sendToTool).
+  // Text from anyone else is not typed while no coding tool is in front (src/server/typing.mjs).
   const refused = await req(`/api/sessions/${name2}/send`, { text: 'backup' });
   assert.equal(refused.status, 409, refused.text);
   assert.equal(refused.json.code, 'not_in_front');

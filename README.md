@@ -416,7 +416,8 @@ Terminal sessions run in tmux when it is installed, 3.2 or newer (they survive a
 `tmux attach` over SSH still works), otherwise inside the dashboard's own service (the built-in terminals).
 A terminal session starts in your own shell, which is given only Hoprig's command and a file that is readable by you
 alone and works once: the folder, the provider and the first message are never typed into the shell, so a first
-message arrives as it was written, several lines included.
+message arrives as it was written, several lines included (on Windows, a coding tool installed as a `.cmd` script
+gets it on one line: cmd.exe cannot carry a line break).
 
 <p align="center">
   <img src="docs/screenshots/settings-desktop-light.webp" alt="Settings: one row per page, each with its current state in one line" width="760">

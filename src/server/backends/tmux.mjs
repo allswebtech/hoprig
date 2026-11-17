@@ -8,6 +8,7 @@ import { ptySpawn } from './nodepty.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
 import { shellLine } from './shell.mjs';
 import { assertFront, notInFront, FRONT_GONE } from './front.mjs';
+import { stateDir } from '../../paths.mjs';
 
 const FIELDS = [
   'session_name', 'session_created', 'session_attached', 'session_activity', 'window_activity',
@@ -47,8 +48,17 @@ const KEYS = new Set(['Enter', 'Escape', 'Tab', 'BTab', 'C-c', 'Up', 'Down', 'Le
 // tmux turns "." and ":" in session names into "_", so names it accepts as-is avoid them. No leading "-": a
 // name must never look like an option.
 const NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$/;
-// Programs started in our sessions may use 24-bit colour: tmux passes it on to clients that support it.
-const PANE_ENV = ['-e', 'COLORTERM=truecolor'];
+// Programs started in our sessions may use 24-bit colour: tmux passes it on to clients that support it. A pane takes
+// its environment from the tmux server, which may have been started long ago with another state folder: the launcher
+// in it must find its launch file and write its run record in the dashboard's own (src/launchfile.mjs).
+const paneEnv = () => ['-e', 'COLORTERM=truecolor', '-e', `HOPRIG_STATE_DIR=${stateDir()}`];
+
+/**
+ * A folder as tmux's -c takes it. tmux reads that argument as a format, and "#(…)" in a format runs a command through
+ * /bin/sh: a folder named "x#(touch y)" would run it. "##" is a plain "#" in a format, so every "#" is doubled and the
+ * name stays a name (checked on tmux 3.6 with "#(…)", "#{…}", "##" and a trailing "#"). The -e values are not formats.
+ */
+export const tmuxDir = (dir) => String(dir).replaceAll('#', '##');
 
 export class TmuxBackend {
   /**
@@ -124,7 +134,7 @@ export class TmuxBackend {
 
   async create({ name, dir, argv = null, mark = null }) {
     const line = argv ? shellLine(argv, { mark }) : null; // refused (plainly) before anything is made
-    const id = (await this.run(['new-session', '-d', '-s', name, '-c', dir, ...PANE_ENV, '-P', '-F', '#{pane_id}'])).trim();
+    const id = (await this.run(['new-session', '-d', '-s', name, '-c', tmuxDir(dir), ...paneEnv(), '-P', '-F', '#{pane_id}'])).trim();
     if (line) await this.#type(id, line);
     // In the browser tmux's own status line is noise (the page shows the session's name and state), and Claude
     // Code asks for focus events to know when its window is looked at. Neither may stop a session from starting.
@@ -145,7 +155,7 @@ export class TmuxBackend {
   }
 
   /**
-   * `front` (deck.mjs sendToTool): type only while that process group holds the pane in front. tmux is asked for the
+   * `front` (src/server/typing.mjs): type only while that process group holds the pane in front. tmux is asked for the
    * pane's first process at this moment, and the system for the group its terminal hands typed bytes to (what tmux
    * itself reads for #{pane_current_command}); the keys follow at once. A pane that is dead, or another program in
    * front, gets nothing.
@@ -211,7 +221,7 @@ export class TmuxBackend {
 
   async respawn(id, dir, argv, { mark = null } = {}) {
     const line = shellLine(argv, { mark }); // refused (plainly) before what runs there is stopped
-    await this.run(['respawn-pane', '-k', '-t', id, '-c', dir, ...PANE_ENV]);
+    await this.run(['respawn-pane', '-k', '-t', id, '-c', tmuxDir(dir), ...paneEnv()]);
     // The old program's lines (a usage-limit message among them) would otherwise stay in the history and keep
     // the card in "limit hit". The conversation itself is in Claude's transcript, which --resume shows again.
     await this.run(['clear-history', '-t', id]);

@@ -28,9 +28,12 @@ test('tmux calls are argument arrays (recorded)', async () => {
   };
   await assert.rejects(b.create({ name: 'p', dir: '/w', argv: ['/usr/bin/node', "it's"] }), (e) => e.status === 400);
   assert.deepEqual(calls, [], 'refused before tmux is asked for anything');
-  const r = await b.create({ name: 'p', dir: '/w/my dir', argv: ['/usr/bin/node', '/x/bin.mjs', 'work'] });
+  const r = await b.create({ name: 'p', dir: '/w/my #(dir)', argv: ['/usr/bin/node', '/x/bin.mjs', 'work'] });
   assert.deepEqual(r, { name: 'p', id: '%7' });
-  assert.deepEqual(calls[0][0], ['new-session', '-d', '-s', 'p', '-c', '/w/my dir', '-e', 'COLORTERM=truecolor', '-P', '-F', '#{pane_id}']);
+  // -c is a format to tmux: "#" doubled, so "#(…)" in a folder's name is never run. The pane's launcher uses the
+  // dashboard's state folder, whatever the tmux server was started with.
+  const env = ['-e', 'COLORTERM=truecolor', '-e', `HOPRIG_STATE_DIR=${box.state}`];
+  assert.deepEqual(calls[0][0], ['new-session', '-d', '-s', 'p', '-c', '/w/my ##(dir)', ...env, '-P', '-F', '#{pane_id}']);
   assert.deepEqual(calls[1][0], ['send-keys', '-t', '%7', '-l', '--', `${CLEAR}; /usr/bin/node /x/bin.mjs work`]);
   assert.deepEqual(calls[2][0], ['send-keys', '-t', '%7', 'Enter']);
   // tmux's own status line is hidden for the session (by pane id: set-option has no "=name" form), and focus
@@ -45,8 +48,8 @@ test('tmux calls are argument arrays (recorded)', async () => {
   assert.equal(calls[1][1], 'two\nlines', 'text goes through stdin');
   assert.deepEqual(calls[2][0].slice(0, 3), ['paste-buffer', '-p', '-d']);
   calls.length = 0;
-  await b.respawn('%7', '/w', ['n', 'p2', '--resume', 'id']);
-  assert.deepEqual(calls[0][0], ['respawn-pane', '-k', '-t', '%7', '-c', '/w', '-e', 'COLORTERM=truecolor']);
+  await b.respawn('%7', '/w#{pane_id}', ['n', 'p2', '--resume', 'id']);
+  assert.deepEqual(calls[0][0], ['respawn-pane', '-k', '-t', '%7', '-c', '/w##{pane_id}', ...env]);
   assert.deepEqual(calls[1][0], ['clear-history', '-t', '%7']);
   assert.deepEqual(calls[2][0], ['send-keys', '-t', '%7', '-l', '--', `${CLEAR}; n p2 --resume id`]);
   calls.length = 0;

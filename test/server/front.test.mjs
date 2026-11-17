@@ -1,15 +1,21 @@
-// Which program a terminal has in front (src/server/backends/front.mjs), and Deck#sendToTool's own steps around it:
-// what is refused before anything is typed, the second look before the Enter, and the built-in terminal's check
-// (on Windows: its own child) in the same step as the write. The real terminals are in typedtext.test.mjs.
+// Which program a terminal has in front (src/server/backends/front.mjs), and the steps of src/server/typing.mjs around
+// it: what is refused before anything is typed, the record read again under the typing lock, the second look before
+// the Enter and what it says when that fails, the keys of anyone but the owner, and the built-in terminal's check (on
+// Windows: its own child) in the same step as the write. The real terminals are in typedtext.test.mjs.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from './helpers.mjs';
 
 const box = sandbox('front');
 test.after(() => box.cleanup());
 const { FRONT_GONE, assertFront, groups, notInFront, parseStat } = await import('../../src/server/backends/front.mjs');
-const { Deck, toolText } = await import('../../src/server/deck.mjs');
+const { Deck } = await import('../../src/server/deck.mjs');
+const { toolText } = await import('../../src/server/typing.mjs');
+const { lockOf, removeLocked, whileTyping } = await import('../../src/typinglock.mjs');
+const { runsDir } = await import('../../src/paths.mjs');
 const { PtyBackend } = await import('../../src/server/backends/pty.mjs');
 
 test('a stat line: the name may hold spaces and parentheses', () => {
@@ -69,7 +75,14 @@ function rig(looks) {
   deck.find = async () => looks[Math.min(i++, looks.length - 1)];
   return { deck, backend, calls };
 }
-const run = (o = {}) => ({ runId: 'r1', pid: process.pid, ...o });
+const recordOf = (r) => path.join(runsDir(), `${r.runId}.json`);
+/** A run as find() gives it, with its record on disk (the typing lock reads it again). */
+const run = (o = {}) => {
+  const r = { runId: 'r1', pid: process.pid, ...o };
+  fs.mkdirSync(runsDir(), { recursive: true });
+  fs.writeFileSync(recordOf(r), JSON.stringify(r));
+  return r;
+};
 const term = { id: '%1', session: 's' };
 
 test('sendToTool: the launcher\'s group is what must be in front, for the text and again for the Enter', { skip: process.platform === 'win32' && 'POSIX groups' }, async () => {
@@ -97,15 +110,97 @@ test('sendToTool: refused before anything is typed', async () => {
   }
 });
 
-test('sendToTool: the tool ended between the text and the Enter: no Enter, and it says the text may stand there', { skip: process.platform === 'win32' && 'POSIX groups' }, async () => {
-  for (const second of [{ term, run: null }, { term, run: run({ runId: 'r2' }) }, { term: { id: '%2', session: 's' }, run: run() }]) {
-    const r = rig([{ term, run: run() }, second]);
-    await assert.rejects(r.deck.sendToTool('s', 'hello'), (e) => e.code === 'not_in_front' && /typed but not sent|no coding tool runs/.test(e.message));
-    assert.deepEqual(r.calls.map((c) => c[0]), ['text'], 'no Enter');
+test('sendToTool: the record went after the look, before the bytes: nothing typed', { skip: process.platform === 'win32' && 'POSIX groups' }, async () => {
+  const r = rig([{ term, run: run({ runId: 'gone' }) }]);
+  fs.rmSync(recordOf({ runId: 'gone' }));
+  await assert.rejects(r.deck.sendToTool('s', 'touch X'), (e) => e.status === 409 && e.code === 'not_in_front' && /no coding tool runs/.test(e.message));
+  // Another launcher wrote a record of the same name since (a pid that is not the one looked at).
+  const other = rig([{ term, run: run({ runId: 'r9' }) }]);
+  fs.writeFileSync(recordOf({ runId: 'r9' }), JSON.stringify({ runId: 'r9', pid: 1 }));
+  await assert.rejects(other.deck.sendToTool('s', 'touch X'), (e) => e.code === 'not_in_front');
+  assert.deepEqual([...r.calls, ...other.calls], [], 'nothing typed');
+});
+
+test('sendToTool: the text went, its Enter did not: "typed but not sent", a code of its own, whatever stopped the Enter', { skip: process.platform === 'win32' && 'POSIX groups' }, async () => {
+  const gone = { term, run: run({ runId: 'r3' }) };
+  const cases = [
+    ['no run any more', [{ term, run: run() }, { term, run: null }]],
+    ['another run', [{ term, run: run() }, { term, run: run({ runId: 'r2' }) }]],
+    ['another terminal', [{ term, run: run() }, { term: { id: '%2', session: 's' }, run: run() }]],
+    ['no session', [{ term, run: run() }, null]],
+    ['the record went in the pause', [gone, gone]],
+  ];
+  for (const [what, looks] of cases) {
+    const r = rig(looks);
+    if (what === 'the record went in the pause') r.backend.sendText = async (id, text, o) => { r.calls.push(['text', id, text, o]); fs.rmSync(recordOf(gone.run)); };
+    await assert.rejects(r.deck.sendToTool('s', 'hello'), (e) => {
+      assert.equal(e.status, 409, what);
+      assert.equal(e.code, 'typed_not_sent', what);
+      assert.deepEqual(e.details, { code: 'typed_not_sent' }, 'the route sends the code along');
+      assert.match(e.message, /^The text was typed into session "s" but not sent: its coding tool ended or changed before the Enter\. Look at the session before you send it again$/);
+      return true;
+    }, what);
+    assert.deepEqual(r.calls.map((c) => c[0]), ['text'], `${what}: no Enter`);
   }
   const r = rig([{ term, run: run() }]);
   r.backend.refuseKey = true;
-  await assert.rejects(r.deck.sendToTool('s', 'hello'), /typed but not sent/);
+  await assert.rejects(r.deck.sendToTool('s', 'hello'), (e) => e.code === 'typed_not_sent');
+  const broken = rig([{ term, run: run() }]);
+  broken.backend.sendKey = async () => { throw new Error('tmux went away'); };
+  await assert.rejects(broken.deck.sendToTool('s', 'hello'), (e) => e.code === 'typed_not_sent');
+});
+
+test('keyToTool: a key for anyone but the owner goes only to the coding tool in front, a digit as text', { skip: process.platform === 'win32' && 'POSIX groups' }, async () => {
+  const group = groups(process.pid).pgrp;
+  const r = rig([{ term, run: run() }]);
+  await r.deck.keyToTool('s', 'Enter');
+  await r.deck.keyToTool('s', '2');
+  assert.deepEqual(r.calls, [['key', '%1', 'Enter', { front: { group, pid: process.pid } }], ['text', '%1', '2', { front: { group, pid: process.pid } }]]);
+  for (const look of [null, { term, run: null }, { term, run: run({ pid: 2 ** 22 + 12345 }) }]) {
+    const n = rig([look]);
+    await assert.rejects(n.deck.keyToTool('s', 'Enter'), (e) => e.status === 409 && e.code === 'not_in_front' && /^Nothing was typed/.test(e.message));
+    assert.deepEqual(n.calls, []);
+  }
+});
+
+test('the typing lock: the launcher removes its record only after a message being typed is out', async () => {
+  const file = recordOf(run({ runId: 'lock1' }));
+  const order = [];
+  // A launcher (another process, as in life: its side waits without an event loop) ends its run while we type.
+  let child;
+  await whileTyping(file, async () => {
+    assert.ok(fs.existsSync(lockOf(file)), 'held while typing');
+    const script = path.join(box.root, 'end-run.mjs');
+    fs.writeFileSync(script, `import fs from 'node:fs';
+import { removeLocked } from ${JSON.stringify(new URL('../../src/typinglock.mjs', import.meta.url).href)};
+removeLocked(process.argv[2], (f) => { process.stdout.write(String(Date.now())); fs.rmSync(f); });
+`);
+    child = spawn(process.execPath, [script, file], { stdio: ['ignore', 'pipe', 'inherit'] });
+    await new Promise((r) => setTimeout(r, 400));
+    assert.ok(fs.existsSync(file), 'the record stands while the lock is held');
+    order.push(['typed', Date.now()]);
+  });
+  const removedAt = await new Promise((resolve) => {
+    let out = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.on('exit', () => resolve(Number(out)));
+  });
+  assert.ok(removedAt >= order[0][1], 'removed after the typing');
+  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.existsSync(lockOf(file)), false, 'no lock left');
+  // A lock left by a process that died is taken over after a while; a missing runs folder is "no record".
+  const stale = recordOf(run({ runId: 'lock2' }));
+  fs.writeFileSync(lockOf(stale), '');
+  const old = new Date(Date.now() - 60_000);
+  fs.utimesSync(lockOf(stale), old, old);
+  removeLocked(stale);
+  assert.equal(fs.existsSync(stale), false);
+  await assert.rejects(whileTyping(path.join(box.root, 'no-such-folder', 'x.json'), async () => {}), (e) => e.code === 'ENOENT');
+  // Someone holds it for longer than the wait: nothing is typed, 409.
+  const busy = recordOf(run({ runId: 'lock3' }));
+  fs.writeFileSync(lockOf(busy), '');
+  await assert.rejects(whileTyping(busy, async () => assert.fail('typed'), { wait: 100 }), (e) => e.status === 409 && /another message is being typed/.test(e.message));
+  fs.rmSync(lockOf(busy));
 });
 
 test('the owner\'s send is as before: no check, the text as written', async () => {

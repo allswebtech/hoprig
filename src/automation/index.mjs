@@ -18,8 +18,8 @@
 //   deck.start({ dir, profile, mode: 'new'|'resume', sessionId?, name? }) → the new session's name. `profile` is
 //                                         a profile name or "auto"; `name` is a wish (taken names get a suffix)
 //   deck.send(name, text)               type text for the session's coding tool and press Enter; only while the
-//                                       tool is in front (src/server/deck.mjs sendToTool), else an error with code
-//                                       "not_in_front" and nothing typed
+//                                       tool is in front (src/server/typing.mjs), else an error with code
+//                                       "not_in_front" (nothing typed) or "typed_not_sent" (no Enter followed)
 //   deck.kill(name)                     close the session
 //   backend                             { kind, capabilities: { persistent } }
 //   config()                            the current config.json (loadConfig)
@@ -108,13 +108,16 @@ export function createAutomation(ctx) {
   // for the next reply, so a broken terminal does not mean a failed send every tick.
   // `why`: nothing was typed because the coding tool was not in front (queue.mjs held): no try is counted, the message
   // waits for a coding tool that waits there again, and the row says why. Returns true when that reason is new.
-  const putBack = (session, item, { why = null } = {}) => {
+  // `pause`: the message was typed but not sent: the queue pauses until the owner has looked. It did not go, so no
+  // reply counts as answered by it: once he resumes, it goes at the next idle moment.
+  const putBack = (session, item, { why = null, pause = false } = {}) => {
     let fresh = false;
     store.update('queue', {}, (all) => {
       const q = all[session] || { paused: false, items: [], sentFor: null };
       if (why) {
         fresh = !(q.held && q.held.why === why);
-        return { ...all, [session]: { ...q, items: [item, ...(q.items || [])], held: { why, at: fresh ? now() : q.held.at } } };
+        const held = { why, at: fresh ? now() : q.held.at, ...(pause ? { paused: true } : {}) };
+        return { ...all, [session]: { ...q, items: [item, ...(q.items || [])], held, ...(pause ? { paused: true, sentFor: null } : {}) } };
       }
       const tries = (item.tries || 0) + 1;
       return { ...all, [session]: { ...q, items: [{ ...item, tries }, ...(q.items || [])], sentFor: tries < 3 ? null : q.sentFor } };
@@ -315,7 +318,7 @@ export function createAutomation(ctx) {
             if (!b.paused) soon();
             return { ...all, [session]: queue.pause(q, b.paused) };
           }
-          if (op === 'clear') return { ...all, [session]: { ...q, items: [] } };
+          if (op === 'clear') return { ...all, [session]: queue.unheld({ ...q, items: [] }) };
           throw new Error(`unknown queue operation "${op}"`);
         });
       }

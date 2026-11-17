@@ -90,8 +90,8 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
         }
         return r.name;
       },
-      // Typed for the coding tool only while it is in front, never a control byte (deck.mjs sendToTool): an error
-      // with code "not_in_front" otherwise, and nothing typed.
+      // Typed for the coding tool only while it is in front, never a control byte (src/server/typing.mjs): an error
+      // with code "not_in_front" when nothing was typed, "typed_not_sent" when the text went but its Enter did not.
       send: (name, text) => sctx.deck.sendToTool(name, text),
       kill: (name) => sctx.backend.kill(name),
       // A chat (src/chat): its feature opens it as the page does, with Settings' New-session defaults (as a terminal

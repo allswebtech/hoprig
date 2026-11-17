@@ -224,7 +224,7 @@ for (const kind of kinds) {
 
   test(`${kind}: text reaches a waiting coding tool whole, without control bytes; the owner's own typing is as before`, { timeout: 120_000 }, async (t) => {
     const d = await dashboard(t, kind);
-    const { toolText } = await import('../../src/server/deck.mjs');
+    const { toolText } = await import('../../src/server/typing.mjs');
     const s = await d.session('intact');
     const one = 'one\x03two\x1b[31mred\x7fdel\ttab \u009bcsi नमस्ते 🙂 $(touch TYPED_INTO_SHELL_x) \'"!';
     const many = 'first line\x15erase\r\nsecond\rthird\n\x1b[201~fourth';
@@ -239,6 +239,10 @@ for (const kind of kinds) {
     assert.equal(toolText(many), 'first line erase\nsecond\nthird\n [201~fourth');
     assert.equal(b, `\x1b[200~${toolText(many).replace(/\n/g, '\r')}\x1b[201~`, 'several lines: one paste, as the tool asked for, nothing else');
     for (const m of [a, b.slice(6, -6)]) assert.equal(/[\x00-\x0c\x0e-\x1f\x7f-\x9f]/.test(m), false, JSON.stringify(m));
+    // Keys of anyone but the owner (the assistant's send_to_session key): to the coding tool in front, as before.
+    for (const key of ['2', 'Enter']) assert.equal((await d.req(`/api/sessions/${s.name}/key`, { key })).status, 200, key);
+    await until('the menu answer arrived', () => got(s.dir).length >= 3);
+    assert.equal(got(s.dir)[2], '2');
 
     // The owner's own keys: the page's terminal sends every key as before, control keys included, to whatever runs
     // there; the message box (owner: true) types as before, also into a shell.
@@ -251,6 +255,20 @@ for (const kind of kinds) {
     live.write('echo not this\x15touch OWNER_KEYS\r');
     await until('the owner\'s own typing ran in the shell', () => fs.existsSync(path.join(s.dir, 'OWNER_BOX')) && fs.existsSync(path.join(s.dir, 'OWNER_KEYS')));
     live.close();
+
+    // Now the shell is in front. Up then Enter would run its last command again: anyone but the owner gets 409 for
+    // every key and nothing reaches the shell; the owner's own keys (the page's buttons) go as before.
+    fs.rmSync(path.join(s.dir, 'OWNER_KEYS'));
+    for (const key of ['Up', 'Enter', 'Tab', 'Escape', 'C-c', '1']) {
+      const k = await d.req(`/api/sessions/${s.name}/key`, { key });
+      assert.equal(k.status, 409, `${key}: ${k.text}`);
+      assert.equal(k.json.code, 'not_in_front');
+      assert.match(k.json.error, /^Nothing was typed: no coding tool runs in session/);
+    }
+    await wait(1000);
+    assert.equal(fs.existsSync(path.join(s.dir, 'OWNER_KEYS')), false, 'the shell ran its last command again from keys of someone else');
+    for (const key of ['Up', 'Enter']) assert.equal((await d.req(`/api/sessions/${s.name}/key`, { key, owner: true })).status, 200, key);
+    await until('the owner\'s own Up and Enter ran the last command again', () => fs.existsSync(path.join(s.dir, 'OWNER_KEYS')));
     assert.deepEqual(typedIntoShell(s.dir), []);
   });
 }

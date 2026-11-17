@@ -450,7 +450,7 @@ export class PtyBackend {
   }
 
   /**
-   * `front` (deck.mjs sendToTool): type only while that program holds the terminal in front, checked in the same step
+   * `front` (src/server/typing.mjs): type only while that program holds the terminal in front, checked in the same step
    * as the write (nothing runs in between). POSIX: the process group the terminal's device hands typed bytes to, read
    * from the system for this terminal's own child (its shell). Windows has no such group: there the terminal knows
    * its own child only, which is the launcher until it ends (then PowerShell), so `front.pid` must still be that child.

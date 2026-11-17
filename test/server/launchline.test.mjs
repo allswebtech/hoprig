@@ -48,6 +48,10 @@ const BIG = [
   'x'.repeat(20_000),
 ].join('\n');
 const FOLDER = 'x\u0015touch PWNED_DIR; #';
+// tmux reads its start folder (-c) as a format: "#(…)" would run a command, "#{…}" would be replaced by a value.
+// $HOME: the job would run with tmux's own folder as its working directory, so the file is named from HOME.
+const FORMATS = ['f#(touch $HOME.PWNED_FMT)x', 'p#{pane_id}q', 'a##b #'];
+const fmtRan = () => fs.existsSync(`${box.home}.PWNED_FMT`);
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function until(what, fn, ms = 15_000) {
@@ -86,14 +90,16 @@ const launchFiles = () => {
 };
 
 /** A backend of `kind` whose terminals run `shell`, recording every byte typed into them and every byte they show. */
-async function rig(kind, shell) {
+/** `c`: the shell runs under the C locale (LANG and LC_ALL "C"), where a line editor may read bytes above 0x7f as Meta keys. */
+async function rig(kind, shell, { c = false, launcher = [process.execPath, RECORD] } = {}) {
   const typed = [];
   const shown = [];
   let backend;
   if (kind === 'pty') {
     const { PtyBackend } = await import('../../src/server/backends/pty.mjs');
     ensureSpawnHelper();
-    const spawn = (file, args, opts) => {
+    const spawn = (file, args, opts0) => {
+      const opts = c ? { ...opts0, env: { ...opts0.env, LANG: 'C', LC_ALL: 'C', LC_CTYPE: 'C' } } : opts0;
       const p = ptySpawn(file, args, opts);
       const write = p.write.bind(p);
       p.write = (d) => {
@@ -106,10 +112,11 @@ async function rig(kind, shell) {
     backend = new PtyBackend({ shell: { file: shell, args: ['-l'] }, spawn });
   } else {
     const { TmuxBackend } = await import('../../src/server/backends/tmux.mjs');
-    const socket = `hoprig-f1-${process.pid}-${path.basename(shell)}`;
+    const socket = `hoprig-f1-${process.pid}-${path.basename(shell)}${c ? '-c' : ''}`;
     sockets.push(socket);
     const conf = path.join(box.root, `${socket}.conf`);
-    fs.writeFileSync(conf, `set -g default-shell ${shell}\n`);
+    // A pane's environment is the server's global one: the C locale there, for every pane.
+    fs.writeFileSync(conf, `set -g default-shell ${shell}\n${c ? 'set-environment -g LANG C\nset-environment -g LC_ALL C\nset-environment -g LC_CTYPE C\n' : ''}`);
     backend = new TmuxBackend({ socket, configFile: conf });
     const run = backend.run.bind(backend);
     backend.run = (args, o) => {
@@ -117,7 +124,7 @@ async function rig(kind, shell) {
       return run(args, o);
     };
   }
-  const deck = new Deck({ backend, config: () => ({ launcher: [process.execPath, RECORD] }), profiles: () => [] });
+  const deck = new Deck({ backend, config: () => ({ launcher }), profiles: () => [] });
   return { backend, deck, typed, shown };
 }
 
@@ -182,6 +189,47 @@ for (const kind of kinds) {
       await r.backend.kill(name);
     });
 
+    test(`${label}: folders named like tmux formats (#(…), #{…}, ##, a trailing #): started and moved there, nothing runs`, { skip: !POSIX && 'POSIX shells' }, async () => {
+      const r = await rig(kind, shell);
+      const parent = fs.mkdtempSync(path.join(box.root, 'w-'));
+      for (const folder of FORMATS) {
+        const dir = path.join(parent, folder);
+        fs.mkdirSync(dir);
+        const { rec, name, term } = await startAndRecord(r, { dir, prompt: 'go' });
+        assert.ok(Buffer.from(rec.cwd).equals(Buffer.from(fs.realpathSync(dir))), `${JSON.stringify(rec.cwd)} is the folder ${JSON.stringify(folder)}`);
+        // A move starts the launcher again in the same terminal (tmux: respawn-pane -c), in the run's folder.
+        const count = recorded().length;
+        const run = { runId: `fmt-${FORMATS.indexOf(folder)}`, sessionId: '0b6c3c9e-1f7e-4e4b-9b1a-3f6a1e2d4c5b', cwd: dir, carryArgs: [], tool: 'claude' };
+        await r.deck.move(term, run, 'other', { profile: { name: 'other', env: {} } });
+        const moved = await until('the moved launcher', () => recorded()[count]);
+        assert.ok(Buffer.from(moved.cwd).equals(Buffer.from(fs.realpathSync(dir))), `moved: ${JSON.stringify(moved.cwd)}`);
+        await r.backend.kill(name);
+      }
+      await wait(300); // a tmux job runs in the background
+      assert.equal(fmtRan(), false, 'tmux ran no command from a folder\'s name');
+      assert.deepEqual(pwned(), []);
+    });
+
+    test(`${label}: under the C locale, a launcher whose path has letters beyond ASCII starts, whole`, { skip: !POSIX && 'POSIX shells' }, async () => {
+      // The words that are typed may hold letters of any script (./backends/shell.mjs): the computer's own paths, such
+      // as a home folder named in the owner's language. The shell must pass them on as they are in every locale.
+      const where = path.join(box.root, `लॉन्चर-é-漢-${kind}-${path.basename(shell)}`);
+      fs.mkdirSync(where);
+      const link = path.join(where, 'récord.mjs');
+      fs.symlinkSync(RECORD, link);
+      const r = await rig(kind, shell, { c: true, launcher: [process.execPath, link] });
+      const dir = fs.mkdtempSync(path.join(box.root, 'w-'));
+      const { rec, name, line, term } = await startAndRecord(r, { dir, prompt: 'go' });
+      assert.ok(line.includes(link), `the path was typed: ${JSON.stringify(line)}`);
+      assert.deepEqual(rec.argv, ['sub', '--', 'go']);
+      // The shell really ran under the C locale.
+      await until('the shell is back', async () => (await r.backend.capture(term.id, 20)).includes('RECORDED'));
+      await r.backend.sendText(term.id, 'echo "LOCALE=$LC_ALL/$LANG"');
+      await r.backend.sendKey(term.id, 'Enter');
+      await until('the shell\'s locale', async () => (await r.backend.capture(term.id, 20)).includes('LOCALE=C/C'));
+      await r.backend.kill(name);
+    });
+
     test(`${label}: the same start line typed again starts nothing and says so; OpenCode's terminal and a move go the same way`, { skip: !POSIX && 'POSIX shells' }, async () => {
       const r = await rig(kind, shell);
       const dir = fs.mkdtempSync(path.join(box.root, 'w-'));
@@ -235,4 +283,14 @@ test('a folder whose name holds a line break is refused at the start with a plai
   const deck = new Deck({ backend, config: () => ({ launcher: [process.execPath, RECORD] }), profiles: () => [] });
   await assert.rejects(deck.start({ dir: '/w/a\nb', profile: { name: 'sub' }, mode: 'new' }), (e) => e.status === 400 && /its name holds a line break/.test(e.message));
   await assert.rejects(deck.shell('/w/a\rb'), (e) => e.status === 400);
+  // The same rule on every start: a terminal of the launcher's own (sign-ins, setup), a move or a restart in place.
+  const lb = (e) => e.status === 400 && /its name holds a line break/.test(e.message);
+  const strict = { ...backend, respawn: async () => assert.fail('nothing stopped') };
+  const d2 = new Deck({ backend: strict, config: () => ({ launcher: [process.execPath, RECORD] }), profiles: () => [] });
+  await assert.rejects(d2.runLauncher('login', '/w/a\nb', ['login']), lb);
+  await assert.rejects(d2.terminal({ name: 'x', dir: '/w/a\nb', argv: null }), lb);
+  await assert.rejects(d2.respawn('%1', '/w/a\r\nb', [process.execPath, RECORD, 'sub']), lb);
+  const run = { runId: 'r1', sessionId: '0b6c3c9e-1f7e-4e4b-9b1a-3f6a1e2d4c5b', cwd: '/w/a\nb', carryArgs: [], tool: 'claude' };
+  await assert.rejects(d2.move({ id: '%1', session: 's' }, run, 'other', { profile: { name: 'other', env: {} } }), lb);
+  assert.deepEqual(launchFiles(), [], 'no launch file was written');
 });

@@ -230,7 +230,7 @@ export class Watcher {
         this.pending.delete(name);
         if (!p.prompt) continue;
         try {
-          // Only while the coding tool is in front (deck.mjs sendToTool): a session whose tool has ended in the
+          // Only while the coding tool is in front (src/server/typing.mjs): a session whose tool has ended in the
           // meantime gets nothing, and the prompt is dropped, as for a session that is gone.
           await this.deck.sendToTool(name, p.prompt);
         } catch (e) {

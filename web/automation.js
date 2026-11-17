@@ -498,7 +498,7 @@ function queuePart(st, reload) {
           h('span.row-icon', icon('send')),
           h('span.row-main',
             h('span.row-title', name),
-            h('span.row-sub', `${q.count} ${q.count === 1 ? 'message waits' : 'messages wait'}${q.paused ? ' · paused: nothing is sent until you resume' : q.waits ? ` · ${q.waits}` : ' · sent one per finished reply'}`)),
+            h('span.row-sub', `${q.count} ${q.count === 1 ? 'message waits' : 'messages wait'}${q.paused ? ` · paused: ${q.waits || 'nothing is sent until you resume'}` : q.waits ? ` · ${q.waits}` : ' · sent one per finished reply'}`)),
           h('span.row-end', icon('chevronRight', { size: 18 })))))]
       : emptyState('send', 'Nothing is queued. A queue holds your next messages for a session and sends one each time a reply ends.'),
     h('p.hint.au-foot', 'Tap a session to see, reorder or remove what waits. A session\'s more button (…) has Queue as well.'),

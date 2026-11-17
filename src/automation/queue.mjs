@@ -10,9 +10,12 @@
 //            session's run changes, so a session reopened after a restart does not fire an old message.
 //   goneAt   when the session was last seen missing; the queue is dropped after a day.
 //   held     { why, at }: the next message could not be typed because the coding tool was not the program in front
-//            in its terminal (it had ended: deck.mjs sendToTool). The message stays first and goes the next time a
+//            in its terminal (it had ended: src/server/typing.mjs). The message stays first and goes the next time a
 //            coding tool waits in that session, even a new run of it (the owner meant it for the session); `why`
-//            is what the queue's row says meanwhile. Cleared once a message went.
+//            is what the queue's row says meanwhile. Cleared once a message went, or the queue is empty.
+//            { why, at, paused: true }: the last message was typed but its Enter did not follow (the tool ended or
+//            changed in between): the queue is paused with the message first, so it is not typed a second time
+//            unseen; the owner looks at the session and resumes (which clears it).
 //
 // Never sends into a session that needs an OK, is at a limit, or whose last reply ended in an error.
 import { idle, isCodingCard } from './cards.mjs';
@@ -74,9 +77,10 @@ export function decide({ cards, data, now }) {
 }
 
 /**
- * Carry out the actions. ctx: { deck.send(name, text), record(entry), putBack(session, item, { why }), sent(session) }.
+ * Carry out the actions. ctx: { deck.send(name, text), record(entry), putBack(session, item, { why, pause }), sent(session) }.
  * A message the coding tool was not in front for (error code "not_in_front": nothing was typed) is put back with the
- * reason, and recorded as not delivered once per reason, not at every tick it keeps waiting.
+ * reason, and recorded as not delivered once per reason, not at every tick it keeps waiting. One that was typed but not
+ * sent ("typed_not_sent") is put back and the queue paused.
  */
 export async function apply(actions, ctx) {
   for (const a of actions) {
@@ -98,6 +102,11 @@ export async function apply(actions, ctx) {
         if (first) ctx.record({ automation: 'queue', session: a.session, did: `not delivered: ${preview(a.item.text)}`, outcome: `waits in the queue: ${e.message}` });
         continue;
       }
+      if (e.code === 'typed_not_sent') {
+        ctx.putBack(a.session, a.item, { why: TYPED_WHY, pause: true });
+        ctx.record({ automation: 'queue', session: a.session, did: `typed but not sent: ${preview(a.item.text)}`, outcome: `the queue is paused: ${e.message}` });
+        continue;
+      }
       ctx.putBack(a.session, a.item);
       ctx.record({ automation: 'queue', session: a.session, did: `could not send: ${preview(a.item.text)}`, outcome: `failed: ${e.message}` });
     }
@@ -106,6 +115,8 @@ export async function apply(actions, ctx) {
 
 /** What the queue's row and sheet say while its next message waits for a coding tool in front (the activity row has the detail). */
 export const HELD_WHY = 'its coding tool is not the program in front in this session (it ended, or another program runs there): the next message goes when a coding tool waits there again';
+/** The same when the queue paused itself because its last message was typed but not sent. */
+export const TYPED_WHY = 'its last message was typed but not sent (its coding tool ended or changed before the Enter): look at the session, then resume';
 
 export const preview = (t) => {
   const one = String(t).replace(/\s+/g, ' ').trim();
@@ -129,8 +140,14 @@ export function remove(q0, id) {
   const i = q.items.findIndex((x) => x.id === id);
   if (i < 0) throw notFound();
   q.items.splice(i, 1);
-  return q;
+  return q.items.length ? q : unheld(q);
 }
+
+/**
+ * The queue with nothing held: no reason to show over an empty list, and a pause the queue made itself (held.paused)
+ * ends with its reason. A pause of the owner's own stays.
+ */
+export const unheld = (q) => ({ ...q, held: null, paused: q.held && q.held.paused ? false : !!q.paused });
 
 /** Move message `id` to position `to` (0 = next to send). */
 export function move(q0, id, to) {
@@ -147,6 +164,7 @@ export function pause(q0, paused) {
   const q = { ...empty(), ...q0, items: [...((q0 && q0.items) || [])] };
   q.paused = paused;
   if (!paused) q.kick = true;
+  if (!paused && q.held && q.held.paused) q.held = null; // the owner looked and resumes: the reason it paused is settled
   return q;
 }
 

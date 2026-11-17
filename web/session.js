@@ -428,7 +428,7 @@ export function openSession(app, name) {
 
   async function stop() {
     try {
-      await api(`${base}/key`, { key: 'Escape' });
+      await api(`${base}/key`, { key: 'Escape', owner: true }); // the owner's own stop button (server.mjs)
       toast(`Asked ${toolName()} to stop`);
     } catch (e) {
       toast(e.message, { kind: 'error' });

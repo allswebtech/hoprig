@@ -50,7 +50,7 @@ export const SAFE_SLASH = ['/compact', '/context', '/cost', '/status', '/usage',
 
 /**
  * Why typing `text` into a Claude Code session needs a card, or null. Judged as it will be typed: the dashboard turns
- * every run of control characters into one space first (src/server/deck.mjs toolText), so "\x15!cmd" is judged as
+ * every run of control characters into one space first (src/server/typing.mjs toolText), so "\x15!cmd" is judged as
  * " !cmd", which starts with "!" once the spaces are trimmed.
  */
 export function typedTextRisk(text) {

@@ -5,9 +5,9 @@ import path from 'node:path';
 import { moveArgs } from '../launch.mjs';
 import { binFile, tilde } from '../paths.mjs';
 import { dropMark, newMark, sweepMarks } from './marks.mjs';
-import { LAUNCH_FLAG, dropLaunch, launchDir, writeLaunch } from '../launchfile.mjs';
-import { assertTypable } from './backends/shell.mjs';
-import { FRONT_GONE, groups, notInFront } from './backends/front.mjs';
+import { dropLaunch } from '../launchfile.mjs';
+import { assertFolder, startCommand } from './startline.mjs';
+import { ENTER_PAUSE_MS, keyToTool, sendToTool } from './typing.mjs';
 import { assertServes, publicProfile, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { codexScreenQuestion } from '../codetools/codex.mjs';
@@ -36,31 +36,6 @@ import { safeSessionName, uniqueName } from './validate.mjs';
  * the defaults the launcher adds, so they win, and they move with the session like any other flag.
  */
 export const promptArgs = (prompt) => (prompt ? ['--', String(prompt)] : []);
-
-const ENTER_PAUSE_MS = 250;
-
-/**
- * Text typed for a coding tool by someone other than the owner (Deck#sendToTool), as it is typed: every run of control
- * characters becomes one space, so none of it acts on the tool's screen (Ctrl-C interrupts, Escape starts a sequence,
- * Tab completes). C0 (below 0x20), DEL and C1 (0x80 to 0x9f: a UTF-8 terminal may read U+009B as the start of a
- * sequence). Line breaks stay: several lines go as one paste, as the tool's prompt takes them today (the backends'
- * sendText); CR LF and a lone CR are line breaks too. A replacement and not a file: the text goes into a running
- * program's prompt, which reads only what is typed; the foreground rule keeps it out of a shell.
- */
-export const toolText = (text) => String(text).replace(/\r\n?/g, '\n').replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]+/g, ' ');
-
-const TYPED_NOT_SENT = 'The text was typed but not sent: the coding tool ended right after. Look at the session: the text may still stand on its line';
-
-/**
- * A terminal session cannot live in a folder whose name holds a line break: tmux lists its terminals one per line, and
- * the terminal would be lost from the list. Every other character of a folder's name is carried whole (it is never
- * typed: src/launchfile.mjs). 400, so the page shows the sentence and the assistant gets it as a tool error.
- */
-export function assertFolder(dir) {
-  if (/[\r\n]/.test(String(dir))) {
-    throw Object.assign(new Error(`A terminal session cannot start in this folder: its name holds a line break (${JSON.stringify(String(dir))}). Rename the folder, then start the session again`), { status: 400 });
-  }
-}
 
 export function launchArgv(launcher, { tool = 'claude', profile, mode = 'new', sessionId = null, carryArgs = [], prompt = null, flags = [], fresh = false }) {
   if (tool !== 'claude') return toolArgv(launcher, { tool, profile, mode, sessionId, carryArgs, prompt, flags, fresh });
@@ -374,7 +349,6 @@ export class Deck {
    * coding tool on, noted for the moment before its launcher's record (noteLaunch). Returns the session name.
    */
   async create({ base, dir, argv, conversation = null, tool = 'claude' }) {
-    assertFolder(dir);
     const at = Date.now(); // the clock of the launcher's record (startedAt)
     const mark = conversation ? newMark() : null;
     let name;
@@ -388,25 +362,10 @@ export class Deck {
     return name;
   }
 
-  /**
-   * What a terminal runs for `argv` in `dir`, as { argv, file }: the launcher's own command with a launch file in place
-   * of its words (src/launchfile.mjs), so nothing of them, nor the folder, is typed into a shell. Refused plainly
-   * (400) before anything is written when the launcher's own command or the state folder cannot be typed. A command
-   * that is not the launcher (a plain program of ours) is typed only when each of its words may be (./backends/shell.mjs).
-   */
+  /** What a terminal runs for `argv` in `dir` (./startline.mjs): a folder of one line, the launcher's words in a launch file. */
   #command(dir, argv, mark = null) {
-    if (!argv) return { argv: null, file: null };
-    const platform = this.backend.platform || process.platform;
-    const own = this.launcher();
-    const ours = argv.length >= own.length && own.every((w, i) => argv[i] === w);
-    const extra = mark ? [mark] : [];
-    if (!ours) {
-      assertTypable([...argv, ...extra], platform);
-      return { argv, file: null };
-    }
-    assertTypable([...own, LAUNCH_FLAG, launchDir(), ...extra], platform);
-    const file = writeLaunch({ cwd: dir, argv: argv.slice(own.length) });
-    return { argv: [...own, LAUNCH_FLAG, file], file };
+    assertFolder(dir);
+    return startCommand({ launcher: this.launcher(), dir, argv, mark, platform: this.backend.platform || process.platform });
   }
 
   /**
@@ -461,44 +420,17 @@ export class Deck {
   }
 
   /**
-   * Type a message for the coding tool of session `name` and submit it, for someone other than the owner's own keys: the
-   * queue, the continue prompt after a move or a restart, the assistant, another computer through the send route. The
-   * text is meant for the tool's prompt, so it is typed only while the tool is the terminal's foreground program
-   * (./backends/front.mjs): the run record is read again now, and the terminal checks right before the text and again
-   * right before the Enter that the launcher's process group still holds it in front. Its pid is the launcher's (the
-   * tool runs as its child, in its group). Otherwise nothing is typed and a 409 error says why in plain words: once the
-   * tool has ended, the terminal's shell would read the text and its line end and run it. On Windows the built-in
-   * terminal knows only whether its own child is still the launcher; tmux there does not exist.
-   *
-   * What is left between the check and the bytes is the moment a tool takes to end and its launcher to remove its run
-   * record (a few milliseconds): text typed exactly then waits in the terminal for whoever reads next. The Enter is
-   * checked again for that reason: a text that lands there is not run.
-   *
-   * The text never carries a control byte (toolText). Throws 409 (code "not_in_front") when nothing was typed.
+   * Type a message for the coding tool of session `name` and submit it, for someone other than the owner's own keys
+   * (the queue, the continue prompt, the assistant, another computer): only while the tool is in front, never a control
+   * byte (./typing.mjs). 409 "not_in_front" when nothing was typed, "typed_not_sent" when the Enter did not follow.
    */
-  async sendToTool(name, text, { enter = true } = {}) {
-    const clean = toolText(text);
-    const front = async () => {
-      const found = await this.find(name);
-      if (!found) throw notInFront(`Nothing was typed: there is no session "${name}" any more`);
-      if (!found.run) throw notInFront(`Nothing was typed: no coding tool runs in session "${name}" now (its terminal is at its own shell). Start the coding tool there again, then send it again`);
-      const g = groups(found.run.pid);
-      // POSIX: the launcher's process group must be the one in front. Windows: no groups, the terminal's own child.
-      if (!g && process.platform !== 'win32') throw notInFront(FRONT_GONE);
-      return { term: found.term, run: found.run, front: g ? { group: g.pgrp, pid: found.run.pid } : { pid: found.run.pid } };
-    };
-    const first = await front();
-    await this.backend.sendText(first.term.id, clean, { front: first.front });
-    if (!enter) return;
-    await new Promise((r) => setTimeout(r, ENTER_PAUSE_MS));
-    const again = await front();
-    if (again.term.id !== first.term.id || again.run.runId !== first.run.runId) throw notInFront(TYPED_NOT_SENT);
-    try {
-      await this.backend.sendKey(again.term.id, 'Enter', { front: again.front });
-    } catch (e) {
-      if (e.code === 'not_in_front') throw notInFront(TYPED_NOT_SENT);
-      throw e;
-    }
+  sendToTool(name, text, o) {
+    return sendToTool(this, name, text, o);
+  }
+
+  /** One key for the coding tool of session `name`, for anyone but the owner: the same rule (./typing.mjs). */
+  keyToTool(name, key) {
+    return keyToTool(this, name, key);
   }
 
   /**

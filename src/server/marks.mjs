@@ -33,7 +33,8 @@ export function sweepMarks(now = Date.now()) {
     return;
   }
   for (const f of names) {
-    if (!f.startsWith(PREFIX)) continue;
+    // And typing locks (src/typinglock.mjs) a dashboard left when it stopped in the middle of a message.
+    if (!f.startsWith(PREFIX) && !f.endsWith('.typing')) continue;
     const file = path.join(runsDir(), f);
     try {
       if (now - fs.statSync(file).mtimeMs > LEFT_MS) fs.rmSync(file, { force: true });
