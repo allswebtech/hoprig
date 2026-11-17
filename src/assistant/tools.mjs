@@ -30,9 +30,11 @@ import { send_to_chat, start_chat } from './chats.mjs';
 import { change_setting, run_command, sessionBefore, set_auto_mode, stop_session, switch_account } from './owner-tools.mjs';
 import { codingToolsView } from './codingtools.mjs';
 import { list_projects, manage_automation, manage_computer, manage_project, manage_skills, proceduresTool, read_brain } from './domains.mjs';
+import { open_screen } from './screens.mjs';
 
 export { KEYS, SAFE_SLASH, ToolError, statusOf, toolError, typedTextRisk } from './toolkit.mjs';
 export { SETTINGS } from './owner-tools.mjs';
+export { SCREENS } from './screens.mjs';
 
 /**
  * OPS: the dashboard's operations (ops.mjs runs each one through the page's own route; tests use a fake). Every
@@ -366,27 +368,6 @@ const notify_owner = tool({
   async run(ops, a) {
     const r = await ops.notify({ title: a.session ? `${ASSISTANT_NAME}: ${a.session}` : ASSISTANT_NAME, message: a.message, session: a.session || null, computer: comp(a) });
     return { summary: r && r.sent === false ? 'The note is in the dashboard; no push channel is set up.' : 'The owner was notified.', data: { sent: !r || r.sent !== false } };
-  },
-});
-
-// The page addresses she can open (web/app.js PAGE_ADDRESSES; a test keeps the two lists in step). Pages that
-// belong to one computer open for that computer ("#/m/<computer>/…") when a computer is given.
-export const SCREENS = [
-  'new', 'code', 'workspace', 'new-project', 'get-project', 'providers', 'computers', 'computers/add', 'computer', 'computer/setup', 'computer/advanced',
-  'automations', 'automations/queue', 'automations/rules', 'automations/activity', 'skills', 'skills/installed', 'skills/suggested',
-  'skills/find', 'brain', 'tia', 'tia/jobs', 'tia/activity', 'settings', 'settings/new-sessions', 'settings/workspace', 'settings/notifications',
-  'settings/appearance', 'settings/security', 'settings/public-link', 'settings/tia', 'settings/editor', 'settings/addons', 'settings/codingtools', 'settings/updates', 'settings/about',
-  'desktop', 'desktop/sessions', 'desktop/terminal', 'desktop/files', 'desktop/editor', 'desktop/tasks', 'desktop/services', 'desktop/logs',
-];
-const PER_COMPUTER = /^(computer|workspace|code|new-project|get-project|automations|skills|providers|desktop)(\/|$)/;
-const open_screen = tool({
-  name: 'open_screen',
-  level: 'L1',
-  description: `Show the owner a button to a dashboard page. Use it for what only he may do: add a provider, sign it in or out, sign in with another Claude account at a usage limit, or change its key (providers), remove a computer or add one by pairing code (computers, computer/advanced), the password, the network and sign-in devices (settings/security), notifications (settings/notifications), how new sessions are allowed to act (settings/new-sessions), whether updates run by themselves (settings/updates), another coding tool's sign-in (settings/codingtools), ${ASSISTANT_NAME}'s own settings (settings/tia) — and to show him any page: a new session (new), the editor (code), the desktop and its apps (desktop/…).`,
-  input: obj({ screen: str({ enum: SCREENS }), computer }, { required: ['screen'] }),
-  async run(ops, a) {
-    const link = a.computer && a.computer !== LOCAL && PER_COMPUTER.test(a.screen) ? `#/m/${a.computer}/${a.screen}` : `#/${a.screen}`;
-    return { summary: `A button to ${a.screen.replace(/[/-]/g, ' ')} is shown to the owner.`, data: { screen: a.screen, link, computer: comp(a) }, ui: { open: link } };
   },
 });
 
