@@ -519,12 +519,16 @@ test('a .zip with a password is refused in plain words at once; unpacking never 
 
 test('tar and unzip run without the dashboard\'s terminal: in a session of their own', { skip: (process.platform === 'win32' || !which('ps')) && 'no sessions here' }, async () => {
   const { run } = await import('../../src/server/platform/common.mjs');
-  // The shell's own process id and its session's id: the same only when it leads a session of its own.
-  const ids = async (opts) => (await run('sh', ['-c', 'echo $$ $(ps -o sid= -p $$)'], opts)).stdout.trim().split(/\s+/).map(Number);
-  const [pid, sid] = await ids({ noTerminal: true });
-  assert.ok(pid > 0 && pid === sid, `its own session: ${pid} ${sid}`);
-  const [pid2, sid2] = await ids({});
-  assert.ok(pid2 > 0 && pid2 !== sid2, 'a plain run stays in the dashboard\'s');
+  // The shell's own process id, its process group and ps's state letters: "s" is the leader of a session (procps and
+  // the BSD ps of macOS alike; a session's id has no keyword that both know: "sid" is procps's own).
+  const ids = async (opts) => {
+    const [pid, pgid, state = ''] = (await run('sh', ['-c', 'echo $$ $(ps -o pgid=,stat= -p $$)'], opts)).stdout.trim().split(/\s+/);
+    return { pid: Number(pid), pgid: Number(pgid), leads: state.includes('s'), state };
+  };
+  const own = await ids({ noTerminal: true });
+  assert.ok(own.pid > 0 && own.pgid === own.pid && own.leads, `its own session: ${JSON.stringify(own)}`);
+  const plain = await ids({});
+  assert.ok(plain.pid > 0 && plain.pgid !== plain.pid && !plain.leads, `a plain run stays in the dashboard's: ${JSON.stringify(plain)}`);
   const src = fs.readFileSync(new URL('../../src/editor/archive.mjs', import.meta.url), 'utf8');
   assert.equal((src.match(/noTerminal: true/g) || []).length, 2, 'tar and unzip both');
   assert.match(src, /'-P', ''/, 'unzip is given an empty password, so it never asks');
