@@ -164,7 +164,8 @@ test('processes: the dashboard, the processes above it and the sessions\' tmux s
     c.once('spawn', () => resolve(c));
   });
   try {
-    const { call } = harness({ run: undefined, readFile: undefined, kill, sessionHosts: async () => [host.pid] }); // the real ps and /proc: read only
+    // This system's own part with its real programs (ps, and /proc where there is one): read only.
+    const { call } = harness({ platform: process.platform, run: undefined, readFile: undefined, kill, sessionHosts: async () => [host.pid] });
     const list = await call('GET', '/api/system/processes');
     const me = list.processes.find((p) => p.pid === process.pid);
     assert.equal(me.guarded, true, 'the dashboard itself');
