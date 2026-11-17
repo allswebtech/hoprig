@@ -255,7 +255,9 @@ const start_session = tool({
     if (a.goal) j = ctx.jobs.create({ conversation: ctx.conversation, goal: a.goal });
     else if (a.job) j = ctx.jobs.get(a.job);
     // Hers is this one terminal, not its name (the owner's next session in that folder gets the name once it ends):
-    // the mark carries the terminal's `created` from its card.
+    // the mark carries the terminal's `created` from its card. A terminal on an earlier conversation (continue, resume)
+    // is never hers, as a chat on one is not (chats.mjs): its history holds the owner's words, so its OKs stay his.
+    const continued = (a.mode || 'new') !== 'new';
     let created = null;
     try {
       const made = (await ops.listSessions({ computer: comp(a) })).find((c) => c.name === r.name && (c.computer || LOCAL) === comp(a) && c.kind !== 'chat');
@@ -263,15 +265,15 @@ const start_session = tool({
     } catch {
       /* not known: the session is not marked hers */
     }
-    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: r.name, startedByTia: true, created });
-    else ctx.jobs.markStarted(comp(a), r.name, created);
+    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: r.name, startedByTia: !continued, created });
+    else if (!continued) ctx.jobs.markStarted(comp(a), r.name, created);
     return {
-      summary: `Started session ${r.name}${a.coding_tool && a.coding_tool !== 'claude' ? ` (${toolName(a.coding_tool)})` : ''} on ${comp(a)} under ${a.account}${providerNote(ctx)}${a.message ? ' with the first message' : ''}.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
+      summary: `Started session ${r.name}${a.coding_tool && a.coding_tool !== 'claude' ? ` (${toolName(a.coding_tool)})` : ''} on ${comp(a)} under ${a.account}${providerNote(ctx)}${continued ? ', continuing an earlier conversation' : ''}${a.message ? ' with the first message' : ''}.${continued ? ' It continues an earlier conversation, so it is not yours: every OK it asks for is the owner\'s, and you cannot answer it.' : ''}${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
       data: { session: r.name, computer: comp(a), coding_tool: a.coding_tool || 'claude', account: a.account, account_label: ctx.accountLabel || null, account_why: ctx.accountWhy || null, job: j ? j.id : null },
       shown: { session: [sessKey(comp(a), r.name)], ...(j ? { job: [j.id] } : {}) },
     };
   },
-  cardLines: (a, b) => [`Start ${aTool(a.coding_tool || 'claude')} session in a terminal in ${a.folder} on ${comp(a)} under ${a.account}${b.kind === 'api' ? ' (paid API provider)' : ''}`, ...(a.message ? [`First message: ${a.message}`] : []), ...(a.goal ? [`Goal: ${a.goal}`] : [])],
+  cardLines: (a, b) => [`Start ${aTool(a.coding_tool || 'claude')} session in a terminal in ${a.folder} on ${comp(a)} under ${a.account}${b.kind === 'api' ? ' (paid API provider)' : ''}`, ...(a.conversation ? [`Continuing conversation ${a.conversation}`] : a.mode === 'continue' ? ['Continuing the folder\'s newest conversation'] : []), ...(a.message ? [`First message: ${a.message}`] : []), ...(a.goal ? [`Goal: ${a.goal}`] : [])],
   before: async (ops, a, ctx) => ({ account: a.account, kind: ctx.accountKind || null, tool: a.coding_tool || 'claude' }),
 });
 
