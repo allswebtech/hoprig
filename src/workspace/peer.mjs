@@ -13,6 +13,7 @@
 import path from 'node:path';
 import { getMachine } from '../machines/store.mjs';
 import { runHoprig } from '../machines/ssh.mjs';
+import { gitRead } from '../gitread.mjs';
 import { git, repoInfo } from '../pcsetup/workspace.mjs';
 import { capture } from '../setup/system.mjs';
 import { isGitRepo, projectsIn, workspaceDir } from './layout.mjs';
@@ -62,7 +63,7 @@ export async function pullFrom(dir, url, peer, run = capture, { dryRun = false }
     const why = (f.stderr || '').trim().split('\n').pop() || 'git failed';
     return { did, todo: [{ why: /couldn't find remote ref/i.test(why) ? `${peer} has no branch ${s.branch} there` : `could not fetch from ${peer}: ${why}`, command: '' }], notes };
   }
-  const c = await git(dir, ['rev-list', '--left-right', '--count', `HEAD...${ref}`], run);
+  const c = await gitRead(dir, ['rev-list', '--left-right', '--count', `HEAD...${ref}`], { run });
   const [ahead, behind] = c.stdout.trim().split(/\s+/).map(Number);
   if (ahead && behind) todo.push({ why: `${s.branch} here and on ${peer} have both moved (${ahead} here, ${behind} there)`, command: `git -C "${dir}" merge ${ref}   (or: git -C "${dir}" rebase ${ref})` });
   else if (behind && dryRun) did.push(`would get ${behind} from ${peer}${s.changes ? `, unless they touch your ${s.changes} uncommitted change${s.changes > 1 ? 's' : ''}` : ''}`);

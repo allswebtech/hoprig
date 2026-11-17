@@ -45,7 +45,8 @@ of the page is one file registered through `web/registry.js`.
 - **The trust rules are code, not hope.** Input from a browser, a terminal, a file name, another computer or
   a downloaded skill is validated and treated as data. Every argument to another program is an array, never
   a shell string built from input. The router never attaches a subscription's token to a request: only
-  Claude Code itself uses a subscription sign-in.
+  Claude Code itself uses a subscription sign-in. Every read of a folder's git state goes through
+  `src/gitread.mjs`, so a repository's own settings never start a program for it.
 - **Fewer steps.** What is not needed goes. A setting has one plain sentence under it. Defaults are safe:
   anything that costs money, runs commands or opens the dashboard to a network is off until chosen.
 - **Tia's tools** follow the checklist in `src/assistant/tools.mjs` (level, strict schema, server-side

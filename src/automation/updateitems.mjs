@@ -20,6 +20,7 @@
 // back with a new address).
 import { TOOLS, findTool, turnOn } from '../codetools/index.mjs';
 import { readyToReplace, toolRuns } from '../codetools/servers.mjs';
+import { gitRead } from '../gitread.mjs';
 import { capture, compareVersions, npmMajor, showCommand, stream } from '../setup/system.mjs';
 import { busy, toolOf } from './cards.mjs';
 
@@ -36,14 +37,15 @@ const plural = (n, one) => `${n} ${one} session${n === 1 ? '' : 's'}`;
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
 
 export async function gitFacts(root, run = capture) {
-  const git = (...a) => run(['git', '-C', root, ...a], { timeout: 20_000, env: GIT_ENV });
+  // The checkout's own state through the reader (gitread.mjs); only ls-remote talks to the server.
+  const git = (...a) => gitRead(root, a, { run, timeout: 20_000 });
   const head = (await git('rev-parse', 'HEAD')).stdout.trim() || null;
   const up = await git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}');
   const upstream = up.ok ? up.stdout.trim() : '';
   if (!upstream || !upstream.includes('/')) return { head, upstream: null, remoteHead: null, newer: null };
   const [remote, ...rest] = upstream.split('/');
   const branch = rest.join('/');
-  const ls = await git('ls-remote', '--heads', remote, `refs/heads/${branch}`);
+  const ls = await run(['git', '-C', root, 'ls-remote', '--heads', remote, `refs/heads/${branch}`], { timeout: 20_000, env: GIT_ENV });
   const remoteHead = ls.ok ? (/^([0-9a-f]{40,64})\s/m.exec(ls.stdout) || [])[1] || null : null;
   if (!remoteHead) return { head, upstream, remoteHead: null, newer: null, error: 'could not reach the git server' };
   if (remoteHead === head) return { head, upstream, remoteHead, newer: false };
@@ -89,7 +91,7 @@ export function hoprigItem(deps = {}) {
       const kind = installKind(root);
       if (kind === 'git') {
         // A pull into a checkout with work in it is the developer's to do, not a button's.
-        const st = await run(['git', '-C', root, 'status', '--porcelain', '--untracked-files=no'], { timeout: 20_000, env: GIT_ENV });
+        const st = await gitRead(root, ['status', '--porcelain', '--untracked-files=no'], { run, timeout: 20_000 });
         if (!st.ok || st.stdout.trim()) {
           const why = st.ok ? 'The checkout has changes that are not committed: update it with git yourself.' : 'git could not read the checkout.';
           onLine(why);

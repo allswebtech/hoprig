@@ -206,9 +206,13 @@ test('Hoprig from a git checkout: read with ls-remote only, never updated by its
   const calls = [];
   const HEAD = 'a'.repeat(40);
   const NEW = 'b'.repeat(40);
+  // The command after "-C <folder>" (a read through the reader has its fixed settings before it, and a status its
+  // --ignore-submodules); the reader's list of the folder's own settings answers "none".
   const run = (answers) => async (argv) => {
-    calls.push(argv.slice(3).join(' '));
-    const k = Object.keys(answers).find((p) => argv.slice(3).join(' ').startsWith(p));
+    const cmd = argv.slice(argv.indexOf('-C') + 2).filter((a) => a !== '--ignore-submodules=dirty').join(' ');
+    if (cmd.startsWith('config --includes')) return { ok: true, code: 0, stdout: '' };
+    calls.push(cmd);
+    const k = Object.keys(answers).find((p) => cmd.startsWith(p));
     return k ? answers[k] : { ok: false, code: 1, stdout: '' };
   };
   const base = { 'rev-parse HEAD': { ok: true, code: 0, stdout: `${HEAD}\n` }, 'rev-parse --abbrev-ref': { ok: true, code: 0, stdout: 'origin/main\n' } };
