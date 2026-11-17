@@ -16,7 +16,7 @@ import { decideLevel } from '../../src/assistant/policy.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
 import { byName, TOOLS } from '../../src/assistant/tools.mjs';
 import { sandbox } from '../server/helpers.mjs';
-import { FakeOps, baseState } from './fake-dashboard.mjs';
+import { FakeOps, baseState, projectWork } from './fake-dashboard.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BUILTIN = path.join(HERE, '..', '..', 'skills');
@@ -28,9 +28,10 @@ const chatCard = (o = {}) => ({
   note: 'Claude wants to change: footer.css', ask: { request: 'req-1', type: 'permission', tool: 'Edit', known: true, subject: '/home/owner/projects/web/footer.css', judged: { file_path: '/home/owner/projects/web/footer.css' }, owner: false, canAlways: true }, limit: null, sessionId: ID, statusAt: Date.now(), ...o,
 });
 
-// Tia allows herself nothing in a system folder (/tmp among them): the project of a real-dashboard test lies in /var/tmp.
+// Tia allows herself nothing in a system folder (/tmp among them, and /private on macOS, where /var/tmp leads): the
+// project of a real-dashboard test lies where her rules count a project, by its real path (the chat's folder is one).
 function workFolder(t) {
-  const work = fs.mkdtempSync(path.join('/var/tmp', 'hoprig-work-'));
+  const work = projectWork('hoprig-work-');
   t.after(() => fs.rmSync(work, { recursive: true, force: true }));
   return work;
 }

@@ -14,7 +14,7 @@ import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { JobStore, planWakes } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
 import { sandbox } from '../server/helpers.mjs';
-import { FakeOps, baseState } from './fake-dashboard.mjs';
+import { FakeOps, baseState, projectWork } from './fake-dashboard.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(HERE, '..', 'chat', 'fixtures', 'fake-claude.mjs');
@@ -147,8 +147,9 @@ const until = async (what, fn, ms = 20_000) => {
 /** A test dashboard of its own (sandbox folders, built-in terminals, the stand-ins), Tia on at `level`. */
 async function dashboard(t, name, { level = 'handsoff', idleMs = 30_000 } = {}) {
   const box = sandbox(name);
-  // Tia allows herself nothing in a system folder (/tmp among them), so the project lies where a project may.
-  const work = fs.mkdtempSync(path.join('/var/tmp', `hoprig-${name}-`));
+  // Tia allows herself nothing in a system folder (/tmp among them), so the project lies where a project may, by its
+  // real path, as the chat's folder is.
+  const work = projectWork(`hoprig-${name}-`);
   const proj = path.join(work, 'proj');
   fs.mkdirSync(proj, { recursive: true });
   const { saveConfig } = await import('../../src/config.mjs');

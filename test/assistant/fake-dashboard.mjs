@@ -2,7 +2,10 @@
 // (src/assistant/tools.mjs), every call recorded, hosted with the real core.mjs over the same HTTP route the real
 // dashboard will serve (POST /api/assistant/call, bearer token). Nothing here touches tmux, files or the network
 // beyond 127.0.0.1.
+import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
+import { allowsHerself } from '../../src/assistant/allowlist.mjs';
 import { AuditLog } from '../../src/assistant/audit.mjs';
 import { CardStore } from '../../src/assistant/cards.mjs';
 import { createAssistantCore } from '../../src/assistant/core.mjs';
@@ -522,4 +525,23 @@ export async function startFakeDashboard({ ops = new FakeOps(), token = 'test-to
       server.close(() => r());
     }),
   };
+}
+
+/**
+ * A new folder, by its real path, where Tia's rules count a project: a chat's folder is a real path, and a system
+ * folder is never a project's. /var/tmp on Linux; on macOS /var/tmp is /private/var/tmp (a system folder), so
+ * /Users/Shared, there on every Mac and open to every account. The caller removes it.
+ */
+export function projectWork(prefix, places = ['/var/tmp', '/Users/Shared']) {
+  for (const at of places) {
+    let real;
+    try {
+      real = fs.realpathSync(at);
+      fs.accessSync(real, fs.constants.W_OK);
+    } catch {
+      continue;
+    }
+    if (allowsHerself('Bash', { command: 'ls' }, path.join(real, 'x')).ok) return fs.realpathSync(fs.mkdtempSync(path.join(real, prefix)));
+  }
+  throw new Error(`no folder of ${places.join(', ')} is one Tia's rules count as a project's here`);
 }
