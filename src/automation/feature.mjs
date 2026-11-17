@@ -154,7 +154,8 @@ const asBad = async (fn) => {
 
 /**
  * The feature. `opts.tick` false: no timer (tests drive tick() by hand). `opts.ctx`: a ready automation ctx
- * instead of the server adapter, `opts.now`: a clock (tests), `opts.updateItems`: stand-ins for Settings → Updates (demo, tests).
+ * instead of the server adapter, `opts.now`: a clock (tests), `opts.updateItems`: stand-ins for Settings → Updates (demo, tests),
+ * `opts.log`: where the automations' lines go (default: the server's output; the demo keeps them in its log file).
  */
 export function automationFeature(sctx, opts = {}) {
   let auto = null;
@@ -219,7 +220,7 @@ export function automationFeature(sctx, opts = {}) {
       return auto;
     },
     start() {
-      auto = createAutomation(opts.ctx || { ...serverAdapter(sctx, { chat: opts.chat }), ...(opts.now ? { now: opts.now } : {}), ...(opts.updateItems ? { updateItems: opts.updateItems } : {}) });
+      auto = createAutomation(opts.ctx || { ...serverAdapter(sctx, { chat: opts.chat, ...(opts.log ? { log: opts.log } : {}) }), ...(opts.now ? { now: opts.now } : {}), ...(opts.updateItems ? { updateItems: opts.updateItems } : {}) });
       if (opts.tick !== false) auto.start();
       return auto;
     },
