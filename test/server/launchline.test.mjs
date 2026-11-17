@@ -245,8 +245,9 @@ for (const kind of kinds) {
     });
 
     test(`${label}: under the C locale, a launcher whose path has letters beyond ASCII starts, whole`, { skip: !POSIX && 'POSIX shells' }, async () => {
-      // The words that are typed may hold letters of any script (./backends/shell.mjs): the computer's own paths, such
-      // as a home folder named in the owner's language. The shell must pass them on as they are in every locale.
+      // The launcher's words may hold letters of any script (../../src/server/backends/shell.mjs): the computer's own
+      // paths, such as a home folder named in the owner's language. They are not typed (a line editor under the C
+      // locale may read those bytes as keys: bash 3.2's does), and the shell passes them on as they are.
       const where = path.join(box.root, `लॉन्चर-é-漢-${kind}-${path.basename(shell)}`);
       fs.mkdirSync(where);
       const link = path.join(where, 'récord.mjs');
@@ -254,7 +255,7 @@ for (const kind of kinds) {
       const r = await rig(kind, shell, { c: true, launcher: [process.execPath, link] });
       const dir = fs.mkdtempSync(path.join(box.root, 'w-'));
       const { rec, name, line, term } = await startAndRecord(r, { dir, prompt: 'go' });
-      assert.ok(line.includes(link), `the path was typed: ${JSON.stringify(line)}`);
+      assert.match(line, /^[\x20-\x7e]*\r?$/, `only ASCII is typed (and the Enter): ${JSON.stringify(line)}`);
       assert.deepEqual(rec.argv, ['sub', '--', 'go']);
       // The shell really ran under the C locale.
       await until('the shell is back', async () => (await r.backend.capture(term.id, 20)).includes('RECORDED'));

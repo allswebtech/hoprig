@@ -319,18 +319,18 @@ test('OpenCode: a new chat\'s record names the conversation OpenCode made for it
 
 test('the start\'s mark: the shell removes it after the launcher, or when the launcher could not start', { skip: process.platform === 'win32' && 'POSIX shells' }, () => {
   const mark = path.join(box.root, '.start-x');
-  assert.equal(shellLine(['/n', 'a b'], { mark }), `${CLEAR}; /n 'a b'; command rm -f ${mark}`);
-  assert.equal(shellLine(['/n']), `${CLEAR}; /n`, 'no mark, the same line as before');
+  assert.deepEqual(shellLine(['/n', 'a b'], { mark }), { line: `${CLEAR}; /n 'a b'; command rm -f ${mark}`, env: {} });
+  assert.deepEqual(shellLine(['/n']), { line: `${CLEAR}; /n`, env: {} }, 'no mark, the same line as before');
   // The launcher's folder is gone: it says so and ends (exit 2), and the shell is back.
   const gone = writeLaunch({ cwd: path.join(box.root, 'gone'), argv: ['--version'] });
   for (const argv of [['true'], ['false'], [path.join(box.root, 'no-such-program')], [process.execPath, binFile(), '--launch', gone]]) {
     fs.writeFileSync(mark, '');
-    spawnSync('/bin/sh', ['-c', shellLine(argv, { mark })], { stdio: 'ignore', cwd: box.root });
+    spawnSync('/bin/sh', ['-c', shellLine(argv, { mark }).line], { stdio: 'ignore', cwd: box.root });
     assert.equal(fs.existsSync(mark), false, `${argv}`);
   }
   // A shell whose rm is something else (a function that moves files to a trash): the program itself removes it.
   fs.writeFileSync(mark, '');
-  spawnSync('bash', ['-c', `rm() { :; }; ${shellLine(['true'], { mark })}`], { stdio: 'ignore' });
+  spawnSync('bash', ['-c', `rm() { :; }; ${shellLine(['true'], { mark }).line}`], { stdio: 'ignore' });
   assert.equal(fs.existsSync(mark), false, 'not the shell\'s own rm');
 });
 
@@ -339,7 +339,7 @@ test('the start\'s mark on Windows: the built-in terminal removes it when its co
   fs.writeFileSync(mark, '');
   const plan = startPlan({ platform: 'win32', dir: 'C:\\w', argv: ['node.exe', 'hoprig.mjs', 'work'], mark });
   assert.equal(plan.mark, mark);
-  assert.equal(startPlan({ platform: 'linux', dir: '/w', argv: ['/n'], mark, shell: { file: '/bin/sh', args: ['-l'] } }).type, shellLine(['/n'], { mark }));
+  assert.equal(startPlan({ platform: 'linux', dir: '/w', argv: ['/n'], mark, shell: { file: '/bin/sh', args: ['-l'] } }).type, shellLine(['/n'], { mark }).line);
   const procs = [];
   const spawn = (file) => {
     const exits = [];

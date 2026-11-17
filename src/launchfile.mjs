@@ -125,5 +125,7 @@ export function applyLaunch(argv = process.argv) {
     process.exit(2);
   }
   process.env.PWD = l.cwd; // as `cd` would have set it: what the coding tool and its shells read as the folder
+  // The words of the start line that were named, not typed (server/backends/shell.mjs WORD): not the coding tool's.
+  for (const k of Object.keys(process.env)) if (/^HOPRIG_WORD_\d+$/.test(k)) delete process.env[k];
   argv.splice(2, argv.length - 2, ...l.argv);
 }

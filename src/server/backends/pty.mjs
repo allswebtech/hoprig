@@ -66,9 +66,9 @@ export function defaultShell(platform = process.platform, env = process.env) {
 }
 
 /**
- * How to start a terminal: { file, args, cwd, type, then }. `type` is a line typed into the shell once it runs
- * (POSIX); `then` is what starts in the same terminal when the command ends (Windows). Pure, so it can be tested
- * for every OS on any OS.
+ * How to start a terminal: { file, args, cwd, type, then, env? }. `type` is a line typed into the shell once it runs
+ * (POSIX), `env` what its words beyond ASCII are named by (shell.mjs); `then` is what starts in the same terminal when
+ * the command ends (Windows). Pure, so it can be tested for every OS on any OS.
  */
 export function startPlan({ platform = process.platform, dir, argv = null, shell = defaultShell(platform), mark = null }) {
   if (platform === 'win32') {
@@ -78,7 +78,8 @@ export function startPlan({ platform = process.platform, dir, argv = null, shell
     assertTypable(argv, 'win32');
     return { file: argv[0], args: argv.slice(1), cwd: dir, type: null, then: shell, ...(mark ? { mark } : {}) };
   }
-  return { file: shell.file, args: shell.args, cwd: dir, type: argv ? shellLine(argv, { mark }) : null, then: null };
+  const start = argv ? shellLine(argv, { mark }) : { line: null, env: {} };
+  return { file: shell.file, args: shell.args, cwd: dir, type: start.line, then: null, ...(Object.keys(start.env).length ? { env: start.env } : {}) };
 }
 
 /** The environment of a terminal's process. `name`: the session's name, for a launcher that has to say where it runs. */
@@ -218,7 +219,7 @@ export class PtyBackend {
     let proc;
     try {
       proc = this.spawn(plan.file, plan.args, {
-        name: 'xterm-256color', cols: t.cols, rows: t.rows, cwd: plan.cwd, env: termEnv(t.id, this.platform, process.env, t.name),
+        name: 'xterm-256color', cols: t.cols, rows: t.rows, cwd: plan.cwd, env: { ...termEnv(t.id, this.platform, process.env, t.name), ...plan.env },
       });
     } catch (e) {
       if (plan.mark) fs.rmSync(plan.mark, { force: true }); // nothing started

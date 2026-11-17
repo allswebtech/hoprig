@@ -6,10 +6,16 @@
 // message go in a launch file (src/launchfile.mjs) and the line holds only the launcher's own command, the file's
 // path and the start mark. Each of those words is refused unless all its characters are on one short list that no
 // shell reads specially, inside or outside quotes.
+//
+// And only printable ASCII is typed. A line editor may read a byte above 0x7f as a key of its own: bash 3.2 (macOS's
+// /bin/bash) under the C locale takes each one for a Meta key (a count, a binding), so the line it runs is not the one
+// typed. A word with any other character (a home folder named in the owner's language) goes into the terminal's
+// environment instead, and the line names it in double quotes: every shell expands that without its editor reading
+// the value.
 
 /**
  * Letters, marks and digits of any script, and _ . / : @ % + = , - and space. Nothing else: no quote, backslash, !,
- * $, `, ~, *, ?, brackets, control byte or line end.
+ * $, `, ~, *, ?, brackets, control byte or line end. Those beyond ASCII are not typed but named (WORD).
  */
 const TYPABLE = /^[\p{L}\p{M}\p{N}_./:@%+=, -]+$/u;
 
@@ -42,17 +48,29 @@ export function shellQuote(s) {
   return `'${s}'`;
 }
 
+/** The environment variables a start line names its words beyond ASCII by: HOPRIG_WORD_1, HOPRIG_WORD_2, ... */
+const WORD = 'HOPRIG_WORD_';
+const ASCII = /^[\x20-\x7e]*$/;
+
 /**
- * The line typed into a fresh login shell. No `cd`: the terminal starts in its folder, and the launcher goes to the
- * folder its launch file names (a shell rc may change the folder on start). No `exec`, on purpose: when the coding
- * tool exits the shell is still there, so the terminal survives and shows what happened. `mark`: a file removed once
- * the shell is back (marks.mjs): after the command ended, and also when it could not start (the program is missing).
- * `command rm`: the program itself, never an alias or a function of the owner's shell named rm (one that moves files
- * to a trash).
+ * The line typed into a fresh login shell, and the environment the terminal is started with for it: { line, env }
+ * (env is empty when every word is plain ASCII, as it nearly always is). No `cd`: the terminal starts in its folder,
+ * and the launcher goes to the folder its launch file names (a shell rc may change the folder on start). No `exec`,
+ * on purpose: when the coding tool exits the shell is still there, so the terminal survives and shows what happened.
+ * `mark`: a file removed once the shell is back (marks.mjs): after the command ended, and also when it could not start
+ * (the program is missing). `command rm`: the program itself, never an alias or a function of the owner's shell named
+ * rm (one that moves files to a trash).
  */
 export function shellLine(argv, { mark = null } = {}) {
   assertTypable(mark ? [...argv, mark] : argv, 'posix');
-  return `${CLEAR}; ${argv.map(shellQuote).join(' ')}${mark ? `; command rm -f ${shellQuote(mark)}` : ''}`;
+  const env = {};
+  const word = (w) => {
+    if (ASCII.test(String(w))) return shellQuote(w);
+    const name = `${WORD}${Object.keys(env).length + 1}`;
+    env[name] = String(w);
+    return `"$${name}"`;
+  };
+  return { line: `${CLEAR}; ${argv.map(word).join(' ')}${mark ? `; command rm -f ${word(mark)}` : ''}`, env };
 }
 
 /**

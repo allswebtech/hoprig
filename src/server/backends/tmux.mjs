@@ -53,7 +53,8 @@ const NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$/;
 // Programs started in our sessions may use 24-bit colour: tmux passes it on to clients that support it. A pane takes
 // its environment from the tmux server, which may have been started long ago with another state folder: the launcher
 // in it must find its launch file and write its run record in the dashboard's own (src/launchfile.mjs).
-const paneEnv = () => ['-e', 'COLORTERM=truecolor', '-e', `HOPRIG_STATE_DIR=${stateDir()}`];
+// `start`: a start line's (shell.mjs), whose words beyond ASCII go in the pane's environment, not typed.
+const paneEnv = (start = null) => ['-e', 'COLORTERM=truecolor', '-e', `HOPRIG_STATE_DIR=${stateDir()}`, ...Object.entries(start ? start.env : {}).flatMap(([k, v]) => ['-e', `${k}=${v}`])];
 
 /**
  * A folder as tmux's -c takes it. tmux reads that argument as a format, and "#(…)" in a format runs a command through
@@ -144,9 +145,9 @@ export class TmuxBackend {
   }
 
   async create({ name, dir, argv = null, mark = null }) {
-    const line = argv ? shellLine(argv, { mark }) : null; // refused (plainly) before anything is made
-    const id = (await this.run(['new-session', '-d', '-s', name, '-c', tmuxDir(dir), ...paneEnv(), '-P', '-F', '#{pane_id}'])).trim();
-    if (line) await this.#type(id, line);
+    const start = argv ? shellLine(argv, { mark }) : null; // refused (plainly) before anything is made
+    const id = (await this.run(['new-session', '-d', '-s', name, '-c', tmuxDir(dir), ...paneEnv(start), '-P', '-F', '#{pane_id}'])).trim();
+    if (start) await this.#type(id, start.line);
     // In the browser tmux's own status line is noise (the page shows the session's name and state), and Claude
     // Code asks for focus events to know when its window is looked at. Neither may stop a session from starting.
     // The target is the pane id: set-option does not take the "=name" exact-match form other commands do.
@@ -235,13 +236,13 @@ export class TmuxBackend {
    * end (`hold`, the pid that holds the conversation, given longer), the pane starts anew, the line is typed.
    */
   async respawn(id, dir, argv, { mark = null, hold = null } = {}) {
-    const line = shellLine(argv, { mark });
+    const start = shellLine(argv, { mark });
     await this.#endPrograms(['display-message', '-p', '-t', id, SHELL_FORMAT], hold);
-    await this.run(['respawn-pane', '-k', '-t', id, '-c', tmuxDir(dir), ...paneEnv()]);
+    await this.run(['respawn-pane', '-k', '-t', id, '-c', tmuxDir(dir), ...paneEnv(start)]);
     // The old program's lines (a usage-limit message among them) would otherwise stay in the history and keep
     // the card in "limit hit". The conversation itself is in Claude's transcript, which --resume shows again.
     await this.run(['clear-history', '-t', id]);
-    await this.#type(id, line);
+    await this.#type(id, start.line);
   }
 
   /**

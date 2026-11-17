@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -145,8 +146,8 @@ test('the start line: only words that no shell reads specially, quoted when they
   assert.equal(shellQuote('plain-word_1.2/x'), 'plain-word_1.2/x');
   assert.equal(shellQuote('/Users/a b/node'), "'/Users/a b/node'");
   assert.equal(shellQuote('/home/जय/bin'), "'/home/जय/bin'");
-  assert.equal(shellLine(['x', 'y z']), `${CLEAR}; x 'y z'`, 'no cd: the terminal starts in its folder');
-  assert.equal(shellLine(['/n', '--launch', '/s/launch/ab.json'], { mark: '/s/runs/.start-1' }), `${CLEAR}; /n --launch /s/launch/ab.json; command rm -f /s/runs/.start-1`);
+  assert.deepEqual(shellLine(['x', 'y z']), { line: `${CLEAR}; x 'y z'`, env: {} }, 'no cd: the terminal starts in its folder');
+  assert.deepEqual(shellLine(['/n', '--launch', '/s/launch/ab.json'], { mark: '/s/runs/.start-1' }), { line: `${CLEAR}; /n --launch /s/launch/ab.json; command rm -f /s/runs/.start-1`, env: {} });
   for (const ok of ['/a/b-c_d.e', 'C:x', 'a@b', '50%', 'a+b=c,d', 'Ünïcödé', '漢字', 'नमस्ते', '١٢٣']) assert.doesNotThrow(() => assertTypable([ok], 'posix'), ok);
   // A quote, a backslash, the shell's own characters, any control byte or line end, and an empty word: refused.
   for (const bad of ["it's", 'a"b', 'a\\b', 'a!b', '$(x)', '`x`', 'a;b', 'a&b', 'a|b', 'a>b', 'a<b', '~/x', 'a*b', 'a?b', '[a]', '{a,b}', '#x', 'a\tb', 'a\nb', 'a\rb', 'a\u0015b', 'a\u0000b', 'a\u007fb', 'a\u0085b', '']) {
@@ -156,6 +157,34 @@ test('the start line: only words that no shell reads specially, quoted when they
   assert.doesNotThrow(() => assertTypable(['C:\\Program Files (x86)\\nodejs\\node.exe'], 'win32'), 'Windows: not typed, its paths as they are');
   for (const bad of ['a"b', 'a\nb', '']) assert.throws(() => assertTypable([bad], 'win32'), (e) => e.status === 400, JSON.stringify(bad));
   assert.equal(CLEAR, "printf '\\033[H\\033[2J\\033[3J'");
+});
+
+test('the start line types only plain ASCII: a word with other letters is named from the environment, and arrives whole', { skip: process.platform === 'win32' && 'POSIX shells' }, () => {
+  // A line editor may read a typed byte above 0x7f as a key of its own (bash 3.2 under the C locale: a Meta key).
+  const dir = fs.mkdtempSync(path.join(box.root, 'startline-'));
+  try {
+    const own = path.join(dir, 'जय-é-漢');
+    fs.mkdirSync(own);
+    const script = path.join(own, 'récord.mjs');
+    const out = path.join(dir, 'out.json');
+    fs.writeFileSync(script, `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.argv.slice(1)));\n`);
+    const mark = path.join(own, '.start-1');
+    fs.writeFileSync(mark, '');
+    const { line, env } = shellLine([process.execPath, script, 'plain', script], { mark });
+    assert.match(line, /^[\x20-\x7e]*$/, `only ASCII is typed: ${JSON.stringify(line)}`);
+    assert.equal(line.includes('"$HOPRIG_WORD_1" plain "$HOPRIG_WORD_2"'), true, line);
+    assert.deepEqual(env, { HOPRIG_WORD_1: script, HOPRIG_WORD_2: script, HOPRIG_WORD_3: mark });
+    for (const sh of ['/bin/sh', '/bin/bash', '/bin/dash'].filter((s) => fs.existsSync(s))) {
+      fs.rmSync(out, { force: true });
+      fs.writeFileSync(mark, '');
+      const r = spawnSync(sh, ['-c', line], { env: { ...process.env, ...env, LC_ALL: 'C', LANG: 'C' }, encoding: 'utf8' });
+      assert.equal(r.status, 0, `${sh}: ${r.stderr}`);
+      assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8')), [script, 'plain', script], `${sh}: byte for byte`);
+      assert.equal(fs.existsSync(mark), false, `${sh}: the mark is removed by its name too`);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('launch command contract', () => {
