@@ -14,7 +14,7 @@ import { MODELS } from './sessiondefaults.js';
 import { store } from './store.js';
 import { knownChatTools } from './chat/start.js';
 import { keepTabIn } from './tabwrap.js';
-import { activityRows, activityWords, sessionWords, stamp } from './tiaactivity.js';
+import { activityRows, activityWords, continuesOf, sessionWords, stamp } from './tiaactivity.js';
 import { DID, DOING, TOOL_WORDS, jobChip, wordFor } from './tiawords.js';
 
 const NAME = 'Tia';
@@ -104,6 +104,8 @@ export function plainCard(card, { accounts = [], computerLabel = null, tools = 1
     question = `${cap(words)}?`;
     if (a.message) quote = a.message;
     if (a.goal) notes.push(`Done when: ${a.goal}.`);
+    // On an earlier conversation it is never hers (src/assistant/chats.mjs, tools.mjs): its OKs stay the owner's.
+    if (continuesOf(a)) notes.push(`It goes on with that conversation's history, so every OK it asks for comes to you, not to ${NAME}.`);
   } else if (card.tool === 'send_to_session' && a.key === undefined) {
     question = `Type this into the session ${a.session}${on}?`;
     quote = a.text;
@@ -135,7 +137,9 @@ export function plainCard(card, { accounts = [], computerLabel = null, tools = 1
           : `${NAME} asks before anything risky.`;
   // What the plain words above do not already say (other tools' own lines), for "Details".
   const said = ['switch_account', 'start_session', 'start_chat', 'send_to_session', 'send_to_chat', 'press_key', 'run_command'].includes(card.tool);
-  const details = said ? [] : lines.filter((l) => !l.startsWith('Why a card: ') && !l.startsWith('The session asks: '));
+  // The id of the conversation a start goes on with stays in Details: the question says only "an earlier conversation".
+  const details = said ? lines.filter((l) => l.startsWith('Continuing conversation '))
+    : lines.filter((l) => !l.startsWith('Why a card: ') && !l.startsWith('The session asks: '));
   return { question, quote, notes, why, details };
 }
 

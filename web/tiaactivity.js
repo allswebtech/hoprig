@@ -17,14 +17,24 @@ const human = (id) => String(id || '').replace(/[_-]+/g, ' ');
 /**
  * Starting a coding tool, in the owner's words (also a confirm card's question): "start a chat in shop", "start a
  * chat with OpenCode in blog", "start Claude Code in a terminal in shop". A chat names its coding tool when it is not
- * Claude Code or when `named` (more than one coding tool is on); a terminal always does.
+ * Claude Code or when `named` (more than one coding tool is on); a terminal always does. `continues` ('newest' |
+ * 'earlier'): a start on an existing conversation, said as such ("continue an earlier Claude Code conversation in a
+ * terminal in shop"), since its history and its cost go on from there.
  */
-export function startWords({ kind, tool, folder, named = false }) {
+export function startWords({ kind, tool, folder, named = false, continues = null }) {
   const t = tool || 'claude';
-  const what = kind === 'chat' ? (named || t !== 'claude' ? `a chat with ${codingTool(t)}` : 'a chat') : `${codingTool(t)} in a terminal`;
   const where = folderName(folder);
-  return `start ${what}${where ? ` in ${where}` : ''}`;
+  const at = where ? ` in ${where}` : '';
+  const withTool = kind !== 'chat' || named || t !== 'claude';
+  if (continues) {
+    return `continue ${continues === 'newest' ? 'the newest' : 'an earlier'} ${withTool ? `${codingTool(t)} ` : ''}conversation in ${kind === 'chat' ? 'a chat' : 'a terminal'}${at}`;
+  }
+  const what = kind === 'chat' ? (withTool ? `a chat with ${codingTool(t)}` : 'a chat') : `${codingTool(t)} in a terminal`;
+  return `start ${what}${at}`;
 }
+/** Which conversation a start_session or start_chat input goes on with: 'earlier' (a named one), 'newest' (the
+ * folder's newest), or null (a new one). */
+export const continuesOf = (a) => (a.conversation || a.mode === 'resume' ? 'earlier' : a.mode === 'continue' ? 'newest' : null);
 
 /**
  * A session as the owner reads it: a chat by its title, else its folder ("the chat \"Fix it\"", "the chat in shop";
@@ -127,8 +137,8 @@ const ANSWER = { allow: 'allow what', allow_always: 'allow, and not ask again in
 
 /** The other tools: the words, the detail line, the quoted text. */
 const TOOLS = {
-  start_session: (a, p) => ({ what: startWords({ kind: 'terminal', tool: a.coding_tool, folder: a.folder }), goal: a.goal, quote: a.message }),
-  start_chat: (a, p) => ({ what: startWords({ kind: 'chat', tool: a.coding_tool, folder: a.folder, named: p.tools > 1 }), goal: a.goal, quote: a.message }),
+  start_session: (a, p) => ({ what: startWords({ kind: 'terminal', tool: a.coding_tool, folder: a.folder, continues: continuesOf(a) }), goal: a.goal, quote: a.message }),
+  start_chat: (a, p) => ({ what: startWords({ kind: 'chat', tool: a.coding_tool, folder: a.folder, named: p.tools > 1, continues: continuesOf(a) }), goal: a.goal, quote: a.message }),
   send_to_session: (a, p) => (a.key !== undefined ? { what: `press ${a.key} in ${p.chat(a.session)}` } : { what: `type into ${p.chat(a.session)}`, quote: a.text }),
   send_to_chat: (a, p) => (a.stop ? { what: `stop the reply in ${p.chat(a.session)}` }
     : a.answer ? { what: `${ANSWER[a.answer] || 'answer what'} ${p.chat(a.session)} asks` } : { what: `write to ${p.chat(a.session)}`, quote: a.text }),

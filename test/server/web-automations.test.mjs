@@ -257,6 +257,31 @@ test('her card for a start says what starts: a chat or a terminal, and the codin
   assert.equal(startWords({ kind: 'chat', tool: 'opencode', folder: 'C:\\work\\shop' }), 'start a chat with OpenCode in shop');
 });
 
+test('a start on an earlier conversation says so, on its card and in Activity, and that its OKs stay the owner\'s', () => {
+  const ID = '33333333-3333-4333-8333-333333333333';
+  const accounts = [{ name: 'gw', label: 'Gateway', kind: 'api' }];
+  const card = (tool, input, lines = []) => plainCard({ tool, input: { folder: '/w/projects/shop', account: 'gw', ...input }, lines }, { accounts, tools: 1 });
+  const row = (tool, input) => activityWords({ tool, input: { folder: '/w/projects/shop', account: 'gw', ...input } }, { ...PLACE, tools: 1 }).what;
+  const resume = card('start_session', { mode: 'resume', conversation: ID }, ['Start Claude Code session in a terminal in /w/projects/shop on this under gw (paid API provider)', `Continuing conversation ${ID}`]);
+  assert.equal(resume.question, 'Continue an earlier Claude Code conversation in a terminal in shop on Gateway?');
+  assert.ok(resume.notes.some((n) => /that conversation's history, so every OK it asks for comes to you/.test(n)), 'its OKs are the owner\'s');
+  assert.ok(resume.notes.some((n) => /paid per use/.test(n)), 'and it still says it costs money');
+  assert.deepEqual(resume.details, [`Continuing conversation ${ID}`], 'the id in Details, nothing else of the lines');
+  assert.equal(row('start_session', { mode: 'resume', conversation: ID }), 'continue an earlier Claude Code conversation in a terminal in shop on Gateway');
+  const newest = card('start_session', { mode: 'continue', coding_tool: 'opencode' }, ['Continuing the folder\'s newest conversation']);
+  assert.equal(newest.question, 'Continue the newest OpenCode conversation in a terminal in shop on Gateway?');
+  assert.deepEqual(newest.details, []);
+  assert.equal(row('start_session', { mode: 'continue', coding_tool: 'opencode' }), 'continue the newest OpenCode conversation in a terminal in shop on Gateway');
+  const chat = card('start_chat', { conversation: ID }, [`Continuing conversation ${ID}`]);
+  assert.equal(chat.question, 'Continue an earlier conversation in a chat in shop on Gateway?');
+  assert.ok(chat.notes.some((n) => /every OK it asks for comes to you/.test(n)));
+  assert.equal(row('start_chat', { conversation: ID }), 'continue an earlier conversation in a chat in shop on Gateway');
+  // A new one says nothing of the kind.
+  const fresh = card('start_session', { mode: 'new' });
+  assert.equal(fresh.question, 'Start Claude Code in a terminal in shop on Gateway?');
+  assert.ok(!fresh.notes.some((n) => /that conversation/.test(n)));
+});
+
 // The page's view of a computer, as tia.js hands it to activityWords.
 const PLACE = {
   provider: (n) => ({ sub: 'Main', sub2: 'Work', gw: 'Gateway', auto: 'Auto mode' })[n] || n,
