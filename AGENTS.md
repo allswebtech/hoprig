@@ -6,7 +6,7 @@
 
 Hoprig turns a computer into a managed place to code with Claude Code and OpenCode: it installs what is missing,
 runs each coding tool under several providers (a session continues on another provider after a usage limit), and
-serves a web dashboard (chats, terminals, a code editor, a desktop) that also shows other computers. Node.js ≥ 20, ES modules,
+serves a web dashboard (chats, terminals, a code editor, a desktop) that also shows other computers. Node.js ≥ 22 (`src/nodeguard.mjs`), ES modules,
 no framework, no build step. Runtime dependencies are few and pinned.
 
 ## Map
@@ -34,7 +34,8 @@ of the page is one file registered through `web/registry.js`.
 
 - **Prove it.** `npm test` passes before a change is done. The end-to-end tests run on tmux where it is
   installed and on the built-in terminals everywhere. Say what you ran and what you could not run; never
-  write "works on Windows" for code that was not run on Windows.
+  write "works on Windows" for code that was not run on Windows. Before a release the whole suite passes on Node 22
+  (the lowest supported, `src/nodeguard.mjs`) and on the newest LTS.
 - **Small, plain code.** Small modules, comments that say why, no dead code, no new dependency without a
   strong reason. Plain words in everything a user reads; the same word for the same thing ("provider",
   "computer", "session"; the product is "Hoprig", the command `hoprig`).

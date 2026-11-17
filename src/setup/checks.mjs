@@ -14,11 +14,12 @@ import { anyTool, enabledToolIds } from '../codetools/index.mjs';
 import { hiddenProfiles, listProfiles } from '../profiles.mjs';
 import { ensureSpawnHelper } from '../server/backends/pty-helper.mjs';
 import { tmuxNewEnough } from '../server/backends/tmuxversion.mjs';
+import { MIN_NODE_MAJOR } from '../nodeguard.mjs';
 import { brainDir } from '../workspace/layout.mjs';
 import { capture, compareVersions, detectPackageManager, installCommands, isRoot, npmArgv, npmMajor, showCommands, which } from './system.mjs';
 
 export const APP = 'hoprig';
-export const MIN_NODE = '20.0.0';
+export const MIN_NODE = `${MIN_NODE_MAJOR}.0.0`; // src/nodeguard.mjs
 export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 7433; // the same default as src/server/server.mjs
 export const UNIT = `${APP}.service`;
@@ -63,7 +64,7 @@ export const BUILD_TOOLS = {
 export function nodeCheck(version = process.versions.node) {
   const ok = compareVersions(version, MIN_NODE) >= 0;
   return result('node', 'Node.js', ok ? 'ok' : 'fail', `${version}${ok ? '' : ` (Hoprig needs ${MIN_NODE.split('.')[0]} or newer)`}`,
-    ok ? '' : 'Install Node.js 20 or newer (https://nodejs.org), then run the Hoprig installer again.');
+    ok ? '' : `Install Node.js ${MIN_NODE_MAJOR} or newer (https://nodejs.org), then run the Hoprig installer again.`);
 }
 
 export function appCheck() {

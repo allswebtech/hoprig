@@ -517,7 +517,7 @@ The dashboard is a remote control for your computer, and it is built that way:
 | macOS | run and tested | run and tested (built-in terminals) before this version; what is new in it was not run there (see above); the launchd service is written, not yet installed for real | checked read-only; installs not yet run |
 | Windows | **not ready**: written, the tests do not pass on Windows yet | not ready | not ready |
 
-Requires Node.js 20 or newer. The tests run on Linux and macOS with Node 20, 22 and 24 on every change. On Windows
+Requires Node.js 22 or newer (Node 20 is past its end of life, and it aborts when a terminal is closed under it). The tests run on Linux and macOS with Node 22, 24 and 26 on every change. On Windows
 they have been run and do not pass yet, so Windows is not supported. tmux is used from version 3.2 on; with an
 older one (or none) the built-in terminals are used. With npm 12 there is nothing to do yourself: setup builds the
 one module that needs a build (`node-pty`, the only install script Hoprig's `package.json` approves), and

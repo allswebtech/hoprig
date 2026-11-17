@@ -34,7 +34,7 @@
     "hop": "bin/hoprig.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "test": "node tools/test.mjs",

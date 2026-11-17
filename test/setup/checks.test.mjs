@@ -11,12 +11,15 @@ const K = await import('../../src/setup/checks.mjs');
 
 const info = (o) => ({ installed: '2.1.300', path: '/x/claude', latest: '2.1.300', method: 'native', updateAvailable: false, ...o });
 
-test('node version check', () => {
-  assert.equal(K.nodeCheck('20.0.0').status, 'ok');
+test('node version check: 22 is the lowest (src/nodeguard.mjs)', () => {
+  assert.equal(K.nodeCheck('22.0.0').status, 'ok');
   assert.equal(K.nodeCheck('26.13.0').status, 'ok');
-  const old = K.nodeCheck('18.19.1');
-  assert.equal(old.status, 'fail');
-  assert.match(old.fix, /nodejs\.org/);
+  for (const v of ['20.20.2', '18.19.1']) {
+    const old = K.nodeCheck(v);
+    assert.equal(old.status, 'fail', v);
+    assert.match(old.detail, /needs 22 or newer/);
+    assert.match(old.fix, /^Install Node\.js 22 or newer \(https:\/\/nodejs\.org\)/);
+  }
 });
 
 test('claude check: missing, broken, off PATH, update available, current, unknown newest', () => {

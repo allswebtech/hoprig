@@ -4,7 +4,7 @@
 #   & ([scriptblock]::Create((irm <address of this file>))) --yes               takes every default
 #
 # What it does, asking first each time:
-#   1. Node.js 20 or newer. When missing it is installed with WinGet (built into Windows 10 1809+ and 11), as the
+#   1. Node.js 22 or newer. When missing it is installed with WinGet (built into Windows 10 1809+ and 11), as the
 #      official "Node.js LTS" package (OpenJS.NodeJS.LTS) that nodejs.org lists for Windows. Windows may ask for
 #      permission once (the Node.js installer is for all users).
 #   2. hoprig itself, with npm: from npm by default, or from $env:HOPRIG_SOURCE (a .tgz file, a folder or a
@@ -16,7 +16,7 @@
 param([Parameter(ValueFromRemainingArguments = $true)][string[]]$SetupArgs = @())
 
 $ErrorActionPreference = 'Stop'
-$MinNode = 20
+$MinNode = 22 # the same as src/nodeguard.mjs
 # Until the package is on npm the default is the repository's main branch as a tarball, which npm installs directly.
 $Source = if ($env:HOPRIG_SOURCE) { $env:HOPRIG_SOURCE } else { 'https://github.com/allswebtech/hoprig/archive/refs/heads/main.tar.gz' }
 $Yes = ($env:HOPRIG_YES -eq '1') -or ($SetupArgs -contains '--yes') -or ($SetupArgs -contains '-y')

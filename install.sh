@@ -5,7 +5,7 @@
 #   curl -fsSL <address of this file> | sh -s -- --yes     no questions
 #
 # It finds what is missing, lists it, asks once, installs it, installs hoprig and runs `hoprig setup`.
-#   Node.js 20+   for you only (no administrator rights) with nvm, the version manager nodejs.org lists for macOS
+#   Node.js 22+   for you only (no administrator rights) with nvm, the version manager nodejs.org lists for macOS
 #                 and Linux; on Alpine (musl: nvm has no ready-made Node there) with `apk add nodejs npm`.
 #   system bits   only on Linux, with the system package manager: curl when there is no downloader, libatomic
 #                 (Node's official Linux builds need it), and the C++ build tools the terminal module (node-pty)
@@ -26,7 +26,7 @@ main() {
   # From here on no command gets this file as its input: input is the terminal when there is one, else nothing.
   if can_ask; then exec </dev/tty; else exec </dev/null; fi
 
-  MIN_NODE=20
+  MIN_NODE=22 # the same as src/nodeguard.mjs
   NVM_VERSION=v0.40.8 # https://github.com/nvm-sh/nvm/releases (pinned: a release several weeks old)
   # Until the package is on npm the default is the repository's main branch as a tarball, which npm installs directly.
   SOURCE=${HOPRIG_SOURCE:-https://github.com/allswebtech/hoprig/archive/refs/heads/main.tar.gz}

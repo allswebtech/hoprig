@@ -90,7 +90,7 @@ A server that only shows your other computers (a hub) stops after the first part
 
 ### What it needs, and what was run
 
-- **Node.js 20 or newer.** The tests run on Linux and macOS with Node 20, 22 and 24 on every change (and natively
+- **Node.js 22 or newer.** The tests run on Linux and macOS with Node 22, 24 and 26 on every change (and natively
   on macOS with Node 26). On Windows they have been run and do not pass yet: Windows is not supported yet, and
   `install.ps1` has never been run.
 - **tmux 3.2 or newer**, when you want sessions that outlive the dashboard. An older tmux is not used: the

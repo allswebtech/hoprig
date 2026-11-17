@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // hoprig: Claude Code and OpenCode under several providers, and a web dashboard.
+import '../src/nodeguard.mjs'; // first: on a Node.js that is too old, one plain sentence and exit code 1
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { getAutoSwitch, limitedProfiles, setAutoSwitch } from '../src/autoswitch.mjs';
