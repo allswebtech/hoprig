@@ -28,6 +28,9 @@ const { hashPassword } = await import('../../src/server/auth.mjs');
 const { hashTag } = await import('../../src/server/strength.mjs');
 const { validName } = await import('../../src/profiles.mjs');
 const S = await import('../../src/addons/linkswitch.mjs');
+const { install, installPlan } = await import('../../src/addons/publiclink.mjs');
+// A missing cloudflared is downloaded (fetch is the test's): never Homebrew, which would install on the computer itself.
+const installFn = (o) => install({ ...o, plan: installPlan({ hasBrew: false }) });
 test.after(async () => {
   await S.resetForTests();
   box.cleanup();
@@ -86,7 +89,7 @@ test('refusals say what to do; a strong password in one step; with no dashboard 
 test('with the dashboard running: on waits for the address and shows it with a sign-in QR; the old words lead here', async () => {
   // This process is "the dashboard": its address file, and the switch attached as the dashboard does.
   fs.writeFileSync(path.join(box.state, 'dashboard.json'), JSON.stringify({ pid: process.pid, host: '127.0.0.1', port: 7666, at: Date.now() }));
-  await S.attach({ notifyFn: async () => ({ sent: false }), everyMs: 100 });
+  await S.attach({ installFn, notifyFn: async () => ({ sent: false }), everyMs: 100 });
   let r = await run(['public', 'on', '--yes']);
   assert.equal(r.code, 0, r.out);
   const url = /The public link: (https:\/\/cli-\d+-words\.trycloudflare\.com)/.exec(r.out)?.[1];
@@ -117,7 +120,7 @@ test('with the dashboard running: on waits for the address and shows it with a s
 test('a start that failed is tried again by the next `hoprig public on`, and its old error is not this one\'s answer', async () => {
   fs.writeFileSync(path.join(box.state, 'dashboard.json'), JSON.stringify({ pid: process.pid, host: '127.0.0.1', port: 7666, at: Date.now() }));
   saveConfig({ publicLink: { on: false, kind: 'temporary' } });
-  await S.attach({ notifyFn: async () => ({ sent: false }), everyMs: 100 });
+  await S.attach({ installFn, notifyFn: async () => ({ sent: false }), everyMs: 100 });
   // cloudflared cannot be found or installed (the network is down at boot): the start fails, the switch stays on.
   const hidden = path.join(box.root, 'hidden');
   fs.renameSync(bin, hidden);

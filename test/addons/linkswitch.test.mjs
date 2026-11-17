@@ -39,6 +39,9 @@ process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
 process.env.ANTHROPIC_AUTH_TOKEN = 'must-not-reach-cloudflared';
 
 const S = await import('../../src/addons/linkswitch.mjs');
+const { install, installPlan } = await import('../../src/addons/publiclink.mjs');
+// A missing cloudflared is downloaded (fetch is the test's): never Homebrew, which would install on the computer itself.
+const installFn = (o) => install({ ...o, plan: installPlan({ hasBrew: false }) });
 const { reachableUrl } = await import('../../src/addons/reach.mjs');
 const { loadConfig, saveConfig } = await import('../../src/config.mjs');
 const choice = () => { const { on, kind } = loadConfig().publicLink || {}; return { on, kind }; };
@@ -65,7 +68,7 @@ test.after(async () => {
 
 test('a turn-on is refused in plain words without a strong password, and for Custom before it is set up', async () => {
   saveConfig({ server: { port: 7655, allowedOrigins: ['https://deck.example.net'] } });
-  await S.attach({ notifyFn, everyMs: 60_000 });
+  await S.attach({ installFn, notifyFn, everyMs: 60_000 });
   assert.deepEqual(S.status().state, 'off');
   assert.deepEqual([S.status().on, S.status().kind], [false, 'temporary'], 'off and Temporary by default');
   let r = await S.turnOn('temporary');
@@ -134,7 +137,7 @@ test('the choice is remembered: a restart of the dashboard brings the link back 
   assert.deepEqual(raw().server, before);
   assert.deepEqual(choice(), { on: true, kind: 'temporary' });
   sent.length = 0;
-  await S.attach({ notifyFn, everyMs: 60_000 });
+  await S.attach({ installFn, notifyFn, everyMs: 60_000 });
   const s = await S.settled();
   assert.equal(s.state, 'on');
   assert.notEqual(s.url, first, 'a new address after the restart');
@@ -152,7 +155,7 @@ test('after a crash of the dashboard, its settings are put back before they are 
   saveConfig({ publicLink: { on: true, kind: 'temporary' }, server: { trustProxy: true, allowedOrigins: [...before.allowedOrigins, old] } });
   fs.writeFileSync(S.recordFile(), JSON.stringify({ kind: 'temporary', url: old, pid: null, restore: { hadTrustProxy: false, hadOrigin: false, origin: old } }));
   assert.equal(reachableUrl(), null, 'an address whose cloudflared is gone is not offered');
-  await S.attach({ notifyFn, everyMs: 60_000 });
+  await S.attach({ installFn, notifyFn, everyMs: 60_000 });
   const s = await S.settled();
   assert.equal(s.state, 'on');
   assert.deepEqual(loadConfig().server.allowedOrigins, [...before.allowedOrigins, s.url], 'the old address is gone');
@@ -163,13 +166,13 @@ test('after a crash of the dashboard, its settings are put back before they are 
 test('the command line\'s choice is seen by the running dashboard', async () => {
   strong();
   await S.detach();
-  await S.attach({ notifyFn, everyMs: 100 });
+  await S.attach({ installFn, notifyFn, everyMs: 100 });
   saveConfig({ publicLink: { on: true, kind: 'temporary' } }); // what `hoprig public on` writes
   assert.ok(await until(() => S.status().state === 'on'), JSON.stringify(S.status()));
   saveConfig({ publicLink: { on: false, kind: 'temporary' } });
   assert.ok(await until(() => S.status().state === 'off' && !loadConfig().server.trustProxy));
   await S.detach();
-  await S.attach({ notifyFn, everyMs: 60_000 });
+  await S.attach({ installFn, notifyFn, everyMs: 60_000 });
 });
 
 test('Custom set up: turning it on stops the Temporary link first, so never both run', async () => {
@@ -213,7 +216,7 @@ test('a link that is on never runs with a weak or unjudged password: held back w
   const before = raw().server;
   const n = runs();
   saveConfig({ publicLink: { on: true, kind: 'temporary' }, server: { passwordHash: HASH, passwordCheck: { tag: hashTag(HASH), strong: false, why: 'it has fewer than 12 characters' } } });
-  await S.attach({ notifyFn, everyMs: 100 });
+  await S.attach({ installFn, notifyFn, everyMs: 100 });
   await sleep(400);
   let s = S.status();
   assert.deepEqual([s.on, s.state, s.need, s.url], [true, 'blocked', 'stronger-password', null]);
@@ -238,7 +241,7 @@ test('a link that is on never runs with a weak or unjudged password: held back w
   await S.turnOff();
   assert.deepEqual(raw().server, { ...before, passwordCheck: raw().server.passwordCheck });
   await S.detach();
-  await S.attach({ notifyFn, everyMs: 60_000 });
+  await S.attach({ installFn, notifyFn, everyMs: 60_000 });
 });
 
 test('turning off while cloudflared installs answers at once, and nothing starts when the install ends', async () => {
@@ -307,7 +310,7 @@ test('after an update: a Custom link that ran keeps running until the password i
   // What the older version left: Custom on, its settings taken; the password never judged.
   saveConfig({ publicLink: undefined, server: { passwordCheck: undefined, trustProxy: true, allowedOrigins: [...before.allowedOrigins, 'https://office.example.com'] } });
   fs.writeFileSync(path.join(dir, 'fixed.json'), JSON.stringify({ mode: 'named', hostname: 'office.example.com', tunnelId: ID, tunnelName: 'hoprig-office-example-com', extra: [], enabled: true, restored: false, pid: null, restore: { hadTrustProxy: false, hadOrigin: false, origin: 'https://office.example.com' } }));
-  await S.attach({ notifyFn, everyMs: 100 });
+  await S.attach({ installFn, notifyFn, everyMs: 100 });
   assert.ok(await until(() => S.status().state === 'on'), JSON.stringify(S.status()));
   assert.deepEqual([S.status().kind, S.status().password.state], ['custom', 'unknown']);
   // It runs, and asks the owner to type the password once, so the check that ends this is made.
@@ -339,7 +342,7 @@ test('after an update: a Custom link that ran keeps running until the password i
   try {
     fs.writeFileSync(path.join(tmp, 'state', 'addons', 'public-link.json'), JSON.stringify({ pid: old.pid, url: 'https://old-words.trycloudflare.com', restored: false, restore: null }));
     const n = runs();
-    await S.attach({ notifyFn, everyMs: 100 });
+    await S.attach({ installFn, notifyFn, everyMs: 100 });
     assert.ok(await until(() => S.status().state === 'blocked'), JSON.stringify(S.status()));
     assert.deepEqual([S.status().on, S.status().kind, S.status().need], [true, 'temporary', 'check-password']);
     assert.ok(await until(() => dead(old.pid)), 'the old tunnel ended');

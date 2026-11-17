@@ -78,6 +78,7 @@ let nextOpener; // the token id of the turn-on being applied (undefined: keep wh
 let queue = Promise.resolve();
 let timer = null;
 let notify = notifyNewAddress;
+let installer = install; // how cloudflared is installed when it is missing (a test hands in its own: never the computer's)
 
 const say = (l) => {
   progress.push(String(l).slice(0, 500));
@@ -159,7 +160,7 @@ async function startRun(kind) {
     phase = 'installing';
     say('Installing cloudflared, Cloudflare\'s free helper…');
     // Its lines are shown on the page and to a linked hub: the folder it went to is left out.
-    const r = await install({ onLine: (l) => say(/^installed: /.test(l) ? 'cloudflared is installed.' : l) });
+    const r = await installer({ onLine: (l) => say(/^installed: /.test(l) ? 'cloudflared is installed.' : l) });
     bin = findBin();
     // Turned off (or to the other kind) while it installed: the next step does what is chosen now.
     const now = readSwitch();
@@ -371,8 +372,9 @@ export function status({ why = true } = {}) {
 
 
 /** When the dashboard starts: settings left by a crash go back, then what is on starts; a change by the CLI is seen. */
-export function attach({ notifyFn = notifyNewAddress, everyMs = RECONCILE_MS } = {}) {
+export function attach({ notifyFn = notifyNewAddress, everyMs = RECONCILE_MS, installFn = install } = {}) {
   notify = notifyFn;
+  installer = installFn;
   try {
     migrate();
   } catch (e) {
@@ -460,4 +462,5 @@ export async function resetForTests() {
   failures = 0;
   retryAt = 0;
   notify = notifyNewAddress;
+  installer = install;
 }
