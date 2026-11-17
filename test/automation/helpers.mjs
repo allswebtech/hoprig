@@ -24,6 +24,8 @@ export function fakeDeck(cards = []) {
     },
     async send(name, text) {
       if (d.failSend) throw new Error('the terminal is gone');
+      // The coding tool is not the program in front (src/server/deck.mjs sendToTool): nothing typed.
+      if (d.notInFront) throw Object.assign(new Error(d.notInFront), { status: 409, code: 'not_in_front' });
       d.sent.push([name, text]);
       if (d.onSend) d.onSend(name, text);
     },

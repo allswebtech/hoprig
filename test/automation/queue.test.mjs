@@ -122,6 +122,36 @@ test('queue apply: a failed send goes back to the front and is logged', async ()
   assert.match(rec.entries[0].outcome, /^failed: the terminal is gone/);
 });
 
+test('queue: the coding tool was not in front: the message stays first, says why once, and goes when a tool waits again', async () => {
+  const t = tmpDir('queue-front');
+  try {
+    const deck = fakeDeck([claude('w', { stopAt: 500, runId: 'r1' })]);
+    const a = createAutomation(fakeCtx({ deck, stateDir: t.dir, now: () => 1000 }).ctx);
+    a.enqueue('w', 'A');
+    a.enqueue('w', 'B');
+    deck.notInFront = 'Nothing was typed: no coding tool runs in session "w" now';
+    for (let i = 0; i < 4; i++) await a.tick();
+    assert.deepEqual(a.api.queueOf('w').items.map((x) => x.text), ['A', 'B'], 'kept, in its order');
+    assert.equal(a.api.queueOf('w').waits, deck.notInFront, 'the sheet says why');
+    assert.equal(a.api.status().queues.w.waits, deck.notInFront, 'and so does the Queue page\'s row');
+    const rows = a.activity.recent(20).filter((x) => x.automation === 'queue');
+    assert.deepEqual(rows.map((x) => [x.did, x.outcome]), [['not delivered: A', `waits in the queue: ${deck.notInFront}`]], 'recorded once, not at every tick');
+    assert.equal(a.api.queueOf('w').items[0].tries, undefined, 'not counted as a failed try');
+    // A new run of the coding tool waits there, before any reply of its own ended: the held message goes now.
+    deck.notInFront = null;
+    deck.cards = [claude('w', { stopAt: null, runId: 'r2' })];
+    await a.tick();
+    assert.deepEqual(deck.sent, [['w', 'A']]);
+    assert.equal(a.api.queueOf('w').waits, undefined, 'no longer waiting');
+    assert.equal(a.api.status().queues.w.waits, undefined);
+    await a.tick();
+    assert.deepEqual(deck.sent, [['w', 'A']], 'the next one waits for a reply as always');
+    await a.close();
+  } finally {
+    t.cleanup();
+  }
+});
+
 test('queue: survives a restart of the service without sending twice', async () => {
   const t = tmpDir('queue');
   try {
