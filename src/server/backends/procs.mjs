@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { alive, sameProcess, system } from '../../procid.mjs';
 import { parseParents } from '../platform/common.mjs';
 
-/** How long a program gets to end by itself after SIGHUP (Claude Code saves on the way out) before SIGKILL. */
+/** How long the programs of a terminal get to end by themselves after SIGHUP (Claude Code saves on its way out). */
 export const STOP_WAIT_MS = 2000;
 // Not unref'd: nothing else may hold the process while a caller waits for these to end (it lasts STOP_WAIT_MS at most).
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));

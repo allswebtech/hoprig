@@ -44,7 +44,7 @@ test('tmux calls are argument arrays (recorded)', async () => {
   assert.deepEqual(calls[2][0].slice(0, 3), ['paste-buffer', '-p', '-d']);
   calls.length = 0;
   await b.respawn('%7', '/w', ['n', 'p2', '--resume', 'id']);
-  // What runs under the pane's shell ends first (here tmux names no shell: nothing to end; tmux-respawn.test.mjs).
+  // What runs under the pane's shell ends first (here tmux names no shell: nothing to end; respawn.test.mjs).
   assert.deepEqual(calls[0][0], ['display-message', '-p', '-t', '%7', '#{pane_pid}']);
   assert.deepEqual(calls[1][0], ['respawn-pane', '-k', '-t', '%7', '-c', '/w', '-e', 'COLORTERM=truecolor']);
   assert.deepEqual(calls[2][0], ['clear-history', '-t', '%7']);
