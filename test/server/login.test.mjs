@@ -101,3 +101,63 @@ test('through the public link: limits per visitor (IPv6 by /64); the overall cap
     saveConfig({ server: { trustProxy: undefined, passwordCheck: undefined } });
   }
 });
+
+// Every loopback address (127.x.y.z, ::1) and this computer's own addresses reach the dashboard from this computer.
+// Each of them used to count as a visitor of its own, and this computer is left out of the overall cap: so wrong
+// passwords spread over loopback addresses had no limit at all. This computer is one visitor now.
+test('this computer is one visitor: wrong passwords spread over loopback addresses meet the per-visitor limit', async () => {
+  const http = await import('node:http');
+  saveConfig({ server: { passwordHash: await hashPassword('right-password'), trustProxy: true } });
+  const app = createServer({ backend });
+  const { port } = await app.listen(0, '::'); // both families: 127.x arrives as ::ffff:127.x, and ::1 as itself
+  const origin = `http://127.0.0.1:${port}`;
+  const post = (from, password, extra = {}) => new Promise((resolve, reject) => {
+    const body = JSON.stringify({ password });
+    const r = http.request({
+      host: from.includes(':') ? '::1' : '127.0.0.1', port, path: '/api/login', method: 'POST', localAddress: from,
+      headers: { Host: `127.0.0.1:${port}`, Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...extra },
+    }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    r.on('error', reject);
+    r.end(body);
+  });
+  try {
+    const from = [...Array.from({ length: 29 }, (_, i) => `127.0.0.${i + 2}`), '::1'];
+    const codes = [];
+    for (const a of from) codes.push(await post(a, 'wrong'));
+    assert.deepEqual(codes.slice(0, 5), [401, 401, 401, 401, 401], codes.join(','));
+    assert.ok(codes.slice(5).every((c) => c === 429), `after 5 tries from this computer every one waits: ${codes.join(',')}`);
+    assert.equal(await post('127.0.0.77', 'right-password'), 429, 'also the right password, from any loopback address');
+  } finally {
+    await app.close();
+    saveConfig({ server: { trustProxy: undefined } });
+  }
+});
+
+test('guesses from elsewhere that use up the overall cap do not lock this computer out', async () => {
+  const http = await import('node:http');
+  saveConfig({ server: { passwordHash: await hashPassword('right-password'), trustProxy: true } });
+  const app = createServer({ backend });
+  const { port } = await app.listen(0, '127.0.0.1');
+  const origin = `http://127.0.0.1:${port}`;
+  const post = (from, password, visitor) => new Promise((resolve, reject) => {
+    const body = JSON.stringify({ password });
+    const fwd = visitor ? { 'X-Forwarded-For': visitor, 'X-Forwarded-Proto': 'https', 'Cf-Connecting-Ip': visitor } : {};
+    const r = http.request({
+      host: '127.0.0.1', port, path: '/api/login', method: 'POST', localAddress: from,
+      headers: { Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...fwd },
+    }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    r.on('error', reject);
+    r.end(body);
+  });
+  try {
+    const codes = [];
+    for (let i = 0; i < 40; i++) codes.push(await post('127.0.0.1', 'wrong', `198.51.100.${10 + i}`));
+    assert.equal(codes.filter((c) => c === 401).length, 30, codes.join(','));
+    assert.equal(await post('127.0.0.1', 'right-password', '198.51.100.99'), 429, 'the overall cap is used up');
+    // A guess through the public link arrives from loopback too, but with the tunnel's headers: it is not this computer.
+    assert.equal(await post('127.0.0.5', 'right-password'), 200, 'this computer still signs in');
+  } finally {
+    await app.close();
+    saveConfig({ server: { trustProxy: undefined } });
+  }
+});

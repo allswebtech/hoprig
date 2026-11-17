@@ -128,13 +128,16 @@ export function visitorKey(ip) {
   return `${all.slice(0, 4).map((x) => (parseInt(x, 16) || 0).toString(16)).join(':')}::/64`;
 }
 
+/** The one key every sign-in try from this computer itself is counted under (the server decides which those are). */
+export const THIS_COMPUTER = 'this-computer';
+
 /**
  * Failed-login limiter: at most `perIp` failures per visitor and `global` failures overall in `windowMs`.
  * The overall cap stops a slow spread-out guess from many addresses (a botnet, or the many addresses one IPv6 host
  * owns), and it bounds how many slow password hashes strangers can make this computer run. It would also lock the
  * owner's own password out while someone else guesses, so a try may leave it out (`{ overall: false }`): the server
- * does that for this computer itself and for a sign-in link (a random one-time token: nothing to guess, no hash).
- * Those stay the owner's ways in from outside. The per-visitor limit always counts; behind a trusted proxy the
+ * does that for this computer itself (then counted as one visitor, THIS_COMPUTER) and for a sign-in link (a random
+ * one-time token: nothing to guess, no hash). Those stay the owner's ways in from outside. The per-visitor limit always counts; behind a trusted proxy the
  * address is the visitor's as the proxy reports it (security.mjs clientIp), and an IPv6 visitor is counted by its
  * /64, the block one host or one home line gets.
  */

@@ -52,7 +52,7 @@ import { listRuns } from '../runs.mjs';
 import { system as processes } from '../procid.mjs';
 import { sessionTitle, sessionsIn } from '../sessions.mjs';
 import {
-  COOKIE, RateLimiter, SessionStore, clearCookie, hashPassword, parseCookies, sessionCookie, sha256, verifyPassword,
+  COOKIE, RateLimiter, SessionStore, THIS_COMPUTER, clearCookie, hashPassword, parseCookies, sessionCookie, sha256, verifyPassword,
 } from './auth.mjs';
 import { createBackend } from './backends/index.mjs';
 import { Deck } from './deck.mjs';
@@ -838,14 +838,17 @@ export function createServer(opts = {}) {
     ...features.flatMap((f) => f.routes || []),
   ];
 
-  // The overall cap of the sign-in limit (auth.mjs RateLimiter) counts every password try from elsewhere, whatever
-  // the password is like: it bounds a guess spread over many addresses and the hashes strangers can make us run.
-  // Left out for this computer itself; a sign-in link (loginByLink) never counts. Those are the owner's ways in.
-  const overallFor = (req) => ({ overall: !sameComputer(req) });
+  // Who a sign-in try is counted as. The overall cap of the sign-in limit (auth.mjs RateLimiter) counts every password
+  // try from elsewhere, whatever the password is like: it bounds a guess spread over many addresses and the hashes
+  // strangers can make us run. This computer itself is left out of it, so guesses from the internet cannot lock the
+  // owner out at his own machine; a sign-in link (loginByLink) never counts. In return this computer is ONE visitor
+  // under one key: it owns every 127.x address and ::1, and counting each as its own visitor gave it no limit at all.
+  const visitorFor = (req) => (sameComputer(req)
+    ? { ip: THIS_COMPUTER, lim: { overall: false } }
+    : { ip: clientIp(req, proxyOpts()), lim: { overall: true } });
 
   async function login(req, res) {
-    const ip = clientIp(req, proxyOpts());
-    const lim = overallFor(req);
+    const { ip, lim } = visitorFor(req);
     const wait = limiter.retryAfter(ip, lim);
     if (wait > 0) {
       return send(res, 429, { error: `Too many tries. Wait ${Math.ceil(wait / 60000)} min.` }, { 'Retry-After': String(Math.ceil(wait / 1000)) });
@@ -868,7 +871,7 @@ export function createServer(opts = {}) {
    * login, but never by the overall cap: it is the owner's way in from outside while someone guesses the password.
    */
   async function loginByLink(req, res) {
-    const ip = clientIp(req, proxyOpts());
+    const { ip } = visitorFor(req);
     const lim = { overall: false };
     const wait = limiter.retryAfter(ip, lim);
     if (wait > 0) {
