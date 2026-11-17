@@ -7,7 +7,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 export function sandbox(name = 'dash') {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-test-`));
+  // Its real path: on macOS the temp folder is reached through a link (/var -> /private/var), and the dashboard works
+  // with real paths (the folder it starts a coding tool in, the folder name of its conversations).
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `${name}-test-`)));
   const dirs = {
     root,
     config: path.join(root, 'config'),
