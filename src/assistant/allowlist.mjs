@@ -28,6 +28,8 @@
 //   not hers for that reason. A filter such as "*.json" still reaches a secret of that kind under another name.
 // - git show --stat with an object's id prints a file whole when the id is a file's (a blob's): only a name is judged,
 //   so a committed secret named by its object id is not seen.
+// - The git commands she allows run as the coding tool's own, as git runs them (the folder's own settings may start a
+//   program), not through the dashboard's safe reader (src/gitread.mjs): that reader is for the dashboard's own reads.
 // - Paths are judged as text, so a link in the folder that points outside it is not seen.
 // - npm, git and the coding tool's own search look upward and around inside the repository: in a chat whose folder is a
 //   subfolder of one, they can read what the repository holds above it.
