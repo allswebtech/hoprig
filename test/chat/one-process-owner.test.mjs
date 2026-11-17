@@ -246,7 +246,7 @@ test('Continue here judges the record again right before its signal: nothing is 
       first = false;
       return was || fs.existsSync(file) ? { name: null, run } : null;
     };
-    const c = { id: crypto.randomUUID(), engine: { id: 'claude' }, conversationId: ID, refresh() {}, emit() {} };
+    const c = { id: crypto.randomUUID(), engine: { id: 'claude' }, conversationId: ID, refresh() {}, emit() {}, dropMark: () => false };
     const routes = handoffRoutes({ HttpError, readJson: async () => ({}), backend: {} }, {
       chats: new Map([[c.id, c]]), chatOr404: () => c, terminalOf, serial: (id, fn) => fn(), forget: () => {}, save() {}, auto: {},
     });

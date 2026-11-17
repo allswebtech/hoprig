@@ -14,10 +14,13 @@ export function wrapTab(items, active, back) {
   return i === items.length - 1 ? items[0] : null;
 }
 
-/** Keep Tab inside `dialog` (its controls that can be seen and reached by Tab). */
-export function keepTabIn(dialog) {
+/**
+ * Keep Tab inside `dialog` (its controls that can be seen and reached by Tab); `when()`: only while it says so (a
+ * panel that is a sheet on a phone and floats beside the page on a desktop).
+ */
+export function keepTabIn(dialog, { when = () => true } = {}) {
   dialog.addEventListener('keydown', (e) => {
-    if (e.key !== 'Tab' || e.defaultPrevented) return;
+    if (e.key !== 'Tab' || e.defaultPrevented || !when()) return;
     const to = wrapTab([...dialog.querySelectorAll(FOCUSABLE)].filter((x) => x.tabIndex >= 0 && x.getClientRects().length), document.activeElement, e.shiftKey);
     if (to) {
       e.preventDefault();

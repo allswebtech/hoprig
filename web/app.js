@@ -79,7 +79,7 @@ export const ALIASES = {
   '/settings/folders': '/settings/new-sessions',
   '/settings/vscode': '/settings/editor',
   '/settings/uploads': '/settings/new-sessions',
-  // open_screen (src/assistant/tools.mjs SCREENS)
+  // open_screen (src/assistant/screens.mjs SCREENS)
   '/add-account': '/providers',
   '/password': '/settings/security',
   '/pair-computer': '/computers',

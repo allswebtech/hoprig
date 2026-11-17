@@ -17,8 +17,16 @@ import { stateDir } from '../paths.mjs';
 import { fence, neutralize } from './fence.mjs';
 import { LOCAL } from './shown.mjs';
 
-/** A session in the job's log as the owner reads it: "the chat 77777777 on this computer", "web-ui on laptop". */
-const named = (session, computer) => `${/^chat:[0-9a-f-]{36}$/.test(session) ? `the chat ${session.slice(5, 13)}` : session} on ${computer === LOCAL ? 'this computer' : computer}`;
+/**
+ * A session in the job's log as the owner reads it: a chat by its folder ("the chat in shop"; its id means nothing to
+ * him), a terminal by its name; "on this computer", "on laptop".
+ */
+const who = (e) => (/^chat:/.test(e.session) ? (e.folder ? `the chat in ${e.folder}` : 'a chat') : e.session);
+const named = (e) => `${who(e)} on ${e.computer === LOCAL ? 'this computer' : e.computer}`;
+// What woke her, as the log says it.
+const REASON = { waiting: 'is waiting', needs_ok: 'asks for an OK', limit: 'reached a usage limit' };
+/** A folder's last part, as a job's entry keeps it (one line, short). */
+const lastPart = (dir) => String(dir || '').split(/[\\/]/).filter(Boolean).pop()?.replace(/[\r\n]+/g, ' ').slice(0, 80) || null;
 import { ASSISTANT_NAME } from './tia.mjs';
 import { statusOf } from './tools.mjs';
 
@@ -95,10 +103,11 @@ export function stateAfter(job, event, mode) {
   if (event.reason === 'expired') return { state: 'stuck', log: 'time cap reached' };
   if (event.reason === 'ended') {
     const open = job.sessions.filter((e) => !e.ended && e !== event.entry && !(e.computer === event.entry.computer && e.session === event.entry.session));
-    return open.length ? { state: job.state, log: `${event.entry.session} ended` } : { state: 'stuck', log: `${event.entry.session} ended before the job was finished` };
+    return open.length ? { state: job.state, log: `${who(event.entry)} ended` } : { state: 'stuck', log: `${who(event.entry)} ended before the job was finished` };
   }
-  if (mode === 'notify') return { state: 'waiting', log: `${event.entry.session} ${event.reason}; the step cap is used up, waiting for the owner` };
-  return { state: 'working', log: `${event.entry.session} ${event.reason}` };
+  const why = `${who(event.entry)} ${REASON[event.reason] || event.reason}`;
+  if (mode === 'notify') return { state: 'waiting', log: `${why}; the step cap is used up, waiting for the owner` };
+  return { state: 'working', log: why };
 }
 
 const WHY = {
@@ -209,19 +218,22 @@ export class JobStore {
    * Add a session to a job (watching starts). startedByTia: Tia started it, so she may stop or move it; `created`
    * (the terminal's card's) ties that to this one terminal, as in markStarted.
    */
-  attach(id, { computer = LOCAL, session, startedByTia = false, created = null }) {
+  attach(id, { computer = LOCAL, session, startedByTia = false, created = null, folder = null }) {
     const job = this.jobs.get(id);
     if (!job || !ACTIVE.has(job.state)) return null;
     const at = startKey(computer, session, created) ? created : null;
+    // A chat is named by its folder in the log and on the Jobs page (`folder`: its last part only).
+    const where = lastPart(folder);
     const entry = job.sessions.find((e) => e.computer === computer && e.session === session);
     if (!entry) {
-      job.sessions.push({ computer, session, startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false });
-      this.#log(job, `${startedByTia ? 'started' : 'watching'} ${named(session, computer)}`);
+      const e = { computer, session, startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false, ...(where ? { folder: where } : {}) };
+      job.sessions.push(e);
+      this.#log(job, `${startedByTia ? 'started' : 'watching'} ${named(e)}`);
     } else if (at !== null && entry.created !== at) {
       // The same name, made at another time: the conversation goes on in a new chat (or terminal) within this job, and
       // the job follows that one now.
-      Object.assign(entry, { startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false });
-      this.#log(job, `${startedByTia ? 'started' : 'watching'} ${named(session, computer)} again`);
+      Object.assign(entry, { startedByTia, created: at, since: this.now(), last: null, armed: false, ended: false, ...(where ? { folder: where } : {}) });
+      this.#log(job, `${startedByTia ? 'started' : 'watching'} ${named(entry)} again`);
     }
     return { ...job };
   }

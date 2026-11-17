@@ -14,21 +14,27 @@
 // start, a paid API account …). Tools whose calls may go either way carry `card: "maybe"`.
 //
 // Results: { summary (one plain line, built only from validated ids, numbers and fixed words), data (fenced as
-// untrusted JSON), terminal / output (fenced raw text), shown (ids this result showed, by kind) }.
+// untrusted JSON), terminal / output (fenced raw text), shown (ids this result showed, by kind) }. The summary and a
+// tool error's message and next step sit OUTSIDE the fence: a value another computer gave goes into them only through
+// `said` (toolkit.mjs: an id of this code's own form, or one of the ids it knows), never its own words (a title, a
+// why, a name, a version text, a route's error text): those go into the data, or into a ToolError's `detail`, which
+// is told inside the fence.
 import { bool, int, obj, ref, str } from './schema.mjs';
 import { LOCAL } from './shown.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
 import {
-  KEYS, SESSION, account, codingTool, comp, computer, conversation, findSession, folder, job, minsAgo, providerNote, session, sessKey, short, startOf, statusOf, tool, toolError, toolName, aTool,
+  ACCOUNT, COMPUTER, KEYS, SESSION, UUID, VERSION, account, codingTool, comp, computer, conversation, findSession, folder, job, minsAgo, providerNote, said, session, sessKey, short, startOf, statusOf, tool, toolError, toolName, aTool,
 } from './toolkit.mjs';
 import { toolOf } from '../automation/cards.mjs';
 import { send_to_chat, start_chat } from './chats.mjs';
 import { change_setting, run_command, sessionBefore, set_auto_mode, stop_session, switch_account } from './owner-tools.mjs';
 import { codingToolsView } from './codingtools.mjs';
 import { list_projects, manage_automation, manage_computer, manage_project, manage_skills, proceduresTool, read_brain } from './domains.mjs';
+import { open_screen } from './screens.mjs';
 
 export { KEYS, SAFE_SLASH, ToolError, statusOf, toolError, typedTextRisk } from './toolkit.mjs';
 export { SETTINGS } from './owner-tools.mjs';
+export { SCREENS } from './screens.mjs';
 
 /**
  * OPS: the dashboard's operations (ops.mjs runs each one through the page's own route; tests use a fake). Every
@@ -68,7 +74,9 @@ const list_sessions = tool({
     const list = a.status === 'needs_owner' ? all.filter((s) => NEEDS_OWNER.has(s.status)) : a.status === 'working' ? all.filter((s) => s.status === 'working' || s.status === 'starting') : all;
     const count = (st) => all.filter((s) => s.status === st).length;
     const where = a.computer ? `on ${a.computer}` : 'on all computers';
-    const needs = all.filter((s) => NEEDS_OWNER.has(s.status)).map((s) => s.session);
+    // Names for the summary only when they are session names of the form this code checks; the rest is counted.
+    const needs = all.filter((s) => NEEDS_OWNER.has(s.status)).map((s) => said(s.session, SESSION, null));
+    const needsNamed = needs.filter(Boolean);
     for (const s of list) {
       const j = ctx.jobs.forSession(s.computer, s.session);
       if (j) s.job = j.id;
@@ -76,7 +84,7 @@ const list_sessions = tool({
     const jobs = ctx.jobs.list().filter((j) => j.state === 'working' || j.state === 'waiting' || ctx.now() - j.updatedAt < 86_400_000).slice(0, 20)
       .map((j) => ({ job: j.id, goal: short(j.goal, 200), state: j.state, sessions: j.sessions.map((e) => e.session), steps: j.steps, max_steps: j.maxSteps, last: j.log.length ? short(j.log[j.log.length - 1].text, 160) : '' }));
     return {
-      summary: `${all.length} session(s) ${where}: ${count('working') + count('starting')} working, ${count('waiting')} waiting, ${count('needs_ok')} need an OK, ${count('limit')} at a limit, ${count('shell')} plain shells.${needs.length ? ` Need the owner: ${needs.slice(0, 10).join(', ')}.` : ''}${list.length !== all.length ? ` Showing ${list.length}.` : ''} ${jobs.length} job(s).`,
+      summary: `${all.length} session(s) ${where}: ${count('working') + count('starting')} working, ${count('waiting')} waiting, ${count('needs_ok')} need an OK, ${count('limit')} at a limit, ${count('shell')} plain shells.${needs.length ? ` Need the owner: ${[...needsNamed.slice(0, 10), ...(needs.length > needsNamed.length ? [`${needs.length - needsNamed.length} more (see the data)`] : [])].join(', ')}.` : ''}${list.length !== all.length ? ` Showing ${list.length}.` : ''} ${jobs.length} job(s).`,
       data: { sessions: list, jobs },
       shown: { session: list.map((s) => sessKey(s.computer, s.session)), computer: list.map((s) => s.computer), job: jobs.map((j) => j.job) },
     };
@@ -93,14 +101,14 @@ const read_session = tool({
     const v = sessionView(c, ctx.now());
     if (c.kind === 'chat') {
       return {
-        summary: `${a.session} on ${comp(a)} is a chat in the dashboard page (no terminal screen; its last reply is last_message); it is ${v.status}${v.account ? ` (provider ${v.account})` : ''}. send_to_chat writes to it or answers its OK.`,
+        summary: `${a.session} on ${comp(a)} is a chat in the dashboard page (no terminal screen; its last reply is last_message); it is ${v.status}${v.account ? ` (provider ${said(v.account, ACCOUNT, 'in the data')})` : ''}. send_to_chat writes to it or answers its OK.`,
         data: { session: v },
         shown: { session: [sessKey(comp(a), a.session)] },
       };
     }
     const text = await ops.capture({ computer: comp(a), session: a.session, lines: a.lines || 60 });
     return {
-      summary: `Session ${a.session} on ${comp(a)} is ${v.status}${v.account ? ` (provider ${v.account})` : ''}.`,
+      summary: `Session ${a.session} on ${comp(a)} is ${v.status}${v.account ? ` (provider ${said(v.account, ACCOUNT, 'in the data')})` : ''}.`,
       data: { session: v },
       terminal: { session: a.session, text },
       shown: { session: [sessKey(comp(a), a.session)] },
@@ -127,9 +135,10 @@ const get_accounts = tool({
       usage: p.usage || null,
     }));
     const as = r.autoSwitch || {};
-    const limited = profiles.filter((p) => p.limited).map((p) => p.account);
+    const names = (list) => (Array.isArray(list) ? list : []).map((n) => said(n, ACCOUNT, 'a provider (see the data)'));
+    const limited = names(profiles.filter((p) => p.limited).map((p) => p.account));
     return {
-      summary: `${profiles.length} provider(s) on ${comp(a)}; at a limit: ${limited.length ? limited.join(', ') : 'none'}; Auto mode ${as.enabled ? `on (${(as.order || []).join(' → ')})` : 'off'}.`,
+      summary: `${profiles.length} provider(s) on ${comp(a)}; at a limit: ${limited.length ? limited.join(', ') : 'none'}; Auto mode ${as.enabled ? `on (${names(as.order).join(' → ')})` : 'off'}.`,
       data: {
         accounts: profiles.map((p) => ({ ...p, free_pct: ctx.freePct(r.profiles.find((x) => x.name === p.account) || {}), tia_may_use: tia.allowed.includes(p.account) })),
         auto_mode: { enabled: !!as.enabled, order: as.order || [], return_to_preferred: !!as.returnToPreferred },
@@ -175,13 +184,13 @@ const get_computer_status = tool({
           rows.push({ computer: m.name, label: short(m.label, 60), online: false, error: short(e.message, 120) });
         }
       }
-      const off = rows.filter((r) => !r.online).map((r) => r.computer);
+      const off = rows.filter((r) => !r.online).map((r) => said(r.computer, COMPUTER, 'a computer (see the data)'));
       return { summary: `${rows.length} computer(s); offline: ${off.length ? off.join(', ') : 'none'}.`, data: { computers: rows }, shown: { computer: rows.map((r) => r.computer) } };
     }
     const s = await ops.computerStatus({ computer: a.computer });
     const procs = (s.processes || []).slice(0, 15).map((p) => ({ pid: p.pid, command: short(p.command, 120), cpu: p.cpu, mem: p.mem }));
     return {
-      summary: `Status of ${a.computer}${s.claude && s.claude.version ? `; Claude Code ${s.claude.version}` : ''}.`,
+      summary: `Status of ${a.computer}${s.claude && s.claude.version ? `; Claude Code ${said(s.claude.version, VERSION, '(version in the data)')}` : ''}.`,
       data: { computer: a.computer, load: s.load, memory: s.memory, disks: s.disks, processes: procs, claude_code: s.claude || null },
       shown: { process: procs.map((p) => `${a.computer}|${p.pid}`), computer: [a.computer] },
     };
@@ -231,10 +240,14 @@ const start_session = tool({
   },
   async run(ops, a, ctx) {
     const r = await startOf(ops.startSession({ computer: comp(a), folder: a.folder, profile: a.account, mode: a.mode || 'new', sessionId: a.conversation || null, prompt: a.message || null, ...(a.coding_tool ? { tool: a.coding_tool } : {}) }), a.coding_tool);
+    // The new session's name is the computer's answer: one that is not a session name of its form is not used (in the
+    // summary, a job or a mark of hers); the owner sees the session on Home.
+    if (!r.existing && !SESSION.test(String(r.name))) throw toolError('the computer started a session whose name this dashboard does not take', 'list_sessions shows it; tell the owner', { name: short(r.name, 80) });
     // The conversation runs already (one conversation, one process): nothing was started and nothing was sent. That
     // session is not hers: no mark, no job on it.
     if (r.existing) {
-      const where = r.chat ? `the chat chat:${r.chat}` : `the session ${r.name}`;
+      // Where it runs is the computer's answer: named only when it is a chat id or a session name of their forms.
+      const where = r.chat ? `the chat ${said(r.chat, UUID, null) ? `chat:${r.chat}` : '(see the data)'}` : `the session ${said(r.name, SESSION, '(see the data)')}`;
       return {
         summary: `Nothing was started: this conversation already runs in ${where} on ${comp(a)}${a.message ? '; the first message was not sent' : ''}. Read it there (read_session), or ask the owner.`,
         data: { session: r.chat ? `chat:${r.chat}` : r.name, computer: comp(a), existing: true, sent: false },
@@ -244,7 +257,9 @@ const start_session = tool({
     if (a.goal) j = ctx.jobs.create({ conversation: ctx.conversation, goal: a.goal });
     else if (a.job) j = ctx.jobs.get(a.job);
     // Hers is this one terminal, not its name (the owner's next session in that folder gets the name once it ends):
-    // the mark carries the terminal's `created` from its card.
+    // the mark carries the terminal's `created` from its card. A terminal on an earlier conversation (continue, resume)
+    // is never hers, as a chat on one is not (chats.mjs): its history holds the owner's words, so its OKs stay his.
+    const continued = (a.mode || 'new') !== 'new';
     let created = null;
     try {
       const made = (await ops.listSessions({ computer: comp(a) })).find((c) => c.name === r.name && (c.computer || LOCAL) === comp(a) && c.kind !== 'chat');
@@ -252,15 +267,15 @@ const start_session = tool({
     } catch {
       /* not known: the session is not marked hers */
     }
-    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: r.name, startedByTia: true, created });
-    else ctx.jobs.markStarted(comp(a), r.name, created);
+    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: r.name, startedByTia: !continued, created });
+    else if (!continued) ctx.jobs.markStarted(comp(a), r.name, created);
     return {
-      summary: `Started session ${r.name}${a.coding_tool && a.coding_tool !== 'claude' ? ` (${toolName(a.coding_tool)})` : ''} on ${comp(a)} under ${a.account}${providerNote(ctx)}${a.message ? ' with the first message' : ''}.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
+      summary: `Started session ${r.name}${a.coding_tool && a.coding_tool !== 'claude' ? ` (${toolName(a.coding_tool)})` : ''} on ${comp(a)} under ${a.account}${providerNote(ctx)}${continued ? ', continuing an earlier conversation' : ''}${a.message ? ' with the first message' : ''}.${continued ? ' It continues an earlier conversation, so it is not yours: every OK it asks for is the owner\'s, and you cannot answer it.' : ''}${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
       data: { session: r.name, computer: comp(a), coding_tool: a.coding_tool || 'claude', account: a.account, account_label: ctx.accountLabel || null, account_why: ctx.accountWhy || null, job: j ? j.id : null },
       shown: { session: [sessKey(comp(a), r.name)], ...(j ? { job: [j.id] } : {}) },
     };
   },
-  cardLines: (a, b) => [`Start ${aTool(a.coding_tool || 'claude')} session in a terminal in ${a.folder} on ${comp(a)} under ${a.account}${b.kind === 'api' ? ' (paid API provider)' : ''}`, ...(a.message ? [`First message: ${a.message}`] : []), ...(a.goal ? [`Goal: ${a.goal}`] : [])],
+  cardLines: (a, b) => [`Start ${aTool(a.coding_tool || 'claude')} session in a terminal in ${a.folder} on ${comp(a)} under ${a.account}${b.kind === 'api' ? ' (paid API provider)' : ''}`, ...(a.conversation ? [`Continuing conversation ${a.conversation}`] : a.mode === 'continue' ? ['Continuing the folder\'s newest conversation'] : []), ...(a.message ? [`First message: ${a.message}`] : []), ...(a.goal ? [`Goal: ${a.goal}`] : [])],
   before: async (ops, a, ctx) => ({ account: a.account, kind: ctx.accountKind || null, tool: a.coding_tool || 'claude' }),
 });
 
@@ -312,7 +327,8 @@ const rename_session = tool({
   async run(ops, a) {
     await findSession(ops, a);
     const r = await ops.renameSession({ computer: comp(a), session: a.session, name: a.name });
-    return { summary: `Renamed ${a.session} to ${r.name}.`, data: { session: r.name }, shown: { session: [sessKey(comp(a), r.name)] } };
+    const named = said(r.name, SESSION, null);
+    return { summary: `Renamed ${a.session} to ${named || 'a name of the computer\'s own (see the data)'}.`, data: { session: r.name }, ...(named ? { shown: { session: [sessKey(comp(a), named)] } } : {}) };
   },
 });
 
@@ -367,27 +383,6 @@ const notify_owner = tool({
   async run(ops, a) {
     const r = await ops.notify({ title: a.session ? `${ASSISTANT_NAME}: ${a.session}` : ASSISTANT_NAME, message: a.message, session: a.session || null, computer: comp(a) });
     return { summary: r && r.sent === false ? 'The note is in the dashboard; no push channel is set up.' : 'The owner was notified.', data: { sent: !r || r.sent !== false } };
-  },
-});
-
-// The page addresses she can open (web/app.js PAGE_ADDRESSES; a test keeps the two lists in step). Pages that
-// belong to one computer open for that computer ("#/m/<computer>/…") when a computer is given.
-export const SCREENS = [
-  'new', 'code', 'workspace', 'new-project', 'get-project', 'providers', 'computers', 'computers/add', 'computer', 'computer/setup', 'computer/advanced',
-  'automations', 'automations/queue', 'automations/rules', 'automations/activity', 'skills', 'skills/installed', 'skills/suggested',
-  'skills/find', 'brain', 'tia', 'tia/jobs', 'tia/activity', 'settings', 'settings/new-sessions', 'settings/workspace', 'settings/notifications',
-  'settings/appearance', 'settings/security', 'settings/public-link', 'settings/tia', 'settings/editor', 'settings/addons', 'settings/codingtools', 'settings/updates', 'settings/about',
-  'desktop', 'desktop/sessions', 'desktop/terminal', 'desktop/files', 'desktop/editor', 'desktop/tasks', 'desktop/services', 'desktop/logs',
-];
-const PER_COMPUTER = /^(computer|workspace|code|new-project|get-project|automations|skills|providers|desktop)(\/|$)/;
-const open_screen = tool({
-  name: 'open_screen',
-  level: 'L1',
-  description: `Show the owner a button to a dashboard page. Use it for what only he may do: add a provider, sign it in or out, sign in with another Claude account at a usage limit, or change its key (providers), remove a computer or add one by pairing code (computers, computer/advanced), the password, the network and sign-in devices (settings/security), notifications (settings/notifications), how new sessions are allowed to act (settings/new-sessions), whether updates run by themselves (settings/updates), another coding tool's sign-in (settings/codingtools), ${ASSISTANT_NAME}'s own settings (settings/tia) — and to show him any page: a new session (new), the editor (code), the desktop and its apps (desktop/…).`,
-  input: obj({ screen: str({ enum: SCREENS }), computer }, { required: ['screen'] }),
-  async run(ops, a) {
-    const link = a.computer && a.computer !== LOCAL && PER_COMPUTER.test(a.screen) ? `#/m/${a.computer}/${a.screen}` : `#/${a.screen}`;
-    return { summary: `A button to ${a.screen.replace(/[/-]/g, ' ')} is shown to the owner.`, data: { screen: a.screen, link, computer: comp(a) }, ui: { open: link } };
   },
 });
 

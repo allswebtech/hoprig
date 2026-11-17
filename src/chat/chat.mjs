@@ -16,7 +16,7 @@ import { allowPending, answerAsk, cancelAsks, keepGrants } from './asks.mjs';
 import { applySettings, renameChat, usageNow } from './controls.mjs';
 import { oneLine } from './events.mjs';
 import { MessageQueue } from './queue.mjs';
-import { knowSize, load, refresh } from './reading.mjs';
+import { knowSize, load, markRecord, refresh, restoredMark } from './reading.mjs';
 import { ensure, start, stop, stopAndWait } from './run.mjs';
 import { LiveBlocks } from './streaming.mjs';
 import { OWED_MS, TaskTable } from './tasks.mjs';
@@ -56,6 +56,9 @@ export class Chat extends Timeline {
     // Tia started this very chat (feature.mjs openChat): a fact of this chat, never of its id, which a chat opened
     // later on the same conversation may get again. Her rules let her answer OKs only in a chat of hers.
     this.byTia = o.byTia === true;
+    // After a restart her mark waits until the conversation is read (reading.mjs restoredMark); until then not hers.
+    this.restoredMark = restoredMark(o, this.byTia);
+    if (this.restoredMark) this.byTia = false;
     this.openedAt = o.openedAt || Date.now();
     this.costTotal = Number.isFinite(o.costTotal) ? o.costTotal : null; // what the coding tool reported last (a running total)
     this.grants = keepGrants(o.grants); // what "allow in this chat" covered (asks.mjs)
@@ -379,11 +382,19 @@ export class Chat extends Timeline {
     this.push({ kind: 'notice', level: 'info', text: `The next message goes to another provider (${label}).` });
   }
 
+  /** Tia's mark goes for good (also one still waiting for its check after a restart). Did it have one? */
+  dropMark() {
+    const had = this.byTia || !!this.restoredMark;
+    this.byTia = false;
+    this.restoredMark = null;
+    return had;
+  }
+
   record() {
     return {
       id: this.id, ...(this.conversationId !== this.id ? { conversationId: this.conversationId } : {}), engine: this.engine.id,
       cwd: this.cwd, profile: this.profile, model: this.model, effort: this.effort, ultracode: this.ultracode, permissionMode: this.permissionMode,
-      title: this.title, ...(this.named ? { named: true } : {}), ...(this.byTia ? { byTia: true } : {}), openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
+      title: this.title, ...(this.named ? { named: true } : {}), ...markRecord(this), openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
       ...(this.fork ? { fork: this.fork } : {}),
     };
   }

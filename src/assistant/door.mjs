@@ -4,8 +4,12 @@
 //
 //   1. the address is normalised exactly as the server will read it (`new URL(url, 'http://x')`: dot segments
 //      resolved; an encoded "/" stays inside its segment) and an "/m/<computer>" prefix is taken off;
-//   2. a route on NEVER is refused, whatever the table says (the owner's own steps, L3);
-//   3. only a method + route in ALLOW passes, and for the two settings routes only the keys her tools change.
+//   2. every segment is decoded once, as a route decodes its ids: "public%2Dlink" is "public-link" here too. A segment
+//      that does not decode, or that decodes to a "/", "%", "\" or a control character, is refused (no route of hers
+//      takes one, and a second decoding somewhere could make it another route);
+//   3. a route on NEVER is refused, whatever the table says (the owner's own steps, L3);
+//   4. only a method + route in ALLOW passes, and for the two settings routes only the keys her tools change.
+// The lists are matched against the decoded path.
 //
 // Both lists are data, here, so a reviewer reads in one place what she can reach. The other computer decides for
 // itself too: a relayed request arrives there with the hub's machine token and passes that computer's own gate
@@ -190,6 +194,24 @@ export const NEVER = [
 
 const MACHINE = /^\/m\/([a-z0-9][a-z0-9_-]{0,31})(\/.*)$/;
 const refuse = (message) => Object.assign(new Error(message), { status: 403, code: 'tia-route' });
+// eslint-disable-next-line no-control-regex
+const BAD_DECODED = /[/%\\\x00-\x1f\x7f]/;
+
+/** The path with each segment decoded once; null when a segment does not decode or decodes to something odd. */
+function decodedPath(p) {
+  const out = [];
+  for (const seg of p.split('/')) {
+    let d;
+    try {
+      d = decodeURIComponent(seg);
+    } catch {
+      return null;
+    }
+    if (BAD_DECODED.test(d)) return null;
+    out.push(d);
+  }
+  return out.join('/');
+}
 
 /**
  * Check one request of Tia's tools. Returns { method, route, computer } or throws a 403 error. `ctx` is needed only
@@ -210,6 +232,9 @@ export function checkRoute(method, url, body, ctx) {
     computer = m[1];
     p = new URL(m[2], 'http://x').pathname;
   } else if (p.startsWith('/m/')) throw refuse('that computer name is not valid');
+  const d = decodedPath(p);
+  if (d === null) throw refuse('that address holds an encoded character no route of Tia\'s takes');
+  p = d;
   if (NEVER.some((re) => re.test(p))) throw refuse(`${method} ${p} is the owner's own step, not Tia's`);
   const entry = ALLOW.find((e) => e.method === method && e.re.test(p));
   if (!entry) throw refuse(`${method} ${p} is not a route Tia's tools use`);

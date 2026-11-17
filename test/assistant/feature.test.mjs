@@ -199,7 +199,12 @@ for (const kind of kinds) {
     assert.match(quoted.json.error, sentence);
     r = await call('start_session', { folder: proj2, message: 'x', account: 'sub' });
     assert.equal(r.isError, true, r.text);
-    assert.match(r.text, sentence);
+    // The computer's sentence names a path: she reads it whole, inside the fence (assistant/toolkit.mjs errorText), and
+    // only fixed words outside it.
+    const fence = /<untrusted_data tool="start_session" said="error">([\s\S]*)<\/untrusted_data>/.exec(r.text);
+    assert.ok(fence, r.text);
+    assert.match(JSON.parse(fence[1]).error, sentence);
+    assert.doesNotMatch(r.text.slice(0, fence.index), /cannot type|it's here/);
     saveConfig(cfgBefore);
     assert.doesNotMatch((await call('list_sessions', {})).text, /proj2/, 'nothing started');
 
@@ -293,6 +298,14 @@ for (const kind of kinds) {
     r = await owner('POST', '/api/assistant/settings', { level: 'handsoff', accounts: ['api'], runsOn: 'api', model: 'haiku' });
     assert.equal(r.status, 200, JSON.stringify(r.json));
     assert.deepEqual(r.json.settings.allowed, ['api']);
+    // Activity lists what the owner changed: Save sends every value again, and the ones that stayed are left out.
+    r = await owner('POST', '/api/assistant/settings', { level: 'handsoff', accounts: ['api'], runsOn: 'api', model: 'haiku', maxSteps: 20, maxMinutes: 30 });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    let saved = (await owner('GET', '/api/assistant/audit?n=1')).json.entries[0];
+    assert.deepEqual([saved.tool, saved.input], ['tia_settings', { maxMinutes: 30 }]);
+    await owner('POST', '/api/assistant/settings', { level: 'handsoff', maxMinutes: 30 });
+    saved = (await owner('GET', '/api/assistant/audit?n=1')).json.entries[0];
+    assert.deepEqual(saved.input, { maxMinutes: 30 }, 'nothing changed: no new entry');
     r = await owner('POST', '/api/assistant/settings', { enabled: false });
     assert.equal(r.json.settings.enabled, false);
     r = await asTia('POST', '/api/assistant/call', { tool: 'list_sessions', args: {} });

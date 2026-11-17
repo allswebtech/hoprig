@@ -215,5 +215,5 @@ test('the desktop and each of its apps have an address, in the page and in what 
   const pages = [...(/export const PAGE_ADDRESSES = \[([\s\S]*?)\];/.exec(app)[1]).matchAll(/'#\/(desktop[^']*)'/g)].map((m) => m[1]);
   const want = ['desktop', ...APPS.map((a) => `desktop/${a.id}`)];
   assert.deepEqual([...pages].sort(), [...want].sort(), 'web/app.js PAGE_ADDRESSES');
-  assert.deepEqual(SCREENS.filter((x) => x.startsWith('desktop')).sort(), [...want].sort(), 'src/assistant/tools.mjs SCREENS');
+  assert.deepEqual(SCREENS.filter((x) => x.startsWith('desktop')).sort(), [...want].sort(), 'src/assistant/screens.mjs SCREENS');
 });

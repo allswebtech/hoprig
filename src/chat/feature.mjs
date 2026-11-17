@@ -117,9 +117,15 @@ export function chatFeature(ctx, o = {}) {
     } catch {
       /* none yet */
     }
+    let marks = false;
     for (const r of Array.isArray(list) ? list : []) {
-      if (r && isSessionId(r.id) && typeof r.cwd === 'string' && path.isAbsolute(r.cwd) && typeof r.profile === 'string') make(r);
+      if (r && isSessionId(r.id) && typeof r.cwd === 'string' && path.isAbsolute(r.cwd) && typeof r.profile === 'string') {
+        // restored: Tia's mark is checked against what the record knew of the conversation (chat.mjs restoredMark).
+        const c = make({ ...r, restored: true });
+        if (r.byTia === true && !c.byTia && !c.restoredMark) marks = true;
+      }
     }
+    if (marks) save(); // a mark that went (the conversation went on while the dashboard was down) goes on disk too
   }
   function save() {
     const out = [...chats.values()].map((c) => c.record());
@@ -192,7 +198,7 @@ export function chatFeature(ctx, o = {}) {
   async function deliver(c, text, opts = {}, hers = false) {
     const send = () => c.send(text, opts);
     const r = c.busy() ? await send() : await sendOne(c, send);
-    if (!hers) c.byTia = false;
+    if (!hers && c.dropMark()) save();
     return r;
   }
   /**
@@ -283,7 +289,8 @@ export function chatFeature(ctx, o = {}) {
    * defaults and not the folder's last chat, as a terminal session they start does: a mode the owner chose for himself
    * (bypass) is not carried into a chat nobody watches. A conversation an open chat already runs gives that chat, as it is.
    * byTia: true (Tia's start_chat, from her door only) marks the chat this call creates as hers, and no other: not an
-   * open chat it gives back, nor a later chat on the same conversation (the mark goes with this chat when it closes for
+   * open chat it gives back, not a chat on an existing conversation (sessionId: never hers), nor a later chat on the
+   * same conversation (the mark goes with this chat when it closes for
    * any reason). A message sent into it by anyone but her (the page, a schedule) takes the mark off for good (deliver):
    * from then on the chat carries the owner's own instructions, and so does a conversation that went on in a terminal.
    * An answer, a Stop or a settings change does not (he only steers her work).
@@ -355,7 +362,9 @@ export function chatFeature(ctx, o = {}) {
       id, ...(conversationId && conversationId !== id ? { conversationId } : {}), engine: tool, cwd: dir, profile,
       // a model the computer stopped offering is not forced on a new chat
       model: model && modelOk(tool, model, ch) ? model : null, effort: ch.efforts.includes(effort) ? effort : null,
-      permissionMode: modeFor(tool, permissionMode), ultracode, byTia: b.byTia === true,
+      // A chat on an existing conversation is never hers, whoever asks: its history holds the owner's own instructions
+      // (or her own earlier ones, which the safe side treats the same), so its OKs stay his.
+      permissionMode: modeFor(tool, permissionMode), ultracode, byTia: b.byTia === true && !conversationId,
     });
     save();
     if (owners) remember(c); // the folder's last chat is the owner's own choice, not Tia's or a schedule's

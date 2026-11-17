@@ -23,7 +23,7 @@
 //   model        null (default: the account's own) or the model her engine uses, e.g. "haiku"
 
 import path from 'node:path';
-import { toolName } from './toolkit.mjs';
+import { ACCOUNT, toolName } from './toolkit.mjs';
 
 /** One constant for the name, so a fork can rename her. */
 export const ASSISTANT_NAME = 'Tia';
@@ -140,10 +140,12 @@ export function freePct(p) {
 /**
  * The real providers Tia may be allowed to use: the ones that serve a coding tool of this version (she starts Claude
  * Code sessions and chats, and moves a session within its coding tool). One that serves none (`unusable`, or an
- * empty `tools` list: another coding tool's sign-in, a key only Codex could use) is never offered to her.
+ * empty `tools` list: another coding tool's sign-in, a key only Codex could use) is never offered to her. Nor is one
+ * whose name is not of a provider name's form: a provider's name goes into her summaries and refusals (outside the
+ * fence), so a linked computer cannot put its own sentence there by naming a provider with it.
  */
 export const tiaChoices = (accounts) => ((accounts && accounts.profiles) || [])
-  .filter((p) => !p.virtual && p.name !== 'auto' && !p.unusable && (!Array.isArray(p.tools) || p.tools.length > 0));
+  .filter((p) => p && ACCOUNT.test(String(p.name)) && !p.virtual && p.name !== 'auto' && !p.unusable && (!Array.isArray(p.tools) || p.tools.length > 0));
 
 /**
  * Whether a provider (as get_accounts lists it: `tools` = the coding tools it serves; absent on older computers, which
@@ -193,9 +195,26 @@ export function chooseAccount(tia, accounts, tool = 'claude') {
 // own notification (untrusted), so this is a deny-list on top of "only within the goal", not a guarantee: for a
 // terminal session, which has only its screen to judge, it is best effort; a chat does not rest on it (she allows a
 // chat's OK only from the short allow-list of allowlist.mjs, and this list runs after it as a second look).
-/** Files that may hold secrets: keys, sign-ins, a .env, the package managers' and databases' sign-in files, Claude Code's
- * and Hoprig's own settings. The one list of the deny-list below and of the allow-list (allowlist.mjs). */
-export const SECRET_FILES = /(\.ssh|\.aws|\.gnupg|\.netrc|\.env\b|\.envrc|\.npmrc|\.pypirc|\.pgpass|\.docker\/config\.json|\.(?:pem|key)(?![\w.-])|id_rsa|id_ed25519|credentials|keychain|\.claude\/|\.config\/hoprig)/i;
+/**
+ * Files that may hold secrets, by their names: keys and key stores (SSH, TLS, Android, Java, PKCS#12, Apple's .p8,
+ * PuTTY's, armored PGP), sign-ins and settings with tokens (a .env and its kin, the package managers' (Composer's
+ * auth.json among them), databases', clouds', Vault's, Kubernetes', Docker's, a repository's own config, a WordPress
+ * config, Gradle's properties), infrastructure state, secrets files and service accounts (Firebase's too), a file or folder named cred or creds, Claude
+ * Code's and Hoprig's own settings. The one list of the deny-list below and of the allow-list (allowlist.mjs: every
+ * reader of its table, a file tool's path, a command's file words and git's "HEAD:path" forms).
+ *
+ * A list of names is still a list of names: it is not a wall around secrets. Inside the chat's folder the coding tool's
+ * own Read reads without asking in its default mode, and a file can hold a key under any name. The list only keeps HER
+ * from saying yes, by herself, to the obvious ones.
+ */
+export const SECRET_FILES = new RegExp([
+  /\.ssh|\.aws|\.gnupg|\.netrc|\.pgpass|\.kube\/|\.docker\/config\.json|\.git\/config\b|\.claude\/|\.config\/hoprig/,
+  /\.env\b|\.envrc|\.dev\.vars\b|\.npmrc|\.yarnrc|\.pypirc|\.htpasswd|\.my\.cnf|\.vault-token|\.s3cfg|\.boto\b|kubeconfig/,
+  /\.(?:pem|key)(?![\w.-])|\.(?:keystore|jks|p12|pfx|p8|ppk|asc|tfstate|tfvars)\b|(?<![A-Za-z0-9])(?:key|keystore|gradle)\.properties/,
+  /id_(?:rsa|dsa|ecdsa|ed25519)|credentials|keychain|secrets?\.(?:json|ya?ml|toml)\b|service[-_]?account[^/]*\.json|adminsdk[^/]*\.json/,
+  /(?<![\w.-])(?:auth\.json|wp-config\.php)(?![\w.-])/,
+  /(?:^|\/)creds?(?:\/|$)/,
+].map((r) => r.source).join('|'), 'i');
 const RISKY = [
   /\b(curl|wget|fetch|iwr|invoke-webrequest)\b[^\n|]*\|\s*(ba|z|da|k)?sh\b/i,
   /\bbase64\s+(-d|--decode)\b[^\n]*\|\s*(ba|z)?sh\b/i,

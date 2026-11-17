@@ -141,8 +141,10 @@ export function createOps(o) {
     killSession: ({ computer, session }) => post(computer, `/api/sessions/${enc(session)}/kill`, {}),
     switchAccount: ({ computer, session, profile }) => post(computer, `/api/sessions/${enc(session)}/switch`, { profile }),
     // ---- chats (src/chat; a chat is "chat:<id>" among the sessions) ----
+    // A chat on an earlier conversation is never hers (its history holds the owner's own words): she does not even ask
+    // for the mark there, and the computer refuses it too (src/chat/feature.mjs openChat).
     startChat: ({ computer, folder, profile, sessionId, text, tool }) =>
-      post(computer, '/api/chats', { dir: dir(computer, folder), ...(tool ? { tool } : {}), profile, ...(sessionId ? { sessionId } : {}), ...(text ? { text } : {}), defaults: true, byTia: true }).then((r) => {
+      post(computer, '/api/chats', { dir: dir(computer, folder), ...(tool ? { tool } : {}), profile, ...(sessionId ? { sessionId } : {}), ...(text ? { text } : {}), defaults: true, ...(sessionId ? {} : { byTia: true }) }).then((r) => {
         ctx.poke?.();
         return r;
       }),

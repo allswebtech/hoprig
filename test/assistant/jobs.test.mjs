@@ -66,13 +66,25 @@ test('wakeMessage: trusted header, goal neutralised, screen fenced', () => {
   assert.match(m, /finish_job/);
 });
 
-test('a job\'s log names what the owner reads: this computer in words, a chat by its short id', () => {
+test('a job\'s log names what the owner reads: this computer in words, a chat by its folder, never by its id', () => {
   const store = new JobStore({ dir: null, now: () => 1000 });
   const j = store.create({ conversation: 'c', goal: 'tests pass' });
   store.attach(j.id, { computer: 'this', session: 's', startedByTia: true });
   assert.equal(store.get(j.id).log.at(-1).text, 'started s on this computer');
-  store.attach(j.id, { computer: 'laptop', session: 'chat:77777777-7777-4777-8777-777777777777' });
-  assert.equal(store.get(j.id).log.at(-1).text, 'watching the chat 77777777 on laptop');
+  const chat = 'chat:77777777-7777-4777-8777-777777777777';
+  store.attach(j.id, { computer: 'laptop', session: chat, folder: '/home/x/projects/shop/' });
+  assert.equal(store.get(j.id).log.at(-1).text, 'watching the chat in shop on laptop');
+  assert.equal(store.get(j.id).sessions.at(-1).folder, 'shop', 'kept with the job for the Jobs page (its last part only)');
+  store.attach(j.id, { computer: 'this', session: 'chat:88888888-8888-4888-8888-888888888888' });
+  assert.equal(store.get(j.id).log.at(-1).text, 'watching a chat on this computer', 'no folder known: still no id');
+  // What woke her, in words, and the chat again by its folder.
+  const cur = store.get(j.id);
+  const e = cur.sessions.find((x) => x.session === chat);
+  assert.equal(stateAfter(cur, { job: cur, entry: e, reason: 'needs_ok' }, 'answer').log, 'the chat in shop asks for an OK');
+  assert.equal(stateAfter(cur, { job: cur, entry: cur.sessions[0], reason: 'waiting' }, 'answer').log, 's is waiting');
+  assert.equal(stateAfter(cur, { job: cur, entry: e, reason: 'limit' }, 'notify').log, 'the chat in shop reached a usage limit; the step cap is used up, waiting for the owner');
+  assert.equal(stateAfter(cur, { job: cur, entry: e, reason: 'ended' }, 'report').log, 'the chat in shop ended');
+  for (const l of store.get(j.id).log) assert.doesNotMatch(l.text, /chat:|[0-9a-f]{8}/);
 });
 
 test('JobStore: create, attach, step cap, finish, persistence, tick', () => {

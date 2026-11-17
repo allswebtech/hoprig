@@ -230,7 +230,7 @@ test('read_brain: the index, then one item as fenced file text; items only from 
   assert.match((await call('read_brain', {})).text, /3 readable entr/);
   const r = await call('read_brain', { item: 'pending' });
   assert.equal(r.isError, false, r.text);
-  assert.ok(r.text.includes('<untrusted_file name="PENDING.md">'));
+  assert.ok(r.text.includes('<untrusted_file name="pending">'), 'the fence is named by the id she asked for');
   assert.equal(r.text.split('</untrusted_file>').length - 1, 1);
   assert.equal(writes(ops).length, 0);
 });
@@ -285,7 +285,8 @@ test('the workspace: map and git are reads; the e-mail never shows; addresses ar
   assert.match(m.text, /^The workspace map of this: 1 here, 1 missing, 0 different, 1 not in the map; NOT saved in the brain's history yet\./);
   assert.ok(m.text.includes('<untrusted_data tool="list_projects">'));
   const g = await call('list_projects', { view: 'git' });
-  assert.match(g.text, /a commit identity is set; GitHub signed in as owner/);
+  assert.match(g.text, /a commit identity is set; GitHub signed in \(the account is in the data\)/);
+  assert.match(g.text, /"account":"owner"/);
   assert.ok(!g.text.includes('owner@example.com'), 'the commit e-mail is not hers to see');
   assert.match((await call('list_projects', { view: 'map', folder: '/home/owner/projects' })).text, /folder or view, not both/);
   assert.equal(writes(ops).length, 0);

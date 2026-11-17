@@ -136,3 +136,11 @@ test('add-ons: attach() when the dashboard starts, detach() when it stops; one t
   }
   assert.deepEqual(errors, ['add-on gw: boom']);
 });
+
+test('add-ons: an add-on is named by its own plain spelling only (an encoded one is no add-on)', async () => {
+  const { addon, call } = harness();
+  for (const p of ['/api/addons/g%77/start', '/api/addons/%67w/start', '/api/addons/g%2577/start']) await assert.rejects(call('POST', p), (e) => e.status === 404, p);
+  await assert.rejects(call('GET', '/api/addons/g%77/job'), (e) => e.status === 404);
+  await settle();
+  assert.equal(addon.state.running, false, 'nothing was started');
+});

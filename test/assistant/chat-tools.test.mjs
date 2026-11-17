@@ -123,6 +123,9 @@ test('start_chat: an allowed provider picked by her, a job, then her own chat\'s
   const card = ops.s.sessions.find((x) => x.name === name);
   assert.ok(card.created > 0);
   assert.equal(core.jobs.forSession('this', name).sessions[0].created, card.created, 'the job follows this chat, by when it was opened');
+  // The owner reads the job's chat by its folder (the Jobs page, "What she did"), never by its id.
+  assert.equal(core.jobs.forSession('this', name).sessions[0].folder, 'api');
+  assert.equal(core.jobs.forSession('this', name).log.at(-1).text, 'started the chat in api on this computer');
   card.cwd = '/home/owner/projects/api';
   Object.assign(card, { status: 'attention', note: 'Claude wants to run: npm test (Run the tests)', ask: { request: 'r2', type: 'permission', tool: 'Bash', known: true, subject: 'npm test', judged: { command: 'npm test' }, owner: false, canAlways: true } });
   // "Do not ask again" would let later calls run with no OK her allow-list sees: the owner's, even for a harmless one.
@@ -158,7 +161,7 @@ test('her own chat\'s OK is judged whole: a risky command padded past 2000 chara
   Object.assign(card, { status: 'attention', note: 'Claude wants to run: echo "aaaa…', ask: { request: 'p1', type: 'permission', tool: 'Bash', known: true, subject: padded.subject, judged: padded.judged, cut: false, owner: false } });
   assert.match((await call('send_to_chat', { session: name, answer: 'allow' })).text, /Waiting for the owner's OK.*not on the short list/s, 'the whole command is judged');
   // On the short list, and still a card: the deny-list looks at what passed it.
-  Object.assign(card, { ask: { request: 'p0', type: 'permission', tool: 'Bash', known: true, subject: 'grep -rn sudo src', judged: { command: 'grep -rn sudo src' }, cut: false, owner: false } });
+  Object.assign(card, { ask: { request: 'p0', type: 'permission', tool: 'Bash', known: true, subject: 'grep -n sudo src/a.js', judged: { command: 'grep -n sudo src/a.js' }, cut: false, owner: false } });
   assert.match((await call('send_to_chat', { session: name, answer: 'allow' })).text, /Waiting for the owner's OK.*risky/s);
   // Longer than an ask carries: only a harmless part came, and a part is never judged.
   Object.assign(card, { ask: { request: 'p2', type: 'permission', tool: 'Bash', known: true, subject: 'a'.repeat(SUBJECT_MAX), cut: true, owner: false } });
@@ -340,6 +343,23 @@ test('start_chat on a conversation the owner has open: his chat is returned as h
   assert.equal(core.jobs.startedByTia('this', `chat:${ID}`), false, 'not hers');
   assert.ok(core.jobs.forSession('this', `chat:${ID}`), 'her job watches it all the same');
   assert.ok(staged(await call('send_to_chat', { session: `chat:${ID}`, answer: 'allow' })), 'its OK stays the owner\'s');
+  assert.ok(!ops.calls.some((c) => c.op === 'answerChat'));
+});
+
+test('start_chat on an earlier conversation that no chat has open: a new chat, but never hers; its OKs are the owner\'s', async () => {
+  const { call, ops, core } = setup({ cards: [] });
+  const CONV = '33333333-3333-4333-8333-333333333333'; // an earlier conversation of the fake's folder
+  await call('list_projects', { folder: '/home/owner/projects/api' });
+  const r = await call('start_chat', { folder: '/home/owner/projects/api', account: 'sub', conversation: CONV, message: 'go on', goal: 'tests pass' });
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.text, /continuing the earlier conversation.*It continues an earlier conversation, so it is not yours: every OK it asks for is the owner's, and you cannot answer it\./s);
+  const start = ops.calls.find((c) => c.op === 'startChat');
+  assert.equal(start.args.sessionId, CONV);
+  assert.equal(core.jobs.startedByTia('this', `chat:${CONV}`), false, 'her job watches it, but did not start it');
+  // The computer asks: her answer "allow" is a card, nothing is answered.
+  Object.assign(ops.s.sessions.find((x) => x.name === `chat:${CONV}`), { status: 'attention', note: 'Claude wants to run: npm test', ask: { request: 'r9', type: 'permission', tool: 'Bash', known: true, subject: 'npm test', judged: { command: 'npm test' }, owner: false } });
+  await call('list_sessions', {});
+  assert.ok(staged(await call('send_to_chat', { session: `chat:${CONV}`, answer: 'allow' })), 'its OK stays the owner\'s');
   assert.ok(!ops.calls.some((c) => c.op === 'answerChat'));
 });
 

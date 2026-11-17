@@ -11,7 +11,8 @@
 //      outside plain ASCII.
 //   a. Read, Glob, Grep: every path of the call, resolved against the chat's folder by node:path, lies inside that folder
 //      and is plain ASCII; no path names the home folder by "~" or a variable; below the folder, no path is a file that
-//      may hold secrets.
+//      may hold secrets. Grep also names which files it searches (a glob that is more than wildcards, or a type): a
+//      search through every file of a folder reads its secrets too, as grep -r and rg would.
 //   b. Bash: one simple command of plain ASCII (none of ; & | < > ( ) { } $ ` \ ' " ~, no line break, and no * ? [ ] ^ #:
 //      the shell would turn those into words nobody judged; ^ and # are patterns to a shell with extended patterns), no
 //      word that starts with "@" or "=" (some programs read such a word as a file of options; a shell expands it), its
@@ -20,8 +21,13 @@
 //   c. any other tool (a page fetch, a web search, a skill, a subagent, a tool added later): the owner's.
 //
 // Its limits, said plainly:
-// - The secret rule goes by a file's name, so a search over the folder (grep -r, the Grep tool) can still show a line
-//   of such a file.
+// - The secret rule goes by a file's name (SECRET_FILES in tia.mjs): it is not a wall around secrets. Inside the chat's
+//   folder the coding tool's own Read reads without asking in its default mode, and a key can sit in a file of any
+//   name. The list only keeps HER from saying yes to the obvious ones. The forms that read every file of a folder at
+//   once (grep -r, rg, a patch of git diff, git show or git log -p, git grep, the Grep tool without a file filter) are
+//   not hers for that reason. A filter such as "*.json" still reaches a secret of that kind under another name.
+// - git show --stat with an object's id prints a file whole when the id is a file's (a blob's): only a name is judged,
+//   so a committed secret named by its object id is not seen.
 // - Paths are judged as text, so a link in the folder that points outside it is not seen.
 // - npm, git and the coding tool's own search look upward and around inside the repository: in a chat whose folder is a
 //   subfolder of one, they can read what the repository holds above it.
@@ -38,8 +44,8 @@ const P = path.posix;
 // ---------- the table: the commands she may allow herself, and every option each may carry ----------
 // Key: the first word, or the first two. letters: one-letter options that may be combined (-la); flags: options taken
 // exactly as written; num / word: options whose value is the next word, a number / a plain word (once each); dashNum:
-// -<number> (-20); args: how the words that are not options are judged (ARGS below); script: a script runner (SCRIPT
-// below); exact: the key and nothing after it. Any other option, "--" itself and an option glued to a value are a card. Keep it this short: a command earns
+// -<number> (-20); needs: one of these options must be there; args: how the words that are not options are judged (ARGS
+// below); script: a script runner (SCRIPTS below); exact: the key and nothing after it. Any other option, "--" itself and an option glued to a value are a card. Keep it this short: a command earns
 // a place by only looking at the folder, or only testing and building what is in it. A test runner that reads its
 // words its own way (a file of options, an import path, any file as a test) stays off until it is studied on its own.
 export const TABLE = {
@@ -53,12 +59,15 @@ export const TABLE = {
   du: { letters: 'sha', args: 'paths' },
   tree: { flags: ['-a', '-d'], num: ['-L'], args: 'paths' },
   file: { args: 'paths' },
-  grep: { letters: 'niRrlcwvEFHhos', word: ['-e'], num: ['-A', '-B', '-C'], args: 'loose' },
-  rg: { letters: 'nilcwvFS', word: ['-e'], num: ['-A', '-B', '-C'], args: 'loose' },
+  // grep only on the files it names (no -r, -R: a search of a whole folder reads every file in it, secrets too); rg
+  // searches a whole folder by itself, so it is not here.
+  grep: { letters: 'nilcwvEFHhos', word: ['-e'], num: ['-A', '-B', '-C'], args: 'loose' },
   'git status': { flags: ['-s', '--short', '-b', '--branch'], args: 'loose' },
-  'git diff': { flags: ['--stat', '--name-only', '--name-status', '--cached', '--staged', '-p'], args: 'loose' },
-  'git show': { flags: ['--stat', '--name-only', '--name-status', '--cached', '--staged', '-p'], args: 'loose' },
-  'git log': { flags: ['--oneline', '--stat', '--name-only', '--graph', '--all', '-p'], num: ['-n'], dashNum: true, args: 'loose' },
+  // A patch shows every changed file's lines at once: git diff and git show only with the names or the counts of what
+  // changed (one of `needs`), git log never with -p.
+  'git diff': { flags: ['--stat', '--name-only', '--name-status', '--cached', '--staged'], needs: ['--stat', '--name-only', '--name-status'], args: 'loose' },
+  'git show': { flags: ['--stat', '--name-only', '--name-status'], needs: ['--stat', '--name-only', '--name-status'], args: 'loose' },
+  'git log': { flags: ['--oneline', '--stat', '--name-only', '--graph', '--all'], num: ['-n'], dashNum: true, args: 'loose' },
   'git ls-files': { args: 'loose' },
   'git blame': { args: 'loose' },
   'git rev-parse': { flags: ['--abbrev-ref', '--show-toplevel', '--short'], args: 'loose' },
@@ -69,10 +78,12 @@ export const TABLE = {
   // Exactly these two words: node finds the project's test files by itself.
   'node --test': { exact: true },
 };
-// A script runner takes "test", or "run" and one of these names exactly, or test:<x> / tests:<x>, and nothing after it:
-// whatever follows (an option, "--" and what the script passes on) is read by npm or by the program the script starts.
-// "format" and any other name with ":x" (lint:fix, format:write) are a card: such scripts rewrite the source files.
-const SCRIPT = /^(?:test|tests|lint|build|typecheck|check|tests?:[A-Za-z0-9_-]+)$/;
+// A script runner takes "test", or "run" and one of these names exactly, and nothing after it: whatever follows (an
+// option, "--" and what the script passes on) is read by npm or by the program the script starts. A fixed short list:
+// any other name is a card, also test:<anything else> (test:update, test:fix rewrite snapshots or source files), lint:fix
+// and format.
+const TEST_KINDS = ['unit', 'e2e', 'integration', 'ci', 'all', 'types', 'lint', 'smoke', 'coverage'];
+export const SCRIPTS = new Set(['test', 'tests', 'lint', 'build', 'typecheck', 'check', ...TEST_KINDS.flatMap((k) => [`test:${k}`, `tests:${k}`])]);
 
 export const WHY = {
   noFolder: 'the chat\'s folder is not known',
@@ -82,6 +93,7 @@ export const WHY = {
   home: 'a path that names the home folder or a variable',
   notAscii: 'a path with a character outside plain ASCII (a disk that ignores case may read it as another name)',
   secret: 'a file that may hold secrets (a key, a password, a .env)',
+  wholeFolder: 'a search through every file of a folder, secrets too (a search that names its kind of file, such as *.js, she may allow)',
   write: 'changing a file is yours to allow; with the permission mode that accepts edits the coding tool does not ask at all',
   command: `a command that is not on the short list ${ASSISTANT_NAME} may allow herself`,
   option: `an option that is not on the short list ${ASSISTANT_NAME} may allow herself`,
@@ -125,6 +137,27 @@ function filterWhy(raw) {
   if (raw.includes('..') || raw.startsWith('/') || /[\\\x00-\x1f\x7f]/.test(raw)) return WHY.outside;
   return SECRET_FILES.test(raw) ? WHY.secret : null;
 }
+/** A glob's alternatives ("*.{ts,tsx}" → "*.ts", "*.tsx"), at most a few dozen. */
+function alternatives(g, n = 0) {
+  const m = /\{([^{}]*)\}/.exec(g);
+  if (!m || n > 5) return [g];
+  return m[1].split(',').slice(0, 12).flatMap((x) => alternatives(g.slice(0, m.index) + x + g.slice(m.index + m[0].length), n + 1));
+}
+// Which files the Grep tool searches: without a glob or a type, every file of its folder; a glob whose last part is only
+// wildcards ("*", "**/*", "*.*", "[a-z]*") is the same, and so is one that leaves files out ("!*.js": all the others). A type is one of ripgrep's names of file kinds ("js", "py").
+function narrowWhy(i) {
+  if (i.glob === undefined && i.type === undefined) return WHY.wholeFolder;
+  if (i.type !== undefined && (typeof i.type !== 'string' || !/^[A-Za-z0-9_+-]{1,20}$/.test(i.type) || i.type.toLowerCase() === 'all')) return WHY.wholeFolder;
+  if (i.type !== undefined && SECRET_FILES.test(`x.${i.type}`)) return WHY.secret;
+  if (i.glob === undefined) return null;
+  if (String(i.glob).trimStart().startsWith('!')) return WHY.wholeFolder;
+  for (const alt of alternatives(i.glob)) {
+    const last = alt.split('/').pop().replace(/\[[^\]]*\]/g, '*');
+    if (!/[A-Za-z0-9]/.test(last)) return WHY.wholeFolder;
+    if (SECRET_FILES.test(alt)) return WHY.secret;
+  }
+  return null;
+}
 
 /** The coding tool's tools that change a file: never hers, wherever the file is (what is written may be run later by
  * something nobody listed: a hook, a CI file, a package manager's settings, a shell's start-up file). */
@@ -133,7 +166,7 @@ export const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'
 export const FILE_TOOLS = {
   Read: (i, root) => pathWhy(i.file_path, root),
   Glob: (i, root) => optionalPath(i.path, root) || globWhy(i.pattern, typeof i.path === 'string' ? P.resolve(root, i.path) : root, root),
-  Grep: (i, root) => optionalPath(i.path, root) || filterWhy(i.glob),
+  Grep: (i, root) => optionalPath(i.path, root) || filterWhy(i.glob) || narrowWhy(i),
 };
 
 // ---------- rule b: one command ----------
@@ -210,7 +243,8 @@ function commandWhy(command, root) {
   const e = TABLE[key];
   const rest = words.slice(key.split(' ').length);
   if (e.exact) return rest.length ? WHY.command : null;
-  if (e.script) return (rest.length === 1 && rest[0] === 'test') || (rest.length === 2 && rest[0] === 'run' && SCRIPT.test(rest[1])) ? null : WHY.command;
+  if (e.script) return (rest.length === 1 && rest[0] === 'test') || (rest.length === 2 && rest[0] === 'run' && SCRIPTS.has(rest[1])) ? null : WHY.command;
+  if (e.needs && !rest.some((w) => e.needs.includes(w))) return WHY.option;
   return wordsWhy(e, rest, root);
 }
 

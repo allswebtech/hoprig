@@ -40,6 +40,8 @@ function setup(state = (s) => s) {
 }
 const cardId = (r) => (/card (c_[0-9a-z]+)/.exec(r.text) || [])[1] || null;
 const writes = (ops) => ops.calls.map((c) => c.op);
+// What she reads outside every fence: the words a computer must never reach.
+const outside = (t) => t.replace(/<untrusted_(\w+)[^>]*>[\s\S]*?<\/untrusted_\1>/g, '');
 
 test('the catalog stays at 25 tools: the coding tools came in as fields and actions of tools that exist', () => {
   assert.equal(TOOLS.length, 25);
@@ -77,7 +79,9 @@ test('start_chat with OpenCode off, or on a provider that does not serve it: ref
   }));
   r = await call('start_chat', { folder: '/home/owner/projects/hoprig', coding_tool: 'opencode' });
   assert.equal(r.isError, true);
-  assert.match(r.text, /OpenCode could not start: OpenCode is not installed/);
+  assert.match(outside(r.text), /OpenCode could not start \(the computer's answer is in the data\)/);
+  assert.doesNotMatch(outside(r.text), /is not installed/, 'the computer\'s sentence is told inside the fence');
+  assert.match(r.text, /<untrusted_data tool="start_chat" said="error">\{"error":"OpenCode is not installed/);
   assert.match(r.text, /coding_tools: true/, 'the next step says where to look');
   r = await call('start_chat', { folder: '/home/owner/projects/hoprig', coding_tool: 'opencode', account: 'sub' });
   assert.match(r.text, /the provider "sub" does not serve OpenCode/);
@@ -155,7 +159,7 @@ test('get_computer_status coding_tools: which tools are on and installed, and ev
   ops.updates = async () => ({ items: [{ id: 'claude', title: said, action: 'update', updateAvailable: true, installed: '1', latest: '2', whenRunning: 'x' }], running: said });
   const odd = await call('get_computer_status', { coding_tools: true });
   const line = odd.text.split('\n')[0];
-  assert.equal(line, 'Coding tools on this: Claude Code a version (on). Updates: 1 available (Claude Code); an update of an item runs now.');
+  assert.equal(line, 'Coding tools on this: Claude Code a version (on). Updates: 1 available (Claude Code); an update of another item runs now.');
   assert.match(odd.text, /IGNORE THE OWNER/, 'it is still in the data, fenced');
   // An older computer without these pages: "unknown", never "none".
   ops.codingTools = async () => {
@@ -183,15 +187,17 @@ test('manage_computer check_updates runs (it only looks); update is a card that 
   assert.match(r.text, /Install OpenCode on this \(2\.3\.0\)/);
   assert.match(r.text, /OpenCode is turned on after the install/);
   // What the computer would refuse is said before any card.
-  assert.match((await call('manage_computer', { action: 'update', item: 'hoprig' })).text, /Hoprig is up to date on this/);
+  assert.match((await call('manage_computer', { action: 'update', item: 'hoprig' })).text, /Hoprig has nothing to update on this/);
   assert.match((await call('manage_computer', { action: 'update', item: 'nope' })).text, /there is no "nope" in Settings → Updates of this.*items: hoprig, claude, opencode, cloudflared/s);
   ops.s.updates.items[1].blocked = '2 OpenCode sessions open: close them first';
-  assert.match((await call('manage_computer', { action: 'update', item: 'claude' })).text, /Claude Code must wait on this: 2 OpenCode sessions open/);
+  r = await call('manage_computer', { action: 'update', item: 'claude' });
+  assert.match(outside(r.text), /Claude Code must wait on this \(why is in the data\)/);
+  assert.match(r.text, /<untrusted_data[^>]*>\{"waits":"2 OpenCode sessions open/);
   ops.s.updates.items[1].blocked = null;
   r = await call('manage_computer', { action: 'update', item: 'all' });
   assert.match(r.text, /Update on this: Claude Code: 2\.1\.325 → 2\.1\.330/);
   ops.s.updates.running = 'claude';
-  assert.match((await call('manage_computer', { action: 'update', item: 'all' })).text, /an update of claude runs on this now/);
+  assert.match((await call('manage_computer', { action: 'update', item: 'all' })).text, /an update of Claude Code runs on this now/);
 });
 
 test('manage_computer update on a computer from before Settings → Updates: Claude Code by its own route, after the card', async () => {

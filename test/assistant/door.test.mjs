@@ -304,3 +304,17 @@ test('setup and fix: Tia sends the kits or the check, never a password and never
     refused(() => checkRoute('POST', p, b, stubCtx()));
   }
 });
+
+test('an encoded spelling is read as the route reads it: the public link\'s old routes stay closed however they are spelled', () => {
+  // A route decodes its ids (the add-on's, a session's): the door decodes each segment once, the same way, and judges
+  // that. A segment that would still hold an encoded character after it (a doubly encoded one) is refused outright.
+  for (const p of [
+    '/api/addons/public-link/start', '/api/addons/public%2Dlink/start', '/api/addons/%70ublic-link/start', '/m/laptop/api/addons/public%2dlink/start',
+    '/api/addons/public%252Dlink/start', '/api/addons/public%2dlink/do/fixed-on', '/api/addons/public-link%2fstart', '/api/addons/%E0%A4%A/start',
+    '/api/updates/%73ettings', '/api/codetools/opencode/%73ignin', '/api/%61ssistant/settings', '/api/sessions/a%5cb/send', '/api/sessions/a%00b/send',
+  ]) refused(() => checkRoute('POST', p, {}, stubCtx()));
+  // What her tools send still passes, and an encoded character that is an ordinary one is read as that character.
+  assert.equal(checkRoute('POST', '/api/addons/trouteai/start', {}, stubCtx()).tool, 'manage_computer addon');
+  assert.equal(checkRoute('POST', '/api/addons/%74routeai/start', {}, stubCtx()).route, '/api/addons/trouteai/start');
+  assert.equal(checkRoute('POST', '/api/sessions/my%20work/send', {}, stubCtx()).route, '/api/sessions/my work/send');
+});

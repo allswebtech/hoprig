@@ -154,6 +154,29 @@ test('start_session on a conversation that runs already: nothing starts, nothing
   assert.equal(core.jobs.startedByTia('this', 'api-old', 1_700_000_003_000), false, 'his session is not marked hers');
 });
 
+test('start_session on an earlier conversation (continue or resume): a terminal, but never hers; its OKs are the owner\'s', async () => {
+  for (const how of [{ mode: 'continue' }, { mode: 'resume', conversation: '33333333-3333-4333-8333-333333333333' }]) {
+    for (const goal of [undefined, 'tests pass']) { // without a job (no mark) and with one (not started by her)
+      const { call, ops, core } = setup();
+      await call('list_sessions', {});
+      await call('list_projects', { folder: '/home/owner/projects/shop' });
+      await call('list_projects', { folder: '/home/owner/projects/api' });
+      const folder = how.conversation ? '/home/owner/projects/api' : '/home/owner/projects/shop';
+      const r = await call('start_session', { folder, account: 'sub', message: 'go on', ...how, ...(goal ? { goal } : {}) });
+      assert.equal(r.isError, false, r.text);
+      assert.match(r.text, /continuing an earlier conversation.*It continues an earlier conversation, so it is not yours: every OK it asks for is the owner's/s);
+      const name = ops.calls.find((c) => c.op === 'startSession') && /Started session (\S+) /.exec(r.text)[1];
+      const card = ops.s.sessions.find((x) => x.name === name);
+      assert.equal(core.jobs.startedByTia('this', name, card.created), false, `${how.mode}: not hers`);
+      if (goal) assert.equal(core.jobs.list()[0].sessions[0].startedByTia, false, 'her job watches it, but did not start it');
+      // It asks for a harmless OK: at "Do the work" her answer is still a card, nothing is pressed.
+      Object.assign(card, { status: 'attention', note: 'Claude needs your permission to use Bash: npm test' });
+      assert.match((await call('send_to_session', { session: name, key: '1' })).text, /Waiting for the owner's OK.*did not start/s, `${how.mode}: his OK`);
+      assert.ok(!ops.calls.some((c) => c.op === 'pressKey'));
+    }
+  }
+});
+
 test('account choice: never outside the allowed list, never at a limit; API only when allowed', async () => {
   const state = baseState();
   state.profiles[1].limited = { until: Date.now() + 3_600_000, text: 'limit' }; // sub2 at its limit
@@ -473,7 +496,8 @@ test('handler errors become plain errors with a next step, never a stack', async
   };
   const r = await call('read_session', { session: 'web-ui' });
   assert.equal(r.isError, true);
-  assert.match(r.text, /^Error: read_session failed: boom/);
+  assert.match(r.text, /^Error: read_session failed \(what the dashboard said is in the data\)/);
+  assert.match(r.text, /<untrusted_data tool="read_session" said="error">\{"error":"boom/, 'the route\'s own words are told inside the fence');
   assert.match(r.text, /Next:/);
   assert.match((await call('list_projects', { folder: '/etc' })).text, /unknown \(folder not found or not allowed\)/);
 });

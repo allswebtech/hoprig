@@ -30,7 +30,7 @@ import { FIRST_CALL, LOCAL, ShownIds } from './shown.mjs';
 import { Skills } from './skills.mjs';
 import { ASSISTANT_NAME, DEFAULTS as TIA_DEFAULTS, chooseAccount, freePct, resolveTia, servesTool } from './tia.mjs';
 import { ToolError, TOOL_NAMES, byName, statusOf } from './tools.mjs';
-import { toolName } from './toolkit.mjs';
+import { errorDetail, errorText, failedText, toolName } from './toolkit.mjs';
 import { wakeMessage } from './jobs.mjs';
 
 const SESSION_TOOLS = new Set(['send_to_session', 'send_to_chat', 'switch_account', 'stop_session']);
@@ -81,8 +81,6 @@ class BoundedMap extends Map {
     return super.set(k, v);
   }
 }
-
-const errorText = (message, next) => `Error: ${message}.${next ? ` Next: ${next}.` : ''}`;
 
 export function createAssistantCore({
   ops,
@@ -200,7 +198,7 @@ export function createAssistantCore({
       if (tool.check) tool.check(args, ctxFor(conversation));
     } catch (e) {
       if (e instanceof SchemaError) return { isError: true, text: errorText(`invalid input for ${name}: ${e.message}`, 'fix that field and call again (see the tool schema)') };
-      if (e instanceof ToolError) return { isError: true, text: errorText(e.message, e.next) };
+      if (e instanceof ToolError) return { isError: true, text: errorText(e.message, e.next, e.detail, name) };
       throw e;
     }
     const log = (outcome, extra = {}) => (extra.level || baseLevel(tool, args)) !== 'L0' && audit.append({ actor, conversation, tool: name, level: extra.level || baseLevel(tool, args), input: args, outcome, ...extra });
@@ -252,10 +250,10 @@ export function createAssistantCore({
     } catch (e) {
       if (e instanceof ToolError) {
         log('failed', { error: e.message });
-        return { isError: true, text: errorText(e.message, e.next) };
+        return { isError: true, text: errorText(e.message, e.next, e.detail, name) };
       }
       log('failed', { error: e.message });
-      return { isError: true, text: errorText(`${name} failed: ${neutralize(e.message || 'unknown error', 300)}`, e.status === 404 ? 'call list_sessions or get_computer_status to see what exists now' : 'check the state with a read tool, then try once more or tell the owner') };
+      return { isError: true, text: errorText(`${name} failed (what the dashboard said is in the data)`, e.status === 404 ? 'call list_sessions or get_computer_status to see what exists now' : 'check the state with a read tool, then try once more or tell the owner', errorDetail(e), name) };
     }
   }
 
@@ -290,7 +288,7 @@ export function createAssistantCore({
     } catch (e) {
       if (cards.get(id)?.status === 'pending') cards.markStale(id);
       log('stale', { error: e.message });
-      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it could not run: ${neutralize(e.message, 300)}. Nothing was done.`);
+      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it could not run. Nothing was done.\n${failedText(e, card.tool)}`);
       return { ok: false, error: e.message, code: 'stale' };
     }
     try {
@@ -312,7 +310,7 @@ export function createAssistantCore({
     } catch (e) {
       cards.finish(id, { ok: false, error: e.message });
       log('failed', { error: e.message });
-      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it failed: ${neutralize(e.message, 300)}.`);
+      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it failed.\n${failedText(e, card.tool)}`);
       return { ok: false, error: e.message };
     }
   }

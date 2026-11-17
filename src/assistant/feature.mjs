@@ -343,8 +343,12 @@ export function assistantFeature(ctx, o = {}) {
       } catch (e) {
         throw new HttpError(400, e.message);
       }
+      // Activity lists what the owner changed, not every value the page sends again with Save.
+      const was = { ...TIA_DEFAULTS, ...raw() };
+      const same = (k, v) => JSON.stringify(Array.isArray(v) ? [...v].sort() : v ?? null) === JSON.stringify(Array.isArray(was[k]) ? [...was[k]].sort() : was[k] ?? null);
+      const changed = Object.fromEntries(Object.entries(patch).filter(([k, v]) => !same(k, v)));
       ctx.saveConfig({ assistant: { ...raw(), ...patch } });
-      audit.append({ actor: 'owner', conversation: '-', tool: 'tia_settings', level: 'L1', input: patch, outcome: 'done' });
+      if (Object.keys(changed).length) audit.append({ actor: 'owner', conversation: '-', tool: 'tia_settings', level: 'L1', input: changed, outcome: 'done' });
       if (patch.enabled === false) for (const c of convs.values()) c.engine?.stop();
       return settingsView();
     }],
