@@ -1,5 +1,6 @@
 // HTTP hardening shared by every response: security headers, the Origin check that stops cross-site requests,
 // and how to tell HTTPS and the client address when a reverse proxy sits in front.
+import net from 'node:net';
 
 const HOST_RE = /^[A-Za-z0-9.:[\]-]{1,300}$/;
 
@@ -67,6 +68,21 @@ export function isHttps(req, { trustProxy = false } = {}) {
 
 /** A connection from this computer itself: 127.0.0.0/8 or ::1, also written as an IPv4-mapped IPv6 address. */
 export const loopbackPeer = (addr) => typeof addr === 'string' && (addr === '::1' || /^(::ffff:)?127\./i.test(addr));
+
+/**
+ * Who a sign-in try forwarded by a proxy on this computer is, while trustProxy is off; null for any other request.
+ * The public link's cloudflared connects from loopback for every visitor on the internet: counted by the loopback
+ * address, five wrong tries from anyone there locked everyone out, the owner and his sign-in link too. Cloudflare's
+ * edge writes Cf-Connecting-Ip itself (a browser cannot set it through the tunnel), so each visitor counts on its own.
+ * A program on this computer could write the header too: it then gets a count per value it invents, which the overall
+ * cap still bounds. A forwarded try without that header counts under one key, whatever loopback address it uses.
+ */
+export function forwardedVisitor(req, { trustProxy = false } = {}) {
+  if (trustProxy || !loopbackPeer(req.socket && req.socket.remoteAddress)) return null;
+  const cf = first(req.headers['cf-connecting-ip']);
+  const ip = typeof cf === 'string' ? cf.trim() : '';
+  return net.isIP(ip) ? ip : 'forwarded on this computer';
+}
 
 /**
  * Client address for the rate limit. Behind a trusted proxy: the last X-Forwarded-For entry (the one it added), but

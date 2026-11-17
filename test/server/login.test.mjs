@@ -161,3 +161,68 @@ test('guesses from elsewhere that use up the overall cap do not lock this comput
     saveConfig({ server: { trustProxy: undefined } });
   }
 });
+
+// The public link's tunnel connects from loopback for every visitor on the internet, and trustProxy is off for it.
+// Counted by the loopback address, five wrong tries from anyone there locked everyone out, the owner's right password
+// and his sign-in link too. Each tunnel visitor is the one Cloudflare names; a sign-in link has a count of its own.
+test('over the public link, one visitor\'s wrong passwords lock neither another visitor nor the sign-in link', async () => {
+  const http = await import('node:http');
+  const { createLoginLink } = await import('../../src/server/loginlink.mjs');
+  saveConfig({ server: { passwordHash: await hashPassword('right-password') } });
+  const app = createServer({ backend });
+  const { port } = await app.listen(0, '127.0.0.1');
+  const origin = `http://127.0.0.1:${port}`;
+  // What cloudflared sends: its own forwarding headers, and Cloudflare's address of the visitor.
+  const tunnel = (cf) => ({ 'X-Forwarded-For': cf || '203.0.113.250', 'X-Forwarded-Proto': 'https', ...(cf ? { 'Cf-Connecting-Ip': cf } : {}) });
+  const post = (p, body, headers, from = '127.0.0.1') => new Promise((resolve, reject) => {
+    const text = JSON.stringify(body);
+    const r = http.request({
+      host: '127.0.0.1', port, path: p, method: 'POST', localAddress: from,
+      headers: { Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text), ...headers },
+    }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    r.on('error', reject);
+    r.end(text);
+  });
+  const login = (password, headers, from) => post('/api/login', { password }, headers, from);
+  try {
+    const guesses = [];
+    for (let i = 0; i < 6; i++) guesses.push(await login('wrong', tunnel('198.51.100.66')));
+    assert.deepEqual(guesses, [401, 401, 401, 401, 401, 429], 'the guesser meets the per-visitor limit');
+    assert.equal(await login('right-password', tunnel('203.0.113.9')), 200, 'the owner, another visitor over the tunnel, signs in');
+    // Forwarded tries without Cloudflare's address share one count, whatever loopback address they come from.
+    const plain = [];
+    for (let i = 0; i < 6; i++) plain.push(await login('wrong', tunnel(null), `127.0.1.${i + 1}`));
+    assert.deepEqual(plain, [401, 401, 401, 401, 401, 429], plain.join(','));
+    // The sign-in link of that same locked visitor still works: wrong passwords never fill its count.
+    const token = createLoginLink({ baseUrl: origin }).url.split('#link=').pop();
+    assert.equal(await post('/api/login/link', { token }, tunnel(null), '127.0.1.9'), 200);
+    assert.equal(await login('right-password', {}, '127.0.0.1'), 200, 'and this computer itself');
+  } finally {
+    await app.close();
+  }
+});
+
+test('the password change counts this computer as one visitor too', async () => {
+  const http = await import('node:http');
+  saveConfig({ server: { passwordHash: await hashPassword('right-password') } });
+  const app = createServer({ backend });
+  const { port } = await app.listen(0, '127.0.0.1');
+  const origin = `http://127.0.0.1:${port}`;
+  const post = (p, body, from, cookie) => new Promise((resolve, reject) => {
+    const text = JSON.stringify(body);
+    const r = http.request({
+      host: '127.0.0.1', port, path: p, method: 'POST', localAddress: from,
+      headers: { Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text), ...(cookie ? { Cookie: cookie } : {}) },
+    }, (res) => { res.resume(); res.on('end', () => resolve({ status: res.statusCode, cookie: (res.headers['set-cookie'] || [''])[0].split(';')[0] })); });
+    r.on('error', reject);
+    r.end(text);
+  });
+  try {
+    const { cookie } = await post('/api/login', { password: 'right-password' }, '127.0.0.1');
+    const codes = [];
+    for (let i = 0; i < 7; i++) codes.push((await post('/api/settings/password', { current: 'wrong', next: 'another-long-password' }, `127.0.2.${i + 1}`, cookie)).status);
+    assert.deepEqual(codes, [403, 403, 403, 403, 403, 429, 429], codes.join(','));
+  } finally {
+    await app.close();
+  }
+});
