@@ -11,7 +11,8 @@
 //      outside plain ASCII.
 //   a. Read, Glob, Grep: every path of the call, resolved against the chat's folder by node:path, lies inside that folder
 //      and is plain ASCII; no path names the home folder by "~" or a variable; below the folder, no path is a file that
-//      may hold secrets.
+//      may hold secrets. Grep also names which files it searches (a glob that is more than wildcards, or a type): a
+//      search through every file of a folder reads its secrets too, as grep -r and rg would.
 //   b. Bash: one simple command of plain ASCII (none of ; & | < > ( ) { } $ ` \ ' " ~, no line break, and no * ? [ ] ^ #:
 //      the shell would turn those into words nobody judged; ^ and # are patterns to a shell with extended patterns), no
 //      word that starts with "@" or "=" (some programs read such a word as a file of options; a shell expands it), its
@@ -23,8 +24,10 @@
 // - The secret rule goes by a file's name (SECRET_FILES in tia.mjs): it is not a wall around secrets. Inside the chat's
 //   folder the coding tool's own Read reads without asking in its default mode, and a key can sit in a file of any
 //   name. The list only keeps HER from saying yes to the obvious ones. The forms that read every file of a folder at
-//   once (grep -r, rg, a patch of git diff, git show or git log -p, git grep) are not on her table for that reason; the
-//   Grep tool, which also searches a whole folder, is judged by its path and file filter only.
+//   once (grep -r, rg, a patch of git diff, git show or git log -p, git grep, the Grep tool without a file filter) are
+//   not hers for that reason. A filter such as "*.json" still reaches a secret of that kind under another name.
+// - git show --stat with an object's id prints a file whole when the id is a file's (a blob's): only a name is judged,
+//   so a committed secret named by its object id is not seen.
 // - Paths are judged as text, so a link in the folder that points outside it is not seen.
 // - npm, git and the coding tool's own search look upward and around inside the repository: in a chat whose folder is a
 //   subfolder of one, they can read what the repository holds above it.
@@ -90,6 +93,7 @@ export const WHY = {
   home: 'a path that names the home folder or a variable',
   notAscii: 'a path with a character outside plain ASCII (a disk that ignores case may read it as another name)',
   secret: 'a file that may hold secrets (a key, a password, a .env)',
+  wholeFolder: 'a search through every file of a folder, secrets too (a search that names its kind of file, such as *.js, she may allow)',
   write: 'changing a file is yours to allow; with the permission mode that accepts edits the coding tool does not ask at all',
   command: `a command that is not on the short list ${ASSISTANT_NAME} may allow herself`,
   option: `an option that is not on the short list ${ASSISTANT_NAME} may allow herself`,
@@ -133,6 +137,27 @@ function filterWhy(raw) {
   if (raw.includes('..') || raw.startsWith('/') || /[\\\x00-\x1f\x7f]/.test(raw)) return WHY.outside;
   return SECRET_FILES.test(raw) ? WHY.secret : null;
 }
+/** A glob's alternatives ("*.{ts,tsx}" → "*.ts", "*.tsx"), at most a few dozen. */
+function alternatives(g, n = 0) {
+  const m = /\{([^{}]*)\}/.exec(g);
+  if (!m || n > 5) return [g];
+  return m[1].split(',').slice(0, 12).flatMap((x) => alternatives(g.slice(0, m.index) + x + g.slice(m.index + m[0].length), n + 1));
+}
+// Which files the Grep tool searches: without a glob or a type, every file of its folder; a glob whose last part is only
+// wildcards ("*", "**/*", "*.*", "[a-z]*") is the same, and so is one that leaves files out ("!*.js": all the others). A type is one of ripgrep's names of file kinds ("js", "py").
+function narrowWhy(i) {
+  if (i.glob === undefined && i.type === undefined) return WHY.wholeFolder;
+  if (i.type !== undefined && (typeof i.type !== 'string' || !/^[A-Za-z0-9_+-]{1,20}$/.test(i.type) || i.type.toLowerCase() === 'all')) return WHY.wholeFolder;
+  if (i.type !== undefined && SECRET_FILES.test(`x.${i.type}`)) return WHY.secret;
+  if (i.glob === undefined) return null;
+  if (String(i.glob).trimStart().startsWith('!')) return WHY.wholeFolder;
+  for (const alt of alternatives(i.glob)) {
+    const last = alt.split('/').pop().replace(/\[[^\]]*\]/g, '*');
+    if (!/[A-Za-z0-9]/.test(last)) return WHY.wholeFolder;
+    if (SECRET_FILES.test(alt)) return WHY.secret;
+  }
+  return null;
+}
 
 /** The coding tool's tools that change a file: never hers, wherever the file is (what is written may be run later by
  * something nobody listed: a hook, a CI file, a package manager's settings, a shell's start-up file). */
@@ -141,7 +166,7 @@ export const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'
 export const FILE_TOOLS = {
   Read: (i, root) => pathWhy(i.file_path, root),
   Glob: (i, root) => optionalPath(i.path, root) || globWhy(i.pattern, typeof i.path === 'string' ? P.resolve(root, i.path) : root, root),
-  Grep: (i, root) => optionalPath(i.path, root) || filterWhy(i.glob),
+  Grep: (i, root) => optionalPath(i.path, root) || filterWhy(i.glob) || narrowWhy(i),
 };
 
 // ---------- rule b: one command ----------

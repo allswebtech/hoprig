@@ -206,7 +206,7 @@ test('in the real dashboard: in her chat she allows by herself only looking and 
     ['Bash', { command: 'git status', description: 'Show the state' }],
     ['Bash', { command: 'npm test', description: 'sudo reboot' }], // her rules read the command, not its label
     ['Read', { file_path: `${proj}/a.txt` }],
-    ['Grep', { pattern: 'TODO', path: proj }],
+    ['Grep', { pattern: 'TODO', path: proj, glob: '*.txt' }], // a search that names its kind of file
     ['Bash', { command: 'git log --oneline -n 5' }], // options the table names
     ['Bash', { command: 'npm run test:unit' }],
     ['Bash', { command: 'node --test' }], // exactly these two words

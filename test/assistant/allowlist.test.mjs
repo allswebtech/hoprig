@@ -177,6 +177,10 @@ test('the secret names the last check found missing: key stores, Android and Ter
     'terraform.tfvars', 'prod.auto.tfvars', 'terraform.tfstate', 'terraform.tfstate.backup', '.dev.vars', 'keys/id_ecdsa', 'id_dsa', 'id_ecdsa.pub',
     '.htpasswd', '.kube/config', 'deploy/.kube/config', '.git/config', 'secrets.json', 'config/secrets.yml', 'secret.yaml', 'service-account.json',
     'gcp/service-account-prod.json', 'service_account.json', 'cred', 'creds', 'cred/token.txt', 'creds/aws.txt', 'app/creds/x.json',
+    // the review after: Apple's, Firebase's, PuTTY's and PGP keys, databases', clouds' and Vault's sign-ins, Composer's
+    // tokens, WordPress's and Gradle's settings with passwords
+    'ios/AuthKey_ABC123.p8', 'app/x-firebase-adminsdk-abc.json', 'keys/deploy.ppk', 'secrets/prod.asc', '.my.cnf', '.vault-token', '.s3cfg', '.boto',
+    'kubeconfig', 'deploy/kubeconfig.yaml', 'auth.json', 'web/wp-config.php', 'android/gradle.properties', 'android/release-key.properties',
   ];
   for (const f of NAMES) {
     card(allowsHerself('Read', { file_path: `${ROOT}/${f}` }, ROOT), WHY.secret, `Read ${f}`);
@@ -195,7 +199,8 @@ test('the secret names the last check found missing: key stores, Android and Ter
   // A chat whose folder is a cred folder is not a project's.
   card(allowsHerself('Bash', { command: 'ls' }, '/w/creds', '/home/owner'), WHY.notProject);
   // Names that only look alike stay hers.
-  for (const f of ['credit.js', 'src/credits.md', 'keys.ts', 'keystore.md', 'properties.json', 'src/secretary.js', 'docs/kube.md', 'git/config.js', 'decree.txt']) {
+  for (const f of ['credit.js', 'src/credits.md', 'keys.ts', 'keystore.md', 'properties.json', 'src/secretary.js', 'docs/kube.md', 'git/config.js', 'decree.txt',
+    'turkey.properties', 'src/oauth.json', 'basc.txt', 'docs/auth.json.md']) {
     allowed(allowsHerself('Read', { file_path: f }, ROOT), `Read ${f}`);
     allowed(bash(`cat ${f}`), `cat ${f}`);
   }
@@ -230,7 +235,7 @@ test('file tools: every path inside the folder; outside, the home folder, a secr
   for (const [tool, input] of [
     ['Read', { file_path: `${ROOT}/src/a.js` }], ['Read', { file_path: 'src/a.js' }], ['Read', { file_path: `${ROOT}/src/./b/../a.js` }], ['Read', { file_path: ROOT }],
     ['Read', { file_path: `${ROOT}/n.ipynb` }], ['Glob', { pattern: '**/*.{js,ts}' }], ['Glob', { pattern: 'src/*.js', path: `${ROOT}/src` }],
-    ['Glob', { pattern: `${ROOT}/**/*.md` }], ['Grep', { pattern: 'x$', path: 'src', glob: '*.{ts,tsx}' }], ['Grep', { pattern: 'TODO' }],
+    ['Glob', { pattern: `${ROOT}/**/*.md` }], ['Grep', { pattern: 'x$', path: 'src', glob: '*.{ts,tsx}' }], ['Grep', { pattern: 'TODO', type: 'js' }],
   ]) allowed(f(tool, input), `${tool} ${JSON.stringify(input)}`);
   allowed(f('Read', { file_path: `${ROOT}/a` }, `${ROOT}/`), 'the folder with a trailing slash');
   for (const [tool, input, why] of [
@@ -287,7 +292,7 @@ test('the home folder counts by its real path too: a home reached through a link
   // HOME=/home/owner where /home links to /data/home: the chat's folder is a real path, so only the second sees it.
   const homes = ['/home/owner', '/data/home/owner'];
   for (const [cwd, tool, input] of [
-    ['/data/home/owner', 'Bash', { command: 'ls -la' }], ['/data/home/owner', 'Read', { file_path: '.bashrc' }], ['/data/home/owner', 'Grep', { pattern: 'token' }],
+    ['/data/home/owner', 'Bash', { command: 'ls -la' }], ['/data/home/owner', 'Read', { file_path: '.bashrc' }], ['/data/home/owner', 'Grep', { pattern: 'token', glob: '*.sh' }],
     ['/data/home/owner/.config/autostart', 'Read', { file_path: 'x.desktop' }], ['/data/home/owner/bin', 'Bash', { command: 'npm test' }],
     ['/data/home/owner/.ssh', 'Read', { file_path: 'authorized_keys' }], ['/data/home/owner/Library/LaunchAgents', 'Bash', { command: 'ls' }],
     ['/data/home/owner/.local/share/x', 'Bash', { command: 'cat a' }], ['/data/home', 'Bash', { command: 'ls' }], ['/DATA/Home/Owner/.Config', 'Bash', { command: 'ls' }],
@@ -306,7 +311,7 @@ test('the home folder counts by its real path too: a home reached through a link
 
 test('a system folder, Library or bin in a home (any case), and a folder whose own path names secrets or is not plain ASCII are not a project\'s folder', () => {
   const home = '/home/owner';
-  const calls = [['Bash', { command: 'ls' }], ['Read', { file_path: 'README.md' }], ['Grep', { pattern: 'x' }]];
+  const calls = [['Bash', { command: 'ls' }], ['Read', { file_path: 'README.md' }], ['Grep', { pattern: 'x', glob: '*.md' }]];
   for (const cwd of [
     // the system's own folders, by their first part, without case
     '/etc', '/etc/nginx', '/proc/1', '/sys/x', '/dev/shm', '/usr/local', '/usr/local/bin', '/bin', '/sbin/x', '/lib/x', '/lib64', '/boot', '/tmp', '/tmp/proj',
@@ -336,7 +341,7 @@ test('the secret rule judges the path below the chat\'s folder; a name across it
   const at = (cwd, tool, input) => allowsHerself(tool, input, cwd, home);
   for (const cwd of ['/home/owner/code/.github', '/home/owner/repo/.claude/worktrees/feat']) {
     for (const [tool, input] of [['Read', { file_path: 'README.md' }], ['Read', { file_path: `${cwd}/src/a.js` }], ['Read', { file_path: cwd }], ['Bash', { command: 'cat README.md' }],
-      ['Bash', { command: `cat ${cwd}/README.md` }], ['Bash', { command: `git log ${cwd}/src` }], ['Bash', { command: 'npm test' }], ['Grep', { pattern: 'x', path: cwd }]]) {
+      ['Bash', { command: `cat ${cwd}/README.md` }], ['Bash', { command: `git log ${cwd}/src` }], ['Bash', { command: 'npm test' }], ['Grep', { pattern: 'x', path: cwd, glob: '*.md' }]]) {
       allowed(at(cwd, tool, input), `${tool} ${JSON.stringify(input)} in ${cwd}`);
     }
     // below the folder the rules hold as anywhere
@@ -486,4 +491,16 @@ test('every command the earlier checks found the deny-list missing (and the rest
   }
   // Their harmless rows that are on the list stay allowed.
   for (const c of ['ls', 'ls src', 'npm test', `cat ${ROOT}/a.js`]) allowed(bash(c), c);
+});
+
+test('the Grep tool is hers only when it names its kind of file: a search through every file reads secrets, as grep -r and rg would', () => {
+  for (const input of [{ pattern: 'API_KEY' }, { pattern: 'BEGIN PRIVATE', path: '.' }, { pattern: 'x', path: 'src' }, { pattern: 'x', glob: '*' }, { pattern: 'x', glob: '**/*' },
+    { pattern: 'x', glob: '*.*' }, { pattern: 'x', glob: 'src/[a-z]*' }, { pattern: 'x', glob: '*.{js,*}' }, { pattern: 'x', glob: '!*.js' }, { pattern: 'x', type: 'all' },
+    { pattern: 'x', type: 'js js' }, { pattern: 'x', type: 3 }]) {
+    card(allowsHerself('Grep', input, ROOT), WHY.wholeFolder, JSON.stringify(input));
+  }
+  for (const input of [{ pattern: 'x', glob: '*.p8' }, { pattern: 'x', glob: '*.{js,pem}' }, { pattern: 'x', type: 'env' }]) card(allowsHerself('Grep', input, ROOT), WHY.secret, JSON.stringify(input));
+  for (const input of [{ pattern: 'x', glob: '*.js' }, { pattern: 'x', path: 'src', glob: '**/*.{ts,tsx}' }, { pattern: 'x', type: 'py' }, { pattern: 'x', glob: 'package.json' }]) {
+    allowed(allowsHerself('Grep', input, ROOT), JSON.stringify(input));
+  }
 });

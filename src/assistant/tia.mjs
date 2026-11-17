@@ -196,9 +196,10 @@ export function chooseAccount(tia, accounts, tool = 'claude') {
 // terminal session, which has only its screen to judge, it is best effort; a chat does not rest on it (she allows a
 // chat's OK only from the short allow-list of allowlist.mjs, and this list runs after it as a second look).
 /**
- * Files that may hold secrets, by their names: keys and key stores (SSH, TLS, Android, Java, PKCS#12), sign-ins and
- * settings with tokens (a .env and its kin, the package managers', databases', Kubernetes', Docker's, a repository's
- * own config), infrastructure state, secrets files and service accounts, a file or folder named cred or creds, Claude
+ * Files that may hold secrets, by their names: keys and key stores (SSH, TLS, Android, Java, PKCS#12, Apple's .p8,
+ * PuTTY's, armored PGP), sign-ins and settings with tokens (a .env and its kin, the package managers' (Composer's
+ * auth.json among them), databases', clouds', Vault's, Kubernetes', Docker's, a repository's own config, a WordPress
+ * config, Gradle's properties), infrastructure state, secrets files and service accounts (Firebase's too), a file or folder named cred or creds, Claude
  * Code's and Hoprig's own settings. The one list of the deny-list below and of the allow-list (allowlist.mjs: every
  * reader of its table, a file tool's path, a command's file words and git's "HEAD:path" forms).
  *
@@ -208,9 +209,10 @@ export function chooseAccount(tia, accounts, tool = 'claude') {
  */
 export const SECRET_FILES = new RegExp([
   /\.ssh|\.aws|\.gnupg|\.netrc|\.pgpass|\.kube\/|\.docker\/config\.json|\.git\/config\b|\.claude\/|\.config\/hoprig/,
-  /\.env\b|\.envrc|\.dev\.vars\b|\.npmrc|\.yarnrc|\.pypirc|\.htpasswd/,
-  /\.(?:pem|key)(?![\w.-])|\.(?:keystore|jks|p12|pfx|tfstate|tfvars)\b|(?:key|keystore)\.properties/,
-  /id_(?:rsa|dsa|ecdsa|ed25519)|credentials|keychain|secrets?\.(?:json|ya?ml|toml)\b|service[-_]?account[^/]*\.json/,
+  /\.env\b|\.envrc|\.dev\.vars\b|\.npmrc|\.yarnrc|\.pypirc|\.htpasswd|\.my\.cnf|\.vault-token|\.s3cfg|\.boto\b|kubeconfig/,
+  /\.(?:pem|key)(?![\w.-])|\.(?:keystore|jks|p12|pfx|p8|ppk|asc|tfstate|tfvars)\b|(?<![A-Za-z0-9])(?:key|keystore|gradle)\.properties/,
+  /id_(?:rsa|dsa|ecdsa|ed25519)|credentials|keychain|secrets?\.(?:json|ya?ml|toml)\b|service[-_]?account[^/]*\.json|adminsdk[^/]*\.json/,
+  /(?<![\w.-])(?:auth\.json|wp-config\.php)(?![\w.-])/,
   /(?:^|\/)creds?(?:\/|$)/,
 ].map((r) => r.source).join('|'), 'i');
 const RISKY = [
