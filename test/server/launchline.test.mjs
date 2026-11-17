@@ -82,6 +82,17 @@ const pwned = () => {
   walk(box.root);
   return out;
 };
+// Every rig's terminals end after each test, a failed one too, and what a start left goes: a terminal left open keeps
+// this file's process alive to the runner's time limit, and a launch file left behind fails every later start's check.
+const rigs = [];
+test.afterEach(async () => {
+  for (const b of rigs.splice(0)) {
+    for (const t of await b.list().catch(() => [])) await b.kill(t.session).catch(() => {});
+    await b.close().catch(() => {});
+  }
+  fs.rmSync(launchDir(), { recursive: true, force: true });
+  fs.rmSync(recordedDir(), { recursive: true, force: true });
+});
 const launchFiles = () => {
   try {
     return fs.readdirSync(launchDir());
@@ -128,6 +139,7 @@ async function rig(kind, shell, { c = false, launcher = [process.execPath, RECOR
       return run(args, o);
     };
   }
+  rigs.push(backend);
   const deck = new Deck({ backend, config: () => ({ launcher }), profiles: () => [] });
   return { backend, deck, typed, shown };
 }
@@ -314,6 +326,7 @@ test('a launcher path with a quote is refused with the plain sentence before any
 });
 
 test('a folder whose name holds a line break is refused at the start with a plain sentence', async () => {
+  const before = launchFiles();
   const backend = { list: async () => [], create: async () => assert.fail('no terminal') };
   const deck = new Deck({ backend, config: () => ({ launcher: [process.execPath, RECORD] }), profiles: () => [] });
   await assert.rejects(deck.start({ dir: '/w/a\nb', profile: { name: 'sub' }, mode: 'new' }), (e) => e.status === 400 && /its name holds a line break/.test(e.message));
@@ -327,5 +340,5 @@ test('a folder whose name holds a line break is refused at the start with a plai
   await assert.rejects(d2.respawn('%1', '/w/a\r\nb', [process.execPath, RECORD, 'sub']), lb);
   const run = { runId: 'r1', sessionId: '0b6c3c9e-1f7e-4e4b-9b1a-3f6a1e2d4c5b', cwd: '/w/a\nb', carryArgs: [], tool: 'claude' };
   await assert.rejects(d2.move({ id: '%1', session: 's' }, run, 'other', { profile: { name: 'other', env: {} } }), lb);
-  assert.deepEqual(launchFiles(), [], 'no launch file was written');
+  assert.deepEqual(launchFiles(), before, 'no launch file was written');
 });
