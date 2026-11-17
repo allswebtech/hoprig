@@ -21,12 +21,13 @@
 // Install: the official release files at https://github.com/cloudflare/cloudflared/releases (listed on
 // https://developers.cloudflare.com/tunnel/downloads/), saved into hoprig's own folder: no administrator rights,
 // nothing system-wide. On macOS with Homebrew: `brew install cloudflared` (the same page). A cloudflared already on
-// PATH is used as it is.
+// PATH is used as it is. A downloaded file is checked against its SHA-256 in CLOUDFLARED_SHA256 before it is used.
 //
 // Because the address is new at each start, it is sent through the owner's notifications (Settings → Notifications,
 // the event "link"), so his phone gets the new link. One more local service (such as TRouteAI's own dashboard) can
 // get a temporary address of its own the same way.
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -44,6 +45,28 @@ export { findBin, patchFor, restoreFor };
 /** The release we install: a few weeks old, so it is not a fresh, unproven one. */
 export const CLOUDFLARED_VERSION = '2026.10.1';
 const RELEASES = 'https://github.com/cloudflare/cloudflared/releases/download';
+
+/**
+ * The SHA-256 of every release file installPlan can download (releaseAsset), for exactly this version. A download
+ * is checked against it before it is moved into place, so a changed file on the way or at the source is never run.
+ * Raising CLOUDFLARED_VERSION means new hashes here: a test fails while the two disagree, and installPlan refuses a
+ * version it has no hashes for. Where they come from: the release's notes ("SHA256 Checksums") and GitHub's own
+ * digest of each file agree for the Linux and Windows files. For the two macOS archives the notes give the hash of
+ * the program inside, so the hash here is the archive's own (GitHub's digest; downloaded and measured as well).
+ */
+export const CLOUDFLARED_SHA256 = Object.freeze({
+  version: '2026.10.1',
+  files: Object.freeze({
+    'cloudflared-linux-amd64': '3bfc539f45d2620c71debb7a86be0efa737ed5ccbad9eb85c787116900e5c586',
+    'cloudflared-linux-arm64': '2c65dfabf616c40efc7545d107d7a57ad5e21377e2964b7e88af19a238074a46',
+    'cloudflared-linux-arm': '598445dbe19d789d2901c57bb9df5b070cc2c4f817c48b0ae2702a93d15a468e',
+    'cloudflared-linux-386': '9f5794f4e0bf2a4be8b3a3b8cc97720f60b3686089e07cebfd90aa9826b31749',
+    'cloudflared-darwin-amd64.tgz': '3b0dbaf378337e9d7fb6cd235a76d1d6a7dee434c2d8edf9281164fb6a3837ab',
+    'cloudflared-darwin-arm64.tgz': '647615df99d49cd179ea5e13ef760b9bbfb33630f6ae62f87e33dfadda60adcc',
+    'cloudflared-windows-amd64.exe': '4d2490e74082c5d48dbfedaf92576fa5bd1702379ab88eb7faa0cfbe8dc891b6',
+    'cloudflared-windows-386.exe': 'a0c9a47af2cbd681005e4c1210edf95f986ecc66cee6d68b0e42c484af465d2e',
+  }),
+});
 
 const dir = addonsDir;
 // The second temporary address, for one more local service: { pid, proc, url, port, openedBy } (proc: its cloudflared's
@@ -81,15 +104,17 @@ export function releaseAsset(platform = process.platform, arch = process.arch) {
 }
 
 /**
- * How to install it here: { kind: 'brew', argv } | { kind: 'download', url, file, tgz } | { kind: 'none', reason }.
+ * How to install it here: { kind: 'brew', argv } | { kind: 'download', url, file, tgz, sha256 } | { kind: 'none', reason }.
  * `hasBrew`: Homebrew is installed (macOS).
  */
 export function installPlan({ platform = process.platform, arch = process.arch, hasBrew = false, into = binDir(), version = CLOUDFLARED_VERSION } = {}) {
   if (platform === 'darwin' && hasBrew) return { kind: 'brew', argv: ['brew', 'install', 'cloudflared'] };
   const asset = releaseAsset(platform, arch);
   if (!asset) return { kind: 'none', reason: `Cloudflare publishes no cloudflared for ${platform}/${arch}` };
+  const sha256 = version === CLOUDFLARED_SHA256.version ? CLOUDFLARED_SHA256.files[asset] : null;
+  if (!sha256) return { kind: 'none', reason: `Hoprig has no known SHA-256 of ${asset} ${version}, so it does not install it` };
   const exe = platform === 'win32' ? 'cloudflared.exe' : 'cloudflared';
-  return { kind: 'download', url: `${RELEASES}/${version}/${asset}`, file: path.join(into, exe), tgz: asset.endsWith('.tgz') };
+  return { kind: 'download', url: `${RELEASES}/${version}/${asset}`, file: path.join(into, exe), tgz: asset.endsWith('.tgz'), sha256 };
 }
 
 /** The command line that starts the quick tunnel to the dashboard on `port`. */
@@ -114,17 +139,40 @@ export function notifyNewAddress(url, what, { send = sendNotification, config = 
   }
 }
 
-async function download(url, file) {
-  const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(120_000) });
+/** A temporary name beside `file`: the rename into place stays on one disk, so it is all or nothing. */
+const beside = (file) => `${file}.part-${crypto.randomBytes(4).toString('hex')}`;
+
+/** Move `tmp` into place as `file`, a program that can run. */
+function putInPlace(tmp, file) {
+  fs.chmodSync(tmp, 0o755);
+  fs.renameSync(tmp, file);
+}
+
+/**
+ * Download `url` into a temporary file beside `file` and compare its SHA-256 with `sha256`; only a match is moved to
+ * `file`. A mismatch removes the temporary file, leaves what was at `file` as it was, and throws a plain message.
+ */
+async function download(url, file, sha256, fetchImpl = globalThis.fetch) {
+  const res = await fetchImpl(url, { redirect: 'follow', signal: AbortSignal.timeout(120_000) });
   if (!res.ok) throw new Error(`could not download ${url}: HTTP ${res.status}`);
   if (res.url && !res.url.startsWith('https://')) throw new Error(`${url} redirected to a non-https address`);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()), { mode: 0o755 });
+  const tmp = beside(file);
+  try {
+    fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()), { mode: 0o600 });
+    const got = crypto.createHash('sha256').update(fs.readFileSync(tmp)).digest('hex');
+    if (got !== sha256) throw new Error(`The download of ${url.split('/').pop()} did not match its known SHA-256, so it was not installed. Try again later.`);
+    putInPlace(tmp, file);
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
 }
 
-/** Install cloudflared into Hoprig's own folder (or with Homebrew on macOS). → { ok, error? } */
-export async function install({ onLine = () => {} } = {}) {
-  const plan = installPlan({ hasBrew: process.platform === 'darwin' && !!which('brew') });
+/**
+ * Install cloudflared into Hoprig's own folder (or with Homebrew on macOS). → { ok, error? }
+ * `plan` and `fetchImpl` are for tests.
+ */
+export async function install({ onLine = () => {}, plan = installPlan({ hasBrew: process.platform === 'darwin' && !!which('brew') }), fetchImpl } = {}) {
   if (plan.kind === 'none') {
     onLine(plan.reason);
     return { ok: false, error: plan.reason };
@@ -138,14 +186,22 @@ export async function install({ onLine = () => {} } = {}) {
   try {
     if (plan.tgz) {
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-cloudflared-'));
-      await download(plan.url, path.join(tmp, 'c.tgz'));
-      const r = await stream(['tar', '-xzf', path.join(tmp, 'c.tgz'), '-C', tmp], { env: withoutSecrets(process.env), onLine });
-      if (!r.ok) throw new Error('could not unpack it');
-      fs.mkdirSync(path.dirname(plan.file), { recursive: true, mode: 0o700 });
-      fs.copyFileSync(path.join(tmp, 'cloudflared'), plan.file);
-      fs.chmodSync(plan.file, 0o755);
-      fs.rmSync(tmp, { recursive: true, force: true });
-    } else await download(plan.url, plan.file);
+      try {
+        await download(plan.url, path.join(tmp, 'c.tgz'), plan.sha256, fetchImpl); // the archive is what is checked
+        const r = await stream(['tar', '-xzf', path.join(tmp, 'c.tgz'), '-C', tmp], { env: withoutSecrets(process.env), onLine });
+        if (!r.ok) throw new Error('could not unpack it');
+        fs.mkdirSync(path.dirname(plan.file), { recursive: true, mode: 0o700 });
+        const part = beside(plan.file);
+        try {
+          fs.copyFileSync(path.join(tmp, 'cloudflared'), part);
+          putInPlace(part, plan.file);
+        } finally {
+          fs.rmSync(part, { force: true });
+        }
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    } else await download(plan.url, plan.file, plan.sha256, fetchImpl);
   } catch (e) {
     onLine(e.message);
     return { ok: false, error: e.message };
