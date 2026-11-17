@@ -106,10 +106,7 @@ export async function ensure(chat) {
 function heard(chat, session, ev) {
   if (ev.kind === 'exit') release(session);
   else if (ev.kind === 'conversation' || (ev.kind === 'session-changed' && ev.reason === 'clear')) moved(session, ev.id);
-  if (chat.session !== session) {
-    if (ev.kind === 'exit') chat.knowSize(); // what it wrote last is ours: no reason to read it again
-    return;
-  }
+  if (chat.session !== session) return; // a stopped process: stop() took what it wrote when it ended
   hear(chat, ev);
 }
 
@@ -137,6 +134,9 @@ export function stop(chat) {
   chat.queue.clear();
   if (session) {
     const ended = session.close().then(() => {
+      // What it wrote until it ended is the chat's own: taken now, before its record goes. Its 'exit' event comes
+      // later (its output is read to the end first), when a terminal may already have gone on with the conversation.
+      chat.knowSize();
       release(session);
       if (chat.ending === ended) chat.ending = null;
     });

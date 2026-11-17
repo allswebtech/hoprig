@@ -3,6 +3,7 @@
 // more after a restart. A real dashboard with Claude Code's stand-in; her requests come through another computer's
 // door (its token and its relay's own mark), as a hub relays them.
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -137,4 +138,35 @@ test('Tia\'s mark: never on an earlier conversation; after a restart only on a c
   s = await start();
   assert.equal((await cardOf(s, quiet)).byTia, false, 'a record without what it knew is never hers after a restart');
   assert.equal((await cardOf(s, moved)).byTia, false);
+});
+
+test('Tia\'s mark: a stopped chat counts as its own only what was written until its process ended, not what a terminal writes after', { timeout: 30_000, skip: process.platform === 'win32' && 'the stand-ins are POSIX' }, async (t) => {
+  const box = sandbox('tiamark-end');
+  t.after(() => box.cleanup());
+  const cwd = path.join(box.root, 'proj');
+  fs.mkdirSync(cwd, { recursive: true });
+  const { Chat } = await import('../../src/chat/chat.mjs');
+  const { listRuns } = await import('../../src/runs.mjs');
+  // A process that exits while a program it left behind still holds its output open: the chat reads that output to
+  // its end (up to drainMs) after the process is gone, and its record (which keeps a terminal off the conversation)
+  // goes at the exit.
+  const holder = `import { spawn } from 'node:child_process'; process.on('exit', () => spawn(process.execPath, ['-e', 'setTimeout(() => {}, 1500)'], { stdio: ['ignore', 'inherit', 'inherit'] }).unref());`;
+  const c = new Chat({
+    id: crypto.randomUUID(), cwd, profile: 'p', byTia: true, drainMs: 1000,
+    command: { command: process.execPath, args: ['--import', `data:text/javascript,${encodeURIComponent(holder)}`, FAKE_CLAUDE] },
+    resolveEnv: async () => ({ ...process.env }),
+  });
+  t.after(() => c.close());
+  const turn = new Promise((r) => c.once('turn', r));
+  await c.send('hello');
+  await turn;
+  c.stop();
+  await c.ending; // the process has exited
+  const exited = Date.now();
+  assert.equal(listRuns({ chats: true, usage: false }).some((r) => r.chat === c.id), false, 'its record is gone: a terminal may start on the conversation');
+  // …and one does, and the owner writes in it while the chat still reads the old process's last output.
+  fs.appendFileSync(c.file(), `${JSON.stringify({ type: 'user', uuid: 'u-owner', sessionId: c.id, message: { role: 'user', content: 'owner: and delete the old release folder' } })}\n`);
+  await new Promise((r) => setTimeout(r, Math.max(0, exited + 1300 - Date.now()))); // past drainMs: the old process is read to its end
+  assert.equal(c.refresh(), true, 'the conversation went on elsewhere');
+  assert.equal(c.byTia, false, 'and the chat is hers no more');
 });
