@@ -65,20 +65,22 @@ async function setup(t, kind, ms) {
   fs.writeFileSync(parent, PARENT);
   const out = path.join(dir, 'ended.json');
   let b;
+  let sock = '';
   if (kind === 'tmux') {
     const conf = path.join(dir, 'empty.conf'); // so the user's tmux.conf does not apply
     fs.writeFileSync(conf, '');
     b = new TmuxBackend({ socket: `ending-test-${process.pid}-${path.basename(dir)}`, configFile: conf });
     t.after(async () => {
-      const sock = await b.run(['display', '-p', '#{socket_path}']).catch(() => '');
       await b.killServer();
-      if (sock.trim()) fs.rmSync(sock.trim(), { force: true }); // tmux leaves the socket file behind
+      // tmux leaves the socket file behind, also when the server ended with its last session (a Close).
+      if (sock) fs.rmSync(sock, { force: true });
     });
   } else {
     b = new PtyBackend();
     t.after(() => b.close());
   }
   const { id } = await b.create({ name: 'moving', dir, argv: [process.execPath, parent, child, out, String(ms)] });
+  if (kind === 'tmux') sock = (await b.run(['display', '-p', '#{socket_path}'])).trim();
   await until('the program in the terminal', () => fs.existsSync(`${out}.ready`));
   const ended = () => {
     assert.ok(fs.existsSync(out), 'the old programs had ended before the call returned');
