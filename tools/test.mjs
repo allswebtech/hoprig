@@ -42,6 +42,11 @@ if (!files.length) {
 // The slowest end-to-end test takes well under a minute; --test-timeout exists from Node 20.11.
 const [major, minor] = process.versions.node.split('.').map(Number);
 const limit = flags.some((f) => f.startsWith('--test-timeout')) || (major === 20 && minor < 11) ? [] : ['--test-timeout=180000'];
+// That limit ends a test, not its file: from Node 26 a file whose tests are over but which still holds something open
+// (a timer, a terminal, a child's pipe; a test that ran out of time leaves its own behind) never ends, its results are
+// never printed, and every file after it waits (a CI job stood still until its 15-minute limit, with no name). Each
+// file ends once its tests are done; a test that hangs fails by name at the limit above.
+if (!flags.includes('--test-force-exit') && (major > 20 || (major === 20 && minor >= 14))) limit.push('--test-force-exit');
 
 // Every test runs in a home of its own: HOME, the settings, state and Claude folders and the workspace point into a
 // fresh temporary folder, and git has a test identity. A test that forgets to set up its own folders then still never
