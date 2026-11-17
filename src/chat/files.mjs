@@ -148,18 +148,37 @@ export function readAttachments(list, { cwd, uploadsDir }) {
 }
 
 /**
+ * The start of a file the folder names, only when it is a plain file. Opened without waiting (a FIFO or a device in
+ * its place would block the whole dashboard on a synchronous read) and checked on the open file itself, so nothing
+ * can be swapped in between the check and the read. null for anything else.
+ */
+function smallFile(p, max = 4096) {
+  let fd;
+  try {
+    fd = fs.openSync(p, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
+    if (!fs.fstatSync(fd).isFile()) return null;
+    const buf = Buffer.alloc(max);
+    return buf.toString('utf8', 0, fs.readSync(fd, buf, 0, max, 0));
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/**
  * The git branch the folder is on, for the status line: read from .git/HEAD (a worktree's .git file names where its
  * HEAD is), no git process. null when it is no repository or HEAD is detached.
  */
 export function gitBranch(cwd) {
   try {
     let git = path.join(cwd, '.git');
-    if (fs.statSync(git).isFile()) {
-      const m = /^gitdir:\s*(.+)\s*$/m.exec(fs.readFileSync(git, 'utf8'));
+    if (!fs.statSync(git).isDirectory()) {
+      const m = /^gitdir:\s*(.+)\s*$/m.exec(smallFile(git) || '');
       if (!m) return null;
       git = path.resolve(cwd, m[1].trim());
     }
-    const m = /^ref:\s*refs\/heads\/(.+)\s*$/.exec(fs.readFileSync(path.join(git, 'HEAD'), 'utf8'));
+    const m = /^ref:\s*refs\/heads\/(.+)\s*$/.exec(smallFile(path.join(git, 'HEAD')) || '');
     return m ? m[1].trim().slice(0, 200) : null;
   } catch {
     return null;
