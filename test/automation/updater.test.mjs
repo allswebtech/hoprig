@@ -226,9 +226,9 @@ test('Hoprig from a git checkout: read with ls-remote only, never updated by its
   assert.deepEqual([f.upstream, f.newer], [null, null]);
   assert.ok(calls.every((c) => !/^(fetch|pull)/.test(c)), 'never fetches or pulls to look');
 
-  const deps = (kind, answers) => ({
+  const deps = (kind, answers, newest = { version: '0.2.0', note: null }) => ({
     run: run(answers),
-    selfupdate: { installKind: () => kind, publishedVersion: async () => '0.2.0', updatePlan: () => [] },
+    selfupdate: { installKind: () => kind, newestVersion: async () => newest, updatePlan: () => [] },
     checks: { appRoot: () => '/app', appVersion: () => '0.1.0' },
   });
   const git = hoprigItem(deps('git', { ...base, 'ls-remote': { ok: true, code: 0, stdout: `${NEW}\trefs/heads/main\n` }, 'merge-base': { ok: false, code: 1 } }));
@@ -242,6 +242,14 @@ test('Hoprig from a git checkout: read with ls-remote only, never updated by its
   const ni = await npm.info();
   assert.deepEqual([ni.latest, ni.updateAvailable, npm.autoOk(ni)], ['0.2.0', true, false], 'not even from npm: a running dashboard needs a restart for it');
   assert.equal(npm.blocked([claude('a', { status: 'working' })]), null, 'Update now is the owner\'s choice');
+  // The same version and an older one are not updates; a version that could not be read is unknown, with its note.
+  for (const [v, avail] of [['0.1.0', false], ['0.0.1', false], ['0.1.1', true]]) {
+    const i = await hoprigItem(deps('npm', {}, { version: v, note: null })).info();
+    assert.deepEqual([i.latest, i.updateAvailable, i.note], [v, avail, null], v);
+  }
+  const unread = await hoprigItem(deps('npm', {}, { version: null, note: 'The newest version could not be read from example.com (it could not be reached).' })).info();
+  assert.deepEqual([unread.latest, unread.updateAvailable, unread.canUpdate], [null, false, true]);
+  assert.match(unread.note, /could not be read/);
   assert.equal((await hoprigItem(deps('other', {})).info()).canUpdate, false);
   assert.match(git.whenRunning, /Hoprig never updates itself: Automatic tells you/);
   assert.match(gi.notInAll, /git checkout is updated on its own/);

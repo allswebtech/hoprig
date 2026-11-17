@@ -10,7 +10,7 @@
 #   system bits   only on Linux, with the system package manager: curl when there is no downloader, libatomic
 #                 (Node's official Linux builds need it), and the C++ build tools the terminal module (node-pty)
 #                 compiles with (it has ready-made builds only for macOS and Windows).
-#   hoprig     with npm: from npm, or from $HOPRIG_SOURCE (a .tgz file, a folder or a git URL); into the
+#   hoprig     with npm: from the repository's main branch, or from $HOPRIG_SOURCE (a .tgz file, a folder or a git URL); into the
 #                 global npm folder, or ~/.local when that folder is not yours to write.
 # Arguments go on to `hoprig setup` (for example --yes, --access network, --no-service).
 #
@@ -29,6 +29,7 @@ main() {
   MIN_NODE=20
   NVM_VERSION=v0.40.8 # https://github.com/nvm-sh/nvm/releases (pinned: a release several weeks old)
   # Until the package is on npm the default is the repository's main branch as a tarball, which npm installs directly.
+  # The same address as hoprigSource() in src/paths.mjs, which the update and its version lookup read.
   SOURCE=${HOPRIG_SOURCE:-https://github.com/allswebtech/hoprig/archive/refs/heads/main.tar.gz}
   YES=${HOPRIG_YES:-0}
   for a in "$@"; do

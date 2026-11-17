@@ -49,6 +49,9 @@ of the page is one file registered through `web/registry.js`.
   `src/gitread.mjs`, so a repository's own settings never start a program for it.
 - **Fewer steps.** What is not needed goes. A setting has one plain sentence under it. Defaults are safe:
   anything that costs money, runs commands or opens the dashboard to a network is off until chosen.
+- **The version moves with every release.** `version` in `package.json` rises with every push of main that changes
+  what a user gets: an install reads the newest version from that file on main, so an unchanged number hides the
+  update.
 - **Tia's tools** follow the checklist in `src/assistant/tools.mjs` (level, strict schema, server-side
   re-validation, confirm cards, audit) and the real-model eval must not drop below its baseline.
 

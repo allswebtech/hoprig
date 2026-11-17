@@ -66,7 +66,7 @@ export function hoprigItem(deps = {}) {
       'The new version is used after the dashboard restarts: sessions kept by tmux go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). Hoprig never updates itself: Automatic tells you, and you choose the moment.',
     installable: false,
     async info() {
-      const [{ installKind, publishedVersion }, { appRoot, appVersion }] = await Promise.all([sel(), chk()]);
+      const [{ installKind, newestVersion }, { appRoot, appVersion }] = await Promise.all([sel(), chk()]);
       const root = appRoot();
       const kind = installKind(root);
       const installed = appVersion();
@@ -81,8 +81,9 @@ export function hoprigItem(deps = {}) {
         return { ...base, ...git, latest: g.newer ? `newer commits on ${g.upstream}` : base.installed, updateAvailable: g.newer, canUpdate: true };
       }
       if (kind === 'npm') {
-        const latest = await publishedVersion();
-        return { installed, method: 'npm', latest, updateAvailable: !!(latest && installed && compareVersions(latest, installed) > 0), canUpdate: true };
+        // From where the install and the update come from (paths.mjs hoprigSource): unknown is null with a note.
+        const { version: latest, note } = await newestVersion();
+        return { installed, method: 'npm', latest, updateAvailable: !!(latest && installed && compareVersions(latest, installed) > 0), canUpdate: true, note: note || null };
       }
       return { installed, method: 'copied folder', latest: null, updateAvailable: false, canUpdate: false, why: 'Installed from a copied folder or a tarball: install it again the way you did first.' };
     },
