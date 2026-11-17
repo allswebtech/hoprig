@@ -2,6 +2,7 @@
 // it, as of the last fetch: the doctor does not fetch), and whether the map matches what is on this computer. git's
 // name and e-mail and the GitHub sign-in are the doctor's GitHub lines already (pcsetup/status.mjs).
 import path from 'node:path';
+import { gitRead } from '../gitread.mjs';
 import { repoInfo } from '../pcsetup/workspace.mjs';
 import { capture } from '../setup/system.mjs';
 import { isGitRepo, workspaceLine, workspaceStatus } from './layout.mjs';
@@ -15,7 +16,7 @@ export async function workspaceChecks({ run = capture } = {}) {
   const out = [{ id: 'workspace', label: 'Workspace', ...workspaceLine(st) }];
   const brain = path.join(st.dir, 'ai_brain');
   if (!isGitRepo(brain)) return out;
-  const r = await run(['git', '-C', brain, 'config', '--get', 'remote.origin.url'], { timeout: 10_000 });
+  const r = await gitRead(brain, ['config', '--get', 'remote.origin.url'], { run, timeout: 10_000 });
   if (!r.ok) out.push(check('workspace-brain', 'AI brain', 'warn', 'not on a git server yet: other computers cannot get it', 'hoprig workspace git   (GitHub), or: git -C <brain> remote add origin <address> && git -C <brain> push -u origin HEAD'));
   else {
     const s = await repoInfo(brain, run);

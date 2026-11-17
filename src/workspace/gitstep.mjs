@@ -9,6 +9,7 @@
 // Other git servers (GitLab, a plain SSH server) work for map, restore and sync through plain git; only this
 // sign-in help and creating a repository are GitHub's.
 import path from 'node:path';
+import { gitRead } from '../gitread.mjs';
 import { parseGhAuth } from '../pcsetup/detect.mjs';
 import { createGithubRepo, git, githubOwners, initRepo, repoInfo } from '../pcsetup/workspace.mjs';
 import { capture, stream, which } from '../setup/system.mjs';
@@ -41,7 +42,7 @@ export async function gitState({ run = capture, has = (c) => !!which(c), dir = w
   out.brain.exists = isDir(brain);
   out.brain.git = isGitRepo(brain);
   if (out.brain.git) {
-    const r = await run(['git', '-C', brain, 'config', '--get', 'remote.origin.url']);
+    const r = await gitRead(brain, ['config', '--get', 'remote.origin.url'], { run });
     out.brain.remote = r.ok ? r.stdout.trim().replace(/^(https?:\/\/)[^/@]*@/, '$1') : null;
     const s = await repoInfo(brain, run);
     if (s.ok) Object.assign(out.brain, { branch: s.branch, upstream: s.upstream, ahead: s.ahead, behind: s.behind, changes: s.changes });

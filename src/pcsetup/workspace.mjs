@@ -18,10 +18,11 @@
 // <project> derived from the git repository's folder; `autoMemoryDirectory` in any settings scope moves it.
 import fs from 'node:fs';
 import path from 'node:path';
+import { gitRead } from '../gitread.mjs';
 import { claudeDir } from '../paths.mjs';
 import { projectSlug } from '../sessions.mjs';
 import { capture, stream } from '../setup/system.mjs';
-import { PRIVATE_DIRS, READ_ONLY_GIT, cleanRemote, parseRepo, parseStatus, statusArgv } from './projects.mjs';
+import { PRIVATE_DIRS, STATUS_ARGS, cleanRemote, parseRepo, parseStatus } from './projects.mjs';
 import { WORKTREE_LEFT, isLinkedWorktree } from '../workspace/layout.mjs';
 
 export { PRIVATE_DIRS };
@@ -83,7 +84,7 @@ export async function discoverChildren(root, run = capture) {
     return [];
   }
   return Promise.all(names.map(async (n) => {
-    const r = await run(['git', '-C', path.join(code, n), 'config', '--get', 'remote.origin.url']);
+    const r = await gitRead(path.join(code, n), ['config', '--get', 'remote.origin.url'], { run });
     const url = cleanRemote(r.stdout.trim());
     return { dir: `code/${n}`, url: r.ok && parseRepo(url) ? url : null };
   }));
@@ -317,7 +318,7 @@ export async function git(dir, args, run = capture, opts = {}) {
 /** Branch, changes, ahead/behind of one repository (counts only). */
 export async function repoInfo(dir, run = capture) {
   if (!isRepo(dir)) return { dir, ok: false, error: 'not cloned' };
-  const r = await run(statusArgv(dir), { timeout: 30_000, env: READ_ONLY_GIT });
+  const r = await gitRead(dir, STATUS_ARGS, { run, timeout: 30_000 });
   return r.ok ? { dir, ok: true, ...parseStatus(r.stdout) } : { dir, ok: false, error: (r.stderr || 'git failed').trim().split('\n')[0] };
 }
 
@@ -397,7 +398,7 @@ export async function commitMemory(root, memories, run = capture) {
   const paths = [...new Set(Object.values(memories))].filter((p) => fs.existsSync(path.join(root, p)));
   if (!paths.length) return { committed: false, why: 'no memory folder' };
   await git(root, ['add', '--', ...paths], run);
-  const d = await git(root, ['diff', '--cached', '--quiet', '--', ...paths], run);
+  const d = await gitRead(root, ['diff', '--cached', '--quiet', '--', ...paths], { run });
   if (d.ok) return { committed: false, why: 'the memory did not change' };
   const c = await git(root, ['commit', '--quiet', '-m', 'Update AI memory', '--', ...paths], run);
   return c.ok ? { committed: true } : { committed: false, why: (c.stderr || c.stdout).trim().split('\n').pop() };
@@ -418,7 +419,7 @@ export async function syncWorkspace(root, { memory = false, run = capture, push 
 /** Set core.hooksPath to .githooks when the repository has that folder and no hooks path is set. */
 export async function useHooks(dir, run = capture) {
   if (!fs.existsSync(path.join(dir, '.githooks'))) return false;
-  const cur = await git(dir, ['config', '--get', 'core.hooksPath'], run);
+  const cur = await gitRead(dir, ['config', '--get', 'core.hooksPath'], { run });
   if (cur.stdout.trim()) return false;
   return (await git(dir, ['config', 'core.hooksPath', '.githooks'], run)).ok;
 }

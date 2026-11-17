@@ -430,13 +430,13 @@ test('unpack never writes git\'s folder or a private one: such an archive could 
 });
 
 test('the dashboard\'s git never runs a repository\'s fsmonitor command', { skip: !which('git') && 'no git here' }, async () => {
-  const { READ_ONLY_GIT } = await import('../../src/pcsetup/projects.mjs');
+  const { gitRead } = await import('../../src/gitread.mjs');
   const repo = path.join(box.root, 'fsm');
   fs.mkdirSync(repo);
   execFileSync('git', ['init', '-q', repo]);
   const mark = path.join(box.root, 'fsm-ran');
   execFileSync('git', ['-C', repo, 'config', 'core.fsmonitor', `touch '${mark}'; false`]);
-  execFileSync('git', ['-C', repo, 'status', '--porcelain'], { env: READ_ONLY_GIT, stdio: 'ignore' });
+  assert.equal((await gitRead(repo, ['status', '--porcelain'])).ok, true);
   assert.ok(!fs.existsSync(mark), 'the command in the repository\'s settings did not run');
 });
 

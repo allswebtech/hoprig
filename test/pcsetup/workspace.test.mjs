@@ -195,10 +195,11 @@ test('status never looks into a private folder (no-ai, ignore, ai-ignore-dir) an
   fs.writeFileSync(path.join(root, 'web', 'node_modules', 'lib', 'b.js'), 'x');
   const s = await W.repoInfo(root);
   assert.equal(s.changes, 1); // only visible.md
-  const { statusArgv, READ_ONLY_GIT } = await import('../../src/pcsetup/projects.mjs');
+  const { STATUS_ARGS } = await import('../../src/pcsetup/projects.mjs');
+  const { readCommand } = await import('../../src/gitread.mjs');
   const fold = process.platform === 'darwin' || process.platform === 'win32' ? ',icase' : '';
-  assert.deepEqual(statusArgv('/r').slice(-4), ['no-ai', 'ignore', 'ai-ignore-dir', 'node_modules'].map((d) => `:(exclude,glob${fold})**/${d}/**`));
-  assert.equal(READ_ONLY_GIT.GIT_OPTIONAL_LOCKS, '0');
+  assert.deepEqual(STATUS_ARGS.slice(-4), ['no-ai', 'ignore', 'ai-ignore-dir', 'node_modules'].map((d) => `:(exclude,glob${fold})**/${d}/**`));
+  assert.equal((await readCommand(root, STATUS_ARGS)).env.GIT_OPTIONAL_LOCKS, '0');
 });
 
 test('project new without a git name and e-mail stops before anything is written', async () => {

@@ -23,6 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { looksSecret } from '../assistant/secrets.mjs';
+import { gitRead } from '../gitread.mjs';
 import { PRIVATE_DIRS, cleanRemote, parseRepo } from '../pcsetup/projects.mjs';
 import { MANIFEST, NAME_RE, discoverChildren, readManifest, relOk, writeManifest } from '../pcsetup/workspace.mjs';
 import { capture } from '../setup/system.mjs';
@@ -175,7 +176,7 @@ export function writeMap(map, dir = workspaceDir()) {
 }
 
 const originOf = async (dir, run) => {
-  const r = await run(['git', '-C', dir, 'config', '--get', 'remote.origin.url'], { timeout: 10_000 });
+  const r = await gitRead(dir, ['config', '--get', 'remote.origin.url'], { run, timeout: 10_000 });
   if (!r.ok) return { url: null, why: 'not on a git server yet (no remote)' };
   try {
     return { url: mapUrl(r.stdout.trim()) };
@@ -277,7 +278,7 @@ export async function scanWorkspace({ dir = workspaceDir(), projects = projectsI
     const o = await originOf(path.join(dir, r), run);
     if (!o.url) notes.push(`${r}: ${o.why}`);
     // The branch it is on (a toolchain is restored on its channel, e.g. "stable"), and tools are never synced.
-    const b = await run(['git', '-C', path.join(dir, r), 'symbolic-ref', '--short', '-q', 'HEAD'], { timeout: 10_000 });
+    const b = await gitRead(path.join(dir, r), ['symbolic-ref', '--short', '-q', 'HEAD'], { run, timeout: 10_000 });
     const branch = b.ok && BRANCH_RE.test(b.stdout.trim()) ? b.stdout.trim() : null;
     map.others.push(withSync({ dir: r, url: o.url, ...(branch ? { branch } : {}) }, `other:${r}`, r.split('/')[0] === 'development' ? false : undefined));
   }
@@ -508,7 +509,7 @@ export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(),
 export async function mapSaved({ dir = workspaceDir(), run = capture } = {}) {
   const brain = path.join(dir, 'ai_brain');
   if (!isGitRepo(brain)) return { unsaved: false };
-  const r = await run(['git', '-C', brain, 'status', '--porcelain', '--', MAP_FILE], { timeout: 10_000 });
+  const r = await gitRead(brain, ['status', '--porcelain', '--', MAP_FILE], { run, timeout: 10_000 });
   const unsaved = r.ok && r.stdout.trim() !== '';
   return { unsaved, ...(unsaved ? { command: `git -C "${brain}" add ${MAP_FILE} && git -C "${brain}" commit -m "${COMMIT_MESSAGE}"` } : {}) };
 }

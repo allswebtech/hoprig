@@ -60,9 +60,10 @@ export async function currentRecipe({ withEmail = false, sys } = {}) {
   const workspaces = new Set(listWorkspaces(dir));
   const all = await projectRemotes(dir);
   const { capture } = await import('../setup/system.mjs');
+  const { gitRead } = await import('../gitread.mjs');
   const wsUrls = [];
   for (const w of workspaces) {
-    const r = await capture(['git', '-C', w, 'config', '--get', 'remote.origin.url']);
+    const r = await gitRead(w, ['config', '--get', 'remote.origin.url'], { run: capture });
     if (r.ok) wsUrls.push(r.stdout.trim());
   }
   const repos = all.filter((u) => !wsUrls.includes(u));

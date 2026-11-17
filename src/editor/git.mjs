@@ -2,10 +2,14 @@
 // diff editor, stage, unstage, discard, commit, the log and the branches. git gets an argv array, "--" before paths,
 // and --literal-pathspecs wherever a path from the page goes in, so a file named like an option or a pathspec (":x",
 // "*") is only ever that file. Paths in and out are relative to the opened folder, as everywhere in the editor.
+// Every read goes through the reader (gitread.mjs): the folder's own git settings never start a program for it. What
+// the owner presses (stage, unstage, discard, commit) is git doing what he asked in his repository, as from his
+// terminal: its hooks, filters and fsmonitor run as git has them.
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { READ_ONLY_GIT, STATUS_EXCLUDES, excludes } from '../pcsetup/projects.mjs';
+import { readCommand } from '../gitread.mjs';
+import { STATUS_EXCLUDES, excludes } from '../pcsetup/projects.mjs';
 import { within } from '../server/folders.mjs';
 import { MAX_BYTES, isBinary } from './files.mjs';
 import { fail, isHiddenName, isPrivateName, isSecret, resolveIn, rootOf, segments } from './paths.mjs';
@@ -13,16 +17,15 @@ import { fail, isHiddenName, isPrivateName, isSecret, resolveIn, rootOf, segment
 /** `base` without what would point git at another repository than the folder's, and without its locks or prompts. */
 export const gitEnv = (base = process.env) => Object.fromEntries(Object.entries({ ...base, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' })
   .filter(([k]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|CEILING_DIRECTORIES|PREFIX|COMMON_DIR)$/.test(k)));
-const ENV = gitEnv(READ_ONLY_GIT);
 export { excludes };
 // The same folders Workspace's count leaves out: private folders and packages.
 const PRIVATE_EXCLUDES = STATUS_EXCLUDES;
 const PATHS_MAX = 500;
 
-/** Run git in `cwd`: { ok, code, out (Buffer), err (text), tooLarge }. */
-export function git(args, { cwd, timeout = 15_000, max = 16 << 20 } = {}) {
+/** Run `argv` with `env`: { ok, code, out (Buffer), err (text), tooLarge }. */
+function exec(argv, env, { cwd, timeout, max }) {
   return new Promise((resolve) => {
-    execFile('git', args, { cwd, env: ENV, timeout, maxBuffer: max, encoding: 'buffer', windowsHide: true }, (e, out, err) => {
+    execFile(argv[0], argv.slice(1), { cwd, env, timeout, maxBuffer: max, encoding: 'buffer', windowsHide: true }, (e, out, err) => {
       resolve({
         ok: !e,
         code: e ? (typeof e.code === 'number' ? e.code : null) : 0,
@@ -33,6 +36,16 @@ export function git(args, { cwd, timeout = 15_000, max = 16 << 20 } = {}) {
     });
   });
 }
+
+/** A read of the repository at `cwd`, through the reader: { ok, code, out (Buffer), err (text), tooLarge }. */
+export async function git(args, { cwd, timeout = 15_000, max = 16 << 20 } = {}) {
+  const c = await readCommand(cwd, args);
+  if (c.refused) return { ok: false, code: null, out: Buffer.alloc(0), err: c.refused, tooLarge: false, refused: true };
+  return exec(c.argv, c.env, { cwd, timeout, max });
+}
+
+/** What the owner pressed (stage, unstage, discard, commit): git as from his terminal, without a prompt. */
+const change = (args, { cwd, timeout = 60_000 } = {}) => exec(['git', ...args], gitEnv(), { cwd, timeout, max: 16 << 20 });
 
 const lastWords = (r) => (r.err || r.out.toString('utf8')).trim().split('\n').filter(Boolean).slice(-6).join('\n').slice(0, 1000) || `git ended with ${r.code}`;
 
@@ -130,6 +143,7 @@ export async function gitStatus(rootArg, roots) {
   const repos = nestedRepos(rp.root);
   if (!rp.top) return { repo: false, repos };
   const r = await git(['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all', '--', '.', ...PRIVATE_EXCLUDES], { cwd: rp.root, timeout: 30_000 });
+  if (r.refused) throw fail(502, r.err, { code: 'git-settings' });
   if (r.tooLarge) throw fail(502, 'git lists too many changed or new files here (more than 16 MB of names): is a large folder missing from .gitignore?', { code: 'too-many' });
   if (!r.ok) throw fail(502, `git status failed: ${lastWords(r)}`);
   return { repo: true, top: rp.top, prefix: rp.prefix.replace(/\/$/, ''), repos, ...parseStatusV2(r.out, rp.prefix) };
@@ -205,6 +219,7 @@ export async function diffSides(rootArg, rel, staged, roots) {
 const hasHead = async (root) => (await git(['rev-parse', '--verify', '-q', 'HEAD'], { cwd: root })).ok;
 
 async function must(r, what) {
+  if (r.refused) throw fail(502, r.err, { code: 'git-settings' });
   if (!r.ok) throw fail(409, `${what} failed: ${lastWords(r)}`, { code: 'git-failed' });
   return r;
 }
@@ -212,7 +227,7 @@ async function must(r, what) {
 export async function stage(rootArg, paths, roots) {
   const rp = await needRepo(rootArg, roots);
   const list = pathList(paths, rp.root);
-  await must(await git(['--literal-pathspecs', 'add', '-A', '--', ...list], { cwd: rp.root, timeout: 60_000 }), 'git add');
+  await must(await change(['--literal-pathspecs', 'add', '-A', '--', ...list], { cwd: rp.root }), 'git add');
   return { staged: list };
 }
 
@@ -221,7 +236,7 @@ export async function unstage(rootArg, paths, roots) {
   const list = pathList(paths, rp.root);
   // Before the first commit there is no HEAD to go back to: the files simply leave the index.
   const args = (await hasHead(rp.root)) ? ['restore', '--staged', '--', ...list] : ['rm', '--cached', '-r', '-q', '--ignore-unmatch', '--', ...list];
-  await must(await git(['--literal-pathspecs', ...args], { cwd: rp.root, timeout: 60_000 }), 'git restore --staged');
+  await must(await change(['--literal-pathspecs', ...args], { cwd: rp.root }), 'git restore --staged');
   return { unstaged: list };
 }
 
@@ -233,7 +248,7 @@ export async function discard(rootArg, paths, confirm, roots) {
   const u = await must(await git(['--literal-pathspecs', 'ls-files', '-z', '--others', '--exclude-standard', '--', ...list], { cwd: rp.root }), 'git ls-files');
   const untracked = new Set(u.out.toString('utf8').split('\0').filter(Boolean));
   const tracked = list.filter((p) => !untracked.has(p));
-  if (tracked.length) await must(await git(['--literal-pathspecs', 'restore', '--worktree', '--', ...tracked], { cwd: rp.root, timeout: 60_000 }), 'git restore');
+  if (tracked.length) await must(await change(['--literal-pathspecs', 'restore', '--worktree', '--', ...tracked], { cwd: rp.root }), 'git restore');
   const deleted = [];
   for (const p of list.filter((x) => untracked.has(x))) {
     const at = resolveIn(rp.root, p, roots, { mode: 'entry' });
@@ -265,7 +280,7 @@ export async function commit(rootArg, message, amend, roots) {
     { code: 'staged-elsewhere', count: n });
   }
   if (!amend && !all.size) throw fail(409, 'nothing is staged to commit', { code: 'nothing-staged' });
-  const r = await git(['commit', '-q', ...(amend ? ['--amend'] : []), '-m', message], { cwd: rp.root, timeout: 120_000 });
+  const r = await change(['commit', '-q', ...(amend ? ['--amend'] : []), '-m', message], { cwd: rp.root, timeout: 120_000 });
   if (!r.ok) throw fail(409, `the commit was not made: ${lastWords(r)}`, { code: 'commit-failed' });
   const h = await git(['log', '-1', '--format=%h%x00%s'], { cwd: rp.root });
   const [hash, subject] = h.out.toString('utf8').trim().split('\0');
