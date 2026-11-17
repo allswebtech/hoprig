@@ -4,7 +4,8 @@
 // Whatever an engine prints, every hit is checked once more before it is shown (paths.mjs showable).
 import { spawn } from 'node:child_process';
 import { which } from '../setup/system.mjs';
-import { excludes, gitEnv, repoOf } from './git.mjs';
+import { readCommand } from '../gitread.mjs';
+import { excludes, repoOf } from './git.mjs';
 import { FOLD, HIDDEN, PRIVATE_DIRS, fail, rootOf, showable } from './paths.mjs';
 import { globRe, walk } from './walk.mjs';
 
@@ -95,11 +96,12 @@ export async function search(rootArg, { q, regex = false, caseSensitive = false,
     matches.push({ path: p, line, ...excerpt(text, col) });
     return matches.length < LIMITS.matches;
   };
-  const pick = engine || (which('rg', env) ? 'rg' : (await repoOf(root, roots)).top ? 'git' : 'walk');
+  let pick = engine || (which('rg', env) ? 'rg' : (await repoOf(root, roots)).top ? 'git' : 'walk');
   let res = { timedOut: false };
   if (pick === 'rg') res = await viaRg(root, { q, regex, caseSensitive, word, inc, exc }, env, add);
   else if (pick === 'git') res = await viaGit(root, { q, regex, caseSensitive, word, inc, exc }, env, add);
-  else {
+  if (res.refused) pick = 'walk'; // the folder's git settings could not be read: no git here, the walk needs none
+  if (pick === 'walk') {
     res = await walk(root, { mode: 'search', skip: SKIP, fold: FOLD, re: { source: re.source, flags: re.flags }, inc, exc, perFile: LIMITS.perFile, fileBytes: LIMITS.fileBytes, ms: LIMITS.ms },
       (hits) => hits.every(([p, line, col, text]) => add(p, line, col, text) !== false));
   }
@@ -131,10 +133,11 @@ export async function listFiles(rootArg, roots, { env = process.env } = {}) {
     files.push(p);
     return true;
   };
-  if ((await repoOf(root, roots)).top) {
+  // Through the reader: a folder's own git settings never start a program here. When it cannot read them, the walk.
+  const c = (await repoOf(root, roots)).top && await readCommand(root, ['-c', 'core.quotePath=false', 'ls-files', '--cached', '--others', '--exclude-standard', '--', '.', ...excludes(SKIP)], { env });
+  if (c && !c.refused) {
     // Names with a quote, a backslash or a control character come back C-quoted: those are left out (keep).
-    const argv = ['git', '-c', 'core.quotePath=false', 'ls-files', '--cached', '--others', '--exclude-standard', '--', '.', ...excludes(SKIP)];
-    const r = await runLines(argv, { cwd: root, env: gitEnv(env), onLine: keep });
+    const r = await runLines(c.argv, { cwd: root, env: c.env, onLine: keep });
     return { files: files.sort(), truncated: truncated || r.timedOut };
   }
   const r = await walk(root, { mode: 'files', skip: SKIP, fold: FOLD, inc: [], exc: [], ms: LIMITS.ms }, (list) => list.every(keep));
@@ -185,12 +188,13 @@ async function viaGit(root, o, env, add) {
     ...o.exc.flatMap((g) => spec('exclude,glob', g)),
     ...excludes(SKIP),
   ];
-  const argv = [
-    'git', 'grep', '-n', '--column', '-I', '-z', '--untracked', '--exclude-standard', '--max-count', String(LIMITS.perFile),
+  const c = await readCommand(root, [
+    'grep', '-n', '--column', '-I', '-z', '--untracked', '--exclude-standard', '--max-count', String(LIMITS.perFile),
     ...(o.caseSensitive ? [] : ['-i']), ...(o.regex ? ['-P'] : o.ere ? ['-E'] : ['-F']), ...(o.word ? ['-w'] : []), '-e', o.q, '--', ...pathspecs,
-  ];
-  const r = await runLines(argv, {
-    cwd: root, env: gitEnv(env),
+  ], { env });
+  if (c.refused) return { refused: c.refused };
+  const r = await runLines(c.argv, {
+    cwd: root, env: c.env,
     onLine: (l) => {
       const [p, line, col, ...rest] = l.split('\0');
       if (!p || !line) return true;

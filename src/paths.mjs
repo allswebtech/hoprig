@@ -68,13 +68,22 @@ export const binFile = () => path.resolve(path.dirname(fileURLToPath(import.meta
 /** The small program Claude Code starts for a hook event (bin/hoprig-hook.mjs): `hoprig hook` without the rest. */
 export const hookFile = () => path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'hoprig-hook.mjs');
 
-/**
- * Where hoprig is installed and updated from: the repository's main branch as a tarball, which npm installs
- * directly. When the package is published on npm these become the package name and its `@latest`.
- */
-export const PACKAGE_SOURCE = 'https://github.com/allswebtech/hoprig/archive/refs/heads/main.tar.gz';
+// Where Hoprig comes from: the one place the install, the update and the lookup of the newest version all read, so
+// they cannot drift apart (install.sh and install.ps1 carry the same address; a test holds them to it). Today that
+// is the public repository's main branch: npm installs its tarball directly, and the newest version is the one in
+// package.json on that branch. When the package is published on npm, this becomes the package name, and the
+// lookup in src/setup/selfupdate.mjs asks npm instead.
+const REPO = 'allswebtech/hoprig';
+const BRANCH = 'main';
+const SOURCE = Object.freeze({
+  /** what `npm install -g` is given */
+  package: `https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz`,
+  /** the package.json that install would get, read for its version */
+  versionFile: `https://raw.githubusercontent.com/${REPO}/${BRANCH}/package.json`,
+});
+export const hoprigSource = () => SOURCE;
 /** The one-line installer for macOS and Linux. */
-export const INSTALL_SCRIPT_URL = 'https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh';
+export const INSTALL_SCRIPT_URL = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/install.sh`;
 
 /** `~/x` for display. */
 export const tilde = (p) => (p === home() || p.startsWith(home() + path.sep) ? '~' + p.slice(home().length) : p);

@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { gitRead } from '../gitread.mjs';
 import { tilde } from '../paths.mjs';
 import { finishProject } from '../pcsetup/project.mjs';
 import { cloneRepo, parseRepo, rememberDir } from '../pcsetup/projects.mjs';
@@ -46,7 +47,7 @@ export async function placeState(dest, url, run = capture) {
   if (!fs.existsSync(dest) || emptyDir(dest)) return url ? { action: 'clone' } : { action: 'no-address', why: 'not on a git server yet: copy it from the computer that has it' };
   if (!isGitRepo(dest)) return { action: 'different', why: 'a folder that is not this repository is there' };
   if (isLinkedWorktree(dest)) return { action: 'different', why: WORKTREE_WHY }; // never cloned over, never counted as this one
-  const r = await run(['git', '-C', dest, 'config', '--get', 'remote.origin.url'], { timeout: 10_000 });
+  const r = await gitRead(dest, ['config', '--get', 'remote.origin.url'], { run, timeout: 10_000 });
   const have = r.ok ? r.stdout.trim() : '';
   if (!url || sameUrl(have, url)) return { action: 'here' };
   return { action: 'different', why: `another repository is there (${have ? 'its address differs' : 'it has no remote'})` };
@@ -76,7 +77,7 @@ export async function untouchedScaffold(dir, run = capture) {
   if (listed.some((r) => fs.readFileSync(path.join(dir, r), 'utf8') !== files[r])) return false;
   if (!isGitRepo(dir)) return true;
   const [log, remote, st] = await Promise.all([
-    run(['git', '-C', dir, 'log', '--format=%s']), run(['git', '-C', dir, 'remote']), run(['git', '-C', dir, 'status', '--porcelain']),
+    gitRead(dir, ['log', '--format=%s'], { run }), gitRead(dir, ['remote'], { run }), gitRead(dir, ['status', '--porcelain'], { run }),
   ]);
   return log.ok && log.stdout.trim() === 'Start the AI brain' && remote.ok && !remote.stdout.trim() && st.ok && !st.stdout.trim();
 }

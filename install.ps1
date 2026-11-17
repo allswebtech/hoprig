@@ -7,7 +7,7 @@
 #   1. Node.js 22 or newer. When missing it is installed with WinGet (built into Windows 10 1809+ and 11), as the
 #      official "Node.js LTS" package (OpenJS.NodeJS.LTS) that nodejs.org lists for Windows. Windows may ask for
 #      permission once (the Node.js installer is for all users).
-#   2. hoprig itself, with npm: from npm by default, or from $env:HOPRIG_SOURCE (a .tgz file, a folder or a
+#   2. hoprig itself, with npm: from the repository's main branch by default, or from $env:HOPRIG_SOURCE (a .tgz file, a folder or a
 #      git URL). npm's global folder on Windows is in your own profile, so no administrator rights are needed.
 #   3. `hoprig setup`, which installs Claude Code (its official Windows installer) and sets up the dashboard.
 #      Arguments given to this script go to setup (for example --yes, --access network, --no-service).
@@ -18,6 +18,7 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]]$SetupArgs = @()
 $ErrorActionPreference = 'Stop'
 $MinNode = 22 # the same as src/nodeguard.mjs
 # Until the package is on npm the default is the repository's main branch as a tarball, which npm installs directly.
+# The same address as hoprigSource() in src/paths.mjs, which the update and its version lookup read.
 $Source = if ($env:HOPRIG_SOURCE) { $env:HOPRIG_SOURCE } else { 'https://github.com/allswebtech/hoprig/archive/refs/heads/main.tar.gz' }
 $Yes = ($env:HOPRIG_YES -eq '1') -or ($SetupArgs -contains '--yes') -or ($SetupArgs -contains '-y')
 

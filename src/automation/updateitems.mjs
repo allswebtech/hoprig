@@ -20,6 +20,8 @@
 // back with a new address).
 import { TOOLS, findTool, turnOn } from '../codetools/index.mjs';
 import { readyToReplace, toolRuns } from '../codetools/servers.mjs';
+import { gitRead } from '../gitread.mjs';
+import { forInstalls } from '../secretenv.mjs';
 import { capture, compareVersions, npmMajor, showCommand, stream } from '../setup/system.mjs';
 import { busy, toolOf } from './cards.mjs';
 
@@ -36,14 +38,15 @@ const plural = (n, one) => `${n} ${one} session${n === 1 ? '' : 's'}`;
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
 
 export async function gitFacts(root, run = capture) {
-  const git = (...a) => run(['git', '-C', root, ...a], { timeout: 20_000, env: GIT_ENV });
+  // The checkout's own state through the reader (gitread.mjs); only ls-remote talks to the server.
+  const git = (...a) => gitRead(root, a, { run, timeout: 20_000 });
   const head = (await git('rev-parse', 'HEAD')).stdout.trim() || null;
   const up = await git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}');
   const upstream = up.ok ? up.stdout.trim() : '';
   if (!upstream || !upstream.includes('/')) return { head, upstream: null, remoteHead: null, newer: null };
   const [remote, ...rest] = upstream.split('/');
   const branch = rest.join('/');
-  const ls = await git('ls-remote', '--heads', remote, `refs/heads/${branch}`);
+  const ls = await run(['git', '-C', root, 'ls-remote', '--heads', remote, `refs/heads/${branch}`], { timeout: 20_000, env: GIT_ENV });
   const remoteHead = ls.ok ? (/^([0-9a-f]{40,64})\s/m.exec(ls.stdout) || [])[1] || null : null;
   if (!remoteHead) return { head, upstream, remoteHead: null, newer: null, error: 'could not reach the git server' };
   if (remoteHead === head) return { head, upstream, remoteHead, newer: false };
@@ -63,7 +66,7 @@ export function hoprigItem(deps = {}) {
       'The new version is used after the dashboard restarts: sessions kept by tmux go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). Hoprig never updates itself: Automatic tells you, and you choose the moment.',
     installable: false,
     async info() {
-      const [{ installKind, publishedVersion }, { appRoot, appVersion }] = await Promise.all([sel(), chk()]);
+      const [{ installKind, newestVersion }, { appRoot, appVersion }] = await Promise.all([sel(), chk()]);
       const root = appRoot();
       const kind = installKind(root);
       const installed = appVersion();
@@ -78,8 +81,9 @@ export function hoprigItem(deps = {}) {
         return { ...base, ...git, latest: g.newer ? `newer commits on ${g.upstream}` : base.installed, updateAvailable: g.newer, canUpdate: true };
       }
       if (kind === 'npm') {
-        const latest = await publishedVersion();
-        return { installed, method: 'npm', latest, updateAvailable: !!(latest && installed && compareVersions(latest, installed) > 0), canUpdate: true };
+        // From where the install and the update come from (paths.mjs hoprigSource): unknown is null with a note.
+        const { version: latest, note } = await newestVersion();
+        return { installed, method: 'npm', latest, updateAvailable: !!(latest && installed && compareVersions(latest, installed) > 0), canUpdate: true, note: note || null };
       }
       return { installed, method: 'copied folder', latest: null, updateAvailable: false, canUpdate: false, why: 'Installed from a copied folder or a tarball: install it again the way you did first.' };
     },
@@ -89,21 +93,21 @@ export function hoprigItem(deps = {}) {
       const kind = installKind(root);
       if (kind === 'git') {
         // A pull into a checkout with work in it is the developer's to do, not a button's.
-        const st = await run(['git', '-C', root, 'status', '--porcelain', '--untracked-files=no'], { timeout: 20_000, env: GIT_ENV });
+        const st = await gitRead(root, ['status', '--porcelain', '--untracked-files=no'], { run, timeout: 20_000 });
         if (!st.ok || st.stdout.trim()) {
           const why = st.ok ? 'The checkout has changes that are not committed: update it with git yourself.' : 'git could not read the checkout.';
           onLine(why);
           return { ok: false, version: appVersion(), output: why };
         }
       }
-      const plan = updatePlan(kind, root, process.platform, kind === 'npm' ? await npmMajor() : null);
+      const plan = updatePlan(kind, root, process.platform, kind === 'npm' ? await npmMajor({ env: forInstalls(process.env) }) : null);
       if (!plan.length) {
         onLine('This install cannot update itself: install it again the way you did first.');
         return { ok: false, version: appVersion(), output: '' };
       }
       for (const step of plan) {
         onLine(`$ ${showCommand(step.argv)}`);
-        const r = await (deps.stream || stream)(step.argv, { cwd: step.cwd, onLine });
+        const r = await (deps.stream || stream)(step.argv, { cwd: step.cwd, env: forInstalls(process.env), onLine });
         if (!r.ok && step.ifFails) onLine(step.ifFails);
         else if (!r.ok) return { ok: false, version: appVersion(), output: `exit code ${r.code}` };
       }

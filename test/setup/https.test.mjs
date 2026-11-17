@@ -19,34 +19,34 @@ test('public or not: loopback, private, CGNAT/Tailscale, link-local, documentati
 test('public addresses of this computer, IPv4 first', () => {
   const ifaces = {
     lo: [{ address: '127.0.0.1', internal: true }],
-    eth0: [{ address: '2a01:4f8::5', internal: false }, { address: '10.0.0.4', internal: false }, { address: '95.216.1.2', internal: false }],
+    eth0: [{ address: '2606:4700:4700::1111', internal: false }, { address: '10.0.0.4', internal: false }, { address: '1.1.1.1', internal: false }],
     tailscale0: [{ address: '100.88.1.2', internal: false }],
   };
-  assert.deepEqual(H.publicAddresses(ifaces), ['95.216.1.2']);
-  assert.deepEqual(H.publicAddresses(ifaces, { ipv6: true }), ['95.216.1.2', '2a01:4f8::5']);
+  assert.deepEqual(H.publicAddresses(ifaces), ['1.1.1.1']);
+  assert.deepEqual(H.publicAddresses(ifaces, { ipv6: true }), ['1.1.1.1', '2606:4700:4700::1111']);
   assert.deepEqual(H.publicAddresses({ eth0: [{ address: '10.0.0.4', internal: false }] }), []);
 });
 
 test('domains are checked, IPs are not domains, IPv6 goes in brackets', () => {
   assert.equal(H.cleanDomain('Hub.Example.com.'), 'hub.example.com');
   assert.equal(H.cleanDomain('localhost'), null);
-  assert.equal(H.cleanDomain('95.216.1.2'), null);
+  assert.equal(H.cleanDomain('1.1.1.1'), null);
   assert.equal(H.cleanDomain('bad_name.example.com'), null);
-  assert.equal(H.urlHost('2a01:4f8::5'), '[2a01:4f8::5]');
-  assert.equal(H.urlHost('95.216.1.2'), '95.216.1.2');
+  assert.equal(H.urlHost('2606:4700:4700::1111'), '[2606:4700:4700::1111]');
+  assert.equal(H.urlHost('1.1.1.1'), '1.1.1.1');
 });
 
 test('DNS: points here, points elsewhere, no record; the record to create', async () => {
   const resolver = (a, aaaa = []) => ({ resolve4: async () => a, resolve6: async () => { if (!aaaa.length) throw new Error('ENODATA'); return aaaa; } });
-  assert.equal((await H.dnsCheck('hub.example.com', ['95.216.1.2'], resolver(['95.216.1.2']))).ok, true);
-  const elsewhere = await H.dnsCheck('hub.example.com', ['95.216.1.2'], resolver(['1.2.3.4']));
+  assert.equal((await H.dnsCheck('hub.example.com', ['1.1.1.1'], resolver(['1.1.1.1']))).ok, true);
+  const elsewhere = await H.dnsCheck('hub.example.com', ['1.1.1.1'], resolver(['1.2.3.4']));
   assert.equal(elsewhere.ok, false);
   assert.deepEqual(elsewhere.records.A, ['1.2.3.4']);
-  const none = await H.dnsCheck('hub.example.com', ['95.216.1.2'], { resolve4: async () => { throw new Error('ENOTFOUND'); }, resolve6: async () => { throw new Error('ENOTFOUND'); } });
+  const none = await H.dnsCheck('hub.example.com', ['1.1.1.1'], { resolve4: async () => { throw new Error('ENOTFOUND'); }, resolve6: async () => { throw new Error('ENOTFOUND'); } });
   assert.equal(none.ok, false);
-  assert.deepEqual(H.dnsAdvice('hub.example.com', ['95.216.1.2', '2a01:4f8::5']), [
-    'A record   hub.example.com   →   95.216.1.2',
-    'AAAA record   hub.example.com   →   2a01:4f8::5',
+  assert.deepEqual(H.dnsAdvice('hub.example.com', ['1.1.1.1', '2606:4700:4700::1111']), [
+    'A record   hub.example.com   →   1.1.1.1',
+    'AAAA record   hub.example.com   →   2606:4700:4700::1111',
   ]);
 });
 
@@ -75,7 +75,7 @@ test('which web server owns 80/443, for each case', () => {
 });
 
 test('the plan for each web server, domain and IP', () => {
-  const p = (kind, ip = false) => H.httpsPlan({ web: { kind, panel: 'Plesk' }, address: ip ? '95.216.1.2' : 'hub.example.com', port: 7433, ip });
+  const p = (kind, ip = false) => H.httpsPlan({ web: { kind, panel: 'Plesk' }, address: ip ? '1.1.1.1' : 'hub.example.com', port: 7433, ip });
   assert.deepEqual(p('none'), { action: 'caddy', install: true, mode: 'domain' });
   assert.deepEqual(p('caddy'), { action: 'caddy', install: false, mode: 'domain' });
   assert.deepEqual(p('none', true), { action: 'caddy', install: true, mode: 'ip' });
@@ -90,8 +90,8 @@ test('the plan for each web server, domain and IP', () => {
 test('the Caddy site, exactly, for a domain, an IP and an internal certificate', () => {
   const mark = '# hoprig hub: written by `hoprig setup --hub`; hoprig rewrites this file, edit the Caddyfile instead';
   assert.equal(H.caddySite({ address: 'hub.example.com', port: 7433 }), `${mark}\nhub.example.com {\n\treverse_proxy 127.0.0.1:7433\n}\n`);
-  assert.equal(H.caddySite({ address: '95.216.1.2', port: 7433, mode: 'ip' }),
-    `${mark}\n95.216.1.2 {\n\ttls {\n\t\tissuer acme {\n\t\t\tprofile shortlived\n\t\t}\n\t}\n\treverse_proxy 127.0.0.1:7433\n}\n`);
+  assert.equal(H.caddySite({ address: '1.1.1.1', port: 7433, mode: 'ip' }),
+    `${mark}\n1.1.1.1 {\n\ttls {\n\t\tissuer acme {\n\t\t\tprofile shortlived\n\t\t}\n\t}\n\treverse_proxy 127.0.0.1:7433\n}\n`);
   assert.equal(H.caddySite({ address: 'hub.test', port: 8000, mode: 'internal' }), `${mark}\nhub.test {\n\ttls internal\n\treverse_proxy 127.0.0.1:8000\n}\n`);
 });
 
@@ -140,24 +140,24 @@ test('a hub reached by its IP address: default_sni goes into the Caddyfile globa
   const note = '# hoprig hub: the certificate for a visitor who names no server (a browser opening an IP address). hoprig setup --hub keeps the next block.';
   // the Caddyfile the package installs: no global options yet, so a block is put on top
   const pkg = '# The Caddyfile is an easy way to configure your Caddy web server.\n\n:80 {\n\troot * /usr/share/caddy\n\tfile_server\n}\n';
-  const withIp = H.withDefaultSni(pkg, '95.216.1.2');
-  assert.equal(withIp, `${note}\n{\n\tdefault_sni 95.216.1.2 # hoprig hub\n}\n\n${pkg}`);
-  assert.equal(H.withDefaultSni(withIp, '95.216.1.2'), null, 'already there: nothing changes');
+  const withIp = H.withDefaultSni(pkg, '1.1.1.1');
+  assert.equal(withIp, `${note}\n{\n\tdefault_sni 1.1.1.1 # hoprig hub\n}\n\n${pkg}`);
+  assert.equal(H.withDefaultSni(withIp, '1.1.1.1'), null, 'already there: nothing changes');
   // the address changed: our line follows it; IPv6 is written without brackets (a name, not a place to connect to)
-  assert.equal(H.withDefaultSni(withIp, '[2a01:4f8::1]'), withIp.replace('default_sni 95.216.1.2', 'default_sni 2a01:4f8::1'));
+  assert.equal(H.withDefaultSni(withIp, '[2606:4700:4700::1001]'), withIp.replace('default_sni 1.1.1.1', 'default_sni 2606:4700:4700::1001'));
   // the hub moved to a domain: our line and the block we made go, the file is as it was
   assert.equal(H.withDefaultSni(withIp, null), pkg);
   assert.equal(H.withDefaultSni(pkg, null), null);
   // an owner's own global options: the line goes into that block and comes out again without touching the rest
   const own = '{\n\temail admin@example.com\n\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n\nexample.com {\n\trespond "hi"\n}\n';
-  const inOwn = H.withDefaultSni(own, '95.216.1.2');
-  assert.equal(inOwn, own.replace('{\n', '{\n\tdefault_sni 95.216.1.2 # hoprig hub\n'));
+  const inOwn = H.withDefaultSni(own, '1.1.1.1');
+  assert.equal(inOwn, own.replace('{\n', '{\n\tdefault_sni 1.1.1.1 # hoprig hub\n'));
   assert.equal(H.withDefaultSni(inOwn, null), own);
   // an owner who set default_sni themselves keeps it (also below a nested block)
-  assert.equal(H.withDefaultSni('{\n\tservers {\n\t\tprotocols h1\n\t}\n\tdefault_sni hub.example.com\n}\n', '95.216.1.2'), null);
+  assert.equal(H.withDefaultSni('{\n\tservers {\n\t\tprotocols h1\n\t}\n\tdefault_sni hub.example.com\n}\n', '1.1.1.1'), null);
   // a default_sni inside a site's own block is not the global one
   const site = 'example.com {\n\ttls {\n\t\tdefault_sni x\n\t}\n}\n';
-  assert.equal(H.withDefaultSni(site, '95.216.1.2'), `${note}\n{\n\tdefault_sni 95.216.1.2 # hoprig hub\n}\n\n${site}`);
+  assert.equal(H.withDefaultSni(site, '1.1.1.1'), `${note}\n{\n\tdefault_sni 1.1.1.1 # hoprig hub\n}\n\n${site}`);
   // a fresh, empty Caddyfile, then our import: the global options stay first
   const fresh = H.withDefaultSni('', '192.168.1.9');
   assert.equal(fresh, `${note}\n{\n\tdefault_sni 192.168.1.9 # hoprig hub\n}\n`);

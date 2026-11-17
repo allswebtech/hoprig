@@ -49,7 +49,7 @@ test('each change a token may make has its plain words; anything else is not log
   assert.equal(CHANGES.every(([m]) => m === 'POST'), true);
 });
 
-// A stand-in route for /api/workspace/link (it comes from another lane): the gate's call, then the route's answer.
+// A stand-in route for /api/workspace/link (the real one is another feature's): the gate's call, then the route's answer.
 async function standIn(fn) {
   const server = http.createServer((req, res) => fn(req, res));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));

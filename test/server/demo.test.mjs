@@ -160,3 +160,92 @@ test('demo: every coding tool\'s own folder is inside the demo, so its brain lin
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// The demo's environment is a list of what may stay: its sessions and shells inherit it, one `env` away from a
+// screenshot, so no key, token or variable of the session it was started from is left in it.
+test('demo: its environment keeps only what it needs; no secret, nothing else of the person', async () => {
+  const { isolate } = await import('../../src/demo/index.mjs');
+  const { isSecretVar } = await import('../../src/secretenv.mjs');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-env-'));
+  try {
+    const env = {
+      PATH: '/usr/bin', LANG: 'en_US.UTF-8', LC_ALL: 'C.UTF-8', TERM: 'xterm-256color', TMPDIR: '/tmp/x',
+      OPENAI_API_KEY: 'k', CODEX_API_KEY: 'k', OPENCODE_PASSWORD: 'k', HOPRIG_OPENCODE_KEY_WORK: 'k', HOPRIG_CODEX_KEY_WORK: 'k',
+      HOPRIG_ASSISTANT_TOKEN: 'k', ANTHROPIC_CUSTOM_HEADERS: 'k', CLAUDE_CODE_OAUTH_TOKEN: 'k', AWS_SECRET_ACCESS_KEY: 'k',
+      SSH_AUTH_SOCK: '/run/agent', DISPLAY: ':0', USER: 'someone', HOSTNAME: 'real-host', HISTFILE: '/real/history',
+      ProgramFiles: 'C:\\Program Files', PSModulePath: 'C:\\Program Files\\WindowsPowerShell\\Modules', APPDATA: 'C:\\Users\\someone\\AppData\\Roaming',
+    };
+    const home = isolate(root, env);
+    assert.deepEqual(Object.keys(env).filter(isSecretVar), []);
+    for (const k of ['AWS_SECRET_ACCESS_KEY', 'SSH_AUTH_SOCK', 'DISPLAY', 'USER', 'HOSTNAME', 'HISTFILE']) assert.equal(env[k], undefined, k);
+    assert.deepEqual([env.LANG, env.LC_ALL, env.TERM, env.TMPDIR], ['en_US.UTF-8', 'C.UTF-8', 'xterm-256color', '/tmp/x']);
+    assert.equal(env.HOME, home);
+    // Windows' own program folders stay for a demo terminal's PowerShell; the person's AppData does not.
+    assert.deepEqual([env.ProgramFiles, env.PSModulePath], ['C:\\Program Files', 'C:\\Program Files\\WindowsPowerShell\\Modules']);
+    assert.notEqual(env.APPDATA, 'C:\\Users\\someone\\AppData\\Roaming');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// `hoprig demo` as a stranger runs it: what it prints, what its sessions inherit, and what SIGTERM leaves. The
+// signal comes while its second computer starts (the moment that left that computer's folder behind).
+test('demo: the address and nothing more; its sessions hold no secret; SIGTERM leaves no folder', { timeout: 150_000, skip: process.platform !== 'linux' && 'reads /proc' }, async () => {
+  const { spawn } = await import('node:child_process');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-term-'));
+  const box = sandbox('demo-term');
+  const MARK = 'made-up-secret-demo';
+  const env = { ...process.env, TMPDIR: tmp, OPENAI_API_KEY: MARK, HOPRIG_ASSISTANT_TOKEN: MARK, HOPRIG_OPENCODE_KEY_WORK: MARK, ANTHROPIC_API_KEY: MARK };
+  const bin = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'bin', 'hoprig.mjs');
+  const child = spawn(process.execPath, [bin, 'demo', '--no-open'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.on('data', (d) => (out += d));
+  child.stderr.on('data', (d) => (out += d));
+  const ended = new Promise((r) => child.once('exit', r));
+  const demos = () => fs.readdirSync(tmp).filter((n) => n.startsWith('hoprig-demo-') && fs.statSync(path.join(tmp, n)).isDirectory());
+  const wait = async (what, ms) => {
+    for (let t = 0; t < ms && !what(); t += 250) await new Promise((r) => setTimeout(r, 250));
+    return what();
+  };
+  // Every process the demo started, with what it inherited.
+  const descendants = (pid) => {
+    const all = fs.readdirSync('/proc').filter((n) => /^\d+$/.test(n)).map((n) => {
+      try {
+        return { pid: Number(n), ppid: Number(fs.readFileSync(`/proc/${n}/stat`, 'utf8').replace(/^.*\) /s, '').split(' ')[1]) };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+    const out = [];
+    const walk = (p) => all.filter((x) => x.ppid === p).forEach((x) => (out.push(x.pid), walk(x.pid)));
+    walk(pid);
+    return out;
+  };
+  try {
+    assert.ok(await wait(() => /hoprig demo is running at/.test(out), 60_000), out);
+    const main = demos().find((n) => fs.readFileSync(path.join(tmp, n, 'demo.pid'), 'utf8') === String(child.pid));
+    assert.ok(main, 'its own folder');
+    assert.ok(await wait(() => fs.existsSync(path.join(tmp, main, 'demo.log')) && /The map gained/.test(fs.readFileSync(path.join(tmp, main, 'demo.log'), 'utf8')), 20_000), 'the automations write to the demo\'s log file');
+    const kids = descendants(child.pid);
+    assert.ok(kids.length >= 3, `its sessions run: ${kids.length}`);
+    for (const pid of kids) {
+      let text = '';
+      try {
+        text = fs.readFileSync(`/proc/${pid}/environ`, 'utf8');
+      } catch {
+        continue; // ended meanwhile
+      }
+      assert.ok(!text.includes(MARK), `process ${pid} inherited a secret`);
+    }
+    // Stop it while the second computer starts.
+    assert.ok(await wait(() => demos().length >= 2, 90_000), 'the second computer starts');
+    child.kill('SIGTERM');
+    await ended;
+    assert.ok(await wait(() => demos().length === 0, 15_000), `left behind: ${demos().join(', ')}`);
+    assert.ok(!/automation:/.test(out), `nothing but the address is printed:\n${out}`);
+  } finally {
+    if (child.exitCode === null) child.kill('SIGKILL');
+    fs.rmSync(tmp, { recursive: true, force: true });
+    box.cleanup();
+  }
+});

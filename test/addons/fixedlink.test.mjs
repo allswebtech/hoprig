@@ -19,7 +19,7 @@ process.env.HOPRIG_HOSTNAME = 'Dev-Office.home.example';
 // Things a test does to the stand-in: approve the sign-in, make the next run crash, say a tunnel name is taken.
 const mark = (name) => path.join(tmp, name);
 const LOG = mark('calls.jsonl');
-const ID = '6ff42ae2-765d-4adf-8112-31c55c1551ef';
+const ID = '00000000-0000-4000-8000-00000000c0de';
 const bin = path.join(tmp, 'bin');
 fs.mkdirSync(bin);
 fs.writeFileSync(path.join(bin, 'cloudflared'), `#!${process.execPath}
@@ -66,7 +66,7 @@ if (cmd === 'login') {
   fs.copyFileSync(val('--config'), ${JSON.stringify(mark('last-config.yml'))});
   if (has('crash')) err('Couldn\\'t start tunnel: stand-in crash');
   process.stderr.write('2026-11-15T17:44:00Z INF Starting tunnel tunnelID=${ID}\\n');
-  setTimeout(() => process.stderr.write('2026-11-15T17:44:01Z INF Registered tunnel connection connIndex=0 connection=d5695230 event=0 ip=198.41.200.233 location=del06 protocol=quic\\n'), 150);
+  setTimeout(() => process.stderr.write('2026-11-15T17:44:01Z INF Registered tunnel connection connIndex=0 connection=0000aaaa event=0 ip=198.51.100.7 location=example01 protocol=quic\\n'), 150);
   setInterval(() => {}, 1000);
   process.on('SIGTERM', () => process.exit(0));
 }
@@ -405,7 +405,7 @@ test('state files are written whole or not at all: a temporary file in the same 
   assert.deepEqual(fs.readdirSync(dir), ['fixed.json']);
   // The add-on's own state goes through it (no plain write of a tunnel's details is left).
   const src = ['fixedlink.mjs', 'publiclink.mjs'].map((f) => fs.readFileSync(new URL(`../../src/addons/${f}`, import.meta.url), 'utf8')).join('\n');
-  assert.deepEqual([...src.matchAll(/fs\.writeFileSync\(([^,]+),/g)].map((m) => m[1]), ['file'], 'only the downloaded program itself');
+  assert.deepEqual([...src.matchAll(/fs\.writeFileSync\(([^,]+),/g)].map((m) => m[1]), ['tmp'], 'only the downloaded program itself, into its temporary file beside its place');
 });
 
 test('a name outside the domain picked at sign-in: nothing is left half-made', async () => {

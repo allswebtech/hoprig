@@ -14,6 +14,7 @@ import { bold, dim } from '../setup/ui.mjs';
 import { cloneRepo, parseRepo, prepareEnv, projectsDir, rememberDir } from './projects.mjs';
 import { offerInstall } from './setup.mjs';
 import { sysFacts } from './detect.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 import {
   MANIFEST, NAME_RE, builtinFiles, childCandidates, createGithubRepo, git, githubOwners, initRepo, linkMemories, listWorkspaces,
   parseProjectSpec, readManifest, readTemplate, syncWorkspace, useHooks, workspaceState, writeManifest, writeTemplate,
@@ -50,7 +51,7 @@ async function templateFiles(src, ui) {
     const repo = parseRepo(src);
     if (!repo) throw new Error(`the template "${src}" is neither a folder nor a Git address`);
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-template-'));
-    const r = await stream(['git', 'clone', '--depth', '1', '--quiet', '--', repo.url, path.join(tmp, 't')], { onLine: (l) => ui.note(l) });
+    const r = await stream(['git', 'clone', '--depth', '1', '--quiet', '--', repo.url, path.join(tmp, 't')], { env: withoutSecrets(process.env), onLine: (l) => ui.note(l) });
     if (!r.ok) throw new Error(`could not clone the template ${repo.url}`);
     dir = path.join(tmp, 't');
   }

@@ -49,10 +49,6 @@ function parseArgs(args) {
   return o;
 }
 
-/**
- * Point every place hoprig and Claude Code look at into `root`. Called before anything reads a path (paths.mjs
- * reads the environment on every call). Credentials from the environment are dropped, so nothing real is used.
- */
 /** A folder holding only a link to the Node that runs the demo, for its PATH. */
 function nodeOnly(root) {
   const dir = path.join(root, 'bin');
@@ -61,7 +57,31 @@ function nodeOnly(root) {
   return dir;
 }
 
+/**
+ * What the demo keeps of the environment it was started from. Everything else goes: provider keys, tokens, the
+ * session it may have been started in, the owner's own settings. The demo's sessions and shells inherit what is
+ * left, one `env` away from a screenshot, so this is a list of what may stay, not of what must go.
+ */
+const KEEP = new Set([
+  'PATH', 'Path', // finding programs (on POSIX replaced below by the system's folders and this Node)
+  'LANG', 'LANGUAGE', // the language and characters of the terminals' text (with every LC_* variable)
+  'TERM', // what the terminal can draw
+  'TMPDIR', 'TEMP', 'TMP', // the temp folder: the demo's own folder is there, and the second computer's ready file
+  // Windows itself: its folder, its command shell, how a program name is found, the system drive.
+  'SystemRoot', 'SYSTEMROOT', 'windir', 'WINDIR', 'ComSpec', 'COMSPEC', 'PATHEXT', 'SystemDrive', 'SYSTEMDRIVE',
+  // Where Windows' programs and PowerShell's modules are: a demo terminal's PowerShell loads its own modules from
+  // there. Folders of the system, the same for every user, no secret (the user's own AppData is the demo's below).
+  'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432',
+  'ProgramData', 'PSModulePath',
+]);
+const kept = (k) => KEEP.has(k) || k.startsWith('LC_');
+
+/**
+ * Point every place hoprig and Claude Code look at into `root`, and keep nothing else of `env` (KEEP). Called
+ * before anything reads a path (paths.mjs reads the environment on every call). Returns the demo's home folder.
+ */
 export function isolate(root, env = process.env) {
+  for (const k of Object.keys(env)) if (!kept(k)) delete env[k];
   const home = path.join(root, 'home');
   for (const d of ['config', 'state', 'profiles', home, path.join(home, '.claude'), path.join(home, 'Workspace', 'projects')]) fs.mkdirSync(path.isAbsolute(d) ? d : path.join(root, d), { recursive: true, mode: 0o700 });
   Object.assign(env, {
@@ -72,6 +92,8 @@ export function isolate(root, env = process.env) {
     // Folders show as ~/projects/…, and the sessions' shell starts clean (no personal shell setup, no prompt with
     // a real name in it).
     HOME: home,
+    USERPROFILE: home, // Windows' home folder
+    ...(process.platform === 'win32' ? { APPDATA: path.join(home, 'AppData', 'Roaming'), LOCALAPPDATA: path.join(home, 'AppData', 'Local') } : {}),
     // The other coding tools' own folders too (OpenCode reads XDG_CONFIG_HOME, Codex CODEX_HOME): the AI brain's
     // Link in the demo must never reach the real ones.
     XDG_CONFIG_HOME: path.join(home, '.config'),
@@ -84,7 +106,6 @@ export function isolate(root, env = process.env) {
     // demo must not find (and show) the tools installed on this computer.
     ...(process.platform === 'win32' ? {} : { PATH: `${nodeOnly(root)}:/usr/bin:/bin:/usr/sbin:/sbin` }),
   });
-  for (const k of Object.keys(env)) if (/^(ANTHROPIC_|CLAUDE_CODE_OAUTH_TOKEN$|HOPRIG_PROFILE$|HOPRIG_TERM_ID$|HOPRIG_RUN_FILE$|GH_TOKEN$|GITHUB_TOKEN$|TMUX$|TMUX_PANE$|OPENCODE_CONFIG_DIR$|OPENCODE_CONFIG$)/.test(k)) delete env[k];
   return home;
 }
 
@@ -574,9 +595,22 @@ async function startLaptop() {
   const ready = path.join(os.tmpdir(), `hoprig-demo-ready-${crypto.randomBytes(4).toString('hex')}.json`);
   // stdin is a pipe from us: when this process ends in any way, the pipe closes and the second computer stops too.
   const child = spawn(process.execPath, [SELF, '--secondary', '--no-open', '--quiet', '--ready-file', ready], { stdio: ['pipe', 'ignore', 'inherit'], env: { ...process.env } });
+  const ended = new Promise((resolve) => child.once('exit', resolve)); // from the start: an early end is not missed
   const info = await until(() => fs.existsSync(ready) && JSON.parse(fs.readFileSync(ready, 'utf8')), 30_000);
   fs.rmSync(ready, { force: true });
-  return { child, info };
+  return { child, info, ended, signalled: false };
+}
+
+/**
+ * Stop the second computer and wait (at most 10 s) until it has ended. It removes its own folder when the signal
+ * comes, so it gets exactly ONE: its handler runs once, and a second SIGTERM would end it before it cleaned up.
+ */
+function endLaptop(laptop) {
+  if (!laptop.signalled) {
+    laptop.signalled = true;
+    laptop.child.kill('SIGTERM');
+  }
+  return Promise.race([laptop.ended, sleep(10_000)]);
 }
 
 /**
@@ -607,10 +641,10 @@ export async function main(args = [], hooks = {}) {
     if (stopped) return;
     stopped = true;
     try {
-      if (laptop) laptop.child.kill('SIGTERM');
+      if (laptop) endLaptop(laptop); // it stops while this one does
       if (app) await app.close();
       await Promise.race([background.catch(() => {}), sleep(3000)]);
-      if (laptop) laptop.child.kill('SIGTERM'); // started meanwhile
+      if (laptop) await endLaptop(laptop); // also one that started meanwhile
     } catch {
       /* stopping anyway */
     }
@@ -627,7 +661,8 @@ export async function main(args = [], hooks = {}) {
       watchTickMs: 1000,
       claudecode: { claudeInfo: async () => CLAUDE_INFO, claudeUpdate: async ({ onLine }) => { onLine('(demo) Claude Code is up to date'); return { ok: true, version: CLAUDE_INFO.installed, output: '' }; } },
       addons: { addons: [addon] },
-      automation: { updateItems: (await import('./updates.mjs')).demoUpdateItems() },
+      // The automations' lines go to the demo's own log file: under the address they read as if something real ran.
+      automation: { updateItems: (await import('./updates.mjs')).demoUpdateItems(), log: (line) => fs.appendFileSync(path.join(root, 'demo.log'), `${line}\n`) },
       onboarding: { facts: DEMO_FACTS },
       pcsetup: { status: async () => DEMO_CHECKS },
       // The workspace tree and the AI brain (sample files), then the map, sync, restore and git state samples.
@@ -703,7 +738,7 @@ export async function main(args = [], hooks = {}) {
       try {
         if (stopped) return;
         laptop = await startLaptop();
-        if (stopped) return void laptop.child.kill('SIGTERM'); // the demo stopped while it was starting
+        if (stopped) return void endLaptop(laptop); // the demo stopped while it was starting
         if (laptop.info) {
           const { putMachine } = await import('../machines/store.mjs');
           putMachine({ name: 'laptop', label: 'Laptop', via: 'url', url: laptop.info.url, token: laptop.info.token, tokenId: laptop.info.tokenId, added: Date.now(), info: { hostname: 'laptop', platform: 'darwin', version: laptop.info.version } });

@@ -21,7 +21,7 @@ if [ "$1" = "--version" ]; then echo "cloudflared version 2026.10.1 (built 2026-
 echo "$@" > "${tmp}/args.txt"
 echo "2026-11-14T04:52:38Z INF Requesting new quick Tunnel on trycloudflare.com..." >&2
 echo "2026-11-14T04:52:43Z INF |  https://stem-wonder-lucky-hung.trycloudflare.com                                          |" >&2
-echo "2026-11-14T04:52:45Z INF Registered tunnel connection connIndex=0 connection=d5695230 event=0 ip=198.41.200.233 location=del06 protocol=quic" >&2
+echo "2026-11-14T04:52:45Z INF Registered tunnel connection connIndex=0 connection=0000aaaa event=0 ip=198.51.100.7 location=example01 protocol=quic" >&2
 exec sleep 600
 `, { mode: 0o755 });
 process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
@@ -53,7 +53,7 @@ test('connected only when it says so; its connectivity errors are kept', () => {
     '2026-11-14T04:56:41Z INF precheck complete hard_fail=true run_id=7192640e',
   ].join('\n');
   assert.deepEqual(P.tunnelState(blocked), { url: 'https://stem-wonder-lucky-hung.trycloudflare.com', registered: false, errors: ['Allow outbound QUIC traffic on port 7844 or use HTTP2.', 'Allow outbound TCP on port 7844.'] });
-  const ok = `${url}\n2026-11-14T04:52:45Z INF Registered tunnel connection connIndex=0 connection=d5695230 event=0 ip=198.41.200.233 location=del06 protocol=quic`;
+  const ok = `${url}\n2026-11-14T04:52:45Z INF Registered tunnel connection connIndex=0 connection=0000aaaa event=0 ip=198.51.100.7 location=example01 protocol=quic`;
   assert.equal(P.tunnelState(ok).registered, true);
 });
 
@@ -69,12 +69,73 @@ test('the release file per OS and processor, and how it is installed', () => {
   assert.equal(P.releaseAsset('freebsd', 'x64'), null);
   assert.deepEqual(P.installPlan({ platform: 'darwin', arch: 'arm64', hasBrew: true }), { kind: 'brew', argv: ['brew', 'install', 'cloudflared'] });
   assert.deepEqual(P.installPlan({ platform: 'darwin', arch: 'arm64', hasBrew: false, into: '/x', version: '2026.10.1' }),
-    { kind: 'download', url: 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-darwin-arm64.tgz', file: path.join('/x', 'cloudflared'), tgz: true });
+    { kind: 'download', url: 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-darwin-arm64.tgz', file: path.join('/x', 'cloudflared'), tgz: true, sha256: '647615df99d49cd179ea5e13ef760b9bbfb33630f6ae62f87e33dfadda60adcc' });
   assert.deepEqual(P.installPlan({ platform: 'linux', arch: 'x64', into: '/x', version: '2026.10.1' }),
-    { kind: 'download', url: 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-linux-amd64', file: path.join('/x', 'cloudflared'), tgz: false });
+    { kind: 'download', url: 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-linux-amd64', file: path.join('/x', 'cloudflared'), tgz: false, sha256: '3bfc539f45d2620c71debb7a86be0efa737ed5ccbad9eb85c787116900e5c586' });
   assert.equal(P.installPlan({ platform: 'win32', arch: 'x64', into: 'C:\\x' }).file.endsWith('cloudflared.exe'), true);
   assert.equal(P.installPlan({ platform: 'aix', arch: 'ppc64' }).kind, 'none');
   assert.deepEqual(P.tunnelArgv('/b/cloudflared', 7433), ['/b/cloudflared', 'tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:7433']);
+});
+
+// The pinned release's files are checked against hashes written in the code. Raising CLOUDFLARED_VERSION without
+// new hashes fails here, and every file the plan can name for any OS and processor has one.
+test('every release file it can install has a known SHA-256, for exactly the pinned version', () => {
+  assert.equal(P.CLOUDFLARED_SHA256.version, P.CLOUDFLARED_VERSION, 'the hashes are for the version it installs');
+  const assets = new Set();
+  for (const platform of ['linux', 'darwin', 'win32', 'freebsd', 'aix']) {
+    for (const arch of ['x64', 'arm64', 'arm', 'ia32', 'ppc64', 's390x', 'riscv64']) {
+      const a = P.releaseAsset(platform, arch);
+      if (!a) continue;
+      assets.add(a);
+      assert.match(P.CLOUDFLARED_SHA256.files[a] || '', /^[0-9a-f]{64}$/, a);
+      const plan = P.installPlan({ platform, arch, into: '/x' });
+      if (plan.kind === 'download') assert.equal(plan.sha256, P.CLOUDFLARED_SHA256.files[a], a);
+    }
+  }
+  assert.deepEqual(Object.keys(P.CLOUDFLARED_SHA256.files).sort(), [...assets].sort(), 'no hash of a file it never installs');
+  const other = P.installPlan({ platform: 'linux', arch: 'x64', into: '/x', version: '2099.1.0' });
+  assert.equal(other.kind, 'none');
+  assert.match(other.reason, /no known SHA-256/);
+});
+
+test('a download that does not match its hash is not installed and leaves nothing; one that matches is moved into place', async () => {
+  const crypto = await import('node:crypto');
+  const into = path.join(tmp, 'cf-bin');
+  fs.mkdirSync(into, { recursive: true });
+  const file = path.join(into, 'cloudflared');
+  fs.writeFileSync(file, 'the program that was there', { mode: 0o755 });
+  const bytes = Buffer.from('#!/bin/sh\necho a stand-in release file\n');
+  const fetchImpl = async (url) => ({ ok: true, status: 200, url, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) });
+  const plan = (sha256) => ({ kind: 'download', url: 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-linux-amd64', file, tgz: false, sha256 });
+  const lines = [];
+  const bad = await P.install({ onLine: (l) => lines.push(l), fetchImpl, plan: plan('0'.repeat(64)) });
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /did not match/);
+  assert.ok(lines.some((l) => /did not match/.test(l)), lines.join('\n'));
+  assert.equal(fs.readFileSync(file, 'utf8'), 'the program that was there', 'the program in place is untouched');
+  assert.deepEqual(fs.readdirSync(into), ['cloudflared'], 'no temporary file is left');
+  const good = await P.install({ onLine: () => {}, fetchImpl, plan: plan(crypto.createHash('sha256').update(bytes).digest('hex')) });
+  assert.equal(good.error, undefined);
+  assert.deepEqual(fs.readFileSync(file), bytes, 'the checked file is in place');
+  assert.ok((fs.statSync(file).mode & 0o111) !== 0, 'and can run');
+  assert.deepEqual(fs.readdirSync(into), ['cloudflared']);
+
+  // The macOS kind: an archive, checked as a whole, then the program inside is moved into place the same way.
+  if (process.platform === 'win32') return;
+  const { execFileSync } = await import('node:child_process');
+  const src = path.join(tmp, 'tgz-src');
+  fs.mkdirSync(src, { recursive: true });
+  fs.writeFileSync(path.join(src, 'cloudflared'), 'the program from the archive');
+  execFileSync('tar', ['-czf', path.join(tmp, 'c.tgz'), '-C', src, 'cloudflared']);
+  const tgz = fs.readFileSync(path.join(tmp, 'c.tgz'));
+  const tgzFetch = async (url) => ({ ok: true, status: 200, url, arrayBuffer: async () => tgz.buffer.slice(tgz.byteOffset, tgz.byteOffset + tgz.length) });
+  const tgzPlan = (sha256) => ({ ...plan(sha256), url: 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-darwin-arm64.tgz', tgz: true });
+  const badTgz = await P.install({ onLine: () => {}, fetchImpl: tgzFetch, plan: tgzPlan('1'.repeat(64)) });
+  assert.match(badTgz.error, /cloudflared-darwin-arm64\.tgz did not match/);
+  assert.deepEqual(fs.readFileSync(file), bytes, 'what was in place stays');
+  await P.install({ onLine: () => {}, fetchImpl: tgzFetch, plan: tgzPlan(crypto.createHash('sha256').update(tgz).digest('hex')) });
+  assert.equal(fs.readFileSync(file, 'utf8'), 'the program from the archive');
+  assert.deepEqual(fs.readdirSync(into), ['cloudflared']);
 });
 
 test('the config change while it runs, and its exact undo', () => {

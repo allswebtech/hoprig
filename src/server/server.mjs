@@ -52,7 +52,7 @@ import { listRuns } from '../runs.mjs';
 import { system as processes } from '../procid.mjs';
 import { sessionTitle, sessionsIn } from '../sessions.mjs';
 import {
-  COOKIE, RateLimiter, SessionStore, clearCookie, hashPassword, parseCookies, sessionCookie, sha256, verifyPassword,
+  COOKIE, RateLimiter, SessionStore, THIS_COMPUTER, clearCookie, hashPassword, parseCookies, sessionCookie, sha256, verifyPassword,
 } from './auth.mjs';
 import { createBackend } from './backends/index.mjs';
 import { Deck } from './deck.mjs';
@@ -77,7 +77,7 @@ import { onboardingFeature } from '../setup/onboarding.mjs';
 import { desktopFeature } from '../desktop/feature.mjs';
 import { removeDashboardFile, writeDashboardFile } from './dashboardfile.mjs';
 import { createLoginLink, loginLinkStatus, qrRows, useLoginLink } from './loginlink.mjs';
-import { clientIp, isHttps, originOk, requestHost, securityHeaders } from './security.mjs';
+import { clientIp, forwardedVisitor, isHttps, originOk, requestHost, securityHeaders } from './security.mjs';
 import { notePassword, passwordProblem } from './strength.mjs';
 import { monacoManifest, resolveStatic, sendFile } from './static.mjs';
 import { attachTerminal } from './terminal.mjs';
@@ -163,6 +163,7 @@ export function createServer(opts = {}) {
   const deck = new Deck({ backend, config: cfg, profiles: listProfiles });
   const sessions = new SessionStore(path.join(stateDir(), 'web-sessions.json'));
   const limiter = new RateLimiter();
+  const linkLimiter = new RateLimiter(); // sign-in links: their own count, which wrong passwords never fill
   const autoswitch = opts.autoswitch || autoswitchModule;
   // Loaded on first use, so the dashboard still starts if that module fails to load.
   const claudecode = async () => opts.claudecode || import('../claudecode.mjs');
@@ -728,8 +729,9 @@ export function createServer(opts = {}) {
       return settingsView();
     }],
     ['POST', /^\/api\/settings\/password$/, async (req, m, q, res) => {
-      // Only a signed-in browser gets here, so the overall cap (which an attacker could fill) does not apply.
-      const ip = clientIp(req, proxyOpts());
+      // Only a signed-in browser gets here, so the overall cap (which an attacker could fill) does not apply. Counted
+      // as the login counts its visitor: this computer is one, whatever loopback address it uses.
+      const { ip } = visitorFor(req);
       const wait = limiter.retryAfter(ip, { overall: false });
       if (wait > 0) throw new HttpError(429, `Too many tries. Wait ${Math.ceil(wait / 60000)} min.`);
       const b = await readJson(req);
@@ -849,14 +851,18 @@ export function createServer(opts = {}) {
     ...features.flatMap((f) => f.routes || []),
   ];
 
-  // The overall cap of the sign-in limit (auth.mjs RateLimiter) counts every password try from elsewhere, whatever
-  // the password is like: it bounds a guess spread over many addresses and the hashes strangers can make us run.
-  // Left out for this computer itself; a sign-in link (loginByLink) never counts. Those are the owner's ways in.
-  const overallFor = (req) => ({ overall: !sameComputer(req) });
+  // Who a sign-in try is counted as. The overall cap of the sign-in limit (auth.mjs RateLimiter) counts every password
+  // try from elsewhere, whatever the password is like: it bounds a guess spread over many addresses and the hashes
+  // strangers can make us run. This computer itself is left out of it, so guesses from the internet cannot lock the
+  // owner out at his own machine; a sign-in link (loginByLink) never counts. In return this computer is ONE visitor
+  // under one key: it owns every 127.x address and ::1, and counting each as its own visitor gave it no limit at all.
+  // A visitor the public link's tunnel forwards is the one Cloudflare names (security.mjs forwardedVisitor).
+  const visitorFor = (req) => (sameComputer(req)
+    ? { ip: THIS_COMPUTER, lim: { overall: false } }
+    : { ip: forwardedVisitor(req, proxyOpts()) || clientIp(req, proxyOpts()), lim: { overall: true } });
 
   async function login(req, res) {
-    const ip = clientIp(req, proxyOpts());
-    const lim = overallFor(req);
+    const { ip, lim } = visitorFor(req);
     const wait = limiter.retryAfter(ip, lim);
     if (wait > 0) {
       return send(res, 429, { error: `Too many tries. Wait ${Math.ceil(wait / 60000)} min.` }, { 'Retry-After': String(Math.ceil(wait / 1000)) });
@@ -875,20 +881,21 @@ export function createServer(opts = {}) {
   }
 
   /**
-   * A sign-in link: the token from the link's #fragment, sent once by the login page. Limited per address like the
-   * login, but never by the overall cap: it is the owner's way in from outside while someone guesses the password.
+   * A sign-in link: the token from the link's #fragment, sent once by the login page. Limited per visitor like the
+   * login, but in a count of its own and never by the overall cap: it is the owner's way in from outside while
+   * someone guesses the password, so wrong passwords (also from his own address) never lock it.
    */
   async function loginByLink(req, res) {
-    const ip = clientIp(req, proxyOpts());
+    const { ip } = visitorFor(req);
     const lim = { overall: false };
-    const wait = limiter.retryAfter(ip, lim);
+    const wait = linkLimiter.retryAfter(ip, lim);
     if (wait > 0) {
       return send(res, 429, { error: `Too many tries. Wait ${Math.ceil(wait / 60000)} min.` }, { 'Retry-After': String(Math.ceil(wait / 1000)) });
     }
     const b = await readJson(req);
-    limiter.fail(ip, lim);
+    linkLimiter.fail(ip, lim);
     if (!useLoginLink(b.token)) return send(res, 401, { error: 'This sign-in link was used already or has expired. Make a new one on a device that is signed in.' });
-    limiter.succeed(ip, lim);
+    linkLimiter.succeed(ip, lim);
     return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(sessions.create(passwordTag()), { secure: isHttps(req, proxyOpts()) }) });
   }
 

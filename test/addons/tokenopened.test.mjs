@@ -33,7 +33,7 @@ const say = (t) => process.stderr.write('2026-11-16T03:00:00Z INF ' + t + '\\n')
 if (a.includes('route')) { say('Added CNAME ' + a[a.length - 1] + ' which will route to this tunnel'); process.exit(0); }
 fs.appendFileSync(${JSON.stringify(PIDS)}, process.pid + '\\n');
 if (a.includes('--url')) say('|  https://stand-in-' + process.pid + '.trycloudflare.com   |');
-say('Registered tunnel connection connIndex=0 connection=d5695230 event=0 ip=198.41.200.233 location=del06 protocol=quic');
+say('Registered tunnel connection connIndex=0 connection=0000aaaa event=0 ip=198.51.100.7 location=example01 protocol=quic');
 process.on('SIGTERM', () => process.exit(0));
 setInterval(() => {}, 1000);
 `, { mode: 0o755 });
@@ -111,7 +111,7 @@ test('a token\'s changes are logged with its name; its revoke closes what it ope
   // The Custom address set up before (as Make it leaves it), turned on by the owner.
   fs.mkdirSync(path.join(fixedDir(), 'home', '.cloudflared'), { recursive: true });
   fs.writeFileSync(path.join(fixedDir(), 'home', '.cloudflared', 'cert.pem'), 'stand-in');
-  writeAtomic(fixedStateFile(), JSON.stringify({ mode: 'named', hostname: 'office.example.com', tunnelId: '6ff42ae2-765d-4adf-8112-31c55c1551ef', tunnelName: 'hoprig-office', extra: [] }));
+  writeAtomic(fixedStateFile(), JSON.stringify({ mode: 'named', hostname: 'office.example.com', tunnelId: '00000000-0000-4000-8000-00000000c0de', tunnelName: 'hoprig-office', extra: [] }));
   const on = await owner('/api/public-link', { on: true, kind: 'custom' });
   assert.equal(on.json.ok, true, JSON.stringify(on.json));
   await until('Custom is on', async () => (await linkState()).state === 'on');

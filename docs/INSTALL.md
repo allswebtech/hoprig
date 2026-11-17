@@ -142,7 +142,7 @@ hoprig add                        # add another provider: a Claude account, an A
 ### Update
 
 ```sh
-hoprig update             # Hoprig itself (from npm, or git pull + npm install in a git checkout)
+hoprig update             # Hoprig itself (from where it was installed: the repository's main branch, or git pull + npm install in a git checkout)
 hoprig claude status      # Claude Code: installed version, newest version, login
 hoprig claude update      # update Claude Code
 hoprig claude install 2.1.89   # a specific Claude Code version (or: stable, latest)

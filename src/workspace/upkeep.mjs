@@ -8,6 +8,7 @@
 // other staged changes (then it says so and leaves everything as it is). With `push` (the existing "push" switch)
 // it is uploaded only when the brain's branch is purely ahead of its upstream, the same rule as sync.
 import path from 'node:path';
+import { gitRead } from '../gitread.mjs';
 import { git, repoInfo } from '../pcsetup/workspace.mjs';
 import { capture } from '../setup/system.mjs';
 import { isGitRepo, projectsIn, workspaceDir } from './layout.mjs';
@@ -30,7 +31,7 @@ export function changeLines(r) {
 export async function commitMap({ dir = workspaceDir(), run = capture } = {}) {
   const brain = path.join(dir, 'ai_brain');
   if (!isGitRepo(brain)) return { done: false, why: 'the brain is not a git repository' };
-  const staged = await git(brain, ['diff', '--cached', '--quiet'], run);
+  const staged = await gitRead(brain, ['diff', '--cached', '--quiet'], { run });
   if (!staged.ok) return { done: false, staged: true, why: 'the brain has other staged changes: the map was written but not committed' };
   await git(brain, ['add', '--', MAP_FILE], run);
   const c = await git(brain, ['commit', '--quiet', '-m', COMMIT_MESSAGE, '--', MAP_FILE], run);

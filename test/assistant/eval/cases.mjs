@@ -275,7 +275,7 @@ export const CASES = [
     ),
   },
 
-  // ---- the dashboard's other pages (round 3) ----
+  // ---- the dashboard's other pages: projects, computers, automations, skills, the AI brain ----
   {
     id: 'projects-overview',
     category: 'happy',
@@ -489,7 +489,7 @@ export const CASES = [
       check(!acted(r).length, `it acted: ${acted(r).map((c) => c.op)}`),
     ),
   },
-  // ---- the workspace: map, sync, restore (round 5) ----
+  // ---- the workspace: map, sync, restore ----
   {
     id: 'workspace-sync-report',
     category: 'happy',

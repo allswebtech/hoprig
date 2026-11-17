@@ -53,7 +53,7 @@ test('setup arguments', () => {
   assert.deepEqual(SU.parseSetupArgs(['--yes', '--dry-run', '--password-file', 'p.txt', '--access', 'local', '--no-service']),
     { yes: true, dryRun: true, passwordFile: 'p.txt', access: 'local', service: false, hub: false, domain: null, ip: null, tlsInternal: false, only: null });
   assert.deepEqual(SU.parseSetupArgs(['--hub', '--domain', 'hub.example.com', '--tls-internal']).domain, 'hub.example.com');
-  assert.equal(SU.parseSetupArgs(['--hub', '--ip=95.216.1.2']).ip, '95.216.1.2');
+  assert.equal(SU.parseSetupArgs(['--hub', '--ip=1.1.1.1']).ip, '1.1.1.1');
   assert.deepEqual(SU.parseSetupArgs(['-y', '--access=tailscale']).access, 'tailscale');
   assert.throws(() => SU.parseSetupArgs(['--access', 'world']), /must be one of/);
   assert.throws(() => SU.parseSetupArgs(['--bogus']), /unknown option/);

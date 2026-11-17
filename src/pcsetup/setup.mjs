@@ -17,6 +17,7 @@ import { KITS, KIT_IDS, buildPlan, kitById } from './kits.mjs';
 import { cloneRepo, expandDir, parseRepo, prepareEnv, projectNeeds, projectsDir, rememberDir } from './projects.mjs';
 import { loadRecipe } from './recipe.mjs';
 import { addRules, removeRules, rulesState } from './rules.mjs';
+import { forInstalls, withoutSecrets } from '../secretenv.mjs';
 
 
 /** PATH with the folders a fresh install puts programs in (nvm's node, Homebrew), so later steps find them. */
@@ -74,9 +75,10 @@ export function parseArgs(args) {
 /**
  * Run the plan's steps in order. A failed step skips the rest of its kit (they build on it). Returns
  * [{ step, ok, skipped }]. `onStep(index, step, state)` hears each step's state (waiting, running, ok, fail,
- * skipped): the dashboard marks its steps with it.
+ * skipped): the dashboard marks its steps with it. The steps run installers from the internet (nvm's, Docker's,
+ * Homebrew's) and package managers: no secret and no GitHub token reaches them (../secretenv.mjs).
  */
-export async function runSteps(steps, { ui, interactive, runner = stream, env = process.env, onStep = () => {} }) {
+export async function runSteps(steps, { ui, interactive, runner = stream, env = forInstalls(process.env), onStep = () => {} }) {
   const results = [];
   const failedKits = new Set();
   steps.forEach((s, i) => onStep(i, s, 'waiting'));
@@ -203,7 +205,7 @@ export async function offerInstall(ui, dest, runner, sys) {
       continue;
     }
     if (await ui.confirm(`${name}: run ${i.label}? (installs its dependencies)`, true)) {
-      const r = await runner(i.argv, { cwd: dest, env: { ...process.env, PATH: freshPath() }, onLine: (l) => ui.out(`    ${dim(l)}`) });
+      const r = await runner(i.argv, { cwd: dest, env: { ...withoutSecrets(process.env), PATH: freshPath() }, onLine: (l) => ui.out(`    ${dim(l)}`) });
       ui.line(r.ok ? 'ok' : 'fail', `${name}: ${i.label} ${r.ok ? 'done' : `failed — retry: cd "${dest}" && ${showCommand(i.argv)}`}`);
     }
   }

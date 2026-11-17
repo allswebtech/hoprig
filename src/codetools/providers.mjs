@@ -21,7 +21,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from '../paths.mjs';
-import { AUTH_VARS, assertServes, kindOf } from '../profiles.mjs';
+import { assertServes, kindOf } from '../profiles.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 import { codex } from './codex.mjs';
 import { askAgents, opencode } from './opencode.mjs';
 import { tomlString } from './toml.mjs';
@@ -54,14 +55,13 @@ export function endpointOf(p) {
 export { tomlString };
 
 /**
- * The environment `tool` (codex | opencode) gets for `profile`: `base` without any provider variable of any tool,
- * the tool's own no-self-update switches, and the key in the one variable its provider block names.
+ * The environment `tool` (codex | opencode) gets for `profile`: `base` without any secret of any provider, tool or
+ * of Hoprig (../secretenv.mjs), the tool's own no-self-update switches, and the key in the one variable its
+ * provider block names.
  */
 export function toolEnv(tool, profile, base = process.env) {
   assertServes(profile, tool);
-  const env = { ...base };
-  for (const k of [...AUTH_VARS, ...Object.values(KEY_VAR)]) delete env[k];
-  for (const k of Object.keys(env)) if (/^ANTHROPIC_/.test(k)) delete env[k];
+  const env = withoutSecrets(base);
   Object.assign(env, (tool === 'codex' ? codex : opencode).noSelfUpdate.env);
   const ep = endpointOf(profile);
   if (ep && ep.key) env[KEY_VAR[tool]] = ep.key;

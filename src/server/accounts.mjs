@@ -52,7 +52,8 @@ import { findAddon } from '../addons/index.mjs';
 import { codexSignedIn } from '../codetools/codexsignin.mjs';
 import { findTool } from '../codetools/index.mjs';
 import { MODEL_RE, listModels, probeShapes, scrub, shapesAfterTest, testModel } from './endpoint.mjs';
-import { AUTH_VARS, deleteProfile, knownShapes, listProfiles, metaOf, readProfile, servesTools, validName, writeProfile } from '../profiles.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
+import { deleteProfile, knownShapes, listProfiles, metaOf, readProfile, servesTools, validName, writeProfile } from '../profiles.mjs';
 
 export const ANTHROPIC_URL = 'https://api.anthropic.com';
 export const OPENAI_URL = 'https://api.openai.com';
@@ -173,11 +174,10 @@ export function findSigninError(raw) {
   return m ? scrub(m[1].trim()) : null;
 }
 
-/** The environment for `claude setup-token`: no account's credentials, no browser to open on the PC. */
+/** The environment for `claude setup-token`: no secret (../secretenv.mjs), no provider, no browser to open on the PC. */
 export function signinEnv(base = process.env) {
-  const env = { ...base, TERM: 'xterm-256color' };
-  for (const k of [...AUTH_VARS, 'CLAUDE_CODE_OAUTH_TOKEN', 'HOPRIG_PROFILE']) delete env[k];
-  for (const k of Object.keys(env)) if (/^ANTHROPIC_/.test(k)) delete env[k];
+  const env = { ...withoutSecrets(base), TERM: 'xterm-256color' };
+  delete env.HOPRIG_PROFILE;
   env.BROWSER = process.platform === 'win32' ? 'cmd /c rem' : fs.existsSync('/usr/bin/true') ? '/usr/bin/true' : 'true';
   return env;
 }

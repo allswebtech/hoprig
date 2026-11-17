@@ -62,3 +62,78 @@ test('update --dry-run reports and runs nothing', async () => {
   assert.doesNotMatch(out, /^running:/m);
   assert.equal(await U.selfUpdate(['--bogus'], { write: () => {} }), 2);
 });
+
+// ---- the newest version, from where the install and the update come from ----
+
+const { hoprigSource } = await import('../../src/paths.mjs');
+const { appVersion } = await import('../../src/setup/checks.mjs');
+const answer = (status, body) => async () => ({ ok: status >= 200 && status < 300, status, text: async () => body });
+
+test('the newest version is read from the package.json the update would install, and nothing else is sent', async () => {
+  const src = hoprigSource();
+  assert.match(src.package, /^https:\/\/github\.com\/[^/]+\/hoprig\/archive\/refs\/heads\/main\.tar\.gz$/);
+  assert.match(src.versionFile, /^https:\/\/raw\.githubusercontent\.com\/[^/]+\/hoprig\/main\/package\.json$/);
+  // The two name the same repository and branch, and the update installs exactly the package address.
+  const [, repo] = /github\.com\/([^/]+\/[^/]+)\/archive/.exec(src.package);
+  assert.ok(src.versionFile.includes(`/${repo}/main/`), 'the lookup reads the same repository and branch the install takes');
+  assert.equal(U.updatePlan('npm', '/x', 'linux').at(0).argv.at(-1), src.package);
+  const asked = [];
+  const r = await U.newestVersion({ fetchImpl: async (url, init) => (asked.push([url, init]), { ok: true, status: 200, text: async () => '{"name":"hoprig","version":"0.3.1"}' }) });
+  assert.deepEqual(r, { version: '0.3.1', note: null });
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0][0], src.versionFile);
+  assert.deepEqual(Object.keys(asked[0][1]), ['signal'], 'a plain GET with a time limit: no headers, no body of this computer');
+});
+
+test('a version that cannot be read is unknown, with a plain note, never a wrong number', async () => {
+  const cases = [
+    [async () => { throw new TypeError('fetch failed'); }, /could not be read from raw\.githubusercontent\.com \(it could not be reached\)/],
+    [async () => { throw Object.assign(new Error('t'), { name: 'TimeoutError' }); }, /no answer in time/],
+    [answer(404, 'Not Found'), /it answered 404/],
+    [answer(200, '<html>'), /not a package file/],
+    [answer(200, '{"name":"hoprig"}'), /names no version/],
+    [answer(200, '{"version":"newest"}'), /names no version/],
+    [answer(200, '{"version":7}'), /names no version/],
+  ];
+  for (const [fetchImpl, why] of cases) {
+    const r = await U.newestVersion({ fetchImpl });
+    assert.equal(r.version, null, String(why));
+    assert.match(r.note, why);
+  }
+});
+
+test('hoprig update on an npm install: newer, the same, older and unreadable', async () => {
+  const root = path.join(s.tmp, 'npmprefix', 'lib', 'node_modules', 'hoprig');
+  fs.mkdirSync(root, { recursive: true });
+  const current = appVersion();
+  const [a, b, c] = current.split('.').map(Number);
+  const run = async () => {
+    throw new Error('a dry run runs nothing');
+  };
+  const go = async (newest) => {
+    let out = '';
+    const code = await U.selfUpdate(['--dry-run'], { write: (t) => { out += t; }, root, run, lookup: async () => newest });
+    return { code, out };
+  };
+  const newer = await go({ version: `${a}.${b}.${c + 1}`, note: null });
+  assert.equal(newer.code, 0, newer.out);
+  assert.match(newer.out, new RegExp(`Version ${a}\\.${b}\\.${c + 1} is available`));
+  assert.match(newer.out, /would run: npm install -g .*archive\/refs\/heads\/main\.tar\.gz/);
+  for (const v of [current, `${a}.${Math.max(b - 1, 0)}.0`, '0.0.1']) {
+    const same = await go({ version: v, note: null });
+    assert.equal(same.code, 0, same.out);
+    assert.match(same.out, new RegExp(`The newest version is ${v.replace(/\./g, '\\.')}, and this is ${current.replace(/\./g, '\\.')}\\. Nothing to do\\.`));
+    assert.doesNotMatch(same.out, /would run/);
+  }
+  const unread = await go({ version: null, note: 'The newest version could not be read from example.com (it could not be reached).' });
+  assert.equal(unread.code, 1);
+  assert.match(unread.out, /could not be read from example\.com \(it could not be reached\)\. Nothing changed\./);
+  assert.doesNotMatch(unread.out, /would run/);
+});
+
+test('install.sh and install.ps1 install from the same place the update and its lookup read', () => {
+  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+  const from = hoprigSource().package;
+  assert.ok(fs.readFileSync(path.join(root, 'install.sh'), 'utf8').includes(`SOURCE=\${HOPRIG_SOURCE:-${from}}`));
+  assert.ok(fs.readFileSync(path.join(root, 'install.ps1'), 'utf8').includes(`else { '${from}' }`));
+});

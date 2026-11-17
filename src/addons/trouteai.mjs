@@ -13,6 +13,7 @@ import { loadConfig } from '../config.mjs';
 import { binFile, stateDir } from '../paths.mjs';
 import { filedProcess, system } from '../procid.mjs';
 import { capture, npmArgv, stream, which } from '../setup/system.mjs';
+import { forInstalls } from '../secretenv.mjs';
 
 export const DEFAULT_PORT = 20017;
 
@@ -51,14 +52,14 @@ async function status() {
 }
 
 async function install({ onLine = () => {} } = {}) {
-  const r = await stream(npmArgv(['install', '-g', 'trouteai']), { onLine });
+  const r = await stream(npmArgv(['install', '-g', 'trouteai']), { env: forInstalls(process.env), onLine });
   return { ok: r.ok && Boolean(which('trouteai')) };
 }
 
 async function update({ onLine = () => {} } = {}) {
   const was = await listening();
   if (was) await stop();
-  const r = await stream(npmArgv(['install', '-g', 'trouteai@latest']), { onLine });
+  const r = await stream(npmArgv(['install', '-g', 'trouteai@latest']), { env: forInstalls(process.env), onLine });
   if (was) await start();
   return { ok: r.ok };
 }

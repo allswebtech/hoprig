@@ -66,12 +66,12 @@ test('a schedule\'s next run: a day and the 24-hour clock, near or far', () => {
   assert.equal(nextRunText(at(15, 8, 30), now), 'yesterday 08:30', 'already past (a page left open): never "today"');
   assert.match(nextRunText(at(10, 8, 30), now), /^.*10.* 08:30$/);
   // On the computer's clock (its time zone from the server), whatever the browser's is: 07:30 UTC is 08:30 in
-  // Berlin in November, and 13:00 in Kolkata.
+  // Berlin in November, and 17:00 in Darwin (a half-hour offset, no summer time).
   const utc = Date.UTC(2026, 10, 17, 7, 30);
   const base = Date.UTC(2026, 10, 16, 12, 0);
   assert.equal(nextRunText(utc, base, 'Europe/Berlin'), 'tomorrow 08:30');
-  assert.equal(nextRunText(utc, base, 'Asia/Kolkata'), 'tomorrow 13:00');
-  assert.equal(nextRunText(Date.UTC(2026, 10, 16, 23, 30), base, 'Asia/Kolkata'), 'tomorrow 05:00', 'the day is the computer\'s too');
+  assert.equal(nextRunText(utc, base, 'Australia/Darwin'), 'tomorrow 17:00');
+  assert.equal(nextRunText(Date.UTC(2026, 10, 16, 23, 30), base, 'Australia/Darwin'), 'tomorrow 09:00', 'the day is the computer\'s too');
   assert.equal(nextRunText(Date.UTC(2026, 10, 16, 23, 30), base, 'Europe/Berlin'), 'tomorrow 00:30');
   assert.equal(nextRunText(Date.UTC(2026, 10, 16, 22, 30), base, 'Europe/Berlin'), 'today 23:30');
   assert.equal(nextRunText(utc, base, 'Not/AZone'), nextRunText(utc, base), 'an unknown zone: the browser\'s clock');

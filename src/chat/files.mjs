@@ -4,6 +4,7 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readCommand } from '../gitread.mjs';
 import { within } from '../server/folders.mjs';
 
 const LIST_MAX = 20_000; // files of one folder looked at
@@ -12,32 +13,43 @@ const CACHE_MS = 10_000;
 const SKIP = new Set(['.git', 'node_modules', '.hg', '.svn', 'dist', 'build', '.next', '.cache', '__pycache__', '.venv', 'venv', 'target']);
 const cache = new Map(); // folder → { at, files }
 
-/** The folder's files, relative: git's list (tracked and untracked, not ignored) where it is a repository, else a walk. */
-function listFiles(cwd) {
+/**
+ * The folder's files, relative: git's list (tracked and untracked, not ignored) where it is a repository, else a walk.
+ * git goes through the reader, so the folder's own git settings never start a program; when the reader cannot read
+ * them, the walk.
+ */
+async function listFiles(cwd) {
+  const c = await readCommand(cwd, ['ls-files', '-co', '--exclude-standard']);
   return new Promise((resolve) => {
-    execFile('git', ['ls-files', '-co', '--exclude-standard'], { cwd, timeout: 5000, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, out) => {
+    if (c.refused) return walkFiles(cwd, resolve);
+    execFile(c.argv[0], c.argv.slice(1), { cwd, env: c.env, timeout: 5000, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, out) => {
       if (!err) return resolve(out.split('\n').filter(Boolean).slice(0, LIST_MAX));
-      const files = [];
-      const walk = (dir, rel, depth) => {
-        if (files.length >= LIST_MAX || depth > 8) return;
-        let names = [];
-        try {
-          names = fs.readdirSync(dir, { withFileTypes: true });
-        } catch {
-          return;
-        }
-        for (const d of names) {
-          if (files.length >= LIST_MAX) return;
-          const r = rel ? `${rel}/${d.name}` : d.name;
-          if (d.isDirectory()) {
-            if (!SKIP.has(d.name)) walk(path.join(dir, d.name), r, depth + 1);
-          } else if (d.isFile()) files.push(r);
-        }
-      };
-      walk(cwd, '', 0);
-      resolve(files);
+      walkFiles(cwd, resolve);
     });
   });
+}
+
+/** The folder's files without git (no repository, or its settings could not be read). */
+function walkFiles(cwd, resolve) {
+  const files = [];
+  const walk = (dir, rel, depth) => {
+    if (files.length >= LIST_MAX || depth > 8) return;
+    let names = [];
+    try {
+      names = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const d of names) {
+      if (files.length >= LIST_MAX) return;
+      const r = rel ? `${rel}/${d.name}` : d.name;
+      if (d.isDirectory()) {
+        if (!SKIP.has(d.name)) walk(path.join(dir, d.name), r, depth + 1);
+      } else if (d.isFile()) files.push(r);
+    }
+  };
+  walk(cwd, '', 0);
+  resolve(files);
 }
 
 /** How well `file` matches `q`: the letters of q in order, better when in the file's name and close together; -1 when not. */
@@ -136,18 +148,37 @@ export function readAttachments(list, { cwd, uploadsDir }) {
 }
 
 /**
+ * The start of a file the folder names, only when it is a plain file. Opened without waiting (a FIFO or a device in
+ * its place would block the whole dashboard on a synchronous read) and checked on the open file itself, so nothing
+ * can be swapped in between the check and the read. null for anything else.
+ */
+function smallFile(p, max = 4096) {
+  let fd;
+  try {
+    fd = fs.openSync(p, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
+    if (!fs.fstatSync(fd).isFile()) return null;
+    const buf = Buffer.alloc(max);
+    return buf.toString('utf8', 0, fs.readSync(fd, buf, 0, max, 0));
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/**
  * The git branch the folder is on, for the status line: read from .git/HEAD (a worktree's .git file names where its
  * HEAD is), no git process. null when it is no repository or HEAD is detached.
  */
 export function gitBranch(cwd) {
   try {
     let git = path.join(cwd, '.git');
-    if (fs.statSync(git).isFile()) {
-      const m = /^gitdir:\s*(.+)\s*$/m.exec(fs.readFileSync(git, 'utf8'));
+    if (!fs.statSync(git).isDirectory()) {
+      const m = /^gitdir:\s*(.+)\s*$/m.exec(smallFile(git) || '');
       if (!m) return null;
       git = path.resolve(cwd, m[1].trim());
     }
-    const m = /^ref:\s*refs\/heads\/(.+)\s*$/.exec(fs.readFileSync(path.join(git, 'HEAD'), 'utf8'));
+    const m = /^ref:\s*refs\/heads\/(.+)\s*$/.exec(smallFile(path.join(git, 'HEAD')) || '');
     return m ? m[1].trim().slice(0, 200) : null;
   } catch {
     return null;

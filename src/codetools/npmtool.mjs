@@ -13,16 +13,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { toolsDir } from '../paths.mjs';
 import { takeLock } from './lock.mjs';
+import { forInstalls } from '../secretenv.mjs';
 import { capture, compareVersions, npmArgv, showCommand, stream } from '../setup/system.mjs';
 
 export const REGISTRY = 'https://registry.npmjs.org';
 export const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
-
-/** Variables that carry a provider's key or a server password: never passed to npm, its scripts or a version check. */
-export const SECRET_VARS = [
-  'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN',
-  'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_API_KEY', 'OPENCODE_PASSWORD',
-];
 
 const LOOKUP_TTL_MS = 5 * 60_000;
 const LOOKUP_FAIL_TTL_MS = 60_000;
@@ -49,11 +44,9 @@ export async function registryLatest(pkg, { fetchImpl = globalThis.fetch, now = 
   return value;
 }
 
-/** The environment for npm and the version check: the caller's, minus every secret, plus the tool's own folders. */
+/** The environment for npm and the version check: the caller's, minus every secret and GitHub token (../secretenv.mjs), plus the tool's own folders. */
 export function installEnv(base, own) {
-  const env = { ...base };
-  for (const k of SECRET_VARS) delete env[k];
-  return { ...env, ...own };
+  return { ...forInstalls(base), ...own };
 }
 
 /** The prefix's own package.json: private, and naming the one install script that may run (or none). */

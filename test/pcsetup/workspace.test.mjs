@@ -195,10 +195,11 @@ test('status never looks into a private folder (no-ai, ignore, ai-ignore-dir) an
   fs.writeFileSync(path.join(root, 'web', 'node_modules', 'lib', 'b.js'), 'x');
   const s = await W.repoInfo(root);
   assert.equal(s.changes, 1); // only visible.md
-  const { statusArgv, READ_ONLY_GIT } = await import('../../src/pcsetup/projects.mjs');
+  const { STATUS_ARGS } = await import('../../src/pcsetup/projects.mjs');
+  const { readCommand } = await import('../../src/gitread.mjs');
   const fold = process.platform === 'darwin' || process.platform === 'win32' ? ',icase' : '';
-  assert.deepEqual(statusArgv('/r').slice(-4), ['no-ai', 'ignore', 'ai-ignore-dir', 'node_modules'].map((d) => `:(exclude,glob${fold})**/${d}/**`));
-  assert.equal(READ_ONLY_GIT.GIT_OPTIONAL_LOCKS, '0');
+  assert.deepEqual(STATUS_ARGS.slice(-4), ['no-ai', 'ignore', 'ai-ignore-dir', 'node_modules'].map((d) => `:(exclude,glob${fold})**/${d}/**`));
+  assert.equal((await readCommand(root, STATUS_ARGS)).env.GIT_OPTIONAL_LOCKS, '0');
 });
 
 test('project new without a git name and e-mail stops before anything is written', async () => {
@@ -216,4 +217,21 @@ test('project new without a git name and e-mail stops before anything is written
   assert.match(r.stdout + r.stderr, /git config --global user\.name/);
   for (const where of [['projects'], ['Workspace', 'projects']]) assert.equal(fsx.existsSync(pathx.join(home, ...where, 'shop')), false, 'no half-made project folder is left behind');
   fsx.rmSync(home, { recursive: true, force: true });
+});
+
+test('useHooks turns on .githooks when the repository has that folder and no hooks path of its own', async () => {
+  const dir = path.join(tmp, 'hooks-repo');
+  fs.mkdirSync(path.join(dir, '.githooks'), { recursive: true });
+  sh(tmp, 'init', '-q', '-b', 'main', dir);
+  assert.equal(await W.useHooks(dir), true);
+  assert.equal(sh(dir, 'config', '--local', '--get', 'core.hooksPath'), '.githooks');
+  // A hooks path the repository already has is kept.
+  sh(dir, 'config', 'core.hooksPath', 'tools/hooks');
+  assert.equal(await W.useHooks(dir), false);
+  assert.equal(sh(dir, 'config', '--local', '--get', 'core.hooksPath'), 'tools/hooks');
+  // No .githooks folder: nothing set.
+  const plain = path.join(tmp, 'hooks-none');
+  sh(tmp, 'init', '-q', '-b', 'main', plain);
+  assert.equal(await W.useHooks(plain), false);
+  assert.throws(() => sh(plain, 'config', '--local', '--get', 'core.hooksPath'));
 });

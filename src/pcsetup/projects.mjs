@@ -6,6 +6,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, saveConfig } from '../config.mjs';
+import { gitRead } from '../gitread.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 import { capture, compareVersions, stream, which } from '../setup/system.mjs';
 // (a cycle: layout.mjs takes PRIVATE_DIRS from here; neither uses the other while it loads)
 import { defaultProjectsDir } from '../workspace/layout.mjs';
@@ -141,17 +143,6 @@ export function nodeSatisfies(have, wants) {
 // Folders that hold a person's private notes (and that AI tools must never read): hoprig never looks inside
 // them, not even to count changes.
 export const PRIVATE_DIRS = ['no-ai', 'ignore', 'ai-ignore-dir'];
-// A status must not change anything: no optional locks, so git does not rewrite the index while it looks. Nor start
-// a program: core.fsmonitor in a repository's own settings names a command that every status runs, so a folder that
-// came from elsewhere (a download, an archive) would run it as the owner. Set here, it outranks the repository's.
-export const READ_ONLY_GIT = {
-  ...process.env,
-  GIT_OPTIONAL_LOCKS: '0',
-  GIT_TERMINAL_PROMPT: '0',
-  GIT_CONFIG_COUNT: '1',
-  GIT_CONFIG_KEY_0: 'core.fsmonitor',
-  GIT_CONFIG_VALUE_0: 'false',
-};
 /** True where the disk ignores the case of a name (macOS and Windows by default). */
 export const FOLD = process.platform === 'darwin' || process.platform === 'win32';
 /** Pathspecs that leave out the folders `dirs` at any depth (without regard to case where the disk ignores it). */
@@ -159,11 +150,11 @@ export const excludes = (dirs) => dirs.map((d) => `:(exclude,glob${FOLD ? ',icas
 /** What a status leaves out: private folders, and installed packages that .gitignore does not cover. */
 export const STATUS_EXCLUDES = excludes([...PRIVATE_DIRS, 'node_modules']);
 /**
- * `git status` for counts only, never looking into a private folder at any depth. Every new file counts on its own
- * (not a new folder as one) and the same folders are left out as in the code editor's Source Control, so
- * "N changes" is the same number there.
+ * `git status` for counts only (its arguments, for the reader), never looking into a private folder at any depth.
+ * Every new file counts on its own (not a new folder as one) and the same folders are left out as in the code
+ * editor's Source Control, so "N changes" is the same number there.
  */
-export const statusArgv = (dir) => ['git', '-C', dir, 'status', '--porcelain=v1', '-b', '--untracked-files=all', '--', '.', ...STATUS_EXCLUDES];
+export const STATUS_ARGS = ['status', '--porcelain=v1', '-b', '--untracked-files=all', '--', '.', ...STATUS_EXCLUDES];
 
 /** "## main...origin/main [ahead 1, behind 2]" + porcelain lines → { branch, upstream, ahead, behind, changes }. */
 export function parseStatus(text) {
@@ -183,9 +174,9 @@ export function parseStatus(text) {
   return { branch, upstream, ahead, behind, changes: lines.length };
 }
 
-/** The state of one repository folder (counts only; no file names, no diffs). */
+/** The state of one repository folder (counts only; no file names, no diffs). Read through the reader (gitread.mjs). */
 export async function repoState(dir, run = capture) {
-  const r = await run(statusArgv(dir), { timeout: 15_000, env: READ_ONLY_GIT });
+  const r = await gitRead(dir, STATUS_ARGS, { run, timeout: 15_000 });
   if (!r.ok) return { dir, ok: false, error: (r.stderr || 'not a git repository').trim().split('\n')[0] };
   return { dir, ok: true, ...parseStatus(r.stdout) };
 }
@@ -213,7 +204,8 @@ export async function cloneRepo(repo, dir, { onLine = () => {}, quiet = false, r
     return { ok: true, dest, skipped: true };
   }
   fs.mkdirSync(dir, { recursive: true });
-  const env = { ...process.env, ...(quiet ? { GIT_TERMINAL_PROMPT: '0' } : {}), ...extra };
+  // A clone needs no provider key; it keeps GitHub's token, which a private repository may need.
+  const env = { ...withoutSecrets(process.env), ...(quiet ? { GIT_TERMINAL_PROMPT: '0' } : {}), ...extra };
   const r = await run(['git', 'clone', '--', repo.url, dest], { env, onLine, interactive: false });
   return { ok: r.ok, dest, output: r.output };
 }
@@ -242,7 +234,7 @@ export function prepareEnv(dest, onLine = () => {}) {
 export async function projectRemotes(dir, run = capture) {
   const out = [];
   for (const repo of listRepos(dir)) {
-    const r = await run(['git', '-C', repo, 'config', '--get', 'remote.origin.url']);
+    const r = await gitRead(repo, ['config', '--get', 'remote.origin.url'], { run });
     const url = cleanRemote(r.stdout.trim());
     if (r.ok && parseRepo(url)) out.push(url);
   }
