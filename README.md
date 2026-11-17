@@ -435,6 +435,9 @@ Said plainly, so nothing here is a surprise:
 - **The last checks of this version ran on stand-ins** for the coding tools (small programs that answer the way
   Claude Code and OpenCode do), not on real Claude Code or real OpenCode.
 - **Files on the desktop**: dragging between two Files windows is not built.
+- **A submodule's own changes are not counted in the repository around it**: Source Control and the project counts
+  read git without looking inside a submodule's files (its own settings could start programs). A submodule with
+  uncommitted changes shows them when you open it as its own folder; a new commit in it still shows in the parent.
 - **Run only on Linux**: everything new in this version (the chat, OpenCode, the editor, the desktop, the public
   link switch, Updates, one process per conversation). It was not run on macOS or Windows. How Hoprig tells that a
   process is still the one it started (a process id can belong to another program after a restart of the computer)
