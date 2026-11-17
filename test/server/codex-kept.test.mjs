@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { offerEveryTool } from '../fixtures/every-tool.mjs';
-import { sandbox } from './helpers.mjs';
+import { launched, sandbox } from './helpers.mjs';
 
 offerEveryTool(); // before the first import of src/
 const box = sandbox('codexkept');
@@ -87,7 +87,7 @@ test('Codex starts only when it is on and installed, on a provider that serves i
   r = await call('/api/sessions', { tool: 'codex', dir: work, profile: 'gw', mode: 'new', permissionMode: 'readOnly', effort: 'low', prompt: 'hi there' });
   assert.equal(r.status, 200);
   assert.deepEqual(r.json, { name: 'work', tool: 'codex' });
-  assert.deepEqual(created.pop().argv, ['L', 'codex', 'gw', '--permission-mode', 'readOnly', '--effort', 'low', '--', 'hi there']);
+  assert.deepEqual(launched(created.pop().argv), ['L', 'codex', 'gw', '--permission-mode', 'readOnly', '--effort', 'low', '--', 'hi there']);
 });
 
 test('the resume list and a resume come from Codex\'s own store', async () => {
@@ -103,7 +103,7 @@ test('the resume list and a resume come from Codex\'s own store', async () => {
   assert.equal((await call('/api/sessions', { tool: 'codex', dir: work, profile: 'gw', mode: 'resume', sessionId: '01a1e399-0000-7000-8000-000000000000' })).status, 400);
   r = await call('/api/sessions', { tool: 'codex', dir: work, profile: 'gw2', mode: 'resume', sessionId: id });
   assert.equal(r.status, 200);
-  assert.deepEqual(created.pop().argv, ['L', 'codex', 'gw2', '--resume', id]);
+  assert.deepEqual(launched(created.pop().argv), ['L', 'codex', 'gw2', '--resume', id]);
 });
 
 test('the Codex sign-in and a key only Codex can use are normal providers again in /api/state and publicProfile', async () => {

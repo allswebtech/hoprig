@@ -23,8 +23,9 @@ function harness(over = {}) {
   const created = [];
   const sctx = {
     readJson: async (req) => req.body || {},
-    backend: { list: async () => [], create: async (o) => created.push(o) },
-    deck: { launcher: () => ['node', '/app/bin/hoprig.mjs'] },
+    backend: { list: async () => [] },
+    // deck.terminal: every terminal the dashboard starts goes through it (src/server/deck.mjs: a launch file).
+    deck: { launcher: () => ['node', '/app/bin/hoprig.mjs'], terminal: async (o) => created.push(o) },
   };
   const checks = [
     { group: 'kit:extras', id: 'extras.tmux', label: 'tmux', status: 'fail', detail: 'missing', fix: 'sudo apt-get install -y tmux', fixKit: 'extras' },

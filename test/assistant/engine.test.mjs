@@ -61,8 +61,8 @@ test('claudeCommand: claudeBin as configured; on Windows a .cmd shim goes throug
   assert.equal(w.command, 'C:\\nope\\claude', 'not found: run as given');
 });
 
-test('deck prompt: after "--", one line', () => {
-  assert.deepEqual(promptArgs('-x do\nthis  \r\n now'), ['--', '-x do this now']);
+test('deck prompt: after "--", whole (several lines, tabs: it is never typed into a shell)', () => {
+  assert.deepEqual(promptArgs('-x do\nthis \t\r\n now'), ['--', '-x do\nthis \t\r\n now']);
   assert.deepEqual(promptArgs(null), []);
 });
 

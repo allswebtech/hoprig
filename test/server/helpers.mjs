@@ -37,3 +37,14 @@ export function sandbox(name = 'dash') {
 export function fakeReq(headers = {}, socket = { remoteAddress: '10.0.0.5' }) {
   return { headers, socket };
 }
+
+/**
+ * The arguments a terminal's launcher is started with, read back: the dashboard types `<launcher> --launch <file>`
+ * and the file (src/launchfile.mjs) holds the rest. Returns the launcher's own words and then the file's, as they
+ * were before launch files; the file stays where it is. Any other argv comes back unchanged.
+ */
+export function launched(argv) {
+  const i = Array.isArray(argv) ? argv.indexOf('--launch') : -1;
+  if (i < 0) return argv;
+  return [...argv.slice(0, i), ...JSON.parse(fs.readFileSync(argv[i + 1], 'utf8')).argv];
+}

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { sandbox } from './helpers.mjs';
+import { launched, sandbox } from './helpers.mjs';
 
 const box = sandbox('defprov');
 test.after(() => box.cleanup());
@@ -56,7 +56,7 @@ test('a new session without a provider starts on the folder\'s default; a chosen
   assert.equal((await call('/api/sessions', { dir: workB, mode: 'new' })).status, 200);
   assert.equal((await call('/api/sessions', { dir: workA, mode: 'new', profile: '' })).status, 200);
   assert.equal((await call('/api/sessions', { dir: workB, mode: 'new', profile: 'key' })).status, 200);
-  assert.deepEqual(created.map((c) => [c.dir, c.argv[1]]), [[workB, 'team'], [workA, 'sub'], [workB, 'key']]);
+  assert.deepEqual(created.map((c) => [c.dir, launched(c.argv)[1]]), [[workB, 'team'], [workA, 'sub'], [workB, 'key']]);
   assert.equal((await call('/api/sessions', { dir: workA, mode: 'new', profile: 'nobody' })).status, 400);
 });
 
@@ -65,7 +65,7 @@ test('a pay-per-use key used last in a folder (a limit card\'s "Continue on") is
   assert.deepEqual((await call('/api/state')).json.recommendedIn, { [workB]: 'team' });
   created.length = 0;
   await call('/api/sessions', { dir: workA, mode: 'new' });
-  assert.equal(created[0].argv[1], 'sub');
+  assert.equal(launched(created[0].argv)[1], 'sub');
 });
 
 test('a feature asks for a folder\'s default; a provider it names as used last there goes under the same tests', async () => {
@@ -105,6 +105,6 @@ test('Auto mode on: "auto" everywhere', async () => {
   assert.deepEqual(st.recommendedIn, {});
   created.length = 0;
   await call('/api/sessions', { dir: workB, mode: 'new' });
-  assert.equal(created[0].argv[1], 'auto');
+  assert.equal(launched(created[0].argv)[1], 'auto');
   assert.equal(await ctx.defaultProvider(workB, 'team'), 'auto');
 });

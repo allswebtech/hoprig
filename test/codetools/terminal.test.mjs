@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { launched } from '../server/helpers.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-terminal-'));
 process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
@@ -289,7 +290,7 @@ test('the launcher command: Claude Code\'s unchanged, Codex and OpenCode with a 
   const L = ['node', 'hoprig'];
   const p = { name: 'gw', env: {} };
   assert.deepEqual(launchArgv(L, { profile: p, mode: 'resume', sessionId: 'id1', prompt: 'hi' }), ['node', 'hoprig', 'gw', '--resume', 'id1', '--', 'hi']);
-  assert.deepEqual(launchArgv(L, { tool: 'codex', profile: p, mode: 'new', flags: ['--effort', 'low'], prompt: 'a\nb' }), ['node', 'hoprig', 'codex', 'gw', '--effort', 'low', '--', 'a b']);
+  assert.deepEqual(launchArgv(L, { tool: 'codex', profile: p, mode: 'new', flags: ['--effort', 'low'], prompt: 'a\nb' }), ['node', 'hoprig', 'codex', 'gw', '--effort', 'low', '--', 'a\nb'], 'whole: the words go in a launch file, never typed');
   assert.deepEqual(launchArgv(L, { tool: 'opencode', profile: p, mode: 'continue' }), ['node', 'hoprig', 'opencode', 'gw', '-c']);
   assert.deepEqual(launchArgv(L, { tool: 'codex', profile: p, mode: 'move', sessionId: 'id1', carryArgs: ['--model', 'm'] }), ['node', 'hoprig', 'codex', 'gw', '--model', 'm', '--resume', 'id1']);
   assert.deepEqual(launchArgv(L, { tool: 'codex', profile: p, mode: 'move', sessionId: 'id1', fresh: true }), ['node', 'hoprig', 'codex', 'gw'], 'nothing to resume: a new one');
@@ -322,7 +323,7 @@ test('cards: a coding session of any tool, its tool, and a move refused to a pro
   const found = await deck.find('one');
   await assert.rejects(deck.move(found.term, found.run, 'sub'), /cannot be used for Codex: a Claude subscription is for Claude Code only/);
   await deck.move(found.term, found.run, 'my-gw');
-  assert.deepEqual(respawned.pop(), ['hop', 'codex', 'my-gw', '--effort', 'low', '--resume', '01a1e390-0000-7000-8000-000000000001']);
+  assert.deepEqual(launched(respawned.pop()), ['hop', 'codex', 'my-gw', '--effort', 'low', '--resume', '01a1e390-0000-7000-8000-000000000001']);
 });
 
 test('a session\'s choices are the tool\'s own lists; the tool is named or Claude Code', () => {

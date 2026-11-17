@@ -55,8 +55,10 @@ const backend = (platform, extra = {}) => {
 test('start plans: POSIX types into a login shell, Windows runs argv directly and falls back to PowerShell', () => {
   const sh = { file: '/bin/zsh', args: ['-l'] };
   assert.deepEqual(startPlan({ platform: 'darwin', dir: '/w d', argv: ['/n', 'x y'], shell: sh }), {
-    file: '/bin/zsh', args: ['-l'], cwd: '/w d', type: `${CLEAR}; cd '/w d' && /n 'x y'`, then: null,
-  });
+    file: '/bin/zsh', args: ['-l'], cwd: '/w d', type: `${CLEAR}; /n 'x y'`, then: null,
+  }, 'the shell starts in the folder; nothing of it is typed');
+  assert.throws(() => startPlan({ platform: 'linux', dir: '/w', argv: ['/n', "it's"], shell: sh }), (e) => e.status === 400 && /cannot start a terminal from this path/.test(e.message));
+  assert.throws(() => startPlan({ platform: 'win32', dir: 'C:\\w', argv: ['C:\\n.exe', 'a"b'] }), (e) => e.status === 400, 'Windows: no quote in its one command line');
   assert.equal(startPlan({ platform: 'linux', dir: '/w', shell: sh }).type, null, 'a plain shell types nothing');
   const win = startPlan({ platform: 'win32', dir: 'C:\\Users\\me\\proj', argv: ['C:\\Program Files\\nodejs\\node.exe', 'C:\\app\\bin\\x.mjs', 'work', '--resume', 'id'] });
   assert.deepEqual(win, {
@@ -102,7 +104,7 @@ test('POSIX: create, type, list, bracketed paste only when the program asks, key
   assert.equal(p.file, '/bin/bash');
   assert.equal(p.opts.cwd, '/w');
   assert.equal(p.opts.env.HOPRIG_TERM_ID, id);
-  assert.deepEqual(p.written, [`${CLEAR}; cd /w && /n work\r`]);
+  assert.deepEqual(p.written, [`${CLEAR}; /n work\r`]);
   await assert.rejects(b.create({ name: 'proj', dir: '/w' }), /duplicate/);
   await assert.rejects(b.create({ name: '-x', dir: '/w' }), /bad session name/);
 
@@ -234,7 +236,11 @@ test('respawn: same name and id, old process stopped, history cleared, new comma
   assert.equal(procs[0].killed, 'SIGHUP');
   assert.equal(procs.length, 2);
   assert.equal(procs[1].opts.env.HOPRIG_TERM_ID, id);
-  assert.deepEqual(procs[1].written, [`${CLEAR}; cd /w2 && /n b --resume x\r`]);
+  assert.deepEqual(procs[1].written, [`${CLEAR}; /n b --resume x\r`]);
+  assert.equal(procs[1].opts.cwd, '/w2', 'the new shell starts in the folder');
+  // A line that cannot be typed is refused before anything is stopped.
+  await assert.rejects(b.respawn(id, '/w2', ['/n', '$(x)']), (e) => e.status === 400);
+  assert.equal(procs.length, 2, 'nothing stopped, nothing started');
   await waitFor(() => seen.includes('\x1bc'), 'the reset in the browser');
   assert.ok(seen.indexOf('\x1bc') > seen.indexOf('hit your limit'), 'after the old output, in order');
   assert.doesNotMatch(await b.capture(id, 100), /limit/);

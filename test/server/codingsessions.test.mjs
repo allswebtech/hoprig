@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { sandbox } from './helpers.mjs';
+import { launched, sandbox } from './helpers.mjs';
 
 const box = sandbox('codingsessions');
 process.env.HOPRIG_TOOLS_DIR = path.join(box.root, 'tools');
@@ -84,11 +84,11 @@ test('OpenCode starts only when it is on and installed, on a provider that serve
   r = await call('/api/sessions', { tool: 'opencode', dir: work, profile: 'gw', mode: 'new', permissionMode: 'ask', effort: 'low', prompt: 'hi there' });
   assert.equal(r.status, 200);
   assert.deepEqual(r.json, { name: 'work', tool: 'opencode' });
-  assert.deepEqual(created.pop().argv, ['L', 'opencode', 'gw', '--permission-mode', 'ask', '--effort', 'low', '--', 'hi there']);
+  assert.deepEqual(launched(created.pop().argv), ['L', 'opencode', 'gw', '--permission-mode', 'ask', '--effort', 'low', '--', 'hi there']);
   // Claude Code: the command it always had.
   r = await call('/api/sessions', { dir: work, profile: 'gw', mode: 'new', effort: 'low' });
   assert.equal(r.status, 200);
-  assert.deepEqual(created.pop().argv, ['L', 'gw', '--effort', 'low']);
+  assert.deepEqual(launched(created.pop().argv), ['L', 'gw', '--effort', 'low']);
 });
 
 test('Codex is not part of this version: no start, resume or resume list, even when the config names it and it is installed', async () => {
@@ -137,7 +137,7 @@ test('a move stays in the tool: refused to a provider that does not serve it, el
   assert.equal((await call('/api/sessions/oc/switch', { profile: 'auto' })).status, 400);
   r = await call('/api/sessions/oc/switch', { profile: 'gw2' });
   assert.equal(r.status, 200);
-  assert.deepEqual(respawned.pop(), ['L', 'opencode', 'gw2', '--permission-mode', 'ask', '--resume', 'ses_abcdefgh12345678']);
+  assert.deepEqual(launched(respawned.pop()), ['L', 'opencode', 'gw2', '--permission-mode', 'ask', '--resume', 'ses_abcdefgh12345678']);
   // "Continue" after a usage limit is Claude Code's: it neither types nor restarts anything in another tool.
   const before = respawned.length;
   r = await call('/api/sessions/oc/continue', { restart: true });

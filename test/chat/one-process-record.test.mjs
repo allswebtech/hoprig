@@ -62,6 +62,7 @@ async function run(t, kind) {
   const { setAutoSwitch } = await import('../../src/autoswitch.mjs');
   const { hashPassword } = await import('../../src/server/auth.mjs');
   const { createServer } = await import('../../src/server/server.mjs');
+  const { launchDir } = await import('../../src/launchfile.mjs');
   const { listRuns } = await import('../../src/runs.mjs');
   const pw = await hashPassword('pw-for-tests');
   const conf = (bin) => saveConfig({ claudeBin: bin, usage: false, router: { port: routerPort }, server: { backend: kind, roots: [box.root], passwordHash: pw } });
@@ -212,7 +213,9 @@ async function run(t, kind) {
     });
     await sleep(1500); // a second launcher started by mistake would show by now
     assert.deepEqual(await count(id), { term: 1, chat: 0, runs: 1 }, 'B2: one process');
-    const launchers = execFileSync('ps', ['-eo', 'args'], { encoding: 'utf8' }).split('\n').filter((l) => l.includes(BIN) && l.includes(id));
+    // The launchers of this dashboard: started as `<launcher> --launch <its launch folder>/…` (src/launchfile.mjs), so
+    // their command line names no conversation; this block's is the only one that runs now.
+    const launchers = execFileSync('ps', ['-eo', 'args'], { encoding: 'utf8' }).split('\n').filter((l) => l.includes(BIN) && l.includes(launchDir()));
     assert.equal(launchers.length, 1, `B2: one launcher: ${launchers.join(' | ')}`);
     const c = await chatWith(id, 'after two moves');
     assert.equal(c.sent, false, 'B2: the terminal runs it, a chat does not send');

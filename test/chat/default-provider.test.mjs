@@ -9,7 +9,7 @@ import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { sandbox } from '../server/helpers.mjs';
+import { launched, sandbox } from '../server/helpers.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = path.join(HERE, 'fixtures', 'fake-claude.mjs');
@@ -92,7 +92,7 @@ test('no provider chosen: a new chat and a new terminal session take the folder\
   const terminalIn = async (dir) => {
     const r = await owner('POST', '/api/sessions', { dir, mode: 'new' });
     assert.equal(r.status, 200, JSON.stringify(r.json));
-    return created.at(-1).argv[1];
+    return launched(created.at(-1).argv)[1];
   };
   const closeAll = async () => {
     for (const id of chats.splice(0)) await owner('POST', `/api/chats/${id}/close`, {});
