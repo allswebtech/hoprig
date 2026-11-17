@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { gitRead } from '../gitread.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 import { capture, compareVersions, stream, which } from '../setup/system.mjs';
 // (a cycle: layout.mjs takes PRIVATE_DIRS from here; neither uses the other while it loads)
 import { defaultProjectsDir } from '../workspace/layout.mjs';
@@ -203,7 +204,8 @@ export async function cloneRepo(repo, dir, { onLine = () => {}, quiet = false, r
     return { ok: true, dest, skipped: true };
   }
   fs.mkdirSync(dir, { recursive: true });
-  const env = { ...process.env, ...(quiet ? { GIT_TERMINAL_PROMPT: '0' } : {}), ...extra };
+  // A clone needs no provider key; it keeps GitHub's token, which a private repository may need.
+  const env = { ...withoutSecrets(process.env), ...(quiet ? { GIT_TERMINAL_PROMPT: '0' } : {}), ...extra };
   const r = await run(['git', 'clone', '--', repo.url, dest], { env, onLine, interactive: false });
   return { ok: r.ok, dest, output: r.output };
 }

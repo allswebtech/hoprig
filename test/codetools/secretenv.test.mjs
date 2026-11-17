@@ -152,6 +152,23 @@ test('every place that starts npm, an install script or a download hands on none
     for (const c of [...r5.calls, ...r6.calls, ...r7.calls]) assert.deepEqual(leaks(c.env), [], c.argv.join(' '));
     assert.deepEqual([r5.calls.length, r6.calls.length, r7.calls.length], [1, 1, 1]);
 
+    // GitHub's token: a kit's step loses it in the dashboard's job too, while a clone of a project (a private
+    // repository may need it) keeps it there as it does in the command. The secrets go either way.
+    process.env.GH_TOKEN = `${MARK}-gh`;
+    try {
+      const { cloneRepo } = await import('../../src/pcsetup/projects.mjs');
+      const r8 = recorder();
+      await runSteps(steps, { ui: quiet, interactive: false, runner: adminRunner(null, r8.run) });
+      await adminRunner(null, r8.run)(['brew', 'install', 'x']); // no env given: as an install
+      await cloneRepo({ url: 'https://example.invalid/o/private.git', name: 'private' }, path.join(tmp, 'clones'), { run: adminRunner(null, r8.run) });
+      await cloneRepo({ url: 'https://example.invalid/o/private.git', name: 'private2' }, path.join(tmp, 'clones'), { run: r8.run });
+      const [kit, bare, viaJob, viaCommand] = r8.calls;
+      assert.deepEqual([leaks(kit.env), leaks(bare.env)], [[], []], 'a kit or an install loses the token too');
+      for (const c of [viaJob, viaCommand]) assert.deepEqual(leaks(c.env), ['GH_TOKEN'], 'a clone keeps GitHub\'s token and nothing else');
+    } finally {
+      delete process.env.GH_TOKEN;
+    }
+
     // These start the program themselves: the stand-ins on PATH write down what they got.
     const { updateTool } = await import('../../src/skillhub/tools.mjs');
     await updateTool({ command: ['npm', 'install', '--global', 'some-tool@1.0.0'] });

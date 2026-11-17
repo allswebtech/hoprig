@@ -11,7 +11,7 @@
 //   - the password stays in memory for that job only (never written, logged, returned or put in a job's state), and
 //     every output line is scrubbed of it before it is kept;
 //   - it is checked first (`sudo -S -k -p '' -- true`): a wrong one installs nothing and the page asks again.
-import { forInstalls } from '../secretenv.mjs';
+import { forInstalls, withoutSecrets } from '../secretenv.mjs';
 import { capture, stream } from '../setup/system.mjs';
 
 const HIDDEN = '••••';
@@ -60,8 +60,10 @@ export function adminRunner(password, base = stream) {
     return base(asAdmin(argv, Boolean(password)), {
       ...o,
       interactive: false,
-      // A job's steps are installers and package managers: no secret reaches them, whatever env the caller gave.
-      env: { ...forInstalls(o.env || process.env), GIT_TERMINAL_PROMPT: '0' },
+      // No secret reaches a step, whatever env the caller gave. The caller's own env says the rest: a kit's steps come
+      // with forInstalls() (runSteps), while a clone or a project's own dependency install keeps GitHub's token, as it
+      // does from `hoprig pc setup` in a terminal (a private repository may need it). Without one: as an install.
+      env: { ...(o.env ? withoutSecrets(o.env) : forInstalls(process.env)), GIT_TERMINAL_PROMPT: '0' },
       onLine: (l) => onLine(clean(l)),
       input: admin && password ? `${password}\n` : null,
     }).then((r) => ({ ...r, output: clean(r.output || '') }));
