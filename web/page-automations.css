@@ -134,7 +134,10 @@ textarea.field.tia-input { flex: 1; min-width: 0; min-height: 46px; max-height: 
 .tia-card.decided.failed .tia-card-icon { color: var(--danger); }
 
 /* jobs, activity, Settings → Tia */
-.tia-job { display: grid; gap: 6px; }
+.tia-job { display: grid; gap: 6px; min-width: 0; }
+/* A job's session: a chat's title can be a whole sentence; the chip stays inside the card and cuts it with "…". */
+.tia-jobchip { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.tia-jobchip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tia-wrap { white-space: normal; overflow-wrap: anywhere; }
 .tia-log { margin: 0; padding-left: 18px; color: var(--text-2); font-size: var(--fs-xs); overflow-wrap: anywhere; }
 .tia-level-help { margin: 6px 0 0; }
@@ -161,6 +164,10 @@ textarea.field.tia-input { flex: 1; min-width: 0; min-height: 46px; max-height: 
 @media (max-width: 899px) {
   .tia-launch { display: none; }
   .tia-box { position: fixed; inset: 0; z-index: 70; padding-top: env(safe-area-inset-top); }
+  /* Fingers: the head's buttons (Close is the only way out on a phone), a card's Details and its two answers. */
+  .tia-boxhead .btn.icon.small { width: 44px; min-height: 44px; }
+  .tia-card-details summary { padding: 12px 0; }
+  .tia-card-actions .btn { min-height: 44px; }
 }
 /* A desktop: the round button (52 px, 24 px from the right edge) must never cover a switch, a button or the end of a
    row, also on a short page and in Settings' split pane. So while it shows, the page's content stops 92 px from the

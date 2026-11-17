@@ -40,7 +40,7 @@ globalThis.document ??= {
 const { whenText, whatText, scheduleSentence, activityLine, foldActivity, queueChoices } = await import('../../web/automation.js');
 const { until } = await import('../../web/lib.js');
 const { plainCard, EXAMPLES, boldText } = await import('../../web/tia.js');
-const { activityWords, sessionWords, startWords, WORDED } = await import('../../web/tiaactivity.js');
+const { activityRows, activityWords, sessionWords, stamp, startWords, KIT_TITLES, WORDED } = await import('../../web/tiaactivity.js');
 
 test('a schedule reads as one sentence', () => {
   assert.equal(whenText({ kind: 'daily', time: '08:30' }), 'Every day at 08:30');
@@ -137,7 +137,7 @@ test('a confirm card asks in plain words with the accounts\' display names, the 
   assert.equal(whatText({ type: 'start', in: 'chat', dir: '/w/shop', profile: 'max' }, lbl, undefined, { named: true }), 'start a chat with Claude Code in shop on Claude Max');
 
   const other = plainCard({ tool: 'kill_process', input: { pid: 42 }, lines: ['Why a card: risky', 'End process 42 on this', 'Command: node x'] });
-  assert.equal(other.question, 'End a process?');
+  assert.equal(other.question, 'End process 42?');
   assert.deepEqual(other.details, ['End process 42 on this', 'Command: node x'], 'other tools keep their own lines under Details');
   assert.equal(other.why, 'Tia asks because risky.');
 });
@@ -207,14 +207,23 @@ test('a job\'s sessions: a chat opens its chat page by its id, a terminal its se
   assert.equal(href(jobChip({ computer: 'box2', session: `chat:${id}` })), `#/m/box2/chat/${id}`);
   assert.equal(href(jobChip({ computer: 'this', session: 'web-ui' })), '#/s/web-ui');
   assert.equal(href(jobChip({ computer: 'box2', session: 'web-ui' })), '#/m/box2/s/web-ui');
-  // A chat by its title, else by its folder kept with the job; never by its id.
+  // A chat by its folder (as the job's log names it) and its title; never by its id.
+  assert.equal(jobLabel({ session: `chat:${id}`, folder: 'shop' }, 'Fix the login'), 'Chat in shop: Fix the login');
   assert.equal(jobLabel({ session: `chat:${id}` }, 'Fix the login'), 'Chat: Fix the login');
   assert.equal(jobLabel({ session: `chat:${id}`, folder: 'shop' }), 'Chat in shop');
   assert.equal(jobLabel({ session: `chat:${id}` }), 'A chat');
   assert.equal(jobLabel({ session: 'web-ui' }, 'ignored'), 'web-ui');
   const chip = jobChip({ computer: 'this', session: `chat:${id}`, folder: 'shop' }, 'Fix the login');
   const last = chip.children.at(-1);
-  assert.equal(last.text ?? last, 'Chat: Fix the login');
+  assert.equal(last.tag, 'span', 'the label in its own element, cut with "…" by the stylesheet');
+  assert.equal(last.children.map((c) => c.text ?? c).join(''), 'Chat in shop: Fix the login');
+  assert.equal(chip.attrs.title, 'Chat in shop: Fix the login', 'the whole label as its tooltip');
+  // The smoke on a phone: a long title ran out of the card, and the line under the goal lost the count behind "…".
+  const css = fs.readFileSync(path.join(WEB, 'page-automations.css'), 'utf8');
+  assert.match(css, /\.tia-jobchip \{ flex: 0 1 auto; min-width: 0; max-width: 100%; \}/);
+  assert.match(css, /\.tia-jobchip > span \{ min-width: 0; overflow: hidden; text-overflow: ellipsis; \}/);
+  const src = fs.readFileSync(path.join(WEB, 'tia.js'), 'utf8');
+  assert.match(src, /h\('span\.row-sub', `\$\{stamp\(j\.createdAt\)\} · \$\{j\.sessions\.length \? '' : 'no session yet · '\}\$\{j\.steps\} of \$\{j\.maxSteps\} answers used`\)/, 'the sessions are the chips; the line keeps the count');
 });
 
 test('Tia\'s words: manage_computer says what each action does; no words for a tool she no longer has', async () => {
@@ -237,6 +246,14 @@ test('her card for a start says what starts: a chat or a terminal, and the codin
   assert.equal(ask('start_chat', {}, 1), 'Start a chat in blog on Gateway?');
   assert.equal(ask('start_chat', { coding_tool: 'opencode' }, 1), 'Start a chat with OpenCode in blog on Gateway?', 'another coding tool always');
   assert.equal(ask('start_session', {}, 1), 'Start Claude Code in a terminal in blog on Gateway?');
+  // Another computer: the provider and the computer each said so, and the same words as the row in Activity.
+  const there = { tool: 'start_chat', input: { folder: '/w/projects/blog', account: 'gw', coding_tool: 'opencode', computer: 'laptop' }, lines: [] };
+  assert.equal(plainCard(there, { accounts: [{ name: 'gw', label: 'Gateway' }], computerLabel: 'Laptop', tools: 2 }).question, 'Start a chat with OpenCode in blog on Gateway, on the computer Laptop?');
+  assert.equal(activityWords(there, { ...PLACE, computer: () => 'Laptop' }).what, 'start a chat with OpenCode in blog on Gateway, on the computer Laptop');
+  // The other tools' cards too: Auto mode reads as what is done to it, as in Activity.
+  assert.equal(plainCard({ tool: 'set_auto_mode', input: { enabled: true }, lines: [] }).question, 'Turn Auto mode on?');
+  assert.equal(plainCard({ tool: 'change_setting', input: { key: 'upload_max_mb', value: 50 }, lines: [] }).question, 'Change the setting "Largest upload" to 50 MB?');
+  assert.equal(plainCard({ tool: 'some_new_tool', input: {}, lines: [] }).question, 'Make a change?', 'never a tool\'s name');
   assert.equal(startWords({ kind: 'chat', tool: 'opencode', folder: 'C:\\work\\shop' }), 'start a chat with OpenCode in shop');
 });
 
@@ -256,7 +273,7 @@ test('Activity: the two rows the smoke found read as plain sentences', () => {
   const tool = activityWords({ actor: 'assistant', tool: 'manage_computer', input: { action: 'coding_tool', coding_tool: 'opencode', turn: 'on' } }, PLACE);
   assert.equal(tool.what, 'turn OpenCode on');
   const chat = activityWords({ actor: 'assistant', tool: 'start_chat', input: { folder: '/w/projects/blog', coding_tool: 'opencode', account: 'gw', message: 'hello', goal: 'it answered', computer: 'laptop' } }, PLACE);
-  assert.deepEqual(chat, { what: 'start a chat with OpenCode in blog on Gateway, on Laptop', detail: 'done when: it answered', quote: 'hello' });
+  assert.deepEqual(chat, { what: 'start a chat with OpenCode in blog on Gateway, on the computer Laptop', detail: 'done when: it answered', quote: 'hello' });
   const send = activityWords({ actor: 'assistant', tool: 'send_to_chat', input: { session: 'chat:44444444-4444-4444-8444-444444444444', answer: 'allow' } }, PLACE);
   assert.equal(send.what, 'allow what the chat "Fix the login" asks', 'a chat by its title, never its id');
   for (const r of [set, tool, chat, send]) assert.doesNotMatch(`${r.what} ${r.detail}`, KEY_NAME);
@@ -291,6 +308,11 @@ test('Activity: every tool and action she has reads in words, with no key name a
   assert.equal(activityWords({ actor: 'owner', tool: 'client_token', input: {} }, PLACE).what, 'make a token for your own Claude Code');
   assert.equal(activityWords({ actor: 'owner', tool: 'stop_job', input: { job: 'j_0123456789' } }, PLACE).what, 'stop a job');
   assert.equal(activityWords({ actor: 'assistant', tool: 'change_setting', input: { key: 'new_session_model', value: null } }, PLACE).what, 'change the setting "Model of new sessions" to the default');
+  // Units and names where the input has them; the kits by the titles of Set up this computer.
+  assert.equal(activityWords({ actor: 'assistant', tool: 'change_setting', input: { key: 'upload_max_mb', value: 50 } }, PLACE).what, 'change the setting "Largest upload" to 50 MB');
+  assert.equal(activityWords({ actor: 'assistant', tool: 'manage_computer', input: { action: 'set_up', kits: ['node', 'extras'] } }, PLACE).what, 'set up Node.js, Terminal extras');
+  const { KITS } = await import('../../src/pcsetup/kits.mjs');
+  assert.deepEqual(KIT_TITLES, Object.fromEntries(KITS.map((k) => [k.id, k.title])), 'the same titles as Set up this computer');
   // A tool of a later version: a plain sentence, never its name.
   assert.equal(activityWords({ actor: 'assistant', tool: 'some_new_tool', input: { some_key: 1 } }, PLACE).what, 'make a change');
 });
@@ -316,9 +338,64 @@ test('her box: Escape closes it and gives the focus back; Tab stays inside only 
   // How tia.js wires it (the rest is proven in a browser: the screenshots of this change).
   const src = fs.readFileSync(path.join(WEB, 'tia.js'), 'utf8');
   assert.match(src, /keepTabIn\(box\.panel, \{ when: covers \}\)/);
-  assert.match(src, /const covers = \(\) => typeof matchMedia === 'function' && matchMedia\('\(max-width: 899px\)'\)\.matches;/);
+  assert.match(src, /const COVERS = '\(max-width: 899px\)';\nconst covers = \(\) => typeof matchMedia === 'function' && matchMedia\(COVERS\)\.matches;/);
+  assert.match(src, /matchMedia\(COVERS\)\.addEventListener\('change', \(\) => box\.panel\.setAttribute\('aria-modal', String\(covers\(\)\)\)\)/, 'aria-modal follows the width while it is open');
   assert.match(src, /if \(e\.key !== 'Escape' \|\| e\.defaultPrevented\) return;\s+e\.preventDefault\(\);\s+closeBox\(\);/);
   assert.match(src, /onclick: closeBox/, 'its own close button gives the focus back too');
   const css = fs.readFileSync(path.join(WEB, 'page-automations.css'), 'utf8');
   assert.match(css, /@media \(max-width: 899px\) \{\s+\.tia-launch \{ display: none; \}\s+\.tia-box \{ position: fixed; inset: 0;/, 'the same width at which the box covers the page');
+});
+
+test('Activity: a card\'s entries are one row, and her proposal never says it waits once it was answered', () => {
+  const t = (m) => Date.UTC(2026, 10, 17, 7, m);
+  const start = { tool: 'start_chat', input: { folder: '/w/projects/blog', account: 'gw' } };
+  // Newest first, as the server gives them: confirmed and done (the owner), staged (her), and a step without a card.
+  const rows = activityRows([
+    { ...start, actor: 'owner', outcome: 'done', card: 'k1', at: t(3) },
+    { actor: 'owner', tool: 'tia_settings', input: { level: 'work' }, outcome: 'done', at: t(2) },
+    { ...start, actor: 'owner', outcome: 'confirmed', card: 'k1', at: t(2) },
+    { ...start, actor: 'assistant', outcome: 'staged', card: 'k1', at: t(1) },
+    { ...start, actor: 'assistant', outcome: 'staged', card: 'k2', at: t(0) },
+  ]);
+  assert.deepEqual(rows.map((r) => [r.e.actor, r.e.tool, r.steps.join(' · '), r.at]), [
+    ['assistant', 'start_chat', 'Asked for your OK · You confirmed · Done', t(3)],
+    ['owner', 'tia_settings', 'Done', t(2)],
+    ['assistant', 'start_chat', 'Asked for your OK', t(0)],
+  ]);
+  const declined = activityRows([{ ...start, actor: 'owner', outcome: 'declined', card: 'k3', at: t(5) }, { ...start, actor: 'assistant', outcome: 'staged', card: 'k3', at: t(4) }]);
+  assert.deepEqual(declined.map((r) => r.steps), [['Asked for your OK', 'You declined']]);
+  const failed = activityRows([{ ...start, actor: 'owner', outcome: 'failed', card: 'k4', error: 'no such folder', at: t(6) }, { ...start, actor: 'owner', outcome: 'confirmed', card: 'k4', at: t(6) }]);
+  assert.deepEqual(failed.map((r) => [r.e.actor, r.steps.join(' · '), r.error]), [['owner', 'You confirmed · Failed', 'no such folder']], 'her proposal out of the window: the row is his');
+  for (const r of [...rows, ...declined]) assert.doesNotMatch(r.steps.join(' '), /Waiting/);
+  const src = fs.readFileSync(path.join(WEB, 'tia.js'), 'utf8');
+  assert.match(src, /activityRows\(r\.entries\)\.map\(\(\{ e, at, steps, error \}\)/, 'the page draws the rows');
+});
+
+test('the Tia page\'s times: the time alone today, with the day before that, the same on Jobs and Activity', () => {
+  const now = new Date(2026, 10, 17, 9, 0).getTime();
+  const today = stamp(new Date(2026, 10, 17, 7, 14).getTime(), now);
+  assert.doesNotMatch(today, /2026|Nov/);
+  assert.match(today, /07:14|7:14/);
+  const before = stamp(new Date(2026, 10, 16, 7, 14).getTime(), now);
+  assert.match(before, /Nov 16|16 Nov/);
+  assert.doesNotMatch(before, /2026|:37/);
+  const src = fs.readFileSync(path.join(WEB, 'tia.js'), 'utf8');
+  assert.doesNotMatch(src, /new Date\(e\.at\)\.toLocaleString\(\)/);
+});
+
+test('her chips and cards name every tool she has in words, and a decided card keeps the keyboard\'s place', async () => {
+  const { DID, DOING, TOOL_WORDS } = await import('../../web/tiawords.js');
+  const { MCP_TOOLS } = await import('../../src/assistant/tools.mjs');
+  for (const t of MCP_TOOLS) {
+    assert.ok(TOOL_WORDS[t.name], `${t.name}: words for a chip`);
+    assert.ok(DOING[t.name], `${t.name}: words while she does it`);
+    assert.ok(DID[t.name], `${t.name}: words once done`);
+  }
+  const src = fs.readFileSync(path.join(WEB, 'tia.js'), 'utf8');
+  // After Confirm or Decline from the keys, the card is drawn again: the focus goes to what came of it.
+  assert.match(src, /refreshCards\(\{ focus: hadFocus \? card\.id : null \}\)/);
+  assert.match(src, /\.find\(\(x\) => x\.dataset\.card === had\) \|\| cardsBox\.querySelector\('\.tia-card:not\(\.decided\) button'\) \|\| input;/);
+  // What came of a card reads as a statement; her question follows it as hers.
+  assert.match(src, /done: `You confirmed, and it is done\.\$\{asked\}`/);
+  assert.doesNotMatch(src, /it is done: \$\{q\}/);
 });

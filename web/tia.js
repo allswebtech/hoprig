@@ -14,15 +14,14 @@ import { MODELS } from './sessiondefaults.js';
 import { store } from './store.js';
 import { knownChatTools } from './chat/start.js';
 import { keepTabIn } from './tabwrap.js';
-import { activityWords, sessionWords, startWords } from './tiaactivity.js';
-import { DID, DOING, TOOL_WORDS, jobChip, jobLabel, wordFor } from './tiawords.js';
+import { activityRows, activityWords, sessionWords, stamp } from './tiaactivity.js';
+import { DID, DOING, TOOL_WORDS, jobChip, wordFor } from './tiawords.js';
 
 const NAME = 'Tia';
 const A = '~/api/assistant';
 
 const JOB_WORDS = { working: 'Working', waiting: 'Waiting for you', done: 'Done', stuck: 'Stuck', stopped: 'Stopped' };
 const JOB_PILL = { working: 'st-working', waiting: 'st-waiting', done: 'st-starting', stuck: 'st-limit', stopped: 'st-starting' };
-const OUTCOME = { done: 'Done', staged: 'Waiting for your OK', confirmed: 'You confirmed', declined: 'You declined', refused: 'Refused', failed: 'Failed', stale: 'Not run (things changed)', expired: 'Expired' };
 // Three things to ask, for the empty chat: each is sent as it is when tapped.
 export const EXAMPLES = [
   'What needs me right now?',
@@ -84,6 +83,8 @@ export function plainCard(card, { accounts = [], computerLabel = null, tools = 1
   const acct = (n) => accounts.find((x) => x.name === n);
   const label = (n) => (n === 'auto' ? 'Auto mode' : (acct(n) && acct(n).label) || n);
   const on = computerLabel ? ` on ${computerLabel}` : '';
+  // The words of Activity (tiaactivity.js), so a card and its row there say the same thing.
+  const words = activityWords({ tool: card.tool, input: a }, { provider: label, computer: () => computerLabel, chat, tools }).what;
   const whyRaw = (lines.find((l) => l.startsWith('Why a card: ')) || '').slice('Why a card: '.length);
   const notes = [];
   let question;
@@ -100,7 +101,7 @@ export function plainCard(card, { accounts = [], computerLabel = null, tools = 1
     target = a.account;
     // What starts, in the owner's words: a chat or a terminal, and which coding tool (always for a terminal or another
     // coding tool than Claude Code; for a chat of Claude Code when more than one is on).
-    question = `${cap(startWords({ kind: card.tool === 'start_chat' ? 'chat' : 'terminal', tool: a.coding_tool, folder: a.folder, named: tools > 1 }))}${on}${target ? ` on ${label(target)}` : ''}?`;
+    question = `${cap(words)}?`;
     if (a.message) quote = a.message;
     if (a.goal) notes.push(`Done when: ${a.goal}.`);
   } else if (card.tool === 'send_to_session' && a.key === undefined) {
@@ -121,7 +122,7 @@ export function plainCard(card, { accounts = [], computerLabel = null, tools = 1
   } else if (card.tool === 'draft_skill') {
     question = `Add the skill "${a.name}"?`;
   } else {
-    question = `${cap(wordFor(TOOL_WORDS, card.tool, a.action) || card.tool)}${on}?`;
+    question = words !== 'make a change' ? `${cap(words)}?` : `${cap(wordFor(TOOL_WORDS, card.tool, a.action) || 'make a change')}${on}?`;
   }
   const asks = lines.find((l) => l.startsWith('The session asks: '));
   if (asks) notes.push(`The session asks: ${asks.slice('The session asks: '.length)}`);
@@ -174,6 +175,7 @@ function cardView(card, decided) {
   const result = h('p.tia-card-result', { role: 'status' });
   const decide = (how) => async (e) => {
     const box = e.target.closest('.tia-card');
+    const hadFocus = box.contains(document.activeElement); // a disabled button drops it; it comes back after (decided)
     box.querySelectorAll('button').forEach((b) => (b.disabled = true));
     result.textContent = how === 'confirm' ? 'Doing it…' : 'Declining…';
     let outcome;
@@ -183,9 +185,9 @@ function cardView(card, decided) {
     } catch (err) {
       outcome = { ok: false, text: `It did not run: ${err.message}. Ask ${NAME} again if you still want it.` };
     }
-    decided(card, p, how, outcome);
+    decided(card, p, how, outcome, hadFocus);
   };
-  return h('div.tia-card', { role: 'group', 'aria-label': `${NAME} asks for your OK` },
+  return h('div.tia-card', { role: 'group', 'aria-label': `${NAME} asks for your OK`, 'data-card': card.id },
     h('div.tia-card-head', h('span.tia-card-icon', icon('alert', { size: 18 })), h('h3.tia-card-q', p.question), left),
     p.quote ? h('blockquote.tia-card-quote', p.quote) : null,
     p.notes.length ? h('p.tia-card-text', p.notes.join(' ')) : null,
@@ -198,7 +200,7 @@ function cardView(card, decided) {
 }
 
 /** A card after the owner decided: what happened, in one line, for a little while. */
-const decidedView = (d) => h(`div.tia-card.decided${d.outcome.ok ? '' : '.failed'}`, { role: 'status' },
+const decidedView = (d) => h(`div.tia-card.decided${d.outcome.ok ? '' : '.failed'}`, { role: 'status', 'data-card': d.id, tabindex: '-1' },
   h('div.tia-card-head', h('span.tia-card-icon', icon(d.outcome.ok ? (d.how === 'confirm' ? 'check' : 'x') : 'alert', { size: 18 })), h('h3.tia-card-q', d.question)),
   h('p.tia-card-text', d.outcome.text));
 
@@ -319,14 +321,16 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
     }
     if (e.kind === 'wake') return add(list, h('p.tia-note', `${when(e.at)} · a session in her job ${e.reason === 'needs_ok' ? 'asks for permission' : e.reason === 'limit' ? 'reached a usage limit' : e.reason === 'ended' ? 'ended' : e.reason === 'expired' ? 'ran past the time allowed' : 'is waiting'}`));
     if (e.kind === 'card') {
-      const q = known.get(e.card) || 'her request';
+      // Her question as she asked it ("Start a chat in shop?"), after what came of it: a question stays a question.
+      const q = known.get(e.card);
+      const asked = q ? ` ${NAME} asked: ${q}` : '';
       const said = {
-        done: `You confirmed, and it is done: ${q}`,
-        failed: `You confirmed, but it did not run${e.error ? ` (${e.error})` : ''}: ${q}`,
-        rejected: `You declined: ${q}`,
-        expired: `Nobody answered in time, so nothing was done: ${q}`,
-        stale: `Not done, because things changed since ${NAME} asked: ${q}`,
-      }[e.status] || `${q} (${e.status})`;
+        done: `You confirmed, and it is done.${asked}`,
+        failed: `You confirmed, but it did not run${e.error ? ` (${e.error})` : ''}.${asked}`,
+        rejected: `You declined.${asked}`,
+        expired: `Nobody answered in time, so nothing was done.${asked}`,
+        stale: `Not done, because things changed since ${NAME} asked.${q ? ` She asked: ${q}` : ''}`,
+      }[e.status] || `${NAME}'s request: ${e.status}.`;
       return add(list, h('p.tia-note', said));
     }
     if (e.kind === 'notice') return add(list, h('p.banner.warn', icon('alert', { size: 18 }), h('span', e.text)));
@@ -381,14 +385,21 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
     }
     pollTimer = setTimeout(follow, 3000);
   }
-  async function refreshCards() {
+  // The focus inside the cards survives a redraw: on the same card (now what came of it), else the next card, else the
+  // message box; a keyboard never starts again at the top of the page. `focus`: the card just decided from the keys.
+  async function refreshCards({ focus = null } = {}) {
     try {
       const r = await api(`${A}/cards`);
       if (!on) return;
       for (const c of r.cards) known.set(c.id, plainCard(c, placeOf(c)).question);
       const recent = [...decidedCards.values()].filter((d) => Date.now() - d.at < 20_000);
       const before = cardsBox.querySelectorAll('.tia-card').length;
+      const had = focus || (cardsBox.contains(document.activeElement) && document.activeElement.closest('.tia-card')?.dataset.card);
       fill(cardsBox, recent.map(decidedView), r.cards.filter((c) => !decidedCards.has(c.id)).map((c) => cardView(c, decided)));
+      if (had && !cardsBox.contains(document.activeElement)) {
+        const to = [...cardsBox.querySelectorAll('.tia-card')].find((x) => x.dataset.card === had) || cardsBox.querySelector('.tia-card:not(.decided) button') || input;
+        to.focus({ preventScroll: true });
+      }
       // A new card is shown whole, its buttons above the message box.
       if (cardsBox.querySelectorAll('.tia-card').length > before) toBottom();
       if (lastOverview) {
@@ -399,9 +410,9 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
       /* next time */
     }
   }
-  function decided(card, p, how, outcome) {
-    decidedCards.set(card.id, { question: p.question, how, outcome, at: Date.now() });
-    refreshCards();
+  function decided(card, p, how, outcome, hadFocus) {
+    decidedCards.set(card.id, { id: card.id, question: p.question, how, outcome, at: Date.now() });
+    refreshCards({ focus: hadFocus ? card.id : null });
     setTimeout(() => on && refreshCards(), 20_500);
   }
   async function submit() {
@@ -439,7 +450,8 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
     fill(list, h('div.tia-loading', h('div.spinner', { 'aria-hidden': 'true' })));
     poll().then(() => list.querySelector('.tia-loading')?.remove());
   } else empty();
-  if (fresh) toast('New chat started');
+  // A phone's box covers the page and the toast would sit over the cards' buttons: there the empty chat says it.
+  if (fresh && !(scrollEl && covers())) toast('New chat started');
   return { stop };
 }
 
@@ -477,6 +489,8 @@ function chatBox() {
   // of it). A phone: the box covers the whole page like a sheet, so Tab stays inside, as in a sheet (tabwrap.js).
   // Escape closes it on both, and the focus goes back to her button.
   keepTabIn(box.panel, { when: covers });
+  // What it is follows the width while it is open (a window made narrower, a phone turned): aria-modal says the same.
+  if (typeof matchMedia === 'function') matchMedia(COVERS).addEventListener('change', () => box.panel.setAttribute('aria-modal', String(covers())));
   box.panel.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || e.defaultPrevented) return;
     e.preventDefault();
@@ -499,7 +513,8 @@ function setBox(open, { forced = false } = {}) {
   }
 }
 /** Whether the open box covers the page (a phone: full height over it, page-automations.css) or floats beside it. */
-const covers = () => typeof matchMedia === 'function' && matchMedia('(max-width: 899px)').matches;
+const COVERS = '(max-width: 899px)';
+const covers = () => typeof matchMedia === 'function' && matchMedia(COVERS).matches;
 /** Close the box and give the focus back to the button that opened it (the round one, or the page head's on a phone). */
 function closeBox() {
   setBox(false);
@@ -644,7 +659,8 @@ function viewTia({ frame, sub }) {
     if (!r.jobs.length) return fill(body, h('div.empty.compact', icon('clock', { size: 28 }), h('div.empty-title', 'No jobs yet'), h('p', `When you ask ${NAME} to get something done, the job shows here: its goal, the sessions, and what she did.`)));
     fill(body, h('div.rows', r.jobs.map((j) => h('div.row.static.col.tia-job',
       h('div.mrow-top',
-        h('span.row-main', h('span.row-title.tia-wrap', j.goal), h('span.row-sub', `${when(j.createdAt)} · ${j.sessions.map((s) => jobLabel(s, chatTitle(s))).join(', ') || 'no session yet'} · ${j.steps} of ${j.maxSteps} answers used`)),
+        // The sessions are the chips below, by name: the line under the goal keeps to the time and the count.
+        h('span.row-main', h('span.row-title.tia-wrap', j.goal), h('span.row-sub', `${stamp(j.createdAt)} · ${j.sessions.length ? '' : 'no session yet · '}${j.steps} of ${j.maxSteps} answers used`)),
         h(`span.pill.${JOB_PILL[j.state] || 'st-starting'}`, h('span.dot'), JOB_WORDS[j.state] || j.state)),
       j.sessions.length ? h('div.tia-tools', j.sessions.map((s) => jobChip(s, chatTitle(s)))) : null,
       h('details', h('summary.hint', 'What she did'), h('ul.tia-log', j.log.slice(-12).map((l) => h('li', `${when(l.at)} ${l.text}`)))),
@@ -673,14 +689,15 @@ function viewTia({ frame, sub }) {
     }
     if (!alive) return;
     if (!r.entries.length) return fill(body, h('div.empty.compact', icon('text', { size: 28 }), h('div.empty-title', 'Nothing yet'), h('p', `Every change ${NAME} makes or proposes is listed here, and every OK you give.`)));
-    // Each entry as one sentence (tiaactivity.js): providers, coding tools, chats and folders by their names.
-    fill(body, h('div.rows', r.entries.map((e) => {
+    // Each entry as one sentence (tiaactivity.js): providers, coding tools, chats and folders by their names; a card's
+    // entries (her proposal, your answer, what came of it) as one row.
+    fill(body, h('div.rows', activityRows(r.entries).map(({ e, at, steps, error }) => {
       const w = activityWords(e, placeAt(e.input && e.input.computer));
       return h('div.row.static',
         h('span.row-icon', icon(e.actor === 'owner' ? 'user' : 'sparkle')),
         h('span.row-main',
           h('span.row-title.tia-wrap', `${e.actor === 'owner' ? 'You' : NAME}: ${w.what}`),
-          h('span.row-sub.tia-wrap', `${new Date(e.at).toLocaleString()} · ${OUTCOME[e.outcome] || e.outcome}${e.error ? ` · ${e.error}` : ''}`),
+          h('span.row-sub.tia-wrap', `${stamp(at)} · ${steps.join(' · ')}${error ? ` · ${error}` : ''}`),
           w.detail ? h('span.row-sub.tia-wrap', cap(w.detail)) : null,
           w.quote ? h('span.row-sub.tia-wrap', `“${w.quote.length > 160 ? `${w.quote.slice(0, 159)}…` : w.quote}”`) : null));
     })));

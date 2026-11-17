@@ -13,7 +13,8 @@ export const TOOL_WORDS = {
   watch_session: 'watch a session', finish_job: 'finish the job', notify_owner: 'notify you', open_screen: 'open a screen',
   stop_session: 'stop a session', switch_account: 'move a session to another provider', set_auto_mode: 'change Auto mode',
   kill_process: 'end a process', change_setting: 'change a setting', run_command: 'run a command',
-  manage_computer: 'change a computer', draft_skill: 'add a skill',
+  manage_computer: 'change a computer', draft_skill: 'add a skill', read_brain: 'read the AI brain',
+  manage_project: 'work on a project', manage_automation: 'change the automations', manage_skills: 'look after the skills', manage_procedures: 'look up how to do it',
 };
 // What she is doing right now (the line while she works).
 export const DOING = {
@@ -24,7 +25,8 @@ export const DOING = {
   watch_session: 'watching a session', finish_job: 'finishing the job', notify_owner: 'writing to you', open_screen: 'opening a screen',
   stop_session: 'stopping a session', switch_account: 'moving a session to another provider', set_auto_mode: 'changing Auto mode',
   kill_process: 'ending a process', change_setting: 'changing a setting', run_command: 'running a command',
-  manage_computer: 'changing a computer', draft_skill: 'writing a skill',
+  manage_computer: 'changing a computer', draft_skill: 'writing a skill', read_brain: 'reading the AI brain',
+  manage_project: 'working on a project', manage_automation: 'changing the automations', manage_skills: 'looking after the skills', manage_procedures: 'looking up how to do it',
 };
 // The chip once a call has an answer.
 export const DID = {
@@ -34,20 +36,24 @@ export const DID = {
   watch_session: 'watches a session', finish_job: 'finished the job', notify_owner: 'notified you', open_screen: 'opened a screen',
   stop_session: 'stopped a session', switch_account: 'moved a session', set_auto_mode: 'changed Auto mode',
   kill_process: 'ended a process', change_setting: 'changed a setting', run_command: 'ran a command', manage_computer: 'changed a computer', draft_skill: 'added a skill',
+  manage_project: 'worked on a project', manage_automation: 'changed the automations', manage_skills: 'looked after the skills', manage_procedures: 'looked up how to do it',
 };
 
 /**
  * A session of a job as a chip that opens it: a chat ("chat:<id>") on its chat page by its id, a terminal on its
- * session page by its name; another computer's through its own address. A chat reads by its title (`title`, from the
- * page's list), else by its folder (kept with the job), never by its id.
+ * session page by its name; another computer's through its own address. A chat reads by its folder (kept with the job:
+ * the job's log names it so too) and its title (`title`, from the page's list), never by its id. A long title is cut
+ * with "…" inside the chip (page-automations.css .tia-jobchip); the whole label is its tooltip.
  */
 const chatOf = (s) => (/^chat:([0-9a-f-]{36})$/.exec(s.session) || [])[1] || null;
-export const jobLabel = (s, title = null) => (!chatOf(s) ? s.session : title ? `Chat: ${title}` : s.folder ? `Chat in ${s.folder}` : 'A chat');
+export const jobLabel = (s, title = null) => (!chatOf(s) ? s.session
+  : [s.folder ? `Chat in ${s.folder}` : title ? 'Chat' : 'A chat', title].filter(Boolean).join(': '));
 export function jobChip(s, title = null) {
   const chat = chatOf(s);
   const m = s.computer && s.computer !== 'this' ? s.computer : null;
   const href = chat ? link(`#/chat/${chat}`, m) : link(`#/s/${encodeURIComponent(s.session)}`, m);
-  return h('a.chip', { href }, icon(chat ? 'text' : 'terminal', { size: 14 }), jobLabel(s, title));
+  const label = jobLabel(s, title);
+  return h('a.chip.tia-jobchip', { href, title: label }, icon(chat ? 'text' : 'terminal', { size: 14 }), h('span', label));
 }
 
 // manage_computer, per action: [what she would do, what she is doing, what she did].
