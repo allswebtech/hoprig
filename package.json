@@ -1,6 +1,6 @@
 {
   "name": "hoprig",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Install it on a fresh PC or Linux server and it sets up everything else for coding with Claude Code and OpenCode, managed from one dashboard: sessions that carry on under another provider at a usage limit, coding from anywhere including a phone, and several computers in one place.",
   "keywords": [
     "claude-code",
