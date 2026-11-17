@@ -32,6 +32,8 @@ function peerFrom(from) {
 function handPeerIn(t, app) {
   if (!aliases) t.diagnostic('this system connects only from 127.0.0.1: the other loopback addresses are handed to the server\'s socket');
   app.server.prependListener('request', (req) => {
+    // A kept-alive connection carries the next request too: an address handed in for an earlier one does not stay.
+    delete req.socket.remoteAddress;
     const want = req.headers[PEER];
     if (!want) return;
     delete req.headers[PEER];
