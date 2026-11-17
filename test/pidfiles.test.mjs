@@ -87,6 +87,10 @@ function earlier(pid) {
   assert.ok(id, 'this system tells a process\'s identity');
   return earlierIdentity(id);
 }
+// A status is read on the way of a request and never waits for another program. A file from before identities is
+// judged by its process's command line: read from a file at once on Linux, so a status tells another program there;
+// elsewhere (macOS: ps) it cannot without waiting, says "it may run", and the stop, which waits, tells.
+const STATUS_TELLS = process.platform === 'linux';
 /** Make `file` look written before this boot (and before the 10 minutes a clock may be corrected by). */
 function beforeBoot(file) {
   const t = new Date(Date.now() - os.uptime() * 1000 - 3_600_000);
@@ -96,6 +100,8 @@ const write = (file, data) => writeAtomic(file, typeof data === 'string' ? data 
 
 // ---- 1. the second temporary address (publiclink.mjs) ----
 const serviceFile = () => path.join(box.state, 'addons', 'public-link-service.json');
+// A test that fails midway must not leave its file to the next one (which would find a temporary address running).
+test.afterEach(() => fs.rmSync(serviceFile(), { force: true }));
 const look = async () => ({ status: 401, headers: new Headers(), text: async () => '<form>password</form>' });
 const addService = () => P.temporarySteps['add-service']({ port: SERVICE_PORT, confirmed: true }, { notify: async () => ({ sent: false }), fetchImpl: look, waitMs: 10_000 });
 
@@ -105,8 +111,10 @@ test('the second temporary address: a pid of another program now is not said to 
     (pid) => ({ pid }), // written before identities, in this boot: its command line is not a tunnel of ours
   ]) {
     const pid = stranger();
-    write(serviceFile(), { ...rec(pid), url: 'https://old-words.trycloudflare.com', port: SERVICE_PORT, openedBy: 'tok' });
-    assert.equal(P.serviceStatus(), null, 'not running');
+    const sv = rec(pid);
+    write(serviceFile(), { ...sv, url: 'https://old-words.trycloudflare.com', port: SERVICE_PORT, openedBy: 'tok' });
+    if (sv.proc || STATUS_TELLS) assert.equal(P.serviceStatus(), null, 'not running');
+    else assert.deepEqual(P.serviceStatus(), { port: SERVICE_PORT, url: 'https://old-words.trycloudflare.com' }, 'cannot be told without waiting: it may run');
     assert.deepEqual(await P.closeServiceOpenedBy(() => true), [], 'nothing of the revoked token runs');
     assert.equal((await P.stopService()).ok, true);
     assert.ok(alive(pid), 'the other program got no signal');
@@ -187,7 +195,7 @@ test('the second temporary address that cannot be told from another program: no 
 test('the second temporary address of an older file: a tunnel of ours to another port (the switch\'s own) is not it', POSIX, async () => {
   const pid = await tunnel(7971); // the main Temporary address leads to the dashboard's port
   write(serviceFile(), { pid, url: 'https://old-words.trycloudflare.com', port: SERVICE_PORT, openedBy: 'tok' });
-  assert.equal(P.serviceStatus(), null);
+  assert.deepEqual(P.serviceStatus(), STATUS_TELLS ? null : { port: SERVICE_PORT, url: 'https://old-words.trycloudflare.com' });
   assert.equal((await P.stopService()).ok, true);
   await sleep(300);
   assert.ok(alive(pid), 'the main public link got no signal');
@@ -351,7 +359,8 @@ test('the Temporary address: not shown as live when its pid is another program n
   const pid = stranger();
   for (const rec of [{ pid, proc: earlier(pid) }, { pid }]) {
     record(rec);
-    assert.deepEqual(reachable(), { url: null, via: null });
+    // The dashboard's own read never waits; the command in a terminal does, and tells.
+    assert.deepEqual(reachable(), rec.proc || STATUS_TELLS ? { url: null, via: null } : { url: URL_NOW, via: 'temporary' });
     assert.equal(cli.statusOf().url, null);
   }
   // `hoprig public off` with a dashboard running waits for the tunnel to end: not for another program.
