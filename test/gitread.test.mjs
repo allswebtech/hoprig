@@ -41,6 +41,7 @@ test('status, ls-files, diff, show, log, grep, cat-file and branch reads start n
   assert.match(lp.stdout, /^\+one$/m);
   assert.match((await read(['show', '--stat', 'HEAD'])).stdout, /signed/);
   assert.equal((await read(['log', '-1', '--format=%s'])).stdout.trim(), 'signed', 'no signature check, so no gpg program');
+  assert.match((await read(['log', '-1'])).stdout, /^commit [0-9a-f]+\n/, 'git\'s own default format, not the folder\'s (it has %G?)');
   assert.equal((await read(['grep', '--untracked', '-n', 'two'])).stdout, 'a.txt:2:two\n');
   const gone = await read(['cat-file', '-s', 'HEAD:gone.txt']);
   assert.equal(gone.ok, false, 'a missing object is not fetched from the folder\'s remote');
@@ -153,27 +154,61 @@ test('when the folder\'s settings cannot be listed, the read is refused and not 
   assert.notEqual(gone.stderr, REFUSED);
 });
 
-test('a command that changes a repository, or names another folder, is no read', async () => {
-  for (const args of [['commit', '-m', 'x'], ['-c', 'core.quotePath=false', 'add', '.'], ['restore', 'x'], ['fetch'], ['push']]) {
-    await assert.rejects(readCommand(root, args, { env }), /not a read/, args.join(' '));
-  }
+test('only git\'s own reads go through: a write, a program, an alias or another folder is no read', async () => {
+  const run = async () => ({ ok: true, stdout: '' });
+  const writes = [
+    ['commit', '-m', 'x'], ['-c', 'core.quotePath=false', 'add', '.'], ['restore', 'x'], ['fetch'], ['push'],
+    // Not on the old list of writes, and each one passed: a new tag or branch, a moved HEAD, a folder's difftool,
+    // gpg for a signature, a word the folder's settings make an alias, blame (fails on an emptied filter).
+    ['tag', 'newtag'], ['branch', 'newbranch'], ['symbolic-ref', 'HEAD', 'refs/heads/zzz'], ['symbolic-ref', '-d', 'HEAD'],
+    ['symbolic-ref', '--', 'HEAD', 'refs/heads/zzz'], ['difftool', '-y'], ['difftool', '--no-prompt', '--tool=x'],
+    ['verify-commit', 'HEAD'], ['evilalias'], ['blame', 'a.txt'], ['whatchanged'], [],
+    ['remote', 'add', 'x', 'y'], ['remote', 'show', 'origin'], ['remote', '-v', 'update'],
+    ['config', 'core.hooksPath', '.githooks'], ['config', '-e'], ['config', '--get', 'x', '--add', 'y'], ['config', '--file=/etc/x', '--list'],
+    ['config', '--global', 'set', 'x', 'y'], ['config', 'set', 'x', 'y'],
+  ];
+  for (const args of writes) await assert.rejects(readCommand(root, args, { env, run }), /not a read/, args.join(' '));
   await assert.rejects(readCommand(root, ['--git-dir=/x', 'status'], { env }), /dir only/);
   await assert.rejects(readCommand(root, ['-C', '/x', 'status'], { env }), /dir only/);
-  await assert.rejects(readCommand(root, ['cat-file', '--filters', 'HEAD:a'], { env }), /never asks/);
-  await assert.rejects(readCommand(root, ['config', 'core.hooksPath', '.githooks'], { env }), /not a read/);
-  await assert.rejects(readCommand(root, ['blame', 'a.txt'], { env }), /not offered/);
+  await assert.rejects(readCommand(root, ['--exec-path', '/x', 'status'], { env }), /dir only/);
+  await assert.rejects(readCommand(root, ['--paginate', 'status'], { env }), /cannot ask/);
+  for (const args of [['cat-file', '--filters', 'HEAD:a'], ['cat-file', '--textconv', 'HEAD:a'], ['cat-file', '--batch', '--filt']]) {
+    await assert.rejects(readCommand(root, args, { env, run }), /cannot ask/, args.join(' '));
+  }
+  // The reads the dashboard makes all go through.
+  const reads = [
+    ['rev-parse', '--show-toplevel', '--show-prefix'], ['symbolic-ref', '--short', '-q', 'HEAD'], ['remote'], ['remote', '-v'],
+    ['remote', 'get-url', 'origin'], ['config', '--get', 'remote.origin.url'], ['config', 'get', 'core.hooksPath'],
+    ['rev-list', '--left-right', '--count', 'HEAD...x'], ['merge-base', '--is-ancestor', 'a', 'HEAD'], ['cat-file', '-s', 'HEAD:a'],
+    ['for-each-ref', '--format=%(refname)%00%(objectname:short)%00%(upstream:short)%00%(HEAD)', 'refs/heads'],
+    ['--literal-pathspecs', 'log', '-z', '--format=%H%x00%h%x00%an%x00%at%x00%s', '-n', '5', '--', 'a'],
+    ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all', '--', '.'], ['diff', '--cached', '--no-renames', '--name-only', '-z'],
+    ['ls-files', '-co', '--exclude-standard'], ['grep', '-n', '--column', '-I', '-z', '--untracked', '--max-count', '5', '-i', '-F', '-e', 'x', '--', '.'],
+    ['diff', '--text'], ['rev-list', '--filter=blob:none', 'HEAD'], ['log', '--pretty=oneline'], ['log', '--format=tformat:%s'],
+  ];
+  for (const args of reads) assert.ok((await readCommand(root, args, { env, run })).argv, args.join(' '));
 });
 
 test('a caller\'s own arguments cannot take a guard back', async () => {
   const run = async () => ({ ok: true, stdout: '' });
   const no = [
     ['log', '-p', '--textconv'], ['diff', '--ext-diff'], ['show', '--ignore-submodules=none'], ['diff', '--output=/tmp/x'],
-    ['grep', '-O', 'x'], ['grep', '--open-files-in-pager=sh', 'x'], ['ls-files', '--recurse-submodules'],
+    ['grep', '-O', 'x'], ['grep', '-nOsh', 'x'], ['grep', '--open-files-in-pager=sh', 'x'], ['ls-files', '--recurse-submodules'],
     ['-c', 'core.fsmonitor=/x', 'status'], ['-c', 'core.hooksPath=/x', 'diff'], ['-c', 'diff.x.textconv=/x', 'log'],
+    // A submodule looked into again: its own clean filter and diff command ran.
+    ['status', '--no-ignore-submodules'], ['status', '--ignore-sub=none'], ['status', '--no-ig'], ['ls-files', '--recurse-s'],
+    ['diff', '--submodule=diff', 'HEAD~1'], ['show', '--submodule=diff', 'HEAD'], ['log', '-1', '-p', '--submodule=diff'], ['diff', '--submodule'],
+    // A signature check: the folder's gpg.program ran.
+    ['log', '-1', '--show-signature'], ['show', '-s', '--show-signature', 'HEAD'], ['log', '-1', '--format=%G?'],
+    ['log', '-1', '--pretty=format:%GS'], ['rev-list', '--format=%GK', 'HEAD'], ['for-each-ref', '--format=%(signature)'],
+    ['log', '-1', '--pretty=evil'], ['log', '--format=mine'],
+    // Abbreviations of the guarded options, and git's help (a man page or a browser the folder may name).
+    ['diff', '--textc'], ['diff', '--ext-d'], ['grep', '--open-f'], ['log', '--show-sig'], ['diff', '--out=x'], ['log', '--help'],
   ];
   for (const args of no) await assert.rejects(readCommand(root, args, { env, run }), /cannot ask|no setting/, args.join(' '));
-  // Allowed: the one caller setting in use, and the user's own text as grep's pattern or a path after "--".
-  for (const args of [['-c', 'core.quotePath=false', 'ls-files'], ['grep', '-e', '--textconv'], ['log', '--', '--ext-diff']]) {
+  // Allowed: the one caller setting in use, the user's own text as grep's pattern or a path after "--", the guard's
+  // own value.
+  for (const args of [['-c', 'core.quotePath=false', 'ls-files'], ['grep', '-e', '--textconv'], ['grep', '-e', '-nO'], ['log', '--', '--ext-diff'], ['status', '--ignore-submodules=all']]) {
     assert.ok((await readCommand(root, args, { env, run })).argv, args.join(' '));
   }
 });

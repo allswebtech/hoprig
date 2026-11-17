@@ -1,7 +1,7 @@
 // A git repository whose own settings name programs, the way a folder cloned, unpacked or written by a coding tool can:
 // an fsmonitor command, a hooks folder (post-index-change and every other hook), a clean / smudge / process filter
 // bound by .gitattributes (also one whose name holds "="), a text converter, an external diff command, signature
-// checks with a gpg program, and a partial clone's remote whose upload-pack is a program. Each writes a marker file
+// checks with a gpg program (also through the default log format), and a partial clone's remote whose upload-pack is a program. Each writes a marker file
 // named after itself into `marks` when it runs. POSIX only (the programs are shell scripts).
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -71,6 +71,9 @@ export function hostileRepo(dir, marks) {
   set('diff.evil.command', path.join(bin, 'command'));
   set('diff.external', path.join(bin, 'external'));
   set('log.showSignature', 'true');
+  // A default log format and a named one that check signatures (%G?): plain `git log` would start gpg.program.
+  set('format.pretty', 'format:%G? %s');
+  set('pretty.evil', 'format:%G? %s');
   set('gpg.program', path.join(bin, 'gpg'));
   set('submodule.recurse', 'true');
   // A partial clone: an object it lacks would be fetched from "origin", whose upload-pack is a program here.
