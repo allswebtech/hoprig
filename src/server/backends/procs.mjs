@@ -5,7 +5,8 @@ import { parseParents } from '../platform/common.mjs';
 
 /** How long a program gets to end by itself after SIGHUP (Claude Code saves on the way out) before SIGKILL. */
 export const STOP_WAIT_MS = 2000;
-const wait = (ms) => new Promise((r) => setTimeout(r, ms).unref());
+// Not unref'd: nothing else may hold the process while a caller waits for these to end (it lasts STOP_WAIT_MS at most).
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Every descendant of `root` (by `ps`), so nothing a session started outlives a kill. */
 export function descendants(root) {
