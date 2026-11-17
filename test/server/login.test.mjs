@@ -1,6 +1,7 @@
 // The login endpoint over real HTTP, with a stand-in backend (no tmux needed): the try limit holds against a burst
 // of parallel guesses, and a good login does not eat into it.
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import test from 'node:test';
 import { sandbox } from './helpers.mjs';
 
@@ -12,6 +13,32 @@ const { hashPassword } = await import('../../src/server/auth.mjs');
 const { createServer } = await import('../../src/server/server.mjs');
 
 const backend = { list: async () => [], capture: async () => '' };
+
+// Linux answers on every 127.x address; macOS only on 127.0.0.1 unless an alias is added (a connection from 127.0.0.2
+// fails there with EADDRNOTAVAIL). The rules below are about the address the server sees (req.socket.remoteAddress):
+// where the system cannot connect from another loopback address, the test connects from 127.0.0.1 (or ::1) and hands
+// that address in at the socket, before the dashboard's own handler reads it.
+const aliases = await new Promise((resolve) => {
+  const s = net.createServer().once('error', () => resolve(false));
+  s.listen(0, '127.0.0.2', () => s.close(() => resolve(true)));
+});
+const PEER = 'x-test-peer';
+/** What makes the server see `from` as the peer: { localAddress, extra headers }. Really where it can, else handed in. */
+function peerFrom(from) {
+  if (aliases || from === '127.0.0.1' || from === '::1') return { localAddress: from, extra: {} };
+  return { localAddress: from.includes(':') ? '::1' : '127.0.0.1', extra: { [PEER]: from } };
+}
+/** On `app`'s server: a request that carries PEER is seen as coming from that address; the header itself goes. */
+function handPeerIn(t, app) {
+  if (!aliases) t.diagnostic('this system connects only from 127.0.0.1: the other loopback addresses are handed to the server\'s socket');
+  app.server.prependListener('request', (req) => {
+    const want = req.headers[PEER];
+    if (!want) return;
+    delete req.headers[PEER];
+    const seen = req.socket.remoteAddress;
+    Object.defineProperty(req.socket, 'remoteAddress', { value: seen.startsWith('::ffff:') && !want.includes(':') ? `::ffff:${want}` : want, configurable: true });
+  });
+}
 
 async function withServer(fn) {
   saveConfig({ server: { passwordHash: await hashPassword('right-password') } });
@@ -105,17 +132,18 @@ test('through the public link: limits per visitor (IPv6 by /64); the overall cap
 // Every loopback address (127.x.y.z, ::1) and this computer's own addresses reach the dashboard from this computer.
 // Each of them used to count as a visitor of its own, and this computer is left out of the overall cap: so wrong
 // passwords spread over loopback addresses had no limit at all. This computer is one visitor now.
-test('this computer is one visitor: wrong passwords spread over loopback addresses meet the per-visitor limit', async () => {
+test('this computer is one visitor: wrong passwords spread over loopback addresses meet the per-visitor limit', async (t) => {
   const http = await import('node:http');
   saveConfig({ server: { passwordHash: await hashPassword('right-password'), trustProxy: true } });
   const app = createServer({ backend });
+  handPeerIn(t, app);
   const { port } = await app.listen(0, '::'); // both families: 127.x arrives as ::ffff:127.x, and ::1 as itself
   const origin = `http://127.0.0.1:${port}`;
   const post = (from, password, extra = {}) => new Promise((resolve, reject) => {
     const body = JSON.stringify({ password });
     const r = http.request({
-      host: from.includes(':') ? '::1' : '127.0.0.1', port, path: '/api/login', method: 'POST', localAddress: from,
-      headers: { Host: `127.0.0.1:${port}`, Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...extra },
+      host: from.includes(':') ? '::1' : '127.0.0.1', port, path: '/api/login', method: 'POST', localAddress: peerFrom(from).localAddress,
+      headers: { Host: `127.0.0.1:${port}`, Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...extra, ...peerFrom(from).extra },
     }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
     r.on('error', reject);
     r.end(body);
@@ -133,18 +161,19 @@ test('this computer is one visitor: wrong passwords spread over loopback address
   }
 });
 
-test('guesses from elsewhere that use up the overall cap do not lock this computer out', async () => {
+test('guesses from elsewhere that use up the overall cap do not lock this computer out', async (t) => {
   const http = await import('node:http');
   saveConfig({ server: { passwordHash: await hashPassword('right-password'), trustProxy: true } });
   const app = createServer({ backend });
+  handPeerIn(t, app);
   const { port } = await app.listen(0, '127.0.0.1');
   const origin = `http://127.0.0.1:${port}`;
   const post = (from, password, visitor) => new Promise((resolve, reject) => {
     const body = JSON.stringify({ password });
     const fwd = visitor ? { 'X-Forwarded-For': visitor, 'X-Forwarded-Proto': 'https', 'Cf-Connecting-Ip': visitor } : {};
     const r = http.request({
-      host: '127.0.0.1', port, path: '/api/login', method: 'POST', localAddress: from,
-      headers: { Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...fwd },
+      host: '127.0.0.1', port, path: '/api/login', method: 'POST', localAddress: peerFrom(from).localAddress,
+      headers: { Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...fwd, ...peerFrom(from).extra },
     }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
     r.on('error', reject);
     r.end(body);
@@ -165,11 +194,12 @@ test('guesses from elsewhere that use up the overall cap do not lock this comput
 // The public link's tunnel connects from loopback for every visitor on the internet, and trustProxy is off for it.
 // Counted by the loopback address, five wrong tries from anyone there locked everyone out, the owner's right password
 // and his sign-in link too. Each tunnel visitor is the one Cloudflare names; a sign-in link has a count of its own.
-test('over the public link, one visitor\'s wrong passwords lock neither another visitor nor the sign-in link', async () => {
+test('over the public link, one visitor\'s wrong passwords lock neither another visitor nor the sign-in link', async (t) => {
   const http = await import('node:http');
   const { createLoginLink } = await import('../../src/server/loginlink.mjs');
   saveConfig({ server: { passwordHash: await hashPassword('right-password') } });
   const app = createServer({ backend });
+  handPeerIn(t, app);
   const { port } = await app.listen(0, '127.0.0.1');
   const origin = `http://127.0.0.1:${port}`;
   // What cloudflared sends: its own forwarding headers, and Cloudflare's address of the visitor.
@@ -177,8 +207,8 @@ test('over the public link, one visitor\'s wrong passwords lock neither another 
   const post = (p, body, headers, from = '127.0.0.1') => new Promise((resolve, reject) => {
     const text = JSON.stringify(body);
     const r = http.request({
-      host: '127.0.0.1', port, path: p, method: 'POST', localAddress: from,
-      headers: { Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text), ...headers },
+      host: '127.0.0.1', port, path: p, method: 'POST', localAddress: peerFrom(from).localAddress,
+      headers: { Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text), ...headers, ...peerFrom(from).extra },
     }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
     r.on('error', reject);
     r.end(text);
@@ -202,17 +232,18 @@ test('over the public link, one visitor\'s wrong passwords lock neither another 
   }
 });
 
-test('the password change counts this computer as one visitor too', async () => {
+test('the password change counts this computer as one visitor too', async (t) => {
   const http = await import('node:http');
   saveConfig({ server: { passwordHash: await hashPassword('right-password') } });
   const app = createServer({ backend });
+  handPeerIn(t, app);
   const { port } = await app.listen(0, '127.0.0.1');
   const origin = `http://127.0.0.1:${port}`;
   const post = (p, body, from, cookie) => new Promise((resolve, reject) => {
     const text = JSON.stringify(body);
     const r = http.request({
-      host: '127.0.0.1', port, path: p, method: 'POST', localAddress: from,
-      headers: { Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text), ...(cookie ? { Cookie: cookie } : {}) },
+      host: '127.0.0.1', port, path: p, method: 'POST', localAddress: peerFrom(from).localAddress,
+      headers: { Origin: origin, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text), ...(cookie ? { Cookie: cookie } : {}), ...peerFrom(from).extra },
     }, (res) => { res.resume(); res.on('end', () => resolve({ status: res.statusCode, cookie: (res.headers['set-cookie'] || [''])[0].split(';')[0] })); });
     r.on('error', reject);
     r.end(text);
