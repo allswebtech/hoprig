@@ -28,6 +28,8 @@ export function said(v, re, word) {
   const ok = Array.isArray(re) ? re.includes(v) : re.test(v);
   return ok ? v : word;
 }
+/** How many items a list a computer gave holds, for a summary (an object with its own "length" is no list). */
+export const countOf = (v) => (Array.isArray(v) ? v.length : 0);
 /** A number a computer gave, for a summary: a finite number or "?". */
 export const saidNum = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : '?');
 

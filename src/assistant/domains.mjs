@@ -17,7 +17,7 @@
 // Text that comes from a project (names, files, git output), a brain file or a skill review is DATA: it is fenced.
 import { arr, bool, int, obj, ref, str } from './schema.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
-import { COMPUTER, NAME, actionTool, comp, computer, folder, minsAgo, said, saidNum, session, sessKey, short, toolError, typedTextRisk } from './toolkit.mjs';
+import { COMPUTER, NAME, actionTool, comp, computer, countOf, folder, minsAgo, said, saidNum, session, sessKey, short, toolError, typedTextRisk } from './toolkit.mjs';
 import { CODING_TOOL_ACTIONS, CODING_TOOL_FIELDS } from './codingtools.mjs';
 
 const at = (c, id) => `${c}|${id}`;
@@ -42,7 +42,7 @@ export const list_projects = {
       const [b, convs] = await Promise.all([ops.browse({ computer: c, path: a.folder }).catch((e) => ({ error: e.message })), ops.conversations({ computer: c, folder: a.folder }).catch(() => [])]);
       const list = convs.slice(0, 30);
       return {
-        summary: `${b.dirs ? b.dirs.length : 0} subfolder(s) and ${list.length} earlier conversation(s) in that folder.`,
+        summary: `${countOf(b.dirs)} subfolder(s) and ${list.length} earlier conversation(s) in that folder.`,
         data: { folder: b.path || a.folder, subfolders: b.dirs ? b.dirs.slice(0, 100).map((d) => d.path) : `unknown (${short(b.error, 100)})`, conversations: list.map((x) => ({ conversation: x.id, minutes_ago: minsAgo(x.at, ctx.now()), title: short(x.title, 100) })) },
         shown: { conversation: list.map((x) => x.id) },
       };
@@ -504,7 +504,7 @@ export const manage_project = actionTool({
       cardLines: (a, b) => [`Create the missing workspace folders on ${comp(a)}:`, ...b.make],
       async run(ops, a) {
         const r = await ops.workspaceSetup({ computer: comp(a), dryRun: false });
-        return { summary: `Created ${(r.did || []).length} item(s); ${(r.left || []).length} left as they were.`, data: { did: r.did || [], left: r.left || [] } };
+        return { summary: `Created ${countOf(r.did)} item(s); ${countOf(r.left)} left as they were.`, data: { did: r.did || [], left: r.left || [] } };
       },
     },
     workspace_map: {
@@ -515,7 +515,7 @@ export const manage_project = actionTool({
         const r = await ops.workspaceMapWrite({ computer: comp(a), dryRun: a.dry_run === true });
         const d = r.diff || {};
         return {
-          summary: `${a.dry_run ? 'The map would change' : 'The map was written'} on ${comp(a)}: ${(d.added || []).length} added, ${(d.removed || []).length} removed, ${(d.changed || []).length} changed (not committed).`,
+          summary: `${a.dry_run ? 'The map would change' : 'The map was written'} on ${comp(a)}: ${countOf(d.added)} added, ${countOf(d.removed)} removed, ${countOf(d.changed)} changed (not committed).`,
           data: { added: d.added || [], removed: d.removed || [], changed: d.changed || [], not_here: r.notHere || [], notes: r.notes || [], commit_command: r.commit || null },
         };
       },
@@ -681,7 +681,7 @@ export const manage_automation = actionTool({
         const s = await ops.automation({ computer: comp(a) });
         const st = s.settings || {};
         return {
-          summary: `Automations on ${comp(a)}: ${st.paused ? 'PAUSED' : 'running'}; ${(s.schedules || []).length} schedule(s); ${Object.keys(s.queues || {}).length} session queue(s).`,
+          summary: `Automations on ${comp(a)}: ${st.paused ? 'PAUSED' : 'running'}; ${countOf(s.schedules)} schedule(s); ${Object.keys(s.queues || {}).length} session queue(s).`,
           data: {
             paused: !!st.paused,
             rules: Object.fromEntries(Object.entries(RULES).map(([k, [sec, key]]) => [k, st[sec] ? st[sec][key] : 'unknown'])),
