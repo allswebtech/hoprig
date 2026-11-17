@@ -34,9 +34,8 @@ const waitGone = async (pid) => {
   return !alive(pid);
 };
 
-function stateWith(name, pidRec) {
+function stateWith(name, pidRec, tmp = path.join(box.root, name, 'tmp')) {
   const state = path.join(box.root, name, 'state');
-  const tmp = path.join(box.root, name, 'tmp');
   const data = path.join(state, 'vscode');
   fs.mkdirSync(path.join(data, 'cli'), { recursive: true });
   fs.mkdirSync(path.join(data, 'server', 'extensions'), { recursive: true });
@@ -48,10 +47,15 @@ function stateWith(name, pidRec) {
 
 test('POSIX: our leftover server is stopped, its folders and the settings key removed, and it runs once', { skip: process.platform === 'win32' }, async (t) => {
   let proc;
+  // A Unix socket's path has room for 103 bytes on macOS (107 on Linux), and macOS's own temp folder takes about 50 of
+  // them: under the test's folder there, the live socket's path was longer, Node cut it short to the folder itself,
+  // and the listen failed with EADDRINUSE. The real temp folder plus hoprig-vscode-XXXXXX/vs.sock is about 77.
+  const shortTmp = fs.mkdtempSync('/tmp/hv-');
+  t.after(() => fs.rmSync(shortTmp, { recursive: true, force: true }));
   const { state, tmp, data } = stateWith('ours', (d, tm) => {
     proc = fake(['serve-web', '--cli-data-dir', path.join(d, 'cli')]);
     return { pid: proc.pid, run: path.join(tm, 'hoprig-vscode-ours'), marker: path.join(d, 'cli') };
-  });
+  }, shortTmp);
   t.after(() => alive(proc.pid) && process.kill(-proc.pid, 'SIGKILL'));
   fs.mkdirSync(path.join(tmp, 'hoprig-vscode-ours'));
   fs.mkdirSync(path.join(tmp, 'hoprig-vscode-dead'));
@@ -59,7 +63,7 @@ test('POSIX: our leftover server is stopped, its folders and the settings key re
   fs.mkdirSync(path.join(tmp, 'hoprig-vscode-live'));
   fs.mkdirSync(path.join(tmp, 'something-else'));
   const live = net.createServer().listen(path.join(tmp, 'hoprig-vscode-live', 'vs.sock'));
-  await new Promise((r) => live.once('listening', r));
+  await new Promise((r, fail) => live.once('listening', r).once('error', fail));
   t.after(() => live.close());
   saveConfig({ vscode: { enabled: true, idleMinutes: 15 }, keep: 1 });
   const lines = [];
