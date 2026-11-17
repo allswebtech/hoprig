@@ -343,6 +343,23 @@ test('start_chat on a conversation the owner has open: his chat is returned as h
   assert.ok(!ops.calls.some((c) => c.op === 'answerChat'));
 });
 
+test('start_chat on an earlier conversation that no chat has open: a new chat, but never hers; its OKs are the owner\'s', async () => {
+  const { call, ops, core } = setup({ cards: [] });
+  const CONV = '33333333-3333-4333-8333-333333333333'; // an earlier conversation of the fake's folder
+  await call('list_projects', { folder: '/home/owner/projects/api' });
+  const r = await call('start_chat', { folder: '/home/owner/projects/api', account: 'sub', conversation: CONV, message: 'go on', goal: 'tests pass' });
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.text, /continuing the earlier conversation.*It continues an earlier conversation, so it is not yours: every OK it asks for is the owner's, and you cannot answer it\./s);
+  const start = ops.calls.find((c) => c.op === 'startChat');
+  assert.equal(start.args.sessionId, CONV);
+  assert.equal(core.jobs.startedByTia('this', `chat:${CONV}`), false, 'her job watches it, but did not start it');
+  // The computer asks: her answer "allow" is a card, nothing is answered.
+  Object.assign(ops.s.sessions.find((x) => x.name === `chat:${CONV}`), { status: 'attention', note: 'Claude wants to run: npm test', ask: { request: 'r9', type: 'permission', tool: 'Bash', known: true, subject: 'npm test', judged: { command: 'npm test' }, owner: false } });
+  await call('list_sessions', {});
+  assert.ok(staged(await call('send_to_chat', { session: `chat:${CONV}`, answer: 'allow' })), 'its OK stays the owner\'s');
+  assert.ok(!ops.calls.some((c) => c.op === 'answerChat'));
+});
+
 test('start_chat follows the start rules: "Ask me" and a paid provider are cards; a provider she may not use is refused', async () => {
   let { call, ops } = setup({ level: 'ask', cards: [] });
   assert.ok(staged(await call('start_chat', { folder: '/home/owner/projects/api', account: 'sub' })));

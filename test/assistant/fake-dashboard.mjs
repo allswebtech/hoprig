@@ -181,7 +181,7 @@ export class FakeOps {
     const open = a.sessionId && this.s.sessions.find((x) => x.kind === 'chat' && x.sessionId === a.sessionId && (x.computer || 'this') === a.computer);
     if (open) return { id: open.chatId, existing: true, permissionMode: open.permissionMode || null, ...(a.text ? { sent: false, why: 'this conversation is already open in a chat; write to that chat' } : {}) };
     const id = a.sessionId || `55555555-5555-4555-8555-5555555555${String(this.s.sessions.length % 100).padStart(2, '0')}`;
-    this.s.sessions.push({ computer: a.computer, name: `chat:${id}`, kind: 'chat', ...(a.tool && a.tool !== 'claude' ? { tool: a.tool } : {}), chatId: id, byTia: true, status: a.text ? 'working' : 'waiting', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.text ? a.text.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: id, statusAt: Date.now(), created: this.#made() });
+    this.s.sessions.push({ computer: a.computer, name: `chat:${id}`, kind: 'chat', ...(a.tool && a.tool !== 'claude' ? { tool: a.tool } : {}), chatId: id, byTia: !a.sessionId /* as openChat: an earlier conversation is never hers */, status: a.text ? 'working' : 'waiting', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.text ? a.text.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: id, statusAt: Date.now(), created: this.#made() });
     return { id };
   }
   async sendToChat(a) {

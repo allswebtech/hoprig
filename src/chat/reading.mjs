@@ -47,6 +47,13 @@ function loaded(chat, t, f, id) {
   }
   for (const e of t.events) if (e.kind === 'user' && e.messageId) chat.shown.add(e.messageId);
   chat.knownSize = f ? 0 : t.size; // a rewound conversation has no file of its own yet
+  // A chat of hers from before a restart: hers again only when the conversation is exactly what its record knew.
+  if (chat.restoredMark) {
+    const { known } = chat.restoredMark;
+    chat.restoredMark = null;
+    if (known !== null && known === chat.knownSize) chat.byTia = true;
+    chat.emit('record');
+  }
   chat.emit('change');
   chat.emit('state');
 }
@@ -69,9 +76,7 @@ export function refresh(chat) {
 
 /** The conversation went on elsewhere, where the owner may have written in it: a chat of Tia's is hers no more. */
 function grewElsewhere(chat) {
-  if (!chat.byTia) return;
-  chat.byTia = false;
-  chat.emit('record');
+  if (chat.dropMark()) chat.emit('record');
 }
 
 // A tool read through its server: when the conversation last changed there, at most every few seconds.
@@ -91,17 +96,25 @@ function restamp(chat) {
   return false;
 }
 
-/** What the coding tool wrote last is the chat's own: the next look does not read it again. */
+/**
+ * What the coding tool wrote last is the chat's own: the next look does not read it again. A chat of hers saves what
+ * it knows now (its record carries it), so a restart can tell whether the conversation went on while it was down.
+ */
 export function knowSize(chat) {
+  const known = (n) => {
+    if (n === chat.knownSize) return;
+    chat.knownSize = n;
+    if (chat.byTia) chat.emit('record');
+  };
   if (chat.engine.stamp) {
     chat.stampAt = 0; // asked again at the next look
     Promise.resolve(chat.engine.stamp({ cwd: chat.cwd, id: chat.conversationId }, chat.o.engineOpts)).then((n) => {
-      if (n) chat.knownSize = n;
+      if (n) known(n);
     }, () => {});
     return;
   }
   try {
-    chat.knownSize = fs.statSync(chat.file()).size;
+    known(fs.statSync(chat.file()).size);
   } catch {
     /* nothing written */
   }

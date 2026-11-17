@@ -56,6 +56,12 @@ export class Chat extends Timeline {
     // Tia started this very chat (feature.mjs openChat): a fact of this chat, never of its id, which a chat opened
     // later on the same conversation may get again. Her rules let her answer OKs only in a chat of hers.
     this.byTia = o.byTia === true;
+    // A chat of hers saved before the dashboard stopped (feature.mjs load: restored) is hers again only once its
+    // conversation has been read and is exactly what the record knew of it (`known`: the file's size, or the stamp of a
+    // tool whose server keeps the conversation): the owner may have gone on with it while the dashboard was down. A
+    // record without `known` (saved by an older version) is never hers again. Until it is read, it is not hers.
+    this.restoredMark = o.restored === true && this.byTia ? { known: Number.isFinite(o.known) ? o.known : null } : null;
+    if (this.restoredMark) this.byTia = false;
     this.openedAt = o.openedAt || Date.now();
     this.costTotal = Number.isFinite(o.costTotal) ? o.costTotal : null; // what the coding tool reported last (a running total)
     this.grants = keepGrants(o.grants); // what "allow in this chat" covered (asks.mjs)
@@ -379,11 +385,26 @@ export class Chat extends Timeline {
     this.push({ kind: 'notice', level: 'info', text: `The next message goes to another provider (${label}).` });
   }
 
+  /** Tia's mark goes for good (also one still waiting for its check after a restart). Did it have one? */
+  dropMark() {
+    const had = this.byTia || !!this.restoredMark;
+    this.byTia = false;
+    this.restoredMark = null;
+    return had;
+  }
+
+  /** Her mark as it is saved: with what the chat knew of its conversation then (see restoredMark). */
+  markRecord() {
+    if (this.restoredMark) return { byTia: true, ...(this.restoredMark.known !== null ? { known: this.restoredMark.known } : {}) };
+    if (!this.byTia) return {};
+    return { byTia: true, ...(Number.isFinite(this.knownSize) && this.knownSize >= 0 ? { known: this.knownSize } : {}) };
+  }
+
   record() {
     return {
       id: this.id, ...(this.conversationId !== this.id ? { conversationId: this.conversationId } : {}), engine: this.engine.id,
       cwd: this.cwd, profile: this.profile, model: this.model, effort: this.effort, ultracode: this.ultracode, permissionMode: this.permissionMode,
-      title: this.title, ...(this.named ? { named: true } : {}), ...(this.byTia ? { byTia: true } : {}), openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
+      title: this.title, ...(this.named ? { named: true } : {}), ...this.markRecord(), openedAt: this.openedAt, costTotal: this.costTotal, grants: [...this.grants],
       ...(this.fork ? { fork: this.fork } : {}),
     };
   }
