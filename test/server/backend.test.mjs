@@ -124,9 +124,16 @@ test('tmux without a UTF-8 locale (a service, a CI step): sessions are listed, a
     for (const [k, v] of Object.entries(saved)) if (v !== undefined) process.env[k] = v;
   });
   const { id } = await b.create({ name: 'plain', dir });
-  const panes = await b.list();
+  // tmux reads a pane's folder from its process, which goes to its folder a moment after tmux has made it: until then
+  // the folder is the tmux server's own (seen once under a loaded suite). Asked again for up to 3 s.
+  const want = fs.realpathSync(dir).normalize('NFC');
+  let panes = await b.list();
+  for (const end = Date.now() + 3000; panes[0]?.cwd.normalize('NFC') !== want && Date.now() < end;) {
+    await new Promise((r) => setTimeout(r, 50));
+    panes = await b.list();
+  }
   assert.deepEqual(panes.map((p) => [p.session, p.id]), [['plain', id]]);
-  assert.equal(panes[0].cwd.normalize('NFC'), fs.realpathSync(dir).normalize('NFC'));
+  assert.equal(panes[0].cwd.normalize('NFC'), want);
 });
 
 test('tmux 3.2 is the oldest the backend uses; a build without a number counts as new', () => {
