@@ -14,7 +14,7 @@ const { makeUi } = await import('../../src/setup/ui.mjs');
 const { loadConfig } = await import('../../src/config.mjs');
 const { which } = await import('../../src/setup/system.mjs');
 
-const IP = '95.216.1.2';
+const IP = '1.1.1.1';
 const resolver = (a) => ({ resolve4: async () => a, resolve6: async () => { throw new Error('ENODATA'); } });
 const web = (kind, extra = {}) => async () => ({ kind, busy: kind !== 'none', ...extra });
 
@@ -43,7 +43,7 @@ test('DNS not pointing here: says which record to create, changes nothing, stops
   const r = await HS.stepHttps(u, sys('dns'), { domain: 'hub.example.com' }, {}, { resolver: resolver(['1.2.3.4']), detect: web('none') });
   assert.equal(r, false);
   assert.match(rec.text, /hub\.example\.com does not point to this server yet \(it points to 1\.2\.3\.4\)/);
-  assert.match(rec.text, /A record {3}hub\.example\.com {3}→ {3}95\.216\.1\.2/);
+  assert.match(rec.text, /A record {3}hub\.example\.com {3}→ {3}1\.1\.1\.1/);
   assert.match(rec.text, /setup --hub --domain hub\.example\.com/);
   assert.deepEqual(cfgFiles(), before);
 });
@@ -79,9 +79,9 @@ test('--dry-run: lists every step (install Caddy, our site, the import), writes 
   const before = cfgFiles();
   const { ui: u, rec } = ui({ dryRun: true });
   await HS.stepHttps(u, sys('dry', { ufw: 'exit 0', systemctl: '[ "$2" = ufw ] && echo active || echo inactive' }), {}, {}, { detect: web('none'), caddyDir });
-  assert.match(rec.text, /HTTPS for https:\/\/95\.216\.1\.2 with Caddy \(a Let's Encrypt certificate for the IP address/);
+  assert.match(rec.text, /HTTPS for https:\/\/1\.1\.1\.1 with Caddy \(a Let's Encrypt certificate for the IP address/);
   assert.match(rec.text, /apt-get install -y caddy/);
-  assert.match(rec.text, /write .*hoprig\.caddy \(our site: https:\/\/95\.216\.1\.2 → 127\.0\.0\.1:7433\)/);
+  assert.match(rec.text, /write .*hoprig\.caddy \(our site: https:\/\/1\.1\.1\.1 → 127\.0\.0\.1:7433\)/);
   assert.match(rec.text, /ufw allow 80,443\/tcp/);
   assert.match(rec.text, /\(dry run\) would ask: Go ahead\?/);
   assert.equal(fs.existsSync(caddyDir), false);
@@ -194,7 +194,7 @@ test('without a terminal and without --yes nothing is installed or written', asy
 test('setup: plain http on a public address is refused with the reason', async () => {
   const { ui: u, rec } = ui({ yes: true });
   assert.equal(await SU.stepAccess(u, sys('public'), { access: 'network' }, {}), false);
-  assert.match(rec.text, /Not over plain http: this computer has a public address \(95\.216\.1\.2\)/);
+  assert.match(rec.text, /Not over plain http: this computer has a public address \(1\.1\.1\.1\)/);
 });
 
 test('setup: "from anywhere" explains the three ways', async () => {
