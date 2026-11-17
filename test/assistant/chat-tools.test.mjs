@@ -158,7 +158,7 @@ test('her own chat\'s OK is judged whole: a risky command padded past 2000 chara
   Object.assign(card, { status: 'attention', note: 'Claude wants to run: echo "aaaa…', ask: { request: 'p1', type: 'permission', tool: 'Bash', known: true, subject: padded.subject, judged: padded.judged, cut: false, owner: false } });
   assert.match((await call('send_to_chat', { session: name, answer: 'allow' })).text, /Waiting for the owner's OK.*not on the short list/s, 'the whole command is judged');
   // On the short list, and still a card: the deny-list looks at what passed it.
-  Object.assign(card, { ask: { request: 'p0', type: 'permission', tool: 'Bash', known: true, subject: 'grep -rn sudo src', judged: { command: 'grep -rn sudo src' }, cut: false, owner: false } });
+  Object.assign(card, { ask: { request: 'p0', type: 'permission', tool: 'Bash', known: true, subject: 'grep -n sudo src/a.js', judged: { command: 'grep -n sudo src/a.js' }, cut: false, owner: false } });
   assert.match((await call('send_to_chat', { session: name, answer: 'allow' })).text, /Waiting for the owner's OK.*risky/s);
   // Longer than an ask carries: only a harmless part came, and a part is never judged.
   Object.assign(card, { ask: { request: 'p2', type: 'permission', tool: 'Bash', known: true, subject: 'a'.repeat(SUBJECT_MAX), cut: true, owner: false } });

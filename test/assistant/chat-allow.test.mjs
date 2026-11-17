@@ -210,7 +210,8 @@ test('in the real dashboard: in her chat she allows by herself only looking and 
     ['Bash', { command: 'git log --oneline -n 5' }], // options the table names
     ['Bash', { command: 'npm run test:unit' }],
     ['Bash', { command: 'node --test' }], // exactly these two words
-    ['Read', { file_path: `${proj}/.git/config` }], // looking at a place that runs a program later stays hers
+    ['Read', { file_path: `${proj}/.git/hooks/pre-commit` }], // looking at a place that runs a program later stays hers
+    ['Bash', { command: 'git diff --stat' }], // the names and counts of what changed, not a patch
   ]) {
     const { r, card } = await level(tool, input);
     assert.equal(card.ask.known, true);
@@ -235,7 +236,15 @@ test('in the real dashboard: in her chat she allows by herself only looking and 
     ['Read', { file_path: `${proj}/../outside.txt` }, /a path outside the chat's folder/],
     ['Read', { file_path: `${proj}/.env` }, /a file that may hold secrets/],
     ['WebFetch', { url: 'https://example.org', prompt: 'read it' }, /a tool Tia does not allow herself/],
-    ['Bash', { command: 'grep -rn sudo .' }, /risky/], // on the list, and the deny-list still looks after it
+    ['Bash', { command: 'grep -n sudo a.txt' }, /risky/], // on the list, and the deny-list still looks after it
+    // A whole folder read at once, a patch of every changed file, a script that rewrites files, a secret by its name.
+    ['Bash', { command: 'grep -rn password .' }, /an option that is not on the short list/],
+    ['Bash', { command: 'rg password' }, /not on the short list/],
+    ['Bash', { command: 'git log -p' }, /an option that is not on the short list/],
+    ['Bash', { command: 'git diff' }, /an option that is not on the short list/],
+    ['Bash', { command: 'npm run test:update' }, /not on the short list/],
+    ['Read', { file_path: `${proj}/.git/config` }, /a file that may hold secrets/],
+    ['Bash', { command: 'git show --stat HEAD:android/key.properties' }, /a file that may hold secrets/],
     // Options are on the list too: one it does not name, "--" after a script runner, a value glued to an option.
     ['Bash', { command: 'npm test -- --import=data:text/javascript,x' }, /not on the short list/],
     ['Bash', { command: 'pytest -p antigravity' }, /not on the short list/],

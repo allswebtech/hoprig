@@ -20,8 +20,11 @@
 //   c. any other tool (a page fetch, a web search, a skill, a subagent, a tool added later): the owner's.
 //
 // Its limits, said plainly:
-// - The secret rule goes by a file's name, so a search over the folder (grep -r, the Grep tool) can still show a line
-//   of such a file.
+// - The secret rule goes by a file's name (SECRET_FILES in tia.mjs): it is not a wall around secrets. Inside the chat's
+//   folder the coding tool's own Read reads without asking in its default mode, and a key can sit in a file of any
+//   name. The list only keeps HER from saying yes to the obvious ones. The forms that read every file of a folder at
+//   once (grep -r, rg, a patch of git diff, git show or git log -p, git grep) are not on her table for that reason; the
+//   Grep tool, which also searches a whole folder, is judged by its path and file filter only.
 // - Paths are judged as text, so a link in the folder that points outside it is not seen.
 // - npm, git and the coding tool's own search look upward and around inside the repository: in a chat whose folder is a
 //   subfolder of one, they can read what the repository holds above it.
@@ -38,8 +41,8 @@ const P = path.posix;
 // ---------- the table: the commands she may allow herself, and every option each may carry ----------
 // Key: the first word, or the first two. letters: one-letter options that may be combined (-la); flags: options taken
 // exactly as written; num / word: options whose value is the next word, a number / a plain word (once each); dashNum:
-// -<number> (-20); args: how the words that are not options are judged (ARGS below); script: a script runner (SCRIPT
-// below); exact: the key and nothing after it. Any other option, "--" itself and an option glued to a value are a card. Keep it this short: a command earns
+// -<number> (-20); needs: one of these options must be there; args: how the words that are not options are judged (ARGS
+// below); script: a script runner (SCRIPTS below); exact: the key and nothing after it. Any other option, "--" itself and an option glued to a value are a card. Keep it this short: a command earns
 // a place by only looking at the folder, or only testing and building what is in it. A test runner that reads its
 // words its own way (a file of options, an import path, any file as a test) stays off until it is studied on its own.
 export const TABLE = {
@@ -53,12 +56,15 @@ export const TABLE = {
   du: { letters: 'sha', args: 'paths' },
   tree: { flags: ['-a', '-d'], num: ['-L'], args: 'paths' },
   file: { args: 'paths' },
-  grep: { letters: 'niRrlcwvEFHhos', word: ['-e'], num: ['-A', '-B', '-C'], args: 'loose' },
-  rg: { letters: 'nilcwvFS', word: ['-e'], num: ['-A', '-B', '-C'], args: 'loose' },
+  // grep only on the files it names (no -r, -R: a search of a whole folder reads every file in it, secrets too); rg
+  // searches a whole folder by itself, so it is not here.
+  grep: { letters: 'nilcwvEFHhos', word: ['-e'], num: ['-A', '-B', '-C'], args: 'loose' },
   'git status': { flags: ['-s', '--short', '-b', '--branch'], args: 'loose' },
-  'git diff': { flags: ['--stat', '--name-only', '--name-status', '--cached', '--staged', '-p'], args: 'loose' },
-  'git show': { flags: ['--stat', '--name-only', '--name-status', '--cached', '--staged', '-p'], args: 'loose' },
-  'git log': { flags: ['--oneline', '--stat', '--name-only', '--graph', '--all', '-p'], num: ['-n'], dashNum: true, args: 'loose' },
+  // A patch shows every changed file's lines at once: git diff and git show only with the names or the counts of what
+  // changed (one of `needs`), git log never with -p.
+  'git diff': { flags: ['--stat', '--name-only', '--name-status', '--cached', '--staged'], needs: ['--stat', '--name-only', '--name-status'], args: 'loose' },
+  'git show': { flags: ['--stat', '--name-only', '--name-status'], needs: ['--stat', '--name-only', '--name-status'], args: 'loose' },
+  'git log': { flags: ['--oneline', '--stat', '--name-only', '--graph', '--all'], num: ['-n'], dashNum: true, args: 'loose' },
   'git ls-files': { args: 'loose' },
   'git blame': { args: 'loose' },
   'git rev-parse': { flags: ['--abbrev-ref', '--show-toplevel', '--short'], args: 'loose' },
@@ -69,10 +75,12 @@ export const TABLE = {
   // Exactly these two words: node finds the project's test files by itself.
   'node --test': { exact: true },
 };
-// A script runner takes "test", or "run" and one of these names exactly, or test:<x> / tests:<x>, and nothing after it:
-// whatever follows (an option, "--" and what the script passes on) is read by npm or by the program the script starts.
-// "format" and any other name with ":x" (lint:fix, format:write) are a card: such scripts rewrite the source files.
-const SCRIPT = /^(?:test|tests|lint|build|typecheck|check|tests?:[A-Za-z0-9_-]+)$/;
+// A script runner takes "test", or "run" and one of these names exactly, and nothing after it: whatever follows (an
+// option, "--" and what the script passes on) is read by npm or by the program the script starts. A fixed short list:
+// any other name is a card, also test:<anything else> (test:update, test:fix rewrite snapshots or source files), lint:fix
+// and format.
+const TEST_KINDS = ['unit', 'e2e', 'integration', 'ci', 'all', 'types', 'lint', 'smoke', 'coverage'];
+export const SCRIPTS = new Set(['test', 'tests', 'lint', 'build', 'typecheck', 'check', ...TEST_KINDS.flatMap((k) => [`test:${k}`, `tests:${k}`])]);
 
 export const WHY = {
   noFolder: 'the chat\'s folder is not known',
@@ -210,7 +218,8 @@ function commandWhy(command, root) {
   const e = TABLE[key];
   const rest = words.slice(key.split(' ').length);
   if (e.exact) return rest.length ? WHY.command : null;
-  if (e.script) return (rest.length === 1 && rest[0] === 'test') || (rest.length === 2 && rest[0] === 'run' && SCRIPT.test(rest[1])) ? null : WHY.command;
+  if (e.script) return (rest.length === 1 && rest[0] === 'test') || (rest.length === 2 && rest[0] === 'run' && SCRIPTS.has(rest[1])) ? null : WHY.command;
+  if (e.needs && !rest.some((w) => e.needs.includes(w))) return WHY.option;
   return wordsWhy(e, rest, root);
 }
 

@@ -385,15 +385,28 @@ What she can do, through the dashboard's own routes (the list is `ALLOW` in
   check you asked for.
 
 **What she does by herself, and what always comes to you.** In a chat she started, she answers an OK by herself
-only for looking (reading inside the chat's folder, listing, git's reading commands) and for the project's own
-checks (`npm test`, `npm run lint` and the like, `node --test`). Every change to a file, every other command, any
-tool she does not know, and every OK of an OpenCode chat is your card. Whatever costs money, stops work, installs
-or updates something, turns a coding tool on or off or opens the computer to the internet is a card too, with one
+only for looking at named files (reading inside the chat's folder, listing, git's reading commands without a
+patch) and for the project's own checks (`npm test`, and `npm run` with one of a short fixed list of names:
+`test`, `lint`, `build`, `typecheck`, `check`, `test:unit` and the like; `node --test`). Every change to a file,
+every other command or script name, a search through a whole folder (`grep -r`, `rg`, a patch of `git diff` or
+`git log -p`), any tool she does not know, and every OK of an OpenCode chat is your card. Whatever costs money,
+stops work, installs or updates something, turns a coding tool on or off or opens the computer to the internet is a card too, with one
 exception you choose: at the level **Hands off** (Settings → Tia; the default is **Do the work**) she also starts
 chats and sessions on the paid API providers you allowed her, and moves the ones she started there, without asking. A
 terminal session's OK is judged only by the text on its screen against a list of risky things, which is best
-effort. A chat stops being hers as soon as you type into it. What she reads from a chat, a terminal, a page or a
-file is data to her, never an instruction; secrets never pass through her.
+effort.
+
+A chat is hers only when she opened it on a new conversation: a chat she opens on an earlier conversation is not.
+It stops being hers as soon as you type into it, when its conversation went on in a terminal, and when it went on
+elsewhere while the dashboard was stopped (it is checked again at the start). What she reads from a chat, a
+terminal, a page, a file or another computer (a name, a title, an error) is data to her, never an instruction;
+secrets never pass through her.
+
+**Files with secrets.** She does not say yes by herself to reading a file whose name says it may hold secrets
+(`.env`, keys and key stores, `key.properties`, `.yarnrc.yml`, `.git/config`, Terraform state, a `cred` folder and
+the like). That is a list of names, not a wall around your secrets: inside the chat's folder Claude Code's own Read
+reads without asking in its default mode, and a key can sit in a file of any name. Keep secrets out of project
+folders you let a chat work in.
 
 **What Tia does not do.** These are your own steps; the dashboard refuses them even if she tried (`NEVER` in the
 same file). She opens the right page for you instead:

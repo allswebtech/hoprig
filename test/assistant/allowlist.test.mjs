@@ -4,7 +4,7 @@
 // deny-list found it missing.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FILE_TOOLS, TABLE, WHY, WRITE_TOOLS, allowsHerself } from '../../src/assistant/allowlist.mjs';
+import { FILE_TOOLS, SCRIPTS, TABLE, WHY, WRITE_TOOLS, allowsHerself } from '../../src/assistant/allowlist.mjs';
 
 const ROOT = '/w/proj';
 const bash = (command, cwd = ROOT) => allowsHerself('Bash', { command }, cwd);
@@ -26,12 +26,11 @@ const PLAIN = {
   du: ['du -sh src'],
   tree: ['tree -L 2 src', 'tree -a -d'],
   file: ['file logo.png'],
-  grep: ['grep -rn TODO src', 'grep -e foo src/a.js', 'grep -A 3 -i foo .'],
-  rg: ['rg TODO', 'rg -n foo src', 'rg -C 2 -e foo'],
+  grep: ['grep -n TODO src/a.js', 'grep -e foo src/a.js', 'grep -A 3 -i foo a.txt b.txt'],
   'git status': ['git status', 'git status -s -b', 'git status --short src'],
-  'git diff': ['git diff', 'git diff --cached', 'git diff --stat main'],
-  'git show': ['git show HEAD', 'git show --stat HEAD'],
-  'git log': ['git log --oneline -20', 'git log main..feature', 'git log -n 5 -p src/a.js'],
+  'git diff': ['git diff --stat', 'git diff --cached --name-only', 'git diff --stat main'],
+  'git show': ['git show --stat HEAD', 'git show --name-only main'],
+  'git log': ['git log --oneline -20', 'git log main..feature', 'git log -n 5 --stat src/a.js'],
   'git ls-files': ['git ls-files', 'git ls-files src'],
   'git blame': ['git blame src/a.js'],
   'git rev-parse': ['git rev-parse HEAD', 'git rev-parse --abbrev-ref HEAD'],
@@ -47,6 +46,14 @@ const REMOVED = [
   'pytest', 'pytest -x -q tests/unit', 'pytest -k parse tests/test_a.py::test_x', 'go test ./...', 'go test -run TestX -count=1 ./pkg',
   'go build ./cmd/app', 'go vet ./...', 'go test .', 'cargo test', 'cargo test -p core parse', 'cargo build --release', 'cargo check --workspace',
   'node --test test/a.test.mjs', 'node --test test/', 'node --test .', 'node --test --watch', 'node --test -- x',
+  // rg searches a whole folder by itself; git grep too
+  'rg TODO', 'rg -n foo src', 'rg -C 2 -e foo', 'rg -e data:x', 'git grep foo', 'git grep foo src', 'git grep -n foo -- src/a.js',
+];
+// The forms that read every file of a folder at once (a recursive search, a patch of every changed file): not hers.
+const WHOLE_FOLDER = [
+  'grep -rn TODO src', 'grep -r x .', 'grep -R x .', 'grep -nr x src', 'grep -iRn x .', 'grep -rl token .', 'grep --recursive x .', 'grep --dereference-recursive x .',
+  'grep -d recurse x .', 'git diff', 'git diff --cached', 'git diff main', 'git diff a..b', 'git diff -p', 'git show HEAD', 'git show', 'git show -p HEAD',
+  'git log -p', 'git log -n 5 -p src/a.js', 'git log --patch', 'git log -u', 'git log -p --all', 'git log --stat -p',
 ];
 
 test('the short list: every entry of the table is allowed in its plain form, and the table is no longer than this', () => {
@@ -55,6 +62,7 @@ test('the short list: every entry of the table is allowed in its plain form, and
   assert.deepEqual(Object.keys(FILE_TOOLS).sort(), ['Glob', 'Grep', 'Read'], 'the file tools she may allow only look');
   assert.deepEqual([...WRITE_TOOLS].sort(), ['Edit', 'MultiEdit', 'NotebookEdit', 'Write']);
   for (const c of REMOVED) card(bash(c), WHY.command, c);
+  for (const c of WHOLE_FOLDER) card(bash(c), null, c);
 });
 
 const NUMBER_OPTS = (e) => e.num || [];
@@ -79,8 +87,11 @@ test('the table walked: every option it names is allowed; any other option, "--"
     // node --test: exactly its key, no word and no option after it.
     if (e.exact) for (const g of ['x', '.', 'test/', 'a.test.mjs', '--watch', '-r x', '--', unnamed(e)]) card(bash(`${cmd} ${g}`), WHY.command, `${cmd} ${g}`);
     if (e.script || e.exact) continue; // the script runners have their own walk below
-    const ok = (opts) => allowed(bash(`${cmd} ${opts}`), `${cmd} ${opts}`);
-    const no = (opts) => card(bash(`${cmd} ${opts}`), null, `${cmd} ${opts}`);
+    // An entry that needs one of a few options (git diff, git show: the names or counts, never a patch) gets it first.
+    const pre = e.needs ? `${e.needs[0]} ` : '';
+    const ok = (opts) => allowed(bash(`${cmd} ${pre}${opts}`), `${cmd} ${pre}${opts}`);
+    const no = (opts) => card(bash(`${cmd} ${pre}${opts}`), null, `${cmd} ${pre}${opts}`);
+    if (e.needs) for (const f of (e.flags || []).filter((x) => !e.needs.includes(x))) card(bash(`${cmd} ${f}`), WHY.option, `${cmd} ${f} alone: a patch`);
     // Named: allowed, alone and (letters) combined.
     for (const c of e.letters || '') ok(`-${c}`);
     if (e.letters) ok(`-${e.letters}`);
@@ -103,10 +114,12 @@ test('the table walked: every option it names is allowed; any other option, "--"
   }
 });
 
-test('npm, pnpm, yarn: "test", or "run" with one of the names on the list exactly, or test:/tests: and a plain tail; nothing after it', () => {
+test('npm, pnpm, yarn: "test", or "run" with one of the fixed names exactly; nothing after it', () => {
+  const NAMES = ['test', 'tests', 'lint', 'build', 'typecheck', 'check', ...['unit', 'e2e', 'integration', 'ci', 'all', 'types', 'lint', 'smoke', 'coverage'].flatMap((k) => [`test:${k}`, `tests:${k}`])];
+  assert.deepEqual([...SCRIPTS].sort(), [...new Set(NAMES)].sort(), 'the list is fixed: a new name is added here on purpose');
   for (const r of ['npm', 'pnpm', 'yarn']) {
     assert.deepEqual(TABLE[r], { script: true });
-    for (const n of ['test', 'tests', 'lint', 'build', 'typecheck', 'check', 'test:unit', 'tests:e2e-ci', 'test:Unit_2']) allowed(bash(`${r} run ${n}`), `${r} run ${n}`);
+    for (const n of NAMES) allowed(bash(`${r} run ${n}`), `${r} run ${n}`);
     allowed(bash(`${r} test`), `${r} test`);
     for (const c of [
       'test --', 'test -- --watch', 'test -- --import=data:text/javascript,x', 'test x', 'test --silent', 'run test --', 'run test -- --watch',
@@ -115,6 +128,9 @@ test('npm, pnpm, yarn: "test", or "run" with one of the names on the list exactl
       'run-script test', 'exec jest', 'test:unit', '--prefix=.. test',
       // a script that may rewrite the source files: format, and any name other than test/tests with ":x"
       'run format', 'run lint:fix', 'run lint:fix-all', 'run format:write', 'run build:prod', 'run build:prod_2', 'run check:fix', 'run typecheck:watch', 'run tests:',
+      // any other test:<x> / tests:<x>: a snapshot update rewrites files, a fix or a publish does more
+      'run test:update', 'run test:fix', 'run tests:publish', 'run test:publish', 'run test:u', 'run test:snapshot', 'run test:update-snapshots',
+      'run tests:e2e-ci', 'run test:Unit_2', 'run test:unit2', 'run test:UNIT', 'run test:watch', 'run test:e2e:update',
     ]) card(bash(`${r} ${c}`), WHY.command, `${r} ${c}`);
   }
 });
@@ -131,16 +147,16 @@ test('one simple command: none of ; & | < > ( ) { } $ ` \\ \' " ~, no line break
   }
   card(allowsHerself('Bash', { command: ['ls'] }, ROOT), WHY.command, 'not a string');
   // A shell with extended patterns reads ^ and # as patterns (^*.js, x#, a revision's parent HEAD^).
-  for (const c of ['ls ^x', 'ls src/^a', 'cat a#', 'git diff HEAD^ HEAD', 'git log HEAD^', 'git show HEAD^', 'grep -rn x#y src', 'ls #']) card(bash(c), WHY.command, c);
-  for (const c of ['git diff main..feature', 'git show HEAD']) allowed(bash(c), c);
+  for (const c of ['ls ^x', 'ls src/^a', 'cat a#', 'git diff --stat HEAD^ HEAD', 'git log HEAD^', 'git show --stat HEAD^', 'grep -n x#y src', 'ls #']) card(bash(c), WHY.command, c);
+  for (const c of ['git diff --stat main..feature', 'git show --stat HEAD']) allowed(bash(c), c);
 });
 
 test('words that are not options: a path inside the folder, a revision or a pattern as a plain word', () => {
   for (const [c, why] of [
     ['cat ../secret.txt', WHY.outside], ['cat /etc/passwd', WHY.outside], ['ls /', WHY.outside], ['cat src/../../x', WHY.outside],
     ['cat .env', WHY.secret], ['cat config/credentials.json', WHY.secret], ['ls .ssh', WHY.secret], ['cat a.js:/etc/passwd', WHY.outside],
-    ['ls /w/projX', WHY.outside], ['grep -rn foo ..', WHY.outside], ['grep -rn foo /', WHY.outside], ['rg foo ../other', WHY.outside],
-    ['grep foo .env', WHY.secret], ['git log ../other', WHY.outside], ['git show :/etc', WHY.outside], ['node --test ../x.test.mjs', WHY.command],
+    ['ls /w/projX', WHY.outside], ['grep -n foo ..', WHY.outside], ['grep -n foo /', WHY.outside], ['grep foo ../other/a.js', WHY.outside],
+    ['grep foo .env', WHY.secret], ['git log ../other', WHY.outside], ['git show --stat :/etc', WHY.outside], ['node --test ../x.test.mjs', WHY.command],
     ['node --test /x', WHY.command], ['node --test data:text/javascript,x', WHY.command], ['node --test a=b', WHY.command],
   ]) card(bash(c), why, c);
 });
@@ -150,9 +166,39 @@ test('the secret rule names .npmrc, .pypirc, .envrc, .netrc, .pgpass, *.pem, *.k
     card(allowsHerself('Read', { file_path: `${ROOT}/${f}` }, ROOT), WHY.secret, `Read ${f}`);
     card(bash(`cat ${f}`), WHY.secret, `cat ${f}`);
   }
-  card(bash('git show HEAD:secret.key'), WHY.secret);
+  card(bash('git show --stat HEAD:secret.key'), WHY.secret);
   card(bash('grep token .npmrc'), WHY.secret);
   for (const f of ['keys.js', 'a.keys', 'pem.md', 'docker/config.json']) allowed(allowsHerself('Read', { file_path: `${ROOT}/${f}` }, ROOT), f);
+});
+
+test('the secret names the last check found missing: key stores, Android and Terraform files, more keys and sign-ins, a cred folder', () => {
+  const NAMES = [
+    'android/key.properties', 'android/keystore.properties', '.yarnrc.yml', '.yarnrc', 'release.keystore', 'android/app/upload.jks', 'cert.p12', 'cert.pfx',
+    'terraform.tfvars', 'prod.auto.tfvars', 'terraform.tfstate', 'terraform.tfstate.backup', '.dev.vars', 'keys/id_ecdsa', 'id_dsa', 'id_ecdsa.pub',
+    '.htpasswd', '.kube/config', 'deploy/.kube/config', '.git/config', 'secrets.json', 'config/secrets.yml', 'secret.yaml', 'service-account.json',
+    'gcp/service-account-prod.json', 'service_account.json', 'cred', 'creds', 'cred/token.txt', 'creds/aws.txt', 'app/creds/x.json',
+  ];
+  for (const f of NAMES) {
+    card(allowsHerself('Read', { file_path: `${ROOT}/${f}` }, ROOT), WHY.secret, `Read ${f}`);
+    card(allowsHerself('Read', { file_path: f }, ROOT), WHY.secret, `Read ${f} (relative)`);
+    card(bash(`cat ${f}`), WHY.secret, `cat ${f}`);
+    card(bash(`head -n 5 ${f}`), WHY.secret, `head ${f}`);
+    card(bash(`git blame ${f}`), WHY.secret, `git blame ${f}`);
+    // git's object forms: a file of a revision ("HEAD:path"), shown whole whatever option is given
+    card(bash(`git show --stat HEAD:${f}`), WHY.secret, `git show HEAD:${f}`);
+    card(bash(`git log --stat main:${f}`), WHY.secret, `git log main:${f}`);
+  }
+  // The Glob and Grep tools by their path or filter.
+  card(allowsHerself('Glob', { pattern: '**/*.jks' }, ROOT), WHY.secret);
+  card(allowsHerself('Grep', { pattern: 'storePassword', path: 'android/key.properties' }, ROOT), WHY.secret);
+  card(allowsHerself('Grep', { pattern: 'x', glob: '*.tfvars' }, ROOT), WHY.secret);
+  // A chat whose folder is a cred folder is not a project's.
+  card(allowsHerself('Bash', { command: 'ls' }, '/w/creds', '/home/owner'), WHY.notProject);
+  // Names that only look alike stay hers.
+  for (const f of ['credit.js', 'src/credits.md', 'keys.ts', 'keystore.md', 'properties.json', 'src/secretary.js', 'docs/kube.md', 'git/config.js', 'decree.txt']) {
+    allowed(allowsHerself('Read', { file_path: f }, ROOT), `Read ${f}`);
+    allowed(bash(`cat ${f}`), `cat ${f}`);
+  }
 });
 
 // Every tool that changes a file, wherever the file is: what is written may be run later by something nobody listed.
@@ -173,7 +219,7 @@ test('changing a file is never hers: each of the four tools, a plain file inside
     for (const bad of [{}, null, { file_path: '../x' }, { file_path: '.env' }, { file_path: 'caf\u00e9' }]) card(allowsHerself(tool, bad, ROOT), WHY.write, `${tool} ${JSON.stringify(bad)}`);
   }
   // Looking at those files stays hers, as any file in the folder that holds no secret.
-  for (const p of ['notes.txt', 'package.json', '.git/config', '.git/hooks/pre-commit', '.github/workflows/ci.yml', '.mcp.json', '.vscode/tasks.json', 'HEAD', '.yarnrc.yml']) {
+  for (const p of ['notes.txt', 'package.json', '.git/hooks/pre-commit', '.github/workflows/ci.yml', '.mcp.json', '.vscode/tasks.json', 'HEAD']) {
     allowed(allowsHerself('Read', { file_path: p }, ROOT), `Read ${p}`);
     allowed(bash(`cat ${p}`), `cat ${p}`);
   }
@@ -340,13 +386,13 @@ const CHECKS_CARD = [
   // the check of v4: a script that rewrites source files is not one of the project's checks
   'npm run format', 'npm run lint:fix', 'npm run format:write', 'npm run build:prod', 'pnpm run lint:fix', 'yarn run format:write', 'npm run build:deploy',
 ];
-const CHECKS_SECRET = ['cat .envrc', 'cat .npmrc', 'head secrets.pem', 'grep token .npmrc', 'git show HEAD:secret.key', 'cat .env.local'];
+const CHECKS_SECRET = ['cat .envrc', 'cat .npmrc', 'head secrets.pem', 'grep token .npmrc', 'git show --stat HEAD:secret.key', 'cat .env.local', 'cat .git/config'];
 const CHECKS_ALLOWED = [
-  'ls', ' ls', 'ls ', '\tls', 'git\tstatus', 'git  status', 'ls -l', 'pwd', 'cat .', 'cat package.json', `cat ${ROOT}/`, 'cat .git/config',
-  'grep -rn TODO src', 'rg TODO', 'git status', 'git diff', 'git log -p', 'git show HEAD', 'git rev-parse --show-toplevel', 'git describe',
+  'ls', ' ls', 'ls ', '\tls', 'git\tstatus', 'git  status', 'ls -l', 'pwd', 'cat .', 'cat package.json', `cat ${ROOT}/`,
+  'grep -n TODO src/a.js', 'git status', 'git diff --stat', 'git log --stat', 'git show --stat HEAD', 'git rev-parse --show-toplevel', 'git describe',
   'git ls-files', 'git blame x', 'npm test', 'npm run test', 'npm run lint', 'npm run test:unit', 'node --test',
-  // what the v2 checks tried that stays as it is: a pattern, a revision, a repeated flag, a script name with a tail
-  'grep -e data:x', 'rg -e data:x', 'cat -n -n x', 'git diff a..b', 'git log -5 -n 3', 'npm run test:publish', 'npm run tests:unit',
+  // what the v2 checks tried that stays as it is: a pattern, a revision, a repeated flag, a script name of the list
+  'grep -e data:x', 'cat -n -n x', 'git diff --stat a..b', 'git log -5 -n 3', 'npm run tests:unit',
 ];
 
 // What the v2 checks found in the chat's folder: the folder and the call, a card (or allowed) now.
@@ -358,7 +404,7 @@ const CHECKS_FOLDERS_ALLOWED = ['/home/owner/code/.github', '/home/owner/src/.gi
 
 test('the cases of both checks of the list: every option they got through is a card now; the plain calls stay allowed', () => {
   for (const cwd of CHECKS_FOLDERS_CARD) {
-    for (const [tool, input] of [['Glob', { pattern: '*' }], ['Read', { file_path: 'README.md' }], ['Bash', { command: 'grep -rn token .' }], ['Bash', { command: 'git log -p' }]]) {
+    for (const [tool, input] of [['Glob', { pattern: '*' }], ['Read', { file_path: 'README.md' }], ['Bash', { command: 'grep -n token a.txt' }], ['Bash', { command: 'git log --stat' }]]) {
       card(allowsHerself(tool, input, cwd, '/home/owner'), WHY.notProject, `${tool} in ${cwd}`);
     }
   }
@@ -400,12 +446,18 @@ test('the cases of the checks of v3: every write they got through is the owner\'
       card(allowsHerself(tool, input(p), cwd, homes), WHY.write, `${tool} ${p} in ${cwd}`);
       card(allowsHerself(tool, input(`${cwd}/${p}`), cwd, homes), WHY.write, `${tool} ${cwd}/${p}`);
     }
-    if (!cwd.startsWith('/data/')) allowed(allowsHerself('Read', { file_path: p }, cwd, homes), `Read ${p} in ${cwd}`);
+    // Reading them stays hers, but for what may hold a token (secret names now): the package manager's settings, and a
+    // repository's own config (a bare one's too: x.git/config).
+    if (!cwd.startsWith('/data/')) {
+      const r = allowsHerself('Read', { file_path: p }, cwd, homes);
+      if (p.startsWith('.yarnrc') || (p === 'config' && cwd.endsWith('.git'))) card(r, WHY.secret, `Read ${p} in ${cwd}`);
+      else allowed(r, `Read ${p} in ${cwd}`);
+    }
   }
   // The commands the checks ran next to those writes: the plain ones stay hers; a parent revision is a card now (^).
   for (const cwd of ['/home/owner/git/x.git', '/home/owner/web/sub', '/home/owner/web']) {
-    for (const c of ['git status', 'git diff main HEAD', 'yarn test']) allowed(allowsHerself('Bash', { command: c }, cwd, homes), `${c} in ${cwd}`);
-    card(allowsHerself('Bash', { command: 'git diff HEAD^ HEAD' }, cwd, homes), WHY.command, `git diff HEAD^ HEAD in ${cwd}`);
+    for (const c of ['git status', 'git diff --stat main HEAD', 'yarn test']) allowed(allowsHerself('Bash', { command: c }, cwd, homes), `${c} in ${cwd}`);
+    card(allowsHerself('Bash', { command: 'git diff --stat HEAD^ HEAD' }, cwd, homes), WHY.command, `git diff HEAD^ HEAD in ${cwd}`);
   }
   // A home reached through a link, and a folder whose own path is not plain ASCII: not a project's folder.
   for (const [cwd, tool, input] of [['/data/home/owner', 'Bash', { command: 'ls -la' }], ['/data/home/owner/.ssh', 'Read', { file_path: 'authorized_keys' }],
