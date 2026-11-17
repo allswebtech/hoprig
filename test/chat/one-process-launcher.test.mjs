@@ -148,20 +148,25 @@ async function run(t, kind) {
     const added = await req('/api/automation/schedules', { op: 'add', schedule: { label: `into the chat (${what})`, when, action: { type: 'send', session: `chat:${chat.json.id}`, text: 'from a schedule' } } });
     assert.equal(added.status, 200, added.text);
     const sid = added.json.schedules.find((s) => s.label === `into the chat (${what})`).id;
-    await automation().tick(now.getTime() + 1000);
-    const log = (await req('/api/automation/log?limit=5')).json.entries.find((e) => e.automation === 'schedules');
+    // A tick of the automations' own timer may be under way: a tick asked for meanwhile is that one, which decided
+    // before the schedule was there. The next one runs it.
+    const log = await until(`the schedule (${what})`, async () => {
+      await automation().tick(now.getTime() + 1000);
+      return (await req('/api/automation/log?limit=5')).json.entries.find((e) => e.automation === 'schedules' && e.did.includes(`(${what})`));
+    });
     assert.match(`${log.did} | ${log.outcome}`, /could not run .* \| failed: .*terminal/, `${what}: the schedule's message is not sent`);
     await req('/api/automation/schedules', { op: 'delete', id: sid });
     assert.equal((await req(`/api/chats/${chat.json.id}/close`, {})).status, 200);
     await alone(id, what);
   };
   // Right after a restart in place (a move): a chat start at once, then everything again once the old Claude Code and
-  // its record are gone, the moment nothing but the new launcher's record can say who runs the conversation.
+  // its record are gone and the new launcher runs, the moment nothing but the new launcher's record can say who runs
+  // the conversation. (A move returns once the old programs have ended; the new terminal's shell may still be starting.)
   const moved = async (id, term, what) => {
     const first = await req('/api/chats', { dir: work, profile: 'work', sessionId: id, text: `at once (${what})` });
     assert.equal(first.json.sent, false, `${what}: ${first.text}`);
     assert.equal((await req(`/api/chats/${first.json.id}/close`, {})).status, 200);
-    await until('the old run gone', async () => !listRuns().some((r) => r.sessionId === id));
+    await until('the old run gone, the new launcher there', async () => !listRuns().some((r) => r.sessionId === id) && listRuns().some((r) => r.conversation === id && !r.sessionId));
     await attempts(id, term, what);
   };
   // Reported: and the dashboard looked at it then (a resume finds that terminal), so what it knew of the start is
