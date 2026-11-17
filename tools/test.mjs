@@ -11,9 +11,9 @@
 //   node tools/test.mjs --test-only     arguments starting with "-" go to `node --test` unchanged
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -67,8 +67,24 @@ Object.assign(env, {
 });
 if (process.platform === 'win32') Object.assign(env, { APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local') });
 
+// No test installs anything on the computer that runs it. The package managers of a Mac (Homebrew, MacPorts) are
+// found first on the PATH as stand-ins that write down what they were asked and fail; a test that reaches one fails
+// the run on every system, instead of installing for real where they exist (a test once ran `brew install cloudflared`
+// on a Mac). Only the product's install steps call them: no check asks either one anything else.
+const guard = join(sandbox, 'guard');
+const forbidden = join(sandbox, 'forbidden.log');
+mkdirSync(guard);
+for (const name of ['brew', 'port']) {
+  if (process.platform === 'win32') writeFileSync(join(guard, `${name}.cmd`), `@echo ${name} %*>>"${forbidden}"\r\n@exit /b 1\r\n`);
+  else writeFileSync(join(guard, name), `#!/bin/sh\necho "${name} $*" >> '${forbidden}'\nexit 1\n`, { mode: 0o755 });
+}
+const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
+env[pathKey] = `${guard}${delimiter}${env[pathKey] || ''}`;
+
 const child = spawn(process.execPath, ['--test', ...limit, ...flags, ...files], { cwd: root, stdio: 'inherit', env });
 child.on('exit', (code, signal) => {
+  const asked = existsSync(forbidden) ? readFileSync(forbidden, 'utf8').trim() : '';
+  if (asked) console.error(`A test ran a package manager that installs on this computer (stopped by a stand-in):\n${asked}`);
   rmSync(sandbox, { recursive: true, force: true });
-  process.exit(signal ? 1 : (code ?? 1));
+  process.exit(signal || asked ? 1 : (code ?? 1));
 });
