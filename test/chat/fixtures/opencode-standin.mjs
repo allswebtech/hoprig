@@ -49,8 +49,10 @@ export async function standIn(o = {}) {
   let dir = '/work/proj'; // the folder of the conversation (the one it was made in)
   const known = new Set([SESSION_ID, ...(o.children || [])]);
   const pause = (ms) => (ms ? new Promise((r) => setTimeout(r, ms)) : null);
+  // A turn may still be playing when the stand-in closes (on a slower machine its last events come after the test's
+  // end): an ended stream gets nothing more. A write to it before its socket has closed is an uncaught error.
   const send = (ev) => {
-    for (const res of streams) res.write(`data: ${JSON.stringify({ id: `evt_${Math.random().toString(36).slice(2)}`, ...ev })}\n\n`);
+    for (const res of streams) if (!res.writableEnded) res.write(`data: ${JSON.stringify({ id: `evt_${Math.random().toString(36).slice(2)}`, ...ev })}\n\n`);
   };
   const came = (kind, body) => {
     const i = waiters.findIndex((w) => w.kind === kind);
@@ -169,6 +171,7 @@ export async function standIn(o = {}) {
     },
     close: () => new Promise((r) => {
       for (const s of streams) s.end();
+      streams.clear();
       server.close(() => r());
       server.closeAllConnections?.();
     }),
