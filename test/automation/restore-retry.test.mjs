@@ -27,11 +27,43 @@ test('restore: learns sessions, and at start reopens the ones that vanished, res
   const named = recorder();
   await restore.apply(r.actions, { deck: fakeDeck(), record: named.record, conversationExists: () => true, label: (p) => (p === 'api' ? 'Work key' : p) });
   assert.equal(named.entries[0].did, 'reopened on Work key (resumed 22222222)');
-  // A conversation that runs already (a chat, a terminal): nothing reopens, and that is no failure.
+  // A conversation that runs already (a chat, a terminal): nothing reopens after one more try, and that is no failure.
   const busy = recorder();
-  const deckBusy = { ...fakeDeck(), start: async () => { throw Object.assign(new Error('a chat runs its conversation now'), { existing: { chat: 'x' } }); } };
-  await restore.apply(r.actions, { deck: deckBusy, record: busy.record, conversationExists: () => true });
+  const waited = [];
+  let tries = 0;
+  const deckBusy = { ...fakeDeck(), start: async () => { tries++; throw Object.assign(new Error('a chat runs its conversation now'), { existing: { chat: 'x' } }); } };
+  await restore.apply(r.actions, { deck: deckBusy, record: busy.record, conversationExists: () => true, wait: async (ms) => waited.push(ms) });
+  assert.deepEqual([tries, waited], [2, [restore.RETRY_MS]]);
+  assert.equal(busy.entries.length, 1, 'one line for the session');
   assert.deepEqual([busy.entries[0].did, busy.entries[0].outcome], ['did not reopen', 'skipped: a chat runs its conversation now']);
+});
+
+test('restore: a conversation whose old program was still ending is reopened on the second try; one wait for all', async () => {
+  // tmux ended without a reboot and the dashboard started again at once: the programs whose terminals closed are still
+  // ending, and their run records still say they run. A few seconds later they have ended.
+  const s = (name, sessionId) => ({ type: 'reopen', session: { name, cwd: '/p', profile: 'api', sessionId, carryArgs: [] } });
+  const ending = new Set(['a', 'b']);
+  const deck = fakeDeck();
+  const start = deck.start.bind(deck);
+  deck.start = async (o) => {
+    if (ending.has(o.name)) throw Object.assign(new Error('a terminal outside the dashboard runs its conversation now'), { existing: { pid: 1 } });
+    return start(o);
+  };
+  const rec = recorder();
+  const waited = [];
+  await restore.apply([s('a', SID), s('b', SID.replace('2222-4', '3333-4')), s('c', SID.replace('2222-4', '4444-4'))], {
+    deck, record: rec.record, conversationExists: () => true,
+    wait: async (ms) => { waited.push(ms); ending.clear(); },
+  });
+  assert.deepEqual(waited, [restore.RETRY_MS], 'one wait, however many were skipped');
+  assert.deepEqual(deck.started.map((o) => o.name), ['c', 'a', 'b']);
+  assert.deepEqual(rec.entries.map((e) => e.outcome), ['ok', 'ok', 'ok']);
+  // The dashboard stops meanwhile: no second try.
+  const late = recorder();
+  let tries = 0;
+  const gone = { ...fakeDeck(), start: async () => { tries++; throw Object.assign(new Error('runs'), { existing: {} }); } };
+  await restore.apply([s('a', SID)], { deck: gone, record: late.record, conversationExists: () => true, wait: async () => {}, closed: () => true });
+  assert.deepEqual([tries, late.entries.length], [1, 0]);
 });
 
 test('restore: a session closed while the service ran is never reopened', () => {

@@ -94,12 +94,14 @@ async function run(t, kind) {
     return null;
   };
 
+  // tmux leaves its socket file behind; with no server left to ask at the end, the path seen before the restart.
+  let sockSeen = '';
   t.after(async () => {
     if (app) await app.close().catch(() => {});
     if (kind === 'tmux' && app) {
-      const sock = await app.backend.run(['display', '-p', '#{socket_path}']).catch(() => '');
+      const sock = (await app.backend.run(['display', '-p', '#{socket_path}']).catch(() => '')).trim() || sockSeen;
       await app.backend.killServer().catch(() => {});
-      if (sock.trim()) fs.rmSync(sock.trim(), { force: true });
+      if (sock) fs.rmSync(sock, { force: true });
     }
     box.cleanup();
   });
@@ -191,7 +193,9 @@ async function run(t, kind) {
   if (kind === 'tmux') {
     // A reboot takes tmux with it, and every program of its sessions is gone before the dashboard starts again.
     // Ending tmux only closes their terminals: they end a moment later (on Node 20 a stand-in aborts on its way out
-    // and its crash report takes a second or more), and a restore meanwhile rightly finds the conversations running.
+    // and its crash report takes a second or more), and a restore meanwhile rightly finds the conversations running
+    // (it tries once more a few seconds later: restore-retry.test.mjs). This models the reboot itself.
+    sockSeen = (await app.backend.run(['display', '-p', '#{socket_path}']).catch(() => '')).trim();
     await app.backend.killServer();
     const { listRuns } = await import('../../src/runs.mjs');
     await until('the programs of the sessions ended, as after a reboot', async () => !listRuns().length);

@@ -185,7 +185,7 @@ export function createAutomation(ctx) {
       for (const [name, actions] of plan) {
         if (!actions.length || closed) continue;
         try {
-          if (name === 'restore') await restore.apply(actions, { ...common, conversationExists, label: ctx.label });
+          if (name === 'restore') await restore.apply(actions, { ...common, conversationExists, label: ctx.label, closed: () => closed });
           else if (name === 'queue') await queue.apply(actions, { ...common, putBack });
           else if (name === 'retry') await retry.apply(actions, { ...common, prompt: s.retry.prompt, max: s.retry.max });
           else if (name === 'schedules') await schedules.apply(actions, { ...common, enqueue, label: ctx.label });
