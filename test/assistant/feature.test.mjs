@@ -133,6 +133,14 @@ for (const kind of kinds) {
     r = await asMachine('POST', '/api/assistant/run', { command: 'echo hi-from-hub' });
     assert.equal(r.status, 200);
     assert.equal(r.json.output.trim(), 'hi-from-hub');
+    // Her calls and a hub's come from this computer too, with a token: they are no sign-in tries. A burst of hers
+    // leaves the owner's tries whole (five wrong passwords, each 401, then 429: this computer is one visitor), and
+    // that lock keeps neither her nor the hub out.
+    for (let i = 0; i < 12; i++) assert.equal((await asTia('POST', '/api/assistant/call', { tool: 'list_sessions', args: {} })).status, 200);
+    for (let i = 0; i < 5; i++) assert.equal((await request(base, 'POST', '/api/login', { body: { password: `wrong-${i}` } })).status, 401, `wrong try ${i + 1}`);
+    assert.equal((await request(base, 'POST', '/api/login', { body: { password: 'pw-for-tests' } })).status, 429, 'this computer used its tries');
+    assert.equal((await asTia('POST', '/api/assistant/call', { tool: 'list_sessions', args: {} })).status, 200, 'her calls go on');
+    assert.equal((await asMachine('POST', '/api/assistant/run', { command: 'echo still-in' })).status, 200, 'the hub\'s too');
     // nobody: 401; a wrong tia_ token: 401 by the machines gate
     assert.equal((await request(base, 'POST', '/api/assistant/call', { body: { tool: 'list_sessions' } })).status, 401);
     assert.equal((await request(base, 'GET', '/api/assistant/cards')).status, 401);

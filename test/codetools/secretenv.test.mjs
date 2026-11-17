@@ -186,3 +186,46 @@ test('every place that starts npm, an install script or a download hands on none
     Object.assign(process.env, saved);
   }
 });
+
+test('a start by launch file: the file holds the folder and the launcher\'s words only, the typed line and the pane only the state folder', async () => {
+  const { Deck } = await import('../../src/server/deck.mjs');
+  const { TmuxBackend } = await import('../../src/server/backends/tmux.mjs');
+  const { applyLaunch } = await import('../../src/launchfile.mjs');
+  const { stateDir } = await import('../../src/paths.mjs');
+  const saved = { ...process.env };
+  Object.assign(process.env, SECRETS); // the dashboard runs in an environment full of them
+  try {
+    const calls = [];
+    const backend = new TmuxBackend({ socket: 'secretenv-test' });
+    backend.run = async (args) => (calls.push(args), args[0] === 'new-session' ? '%1\n' : '');
+    backend.list = async () => [];
+    const deck = new Deck({ backend, config: () => ({ launcher: [process.execPath, '/opt/hoprig/bin/hoprig.mjs'] }), profiles: () => [] });
+    const dir = fs.mkdtempSync(path.join(tmp, 'proj-'));
+    await deck.start({ dir, profile: { name: 'api', env: { ANTHROPIC_API_KEY: `${MARK}-p` } }, prompt: 'first message' });
+    const made = calls.find((c) => c[0] === 'new-session');
+    const env = made.flatMap((a, i) => (made[i - 1] === '-e' ? [a] : []));
+    assert.deepEqual(env, ['COLORTERM=truecolor', `HOPRIG_STATE_DIR=${stateDir()}`], 'the pane gets the state folder, nothing else');
+    const typed = calls.filter((c) => c[0] === 'send-keys').map((c) => c.join(' ')).join('\n');
+    assert.ok(!typed.includes(MARK) && !JSON.stringify(calls).includes(MARK), 'no secret in a tmux call');
+    const file = typed.match(/--launch (\S+\.json)/)[1];
+    const held = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.deepEqual(Object.keys(held).sort(), ['argv', 'at', 'cwd', 'v'], 'no environment in the launch file');
+    assert.ok(!fs.readFileSync(file, 'utf8').includes(MARK));
+    assert.ok(held.argv.includes('first message') && held.argv.includes('api'));
+    // The launcher takes the file and changes its folder and arguments, not its environment (the provider's is set
+    // by the launcher itself afterwards, as before).
+    const before = { ...process.env };
+    const argv = [process.execPath, '/opt/hoprig/bin/hoprig.mjs', '--launch', file];
+    const cwd = process.cwd();
+    try {
+      applyLaunch(argv);
+    } finally {
+      process.chdir(cwd);
+    }
+    assert.deepEqual(argv.slice(2), held.argv);
+    assert.deepEqual({ ...process.env, PWD: before.PWD }, before, 'only PWD changes');
+  } finally {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+  }
+});
