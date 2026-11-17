@@ -222,6 +222,34 @@ for (const kind of kinds) {
     }
   });
 
+  test(`${kind}: text sent while the session moves waits for the move, and never reaches the old tool or the shell`, { timeout: 120_000 }, async (t) => {
+    const d = await dashboard(t, kind);
+    const s = await d.session('moving');
+    const { term, run } = await d.app.deck.find(s.name);
+    // The move takes a moment before it touches the terminal: a send that does not wait for it would reach the old
+    // run of the coding tool (on its way out: lost) or, a moment later, the shell between the two.
+    const real = d.app.backend.respawn.bind(d.app.backend);
+    let movedAt = 0;
+    d.app.backend.respawn = async (...a) => {
+      await wait(800);
+      await real(...a);
+      movedAt = Date.now();
+    };
+    t.after(() => (d.app.backend.respawn = real));
+    const moving = d.app.deck.move(term, run, 'p');
+    await wait(100);
+    const sent = d.app.deck.sendToTool(s.name, 'touch TYPED_INTO_SHELL_move').then(() => ({ ok: true, at: Date.now() }), (e) => ({ code: e.code, at: Date.now() }));
+    await moving;
+    const r = await sent;
+    t.diagnostic(JSON.stringify(r));
+    assert.ok(movedAt && r.at >= movedAt, 'the send waited until the move was done');
+    assert.equal(got(s.dir).includes('touch TYPED_INTO_SHELL_move') && !r.ok, false, 'delivered, yet reported otherwise');
+    if (r.ok) assert.ok(got(s.dir).includes('touch TYPED_INTO_SHELL_move'), 'it went to the new run of the coding tool');
+    else assert.equal(r.code, 'not_in_front', 'refused, with nothing typed, while the new run was not in front yet');
+    await wait(1000);
+    assert.deepEqual(typedIntoShell(s.dir), [], 'the shell ran nothing');
+  });
+
   test(`${kind}: text reaches a waiting coding tool whole, without control bytes; the owner's own typing is as before`, { timeout: 120_000 }, async (t) => {
     const d = await dashboard(t, kind);
     const { toolText } = await import('../../src/server/typing.mjs');

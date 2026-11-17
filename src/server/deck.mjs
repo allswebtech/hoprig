@@ -429,12 +429,22 @@ export class Deck {
    * byte (./typing.mjs). 409 "not_in_front" when nothing was typed, "typed_not_sent" when the Enter did not follow.
    */
   sendToTool(name, text, o) {
-    return sendToTool(this, name, text, o);
+    return this.#inTurn(name, () => sendToTool(this, name, text, o));
   }
 
   /** One key for the coding tool of session `name`, for anyone but the owner: the same rule (./typing.mjs). */
   keyToTool(name, key) {
-    return keyToTool(this, name, key);
+    return this.#inTurn(name, () => keyToTool(this, name, key));
+  }
+
+  /**
+   * `fn` in the conversation's own queue (serial: its moves, starts and take-overs): text for a session that is being
+   * moved or taken over waits until that is done, and then goes to the coding tool in front, if one is (typing.mjs
+   * looks again), never to the old one on its way out or the shell between the two.
+   */
+  async #inTurn(name, fn) {
+    const run = (await this.find(name))?.run;
+    return run && run.sessionId ? this.serial(`${run.tool || 'claude'}:${run.sessionId}`, fn) : fn();
   }
 
   /**

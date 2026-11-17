@@ -58,8 +58,12 @@ test('toolText: every run of control characters is one space; line breaks stay',
   assert.equal(toolText('नमस्ते 🙂 ÄÖÜ "\'$`!'), 'नमस्ते 🙂 ÄÖÜ "\'$`!', 'text itself is untouched');
 });
 
-/** A deck whose `find` answers from `looks` one after the other, on a backend that records what it was asked. */
+/**
+ * A deck whose `find` answers from `looks` one after the other, on a backend that records what it was asked. The
+ * first look is given twice: the deck looks once to find the conversation's queue (deck.mjs #inTurn), then typing.mjs.
+ */
 function rig(looks) {
+  looks = [looks[0], ...looks];
   const calls = [];
   const backend = {
     kind: 'tmux',

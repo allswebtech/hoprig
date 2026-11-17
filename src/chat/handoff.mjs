@@ -98,7 +98,9 @@ export function handoffRoutes(ctx, o) {
     if (term.termId) {
       // The terminal stays, as a plain shell: the coding tool stops in it, the conversation goes on here. (`-e 0`: a
       // program that ends at once, with no empty word on the typed line.)
-      await ctx.deck.respawn(term.termId, term.cwd || c.cwd, [process.execPath, '-e', '0']);
+      // Its launcher holds the conversation until its coding tool has saved and ended: waited for, as in a move.
+      const hold = term.run && v.pid(term.run.pid) ? term.run.pid : null;
+      await ctx.deck.respawn(term.termId, term.cwd || c.cwd, [process.execPath, '-e', '0'], { hold });
     } else if (term.run && v.pid(term.run.pid) && (await stillRuns(term.run))) {
       // Judged again right before the signal: a record whose process has ended (its pid another process's now) goes
       // instead, and nothing is sent to that other process.
