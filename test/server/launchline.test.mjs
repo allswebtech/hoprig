@@ -31,6 +31,8 @@ test.after(() => {
     } catch {
       /* not running */
     }
+    // tmux leaves the socket file behind: one more in the shared tmux folder at every run.
+    fs.rmSync(path.join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${process.getuid()}`, s), { force: true });
   }
   box.cleanup();
 });
@@ -215,7 +217,7 @@ test('a launcher path with a quote is refused with the plain sentence before any
   const before = launchFiles().length;
   await assert.rejects(deck.start({ dir: box.root, profile: { name: 'sub' }, mode: 'new', prompt: 'hi' }), (e) => {
     assert.equal(e.status, 400);
-    assert.match(e.message, /^Hoprig cannot start a terminal from this path: "\/opt\/it's here\/bin\/hoprig\.mjs"\. Its name holds a character that a shell reads specially/);
+    assert.match(e.message, /^Hoprig cannot type this path into a shell: "\/opt\/it's here\/bin\/hoprig\.mjs"\. Only letters, digits, spaces and _ \. \/ : @ % \+ = , - can be typed/);
     return true;
   });
   const run = { runId: 'r', sessionId: '0b6c3c9e-1f7e-4e4b-9b1a-3f6a1e2d4c5b', cwd: box.root, carryArgs: [] };
@@ -224,7 +226,7 @@ test('a launcher path with a quote is refused with the plain sentence before any
   assert.equal(launchFiles().length, before, 'no launch file written');
   for (const bad of ['/a\\b', '/a!b', '/a$b', '/a`b', '/a"b', '/a\nb', '/a\u0015b', '/a\tb', '/a~b', '/a*b']) {
     const d = new Deck({ backend, config: () => ({ launcher: [bad] }), profiles: () => [] });
-    await assert.rejects(d.start({ dir: box.root, profile: { name: 'sub' }, mode: 'new' }), (e) => e.status === 400 && /cannot start a terminal from this path/.test(e.message), JSON.stringify(bad));
+    await assert.rejects(d.start({ dir: box.root, profile: { name: 'sub' }, mode: 'new' }), (e) => e.status === 400 && /cannot type this path into a shell/.test(e.message), JSON.stringify(bad));
   }
 });
 

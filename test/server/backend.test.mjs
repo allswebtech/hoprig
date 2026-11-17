@@ -112,7 +112,7 @@ test('the start line: only words that no shell reads specially, quoted when they
   for (const ok of ['/a/b-c_d.e', 'C:x', 'a@b', '50%', 'a+b=c,d', 'Ünïcödé', '漢字', 'नमस्ते', '١٢٣']) assert.doesNotThrow(() => assertTypable([ok], 'posix'), ok);
   // A quote, a backslash, the shell's own characters, any control byte or line end, and an empty word: refused.
   for (const bad of ["it's", 'a"b', 'a\\b', 'a!b', '$(x)', '`x`', 'a;b', 'a&b', 'a|b', 'a>b', 'a<b', '~/x', 'a*b', 'a?b', '[a]', '{a,b}', '#x', 'a\tb', 'a\nb', 'a\rb', 'a\u0015b', 'a\u0000b', 'a\u007fb', 'a\u0085b', '']) {
-    assert.throws(() => shellLine(['/n', bad]), (e) => e.status === 400 && /^Hoprig cannot start a terminal from this path: /.test(e.message), JSON.stringify(bad));
+    assert.throws(() => shellLine(['/n', bad]), (e) => e.status === 400 && /^Hoprig cannot type this path into a shell: /.test(e.message), JSON.stringify(bad));
   }
   assert.throws(() => shellLine(['/n'], { mark: "/s/it's" }), (e) => e.status === 400, 'the mark too');
   assert.doesNotThrow(() => assertTypable(['C:\\Program Files (x86)\\nodejs\\node.exe'], 'win32'), 'Windows: not typed, its paths as they are');

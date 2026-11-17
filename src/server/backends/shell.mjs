@@ -22,7 +22,7 @@ const WINDOWS_BAD = /["\p{Cc}]/u;
  * gets it as a tool error.
  */
 export function untypable(word) {
-  const e = new Error(`Hoprig cannot start a terminal from this path: ${JSON.stringify(String(word))}. Its name holds a character that a shell reads specially (only letters, digits, spaces and _ . / : @ % + = , - can be used). Install Node and Hoprig in a folder whose path has none of the others, or move the state folder (HOPRIG_STATE_DIR) to one.`);
+  const e = new Error(`Hoprig cannot type this path into a shell: ${JSON.stringify(String(word))}. Only letters, digits, spaces and _ . / : @ % + = , - can be typed: put Node, Hoprig or the state folder (HOPRIG_STATE_DIR) where its path has nothing else`);
   e.status = 400;
   return e;
 }

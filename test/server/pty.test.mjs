@@ -57,7 +57,7 @@ test('start plans: POSIX types into a login shell, Windows runs argv directly an
   assert.deepEqual(startPlan({ platform: 'darwin', dir: '/w d', argv: ['/n', 'x y'], shell: sh }), {
     file: '/bin/zsh', args: ['-l'], cwd: '/w d', type: `${CLEAR}; /n 'x y'`, then: null,
   }, 'the shell starts in the folder; nothing of it is typed');
-  assert.throws(() => startPlan({ platform: 'linux', dir: '/w', argv: ['/n', "it's"], shell: sh }), (e) => e.status === 400 && /cannot start a terminal from this path/.test(e.message));
+  assert.throws(() => startPlan({ platform: 'linux', dir: '/w', argv: ['/n', "it's"], shell: sh }), (e) => e.status === 400 && /cannot type this path into a shell/.test(e.message));
   assert.throws(() => startPlan({ platform: 'win32', dir: 'C:\\w', argv: ['C:\\n.exe', 'a"b'] }), (e) => e.status === 400, 'Windows: no quote in its one command line');
   assert.equal(startPlan({ platform: 'linux', dir: '/w', shell: sh }).type, null, 'a plain shell types nothing');
   const win = startPlan({ platform: 'win32', dir: 'C:\\Users\\me\\proj', argv: ['C:\\Program Files\\nodejs\\node.exe', 'C:\\app\\bin\\x.mjs', 'work', '--resume', 'id'] });

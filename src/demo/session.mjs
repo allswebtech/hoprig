@@ -10,6 +10,9 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import readline from 'node:readline';
 import { createRun, removeRun, updateRun } from '../runs.mjs';
+import { applyLaunch } from '../launchfile.mjs';
+
+applyLaunch(); // started by the demo dashboard as the real launcher is: `--launch <file>` (../launchfile.mjs)
 
 const [account = 'max', ...args] = process.argv.slice(2);
 // A session that moved to another provider comes with its id: --resume, or --session-id from a dashboard that

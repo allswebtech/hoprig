@@ -43,7 +43,7 @@ export const promptArgs = (prompt) => (prompt ? ['--', String(prompt)] : []);
  */
 export function assertFolder(dir) {
   if (/[\r\n]/.test(String(dir))) {
-    throw Object.assign(new Error(`A terminal session cannot start in this folder: its name holds a line break (${JSON.stringify(String(dir))}). Rename the folder, then start the session again.`), { status: 400 });
+    throw Object.assign(new Error(`A terminal session cannot start in this folder: its name holds a line break (${JSON.stringify(String(dir))}). Rename the folder, then start the session again`), { status: 400 });
   }
 }
 
