@@ -59,6 +59,9 @@ export function decide({ cards, data, now }) {
       continue;
     }
     q.goneAt = null;
+    // Its coding tool has ended (the terminal is at its shell): nothing is tried, and the row says why the messages
+    // wait, as when a send found the tool not in front; they go when a coding tool waits there again.
+    if (!isCodingCard(c) && q.items.length && !q.held) q.held = { why: HELD_WHY, at: now };
     if (isCodingCard(c) && c.runId) {
       if (q.runId && q.runId !== c.runId) q.kick = false; // another run: an old "send now" does not carry over
       q.runId = c.runId;

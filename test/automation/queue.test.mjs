@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAutomation } from '../../src/automation/index.mjs';
 import * as queue from '../../src/automation/queue.mjs';
-import { claude, fakeCtx, fakeDeck, recorder, tmpDir } from './helpers.mjs';
+import { claude, fakeCtx, fakeDeck, recorder, shell, tmpDir } from './helpers.mjs';
 
 const withItems = (texts, extra = {}) => {
   let q;
@@ -146,6 +146,26 @@ test('queue: the coding tool was not in front: the message stays first, says why
     assert.equal(a.api.status().queues.w.waits, undefined);
     await a.tick();
     assert.deepEqual(deck.sent, [['w', 'A']], 'the next one waits for a reply as always');
+    await a.close();
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('queue: a session whose coding tool has ended (a plain shell now): its row says why the messages wait, and they go when a tool waits again', async () => {
+  const t = tmpDir('queue-ended');
+  try {
+    const deck = fakeDeck([shell('w')]);
+    const a = createAutomation(fakeCtx({ deck, stateDir: t.dir, now: () => 1000 }).ctx);
+    a.enqueue('w', 'A');
+    for (let i = 0; i < 3; i++) await a.tick();
+    assert.deepEqual(deck.sent, [], 'nothing is typed into a shell');
+    assert.equal(a.api.queueOf('w').waits, queue.HELD_WHY, 'the sheet says why');
+    assert.equal(a.api.status().queues.w.waits, queue.HELD_WHY, 'and so does the Queue page\'s row');
+    deck.cards = [claude('w', { stopAt: null, runId: 'r2' })];
+    await a.tick();
+    assert.deepEqual(deck.sent, [['w', 'A']], 'a coding tool waits there again: the message goes');
+    assert.equal(a.api.queueOf('w').waits, undefined);
     await a.close();
   } finally {
     t.cleanup();
