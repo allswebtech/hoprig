@@ -118,7 +118,7 @@ const ACTIONS = {
   manage_skills: {
     installed: () => 'look at the installed skills', suggested: () => 'look at the suggested skills', find: () => 'look for a skill',
     check_updates: () => 'check the skills for updates', review: (a) => `review the skill ${a.spec || ''}`.trim(),
-    update_review: (a) => `review an update of the skill ${a.skill || ''}`.trim(), install: () => 'install the skill of her review', remove: (a) => `remove the skill ${a.skill || ''}`.trim(),
+    update_review: (a) => `review an update of the skill ${a.skill || ''}`.trim(), install: () => 'install the skill she reviewed', remove: (a) => `remove the skill ${a.skill || ''}`.trim(),
   },
   manage_procedures: { find: () => 'look up how to do it', draft: (a) => `write down how to do "${a.name || 'it'}"` },
 };

@@ -54,10 +54,11 @@ async function runCase(c, o, i) {
   engine.on('event', (e) => events.push(e));
   let message = c.message;
   if (c.wake) {
-    // A job Tia started earlier now wakes her: the session belongs to the job and counts as shown.
+    // A job Tia started earlier now wakes her: the session belongs to the job and counts as shown. wake.mine false:
+    // the job watches a session she did not start as hers (one on an earlier conversation).
     const job = dash.core.jobs.create({ conversation, goal: c.wake.goal });
     const made = ops.s.sessions.find((x) => x.computer === 'this' && x.name === c.wake.session);
-    dash.core.jobs.attach(job.id, { computer: 'this', session: c.wake.session, startedByTia: true, created: made ? made.created : null });
+    dash.core.jobs.attach(job.id, { computer: 'this', session: c.wake.session, startedByTia: c.wake.mine !== false, created: made ? made.created : null });
     dash.core.shown.add(conversation, { session: [`this|${c.wake.session}`], job: [job.id] });
     const j = dash.core.jobs.get(job.id);
     const screen = ops.s.screens[`this|${c.wake.session}`] || '';
