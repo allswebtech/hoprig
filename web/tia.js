@@ -12,6 +12,9 @@ import { navChanged, registerHeadTool, registerPage, registerSessionAction, regi
 import { fold, saveBar, tabBar, toggle } from './shell.js';
 import { MODELS } from './sessiondefaults.js';
 import { store } from './store.js';
+import { knownChatTools } from './chat/start.js';
+import { keepTabIn } from './tabwrap.js';
+import { activityWords, sessionWords, startWords } from './tiaactivity.js';
 import { DID, DOING, TOOL_WORDS, jobChip, jobLabel, wordFor } from './tiawords.js';
 
 const NAME = 'Tia';
@@ -24,7 +27,7 @@ const OUTCOME = { done: 'Done', staged: 'Waiting for your OK', confirmed: 'You c
 export const EXAMPLES = [
   'What needs me right now?',
   'Set up what is missing on this computer',
-  'What did Claude remember about my projects?',
+  'What does the AI brain remember about my projects?',
 ];
 /** Her **bold** words as bold, everything else as plain text (never as HTML). */
 export const boldText = (text) => String(text).split(/\*\*([^*\n]+)\*\*/).map((part, i) => (i % 2 ? h('strong', part) : part));
@@ -72,9 +75,10 @@ if (typeof window !== 'undefined' && typeof location !== 'undefined' && !locatio
 /**
  * The words of a card for the owner, made from its tool and input (the lines the model saw stay as they are, so
  * nothing changes for Tia herself). `accounts`: [{ name, label, kind }] of the computer the card is about;
- * `computerLabel`: its name, or null for this computer. Returns { question, quote, notes: [sentences], why, details }.
+ * `computerLabel`: its name, or null for this computer; `tools`: how many coding tools are on there; `chat(name)`: a
+ * session in words (a chat by its title or folder). Returns { question, quote, notes: [sentences], why, details }.
  */
-export function plainCard(card, { accounts = [], computerLabel = null } = {}) {
+export function plainCard(card, { accounts = [], computerLabel = null, tools = 1, chat = (n) => sessionWords(n) } = {}) {
   const a = card.input || {};
   const lines = (card.lines || []).map(String);
   const acct = (n) => accounts.find((x) => x.name === n);
@@ -94,7 +98,9 @@ export function plainCard(card, { accounts = [], computerLabel = null } = {}) {
     if (lines.some((l) => /is itself at a usage limit/.test(l))) notes.push(`${label(target)} is at its usage limit right now too.`);
   } else if (card.tool === 'start_session' || card.tool === 'start_chat') {
     target = a.account;
-    question = `Start a ${card.tool === 'start_chat' ? 'chat' : 'session'} in ${String(a.folder || '').split(/[\\/]/).filter(Boolean).pop() || a.folder}${on}${target ? ` on ${label(target)}` : ''}?`;
+    // What starts, in the owner's words: a chat or a terminal, and which coding tool (always for a terminal or another
+    // coding tool than Claude Code; for a chat of Claude Code when more than one is on).
+    question = `${cap(startWords({ kind: card.tool === 'start_chat' ? 'chat' : 'terminal', tool: a.coding_tool, folder: a.folder, named: tools > 1 }))}${on}${target ? ` on ${label(target)}` : ''}?`;
     if (a.message) quote = a.message;
     if (a.goal) notes.push(`Done when: ${a.goal}.`);
   } else if (card.tool === 'send_to_session' && a.key === undefined) {
@@ -102,7 +108,7 @@ export function plainCard(card, { accounts = [], computerLabel = null } = {}) {
     quote = a.text;
   } else if (card.tool === 'send_to_chat') {
     const words = { allow: 'Allow', allow_always: 'Allow, and not ask again in this chat,', deny: 'Say no to' };
-    question = a.stop ? `Stop the reply in the chat ${a.session}${on}?` : a.answer ? `${words[a.answer] || a.answer} what the chat ${a.session}${on} asks?` : `Send this to the chat ${a.session}${on}?`;
+    question = a.stop ? `Stop the reply in ${chat(a.session)}${on}?` : a.answer ? `${words[a.answer] || a.answer} what ${chat(a.session)}${on} asks?` : `Send this to ${chat(a.session)}${on}?`;
     if (a.text !== undefined) quote = a.text;
   } else if (card.tool === 'press_key' || card.tool === 'send_to_session') {
     question = `Press ${a.key} in the session ${a.session}${on}?`;
@@ -132,12 +138,32 @@ export function plainCard(card, { accounts = [], computerLabel = null } = {}) {
   return { question, quote, notes, why, details };
 }
 
-/** The accounts and the name of the computer a card is about, from the page's own list of computers. */
-function placeOf(card) {
-  const c = card.input && card.input.computer;
-  const m = (c && c !== 'this' ? store.all.find((x) => x.machine === c) : store.all.find((x) => !x.machine)) || null;
-  return { accounts: (m && m.profiles) || [], computerLabel: c && c !== 'this' ? (m && m.machineLabel) || c : null };
+/**
+ * What the page knows of computer `c` ("this" or none: this one), for her words: its providers and name, its sessions
+ * (a chat by its title or folder), how many coding tools are on there.
+ */
+function placeAt(c) {
+  const other = !!c && c !== 'this';
+  const m = (other ? store.all.find((x) => x.machine === c) : store.all.find((x) => !x.machine)) || null;
+  const accounts = (m && m.profiles) || [];
+  const sessions = (m && m.sessions) || [];
+  return {
+    accounts,
+    computerLabel: other ? (m && m.machineLabel) || c : null,
+    tools: knownChatTools(other ? c : null).length,
+    provider: (n) => (n === 'auto' ? 'Auto mode' : (accounts.find((x) => x.name === n) || {}).label || n),
+    computer: (n) => (!n || n === 'this' ? null : (store.all.find((x) => x.machine === n) || {}).machineLabel || n),
+    chat: (n) => sessionWords(n, sessions),
+  };
 }
+/** The accounts, the name, the coding tools and the chats of the computer a card is about. */
+const placeOf = (card) => placeAt(card.input && card.input.computer);
+/** A job's chat by its title, as the page's list has it now (null: not known, or not a chat). */
+const chatTitle = (s) => {
+  const m = s.computer && s.computer !== 'this' ? store.all.find((x) => x.machine === s.computer) : store.all.find((x) => !x.machine);
+  const c = m && (m.sessions || []).find((x) => x.name === s.session && x.kind === 'chat');
+  return (c && typeof c.title === 'string' && c.title.trim()) || null;
+};
 
 function cardView(card, decided) {
   const p = plainCard(card, placeOf(card));
@@ -445,8 +471,17 @@ function chatBox() {
       h('span.tia-boxname', NAME, h('span.badge.soft.tag', 'experimental')),
       btn('icon ghost small', { icon: 'plus', title: 'New chat', onclick: () => { convSet(''); restart(true); } }),
       h('a.btn.icon.ghost.small', { href: '#/tia', title: 'Open the full page', 'aria-label': 'Open the full page', onclick: () => setBox(false) }, icon('external', { size: 16 })),
-      btn('icon ghost small', { icon: 'x', title: 'Close', onclick: () => setBox(false) })),
+      btn('icon ghost small', { icon: 'x', title: 'Close', onclick: closeBox })),
     box.body);
+  // A desktop: the box floats beside the page, which stays usable, so Tab may go on to the page (as from any other part
+  // of it). A phone: the box covers the whole page like a sheet, so Tab stays inside, as in a sheet (tabwrap.js).
+  // Escape closes it on both, and the focus goes back to her button.
+  keepTabIn(box.panel, { when: covers });
+  box.panel.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    e.preventDefault();
+    closeBox();
+  });
   box.launch = h('button.tia-launch', { type: 'button', 'aria-label': `Ask ${NAME}`, title: `Ask ${NAME}`, onclick: () => setBox(!box.open) }, icon('sparkle', { size: 22 }), box.count);
   box.restart = restart;
   box.root = h('div.tia-boxroot.hidden', box.panel, box.launch);
@@ -458,7 +493,18 @@ function setBox(open, { forced = false } = {}) {
   box.forced = open && forced;
   if (!forced) prefs.set('tia.box', open);
   paintBox();
-  if (open) setTimeout(() => box.panel.querySelector('textarea')?.focus(), 50);
+  if (open) {
+    box.panel.setAttribute('aria-modal', String(covers()));
+    setTimeout(() => box.panel.querySelector('textarea')?.focus(), 50);
+  }
+}
+/** Whether the open box covers the page (a phone: full height over it, page-automations.css) or floats beside it. */
+const covers = () => typeof matchMedia === 'function' && matchMedia('(max-width: 899px)').matches;
+/** Close the box and give the focus back to the button that opened it (the round one, or the page head's on a phone). */
+function closeBox() {
+  setBox(false);
+  const back = [box.launch, box.head].find((b) => b && b.isConnected && b.getClientRects().length);
+  if (back) back.focus();
 }
 function paintBox() {
   if (typeof document === 'undefined' || !lastOverview) return;
@@ -598,9 +644,9 @@ function viewTia({ frame, sub }) {
     if (!r.jobs.length) return fill(body, h('div.empty.compact', icon('clock', { size: 28 }), h('div.empty-title', 'No jobs yet'), h('p', `When you ask ${NAME} to get something done, the job shows here: its goal, the sessions, and what she did.`)));
     fill(body, h('div.rows', r.jobs.map((j) => h('div.row.static.col.tia-job',
       h('div.mrow-top',
-        h('span.row-main', h('span.row-title.tia-wrap', j.goal), h('span.row-sub', `${when(j.createdAt)} · ${j.sessions.map(jobLabel).join(', ') || 'no session yet'} · ${j.steps} of ${j.maxSteps} answers used`)),
+        h('span.row-main', h('span.row-title.tia-wrap', j.goal), h('span.row-sub', `${when(j.createdAt)} · ${j.sessions.map((s) => jobLabel(s, chatTitle(s))).join(', ') || 'no session yet'} · ${j.steps} of ${j.maxSteps} answers used`)),
         h(`span.pill.${JOB_PILL[j.state] || 'st-starting'}`, h('span.dot'), JOB_WORDS[j.state] || j.state)),
-      j.sessions.length ? h('div.tia-tools', j.sessions.map(jobChip)) : null,
+      j.sessions.length ? h('div.tia-tools', j.sessions.map((s) => jobChip(s, chatTitle(s)))) : null,
       h('details', h('summary.hint', 'What she did'), h('ul.tia-log', j.log.slice(-12).map((l) => h('li', `${when(l.at)} ${l.text}`)))),
       j.state === 'working' || j.state === 'waiting'
         ? h('div', btn('secondary small', { icon: 'stop', label: 'Stop this job', onclick: async () => {
@@ -627,12 +673,17 @@ function viewTia({ frame, sub }) {
     }
     if (!alive) return;
     if (!r.entries.length) return fill(body, h('div.empty.compact', icon('text', { size: 28 }), h('div.empty-title', 'Nothing yet'), h('p', `Every change ${NAME} makes or proposes is listed here, and every OK you give.`)));
-    fill(body, h('div.rows', r.entries.map((e) => h('div.row.static',
-      h('span.row-icon', icon(e.actor === 'owner' ? 'user' : 'sparkle')),
-      h('span.row-main',
-        h('span.row-title.tia-wrap', `${e.actor === 'owner' ? 'You' : NAME}: ${wordFor(TOOL_WORDS, e.tool, e.input && e.input.action) || e.tool}`),
-        h('span.row-sub.tia-wrap', `${new Date(e.at).toLocaleString()} · ${OUTCOME[e.outcome] || e.outcome}${e.error ? ` · ${e.error}` : ''}`),
-        Object.keys(e.input || {}).length ? h('span.row-sub.tia-wrap', Object.entries(e.input).map(([k, v]) => `${k}: ${short(v)}`).join(' · ')) : null)))));
+    // Each entry as one sentence (tiaactivity.js): providers, coding tools, chats and folders by their names.
+    fill(body, h('div.rows', r.entries.map((e) => {
+      const w = activityWords(e, placeAt(e.input && e.input.computer));
+      return h('div.row.static',
+        h('span.row-icon', icon(e.actor === 'owner' ? 'user' : 'sparkle')),
+        h('span.row-main',
+          h('span.row-title.tia-wrap', `${e.actor === 'owner' ? 'You' : NAME}: ${w.what}`),
+          h('span.row-sub.tia-wrap', `${new Date(e.at).toLocaleString()} · ${OUTCOME[e.outcome] || e.outcome}${e.error ? ` · ${e.error}` : ''}`),
+          w.detail ? h('span.row-sub.tia-wrap', cap(w.detail)) : null,
+          w.quote ? h('span.row-sub.tia-wrap', `“${w.quote.length > 160 ? `${w.quote.slice(0, 159)}…` : w.quote}”`) : null));
+    })));
   }
 
   const draw = () => (sub === 'jobs' ? jobsView() : sub === 'activity' ? activityView() : chatView());

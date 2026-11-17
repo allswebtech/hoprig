@@ -38,15 +38,16 @@ export const DID = {
 
 /**
  * A session of a job as a chip that opens it: a chat ("chat:<id>") on its chat page by its id, a terminal on its
- * session page by its name; another computer's through its own address.
+ * session page by its name; another computer's through its own address. A chat reads by its title (`title`, from the
+ * page's list), else by its folder (kept with the job), never by its id.
  */
 const chatOf = (s) => (/^chat:([0-9a-f-]{36})$/.exec(s.session) || [])[1] || null;
-export const jobLabel = (s) => (chatOf(s) ? `Chat ${chatOf(s).slice(0, 8)}` : s.session);
-export function jobChip(s) {
+export const jobLabel = (s, title = null) => (!chatOf(s) ? s.session : title ? `Chat: ${title}` : s.folder ? `Chat in ${s.folder}` : 'A chat');
+export function jobChip(s, title = null) {
   const chat = chatOf(s);
   const m = s.computer && s.computer !== 'this' ? s.computer : null;
   const href = chat ? link(`#/chat/${chat}`, m) : link(`#/s/${encodeURIComponent(s.session)}`, m);
-  return h('a.chip', { href }, icon(chat ? 'text' : 'terminal', { size: 14 }), jobLabel(s));
+  return h('a.chip', { href }, icon(chat ? 'text' : 'terminal', { size: 14 }), jobLabel(s, title));
 }
 
 // manage_computer, per action: [what she would do, what she is doing, what she did].

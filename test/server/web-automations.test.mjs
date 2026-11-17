@@ -40,6 +40,7 @@ globalThis.document ??= {
 const { whenText, whatText, scheduleSentence, activityLine, foldActivity, queueChoices } = await import('../../web/automation.js');
 const { until } = await import('../../web/lib.js');
 const { plainCard, EXAMPLES, boldText } = await import('../../web/tia.js');
+const { activityWords, sessionWords, startWords, WORDED } = await import('../../web/tiaactivity.js');
 
 test('a schedule reads as one sentence', () => {
   assert.equal(whenText({ kind: 'daily', time: '08:30' }), 'Every day at 08:30');
@@ -108,17 +109,21 @@ test('a confirm card asks in plain words with the accounts\' display names, the 
   assert.equal(paidWhy.why, 'Tia asks because it costs money.');
 
   const start = plainCard({ tool: 'start_session', input: { folder: '/p/landing-page', account: 'max', message: 'Add a toggle', goal: 'it works' }, lines: ['Why a card: the owner set "Ask me"'] }, { accounts: ACCOUNTS });
-  assert.equal(start.question, 'Start a session in landing-page on Claude Max?');
+  assert.equal(start.question, 'Start Claude Code in a terminal in landing-page on Claude Max?', 'a terminal says which coding tool starts in it');
   assert.equal(start.quote, 'Add a toggle');
   assert.match(start.why, /you chose "Ask me"/);
 
   // The chat tools say the same in plain words; the terminal's key now goes through send_to_session.
   const chat = plainCard({ tool: 'start_chat', input: { folder: '/p/landing-page', account: 'max', message: 'Add a toggle' }, lines: [] }, { accounts: ACCOUNTS });
-  assert.equal(chat.question, 'Start a chat in landing-page on Claude Max?');
+  assert.equal(chat.question, 'Start a chat in landing-page on Claude Max?', 'Claude Code alone: a chat is its chat');
   assert.equal(chat.quote, 'Add a toggle');
   const C = 'chat:44444444-4444-4444-8444-444444444444';
-  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, text: 'run the tests' }, lines: [] }).question, `Send this to the chat ${C}?`);
-  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, answer: 'allow' }, lines: [`The session asks: Allow Bash: npm test?`] }).question, `Allow what the chat ${C} asks?`);
+  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, text: 'run the tests' }, lines: [] }).question, 'Send this to a chat?', 'never its id');
+  const chats = [{ name: C, kind: 'chat', title: 'Fix the login', cwd: '/w/shop' }];
+  const named = (n) => sessionWords(n, chats);
+  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, text: 'run the tests' }, lines: [] }, { chat: named }).question, 'Send this to the chat "Fix the login"?');
+  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, answer: 'allow' }, lines: [`The session asks: Allow Bash: npm test?`] }, { chat: named }).question, 'Allow what the chat "Fix the login" asks?');
+  assert.equal(sessionWords(C, [{ ...chats[0], title: '' }]), 'the chat in shop', 'no title yet: its folder');
   assert.deepEqual(plainCard({ tool: 'send_to_chat', input: { session: C, answer: 'allow' }, lines: ['The session asks: Allow Bash: npm test?'] }).notes, ['The session asks: Allow Bash: npm test?']);
   assert.equal(plainCard({ tool: 'send_to_session', input: { session: 'web', key: '1' }, lines: [] }).question, 'Press 1 in the session web?');
   assert.equal(plainCard({ tool: 'send_to_session', input: { session: 'web', text: 'yes' }, lines: [] }).question, 'Type this into the session web?');
@@ -149,6 +154,9 @@ test('her **bold** words become bold elements; nothing becomes HTML', () => {
 test('the empty chat offers three requests to tap', () => {
   assert.equal(EXAMPLES.length, 3);
   for (const x of EXAMPLES) assert.ok(x.length < 120, x);
+  // True with any coding tool on: the memory is the AI brain they all share, not one coding tool's.
+  for (const x of EXAMPLES) assert.doesNotMatch(x, /Claude|OpenCode|Codex/, x);
+  assert.ok(EXAMPLES.some((x) => /the AI brain remember/.test(x)));
 });
 
 test('both pages: styles in their own prefixed file, the shared words, no typed product name', () => {
@@ -199,8 +207,14 @@ test('a job\'s sessions: a chat opens its chat page by its id, a terminal its se
   assert.equal(href(jobChip({ computer: 'box2', session: `chat:${id}` })), `#/m/box2/chat/${id}`);
   assert.equal(href(jobChip({ computer: 'this', session: 'web-ui' })), '#/s/web-ui');
   assert.equal(href(jobChip({ computer: 'box2', session: 'web-ui' })), '#/m/box2/s/web-ui');
-  assert.equal(jobLabel({ session: `chat:${id}` }), 'Chat 77777777');
-  assert.equal(jobLabel({ session: 'web-ui' }), 'web-ui');
+  // A chat by its title, else by its folder kept with the job; never by its id.
+  assert.equal(jobLabel({ session: `chat:${id}` }, 'Fix the login'), 'Chat: Fix the login');
+  assert.equal(jobLabel({ session: `chat:${id}`, folder: 'shop' }), 'Chat in shop');
+  assert.equal(jobLabel({ session: `chat:${id}` }), 'A chat');
+  assert.equal(jobLabel({ session: 'web-ui' }, 'ignored'), 'web-ui');
+  const chip = jobChip({ computer: 'this', session: `chat:${id}`, folder: 'shop' }, 'Fix the login');
+  const last = chip.children.at(-1);
+  assert.equal(last.text ?? last, 'Chat: Fix the login');
 });
 
 test('Tia\'s words: manage_computer says what each action does; no words for a tool she no longer has', async () => {
@@ -211,4 +225,100 @@ test('Tia\'s words: manage_computer says what each action does; no words for a t
   assert.equal(wordFor(TOOL_WORDS, 'manage_computer', 'rename'), 'change a computer', 'any other action: the tool\'s own words');
   assert.equal(wordFor(DID, 'start_chat'), 'started a chat');
   for (const m of [TOOL_WORDS, DOING, DID]) assert.equal(m.update_claude_code, undefined, 'folded into manage_computer update');
+});
+
+test('her card for a start says what starts: a chat or a terminal, and the coding tool where it matters', () => {
+  const ask = (tool, input, tools) => plainCard({ tool, input: { folder: '/w/projects/blog', account: 'gw', ...input }, lines: [] }, { accounts: [{ name: 'gw', label: 'Gateway', kind: 'api' }], tools }).question;
+  // The two the smoke found: an OpenCode chat and an OpenCode terminal, each said by name.
+  assert.equal(ask('start_chat', { coding_tool: 'opencode' }, 2), 'Start a chat with OpenCode in blog on Gateway?');
+  assert.equal(ask('start_session', { coding_tool: 'opencode' }, 2), 'Start OpenCode in a terminal in blog on Gateway?');
+  // Claude Code's chat: named while another coding tool is on, not while it is the only one.
+  assert.equal(ask('start_chat', {}, 2), 'Start a chat with Claude Code in blog on Gateway?');
+  assert.equal(ask('start_chat', {}, 1), 'Start a chat in blog on Gateway?');
+  assert.equal(ask('start_chat', { coding_tool: 'opencode' }, 1), 'Start a chat with OpenCode in blog on Gateway?', 'another coding tool always');
+  assert.equal(ask('start_session', {}, 1), 'Start Claude Code in a terminal in blog on Gateway?');
+  assert.equal(startWords({ kind: 'chat', tool: 'opencode', folder: 'C:\\work\\shop' }), 'start a chat with OpenCode in shop');
+});
+
+// The page's view of a computer, as tia.js hands it to activityWords.
+const PLACE = {
+  provider: (n) => ({ sub: 'Main', sub2: 'Work', gw: 'Gateway', auto: 'Auto mode' })[n] || n,
+  computer: (n) => (n === 'laptop' ? 'Laptop' : n),
+  chat: (n) => sessionWords(n, [{ name: 'chat:44444444-4444-4444-8444-444444444444', title: 'Fix the login', cwd: '/w/shop' }]),
+  tools: 2,
+};
+const KEY_NAME = /\b(coding_tool|account|accounts|runsOn|maxSteps|maxMinutes|tia_settings|null|undefined|\[object|chat:[0-9a-f]|NaN)\b|[a-z]+_[a-z_]+:|"\w+":/;
+
+test('Activity: the two rows the smoke found read as plain sentences', () => {
+  const set = activityWords({ actor: 'owner', tool: 'tia_settings', input: { level: 'work', accounts: ['sub', 'sub2', 'gw'], runsOn: null, model: null, maxSteps: 20, maxMinutes: 240 } }, PLACE);
+  assert.equal(set.what, 'change Tia\'s settings');
+  assert.equal(set.detail, 'how far she may go: Do the work · providers she may use: Main, Work, Gateway · she runs on: Automatic · her model: the provider\'s default · 20 answers per job · 240 minutes per job');
+  const tool = activityWords({ actor: 'assistant', tool: 'manage_computer', input: { action: 'coding_tool', coding_tool: 'opencode', turn: 'on' } }, PLACE);
+  assert.equal(tool.what, 'turn OpenCode on');
+  const chat = activityWords({ actor: 'assistant', tool: 'start_chat', input: { folder: '/w/projects/blog', coding_tool: 'opencode', account: 'gw', message: 'hello', goal: 'it answered', computer: 'laptop' } }, PLACE);
+  assert.deepEqual(chat, { what: 'start a chat with OpenCode in blog on Gateway, on Laptop', detail: 'done when: it answered', quote: 'hello' });
+  const send = activityWords({ actor: 'assistant', tool: 'send_to_chat', input: { session: 'chat:44444444-4444-4444-8444-444444444444', answer: 'allow' } }, PLACE);
+  assert.equal(send.what, 'allow what the chat "Fix the login" asks', 'a chat by its title, never its id');
+  for (const r of [set, tool, chat, send]) assert.doesNotMatch(`${r.what} ${r.detail}`, KEY_NAME);
+});
+
+test('Activity: every tool and action she has reads in words, with no key name and no null', async () => {
+  const { MCP_TOOLS } = await import('../../src/assistant/tools.mjs');
+  // A value for each input key, by its schema: an enum's first, else one of its type (null where it may be null).
+  const sample = (k, p) => (p.enum ? p.enum[0] : p.type === 'array' ? (k === 'order' ? ['sub', 'gw'] : ['x-1']) : p.type === 'boolean' ? true : p.type === 'integer' || p.type === 'number' ? 3
+    : k === 'folder' ? '/w/projects/shop' : k === 'session' ? 'chat:44444444-4444-4444-8444-444444444444' : k === 'account' ? 'gw' : k === 'computer' ? 'laptop' : p.type === 'string' ? 'x-1' : null);
+  for (const t of MCP_TOOLS.filter((x) => !x.annotations.readOnlyHint)) {
+    const props = t.inputSchema.properties || {};
+    const actions = props.action ? props.action.enum : [undefined];
+    if (props.action) assert.deepEqual([...WORDED.actions[t.name]].sort(), [...actions].sort(), `${t.name}: words for each action`);
+    else assert.ok(WORDED.tools.includes(t.name), `${t.name} has words`);
+    for (const action of actions) {
+      const input = Object.fromEntries(Object.entries(props).map(([k, p]) => [k, sample(k, p)]));
+      if (action) input.action = action;
+      const r = activityWords({ actor: 'assistant', tool: t.name, input }, PLACE);
+      const all = `${r.what} ${r.detail}`;
+      assert.doesNotMatch(all, KEY_NAME, `${t.name} ${action || ''}: ${all}`);
+      assert.doesNotMatch(r.what, /^make a change/, `${t.name} ${action || ''} has its own words`);
+      assert.doesNotMatch(all, /\b(sub|gw)\b/, `${t.name} ${action || ''}: providers by their labels: ${all}`);
+    }
+  }
+  // Her own settings and the owner's other steps there; nulls say what they mean.
+  for (const input of [{ enabled: false }, { accounts: null }, { accounts: [] }, { runsOn: 'gw', model: 'haiku' }, { runsOn: null, model: '' }]) {
+    const r = activityWords({ actor: 'owner', tool: 'tia_settings', input }, PLACE);
+    assert.doesNotMatch(`${r.what} ${r.detail}`, KEY_NAME, JSON.stringify(input));
+    assert.ok(r.detail, JSON.stringify(input));
+  }
+  assert.equal(activityWords({ actor: 'owner', tool: 'client_token', input: {} }, PLACE).what, 'make a token for your own Claude Code');
+  assert.equal(activityWords({ actor: 'owner', tool: 'stop_job', input: { job: 'j_0123456789' } }, PLACE).what, 'stop a job');
+  assert.equal(activityWords({ actor: 'assistant', tool: 'change_setting', input: { key: 'new_session_model', value: null } }, PLACE).what, 'change the setting "Model of new sessions" to the default');
+  // A tool of a later version: a plain sentence, never its name.
+  assert.equal(activityWords({ actor: 'assistant', tool: 'some_new_tool', input: { some_key: 1 } }, PLACE).what, 'make a change');
+});
+
+test('her box: Escape closes it and gives the focus back; Tab stays inside only where it covers the page', async () => {
+  const { keepTabIn } = await import('../../web/tabwrap.js');
+  const handlers = [];
+  const [a, b] = [{ tabIndex: 0, getClientRects: () => [1], focus() { globalThis.document.activeElement = this; } }, { tabIndex: 0, getClientRects: () => [1], focus() { globalThis.document.activeElement = this; } }];
+  const panel = { addEventListener: (t, f) => handlers.push(f), querySelectorAll: () => [a, b] };
+  let wide = true;
+  keepTabIn(panel, { when: () => !wide });
+  const tab = () => {
+    let stopped = false;
+    handlers[0]({ key: 'Tab', shiftKey: false, defaultPrevented: false, preventDefault: () => (stopped = true) });
+    return stopped;
+  };
+  globalThis.document.activeElement = b;
+  assert.equal(tab(), false, 'a desktop: the box floats beside the page, Tab goes on to it');
+  wide = false;
+  assert.equal(tab(), true, 'a phone: the box covers the page like a sheet, Tab goes round inside');
+  assert.equal(globalThis.document.activeElement, a);
+  delete globalThis.document.activeElement;
+  // How tia.js wires it (the rest is proven in a browser: the screenshots of this change).
+  const src = fs.readFileSync(path.join(WEB, 'tia.js'), 'utf8');
+  assert.match(src, /keepTabIn\(box\.panel, \{ when: covers \}\)/);
+  assert.match(src, /const covers = \(\) => typeof matchMedia === 'function' && matchMedia\('\(max-width: 899px\)'\)\.matches;/);
+  assert.match(src, /if \(e\.key !== 'Escape' \|\| e\.defaultPrevented\) return;\s+e\.preventDefault\(\);\s+closeBox\(\);/);
+  assert.match(src, /onclick: closeBox/, 'its own close button gives the focus back too');
+  const css = fs.readFileSync(path.join(WEB, 'page-automations.css'), 'utf8');
+  assert.match(css, /@media \(max-width: 899px\) \{\s+\.tia-launch \{ display: none; \}\s+\.tia-box \{ position: fixed; inset: 0;/, 'the same width at which the box covers the page');
 });
