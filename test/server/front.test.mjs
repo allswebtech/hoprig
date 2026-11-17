@@ -14,7 +14,7 @@ test.after(() => box.cleanup());
 const { FRONT_GONE, assertFront, groups, notInFront, parseStat } = await import('../../src/server/backends/front.mjs');
 const { Deck } = await import('../../src/server/deck.mjs');
 const { toolText } = await import('../../src/server/typing.mjs');
-const { lockOf, removeLocked, whileTyping } = await import('../../src/typinglock.mjs');
+const { lockOf, noteTyped, removeLocked, typedOf, whileTyping } = await import('../../src/typinglock.mjs');
 const { runsDir } = await import('../../src/paths.mjs');
 const { PtyBackend } = await import('../../src/server/backends/pty.mjs');
 
@@ -193,8 +193,13 @@ removeLocked(process.argv[2], (f) => { process.stdout.write(String(Date.now()));
   fs.writeFileSync(lockOf(stale), '');
   const old = new Date(Date.now() - 60_000);
   fs.utimesSync(lockOf(stale), old, old);
-  removeLocked(stale);
+  assert.equal(removeLocked(stale), false, 'nobody typed: no input to settle');
   assert.equal(fs.existsSync(stale), false);
+  // Something was typed for the tool during the run: the launcher is told to settle its input, and the note goes.
+  const noted = recordOf(run({ runId: 'lock4' }));
+  noteTyped(noted);
+  assert.equal(removeLocked(noted), true);
+  assert.equal(fs.existsSync(typedOf(noted)), false);
   await assert.rejects(whileTyping(path.join(box.root, 'no-such-folder', 'x.json'), async () => {}), (e) => e.code === 'ENOENT');
   // Someone holds it for longer than the wait: nothing is typed, 409.
   const busy = recordOf(run({ runId: 'lock3' }));

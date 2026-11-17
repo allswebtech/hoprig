@@ -5,11 +5,14 @@
 // the terminal's input, and the shell reads its lines as commands once the launcher is gone.
 //
 // One lock file per run record settles it:
-//   the dashboard   takes the lock, reads the record again, types, lets go (whileTyping)
-//   the launcher    once its tool has ended: takes the lock, removes the record, lets go, then reads and throws away
-//                   whatever stands in its terminal's input before it ends (endRun)
+//   the dashboard   takes the lock, reads the record again, notes that it types (noteTyped), types, lets go
+//                   (whileTyping)
+//   the launcher    once its tool has ended: takes the lock, removes the record, lets go, then, when anything was
+//                   typed for its tool during the run, reads and throws away whatever stands in its terminal's input
+//                   before it ends (endRun)
 // So a text either goes in while the record stands, and the launcher throws it away if its tool did not read it, or it
-// finds no record and nothing is typed. The lock is a file made with "wx" (only one maker wins), next to the record.
+// finds no record and nothing is typed. The lock is a file made with "wx" (only one maker wins), next to the record;
+// the note is an empty file next to it, so a launcher that nobody typed for ends at once.
 import fs from 'node:fs';
 import { removeRun } from './runs.mjs';
 
@@ -18,6 +21,10 @@ const WAIT_MS = 3000; // how long either side waits for the other
 const SETTLE_MS = 200; // how long the launcher reads its terminal's input after the record went
 
 export const lockOf = (runFile) => `${runFile}.typing`;
+export const typedOf = (runFile) => `${runFile}.typed`;
+
+/** The dashboard's note, made under the lock right before it types: the launcher settles its input at its end. */
+export const noteTyped = (runFile) => fs.writeFileSync(typedOf(runFile), '', { mode: 0o600 });
 
 /** true when this call made the lock; false when someone holds it. Throws when it cannot be made at all (no folder). */
 function take(lock) {
@@ -57,7 +64,8 @@ export async function whileTyping(runFile, fn, { wait = WAIT_MS } = {}) {
 /**
  * The launcher's side, synchronous (its own end): remove record `runFile` with `remove` under the lock. A typist
  * that holds the lock finishes first; after WAIT_MS the record goes anyway (a typist that hangs does not keep a
- * terminal from its shell).
+ * terminal from its shell). Returns true when something was typed for the tool during the run (noteTyped), which
+ * goes with the record: then the terminal's input is to be settled.
  */
 export function removeLocked(runFile, remove = removeRun) {
   const lock = lockOf(runFile);
@@ -71,11 +79,19 @@ export function removeLocked(runFile, remove = removeRun) {
     }
     if (mine || Date.now() > end) break;
   }
+  let typed = false;
   try {
+    try {
+      fs.rmSync(typedOf(runFile));
+      typed = true;
+    } catch {
+      /* nobody typed */
+    }
     remove(runFile);
   } finally {
     if (mine) letGo(lock);
   }
+  return typed;
 }
 
 /**
@@ -108,8 +124,7 @@ export function settleInput(ms = SETTLE_MS, { stdin = process.stdin, platform = 
   });
 }
 
-/** The launcher's end of a run that had the terminal: the record goes under the lock, then the input is settled. */
+/** The launcher's end of a run that had the terminal: the record goes under the lock, then the input is settled when anything was typed for its tool. */
 export async function endRun(runFile) {
-  removeLocked(runFile);
-  await settleInput();
+  if (removeLocked(runFile)) await settleInput();
 }

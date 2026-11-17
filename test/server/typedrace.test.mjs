@@ -21,7 +21,7 @@ const box = sandbox('typedrace');
 process.env.HOME = box.home; // the shells read their (empty) start files from here
 const { tmuxUsable } = await import('../../src/server/backends/index.mjs');
 const { nodePty } = await import('../../src/server/backends/nodepty.mjs');
-const { lockOf } = await import('../../src/typinglock.mjs');
+const { lockOf, noteTyped, typedOf } = await import('../../src/typinglock.mjs');
 const { runsDir } = await import('../../src/paths.mjs');
 const kinds = POSIX ? [...(nodePty ? ['pty'] : []), ...(tmuxUsable() ? ['tmux'] : [])] : [];
 const SHELLS = ['/bin/bash', '/bin/dash'].filter((s) => fs.existsSync(s));
@@ -116,6 +116,7 @@ for (const kind of kinds) {
       const s = await d.session('real');
       // The dashboard's side of the lock, held by the test: a message is being typed right now.
       fs.writeFileSync(lockOf(s.record), '', { flag: 'wx' });
+      noteTyped(s.record);
       fs.writeFileSync(path.join(s.dir, 'QUIT'), '');
       await until('the tool ended', () => fs.existsSync(path.join(s.dir, 'CHILD_EXITED')), 10_000, 5);
       await wait(400);
@@ -127,6 +128,7 @@ for (const kind of kinds) {
       assert.equal(fs.existsSync(s.record), false, 'the record went once the lock was let go');
       assert.deepEqual(ran(s.dir), [], 'the shell ran no line of it');
       assert.equal(fs.existsSync(lockOf(s.record)), false);
+      assert.equal(fs.existsSync(typedOf(s.record)), false, 'the note went with the record');
     });
 
     test(`${label}: several lines sent the moment the tool ended (its record still there): 409, nothing runs`, { timeout: 60_000 }, async (t) => {

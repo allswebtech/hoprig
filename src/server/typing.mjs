@@ -13,7 +13,7 @@
 import path from 'node:path';
 import { runsDir } from '../paths.mjs';
 import { readRun } from '../runs.mjs';
-import { whileTyping } from '../typinglock.mjs';
+import { noteTyped, whileTyping } from '../typinglock.mjs';
 import { FRONT_GONE, groups, notInFront } from './backends/front.mjs';
 
 /** The pause before Enter: the program finishes taking the text in, so Enter is read as "send", not as part of a paste. */
@@ -58,6 +58,7 @@ async function locked(l, name, act) {
     await whileTyping(l.file, async () => {
       const now = readRun(l.file);
       if (!now || now.pid !== l.run.pid) throw notInFront(noTool(name));
+      noteTyped(l.file); // the launcher settles its terminal's input at its end
       await act();
     });
   } catch (e) {

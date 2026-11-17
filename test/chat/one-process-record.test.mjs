@@ -289,7 +289,7 @@ async function run(t, kind) {
     const name = await app.deck.start({ dir: work, profile: readProfile('work'), mode: 'resume', sessionId: id });
     await backAtShell(name, 'this conversation is open in a chat in the dashboard');
     assert.deepEqual(await count(id), { term: 0, chat: 1, runs: 0 }, 'the page\'s resume: the chat is the one process');
-    assert.equal((await req(`/api/chats/${c.id}/send`, { text: 'still the chat' })).status, 200);
+    { const r = await req(`/api/chats/${c.id}/send`, { text: 'still the chat' }); assert.equal(r.status, 200, r.text); }
     await close(c.id);
     await until('the chat process gone', async () => (await count(id)).chat === 0);
     await kill(name);

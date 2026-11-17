@@ -317,6 +317,7 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
   const full = [...given, ...modelArgs(profile, given), ...(settingsFile ? ['--settings', settingsFile] : []), ...promptTail];
   // `keep`: this launcher moves the conversation on by itself. Its record stays, naming the conversation, until the
   // next run writes it anew: no moment without one, in which something else could start a process on it.
+  // Returns true when the record went and something was typed for Claude during the run (typinglock.mjs).
   const cleanup = (keep = null) => {
     // What this run learnt stays known after it: its plan usage, per provider (the Providers page shows it with its
     // time), and that the stored sign-in works when a reply came back on it.
@@ -327,11 +328,13 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
     } catch {
       /* never in the way of ending a run */
     }
+    let typed = false;
     if (keep) createRun({ profile: profile.name, cwd: process.cwd(), carryArgs: carryArgs(args), conversation: keep, file });
-    else removeLocked(file); // after a text being typed for the tool right now (typinglock.mjs)
+    else typed = removeLocked(file); // after a text being typed for the tool right now (typinglock.mjs)
     fs.rmSync(usageFile(file), { force: true });
     if (settingsFile) fs.rmSync(settingsFile, { force: true });
     if (scriptFile) fs.rmSync(scriptFile, { force: true });
+    return typed;
   };
 
   return new Promise((resolve) => {
@@ -412,10 +415,10 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
       process.off('SIGHUP', onHup);
       const run = readRun(file);
       const keep = auto && !signalled && run?.sessionId ? run.sessionId : null;
-      cleanup(keep);
+      const typed = cleanup(keep);
       // The record is gone: text typed for Claude that it did not read is thrown away before the menu or the shell
       // reads this terminal (typinglock.mjs). A kept record goes on with the next run, which reads the terminal.
-      (keep ? Promise.resolve() : settleInput()).then(() => {
+      (typed ? settleInput() : Promise.resolve()).then(() => {
         if (auto && process.stdout.isTTY) {
           // We stopped Claude ourselves: make sure its full-screen mode, mouse reporting and hidden cursor are off.
           process.stdout.write('\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[0m\r\n');
