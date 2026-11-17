@@ -26,9 +26,9 @@ import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import unicode11 from '@xterm/addon-unicode11';
 import { ptySpawn } from './nodepty.mjs';
-import { sameProcess, system } from '../../procid.mjs';
+import { system } from '../../procid.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
-import { descendants, STOP_WAIT_MS } from './procs.mjs';
+import { descendants, endAll, STOP_WAIT_MS } from './procs.mjs';
 import { shellLine } from './shell.mjs';
 
 const NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$/;
@@ -105,15 +105,6 @@ export function bufferText(term, lines) {
   while (out.length && out[out.length - 1] === '') out.pop();
   return out.slice(-lines).join('\n') + '\n';
 }
-
-const alive = (pid) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return e.code === 'EPERM';
-  }
-};
 
 export class PtyBackend {
   /**
@@ -302,12 +293,11 @@ export class PtyBackend {
       await Promise.race([exited, wait(STOP_WAIT_MS)]);
       return;
     }
-    const kids = await this.descendants(proc.pid);
-    // Who each one is, where that costs nothing (Linux, /proc, when it can be read): one that ends during the wait below
-    // and whose pid is handed out again gets no signal, nor one that /proc had nothing on (gone already). Elsewhere, as
-    // before: only whether its pid is alive.
-    const ids = this.platform === 'linux' && kids.length && this.ident.self() ? this.ident.of(kids) : null;
-    // SIGHUP, as when a terminal window closes: the shell passes it on to its jobs, and Claude saves and exits.
+    // What runs under the shell ends first, while its terminal is still open: SIGHUP, as when a terminal window closes
+    // (Claude saves and exits), and a wait until it has ended. With the shell ended first, the terminal closed under
+    // the programs: they ended only after the new command of a respawn had started (a launcher still ending held its
+    // conversation, and the new one refused it), and a Node 20 program aborts on a terminal that is gone.
+    const rest = await endAll(await this.descendants(proc.pid), { ident: this.ident, platform: this.platform });
     try {
       proc.kill('SIGHUP');
     } catch {
@@ -321,14 +311,7 @@ export class PtyBackend {
         /* already gone */
       }
     }
-    for (const pid of kids) {
-      if (!alive(pid) || (ids && (!ids.get(pid) || sameProcess(ids.get(pid), this.ident.of([pid]).get(pid)) === false))) continue;
-      try {
-        process.kill(pid, done ? 'SIGTERM' : 'SIGKILL');
-      } catch {
-        /* gone, or not ours */
-      }
-    }
+    rest(done ? 'SIGTERM' : 'SIGKILL'); // what ignores SIGHUP (nohup) does not outlive its terminal
   }
 
   attach(name, { cols = 80, rows = 24 } = {}) {

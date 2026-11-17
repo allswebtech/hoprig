@@ -374,12 +374,12 @@ test('the processes a terminal started: a pid that is another process by the tim
   await b4.create({ name: 'n', dir: '/w' });
   await b4.kill('n');
   await Promise.race([gone(blind), tick(5000)]);
-  assert.equal(blind.signalCode, 'SIGTERM');
+  assert.equal(blind.signalCode, 'SIGHUP');
   // The same process at both moments (the real reader): it is ended, as before.
   const same = kid();
   const { b: b2 } = backend('linux', { descendants: async () => [same.pid] });
   await b2.create({ name: 's', dir: '/w' });
   await b2.kill('s');
   await gone(same);
-  assert.equal(same.signalCode, 'SIGTERM');
+  assert.equal(same.signalCode, 'SIGHUP');
 });

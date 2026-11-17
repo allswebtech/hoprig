@@ -24,23 +24,26 @@ export function descendants(root) {
 }
 
 /**
- * SIGHUP to each of `pids`, as when a terminal window closes, then wait until all have ended (at most `waitMs`) and
- * SIGKILL the rest. Who each one is, where that costs nothing (Linux, /proc): a pid that ends meanwhile and is handed
- * out again gets no signal.
+ * SIGHUP to each of `pids`, as when a terminal window closes, and wait until all have ended (at most `waitMs`).
+ * Resolves to a function that sends a signal to those still running, for the caller's next step. Who each one is,
+ * where that costs nothing (Linux, /proc): a pid that ends meanwhile and is handed out again gets no signal, nor one
+ * that /proc had nothing on (gone already). Elsewhere only whether its pid is alive.
  */
 export async function endAll(pids, { ident = system, platform = process.platform, waitMs = STOP_WAIT_MS } = {}) {
-  if (!pids.length) return;
-  const ids = platform === 'linux' && ident.self() ? ident.of(pids) : null;
+  const ids = platform === 'linux' && pids.length && ident.self() ? ident.of(pids) : null;
   const still = (pid) => alive(pid) && !(ids && (!ids.get(pid) || sameProcess(ids.get(pid), ident.of([pid]).get(pid)) === false));
-  const send = (pid, sig) => {
-    try {
-      process.kill(pid, sig);
-    } catch {
-      /* gone, or not ours */
+  const send = (sig) => {
+    for (const pid of pids) {
+      if (!still(pid)) continue;
+      try {
+        process.kill(pid, sig);
+      } catch {
+        /* gone, or not ours */
+      }
     }
   };
-  for (const pid of pids) if (still(pid)) send(pid, 'SIGHUP');
+  send('SIGHUP');
   const end = Date.now() + waitMs;
   while (pids.some(still) && Date.now() < end) await wait(50);
-  for (const pid of pids) if (still(pid)) send(pid, 'SIGKILL');
+  return send;
 }

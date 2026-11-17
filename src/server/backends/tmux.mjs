@@ -208,6 +208,7 @@ export class TmuxBackend {
   async #endPrograms(id) {
     const shell = Number(String(await this.run(['display-message', '-p', '-t', id, '#{pane_pid}']).catch(() => '')).trim());
     if (!Number.isInteger(shell) || shell <= 1) return;
+    // What ignores SIGHUP (nohup) stays, as it did when the terminal closed under it.
     await endAll(await this.descendants(shell), { ident: this.ident });
   }
 
