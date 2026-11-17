@@ -221,7 +221,12 @@ test('the owner\'s send is as before: no check, the text as written', async () =
 /** A built-in terminal of `platform` whose program is a stand-in with pid `pid` that records what it is sent. */
 async function pty(platform, pid) {
   const written = [];
-  const spawn = () => ({ pid, process: 'node', onData() {}, onExit() {}, write: (d) => written.push(d), resize() {}, kill() {} });
+  // It ends when it is signalled, as a program does: a close waits for that (an unref'd timer alone would leave the
+  // test's event loop empty, which Node 22 reports as a cancelled test).
+  const spawn = () => {
+    const exits = [];
+    return { pid, process: 'node', onData() {}, onExit: (fn) => exits.push(fn), write: (d) => written.push(d), resize() {}, kill: () => setImmediate(() => exits.forEach((fn) => fn({ exitCode: 0 }))) };
+  };
   const b = new PtyBackend({ platform, spawn, shell: platform === 'win32' ? { file: 'powershell.exe', args: [] } : { file: '/bin/sh', args: ['-l'] } });
   const { id } = await b.create({ name: 'w', dir: platform === 'win32' ? 'C:\\w' : '/w', argv: platform === 'win32' ? ['node.exe', 'hoprig.mjs', '--launch', 'C:\\s\\launch\\f.json'] : null });
   written.length = 0;
