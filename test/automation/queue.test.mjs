@@ -132,8 +132,8 @@ test('queue: the coding tool was not in front: the message stays first, says why
     deck.notInFront = 'Nothing was typed: no coding tool runs in session "w" now';
     for (let i = 0; i < 4; i++) await a.tick();
     assert.deepEqual(a.api.queueOf('w').items.map((x) => x.text), ['A', 'B'], 'kept, in its order');
-    assert.equal(a.api.queueOf('w').waits, deck.notInFront, 'the sheet says why');
-    assert.equal(a.api.status().queues.w.waits, deck.notInFront, 'and so does the Queue page\'s row');
+    assert.equal(a.api.queueOf('w').waits, queue.HELD_WHY, 'the sheet says why');
+    assert.equal(a.api.status().queues.w.waits, queue.HELD_WHY, 'and so does the Queue page\'s row');
     const rows = a.activity.recent(20).filter((x) => x.automation === 'queue');
     assert.deepEqual(rows.map((x) => [x.did, x.outcome]), [['not delivered: A', `waits in the queue: ${deck.notInFront}`]], 'recorded once, not at every tick');
     assert.equal(a.api.queueOf('w').items[0].tries, undefined, 'not counted as a failed try');

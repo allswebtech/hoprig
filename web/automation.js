@@ -713,7 +713,7 @@ function queueSheet(name, after) {
   const waits = h('p.banner.info', { role: 'status' });
   function paint() {
     waits.style.display = q.waits ? '' : 'none'; // .banner is a flex box: the hidden attribute alone would not hide it
-    waits.textContent = q.waits ? `Waiting: ${q.waits}.` : '';
+    waits.textContent = q.waits ? `Waiting: ${q.waits}.` : ''; // the server's plain sentence (automation/queue.mjs HELD_WHY)
     pauseBtn.textContent = q.paused ? 'Resume' : 'Pause';
     pauseBtn.onclick = () => op({ op: 'pause', paused: !q.paused });
     fill(list, q.items.length

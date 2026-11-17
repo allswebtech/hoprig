@@ -94,7 +94,7 @@ export async function apply(actions, ctx) {
       ctx.record({ automation: 'queue', session: a.session, did: `sent: ${preview(a.item.text)}`, outcome: 'ok' });
     } catch (e) {
       if (e.code === 'not_in_front') {
-        const first = ctx.putBack(a.session, a.item, { why: e.message });
+        const first = ctx.putBack(a.session, a.item, { why: HELD_WHY });
         if (first) ctx.record({ automation: 'queue', session: a.session, did: `not delivered: ${preview(a.item.text)}`, outcome: `waits in the queue: ${e.message}` });
         continue;
       }
@@ -103,6 +103,9 @@ export async function apply(actions, ctx) {
     }
   }
 }
+
+/** What the queue's row and sheet say while its next message waits for a coding tool in front (the activity row has the detail). */
+export const HELD_WHY = 'its coding tool is not the program in front in this session (it ended, or another program runs there): the next message goes when a coding tool waits there again';
 
 export const preview = (t) => {
   const one = String(t).replace(/\s+/g, ' ').trim();

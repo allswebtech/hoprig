@@ -164,9 +164,9 @@ for (const kind of kinds) {
     assert.equal(outcome.send.status, 409);
     assert.equal(outcome.limitContinue.file, false);
     assert.match(outcome.send.error, /^Nothing was typed: no coding tool runs in session/);
-    assert.match(outcome.queue.waits, /^Nothing was typed/, 'the queue says why its message waits');
+    assert.match(outcome.queue.waits, /^its coding tool is not the program in front in this session/, 'the queue says why its message waits');
     const st = (await (await fetch(`http://127.0.0.1:${d.app.server.address().port}/api/automation`, { headers: { Cookie: d.cookie } })).json());
-    assert.match(st.queues[queueCase.name].waits, /no coding tool runs/, 'the Queue page\'s row says it too');
+    assert.match(st.queues[queueCase.name].waits, /goes when a coding tool waits there again/, 'the Queue page\'s row says it too');
     const rows = d.auto().activity.recent(50).filter((x) => x.session === queueCase.name);
     assert.deepEqual(rows.map((x) => x.did), ['not delivered: touch TYPED_INTO_SHELL_queue'], 'recorded once, as not delivered');
 
