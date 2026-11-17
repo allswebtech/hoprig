@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import * as restore from '../../src/automation/restore.mjs';
 import * as retry from '../../src/automation/retry.mjs';
 import { DEFAULTS, restoreOn } from '../../src/automation/settings.mjs';
-import { claude, fakeDeck, recorder, shell } from './helpers.mjs';
+import { claude, fakeCtx, fakeDeck, recorder, shell, tmpDir } from './helpers.mjs';
 
 const SID = '22222222-2222-4222-8222-222222222222';
 const MIN = 60_000;
@@ -30,15 +32,19 @@ test('restore: learns sessions, and at start reopens the ones that vanished, res
   // A conversation that runs already (a chat, a terminal): nothing reopens after one more try, and that is no failure.
   const busy = recorder();
   const waited = [];
+  let again = null;
   let tries = 0;
   const deckBusy = { ...fakeDeck(), start: async () => { tries++; throw Object.assign(new Error('a chat runs its conversation now'), { existing: { chat: 'x' } }); } };
-  await restore.apply(r.actions, { deck: deckBusy, record: busy.record, conversationExists: () => true, wait: async (ms) => waited.push(ms) });
-  assert.deepEqual([tries, waited], [2, [restore.RETRY_MS]]);
+  await restore.apply(r.actions, { deck: deckBusy, record: busy.record, conversationExists: () => true, later: (fn, ms) => { waited.push(ms); again = fn; } });
+  // The second try runs by itself later, not inside the tick: apply is back before it.
+  assert.deepEqual([tries, waited, busy.entries.length], [1, [restore.RETRY_MS], 0]);
+  await again();
+  assert.equal(tries, 2);
   assert.equal(busy.entries.length, 1, 'one line for the session');
   assert.deepEqual([busy.entries[0].did, busy.entries[0].outcome], ['did not reopen', 'skipped: a chat runs its conversation now']);
 });
 
-test('restore: a conversation whose old program was still ending is reopened on the second try; one wait for all', async () => {
+test('restore: a conversation whose old program was still ending is reopened on the second try; one second try for all', async () => {
   // tmux ended without a reboot and the dashboard started again at once: the programs whose terminals closed are still
   // ending, and their run records still say they run. A few seconds later they have ended.
   const s = (name, sessionId) => ({ type: 'reopen', session: { name, cwd: '/p', profile: 'api', sessionId, carryArgs: [] } });
@@ -51,18 +57,24 @@ test('restore: a conversation whose old program was still ending is reopened on 
   };
   const rec = recorder();
   const waited = [];
+  let again = null;
   await restore.apply([s('a', SID), s('b', SID.replace('2222-4', '3333-4')), s('c', SID.replace('2222-4', '4444-4'))], {
     deck, record: rec.record, conversationExists: () => true,
-    wait: async (ms) => { waited.push(ms); ending.clear(); },
+    later: (fn, ms) => { waited.push(ms); again = fn; },
   });
-  assert.deepEqual(waited, [restore.RETRY_MS], 'one wait, however many were skipped');
+  assert.deepEqual(waited, [restore.RETRY_MS], 'one second try, however many were skipped');
+  ending.clear();
+  await again();
   assert.deepEqual(deck.started.map((o) => o.name), ['c', 'a', 'b']);
   assert.deepEqual(rec.entries.map((e) => e.outcome), ['ok', 'ok', 'ok']);
   // The dashboard stops meanwhile: no second try.
   const late = recorder();
   let tries = 0;
   const gone = { ...fakeDeck(), start: async () => { tries++; throw Object.assign(new Error('runs'), { existing: {} }); } };
-  await restore.apply([s('a', SID)], { deck: gone, record: late.record, conversationExists: () => true, wait: async () => {}, closed: () => true });
+  let stopped = false;
+  await restore.apply([s('a', SID)], { deck: gone, record: late.record, conversationExists: () => true, later: (fn) => { again = fn; }, closed: () => stopped });
+  stopped = true;
+  await again();
   assert.deepEqual([tries, late.entries.length], [1, 0]);
 });
 
@@ -213,4 +225,41 @@ test('retry apply: sends the continue message; giving up notifies', async () => 
   assert.deepEqual(deck.sent, [['w', 'Continue.']]);
   assert.equal(rec.notes.length, 1);
   assert.match(rec.notes[0].message, /3 times in a row/);
+});
+
+test('restore in the automations: the second try waits outside the tick, and a close cancels it', async (t) => {
+  const { createAutomation } = await import('../../src/automation/index.mjs');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const run = async (stopFirst) => {
+    // Yesterday the dashboard knew one session; at this start its conversation still looks live (its old launcher ends).
+    const dir = tmpDir('restore-later');
+    t.after(dir.cleanup);
+    fs.mkdirSync(path.join(dir.dir, 'automation'), { recursive: true });
+    fs.writeFileSync(path.join(dir.dir, 'automation', 'restore.json'), JSON.stringify({
+      lastTickAt: 0,
+      sessions: { w: { name: 'w', cwd: '/p', profile: 'api', sessionId: SID, carryArgs: [], goneAt: null, shellSince: null } },
+    }));
+    const deck = fakeDeck();
+    let runs = true;
+    let tries = 0;
+    const start = deck.start.bind(deck);
+    deck.start = async (o) => {
+      tries++;
+      if (runs) throw Object.assign(new Error('a terminal outside the dashboard runs its conversation now'), { existing: { pid: 1 } });
+      return start(o);
+    };
+    const a = createAutomation(fakeCtx({ deck, stateDir: dir.dir, now: () => 1000 }).ctx);
+    await a.tick(); // the boot
+    assert.equal(tries, 1);
+    await a.tick(); // the next tick is not held by the wait for the second try
+    runs = false;
+    if (stopFirst) await a.close();
+    t.mock.timers.tick(restore.RETRY_MS);
+    for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+    await a.close();
+    return { tries, log: a.activity.recent(10).map((e) => `${e.did} | ${e.outcome}`) };
+  };
+  assert.deepEqual(await run(false), { tries: 2, log: ['reopened on api (resumed 22222222) | ok'] });
+  // Closed before the second try: none, and no line.
+  assert.deepEqual(await run(true), { tries: 1, log: [] });
 });

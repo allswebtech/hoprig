@@ -85,17 +85,20 @@ export const RETRY_MS = 5000;
 
 /**
  * Carry out the actions. ctx: { deck.start({ dir, profile, mode: 'move', sessionId, carryArgs, name, fresh? }),
- * conversationExists(cwd, id) → bool, record(entry), label(profile)? → its shown name, wait(ms)?, closed()? }. A
- * start that finds the conversation running already (a chat, a terminal) throws with `existing`: nothing is reopened
- * (after one more try, RETRY_MS later).
+ * conversationExists(cwd, id) → bool, record(entry), label(profile)? → its shown name, later(fn, ms)?, closed()? }. A
+ * start that finds the conversation running already (a chat, a terminal) throws with `existing`: nothing is reopened,
+ * after one more try RETRY_MS later. That try runs by itself (`later`), outside the tick: the other automations do
+ * not wait for it.
  */
 export async function apply(actions, ctx) {
-  const wait = ctx.wait || ((ms) => new Promise((r) => setTimeout(r, ms).unref()));
   const busy = [];
   for (const a of actions) if (await reopen(a.session, ctx, false)) busy.push(a.session);
   if (!busy.length) return;
-  await wait(RETRY_MS);
-  for (const s of busy) if (!ctx.closed?.()) await reopen(s, ctx, true);
+  const again = async () => {
+    for (const s of busy) if (!ctx.closed?.()) await reopen(s, ctx, true);
+  };
+  const later = ctx.later || ((fn, ms) => setTimeout(() => fn().catch(() => {}), ms).unref());
+  later(again, RETRY_MS);
 }
 
 /** One start; true when the conversation ran already and this was the first try (the caller tries again). */

@@ -185,7 +185,7 @@ export function createAutomation(ctx) {
       for (const [name, actions] of plan) {
         if (!actions.length || closed) continue;
         try {
-          if (name === 'restore') await restore.apply(actions, { ...common, conversationExists, label: ctx.label, closed: () => closed });
+          if (name === 'restore') await restore.apply(actions, { ...common, conversationExists, label: ctx.label, later, closed: () => closed });
           else if (name === 'queue') await queue.apply(actions, { ...common, putBack });
           else if (name === 'retry') await retry.apply(actions, { ...common, prompt: s.retry.prompt, max: s.retry.max });
           else if (name === 'schedules') await schedules.apply(actions, { ...common, enqueue, label: ctx.label });
@@ -239,9 +239,22 @@ export function createAutomation(ctx) {
   }
 
   /** Stop ticking and wait for a tick in progress. Call it before the backend closes its terminals. */
+  // A restore's second try (restore.mjs RETRY_MS) runs by itself, not inside a tick; it ends with the automations.
+  const retries = new Set();
+  function later(fn, ms) {
+    const t = setTimeout(() => {
+      retries.delete(t);
+      if (!closed) fn().catch((e) => log(`automation: ${e.message}`));
+    }, ms);
+    t.unref?.();
+    retries.add(t);
+  }
+
   async function close() {
     closed = true;
     clearTimeout(timer);
+    for (const t of retries) clearTimeout(t);
+    retries.clear();
     if (running) await running.catch(() => {});
   }
 
