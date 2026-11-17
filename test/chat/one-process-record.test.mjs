@@ -236,8 +236,9 @@ async function run(t, kind) {
     await until('the chat sees no terminal on it', async () => (await req(`/api/chats/${c.id}`)).json.terminal === null, 3000);
     assert.equal((await req(`/api/chats/${c.id}/send`, { text: 'while the menu waits' })).status, 200);
     await until('the chat\'s answer', async () => (await req(`/api/chats/${c.id}`)).json.events.some((e) => e.kind === 'turn-end' && e.ok !== false));
-    // The owner answers the menu: the launcher starts nothing, says where the conversation is open, asks again.
-    assert.equal((await req(`/api/sessions/${T}/send`, { text: 'backup' })).status, 200);
+    // The owner answers the menu (his own typing, owner: true; the launcher's menu takes no one else's text): the
+    // launcher starts nothing, says where the conversation is open, asks again.
+    assert.equal((await req(`/api/sessions/${T}/send`, { text: 'backup', owner: true })).status, 200);
     await until('the menu again', async () => (await menus()) === 2);
     assert.match(await screen(T), /this conversation is open in a chat in the dashboard\. Close that chat, or choose "Open in terminal" in its menu\./);
     assert.deepEqual(await count(id), { term: 0, chat: 1, runs: 0 }, 'A1: the chat is the one process');
@@ -247,7 +248,7 @@ async function run(t, kind) {
     await close(c.id);
     await until('the chat process gone', async () => (await count(id)).chat === 0);
     late(0);
-    assert.equal((await req(`/api/sessions/${T}/send`, { text: 'backup' })).status, 200);
+    assert.equal((await req(`/api/sessions/${T}/send`, { text: 'backup', owner: true })).status, 200);
     await until('reported on backup', async () => {
       const k = await card(T);
       return k && k.sessionId === id && k.profile && k.profile.name === 'backup';

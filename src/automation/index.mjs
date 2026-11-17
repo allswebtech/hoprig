@@ -17,7 +17,9 @@
 //   deck.list()                         → session cards (see ./cards.mjs for the fields used)
 //   deck.start({ dir, profile, mode: 'new'|'resume', sessionId?, name? }) → the new session's name. `profile` is
 //                                         a profile name or "auto"; `name` is a wish (taken names get a suffix)
-//   deck.send(name, text)               type text into the session and press Enter
+//   deck.send(name, text)               type text for the session's coding tool and press Enter; only while the
+//                                       tool is in front (src/server/deck.mjs sendToTool), else an error with code
+//                                       "not_in_front" and nothing typed
 //   deck.kill(name)                     close the session
 //   backend                             { kind, capabilities: { persistent } }
 //   config()                            the current config.json (loadConfig)

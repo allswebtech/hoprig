@@ -48,9 +48,13 @@ export const KEYS = ['Enter', 'Escape', 'Up', 'Down', 'Tab', '1', '2', '3', '4',
 // runs (model, permissions, login, MCP) and needs the owner's OK; "!" runs a shell command directly.
 export const SAFE_SLASH = ['/compact', '/context', '/cost', '/status', '/usage', '/help', '/todos'];
 
-/** Why typing `text` into a Claude Code session needs a card, or null. */
+/**
+ * Why typing `text` into a Claude Code session needs a card, or null. Judged as it will be typed: the dashboard turns
+ * every run of control characters into one space first (src/server/deck.mjs toolText), so "\x15!cmd" is judged as
+ * " !cmd", which starts with "!" once the spaces are trimmed.
+ */
 export function typedTextRisk(text) {
-  const t = String(text).trimStart();
+  const t = String(text).replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ').trimStart();
   if (t.startsWith('!')) return 'it starts with "!", which runs a shell command';
   if (t.startsWith('/')) {
     const cmd = t.split(/\s/, 1)[0].toLowerCase();
