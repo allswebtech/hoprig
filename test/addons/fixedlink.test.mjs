@@ -405,7 +405,7 @@ test('state files are written whole or not at all: a temporary file in the same 
   assert.deepEqual(fs.readdirSync(dir), ['fixed.json']);
   // The add-on's own state goes through it (no plain write of a tunnel's details is left).
   const src = ['fixedlink.mjs', 'publiclink.mjs'].map((f) => fs.readFileSync(new URL(`../../src/addons/${f}`, import.meta.url), 'utf8')).join('\n');
-  assert.deepEqual([...src.matchAll(/fs\.writeFileSync\(([^,]+),/g)].map((m) => m[1]), ['file'], 'only the downloaded program itself');
+  assert.deepEqual([...src.matchAll(/fs\.writeFileSync\(([^,]+),/g)].map((m) => m[1]), ['tmp'], 'only the downloaded program itself, into its temporary file beside its place');
 });
 
 test('a name outside the domain picked at sign-in: nothing is left half-made', async () => {
