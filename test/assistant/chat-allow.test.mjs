@@ -348,9 +348,16 @@ test('in the real dashboard: her mark comes only from her own door, and goes whe
   assert.equal(await hers(id), true, 'her door\'s request, relayed, keeps it hers');
 
   // Taken back from a terminal that ran her conversation: hers no more.
-  const running = async (i) => (await owner('GET', `/api/chats/${i}`)).json.running;
+  // `running` turns false when the chat stops its process; the process itself ends a moment later, and what was
+  // written until then counts as the chat's own (run.mjs heard: knowSize at its exit). Its run record goes at that
+  // exit, so the test writes in the conversation only after that, as a terminal (which the record holds off) would.
+  const { listRuns } = await import('../../src/runs.mjs');
+  const stopped = async (i) => {
+    await until('her chat\'s process to stop', async () => !(await owner('GET', `/api/chats/${i}`)).json.running);
+    await until('her chat\'s process to end', async () => !listRuns({ chats: true, usage: false }).some((r) => r.chat === i));
+  };
   const inTerminal = async (i) => {
-    await until('her chat\'s process to stop', async () => !(await running(i)));
+    await stopped(i);
     const term = await owner('POST', '/api/sessions', { dir: proj, profile: 'sub', mode: 'resume', sessionId: i });
     assert.equal(term.status, 200, JSON.stringify(term.json));
     await until('the chat to see the terminal', async () => (await owner('GET', `/api/chats/${i}`)).json.terminal);
@@ -372,7 +379,7 @@ test('in the real dashboard: her mark comes only from her own door, and goes whe
 
   // The conversation went on elsewhere while her chat had no process (its transcript grew without it): hers no more.
   id = await start();
-  await until('her chat\'s process to stop', async () => !(await running(id)));
+  await stopped(id);
   const find = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? find(path.join(dir, e.name)) : e.name === `${id}.jsonl` ? [path.join(dir, e.name)] : []));
   const [file] = find(box.claude);
   const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
