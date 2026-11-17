@@ -72,13 +72,6 @@ export function segments(rel) {
 
 // ---------- files that hold a sign-in ----------
 
-const realOr = (p) => {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return path.resolve(p);
-  }
-};
 let secretCache = { at: 0, list: [] };
 /**
  * The real paths the editor never shows, reads, lists or changes: the providers' folder (their keys), and in every
@@ -103,9 +96,11 @@ export function secretPaths() {
   }
   for (const c of claude) list.push(path.join(c, '.credentials.json'), path.join(c, '.claude.json'));
   const out = new Set();
+  // Each by its spelling and by its real place. A file that does not exist yet is judged by the real place of its
+  // nearest folder that does: ~/.claude may be a link into an opened folder before Claude Code writes its sign-in.
   for (const p of list) {
     out.add(path.resolve(p));
-    out.add(realOr(p));
+    out.add(realNearest(p));
   }
   secretCache = { at: Date.now(), list: [...out] };
   return secretCache.list;
