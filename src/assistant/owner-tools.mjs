@@ -167,7 +167,7 @@ export const run_command = tool({
   async run(ops, a) {
     const r = await ops.runCommand({ computer: comp(a), command: a.command, cwd: a.folder || null, timeoutMs: (a.timeout_seconds || 60) * 1000 });
     return {
-      summary: `The command ${r.timedOut ? 'timed out' : `exited with code ${r.code}`}.`,
+      summary: `The command ${r.timedOut ? 'timed out' : `exited with code ${Number.isInteger(r.code) ? r.code : '?'}`}.`,
       data: { code: r.code, timed_out: !!r.timedOut },
       output: { text: r.output || '' },
     };

@@ -15,6 +15,21 @@ export const COMPUTER = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const ABS = /^(\/|~\/|~$|[A-Za-z]:[\\/])/;
 export const NAME = /^[A-Za-z0-9._-]{1,100}$/; // a project or repository name, as the setup routes take it
+export const VERSION = /^\d{1,6}(\.\d{1,6}){0,3}([-+][0-9A-Za-z.-]{1,30})?$/;
+
+/**
+ * What a summary or an error message may say of a value another computer gave (the checklist in tools.mjs): the
+ * value itself only when it is of this code's own form (`re`: a pattern, or a list of the ids this code knows);
+ * anything else is `word`, fixed words. What a computer says in its own words (a title, a why, a name, an error)
+ * goes into the fenced data, never here: a summary and an error message sit outside the fence.
+ */
+export function said(v, re, word) {
+  if (typeof v !== 'string') return word;
+  const ok = Array.isArray(re) ? re.includes(v) : re.test(v);
+  return ok ? v : word;
+}
+/** A number a computer gave, for a summary: a finite number or "?". */
+export const saidNum = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : '?');
 
 export const computer = ref('computer', str({ max: 32, pattern: COMPUTER, desc: `Computer name from get_computer_status; omit for this computer ("${LOCAL}").` }));
 export const session = ref('session', str({ max: 41, pattern: SESSION, desc: 'Session name exactly as list_sessions showed it.' }));
@@ -26,6 +41,8 @@ export const folder = str({ max: 1024, pattern: ABS, oneLine: true, desc: 'Absol
 // The coding tools this version offers (src/codetools/offered.mjs, the one switch), by their names in the page.
 export const CODING_TOOL_NAMES = Object.freeze({ claude: 'Claude Code', opencode: 'OpenCode', codex: 'Codex' });
 export const toolName = (id) => CODING_TOOL_NAMES[id] || id;
+/** A coding tool's name for a summary, from an id another computer gave: only an offered one is named. */
+export const saidTool = (id) => (OFFERED.includes(id) ? toolName(id) : 'another coding tool');
 /** "a Claude Code …" / "an OpenCode …" */
 export const aTool = (id) => `${/^[AEIOU]/.test(toolName(id)) ? 'an' : 'a'} ${toolName(id)}`;
 export const codingTool = str({ enum: [...OFFERED], desc: `The coding tool: ${OFFERED.map((id) => `"${id}" (${toolName(id)})`).join(', ')}. Leave it out for Claude Code; give it only when the owner named a coding tool.` });
@@ -39,7 +56,7 @@ export async function startOf(promise, tool) {
     return await promise;
   } catch (e) {
     if (!tool || tool === 'claude' || e.status !== 400) throw e;
-    throw toolError(`${toolName(tool)} could not start: ${String(e.message || 'refused').slice(0, 200)}`, 'get_computer_status with coding_tools: true shows which coding tools are on and installed there; manage_computer coding_tool turns one on and manage_computer update installs it (both cards), or leave coding_tool out for Claude Code');
+    throw toolError(`${toolName(tool)} could not start (the computer's answer is in the data)`, 'get_computer_status with coding_tools: true shows which coding tools are on and installed there; manage_computer coding_tool turns one on and manage_computer update installs it (both cards), or leave coding_tool out for Claude Code', { error: short(e.message || 'refused', 200) });
   }
 }
 
@@ -82,13 +99,19 @@ export function statusOf(c) {
   return ['starting', 'working', 'waiting', 'ended'].includes(c.status) ? c.status : 'unknown';
 }
 
+/**
+ * An error her tools tell her about. `message` and `next` are fixed words and validated ids only (they sit outside
+ * the fence); `detail`, when given, is what a computer said in its own words (its error text, a title, a why) and
+ * is told inside the fence (core.mjs errorText).
+ */
 export class ToolError extends Error {
-  constructor(message, next) {
+  constructor(message, next, detail) {
     super(message);
     this.next = next;
+    if (detail !== undefined) this.detail = detail;
   }
 }
-export const toolError = (message, next) => new ToolError(message, next);
+export const toolError = (message, next, detail) => new ToolError(message, next, detail);
 
 export const tool = (def) => def;
 

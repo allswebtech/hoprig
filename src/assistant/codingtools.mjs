@@ -13,15 +13,23 @@
 // themselves and another coding tool's sign-in stay the owner's: the door (door.mjs) never lets those through. No
 // action here touches a provider or a secret.
 import { str } from './schema.mjs';
-import { codingTool, comp, short, toolError, toolName } from './toolkit.mjs';
+import { OFFERED } from '../codetools/offered.mjs';
+import { VERSION, codingTool, comp, saidTool, short, toolError, toolName } from './toolkit.mjs';
 
 const ITEM = /^[a-z][a-z0-9-]{0,30}$/;
-const VERSION = /^\d{1,6}(\.\d{1,6}){0,3}([-+][0-9A-Za-z.-]{1,30})?$/;
-// The summary is built only from validated ids, versions and fixed words (the checklist in tools.mjs): what another
-// computer says of itself (a name, a title, a version) stays in the fenced data.
-const sumTool = (id) => (ITEM.test(String(id)) ? toolName(id) : 'a coding tool');
+// The rows of Settings → Updates this version has (src/automation/updateitems.mjs): Hoprig, the offered coding tools,
+// the tunnel helper. A summary or an error names only these, by their fixed names; any other id a computer reports
+// (and every name, title, why and version text it gives) stays in the fenced data (the checklist in tools.mjs).
+const ITEM_NAMES = Object.freeze({ hoprig: 'Hoprig', ...Object.fromEntries(OFFERED.map((id) => [id, toolName(id)])), cloudflared: 'the tunnel helper' });
+const sumItem = (id) => (typeof id === 'string' && Object.hasOwn(ITEM_NAMES, id) ? ITEM_NAMES[id] : 'another item');
 const sumVersion = (v) => (typeof v === 'string' && VERSION.test(v) ? v : v ? 'a version' : 'not installed');
-const sumItem = (id) => (ITEM.test(String(id)) ? toolName(id) : 'an item');
+/** Items for a summary: the known ones by name, the rest counted. */
+const sumItems = (ids) => {
+  const list = Array.isArray(ids) ? ids : [];
+  const known = list.filter((id) => typeof id === 'string' && Object.hasOwn(ITEM_NAMES, id)).map(sumItem);
+  const other = list.length - known.length;
+  return [...known, ...(other ? [`${other} other item(s) (see the data)`] : [])].join(', ') || 'nothing';
+};
 
 /** A row of Settings → Updates in Tia's words. */
 const rowView = (r) => ({
@@ -43,10 +51,10 @@ export async function codingToolsView(ops, c, { fresh = false } = {}) {
     coding_tool: x.id, name: x.name, on: !!x.on, installed: x.installed || null, providers: (x.providers || []).slice(0, 20),
   }));
   const rows = u.error ? null : (u.items || []).map(rowView);
-  const said = Array.isArray(tools) ? tools.map((x) => `${sumTool(x.coding_tool)} ${sumVersion(x.installed)} (${x.on ? 'on' : 'off'})`).join(', ') : 'not known';
+  const told = Array.isArray(tools) ? tools.map((x) => `${saidTool(x.coding_tool)} ${sumVersion(x.installed)} (${x.on ? 'on' : 'off'})`).join(', ') : 'not known';
   const avail = rows ? rows.filter((r) => r.action === 'update' && r.update_available) : [];
   return {
-    summary: `${fresh ? 'Looked again: c' : 'C'}oding tools on ${c}: ${said}. Updates: ${!rows ? 'not known' : avail.length ? `${avail.length} available (${avail.map((r) => sumItem(r.item)).join(', ')})` : 'nothing newer'}${u.running ? `; an update of ${sumItem(u.running)} runs now` : ''}.`,
+    summary: `${fresh ? 'Looked again: c' : 'C'}oding tools on ${c}: ${told}. Updates: ${!rows ? 'not known' : avail.length ? `${avail.length} available (${sumItems(avail.map((r) => r.item))})` : 'nothing newer'}${u.running ? `; an update of ${sumItem(u.running)} runs now` : ''}.`,
     data: {
       computer: c, coding_tools: tools,
       updates: rows ? { by_themselves: u.mode === 'auto', running: u.running || null, items: rows } : unknown(u.error),
@@ -70,16 +78,16 @@ async function updatePlan(ops, a) {
     throw e;
   }
   const rows = v.items || [];
-  if (v.running) throw toolError(`an update of ${v.running} runs on ${c} now`, 'wait until it ends (get_computer_status with coding_tools: true), then propose it again');
+  if (v.running) throw toolError(`an update of ${sumItem(v.running)} runs on ${c} now`, 'wait until it ends (get_computer_status with coding_tools: true), then propose it again');
   if (a.item === 'all') {
     const go = rows.filter((r) => r.action === 'update' && r.updateAvailable && !r.notInAll && !r.blocked);
     if (!go.length) throw toolError(`nothing on ${c} can be updated now`, 'get_computer_status with coding_tools: true shows each item and why it waits');
     return { item: 'all', title: 'everything that has an update', action: 'update', items: go.map((r) => `${r.title}: ${r.installed || '?'} → ${r.latest || 'newest'}`), lines: [] };
   }
   const r = rows.find((x) => x.id === a.item);
-  if (!r) throw toolError(`there is no "${a.item}" in Settings → Updates of ${c}`, `items: ${rows.map((x) => x.id).join(', ') || 'none'}, or "all"`);
-  if (!r.action) throw toolError(r.why || (r.installed ? `${r.title} is up to date on ${c}` : `${r.title} cannot be installed from here`), 'nothing to do; check_updates looks again');
-  if (r.blocked) throw toolError(`${r.title} must wait on ${c}: ${short(r.blocked, 160)}`, 'tell the owner what waits; do not stop his sessions for it');
+  if (!r) throw toolError(`there is no "${a.item}" in Settings → Updates of ${c}`, `items: ${rows.map((x) => x.id).filter((id) => Object.hasOwn(ITEM_NAMES, id)).join(', ') || 'see get_computer_status with coding_tools: true'}, or "all"`);
+  if (!r.action) throw toolError(r.installed ? `${sumItem(r.id)} has nothing to update on ${c}` : `${sumItem(r.id)} cannot be installed from here`, 'nothing to do; check_updates looks again', r.why ? { why: short(r.why, 160) } : undefined);
+  if (r.blocked) throw toolError(`${sumItem(r.id)} must wait on ${c} (why is in the data)`, 'tell the owner what waits; do not stop his sessions for it', { waits: short(r.blocked, 160) });
   const lines = [r.whenRunning, ...(r.note ? [r.note] : []), ...(r.action === 'install' && r.id !== 'hoprig' ? [`${r.title} is turned on after the install, so new sessions and chats offer it.`] : [])].filter(Boolean).map((l) => short(l, 300));
   return { item: r.id, title: r.title, action: r.action, installed: r.installed ?? null, latest: r.latest ?? null, lines };
 }
@@ -118,7 +126,7 @@ export const CODING_TOOL_ACTIONS = {
       const skipped = (r.skipped || []).map((x) => ({ item: x.id, why: short(x.why, 160) }));
       return {
         summary: r.started
-          ? `${b.action === 'install' ? 'The install' : 'The update'} of ${(r.ids || []).join(', ')} started on ${c}; get_computer_status with coding_tools: true shows the result when it ends.${skipped.length ? ` Left out: ${skipped.map((x) => x.item).join(', ')}.` : ''}`
+          ? `${b.action === 'install' ? 'The install' : 'The update'} of ${sumItems(r.ids)} started on ${c}; get_computer_status with coding_tools: true shows the result when it ends.${skipped.length ? ` Left out: ${sumItems(skipped.map((x) => x.item))} (why is in the data).` : ''}`
           : `Nothing was started on ${c}.`,
         data: { computer: c, started: !!r.started, items: r.ids || [], skipped },
       };
@@ -133,19 +141,25 @@ export const CODING_TOOL_ACTIONS = {
       const v = await ops.codingTools({ computer: c });
       const t = (v.tools || []).find((x) => x.id === a.coding_tool);
       if (!t) throw toolError(`${toolName(a.coding_tool)} is not offered on ${c}`, 'that computer runs an older Hoprig: tell the owner');
-      if (!!t.on === on) throw toolError(`${t.name} is already ${a.turn} on ${c}`, 'nothing to do');
-      if (on && !t.installed) throw toolError(`${t.name} is not installed on ${c}`, `manage_computer update with item "${t.id}" installs it and turns it on (a card)`);
-      if (!on && !(v.tools || []).some((x) => x.on && x.id !== t.id)) throw toolError(`${t.name} is the only coding tool on ${c}: one always stays on`, 'turn another one on first');
+      // a.coding_tool is one of the offered ids (the schema's enum): the errors name it by this code's own name.
+      const name = toolName(a.coding_tool);
+      if (!!t.on === on) throw toolError(`${name} is already ${a.turn} on ${c}`, 'nothing to do');
+      if (on && !t.installed) throw toolError(`${name} is not installed on ${c}`, `manage_computer update with item "${a.coding_tool}" installs it and turns it on (a card)`);
+      if (!on && !(v.tools || []).some((x) => x.on && x.id !== t.id)) throw toolError(`${name} is the only coding tool on ${c}: one always stays on`, 'turn another one on first');
       return { tool: t.id, name: t.name, on: !!t.on, installed: t.installed || null };
     },
     cardLines: (a, b) => [
-      `Turn ${b.name} ${a.turn.toUpperCase()} on ${comp(a)} (installed: ${b.installed || 'no'})`,
+      `Turn ${toolName(a.coding_tool)} ${a.turn.toUpperCase()} on ${comp(a)} (installed: ${b.installed || 'no'})`,
       a.turn === 'on' ? 'New sessions and chats then offer it; it runs only on providers that serve it.' : 'New sessions and chats no longer offer it; nothing is uninstalled.',
     ],
     async run(ops, a) {
       const r = await ops.setCodingTool({ computer: comp(a), id: a.coding_tool, on: a.turn === 'on' });
-      const on = (r.tools || []).filter((x) => x.on).map((x) => x.name);
-      return { summary: `${toolName(a.coding_tool)} is ${a.turn} on ${comp(a)}; on now: ${on.join(', ') || 'unknown'}.`, data: { coding_tool: a.coding_tool, on: a.turn === 'on' } };
+      const on = (r.tools || []).filter((x) => x && x.on);
+      // The coding tools that are on, by this code's names; what the computer calls them is in the data.
+      return {
+        summary: `${toolName(a.coding_tool)} is ${a.turn} on ${comp(a)}; on now: ${on.map((x) => saidTool(x.id)).join(', ') || 'unknown'}.`,
+        data: { coding_tool: a.coding_tool, on: a.turn === 'on', on_now: on.map((x) => ({ coding_tool: x.id, name: short(x.name, 60) })) },
+      };
     },
   },
 };

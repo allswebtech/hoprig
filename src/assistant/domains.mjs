@@ -17,7 +17,7 @@
 // Text that comes from a project (names, files, git output), a brain file or a skill review is DATA: it is fenced.
 import { arr, bool, int, obj, ref, str } from './schema.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
-import { NAME, actionTool, comp, computer, folder, minsAgo, session, sessKey, short, toolError, typedTextRisk } from './toolkit.mjs';
+import { COMPUTER, NAME, actionTool, comp, computer, folder, minsAgo, said, saidNum, session, sessKey, short, toolError, typedTextRisk } from './toolkit.mjs';
 import { CODING_TOOL_ACTIONS, CODING_TOOL_FIELDS } from './codingtools.mjs';
 
 const at = (c, id) => `${c}|${id}`;
@@ -85,7 +85,7 @@ function mapView(m, c) {
 function gitView(g, c) {
   const b = g.brain || {};
   return {
-    summary: `Git on ${c}: ${g.identity && g.identity.set ? 'a commit identity is set' : 'NO commit identity yet'}; GitHub ${g.gh && g.gh.signedIn ? `signed in as ${String(g.gh.account || 'unknown').slice(0, 40)}` : g.gh && g.gh.installed ? 'not signed in' : 'not installed'}.`,
+    summary: `Git on ${c}: ${g.identity && g.identity.set ? 'a commit identity is set' : 'NO commit identity yet'}; GitHub ${g.gh && g.gh.signedIn ? 'signed in (the account is in the data)' : g.gh && g.gh.installed ? 'not signed in' : 'not installed'}.`,
     data: { identity_set: !!(g.identity && g.identity.set), github: g.gh ? { installed: !!g.gh.installed, signed_in: !!g.gh.signedIn, account: g.gh.account || null } : 'unknown', git_uses_github_sign_in: g.gitUsesGh ?? 'unknown', brain: b },
     shown: { address: [b.remote, b.url].filter((x) => typeof x === 'string') },
   };
@@ -103,9 +103,10 @@ export const read_brain = {
     if (a.item) {
       const r = await ops.brainItem({ computer: c, id: a.item });
       return {
-        summary: `One brain entry (${r.size || 0} bytes${r.cut ? ', cut to the size limit' : ''}${r.masked ? ', secrets masked' : ''}).`,
+        summary: `One brain entry (${saidNum(r.size || 0)} bytes${r.cut ? ', cut to the size limit' : ''}${r.masked ? ', secrets masked' : ''}).`,
         data: { item: r.id, title: short(r.title, 120), file: r.file, modified: r.modified || null },
-        file: { name: r.file || r.id, text: r.text || '' },
+        // The fence's name is the id she asked for (validated by its schema), not the file name the computer gave.
+        file: { name: a.item, text: r.text || '' },
       };
     }
     const idx = await ops.brainIndex({ computer: c });
@@ -181,7 +182,7 @@ const KIT = /^[a-z0-9][a-z0-9-]{0,30}$/;
 function setupAnswer(c, what, r) {
   if (r && r.started) return { summary: `${what} started on ${c} as a job; its output and result are on that computer's Setup page.`, data: { started: true } };
   if (r && r.needsPassword) return { summary: `Nothing started: ${what} needs the administrator password of ${c}. Tell the owner to open that computer's Setup page and run it there; the page asks for the password.`, data: { started: false, needs: 'password' } };
-  if (r && r.needsTerminal) return { summary: `Nothing started: ${what} needs someone at ${c} (${r.why}). Tell the owner to run it from that computer's Setup page.`, data: { started: false, needs: 'person' } };
+  if (r && r.needsTerminal) return { summary: `Nothing started: ${what} needs someone at ${c} (why is in the data). Tell the owner to run it from that computer's Setup page.`, data: { started: false, needs: 'person', why: r.why ? short(r.why, 200) : null } };
   return { summary: `${what} on ${c} did not start.`, data: { started: false } };
 }
 const ADDON = /^[a-z0-9][a-z0-9-]{0,30}$/;
@@ -222,7 +223,9 @@ export const manage_computer = actionTool({
       cardLines: (a) => [`Add the computer ${a.ssh_target}${a.name ? ` as ${a.name}` : ''}, by SSH (a key login; Hoprig pairs itself there)`],
       async run(ops, a) {
         const r = await ops.addComputer({ sshTarget: a.ssh_target, name: a.name || null });
-        return { summary: `Added the computer ${r.name}.`, data: { computer: r.name }, shown: { computer: [r.name] } };
+        // Its name is the computer's answer: used (in the summary, as an id she may use) only in a computer name's form.
+        const name = said(r.name, COMPUTER, null);
+        return { summary: `Added the computer ${name || '(its name is in the data)'}.`, data: { computer: r.name }, ...(name ? { shown: { computer: [name] } } : {}) };
       },
     },
     rename: {
@@ -257,7 +260,7 @@ export const manage_computer = actionTool({
         const k = await ops.setupKits({ computer: comp(a) });
         const chosen = a.kits.map((id) => (k.kits || []).find((x) => x.id === id));
         const bad = a.kits.filter((id, i) => !chosen[i]);
-        if (bad.length) throw toolError(`not setup kits: ${bad.join(', ')}`, `use these: ${(k.kits || []).map((x) => x.id).join(', ')}`);
+        if (bad.length) throw toolError(`not setup kits: ${bad.join(', ')}`, `use these: ${(k.kits || []).map((x) => said(x && x.id, KIT, null)).filter(Boolean).join(', ') || 'see get_computer_status with setup: true'}`);
         return { kits: chosen.map((x) => ({ id: x.id, title: x.title, commands: x.commands || [], admin: !!x.admin })) };
       },
       cardLines: (a, b) => [
@@ -298,7 +301,7 @@ export const manage_computer = actionTool({
       before: async (ops, a) => {
         const r = await ops.addons({ computer: comp(a) });
         const x = (r.addons || []).find((y) => y.id === a.addon);
-        if (!x) throw toolError(`there is no add-on "${a.addon}"`, `add-ons: ${(r.addons || []).map((y) => y.id).join(', ') || 'none'}`);
+        if (!x) throw toolError(`there is no add-on "${a.addon}"`, `add-ons: ${(r.addons || []).map((y) => said(y && y.id, ADDON, null)).filter(Boolean).join(', ') || 'none'}`);
         return { addon: x.id, title: x.title, installed: !!x.installed, running: !!x.running, version: x.version || null };
       },
       cardLines: (a, b) => [`${{ install: 'Install', update: 'Update', start: 'Start', stop: 'Stop' }[a.addon_action]} the add-on ${b.title} on ${comp(a)}`, `Now: ${b.installed ? `installed${b.version ? ` (${b.version})` : ''}, ${b.running ? 'running' : 'stopped'}` : 'not installed'}`],
@@ -386,8 +389,8 @@ function syncResult(j, what) {
   const repos = (d.repos || []).map((x) => ({ repo: x.label, did: x.did || [], needs_a_decision: (x.todo || []).map((t) => ({ kind: t.kind || null, why: t.why, command: t.command || null })) }));
   const todo = repos.reduce((n, x) => n + x.needs_a_decision.length, 0);
   return {
-    summary: `${what} ${j.ok === false && !todo ? `did not finish: ${short(j.error, 160)}` : 'is done'}.${todo ? ` ${todo} thing(s) need a decision: they were NOT done; tell the owner.` : ''}`,
-    data: { repos, memory: d.memory || [], tools_left_alone: d.tools || [] },
+    summary: `${what} ${j.ok === false && !todo ? 'did not finish (why is in the data)' : 'is done'}.${todo ? ` ${todo} thing(s) need a decision: they were NOT done; tell the owner.` : ''}`,
+    data: { repos, memory: d.memory || [], tools_left_alone: d.tools || [], ...(j.ok === false && j.error ? { error: short(j.error, 160) } : {}) },
     output: { text: (j.lines || []).join('\n') },
   };
 }
@@ -395,7 +398,7 @@ function syncResult(j, what) {
 const jobResult = (j, what) => {
   if (!j) return { summary: `${what}: nothing was started.`, data: {} };
   if (j.running) return { summary: `${what} is still running; look again with list_projects in a minute.`, data: { running: true }, output: { text: (j.lines || []).join('\n') } };
-  return { summary: `${what} ${j.ok ? 'is done' : `did not finish: ${short(j.error, 160)}`}.`, data: { ok: !!j.ok, result: j.data || null }, output: { text: (j.lines || []).join('\n') } };
+  return { summary: `${what} ${j.ok ? 'is done' : 'did not finish (why is in the data)'}.`, data: { ok: !!j.ok, result: j.data || null, ...(j.ok ? {} : { error: short(j.error, 160) }) }, output: { text: (j.lines || []).join('\n') } };
 };
 
 export const manage_project = actionTool({
@@ -852,7 +855,7 @@ export const manage_skills = actionTool({
       async run(ops, a) {
         const r = await ops.skillsFind({ computer: comp(a), query: a.query });
         const list = [...(r.catalog || []), ...(r.online || [])].slice(0, 20).map((x) => ({ spec: x.add || x.id || null, skill: x.name, source: x.source, for: x.for || null, license: x.license || null, installs: x.installs ?? null }));
-        return { summary: `${list.length} skill(s) found${r.error ? ` (${short(r.error, 100)})` : ''}.`, data: { results: list } };
+        return { summary: `${list.length} skill(s) found${r.error ? ' (a source had a problem: see the data)' : ''}.`, data: { results: list, ...(r.error ? { problem: short(r.error, 100) } : {}) } };
       },
     },
     check_updates: {
@@ -872,7 +875,8 @@ export const manage_skills = actionTool({
         const r = await ops.skillReview({ computer: comp(a), spec: a.spec, project: a.project });
         const v = reviewView(r);
         ctx.memo.set(at(comp(a), r.id), { ...v, kind: 'install' });
-        return { summary: `Reviewed ${v.skill || a.spec}: ${v.files.length} file(s), ${v.scan.length} scan finding(s)${v.blocked ? ', and it is BLOCKED (cannot be installed)' : ''}. Show the owner the findings before proposing install.`, data: v, review: { name: v.skill || a.spec, text: `${r.description || ''}\n\n${r.skillMd || ''}` }, shown: { review: [at(comp(a), r.id)] } };
+        // Named by what she asked for (a.spec, validated); the skill's own name is the downloaded text's, in the data.
+        return { summary: `Reviewed ${a.spec}: ${v.files.length} file(s), ${v.scan.length} scan finding(s)${v.blocked ? ', and it is BLOCKED (cannot be installed)' : ''}. Show the owner the findings before proposing install.`, data: v, review: { name: a.spec, text: `${r.description || ''}\n\n${r.skillMd || ''}` }, shown: { review: [at(comp(a), r.id)] } };
       },
     },
     update_review: {

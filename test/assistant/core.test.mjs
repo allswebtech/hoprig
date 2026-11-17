@@ -473,7 +473,8 @@ test('handler errors become plain errors with a next step, never a stack', async
   };
   const r = await call('read_session', { session: 'web-ui' });
   assert.equal(r.isError, true);
-  assert.match(r.text, /^Error: read_session failed: boom/);
+  assert.match(r.text, /^Error: read_session failed \(what the dashboard said is in the data\)/);
+  assert.match(r.text, /<untrusted_data tool="read_session" said="error">\{"error":"boom/, 'the route\'s own words are told inside the fence');
   assert.match(r.text, /Next:/);
   assert.match((await call('list_projects', { folder: '/etc' })).text, /unknown \(folder not found or not allowed\)/);
 });

@@ -9,10 +9,14 @@
 //
 // A chat is "chat:<id>" among the sessions (list_sessions); a terminal session stays start_session's and
 // send_to_session's.
+import { PERMISSION_MODES } from '../config.mjs';
 import { bool, obj, str } from './schema.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
 import { LOCAL } from './shown.mjs';
-import { account, codingTool, comp, computer, conversation, folder, job, session, providerNote, sessKey, startOf, statusOf, tool, toolError, toolName, aTool } from './toolkit.mjs';
+import { UUID, account, codingTool, comp, computer, conversation, folder, job, said, session, short, providerNote, sessKey, startOf, statusOf, tool, toolError, toolName, aTool } from './toolkit.mjs';
+
+// A chat's permission mode, as a summary may name it: one of the modes this code knows (anything else is data).
+const MODES = ['default', ...PERMISSION_MODES];
 
 const CHAT = /^chat:([0-9a-f-]{36})$/;
 const chatIdOf = (name) => (CHAT.exec(name) || [])[1] || null;
@@ -49,12 +53,16 @@ export const start_chat = tool({
   async run(ops, a, ctx) {
     const tool = a.coding_tool || 'claude';
     const r = await startOf(ops.startChat({ computer: comp(a), folder: a.folder, profile: a.account, sessionId: a.conversation || null, text: a.message || null, ...(a.coding_tool ? { tool: a.coding_tool } : {}) }), a.coding_tool);
+    // The chat's id is the computer's answer: only one of the form a chat id has is used (in the summary, the name).
+    if (!UUID.test(String(r && r.id))) throw toolError('the computer answered without a chat id this dashboard can use', 'list_sessions shows whether a chat was opened; tell the owner');
     const name = `chat:${r.id}`;
     // The first message is not sent where the conversation already runs elsewhere (a terminal, an open chat).
     // The dashboard opened the chat but started nothing in it (a terminal or another chat runs the conversation): she
     // says so, with what to do next, and never that it started.
     const held = !!a.message && r.sent === false;
-    const sent = !a.message ? '' : held ? `. The first message was NOT sent: ${r.why || 'the conversation runs elsewhere'}. Read it with read_session and send it with send_to_chat once that has ended, or ask the owner` : ' with the first message';
+    // Why it was held is the computer's sentence: in the data (why_not_sent), never in the summary.
+    const sent = !a.message ? '' : held ? '. The first message was NOT sent: the conversation runs elsewhere (why_not_sent in the data). Read it with read_session and send it with send_to_chat once that has ended, or ask the owner' : ' with the first message';
+    const whyNot = held && r.why ? short(r.why, 200) : null;
     let j = null;
     if (a.goal) j = ctx.jobs.create({ conversation: ctx.conversation, goal: a.goal });
     else if (a.job) j = ctx.jobs.get(a.job);
@@ -73,18 +81,21 @@ export const start_chat = tool({
       // The conversation is open in a chat already, the owner's as a rule: she did not start it and it is not hers.
       // Its OKs and messages stay under the rules for someone else's chat, and it keeps its own mode (even bypass).
       if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: false, created });
-      const mode = r.permissionMode ? ` (permission mode: ${r.permissionMode})` : '';
+      const mode = r.permissionMode ? ` (permission mode: ${said(r.permissionMode, MODES, 'one this dashboard does not know; see the data')})` : '';
       return {
         summary: `This conversation is already open in chat ${name} on ${comp(a)}, which you did not start: it runs with its own permission mode, model and effort${mode}, and its OKs are the owner's${sent}.${j ? ` Job ${j.id} watches it.` : ''}`,
-        data: { session: name, computer: comp(a), already_open: true, permission_mode: r.permissionMode || null, job: j ? j.id : null, message_sent: a.message ? r.sent !== false : null },
+        data: { session: name, computer: comp(a), already_open: true, permission_mode: r.permissionMode || null, job: j ? j.id : null, message_sent: a.message ? r.sent !== false : null, why_not_sent: whyNot },
         shown: { session: [sessKey(comp(a), name)], ...(j ? { job: [j.id] } : {}) },
       };
     }
-    // Hers by the chat's own mark (byTia, set by the dashboard on the chat this start created), not by its name.
-    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: true, created });
+    // Hers by the chat's own mark (byTia, set by the dashboard on the chat this start created), not by its name. A chat
+    // on an earlier conversation is never hers (the safe side, her own earlier one too): its history holds the owner's
+    // words, so its OKs stay his.
+    const continued = !!a.conversation;
+    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: !continued, created });
     return {
-      summary: `${held ? 'Opened' : 'Started'} chat ${name} (${toolName(tool)}) on ${comp(a)} under ${a.account}${providerNote(ctx)}${a.conversation ? ', continuing the earlier conversation' : ''}${sent}. It runs with the permission mode, model and effort of Settings → New-session defaults.${tool === 'claude' ? '' : ` Every OK it asks for is the owner's: you cannot answer the OKs of ${aTool(tool)} chat.`} The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
-      data: { session: name, computer: comp(a), coding_tool: tool, account: a.account, account_label: ctx.accountLabel || null, account_why: ctx.accountWhy || null, job: j ? j.id : null, message_sent: a.message ? r.sent !== false : null },
+      summary: `${held ? 'Opened' : 'Started'} chat ${name} (${toolName(tool)}) on ${comp(a)} under ${a.account}${providerNote(ctx)}${continued ? ', continuing the earlier conversation' : ''}${sent}. It runs with the permission mode, model and effort of Settings → New-session defaults.${continued ? ' It continues an earlier conversation, so it is not yours: every OK it asks for is the owner\'s, and you cannot answer it.' : tool === 'claude' ? '' : ` Every OK it asks for is the owner's: you cannot answer the OKs of ${aTool(tool)} chat.`} The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
+      data: { session: name, computer: comp(a), coding_tool: tool, account: a.account, account_label: ctx.accountLabel || null, account_why: ctx.accountWhy || null, job: j ? j.id : null, message_sent: a.message ? r.sent !== false : null, why_not_sent: whyNot },
       shown: { session: [sessKey(comp(a), name)], ...(j ? { job: [j.id] } : {}) },
     };
   },

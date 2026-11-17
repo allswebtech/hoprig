@@ -82,7 +82,13 @@ class BoundedMap extends Map {
   }
 }
 
-const errorText = (message, next) => `Error: ${message}.${next ? ` Next: ${next}.` : ''}`;
+/**
+ * An error as she reads it. The message and the next step are this code's own words (and ids it validated); what a
+ * computer said in its own words (a route's error text, a title, a why) comes only as `detail`, inside the fence.
+ */
+const errorText = (message, next, detail, tool) => `Error: ${message}.${next ? ` Next: ${next}.` : ''}${detail !== undefined ? `\n${fenceData({ tool, said: 'error' }, detail)}` : ''}`;
+/** What an error that is not a ToolError said (a route's answer, as a rule): data, never words of the message. */
+const errorDetail = (e) => ({ error: String((e && e.message) || 'unknown error').slice(0, 300) });
 
 export function createAssistantCore({
   ops,
@@ -200,7 +206,7 @@ export function createAssistantCore({
       if (tool.check) tool.check(args, ctxFor(conversation));
     } catch (e) {
       if (e instanceof SchemaError) return { isError: true, text: errorText(`invalid input for ${name}: ${e.message}`, 'fix that field and call again (see the tool schema)') };
-      if (e instanceof ToolError) return { isError: true, text: errorText(e.message, e.next) };
+      if (e instanceof ToolError) return { isError: true, text: errorText(e.message, e.next, e.detail, name) };
       throw e;
     }
     const log = (outcome, extra = {}) => (extra.level || baseLevel(tool, args)) !== 'L0' && audit.append({ actor, conversation, tool: name, level: extra.level || baseLevel(tool, args), input: args, outcome, ...extra });
@@ -252,10 +258,10 @@ export function createAssistantCore({
     } catch (e) {
       if (e instanceof ToolError) {
         log('failed', { error: e.message });
-        return { isError: true, text: errorText(e.message, e.next) };
+        return { isError: true, text: errorText(e.message, e.next, e.detail, name) };
       }
       log('failed', { error: e.message });
-      return { isError: true, text: errorText(`${name} failed: ${neutralize(e.message || 'unknown error', 300)}`, e.status === 404 ? 'call list_sessions or get_computer_status to see what exists now' : 'check the state with a read tool, then try once more or tell the owner') };
+      return { isError: true, text: errorText(`${name} failed (what the dashboard said is in the data)`, e.status === 404 ? 'call list_sessions or get_computer_status to see what exists now' : 'check the state with a read tool, then try once more or tell the owner', errorDetail(e), name) };
     }
   }
 
@@ -290,7 +296,7 @@ export function createAssistantCore({
     } catch (e) {
       if (cards.get(id)?.status === 'pending') cards.markStale(id);
       log('stale', { error: e.message });
-      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it could not run: ${neutralize(e.message, 300)}. Nothing was done.`);
+      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it could not run. Nothing was done.\n${e instanceof ToolError ? errorText(e.message, e.next, e.detail, card.tool) : fenceData({ tool: card.tool, said: 'error' }, errorDetail(e))}`);
       return { ok: false, error: e.message, code: 'stale' };
     }
     try {
@@ -312,7 +318,7 @@ export function createAssistantCore({
     } catch (e) {
       cards.finish(id, { ok: false, error: e.message });
       log('failed', { error: e.message });
-      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it failed: ${neutralize(e.message, 300)}.`);
+      tell(conversation, id, `The owner confirmed card ${id} (${card.tool}), but it failed.\n${e instanceof ToolError ? errorText(e.message, e.next, e.detail, card.tool) : fenceData({ tool: card.tool, said: 'error' }, errorDetail(e))}`);
       return { ok: false, error: e.message };
     }
   }

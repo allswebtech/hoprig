@@ -23,7 +23,7 @@
 //   model        null (default: the account's own) or the model her engine uses, e.g. "haiku"
 
 import path from 'node:path';
-import { toolName } from './toolkit.mjs';
+import { ACCOUNT, toolName } from './toolkit.mjs';
 
 /** One constant for the name, so a fork can rename her. */
 export const ASSISTANT_NAME = 'Tia';
@@ -140,10 +140,12 @@ export function freePct(p) {
 /**
  * The real providers Tia may be allowed to use: the ones that serve a coding tool of this version (she starts Claude
  * Code sessions and chats, and moves a session within its coding tool). One that serves none (`unusable`, or an
- * empty `tools` list: another coding tool's sign-in, a key only Codex could use) is never offered to her.
+ * empty `tools` list: another coding tool's sign-in, a key only Codex could use) is never offered to her. Nor is one
+ * whose name is not of a provider name's form: a provider's name goes into her summaries and refusals (outside the
+ * fence), so a linked computer cannot put its own sentence there by naming a provider with it.
  */
 export const tiaChoices = (accounts) => ((accounts && accounts.profiles) || [])
-  .filter((p) => !p.virtual && p.name !== 'auto' && !p.unusable && (!Array.isArray(p.tools) || p.tools.length > 0));
+  .filter((p) => p && ACCOUNT.test(String(p.name)) && !p.virtual && p.name !== 'auto' && !p.unusable && (!Array.isArray(p.tools) || p.tools.length > 0));
 
 /**
  * Whether a provider (as get_accounts lists it: `tools` = the coding tools it serves; absent on older computers, which

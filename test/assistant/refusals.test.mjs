@@ -36,7 +36,10 @@ test('start_chat whose first message the dashboard did not send (a terminal or a
     assert.equal(r.isError, false, r.text);
     assert.match(r.text, /^Opened chat chat:/, why);
     assert.doesNotMatch(r.text, /Started/, `${why}: no start is reported`);
-    assert.ok(r.text.includes(`The first message was NOT sent: ${why}. Read it with read_session and send it with send_to_chat once that has ended, or ask the owner`), r.text);
+    assert.ok(r.text.includes('The first message was NOT sent: the conversation runs elsewhere (why_not_sent in the data). Read it with read_session and send it with send_to_chat once that has ended, or ask the owner'), r.text);
+    // The computer's own sentence is data: in the fence, never on the summary line.
+    assert.ok(!r.text.split('\n')[0].includes(why), r.text);
+    assert.ok(r.text.includes(`"why_not_sent":"${why}"`), r.text);
     assert.match(r.text, /"message_sent": ?false/);
   }
 });
