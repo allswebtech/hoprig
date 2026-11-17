@@ -4,8 +4,8 @@
 // content filters, diff converters, signature checkers. A read through here never starts one of them:
 // - fixed settings on the command line (-c outranks the folder's file): no fsmonitor, hooks from the null device,
 //   every signature program (OpenPGP, SSH, X.509) and the alternate refs command set to nothing (a signature check
-//   then answers that nothing could be checked), no submodule recursion, no transport (a partial clone would fetch a
-//   missing object);
+//   then answers that nothing could be checked), no merge again for a merge commit's diff (a merge driver would run),
+//   no submodule recursion, no transport (a partial clone would fetch a missing object);
 // - diff, show and log never use an external diff or a text converter (--no-ext-diff --no-textconv), and neither
 //   they nor status look inside a submodule's files (--ignore-submodules=dirty: a submodule's own settings are not
 //   listed here, and git would compare its files with its own filters);
@@ -36,6 +36,9 @@ export const FIXED = [
   `core.hooksPath=${os.devNull}`,
   'log.showSignature=false', // git's default; a signature check would otherwise come with every log
   'format.pretty=medium', // git's default; the folder's own could be a format with %G (a signature check)
+  // git's default; the folder's own "remerge" makes log -m and show -m merge a merge commit's parents again, which
+  // starts the merge driver its .gitattributes names (merge.<name>.driver).
+  'log.diffMerges=separate',
   // Every program a signature check can start, whatever spelling asks for one (%G?, %(signature), --sort=signature,
   // ...): an empty name runs nothing (git: "cannot run"), and the read answers that the signature could not be checked.
   // (gpg.openpgp.program is gpg.program's other name: git keeps the one it reads last, both are set here.)

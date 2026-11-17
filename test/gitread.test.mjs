@@ -76,6 +76,37 @@ test('a submodule\'s own filter does not run in a status of the repository aroun
   }
 });
 
+test('a merge commit\'s diff never merges its parents again: the folder\'s merge driver does not run', { skip }, async () => {
+  const dir = path.join(root, 'merged');
+  const ran = path.join(root, 'merge-driver-ran');
+  const driver = path.join(root, 'merge-driver');
+  fs.writeFileSync(driver, `#!/bin/sh\n: > '${ran}'\ncat "$2" > "$1"\n`, { mode: 0o755 });
+  fs.mkdirSync(dir);
+  const g = (...a) => execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', '-c', 'core.hooksPath=/dev/null', ...a], { cwd: dir, env, stdio: 'pipe' });
+  g('init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(dir, 'f.txt'), 'base\n');
+  fs.writeFileSync(path.join(dir, '.gitattributes'), '*.txt merge=evil\n');
+  g('add', '-A');
+  g('commit', '-qm', 'base');
+  g('checkout', '-qb', 'side');
+  fs.writeFileSync(path.join(dir, 'f.txt'), 'side\n');
+  g('commit', '-qam', 'side');
+  g('checkout', '-q', 'main');
+  fs.writeFileSync(path.join(dir, 'f.txt'), 'main\n');
+  g('commit', '-qam', 'main');
+  g('config', 'merge.evil.driver', `${driver} %A %B %O`);
+  g('merge', '-q', '-m', 'merged', 'side');
+  fs.rmSync(ran, { force: true });
+  // "remerge": -m shows a merge commit by merging its parents again, and that merge starts the folder's driver.
+  g('config', 'log.diffMerges', 'remerge');
+  for (const args of [['log', '-m', '-p', '-1'], ['show', '-m', 'HEAD'], ['log', '-m', '--name-only', '-1']]) {
+    const r = await gitRead(dir, args, { env });
+    assert.equal(r.ok, true, `${args.join(' ')}: ${r.stderr}`);
+    assert.equal(fs.existsSync(ran), false, `git ${args.join(' ')} started the folder's merge driver`);
+  }
+  assert.equal((await gitRead(dir, ['show', '--remerge-diff', 'HEAD'], { env }).catch((e) => e)).message, 'a read cannot ask for --remerge-diff');
+});
+
 test('the caller\'s GIT_* never reach git: another repository, an external diff, settings of its own', { skip }, async () => {
   const other = path.join(root, 'other');
   execFileSync('git', ['init', '-q', '-b', 'other', other], { env });
