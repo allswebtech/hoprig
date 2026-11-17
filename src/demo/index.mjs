@@ -69,6 +69,10 @@ const KEEP = new Set([
   'TMPDIR', 'TEMP', 'TMP', // the temp folder: the demo's own folder is there, and the second computer's ready file
   // Windows itself: its folder, its command shell, how a program name is found, the system drive.
   'SystemRoot', 'SYSTEMROOT', 'windir', 'WINDIR', 'ComSpec', 'COMSPEC', 'PATHEXT', 'SystemDrive', 'SYSTEMDRIVE',
+  // Where Windows' programs and PowerShell's modules are: a demo terminal's PowerShell loads its own modules from
+  // there. Folders of the system, the same for every user, no secret (the user's own AppData is the demo's below).
+  'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432',
+  'ProgramData', 'PSModulePath',
 ]);
 const kept = (k) => KEEP.has(k) || k.startsWith('LC_');
 
@@ -89,6 +93,7 @@ export function isolate(root, env = process.env) {
     // a real name in it).
     HOME: home,
     USERPROFILE: home, // Windows' home folder
+    ...(process.platform === 'win32' ? { APPDATA: path.join(home, 'AppData', 'Roaming'), LOCALAPPDATA: path.join(home, 'AppData', 'Local') } : {}),
     // The other coding tools' own folders too (OpenCode reads XDG_CONFIG_HOME, Codex CODEX_HOME): the AI brain's
     // Link in the demo must never reach the real ones.
     XDG_CONFIG_HOME: path.join(home, '.config'),

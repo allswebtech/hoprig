@@ -173,12 +173,16 @@ test('demo: its environment keeps only what it needs; no secret, nothing else of
       OPENAI_API_KEY: 'k', CODEX_API_KEY: 'k', OPENCODE_PASSWORD: 'k', HOPRIG_OPENCODE_KEY_WORK: 'k', HOPRIG_CODEX_KEY_WORK: 'k',
       HOPRIG_ASSISTANT_TOKEN: 'k', ANTHROPIC_CUSTOM_HEADERS: 'k', CLAUDE_CODE_OAUTH_TOKEN: 'k', AWS_SECRET_ACCESS_KEY: 'k',
       SSH_AUTH_SOCK: '/run/agent', DISPLAY: ':0', USER: 'someone', HOSTNAME: 'real-host', HISTFILE: '/real/history',
+      ProgramFiles: 'C:\\Program Files', PSModulePath: 'C:\\Program Files\\WindowsPowerShell\\Modules', APPDATA: 'C:\\Users\\someone\\AppData\\Roaming',
     };
     const home = isolate(root, env);
     assert.deepEqual(Object.keys(env).filter(isSecretVar), []);
     for (const k of ['AWS_SECRET_ACCESS_KEY', 'SSH_AUTH_SOCK', 'DISPLAY', 'USER', 'HOSTNAME', 'HISTFILE']) assert.equal(env[k], undefined, k);
     assert.deepEqual([env.LANG, env.LC_ALL, env.TERM, env.TMPDIR], ['en_US.UTF-8', 'C.UTF-8', 'xterm-256color', '/tmp/x']);
     assert.equal(env.HOME, home);
+    // Windows' own program folders stay for a demo terminal's PowerShell; the person's AppData does not.
+    assert.deepEqual([env.ProgramFiles, env.PSModulePath], ['C:\\Program Files', 'C:\\Program Files\\WindowsPowerShell\\Modules']);
+    assert.notEqual(env.APPDATA, 'C:\\Users\\someone\\AppData\\Roaming');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
