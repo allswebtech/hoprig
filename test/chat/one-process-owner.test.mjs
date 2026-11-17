@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { earlierIdentity, sandbox } from '../server/helpers.mjs';
+import { earlierIdentity, lstart, sandbox } from '../server/helpers.mjs';
 
 const box = sandbox('owner');
 test.after(() => box.cleanup());
@@ -165,9 +165,8 @@ const askedSystem = (platform, pid) => {
   const clock = { now: Math.floor(Date.now() / 1000) * 1000 }; // whole seconds: ps says no less
   const own = clock.now - 60_000;
   const holder = { start: clock.now - 120_000 };
-  const el = (s) => { const x = Math.round((clock.now - s) / 1000); return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
   const calls = [];
-  const run = () => (calls.push(1), platform === 'win32' ? `${process.pid} ${own}\r\n${pid} ${holder.start}\r\n` : `${process.pid} ${el(own)}\n${pid} ${el(holder.start)}\n`);
+  const run = () => (calls.push(1), platform === 'win32' ? `${process.pid} ${own}\r\n${pid} ${holder.start}\r\n` : `${process.pid} ${lstart(own)}\n${pid} ${lstart(holder.start)}\n`);
   return { clock, holder, calls, ident: makeIdentity({ platform, run, now: () => clock.now, ownStart: own, osUptime: () => 3600 }) };
 };
 

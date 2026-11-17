@@ -49,6 +49,15 @@ export function launched(argv) {
   return [...argv.slice(0, i), ...JSON.parse(fs.readFileSync(argv[i + 1], 'utf8')).argv];
 }
 
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** What macOS's `ps -o lstart=` prints (C locale, UTC) for a process started at `ms`: "Tue Nov 17 06:38:18 2026". */
+export function lstart(ms) {
+  const d = new Date(ms);
+  const two = (n) => String(n).padStart(2, '0');
+  return `${DAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${String(d.getUTCDate()).padStart(2, ' ')} ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())} ${d.getUTCFullYear()}`;
+}
+
 /**
  * The identity (src/procid.mjs) of a process that had a pid before the process whose identity is `id`: the same pid,
  * an earlier start. An hour earlier where a start is a time (well outside what counts as one process there), one tick

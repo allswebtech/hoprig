@@ -5,7 +5,9 @@
 //   Linux           "L:<boot id>:<start>": the start in clock ticks since boot (/proc/<pid>/stat, field 22) and the
 //                   boot it belongs to (/proc/sys/kernel/random/boot_id). Exact, no clock involved, one small read.
 //   macOS, Windows  "T:<epoch milliseconds of the start>": a process knows its own (now - its uptime); another's comes
-//                   from the system (ps's elapsed time; PowerShell's creation time). A record's is the same process
+//                   from the system: the start date that macOS's ps prints (lstart, whole seconds, read in UTC and
+//                   the C locale), PowerShell's creation time. Both are what the system stored when the process was
+//                   made, so a slow answer, or one read late, never moves them. A record's is the same process
 //                   as the system's when it is less than 3 seconds earlier, or less than a minute later: the system
 //                   gives the start of the process behind the pid, Node its own, which may come later (a wrapper
 //                   that execs node keeps its pid; a slow start under load). A dead writer's start is never later
@@ -33,12 +35,17 @@ export function statStart(text) {
   return /^\d+$/.test(v || '') ? v : null;
 }
 
-/** `ps -o pid=,etime=` ("[[dd-]hh:]mm:ss" elapsed) → Map pid → start in epoch milliseconds (`now` - elapsed). */
-export function parseEtimes(out, now) {
+const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+
+/**
+ * `ps -o pid=,lstart=` as it prints under LC_ALL=C and TZ=UTC0 ("  123 Tue Nov 17 06:38:18 2026") → Map pid → start in
+ * epoch milliseconds (whole seconds). The date the system stored when the process was created: the same at every read.
+ */
+export function parseLstarts(out) {
   const starts = new Map();
   for (const line of String(out).split('\n')) {
-    const m = /^\s*(\d+)\s+(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)\s*$/.exec(line);
-    if (m) starts.set(Number(m[1]), now - ((Number(m[2] || 0) * 24 + Number(m[3] || 0)) * 3600 + Number(m[4]) * 60 + Number(m[5])) * 1000);
+    const m = /^\s*(\d+)\s+[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})\s*$/.exec(line);
+    if (m && m[2] in MONTHS) starts.set(Number(m[1]), Date.UTC(Number(m[7]), MONTHS[m[2]], Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])));
   }
   return starts;
 }
@@ -64,14 +71,14 @@ const powershellArgs = (script) => ['-NoProfile', '-NonInteractive', '-Execution
 
 /** stdout of a program, also when it exits non-zero (ps does when one of the pids is gone); null when it cannot run. */
 function runProgram(cmd, args, timeout) {
-  const r = spawnSync(cmd, args, { encoding: 'utf8', timeout, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, LC_ALL: 'C' } });
+  const r = spawnSync(cmd, args, { encoding: 'utf8', timeout, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, LC_ALL: 'C', TZ: 'UTC0' } });
   return r.error ? null : r.stdout || '';
 }
 
 /** runProgram without waiting: a promise of the same. */
 function runProgramLater(cmd, args, timeout) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { encoding: 'utf8', timeout, windowsHide: true, env: { ...process.env, LC_ALL: 'C' } }, (err, stdout) => {
+    execFile(cmd, args, { encoding: 'utf8', timeout, windowsHide: true, env: { ...process.env, LC_ALL: 'C', TZ: 'UTC0' } }, (err, stdout) => {
       resolve(err && (typeof err.code !== 'number' || err.killed) ? null : stdout || '');
     });
   });
@@ -140,7 +147,7 @@ export function makeIdentity({ platform = process.platform, read = (p) => fs.rea
   // macOS and Windows: what the system said about each pid, kept for a while (PowerShell takes most of a second, and
   // the dashboard lists the records every few seconds), and whether its answer about this process itself was right.
   const ask = platform === 'darwin'
-    ? { ttl: 30_000, call: (pids) => ['ps', ['-o', 'pid=,etime=', '-p', pids.join(',')], 5000], starts: (out) => parseEtimes(out, now()) }
+    ? { ttl: 30_000, call: (pids) => ['ps', ['-o', 'pid=,lstart=', '-p', pids.join(',')], 5000], starts: parseLstarts }
     : platform === 'win32'
       ? { ttl: 300_000, call: (pids) => ['powershell.exe', powershellArgs(creationScript(pids)), 15_000], starts: parseCreations }
       : null;

@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { POWERSHELL, psArgs } from '../src/server/platform/win32.mjs';
-import { makeIdentity, parseCreations, parseEtimes, sameProcess, statStart } from '../src/procid.mjs';
+import { makeIdentity, parseCreations, parseLstarts, sameProcess, statStart } from '../src/procid.mjs';
+import { lstart } from './server/helpers.mjs';
 
 // /proc/<pid>/stat: 52 fields; the name (field 2) in parentheses may hold spaces and ")".
 const stat = (pid, name, start) => `${pid} (${name}) S 1 ${pid} ${pid} 0 -1 4194560 120 0 0 0 1 2 0 0 20 0 1 0 ${start} 1234567 456 18446744073709551615 1 1 0 0 0 0 0 4096 0 0 0 17 1 0 0 0 0 0 0 0 0 0 0 0 0 0\n`;
@@ -21,15 +22,17 @@ test('Linux: the start from /proc/<pid>/stat, also when the name has spaces and 
   }
 });
 
-test('macOS: ps elapsed time in all its forms', () => {
-  const now = 1_800_000_000_000;
-  const out = '  101 00:07\n  202    01:02:03\n 303 3-04:05:06\n404 59:59\nnonsense\n 505 \n';
-  const m = parseEtimes(out, now);
-  assert.equal(m.get(101), now - 7_000);
-  assert.equal(m.get(202), now - 3_723_000);
-  assert.equal(m.get(303), now - (3 * 86_400 + 4 * 3600 + 5 * 60 + 6) * 1000);
-  assert.equal(m.get(404), now - 3_599_000);
-  assert.equal(m.size, 4);
+test('macOS: the start date ps prints (lstart, C locale, UTC), and nothing else', () => {
+  const out = '  101 Tue Nov 17 06:38:18 2026\n  202    Sun Nov  1 00:00:07 2026\n 303 Thu Jan  1 00:00:00 1970\n404 Mon Feb 29 23:59:59 2024\nnonsense\n 505 \n 606 Tue Foo 17 06:38:18 2026\n 707 Di Nov 17 06:38:18 2026\n';
+  const m = parseLstarts(out);
+  assert.equal(m.get(101), Date.UTC(2026, 10, 17, 6, 38, 18));
+  assert.equal(m.get(202), Date.UTC(2026, 10, 1, 0, 0, 7));
+  assert.equal(m.get(303), 0);
+  assert.equal(m.get(404), Date.UTC(2024, 1, 29, 23, 59, 59));
+  assert.equal(m.size, 4, 'a line in another form says nothing');
+  // What this file's stand-ins print is what ps prints.
+  assert.equal(lstart(Date.UTC(2026, 10, 1, 0, 0, 7) + 999), 'Sun Nov  1 00:00:07 2026');
+  for (let month = 0; month < 12; month++) assert.equal(parseLstarts(`9 ${lstart(Date.UTC(2031, month, 28, 13, 0, 59))}`).get(9), Date.UTC(2031, month, 28, 13, 0, 59));
 });
 
 test('Windows: PowerShell lines, with the carriage return at the end', () => {
@@ -73,9 +76,10 @@ test('Linux reader: one file per pid, the boot id once, empty when it cannot be 
 });
 
 /** A system that prints `answer(pids)` for every call, counting the calls. */
+const T0 = 1_800_000_000_000;
 const sys = (platform, answer) => {
   const calls = [];
-  let t = 1_800_000_000_000;
+  let t = T0;
   const started = t - 5_000; // this process started 5 s ago
   const id = makeIdentity({
     platform, pid: 7, now: () => t, ownStart: started,
@@ -90,16 +94,16 @@ const sys = (platform, answer) => {
 test('macOS reader: all pids in one ps call, its answer kept 30 seconds, after a right answer about itself', () => {
   const ps = (cmd, args) => {
     assert.equal(cmd, 'ps');
-    assert.deepEqual(args.slice(0, 3), ['-o', 'pid=,etime=', '-p']);
+    assert.deepEqual(args.slice(0, 3), ['-o', 'pid=,lstart=', '-p']);
     // The two others started 70 s and a day ago; this process 5 s ago, as it knows itself.
-    return args[3].split(',').map((p) => ({ 7: '    7 00:05', 101: '  101 01:10', 202: '  202 1-00:00:00' })[p] || '').join('\n') + '\n';
+    return args[3].split(',').map((p) => ({ 7: `    7 ${lstart(T0 - 5_000)}`, 101: `  101 ${lstart(T0 - 70_000)}`, 202: `  202 ${lstart(T0 - 86_400_000)}` })[p] || '').join('\n') + '\n';
   };
   const s = sys('darwin', ps);
   const first = s.id.of([101, 202, 303]);
   assert.equal(s.calls.length, 1, 'one call');
   assert.deepEqual(s.calls[0][1][3].split(',').map(Number).sort((a, b) => a - b), [7, 101, 202, 303], 'with the self check in it');
-  assert.equal(first.get(101), `T:${s.now() - 70_000}`);
-  assert.equal(first.get(202), `T:${s.now() - 86_400_000}`);
+  assert.equal(first.get(101), `T:${T0 - 70_000}`);
+  assert.equal(first.get(202), `T:${T0 - 86_400_000}`);
   assert.equal(first.get(303), null, 'nothing said about it: not known');
   assert.equal(s.id.self(), `T:${s.now() - 5_000}`);
   assert.equal(sameProcess(s.id.of([7]).get(7), s.id.self()), true, 'itself without asking');
@@ -109,16 +113,45 @@ test('macOS reader: all pids in one ps call, its answer kept 30 seconds, after a
   s.id.of([101, 404]);
   assert.deepEqual(s.calls[1][1][3], '404', 'only what is not known yet');
   s.later(2_000);
-  s.id.of([101, 202]);
+  const again = s.id.of([101, 202]);
   assert.equal(s.calls.length, 3);
   assert.equal(s.calls[2][1][3], '101,202', 'asked again after 30 seconds; the self check is done');
+  assert.deepEqual([...again], [...first].slice(0, 2), 'the same process is the same at every read, whenever it is asked');
   assert.deepEqual(new Map([...s.id.of([])]), new Map(), 'nothing to ask: no call');
   assert.equal(s.calls.length, 3);
 });
 
+test('macOS: a slow answer, or one read late, never moves a process\'s start', () => {
+  // ps answers quickly once (the check against this process's own start passes), and after the kept answer is old it
+  // takes 3.5 s (a computer under load, a dashboard busy with something else): the start it says is the same, so the
+  // record that process wrote about itself is still its own.
+  let t = T0 + 400;
+  const own = t - 5_300;
+  const other = t - 70_250; // the kernel made pid 101 then; its Node began 40 ms later and wrote that into its record
+  const record = `T:${other + 40}`;
+  let n = 0;
+  const id = makeIdentity({
+    platform: 'darwin', pid: 7, now: () => t, ownStart: own,
+    run: () => {
+      const out = `    7 ${lstart(own)}\n  101 ${lstart(other)}\n`;
+      t += n++ === 0 ? 20 : 3_500;
+      return out;
+    },
+  });
+  const first = id.of([101]).get(101);
+  t += 31_000;
+  const second = id.of([101]).get(101);
+  assert.equal(n, 2, 'asked twice');
+  assert.equal(first, `T:${Math.floor(other / 1000) * 1000}`, 'the second the system stored');
+  assert.equal(second, first, 'the same at every read');
+  assert.equal(sameProcess(record, second), true, 'a living process is never another one');
+  // The process that gets pid 101 later is another one.
+  assert.equal(sameProcess(record, `T:${Math.floor((other + 3_600_000) / 1000) * 1000}`), false);
+});
+
 test('a system that answers wrongly about this process itself is never believed about others', () => {
-  for (const [why, self] of [['an hour off', '    7 01:00:05'], ['four seconds off', '    7 00:09']]) {
-    const s = sys('darwin', (cmd, args) => `${self}\n  101 01:10\n`);
+  for (const [why, self] of [['an hour off (another time zone)', `    7 ${lstart(T0 - 3_605_000)}`], ['four seconds off', `    7 ${lstart(T0 - 9_000)}`]]) {
+    const s = sys('darwin', (cmd, args) => `${self}\n  101 ${lstart(T0 - 70_000)}\n`);
     assert.equal(s.id.of([101]).get(101), null, why);
     s.later(60_000);
     assert.equal(s.id.of([101]).get(101), null, why);
@@ -126,13 +159,13 @@ test('a system that answers wrongly about this process itself is never believed 
   }
   // One that said nothing about this process (PowerShell prints nothing on a busy moment): not believed while it says
   // nothing, asked again after the while, and believed once it answers rightly.
-  const quiet = sys('darwin', (cmd, args, n) => `${n === 1 ? '' : '    7 00:36'}\n  101 01:10\n`);
+  const quiet = sys('darwin', (cmd, args, n) => `${n === 1 ? '' : `    7 ${lstart(T0 - 5_000)}`}\n  101 ${lstart(T0 - 39_000)}\n`);
   assert.equal(quiet.id.of([101]).get(101), null, 'nothing about itself');
   quiet.later(10_000);
   assert.equal(quiet.id.of([101]).get(101), null, 'still not believed');
   assert.equal(quiet.calls.length, 1, 'kept for the while');
   quiet.later(21_000);
-  assert.equal(quiet.id.of([101]).get(101), `T:${quiet.now() - 70_000}`, 'asked again: right about itself, believed');
+  assert.equal(quiet.id.of([101]).get(101), `T:${T0 - 39_000}`, 'asked again: right about itself, believed');
   assert.equal(quiet.calls.length, 2);
   // A system that cannot be asked: not known, and asked again only after the while.
   const s = sys('darwin', () => null);
