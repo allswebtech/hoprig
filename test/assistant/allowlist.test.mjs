@@ -414,8 +414,8 @@ test('the cases of the checks of v3: every write they got through is the owner\'
   }
 });
 
-// What the earlier checks of the deny-list (their lists of paths and command shapes) found it let through, and the rest
-// of those lists: every one is a card now.
+// What earlier checks of the deny-list found it let through (paths outside the folder, and command shapes that reach
+// them), and the rest of those lists: every one is a card now.
 const EARLIER = [
   'echo hi > ../x', 'echo hi > ~/.profile', 'echo hi >> /home/u/.profile', 'echo hi>../x', 'echo hi>>~/.profile', 'echo hi >>~/.profile',
   'echo hi>>/home/u/.profile', 'cat<../../etc/hosts', 'cat </home/u/notes.txt', 'ls;cd ..;ls', 'ls&&cd ..', 'ls|tee>../x', 'cp a.js ~u/x',

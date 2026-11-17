@@ -21,7 +21,7 @@ if [ "$1" = "--version" ]; then echo "cloudflared version 2026.10.1 (built 2026-
 echo "$@" > "${tmp}/args.txt"
 echo "2026-11-14T04:52:38Z INF Requesting new quick Tunnel on trycloudflare.com..." >&2
 echo "2026-11-14T04:52:43Z INF |  https://stem-wonder-lucky-hung.trycloudflare.com                                          |" >&2
-echo "2026-11-14T04:52:45Z INF Registered tunnel connection connIndex=0 connection=d5695230 event=0 ip=198.41.200.233 location=del06 protocol=quic" >&2
+echo "2026-11-14T04:52:45Z INF Registered tunnel connection connIndex=0 connection=0000aaaa event=0 ip=198.51.100.7 location=example01 protocol=quic" >&2
 exec sleep 600
 `, { mode: 0o755 });
 process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
@@ -53,7 +53,7 @@ test('connected only when it says so; its connectivity errors are kept', () => {
     '2026-11-14T04:56:41Z INF precheck complete hard_fail=true run_id=7192640e',
   ].join('\n');
   assert.deepEqual(P.tunnelState(blocked), { url: 'https://stem-wonder-lucky-hung.trycloudflare.com', registered: false, errors: ['Allow outbound QUIC traffic on port 7844 or use HTTP2.', 'Allow outbound TCP on port 7844.'] });
-  const ok = `${url}\n2026-11-14T04:52:45Z INF Registered tunnel connection connIndex=0 connection=d5695230 event=0 ip=198.41.200.233 location=del06 protocol=quic`;
+  const ok = `${url}\n2026-11-14T04:52:45Z INF Registered tunnel connection connIndex=0 connection=0000aaaa event=0 ip=198.51.100.7 location=example01 protocol=quic`;
   assert.equal(P.tunnelState(ok).registered, true);
 });
 
