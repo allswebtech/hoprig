@@ -265,7 +265,9 @@ export class TmuxBackend {
     };
   }
 
-  killServer() {
+  /** The whole tmux server (tests; the dashboard never ends it): every pane's programs first, as in kill. */
+  async killServer() {
+    await this.#endPrograms(['list-panes', '-a', '-F', SHELL_FORMAT]);
     return this.run(['kill-server']).catch(() => {});
   }
 }

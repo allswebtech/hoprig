@@ -192,9 +192,9 @@ async function run(t, kind) {
   await app.close();
   if (kind === 'tmux') {
     // A reboot takes tmux with it, and every program of its sessions is gone before the dashboard starts again.
-    // Ending tmux only closes their terminals: they end a moment later (on Node 20 a stand-in aborts on its way out
-    // and its crash report takes a second or more), and a restore meanwhile rightly finds the conversations running
-    // (it tries once more a few seconds later: restore-retry.test.mjs). This models the reboot itself.
+    // killServer ends the programs of every pane, then tmux; the wait for their run records to go models the reboot
+    // itself. (A tmux that ends without a reboot closes the terminals under their programs: they end a moment later,
+    // and a restore meanwhile finds the conversations running and tries once more: restore-retry.test.mjs.)
     sockSeen = (await app.backend.run(['display', '-p', '#{socket_path}']).catch(() => '')).trim();
     await app.backend.killServer();
     const { listRuns } = await import('../../src/runs.mjs');

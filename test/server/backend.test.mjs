@@ -75,6 +75,11 @@ test('tmux: the programs ended before a respawn or a Close are those under the l
   panes = '0 4242\n1 4343\n0 4444\n0 1\n0 x\n';
   await b.kill('p');
   assert.deepEqual(asked, [4242, 4444], 'every live pane of the session, nothing else');
+  // Ending the whole server (tests) asks for the panes of every session, then ends tmux.
+  const calls = [];
+  b.run = async (args) => (calls.push(args), args[0] === 'list-panes' ? '' : '');
+  await b.killServer();
+  assert.deepEqual(calls, [['list-panes', '-a', '-F', '#{pane_dead} #{pane_pid}'], ['kill-server']]);
 });
 
 test('list-panes parsing (path may contain tabs)', () => {
