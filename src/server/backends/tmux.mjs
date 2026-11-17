@@ -122,8 +122,9 @@ export class TmuxBackend {
   }
 
   async create({ name, dir, argv = null, mark = null }) {
+    const line = argv ? shellLine(argv, { mark }) : null; // refused (plainly) before anything is made
     const id = (await this.run(['new-session', '-d', '-s', name, '-c', dir, ...PANE_ENV, '-P', '-F', '#{pane_id}'])).trim();
-    if (argv) await this.#type(id, shellLine(dir, argv, { mark }));
+    if (line) await this.#type(id, line);
     // In the browser tmux's own status line is noise (the page shows the session's name and state), and Claude
     // Code asks for focus events to know when its window is looked at. Neither may stop a session from starting.
     // The target is the pane id: set-option does not take the "=name" exact-match form other commands do.
@@ -184,11 +185,12 @@ export class TmuxBackend {
   }
 
   async respawn(id, dir, argv, { mark = null } = {}) {
+    const line = shellLine(argv, { mark }); // refused (plainly) before what runs there is stopped
     await this.run(['respawn-pane', '-k', '-t', id, '-c', dir, ...PANE_ENV]);
     // The old program's lines (a usage-limit message among them) would otherwise stay in the history and keep
     // the card in "limit hit". The conversation itself is in Claude's transcript, which --resume shows again.
     await this.run(['clear-history', '-t', id]);
-    await this.#type(id, shellLine(dir, argv, { mark }));
+    await this.#type(id, line);
   }
 
   /** "=" makes tmux match the session name exactly instead of by prefix. */

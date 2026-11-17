@@ -193,7 +193,7 @@ export function pcsetupFeature(sctx, opts = {}) {
     const taken = (await sctx.backend.list()).map((t) => t.session);
     const name = uniqueName(base.slice(0, 30), taken);
     const dir = fs.existsSync(pdir()) ? pdir() : os.homedir();
-    await sctx.backend.create({ name, dir, argv: [...sctx.deck.launcher(), ...args] });
+    await sctx.deck.terminal({ name, dir, argv: [...sctx.deck.launcher(), ...args] });
     return { session: name };
   }
 

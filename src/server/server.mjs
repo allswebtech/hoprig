@@ -522,7 +522,7 @@ export function createServer(opts = {}) {
       }
       // One conversation runs in one place only. "continue" (-c) is the folder's newest conversation.
       const runs = mode === 'resume' ? sid : mode === 'continue' ? (sessionsIn(dir)[0] || {}).id : null;
-      // An optional first message (Tia's start_session; one line, see deck.mjs promptArgs).
+      // An optional first message (Tia's start_session), whole: several lines too (deck.mjs promptArgs).
       let prompt = null;
       if (b.prompt !== undefined && b.prompt !== null) {
         prompt = v.message(b.prompt);
@@ -751,7 +751,7 @@ export function createServer(opts = {}) {
       const r = roots();
       const taken = (await backend.list()).map((t) => t.session);
       const name = v.uniqueName('add-account', taken);
-      await backend.create({ name, dir: r[0] || os.homedir(), argv: [...deck.launcher(), 'add'] });
+      await deck.terminal({ name, dir: r[0] || os.homedir(), argv: [...deck.launcher(), 'add'] });
       return { name };
     }],
     ['POST', /^\/api\/profiles\/([^/]+)\/delete$/, async (req, m) => {

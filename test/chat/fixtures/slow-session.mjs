@@ -9,6 +9,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { createRun, removeRun, updateRun } from '../../../src/runs.mjs';
+import { applyLaunch } from '../../../src/launchfile.mjs';
+
+// Started as the dashboard starts the launcher (`--launch <file>`): the same folder and arguments as the real one.
+applyLaunch();
 
 const given = process.argv.slice(2);
 const tool = ['opencode', 'codex'].includes(given[0]) ? given.shift() : 'claude';

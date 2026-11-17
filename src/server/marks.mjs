@@ -4,6 +4,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { sweepLaunches } from '../launchfile.mjs';
 import { runsDir } from '../paths.mjs';
 
 const PREFIX = '.start-';
@@ -24,6 +25,7 @@ export const dropMark = (file) => file && fs.rmSync(file, { force: true });
  * ends with it before it runs its removal), and its notes went with it. No dashboard reads them, so they go.
  */
 export function sweepMarks(now = Date.now()) {
+  sweepLaunches(now); // and the launch files nobody used (the line typed, then Ctrl+C): they hold first messages
   let names;
   try {
     names = fs.readdirSync(runsDir());

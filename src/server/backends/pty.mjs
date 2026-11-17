@@ -10,8 +10,8 @@
 // browser that attaches later, or a second one, first gets the exact current screen, then live output.
 //
 // How a command starts, per OS:
-//   macOS, Linux  the user's login shell ($SHELL -l), and the command line typed into it, as the tmux backend
-//                 does. The login shell gives the user's normal PATH (nvm, ~/.local/bin); when Claude exits, the
+//   macOS, Linux  the user's login shell ($SHELL -l) in the folder, and the command line typed into it, as the tmux
+//                 backend does (only the launcher's own command and its launch file: ./shell.mjs). The login shell gives the user's normal PATH (nvm, ~/.local/bin); when Claude exits, the
 //                 shell is still there, so the terminal stays and shows what happened.
 //   Windows       never a shell string: the command's argv goes to ConPTY as it is (node-pty quotes it into the
 //                 one command line Windows has). PATH needs no login shell there: every program of the user's
@@ -30,7 +30,7 @@ import { ptySpawn } from './nodepty.mjs';
 import { parseParents } from '../platform/common.mjs';
 import { sameProcess, system } from '../../procid.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
-import { shellLine } from './shell.mjs';
+import { assertTypable, shellLine } from './shell.mjs';
 
 const NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$/;
 const RIS = '\x1bc'; // full reset: clears screen, history and modes
@@ -74,10 +74,12 @@ export function defaultShell(platform = process.platform, env = process.env) {
 export function startPlan({ platform = process.platform, dir, argv = null, shell = defaultShell(platform), mark = null }) {
   if (platform === 'win32') {
     if (!argv) return { file: shell.file, args: shell.args, cwd: dir, type: null, then: null };
-    // `mark` (marks.mjs) goes when the command exits: the terminal is back at its own shell then.
+    // `mark` (marks.mjs) goes when the command exits: the terminal is back at its own shell then. Nothing is typed
+    // here, yet the same rule holds: only the launcher's own command and its launch file, never outside text.
+    assertTypable(argv, 'win32');
     return { file: argv[0], args: argv.slice(1), cwd: dir, type: null, then: shell, ...(mark ? { mark } : {}) };
   }
-  return { file: shell.file, args: shell.args, cwd: dir, type: argv ? shellLine(dir, argv, { mark }) : null, then: null };
+  return { file: shell.file, args: shell.args, cwd: dir, type: argv ? shellLine(argv, { mark }) : null, then: null };
 }
 
 /** The environment of a terminal's process. `name`: the session's name, for a launcher that has to say where it runs. */
@@ -474,12 +476,13 @@ export class PtyBackend {
 
   async respawn(id, dir, argv, { mark = null } = {}) {
     const t = this.#byId(id);
+    const plan = startPlan({ platform: this.platform, dir, argv, shell: this.shell, mark }); // refused before the stop
     await this.#stop(t);
     // The old program's lines (a usage-limit message among them) would otherwise stay in the history and keep the
     // card in "limit hit". The conversation itself is in Claude's transcript, which --resume shows again. The
     // reset goes to the browsers too, so their screens match.
     this.#output(t, RIS);
-    this.#start(t, startPlan({ platform: this.platform, dir, argv, shell: this.shell, mark }));
+    this.#start(t, plan);
   }
 
   async rename(name, next) {
