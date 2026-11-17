@@ -195,8 +195,9 @@ export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(O
       info: { hostname: info.hostname || null, platform: info.platform || null, version: info.version || null },
     };
     putMachine(m);
-    // Paired again: the old token there is no longer used. Revoke it in the background (best effort).
-    if (existing && existing.tokenId && existing.tokenId !== m.tokenId) revokeOverSsh(target, existing.tokenId, ssh).catch(() => {});
+    // Paired again: the old token there is no longer used. Revoked (best effort) before the answer: left running in
+    // the background, it went on changing that computer's settings after the dashboard had answered, or had stopped.
+    if (existing && existing.tokenId && existing.tokenId !== m.tokenId) await revokeOverSsh(target, existing.tokenId, ssh).catch(() => {});
     if (existing && existing.name !== m.name) tunnels.close(existing.name);
     probeCache.delete(m.name);
     const state = await probe(m, { fresh: true, timeoutMs: tunnelWaitMs });

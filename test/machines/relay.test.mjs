@@ -15,7 +15,7 @@ import { REPO, asBrowser, fakeRemote, miniDashboard } from './harness.mjs';
 // different files, so they do not get in each other's way.
 const box = sandbox('machines-relay');
 const { createMachines } = await import('../../src/machines/index.mjs');
-const { createToken, revokeToken } = await import('../../src/machines/tokens.mjs');
+const { createToken, listTokens, revokeToken } = await import('../../src/machines/tokens.mjs');
 const { putMachine, loadMachines } = await import('../../src/machines/store.mjs');
 
 const skip = process.platform === 'win32' && 'POSIX scripts';
@@ -253,10 +253,13 @@ test('add by SSH in one step: hoprig only in the login shell, a real tunnel, the
   assert.equal(first, 'hello remote-one cookie=no origin=no');
   ws.close();
 
-  // Adding the same target again re-pairs (new token) instead of making a second entry.
+  // Adding the same target again re-pairs (new token) instead of making a second entry, and the old token there is
+  // revoked before the answer: nothing goes on changing that computer after it.
   const again = await browser('/api/machines/ssh', { body: { target: 'alex@box2' } });
   assert.equal(again.json.machine.name, m.name);
   assert.equal(loadMachines().filter((x) => x.via === 'ssh').length, 1);
+  assert.notEqual(loadMachines().find((x) => x.name === m.name).tokenId, stored.tokenId);
+  assert.ok(!listTokens().some((x) => x.id === stored.tokenId), 'the old token is revoked there');
   // Remove: the token there is revoked over SSH too.
   const rm = await browser(`/api/machines/${m.name}/remove`, { body: {} });
   assert.equal(rm.json.revoked, true);
