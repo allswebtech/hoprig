@@ -1,5 +1,6 @@
 // Command-line tools a catalog skill needs (for example the reverse-engineering tool behind REA's skill): the
 // installed version, the newest on npm, and the exact command that updates it. The command runs only on a yes.
+import { withoutSecrets } from '../secretenv.mjs';
 import { capture, compareVersions, npmArgv, parseVersion, showCommand, stream, which } from '../setup/system.mjs';
 import { loadCatalog } from './catalog.mjs';
 
@@ -23,7 +24,7 @@ export async function checkTool(tool, { run = capture } = {}) {
     const v = parseVersion(`${r.stdout} ${r.stderr}`);
     version = v ? v.join('.') : null;
   }
-  const r = await run(npmArgv(['view', tool.npm, 'version']), { timeout: 30_000 });
+  const r = await run(npmArgv(['view', tool.npm, 'version']), { env: withoutSecrets(process.env), timeout: 30_000 });
   const latest = r.ok && parseVersion(r.stdout) ? r.stdout.trim() : null;
   const command = npmArgv(['install', '--global', `${tool.npm}@${latest || 'latest'}`]);
   return {
@@ -36,5 +37,5 @@ export async function checkTool(tool, { run = capture } = {}) {
 
 /** Run the install/update command of a checked tool, its output going to onLine. Resolves { ok, output }. */
 export function updateTool(checked, { onLine = () => {}, run = stream } = {}) {
-  return run(checked.command, { onLine });
+  return run(checked.command, { env: withoutSecrets(process.env), onLine }); // a global npm install runs scripts
 }

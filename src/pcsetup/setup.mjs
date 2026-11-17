@@ -17,6 +17,7 @@ import { KITS, KIT_IDS, buildPlan, kitById } from './kits.mjs';
 import { cloneRepo, expandDir, parseRepo, prepareEnv, projectNeeds, projectsDir, rememberDir } from './projects.mjs';
 import { loadRecipe } from './recipe.mjs';
 import { addRules, removeRules, rulesState } from './rules.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 
 
 /** PATH with the folders a fresh install puts programs in (nvm's node, Homebrew), so later steps find them. */
@@ -203,7 +204,7 @@ export async function offerInstall(ui, dest, runner, sys) {
       continue;
     }
     if (await ui.confirm(`${name}: run ${i.label}? (installs its dependencies)`, true)) {
-      const r = await runner(i.argv, { cwd: dest, env: { ...process.env, PATH: freshPath() }, onLine: (l) => ui.out(`    ${dim(l)}`) });
+      const r = await runner(i.argv, { cwd: dest, env: { ...withoutSecrets(process.env), PATH: freshPath() }, onLine: (l) => ui.out(`    ${dim(l)}`) });
       ui.line(r.ok ? 'ok' : 'fail', `${name}: ${i.label} ${r.ok ? 'done' : `failed — retry: cd "${dest}" && ${showCommand(i.argv)}`}`);
     }
   }

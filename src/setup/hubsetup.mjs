@@ -11,6 +11,7 @@ import {
   httpsCheck, httpsPlan, isPublicIp, publicAddresses, showStep, urlHost, withDefaultSni, withImport,
 } from './https.mjs';
 import { capture, forThisUser, osRelease, runQuiet, showCommand, which } from './system.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 
 /** The address to serve: { address, ip: boolean } from --domain / --ip / this server's public address, or null. */
 export function hubAddress(opts, publicIps) {
@@ -30,7 +31,7 @@ export const hubLog = () => path.join(stateDir(), 'setup-hub.log');
  * are shown, with where the rest is. sudo asks for its password on the terminal itself.
  */
 async function quiet(ui, sys, argv) {
-  const r = await runQuiet(argv, { env: sys.env, log: hubLog() });
+  const r = await runQuiet(argv, { env: withoutSecrets(sys.env), log: hubLog() }); // package installs run their scripts
   if (!r.ok) {
     if (r.tail) ui.out(r.tail.split('\n').map((l) => `    ${l}`).join('\n'));
     ui.note(`All of its output: ${tilde(hubLog())}`);

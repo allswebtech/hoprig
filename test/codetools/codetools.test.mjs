@@ -16,6 +16,7 @@ const { codex, CODEX_PIN } = await import('../../src/codetools/codex.mjs');
 const { opencode, OPENCODE_PIN, NO_SELF_UPDATE } = await import('../../src/codetools/opencode.mjs');
 const { claude } = await import('../../src/codetools/claude.mjs');
 const { toolsDir } = await import('../../src/paths.mjs');
+const { isSecretVar } = await import('../../src/secretenv.mjs');
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 test('the descriptors, the one switch of the offered tools (Codex is built, not offered), and which tools are on', () => {
@@ -131,7 +132,7 @@ test('install: an npm prefix of its own, the tool\'s folders pointed into a thro
   const scratch = path.join(opencode.dir(), inst.scratch[0]);
   for (const k of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'OPENCODE_CONFIG_DIR', 'TMPDIR']) assert.ok(inst.env[k].startsWith(scratch), `${k} points into the throwaway folder`);
   assert.equal(inst.env.OPENCODE_DISABLE_AUTOUPDATE, '1');
-  for (const k of N.SECRET_VARS) assert.equal(inst.env[k], undefined, `${k} is not passed to npm`);
+  for (const k of Object.keys(inst.env)) assert.ok(!isSecretVar(k), `${k} is not passed to npm`);
   assert.equal(inst.env.HOME, '/home/someone', 'npm keeps its own cache and settings');
   assert.deepEqual(ver.check, [opencode.binPath(), '--version'], 'the new program must answer');
   assert.equal(ver.env.XDG_CONFIG_HOME, inst.env.XDG_CONFIG_HOME, 'and answers inside the throwaway folder too');

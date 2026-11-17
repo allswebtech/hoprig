@@ -21,6 +21,7 @@
 import { TOOLS, findTool, turnOn } from '../codetools/index.mjs';
 import { readyToReplace, toolRuns } from '../codetools/servers.mjs';
 import { gitRead } from '../gitread.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 import { capture, compareVersions, npmMajor, showCommand, stream } from '../setup/system.mjs';
 import { busy, toolOf } from './cards.mjs';
 
@@ -105,7 +106,7 @@ export function hoprigItem(deps = {}) {
       }
       for (const step of plan) {
         onLine(`$ ${showCommand(step.argv)}`);
-        const r = await (deps.stream || stream)(step.argv, { cwd: step.cwd, onLine });
+        const r = await (deps.stream || stream)(step.argv, { cwd: step.cwd, env: withoutSecrets(process.env), onLine });
         if (!r.ok && step.ifFails) onLine(step.ifFails);
         else if (!r.ok) return { ok: false, version: appVersion(), output: `exit code ${r.code}` };
       }

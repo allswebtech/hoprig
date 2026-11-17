@@ -11,7 +11,7 @@ import path from 'node:path';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
 import { gatedDispatch } from './door.mjs';
 import * as v from '../server/validate.mjs';
-import { AUTH_VARS } from '../profiles.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 import { LOCAL } from './shown.mjs';
 
 export const OUTPUT_MAX = 64 * 1024;
@@ -33,8 +33,7 @@ function localPath(p) {
  */
 export function runShell(command, { cwd, timeoutMs = 60_000, spawnImpl = spawn, platform = process.platform } = {}) {
   return new Promise((resolve) => {
-    const env = { ...process.env };
-    for (const k of AUTH_VARS) delete env[k];
+    const env = withoutSecrets(process.env);
     const [cmd, args, extra] = platform === 'win32'
       ? [process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${command}"`], { windowsVerbatimArguments: true }]
       : ['/bin/sh', ['-c', command], {}];

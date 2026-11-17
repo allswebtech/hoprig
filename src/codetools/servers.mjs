@@ -23,7 +23,8 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { stateDir, tilde } from '../paths.mjs';
-import { AUTH_VARS, listProfiles, servesTools } from '../profiles.mjs';
+import { listProfiles, servesTools } from '../profiles.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 import { listRuns } from '../runs.mjs';
 import { codex } from './codex.mjs';
 import { opencode, NO_SELF_UPDATE } from './opencode.mjs';
@@ -109,11 +110,13 @@ export function opencodeServerConfig(provs, modelsOf = () => []) {
   return { $schema: 'https://opencode.ai/config.json', ...NO_SELF_UPDATE.config, providers };
 }
 
-/** The environment of a tool's process: the caller's, without any provider key or server secret of any tool. */
+/**
+ * The environment of a tool's process: the caller's, without any secret (../secretenv.mjs), and without the
+ * session's own marks (OpenCode's config file and the run record belong to the session it was started from).
+ */
 export function cleanEnv(base = process.env) {
-  const env = { ...base };
-  for (const k of [...AUTH_VARS, 'OPENCODE_PASSWORD', 'OPENCODE_CONFIG', 'HOPRIG_CODEX_WS', 'HOPRIG_RUN_FILE']) delete env[k];
-  for (const k of Object.keys(env)) if (/^ANTHROPIC_/.test(k) || /^HOPRIG_(CODEX|OPENCODE)_KEY/.test(k)) delete env[k];
+  const env = withoutSecrets(base);
+  for (const k of ['OPENCODE_CONFIG', 'HOPRIG_RUN_FILE']) delete env[k];
   return env;
 }
 

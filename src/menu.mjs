@@ -6,7 +6,8 @@ import { isOffered } from './codetools/offered.mjs';
 import { loadConfig } from './config.mjs';
 import { chooseDefault, lastProviderIn } from './defaultprovider.mjs';
 import { tilde } from './paths.mjs';
-import { AUTH_VARS, listProfiles, publicProfile, readProfile, servesTools, validName, writeProfile } from './profiles.mjs';
+import { withoutSecrets } from './secretenv.mjs';
+import { listProfiles, publicProfile, readProfile, servesTools, validName, writeProfile } from './profiles.mjs';
 import { sessionsIn } from './sessions.mjs';
 
 const out = (s = '') => process.stdout.write(s + '\n');
@@ -277,9 +278,7 @@ export async function addProfile(nameArg) {
     const go = await ask('Press Enter to start (or type s if you already have a token) ');
     if (go === null) return null;
     if (go.toLowerCase() !== 's') {
-      const clean = { ...process.env };
-      for (const k of AUTH_VARS) delete clean[k];
-      const r = spawnSync(loadConfig().claudeBin, ['setup-token'], { stdio: 'inherit', env: clean });
+      const r = spawnSync(loadConfig().claudeBin, ['setup-token'], { stdio: 'inherit', env: withoutSecrets(process.env) });
       if (r.error) {
         out(`Could not run "claude setup-token": ${r.error.message}`);
         return null;

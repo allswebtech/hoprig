@@ -37,6 +37,7 @@ import { showCommand, stream, which } from '../setup/system.mjs';
 import { addonsDir, alive, binDir, dashboardPort, findBin, patchFor, readJsonFile, restoreFor, writeAtomic } from './cloudflared.mjs';
 import { tunnelFact } from './linkmigrate.mjs';
 import { checkPort, exposureQuestion, serviceLogin } from './localservice.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 
 export { findBin, patchFor, restoreFor };
 
@@ -130,7 +131,7 @@ export async function install({ onLine = () => {} } = {}) {
   }
   if (plan.kind === 'brew') {
     onLine(`command: ${showCommand(plan.argv)}`);
-    const r = await stream(plan.argv, { onLine });
+    const r = await stream(plan.argv, { env: withoutSecrets(process.env), onLine });
     return { ok: r.ok && !!findBin() };
   }
   onLine(`downloading ${plan.url}`);
@@ -138,7 +139,7 @@ export async function install({ onLine = () => {} } = {}) {
     if (plan.tgz) {
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-cloudflared-'));
       await download(plan.url, path.join(tmp, 'c.tgz'));
-      const r = await stream(['tar', '-xzf', path.join(tmp, 'c.tgz'), '-C', tmp], { onLine });
+      const r = await stream(['tar', '-xzf', path.join(tmp, 'c.tgz'), '-C', tmp], { env: withoutSecrets(process.env), onLine });
       if (!r.ok) throw new Error('could not unpack it');
       fs.mkdirSync(path.dirname(plan.file), { recursive: true, mode: 0o700 });
       fs.copyFileSync(path.join(tmp, 'cloudflared'), plan.file);
@@ -166,7 +167,7 @@ async function quickTunnel(bin, toPort, log, waitMs) {
   fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
   const fd = fs.openSync(log, 'w', 0o600);
   const argv = tunnelArgv(bin, toPort);
-  const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: ['ignore', fd, fd], windowsHide: true });
+  const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: ['ignore', fd, fd], env: withoutSecrets(process.env), windowsHide: true });
   child.unref();
   fs.closeSync(fd);
   const after = await system.refresh([child.pid]);

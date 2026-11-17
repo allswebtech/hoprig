@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { APP, appRoot, appVersion } from './checks.mjs';
 import { PACKAGE_SOURCE } from '../paths.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 import { capture, compareVersions, npmArgv, npmMajor, npmSourceFlags, showCommand, stream } from './system.mjs';
 
 /** 'git' | 'npm' | 'other', from the folder hoprig runs from. */
@@ -58,12 +59,12 @@ export function updatePlan(kind, root = appRoot(), platform = process.platform, 
 
 /** The newest hoprig on npm, or null (offline, or not published). */
 export async function publishedVersion(platform = process.platform) {
-  const r = await capture(npmArgv(['view', APP, 'version'], platform), { timeout: 30_000 });
+  const r = await capture(npmArgv(['view', APP, 'version'], platform), { env: withoutSecrets(process.env), timeout: 30_000 });
   const v = r.ok ? r.stdout.trim() : '';
   return /^\d+\.\d+\.\d+/.test(v) ? v : null;
 }
 
-export async function selfUpdate(args = [], { write = (s) => process.stdout.write(s) } = {}) {
+export async function selfUpdate(args = [], { write = (s) => process.stdout.write(s), run = stream } = {}) {
   const dryRun = args.includes('--dry-run') || args.includes('-n');
   if (args.some((a) => !['--dry-run', '-n'].includes(a))) {
     write(`usage: ${APP} update [--dry-run]\n`);
@@ -93,7 +94,8 @@ export async function selfUpdate(args = [], { write = (s) => process.stdout.writ
   for (const step of plan) {
     write(`${dryRun ? 'would run' : 'running'}: ${showCommand(step.argv)}\n`);
     if (dryRun) continue;
-    const r = await stream(step.argv, { cwd: step.cwd, onLine: (l) => write(`  ${l}\n`) });
+    // npm runs install scripts and git may run the checkout's hooks: no secret reaches them (../secretenv.mjs).
+    const r = await run(step.argv, { cwd: step.cwd, env: withoutSecrets(process.env), onLine: (l) => write(`  ${l}\n`) });
     if (!r.ok && step.ifFails) {
       write(`${step.ifFails}\n`);
       continue;

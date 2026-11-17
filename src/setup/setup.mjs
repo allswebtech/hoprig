@@ -30,6 +30,7 @@ import { qrText } from './qr.mjs';
 import { tmuxNewEnough } from '../server/backends/tmuxversion.mjs';
 import { capture, forThisUser, installCommands, npmMajor, osName, showCommand, showCommands, stream, which } from './system.mjs';
 import { bold, dim, makeUi } from './ui.mjs';
+import { withoutSecrets } from '../secretenv.mjs';
 
 export const ACCESS = ['local', 'network', 'tailscale'];
 
@@ -72,7 +73,7 @@ async function runInstall(ui, sys, packages) {
   ui.note(showCommands(cmds));
   for (const argv of cmds) {
     // The terminal goes to the command, so sudo can ask for its password.
-    const r = await stream(argv, { env: sys.env, interactive: true });
+    const r = await stream(argv, { env: withoutSecrets(sys.env), interactive: true });
     if (!r.ok) {
       ui.line('fail', `"${showCommand(argv)}" did not succeed.`);
       return false;
@@ -145,7 +146,7 @@ export async function stepLogin(ui, sys) {
 export async function buildTerminal(ui, sys, works = ptyWorksNow) {
   const argv = ptyRepairArgv(ptyState(), sys.platform);
   ui.note(`Building the terminal module (${showCommand(argv)})…`);
-  const r = await stream(argv, { env: sys.env, cwd: appRoot() });
+  const r = await stream(argv, { env: withoutSecrets(sys.env), cwd: appRoot() }); // npm runs node-pty's build script
   if (!r.ok) ui.out(r.output.split('\n').filter(Boolean).slice(-8).map((l) => `    ${l}`).join('\n'));
   return works();
 }
