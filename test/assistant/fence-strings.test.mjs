@@ -150,3 +150,40 @@ test('the domain tools: a job\'s error, a GitHub account, a search problem, a sk
   assert.equal((await core.confirm(cardId(r))).ok, true);
   onlyFenced(core.takeOutcomes('c1').map((o) => o.text).join('\n'), 'an added computer');
 });
+
+test('the typing answers: a session whose tool is not in front, text typed but not sent, a path that cannot be typed, a queue that waits', async () => {
+  const { ops, core, call } = setup();
+  await call('list_sessions', {});
+  // Her own call, or the owner's card for it: the text she reads either way.
+  const told = async (tool, args) => {
+    const r = await call(tool, args);
+    const id = cardId(r);
+    if (!id) return r.text;
+    await core.confirm(id);
+    return core.takeOutcomes('c1').map((o) => o.text).join('\n');
+  };
+  const refused = (code) => async () => {
+    throw Object.assign(new Error(EVIL), { status: 409, code });
+  };
+  ops.sendText = refused('not_in_front');
+  let t = await told('send_to_session', { session: 'web-ui', text: 'run the tests' });
+  assert.match(t, /Nothing was typed into web-ui: its coding tool is not the program in front in that terminal/);
+  onlyFenced(t, 'not in front', { fenced: false }); // the computer's sentence is not passed on at all
+  ops.pressKey = refused('not_in_front');
+  t = await told('send_to_session', { session: 'web-ui', key: 'Enter' });
+  assert.match(t, /Nothing was pressed in web-ui: its coding tool is not the program in front/);
+  onlyFenced(t, 'a key not in front', { fenced: false });
+  ops.sendText = refused('typed_not_sent');
+  t = await told('send_to_session', { session: 'web-ui', text: 'run the tests' });
+  assert.match(t, /The message was typed into web-ui but not sent/);
+  onlyFenced(t, 'typed but not sent', { fenced: false });
+  // A start the computer refuses because the launcher's path cannot be typed: its sentence names the path.
+  ops.startSession = async () => {
+    throw Object.assign(new Error(`Hoprig cannot type this path into a shell: "/opt/${EVIL}". Only letters, digits, spaces and _ . / : @ % + = , - can be typed`), { status: 400 });
+  };
+  await call('list_projects', { folder: API });
+  onlyFenced(await told('start_session', { folder: API, account: 'sub' }), 'a path that cannot be typed');
+  // A queue's held message: why it waits is the computer's sentence.
+  ops.s.automation.queues = { 'web-ui': { size: 1, paused: false, waits: EVIL } };
+  onlyFenced(await told('manage_automation', { action: 'list' }), 'a queue that waits');
+});
