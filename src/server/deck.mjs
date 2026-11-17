@@ -405,7 +405,8 @@ export class Deck {
       const mark = newMark();
       this.noteLaunch(term.session, run.sessionId, tool, Date.now(), mark);
       try {
-        await this.backend.respawn(term.id, run.cwd, argv, { mark });
+        // The old launcher holds the conversation until its coding tool has saved and ended: the new one would refuse it.
+        await this.backend.respawn(term.id, run.cwd, argv, { mark, hold: Number.isInteger(run.pid) ? run.pid : null });
       } catch (e) {
         if (this.launchOf(run.sessionId, tool)?.mark === mark) this.launchOf(run.sessionId, tool, { drop: true });
         if (this.movedFrom.get(term.id) === (run.runId || null)) this.movedFrom.delete(term.id); // not moved: it may be asked again

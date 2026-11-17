@@ -7,7 +7,7 @@ import os from 'node:os';
 import { system } from '../../procid.mjs';
 import { ptySpawn } from './nodepty.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
-import { descendants, endAll } from './procs.mjs';
+import { descendants, endAll } from './proctree.mjs';
 import { shellLine } from './shell.mjs';
 
 const FIELDS = [
@@ -50,6 +50,8 @@ const KEYS = new Set(['Enter', 'Escape', 'Tab', 'BTab', 'C-c', 'Up', 'Down', 'Le
 const NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$/;
 // Programs started in our sessions may use 24-bit colour: tmux passes it on to clients that support it.
 const PANE_ENV = ['-e', 'COLORTERM=truecolor'];
+// A pane's shell, for ending what runs under it: whether the pane is dead (remain-on-exit), and the shell's pid.
+const SHELL_FORMAT = '#{pane_dead} #{pane_pid}';
 
 export class TmuxBackend {
   /**
@@ -57,7 +59,7 @@ export class TmuxBackend {
    * @param {string} [o.socket]      tmux -L name; empty = the user's default server
    * @param {string} [o.configFile]  tmux -f file (tests use an empty file so the user's tmux.conf does not apply)
    * @param {string} [o.bin]         tmux executable
-   * @param {Function} [o.descendants] pid → its descendants' pids (procs.mjs), replaceable in tests
+   * @param {Function} [o.descendants] pid → its descendants' pids (proctree.mjs), replaceable in tests
    * @param {object} [o.ident]        who a process is beyond its pid (procid.mjs), replaceable in tests
    */
   constructor({ socket = '', configFile = '', bin = 'tmux', descendants: below = descendants, ident = system } = {}) {
@@ -189,8 +191,9 @@ export class TmuxBackend {
     throw new Error(`unknown scroll action ${action}`);
   }
 
-  async respawn(id, dir, argv, { mark = null } = {}) {
-    await this.#endPrograms(id);
+  /** `hold`: the pid that holds the conversation (the launcher), waited for longer before the new command starts. */
+  async respawn(id, dir, argv, { mark = null, hold = null } = {}) {
+    await this.#endPrograms(['display-message', '-p', '-t', id, SHELL_FORMAT], hold);
     await this.run(['respawn-pane', '-k', '-t', id, '-c', dir, ...PANE_ENV]);
     // The old program's lines (a usage-limit message among them) would otherwise stay in the history and keep
     // the card in "limit hit". The conversation itself is in Claude's transcript, which --resume shows again.
@@ -199,17 +202,25 @@ export class TmuxBackend {
   }
 
   /**
-   * What runs under the pane's shell ends, while its terminal is still open, before the pane is started anew; the shell
-   * stays (the pane would close with it) and goes with the respawn. respawn-pane -k alone closes the terminal first:
-   * the programs in it end only afterwards, while the new command already starts. A launcher still ending then holds
-   * its conversation, and the new launcher on the same conversation refuses to start. And a program that sets its
-   * terminal back on its way out finds it gone: Node 20 aborts there (and a crash report takes a second or more).
+   * What runs under the shells of the panes `query` lists (SHELL_FORMAT) ends, while their terminals are still open,
+   * before a pane is started anew or the session is closed; the shells stay (a pane would close with its shell) and go
+   * with respawn-pane -k or kill-session. Those alone close the terminal first: the programs in it end only afterwards,
+   * while a respawn's new command already starts. A launcher still ending then holds its conversation, and the new
+   * launcher on the same conversation refuses to start. And a program that sets its terminal back on its way out finds
+   * it gone: Node 20 aborts there (and a crash report takes a second or more). A dead pane (remain-on-exit) is skipped:
+   * its pane_pid is that of a shell that has ended, and may be another process's by now.
    */
-  async #endPrograms(id) {
-    const shell = Number(String(await this.run(['display-message', '-p', '-t', id, '#{pane_pid}']).catch(() => '')).trim());
-    if (!Number.isInteger(shell) || shell <= 1) return;
+  async #endPrograms(query, hold = null) {
+    const out = String(await this.run(query).catch(() => ''));
+    const shells = [];
+    for (const line of out.split('\n')) {
+      const [dead, pid] = line.trim().split(' ');
+      if (dead === '0' && /^\d+$/.test(pid || '') && Number(pid) > 1) shells.push(Number(pid));
+    }
+    if (!shells.length) return;
+    const pids = (await Promise.all(shells.map((s) => this.descendants(s)))).flat();
     // What ignores SIGHUP (nohup) stays, as it did when the terminal closed under it.
-    await endAll(await this.descendants(shell), { ident: this.ident });
+    await endAll(pids, { ident: this.ident, hold });
   }
 
   /** "=" makes tmux match the session name exactly instead of by prefix. */
@@ -217,7 +228,9 @@ export class TmuxBackend {
     return this.run(['rename-session', '-t', `=${name}`, next]);
   }
 
-  kill(name) {
+  /** Every pane of the session (-s), its programs first, as in respawn. */
+  async kill(name) {
+    await this.#endPrograms(['list-panes', '-s', '-t', `=${name}`, '-F', SHELL_FORMAT]);
     return this.run(['kill-session', '-t', `=${name}`]);
   }
 

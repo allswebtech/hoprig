@@ -18,7 +18,8 @@
 //   sendKey(id, key)               one key: Enter | Escape | Tab | BTab | C-c | Up | Down | Left | Right
 //   capture(id, lines)             the last `lines` lines of history and screen, as plain text
 //   scroll(id, action, n)          history view: action "up" | "down" (n lines) | "exit" (back to live)
-//   respawn(id, dir, argv, { mark }) stop what runs in the terminal and start argv there, same name and id
+//   respawn(id, dir, argv, { mark, hold }) stop what runs in the terminal (its programs first, while it is open; the
+//                                  pid `hold` gets longer) and start argv there, same name and id
 //   rename(name, next), kill(name)
 //   close()                        the server is stopping (tmux: nothing; pty: ends every session)
 //   validName(name)                (sync) whether a session name is acceptable to this backend

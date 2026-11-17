@@ -198,12 +198,14 @@ async function serve(args) {
   if (app.backend.kind === 'none') console.log(app.backend.message);
   else console.log(`Sessions run on the ${app.backend.kind} backend.${app.backend.capabilities.persistent ? '' : ' They end when this server stops.'}`);
   // Stop the server, then the backend: the pty backend ends its sessions cleanly (Claude gets SIGHUP and saves);
-  // tmux sessions keep running. The timer is the backstop if something hangs.
+  // tmux sessions keep running. The timer is the backstop if something hangs. It must outlast a clean stop of the
+  // built-in terminals (their programs get STOP_WAIT_MS, then the shell as long, then what ignored SIGHUP gets
+  // SIGTERM): cut short before that last step, a nohup job would outlive the dashboard.
   const stop = () => {
     app.close()
       .then(() => app.backend.close())
       .finally(() => process.exit(0));
-    setTimeout(() => process.exit(0), 5000).unref();
+    setTimeout(() => process.exit(0), 10_000).unref();
   };
   // SIGTERM never arrives on Windows; there Ctrl+Break (SIGBREAK) and closing the console window (SIGHUP) do.
   const signals = process.platform === 'win32' ? ['SIGINT', 'SIGBREAK', 'SIGHUP'] : ['SIGINT', 'SIGTERM', 'SIGHUP'];

@@ -28,7 +28,7 @@ import unicode11 from '@xterm/addon-unicode11';
 import { ptySpawn } from './nodepty.mjs';
 import { system } from '../../procid.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
-import { descendants, endAll, STOP_WAIT_MS } from './procs.mjs';
+import { descendants, endAll, STOP_WAIT_MS } from './proctree.mjs';
 import { shellLine } from './shell.mjs';
 
 const NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$/;
@@ -277,8 +277,11 @@ export class PtyBackend {
     t.vt.dispose();
   }
 
-  /** Stop the terminal's process and everything it started; resolves when it is gone. */
-  async #stop(t) {
+  /**
+   * Stop the terminal's process and everything it started; resolves when it is gone. `hold`: the pid that holds the
+   * conversation (proctree.mjs endAll), waited for longer.
+   */
+  async #stop(t, hold = null) {
     const proc = t.proc;
     if (!proc) return;
     t.proc = null; // from here on its output and exit belong to nobody
@@ -297,7 +300,7 @@ export class PtyBackend {
     // (Claude saves and exits), and a wait until it has ended. With the shell ended first, the terminal closed under
     // the programs: they ended only after the new command of a respawn had started (a launcher still ending held its
     // conversation, and the new one refused it), and a Node 20 program aborts on a terminal that is gone.
-    const rest = await endAll(await this.descendants(proc.pid), { ident: this.ident, platform: this.platform });
+    const rest = await endAll(await this.descendants(proc.pid), { ident: this.ident, platform: this.platform, hold });
     try {
       proc.kill('SIGHUP');
     } catch {
@@ -438,9 +441,9 @@ export class PtyBackend {
     if (!['up', 'down', 'exit'].includes(action)) throw new Error(`unknown scroll action ${action}`);
   }
 
-  async respawn(id, dir, argv, { mark = null } = {}) {
+  async respawn(id, dir, argv, { mark = null, hold = null } = {}) {
     const t = this.#byId(id);
-    await this.#stop(t);
+    await this.#stop(t, hold);
     // The old program's lines (a usage-limit message among them) would otherwise stay in the history and keep the
     // card in "limit hit". The conversation itself is in Claude's transcript, which --resume shows again. The
     // reset goes to the browsers too, so their screens match.

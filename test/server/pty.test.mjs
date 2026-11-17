@@ -383,3 +383,18 @@ test('the processes a terminal started: a pid that is another process by the tim
   await gone(same);
   assert.equal(same.signalCode, 'SIGHUP');
 });
+
+test('what ignores SIGHUP (a nohup job) does not outlive a closed terminal: SIGTERM once the shell has ended', { skip: process.platform === 'win32' }, async () => {
+  const { spawn } = await import('node:child_process');
+  const deaf = spawn(process.execPath, ['-e', "process.on('SIGHUP', () => {}); setInterval(() => {}, 1 << 30); console.log('ready')"], { stdio: ['ignore', 'pipe', 'ignore'] });
+  test.after(() => deaf.kill('SIGKILL'));
+  await new Promise((r) => deaf.stdout.once('data', r)); // its SIGHUP handler is in place
+  const { b } = backend('linux', { descendants: async () => [deaf.pid] });
+  await b.create({ name: 'n', dir: '/w' });
+  const t0 = Date.now();
+  await b.kill('n');
+  // SIGHUP first (ignored), the wait for it, then the shell (here it ends at once), then SIGTERM.
+  await new Promise((r) => (deaf.exitCode !== null || deaf.signalCode !== null ? r() : deaf.once('exit', r)));
+  assert.equal(deaf.signalCode, 'SIGTERM');
+  assert.ok(Date.now() - t0 < 5000, 'the wait for it is bounded');
+});

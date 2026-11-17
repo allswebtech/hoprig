@@ -44,8 +44,8 @@ test('tmux calls are argument arrays (recorded)', async () => {
   assert.deepEqual(calls[2][0].slice(0, 3), ['paste-buffer', '-p', '-d']);
   calls.length = 0;
   await b.respawn('%7', '/w', ['n', 'p2', '--resume', 'id']);
-  // What runs under the pane's shell ends first (here tmux names no shell: nothing to end; respawn.test.mjs).
-  assert.deepEqual(calls[0][0], ['display-message', '-p', '-t', '%7', '#{pane_pid}']);
+  // What runs under the pane's shell ends first (here tmux names no shell: nothing to end; ending.test.mjs).
+  assert.deepEqual(calls[0][0], ['display-message', '-p', '-t', '%7', '#{pane_dead} #{pane_pid}']);
   assert.deepEqual(calls[1][0], ['respawn-pane', '-k', '-t', '%7', '-c', '/w', '-e', 'COLORTERM=truecolor']);
   assert.deepEqual(calls[2][0], ['clear-history', '-t', '%7']);
   assert.deepEqual(calls[3][0], ['send-keys', '-t', '%7', '-l', '--', `${CLEAR}; cd /w && n p2 --resume id`]);
@@ -55,9 +55,26 @@ test('tmux calls are argument arrays (recorded)', async () => {
   calls.length = 0;
   await b.kill('p');
   await b.rename('p', 'q');
-  assert.deepEqual(calls.map((c) => c[0]), [['kill-session', '-t', '=p'], ['rename-session', '-t', '=p', 'q']]);
+  // A Close, too, ends what runs under the shells of all the session's panes first.
+  assert.deepEqual(calls.map((c) => c[0]), [['list-panes', '-s', '-t', '=p', '-F', '#{pane_dead} #{pane_pid}'], ['kill-session', '-t', '=p'], ['rename-session', '-t', '=p', 'q']]);
   await assert.rejects(b.sendKey('%7', 'C-b'), /unknown key/);
   await assert.rejects(b.scroll('%7', 'sideways'), /unknown scroll/);
+});
+
+test('tmux: the programs ended before a respawn or a Close are those under the live panes\' shells only', async () => {
+  // A dead pane (remain-on-exit, from the owner's tmux.conf) names the pid of a shell that has ended: by now that pid
+  // may be another process's, and what runs under it is nothing of the pane's.
+  const asked = [];
+  const b = new TmuxBackend({ socket: 's', descendants: async (pid) => (asked.push(pid), []) });
+  let panes = '';
+  b.run = async (args) => (args[0] === 'display-message' || args[0] === 'list-panes' ? panes : '');
+  panes = '1 4242\n';
+  await b.respawn('%7', '/w', ['n']);
+  await b.kill('p');
+  assert.deepEqual(asked, [], 'a dead pane: nothing is asked for, nothing signalled');
+  panes = '0 4242\n1 4343\n0 4444\n0 1\n0 x\n';
+  await b.kill('p');
+  assert.deepEqual(asked, [4242, 4444], 'every live pane of the session, nothing else');
 });
 
 test('list-panes parsing (path may contain tabs)', () => {
