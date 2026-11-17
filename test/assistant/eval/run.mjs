@@ -77,6 +77,7 @@ async function runCase(c, o, i) {
   const init = events.find((e) => e.kind === 'init');
   const r = {
     calls: ops.calls,
+    reads: ops.reads, // what she looked at (a check that changes nothing is graded on its read)
     cards: dash.core.cards.pending(),
     jobs: dash.core.jobs.list(),
     finalText: events.filter((e) => e.kind === 'text').map((e) => e.text).join('\n'),
