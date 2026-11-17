@@ -17,7 +17,9 @@
 //   deck.list()                         → session cards (see ./cards.mjs for the fields used)
 //   deck.start({ dir, profile, mode: 'new'|'resume', sessionId?, name? }) → the new session's name. `profile` is
 //                                         a profile name or "auto"; `name` is a wish (taken names get a suffix)
-//   deck.send(name, text)               type text into the session and press Enter
+//   deck.send(name, text)               type text for the session's coding tool and press Enter; only while the
+//                                       tool is in front (src/server/typing.mjs), else an error with code
+//                                       "not_in_front" (nothing typed) or "typed_not_sent" (no Enter followed)
 //   deck.kill(name)                     close the session
 //   backend                             { kind, capabilities: { persistent } }
 //   config()                            the current config.json (loadConfig)
@@ -104,12 +106,27 @@ export function createAutomation(ctx) {
 
   // A failed send goes back to the front. The first two failures may try again at once; after that it waits
   // for the next reply, so a broken terminal does not mean a failed send every tick.
-  const putBack = (session, item) =>
+  // `why`: nothing was typed because the coding tool was not in front (queue.mjs held): no try is counted, the message
+  // waits for a coding tool that waits there again, and the row says why. Returns true when that reason is new.
+  // `pause`: the message was typed but not sent: the queue pauses until the owner has looked. It did not go, so no
+  // reply counts as answered by it: once he resumes, it goes at the next idle moment.
+  const putBack = (session, item, { why = null, pause = false } = {}) => {
+    let fresh = false;
     store.update('queue', {}, (all) => {
       const q = all[session] || { paused: false, items: [], sentFor: null };
+      if (why) {
+        fresh = !(q.held && q.held.why === why);
+        const held = { why, at: fresh ? now() : q.held.at, ...(pause ? { paused: true } : {}) };
+        return { ...all, [session]: { ...q, items: [item, ...(q.items || [])], held, ...(pause ? { paused: true, sentFor: null } : {}) } };
+      }
       const tries = (item.tries || 0) + 1;
       return { ...all, [session]: { ...q, items: [{ ...item, tries }, ...(q.items || [])], sentFor: tries < 3 ? null : q.sentFor } };
     });
+    return fresh;
+  };
+  // A message went: the queue no longer waits for a coding tool in front.
+  const sent = (session) =>
+    store.update('queue', {}, (all) => (all[session] && all[session].held ? { ...all, [session]: { ...all[session], held: null } } : all));
 
   const deck = {
     ...ctx.deck,
@@ -186,7 +203,7 @@ export function createAutomation(ctx) {
         if (!actions.length || closed) continue;
         try {
           if (name === 'restore') await restore.apply(actions, { ...common, conversationExists, label: ctx.label });
-          else if (name === 'queue') await queue.apply(actions, { ...common, putBack });
+          else if (name === 'queue') await queue.apply(actions, { ...common, putBack, sent });
           else if (name === 'retry') await retry.apply(actions, { ...common, prompt: s.retry.prompt, max: s.retry.max });
           else if (name === 'schedules') await schedules.apply(actions, { ...common, enqueue, label: ctx.label });
           else if (name === 'idle') await idleCare.apply(actions, { ...common, addons });
@@ -265,7 +282,7 @@ export function createAutomation(ctx) {
           nextAt: x.enabled ? schedules.nextSlot(x.when, Math.max(t, (last[x.id] && last[x.id].last) || 0)) : null,
           lastAt: (last[x.id] && last[x.id].last) || null,
         })),
-        queues: Object.fromEntries(Object.entries(store.read('queue', {})).map(([n, q]) => [n, { paused: !!q.paused, count: (q.items || []).length }])),
+        queues: Object.fromEntries(Object.entries(store.read('queue', {})).map(([n, q]) => [n, { paused: !!q.paused, count: (q.items || []).length, ...(q.held && q.held.why ? { waits: q.held.why } : {}) }])),
       };
     },
     changeSettings(patch) {
@@ -285,7 +302,7 @@ export function createAutomation(ctx) {
     log: (limit) => activity.recent(limit),
     queueOf(session) {
       const q = store.read('queue', {})[session];
-      return { paused: !!(q && q.paused), items: q && q.items ? q.items.map(({ id, text, addedAt }) => ({ id, text, addedAt })) : [] };
+      return { paused: !!(q && q.paused), items: q && q.items ? q.items.map(({ id, text, addedAt }) => ({ id, text, addedAt })) : [], ...(q && q.held && q.held.why ? { waits: q.held.why } : {}) };
     },
     async changeQueue(session, op, b) {
       if (op === 'add') {
@@ -301,7 +318,7 @@ export function createAutomation(ctx) {
             if (!b.paused) soon();
             return { ...all, [session]: queue.pause(q, b.paused) };
           }
-          if (op === 'clear') return { ...all, [session]: { ...q, items: [] } };
+          if (op === 'clear') return { ...all, [session]: queue.unheld({ ...q, items: [] }) };
           throw new Error(`unknown queue operation "${op}"`);
         });
       }

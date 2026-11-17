@@ -190,7 +190,7 @@ export function onboardingFeature(sctx, opts = {}) {
       if (!cmd) throw Object.assign(new Error('unknown command'), { status: 400 });
       const taken = (await sctx.backend.list()).map((t) => t.session);
       const name = uniqueName(`get-started-${b.run}`.slice(0, 30), taken);
-      await sctx.backend.create({ name, dir: (await import('node:os')).homedir(), argv: cmd.argv });
+      await sctx.deck.terminal({ name, dir: (await import('node:os')).homedir(), argv: cmd.argv });
       slow = null; // look again next time: the user is about to change something
       return { session: name };
     }],

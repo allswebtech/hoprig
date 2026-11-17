@@ -167,6 +167,42 @@ for (const kind of kinds) {
     assert.match(r.text, /^Stopped/);
     await until('the session gone', async () => !(await call('list_sessions', {})).text.includes(name));
 
+    // ---- her first message (model output) is never typed into a shell: Ctrl-U, Tab and line breaks arrive whole ----
+    const proj2 = path.join(work, 'proj2');
+    fs.mkdirSync(proj2);
+    const hostile = 'hello \u0015touch PWNED; # rest\n\tpackage.j\tab; touch PWNED2; #\nline "three" \'s $(touch PWNED3)';
+    r = await call('start_session', { folder: proj2, message: hostile, account: 'sub' });
+    assert.equal(r.isError, false, r.text);
+    const name2 = /Started session (\S+)/.exec(r.text)[1];
+    await until('the second task done', () => fs.existsSync(path.join(proj2, 'TASK.txt')));
+    assert.equal(fs.readFileSync(path.join(proj2, 'TASK.txt'), 'utf8'), hostile, 'whole, byte for byte');
+    for (const d of [proj2, work, box.root]) assert.deepEqual(fs.readdirSync(d).filter((f) => f.startsWith('PWNED')), [], `nothing ran in ${d}`);
+    assert.equal((await call('stop_session', { session: name2 })).isError, false);
+    await until('the second session gone', async () => !(await call('list_sessions', {})).text.includes(name2));
+    // A folder whose name holds a line break: refused plainly, by her tool's schema and by the page's door (400).
+    const broken = path.join(work, 'two\nlines');
+    fs.mkdirSync(broken);
+    r = await call('start_session', { folder: broken, account: 'sub' });
+    assert.equal(r.isError, true, r.text);
+    assert.match(r.text, /folder: must be one line/);
+    const atDoor = await owner('POST', '/api/sessions', { dir: broken, profile: 'sub', mode: 'new' });
+    assert.equal(atDoor.status, 400);
+    assert.match(atDoor.json.error, /^A terminal session cannot start in this folder: its name holds a line break/);
+    fs.rmdirSync(broken);
+    // The launcher's own command with a quote in its path (a path handed in, no real folder renamed): the plain
+    // sentence, to the page as a 400 and to her as a tool error; nothing starts.
+    const cfgBefore = loadConfig();
+    saveConfig({ ...cfgBefore, launcher: [process.execPath, "/opt/it's here/bin/hoprig.mjs"] });
+    const sentence = /Hoprig cannot type this path into a shell: "\/opt\/it's here\/bin\/hoprig\.mjs"\. Only letters, digits, spaces and _ \. \/ : @ % \+ = , - can be typed: put Node, Hoprig or the state folder \(HOPRIG_STATE_DIR\) where its path has nothing else/;
+    const quoted = await owner('POST', '/api/sessions', { dir: proj2, profile: 'sub', mode: 'new' });
+    assert.equal(quoted.status, 400);
+    assert.match(quoted.json.error, sentence);
+    r = await call('start_session', { folder: proj2, message: 'x', account: 'sub' });
+    assert.equal(r.isError, true, r.text);
+    assert.match(r.text, sentence);
+    saveConfig(cfgBefore);
+    assert.doesNotMatch((await call('list_sessions', {})).text, /proj2/, 'nothing started');
+
     // ---- cards: one confirmed, one expired; run_command output comes back fenced ----
     r = await call('run_command', { command: 'echo card-ran > card.txt && echo ok', folder: work });
     const id1 = /card (c_[0-9a-f]{12})/.exec(r.text)[1];

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { getAutoSwitch, limitedProfiles, setAutoSwitch } from '../src/autoswitch.mjs';
 import { hookMain } from '../src/hook.mjs';
 import { hasSessionFlag, launch } from '../src/launch.mjs';
+import { applyLaunch } from '../src/launchfile.mjs';
 import { routerMain } from '../src/router.mjs';
 import { profileUsage, routerAddress } from '../src/routerstate.mjs';
 import { addProfile, ago, askNext, chooseProfile, clock, menuProfiles } from '../src/menu.mjs';
@@ -131,6 +132,7 @@ function autoCommand(args) {
 }
 
 async function main() {
+  applyLaunch(); // started by the dashboard: its launch file holds the folder and the arguments (src/launchfile.mjs)
   const [cmd, ...rest] = process.argv.slice(2);
   if (cmd === undefined) return startFromMenu([]);
   if (cmd === 'help' || cmd === '-h' || cmd === '--help') {

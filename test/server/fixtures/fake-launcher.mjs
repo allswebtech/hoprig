@@ -11,6 +11,10 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { createRun, removeRun, updateRun } from '../../../src/runs.mjs';
 import { projectDir } from '../../../src/sessions.mjs';
+import { applyLaunch } from '../../../src/launchfile.mjs';
+
+// Started as the dashboard starts the launcher (`--launch <file>`): the same folder and arguments as the real one.
+applyLaunch();
 
 const [profile, ...args] = process.argv.slice(2);
 const i = Math.max(args.indexOf('--resume'), args.indexOf('--session-id'));

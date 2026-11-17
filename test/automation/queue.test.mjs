@@ -122,6 +122,102 @@ test('queue apply: a failed send goes back to the front and is logged', async ()
   assert.match(rec.entries[0].outcome, /^failed: the terminal is gone/);
 });
 
+test('queue: the coding tool was not in front: the message stays first, says why once, and goes when a tool waits again', async () => {
+  const t = tmpDir('queue-front');
+  try {
+    const deck = fakeDeck([claude('w', { stopAt: 500, runId: 'r1' })]);
+    const a = createAutomation(fakeCtx({ deck, stateDir: t.dir, now: () => 1000 }).ctx);
+    a.enqueue('w', 'A');
+    a.enqueue('w', 'B');
+    deck.notInFront = 'Nothing was typed: no coding tool runs in session "w" now';
+    for (let i = 0; i < 4; i++) await a.tick();
+    assert.deepEqual(a.api.queueOf('w').items.map((x) => x.text), ['A', 'B'], 'kept, in its order');
+    assert.equal(a.api.queueOf('w').waits, queue.HELD_WHY, 'the sheet says why');
+    assert.equal(a.api.status().queues.w.waits, queue.HELD_WHY, 'and so does the Queue page\'s row');
+    const rows = a.activity.recent(20).filter((x) => x.automation === 'queue');
+    assert.deepEqual(rows.map((x) => [x.did, x.outcome]), [['not delivered: A', `waits in the queue: ${deck.notInFront}`]], 'recorded once, not at every tick');
+    assert.equal(a.api.queueOf('w').items[0].tries, undefined, 'not counted as a failed try');
+    // A new run of the coding tool waits there, before any reply of its own ended: the held message goes now.
+    deck.notInFront = null;
+    deck.cards = [claude('w', { stopAt: null, runId: 'r2' })];
+    await a.tick();
+    assert.deepEqual(deck.sent, [['w', 'A']]);
+    assert.equal(a.api.queueOf('w').waits, undefined, 'no longer waiting');
+    assert.equal(a.api.status().queues.w.waits, undefined);
+    await a.tick();
+    assert.deepEqual(deck.sent, [['w', 'A']], 'the next one waits for a reply as always');
+    await a.close();
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('queue: emptied by Clear all or by removing its last message, it no longer says why it waits', async () => {
+  const t = tmpDir('queue-unheld');
+  try {
+    const deck = fakeDeck([claude('w', { stopAt: 500, runId: 'r1' })]);
+    const a = createAutomation(fakeCtx({ deck, stateDir: t.dir, now: () => 1000 }).ctx);
+    deck.notInFront = 'Nothing was typed: no coding tool runs in session "w" now';
+    a.enqueue('w', 'A');
+    await a.tick();
+    assert.equal(a.api.queueOf('w').waits, queue.HELD_WHY);
+    await a.api.changeQueue('w', 'clear', {});
+    assert.equal(a.api.queueOf('w').waits, undefined, 'Clear all: no reason over an empty list');
+    assert.equal(a.api.status().queues.w.waits, undefined);
+    deck.cards = [claude('w', { stopAt: 600, runId: 'r1' })]; // another reply ended: the next message is tried
+    a.enqueue('w', 'B');
+    await a.tick();
+    assert.equal(a.api.queueOf('w').waits, queue.HELD_WHY);
+    await a.api.changeQueue('w', 'remove', { id: a.api.queueOf('w').items[0].id });
+    assert.equal(a.api.queueOf('w').waits, undefined, 'its last message removed: the same');
+    // A message added later waits for a finished reply again, as in any queue that holds nothing.
+    deck.notInFront = null;
+    a.enqueue('w', 'C');
+    await a.tick();
+    assert.deepEqual(deck.sent, [], 'not sent at once: the reply it waits for ended before it was added');
+    await a.close();
+  } finally {
+    t.cleanup();
+  }
+  // The pure parts: removing one of two keeps the reason; an owner's own pause outlives an empty list.
+  const held = { ...withItems(['A', 'B']), held: { why: 'x', at: 1 } };
+  assert.deepEqual(queue.remove(held, 'id1').held, { why: 'x', at: 1 });
+  assert.equal(queue.remove(queue.remove(held, 'id1'), 'id0').held, null);
+  assert.equal(queue.unheld({ ...withItems([]), paused: true, held: { why: 'x', at: 1 } }).paused, true, 'the owner paused it');
+  assert.equal(queue.unheld({ ...withItems([]), paused: true, held: { why: 'x', at: 1, paused: true } }).paused, false, 'it paused itself');
+});
+
+test('queue: a message typed but not sent pauses the queue with it first; resuming clears the reason', async () => {
+  const t = tmpDir('queue-typed');
+  try {
+    const deck = fakeDeck([claude('w', { stopAt: 500, runId: 'r1' })]);
+    const a = createAutomation(fakeCtx({ deck, stateDir: t.dir, now: () => 1000 }).ctx);
+    a.enqueue('w', 'A');
+    a.enqueue('w', 'B');
+    deck.typedNotSent = 'The text was typed into session "w" but not sent';
+    await a.tick();
+    deck.typedNotSent = null;
+    for (let i = 0; i < 3; i++) await a.tick();
+    assert.deepEqual(deck.sent, [], 'not typed a second time by itself');
+    const q = a.api.queueOf('w');
+    assert.equal(q.paused, true);
+    assert.deepEqual(q.items.map((x) => x.text), ['A', 'B']);
+    assert.equal(q.waits, queue.TYPED_WHY);
+    assert.equal(q.items[0].tries, undefined, 'not a failed try');
+    const rows = a.activity.recent(20).filter((x) => x.automation === 'queue');
+    assert.deepEqual(rows.map((x) => x.did), ['typed but not sent: A']);
+    assert.match(rows[0].outcome, /^the queue is paused: The text was typed/);
+    await a.api.changeQueue('w', 'pause', { paused: false });
+    assert.equal(a.api.queueOf('w').waits, undefined);
+    assert.equal(a.api.queueOf('w').paused, false);
+    await a.tick();
+    assert.deepEqual(deck.sent, [['w', 'A']], 'the owner resumed: it goes');
+    await a.close();
+  } finally {
+    t.cleanup();
+  }
+});
+
 test('queue: survives a restart of the service without sending twice', async () => {
   const t = tmpDir('queue');
   try {

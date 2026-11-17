@@ -24,6 +24,9 @@ export function resolveWindowsBin(bin, env = process.env, exists = fs.existsSync
   return null;
 }
 
+/** An argument for a cmd.exe line: every line break (CR LF, CR, LF) one space. */
+export const oneLine = (arg) => String(arg).replace(/\r\n|[\r\n]/g, ' ');
+
 // The characters cmd.exe treats specially outside quotes.
 const META = /([()\][%!^"`<>&|;, *?])/g;
 
@@ -42,11 +45,13 @@ export function cmdArgument(arg, doubleEscape) {
 /**
  * How to start `file` with `args`: { command, args, options } for child_process.spawn. An .exe (or .com) starts
  * directly. A .cmd or .bat goes through cmd.exe with every argument escaped, so text such as a prompt with
- * quotes, "&" or "%" arrives unchanged and cannot run anything.
+ * quotes, "&" or "%" arrives unchanged and cannot run anything. cmd.exe ends its command at a line break, and no
+ * escape keeps one inside a cmd.exe line: there, the line breaks of an argument (a first message of several lines)
+ * become one space each, and the rest arrives as it was.
  */
 export function windowsSpawnPlan(file, args, env = process.env) {
   if (!/\.(cmd|bat)$/i.test(file)) return { command: file, args, options: {} };
-  const line = [file.replace(META, '^$1'), ...args.map((a) => cmdArgument(a, true))].join(' ');
+  const line = [file.replace(META, '^$1'), ...args.map((a) => cmdArgument(oneLine(a), true))].join(' ');
   return {
     command: env.ComSpec || env.COMSPEC || 'cmd.exe',
     args: ['/d', '/s', '/c', `"${line}"`],

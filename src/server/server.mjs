@@ -522,7 +522,7 @@ export function createServer(opts = {}) {
       }
       // One conversation runs in one place only. "continue" (-c) is the folder's newest conversation.
       const runs = mode === 'resume' ? sid : mode === 'continue' ? (sessionsIn(dir)[0] || {}).id : null;
-      // An optional first message (Tia's start_session; one line, see deck.mjs promptArgs).
+      // An optional first message (Tia's start_session), whole: several lines too (deck.mjs promptArgs).
       let prompt = null;
       if (b.prompt !== undefined && b.prompt !== null) {
         prompt = v.message(b.prompt);
@@ -569,14 +569,19 @@ export function createServer(opts = {}) {
       const b = await readJson(req);
       // Escape / C-c interrupt; Enter, arrows, Tab and a digit answer a menu or a permission question.
       if (!['Escape', 'C-c', 'Enter', 'Up', 'Down', 'Tab', '1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(b.key)) throw bad('bad key');
-      const { term } = await sessionOr404(decodeURIComponent(m[1]));
+      const name = decodeURIComponent(m[1]);
+      const { term } = await sessionOr404(name);
       // "Always allow" from the page: the number is typed only while the question on screen still has that answer
       // with the same words, so a question that changed since the page looked is never answered blind.
       if (b.expect !== undefined) {
         const now = alwaysOption(await backend.capture(term.id, 40));
         if (typeof b.expect !== 'string' || !now || now.key !== b.key || now.text !== b.expect) throw new HttpError(409, 'the question on the screen changed; look at the session and answer there');
       }
-      if (/^[1-9]$/.test(b.key)) await backend.sendText(term.id, b.key);
+      // `owner: true`: the page's own answer and stop buttons, the owner's keys: to whatever runs there, as before. Anyone
+      // else (the assistant, which may never send that key: assistant/door.mjs) presses a key only for the coding tool
+      // while it is in front (deck.mjs keyToTool; 409 otherwise): an Enter never runs what stands on a shell's line.
+      if (b.owner !== true) await deck.keyToTool(name, b.key);
+      else if (/^[1-9]$/.test(b.key)) await backend.sendText(term.id, b.key);
       else await backend.sendKey(term.id, b.key);
       return { ok: true };
     }],
@@ -589,8 +594,13 @@ export function createServer(opts = {}) {
       const b = await readJson(req);
       const text = v.message(b.text);
       if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
-      const { term } = await sessionOr404(decodeURIComponent(m[1]));
-      await deck.send(term.id, text, { enter: b.enter !== false });
+      const name = decodeURIComponent(m[1]);
+      const { term } = await sessionOr404(name);
+      // `owner: true`: the session page's message box, the owner's own keys: typed into whatever runs there, as he sees
+      // it. Anyone else (the assistant, which may never send that key: assistant/door.mjs; a request without it) types
+      // only for the coding tool while it is in front, never a control byte (src/server/typing.mjs; 409 otherwise).
+      if (b.owner === true) await deck.send(term.id, text, { enter: b.enter !== false });
+      else await deck.sendToTool(name, text, { enter: b.enter !== false });
       return { ok: true };
     }],
     ['POST', /^\/api\/sessions\/([^/]+)\/scroll$/, async (req, m) => {
@@ -634,7 +644,8 @@ export function createServer(opts = {}) {
       const screen = await backend.capture(term.id, 40);
       if (!detectLimit(screen) && !run.limit) throw new HttpError(409, 'this session is not waiting at a usage limit');
       if (menuOpen(screen)) return { ok: false, menu: true };
-      await deck.send(term.id, prompt);
+      // The prompt is for Claude Code's own prompt: typed only while it is in front (409 with the reason otherwise).
+      await deck.sendToTool(name, prompt);
       watcher.poke();
       return { ok: true };
     }],
@@ -751,7 +762,7 @@ export function createServer(opts = {}) {
       const r = roots();
       const taken = (await backend.list()).map((t) => t.session);
       const name = v.uniqueName('add-account', taken);
-      await backend.create({ name, dir: r[0] || os.homedir(), argv: [...deck.launcher(), 'add'] });
+      await deck.terminal({ name, dir: r[0] || os.homedir(), argv: [...deck.launcher(), 'add'] });
       return { name };
     }],
     ['POST', /^\/api\/profiles\/([^/]+)\/delete$/, async (req, m) => {

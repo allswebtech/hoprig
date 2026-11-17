@@ -5,6 +5,9 @@ import path from 'node:path';
 import { moveArgs } from '../launch.mjs';
 import { binFile, tilde } from '../paths.mjs';
 import { dropMark, newMark, sweepMarks } from './marks.mjs';
+import { dropLaunch } from '../launchfile.mjs';
+import { assertFolder, startCommand } from './startline.mjs';
+import { ENTER_PAUSE_MS, keyToTool, sendToTool } from './typing.mjs';
 import { assertServes, publicProfile, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
 import { codexScreenQuestion } from '../codetools/codex.mjs';
@@ -26,13 +29,13 @@ import { safeSessionName, uniqueName } from './validate.mjs';
  *                                               with --resume <id>, or with --session-id <id> for a session nobody
  *                                               typed into yet (`fresh`: it has no conversation to resume)
  * A first message (`prompt`, new/continue/resume only) goes last, after "--": Claude Code then takes it as the
- * prompt even when it starts with "-" (checked on 2.1.325), and the launcher passes it through unchanged. It is
- * one line: the tmux backend types the command into a shell, where a line break would end it. It is not carried
- * along when the session moves to another account (carryArgs keeps flags only). `flags` (new/continue/resume) are
+ * prompt even when it starts with "-" (checked on 2.1.325), and the launcher passes it through unchanged. It goes
+ * whole, tabs and line breaks too: none of these words is typed into a shell, they travel in a launch file
+ * (Deck#command). It is not carried along when the session moves to another account (carryArgs keeps flags only). `flags` (new/continue/resume) are
  * Claude Code options chosen for this one session (New session → Options: permission mode, effort); they come after
  * the defaults the launcher adds, so they win, and they move with the session like any other flag.
  */
-export const promptArgs = (prompt) => (prompt ? ['--', String(prompt).replace(/\s*[\r\n]+\s*/g, ' ').trim()] : []);
+export const promptArgs = (prompt) => (prompt ? ['--', String(prompt)] : []);
 
 export function launchArgv(launcher, { tool = 'claude', profile, mode = 'new', sessionId = null, carryArgs = [], prompt = null, flags = [], fresh = false }) {
   if (tool !== 'claude') return toolArgv(launcher, { tool, profile, mode, sessionId, carryArgs, prompt, flags, fresh });
@@ -350,7 +353,7 @@ export class Deck {
     const mark = conversation ? newMark() : null;
     let name;
     try {
-      ({ name } = await this.backend.create({ name: await this.#newName(base), dir, argv, ...(mark ? { mark } : {}) }));
+      ({ name } = await this.terminal({ name: await this.#newName(base), dir, argv, mark }));
     } catch (e) {
       dropMark(mark);
       throw e;
@@ -359,28 +362,75 @@ export class Deck {
     return name;
   }
 
+  /** What a terminal runs for `argv` in `dir` (./startline.mjs): a folder of one line, the launcher's words in a launch file. */
+  #command(dir, argv, mark = null) {
+    assertFolder(dir);
+    return startCommand({ launcher: this.launcher(), dir, argv, mark, platform: this.backend.platform || process.platform });
+  }
+
+  /**
+   * A new terminal `name` in `dir` running `argv` (null: a plain shell) through #command: every terminal the dashboard
+   * starts with a command goes through here. Returns the backend's { name, id }.
+   */
+  async terminal({ name, dir, argv = null, mark = null }) {
+    const cmd = this.#command(dir, argv, mark);
+    try {
+      return await this.backend.create({ name, dir, argv: cmd.argv, ...(mark ? { mark } : {}) });
+    } catch (e) {
+      dropLaunch(cmd.file);
+      throw e;
+    }
+  }
+
+  /** Stop what runs in terminal `id` and start `argv` there (#command), keeping its name and id. */
+  async respawn(id, dir, argv, { mark = null } = {}) {
+    const cmd = this.#command(dir, argv, mark);
+    try {
+      await this.backend.respawn(id, dir, cmd.argv, { mark });
+    } catch (e) {
+      dropLaunch(cmd.file);
+      throw e;
+    }
+  }
+
   /** A terminal that runs the launcher with `words` (e.g. Codex's own sign-in), named after `base`. Returns its name. */
   async runLauncher(base, dir, words) {
-    const { name } = await this.backend.create({ name: await this.#newName(base), dir, argv: [...this.launcher(), ...words] });
+    const { name } = await this.terminal({ name: await this.#newName(base), dir, argv: [...this.launcher(), ...words] });
     return name;
   }
 
   /** A plain shell, no Claude. */
   async shell(dir) {
+    assertFolder(dir);
     const { name } = await this.backend.create({ name: await this.#newName('shell'), dir });
     return name;
   }
 
   /**
-   * Type a message and submit it. The pause before Enter lets the program finish taking the text in, so Enter is
-   * read as "send" and not as part of a paste.
+   * Type a message and submit it, as the owner does (the session page's message box): into whatever runs in the
+   * terminal, as written. The pause before Enter lets the program finish taking the text in, so Enter is read as
+   * "send" and not as part of a paste. Text from anyone else goes through sendToTool.
    */
   async send(termId, text, { enter = true } = {}) {
     await this.backend.sendText(termId, text.replace(/\r\n?/g, '\n'));
     if (enter) {
-      await new Promise((r) => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, ENTER_PAUSE_MS));
       await this.backend.sendKey(termId, 'Enter');
     }
+  }
+
+  /**
+   * Type a message for the coding tool of session `name` and submit it, for someone other than the owner's own keys
+   * (the queue, the continue prompt, the assistant, another computer): only while the tool is in front, never a control
+   * byte (./typing.mjs). 409 "not_in_front" when nothing was typed, "typed_not_sent" when the Enter did not follow.
+   */
+  sendToTool(name, text, o) {
+    return sendToTool(this, name, text, o);
+  }
+
+  /** One key for the coding tool of session `name`, for anyone but the owner: the same rule (./typing.mjs). */
+  keyToTool(name, key) {
+    return keyToTool(this, name, key);
   }
 
   /**
@@ -405,7 +455,7 @@ export class Deck {
       const mark = newMark();
       this.noteLaunch(term.session, run.sessionId, tool, Date.now(), mark);
       try {
-        await this.backend.respawn(term.id, run.cwd, argv, { mark });
+        await this.respawn(term.id, run.cwd, argv, { mark });
       } catch (e) {
         if (this.launchOf(run.sessionId, tool)?.mark === mark) this.launchOf(run.sessionId, tool, { drop: true });
         if (this.movedFrom.get(term.id) === (run.runId || null)) this.movedFrom.delete(term.id); // not moved: it may be asked again

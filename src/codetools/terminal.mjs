@@ -20,7 +20,8 @@ import fs from 'node:fs';
 import { listProfiles, notServedLines, readProfile, servesTools, validName } from '../profiles.mjs';
 import { rememberFolderProvider } from '../defaultprovider.mjs';
 import { refuseIfHeld } from '../held.mjs';
-import { createRun, removeRun, updateRun } from '../runs.mjs';
+import { createRun, updateRun } from '../runs.mjs';
+import { endRun } from '../typinglock.mjs';
 import { codexPlan, opencodePlan, standalonePlan } from './attach.mjs';
 import { anyTool, findTool, notOffered } from './index.mjs';
 import { providerModels } from './providers.mjs';
@@ -94,9 +95,11 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
   // conversation, one process); a refusal removes it again: a terminal that runs nothing holds nothing.
   const conversation = o.resume && isToolSessionId(toolId, o.resume) ? o.resume : null;
   const { file, run } = createRun({ profile: profileName, cwd, carryArgs: carryOf(o), tool: toolId, conversation });
-  const refuse = (code, lines) => {
+  // The record goes under the typing lock, then the terminal's input is settled (src/typinglock.mjs): nothing typed for
+  // the coding tool in the meantime is left for the shell.
+  const refuse = async (code, lines) => {
     for (const line of lines) console.error(line);
-    removeRun(file);
+    await endRun(file);
     return code;
   };
   // A chat or another terminal that runs this conversation already keeps it (held.mjs).
@@ -131,7 +134,7 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
       updateRun(file, { server: false, statusSource: 'basic' });
     }
   } catch (e) {
-    removeRun(file);
+    await endRun(file);
     await stopIfUnused(toolId, { except: run.runId }).catch(() => {});
     console.error(`hoprig: ${e.message}`);
     return 1;
@@ -139,7 +142,7 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
   if (plan.sessionId) updateRun(file, { sessionId: plan.sessionId });
   console.error(`hoprig: ${tool.name} · provider ${profile.name} · ${profile.label}`);
   const { code, signalled } = await runChild(tool.argv(plan.args), { ...plan.env, HOPRIG_RUN_FILE: file }, follow, { report });
-  removeRun(file);
+  await endRun(file);
   if (plan.cleanup) plan.cleanup();
   // The last session of the tool stops its server. Not when the terminal itself is closing or being restarted
   // (a move to another provider): the next launcher may be on its way, and this process may not live long enough

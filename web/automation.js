@@ -498,7 +498,7 @@ function queuePart(st, reload) {
           h('span.row-icon', icon('send')),
           h('span.row-main',
             h('span.row-title', name),
-            h('span.row-sub', `${q.count} ${q.count === 1 ? 'message waits' : 'messages wait'}${q.paused ? ' · paused: nothing is sent until you resume' : ' · sent one per finished reply'}`)),
+            h('span.row-sub', `${q.count} ${q.count === 1 ? 'message waits' : 'messages wait'}${q.paused ? ` · paused: ${q.waits || 'nothing is sent until you resume'}` : q.waits ? ` · ${q.waits}` : ' · sent one per finished reply'}`)),
           h('span.row-end', icon('chevronRight', { size: 18 })))))]
       : emptyState('send', 'Nothing is queued. A queue holds your next messages for a session and sends one each time a reply ends.'),
     h('p.hint.au-foot', 'Tap a session to see, reorder or remove what waits. A session\'s more button (…) has Queue as well.'),
@@ -709,7 +709,11 @@ function queueSheet(name, after) {
       return false;
     }
   };
+  // Why the next message waits although the session looked free: its coding tool was not the program in front.
+  const waits = h('p.banner.info', { role: 'status' });
   function paint() {
+    waits.style.display = q.waits ? '' : 'none'; // .banner is a flex box: the hidden attribute alone would not hide it
+    waits.textContent = q.waits ? `Waiting: ${q.waits}.` : ''; // the server's plain sentence (automation/queue.mjs HELD_WHY)
     pauseBtn.textContent = q.paused ? 'Resume' : 'Pause';
     pauseBtn.onclick = () => op({ op: 'pause', paused: !q.paused });
     fill(list, q.items.length
@@ -728,6 +732,7 @@ function queueSheet(name, after) {
   paint();
   setTimeout(() => input.focus(), 50); // the message box is what one came for
   return openSheet({ title: `Queue · ${name}`, subtitle: 'Each time a reply ends, the next message is sent. It waits while the session needs your OK, hits a limit or an error.', wide: true }, (close) => [
+    waits,
     list,
     h('div.mrow-actions', pauseBtn, btn('small ghost', { icon: 'trash', label: 'Clear all', onclick: () => op({ op: 'clear' }) })),
     h('form', {

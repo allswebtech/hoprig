@@ -26,6 +26,7 @@ const { saveConfig } = await import('../../src/config.mjs');
 const { Chat } = await import('../../src/chat/chat.mjs');
 const { Deck } = await import('../../src/server/deck.mjs');
 const { shellLine, CLEAR } = await import('../../src/server/backends/shell.mjs');
+const { writeLaunch } = await import('../../src/launchfile.mjs');
 const { PtyBackend, startPlan, termEnv } = await import('../../src/server/backends/pty.mjs');
 
 const ID = '0f4d6a52-8a7e-4b8e-9d55-2f8c2d1e6b01';
@@ -318,16 +319,18 @@ test('OpenCode: a new chat\'s record names the conversation OpenCode made for it
 
 test('the start\'s mark: the shell removes it after the launcher, or when the launcher could not start', { skip: process.platform === 'win32' && 'POSIX shells' }, () => {
   const mark = path.join(box.root, '.start-x');
-  assert.equal(shellLine('/w', ['/n', 'a b'], { mark }), `${CLEAR}; cd /w && /n 'a b'; command rm -f ${mark}`);
-  assert.equal(shellLine('/w', ['/n']), `${CLEAR}; cd /w && /n`, 'no mark, the same line as before');
-  for (const [dir, argv] of [[box.root, ['true']], [box.root, ['false']], [path.join(box.root, 'gone'), ['true']], [box.root, [path.join(box.root, 'no-such-program')]]]) {
+  assert.equal(shellLine(['/n', 'a b'], { mark }), `${CLEAR}; /n 'a b'; command rm -f ${mark}`);
+  assert.equal(shellLine(['/n']), `${CLEAR}; /n`, 'no mark, the same line as before');
+  // The launcher's folder is gone: it says so and ends (exit 2), and the shell is back.
+  const gone = writeLaunch({ cwd: path.join(box.root, 'gone'), argv: ['--version'] });
+  for (const argv of [['true'], ['false'], [path.join(box.root, 'no-such-program')], [process.execPath, binFile(), '--launch', gone]]) {
     fs.writeFileSync(mark, '');
-    spawnSync('/bin/sh', ['-c', shellLine(dir, argv, { mark })], { stdio: 'ignore' });
-    assert.equal(fs.existsSync(mark), false, `${dir} ${argv}`);
+    spawnSync('/bin/sh', ['-c', shellLine(argv, { mark })], { stdio: 'ignore', cwd: box.root });
+    assert.equal(fs.existsSync(mark), false, `${argv}`);
   }
   // A shell whose rm is something else (a function that moves files to a trash): the program itself removes it.
   fs.writeFileSync(mark, '');
-  spawnSync('bash', ['-c', `rm() { :; }; ${shellLine(box.root, ['true'], { mark })}`], { stdio: 'ignore' });
+  spawnSync('bash', ['-c', `rm() { :; }; ${shellLine(['true'], { mark })}`], { stdio: 'ignore' });
   assert.equal(fs.existsSync(mark), false, 'not the shell\'s own rm');
 });
 
@@ -336,7 +339,7 @@ test('the start\'s mark on Windows: the built-in terminal removes it when its co
   fs.writeFileSync(mark, '');
   const plan = startPlan({ platform: 'win32', dir: 'C:\\w', argv: ['node.exe', 'hoprig.mjs', 'work'], mark });
   assert.equal(plan.mark, mark);
-  assert.equal(startPlan({ platform: 'linux', dir: '/w', argv: ['/n'], mark, shell: { file: '/bin/sh', args: ['-l'] } }).type, shellLine('/w', ['/n'], { mark }));
+  assert.equal(startPlan({ platform: 'linux', dir: '/w', argv: ['/n'], mark, shell: { file: '/bin/sh', args: ['-l'] } }).type, shellLine(['/n'], { mark }));
   const procs = [];
   const spawn = (file) => {
     const exits = [];

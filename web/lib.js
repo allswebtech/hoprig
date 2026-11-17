@@ -659,7 +659,7 @@ export function permissionActions(s, after) {
     const b = e.currentTarget;
     b.disabled = true;
     try {
-      await api(atOf(s, `/api/sessions/${encodeURIComponent(s.name)}/key`), body);
+      await api(atOf(s, `/api/sessions/${encodeURIComponent(s.name)}/key`), { ...body, owner: true }); // the owner's own answer (server.mjs)
       toast(said);
       after?.();
     } catch (err) {

@@ -230,6 +230,66 @@ test('the other computer decides too: its gate refuses a hub token on the owner-
   for (const p of ['/api/profiles/add', '/api/notify/test', '/api/pcsetup/recipe', '/api/settings', '/api/assistant/run']) assert.equal(tokenMayReach(p), true, p);
 });
 
+test('typing into a session: only her text; never the owner\'s own typing (owner: true types into whatever runs there)', async () => {
+  assert.equal(checkRoute('POST', '/api/sessions/s1/send', { text: 'run the tests' }, stubCtx()).tool, 'send_to_session');
+  for (const p of ['/api/sessions/s1/send', '/m/box2/api/sessions/s1/send']) {
+    for (const b of [{ text: 'x', owner: true }, { text: 'x', enter: false }]) refused(() => checkRoute('POST', p, b, stubCtx()));
+  }
+  // The dashboard refuses to type because the coding tool is not in front: her own plain sentence and a next step.
+  const ctx = stubCtx();
+  ctx.dispatch = async (method, url) => {
+    const u = new URL(url, 'http://x');
+    const sessions = [{ name: 's1', kind: 'claude', status: 'waiting', profile: { name: 'sub' }, cwd: '/home/owner/projects/x' }];
+    if (u.pathname === '/api/state') return { status: 200, json: { sessions } };
+    if (u.pathname === '/api/machines/sessions') return { status: 200, json: { machines: [{ status: 'online', sessions }] } };
+    if (u.pathname.endsWith('/send')) return { status: 409, json: { error: 'whatever the other computer says', code: 'not_in_front' } };
+    return { status: 200, json: {} };
+  };
+  const core = createAssistantCore({
+    ops: createOps({ ctx, runShell: async () => ({}), jobWaitMs: 0 }), cards: new CardStore(), audit: new AuditLog({ file: null }), jobs: new JobStore({ dir: null }),
+    skills: new Skills({ dirs: [{ dir: '/nonexistent', source: 'owner' }] }),
+  });
+  await core.call('list_sessions', {}, { conversation: 'door' }); // ids only from her own tool results
+  const r = await core.call('send_to_session', { session: 's1', text: 'yes' }, { conversation: 'door' });
+  assert.equal(r.isError, true, r.text);
+  assert.match(r.text, /Nothing was typed into s1: its coding tool is not the program in front/);
+  assert.match(r.text, /start_session/);
+  assert.equal(r.text.includes('whatever the other computer says'), false, 'the sentence is hers, not the other computer\'s');
+});
+
+test('her keys: only the key, never the owner\'s own; refused or half-sent typing is said in her own words', async () => {
+  assert.equal(checkRoute('POST', '/api/sessions/s1/key', { key: 'Enter' }, stubCtx()).tool, 'send_to_session (key)');
+  for (const p of ['/api/sessions/s1/key', '/m/box2/api/sessions/s1/key']) {
+    for (const b of [{ key: 'Enter', owner: true }, { key: '1', expect: 'Yes' }]) refused(() => checkRoute('POST', p, b, stubCtx()));
+  }
+  const ctx = stubCtx();
+  let answer = null;
+  ctx.dispatch = async (method, url) => {
+    const u = new URL(url, 'http://x');
+    const sessions = [{ name: 's1', kind: 'claude', status: 'waiting', profile: { name: 'sub' }, cwd: '/home/owner/projects/x' }];
+    if (u.pathname === '/api/state') return { status: 200, json: { sessions } };
+    if (u.pathname === '/api/machines/sessions') return { status: 200, json: { machines: [{ status: 'online', sessions }] } };
+    if (u.pathname.endsWith('/send') || u.pathname.endsWith('/key')) return answer;
+    return { status: 200, json: {} };
+  };
+  const core = createAssistantCore({
+    ops: createOps({ ctx, runShell: async () => ({}), jobWaitMs: 0 }), cards: new CardStore(), audit: new AuditLog({ file: null }), jobs: new JobStore({ dir: null }),
+    skills: new Skills({ dirs: [{ dir: '/nonexistent', source: 'owner' }] }),
+  });
+  await core.call('list_sessions', {}, { conversation: 'keys' });
+  answer = { status: 409, json: { error: 'whatever the other computer says', code: 'not_in_front' } };
+  let r = await core.call('send_to_session', { session: 's1', key: 'Enter' }, { conversation: 'keys' });
+  assert.equal(r.isError, true, r.text);
+  assert.match(r.text, /Nothing was pressed in s1: its coding tool is not the program in front/);
+  assert.equal(r.text.includes('whatever the other computer says'), false);
+  answer = { status: 409, json: { error: 'whatever the other computer says', code: 'typed_not_sent' } };
+  r = await core.call('send_to_session', { session: 's1', text: 'yes' }, { conversation: 'keys' });
+  assert.equal(r.isError, true, r.text);
+  assert.match(r.text, /The message was typed into s1 but not sent/);
+  assert.match(r.text, /do not send the message again before you have looked/);
+  assert.equal(r.text.includes('whatever the other computer says'), false);
+});
+
 test('setup and fix: Tia sends the kits or the check, never a password and never the terminal fallback', () => {
   assert.equal(checkRoute('POST', '/api/pcsetup/setup', { kits: ['basics'] }, stubCtx()).tool, 'manage_computer set_up');
   // The public link: only through its own route, with on/kind and nothing else; never its old add-on routes or its set-up.

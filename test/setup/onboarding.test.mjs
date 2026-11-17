@@ -62,8 +62,8 @@ function harness({ authed = true, facts = full, seen = null, installClaude } = {
   const f = ON.onboardingFeature({
     authed: () => authed,
     readJson: async (req) => req.body || {},
-    backend: { list: async () => [], create: async (o) => created.push(o) },
-    deck: { launcher: () => ['node', '/app/bin/hoprig.mjs'] },
+    backend: { list: async () => [] },
+    deck: { launcher: () => ['node', '/app/bin/hoprig.mjs'], terminal: async (o) => created.push(o) },
   }, { facts: src, now: () => clock, loginSeen: () => (typeof seen === 'function' ? seen(clock) : seen), installClaude });
   const call = (method, p, body) => {
     const u = new URL(p, 'http://x');

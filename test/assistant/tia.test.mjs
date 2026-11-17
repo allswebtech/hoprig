@@ -123,6 +123,10 @@ test('policy: the three levels for typing into a session', () => {
   assert.equal(lv('send_to_session', a, f(), tia('handsoff')).level, 'L1');
   assert.equal(lv('send_to_session', { session: 's', key: 'Escape' }, f(), tia('ask')).level, 'L1');
   assert.equal(lv('send_to_session', { session: 's', text: '!ls' }, f({ mine: true }), tia('handsoff')).level, 'L2');
+  // Judged as it is typed: control characters become spaces (src/server/typing.mjs toolText), so these start with "!" or "/" too.
+  for (const text of ['\x15!rm -rf ~', '\x1b!ls', '\t/login', '\r\n!ls']) {
+    assert.equal(lv('send_to_session', { session: 's', text }, f({ mine: true }), tia('handsoff')).level, 'L2', JSON.stringify(text));
+  }
 });
 
 test('policy: permission prompts — own job and harmless runs; not hers or risky → card', () => {

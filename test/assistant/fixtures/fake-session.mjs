@@ -6,6 +6,10 @@
 import fs from 'node:fs';
 import readline from 'node:readline';
 import { createRun, removeRun, updateRun } from '../../../src/runs.mjs';
+import { applyLaunch } from '../../../src/launchfile.mjs';
+
+// Started as the dashboard starts the launcher (`--launch <file>`): the same folder and arguments as the real one.
+applyLaunch();
 
 const [profile, ...args] = process.argv.slice(2);
 const r = args.indexOf('--resume');

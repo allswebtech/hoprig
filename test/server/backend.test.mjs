@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from './helpers.mjs';
 import { shellLine, shellQuote, tmuxUsable } from '../../src/server/backends/index.mjs';
-import { CLEAR } from '../../src/server/backends/shell.mjs';
+import { CLEAR, assertTypable } from '../../src/server/backends/shell.mjs';
 import { PANE_FORMAT, TmuxBackend, parsePanes } from '../../src/server/backends/tmux.mjs';
 import { tmuxNewEnough } from '../../src/server/backends/tmuxversion.mjs';
 import { launchArgv } from '../../src/server/deck.mjs';
@@ -26,10 +26,15 @@ test('tmux calls are argument arrays (recorded)', async () => {
     calls.push([args, o && o.input]);
     return args[0] === 'new-session' ? '%7\n' : '';
   };
-  const r = await b.create({ name: 'p', dir: '/w/my dir', argv: ['/usr/bin/node', '/x/bin.mjs', 'work'] });
+  await assert.rejects(b.create({ name: 'p', dir: '/w', argv: ['/usr/bin/node', "it's"] }), (e) => e.status === 400);
+  assert.deepEqual(calls, [], 'refused before tmux is asked for anything');
+  const r = await b.create({ name: 'p', dir: '/w/my #(dir)', argv: ['/usr/bin/node', '/x/bin.mjs', 'work'] });
   assert.deepEqual(r, { name: 'p', id: '%7' });
-  assert.deepEqual(calls[0][0], ['new-session', '-d', '-s', 'p', '-c', '/w/my dir', '-e', 'COLORTERM=truecolor', '-P', '-F', '#{pane_id}']);
-  assert.deepEqual(calls[1][0], ['send-keys', '-t', '%7', '-l', '--', `${CLEAR}; cd '/w/my dir' && /usr/bin/node /x/bin.mjs work`]);
+  // -c is a format to tmux: "#" doubled, so "#(…)" in a folder's name is never run. The pane's launcher uses the
+  // dashboard's state folder, whatever the tmux server was started with.
+  const env = ['-e', 'COLORTERM=truecolor', '-e', `HOPRIG_STATE_DIR=${box.state}`];
+  assert.deepEqual(calls[0][0], ['new-session', '-d', '-s', 'p', '-c', '/w/my ##(dir)', ...env, '-P', '-F', '#{pane_id}']);
+  assert.deepEqual(calls[1][0], ['send-keys', '-t', '%7', '-l', '--', `${CLEAR}; /usr/bin/node /x/bin.mjs work`]);
   assert.deepEqual(calls[2][0], ['send-keys', '-t', '%7', 'Enter']);
   // tmux's own status line is hidden for the session (by pane id: set-option has no "=name" form), and focus
   // events are on for Claude Code.
@@ -43,10 +48,17 @@ test('tmux calls are argument arrays (recorded)', async () => {
   assert.equal(calls[1][1], 'two\nlines', 'text goes through stdin');
   assert.deepEqual(calls[2][0].slice(0, 3), ['paste-buffer', '-p', '-d']);
   calls.length = 0;
-  await b.respawn('%7', '/w', ['n', 'p2', '--resume', 'id']);
-  assert.deepEqual(calls[0][0], ['respawn-pane', '-k', '-t', '%7', '-c', '/w', '-e', 'COLORTERM=truecolor']);
+  await b.respawn('%7', '/w#{pane_id}', ['n', 'p2', '--resume', 'id']);
+  assert.deepEqual(calls[0][0], ['respawn-pane', '-k', '-t', '%7', '-c', '/w##{pane_id}', ...env]);
   assert.deepEqual(calls[1][0], ['clear-history', '-t', '%7']);
-  assert.deepEqual(calls[2][0], ['send-keys', '-t', '%7', '-l', '--', `${CLEAR}; cd /w && n p2 --resume id`]);
+  assert.deepEqual(calls[2][0], ['send-keys', '-t', '%7', '-l', '--', `${CLEAR}; n p2 --resume id`]);
+  calls.length = 0;
+  // A run of "#" before "[" is a style to tmux, copied through as it is: left alone, or the folder would be another one.
+  await b.respawn('%7', '/w/notes #[draft] a##[b ##(x) #', ['n', 'p2']);
+  assert.deepEqual(calls[0][0].slice(4, 6), ['-c', '/w/notes #[draft] a##[b ####(x) ##']);
+  calls.length = 0;
+  await assert.rejects(b.respawn('%7', '/w', ['n', 'a\u0015b']), (e) => e.status === 400);
+  assert.deepEqual(calls, [], 'refused before what runs there is stopped');
   calls.length = 0;
   await b.scroll('%7', 'up', 5);
   assert.deepEqual(calls.map((c) => c[0]), [['copy-mode', '-e', '-t', '%7'], ['send-keys', '-t', '%7', '-X', '-N', '5', 'scroll-up']]);
@@ -98,12 +110,20 @@ test('tmux 3.2 is the oldest the backend uses; a build without a number counts a
   for (const v of ['tmux 3.1c', 'tmux 3.0a', 'tmux 2.9a', 'tmux 1.8']) assert.equal(tmuxNewEnough(v), false, v);
 });
 
-test('shell quoting', () => {
+test('the start line: only words that no shell reads specially, quoted when they hold a space or other letters', () => {
   assert.equal(shellQuote('plain-word_1.2/x'), 'plain-word_1.2/x');
-  assert.equal(shellQuote("it's"), `'it'\\''s'`);
-  assert.equal(shellQuote('$(rm -rf ~)'), "'$(rm -rf ~)'");
-  assert.equal(shellQuote(''), "''");
-  assert.equal(shellLine('/a b', ['x', 'y z']), `${CLEAR}; cd '/a b' && x 'y z'`);
+  assert.equal(shellQuote('/Users/a b/node'), "'/Users/a b/node'");
+  assert.equal(shellQuote('/home/जय/bin'), "'/home/जय/bin'");
+  assert.equal(shellLine(['x', 'y z']), `${CLEAR}; x 'y z'`, 'no cd: the terminal starts in its folder');
+  assert.equal(shellLine(['/n', '--launch', '/s/launch/ab.json'], { mark: '/s/runs/.start-1' }), `${CLEAR}; /n --launch /s/launch/ab.json; command rm -f /s/runs/.start-1`);
+  for (const ok of ['/a/b-c_d.e', 'C:x', 'a@b', '50%', 'a+b=c,d', 'Ünïcödé', '漢字', 'नमस्ते', '١٢٣']) assert.doesNotThrow(() => assertTypable([ok], 'posix'), ok);
+  // A quote, a backslash, the shell's own characters, any control byte or line end, and an empty word: refused.
+  for (const bad of ["it's", 'a"b', 'a\\b', 'a!b', '$(x)', '`x`', 'a;b', 'a&b', 'a|b', 'a>b', 'a<b', '~/x', 'a*b', 'a?b', '[a]', '{a,b}', '#x', 'a\tb', 'a\nb', 'a\rb', 'a\u0015b', 'a\u0000b', 'a\u007fb', 'a\u0085b', '']) {
+    assert.throws(() => shellLine(['/n', bad]), (e) => e.status === 400 && /^Hoprig cannot type this path into a shell: /.test(e.message), JSON.stringify(bad));
+  }
+  assert.throws(() => shellLine(['/n'], { mark: "/s/it's" }), (e) => e.status === 400, 'the mark too');
+  assert.doesNotThrow(() => assertTypable(['C:\\Program Files (x86)\\nodejs\\node.exe'], 'win32'), 'Windows: not typed, its paths as they are');
+  for (const bad of ['a"b', 'a\nb', '']) assert.throws(() => assertTypable([bad], 'win32'), (e) => e.status === 400, JSON.stringify(bad));
   assert.equal(CLEAR, "printf '\\033[H\\033[2J\\033[3J'");
 });
 

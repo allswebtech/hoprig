@@ -90,11 +90,9 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
         }
         return r.name;
       },
-      async send(name, text) {
-        const found = await sctx.deck.find(name);
-        if (!found) throw new Error('the session is gone');
-        await sctx.deck.send(found.term.id, text);
-      },
+      // Typed for the coding tool only while it is in front, never a control byte (src/server/typing.mjs): an error
+      // with code "not_in_front" when nothing was typed, "typed_not_sent" when the text went but its Enter did not.
+      send: (name, text) => sctx.deck.sendToTool(name, text),
       kill: (name) => sctx.backend.kill(name),
       // A chat (src/chat): its feature opens it as the page does, with Settings' New-session defaults (as a terminal
       // a schedule starts), not the folder's last chat: nobody watches a scheduled chat as it starts.

@@ -71,8 +71,10 @@ export const ALLOW = [
   r('GET', '/api/machines/sessions', 'list_sessions (every computer)'),
   r('GET', `/api/sessions/${SEG}/history`, 'read_session'),
   r('POST', '/api/sessions', 'start_session'),
-  r('POST', `/api/sessions/${SEG}/send`, 'send_to_session'),
-  r('POST', `/api/sessions/${SEG}/key`, 'send_to_session (key)'),
+  // Only the text: `owner: true` marks the owner's own typing (types into whatever runs there); hers is typed only for the coding tool.
+  r('POST', `/api/sessions/${SEG}/send`, 'send_to_session', onlyKeys(['text'])),
+  // Only the key, as for /send: `owner: true` is the page's own buttons; her keys go only to the coding tool in front.
+  r('POST', `/api/sessions/${SEG}/key`, 'send_to_session (key)', onlyKeys(['key'])),
   r('POST', `/api/sessions/${SEG}/rename`, 'rename_session'),
   r('POST', `/api/sessions/${SEG}/kill`, 'stop_session'),
   r('POST', `/api/sessions/${SEG}/switch`, 'switch_account'),

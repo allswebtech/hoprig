@@ -546,6 +546,15 @@ test('Windows: an .exe starts directly; a .cmd goes through cmd.exe with every a
   assert.equal(/(^|[^^])[&%"<>|]/.test(tail), false, tail);
   assert.equal(W.cmdArgument('a b', false), '^"a^ b^"');
   assert.equal(W.cmdArgument('C:\\dir\\', false), '^"C:\\dir\\\\^"', 'a trailing backslash is doubled before the closing quote');
+
+  // cmd.exe ends its command at a line break: a first message of several lines arrives as one line there, whole
+  // otherwise, and nothing after a break is read as a command. An .exe gets it as it is.
+  const many = W.windowsSpawnPlan('C:\\npm\\claude.cmd', ['--', 'one\r\ntwo\rthree\nfour & del x'], {});
+  const ml = many.args[3];
+  assert.equal(/[\r\n]/.test(ml), false, JSON.stringify(ml));
+  assert.ok(ml.includes('one^ two^ three^ four^ ^&^ del^ x'.replace(/\^/g, '^^^')), ml);
+  assert.equal(W.oneLine('a\r\n\nb\rc'), 'a  b c', 'each break one space');
+  assert.deepEqual(W.windowsSpawnPlan('C:\\bin\\claude.exe', ['a\nb'], {}).args, ['a\nb']);
 });
 
 test('Auto mode runs as the first subscription that is free; an expired login or a limit moves it to the next', async () => {
