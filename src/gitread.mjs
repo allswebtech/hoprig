@@ -4,10 +4,14 @@
 // content filters, diff converters. A read through here never starts one of them:
 // - fixed settings on the command line (-c outranks the folder's file): no fsmonitor, hooks from the null device,
 //   no signature checks, no submodule recursion, no transport (a partial clone would fetch a missing object);
-// - diff, show and log never use an external diff or a text converter (--no-ext-diff --no-textconv);
+// - diff, show and log never use an external diff or a text converter (--no-ext-diff --no-textconv), and neither
+//   they nor status look inside a submodule's files (--ignore-submodules=dirty: a submodule's own settings are not
+//   listed here, and git would compare its files with its own filters);
 // - a filter or diff driver has a free name, so no fixed setting reaches it: before a read that can compare file
 //   contents, the folder's own settings are listed (that runs nothing) and every driver command found there is set
 //   to nothing; when the list cannot be read, the read is refused with a plain sentence;
+// - a caller's arguments cannot take any of this back (a later --textconv, a -c of its own), and a settings read
+//   (git config --get) gets none of the fixed settings, which would otherwise be its answer;
 // - the environment is a short list of its own: the caller's GIT_DIR, GIT_EXTERNAL_DIFF or GIT_CONFIG_COUNT never
 //   reach git. The owner's own global settings stay in force (HOME, XDG_CONFIG_HOME, GIT_CONFIG_GLOBAL).
 // What the owner presses (stage, commit, discard) is not a read: it runs as git runs it from his terminal.
@@ -22,6 +26,7 @@ export const FIXED = [
   'log.showSignature=false', // would start gpg.program, which the folder can name
   'submodule.recurse=false',
   'status.submoduleSummary=false',
+  'diff.submodule=short', // "diff" would run a diff inside the submodule, with the submodule's own drivers
   'protocol.allow=never',
   ...['file', 'ext', 'ssh', 'git', 'http', 'https'].map((p) => `protocol.${p}.allow=never`), // a folder may allow one
 ];
@@ -29,8 +34,20 @@ const FLAGS = ['--no-pager', ...FIXED.flatMap((c) => ['-c', c])];
 
 // Reads that compare the contents of files (a clean filter runs there) or print them (textconv, external diff).
 // (cat-file prints a stored object as it is: the reader never asks it to filter or convert.)
-const CONTENT = new Set(['status', 'diff', 'diff-files', 'diff-index', 'diff-tree', 'ls-files', 'grep', 'show', 'log', 'whatchanged', 'blame']);
-const NO_CONVERT = new Set(['diff', 'diff-files', 'diff-index', 'diff-tree', 'show', 'log', 'whatchanged']);
+const CONTENT = new Set(['status', 'diff', 'diff-files', 'diff-index', 'diff-tree', 'ls-files', 'grep', 'show', 'log']);
+const NO_CONVERT = new Set(['diff', 'diff-files', 'diff-index', 'diff-tree', 'show', 'log']);
+// Not offered: blame reads the working file through its clean filter, which the reader sets to nothing (git then
+// fails on the empty command); whatchanged is log's old name, and git is removing it.
+const NOT_OFFERED = new Set(['blame', 'whatchanged']);
+// What a caller's own arguments may not say after the command word (before "--", outside the value of -e): each
+// would take back a guard above, start a program (grep -O opens a pager) or write a file (diff --output).
+const TAKEN_BACK = /^(--textconv|--ext-diff|--recurse-submodules.*|--ignore-submodules=(none|untracked)|--output(=.*)?|-O.*|--open-files-in-pager.*)$/;
+// The only setting a caller may give with -c before the command: how names are quoted.
+const CALLER_SETTINGS = /^core\.quotepath=(true|false)$/i;
+// A settings read: what git config may be asked through the reader (it never writes there).
+const CONFIG_READS = new Set(['--get', '--get-all', '--get-regexp', '--list', '-l', 'get', 'list']);
+// More driver commands than this in one folder's settings: not a project, the read is refused.
+const DRIVERS_MAX = 200;
 // Commands that change a repository: never through the reader.
 const WRITES = new Set(['add', 'commit', 'restore', 'rm', 'checkout', 'switch', 'reset', 'merge', 'pull', 'push', 'fetch', 'clone', 'init', 'rebase', 'cherry-pick', 'revert', 'mv', 'clean', 'gc', 'maintenance', 'update-index', 'apply', 'am']);
 // git's options before the command that take a value as the next word.
@@ -56,6 +73,39 @@ function commandAt(args) {
     if (TAKES_VALUE.has(a)) i++;
   }
   return -1;
+}
+
+/** Throws when a caller's own arguments would take a guard back. */
+function checkArgs(args, at, cmd) {
+  for (let i = 0; i < Math.max(at, 0); i++) {
+    const a = String(args[i]);
+    if (REFUSED_OPTS.has(a.split('=')[0])) throw new Error('a read names its folder with dir only');
+    if (a === '-c' && !CALLER_SETTINGS.test(String(args[++i]))) throw new Error(`a read takes no setting of its caller's but core.quotePath (${args[i]})`);
+  }
+  if (WRITES.has(cmd)) throw new Error(`git ${cmd} changes a repository: it is not a read`);
+  if (NOT_OFFERED.has(cmd)) throw new Error(`git ${cmd} is not offered by the reader`);
+  if (cmd === 'config' && !args.slice(at + 1).some((a) => CONFIG_READS.has(String(a)))) throw new Error('git config without --get or --list changes a repository: it is not a read');
+  if (cmd === 'cat-file' && args.some((a) => /^--(filters|textconv)/.test(String(a)))) throw new Error('the reader never asks cat-file to filter or convert');
+  for (let i = at + 1; i < args.length; i++) {
+    const a = String(args[i]);
+    if (a === '--') break;
+    if (a === '-e') i++; // grep's pattern: the user's text, not an option
+    else if (TAKEN_BACK.test(a)) throw new Error(`a read cannot ask for ${a}`);
+  }
+}
+
+const versions = new Map(); // PATH → git's [major, minor], read once
+
+/** git's version on this PATH, or null when it cannot be read. */
+async function gitVersion(env, run) {
+  const key = env.PATH || '';
+  if (!versions.has(key)) {
+    const r = await run(['git', '--version'], { env, timeout: 10_000 });
+    const m = /(\d+)\.(\d+)/.exec(r.ok ? String(r.stdout) : '');
+    if (!m) return null;
+    versions.set(key, [Number(m[1]), Number(m[2])]);
+  }
+  return versions.get(key);
 }
 
 /** Driver commands among `names` (the folder's own setting names): each set to nothing, a filter no longer required. */
@@ -90,6 +140,8 @@ async function ownSettings(dir, env, run) {
 }
 
 export const REFUSED = 'git\'s own settings of this folder could not be read, so the dashboard does not read it with git (it cannot tell which programs those settings would start)';
+export const REFUSED_OLD = 'this folder\'s git settings name a filter or diff program whose name holds "=", and this git (older than 2.31) cannot switch it off for a read, so the dashboard does not read the folder with git';
+export const REFUSED_MANY = 'this folder\'s git settings name more filter and diff programs than any project needs, so the dashboard does not read it with git';
 
 /**
  * The command line and environment of one read of the repository at `dir` (`args`: git's arguments without "git").
@@ -99,28 +151,37 @@ export const REFUSED = 'git\'s own settings of this folder could not be read, so
 export async function readCommand(dir, args, { env = process.env, run = capture } = {}) {
   const at = commandAt(args);
   const cmd = at < 0 ? '' : String(args[at]);
-  if (WRITES.has(cmd)) throw new Error(`git ${cmd} changes a repository: it is not a read`);
-  if (args.slice(0, Math.max(at, 0)).some((a) => REFUSED_OPTS.has(String(a).split('=')[0]))) throw new Error('a read names its folder with dir only');
-  if (cmd === 'cat-file' && args.some((a) => /^--(filters|textconv)/.test(String(a)))) throw new Error('the reader never asks cat-file to filter or convert');
+  checkArgs(args, at, cmd);
   const base = readEnv(env);
-  let extra = {};
+  // A settings read starts nothing, and a fixed setting given with -c would be its answer (core.hooksPath).
+  if (cmd === 'config') return { argv: ['git', '--no-pager', '-C', dir, ...args], env: base };
+  let own = [];
+  const extra = {};
   if (CONTENT.has(cmd)) {
-    const own = await ownSettings(dir, base, run);
+    const listed = await ownSettings(dir, base, run);
     // A folder that is not there is no refusal: git's own words say so, as for any read.
-    if (!own.ok) return { refused: fs.existsSync(dir) ? REFUSED : own.err.trim() || `${dir} is not there` };
-    const o = overridesFor(own.names);
-    // In the environment, not with -c: a driver's name may hold "=", which -c would read as the end of the name.
-    extra = { GIT_CONFIG_COUNT: String(o.length) };
-    o.forEach(([k, v], i) => {
-      extra[`GIT_CONFIG_KEY_${i}`] = k;
-      extra[`GIT_CONFIG_VALUE_${i}`] = v;
-    });
+    if (!listed.ok) return { refused: fs.existsSync(dir) ? REFUSED : listed.err.trim() || `${dir} is not there` };
+    const o = overridesFor(listed.names);
+    if (o.length > DRIVERS_MAX) return { refused: REFUSED_MANY };
+    // With -c, which every git reads. A driver's name may hold "=", which -c would read as the end of the name:
+    // those go in GIT_CONFIG_COUNT/KEY/VALUE, which git reads only from 2.31 on (older git would ignore them).
+    own = o.filter(([k]) => !k.includes('=')).flatMap(([k, v]) => ['-c', `${k}=${v}`]);
+    const named = o.filter(([k]) => k.includes('='));
+    if (named.length) {
+      const v = await gitVersion(base, run);
+      if (!v || v[0] < 2 || (v[0] === 2 && v[1] < 31)) return { refused: REFUSED_OLD };
+      extra.GIT_CONFIG_COUNT = String(named.length);
+      named.forEach(([k, val], i) => {
+        extra[`GIT_CONFIG_KEY_${i}`] = k;
+        extra[`GIT_CONFIG_VALUE_${i}`] = val;
+      });
+    }
   }
   const rest = [...args];
   if (NO_CONVERT.has(cmd)) rest.splice(at + 1, 0, '--no-ext-diff', '--no-textconv');
-  // A submodule's own settings are not listed here: its contents are not compared (its new commits still show).
-  if (cmd === 'status') rest.splice(at + 1, 0, '--ignore-submodules=dirty');
-  return { argv: ['git', ...FLAGS, '-C', dir, ...rest], env: { ...base, ...extra } };
+  // A submodule's own settings are not listed here: its files are not compared (its new commits still show).
+  if (NO_CONVERT.has(cmd) || cmd === 'status') rest.splice(at + 1, 0, '--ignore-submodules=dirty');
+  return { argv: ['git', ...FLAGS, ...own, '-C', dir, ...rest], env: { ...base, ...extra } };
 }
 
 /**
