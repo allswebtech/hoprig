@@ -1,7 +1,7 @@
 // A fake dashboard for the assistant's tests and its real-model eval: in-memory state behind the OPS interface
 // (src/assistant/tools.mjs), every call recorded, hosted with the real core.mjs over the same HTTP route the real
-// dashboard will serve (POST /api/assistant/call, bearer token). Nothing here touches tmux, files or the network
-// beyond 127.0.0.1.
+// dashboard will serve (POST /api/assistant/call, bearer token). The fake touches no tmux, files or network beyond
+// 127.0.0.1; projectWork() below makes a folder, for the tests that run the real dashboard.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
