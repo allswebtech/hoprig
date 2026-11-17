@@ -38,7 +38,7 @@ import { showCommand, stream, which } from '../setup/system.mjs';
 import { addonsDir, alive, binDir, dashboardPort, findBin, patchFor, readJsonFile, restoreFor, writeAtomic } from './cloudflared.mjs';
 import { tunnelFact } from './linkmigrate.mjs';
 import { checkPort, exposureQuestion, serviceLogin } from './localservice.mjs';
-import { withoutSecrets } from '../secretenv.mjs';
+import { forInstalls, withoutSecrets } from '../secretenv.mjs';
 
 export { findBin, patchFor, restoreFor };
 
@@ -179,7 +179,7 @@ export async function install({ onLine = () => {}, plan = installPlan({ hasBrew:
   }
   if (plan.kind === 'brew') {
     onLine(`command: ${showCommand(plan.argv)}`);
-    const r = await stream(plan.argv, { env: withoutSecrets(process.env), onLine });
+    const r = await stream(plan.argv, { env: forInstalls(process.env), onLine });
     return { ok: r.ok && !!findBin() };
   }
   onLine(`downloading ${plan.url}`);
@@ -188,7 +188,7 @@ export async function install({ onLine = () => {}, plan = installPlan({ hasBrew:
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-cloudflared-'));
       try {
         await download(plan.url, path.join(tmp, 'c.tgz'), plan.sha256, fetchImpl); // the archive is what is checked
-        const r = await stream(['tar', '-xzf', path.join(tmp, 'c.tgz'), '-C', tmp], { env: withoutSecrets(process.env), onLine });
+        const r = await stream(['tar', '-xzf', path.join(tmp, 'c.tgz'), '-C', tmp], { env: forInstalls(process.env), onLine });
         if (!r.ok) throw new Error('could not unpack it');
         fs.mkdirSync(path.dirname(plan.file), { recursive: true, mode: 0o700 });
         const part = beside(plan.file);

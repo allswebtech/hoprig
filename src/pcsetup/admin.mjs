@@ -11,6 +11,7 @@
 //   - the password stays in memory for that job only (never written, logged, returned or put in a job's state), and
 //     every output line is scrubbed of it before it is kept;
 //   - it is checked first (`sudo -S -k -p '' -- true`): a wrong one installs nothing and the page asks again.
+import { forInstalls } from '../secretenv.mjs';
 import { capture, stream } from '../setup/system.mjs';
 
 const HIDDEN = '••••';
@@ -48,7 +49,8 @@ export async function checkPassword(password, run = stream) {
 
 /**
  * A stream()-like runner for a setup job: sudo steps as asAdmin() says, the password to sudo's input only, every
- * line scrubbed, nothing ever given a terminal, and git never asks for a password (GIT_TERMINAL_PROMPT=0).
+ * line scrubbed, nothing ever given a terminal, no secret in the environment, and git never asks for a password
+ * (GIT_TERMINAL_PROMPT=0).
  */
 export function adminRunner(password, base = stream) {
   const clean = scrubber(password);
@@ -58,7 +60,8 @@ export function adminRunner(password, base = stream) {
     return base(asAdmin(argv, Boolean(password)), {
       ...o,
       interactive: false,
-      env: { ...(o.env || process.env), GIT_TERMINAL_PROMPT: '0' },
+      // A job's steps are installers and package managers: no secret reaches them, whatever env the caller gave.
+      env: { ...forInstalls(o.env || process.env), GIT_TERMINAL_PROMPT: '0' },
       onLine: (l) => onLine(clean(l)),
       input: admin && password ? `${password}\n` : null,
     }).then((r) => ({ ...r, output: clean(r.output || '') }));

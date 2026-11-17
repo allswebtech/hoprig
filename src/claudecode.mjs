@@ -36,7 +36,7 @@ import { loadConfig } from './config.mjs';
 import { claudeDir } from './paths.mjs';
 import { clearLimited, limitedProfiles } from './autoswitch.mjs';
 import { listProfiles } from './profiles.mjs';
-import { withoutSecrets } from './secretenv.mjs';
+import { forInstalls, withoutSecrets } from './secretenv.mjs';
 import { forgetUsage, rememberLogin } from './routerstate.mjs';
 import { capture, compareVersions, npmArgv, stream, which } from './setup/system.mjs';
 
@@ -307,7 +307,7 @@ async function runInstaller(target, { onLine = () => {}, env = process.env, plat
   }
   try {
     const argv = installerArgv({ platform, file, target });
-    const r = await stream(argv, { env: cleanEnv(env), onLine: say });
+    const r = await stream(argv, { env: forInstalls(env), onLine: say });
     clearLatestCache();
     const found = resolveClaude({ env, platform });
     const version = found ? await installedVersion(found.path, cleanEnv(env)) : null;
@@ -345,7 +345,7 @@ export async function claudeInstallVersion(version, { onLine = () => {} } = {}) 
     onLine(plan.error);
     return { ok: false, version: await installedVersion(found.path, cleanEnv(process.env)), output: plan.error };
   }
-  const r = await stream(plan.argv, { env: cleanEnv(process.env), onLine });
+  const r = await stream(plan.argv, { env: forInstalls(process.env), onLine });
   clearLatestCache();
   const now = await installedVersion(found.path, cleanEnv(process.env));
   return { ok: r.ok, version: now, output: r.output };
@@ -359,7 +359,7 @@ export async function claudeUpdate({ onLine = () => {} } = {}) {
     onLine(output);
     return { ok: false, version: null, output };
   }
-  const r = await stream([found.path, 'update'], { env: cleanEnv(process.env), onLine });
+  const r = await stream([found.path, 'update'], { env: forInstalls(process.env), onLine });
   clearLatestCache();
   return { ok: r.ok, version: await installedVersion(found.path, cleanEnv(process.env)), output: r.output };
 }

@@ -1,11 +1,13 @@
 // Which environment variables are secrets: a provider's key or address, a coding tool's sign-in or server password,
 // and Hoprig's own tokens. This is the one list. Everything that starts npm, an install script, a download, a
-// coding tool's server or sign-in, or the demo takes these out with withoutSecrets(); no other file keeps a list of
-// its own. It matters when `hoprig tools install` or an update runs inside a session whose environment holds keys:
+// coding tool's server or sign-in, or the demo takes these out with withoutSecrets() (an install also loses GitHub's
+// tokens: forInstalls()); no other file keeps a list of its own. It matters when `hoprig tools install` or an update runs inside a session whose environment holds keys:
 // an install script is code from the internet and must not see them.
 //
 // A coding tool started FOR a provider gets that provider's key afterwards, from the provider (profileEnv, toolEnv,
 // serverEnv): taking all of them out first is what keeps one provider's key from reaching another provider's tool.
+
+import { listProfiles } from './profiles.mjs';
 
 /** Secrets by exact name. */
 const NAMES = new Set([
@@ -36,5 +38,32 @@ export const isSecretVar = (name) => {
 export function withoutSecrets(env = process.env) {
   const out = {};
   for (const [k, v] of Object.entries(env || {})) if (!isSecretVar(k)) out[k] = v;
+  return out;
+}
+
+// GitHub's tokens are the owner's own, for his own work: a coding tool's gh or git push, a project's packages from
+// GitHub's registry. They stay for those. A program Hoprig installs or updates from the internet (npm packages and
+// their scripts, an installer script, a kit, cloudflared) needs none of them.
+const GITHUB = new Set(['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']);
+// A provider may export a key under a name of its own (AWS_BEARER_TOKEN_BEDROCK, a gateway's KEY): a session started
+// under it holds that variable, and so does an install run inside the session. Of what the stored providers export,
+// the names that look like a credential are left out of an install too (not every name: a provider's proxy or
+// region is no secret, and an install may need it).
+const CREDENTIAL = /KEY|TOKEN|SECRET|PASSW|AUTH|CREDENTIAL|BEARER/i;
+
+/** Names the stored providers export that look like a credential. Read on each install (rare), never cached. */
+function providerKeys() {
+  try {
+    return new Set(listProfiles().flatMap((p) => Object.keys(p.env)).filter((k) => CREDENTIAL.test(k)));
+  } catch {
+    return new Set(); // no providers folder, or one that cannot be read: the fixed list still holds
+  }
+}
+
+/** The environment of an install or update Hoprig runs from the internet: no secret, and no GitHub token either. */
+export function forInstalls(env = process.env) {
+  const out = withoutSecrets(env);
+  const own = providerKeys();
+  for (const k of Object.keys(out)) if (GITHUB.has(process.platform === 'win32' ? k.toUpperCase() : k) || own.has(k)) delete out[k];
   return out;
 }

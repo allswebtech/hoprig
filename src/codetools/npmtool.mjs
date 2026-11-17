@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { toolsDir } from '../paths.mjs';
 import { takeLock } from './lock.mjs';
-import { withoutSecrets } from '../secretenv.mjs';
+import { forInstalls } from '../secretenv.mjs';
 import { capture, compareVersions, npmArgv, showCommand, stream } from '../setup/system.mjs';
 
 export const REGISTRY = 'https://registry.npmjs.org';
@@ -44,9 +44,9 @@ export async function registryLatest(pkg, { fetchImpl = globalThis.fetch, now = 
   return value;
 }
 
-/** The environment for npm and the version check: the caller's, minus every secret (../secretenv.mjs), plus the tool's own folders. */
+/** The environment for npm and the version check: the caller's, minus every secret and GitHub token (../secretenv.mjs), plus the tool's own folders. */
 export function installEnv(base, own) {
-  return { ...withoutSecrets(base), ...own };
+  return { ...forInstalls(base), ...own };
 }
 
 /** The prefix's own package.json: private, and naming the one install script that may run (or none). */

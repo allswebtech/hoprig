@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { APP, appRoot, appVersion } from './checks.mjs';
 import { hoprigSource } from '../paths.mjs';
-import { withoutSecrets } from '../secretenv.mjs';
+import { forInstalls } from '../secretenv.mjs';
 import { compareVersions, npmArgv, npmMajor, npmSourceFlags, showCommand, stream } from './system.mjs';
 
 /** 'git' | 'npm' | 'other', from the folder hoprig runs from. */
@@ -109,12 +109,12 @@ export async function selfUpdate(args = [], { write = (s) => process.stdout.writ
     }
     write(`Version ${latest} is available.\n`);
   }
-  const plan = updatePlan(kind, root, process.platform, kind === 'npm' ? await npmMajor({ env: withoutSecrets(process.env) }) : null);
+  const plan = updatePlan(kind, root, process.platform, kind === 'npm' ? await npmMajor({ env: forInstalls(process.env) }) : null);
   for (const step of plan) {
     write(`${dryRun ? 'would run' : 'running'}: ${showCommand(step.argv)}\n`);
     if (dryRun) continue;
     // npm runs install scripts and git may run the checkout's hooks: no secret reaches them (../secretenv.mjs).
-    const r = await run(step.argv, { cwd: step.cwd, env: withoutSecrets(process.env), onLine: (l) => write(`  ${l}\n`) });
+    const r = await run(step.argv, { cwd: step.cwd, env: forInstalls(process.env), onLine: (l) => write(`  ${l}\n`) });
     if (!r.ok && step.ifFails) {
       write(`${step.ifFails}\n`);
       continue;

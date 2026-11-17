@@ -36,6 +36,23 @@ test('the one list: every kind of secret, and nothing else', async () => {
   assert.equal(out.KEEP_ME, 'plain');
 });
 
+test('an install also loses GitHub\'s tokens and the credential names a stored provider exports', async () => {
+  const { forInstalls, withoutSecrets } = await import('../../src/secretenv.mjs');
+  const { writeProfile, deleteProfile } = await import('../../src/profiles.mjs');
+  writeProfile('bedrock', { label: 'Bedrock', env: { AWS_BEARER_TOKEN_BEDROCK: 'x', GATEWAY_KEY: 'x', AWS_REGION: 'x', CLAUDE_CODE_USE_BEDROCK: '1' } });
+  try {
+    const env = { ...FAKE, GH_TOKEN: `${MARK}-gh`, GITHUB_TOKEN: `${MARK}-gh2`, GH_ENTERPRISE_TOKEN: `${MARK}-gh3`, AWS_BEARER_TOKEN_BEDROCK: `${MARK}-aws`, GATEWAY_KEY: `${MARK}-gw`, AWS_REGION: 'eu-west-1', NPM_TOKEN: 'owner-own' };
+    const out = forInstalls(env);
+    assert.deepEqual(leaks(out), []);
+    // A provider's region is no secret, and the owner's own npm token is not a provider's.
+    assert.deepEqual([out.AWS_REGION, out.NPM_TOKEN, out.KEEP_ME], ['eu-west-1', 'owner-own', 'plain']);
+    // A coding tool keeps the owner's GitHub token (its gh, its git push): only installs lose it.
+    assert.equal(withoutSecrets(env).GH_TOKEN, `${MARK}-gh`);
+  } finally {
+    deleteProfile('bedrock');
+  }
+});
+
 test('the environments built for npm, a coding tool, its server and its sign-in carry none of them', async () => {
   const { installEnv } = await import('../../src/codetools/npmtool.mjs');
   const claudecode = await import('../../src/claudecode.mjs');
@@ -119,6 +136,21 @@ test('every place that starts npm, an install script or a download hands on none
     await offerInstall({ line: () => {}, out: () => {}, confirm: async () => true }, proj, r4.run, { has: () => true });
     assert.equal(r4.calls.length, 1);
     assert.deepEqual(leaks(r4.calls[0].env), []);
+
+    // A PC-setup kit's steps (nvm's install script, Docker's, Homebrew's, package managers), from the command and
+    // from the dashboard's job (its runner, also when a caller hands it the whole environment).
+    const { runSteps } = await import('../../src/pcsetup/setup.mjs');
+    const { adminRunner } = await import('../../src/pcsetup/admin.mjs');
+    const steps = [{ kit: 'node', argv: ['bash', '-c', 'curl -o- https://example.invalid/install.sh | bash'] }];
+    const quiet = { out: () => {}, line: () => {} };
+    const r5 = recorder();
+    await runSteps(steps, { ui: quiet, interactive: false, runner: r5.run });
+    const r6 = recorder();
+    await runSteps(steps, { ui: quiet, interactive: false, runner: adminRunner(null, r6.run) });
+    const r7 = recorder();
+    await adminRunner(null, r7.run)(['npm', 'install', '-g', 'x'], { env: process.env });
+    for (const c of [...r5.calls, ...r6.calls, ...r7.calls]) assert.deepEqual(leaks(c.env), [], c.argv.join(' '));
+    assert.deepEqual([r5.calls.length, r6.calls.length, r7.calls.length], [1, 1, 1]);
 
     // These start the program themselves: the stand-ins on PATH write down what they got.
     const { updateTool } = await import('../../src/skillhub/tools.mjs');
