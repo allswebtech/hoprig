@@ -188,7 +188,14 @@ async function run(t, kind) {
   const before = {};
   for (const s of (await req('/api/state')).json.sessions) before[s.name] = s.sessionId;
   await app.close();
-  if (kind === 'tmux') await app.backend.killServer(); // a reboot takes tmux with it
+  if (kind === 'tmux') {
+    // A reboot takes tmux with it, and every program of its sessions is gone before the dashboard starts again.
+    // Ending tmux only closes their terminals: they end a moment later (on Node 20 a stand-in aborts on its way out
+    // and its crash report takes a second or more), and a restore meanwhile rightly finds the conversations running.
+    await app.backend.killServer();
+    const { listRuns } = await import('../../src/runs.mjs');
+    await until('the programs of the sessions ended, as after a reboot', async () => !listRuns().length);
+  }
   await start();
   await tick();
   await until('both sessions back', async () => {

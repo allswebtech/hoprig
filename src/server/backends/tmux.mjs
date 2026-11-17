@@ -4,8 +4,10 @@
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import os from 'node:os';
+import { system } from '../../procid.mjs';
 import { ptySpawn } from './nodepty.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
+import { descendants, endAll } from './procs.mjs';
 import { shellLine } from './shell.mjs';
 
 const FIELDS = [
@@ -55,9 +57,13 @@ export class TmuxBackend {
    * @param {string} [o.socket]      tmux -L name; empty = the user's default server
    * @param {string} [o.configFile]  tmux -f file (tests use an empty file so the user's tmux.conf does not apply)
    * @param {string} [o.bin]         tmux executable
+   * @param {Function} [o.descendants] pid → its descendants' pids (procs.mjs), replaceable in tests
+   * @param {object} [o.ident]        who a process is beyond its pid (procid.mjs), replaceable in tests
    */
-  constructor({ socket = '', configFile = '', bin = 'tmux' } = {}) {
+  constructor({ socket = '', configFile = '', bin = 'tmux', descendants: below = descendants, ident = system } = {}) {
     this.bin = bin;
+    this.descendants = below;
+    this.ident = ident;
     // -u on every call: this client speaks UTF-8 even when the dashboard runs without a UTF-8 locale (a service, a
     // container, a CI step). Without it tmux turns every tab and non-ASCII character it prints into "_": list()
     // then finds no session at all (its fields are split on tabs), and a folder named "café" reads "caf_".
@@ -184,11 +190,25 @@ export class TmuxBackend {
   }
 
   async respawn(id, dir, argv, { mark = null } = {}) {
+    await this.#endPrograms(id);
     await this.run(['respawn-pane', '-k', '-t', id, '-c', dir, ...PANE_ENV]);
     // The old program's lines (a usage-limit message among them) would otherwise stay in the history and keep
     // the card in "limit hit". The conversation itself is in Claude's transcript, which --resume shows again.
     await this.run(['clear-history', '-t', id]);
     await this.#type(id, shellLine(dir, argv, { mark }));
+  }
+
+  /**
+   * What runs under the pane's shell ends, while its terminal is still open, before the pane is started anew; the shell
+   * stays (the pane would close with it) and goes with the respawn. respawn-pane -k alone closes the terminal first:
+   * the programs in it end only afterwards, while the new command already starts. A launcher still ending then holds
+   * its conversation, and the new launcher on the same conversation refuses to start. And a program that sets its
+   * terminal back on its way out finds it gone: Node 20 aborts there (and a crash report takes a second or more).
+   */
+  async #endPrograms(id) {
+    const shell = Number(String(await this.run(['display-message', '-p', '-t', id, '#{pane_pid}']).catch(() => '')).trim());
+    if (!Number.isInteger(shell) || shell <= 1) return;
+    await endAll(await this.descendants(shell), { ident: this.ident });
   }
 
   /** "=" makes tmux match the session name exactly instead of by prefix. */

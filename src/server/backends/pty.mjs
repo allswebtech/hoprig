@@ -19,7 +19,6 @@
 //                 PowerShell in the same folder, so the user can read the output and type.
 // respawn() stops everything that runs in the terminal and starts the new command in the same terminal: the name,
 // the id (and so HOPRIG_TERM_ID) and the attached browsers stay; the old screen and history are cleared.
-import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,15 +26,14 @@ import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import unicode11 from '@xterm/addon-unicode11';
 import { ptySpawn } from './nodepty.mjs';
-import { parseParents } from '../platform/common.mjs';
 import { sameProcess, system } from '../../procid.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
+import { descendants, STOP_WAIT_MS } from './procs.mjs';
 import { shellLine } from './shell.mjs';
 
 const NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$/;
 const RIS = '\x1bc'; // full reset: clears screen, history and modes
 const CLIENT_BUFFER_MAX = 2 << 20; // a paused (slow) browser past this gets a fresh screen instead of the backlog
-const STOP_WAIT_MS = 2000;
 // unref: a pending wait must not keep a stopping server alive
 const wait = (ms) => new Promise((r) => setTimeout(r, ms).unref());
 
@@ -106,21 +104,6 @@ export function bufferText(term, lines) {
   }
   while (out.length && out[out.length - 1] === '') out.pop();
   return out.slice(-lines).join('\n') + '\n';
-}
-
-/** POSIX: every descendant of `root` (by `ps`), so nothing a session started outlives a kill. */
-function descendants(root) {
-  return new Promise((resolve) => {
-    execFile('ps', ['-A', '-o', 'pid=,ppid='], { timeout: 3000 }, (err, stdout) => {
-      if (err) return resolve([]);
-      const kids = new Map();
-      for (const [pid, ppid] of parseParents(stdout)) kids.set(ppid, [...(kids.get(ppid) || []), pid]);
-      const out = [];
-      const todo = [root];
-      while (todo.length && out.length < 10_000) for (const k of kids.get(todo.pop()) || []) out.push(k), todo.push(k);
-      resolve(out);
-    });
-  });
 }
 
 const alive = (pid) => {
