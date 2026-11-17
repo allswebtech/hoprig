@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from '../server/helpers.mjs';
@@ -153,6 +154,26 @@ test('git\'s own folder is never the opened folder or a path: .git, a bare repos
   await refused(() => rootOf(path.join(top, 'gd'), roots), 403);
   await refused(() => writeFile(top, 'gd/hooks/pre-commit', '#!/bin/sh\n', null, roots), 403);
   assert.equal(rootOf(path.join(top, 'wt'), roots), path.join(top, 'wt'), 'its working folder opens');
+});
+
+test('a folder named through a link: gone says so; a link out of the roots tells nothing about the disk there', { skip: process.platform === 'win32' && 'a link to a folder needs rights of its own on Windows' }, async (t) => {
+  const { resolveRoots } = await import('../../src/server/folders.mjs');
+  const real = path.join(top, 'linked-real');
+  fs.mkdirSync(path.join(real, 'projects', 'app'), { recursive: true });
+  const link = path.join(top, 'linked');
+  fs.symlinkSync(real, link);
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'editor-outside-')));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(outside, 'there'));
+  fs.symlinkSync(outside, path.join(real, 'projects', 'out'));
+  // A root in the settings that is a link (~/code -> /Volumes/Data/code; on macOS /tmp and /var are links too).
+  const linked = resolveRoots([path.join(link, 'projects')]);
+  assert.equal(rootOf(path.join(link, 'projects', 'app'), linked), path.join(real, 'projects', 'app'));
+  for (const at of [link, real]) await refused(() => rootOf(path.join(at, 'projects', 'app', 'gone'), linked), 404);
+  // A link inside the roots that leads out of them: the same answer whether a path out there exists or not.
+  for (const at of [link, real]) {
+    for (const name of ['missing', 'there']) await refused(() => rootOf(path.join(at, 'projects', 'out', name), linked), 403);
+  }
 });
 
 test('a repository whose top is outside the roots does not count (the home folder kept as a repository)', async () => {

@@ -72,7 +72,7 @@ export const ownRoots = () => [stateDir(), configDir()].map(realOr);
 export const isOwnFolder = (p) => typeof p === 'string' && path.isAbsolute(p) && ownRoots().some((r) => within(realOr(p), r));
 
 /** The real path of `p`; for a path not made yet, the real path of its nearest existing folder plus the rest. */
-function realOr(p) {
+export function realOr(p) {
   const rest = [];
   let at = path.resolve(p);
   for (;;) {

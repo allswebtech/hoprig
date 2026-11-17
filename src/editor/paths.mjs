@@ -20,7 +20,7 @@ import { claudeDir, profilesDir } from '../paths.mjs';
 import { listProfiles } from '../profiles.mjs';
 import { workspaceDir } from '../workspace/layout.mjs';
 import { FOLD, PRIVATE_DIRS } from '../pcsetup/projects.mjs';
-import { insideRoots, isOwnFolder, ownRoots, within } from '../server/folders.mjs';
+import { insideRoots, isOwnFolder, ownRoots, realOr as realNearest, within } from '../server/folders.mjs';
 
 /** Folders the Explorer and Search never show: git's own data and installed packages. Private folders never at all. */
 export const HIDDEN = ['.git', 'node_modules'];
@@ -148,7 +148,9 @@ export function rootOf(root, roots) {
   const real = insideRoots(root, roots);
   if (!real) {
     // Inside the roots but not there (moved or deleted): said as such. Outside them nothing is told about the disk.
-    if (path.isAbsolute(root) && !root.includes('\0') && roots.some((r) => within(path.resolve(root), r)) && !fs.existsSync(root)) throw fail(404, 'there is no such folder');
+    // Judged by the real path of what is left of it, as the roots are: a folder named through a link (a root that is
+    // one, /tmp on macOS) is inside them, and a link inside them that leads out is not.
+    if (path.isAbsolute(root) && !root.includes('\0') && roots.some((r) => within(realNearest(root), r)) && !fs.existsSync(root)) throw fail(404, 'there is no such folder');
     throw fail(403, 'that folder is not one the dashboard may show');
   }
   if (isOwnFolder(real)) throw fail(403, 'the dashboard\'s own folders are not opened in the editor');
