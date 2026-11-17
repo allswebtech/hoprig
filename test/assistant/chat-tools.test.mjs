@@ -123,6 +123,9 @@ test('start_chat: an allowed provider picked by her, a job, then her own chat\'s
   const card = ops.s.sessions.find((x) => x.name === name);
   assert.ok(card.created > 0);
   assert.equal(core.jobs.forSession('this', name).sessions[0].created, card.created, 'the job follows this chat, by when it was opened');
+  // The owner reads the job's chat by its folder (the Jobs page, "What she did"), never by its id.
+  assert.equal(core.jobs.forSession('this', name).sessions[0].folder, 'api');
+  assert.equal(core.jobs.forSession('this', name).log.at(-1).text, 'started the chat in api on this computer');
   card.cwd = '/home/owner/projects/api';
   Object.assign(card, { status: 'attention', note: 'Claude wants to run: npm test (Run the tests)', ask: { request: 'r2', type: 'permission', tool: 'Bash', known: true, subject: 'npm test', judged: { command: 'npm test' }, owner: false, canAlways: true } });
   // "Do not ask again" would let later calls run with no OK her allow-list sees: the owner's, even for a harmless one.

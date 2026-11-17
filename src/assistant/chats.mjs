@@ -80,7 +80,7 @@ export const start_chat = tool({
     if (r.existing) {
       // The conversation is open in a chat already, the owner's as a rule: she did not start it and it is not hers.
       // Its OKs and messages stay under the rules for someone else's chat, and it keeps its own mode (even bypass).
-      if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: false, created });
+      if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: false, created, folder: a.folder });
       const mode = r.permissionMode ? ` (permission mode: ${said(r.permissionMode, MODES, 'one this dashboard does not know; see the data')})` : '';
       return {
         summary: `This conversation is already open in chat ${name} on ${comp(a)}, which you did not start: it runs with its own permission mode, model and effort${mode}, and its OKs are the owner's${sent}.${j ? ` Job ${j.id} watches it.` : ''}`,
@@ -92,7 +92,7 @@ export const start_chat = tool({
     // on an earlier conversation is never hers (the safe side, her own earlier one too): its history holds the owner's
     // words, so its OKs stay his.
     const continued = !!a.conversation;
-    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: !continued, created });
+    if (j) ctx.jobs.attach(j.id, { computer: comp(a), session: name, startedByTia: !continued, created, folder: a.folder });
     return {
       summary: `${held ? 'Opened' : 'Started'} chat ${name} (${toolName(tool)}) on ${comp(a)} under ${a.account}${providerNote(ctx)}${continued ? ', continuing the earlier conversation' : ''}${sent}. It runs with the permission mode, model and effort of Settings → New-session defaults.${continued ? ' It continues an earlier conversation, so it is not yours: every OK it asks for is the owner\'s, and you cannot answer it.' : tool === 'claude' ? '' : ` Every OK it asks for is the owner's: you cannot answer the OKs of ${aTool(tool)} chat.`} The owner sees it on Home.${j ? ` Job ${j.id} watches it; you are woken when it waits, asks, hits a limit or ends.` : ' Not watched: give a goal or call watch_session.'}`,
       data: { session: name, computer: comp(a), coding_tool: tool, account: a.account, account_label: ctx.accountLabel || null, account_why: ctx.accountWhy || null, job: j ? j.id : null, message_sent: a.message ? r.sent !== false : null, why_not_sent: whyNot },
