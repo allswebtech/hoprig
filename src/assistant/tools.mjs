@@ -279,7 +279,14 @@ const send_to_session = tool({
       await ops.pressKey({ computer: comp(a), session: a.session, key: a.key });
       return { summary: `Pressed ${a.key} in ${a.session}.`, data: { session: a.session, key: a.key } };
     }
-    await ops.sendText({ computer: comp(a), session: a.session, text: a.text });
+    try {
+      await ops.sendText({ computer: comp(a), session: a.session, text: a.text });
+    } catch (e) {
+      // The dashboard types her text only while the coding tool is the program in front in that terminal (deck.mjs
+      // sendToTool). The sentence is ours, not the other computer's.
+      if (e.code === 'not_in_front') throw toolError(`Nothing was typed into ${a.session}: its coding tool is not the program in front in that terminal (it has ended, or another program runs there)`, 'read_session shows its screen; start_session in its folder (mode continue or resume) starts the coding tool again, then send the message');
+      throw e;
+    }
     return { summary: `Typed the message into ${a.session} and pressed Enter.`, data: { session: a.session, computer: comp(a) } };
   },
   cardLines: (a, b) => [

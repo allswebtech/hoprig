@@ -71,7 +71,8 @@ export const ALLOW = [
   r('GET', '/api/machines/sessions', 'list_sessions (every computer)'),
   r('GET', `/api/sessions/${SEG}/history`, 'read_session'),
   r('POST', '/api/sessions', 'start_session'),
-  r('POST', `/api/sessions/${SEG}/send`, 'send_to_session'),
+  // Only the text: `owner: true` marks the owner's own typing (types into whatever runs there); hers is typed only for the coding tool.
+  r('POST', `/api/sessions/${SEG}/send`, 'send_to_session', onlyKeys(['text'])),
   r('POST', `/api/sessions/${SEG}/key`, 'send_to_session (key)'),
   r('POST', `/api/sessions/${SEG}/rename`, 'rename_session'),
   r('POST', `/api/sessions/${SEG}/kill`, 'stop_session'),

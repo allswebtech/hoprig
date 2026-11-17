@@ -478,7 +478,7 @@ export function openSession(app, name) {
   grow();
 
   async function sendText(text) {
-    await api(`${base}/send`, { text });
+    await api(`${base}/send`, { text, owner: true }); // the owner's own message: typed as he wrote it (server.mjs)
     scroller.gen++;
     scroller.offset = 0;
     liveBtn.classList.add('hidden');

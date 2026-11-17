@@ -9,6 +9,10 @@
 //            in this run (a session that sits waiting would otherwise never start its queue). Cleared when the
 //            session's run changes, so a session reopened after a restart does not fire an old message.
 //   goneAt   when the session was last seen missing; the queue is dropped after a day.
+//   held     { why, at }: the next message could not be typed because the coding tool was not the program in front
+//            in its terminal (it had ended: deck.mjs sendToTool). The message stays first and goes the next time a
+//            coding tool waits in that session, even a new run of it (the owner meant it for the session); `why`
+//            is what the queue's row says meanwhile. Cleared once a message went.
 //
 // Never sends into a session that needs an OK, is at a limit, or whose last reply ended in an error.
 import { idle, isCodingCard } from './cards.mjs';
@@ -16,7 +20,7 @@ import { QUEUE_MAX, cleanText } from './settings.mjs';
 
 export const GONE_KEEP_MS = 24 * 3600_000;
 
-const empty = () => ({ paused: false, items: [], sentFor: null, kick: false, runId: null, goneAt: null });
+const empty = () => ({ paused: false, items: [], sentFor: null, kick: false, runId: null, goneAt: null, held: null });
 const keyOf = (c) => c.stopAt || 0;
 
 /**
@@ -56,7 +60,7 @@ export function decide({ cards, data, now }) {
       if (q.runId && q.runId !== c.runId) q.kick = false; // another run: an old "send now" does not carry over
       q.runId = c.runId;
     }
-    if (!q.paused && q.items.length && idle(c) && keyOf(c) !== q.sentFor && (q.kick || c.stopAt)) {
+    if (!q.paused && q.items.length && idle(c) && (q.held || (keyOf(c) !== q.sentFor && (q.kick || c.stopAt)))) {
       const item = q.items.shift();
       q.sentFor = keyOf(c);
       q.kick = false;
@@ -69,7 +73,11 @@ export function decide({ cards, data, now }) {
   return { actions, data: next };
 }
 
-/** Carry out the actions. ctx: { deck.send(name, text), record(entry), putBack(session, item) }. */
+/**
+ * Carry out the actions. ctx: { deck.send(name, text), record(entry), putBack(session, item, { why }), sent(session) }.
+ * A message the coding tool was not in front for (error code "not_in_front": nothing was typed) is put back with the
+ * reason, and recorded as not delivered once per reason, not at every tick it keeps waiting.
+ */
 export async function apply(actions, ctx) {
   for (const a of actions) {
     if (a.type === 'renamed') {
@@ -82,8 +90,14 @@ export async function apply(actions, ctx) {
     }
     try {
       await ctx.deck.send(a.session, a.item.text);
+      ctx.sent?.(a.session);
       ctx.record({ automation: 'queue', session: a.session, did: `sent: ${preview(a.item.text)}`, outcome: 'ok' });
     } catch (e) {
+      if (e.code === 'not_in_front') {
+        const first = ctx.putBack(a.session, a.item, { why: e.message });
+        if (first) ctx.record({ automation: 'queue', session: a.session, did: `not delivered: ${preview(a.item.text)}`, outcome: `waits in the queue: ${e.message}` });
+        continue;
+      }
       ctx.putBack(a.session, a.item);
       ctx.record({ automation: 'queue', session: a.session, did: `could not send: ${preview(a.item.text)}`, outcome: `failed: ${e.message}` });
     }

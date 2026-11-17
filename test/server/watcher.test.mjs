@@ -77,7 +77,7 @@ test('watcher: moves, marks the old profile, sends the prompt once the new run w
     deck: {
       find: async (name) => ({ term: { id: '%1' }, run: { runId: 'r1' }, name }),
       move: async (term, run, to) => calls.push(['move', term.id, to]),
-      send: async (id, text) => calls.push(['send', id, text]),
+      sendToTool: async (name, text) => calls.push(['send', name, text]),
     },
     auto: {
       getAutoSwitch: () => ({ enabled: true, prompt: 'continue', order: ['sub', 'api'] }),
@@ -105,7 +105,7 @@ test('watcher: moves, marks the old profile, sends the prompt once the new run w
   cards = [card({ runId: 'r9', profile: { name: 'api' }, status: 'waiting' })];
   await w.tick();
   await w.tick();
-  assert.deepEqual(calls.filter((c) => c[0] === 'send'), [['send', '%1', 'continue']], 'prompt sent exactly once');
+  assert.deepEqual(calls.filter((c) => c[0] === 'send'), [['send', 'p', 'continue']], 'prompt sent exactly once, for the coding tool of that session');
   w.stop();
 });
 
@@ -114,7 +114,7 @@ test('watcher: after a restart on the same provider the prompt is for the new ru
   const calls = [];
   const w = new Watcher({
     cards: async () => cards,
-    deck: { find: async () => ({ term: { id: '%1' }, run: { runId: 'r1' } }), move: async () => {}, send: async (id, text) => calls.push([id, text]) },
+    deck: { find: async () => ({ term: { id: '%1' }, run: { runId: 'r1' } }), move: async () => {}, sendToTool: async (name, text) => calls.push([name, text]) },
     auto: { getAutoSwitch: () => ({ enabled: false, prompt: 'continue', order: [] }), nextProfile: () => null, markLimited: () => {} },
     settings: () => ({ notify: null, publicUrl: '' }),
     log: () => {},
@@ -129,6 +129,6 @@ test('watcher: after a restart on the same provider the prompt is for the new ru
   cards = [card({ runId: 'r2', status: 'waiting' })];
   await w.tick();
   await w.tick();
-  assert.deepEqual(calls, [['%1', 'continue']], 'once');
+  assert.deepEqual(calls, [['p', 'continue']], 'once');
   w.stop();
 });

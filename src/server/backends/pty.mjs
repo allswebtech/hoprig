@@ -31,6 +31,7 @@ import { parseParents } from '../platform/common.mjs';
 import { sameProcess, system } from '../../procid.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
 import { assertTypable, shellLine } from './shell.mjs';
+import { FRONT_GONE, assertFront, notInFront } from './front.mjs';
 
 const NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$/;
 const RIS = '\x1bc'; // full reset: clears screen, history and modes
@@ -448,16 +449,34 @@ export class PtyBackend {
     }
   }
 
-  async sendText(id, text) {
+  /**
+   * `front` (deck.mjs sendToTool): type only while that program holds the terminal in front, checked in the same step
+   * as the write (nothing runs in between). POSIX: the process group the terminal's device hands typed bytes to, read
+   * from the system for this terminal's own child (its shell). Windows has no such group: there the terminal knows
+   * its own child only, which is the launcher until it ends (then PowerShell), so `front.pid` must still be that child.
+   */
+  #assertFront(t, front) {
+    if (!front) return;
+    if (!t.proc) throw notInFront(FRONT_GONE);
+    if (this.platform === 'win32') {
+      if (Number.isInteger(front.pid) && t.proc.pid !== front.pid) throw notInFront(FRONT_GONE);
+      return;
+    }
+    assertFront(t.proc.pid, front, { platform: this.platform });
+  }
+
+  async sendText(id, text, { front = null } = {}) {
     const t = this.#byId(id);
     await this.#settled(t); // the bracketed paste mode is known only once all output so far is parsed
+    this.#assertFront(t, front);
     if (t.proc) t.proc.write(pasteBytes(text, t.vt.modes.bracketedPasteMode));
   }
 
-  async sendKey(id, key) {
+  async sendKey(id, key, { front = null } = {}) {
     const t = this.#byId(id);
     await this.#settled(t);
     const seq = keySequence(key, t.vt.modes.applicationCursorKeysMode);
+    this.#assertFront(t, front);
     if (t.proc) t.proc.write(seq);
   }
 

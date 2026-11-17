@@ -589,8 +589,13 @@ export function createServer(opts = {}) {
       const b = await readJson(req);
       const text = v.message(b.text);
       if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
-      const { term } = await sessionOr404(decodeURIComponent(m[1]));
-      await deck.send(term.id, text, { enter: b.enter !== false });
+      const name = decodeURIComponent(m[1]);
+      const { term } = await sessionOr404(name);
+      // `owner: true`: the session page's message box, the owner's own keys: typed into whatever runs there, as he sees
+      // it. Anyone else (the assistant, which may never send that key: assistant/door.mjs; a request without it) types
+      // only for the coding tool while it is in front, never a control byte (deck.mjs sendToTool; 409 otherwise).
+      if (b.owner === true) await deck.send(term.id, text, { enter: b.enter !== false });
+      else await deck.sendToTool(name, text, { enter: b.enter !== false });
       return { ok: true };
     }],
     ['POST', /^\/api\/sessions\/([^/]+)\/scroll$/, async (req, m) => {
@@ -634,7 +639,8 @@ export function createServer(opts = {}) {
       const screen = await backend.capture(term.id, 40);
       if (!detectLimit(screen) && !run.limit) throw new HttpError(409, 'this session is not waiting at a usage limit');
       if (menuOpen(screen)) return { ok: false, menu: true };
-      await deck.send(term.id, prompt);
+      // The prompt is for Claude Code's own prompt: typed only while it is in front (409 with the reason otherwise).
+      await deck.sendToTool(name, prompt);
       watcher.poke();
       return { ok: true };
     }],

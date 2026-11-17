@@ -14,8 +14,11 @@
 //                                  or never started (src/server/deck.mjs noteLaunch)
 //   attach(name, { cols, rows })   (sync) a live byte stream of the session's screen:
 //                                  { onData(fn), onExit(fn), write(str), resize(c, r), pause(), resume(), close() }
-//   sendText(id, text)             type text (several lines arrive as one paste, not as several submits)
-//   sendKey(id, key)               one key: Enter | Escape | Tab | BTab | C-c | Up | Down | Left | Right
+//   sendText(id, text, { front })  type text (several lines arrive as one paste, not as several submits)
+//   sendKey(id, key, { front })    one key: Enter | Escape | Tab | BTab | C-c | Up | Down | Left | Right
+//                                  `front` ({ group, pid }, deck.mjs sendToTool): type only while that program is the
+//                                  terminal's foreground program, checked right before the bytes go (./front.mjs);
+//                                  else nothing is typed and a 409 error says so. Without it: as the owner types
 //   capture(id, lines)             the last `lines` lines of history and screen, as plain text
 //   scroll(id, action, n)          history view: action "up" | "down" (n lines) | "exit" (back to live)
 //   respawn(id, dir, argv, { mark }) stop what runs in the terminal and start argv there, same name and id

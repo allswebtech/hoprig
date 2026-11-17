@@ -230,8 +230,9 @@ export class Watcher {
         this.pending.delete(name);
         if (!p.prompt) continue;
         try {
-          const found = await this.deck.find(name);
-          if (found) await this.deck.send(found.term.id, p.prompt);
+          // Only while the coding tool is in front (deck.mjs sendToTool): a session whose tool has ended in the
+          // meantime gets nothing, and the prompt is dropped, as for a session that is gone.
+          await this.deck.sendToTool(name, p.prompt);
         } catch (e) {
           this.log(`auto-switch: sending the continue prompt to "${name}" failed: ${e.message}`);
         }

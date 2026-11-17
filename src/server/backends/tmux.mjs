@@ -7,6 +7,7 @@ import os from 'node:os';
 import { ptySpawn } from './nodepty.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
 import { shellLine } from './shell.mjs';
+import { assertFront, notInFront, FRONT_GONE } from './front.mjs';
 
 const FIELDS = [
   'session_name', 'session_created', 'session_attached', 'session_activity', 'window_activity',
@@ -144,21 +145,45 @@ export class TmuxBackend {
   }
 
   /**
+   * `front` (deck.mjs sendToTool): type only while that process group holds the pane in front. tmux is asked for the
+   * pane's first process at this moment, and the system for the group its terminal hands typed bytes to (what tmux
+   * itself reads for #{pane_current_command}); the keys follow at once. A pane that is dead, or another program in
+   * front, gets nothing.
+   */
+  async #inFront(id, front) {
+    if (!front) return;
+    const out = await this.run(['display-message', '-p', '-t', id, '#{pane_dead} #{pane_pid}']).catch(() => '');
+    const [dead, pid] = String(out).trim().split(' ');
+    if (dead !== '0') throw notInFront(FRONT_GONE);
+    assertFront(Number(pid), front);
+  }
+
+  /**
    * One line goes in as typed keys (-l: literally, so "Enter" stays a word). Several lines go in as a bracketed
    * paste (-p) when the program asked for it, which Claude Code does, so the newlines stay inside the message.
    * The paste buffer is loaded through stdin: no argument size limit, and the text never shows up in `ps`.
    */
-  async sendText(id, text) {
+  async sendText(id, text, { front = null } = {}) {
     await this.#live(id);
-    if (!text.includes('\n')) return void (await this.run(['send-keys', '-t', id, '-l', '--', text]));
+    if (!text.includes('\n')) {
+      await this.#inFront(id, front);
+      return void (await this.run(['send-keys', '-t', id, '-l', '--', text]));
+    }
     const buf = `paste-${crypto.randomBytes(6).toString('hex')}`;
     await this.run(['load-buffer', '-b', buf, '-'], { input: text });
+    try {
+      await this.#inFront(id, front);
+    } catch (e) {
+      await this.run(['delete-buffer', '-b', buf]).catch(() => {});
+      throw e;
+    }
     await this.run(['paste-buffer', '-p', '-d', '-b', buf, '-t', id]);
   }
 
-  async sendKey(id, key) {
+  async sendKey(id, key, { front = null } = {}) {
     if (!KEYS.has(key)) throw new Error(`unknown key ${key}`);
     if (key !== 'Escape') await this.#live(id);
+    await this.#inFront(id, front);
     await this.run(['send-keys', '-t', id, key]);
   }
 
