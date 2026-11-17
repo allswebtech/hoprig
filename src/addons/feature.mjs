@@ -40,8 +40,10 @@ export function addonsFeature(sctx, opts = {}) {
   const list = () => opts.addons || ADDONS;
   const jobs = new Map(); // id → { running, lines, result }
 
+  // An add-on is named by its own plain spelling only: "public%2Dlink" is not "public-link" here, so no check in front
+  // of this route (Tia's door) can be passed by a spelling that this route reads as another add-on.
   const addonOf = (m) => {
-    const a = list().find((x) => x.id === decodeURIComponent(m[1]));
+    const a = list().find((x) => x.id === m[1]);
     if (!a) throw fail(404, 'no such add-on');
     return a;
   };
