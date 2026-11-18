@@ -17,5 +17,5 @@ export const STOPPED = [
 export const ordinary = (PROJECT) => [
   'rm -rf t1/*/*', 'rm -rf dist/*', 'rm -rf node_modules', 'rm -rf build && rm -rf dist/*', 'rm -rf "my dir/cache"', 'rm -rf dist 2>/dev/null || true',
   `rm -rf ${PROJECT}/build`, `rm -rf ${PROJECT}/t1/*/*`, 'rm -rf ./build/*.map', 'rm -f a.txt b.txt; rm -rf c', 'rm -rf dist >/dev/null 2>&1',
-  'rm -rf -- -x', 'rm dist -rf', 'rm -rf dist/', 'rm -r -f --verbose out', 'rm -rf tëst/日本/*', "rm -rf 'old build'/*", 'rm -rf .cache/x', 'rm -d empty',
+  'rm -rf -- -x', 'rm -f -- dist', 'rm -rf dist/', 'rm -r -f --verbose out', 'rm -rf tëst/日本/*', "rm -rf 'old build'/*", 'rm -rf .cache/x', 'rm -d empty',
 ];

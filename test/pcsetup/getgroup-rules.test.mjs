@@ -83,7 +83,9 @@ for (const [id, pdir] of Object.entries(PLACES)) {
     const file = L.lockPathFor(pdir, repoOf(url));
     assert.ok(!file.startsWith(pdir + path.sep), 'the lock lives in the state folder, never in the place\'s folder');
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, `${JSON.stringify({ pid: process.ppid, proc: 'L:not-this-boot:1' })}\n`); // a pid another process has now
+    // A pid another process has now: the identity of another process, in this system's own form (src/procid.mjs: one of
+    // another form cannot be compared, and is no proof that the writer has ended).
+    fs.writeFileSync(file, `${JSON.stringify({ pid: process.ppid, proc: process.platform === 'linux' ? 'L:not-this-boot:1' : 'T:1000' })}\n`);
     assert.deepEqual((await status()).locks.filter((l) => l.path === file).map((l) => l.running), [false]);
     assert.ok((await statusText()).includes(`${file}  a lock of hoprig get: its run has ended`));
     const r = await get(url, { into: id });

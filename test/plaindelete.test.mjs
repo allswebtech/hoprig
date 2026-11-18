@@ -10,6 +10,7 @@ import { test } from 'node:test';
 
 const { bypassAllows, plainDelete, projectFolders } = await import('../src/asking.mjs');
 const D = await import('./fixtures/deletes.mjs');
+const { SHARE, scaled } = await import('./plainjudge.mjs');
 
 const HOME = '/home/alex';
 const WS = '/home/alex/Workspace';
@@ -199,6 +200,50 @@ test('on disk, a .git entry counts in any letter case', () => {
   }
 });
 
+test('a disk that tells neither case nor normal form (macOS): a git folder in any case, a home folder in any normal form', () => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-caseblind-')));
+  try {
+    // There git asks for HEAD and gets head: a folder with head and Objects is a bare repository.
+    fs.mkdirSync(path.join(base, 'code', 'mirror', 'Objects'), { recursive: true });
+    fs.writeFileSync(path.join(base, 'code', 'mirror', 'head'), 'ref: refs/heads/main\n');
+    fs.mkdirSync(path.join(base, 'code', 'wt'), { recursive: true });
+    for (const f of ['Head', 'CommonDir']) fs.writeFileSync(path.join(base, 'code', 'wt', f), '');
+    for (const command of ['rm -rf code', 'rm -rf code/*', 'rm -rf code/mirror', 'rm -rf code/wt']) assert.equal(plainDelete(command, { ...IN, cwd: base }), false, command);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+  // A home folder written with é as one sign, the shell's folder with e and an accent: the same folder there.
+  const nfc = '/home/josé';
+  const nfd = '/home/josé';
+  for (const [home, cwd] of [[nfc, nfd], [nfd, nfc], [nfc, `${nfd}/Workspace`.toUpperCase()]]) {
+    assert.equal(plainDelete('rm -rf dist', { home, workspace: `${home}/Workspace`, cwd }), false, JSON.stringify([home, cwd]));
+  }
+  assert.equal(plainDelete('rm -rf dist', { home: nfc, workspace: `${nfc}/Workspace`, cwd: `${nfd}/Workspace/p` }), true, 'a project inside');
+});
+
+test('a word that begins with - after a target is no plain delete: BSD rm (macOS) deletes it as a name, GNU rm reads it as an option', { skip: process.platform === 'win32' && 'needs rm' }, () => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-lateopt-')));
+  try {
+    const proj = path.join(base, 'proj');
+    // A folder named like an option that holds a repository, beside ordinary folders.
+    for (const d of ['-rf/shop/.git', '-x/cache', 'build', 'out']) fs.mkdirSync(path.join(proj, d), { recursive: true });
+    const at = (command) => plainDelete(command, { ...IN, cwd: proj });
+    for (const command of ['rm -r build -rf', 'rm -rf build "-rf"', "rm -rf out '-rf' build", 'rm build -- -rf', 'rm -rf build -- -x', 'rm -R build/* -rf out/*', 'rm -rf build -f', 'rm -rf build -']) {
+      assert.equal(at(command), false, command);
+    }
+    // After --, a name that begins with - is a target on every rm, and judged like any other.
+    assert.equal(at('rm -rf -- -rf'), false, 'holds a repository');
+    assert.equal(at('rm -rf -- -x build'), true);
+    assert.equal(at('rm -rf -- build -x'), true);
+    // Which reading the rm of this computer takes is shown, not assumed: either way the rule above holds.
+    const r = spawnSync('rm', ['-r', 'build', '-rf'], { cwd: proj, encoding: 'utf8' });
+    const took = fs.existsSync(path.join(proj, '-rf')) ? 'an option (GNU)' : 'a name (BSD)';
+    process.stdout.write(`# this rm read a -rf after a target as ${took}${r.stderr ? `: ${r.stderr.trim()}` : ''}\n`);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('the folders that hold projects: the chosen one, the default, the earlier default, and the one the workspace map names', () => {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-projmap-')));
   try {
@@ -265,18 +310,41 @@ test('the reader says no to what it does not know', () => {
   assert.equal(plainDelete(`rm -rf ${'a/'.repeat(995)}b`, IN), true, 'just under');
 });
 
-test('the reader is fast on any input: a 200 KB line and the worst shapes of 2,000 characters take well under 50 ms', () => {
+// A unit of work to measure the computer by, in this process and at this moment (a CI runner is slower, and slower still
+// while other tests run beside it): what the reader does per character, over an ordinary line of 2,000 characters,
+// and 1,000 looks at a path that is not there (what the look does per target). About 6 ms on a desktop of 2026.
+function unit() {
+  const t = performance.now();
+  const line = 'rm -rf dist/a b/c '.repeat(111);
+  let n = 0;
+  for (const c of line) n += /^[\p{L}\p{Nd}._\-/*?@+,=:%]$/u.test(c) ? 1 : 0;
+  for (let i = 0; i < 1000; i++) {
+    try {
+      fs.statSync(path.join(PROJECT, `none${i}`));
+    } catch {
+      n++;
+    }
+  }
+  return n ? performance.now() - t : 0;
+}
+
+test('the reader is fast on any input: a 200 KB line and the worst shapes of 2,000 characters take well under ten units of work (50 ms on a desktop)', () => {
   const shapes = [
     `rm -rf ${'a/'.repeat(100000)}`, `rm -rf ${'~'.repeat(200000)}`, // over the length cap
     `rm -rf ${"'a'".repeat(664)}`, `rm -rf "${'a '.repeat(995)}`, `rm ${'a '.repeat(995)}`, `rm a${'; rm a'.repeat(330)}`, `rm a${' && rm a'.repeat(220)}`,
     `rm a${' 2>/dev/null || true; rm a'.repeat(70)}`, `rm -rf ${'t/*'.repeat(660)}`, `rm ${"''".repeat(995)}`, `rm -${'r'.repeat(1990)} a`,
     `rm a ${'>/dev/null      '.repeat(120)}`,
   ];
+  // The bound is ten units, measured around each shape (the larger of the two): 50 ms or so on a desktop, and as much
+  // more as the computer is slower at that moment. The worst shape takes under two units.
+  unit();
   for (const command of shapes) {
+    const before = unit();
     const t = performance.now();
     for (let i = 0; i < 10; i++) plainDelete(command, IN);
     const ms = (performance.now() - t) / 10;
-    assert.ok(ms < 50, `${command.slice(0, 30)}…: ${ms.toFixed(2)} ms`);
+    const u = Math.max(before, unit());
+    assert.ok(ms < 10 * u, `${command.slice(0, 30)}…: ${ms.toFixed(2)} ms, ${(ms / u).toFixed(1)} units of ${u.toFixed(2)} ms (bound 10) on ${process.platform}`);
   }
 });
 
@@ -323,6 +391,11 @@ function line(b) {
     const words = [take(b.before) + take(b.name)];
     for (let o = rnd(3); o > 0; o--) words.push(take(b.option));
     for (let t = 1 + rnd(3); t > 0; t--) words.push(take(b.target));
+    // A word that begins with - after the first target: BSD rm takes it as a name (a folder -rf holds a repository).
+    if (rand() < 0.06) {
+      words.splice(words.findIndex((w, i) => i > 0 && !b.option.some(([o]) => o === w)) + 1, 0, pick(['-rf', '-r', '--', '-f', '"-rf"']));
+      plain = false;
+    }
     cmds.push(words.filter(Boolean).join(' ') + take(b.end));
   }
   let text = cmds[0];
@@ -337,24 +410,31 @@ test('ten thousand random lines from the dangerous building blocks: exactly the 
     const proj = path.join(box, 'proj');
     const b = blocks(base, box, proj);
     // The tree the lines are judged against, laid out as each run's copy (runLines).
-    for (const d of ['t1/a', 'dist', 'node_modules', 'my dir', 'a b', 'nested/inner/.git']) fs.mkdirSync(path.join(proj, d), { recursive: true });
+    for (const d of ['t1/a', 'dist', 'node_modules', 'my dir', 'a b', 'nested/inner/.git', '-rf/inner/.git']) fs.mkdirSync(path.join(proj, d), { recursive: true });
     fs.symlinkSync(box, path.join(proj, 'lnk'));
     const places = { home: HOME, workspace: WS, cwd: proj };
     const answered = [];
-    for (let i = 0; i < 10000; i++) {
+    const LINES = scaled(10000);
+    const wrong = [];
+    for (let i = 0; i < LINES; i++) {
       const { text, plain } = line(b);
       const yes = plainDelete(text, places);
-      assert.equal(yes, plain, `${yes ? 'answered although not plain' : 'plain but not answered'}: ${JSON.stringify(text)}`);
+      if (yes !== plain) wrong.push(`${yes ? 'answered although not plain' : 'plain but not answered'}: ${JSON.stringify(text)}`);
       if (yes) answered.push(text);
     }
-    assert.ok(answered.length > 1000, `enough answered lines to run: ${answered.length}`);
+    // Every line judged wrongly is said before the assertion (a log then shows all of them, not only the first).
+    if (wrong.length) process.stdout.write(`${wrong.map((w) => `# ${w}`).join('\n')}\n`);
+    assert.deepEqual(wrong, []);
+    assert.ok(answered.length > LINES / 10, `enough answered lines to run: ${answered.length}`);
     // Every answered line runs with the real rm, in a fresh tree each time, from the folder it was judged for: four
     // shells side by side, each with its own tree laid out the same way (base/marker-above, box/marker-beside, box/proj).
     const shards = [0, 1, 2, 3].map((n) => answered.filter((_, i) => i % 4 === n));
     const outs = await Promise.all(shards.map((lines, n) => runLines(lines, path.join(base, `s${n}`), { base, box, proj })));
-    assert.deepEqual(outs.flatMap((o) => o.split('\n').filter((l) => l.startsWith('REMOVED'))), [], 'no marker was removed');
+    const removed = outs.flatMap((o) => o.split('\n').filter((l) => l.startsWith('REMOVED')));
+    if (removed.length) process.stdout.write(`${removed.map((l) => `# ${l}`).join('\n')}\n`); // all of them, before the assertion
+    assert.deepEqual(removed, [], 'no marker was removed');
     assert.equal(outs.reduce((sum, o) => sum + Number(/ran (\d+)/.exec(o)[1]), 0), answered.length);
-    process.stdout.write(`# property: 10000 lines tried, ${answered.length} answered and run with the real rm, 0 markers removed\n`);
+    process.stdout.write(`# property on ${process.platform}${SHARE < 1 ? ` (${SHARE} of the full size, a CI runner)` : ''}: ${LINES} lines tried, ${answered.length} answered and run with the real rm, 0 markers removed\n`);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -371,11 +451,11 @@ function runLines(lines, root, at) {
   const moved = lines.map((l) => l.split(at.base).join(root));
   const script = [
     'n=0; while IFS= read -r L; do',
-    `  mkdir -p ${q(proj)}/t1/a ${q(proj)}/dist ${q(proj)}/node_modules ${q(proj)}/"my dir" ${q(proj)}/"a b" ${q(proj)}/nested/inner/.git`,
-    `  : > ${q(root)}/marker-above; : > ${q(box)}/marker-beside; : > ${q(proj)}/t1/a/f; : > ${q(proj)}/nested/inner/.git/marker-repo`,
+    `  mkdir -p ${q(proj)}/t1/a ${q(proj)}/dist ${q(proj)}/node_modules ${q(proj)}/"my dir" ${q(proj)}/"a b" ${q(proj)}/nested/inner/.git ${q(proj)}/-rf/inner/.git`,
+    `  : > ${q(root)}/marker-above; : > ${q(box)}/marker-beside; : > ${q(proj)}/t1/a/f; : > ${q(proj)}/nested/inner/.git/marker-repo; : > ${q(proj)}/-rf/inner/.git/marker-repo`,
     `  [ -L ${q(proj)}/lnk ] || ln -s ${q(box)} ${q(proj)}/lnk`,
     `  (cd ${q(proj)} && eval "$L") </dev/null >/dev/null 2>&1`,
-    `  if [ ! -e ${q(root)}/marker-above ] || [ ! -e ${q(box)}/marker-beside ] || [ ! -e ${q(proj)}/nested/inner/.git/marker-repo ]; then echo "REMOVED: $L"; fi`,
+    `  if [ ! -e ${q(root)}/marker-above ] || [ ! -e ${q(box)}/marker-beside ] || [ ! -e ${q(proj)}/nested/inner/.git/marker-repo ] || [ ! -e ${q(proj)}/-rf/inner/.git/marker-repo ]; then echo "REMOVED: $L"; fi`,
     '  n=$((n+1)); done; echo "ran $n"',
   ].join('\n');
   fs.mkdirSync(root, { recursive: true });

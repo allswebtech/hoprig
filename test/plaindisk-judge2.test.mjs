@@ -13,6 +13,12 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 const { plainDelete } = await import('../src/asking.mjs');
+const { SHARE, listing, scaled } = await import('./plainjudge.mjs');
+
+// GNU rm reads an option after a target too; BSD rm (macOS) stops reading options at the first target, and every word
+// after it, -rf or -- included, is a name.
+const PERMUTES = process.platform === 'linux';
+
 
 function judge(ROOT, worker, NT, NL, SEED) {
   const T = `${ROOT}/w${worker}/T`;
@@ -96,6 +102,15 @@ function judge(ROOT, worker, NT, NL, SEED) {
         }
       } catch {
         /* skip */
+      }
+    }
+    // A folder named like an option that holds a repository: BSD rm (macOS) takes a -rf after a target as this name.
+    if (chance(0.3)) {
+      try {
+        fs.mkdirSync(`${run}/-rf/s/.git/objects`, { recursive: true });
+        fs.writeFileSync(`${run}/-rf/s/.git/HEAD`, 'ref');
+      } catch {
+        /* -rf is a file or a link in this tree */
       }
     }
     if (chance(0.01)) {
@@ -209,6 +224,8 @@ function judge(ROOT, worker, NT, NL, SEED) {
       const ts = [];
       for (let i = 0; i < nt; i++) ts.push(quote(target(entries, run)));
       if (chance(0.05)) ts.push(ts[0]);
+      // Now and then a word that begins with - after the first target (a name for BSD rm, an option for GNU rm).
+      if (chance(0.06)) ts.splice(1, 0, pick(['-rf', '-r', '--', '"-rf"', '-f']));
       const opt = pick(['-rf', '-rf', '-r', '-f', '-R', '-rfv', '--recursive --force', '-rf --', '-d', '']);
       const end = pick(['', '', '', ' 2>/dev/null', ' || true', ' >/dev/null 2>&1']);
       out.push(`rm ${opt ? `${opt} ` : ''}${ts.join(' ')}${end}`.replace(/  +/g, ' '));
@@ -251,13 +268,16 @@ function judge(ROOT, worker, NT, NL, SEED) {
       fs.rmSync(RMLOG, { force: true });
       fs.writeFileSync(RMLOG, '');
       spawnSync('/bin/bash', ['-c', l], { cwd: run, env: { PATH: `${ROOT}/bin`, RMLOG, LANG: 'en_US.UTF-8', HOME: `${T}/home` } });
-      // What rm got as targets: an option before -- is an option (GNU rm takes options after targets too); after --
-      // everything is a target (a file named -rf included).
+      // What rm got as targets: an option before -- is an option, and after the first target too for GNU rm only (see
+      // PERMUTES); after -- everything is a target (a file named -rf included).
       let afterDD = false;
+      let named = false;
       const args = fs.readFileSync(RMLOG).toString('latin1').split('\0').filter((a) => {
         if (!a) return false;
-        if (!afterDD && a === '--') return !(afterDD = true);
-        return afterDD || !/^-[rRfvd]+$|^--(recursive|force|verbose|dir)$/.test(a);
+        if (afterDD || (named && !PERMUTES)) return true;
+        if (a === '--') return !(afterDD = true);
+        if (/^-[rRfvd]+$|^--(recursive|force|verbose|dir)$/.test(a)) return false;
+        return (named = true);
       });
       // the real rm, PATH with the system's rm
       spawnSync('/bin/bash', ['-c', l], { cwd: run, env: { PATH: '/usr/bin:/bin', LANG: 'en_US.UTF-8', HOME: `${T}/home` } });
@@ -277,8 +297,10 @@ function judge(ROOT, worker, NT, NL, SEED) {
       }
       if (bad.length) {
         stats.violations++;
-        const links = spawnSync('/usr/bin/find', [run.replace(T, P), '-type', 'l', '-printf', '%p -> %l\\n'], { encoding: 'buffer' }).stdout.toString('utf8').split(run.replace(T, P)).join('');
-        findings.push({ tree: t, links, line: l, cwd: run, bad: bad.slice(0, 5).map(([a, b]) => [a, Buffer.from(b, 'latin1').toString('utf8').slice(L(T).length)]) });
+        const finding = { tree: t, line: l, cwd: run, rmGot: args.map((a) => Buffer.from(a, 'latin1').toString('utf8')), bad: bad.slice(0, 5).map(([a, b]) => [a, Buffer.from(b, 'latin1').toString('utf8').slice(L(T).length)]) };
+        findings.push(finding);
+        // Said at once, with the tree as it was (the copy P), so that a log shows each one even if the run ends early.
+        process.stdout.write(`# VIOLATION ${JSON.stringify(finding)}\n# tree (folder it ran in):\n${listing(run.replace(T, P)).replace(/^/gm, '#   ')}\n`);
       }
       // restore
       fs.rmSync(T, { recursive: true, force: true });
@@ -295,10 +317,11 @@ test('the second judge: random trees and rm lines of another reviewer, each answ
   fs.mkdirSync(path.join(ROOT, 'bin'));
   fs.writeFileSync(path.join(ROOT, 'bin', 'rm'), '#!/bin/bash\nfor a in "$@"; do printf \'%s\\0\' "$a" >> "$RMLOG"; done\n', { mode: 0o755 });
   try {
-    const all = [0, 1].map((w) => judge(ROOT, w, 50, 40, 20261118));
+    const trees = scaled(50, { root: true });
+    const all = [0, 1].map((w) => judge(ROOT, w, trees, scaled(40, { root: true }), 20261118));
     const sum = (k) => all.reduce((n, r) => n + r.stats[k], 0);
-    process.stdout.write(`# judge 2: ${sum('lines')} lines in 100 trees (${sum('distinct')} distinct), ${sum('answered')} answered and run with the real rm, ${sum('violations')} violations\n`);
-    assert.ok(sum('answered') > 500, `enough answered lines: ${sum('answered')}`);
+    process.stdout.write(`# judge 2 on ${process.platform}${SHARE < 1 ? ` (${SHARE} of the full size, a CI runner)` : ''}: ${sum('lines')} lines in ${2 * trees} trees (${sum('distinct')} distinct), ${sum('answered')} answered and run with the real rm, ${sum('violations')} violations\n`);
+    assert.ok(sum('answered') > sum('lines') / 8, `enough answered lines: ${sum('answered')}`);
     assert.deepEqual(all.flatMap((r) => r.findings), []);
   } finally {
     fs.rmSync(ROOT, { recursive: true, force: true });

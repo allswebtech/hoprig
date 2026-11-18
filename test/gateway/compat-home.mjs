@@ -73,6 +73,10 @@ function plain(text) {
   s = s.replaceAll(String(PORT), '<PORT>').replaceAll(String(DASH), '<DASH>');
   if (otherPort) s = s.replaceAll(String(otherPort), '<OTHER>');
   s = s.replace(/hop_gw_[A-Za-z0-9_-]{43}/g, '<GWKEY>').split(os.hostname()).join('<HOST>');
+  // The dashboard labels this computer by its host name's first part (machines/hub.mjs defaultHubLabel): the same as the
+  // whole name on a Linux runner, but a macOS runner's name goes on after a dot (….local). As a whole word only.
+  const short = os.hostname().split('.')[0];
+  if (short && short !== os.hostname()) s = s.replace(new RegExp(`(?<![\\w.-])${RegExp.escape?.(short) ?? short.replace(/\W/g, '\\$&')}(?![\\w-])`, 'g'), '<HOST>');
   for (const [pid, name] of pids) s = s.replace(new RegExp(`\\b${pid}\\b`, 'g'), name);
   return s;
 }

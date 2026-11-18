@@ -10,6 +10,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 const { plainDelete } = await import('../src/asking.mjs');
+const { SHARE, listing, scaled } = await import('./plainjudge.mjs');
 
 // mulberry32: a seeded source whose state runs through all 2^32 values before it repeats.
 let seed = 20261118;
@@ -59,6 +60,8 @@ function makeTree(root) {
     file(path.join(repo, 'f'));
     if (!dirs.includes(path.dirname(repo))) dirs.push(path.dirname(repo));
   }
+  // A folder named like an option that holds a repository: BSD rm (macOS) takes a -rf after a target as this name.
+  if (rand() < 0.5) markers.push(file(path.join(proj, '-rf', 'r', '.git', 'm')));
   // Links at random levels.
   for (const [name, to, relative] of [['lo', path.join(root, 'outside')], ['lr', path.join(root, 'orepo')], ['li', pick(dirs)], ['lf', path.join(root, 'outside', 'm1')], ['lrel', path.join(root, 'outside'), true]]) {
     if (rand() < 0.3) continue;
@@ -99,6 +102,7 @@ function target(tree) {
 function line(tree) {
   const targets = [];
   for (let n = 1 + rnd(3); n > 0; n--) targets.push(target(tree));
+  if (rand() < 0.06) targets.splice(1, 0, pick(['-rf', '-r', '--', '"-rf"'])); // after the first target
   return `rm ${pick(['-rf', '-r', '-rf', '-f', '-rfv'])} ${targets.join(' ')}`;
 }
 
@@ -128,8 +132,8 @@ function runLines(root, template, markers, lines) {
 test('the real shell decides: of ten thousand random rm lines in random trees, no answered one removes a marker outside, behind a link or in a repository', { skip: process.platform === 'win32' && 'needs a POSIX shell and rm', timeout: 300_000 }, async () => {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-judge-')));
   try {
-    const TREES = 25;
-    const PER = 400;
+    const TREES = scaled(25, { root: true });
+    const PER = scaled(400, { root: true });
     const jobs = [];
     let answered = 0;
     const distinct = new Set();
@@ -147,29 +151,42 @@ test('the real shell decides: of ten thousand random rm lines in random trees, n
       fs.cpSync(root, template, { recursive: true, verbatimSymlinks: true });
       jobs.push({ root, template, markers: tree.markers, lines });
     }
-    assert.ok(answered > 1000, `enough answered lines to run: ${answered}`);
+    assert.ok(answered > (TREES * PER) / 10, `enough answered lines to run: ${answered}`);
     // Four shells side by side.
     const outs = [];
     for (let i = 0; i < jobs.length; i += 4) outs.push(...(await Promise.all(jobs.slice(i, i + 4).map((j) => runLines(j.root, j.template, j.markers, j.lines)))));
+    // Each removed marker is said with its line and its tree before the assertion, so that a log shows all of them.
+    outs.forEach((o, k) => {
+      const removed = o.split('\n').filter((l) => l.startsWith('REMOVED'));
+      if (removed.length) process.stdout.write(`# tree ${k}:\n${[...removed, listing(jobs[k].template)].join('\n').replace(/^/gm, '#   ')}\n`);
+    });
     assert.deepEqual(outs.flatMap((o) => o.split('\n').filter((l) => l.startsWith('REMOVED'))), [], 'no marker removed');
     assert.equal(outs.reduce((sum, o) => sum + Number(/ran (\d+)/.exec(o)[1]), 0), answered);
-    process.stdout.write(`# judge: ${TREES * PER} lines tried in ${TREES} trees (${distinct.size} distinct), ${answered} answered and run with the real rm, 0 markers removed\n`);
-    assert.ok(distinct.size > 9000, `distinct lines: ${distinct.size}`);
+    process.stdout.write(`# judge on ${process.platform}${SHARE < 1 ? ` (${SHARE} of the full size, a CI runner)` : ''}: ${TREES * PER} lines tried in ${TREES} trees (${distinct.size} distinct), ${answered} answered and run with the real rm, 0 markers removed\n`);
+    assert.ok(distinct.size > TREES * PER * 0.9, `distinct lines: ${distinct.size}`);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
 
-test('what cannot be told is no plain delete: a name that is not UTF-8, ? against a wide name, the inside of a git folder, a mount', { skip: process.platform === 'win32' && 'POSIX names and links' }, () => {
+test('what cannot be told is no plain delete: a name that is not UTF-8, ? against a wide name, the inside of a git folder, a mount', { skip: process.platform === 'win32' && 'POSIX names and links' }, (t) => {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-told-')));
   try {
     const proj = path.join(base, 'proj');
     const at = (command) => plainDelete(command, { home: '/home/alex', workspace: '/home/alex/Workspace', cwd: proj });
     const mk = (...ds) => ds.forEach((d) => fs.mkdirSync(path.join(proj, d), { recursive: true }));
-    // A name that is not valid UTF-8 (bash matches it; the look could not read it as text).
+    // A name that is not valid UTF-8 (bash matches it; the look could not read it as text). Some disks refuse to make
+    // one (APFS on macOS: EILSEQ); there no such name can be met, and that part is said to be left out.
     mk('x');
-    fs.mkdirSync(Buffer.concat([Buffer.from(`${proj}/x/`), Buffer.from([0xff]), Buffer.from('/.git')]), { recursive: true });
-    for (const command of ['rm -rf x/*', 'rm -rf x']) assert.equal(at(command), false, command);
+    let made = true;
+    try {
+      fs.mkdirSync(Buffer.concat([Buffer.from(`${proj}/x/`), Buffer.from([0xff]), Buffer.from('/.git')]), { recursive: true });
+    } catch (e) {
+      if (e.code !== 'EILSEQ') throw e;
+      made = false;
+      t.diagnostic('left out: this disk does not take a name that is not UTF-8 (EILSEQ)');
+    }
+    if (made) for (const command of ['rm -rf x/*', 'rm -rf x']) assert.equal(at(command), false, command);
     // ? is one character for bash (one byte under LC_ALL=C), one UTF-16 unit for the look.
     mk('y/😀/.git', 'z/é');
     for (const command of ['rm -rf y/?', 'rm -rf z/?']) assert.equal(at(command), false, command);

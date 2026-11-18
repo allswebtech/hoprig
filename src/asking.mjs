@@ -117,7 +117,8 @@ function repoRoot(dir) {
  *     `2>/dev/null` or `>/dev/null 2>&1`, then `|| true`. Any other character ($ ` \ ~ ( ) { } [ ] < > | & ; ! #, a
  *     newline) anywhere means no;
  *   - every command is `rm` (exactly that word, not quoted, not a path to it) with options from a fixed list (-r -R -f
- *     -v -d and their combinations, --recursive --force --verbose --dir, --) and one target or more;
+ *     -v -d and their combinations, --recursive --force --verbose --dir, --) and one target or more; the options all
+ *     before the first target (BSD rm takes a later -rf as a name, GNU rm as an option);
  *   - every target, its quotes taken off (a quoted part holds only the characters above and spaces): a relative path
  *     whose first part is a plain name (not . or .., no glob), after at most one leading ./, with no . or .. part
  *     anywhere, no part named .git (a repository's own history), and a glob (* ?) only after that first part, never in
@@ -232,9 +233,14 @@ function plainRm(cmd, cwd, relative, targets) {
       if (ends.includes(t.end) || ends.endsWith('true')) return false;
       ends += t.end;
     } else if (ends) return false;
-    else if (options && t.word === '--') options = false;
     else if (options && t.word.startsWith('-')) {
-      if (!OPTION.test(t.word)) return false;
+      // After a target, a word that begins with - (also --) is read two ways: GNU rm takes it as an option wherever it
+      // stands, BSD rm (macOS) stops reading options at the first target and deletes a file of that name, which was
+      // never judged here. Which rm runs is not known: no plain delete. `--` before such a name is the plain way (the
+      // name is then a target and judged).
+      if (n > 0) return false;
+      if (t.word === '--') options = false;
+      else if (!OPTION.test(t.word)) return false;
     } else {
       const rest = inside(t.word, cwd, relative);
       if (rest === null) return false;
@@ -271,7 +277,9 @@ function inside(target, cwd, relative) {
 function plainFolder(cwd, home, others) {
   if (typeof cwd !== 'string' || typeof home !== 'string' || !home) return false;
   if (!cwd.startsWith('/') || cwd.endsWith('/') || path.posix.normalize(cwd) !== cwd || cwd.split('/').length < 3) return false;
-  const low = (p) => p.toLowerCase(); // a folder whose name differs only in case may be the same one (macOS, Windows)
+  // A folder whose name differs only in case, or only in its Unicode normal form (é as one sign or as e and an accent),
+  // may be the same one (macOS, Windows): compared in one case and one form.
+  const low = (p) => p.normalize('NFC').toLowerCase();
   const here = [cwd, real(cwd)].filter(Boolean).map(low);
   const kept = [home, ...others].flatMap((p) => [p, real(p)]).filter((p) => typeof p === 'string' && p.startsWith('/')).map((p) => low(path.posix.normalize(p).replace(/(.)\/+$/, '$1')));
   const homes = [home, real(home)].filter((p) => typeof p === 'string' && p.startsWith('/')).map((p) => low(path.posix.dirname(path.posix.normalize(p))));

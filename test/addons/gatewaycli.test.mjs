@@ -21,7 +21,7 @@ const { loadConfig } = await import('../../src/config.mjs');
 const { main } = await import('../../src/addons/gatewaycli.mjs');
 const { binFile } = await import('../../src/paths.mjs');
 const { fileSha256 } = await import('../../src/addons/localgateway.mjs');
-const { nodePty } = await import('../../src/server/backends/nodepty.mjs');
+const { nodePty, ptySpawn } = await import('../../src/server/backends/nodepty.mjs');
 
 const ADD = ['add', 'relay', '--title', 'Relay', '--bin', relay, '--port', String(PORT), '--args', '--listen=127.0.0.1:PORT --quiet'];
 const defined = () => loadConfig().gateways?.defined || [];
@@ -106,7 +106,8 @@ test('a command run without a terminal (as Tia\'s run_command or a session\'s to
 test('in the owner\'s own terminal: hoprig gateways add, answered y', { skip: process.platform === 'win32' || !nodePty }, async () => {
   const env = { ...process.env };
   for (const k of ['CLAUDECODE', 'OPENCODE']) delete env[k];
-  const term = nodePty.spawn(process.execPath, [binFile(), 'gateways', ...ADD], { cols: 200, rows: 40, cwd: box.root, env });
+  // The product's own spawn, as a dashboard's terminal starts it (on macOS it first makes node-pty's helper executable).
+  const term = ptySpawn(process.execPath, [binFile(), 'gateways', ...ADD], { cols: 200, rows: 40, cwd: box.root, env });
   let screen = '';
   let answered = false;
   const code = await new Promise((resolve) => {

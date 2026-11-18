@@ -35,9 +35,19 @@ test('a home as 0.2.6 leaves it: every command, route and file is as it was', { 
   const text = await new Promise((resolve, reject) => execFile(process.execPath, [path.join(here, 'compat-home.mjs'), root], { maxBuffer: 1 << 24, timeout: 110_000 }, (e, out, err) => (e ? reject(new Error(`${e.message}\n${err}`)) : resolve(out))));
   const now = JSON.parse(text);
   const want = CHANGED(structuredClone(before));
-  for (const [i, c] of want.commands.entries()) assert.deepEqual(now.commands[i], c, `hoprig ${c.args}`);
-  assert.equal(now.commands.length, want.commands.length);
-  for (const k of Object.keys(want.routes)) assert.deepEqual(now.routes[k], want.routes[k], `route: ${k}`);
-  assert.deepEqual(Object.keys(now.routes), Object.keys(want.routes));
-  assert.deepEqual(now.disk, want.disk);
+  // Every difference is collected and said at once (a run on another system shows all of them, not only the first).
+  const differ = [];
+  const check = (fn) => {
+    try {
+      fn();
+    } catch (e) {
+      differ.push(e.message);
+    }
+  };
+  for (const [i, c] of want.commands.entries()) check(() => assert.deepEqual(now.commands[i], c, `hoprig ${c.args}`));
+  check(() => assert.equal(now.commands.length, want.commands.length));
+  for (const k of Object.keys(want.routes)) check(() => assert.deepEqual(now.routes[k], want.routes[k], `route: ${k}`));
+  check(() => assert.deepEqual(Object.keys(now.routes), Object.keys(want.routes)));
+  check(() => assert.deepEqual(now.disk, want.disk));
+  assert.ok(!differ.length, `${differ.length} difference(s) on ${process.platform}:\n\n${differ.join('\n\n')}`);
 });

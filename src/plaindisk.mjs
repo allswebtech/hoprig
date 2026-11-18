@@ -44,7 +44,7 @@ const no = () => {
  *     too; elsewhere only the device);
  *   - a folder between `cwd` and a path rm gets, or that path's own parent, is a git folder (HEAD with objects or
  *     commondir, each of any kind): the inside of a bare repository, of a separate git folder or a worktree's own;
- *   - a path rm gets is a folder that is a repository (an entry .git in any letter case, or a git folder) or holds
+ *   - a path rm gets is a folder that is a repository (an entry .git, or a git folder, in any letter case) or holds
  *     one anywhere below it, as far as the budget reaches;
  *   - a name the look reads is not valid UTF-8 (bash matches it, the look could not read it as text), or a pattern part
  *     with ? meets a folder that holds a name with a byte over 127 (? is one character for bash, or one byte);
@@ -184,11 +184,11 @@ function holdsRepository(dir, budget) {
       }
       if (st.dev !== budget.dev) return true;
       const entries = readFolder(d, budget);
-      // An entry .git in any letter case (a disk may not tell .GIT from .git), or a git folder's HEAD with objects or
-      // commondir, each of any kind (gitFolder).
+      // An entry .git, or a git folder's HEAD with objects or commondir (each of any kind: gitFolder), all in any letter
+      // case: a disk that does not tell case (macOS) gives git the entry head when it asks for HEAD.
       if (late(budget)) return true;
-      if (entries.some((e) => e.name.toLowerCase() === '.git')) return true;
-      if (entries.some((e) => e.name === 'HEAD') && entries.some((e) => e.name === 'objects' || e.name === 'commondir')) return true;
+      const names = new Set(entries.map((e) => e.name.toLowerCase()));
+      if (names.has('.git') || (names.has('head') && (names.has('objects') || names.has('commondir')))) return true;
       for (const e of entries) if (e.isDir) next.push(path.join(d, e.name));
     }
     level = next;

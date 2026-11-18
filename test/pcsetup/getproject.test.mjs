@@ -630,7 +630,8 @@ test('a lock names the process of its run: a pid another process has now, or a b
     if (age) fs.utimesSync(f, new Date(Date.now() - age), new Date(Date.now() - age));
     return f;
   };
-  for (const text of ['1\n', JSON.stringify({ pid: process.ppid, proc: 'L:not-this-boot:1' })]) {
+  // (Another process's identity in this system's own form: src/procid.mjs compares no identities of two forms.)
+  for (const text of ['1\n', JSON.stringify({ pid: process.ppid, proc: process.platform === 'linux' ? 'L:not-this-boot:1' : 'T:1000' })]) {
     const dir = fresh();
     writeLock(dir, text);
     const c = await run('alex/site-workspace', dir);
