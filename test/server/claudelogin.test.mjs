@@ -180,6 +180,35 @@ test('on this computer: the BROWSER link, and approving finishes the sign-in by 
   assert.ok(fs.existsSync(MARK));
 });
 
+test('a helper folder that cannot be removed at once does not fail the end: it is tried again a moment later, and never throws', () => {
+  // Claude Code, just told to end, may still write into the folder while it is removed ("directory not empty").
+  const dir = fs.mkdtempSync(path.join(ownTmp, 'helper-test-'));
+  fs.writeFileSync(path.join(dir, 'link'), 'x');
+  const refused = () => Object.assign(new Error("ENOTEMPTY: directory not empty, rmdir"), { code: 'ENOTEMPTY' });
+  let tries = 0;
+  const laters = [];
+  const rm = (d, o) => {
+    tries++;
+    if (tries === 1) throw refused();
+    fs.rmSync(d, o);
+  };
+  assert.doesNotThrow(() => L.removeHelper(dir, { rm, later: (fn) => laters.push(fn) }));
+  assert.equal(fs.existsSync(dir), true, 'the refused try left it');
+  assert.equal(laters.length, 1, 'one more try is set for later');
+  laters[0]();
+  assert.equal(fs.existsSync(dir), false, 'the later try removed it');
+  // A folder that never goes: still no throw, at the first try or at the later one.
+  let n = 0;
+  assert.doesNotThrow(() => L.removeHelper(dir, { rm: () => { n++; throw refused(); }, later: (fn) => fn() }));
+  assert.equal(n, 2);
+  // The real removal, with nothing in the way: gone at once, nothing set for later.
+  const plain = fs.mkdtempSync(path.join(ownTmp, 'helper-test-'));
+  const none = [];
+  L.removeHelper(plain, { later: (fn) => none.push(fn) });
+  assert.equal(fs.existsSync(plain), false);
+  assert.equal(none.length, 0);
+});
+
 test('a refused code ends it with a plain message; cancel; a sign-in that Claude Code does not confirm', async () => {
   signOut();
   const before = new Set(helperDirs());

@@ -39,9 +39,13 @@ if (!files.length) {
 }
 
 // A test that hangs must fail, not hold the run for ever (a hung file once kept a CI job alive for 25 minutes).
-// The slowest end-to-end test takes well under a minute; --test-timeout exists from Node 20.11.
+// The slowest end-to-end test takes well under a minute on Linux. Node 22 holds a whole FILE to the limit, and the
+// slowest file (nineteen end-to-end tests that clone repositories) takes about 40 s on GitHub's Linux runner and about
+// 150 s on its macOS runner, where it was cut off at 180 s. So three minutes on Linux and ten elsewhere: a hung test
+// still ends long before a CI job does. --test-timeout exists from Node 20.11.
 const [major, minor] = process.versions.node.split('.').map(Number);
-const limit = flags.some((f) => f.startsWith('--test-timeout')) || (major === 20 && minor < 11) ? [] : ['--test-timeout=180000'];
+const LIMIT_MS = process.platform === 'linux' ? 180_000 : 600_000;
+const limit = flags.some((f) => f.startsWith('--test-timeout')) || (major === 20 && minor < 11) ? [] : [`--test-timeout=${LIMIT_MS}`];
 // That limit ends a test, not its file: from Node 26 a file whose tests are over but which still holds something open
 // (a timer, a terminal, a child's pipe; a test that ran out of time leaves its own behind) never ends, its results are
 // never printed, and every file after it waits (a CI job stood still until its 15-minute limit, with no name). Each
