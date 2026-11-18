@@ -61,6 +61,7 @@ A Work page where a coding session can do a task for you, an App that works more
 - **More kinds of keys are masked** where Hoprig shows or keeps text (the AI brain page, Tia, Work's runs): Hoprig's own tokens, GitHub's fine-grained tokens, Stripe, Google and npm keys, and the password in an address.
 
 - **Before Hoprig allows a delete by itself, it looks at what the shell will hand to rm.** Nothing is allowed from inside a repository's history, from your home, your workspace or a folder that holds projects; nothing that is a repository or holds one, at any depth; nothing reached through a link, on another disk or past a mount. It judges a pattern such as `*` by what it could match under any of the shell's options, also names that begin with a dot. Where it cannot tell in a quarter of a second (a very large folder), it does not allow: Claude Code asks you.
+- **A delete with a word that begins with `-` after its first target is never allowed by itself.** The rm of macOS takes such a word for a file's name where the rm of Linux takes it for an option, so Hoprig allows such a line on no system. A git folder counts as one in any letter case of its name.
 - **An OpenCode chat in bypass mode asks Hoprig before every shell command.** OpenCode has no stop of its own there. An ordinary command runs at once; one that names a delete in plain sight (rm, shred, find -delete, git clean, rsync --delete, also inside `bash -c`, `ssh` or `sudo`) and is not plainly inside the folder is put to you as a card. It is no wall: a script, a program, a command written to get around it and OpenCode's own file tools can still delete. What your own OpenCode settings deny stays denied; when they cannot be read, every command is a card.
 - **A command an OpenCode chat asked about while the dashboard was down is taken up when it is back**, also with no page open: it runs if it is ordinary and shows its card if it is not. It never runs unanswered.
 
@@ -71,6 +72,10 @@ A Work page where a coding session can do a task for you, an App that works more
 - **A paste into a tmux terminal that tmux did not read no longer stops the whole dashboard.**
 - **With "stop an unused gateway" on, the automations keep running.** The public link made every check fail, which stopped the queue, the schedules, restore and retry.
 - **Setting up a computer from a recipe** retries a project that needs you with its own fix, and a step run with sudo keeps a quoted path as one argument.
+- **A long reply can no longer freeze a session's page or hold up the dashboard.** Three places that read text (the files named at the end of a message, the preview on a card, a heading) took a time that doubled with every few characters of certain text. Each reads its text in one pass now.
+- **Two changes to a session's state at the same moment no longer lose one.** When a lock file was left behind by a process that had ended, two hooks could both take it over. The take-over is one step now, and only one of them makes it.
+- **On macOS, a terminal of the built-in kind starts also when the terminal module's helper lost its executable bit in the install.** Hoprig sets the bit before every start. Run on GitHub's macOS runners, not on a Mac in use.
+- **`npm test` no longer loses results.** On a busy computer the runner could end a test file's process before its last results were read, and the run still said "fail 0". Each file writes its results before it ends, a run whose file did not report everything fails and names the file, and a clean run ends with "every result arrived".
 - **Esc typed in the terminal** settles the session's card at once, and **Tab** stays inside a popup whose last part is a closed Options section.
 
 ### The site
