@@ -106,7 +106,11 @@ test('what is not on the server is read after the fetch: his commit sent from el
   write(shop, { 'sent-by-address.txt': 'on the server already\n' });
   t.git(shop, 'add', 'sent-by-address.txt');
   t.git(shop, 'commit', '-q', '-m', 'Sent by its address');
+  const before = t.git(shop, 'rev-parse', 'origin/main');
   t.git(shop, 'push', '-q', bare, 'HEAD:main');
+  // A newer git also moves the remote-tracking branch when the address is a remote's own: put it back, so that this
+  // computer's idea of the server is old on every git.
+  t.git(shop, 'update-ref', 'refs/remotes/origin/main', before);
   assert.notEqual(t.git(shop, 'rev-parse', 'origin/main'), head(shop), 'the remote-tracking branch is old');
   await store().add({ title: 'After his own send', date: '2026-12-04' });
   const r = await saveWork(place(), { subject: SUBJECT });
