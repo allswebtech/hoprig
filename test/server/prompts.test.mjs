@@ -65,6 +65,15 @@ test('the "always" answers of 2.1.326, in Claude\'s own words, without "Yes, (an
   assert.match(permissionDialog(screen('perm-bash-80')).options[2].text, /^Yes, and switch to auto mode/);
 });
 
+test('the dialog drawn with a no-break space where the message box has one ("❯\u00a0") reads the same', () => {
+  // Claude Code draws U+00A0 after "❯" in its message box and after "⎿" (the fixtures hold both); the screen is
+  // read with it as a plain space.
+  const s = screen('perm-bash-80').replace(' ❯ 1. Yes', ' ❯\u00a01.\u00a0Yes').replace(' Do you want to proceed?', '\u00a0Do you want to proceed?');
+  assert.notEqual(s, screen('perm-bash-80'));
+  assert.deepEqual(permissionDialog(s), permissionDialog(screen('perm-bash-80')));
+  assert.equal(alwaysOption(s)?.key, '2');
+});
+
 // ---------- what looks like it and is not ----------
 const NOT = {
   'the question tool (AskUserQuestion)': ['ask-80', 'ask-46', 'ask-30', 'ask-16'],

@@ -15,7 +15,7 @@
 // Like limits.mjs and prompts.mjs it reads screen text: when Claude Code changes how it draws, update this and
 // its tests together. It only ever answers when it is sure; "nothing" leaves the card as the hooks have it.
 
-const norm = (s) => s.replace(/ /g, ' ').replace(/\s+$/, '');
+const norm = (s) => s.replace(/\u00a0/g, ' ').replace(/\s+$/, ''); // a no-break space (drawn after ❯ and ⎿) as a space
 // The rules above and below the message box (older versions drew a rounded box around it).
 const RULE = /^\s*[╭╰]?[─━]{6,}[╮╯]?\s*$/;
 // The message box's first line: the prompt arrow, alone or with what the owner is typing.

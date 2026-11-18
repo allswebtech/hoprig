@@ -317,6 +317,27 @@ test('a message\'s files are chips, never a raw "@.uploads/…" path in its bubb
   assert.deepEqual(W.ownMessageView('plain', []), { text: 'plain', files: [] });
 });
 
+test('a message read for its files takes a moment, whatever "@" text it holds', () => {
+  // A long "@!@!…" after a blank line once took the page minutes (the time doubled with every two characters).
+  const timed = (s) => {
+    const t = performance.now();
+    const view = W.ownMessageView(s, []);
+    return { view, ms: performance.now() - t };
+  };
+  for (const s of [`a\n\n@${'!@'.repeat(26)}\nX`, `a\n\n@${'!@'.repeat(2500)}\nX`, `a${'\n\n@x'.repeat(1250)} y`, `\n\n@"${'a @"'.repeat(1250)}`]) {
+    const { view, ms } = timed(s);
+    assert.deepEqual(view, { text: s, files: [] }, 'not names: the text stays');
+    assert.ok(ms < 100, `${s.length} characters read in ${ms.toFixed(0)} ms`);
+  }
+  const names = `a\n\n${'@.uploads/x.txt '.repeat(300)}`;
+  const { view, ms } = timed(names);
+  assert.equal(view.text, 'a');
+  assert.equal(view.files.length, 300);
+  assert.ok(ms < 100, `${ms.toFixed(0)} ms`);
+  assert.deepEqual(W.ownMessageView('b\n\n@".uploads/a b.png"@.uploads/c.txt', []).files.map((f) => f.name), ['a b.png', 'c.txt'], 'two names with no blank between');
+  assert.deepEqual(W.ownMessageView('c\n\n@x\n\n@.uploads/d.txt', []).text, 'c\n\n@x\n\n@.uploads/d.txt', 'his own @x before it: all stays his words');
+});
+
 test('a queued message reads as its bubble will: its words and its files by name, never a raw "@.uploads/…" path', async () => {
   const { queuedLine } = await import('../../web/chat/attach.js');
   const m = { id: 'q1', state: 'sent', text: 'look at this\n\n@.uploads/20301117-164344-753d-notes.txt', attachments: [{ type: 'image', name: '20301117-164344-a1b2-screen.png', mime: 'image/png' }] };

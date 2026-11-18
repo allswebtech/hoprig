@@ -234,6 +234,12 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
   const c = texts(mdView('Rules.\n<!-- hoprig: memory -->\n## Memory\nKeep it.\n<!-- /hoprig: memory --> trailing'));
   assert.ok(!c.some((t) => t.includes('<!-- hoprig: memory -->')), 'a marker line is not shown');
   assert.ok(c.some((t) => t.includes('<!-- /hoprig: memory --> trailing')), 'a comment with text after it stays text');
+  const multi = texts(mdView('<!-- a comment\n<img src=x onerror=alert(1)>\n-->'));
+  assert.deepEqual(multi, ['<!-- a comment <img src=x onerror=alert(1)> -->'], 'a comment over several lines is shown as text, never read as markup');
+  assert.deepEqual(texts(mdView('## Title ##  \n# ##\n# C# #')), ['Title', '##', 'C#'], 'closing #s go; a heading of only #s stays');
+  const t = performance.now();
+  assert.deepEqual(texts(mdView(`# a${' '.repeat(50_000)}x`)), [`a${' '.repeat(50_000)}x`]);
+  assert.ok(performance.now() - t < 100, `a heading with a long run of blanks: ${(performance.now() - t).toFixed(0)} ms`);
   const { brainGroups } = await import('../../web/brain.js');
   const item = (id, extra = {}) => ({ id, title: id, file: `~/${id}`, size: 1, modified: 0, ...extra });
   const g = brainGroups({

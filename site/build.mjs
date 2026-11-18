@@ -114,7 +114,7 @@ function sizeImages(html, out, { eager = false } = {}) {
     if (link || !src[1].startsWith('/screenshots/')) return `${link || ''}${img}`;
     const phone = src[1].replace(/-desktop-/, '-phone-');
     const source = phone !== src[1] && fs.existsSync(path.join(out, phone))
-      ? `<source media="(max-width: 600px)" srcset="${phone}"${sized(phone, '').replace(/^ /, ' ')}>` : '';
+      ? `<source media="(max-width: 600px)" srcset="${phone}"${sized(phone, '')}>` : '';
     const picture = source ? `<picture>${source}${img}</picture>` : img;
     return `<a class="shot-link" href="${src[1]}">${picture}<span class="enlarge"><span class="on-narrow">Tap to enlarge</span><span class="on-wide">Open full size</span></span></a>`;
   });

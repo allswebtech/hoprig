@@ -223,6 +223,30 @@ export function turnLine(ev) {
   return [cost, rest].filter(Boolean).join(' · ');
 }
 
+// One "@name" with the blanks after it: @"a name with spaces" (no line break inside) or @ and all up to a blank. A
+// name has one reading at every place, so the scan below never goes back.
+const END_NAME = /@(?:"([^"\n]+)"(?![^\s@])|(\S+))\s*/y;
+
+/**
+ * The "@name" words that end `s` after a blank line: { index (of that "\n\n"), paths }, or null. One pass over the
+ * text: the regular expression this replaces went back and forth over a long "@!@!@…" for minutes. A later blank
+ * line inside names that failed fails at the same place, so the next try starts after it.
+ */
+function endNames(s) {
+  for (let from = s.indexOf('\n\n@'); from !== -1;) {
+    const paths = [];
+    let at = from + 2;
+    END_NAME.lastIndex = at;
+    for (let n; (n = END_NAME.exec(s));) {
+      paths.push(n[1] || n[2]);
+      at = END_NAME.lastIndex;
+    }
+    if (at === s.length) return { index: from, paths };
+    from = s.indexOf('\n\n@', at);
+  }
+  return null;
+}
+
 /**
  * The owner's message as its bubble shows it. The files sent with it are named at its end for the coding tool
  * ("@.uploads/…"); they go out of the text, and each is a chip below. A message read back from the conversation, or
@@ -231,9 +255,9 @@ export function turnLine(ev) {
  */
 export function ownMessageView(text, files = []) {
   const s = String(text || '');
-  const m = /\n\n((?:@(?:"[^"]+"|\S+)\s*)+)$/.exec(s);
+  const m = endNames(s);
   if (!m) return { text: s, files };
-  const paths = [...m[1].matchAll(/@(?:"([^"]+)"|(\S+))/g)].map((x) => x[1] || x[2]);
+  const paths = m.paths;
   const uploads = paths.filter((p) => /(?:^|\/)\.uploads\//.test(p));
   if (!files.some((f) => f.type === 'file') && uploads.length !== paths.length) return { text: s, files };
   const named = new Set(files.map((f) => f.name));

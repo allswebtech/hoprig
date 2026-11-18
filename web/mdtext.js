@@ -47,7 +47,9 @@ export function mdView(text) {
     if (head) {
       endPara();
       endList();
-      out.push(h(`h${Math.min(4, head[1].length + 1)}`, inline(head[2].replace(/\s+#+\s*$/, ''))));
+      // The closing #s go ("## Title ##"). Trimmed first: a pattern with a run of blanks before the #s took time in
+      // the square of the blanks on a heading of a session's text.
+      out.push(h(`h${Math.min(4, head[1].length + 1)}`, inline(head[2].trimEnd().replace(/\s#+$/, '').trimEnd())));
       continue;
     }
     const item = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line);

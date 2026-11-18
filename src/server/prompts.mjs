@@ -35,7 +35,7 @@
 
 // "❯ 2. Yes, …" inside the box older versions drew around it (│ sides): any menu, for menuOpen.
 const OPTION = /^[\s│┃]*(?:❯\s*)?([1-9])\.\s+(.*?)[\s│┃]*$/;
-const norm = (s) => s.replace(/[‘’ʼ]/g, "'").replace(/ /g, ' ').replace(/\s+$/, '');
+const norm = (s) => s.replace(/[‘’ʼ]/g, "'").replace(/\u00a0/g, ' ').replace(/\s+$/, ''); // a no-break space (Claude Code draws it after ❯ and ⎿) as a space
 
 /**
  * A numbered menu stands at the bottom of `screen` (a permission question, the menu Claude Code shows at a usage
