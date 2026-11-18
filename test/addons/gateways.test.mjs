@@ -12,7 +12,20 @@ import { sandbox } from '../server/helpers.mjs';
 const box = sandbox('gateways');
 const POSIX = { skip: process.platform === 'win32' }; // the stand-in is a script started by its "#!" line
 const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
-const RELAY_PORT = await freePort();
+// The tests use RELAY_PORT and some ports after it (+1 to +21), and the product refuses a port on which something
+// answers. A port the system hands out is followed by the ports it hands to the next askers (macOS gives them out one
+// after another), and another test file's server then answers on RELAY_PORT + 11. So the block is taken BELOW the
+// ranges the systems hand out from (Linux from 32768, macOS and Windows from 49152), at random, and looked at once:
+// every port of it is free. (Not 7433 and 20017, which the product names as the dashboard's and the shipped gateway's.)
+const isFree = (port) => new Promise((r) => { const s = net.createServer(); s.once('error', () => r(false)); s.listen(port, '127.0.0.1', () => s.close(() => r(true))); });
+const freeBlock = async (n) => {
+  for (let i = 0; i < 100; i++) {
+    const base = 21000 + Math.floor(Math.random() * 8000);
+    if ((await Promise.all(Array.from({ length: n }, (_, k) => isFree(base + k)))).every(Boolean)) return base;
+  }
+  throw new Error('no free block of ports for the test');
+};
+const RELAY_PORT = await freeBlock(25);
 
 // Relay: writes down what it was started with, then answers on the port it is given.
 const bin = path.join(box.root, 'bin');
