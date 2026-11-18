@@ -1,0 +1,5 @@
+#!/usr/bin/bash
+{ printf 'RUN busybox'; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log
+case "$1" in rm|shred|unlink|truncate) { printf 'DEL busybox-%s' "$1"; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log; exit 0;;
+ sh|ash|hush) shift; exec /usr/bin/dash "$@";; esac
+exec /mnt/r/busybox "$@"

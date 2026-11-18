@@ -23,6 +23,56 @@ export function rememberTurn(dir, id, messageId, end) {
   }
 }
 
+/**
+ * Keep a line "allowed by Hoprig" (asks.mjs) with the tool call it is about, so a page opened again after a dashboard
+ * restart still shows it there (withAllowed). Never throws.
+ */
+export function rememberAllowed(dir, id, toolId, line) {
+  const file = fileOf(dir, id);
+  if (!file || typeof toolId !== 'string' || !toolId) return;
+  const { tool, what, folder, at } = line;
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.appendFileSync(file, `${JSON.stringify({ allowed: { toolId, tool, what, ...(folder ? { folder } : {}) }, at: at || Date.now() })}\n`, { mode: 0o600 });
+  } catch {
+    /* shown now, only not after a reload */
+  }
+}
+
+/** The kept "allowed" lines of conversation `id`: Map(tool call id → allowed event). */
+export function readAllowed(dir, id) {
+  const out = new Map();
+  const file = fileOf(dir, id);
+  if (!file) return out;
+  let text = '';
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return out;
+  }
+  for (const l of text.split('\n').slice(-READ_MAX)) {
+    try {
+      const x = JSON.parse(l);
+      const a = x && x.allowed;
+      if (a && typeof a.toolId === 'string' && typeof a.what === 'string') out.set(a.toolId, { kind: 'allowed', tool: String(a.tool || ''), what: a.what, ...(typeof a.folder === 'string' ? { folder: a.folder } : {}), at: x.at, agent: null });
+    } catch {
+      /* the last line may be half written */
+    }
+  }
+  return out;
+}
+
+/** The events of a transcript with each kept "allowed" line put back after the tool call it is about. */
+export function withAllowed(events, lines) {
+  if (!lines.size) return events;
+  const out = [];
+  for (const e of events) {
+    out.push(e);
+    if (e.kind === 'tool' && lines.has(e.id)) out.push(lines.get(e.id));
+  }
+  return out;
+}
+
 /** The kept ends of conversation `id`: Map(messageId → turn-end event). */
 export function readTurns(dir, id) {
   const out = new Map();

@@ -26,7 +26,7 @@ import path from 'node:path';
 import { configDir, stateDir, hostName } from '../paths.mjs';
 import { defaultHubLabel } from './hub.mjs';
 import { label as cleanLabel, dashboardUrl, slug, sshTarget, tokenName, uniqueSlug } from './names.mjs';
-import { dashboardAddress, listening, machineInfo, API_VERSION } from './pairing.mjs';
+import { dashboardAddress, answers, machineInfo, API_VERSION } from './pairing.mjs';
 import { callJson } from './relay.mjs';
 import { findJson, reverseArgs, runHoprig } from './ssh.mjs';
 import { loadMachines, putMachine, removeMachine } from './store.mjs';
@@ -341,9 +341,9 @@ export async function joinHub(rawTarget, { keeper, ssh = {}, now = Date.now } = 
   const target = sshTarget(rawTarget);
   if (!target) throw new JoinError('bad-target', 'type the hub\'s SSH address as user@host, a host name, or a name from ~/.ssh/config', 400);
   const addr = dashboardAddress();
-  if (!(await listening(addr))) {
-    throw new JoinError('not-running', `This computer's dashboard is not running (nothing on ${addr.host}:${addr.port}). Start it first: hoprig service install`);
-  }
+  const said = await answers(addr);
+  if (said === 'closed') throw new JoinError('not-running', `This computer's dashboard is not running (nothing on ${addr.host}:${addr.port}). Start it first: hoprig service install`);
+  if (said === 'silent') throw new JoinError('no-answer', `This computer's dashboard did not answer on ${addr.host}:${addr.port} in time. Try again in a moment.`);
   const before = loadJoined().find((h) => h.target === target) || null;
   const me = machineInfo();
   const reserve = await onHub(target, { step: 'reserve', name: hostName().split('.')[0], label: defaultHubLabel(), joinId: before ? before.id : undefined }, ssh);

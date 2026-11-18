@@ -16,7 +16,7 @@ function sessionName(r) {
 
 /** Where record `r` runs its conversation, and what to do, as the launcher says it. `tool`: the coding tool's name. */
 export function heldWords(r, tool = 'Claude Code') {
-  if (r.kind === 'chat') return `hoprig: this conversation is open in a chat in the dashboard. Close that chat, or choose "Open in terminal" in its menu.`;
+  if (r.kind === 'chat') return `hoprig: this conversation is open in a chat in the dashboard. Archive that session, or choose "Open in", then "Terminal", in its session menu.`;
   const name = sessionName(r);
   if (name) return `hoprig: this conversation runs in the terminal session "${name}". Stop ${tool} there first, or open that session as a chat and choose "Continue here".`;
   return `hoprig: this conversation runs in another terminal (process ${r.pid}). Stop ${tool} there first.`;

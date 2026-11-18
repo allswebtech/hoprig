@@ -32,6 +32,7 @@ import { rememberFolderProvider } from '../defaultprovider.mjs';
 import { MODELS } from '../config.mjs';
 import { stateDir, tilde } from '../paths.mjs';
 import { listProfiles, publicProfile } from '../profiles.mjs';
+import { removeSettingsLeftovers } from '../runs.mjs';
 import { isSessionId } from '../sessions.mjs';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
 import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from '../server/uploads.mjs';
@@ -40,6 +41,7 @@ import * as v from '../server/validate.mjs';
 import { Chat } from './chat.mjs';
 import { engineOf } from './engines/index.mjs';
 import { askNote, previewText } from './events.mjs';
+import { readTurns } from './turns.mjs';
 import { gitBranch, readAttachments } from './files.mjs';
 import { folderMemory } from './folders.mjs';
 import { handoffRoutes, terminals } from './handoff.mjs';
@@ -138,7 +140,7 @@ export function chatFeature(ctx, o = {}) {
     load();
     const c = chats.get(id);
     if (!c) {
-      const e = new HttpError(404, 'this chat is not open (it was closed or opened in a terminal)');
+      const e = new HttpError(404, 'this chat is not open (it was archived or opened in a terminal)');
       if (shut.has(id)) e.details = { closed: shut.get(id) }; // the page offers to continue it in a new chat
       throw e;
     }
@@ -321,6 +323,9 @@ export function chatFeature(ctx, o = {}) {
     if (typeof profile !== 'string' || !profileOk(profile, tool)) throw bad('there is no such provider');
     if (b.ultracode !== undefined && b.ultracode !== null && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
     if (b.byTia !== undefined && typeof b.byTia !== 'boolean') throw bad('byTia is true or false');
+    // A name of its own (Work's Do it names a chat after its task): one line, no control characters.
+    if (b.title !== undefined && b.title !== null && typeof b.title !== 'string') throw bad('the title is text');
+    const title = typeof b.title === 'string' ? b.title.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) : '';
     const d = cfg().sessionDefaults || {};
     const ch = choicesOf(tool, profile, models);
     // Left out: as the last chat in this folder; never chosen there: Settings → New-session defaults (Claude Code's
@@ -365,19 +370,21 @@ export function chatFeature(ctx, o = {}) {
       // A chat on an existing conversation is never hers, whoever asks: its history holds the owner's own instructions
       // (or her own earlier ones, which the safe side treats the same), so its OKs stay his.
       permissionMode: modeFor(tool, permissionMode), ultracode, byTia: b.byTia === true && !conversationId,
+      ...(title ? { title, named: true } : {}),
     });
     save();
     if (owners) remember(c); // the folder's last chat is the owner's own choice, not Tia's or a schedule's
     if (!text) return { id };
+    let first;
     try {
-      await sendOne(c, () => c.send(text));
+      first = await sendOne(c, () => c.send(text));
     } catch (e) {
       // The chat is open all the same (it reads along): a caller is told the message did not go, not that nothing opened.
       if (e.code === 'in-terminal') return { id, sent: false, why: 'a terminal session runs this conversation' };
       if (e.code === 'in-chat') return { id, sent: false, why: 'another chat runs this conversation right now' };
       throw e;
     }
-    return { id, sent: true };
+    return { id, sent: true, ...(first && typeof first.id === 'string' ? { messageId: first.id } : {}) };
   }
 
   /** A message to an open chat from the dashboard itself (a schedule): queued by the chat while Claude works. */
@@ -504,13 +511,23 @@ export function chatFeature(ctx, o = {}) {
   const openChatOf = (id) => ([...chats.values()].find((c) => c.conversationId === id) || {}).id || null;
   // A chat's own id for conversation `id`: the same where it is free (its link reads as the conversation), else new.
   const freeId = (id) => (chats.has(id) ? crypto.randomUUID() : id);
-  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn }, handedTo: (id, name) => shut.has(id) && typeof name === 'string' && (shut.get(id).terminal = name) }));
+  routes.push(...handoffRoutes(ctx, { chats, make, save, load, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto: { name: AUTO.name, on: autoOn }, handedFile: () => path.join(path.dirname(file()), 'chat-handed.json'), handedTo: (id, name) => shut.has(id) && typeof name === 'string' && (shut.get(id).terminal = name) }));
   const live = liveRoutes(ctx, { chatOr404, toolStillOn, save, remember, bad, choices, pickModel, folderOf: (c) => uploadsOf(c).cwd, uploadsDir: (c) => uploadsOf(c).dir, openChatOf, about, terminalOf: terminalView, shutOf: (id) => shut.get(id) || null, openNow: (c) => chats.get(c.id) === c });
   routes.push(...live.routes);
 
   return {
     name: 'chat',
     routes,
+    /**
+     * The dashboard listens (server.mjs): a chat's settings file left by a dashboard stopped by a signal goes (runs.mjs),
+     * and the open chats are made now, not only when a page looks: one whose coding tool waits for an OK (asked while
+     * the dashboard was down) takes it up (reading.mjs checkWaiting), also with no page open. Not when the feature is
+     * built: a test that builds it without a state folder of its own must not touch the real chats file.
+     */
+    start() {
+      removeSettingsLeftovers();
+      load();
+    },
     handle: live.handle, // the event stream (server-sent events)
     open: openChat, // a chat for the dashboard itself (the schedules)
     send: sendTo,
@@ -531,5 +548,40 @@ export function chatFeature(ctx, o = {}) {
     async close() {
       await Promise.all([...chats.values()].map((c) => c.close(3000)));
     },
+    // For Work's runs (src/work/doit.mjs), which follow a chat they started until its turn ends:
+    /** Where open chat `id` stands now ({ busy, pending, turn, lastEnd, lastError, lastText, … }), null when it is not open. */
+    peek(id) {
+      load();
+      const c = chats.get(id);
+      if (!c) return null;
+      c.refresh();
+      return snapshot(c);
+    },
+    /** fn(snapshot) at each change of chat `id`'s status, and once it closes; → stop following. */
+    follow(id, fn) {
+      load();
+      const c = chats.get(id);
+      if (!c) return () => {};
+      const on = () => fn(chats.get(id) === c && !c.closed ? snapshot(c) : null);
+      c.on('status', on);
+      c.on('closed', on);
+      return () => {
+        c.off('status', on);
+        c.off('closed', on);
+      };
+    },
+    /** How the turn that began with message `messageId` of conversation `conv` ended, as kept beside the chats (turns.mjs), or null. */
+    turnEnd(conv, messageId) {
+      return readTurns(path.join(path.dirname(file()), 'chat-turns'), conv).get(messageId) || null;
+    },
+  };
+}
+
+/** What Work's runs read of a chat: its state, how its last turn ended, its last answer, what it runs on. */
+function snapshot(c) {
+  return {
+    id: c.id, conversationId: c.conversationId, busy: c.busy(), pending: c.pending.size, turn: c.turn ? c.turn.messageId || null : null,
+    lastEnd: c.lastEnd, lastError: c.lastError, lastText: c.lastText, limit: c.limit ? c.limit.text : null,
+    tool: c.engine.id, profile: c.profile, model: c.model, effort: c.effort,
   };
 }

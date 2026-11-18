@@ -210,6 +210,17 @@ const shq = (s) => (process.platform === 'win32' ? `"${String(s).replace(/"/g, '
 const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'SessionEnd'];
 const EXACT_EVENTS = ['PermissionRequest', 'PostToolBatch', 'SubagentStop'];
 export const EXACT_SINCE = '2.1.319';
+const knowsExactEvents = (version) => !!version && compareVersions(version, EXACT_SINCE) >= 0;
+const hookCommand = () => `${shq(process.execPath)} ${shq(hookFile())}`;
+const hookEntry = (cmd) => [{ hooks: [{ type: 'command', command: cmd, timeout: 5 }] }];
+
+/**
+ * The one hook a coding chat's Claude Code gets (src/chat/engines/claude.mjs): PermissionRequest, the same program as a
+ * terminal session's, so that one rule with the shell's real folder answers a plain delete in bypass mode for both
+ * (hook.mjs hookAnswer). `version`: the Claude Code that will read it; null for one that does not surely know the
+ * event (it would stop at a settings error), and then the chat answers as before.
+ */
+export const permissionHook = (version) => (knowsExactEvents(version) ? { PermissionRequest: hookEntry(hookCommand()) } : null);
 
 /**
  * Settings handed to Claude Code for this launch only: hooks that report the session id and state to the run
@@ -217,16 +228,15 @@ export const EXACT_SINCE = '2.1.319';
  * the Claude Code that will read them (null when not known).
  */
 export function hookSettings({ statusScript = null, padding = 0, version = null } = {}) {
-  const command = `${shq(process.execPath)} ${shq(hookFile())}`;
-  const entry = (cmd) => [{ hooks: [{ type: 'command', command: cmd, timeout: 5 }] }];
+  const command = hookCommand();
   const hooks = {};
-  for (const e of HOOK_EVENTS) hooks[e] = entry(command);
-  if (version && compareVersions(version, EXACT_SINCE) >= 0) {
-    for (const e of EXACT_EVENTS) hooks[e] = entry(command);
+  for (const e of HOOK_EVENTS) hooks[e] = hookEntry(command);
+  if (knowsExactEvents(version)) {
+    for (const e of EXACT_EVENTS) hooks[e] = hookEntry(command);
     // After every batch of tool calls, in every subagent too: far too often to start a program each time. The
     // shell Claude Code runs hooks in looks for the run's mark first (runfile.mjs: watchFile) and starts the hook
     // only while its news could change something. Windows has no one shell to write that test for.
-    if (process.platform !== 'win32') hooks.PostToolBatch = entry(`if [ -e "$HOPRIG_RUN_FILE.watch" ]; then ${command}; fi`);
+    if (process.platform !== 'win32') hooks.PostToolBatch = hookEntry(`if [ -e "$HOPRIG_RUN_FILE.watch" ]; then ${command}; fi`);
   }
   const settings = { hooks };
   if (statusScript) settings.statusLine = { type: 'command', command: `sh ${shq(statusScript)}`, padding };

@@ -4,15 +4,21 @@
 import { flags } from '../pcsetup/project.mjs';
 import { bold, dim } from '../setup/ui.mjs';
 import { runGitStep } from './gitstep.mjs';
+import { FIND_USAGE, findMain } from './findcmd.mjs';
+import { TOOL_USAGE, toolMain } from './grouptool.mjs';
+import { GROUP_USAGE, groupMain } from './groupcmd.mjs';
 import { forget, updateMap } from './map.mjs';
 import { syncWith } from './peer.mjs';
 import { setPlaces } from './places.mjs';
 import { restoreWorkspace } from './restore.mjs';
 import { syncAll } from './sync.mjs';
 
-export const GIT_COMMANDS = ['map', 'restore', 'sync', 'set', 'forget', 'git', 'auto'];
+export const GIT_COMMANDS = ['map', 'restore', 'sync', 'set', 'forget', 'git', 'auto', 'group', 'find', 'tool'];
 export const GIT_USAGE = `  hoprig workspace map [--dry-run] [--json]   write the map of every git repository of the workspace
                                                (ai_brain/workspace.json; shows what changed; never commits)
+  hoprig workspace map --upgrade [--dry-run] [--yes] [--json]
+                                               the map to version 2 (needed for groups); says first which
+                                               computers need a newer Hoprig
   hoprig workspace restore <brain address> [--dry-run] [--yes] [--json]
                                                a fresh computer: clone the brain, then everything its map names
   hoprig workspace sync [--memory] [--push] [--with <computer>] [--dry-run] [--json]
@@ -20,25 +26,39 @@ export const GIT_USAGE = `  hoprig workspace map [--dry-run] [--json]   write th
                                                --with: straight from another computer over SSH (pull only)
   hoprig workspace set [--dir <folder>] [--projects <folder>] [--json]
                                                where the workspace and the projects folder are (nothing is moved)
-  hoprig workspace forget <entry> [--json]     take a project, a code repository (project/code/name) or a folder
-                                               out of the map (no file is deleted)
+  hoprig workspace forget <entry> [--json]     take a project (<place>/<name> in a group), a code repository
+                                               (project/code/name) or a folder out of the map (no file is deleted)
+${GROUP_USAGE}
+${FIND_USAGE}
+${TOOL_USAGE}
   hoprig workspace git                         git's name and e-mail, the GitHub sign-in, your workspace on GitHub
   hoprig workspace auto [--map on|off] [--commit on|off] [--sync on|off] [--push on|off] [--every <hours>] [--json]
                                                the upkeep the dashboard does by itself: show or set its switches`;
 
-const MARK = { here: 'ok', missing: 'warn', different: 'warn', unmapped: 'info' };
-const SAY = { here: '', missing: 'in the map, not on this computer: get it with  hoprig workspace restore', different: 'another folder is where the map puts it', unmapped: 'not in the map: add it with  hoprig workspace map' };
+const MARK = { here: 'ok', missing: 'warn', notFollowed: 'warn', different: 'warn', unmapped: 'info' };
+const SAY = { here: '', missing: 'in the map, not on this computer: get it with  hoprig workspace restore', notFollowed: 'behind a link that leads out: not followed', different: 'another folder is where the map puts it', unmapped: 'not in the map: add it with  hoprig workspace map' };
 
 /** The map against this computer (status). */
 export function printMapStatus(ui, ms) {
   if (ms.errors) return ui.line('fail', `the workspace map was refused: ${ms.errors.join('; ')}`);
   ui.out(`\n${bold('Map')}  ${ms.exists ? dim('ai_brain/workspace.json') : dim('none yet: hoprig workspace map')}`);
-  const line = (e) => ui.line(MARK[e.state], `${e.label}${e.url ? dim(`  ${e.url}`) : dim('  not on a git server yet')}${SAY[e.state] ? `  ${SAY[e.state]}` : ''}`);
+  const line = (e) => ui.line(MARK[e.state], `${e.label}${e.url ? dim(`  ${e.url}`) : dim('  not on a git server yet')}${SAY[e.state] ? `  ${SAY[e.state]}` : ''}${e.fix ? `  (${e.fix})` : ''}`);
   ms.entries.filter((e) => !e.tool).forEach(line);
   const tools = ms.entries.filter((e) => e.tool);
   if (tools.length) {
     ui.out(`  ${bold('Tools')}  ${dim('restored on a fresh computer, never synced ("sync": false in the map)')}`);
     tools.forEach(line);
+  }
+  if (ms.blocked) ui.line('fail', `the map cannot be written now, so it is not kept up to date: ${ms.blocked.join('; ')}`);
+  for (const l of ms.leftOut || []) ui.line('warn', `${l.entry} is not put into the map: ${l.why}; ${l.fix}`);
+  for (const d of ms.duplicates || []) ui.line('warn', `${d.entries.join(' and ')} have the same address (one project is in one place only): forget one, for example  ${d.fix}`);
+  // Every link met that leads out (inside.mjs): not followed, with the command that names it as the owner's own.
+  for (const l of ms.links || []) ui.line('warn', `${l.path}: ${l.what}: not followed${l.fix ? `  →  if it is yours:  ${l.fix}` : ''}`);
+  for (const p of ms.mylinks || []) ui.line('info', `${p}: your own link (hoprig workspace mylink): followed`);
+  for (const g of ms.groups || []) {
+    if (g.refused) ui.line('warn', `${g.dir}: ${g.refused}`);
+    else if (g.unignored.length) ui.line('warn', `${g.dir}: a \`git add\` in the group would take ${g.unignored.join(', ')} (not ignored there):  ${g.fix}`);
+    else if (g.missingLines.length) ui.line('info', `${g.dir}: its ignore file lacks ${g.missingLines.join(' ')} (a member put there later would be taken):  ${g.fix}`);
   }
   if (ms.saved && ms.saved.unsaved) ui.line('warn', `the map changed and is not saved in the brain's history yet:  ${ms.saved.command}`);
 }
@@ -80,12 +100,49 @@ async function auto(args, { ui, json, failed, usage }) {
   return 0;
 }
 
+/** `workspace map --upgrade`: say which computers are behind (or that it cannot be known), ask once, upgrade. */
+async function upgrade(o, { ui, json, failed }) {
+  const { upgradeMap, upgradeWords } = await import('./mapupgrade.mjs');
+  let plan;
+  try {
+    plan = upgradeMap({ dryRun: true });
+  } catch (e) {
+    return failed(e);
+  }
+  const show = (r) => {
+    if (r.already) return ui.line('ok', 'the map is version 2 already');
+    for (const d of r.dropped) ui.line('info', `${r.dryRun ? 'would drop' : 'dropped'} ${d}: its folder here is a linked worktree, not a repository of its own`);
+    ui.line('ok', `${r.dryRun ? 'would upgrade' : 'upgraded'} the map from version ${r.from} to ${r.to}${r.dryRun ? '' : ': commit the brain to share it'}`);
+  };
+  if (plan.already || o['dry-run']) {
+    if (o.json) return json(plan);
+    if (!plan.already) for (const l of upgradeWords(plan)) ui.note(l);
+    show(plan);
+    return 0;
+  }
+  if (!o.json) for (const l of upgradeWords(plan)) ui.out(`  ${l}`);
+  // Never yes by default: a computer that never reported cannot be seen from here.
+  const sure = o.yes || ui.yes || (!o.json && ui.interactive && (await ui.confirm('Upgrade the map to version 2?', false)));
+  if (!sure) return failed(new Error(`the map was not changed${ui.interactive || o.json ? '' : ' (add --yes to upgrade it without a question)'}`));
+  let r;
+  try {
+    r = upgradeMap({});
+  } catch (e) {
+    return failed(e);
+  }
+  if (o.json) return json(r);
+  show(r);
+  return 0;
+}
+
 function printMap(ui, r) {
   const d = r.diff;
   if (d.created) ui.line('ok', `${r.dryRun ? 'would write' : 'wrote'} the map: ${r.map.projects.length} project${r.map.projects.length === 1 ? '' : 's'}, ${r.map.others.length} other repositor${r.map.others.length === 1 ? 'y' : 'ies'}`);
   for (const a of d.added) ui.line('ok', `added: ${a}`);
   for (const t of r.takenOut) ui.line('warn', `taken out of ${t.project} by its project.json: ${t.dir} (the project's own project.json is the truth for a project on this computer)`);
   if (r.notHere.length) ui.note(`in the map, not on this computer (kept; only forget takes something out): ${r.notHere.join(', ')}`);
+  if (r.notFollowed && r.notFollowed.length) ui.note(`in the map and here, behind a link that leads out (kept, not followed; hoprig workspace status gives the command): ${r.notFollowed.join(', ')}`);
+  for (const l of r.left || []) ui.line('warn', `${l.ref} is not put into the map: ${l.why}; rename or move one of the folders`);
   for (const c of d.changed) ui.line('info', `changed address: ${c.label}: ${c.from || 'none'} → ${c.to || 'none'}`);
   if (d.same && !d.created && !r.otherChanges) ui.line('ok', 'the map is up to date');
   if (r.otherChanges) ui.line('info', `${r.dryRun ? 'would update' : 'updated'}: the projects folder, memory links or which entries are tools`);
@@ -102,8 +159,9 @@ export async function gitMain(sub, args, { ui, write, usage }) {
     return 1;
   };
   if (sub === 'map') {
-    const o = flags(args, { 'dry-run': 'bool', json: 'bool' });
+    const o = flags(args, { 'dry-run': 'bool', json: 'bool', upgrade: 'bool', yes: 'bool' });
     if (o.errors.length || o._.length) return usage();
+    if (o.upgrade) return upgrade(o, { ui, json, failed });
     const r = await updateMap({ dryRun: o['dry-run'] }).catch((e) => e);
     if (r instanceof Error) return failed(r);
     if (o.json) return json(r);
@@ -179,6 +237,9 @@ export async function gitMain(sub, args, { ui, write, usage }) {
     return 0;
   }
   if (sub === 'auto') return auto(args, { ui, json, failed, usage });
+  if (sub === 'group') return groupMain(args, { ui, write, usage });
+  if (sub === 'find') return findMain(args, { ui, write, usage });
+  if (sub === 'tool') return toolMain(args, { ui, write, usage });
   if (sub === 'git') {
     if (args.length) return usage();
     const r = await runGitStep({ ui });
@@ -190,7 +251,7 @@ export async function gitMain(sub, args, { ui, write, usage }) {
 /** Restore's plan: every repository and where it goes. */
 function printPlan(ui, p) {
   ui.out(`\n${bold('Restore')}  ${dim(`from ${p.brain}`)}`);
-  const ACT = { clone: 'clone', here: 'here already', different: 'left alone', 'no-address': 'skipped' };
+  const ACT = { clone: 'clone', here: 'here already', different: 'left alone', 'no-address': 'skipped', misnamed: 'left alone', link: 'not followed' };
   for (const e of p.plan) ui.line(e.action === 'clone' ? 'info' : e.action === 'here' ? 'ok' : 'warn', `${e.label}  ${dim(e.url || 'no address')}  →  ${e.dest}  ${bold(ACT[e.action])}${e.why ? dim(`  (${e.why})`) : ''}`);
   for (const f of p.folders) ui.line('info', `create ${f.path}`);
   for (const n of p.notes) ui.note(n);

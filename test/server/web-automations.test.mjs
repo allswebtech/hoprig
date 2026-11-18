@@ -52,8 +52,8 @@ test('a schedule reads as one sentence', () => {
   assert.equal(whenText({ kind: 'once', time: '10:00', date: '' }), 'Once, a day to pick at 10:00', 'a half-filled form still reads');
   const label = (n) => ({ auto: 'Auto mode', max: 'Claude Max' })[n] || n;
   assert.equal(scheduleSentence({ when: { kind: 'daily', time: '08:30' }, action: { type: 'start', dir: '/home/x/projects/api-server', profile: 'auto' } }, label),
-    'Every day at 08:30, start a session in api-server on Auto mode.');
-  assert.equal(whatText({ type: 'start', dir: 'C:\\work\\shop', profile: 'max' }, label), 'start a session in shop on Claude Max');
+    'Every day at 08:30, start a session in the Terminal in api-server on Auto mode.');
+  assert.equal(whatText({ type: 'start', dir: 'C:\\work\\shop', profile: 'max' }, label), 'start a session in the Terminal in shop on Claude Max');
   assert.equal(whatText({ type: 'send', session: 'data-pipeline', text: 'go' }), 'send a message to data-pipeline');
   assert.equal(whatText({ type: 'send', session: '' }), 'send a message to a session');
 });
@@ -82,7 +82,7 @@ test('Activity: one sentence per entry, and what went wrong said plainly', () =>
   assert.match(activityLine({ automation: 'schedules', did: 'skipped "x"', outcome: 'missed: 3 hours late, more than allowed' }).problem, /^Missed: 3 hours late/);
   // A chat is never named by its id: by its title where the page knows it, else "a chat".
   const chat = { automation: 'schedules', session: 'chat:55555555-5555-4555-8555-555555555555', did: 'started "start a chat in blog on Gateway"', outcome: 'ok' };
-  assert.equal(activityLine(chat).sub, 'Schedule · a chat');
+  assert.equal(activityLine(chat).sub, 'Schedule · a session in the App');
   assert.equal(activityLine(chat, (n) => (n === chat.session ? 'the chat "Fix the build"' : n)).sub, 'Schedule · the chat "Fix the build"');
 });
 
@@ -109,32 +109,32 @@ test('a confirm card asks in plain words with the accounts\' display names, the 
   assert.equal(paidWhy.why, 'Tia asks because it costs money.');
 
   const start = plainCard({ tool: 'start_session', input: { folder: '/p/landing-page', account: 'max', message: 'Add a toggle', goal: 'it works' }, lines: ['Why a card: the owner set "Ask me"'] }, { accounts: ACCOUNTS });
-  assert.equal(start.question, 'Start Claude Code in a terminal in landing-page on Claude Max?', 'a terminal says which coding tool starts in it');
+  assert.equal(start.question, 'Start Claude Code in the Terminal in landing-page on Claude Max?', 'a terminal says which coding tool starts in it');
   assert.equal(start.quote, 'Add a toggle');
   assert.match(start.why, /you chose "Ask me"/);
 
   // The chat tools say the same in plain words; the terminal's key now goes through send_to_session.
   const chat = plainCard({ tool: 'start_chat', input: { folder: '/p/landing-page', account: 'max', message: 'Add a toggle' }, lines: [] }, { accounts: ACCOUNTS });
-  assert.equal(chat.question, 'Start a chat in landing-page on Claude Max?', 'Claude Code alone: a chat is its chat');
+  assert.equal(chat.question, 'Start a session in the App in landing-page on Claude Max?', 'Claude Code alone: a chat is its chat');
   assert.equal(chat.quote, 'Add a toggle');
   const C = 'chat:44444444-4444-4444-8444-444444444444';
-  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, text: 'run the tests' }, lines: [] }).question, 'Send this to a chat?', 'never its id');
+  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, text: 'run the tests' }, lines: [] }).question, 'Send this to a session in the App?', 'never its id');
   const chats = [{ name: C, kind: 'chat', title: 'Fix the login', cwd: '/w/shop' }];
   const named = (n) => sessionWords(n, chats);
-  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, text: 'run the tests' }, lines: [] }, { chat: named }).question, 'Send this to the chat "Fix the login"?');
-  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, answer: 'allow' }, lines: [`The session asks: Allow Bash: npm test?`] }, { chat: named }).question, 'Allow what the chat "Fix the login" asks?');
-  assert.equal(sessionWords(C, [{ ...chats[0], title: '' }]), 'the chat in shop', 'no title yet: its folder');
+  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, text: 'run the tests' }, lines: [] }, { chat: named }).question, 'Send this to the App session "Fix the login"?');
+  assert.equal(plainCard({ tool: 'send_to_chat', input: { session: C, answer: 'allow' }, lines: [`The session asks: Allow Bash: npm test?`] }, { chat: named }).question, 'Allow what the App session "Fix the login" asks?');
+  assert.equal(sessionWords(C, [{ ...chats[0], title: '' }]), 'the App session in shop', 'no title yet: its folder');
   assert.deepEqual(plainCard({ tool: 'send_to_chat', input: { session: C, answer: 'allow' }, lines: ['The session asks: Allow Bash: npm test?'] }).notes, ['The session asks: Allow Bash: npm test?']);
   assert.equal(plainCard({ tool: 'send_to_session', input: { session: 'web', key: '1' }, lines: [] }).question, 'Press 1 in the session web?');
   assert.equal(plainCard({ tool: 'send_to_session', input: { session: 'web', text: 'yes' }, lines: [] }).question, 'Type this into the session web?');
   const lbl = (n) => (n === 'max' ? 'Claude Max' : n);
-  assert.equal(whatText({ type: 'start', in: 'chat', dir: '/w/shop', profile: 'max' }, lbl), 'start a chat in shop on Claude Max');
-  assert.equal(whatText({ type: 'send', session: C, text: 'go' }), 'send a message to a chat');
+  assert.equal(whatText({ type: 'start', in: 'chat', dir: '/w/shop', profile: 'max' }, lbl), 'start a session in the App in shop on Claude Max');
+  assert.equal(whatText({ type: 'send', session: C, text: 'go' }), 'send a message to a session in the App');
   assert.equal(whatText({ type: 'send', session: C, text: 'go' }, lbl, () => 'the chat "Fix it"'), 'send a message to the chat "Fix it"');
   // Where more than one coding tool is offered, the sentence names the tool: a terminal is Claude Code's.
-  assert.equal(whatText({ type: 'start', in: 'chat', tool: 'opencode', dir: '/w/shop', profile: 'max' }, lbl), 'start a chat with OpenCode in shop on Claude Max');
-  assert.equal(whatText({ type: 'start', dir: '/w/shop', profile: 'max' }, lbl, undefined, { named: true }), 'start Claude Code in a terminal in shop on Claude Max');
-  assert.equal(whatText({ type: 'start', in: 'chat', dir: '/w/shop', profile: 'max' }, lbl, undefined, { named: true }), 'start a chat with Claude Code in shop on Claude Max');
+  assert.equal(whatText({ type: 'start', in: 'chat', tool: 'opencode', dir: '/w/shop', profile: 'max' }, lbl), 'start a session in the App with OpenCode in shop on Claude Max');
+  assert.equal(whatText({ type: 'start', dir: '/w/shop', profile: 'max' }, lbl, undefined, { named: true }), 'start Claude Code in the Terminal in shop on Claude Max');
+  assert.equal(whatText({ type: 'start', in: 'chat', dir: '/w/shop', profile: 'max' }, lbl, undefined, { named: true }), 'start a session in the App with Claude Code in shop on Claude Max');
 
   const other = plainCard({ tool: 'kill_process', input: { pid: 42 }, lines: ['Why a card: risky', 'End process 42 on this', 'Command: node x'] });
   assert.equal(other.question, 'End process 42?');
@@ -208,16 +208,16 @@ test('a job\'s sessions: a chat opens its chat page by its id, a terminal its se
   assert.equal(href(jobChip({ computer: 'this', session: 'web-ui' })), '#/s/web-ui');
   assert.equal(href(jobChip({ computer: 'box2', session: 'web-ui' })), '#/m/box2/s/web-ui');
   // A chat by its folder (as the job's log names it) and its title; never by its id.
-  assert.equal(jobLabel({ session: `chat:${id}`, folder: 'shop' }, 'Fix the login'), 'Chat in shop: Fix the login');
-  assert.equal(jobLabel({ session: `chat:${id}` }, 'Fix the login'), 'Chat: Fix the login');
-  assert.equal(jobLabel({ session: `chat:${id}`, folder: 'shop' }), 'Chat in shop');
-  assert.equal(jobLabel({ session: `chat:${id}` }), 'A chat');
+  assert.equal(jobLabel({ session: `chat:${id}`, folder: 'shop' }, 'Fix the login'), 'App session in shop: Fix the login');
+  assert.equal(jobLabel({ session: `chat:${id}` }, 'Fix the login'), 'App session: Fix the login');
+  assert.equal(jobLabel({ session: `chat:${id}`, folder: 'shop' }), 'App session in shop');
+  assert.equal(jobLabel({ session: `chat:${id}` }), 'A session in the App');
   assert.equal(jobLabel({ session: 'web-ui' }, 'ignored'), 'web-ui');
   const chip = jobChip({ computer: 'this', session: `chat:${id}`, folder: 'shop' }, 'Fix the login');
   const last = chip.children.at(-1);
   assert.equal(last.tag, 'span', 'the label in its own element, cut with "…" by the stylesheet');
-  assert.equal(last.children.map((c) => c.text ?? c).join(''), 'Chat in shop: Fix the login');
-  assert.equal(chip.attrs.title, 'Chat in shop: Fix the login', 'the whole label as its tooltip');
+  assert.equal(last.children.map((c) => c.text ?? c).join(''), 'App session in shop: Fix the login');
+  assert.equal(chip.attrs.title, 'App session in shop: Fix the login', 'the whole label as its tooltip');
   // The smoke on a phone: a long title ran out of the card, and the line under the goal lost the count behind "…".
   const css = fs.readFileSync(path.join(WEB, 'page-automations.css'), 'utf8');
   assert.match(css, /\.tia-jobchip \{ flex: 0 1 auto; min-width: 0; max-width: 100%; \}/);
@@ -232,29 +232,29 @@ test('Tia\'s words: manage_computer says what each action does; no words for a t
   assert.equal(wordFor(DOING, 'manage_computer', 'check_updates'), 'checking for updates');
   assert.equal(wordFor(DID, 'manage_computer', 'coding_tool'), 'turned a coding tool on or off');
   assert.equal(wordFor(TOOL_WORDS, 'manage_computer', 'rename'), 'change a computer', 'any other action: the tool\'s own words');
-  assert.equal(wordFor(DID, 'start_chat'), 'started a chat');
+  assert.equal(wordFor(DID, 'start_chat'), 'started a session in the App');
   for (const m of [TOOL_WORDS, DOING, DID]) assert.equal(m.update_claude_code, undefined, 'folded into manage_computer update');
 });
 
 test('her card for a start says what starts: a chat or a terminal, and the coding tool where it matters', () => {
   const ask = (tool, input, tools) => plainCard({ tool, input: { folder: '/w/projects/blog', account: 'gw', ...input }, lines: [] }, { accounts: [{ name: 'gw', label: 'Gateway', kind: 'api' }], tools }).question;
   // The two the smoke found: an OpenCode chat and an OpenCode terminal, each said by name.
-  assert.equal(ask('start_chat', { coding_tool: 'opencode' }, 2), 'Start a chat with OpenCode in blog on Gateway?');
-  assert.equal(ask('start_session', { coding_tool: 'opencode' }, 2), 'Start OpenCode in a terminal in blog on Gateway?');
+  assert.equal(ask('start_chat', { coding_tool: 'opencode' }, 2), 'Start a session in the App with OpenCode in blog on Gateway?');
+  assert.equal(ask('start_session', { coding_tool: 'opencode' }, 2), 'Start OpenCode in the Terminal in blog on Gateway?');
   // Claude Code's chat: named while another coding tool is on, not while it is the only one.
-  assert.equal(ask('start_chat', {}, 2), 'Start a chat with Claude Code in blog on Gateway?');
-  assert.equal(ask('start_chat', {}, 1), 'Start a chat in blog on Gateway?');
-  assert.equal(ask('start_chat', { coding_tool: 'opencode' }, 1), 'Start a chat with OpenCode in blog on Gateway?', 'another coding tool always');
-  assert.equal(ask('start_session', {}, 1), 'Start Claude Code in a terminal in blog on Gateway?');
+  assert.equal(ask('start_chat', {}, 2), 'Start a session in the App with Claude Code in blog on Gateway?');
+  assert.equal(ask('start_chat', {}, 1), 'Start a session in the App in blog on Gateway?');
+  assert.equal(ask('start_chat', { coding_tool: 'opencode' }, 1), 'Start a session in the App with OpenCode in blog on Gateway?', 'another coding tool always');
+  assert.equal(ask('start_session', {}, 1), 'Start Claude Code in the Terminal in blog on Gateway?');
   // Another computer: the provider and the computer each said so, and the same words as the row in Activity.
   const there = { tool: 'start_chat', input: { folder: '/w/projects/blog', account: 'gw', coding_tool: 'opencode', computer: 'laptop' }, lines: [] };
-  assert.equal(plainCard(there, { accounts: [{ name: 'gw', label: 'Gateway' }], computerLabel: 'Laptop', tools: 2 }).question, 'Start a chat with OpenCode in blog on Gateway, on the computer Laptop?');
-  assert.equal(activityWords(there, { ...PLACE, computer: () => 'Laptop' }).what, 'start a chat with OpenCode in blog on Gateway, on the computer Laptop');
+  assert.equal(plainCard(there, { accounts: [{ name: 'gw', label: 'Gateway' }], computerLabel: 'Laptop', tools: 2 }).question, 'Start a session in the App with OpenCode in blog on Gateway, on the computer Laptop?');
+  assert.equal(activityWords(there, { ...PLACE, computer: () => 'Laptop' }).what, 'start a session in the App with OpenCode in blog on Gateway, on the computer Laptop');
   // The other tools' cards too: Auto mode reads as what is done to it, as in Activity.
   assert.equal(plainCard({ tool: 'set_auto_mode', input: { enabled: true }, lines: [] }).question, 'Turn Auto mode on?');
   assert.equal(plainCard({ tool: 'change_setting', input: { key: 'upload_max_mb', value: 50 }, lines: [] }).question, 'Change the setting "Largest upload" to 50 MB?');
   assert.equal(plainCard({ tool: 'some_new_tool', input: {}, lines: [] }).question, 'Make a change?', 'never a tool\'s name');
-  assert.equal(startWords({ kind: 'chat', tool: 'opencode', folder: 'C:\\work\\shop' }), 'start a chat with OpenCode in shop');
+  assert.equal(startWords({ kind: 'chat', tool: 'opencode', folder: 'C:\\work\\shop' }), 'start a session in the App with OpenCode in shop');
 });
 
 test('a start on an earlier conversation says so, on its card and in Activity, and that its OKs stay the owner\'s', () => {
@@ -263,22 +263,22 @@ test('a start on an earlier conversation says so, on its card and in Activity, a
   const card = (tool, input, lines = []) => plainCard({ tool, input: { folder: '/w/projects/shop', account: 'gw', ...input }, lines }, { accounts, tools: 1 });
   const row = (tool, input) => activityWords({ tool, input: { folder: '/w/projects/shop', account: 'gw', ...input } }, { ...PLACE, tools: 1 }).what;
   const resume = card('start_session', { mode: 'resume', conversation: ID }, ['Start Claude Code session in a terminal in /w/projects/shop on this under gw (paid API provider)', `Continuing conversation ${ID}`]);
-  assert.equal(resume.question, 'Continue an earlier Claude Code conversation in a terminal in shop on Gateway?');
+  assert.equal(resume.question, 'Continue an earlier Claude Code conversation in the Terminal in shop on Gateway?');
   assert.ok(resume.notes.some((n) => /that conversation's history, so every OK it asks for comes to you/.test(n)), 'its OKs are the owner\'s');
   assert.ok(resume.notes.some((n) => /paid per use/.test(n)), 'and it still says it costs money');
   assert.deepEqual(resume.details, [`Continuing conversation ${ID}`], 'the id in Details, nothing else of the lines');
-  assert.equal(row('start_session', { mode: 'resume', conversation: ID }), 'continue an earlier Claude Code conversation in a terminal in shop on Gateway');
+  assert.equal(row('start_session', { mode: 'resume', conversation: ID }), 'continue an earlier Claude Code conversation in the Terminal in shop on Gateway');
   const newest = card('start_session', { mode: 'continue', coding_tool: 'opencode' }, ['Continuing the folder\'s newest conversation']);
-  assert.equal(newest.question, 'Continue the newest OpenCode conversation in a terminal in shop on Gateway?');
+  assert.equal(newest.question, 'Continue the newest OpenCode conversation in the Terminal in shop on Gateway?');
   assert.deepEqual(newest.details, []);
-  assert.equal(row('start_session', { mode: 'continue', coding_tool: 'opencode' }), 'continue the newest OpenCode conversation in a terminal in shop on Gateway');
+  assert.equal(row('start_session', { mode: 'continue', coding_tool: 'opencode' }), 'continue the newest OpenCode conversation in the Terminal in shop on Gateway');
   const chat = card('start_chat', { conversation: ID }, [`Continuing conversation ${ID}`]);
-  assert.equal(chat.question, 'Continue an earlier conversation in a chat in shop on Gateway?');
+  assert.equal(chat.question, 'Continue an earlier conversation in the App in shop on Gateway?');
   assert.ok(chat.notes.some((n) => /every OK it asks for comes to you/.test(n)));
-  assert.equal(row('start_chat', { conversation: ID }), 'continue an earlier conversation in a chat in shop on Gateway');
+  assert.equal(row('start_chat', { conversation: ID }), 'continue an earlier conversation in the App in shop on Gateway');
   // A new one says nothing of the kind.
   const fresh = card('start_session', { mode: 'new' });
-  assert.equal(fresh.question, 'Start Claude Code in a terminal in shop on Gateway?');
+  assert.equal(fresh.question, 'Start Claude Code in the Terminal in shop on Gateway?');
   assert.ok(!fresh.notes.some((n) => /that conversation/.test(n)));
 });
 
@@ -298,9 +298,9 @@ test('Activity: the two rows the smoke found read as plain sentences', () => {
   const tool = activityWords({ actor: 'assistant', tool: 'manage_computer', input: { action: 'coding_tool', coding_tool: 'opencode', turn: 'on' } }, PLACE);
   assert.equal(tool.what, 'turn OpenCode on');
   const chat = activityWords({ actor: 'assistant', tool: 'start_chat', input: { folder: '/w/projects/blog', coding_tool: 'opencode', account: 'gw', message: 'hello', goal: 'it answered', computer: 'laptop' } }, PLACE);
-  assert.deepEqual(chat, { what: 'start a chat with OpenCode in blog on Gateway, on the computer Laptop', detail: 'done when: it answered', quote: 'hello' });
+  assert.deepEqual(chat, { what: 'start a session in the App with OpenCode in blog on Gateway, on the computer Laptop', detail: 'done when: it answered', quote: 'hello' });
   const send = activityWords({ actor: 'assistant', tool: 'send_to_chat', input: { session: 'chat:44444444-4444-4444-8444-444444444444', answer: 'allow' } }, PLACE);
-  assert.equal(send.what, 'allow what the chat "Fix the login" asks', 'a chat by its title, never its id');
+  assert.equal(send.what, 'allow what the App session "Fix the login" asks', 'a chat by its title, never its id');
   for (const r of [set, tool, chat, send]) assert.doesNotMatch(`${r.what} ${r.detail}`, KEY_NAME);
 });
 

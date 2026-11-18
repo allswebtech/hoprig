@@ -208,3 +208,33 @@ test('the tools that are on come from the offered ones: a config that names Code
     saveConfig({ codingTools: ['claude'] });
   }
 });
+
+test('a brain whose rules file or skills folder is a link out of it: no section is written there, no coding tool is linked to it', { skip: !posix && 'links need rights on Windows' }, () => {
+  const a = place();
+  const out = path.join(path.dirname(a.brain), 'OUT');
+  writeTree(out, { 'other-AGENTS.md': '# Another project\n', 'skills/x/SKILL.md': 'x' });
+  fs.mkdirSync(path.join(a.brain, 'claude'), { recursive: true });
+  fs.symlinkSync(path.join(out, 'other-AGENTS.md'), path.join(a.brain, 'claude', 'CLAUDE.md'));
+  fs.symlinkSync(path.join(out, 'skills'), path.join(a.brain, 'skills'));
+  const homes = { opencode: path.join(a.home, '.config', 'opencode') };
+  const plan = planLink({ ...a, tools: ['opencode'], homes });
+  for (const id of ['opencode:rules', 'opencode:skills', 'memory-note']) {
+    const p = plan.find((x) => x.id === id);
+    assert.equal(p.action, 'conflict', id);
+    assert.match(p.why, /leaves its folder through a link/, id);
+  }
+  const done = applyLink({ ...a, tools: ['opencode'], homes });
+  assert.ok(done.every((d) => !d.error), JSON.stringify(done));
+  assert.equal(fs.readFileSync(path.join(out, 'other-AGENTS.md'), 'utf8'), '# Another project\n', 'nothing written outside');
+  assert.ok(!fs.existsSync(path.join(homes.opencode, 'AGENTS.md')), 'OpenCode is not linked to a file outside');
+  assert.ok(!fs.existsSync(path.join(a.home, '.agents', 'skills')), 'nor to a skills folder outside');
+
+  // A rules file that is a link inside the brain: the section is not written through it either.
+  const b = place();
+  writeTree(b.brain, { 'AGENTS.md': '# rules\n' });
+  fs.mkdirSync(path.join(b.brain, 'claude'));
+  fs.symlinkSync('../AGENTS.md', path.join(b.brain, 'claude', 'CLAUDE.md'));
+  const note = planLink({ ...b, tools: ['opencode'], homes: { opencode: path.join(b.home, 'oc') } }).find((x) => x.id === 'memory-note');
+  assert.equal(note.action, 'conflict');
+  assert.match(note.why, /is a link: Hoprig never writes through one/);
+});

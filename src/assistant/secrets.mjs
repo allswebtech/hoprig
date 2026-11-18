@@ -7,7 +7,14 @@ const SHAPES = [
   /\bsk-ant-[A-Za-z0-9_-]{8,}/g, // Anthropic keys and OAuth tokens
   /\bsk-[A-Za-z0-9_-]{16,}/g, // other providers' API keys
   /\bhop_[A-Za-z0-9_-]{20,}/g, // hoprig machine tokens
+  /\bhwc_[0-9a-f]{64}\b/g, // hoprig's command token (`hoprig tasks do`)
+  /\btia_[A-Za-z0-9_-]{20,}/g, // Tia's token
   /\bgh[pousr]_[A-Za-z0-9]{20,}/g, // GitHub tokens
+  /\bgithub_pat_[A-Za-z0-9_]{20,}/g, // GitHub fine-grained tokens
+  /\bsk_(?:live|test)_[A-Za-z0-9]{10,}/g, // payment providers' secret keys
+  /\bAIza[0-9A-Za-z_-]{30,}/g, // Google API keys
+  /\bnpm_[A-Za-z0-9]{30,}/g, // npm tokens
+  /(?<=\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/:@]+:)[^\s/@]+(?=@)/g, // the password in a URL (https://user:password@host)
   /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, // Slack tokens
   /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key ids
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWTs

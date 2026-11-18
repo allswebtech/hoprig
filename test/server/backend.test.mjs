@@ -20,6 +20,17 @@ test('tmux argv: UTF-8 always, socket and config only when set; exact-match targ
   assert.deepEqual(b.attachArgv('proj'), ['-u', '-L', 'test-sock', '-f', '/dev/null', '-T', 'RGB', 'attach-session', '-t', '=proj']);
 });
 
+test('tmux that ends before it has read the text it is given: the call fails, the dashboard stays up', { skip: process.platform === 'win32' && 'POSIX shell' }, async () => {
+  // A server that went away between the look at the terminal and the paste: tmux says so and exits without reading
+  // its input. The text is bigger than a pipe holds, so the rest of it meets a closed pipe (EPIPE), which must not
+  // become an uncaught error.
+  const bin = path.join(box.root, 'tmux-gone');
+  fs.writeFileSync(bin, '#!/bin/sh\necho "no server running on /tmp/tmux-0/gone" >&2\nexit 1\n', { mode: 0o755 });
+  const b = new TmuxBackend({ bin, socket: 'gone' });
+  await assert.rejects(b.run(['load-buffer', '-b', 'paste-x', '-'], { input: 'x'.repeat(4 << 20) }), /no server running|EPIPE/);
+  await new Promise((r) => setTimeout(r, 200)); // an uncaught error would come now and fail this file
+});
+
 test('tmux calls are argument arrays (recorded)', async () => {
   const b = new TmuxBackend({ socket: 's' });
   const calls = [];

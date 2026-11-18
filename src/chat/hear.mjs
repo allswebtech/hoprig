@@ -1,7 +1,7 @@
 // What a chat does with each event its running coding tool gives (src/chat/events.mjs): the numbered list, the
 // state the page reads (activity, mode, usage, limits, title, to-dos), the task table, the open questions, the queue
 // and the turn. The Chat class (chat.mjs) calls hear() for the events of its current process only.
-import { askArrived, cancelAsks } from './asks.mjs';
+import { askArrived, askCancelled, cancelAsks } from './asks.mjs';
 import { mergeLimit } from './controls.mjs';
 import { rememberTurn } from './turns.mjs';
 
@@ -18,13 +18,17 @@ export function hear(chat, ev) {
       chat.info = { version: ev.version, tools: ev.tools, commands: ev.commands, skills: ev.skills, agents: ev.agents };
       chat.liveModel = ev.model;
       chat.liveMode = ev.mode;
+      if (ev.mode === 'auto') chat.autoSeen = true;
       chat.bypass = ev.mode === 'bypassPermissions';
       chat.tasks.turnStarted();
-      // A turn nobody asked for: the coding tool goes on by itself (a background task ended).
+      // A turn nobody asked for: the coding tool goes on by itself (a background task ended). Unless it holds a
+      // message of the owner's (queued while the last turn ran): then this turn is that message's, and its echo (or
+      // its "started") names it in a moment (taken). Claude Code may say the turn starts before it says whose it is.
       if (!chat.turn) {
         clearTimeout(chat.idleTimer);
-        chat.turn = { messageId: null, auto: true, at: Date.now() };
-        chat.push({ kind: 'turn-start', auto: true });
+        const owners = chat.queue.items.some((q) => q.state === 'sent');
+        chat.turn = { messageId: null, auto: !owners, at: Date.now() };
+        if (!owners) chat.push({ kind: 'turn-start', auto: true });
       }
       chat.changed();
       return;
@@ -36,6 +40,7 @@ export function hear(chat, ev) {
       return;
     case 'mode': // the coding tool entered or left plan mode, or a switch was confirmed
       chat.liveMode = ev.mode;
+      if (ev.mode === 'auto') chat.autoSeen = true;
       chat.emit('state');
       return;
     case 'status':
@@ -88,8 +93,7 @@ export function hear(chat, ev) {
       askArrived(chat, ev);
       return;
     case 'ask-cancelled':
-      if (chat.pending.delete(ev.request)) chat.push({ kind: 'ask-closed', request: ev.request, outcome: 'cancelled' });
-      chat.changed();
+      askCancelled(chat, ev.request);
       return;
     case 'user':
       taken(chat, ev.messageId, ev);
@@ -107,6 +111,12 @@ export function hear(chat, ev) {
       chat.push(ev);
       return;
     case 'usage':
+      // A new size of the context: the percent and the parts of an older /context answer (controls.mjs usageNow)
+      // were of another size, so the page reckons the percent from the size again and shows no old parts.
+      if (Number.isFinite(ev.contextUsed) && ev.contextUsed !== chat.usage.contextUsed) {
+        delete chat.usage.contextPercent;
+        delete chat.usage.contextCategories;
+      }
       for (const k of ['contextUsed', 'contextWindow', 'costTotal']) if (ev[k] !== undefined && ev[k] !== null) chat.usage[k] = ev[k];
       chat.emit('state');
       return;
@@ -137,7 +147,9 @@ export function hear(chat, ev) {
 function taken(chat, messageId, ev) {
   const item = messageId ? chat.queue.take(messageId) : null;
   if (!messageId || !chat.shown.has(messageId)) {
-    const src = ev || item;
+    // What the owner wrote and sent (its files by their upload names: thumbnails, chips) over Claude Code's echo of
+    // it (the files named only inside the text, the pictures without a name).
+    const src = item || ev;
     if (src) {
       if (messageId) chat.shown.add(messageId);
       chat.push({ kind: 'user', text: src.text, attachments: src.attachments || [], messageId });
@@ -147,6 +159,8 @@ function taken(chat, messageId, ev) {
     clearTimeout(chat.idleTimer);
     chat.turn = { messageId, auto: false, at: Date.now() };
     chat.changed();
+  } else if (chat.turn && !chat.turn.auto && !chat.turn.messageId && messageId) {
+    chat.turn.messageId = messageId; // the turn that started for a queued message: now it knows which (its end is kept)
   }
 }
 

@@ -30,7 +30,7 @@ import { system } from '../../procid.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
 import { descendants, endAll, STOP_WAIT_MS } from './proctree.mjs';
 import { assertTypable, shellLine } from './shell.mjs';
-import { FRONT_GONE, assertFront, notInFront } from './front.mjs';
+import { FRONT_GONE, assertFront, assertScreen, notInFront } from './front.mjs';
 
 const NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$/;
 const RIS = '\x1bc'; // full reset: clears screen, history and modes
@@ -435,19 +435,27 @@ export class PtyBackend {
     assertFront(t.proc.pid, front, { platform: this.platform });
   }
 
-  async sendText(id, text, { front = null } = {}) {
+  async sendText(id, text, { front = null, when = null } = {}) {
     const t = this.#byId(id);
     await this.#settled(t); // the bracketed paste mode is known only once all output so far is parsed
     this.#assertFront(t, front);
+    this.#screenIs(t, when);
     if (t.proc) t.proc.write(pasteBytes(text, t.vt.modes.bracketedPasteMode));
   }
 
-  async sendKey(id, key, { front = null } = {}) {
+  async sendKey(id, key, { front = null, when = null } = {}) {
     const t = this.#byId(id);
     await this.#settled(t);
     const seq = keySequence(key, t.vt.modes.applicationCursorKeysMode);
     this.#assertFront(t, front);
+    this.#screenIs(t, when);
     if (t.proc) t.proc.write(seq);
+  }
+
+  // The screen check (index.mjs: `when`) on all output parsed so far, in the same step as the write that follows it:
+  // only bytes the program has sent and the terminal not yet read can be missed.
+  #screenIs(t, when) {
+    if (when) assertScreen(when, bufferText(t.vt, Math.max(1, when.lines | 0 || 40)));
   }
 
   async capture(id, lines = 40) {

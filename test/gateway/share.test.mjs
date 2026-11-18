@@ -31,8 +31,11 @@ const gw = await fakeGateway();
 test.after(() => gw.close());
 
 saveConfig({ server: { passwordHash: await hashPassword('right-password') } });
+// The Providers list asks whether the gateway add-on answers on its port: a free port, so the answer never depends on
+// a gateway running on the computer that runs the tests (its default port is a real one's).
+saveConfig({ addons: { trouteai: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() } } });
 const backend = { list: async () => [], capture: async () => '', kind: 'pty', capabilities: {} };
-const app = createServer({ backend, watch: false, dashboardFile: false, gateway: { addons: [fakeAddon(gw.port)], perKeyPerMinute: 6, failuresPerIp: 12 }, accounts: { trouteai: null } });
+const app = createServer({ backend, watch: false, dashboardFile: false, gateway: { addons: [fakeAddon(gw.port)], perKeyPerMinute: 6, failuresPerIp: 12 }, accounts: { gateways: [] } });
 const { port } = await app.listen(0, '127.0.0.1');
 const base = `http://127.0.0.1:${port}`;
 test.after(() => app.close());

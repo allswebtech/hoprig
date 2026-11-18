@@ -52,6 +52,12 @@ test('a privileged command is phrased one way: sudo where it is, nothing for roo
   assert.equal(S.forThisUser(line, noSudo), 'as root: env DEBIAN_FRONTEND=noninteractive apt-get update && env DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential   then as yourself: cd "/home/u/app" && npm rebuild node-pty');
   assert.equal(S.forThisUser('sudo apt update && sudo apt upgrade', noSudo), 'as root: apt update && apt upgrade');
   assert.equal(S.forThisUser("curl -1sLf 'https://x.example/key' | sudo gpg --dearmor -o /usr/share/keyrings/k.gpg", noSudo), "as root: curl -1sLf 'https://x.example/key' | gpg --dearmor -o /usr/share/keyrings/k.gpg");
+  // a quoted path is one argument: " && " or "sudo" inside it never splits the line or loses a word
+  const odd = `sudo apt-get install -y git && cd ${S.showCommand(['/home/u/a && sudo b'])} && npm ci`;
+  assert.equal(S.forThisUser(odd, noSudo), "as root: apt-get install -y git   then as yourself: cd '/home/u/a && sudo b' && npm ci");
+  assert.equal(S.forThisUser(odd, root), "apt-get install -y git && cd '/home/u/a && sudo b' && npm ci");
+  assert.equal(S.forThisUser(`cd "/x/it's && sudo y" && make`, noSudo), `cd "/x/it's && sudo y" && make`, 'no sudo outside the quotes: left as it is');
+  assert.deepEqual(S.splitUnquoted(`a && 'b && c' && "d \\" && e" && f`, ' && '), ['a', "'b && c'", `"d \\" && e"`, 'f']);
   // a line without sudo is nobody's business, and Windows has no sudo to miss
   assert.equal(S.forThisUser('hoprig passwd', noSudo), 'hoprig passwd');
   assert.equal(S.forThisUser('', noSudo), '');

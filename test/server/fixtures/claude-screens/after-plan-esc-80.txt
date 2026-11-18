@@ -1,0 +1,14 @@
+❯ Plan: create an empty file c.txt. Do not explore anything; write a one-line
+  plan and call ExitPlanMode right away.
+
+● Updated plan
+  ⎿  /plan to preview
+  ⎿  Rejected Claude's plan:
+     ╭───────────────────────────────────────────────────────╮
+     │ Plan: create an empty file c.txt in the project root. │
+     ╰───────────────────────────────────────────────────────╯
+
+────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ plan mode on (shift+tab to cycle)

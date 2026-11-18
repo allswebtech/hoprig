@@ -190,6 +190,11 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   assert.equal((await owner('POST', `/api/chats/${id}/stop`, {})).json.stopped, true);
   await until('stopped', async () => (await view()).status === 'waiting');
 
+  // The coding tool names the conversation (a title event: its transcript does not keep it).
+  await owner('POST', `/api/chats/${id}/send`, { text: 'title Cart total rounding' });
+  await until('its title', async () => (await view()).title === 'Cart total rounding');
+  await until('the turn to end', async () => (await view()).status === 'waiting');
+
   // ---- open in a terminal: the chat closes, a terminal session resumes the conversation ----
   const opened = await owner('POST', `/api/chats/${id}/terminal`, {});
   assert.equal(opened.status, 200);
@@ -207,6 +212,7 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   assert.ok(vb.terminal, 'read only until "Continue here"');
   assert.ok(vb.events.some((e) => e.kind === 'user' && e.text === 'hello chat'), 'the history comes from the transcript');
   assert.deepEqual([vb.model, vb.effort], ['haiku', 'low'], 'taken back from the terminal with the model and effort it ran with');
+  assert.equal(vb.title, 'Cart total rounding', 'the coding tool\'s title survives the hand-off and back, not the first message');
   assert.equal((await owner('POST', `/api/chats/${id}/close`, {})).status, 200);
   assert.deepEqual((await owner('GET', '/api/chats')).json.chats, []);
   // Its page, opened again, can still name it and continue its conversation in a new chat.

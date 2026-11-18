@@ -26,6 +26,12 @@
 //   "askrule <cmd>"  Bash that an "ask" rule of the settings covers
 //   "hook <file>"    Write on which a hook answered "ask"
 //   "rm <dir>"       Bash "rm -rf $DIR/*": Claude Code's stop before a delete that could empty the disk
+//   "rmpath <path>"  Bash "rm -rf <path>": the same stop for a path as written (nothing is ever run)
+//   "cd <dir>"       Bash "cd <dir>": asks nothing and moves the shell's folder for the calls after it
+//   "rmrel <path>"   Bash "rm -rf <path>" (a glob in it): the stop for a target it cannot resolve, from the shell's folder
+// A PermissionRequest hook of --settings (a JSON text or a file, as Claude Code takes it) runs as on 2.1.326 in this
+// mode: at the same moment as the can_use_tool request, with the event on its stdin (the shell's folder as cwd); when
+// it answers "allow" the request is taken back (control_cancel_request) and the tool runs.
 // and what never asks: "denied <file>", a Write that a deny rule of the settings covers (refused in every mode).
 // More (fake-claude-tasks.mjs): "think", "edit <file>", "agent", "bgagent <ms>", "bgsleep", "workflow <ms>",
 // "limits", "compact", "title <words>": thinking, a diff, subagents, background tasks and workflows with their task
@@ -40,6 +46,7 @@
 // $FAKE_CLAUDE_STUBBORN=1: it keeps running when its input ends and ignores SIGTERM (only SIGKILL ends it).
 // $FAKE_CLAUDE_NO_LIVE=1: model, effort and mode cannot change while it runs (the control requests are refused).
 // $FAKE_CLAUDE_NO_BYPASS=1: the settings turn bypassPermissions off: it starts in the default mode instead.
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -57,7 +64,8 @@ let mode = startMode;
 const asks = val('--permission-prompt-tool') === 'stdio';
 const sessionRules = new Set(); // "Bash:npm view *": allowed for this process by an answer's updatedPermissions
 // … and by --settings from the start ("Bash(npm view *)" → "Bash:npm view *")
-for (const r of (val('--settings') ? JSON.parse(val('--settings')).permissions?.allow : null) || []) {
+const settings = val('--settings') ? JSON.parse(val('--settings').trim().startsWith('{') ? val('--settings') : fs.readFileSync(val('--settings'), 'utf8')) : {};
+for (const r of settings.permissions?.allow || []) {
   const m = /^([^(]+)(?:\((.*)\))?$/.exec(r);
   sessionRules.add(`${m[1]}:${m[2] ?? ''}`);
 }
@@ -65,7 +73,8 @@ const partial = argv.includes('--include-partial-messages');
 const replay = argv.includes('--replay-user-messages');
 const canBypass = argv.includes('--allow-dangerously-skip-permissions') || argv.includes('--dangerously-skip-permissions') || wanted === 'bypassPermissions';
 let model = val('--model') || 'fake-model';
-const flags = { effortLevel: val('--effort'), ultracode: !!(val('--settings') && JSON.parse(val('--settings')).ultracode) };
+const flags = { effortLevel: val('--effort'), ultracode: !!settings.ultracode };
+let shellCwd = process.cwd(); // where the next Bash call runs ("cd <dir>")
 const changes = []; // files written: { uuid (the message whose turn wrote it), file, before }
 let current = null; // the message whose turn runs
 const dir = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', process.cwd().replace(/[^A-Za-z0-9]/g, '-'));
@@ -145,7 +154,31 @@ const setMode = (m) => {
 function ask(id, name, input, more = {}) {
   const rid = `req-${id}`;
   out({ type: 'control_request', request_id: rid, request: { subtype: 'can_use_tool', tool_name: name, display_name: name, input, tool_use_id: id, ...more } });
-  return new Promise((resolve) => waiting.set(rid, resolve));
+  const answered = new Promise((resolve) => waiting.set(rid, resolve));
+  for (const h of (settings.hooks?.PermissionRequest || []).flatMap((e) => e.hooks || [])) {
+    const ev = { session_id: sessionId, cwd: shellCwd, permission_mode: mode, hook_event_name: 'PermissionRequest', tool_name: name, tool_input: input, permission_suggestions: [] };
+    if (process.env.FAKE_CLAUDE_ARGS) fs.appendFileSync(process.env.FAKE_CLAUDE_ARGS, JSON.stringify({ hook: ev }) + '\n');
+    // $FAKE_CLAUDE_HOOK_DELAY_MS: the hook answers that much later (a slow computer).
+    const delay = Number(process.env.FAKE_CLAUDE_HOOK_DELAY_MS) || 0;
+    const p = spawn('sh', ['-c', delay ? `sleep ${delay / 1000}; ${h.command}` : h.command], { stdio: ['pipe', 'pipe', 'ignore'] });
+    let said = '';
+    p.stdout.on('data', (d) => (said += d));
+    p.on('close', () => {
+      let a = null;
+      try {
+        a = JSON.parse(said).hookSpecificOutput?.decision;
+      } catch {
+        /* nothing said */
+      }
+      const resolve = waiting.get(rid);
+      if (!a || a.behavior !== 'allow' || !resolve) return;
+      waiting.delete(rid);
+      out({ type: 'control_cancel_request', request_id: rid });
+      resolve({ behavior: 'allow', updatedInput: input });
+    });
+    p.stdin.end(JSON.stringify(ev));
+  }
+  return answered;
 }
 /** What an "allow" adds for this process (updatedPermissions). */
 function learn(answer) {
@@ -315,6 +348,24 @@ async function turn(text, content = [{ type: 'text', text }]) {
       classifier_approvable: false, suppress_always_allow_rule: true,
     });
   }
+  if ((m = /^cd (\S+)/.exec(text))) {
+    const id = tool('Bash', { command: `cd ${m[1]}`, description: 'a command' });
+    shellCwd = path.resolve(shellCwd, m[1]);
+    user([{ type: 'tool_result', tool_use_id: id, content: `ran: cd ${m[1]}` }]);
+    return result(true);
+  }
+  if ((m = /^rmrel (\S+)/.exec(text))) {
+    return guarded(`rm -rf ${m[1]}`, {
+      permission_suggestions: [], decision_reason: `Dangerous rm operation on statically-unresolvable target: ${path.join(shellCwd, m[1])}`, decision_reason_type: 'safetyCheck',
+      classifier_approvable: false, suppress_always_allow_rule: true,
+    });
+  }
+  if ((m = /^rmpath (\S+)/.exec(text))) {
+    return guarded(`rm -rf ${m[1]}`, {
+      permission_suggestions: [], decision_reason: `Dangerous rm operation on critical path: ${m[1]}`, decision_reason_type: 'safetyCheck',
+      classifier_approvable: false, suppress_always_allow_rule: true,
+    });
+  }
   if ((m = /^hook (\S+)/.exec(text))) {
     const input = { file_path: path.resolve(m[1]), content: 'written by the fake\n' };
     const id = tool('Write', input);
@@ -443,7 +494,7 @@ function control(m) {
       return answerControl(m, { cancelled: i >= 0 });
     }
     case 'get_context_usage':
-      return answerControl(m, { totalTokens: 21000, maxTokens: 200000, percentage: 10.5, categories: [] });
+      return answerControl(m, { totalTokens: 21000, maxTokens: 200000, percentage: 10.5, categories: [{ name: 'System prompt', tokens: 3100, color: 'promptBorder' }, { name: 'System tools', tokens: 11900, color: 'inactive' }, { name: 'Messages', tokens: 6000, color: 'purple' }, { name: 'Free space', tokens: 0, color: 'promptBorder' }] });
     case 'get_usage':
       return answerControl(m, { subscription_type: 'max', rate_limits_available: true, rate_limits: { five_hour: { utilization: 42, resets_at: '2030-03-17T17:46:40+00:00' }, seven_day: { utilization: 10, resets_at: '2030-03-20T00:00:00+00:00' }, spend: { utilization: null, resets_at: null } } });
     default:

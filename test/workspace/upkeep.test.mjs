@@ -55,7 +55,7 @@ test('nothing changed: no write; a new project: the map gains it on the next rou
   assert.deepEqual((await upkeepMap(o)).lines, [], 'once');
   const st = await M.mapStatus(o);
   assert.equal(st.saved.unsaved, true);
-  assert.match(st.saved.command, /add workspace\.json && .* commit -m "Update the workspace map"/);
+  assert.match(st.saved.command, /add workspace\.json && .* commit -m 'Update the workspace map'/);
   // Status says it in words, with the command.
   const { ui, text } = await quietUi();
   assert.equal(await main(['status'], { ui, write: () => {} }), 0);

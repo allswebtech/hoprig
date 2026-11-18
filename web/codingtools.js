@@ -8,7 +8,7 @@ import { api, btn, fill, h, link, toast } from './lib.js';
 import { registerSettingsPage } from './registry.js';
 import { panel, toggle } from './shell.js';
 
-const SCOPE = 'Claude Code can do everything here. OpenCode: a chat or a session in a terminal, the providers that fit it, the shared AI brain, updates, and Tia (she starts its chats when you name it, and every OK of one comes to you). Auto mode and plan usage work with Claude Code only.';
+const SCOPE = 'Claude Code can do everything here. OpenCode: a session in the App or in a Terminal, the providers that fit it, the shared AI brain, updates, and Tia (she starts its sessions in the App when you name it, and every OK of one comes to you). Auto mode and plan usage work with Claude Code only.';
 
 /** The one line in the Settings list. */
 export const summaryOf = (v) => `On: ${v.tools.filter((t) => t.on).map((t) => t.name).join(', ')}`;
@@ -26,11 +26,11 @@ function toolPanel(t, redraw) {
         ? ': add an OpenAI key or a gateway (then Test it), or a Codex sign-in.'
         : ': add an OpenAI key, a Claude API key or a gateway, then Test it.'));
   let start = null;
-  if (t.id === 'claude') start = h('p.hint', 'New session on Home starts it.');
+  if (t.id === 'claude') start = h('p.hint', 'New session starts it, in the App or in a Terminal.');
   else if (!missing && t.on && t.providers.length) {
-    // One way to start it: New session, with this coding tool chosen there (a chat, or "Open in" a terminal).
+    // One way to start it: New session, with this coding tool chosen there (in the App or in a Terminal).
     start = [
-      h('p.hint', `New session on Home starts it: choose ${t.name} there as the coding tool, for a chat or a terminal.`),
+      h('p.hint', `New session starts it: choose App or Terminal there, then ${t.name}.`),
       h('p.hint', 'Or in a terminal: ', h('code', t.command), '.'),
     ];
   }

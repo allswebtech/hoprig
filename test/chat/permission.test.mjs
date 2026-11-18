@@ -1,8 +1,10 @@
 // Who answers when Claude Code asks for an OK in a coding chat (src/chat/chat.mjs), against the stand-in Claude Code
 // (fixtures/fake-claude.mjs), which asks where Claude Code 2.1.325 was seen to ask:
-//   - bypassPermissions: the chat allows by itself, with no card and no "needs your OK", also after Claude entered
-//     plan mode on its own. Still the owner's: a question, a plan, an "ask" rule or hook of his setup, and the stop
-//     before a delete that could empty the disk. A deny rule stays denied.
+//   - bypassPermissions, with a Claude Code too old for the chat's hook (with the hook: permhook.test.mjs): the chat
+//     allows by itself, with no card and no "needs your OK", by the one rule of src/asking.mjs (as a terminal's hook).
+//     Still the owner's: a question, a plan, an "ask" rule or hook of his setup, a change after Claude entered plan
+//     mode on its own (the mode is "plan" then), and every delete Claude Code stops for that is not plainly inside
+//     the chat's folder. A deny rule stays denied.
 //   - the other modes: "Allow in this chat" stops the next ask of the same kind (a command too, whose suggestion
 //     names a settings file), holds when the process starts again (a chained command first, too), and writes no
 //     settings file.
@@ -12,6 +14,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -66,32 +69,35 @@ async function turn(c, text) {
 test('bypassPermissions: what Claude Code still asks about is allowed at once, with no card and no "needs your OK"', async (t) => {
   const c = newChat({ permissionMode: 'bypassPermissions' });
   t.after(() => c.stopAndWait());
-  // Claude enters plan mode by itself: from then on Claude Code asks before every change, in this mode too.
+  // Claude enters plan mode by itself: from then on Claude Code asks before every change, and reports the mode
+  // "plan". The one rule allows only in the mode the coding tool reports as bypass (as a terminal's hook does), so
+  // the change is the owner's to answer, then the plan.
   const done = turnEnd(c);
   await c.send('plan inplan.txt');
-  const plan = await card(c);
-  assert.equal(plan.tool, 'ExitPlanMode', 'the only card is the plan');
+  const write = await card(c);
+  assert.deepEqual([write.tool, c.liveMode], ['Write', 'plan']);
+  c.answer(write.request, { allow: true });
+  const plan = await card(c, 1);
+  assert.equal(plan.tool, 'ExitPlanMode');
   assert.match(plan.plan, /Add the thing/, 'with its text, taken from the tool call (the ask does not carry it)');
   assert.equal(plan.type, 'plan');
   assert.equal(plan.canAlways, false);
-  assert.equal(fs.readFileSync(path.join(c.cwd, 'inplan.txt'), 'utf8'), 'written in plan mode\n', 'the change in plan mode ran');
-  assert.equal(c.liveMode, 'plan');
-  assert.deepEqual(c.seen, ['working', 'attention'], 'never "needs your OK" before the plan itself');
-  assert.deepEqual(answers(c), [{ behavior: 'allow', updatedInput: { file_path: path.join(c.cwd, 'inplan.txt'), content: 'written in plan mode\n' } }], 'allowed as asked, no rule added');
+  assert.equal(fs.readFileSync(path.join(c.cwd, 'inplan.txt'), 'utf8'), 'written in plan mode\n', 'the change in plan mode ran once allowed');
   c.answer(plan.request, { allow: true });
   await done;
   assert.equal(c.liveMode, 'bypassPermissions', 'the plan approved: back in its mode');
   assert.equal(c.status(), 'waiting');
-  assert.equal(asks(c).length, 1);
+  assert.equal(asks(c).length, 2);
 
   // A command asks nothing in this mode, and no card was ever pending for it. Nor does a file in .git/.
+  const seen = c.seen.length;
   await turn(c, 'run npm view left-pad');
-  assert.equal(asks(c).length, 1);
+  assert.equal(asks(c).length, 2);
   assert.equal(c.events.filter((e) => e.kind === 'tool-result').at(-1).text, 'ran: npm view left-pad');
   await turn(c, 'protect .git/hooks/pre-commit');
-  assert.equal(asks(c).length, 1);
+  assert.equal(asks(c).length, 2);
   assert.ok(fs.existsSync(path.join(c.cwd, '.git', 'hooks', 'pre-commit')));
-  assert.deepEqual(c.seen.slice(2), ['working', 'waiting', 'working', 'waiting', 'working', 'waiting'], 'after the plan: never "needs your OK" again');
+  assert.deepEqual(c.seen.slice(seen), ['working', 'waiting', 'working', 'waiting'], 'after the plan: never "needs your OK" again');
 });
 
 test('bypassPermissions: a question to the owner is shown and its answer reaches Claude', async (t) => {
@@ -140,14 +146,36 @@ test('bypassPermissions: the owner\'s own settings win: a deny rule stays denied
   assert.ok(!fs.existsSync(path.join(c.cwd, 'hooked.txt')));
 });
 
-test('bypassPermissions: Claude Code\'s stop before a delete that could empty the disk is the owner\'s to answer', async (t) => {
+test('bypassPermissions: Claude Code\'s stop before a delete is answered by the one rule: a delete plainly inside the chat\'s folder runs, every other keeps the stop', async (t) => {
   const c = newChat({ permissionMode: 'bypassPermissions' });
   t.after(() => c.stopAndWait());
-  const done = turnEnd(c);
+  // An absolute target inside the chat's folder: allowed, as in a terminal.
+  await turn(c, `rmpath ${c.cwd}/t1/*/*`);
+  assert.equal(asks(c).length, 0);
+  assert.equal(c.events.filter((e) => e.kind === 'tool-result').at(-1).text, `ran: rm -rf ${c.cwd}/t1/*/*`);
+  // A relative one: the chat's channel does not say which folder the shell is in now (a cd in an earlier call moves
+  // it), so Claude Code's stop stands.
+  let done = turnEnd(c);
+  await c.send('rmpath t1/*/*');
+  const rel = await card(c);
+  assert.equal(rel.input.command, 'rm -rf t1/*/*');
+  c.answer(rel.request, { allow: false });
+  await done;
+  // "rm -rf $BUILD_DIR/*": not plain, so Claude Code's stop stands.
+  done = turnEnd(c);
   await c.send('rm BUILD_DIR');
-  const rm = await card(c);
-  assert.equal(rm.input.command, 'rm -rf $BUILD_DIR/*');
-  assert.match(rm.why, /^Dangerous rm operation on possibly-empty variable path/);
+  const v = await card(c, 1);
+  assert.equal(v.input.command, 'rm -rf $BUILD_DIR/*');
+  assert.match(v.why, /^Dangerous rm operation on possibly-empty variable/);
+  c.answer(v.request, { allow: false });
+  await done;
+  assert.equal(c.events.filter((e) => e.kind === 'tool-result').at(-1).ok, false);
+  // The home folder: the card, with Claude Code's reason, and no "in this chat".
+  done = turnEnd(c);
+  await c.send('rmpath ~');
+  const rm = await card(c, 2);
+  assert.equal(rm.input.command, 'rm -rf ~');
+  assert.match(rm.why, /^Dangerous rm operation on critical path/);
   assert.equal(rm.canAlways, false);
   c.answer(rm.request, { allow: false });
   await done;
@@ -535,16 +563,45 @@ test('protocol: an input nested very deep, in lists or objects, is parsed withou
   assert.deepEqual(clipInput([[[[[[['x']]]]]]]), [[[[['…']]]]], 'lists end at the same depth as objects');
 });
 
-test('switching to bypass allows only what waits for any OK: a question, a plan and a rule\'s or hook\'s ask stay open', () => {
+test('switching to bypass allows what the one rule allows: a question, a plan, a rule\'s or hook\'s ask, another tool, any other command or delete stay open', () => {
   const answered = [];
   const pushed = [];
-  const chat = { pending: new Map(), push: (e) => pushed.push(e), changed() {}, session: { answer: (r, a) => answered.push([r, a.allow]) } };
+  const cwd = path.join(process.env.HOPRIG_WORKSPACE_DIR, 'shop');
+  const chat = { cwd, pending: new Map(), push: (e) => pushed.push(e), changed() {}, session: { answer: (r, a) => answered.push([r, a.allow]) } };
   const ask = (request, tool, more) => P.parseLine({ type: 'control_request', request_id: request, request: { subtype: 'can_use_tool', tool_name: tool, input: { command: 'x' }, tool_use_id: request, ...more } })[0];
-  for (const a of [ask('plain', 'Bash', {}), ask('q', 'AskUserQuestion', {}), ask('plan', 'ExitPlanMode', {}), ask('rule', 'Bash', { decision_reason_type: 'rule' }), ask('hook', 'Bash', { decision_reason_type: 'hook' })]) chat.pending.set(a.request, a);
+  const rm = (request, command) => P.parseLine({ type: 'control_request', request_id: request, request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command }, tool_use_id: request, decision_reason_type: 'safetyCheck', classifier_approvable: false } })[0];
+  for (const a of [
+    ask('plain', 'Bash', {}), ask('q', 'AskUserQuestion', {}), ask('plan', 'ExitPlanMode', {}), ask('rule', 'Bash', { decision_reason_type: 'rule' }), ask('hook', 'Bash', { decision_reason_type: 'hook' }),
+    ask('mcp', 'mcp__github__create_issue', {}), ask('fetch', 'WebFetch', {}), rm('inside', `rm -rf ${cwd}/build/*/*`), rm('relative', 'rm -rf build/*/*'), rm('home', 'rm -rf ~/'), rm('var', 'rm -rf "$DIR"/*'),
+  ]) chat.pending.set(a.request, a);
   A.allowPending(chat);
-  assert.deepEqual(answered, [['plain', true]]);
-  assert.deepEqual([...chat.pending.keys()], ['q', 'plan', 'rule', 'hook']);
-  assert.deepEqual(pushed, [{ kind: 'ask-closed', request: 'plain', outcome: 'allowed' }]);
+  // The one rule (src/asking.mjs): Bash only, and only a delete plainly inside the chat's folder.
+  assert.deepEqual(answered, [['inside', true]]);
+  assert.deepEqual([...chat.pending.keys()], ['plain', 'q', 'plan', 'rule', 'hook', 'mcp', 'fetch', 'relative', 'home', 'var']);
+  assert.deepEqual(pushed.map((p) => p.request), ['inside']);
+});
+
+test('bypass: the chat reads a delete against its own folder, with absolute targets only', () => {
+  const rm = (request, command) => P.parseLine({ type: 'control_request', request_id: request, request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command }, tool_use_id: request, decision_reason_type: 'safetyCheck', classifier_approvable: false } })[0];
+  const home = os.homedir();
+  const workspace = process.env.HOPRIG_WORKSPACE_DIR; // the sandbox's
+  const project = path.join(workspace, 'shop');
+  const commands = ['rm -rf *', 'rm -rf .', 'rm -rf ..', 'rm -rf build', 'rm -rf t1/*/*', `rm -rf ${project}/build`, `rm -rf ${project}/t1/*/*`, `rm -rf ${project}`, `rm -rf ${project}/*`, 'cd ~ && rm -rf *', `rm -rf ${home}/x`];
+  const answeredIn = (cwd, how) => {
+    const answered = [];
+    const chat = { cwd, bypass: true, liveMode: 'bypassPermissions', grants: new Set(), pending: new Map(), push() {}, changed() {}, session: { answer: (r, a) => answered.push(r) } };
+    for (const command of commands) {
+      const ask = rm(command, command);
+      if (how === 'arrived') A.askArrived(chat, ask);
+      else chat.pending.set(ask.request, ask);
+    }
+    if (how === 'pending') A.allowPending(chat);
+    return answered;
+  };
+  for (const how of ['arrived', 'pending']) {
+    assert.deepEqual(answeredIn(project, how), [`rm -rf ${project}/build`, `rm -rf ${project}/t1/*/*`], how);
+    for (const cwd of [home, workspace, '/', null]) assert.deepEqual(answeredIn(cwd, how), [], `${how} in ${cwd}`);
+  }
 });
 
 function pushedAsk(ev) {

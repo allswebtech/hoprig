@@ -14,10 +14,12 @@ import path from 'node:path';
 import { getMachine } from '../machines/store.mjs';
 import { runHoprig } from '../machines/ssh.mjs';
 import { gitRead } from '../gitread.mjs';
-import { git, repoInfo } from '../pcsetup/workspace.mjs';
-import { capture } from '../setup/system.mjs';
+import { inTheWay, inTheWayWords } from '../pcsetup/intheway.mjs';
+import { FAST_FORWARD, changedToo, keptBack, keptWords, lsRemote, repoInfo } from '../pcsetup/workspace.mjs';
+import { capture, showCommand, showCommands } from '../setup/system.mjs';
 import { isGitRepo, projectsIn, workspaceDir } from './layout.mjs';
-import { syncTargets } from './sync.mjs';
+import { gitIn, leaves } from './inside.mjs';
+import { notFollowed, syncTargets } from './sync.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const SAFE_PATH = /^\/[A-Za-z0-9._/+@-]{0,1000}$/; // no spaces or quotes: it becomes part of an ssh:// address
@@ -49,30 +51,51 @@ export function peerUrl(target, abs) {
 }
 
 /** Fetch the current branch from the other computer and fast-forward when that is safe. → { did, todo, notes } */
-export async function pullFrom(dir, url, peer, run = capture, { dryRun = false } = {}) {
+export async function pullFrom(dir, url, peer, run = capture, { dryRun = false, at = { root: dir } } = {}) {
+  const git = (d, args, r, opts) => gitIn(at, d, args, r, opts); // never in a repository that leads out (inside.mjs)
   const did = [];
   const todo = [];
   const notes = [];
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', ...(process.env.GIT_SSH_COMMAND ? {} : { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o ConnectTimeout=10' }) };
   const s = await repoInfo(dir, run);
   if (!s.ok) return { did, todo: [{ why: s.error, command: '' }], notes };
-  if (!BRANCH_RE.test(s.branch) || s.branch === '(detached)') return { did, todo: [{ why: 'no branch is checked out here', command: `git -C "${dir}" switch <branch>` }], notes };
-  const ref = `refs/hoprig-peer/${peer}/${s.branch}`;
-  const f = await git(dir, ['fetch', '--quiet', '--no-tags', '--', url, `+refs/heads/${s.branch}:${ref}`], run, { env, timeout: 120_000 });
-  if (!f.ok) {
-    const why = (f.stderr || '').trim().split('\n').pop() || 'git failed';
-    return { did, todo: [{ why: /couldn't find remote ref/i.test(why) ? `${peer} has no branch ${s.branch} there` : `could not fetch from ${peer}: ${why}`, command: '' }], notes };
+  if (!BRANCH_RE.test(s.branch) || s.branch === '(detached)') return { did, todo: [{ why: 'no branch is checked out here', command: `${showCommand(['git', '-C', dir, 'switch'])} <branch>` }], notes };
+  let ref = `refs/hoprig-peer/${peer}/${s.branch}`;
+  if (dryRun) {
+    // A dry run fetches nothing (that writes a ref and objects here): the branch's commit over there is looked up.
+    const there = await lsRemote(url, `refs/heads/${s.branch}`, { run, env: { GIT_SSH_COMMAND: env.GIT_SSH_COMMAND } });
+    if (there.error) return { did, todo: [{ why: `could not ask ${peer}: ${there.error}`, command: '' }], notes };
+    if (!there.sha) return { did, todo: [{ why: `${peer} has no branch ${s.branch} there`, command: '' }], notes };
+    if (!(await gitRead(dir, ['rev-list', '--count', `HEAD...${there.sha}`], { run })).ok) {
+      did.push(`would get ${s.branch}'s new commits from ${peer} (a dry run does not fetch, so they are not counted), and fast-forward if ${s.branch} is only behind`);
+      return { did, todo, notes };
+    }
+    ref = there.sha;
+  } else {
+    const f = await git(dir, ['fetch', '--quiet', '--no-tags', '--', url, `+refs/heads/${s.branch}:${ref}`], run, { env, timeout: 120_000 });
+    if (!f.ok) {
+      const why = (f.stderr || '').trim().split('\n').pop() || 'git failed';
+      return { did, todo: [{ why: /couldn't find remote ref/i.test(why) ? `${peer} has no branch ${s.branch} there` : `could not fetch from ${peer}: ${why}`, command: '' }], notes };
+    }
   }
   const c = await gitRead(dir, ['rev-list', '--left-right', '--count', `HEAD...${ref}`], { run });
   const [ahead, behind] = c.stdout.trim().split(/\s+/).map(Number);
-  if (ahead && behind) todo.push({ why: `${s.branch} here and on ${peer} have both moved (${ahead} here, ${behind} there)`, command: `git -C "${dir}" merge ${ref}   (or: git -C "${dir}" rebase ${ref})` });
+  if (ahead && behind) {
+    // As in syncRepo: a merge or a rebase replaces what git ignores here without a word (inTheWay).
+    const hit = await inTheWay(dir, ref, run);
+    const both = `${s.branch} here and on ${peer} have both moved (${ahead} here, ${behind} there)`;
+    todo.push({ why: `${both}${inTheWayWords(hit, 'those commits')}`, command: `${showCommand(['git', '-C', dir, 'merge', ref])}   (or: ${showCommand(['git', '-C', dir, 'rebase', ref])})` });
+  }
   else if (behind && dryRun) did.push(`would get ${behind} from ${peer}${s.changes ? `, unless they touch your ${s.changes} uncommitted change${s.changes > 1 ? 's' : ''}` : ''}`);
   else if (behind) {
     // As in syncRepo: uncommitted work stays; git refuses, changing nothing, only when the same files are touched.
-    const m = await git(dir, ['merge', '--ff-only', '--quiet', ref], run);
+    // Never over what git ignores here (a member or a code repository of its own): FAST_FORWARD.
+    const m = await git(dir, FAST_FORWARD(ref), run);
+    const kept = keptBack(m);
     if (m.ok) did.push(`got ${behind} from ${peer}${s.changes ? ` (your ${s.changes} uncommitted change${s.changes > 1 ? 's' : ''} stay${s.changes > 1 ? '' : 's'})` : ''}`);
-    else if (s.changes) todo.push({ why: `${behind} to get from ${peer}, but there are ${s.changes} uncommitted changes in the same files here`, command: `git -C "${dir}" stash && git -C "${dir}" merge --ff-only ${ref} && git -C "${dir}" stash pop` });
-    else todo.push({ why: 'fast-forward failed', command: `git -C "${dir}" merge --ff-only ${ref}` });
+    else if (kept) todo.push({ why: `${behind} to get from ${peer}, but those commits ${keptWords(kept, changedToo(m), s.changes)}`, command: showCommand(['git', '-C', dir, ...FAST_FORWARD(ref)]) });
+    else if (s.changes) todo.push({ why: `${behind} to get from ${peer}, but there are ${s.changes} uncommitted changes in the same files here`, command: showCommands([['git', '-C', dir, 'stash'], ['git', '-C', dir, ...FAST_FORWARD(ref)], ['git', '-C', dir, 'stash', 'pop']]) });
+    else todo.push({ why: 'fast-forward failed', command: showCommand(['git', '-C', dir, ...FAST_FORWARD(ref)]) });
   }
   if (ahead && !behind) notes.push(`${ahead} commit${ahead > 1 ? 's' : ''} here that ${peer} does not have: it gets them by running  hoprig workspace sync --with <this computer>  there`);
   return { did, todo, notes };
@@ -85,16 +108,21 @@ export async function syncWith(name, { dir = workspaceDir(), projects = projects
   const tools = all.filter((t) => t.tool).map((t) => t.label);
   const targets = all.filter((t) => !t.tool); // tools are never synced, not from another computer either
   if (tools.length) onLine(`· tools, left alone: ${tools.join(', ')}`);
+  // The same folder there: under its projects folder for a project of the projects folder, else under its workspace
+  // (the brain, a group and its members, the others).
+  const rel = (from, to) => path.relative(from, to).split(path.sep).join('/');
   const there = (t) => {
-    if (t.kind === 'brain') return path.posix.join(p.dir, 'ai_brain');
-    if (t.kind === 'other') return path.posix.join(p.dir, t.label);
-    return path.posix.join(p.projectsDir, t.label);
+    const inProjects = rel(projects, t.dir);
+    if (t.kind !== 'brain' && !inProjects.startsWith('..') && !path.isAbsolute(inProjects)) return path.posix.join(p.projectsDir, inProjects);
+    return path.posix.join(p.dir, rel(dir, t.dir));
   };
   const repos = [];
   for (const t of targets) {
     let r;
-    if (!isGitRepo(t.dir)) r = { did: [], todo: [{ why: 'not on this computer', command: 'hoprig workspace restore <brain address>' }], notes: [] };
-    else r = await pullFrom(t.dir, peerUrl(p.target, there(t)), p.name, run, { dryRun });
+    const b = t.blocked || leaves(t.root, t.dir, { dir, projects }); // asked again right before the fetch (and by gitIn)
+    if (b) r = { ...notFollowed(t, b), notes: [] };
+    else if (!isGitRepo(t.dir)) r = { did: [], todo: [{ why: 'not on this computer', command: 'hoprig workspace restore <brain address>' }], notes: [] };
+    else r = await pullFrom(t.dir, peerUrl(p.target, there(t)), p.name, run, { dryRun, at: { root: t.root, dir, projects } });
     const e = { label: t.label, ...r };
     repos.push(e);
     onLine(`${e.todo.length ? '!' : '✓'} ${e.label}  ${e.did.join(', ') || (e.todo.length ? '' : 'in step')}${e.todo.map((x) => `\n    ${x.why}${x.command ? `  →  ${x.command}` : ''}`).join('')}${e.notes.map((n) => `\n    ${n}`).join('')}`);

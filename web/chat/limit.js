@@ -12,7 +12,7 @@ import { hasPlan } from './words.js';
 /** ctx: { id (the chat's), v (its state), moveProvider(), profiles? (this computer's; the store's by default) } */
 export const LIMIT_ACTIONS = [
   (ctx) => accountLimitActions({
-    kind: 'chat', chatId: ctx.id, name: `chat:${ctx.id}`, display: ctx.v.title || 'This chat', profile: ctx.v.profile,
+    kind: 'chat', chatId: ctx.id, name: `chat:${ctx.id}`, display: ctx.v.title || 'This session', profile: ctx.v.profile,
     limit: ctx.v.limit, limitAt: (ctx.v.limit && ctx.v.limit.at) || null, machine: machine.current,
   }, ctx.profiles || (store.data && store.data.profiles) || []),
   (ctx) => ({ label: 'Move to another provider', icon: 'swap', primary: true, run: ctx.moveProvider }),

@@ -1,0 +1,157 @@
+{"line":"echo a#b; rm -rf y","want":"true"}
+{"line":"echo ${x#y}; rm -rf y","want":"true"}
+{"line":"echo ${x##*/}; rm -rf y","want":"true"}
+{"line":"echo $#; rm -rf y","want":"true"}
+{"line":"echo ${#x}; rm -rf y","want":"true"}
+{"line":"x=1; rm -rf y","want":"true"}
+{"line":"echo \\#x; rm -rf y","want":"true"}
+{"line":"echo \"a\"#b; rm -rf y","want":"true"}
+{"line":"echo 'a'#b; rm -rf y","want":"true"}
+{"line":"echo {#}; rm -rf y","want":"true"}
+{"line":"ls *#*; rm -rf y","want":"true"}
+{"line":"echo a,#b; rm -rf y","want":"true"}
+{"line":"echo ~#; rm -rf y","want":"true"}
+{"line":"curl http://x/#/y; rm -rf y","want":"true"}
+{"line":"echo [#]; rm -rf y","want":"true"}
+{"line":"echo $((1))#; rm -rf y","want":"true"}
+{"line":"x=1 #c\nrm -rf y","want":"true"}
+{"line":"echo 'a' #b\nrm -rf y","want":"true"}
+{"line":"# heading\nrm -rf y","want":"true"}
+{"line":"echo a\r# ; rm -rf y","want":"true"}
+{"line":"x=1 #c; rm -rf y","want":"false"}
+{"line":"echo hi # rm -rf y","want":"false"}
+{"line":"ls #; rm -rf y","want":"false"}
+{"line":"true;# rm -rf y","want":"false"}
+{"line":"bash -c \"rm -rf x\"","want":"true"}
+{"line":"true; bash -c \"rm -rf x\"","want":"true"}
+{"line":"true;bash -c \"rm -rf x\"","want":"true"}
+{"line":"true && bash -c \"rm -rf x\"","want":"true"}
+{"line":"true || bash -c \"rm -rf x\"","want":"true"}
+{"line":"true | bash -c \"rm -rf x\"","want":"true"}
+{"line":"true & bash -c \"rm -rf x\"","want":"true"}
+{"line":"true\nbash -c \"rm -rf x\"","want":"true"}
+{"line":"( bash -c \"rm -rf x\" )","want":"true"}
+{"line":"{ bash -c \"rm -rf x\"; }","want":"true"}
+{"line":"if bash -c \"rm -rf x\"; then :; fi","want":"true"}
+{"line":"if true; then bash -c \"rm -rf x\"; fi","want":"true"}
+{"line":"while bash -c \"rm -rf x\"; do break; done","want":"true"}
+{"line":"until bash -c \"rm -rf x\"; do break; done","want":"true"}
+{"line":"do bash -c \"rm -rf x\"","want":"true"}
+{"line":"! bash -c \"rm -rf x\"","want":"true"}
+{"line":"x=$(bash -c \"rm -rf x\")","want":"true"}
+{"line":"`bash -c \"rm -rf x\"`","want":"true"}
+{"line":"f() { bash -c \"rm -rf x\"; }","want":"true"}
+{"line":"coproc bash -c \"rm -rf x\"","want":"true"}
+{"line":"time bash -c \"rm -rf x\"","want":"true"}
+{"line":"case a in a) bash -c \"rm -rf x\";; esac","want":"true"}
+{"line":"sudo sh -c \"rm -rf x\"","want":"true"}
+{"line":"sudo -u root sh -c \"rm -rf x\"","want":"true"}
+{"line":"sudo -E -u root sh -c \"rm -rf x\"","want":"true"}
+{"line":"doas -u r sh -c \"rm -rf x\"","want":"true"}
+{"line":"env sh -c \"rm -rf x\"","want":"true"}
+{"line":"env A=1 sh -c \"rm -rf x\"","want":"true"}
+{"line":"env -u HOME sh -c \"rm -rf x\"","want":"true"}
+{"line":"env -i PATH=/bin sh -c \"rm -rf x\"","want":"true"}
+{"line":"nice sh -c \"rm -rf x\"","want":"true"}
+{"line":"nice -n 10 sh -c \"rm -rf x\"","want":"true"}
+{"line":"nohup sh -c \"rm -rf x\"","want":"true"}
+{"line":"timeout 5 sh -c \"rm -rf x\"","want":"true"}
+{"line":"timeout -s KILL 5 sh -c \"rm -rf x\"","want":"true"}
+{"line":"time sh -c \"rm -rf x\"","want":"true"}
+{"line":"setsid sh -c \"rm -rf x\"","want":"true"}
+{"line":"stdbuf -oL sh -c \"rm -rf x\"","want":"true"}
+{"line":"stdbuf -o L sh -c \"rm -rf x\"","want":"true"}
+{"line":"ionice -c3 sh -c \"rm -rf x\"","want":"true"}
+{"line":"xargs sh -c \"rm -rf x\"","want":"true"}
+{"line":"xargs -0 sh -c \"rm -rf x\"","want":"true"}
+{"line":"xargs -a f sh -c \"rm -rf x\"","want":"true"}
+{"line":"command sh -c \"rm -rf x\"","want":"true"}
+{"line":"exec sh -c \"rm -rf x\"","want":"true"}
+{"line":"exec -a n sh -c \"rm -rf x\"","want":"true"}
+{"line":"busybox sh -c \"rm -rf x\"","want":"true"}
+{"line":"npx sh -c \"rm -rf x\"","want":"true"}
+{"line":"eatmydata sh -c \"rm -rf x\"","want":"true"}
+{"line":"fakeroot sh -c \"rm -rf x\"","want":"true"}
+{"line":"chroot /srv sh -c \"rm -rf x\"","want":"true"}
+{"line":"strace -f sh -c \"rm -rf x\"","want":"true"}
+{"line":"flock /tmp/l sh -c \"rm -rf x\"","want":"true"}
+{"line":"unshare -r sh -c \"rm -rf x\"","want":"true"}
+{"line":"nsenter -t 1 -m sh -c \"rm -rf x\"","want":"true"}
+{"line":"systemd-run --user sh -c \"rm -rf x\"","want":"true"}
+{"line":"docker exec box sh -c \"rm -rf x\"","want":"true"}
+{"line":"docker exec -it box sh -c \"rm -rf x\"","want":"true"}
+{"line":"docker run --rm img sh -c \"rm -rf x\"","want":"true"}
+{"line":"docker run --rm -v \"$PWD\":/app img sh -c \"rm -rf x\"","want":"true"}
+{"line":"docker compose exec web sh -c \"rm -rf x\"","want":"true"}
+{"line":"podman exec c sh -c \"rm -rf x\"","want":"true"}
+{"line":"kubectl exec pod -- sh -c \"rm -rf x\"","want":"true"}
+{"line":"ssh host sh -c \"rm -rf x\"","want":"true"}
+{"line":"vagrant ssh -c sh -c \"rm -rf x\"","want":"true"}
+{"line":"lxc exec c -- sh -c \"rm -rf x\"","want":"true"}
+{"line":"firejail sh -c \"rm -rf x\"","want":"true"}
+{"line":"npm exec -- sh -c \"rm -rf x\"","want":"true"}
+{"line":"pnpm exec sh -c \"rm -rf x\"","want":"true"}
+{"line":"yarn exec sh -c \"rm -rf x\"","want":"true"}
+{"line":"uv run sh -c \"rm -rf x\"","want":"true"}
+{"line":"poetry run sh -c \"rm -rf x\"","want":"true"}
+{"line":"bundle exec sh -c \"rm -rf x\"","want":"true"}
+{"line":"su root -c sh -c \"rm -rf x\"","want":"true"}
+{"line":"git add . && git commit -m \"rm old files\"","want":"false"}
+{"line":"grep -rn \"rm -rf\" .","want":"false"}
+{"line":"grep -rn \"unlink(\" .","want":"false"}
+{"line":"man bash | grep \"rm -rf\"","want":"false"}
+{"line":"echo node \"rm\"","want":"false"}
+{"line":"which python3 && echo \"rm\"","want":"false"}
+{"line":"apt install at && echo \"rm\"","want":"false"}
+{"line":"brew info node && echo \"truncate\"","want":"false"}
+{"line":"ls -la sh bash \"rm\"","want":"false"}
+{"line":"git log -- . \":(exclude)rm\"","want":"false"}
+{"line":"cp -r . \"../rm\"","want":"false"}
+{"line":"docker build -t app . && echo \"rm the image later\"","want":"false"}
+{"line":"npm i -D concurrently && echo \"rm\"","want":"false"}
+{"line":"source .env && echo \"rm done\"","want":"false"}
+{"line":". venv/bin/activate && echo \"rm\"","want":"false"}
+{"line":"python3 -c \"import os; os.system('rm -rf x')\"","want":"true"}
+{"line":"python -c \"import subprocess; subprocess.run(['rm','-rf','x'])\"","want":"true"}
+{"line":"perl -e 'system(\"rm -rf x\")'","want":"true"}
+{"line":"ruby -e 'system(\"rm -rf x\")'","want":"true"}
+{"line":"node -e \"require('child_process').execSync('rm -rf x')\"","want":"true"}
+{"line":"php -r 'system(\"rm -rf x\");'","want":"true"}
+{"line":"awk 'BEGIN{system(\"rm -rf x\")}'","want":"true"}
+{"line":"tmux new-session -d 'rm -rf x'","want":"true"}
+{"line":"screen -dm sh -c 'rm -rf x'","want":"true"}
+{"line":"npx -c 'rm -rf x'","want":"true"}
+{"line":"nodemon --exec 'rm -rf x'","want":"true"}
+{"line":"npx concurrently 'rm -rf x' 'vite'","want":"true"}
+{"line":"csh -c 'rm -rf x'","want":"true"}
+{"line":"tcsh -c 'rm -rf x'","want":"true"}
+{"line":"sg grp -c 'rm -rf x'","want":"true"}
+{"line":"echo 'rm -rf x' | at now","want":"true"}
+{"line":"echo 'rm -rf x' | batch","want":"true"}
+{"line":"at now <<< 'rm -rf x'","want":"true"}
+{"line":"python3 -c \"print('rm')\"","want":"false"}
+{"line":"python3 -c \"print(1)\"","want":"false"}
+{"line":"node -e \"console.log('unlink')\"","want":"false"}
+{"line":"awk '/rm -rf/ {print}' log.txt","want":"false"}
+{"line":"awk '{print \"rm \" $1}' list.txt","want":"false"}
+{"line":"npx vitest -t \"truncate long titles\"","want":"false"}
+{"line":"npx jest -t \"removes the item with rm\"","want":"false"}
+{"line":"npx jest -t \"rm\"","want":"false"}
+{"line":"python3 -m pytest -k \"unlink or truncate\"","want":"false"}
+{"line":"node scripts/build.js \"rm\"","want":"false"}
+{"line":"npx tsx src/cli.ts \"unlink\"","want":"false"}
+{"line":"npx prettier --write \"src/**/*.ts\"","want":"false"}
+{"line":"php artisan route:list | grep \"rm\"","want":"false"}
+{"line":"ruby -v","want":"false"}
+{"line":"perl -pi -e 's/rm -rf/rm -r/' build.sh","want":"false"}
+{"line":"tmux ls","want":"false"}
+{"line":"npx eslint . --rule \"no-restricted-syntax: [rm]\"","want":"false"}
+{"line":"node -e \"console.log(require('./package.json').scripts.clean)\"","want":"false"}
+{"line":"echo $((1<<2))\nrm -rf x","want":"true"}
+{"line":"((x <<= 1))\nrm -rf x","want":"true"}
+{"line":"echo $(( 1 << 3 )); cat <<EOF\nhi\nEOF\nrm -rf x","want":"true"}
+{"line":"let \"a<<=1\"\nrm -rf x","want":"true"}
+{"line":"echo $((1+2)) && bash <<EOF\nrm -rf x\nEOF","want":"true"}
+{"line":"((a++)); bash <<EOF\nrm -rf x\nEOF","want":"true"}
+{"line":"x=$(( (1<<4) - 1 ))\nrm -rf y","want":"true"}
+{"line":"for ((i=0;i<1<<2;i++)); do rm -rf \"x$i\"; done","want":"true"}

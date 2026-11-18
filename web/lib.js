@@ -314,12 +314,16 @@ export function bytes(n) {
   return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${u[i]}`;
 }
 
+// What waits for the owner, by what is asked (the card's ask.type): a question the coding tool puts to him and a plan
+// to approve are no permission, so they do not read "OK".
+const ASK_TEXT = { question: 'Needs your answer', plan: 'Needs your approval' };
+
 /** What a session is doing, in plain words, and how urgent it is (lower = needs you sooner). */
 export function stateOf(s) {
   if (s.limit || s.runLimit) return { key: 'limit', text: 'Limit reached', rank: 1 };
   if (s.kind === 'shell') return { key: 'shell', text: 'Terminal', rank: 6 };
   switch (s.status) {
-    case 'attention': return { key: 'attention', text: 'Needs your OK', rank: 0 };
+    case 'attention': return { key: 'attention', text: (s.ask && ASK_TEXT[s.ask.type]) || 'Needs your OK', rank: 0 };
     case 'waiting': return { key: 'waiting', text: 'Waiting for your next message', rank: 2 };
     case 'starting': return { key: 'starting', text: 'Starting', rank: 3 };
     // `background`: the reply ended, but subagents or a workflow go on and Claude continues when they finish.
@@ -395,6 +399,8 @@ export function profileState(p) {
   if (p.signedIn === false) return { key: 'signin', text: 'Not signed in' };
   // A provider that serves no coding tool this computer's Hoprig offers (src/profiles.mjs): kept, never used.
   if (p.unusable) return { key: 'unusable', text: 'Not used by this version of Hoprig' };
+  // Its PRERUN starts a gateway that was removed (src/server/accounts.mjs): its sessions end at the start.
+  if (p.gatewayGone) return { key: 'unusable', text: `Its gateway ${p.gatewayGone.id} ${p.gatewayGone.notLoaded ? 'was not loaded' : 'was removed'}` };
   // A Codex sign-in when Codex is not installed (or does not say whether it is signed in).
   if (p.kind === 'chatgpt' && p.signedIn == null) return { key: 'signin', text: 'Codex is not installed' };
   if (p.limited) {
@@ -435,9 +441,10 @@ function sheetElement() {
 
 /**
  * Open a sheet. `build(close)` returns its content. Resolves with the value passed to close(), or null. A sheet
- * opened while another is open takes its place: the earlier one resolves (null) at once.
+ * opened while another is open takes its place: the earlier one resolves (null) at once. `wide`: room for two
+ * columns on a desktop; `tall`: a form with several rows of choices (the whole height on a phone).
  */
-export function openSheet({ title, subtitle, wide = false }, build) {
+export function openSheet({ title, subtitle, wide = false, tall = false }, build) {
   const d = sheetElement();
   // The sheet that is open, or was closed a moment ago and not reported yet, is answered now; its report is skipped.
   const before = sheetNow;
@@ -455,6 +462,7 @@ export function openSheet({ title, subtitle, wide = false }, build) {
       d.close();
     };
     d.classList.toggle('wide', wide);
+    d.classList.toggle('sheet-tall', tall);
     fill(d,
       h('div.sheet-grip', { 'aria-hidden': 'true' }),
       h('header.sheet-head',
@@ -504,14 +512,18 @@ export function promptSheet({ title, text, value = '', ok = 'OK', placeholder = 
 }
 
 /** A list of choices: [{ value, label, sub, icon, badge, disabled, current }]. */
-export function chooseSheet({ title, subtitle, items }) {
-  return openSheet({ title, subtitle }, (close) =>
-    h('div.choice-list', items.map((it) =>
-      h(`button.choice${it.current ? '.current' : ''}${it.danger ? '.danger' : ''}`, { type: 'button', disabled: it.disabled, onclick: () => close(it.value) },
-        it.icon ? h('span.choice-icon', icon(it.icon)) : null,
-        h('span.choice-main', h('span.choice-label', it.label, it.badge ? h('span.badge', it.badge) : null), it.sub ? h('span.choice-sub', it.sub) : null),
-        it.current ? h('span.choice-end', icon('check')) : h('span.choice-end', icon('chevronRight'))),
-    )));
+/** `more`: { label, items } of rare choices, folded under the list (open when the current one is among them). */
+export function chooseSheet({ title, subtitle, items, more = null }) {
+  return openSheet({ title, subtitle }, (close) => {
+    const row = (it) => h(`button.choice${it.current ? '.current' : ''}${it.danger ? '.danger' : ''}`, { type: 'button', disabled: it.disabled, onclick: () => close(it.value) },
+      it.icon ? h('span.choice-icon', icon(it.icon)) : null,
+      h('span.choice-main', h('span.choice-label', it.label, it.badge ? h('span.badge', it.badge) : null), it.sub ? h('span.choice-sub', it.sub) : null),
+      it.current ? h('span.choice-end', icon('check')) : h('span.choice-end', icon('chevronRight')));
+    const list = h('div.choice-list', items.map(row));
+    if (!more || !more.items.length) return list;
+    return [list, h('details.adv.choice-more', { open: more.items.some((it) => it.current) },
+      h('summary', more.label), h('div.choice-list', more.items.map(row)))];
+  });
 }
 
 // ---------- toasts ----------
@@ -641,41 +653,90 @@ export function limitBox(s, profiles, after) {
 
 // ---------- a question waiting for your OK (the session page's banner, Home's card, Workspace's row) ----------
 
+// The question the owner answered a moment ago, per session. The page learns what the coding tool did with the
+// answer only with its next look at the sessions; until then the card still says "needs your OK", and a second press
+// would answer whatever came next. So the answers are not offered again until the card says something else: the tool
+// went on, or asked again (another `askAt`). The server types an answer only into a permission question, so the
+// question is answered; should the card say nothing new for ten seconds all the same, the answers return.
+const ANSWERED_MS = 10_000;
+const answered = new Map(); // `${computer}|${session}` → { ask, until }
+const askKey = (s) => `${s.machine ?? ''}|${s.name}`;
+const askOf = (s) => s.askAt || s.statusAt || 0;
+
+/** The owner answered this session's question a moment ago and its card has not changed since. */
+export function answeredNow(s, now = Date.now()) {
+  const a = answered.get(askKey(s));
+  if (a && a.ask === askOf(s) && now < a.until) return true;
+  answered.delete(askKey(s));
+  return false;
+}
+
 /**
  * The answers to Claude Code's permission question: Allow (Enter takes its first answer, "Yes"), the "Yes, and don't
  * ask again …" answer when the question on screen has one (s.always, read by the server from the screen; picked by
- * its number), and Do not allow (Esc). `after` runs once an answer was sent. Null unless the session needs an OK.
+ * its number), and Do not allow (Esc). `after` runs once an answer was sent, and again a moment later (the coding
+ * tool has gone on by then). Null unless the session needs an OK.
+ * A question Claude puts to the owner and a plan to approve (s.ask.type, from the hook) are no permission: there is
+ * nothing to allow, and Enter would pick an answer nobody read. They are answered in the terminal, so a card leads
+ * there; the session page says so itself (`here`).
  * A chat (s.ask, from src/chat/feature.mjs) gets the same: Allow, Allow in this chat, Do not allow; a question or a
  * plan to approve is answered in the chat itself, so its card leads there.
  */
-export function permissionActions(s, after) {
+export function permissionActions(s, after, { here = false } = {}) {
   if (stateOf(s).key !== 'attention') return null;
   if (s.kind === 'chat') return chatAnswers(s, after);
   // The answer keys are Claude Code's: in Codex and OpenCode the owner answers in the terminal.
   if (!isClaudeCard(s)) return null;
+  const type = s.ask && s.ask.type;
+  if (type === 'question' || type === 'plan') {
+    if (here) return h('p.ok-how', type === 'plan' ? 'Read the plan in the terminal below and choose there.' : 'Answer in the terminal below: the arrow keys choose, Enter takes the answer.');
+    return h('div.ok-actions', h('a.btn.small.primary', { href: link(`#/s/${encodeURIComponent(s.name)}`, s.machine ?? machine.current), onclick: (e) => e.stopPropagation() },
+      icon('terminal', { size: 16 }), h('span', type === 'plan' ? 'Read the plan' : 'Answer')));
+  }
+  const sent = () => h('p.ok-how', 'Your answer was sent.');
+  if (answeredNow(s)) return sent();
+  // The server types an answer only into the dialog that shows this card's command or file, and only while one asker
+  // waits (server.mjs): with more, or with nothing to find on the screen, the owner answers in the terminal.
+  const what = s.ask && typeof s.ask.what === 'string' ? s.ask.what : '';
+  if (!what || (s.ask && s.ask.waiting > 1)) {
+    const why = s.ask && s.ask.waiting > 1 ? 'More than one question waits: answer them in the terminal' : 'Answer in the terminal';
+    if (here) return h('p.ok-how', `${why} below.`);
+    return h('div.ok-actions', h('p.ok-how', `${why}.`), h('a.btn.small.primary', { href: link(`#/s/${encodeURIComponent(s.name)}`, s.machine ?? machine.current), onclick: (e) => e.stopPropagation() },
+      icon('terminal', { size: 16 }), h('span', 'Answer')));
+  }
+  const box = h('div.ok-actions');
+  const buttons = [];
   const answer = (body, said) => async (e) => {
     e.preventDefault();
     e.stopPropagation(); // on a card: answer, do not open the session
-    const b = e.currentTarget;
-    b.disabled = true;
+    for (const b of buttons) b.disabled = true;
     try {
-      await api(atOf(s, `/api/sessions/${encodeURIComponent(s.name)}/key`), { ...body, owner: true }); // the owner's own answer (server.mjs)
+      // `owner`: the owner's own answer; `question`: typed only while a permission question is on the screen, `about`:
+      // one that shows this command or file (server.mjs).
+      await api(atOf(s, `/api/sessions/${encodeURIComponent(s.name)}/key`), { ...body, owner: true, question: true, about: what });
+      answered.set(askKey(s), { ask: askOf(s), until: Date.now() + ANSWERED_MS });
+      fill(box, sent());
       toast(said);
+      // Now, soon (the tool has gone on, or asked again) and once the wait is over (it did neither: the answers return).
       after?.();
+      for (const ms of [700, 1800, 4000, ANSWERED_MS + 100]) setTimeout(() => after?.(), ms);
     } catch (err) {
+      for (const b of buttons) b.disabled = false;
       toast(err.message, { kind: 'error' });
-    } finally {
-      b.disabled = false;
+      after?.(); // the question on the screen is not the one this card showed: look again
     }
   };
   const a = s.always && /^[1-9]$/.test(s.always.key) ? s.always : null;
-  // Claude's own words without "Yes, (and)": "Allow all edits during this session", "Allow, and don't ask again for …".
-  const always = a ? (/^allow\b/i.test(a.label) ? a.label : `Allow, and ${a.label.charAt(0).toLowerCase()}${a.label.slice(1)}`) : '';
-  return h('div.ok-actions',
-    h('button.btn.small.primary', { type: 'button', onclick: answer({ key: 'Enter' }, 'Allowed') }, icon('check', { size: 16 }), h('span', 'Allow')),
-    a ? h('button.btn.small.secondary', { type: 'button', title: a.text, onclick: answer({ key: a.key, expect: a.text }, 'Allowed, and Claude will not ask again') },
-      icon('checkAll', { size: 16 }), h('span', always)) : null,
+  // Claude's own words without "Yes, (and)": "Always allow access to … from this project", "Allow reading from …",
+  // "Allow, and don't ask again for …".
+  const always = a ? (/^(?:always\s+)?allow\b/i.test(a.label) ? a.label : `Allow, and ${a.label.charAt(0).toLowerCase()}${a.label.slice(1)}`) : '';
+  buttons.push(
+    // Allow is the number of "Yes": it takes that answer wherever the arrow is (Enter would take the one it is on).
+    h('button.btn.small.primary', { type: 'button', onclick: answer({ key: '1' }, 'Allowed') }, icon('check', { size: 16 }), h('span', 'Allow')),
+    ...(a ? [h('button.btn.small.secondary', { type: 'button', title: a.text, onclick: answer({ key: a.key, expect: a.text }, 'Allowed, and Claude will not ask again') },
+      icon('checkAll', { size: 16 }), h('span', always))] : []),
     h('button.btn.small.secondary', { type: 'button', onclick: answer({ key: 'Escape' }, 'Not allowed') }, icon('x', { size: 16 }), h('span', 'Do not allow')));
+  return fill(box, buttons);
 }
 
 function chatAnswers(s, after) {
@@ -703,8 +764,8 @@ function chatAnswers(s, after) {
   return h('div.ok-actions',
     h('button.btn.small.primary', { type: 'button', onclick: answer({ allow: true }, 'Allowed') }, icon('check', { size: 16 }), h('span', 'Allow')),
     // The chat card's words (web/chat/asks.js), so one OK reads the same on Home and in the chat.
-    ask.canAlways ? h('button.btn.small.secondary', { type: 'button', title: ask.always === 'edits' ? 'Claude changes files without asking for the rest of this chat' : ask.alwaysText || 'The same kind of request is allowed for the rest of this chat', onclick: answer({ allow: true, always: true }, 'Allowed for this chat') },
-      icon('checkAll', { size: 16 }), h('span', ask.always === 'edits' ? 'Allow all edits in this chat' : 'Allow in this chat')) : null,
+    ask.canAlways ? h('button.btn.small.secondary', { type: 'button', title: ask.always === 'edits' ? 'Claude changes files without asking for the rest of this session' : ask.alwaysText || 'The same kind of request is allowed for the rest of this session', onclick: answer({ allow: true, always: true }, 'Allowed for this session') },
+      icon('checkAll', { size: 16 }), h('span', ask.always === 'edits' ? 'Allow all edits in this session' : 'Allow in this session')) : null,
     h('button.btn.small.secondary', { type: 'button', onclick: answer({ allow: false }, 'Not allowed') }, icon('x', { size: 16 }), h('span', 'Do not allow')));
 }
 

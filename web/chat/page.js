@@ -12,15 +12,16 @@ import { pageNotify, store } from '../store.js';
 import { forgetHere, named, wayBack, windowWay } from '../trail.js';
 import { agentsStrip } from './agents.js';
 import { createComposer } from './composer.js';
-import { createHeader } from './header.js';
+import { createHeader, openEditor } from './header.js';
 import { installKeys, shortcutsSheet } from './keys.js';
 import { limitCard } from './limit.js';
+import { createRail, folderNews } from './rail.js';
 import { chooseRewind, historySheet, rewindSheet } from './sheets.js';
 import { createStatusLine } from './statusline.js';
 import { follow } from './stream.js';
 import { createTimeline } from './timeline.js';
 import { opensAsChat } from './start.js';
-import { canCompact, caps as capsOf, failText, toolWord, turnRuns } from './words.js';
+import { beforeState, billed, canCompact, caps as capsOf, failText, goneWords, planModes, toolWord, turnRuns } from './words.js';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -35,7 +36,7 @@ function viewChat({ sub }) {
   document.body.classList.remove('has-nav');
   document.body.classList.add('chat-mode');
   store.viewing = `chat:${id}`;
-  named('Chat');
+  named('App');
   // The page you came from (trail.js), else Home; in a window of the desktop the way back stays in its app, and a
   // window that started on this chat has none (null).
   const inWindow = windowWay();
@@ -75,7 +76,7 @@ function viewChat({ sub }) {
     },
     // Clear: a new chat in the same folder with the same settings; this conversation is kept (and can be resumed).
     async clear() {
-      if (!(await confirmSheet({ title: 'Clear: start a new chat?', text: 'A new chat starts in this folder with the same coding tool, provider, mode, model, effort and ultracode. This conversation is kept: you can continue it later.', ok: 'New chat' }))) return;
+      if (!(await confirmSheet({ title: 'Clear: start a new session?', text: 'A new session starts in this folder with the same coding tool, provider, mode, model, effort and ultracode. This conversation is kept: you can continue it later.', ok: 'New session' }))) return;
       try {
         const r = await api('/api/chats', { dir: v.cwd, tool: v.engine ? v.engine.id : undefined, profile: v.profile.name, model: v.model, effort: v.effort, permissionMode: v.permissionMode });
         if (v.ultracode) await api(`/api/chats/${r.id}/settings`, { ultracode: true });
@@ -87,7 +88,7 @@ function viewChat({ sub }) {
       }
     },
     async close() {
-      if (!(await confirmSheet({ title: 'Close this chat?', text: `${toolWord(v)} stops if it is working. The conversation is kept: you can continue it later from New session → Options → Conversation.`, ok: 'Close', danger: true }))) return;
+      if (!(await confirmSheet({ title: 'Archive this session?', text: `${toolWord(v)} stops if it is working, and the session leaves Home. The conversation is kept: continue it later from Earlier conversations in a session of this folder, or New session → Options → Conversation.`, ok: 'Archive' }))) return;
       try {
         await api(`${A}/close`, {});
         store.refresh();
@@ -106,7 +107,7 @@ function viewChat({ sub }) {
         return;
       }
       const tool = v && v.engine && v.engine.id !== 'claude' ? v.engine.label : 'Claude Code';
-      if (!(await confirmSheet({ title: 'Open in a terminal?', text: `The same conversation continues in a terminal session, with ${tool} as you know it. This chat closes; you can open the session as a chat again from its menu.`, ok: 'Open in terminal' }))) return;
+      if (!(await confirmSheet({ title: 'Open in the Terminal?', text: `The same conversation continues in a terminal session, with ${tool} as you know it. The App closes it here; you can open the session in the App again from its menu.`, ok: 'Open in Terminal' }))) return;
       try {
         const { name, existing } = await api(`${A}/terminal`, {});
         store.refresh();
@@ -127,8 +128,9 @@ function viewChat({ sub }) {
     history: () => v && historySheet({ A, v }),
     rewind: () => v && chooseRewind({ A, cwd: v.cwd, messages: timeline.messages(), conversation: canFork(), put: (t) => composer.putBack(t) }),
     shortcuts: () => shortcutsSheet(),
+    tasks: () => strip.open(), // the more menu's Background tasks (the strip is made below; called after)
     async take() {
-      if (!(await confirmSheet({ title: 'Continue here?', text: `${toolWord(v)} stops in the terminal (the terminal stays, as a plain shell) and the conversation goes on in this chat. A reply the terminal is writing right now is cut off.`, ok: 'Continue here' }))) return;
+      if (!(await confirmSheet({ title: 'Continue here?', text: `${toolWord(v)} stops in the terminal (the terminal stays, as a plain shell) and the conversation goes on here in the App. A reply the terminal is writing right now is cut off.`, ok: 'Continue here' }))) return;
       try {
         await api(`${A}/take`, {});
         toast('The conversation continues here');
@@ -139,7 +141,17 @@ function viewChat({ sub }) {
   };
 
   // ---------- layout ----------
-  const header = createHeader({ A, way: inWindow === null ? null : way, act });
+  // The session menu's Transcript view sets the timeline's (drawn below); the status line and the rail say the cost in
+  // Verbose only. The rail's Hide / Show is in the head (the rail is drawn below).
+  const view = {
+    now: () => timeline.view(), thought: () => timeline.thought(),
+    set(x) {
+      timeline.setView(x);
+      if (v) state({});
+    },
+  };
+  const railCtl = { hidden: () => rail.hidden(), toggle: () => rail.toggle() };
+  const header = createHeader({ A, way: inWindow === null ? null : way, act, view, rail: railCtl });
   const notes = h('div.chat-notes'); // a terminal runs it, a limit
   const conn = h('div.chat-conn'); // the connection
   const scroll = h('div.chat-scroll', { role: 'region', 'aria-label': 'Conversation', tabindex: '-1' });
@@ -149,6 +161,7 @@ function viewChat({ sub }) {
   const canFork = () => !!caps().fork;
   const timeline = createTimeline({
     scroll, A, cwd: () => (v ? v.cwd : ''), stopTask: act.stopTask, after: () => store.refresh(), who: () => toolWord(v), canStopTask: () => !v || caps().stopTask !== false,
+    modes: () => planModes(v), // a plan's answers: auto mode only once the session showed it has it
     canRewind: () => !v || canRewind(), // before the first state: drawn, and hidden by the state's class if not
     rewind: (m) => rewindSheet({ A, cwd: v ? v.cwd : '', m, conversation: canFork(), put: (t) => composer.putBack(t) }),
   });
@@ -159,19 +172,30 @@ function viewChat({ sub }) {
   const own = () => [
     // Compact is Claude Code's own, and a message: not where the coding tool has none, nor while the box is read only.
     canCompact(v) ? { name: 'compact', description: `${toolWord(v)} goes on from a summary of the conversation, which frees context`, run: act.compact } : null,
-    { name: 'clear', description: 'A new chat in this folder with the same settings; this one is kept', run: act.clear },
+    { name: 'clear', description: 'A new session in this folder with the same settings; this one is kept', run: act.clear },
     { name: 'model', description: 'Choose the model', run: () => composer.choose('model') },
     { name: 'effort', description: `Choose how hard ${toolWord(v)} thinks`, run: () => composer.choose('effort') },
     { name: 'mode', description: `What ${toolWord(v)} may do without asking`, run: () => composer.chooseMode() },
     { name: 'history', description: 'Earlier conversations of this folder', run: act.history },
     canRewind() ? { name: 'rewind', description: 'Go back to before one of your messages: the files, the conversation or both', run: act.rewind } : null,
-    v && v.terminal ? { name: 'terminal', description: 'Go to the terminal that runs this conversation', run: act.terminal } : { name: 'terminal', description: 'Open this conversation in a terminal', run: act.terminal },
+    v && v.terminal ? { name: 'terminal', description: 'Go to the terminal that runs this conversation', run: act.terminal } : { name: 'terminal', description: 'Open this conversation in the Terminal', run: act.terminal },
     { name: 'help', description: 'Keyboard shortcuts', run: act.shortcuts },
   ].filter(Boolean);
   const composer = createComposer({ A, id, stop: act.stop, compact: act.compact, own });
   const status = createStatusLine();
   const dock = h('div.chat-dock', h('div.chat-col', todos, strip.el, composer.el, status.el));
-  const wrap = h('div.chat-wrap', header.el, notes, conn, h('div.chat-mid', scroll, timeline.downBtn), dock);
+  const rail = createRail({
+    A, view: () => timeline.view(), computer: () => (store.data && store.data.machineLabel) || 'This computer',
+    stop: (taskId) => act.stopTask(taskId), canStop: () => !v || caps().stopTask !== false, jump: (toolId) => timeline.jump(toolId),
+    changes: () => v && openEditor(v.cwd, 'changes'), providers: () => header.providerMenu(), tasks: () => strip.open(),
+    onToggle: (off) => {
+      wrap.classList.toggle('chat-rail-off', off);
+      if (v) header.paint(v); // its Hide / Show button says the other now
+    },
+  });
+  // The chat and its dock in one column, the session rail beside them on a wide screen (rail.css).
+  const wrap = h(`div.chat-wrap${rail.hidden() ? '.chat-rail-off' : ''}`, header.el, notes, conn,
+    h('div.chat-body', h('div.chat-main', h('div.chat-mid', scroll, timeline.downBtn), dock), rail.el));
   fill(app, wrap);
   fill(timeline.el.querySelector('.chat-list'), h('div.chat-loading', h('div.spinner', { 'aria-hidden': 'true' })));
 
@@ -215,8 +239,8 @@ function viewChat({ sub }) {
     if (v.cwd && v.cwd !== folder) timeline.folder(v.cwd); // cards drawn before the folder was known
     if (before && before !== v.status) store.refresh(); // Home's copy is old: an OK is needed, or was given
     header.paint(v);
-    pageNotify.setTitleBase(v.title || 'Chat');
-    named(v.title || 'Chat');
+    pageNotify.setTitleBase(v.title || 'App');
+    named(v.title || 'App');
     const ro = !!v.terminal;
     // Its coding tool was turned off since the chat opened: it runs nothing, and the page says so instead of inviting
     // a message (what OpenCode's server still runs is shown, else nothing: no empty intro either).
@@ -232,10 +256,12 @@ function viewChat({ sub }) {
       limitCard(v, { id, moveProvider: header.providerMenu }));
     wrap.classList.toggle('chat-no-rewind', !canRewind());
     composer.paint(v);
-    status.paint(v);
+    status.paint(v, { view: timeline.view() });
+    rail.paint(v);
     strip.paint(v.tasks);
     timeline.tasks(v.tasks);
     timeline.liveState(v.live);
+    timeline.billed(billed(v));
     if (Array.isArray(v.pending)) timeline.pending(v.pending);
     paintTodos(v.todos);
   }
@@ -244,6 +270,7 @@ function viewChat({ sub }) {
   let said = false; // the conversation has a message: there is something to continue
   function gone(e) {
     unfollow();
+    rail.stop(); // the rail is not drawn any more
     unkeys(); // Esc, Shift+Tab, a number: the page's keys act on nothing now (gone only comes after a request)
     forgetHere(); // a chat that is not open any more is never a way back
     // What is known of it: as the server remembers a chat it closed (it names the conversation only when there is one
@@ -268,11 +295,11 @@ function viewChat({ sub }) {
         toast(failText(e), { kind: 'error' });
       }
     };
-    const words = was && was.terminal ? 'This chat was opened in a terminal: the conversation goes on there.' : 'This chat is not open any more: it was closed, or opened in a terminal.';
-    // Never a dead end: the terminal it went to, its conversation in a new chat, or a new chat in its folder.
+    const words = goneWords(was);
+    // Never a dead end: the terminal it went to, its conversation in a new App session, or a new session in its folder.
     const term = was && was.terminal ? h('a.btn.primary', { href: link(`#/s/${encodeURIComponent(was.terminal)}`) }, icon('terminal', { size: 18 }), h('span', 'Open its terminal')) : null;
-    const go = known ? h(`button.btn.${term ? 'secondary' : 'primary'}`, { type: 'button', onclick: () => again() }, icon('text', { size: 18 }), h('span', 'Continue in a new chat'))
-      : was && was.cwd ? h('button.btn.primary', { type: 'button', onclick: () => again(true) }, icon('plus', { size: 18 }), h('span', 'New chat in this folder')) : null;
+    const go = known ? h(`button.btn.${term ? 'secondary' : 'primary'}`, { type: 'button', onclick: () => again() }, icon('text', { size: 18 }), h('span', 'Continue in the App'))
+      : was && was.cwd ? h('button.btn.primary', { type: 'button', onclick: () => again(true) }, icon('plus', { size: 18 }), h('span', 'New session in this folder')) : null;
     const lead = term || go; // the one primary button
     // In a window of the desktop it also offers to close the window; a window that started on this chat has no way
     // back (trail.js windowWay), so closing is its way out.
@@ -292,10 +319,15 @@ function viewChat({ sub }) {
     A,
     remote: !!machine.current,
     events: (r) => {
-      // The coding tool comes before the first state on a fresh page: the events are drawn in its words.
-      if (r.engine && !(v && v.engine)) v = { ...(v || {}), engine: r.engine };
+      // On a fresh page the events come before the first state: drawn with its coding tool and modes (beforeState).
+      v = beforeState(v, r);
       said = said || (r.events || []).some((x) => x.kind === 'user');
       timeline.apply(r);
+      // A tool ran, a turn ended, a rewind of files: the rail asks what changed in the folder (and after a turn, what
+      // fills the context).
+      const news = folderNews(r);
+      if (news === 'turn') rail.turnEnded();
+      else if (news) rail.changed();
     },
     state,
     live: (list) => timeline.live(list),
@@ -332,6 +364,8 @@ function viewChat({ sub }) {
 
   return () => {
     status.stop();
+    rail.stop();
+    header.stop(); // its session menu, drawn on the page's body
     unfollow();
     store.viewing = null;
     document.body.classList.remove('chat-mode');
@@ -343,12 +377,12 @@ function viewChat({ sub }) {
   };
 }
 
-registerPage({ id: 'chat', title: 'Chat', icon: 'text', navAs: 'home', perComputer: true, render: viewChat });
+registerPage({ id: 'chat', title: 'App', icon: 'text', navAs: 'home', perComputer: true, render: viewChat });
 
-// The terminal session's "more" sheet: the same conversation as a chat (it runs in the terminal until "Continue here").
+// The terminal session's "more" sheet: the same conversation in the App (it runs in the terminal until "Continue here").
 registerSessionAction({
   id: 'open-chat',
-  label: 'Open as chat',
+  label: 'Open in the App',
   sub: 'The same conversation, without the terminal',
   icon: 'text',
   describe: (me) => {

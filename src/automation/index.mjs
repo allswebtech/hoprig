@@ -51,8 +51,10 @@ export const FAST_TICK_MS = 5_000; // while a queue or a retry waits for its mom
 export const SLOW_TICK_MS = 20_000;
 
 async function realAddons() {
-  const { ADDONS } = await import('../addons/index.mjs');
-  return ADDONS.map((a) => ({ id: a.id, title: a.title, profile: a.profile().name, status: a.status, stop: a.stop }));
+  const { allAddons } = await import('../addons/index.mjs');
+  // Only the gateways: an add-on without a profile (the public link) has nothing a session uses, and asking it for one
+  // would end every tick.
+  return allAddons().filter((a) => a.gateway && typeof a.profile === 'function').map((a) => ({ id: a.id, title: a.title, profile: a.profile().name, status: a.status, stop: a.stop }));
 }
 
 async function realAutoOrder() {

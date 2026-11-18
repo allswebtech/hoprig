@@ -8,6 +8,8 @@
 //         stashes.
 // Sync runs first, so the map is written on top of a brain that is up to date. One activity line per real change;
 // a notification only when something needs the owner, and the same list is not told again until it changes.
+// While a save of the Work list holds the brain's lock (src/work/lock.mjs), a part skips its round with the reason and
+// comes again at the next tick.
 //
 // Stored: { lastAt, lastMapAt, told, toldMap } (fingerprints of the last lists told to the owner).
 
@@ -34,7 +36,10 @@ export async function apply(actions, ctx) {
   const sync = actions.find((x) => x.type === 'sync');
   if (sync) {
     const r = await ctx.workspaceSync({ push: sync.push }).catch((e) => ({ error: e.message }));
-    if (r.error) ctx.record({ automation: 'workspace', did: 'could not keep the workspace in step', outcome: `failed: ${r.error}` });
+    if (r.busy) {
+      ctx.record({ automation: 'workspace', did: 'skipped keeping the workspace in step this round', outcome: `skipped: ${r.busy}` });
+      data = { ...data, lastAt: 0 };
+    } else if (r.error) ctx.record({ automation: 'workspace', did: 'could not keep the workspace in step', outcome: `failed: ${r.error}` });
     else {
       const did = r.repos.flatMap((x) => x.did.map((d) => `${x.label}: ${d}`));
       const todo = r.repos.flatMap((x) => x.todo.map((t) => `${x.label}: ${t.why}`));
@@ -48,6 +53,10 @@ export async function apply(actions, ctx) {
   const map = actions.find((x) => x.type === 'map');
   if (map) {
     const r = await ctx.workspaceMap({ commit: map.commit, push: map.push }).catch((e) => ({ error: e.message, lines: [], needs: [] }));
+    if (r.busy) {
+      ctx.record({ automation: 'workspace', did: 'skipped looking at the workspace map this round', outcome: `skipped: ${r.busy}` });
+      data = { ...data, lastMapAt: 0 };
+    }
     if (r.error) ctx.record({ automation: 'workspace', did: 'could not look at the workspace map', outcome: `failed: ${r.error}` });
     // Nothing changed: no line, no noise.
     for (const l of r.lines || []) {
@@ -61,10 +70,22 @@ export async function apply(actions, ctx) {
   ctx.save(data);
 }
 
+/** Run `fn` holding the AI brain's lock, or → { busy: why, lines: [], needs: [] } while a save of the Work list has it. */
+async function inBrain(fn) {
+  const [{ tryRepoLock }, { workspaceDir }, path] = await Promise.all([import('../work/lock.mjs'), import('../workspace/layout.mjs'), import('node:path')]);
+  const release = await tryRepoLock(path.join(workspaceDir(), 'ai_brain'), { who: 'upkeep' });
+  if (!release) return { busy: 'a save of the Work list is using the AI brain right now', lines: [], needs: [] };
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
 /** The real engines, loaded only when used. */
 export async function realWorkspaceSync({ push }) {
-  return (await import('../workspace/sync.mjs')).syncAll({ push });
+  return inBrain(async () => (await import('../workspace/sync.mjs')).syncAll({ push }));
 }
 export async function realWorkspaceMap({ commit, push }) {
-  return (await import('../workspace/upkeep.mjs')).upkeepMap({ commit, push });
+  return inBrain(async () => (await import('../workspace/upkeep.mjs')).upkeepMap({ commit, push }));
 }

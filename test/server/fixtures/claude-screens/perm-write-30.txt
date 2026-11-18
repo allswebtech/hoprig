@@ -1,0 +1,32 @@
+❯ Run exactly this one Bash
+  command and nothing else:
+  touch b.txt
+
+  Did not run 1 call
+  ⎿  $ touch b.txt
+  ⎿  Interrupted · What shoul…
+
+❯ Use the Write tool to
+  create the file w.txt
+  containing the single word
+  hi. Nothing else.
+
+● Write(w.txt)
+
+──────────────────────────────
+ Create file
+ w.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1 hi
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to create w.txt?
+ ❯ 1. Yes
+   2. Yes, and switch to
+      accept edits
+      (auto-approve file
+      edits and common file
+      commands) for this
+      session (shift+tab)
+   3. No
+
+ Esc to cancel · Tab to amend

@@ -1,0 +1,32 @@
+● Reading /home/robi
+  n/projects/example
+  -shop-storefr/fron
+  tend/notes.txt
+  ⎿  /home/robin/pro
+     jects/example-s
+     hop-storefr/fro
+     ntend/notes.txt
+
+────────────────────
+ Read file
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Read(/home/robin/p
+ rojects/example-sh
+ op-storefr/fronten
+ d/notes.txt)
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to
+ proceed?
+ ❯ 1. Yes
+   2. Yes, allow
+      reading from
+      /home/robin/p
+      rojects/examp
+      le-shop-store
+      /frontend
+      during this
+      session
+   3. No
+
+ Esc to cancel ·
+ Tab to amend

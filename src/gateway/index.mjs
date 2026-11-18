@@ -1,6 +1,6 @@
-// One gateway for every computer: the AI gateways the add-ons know (TRouteAI first; any local service with Claude's
-// API that an add-on describes with `gateway: { port }`), found on this computer and on every computer this dashboard
-// knows, and used from any of them. A server feature: { name, handle, routes, states }.
+// One gateway for every computer: the AI gateways the add-ons know (src/addons/gateways.mjs: the shipped ones and the
+// owner's own; any local service with Claude's API that an add-on describes with `gateway: { port }`), found on this
+// computer and on every computer this dashboard knows, and used from any of them. A server feature: { name, handle, routes, states }.
 //
 // Sharing. The computer that runs a gateway shares it through its own dashboard, so it works on every network the
 // dashboard is reached on (the same network, Tailscale, the public link):
@@ -33,8 +33,8 @@
 // computer, so it adds no power. Writing a provider (use, add) and the list of every computer need the login here.
 //   POST /api/gateways/add { url, key, label? }   a gateway shared by a computer that is not linked
 import crypto from 'node:crypto';
-import { listening } from '../addons/trouteai.mjs';
-import { ADDONS } from '../addons/index.mjs';
+import { allAddons } from '../addons/index.mjs';
+import { listening } from '../addons/localgateway.mjs';
 import { loadConfig } from '../config.mjs';
 import { callJson } from '../machines/relay.mjs';
 import { dashboardUrl, slug } from '../machines/names.mjs';
@@ -152,7 +152,7 @@ function windowLimit(max, windowMs, now) {
  */
 export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now, perKeyPerMinute = 300, failuresPerIp = 10 } = {}) {
   const label = () => (hub ? hub.hubLabel() : 'this computer');
-  const gateways = () => (addons || ADDONS)
+  const gateways = () => (addons || allAddons())
     .filter((a) => a.gateway && typeof a.gateway.port === 'function' && GATEWAY_ID_RE.test(a.id) && a.id !== 'm')
     .map((a) => ({ id: a.id, title: a.title, port: Number(a.gateway.port()), addon: a }));
   const gatewayOr404 = (id) => {
@@ -185,8 +185,20 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
     return all.find((p) => p.name === shared) || all[0] || null;
   }
 
+  /**
+   * What answers on a gateway's port: { up, mine }. For a gateway the owner defined only the process its add-on started
+   * is the gateway (localgateway.mjs): another program on its port never gets the provider's key. For any other add-on
+   * what listens on its port is the gateway.
+   */
+  async function answering(g) {
+    if (typeof g.addon.answering === 'function') return g.addon.answering();
+    const up = await listening(g.port);
+    return { up, mine: up };
+  }
+  const foreignText = (g) => `Another program answers on ${g.title}'s port on ${label()}: Hoprig did not start it, so nothing is passed on to it.`;
+
   async function localView(g, owner) {
-    const [st, running] = await Promise.all([addonStatus(g), listening(g.port)]);
+    const [st, { mine: running }] = await Promise.all([addonStatus(g), answering(g)]);
     const p = localProvider(g);
     const shared = Boolean(p && sharedProvider(g.id) === p.name);
     return {
@@ -286,13 +298,18 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       const env = p.env;
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       return void res.end(JSON.stringify({
-        hoprig: 'gateway', gateway: g.id, title: g.title, computer: label(), running: await listening(g.port),
+        hoprig: 'gateway', gateway: g.id, title: g.title, computer: label(), running: (await answering(g)).mine,
         model: env.ANTHROPIC_MODEL || '', smallModel: env.ANTHROPIC_DEFAULT_HAIKU_MODEL || '', models: MODELS_RE.test(p.models) ? p.models : '',
       }));
     }
     if (!/^\/v1\//.test(rest)) return deny(404, 'not_found_error', 'Only Claude\'s API (/v1/…) is shared through this address.');
     // Started on demand, as for a provider on this computer itself.
-    if (!(await listening(g.port)) && typeof g.addon.start === 'function') await Promise.resolve(g.addon.start()).catch(() => null);
+    let now = await answering(g);
+    if (!now.up && typeof g.addon.start === 'function') {
+      await Promise.resolve(g.addon.start()).catch(() => null);
+      now = await answering(g);
+    }
+    if (now.up && !now.mine) return deny(503, 'api_error', foreignText(g));
     await forward(req, res, { target: { protocol: 'http:', hostname: '127.0.0.1', port: g.port, path: rest + search }, auth, failed: unreachable(`${g.title} on ${label()}`) });
   }
 

@@ -8,7 +8,7 @@
 //   five sessions in different states (working with output flowing, waiting for you, needs your OK, limit
 //   reached, waiting with a queue), a chat that changed a file and waits for your OK, three accounts with usage, Auto mode on, a second computer ("Laptop", a
 //   second demo server in its own temp folder), a schedule, a Tia conversation with a confirm card and a finished
-//   job, the TRouteAI add-on (pretend: "installing" it prints lines and installs nothing), OpenCode as a second coding
+//   job, the shipped gateway add-on (pretend: "installing" it prints lines and installs nothing), OpenCode as a second coding
 //   tool (pretend: its package file is there, its program only says that it does not run in the demo).
 // The sessions are src/demo/session.mjs (looks like Claude Code, talks to no model); Tia's engine is
 // src/demo/tia.mjs; the chat is src/demo/chat.mjs; the sign-in on the Providers page is src/demo/signin.mjs.
@@ -109,10 +109,15 @@ export function isolate(root, env = process.env) {
   return home;
 }
 
-// A pretend TRouteAI add-on: "install" prints believable lines and installs nothing.
-function demoAddon() {
+// A pretend add-on of the gateway Hoprig ships (src/addons/gateways.mjs): its own words and names, but "install"
+// prints believable lines and installs nothing, and nothing is started.
+async function demoAddon() {
+  const { SHIPPED } = await import('../addons/gateways.mjs');
+  const { localGateway } = await import('../addons/localgateway.mjs');
   const st = { installed: false, running: false };
-  const url = 'http://localhost:20017';
+  const def = SHIPPED[0];
+  const real = localGateway(def, { shipped: true });
+  const url = `http://localhost:${def.port}`;
   const lines = async (onLine, list) => {
     for (const l of list) {
       onLine(l);
@@ -120,13 +125,15 @@ function demoAddon() {
     }
   };
   return {
-    id: 'trouteai',
-    title: 'TRouteAI',
-    summary: 'A self-hosted AI gateway. Add any provider in its dashboard (OpenAI, Gemini, OpenRouter, local models…) and Claude Code can use them all as one more provider.',
-    homepage: 'https://github.com/allswebtech/trouteai',
+    id: real.id,
+    title: real.title,
+    summary: real.summary,
+    homepage: real.homepage,
+    words: real.words,
+    page: () => url,
     status: async () => ({ installed: st.installed, version: st.installed ? '1.0.8' : null, running: st.running, url }),
     install: async ({ onLine = () => {} } = {}) => {
-      await lines(onLine, ['(demo) npm install -g trouteai', 'added 41 packages in 3s', '(demo) nothing was installed: this is the demo']);
+      await lines(onLine, [`(demo) npm install -g ${def.npm}`, 'added 41 packages in 3s', '(demo) nothing was installed: this is the demo']);
       st.installed = true;
       return { ok: true };
     },
@@ -136,13 +143,13 @@ function demoAddon() {
     },
     start: async () => {
       st.running = st.installed;
-      return st.installed ? { ok: true, url } : { ok: false, url, error: 'TRouteAI is not installed' };
+      return st.installed ? { ok: true, url } : { ok: false, url, error: `${real.title} is not installed` };
     },
     stop: async () => {
       st.running = false;
       return { ok: true };
     },
-    profile: () => ({ name: 'api', label: 'API via TRouteAI', env: { ANTHROPIC_BASE_URL: url }, prerun: '', tokenVar: 'ANTHROPIC_AUTH_TOKEN', tokenHint: 'demo' }),
+    profile: () => ({ name: def.profile.name, label: def.profile.label, env: { ANTHROPIC_BASE_URL: url }, prerun: '', tokenVar: def.profile.token, tokenHint: 'demo' }),
   };
 }
 
@@ -654,7 +661,7 @@ export async function main(args = [], hooks = {}) {
     const projects = await seed(home, { secondary: o.secondary, password });
     if (!o.secondary) demoOpenCode(root);
     const { createServer } = await import('../server/server.mjs');
-    const addon = demoAddon();
+    const addon = await demoAddon();
     app = createServer({
       demo: true,
       routerstate: await demoRouterState(),
@@ -672,7 +679,7 @@ export async function main(args = [], hooks = {}) {
       // The list of computers: the sample version, not "not installed". The join line: what a hub with its own
       // certificate answers (the address in server.publicUrl below; a made-up fingerprint), so the page shows it whole.
       machines: { claudeVersion: async () => CLAUDE_INFO.installed, certOf: async () => ({ kind: 'own', pin: DEMO_PIN }) },
-      accounts: { trouteai: addon },
+      accounts: { gateways: [addon] },
       // The demo's chat talks to no model. OpenCode is on (its pages show it) but has no server here: a chat of it says
       // so in one plain line instead of a server that did not start. No provider's environment either: a chat on Auto
       // would start Auto mode's router on its usual port, outside the demo's folder, and leave it running.

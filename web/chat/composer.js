@@ -6,10 +6,10 @@
 // last message (keys.js), Escape stops Claude.
 import { icon } from '../icons.js';
 import { api, chooseSheet, fill, h, openSheet, prefs, toast } from '../lib.js';
-import { createAttachments } from './attach.js';
+import { createAttachments, queuedLine } from './attach.js';
 import { recall } from './keys.js';
 import { createMenus } from './popovers.js';
-import { MODE, canCompact, caps, contextPercent, effortName, failText, kilo, modeChip, modeInfo, modeOf, modelName, nextMode, toolWord, touchScreen, turnRuns } from './words.js';
+import { MODE, canCompact, modeMenu, caps, contextPercent, effortName, failText, kilo, modeChip, modeInfo, modeOf, modelName, nextMode, toolWord, touchScreen, turnRuns } from './words.js';
 
 // Enter sends unless the screen is touched (a phone's Enter makes a new line; its Send button sends).
 const finePointer = () => !touchScreen();
@@ -127,11 +127,12 @@ export function createComposer(o) {
 
   // ---------- the queue ----------
   function paintQueue(q) {
-    fill(queueBox, (q || []).map((m) => h('li.chat-queued',
+    // As its bubble will read: its words and its files by name (attach.js queuedLine), never the upload paths.
+    fill(queueBox, (q || []).map((m) => [m, queuedLine(m)]).map(([m, line]) => h('li.chat-queued',
       icon('clock', { size: 14 }),
-      h('span.chat-queued-text', m.text),
+      h('span.chat-queued-text', line.text, line.names.map((n) => h('span.chip.small.chat-queued-file', icon('paperclip', { size: 12 }), n))),
       h('span.chat-queued-state', m.state === 'sent' ? `${toolWord(v)} has it` : 'waiting'),
-      h('button.btn.icon.ghost.chat-unqueue', { type: 'button', 'aria-label': `Remove the queued message: ${m.text.slice(0, 60)}`, title: 'Remove from the queue', onclick: async (e) => {
+      h('button.btn.icon.ghost.chat-unqueue', { type: 'button', 'aria-label': `Remove the queued message: ${line.label.slice(0, 60)}`, title: 'Remove from the queue', onclick: async (e) => {
         e.currentTarget.disabled = true;
         try {
           await api(`${o.A}/unqueue`, { id: m.id });
@@ -157,13 +158,16 @@ export function createComposer(o) {
   }
   async function chooseMode() {
     const now = modeOf(v);
+    const item = (m) => {
+      const w = modeInfo(v, m);
+      return { value: m, label: w ? w.chip : modeChip(m), sub: w ? w.sub : '', current: m === now, danger: !!(w && w.danger) };
+    };
+    // The desktop app's order; a mode it does not offer (don't ask) waits under "More modes", never gone.
+    const { main, rare } = modeMenu(v.choices ? v.choices.modes : Object.keys(MODE));
     const pick = await chooseSheet({
       title: `What ${toolWord(v)} may do without asking`,
       subtitle: `Changes at once, also while ${toolWord(v)} works. Shift+Tab in the message box goes to the next.`,
-      items: (v.choices ? v.choices.modes : Object.keys(MODE)).map((m) => {
-        const w = modeInfo(v, m);
-        return { value: m, label: w ? w.chip : modeChip(m), sub: w ? w.sub : '', current: m === now, danger: !!(w && w.danger) };
-      }),
+      items: main.map(item), more: { label: 'More modes', items: rare.map(item) },
     });
     if (pick && pick !== now) setMode(pick);
   }
@@ -178,7 +182,7 @@ export function createComposer(o) {
     const over = what === 'effort' && !claude && v.ultracode;
     const pick = await chooseSheet({
       title: what === 'model' ? 'Model' : `How hard ${toolWord(v)} thinks`,
-      subtitle: what === 'model' ? 'Changes at once, in this chat. A new model reads the conversation again, which costs more once.' : over ? 'Ultracode is on: the model thinks as hard as it can, whatever is chosen here. Turn it off to use this choice.' : 'Changes at once, in this chat.',
+      subtitle: what === 'model' ? 'Changes at once, in this session. A new model reads the conversation again, which costs more once.' : over ? 'Ultracode is on: the model thinks as hard as it can, whatever is chosen here. Turn it off to use this choice.' : 'Changes at once, in this session.',
       items: items.map((x) => ({ ...x, current: (x.value || null) === (cur || null) })),
     });
     if (pick === null || (pick || null) === (cur || null)) return;

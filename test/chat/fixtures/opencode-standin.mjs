@@ -59,6 +59,7 @@ export async function standIn(o = {}) {
     if (i >= 0) waiters.splice(i, 1)[0].resolve(body);
   };
   const wait = (kind) => new Promise((resolve) => waiters.push({ kind, resolve }));
+  const replied = new Set(); // the OKs answered (o.waiting lists only those that still wait)
   async function play(turn) {
     running = true;
     for (const s of turn.steps) {
@@ -95,6 +96,8 @@ export async function standIn(o = {}) {
       return;
     }
     if (p === '/api/info') return json(res, 200, { version: '2.3.0' });
+    // The config documents as the real server lists them for a folder (location[directory]): o.config, else none.
+    if (p === '/api/config' && req.method === 'GET') return o.config === false ? json(res, 500, { error: 'no config' }) : json(res, 200, o.config || []);
     if (p === '/api/model') {
       await pause(o.modelMs);
       return json(res, 200, { data: [{ id: 'sample-model', providerID: 'hoprig_demo_000001', settings: { apiKey: KEY }, variants: ['low', 'medium', 'high', 'xhigh', 'max'].map((id) => ({ id })), limit: { context: 200000, output: 32000 } }] });
@@ -109,7 +112,7 @@ export async function standIn(o = {}) {
     if (!m || !known.has(m[1])) return json(res, 404, { error: 'no such session' });
     const rest = m[2] || '';
     if (!rest && req.method === 'GET') return json(res, 200, { data: { id: m[1], title, time: { created: 1, updated, ...(o.busy ? { busy: 900, idle: 800 } : { busy: 800, idle: 900 }) } } });
-    if (rest === '/permission' && req.method === 'GET') return json(res, 200, { data: (o.waiting && o.waiting.permission) || [] });
+    if (rest === '/permission' && req.method === 'GET') return json(res, 200, { data: ((o.waiting && o.waiting.permission) || []).filter((p) => !replied.has(p.id)) });
     if (rest === '/form' && req.method === 'GET') return json(res, 200, { data: (o.waiting && o.waiting.form) || [] });
     if (!rest && req.method === 'PATCH' && m[1] !== SESSION_ID) return json(res, 200, null); // a subagent's
     if (!rest && req.method === 'PATCH') {
@@ -118,7 +121,7 @@ export async function standIn(o = {}) {
     }
     if (rest === '/message') {
       await pause(o.messageMs);
-      return json(res, 200, { data: MESSAGES.data, cursor: { next: null } });
+      return json(res, 200, { data: o.messages || MESSAGES.data, cursor: { next: null } });
     }
     if (rest === '/model') return json(res, 200, null);
     if (rest === '/prompt') {
@@ -143,6 +146,7 @@ export async function standIn(o = {}) {
     }
     r = /^\/permission\/(per_[A-Za-z0-9]+)\/reply$/.exec(rest);
     if (r) {
+      replied.add(r[1]);
       json(res, 200, null);
       return came('reply', { request: r[1], ...body });
     }

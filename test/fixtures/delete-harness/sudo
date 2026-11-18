@@ -1,0 +1,27 @@
+#!/usr/bin/bash
+{ printf 'RUN sudo'; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log
+shell=0
+while [ $# -gt 0 ]; do
+  a=$1
+  case "$a" in
+    --) shift; break;;
+    --user=*|--group=*|--chdir=*|--host=*|--prompt=*|--role=*|--type=*|--other-user=*|--command-timeout=*|--close-from=*|--preserve-env=*) shift;;
+    --user|--group|--chdir|--host|--prompt|--role|--type|--other-user|--command-timeout|--close-from) shift 2;;
+    --shell|--login) shell=1; shift;;
+    --*) shift;;
+    -?*) shift; k=1
+      while [ $k -lt ${#a} ]; do ch=${a:$k:1}; k=$((k+1))
+        case "$ch" in
+          u|g|C|D|h|p|r|t|U|T|R) if [ $k -lt ${#a} ]; then k=${#a}; else shift; fi;;
+          s|i) shell=1;;
+        esac
+      done;;
+    *=*) export "$a"; shift;;
+    *) break;;
+  esac
+done
+if [ $shell = 1 ]; then
+  if [ $# -gt 0 ]; then q=; for w in "$@"; do q+="$(printf '%q' "$w") "; done; exec /usr/bin/bash -c "$q"; else exec /usr/bin/bash; fi
+fi
+[ $# -gt 0 ] && exec "$@"
+exit 0

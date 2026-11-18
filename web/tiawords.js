@@ -9,7 +9,7 @@ export const TOOL_WORDS = {
   list_sessions: 'looked at the sessions', read_session: 'read a session', list_projects: 'looked at the projects', list_conversations: 'looked at earlier conversations',
   get_accounts: 'looked at the providers', get_computer_status: 'looked at the computers', get_settings: 'read the settings', find_skill: 'looked up how to do it',
   start_session: 'start a session', send_to_session: 'type into a session', press_key: 'press a key in a session', rename_session: 'rename a session',
-  start_chat: 'start a chat', send_to_chat: 'act in a chat',
+  start_chat: 'start a session in the App', send_to_chat: 'act in a session in the App',
   watch_session: 'watch a session', finish_job: 'finish the job', notify_owner: 'notify you', open_screen: 'open a screen',
   stop_session: 'stop a session', switch_account: 'move a session to another provider', set_auto_mode: 'change Auto mode',
   kill_process: 'end a process', change_setting: 'change a setting', run_command: 'run a command',
@@ -21,7 +21,7 @@ export const DOING = {
   list_sessions: 'looking at the sessions', read_session: 'reading a session', list_projects: 'looking at your projects', list_conversations: 'looking at earlier conversations',
   get_accounts: 'checking the providers', get_computer_status: 'checking the computers', get_settings: 'reading the settings', find_skill: 'looking up how to do it',
   start_session: 'starting a session', send_to_session: 'typing into a session', press_key: 'pressing a key in a session', rename_session: 'renaming a session',
-  start_chat: 'starting a chat', send_to_chat: 'writing to a chat',
+  start_chat: 'starting a session in the App', send_to_chat: 'writing to a session in the App',
   watch_session: 'watching a session', finish_job: 'finishing the job', notify_owner: 'writing to you', open_screen: 'opening a screen',
   stop_session: 'stopping a session', switch_account: 'moving a session to another provider', set_auto_mode: 'changing Auto mode',
   kill_process: 'ending a process', change_setting: 'changing a setting', run_command: 'running a command',
@@ -32,7 +32,7 @@ export const DOING = {
 export const DID = {
   ...Object.fromEntries(Object.entries(TOOL_WORDS).filter(([, v]) => v.startsWith('looked') || v.startsWith('read'))),
   start_session: 'started a session', send_to_session: 'typed into a session', press_key: 'pressed a key', rename_session: 'renamed a session',
-  start_chat: 'started a chat', send_to_chat: 'wrote to a chat',
+  start_chat: 'started a session in the App', send_to_chat: 'wrote to a session in the App',
   watch_session: 'watches a session', finish_job: 'finished the job', notify_owner: 'notified you', open_screen: 'opened a screen',
   stop_session: 'stopped a session', switch_account: 'moved a session', set_auto_mode: 'changed Auto mode',
   kill_process: 'ended a process', change_setting: 'changed a setting', run_command: 'ran a command', manage_computer: 'changed a computer', draft_skill: 'added a skill',
@@ -47,7 +47,7 @@ export const DID = {
  */
 const chatOf = (s) => (/^chat:([0-9a-f-]{36})$/.exec(s.session) || [])[1] || null;
 export const jobLabel = (s, title = null) => (!chatOf(s) ? s.session
-  : [s.folder ? `Chat in ${s.folder}` : title ? 'Chat' : 'A chat', title].filter(Boolean).join(': '));
+  : [s.folder ? `App session in ${s.folder}` : title ? 'App session' : 'A session in the App', title].filter(Boolean).join(': '));
 export function jobChip(s, title = null) {
   const chat = chatOf(s);
   const m = s.computer && s.computer !== 'this' ? s.computer : null;

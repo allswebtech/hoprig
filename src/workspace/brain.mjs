@@ -45,7 +45,7 @@ const head = (abs, root) => {
  * Build the index. → { data (for the page), files: Map(id → { abs, root, title, file }) }. `files` stays on the
  * server: brainRead looks an id up in it, so only what was listed can ever be read.
  */
-function collect({ dir = workspaceDir(), base = claudeDir(), home = os.homedir(), projects = currentProjectsDir() } = {}) {
+function collect({ dir = workspaceDir(), base = claudeDir(), home = os.homedir(), projects = currentProjectsDir(), groups = null } = {}) {
   const files = new Map();
   /** One file item, or null when the guard refuses it or it is not there. */
   const item = (id, title, abs, root, extra = {}) => {
@@ -120,8 +120,11 @@ function collect({ dir = workspaceDir(), base = claudeDir(), home = os.homedir()
 
   // Projects: each parent in the projects folder. Its memory folders: project.json's "memories" (checked by the
   // same validator as everywhere), else ai_brain/claude-memory.
-  const projectList = listProjects(projects).filter((p) => p.parent && NAME_RE.test(p.name) && SAFE_NAME.test(p.name)).map((p) => {
-    const P = (rel, key, title) => item(`project:${p.name}:${key}`, title, path.join(p.dir, rel), p.dir);
+  // In a group (`groups`: the safe list of groups.mjs, given by the caller that could check the links): its projects
+  // too, named <place>/<name> and with "+" for "/" in their ids.
+  const inGroups = (groups || []).filter((p) => p.place && p.parent && SAFE_NAME.test(p.name)).map((p) => ({ ...p, key: p.ref.replace(/\//g, '+'), shown: p.ref }));
+  const projectList = [...listProjects(projects).filter((p) => p.parent && NAME_RE.test(p.name) && SAFE_NAME.test(p.name)).map((p) => ({ ...p, key: p.name, shown: p.name })), ...inGroups].map((p) => {
+    const P = (rel, key, title) => item(`project:${p.key}:${key}`, title, path.join(p.dir, rel), p.dir);
     let mems = ['ai_brain/claude-memory'];
     try {
       const v = validateManifest(JSON.parse(fs.readFileSync(path.join(p.dir, 'project.json'), 'utf8')));
@@ -129,7 +132,7 @@ function collect({ dir = workspaceDir(), base = claudeDir(), home = os.homedir()
     } catch {
       /* no or unreadable project.json: the default folder */
     }
-    const mem = mems.flatMap((rel, i) => memory(path.join(p.dir, rel), `pmem:${p.name}:${i}`).map((m) => {
+    const mem = mems.flatMap((rel, i) => memory(path.join(p.dir, rel), `pmem:${p.key}:${i}`).map((m) => {
       const f = files.get(m.id);
       const c = checkFile(f.abs, p.dir); // the memory folder must also be inside the project
       if (c.ok) f.root = p.dir;
@@ -137,7 +140,7 @@ function collect({ dir = workspaceDir(), base = claudeDir(), home = os.homedir()
       return c.ok ? { ...m, folder: rel } : null;
     })).filter(Boolean);
     return {
-      name: p.name,
+      name: p.shown,
       git: p.git,
       agents: P('AGENTS.md', 'agents', 'AGENTS.md'),
       decisions: P('decisions.md', 'decisions', 'Decisions'),

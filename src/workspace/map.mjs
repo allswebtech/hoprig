@@ -11,6 +11,11 @@
 //     "others":   [ { "dir": "<folder in the workspace, e.g. git/<name>>", "url": "<address>" | null, "branch"?, "sync"? } ],
 //     "skip"?:    [ "<project name>" | "<project>/<dir>" | "<others dir>" ] }   taken out with `workspace forget`: never added again
 //
+// Version 2 adds "groups" (an owner's own folders of projects, groups.mjs), "in" on a project (the group or held
+// folder it is in; without it the projects folder) and names a project outside the projects folder <place>/<name>
+// everywhere (skip, labels, commands). mapcheck.mjs has the strict check of both versions. A map of version 1 stays
+// version 1 until the owner runs `hoprig workspace map --upgrade` (mapupgrade.mjs): the upkeep never upgrades one.
+//
 // "sync": false marks a tool (an SDK or tool checkout, by default everything under development/): restore gets it
 // on its branch, sync never touches it. The config is what a fresh computer needs to become the same place; it is
 // never a machine path, a host name or anything from credentials/.
@@ -22,276 +27,66 @@
 // ai-ignore-dir, credentials, node_modules and dot-folders are never looked into.
 import fs from 'node:fs';
 import path from 'node:path';
-import { looksSecret } from '../assistant/secrets.mjs';
 import { gitRead } from '../gitread.mjs';
-import { PRIVATE_DIRS, cleanRemote, parseRepo } from '../pcsetup/projects.mjs';
-import { MANIFEST, NAME_RE, discoverChildren, readManifest, relOk, writeManifest } from '../pcsetup/workspace.mjs';
-import { capture } from '../setup/system.mjs';
-import { isDir, isGitRepo, isLinkedWorktree, listProjects, projectsIn, workspaceDir } from './layout.mjs';
+import { MANIFEST, readManifest, relOk, writeManifest } from '../pcsetup/workspace.mjs';
+import { LEAVES, kindAt, leaves, leavesWords, myLinkCommand, myLinkEntries, readIn, realOf, writeIn } from './inside.mjs';
+import { capture, showCommand, showCommands } from '../setup/system.mjs';
+import { findProject, ignoreFileOf, mapTargets, missingIgnoreLines, safeFolders, unignoredMembers } from './groups.mjs';
+import { isDir, isGitRepo, isLinkedWorktree, projectsIn, workspaceDir } from './layout.mjs';
+import { onePlace, refOf, sameUrl, validateMap } from './mapcheck.mjs';
+import { emptyMap, scanWorkspace } from './mapscan.mjs';
 
+export { BRANCH_RE, mapUrl, neverLook, refOf, placeOf, sameUrl, urlKey, validateMap } from './mapcheck.mjs';
+export { emptyMap, scanWorkspace } from './mapscan.mjs';
 export const MAP_FILE = 'workspace.json';
 export const COMMIT_MESSAGE = 'Update the workspace map';
+/** The map's commit, printed for the owner to paste. */
+const commitCommand = (brain) => showCommands([['git', '-C', brain, 'add', MAP_FILE], ['git', '-C', brain, 'commit', '-m', COMMIT_MESSAGE]]);
 export const mapFile = (dir = workspaceDir()) => path.join(dir, 'ai_brain', MAP_FILE);
-const NEVER = new Set([...PRIVATE_DIRS, 'credentials', 'node_modules']);
-export const neverLook = (name) => name.startsWith('.') || NEVER.has(name);
-const BRANCH_RE = /^(?!-)[A-Za-z0-9._/-]{1,100}$/;
 
 /**
- * An address as the map keeps it: user name and password taken out, then it must pass the project code's parser
- * and must not look like a secret. → the address, or null when there is none. Throws when it cannot be kept.
+ * The map on this computer: { exists, map, errors? }. A missing file is an empty map. The brain is a repository from a
+ * git server: a workspace.json it tracks as a link (to a credentials file, another map) is never read, and the words
+ * of a refusal never quote the file's content.
  */
-export function mapUrl(raw) {
-  if (raw === null || raw === undefined || raw === '') return null;
-  const url = cleanRemote(String(raw).trim());
-  const ok = parseRepo(url);
-  if (!ok) throw new Error(`"${url.slice(0, 80)}" is not a git address the map can keep (https or SSH, nothing secret in it)`);
-  if (looksSecret(url)) throw new Error('an address with something secret in it is never written to the map');
-  return ok.url;
-}
-
-/** Two addresses of the same repository? (".git", a trailing "/", the host's case and a user:password do not count) */
-export function sameUrl(a, b) {
-  const n = (u) => {
-    const s = cleanRemote(String(u || '').trim()).replace(/\/+$/, '').replace(/\.git$/, '');
-    return s.replace(/^([a-z+]+:\/\/)?([^/:]+)/i, (m) => m.toLowerCase());
-  };
-  return Boolean(a && b) && n(a) === n(b);
-}
-
-/** Strict check of a map read from a file (it comes from a repository: data, never trusted). → { ok, map } | { ok: false, errors } */
-export function validateMap(m) {
-  const errors = [];
-  const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
-  if (!isObj(m)) return { ok: false, errors: ['the map is not an object'] };
-  for (const k of Object.keys(m)) if (!['version', 'config', 'brain', 'projects', 'others', 'skip'].includes(k)) errors.push(`unknown key "${String(k).slice(0, 30)}"`);
-  if (m.version !== 1) errors.push('"version" must be 1');
-  const url = (v, what) => {
-    try {
-      return mapUrl(v);
-    } catch (e) {
-      errors.push(`${what}: ${e.message}`);
-      return undefined;
-    }
-  };
-  const branch = (v, what) => {
-    if (v === undefined) return undefined;
-    if (typeof v !== 'string' || !BRANCH_RE.test(v)) errors.push(`${what}: bad branch`);
-    return v;
-  };
-  // sync: false = a tool (an SDK checkout): restored on a fresh computer, never synced. Only a boolean is kept.
-  const syncOf = (e, v, what) => {
-    if (v === undefined) return e;
-    if (typeof v !== 'boolean') errors.push(`${what}: "sync" is true or false`);
-    else e.sync = v;
-    return e;
-  };
-  const out = { version: 1, brain: { url: null }, projects: [], others: [] };
-  if (m.config !== undefined) {
-    // The workspace's own settings a fresh computer needs; never a machine path, a host or anything secret.
-    if (!isObj(m.config) || Object.keys(m.config).some((k) => k !== 'projectsDir')) errors.push('"config" is { projectsDir? }');
-    else if (m.config.projectsDir !== undefined) {
-      const d = m.config.projectsDir;
-      if (!relOk(d) || d.split('/').some(neverLook) || d.split('/')[0] === 'ai_brain') errors.push('"config.projectsDir" must be a folder inside the workspace');
-      else out.config = { projectsDir: d };
-    }
-  }
-  if (m.brain !== undefined) {
-    if (!isObj(m.brain) || Object.keys(m.brain).some((k) => k !== 'url')) errors.push('"brain" is { url }');
-    else out.brain.url = url(m.brain.url, 'brain') ?? null;
-  }
-  const names = new Set();
-  for (const p of Array.isArray(m.projects) ? m.projects : m.projects === undefined ? [] : (errors.push('"projects" must be a list'), [])) {
-    if (!isObj(p) || Object.keys(p).some((k) => !['name', 'url', 'repos', 'memories', 'sync'].includes(k))) {
-      errors.push('each project is { name, url, repos, memories?, sync? }');
-      continue;
-    }
-    if (typeof p.name !== 'string' || !NAME_RE.test(p.name) || neverLook(p.name) || names.has(p.name)) {
-      errors.push(`"${String(p.name).slice(0, 40)}" is not a project name the map accepts`);
-      continue;
-    }
-    names.add(p.name);
-    const repos = [];
-    for (const r of Array.isArray(p.repos) ? p.repos : []) {
-      if (!isObj(r) || Object.keys(r).some((k) => !['dir', 'url', 'branch', 'sync'].includes(k)) || !relOk(r.dir) || r.dir.split('/').some(neverLook)) {
-        errors.push(`${p.name}: each repository is { dir (a folder inside the project), url, branch?, sync? }`);
-        continue;
-      }
-      const e = { dir: r.dir, url: url(r.url, `${p.name}/${r.dir}`) ?? null };
-      const b = branch(r.branch, `${p.name}/${r.dir}`);
-      if (b) e.branch = b;
-      repos.push(syncOf(e, r.sync, `${p.name}/${r.dir}`));
-    }
-    const proj = { name: p.name, url: url(p.url, p.name) ?? null, repos };
-    if (p.memories !== undefined) {
-      // Which folder's Claude Code memory lives where in the project (as in its project.json): linked after restore.
-      const ok = isObj(p.memories) && Object.entries(p.memories).every(([k, v]) => relOk(k, { dot: true }) && relOk(v) && ![...k.split('/'), ...v.split('/')].some((x) => x !== '.' && neverLook(x)));
-      if (!ok) errors.push(`${p.name}: "memories" maps folders inside the project to memory folders inside it`);
-      else if (Object.keys(p.memories).length) proj.memories = { ...p.memories };
-    }
-    out.projects.push(syncOf(proj, p.sync, p.name));
-  }
-  for (const o of Array.isArray(m.others) ? m.others : []) {
-    if (!isObj(o) || Object.keys(o).some((k) => !['dir', 'url', 'branch', 'sync'].includes(k)) || !relOk(o.dir) || o.dir.split('/').some(neverLook) || ['ai_brain', 'projects'].includes(o.dir.split('/')[0])) {
-      errors.push(`"${String(o && o.dir).slice(0, 60)}" is not a folder of the workspace the map accepts`);
-      continue;
-    }
-    const e = { dir: o.dir, url: url(o.url, o.dir) ?? null };
-    const b = branch(o.branch, o.dir);
-    if (b) e.branch = b;
-    out.others.push(syncOf(e, o.sync, o.dir));
-  }
-  if (m.skip !== undefined) {
-    if (!Array.isArray(m.skip) || m.skip.some((s) => typeof s !== 'string' || !relOk(s))) errors.push('"skip" is a list of project names, code repositories (<project>/<dir>) and folders');
-    else if (m.skip.length) out.skip = [...new Set(m.skip)].sort();
-  }
-  return errors.length ? { ok: false, errors } : { ok: true, map: out };
-}
-
-/** The map on this computer: { exists, map, errors? }. A missing file is an empty map. */
 export function readMap(dir = workspaceDir()) {
+  const file = mapFile(dir);
+  const kind = kindAt(file);
+  if (kind === 'none') return { exists: false, map: emptyMap() };
+  if (kind !== 'file') return { exists: true, map: null, errors: [`${MAP_FILE} is ${kind === 'link' ? 'a link' : 'not a regular file'}: not read`] };
+  // Inside the brain, never through a link below it (the brain's own folder may be the owner's link: `below`).
+  const buf = readIn({ root: path.dirname(file), dir }, file, { below: true });
+  if (!buf) return { exists: true, map: null, errors: [`${MAP_FILE} could not be read`] };
   let raw;
   try {
-    raw = JSON.parse(fs.readFileSync(mapFile(dir), 'utf8'));
-  } catch (e) {
-    if (e.code === 'ENOENT') return { exists: false, map: emptyMap() };
-    return { exists: true, map: null, errors: [`${MAP_FILE} is not valid JSON: ${e.message}`] };
+    raw = JSON.parse(buf.toString('utf8'));
+  } catch {
+    return { exists: true, map: null, errors: [`${MAP_FILE} is not valid JSON`] };
   }
   const v = validateMap(raw);
   return v.ok ? { exists: true, map: v.map } : { exists: true, map: null, errors: v.errors };
 }
 
-export const emptyMap = () => ({ version: 1, brain: { url: null }, projects: [], others: [] });
-
 /** Write the map (sorted, so its git history shows real changes only). Every address is checked again. */
 export function writeMap(map, dir = workspaceDir()) {
-  const v = validateMap(map);
-  if (!v.ok) throw new Error(`the map was not written: ${v.errors.join('; ')}`);
+  // A duplicate address the map on disk has already (a merge on the git server brought it) never blocks a write.
+  const cur = readMap(dir);
+  const v = validateMap(map, { write: true, known: cur.map ? onePlace(cur.map) : [] });
+  if (!v.ok) throw Object.assign(new Error(`the map was not written: ${v.errors.join('; ')}`), { status: 409 });
   const m = normalizeMap(v.map);
   const file = mapFile(dir);
   if (!isDir(path.dirname(file))) throw new Error('there is no AI brain to keep the map in (hoprig workspace setup, or restore)');
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(m, null, 2) + '\n');
-  fs.renameSync(tmp, file);
+  // Inside the brain, never through a link (inside.mjs): written beside it and renamed over it.
+  writeIn({ root: path.dirname(file), dir }, file, JSON.stringify(m, null, 2) + '\n', { atomic: true });
   return m;
-}
-
-const originOf = async (dir, run) => {
-  const r = await gitRead(dir, ['config', '--get', 'remote.origin.url'], { run, timeout: 10_000 });
-  if (!r.ok) return { url: null, why: 'not on a git server yet (no remote)' };
-  try {
-    return { url: mapUrl(r.stdout.trim()) };
-  } catch (e) {
-    return { url: null, why: e.message };
-  }
-};
-
-/** Git repositories in the workspace outside ai_brain/ and the projects folder, up to 3 folders deep. */
-function otherRepos(dir, projects) {
-  const found = [];
-  const walk = (rel, depth) => {
-    let entries = [];
-    try {
-      entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const d of entries) {
-      if (!d.isDirectory() || neverLook(d.name)) continue; // a link is not followed
-      const r = rel ? `${rel}/${d.name}` : d.name;
-      const abs = path.join(dir, r);
-      if (!rel && (d.name === 'ai_brain' || d.name.startsWith('ai_brain.'))) continue; // the brain, and a brain kept aside
-      if (path.resolve(abs) === path.resolve(projects)) continue;
-      if (isGitRepo(abs)) {
-        if (!isLinkedWorktree(abs)) found.push(r); // a linked worktree is another repository's second checkout
-      } else if (depth < 3) walk(r, depth + 1);
-    }
-  };
-  walk('', 1);
-  return found.filter((r) => relOk(r)).sort();
-}
-
-/**
- * Look at the disk and build the map it describes. `previous` keeps the "skip" list and anything the disk cannot
- * say (the branch named in a project.json). → { map, notes: [what the person should know], manifests: [projects
- * whose project.json lacks a code repository found on disk] }
- */
-export async function scanWorkspace({ dir = workspaceDir(), projects = projectsIn(), run = capture, previous = emptyMap() } = {}) {
-  const skip = new Set(previous.skip || []);
-  const notes = [];
-  const manifests = [];
-  const sources = {}; // project name → 'project.json' | 'found': whether its own project.json speaks for it
-  const roots = {}; // project name → its folder here (mergeMap asks what is in a code repository's folder)
-  // What a person set in the map stays: "sync" on an entry (a tool made syncable again, or the other way round).
-  const kept = new Map();
-  for (const p of previous.projects || []) {
-    if (typeof p.sync === 'boolean') kept.set(`project:${p.name}`, p.sync);
-    for (const r of p.repos || []) if (typeof r.sync === 'boolean') kept.set(`repo:${p.name}/${r.dir}`, r.sync);
-  }
-  for (const o of previous.others || []) if (typeof o.sync === 'boolean') kept.set(`other:${o.dir}`, o.sync);
-  const withSync = (e, k, dflt) => {
-    const v = kept.has(k) ? kept.get(k) : dflt;
-    return typeof v === 'boolean' ? { ...e, sync: v } : e;
-  };
-  const map = { version: 1, brain: { url: null }, projects: [], others: [], ...(skip.size ? { skip: [...skip] } : {}) };
-  // The projects folder, when it is not <workspace>/projects: kept relative to the workspace, never as a machine path.
-  const rel = path.relative(dir, projects).split(path.sep).join('/');
-  if (rel && rel !== 'projects') {
-    if (!rel.startsWith('..') && !path.isAbsolute(rel) && relOk(rel)) map.config = { projectsDir: rel };
-    else notes.push('your projects folder is outside the workspace: the map cannot say where it is (a fresh computer uses <workspace>/projects)');
-  }
-  const brain = path.join(dir, 'ai_brain');
-  if (isGitRepo(brain)) {
-    const o = await originOf(brain, run);
-    map.brain.url = o.url;
-    if (!o.url) notes.push(`the AI brain: ${o.why}`);
-  } else if (isDir(brain)) notes.push('the AI brain is not a git repository yet');
-  // A folder here that is a linked worktree (a second checkout of another repository, often a session's temporary
-  // one) is never added: not as a project, a code repository or another repository.
-  for (const p of listProjects(projects)) {
-    if (!p.git || isLinkedWorktree(p.dir) || skip.has(p.name) || neverLook(p.name) || !NAME_RE.test(p.name)) continue;
-    const o = await originOf(p.dir, run);
-    if (!o.url) notes.push(`${p.name}: ${o.why}`);
-    const { manifest, source } = await readManifest(p.dir, run);
-    sources[p.name] = source;
-    roots[p.name] = p.dir;
-    const forgotten = (d) => skip.has(`${p.name}/${d}`); // a code repository taken out with `workspace forget`
-    const byDir = new Map();
-    // What project.json names stays, whatever its folder here is: a linked worktree here may be a full clone with
-    // its own branch on another computer, so this disk cannot tell a leftover (`workspace forget` takes one out).
-    for (const r of (manifest && manifest.repos) || []) if (!forgotten(r.dir)) byDir.set(r.dir, { dir: r.dir, url: r.url, ...(r.branch ? { branch: r.branch } : {}) });
-    const missingFromManifest = [];
-    for (const c of await discoverChildren(p.dir, run)) {
-      if (c.dir.split('/').some(neverLook) || forgotten(c.dir)) continue;
-      if (!byDir.has(c.dir)) {
-        byDir.set(c.dir, { dir: c.dir, url: c.url });
-        if (c.url && source === MANIFEST) missingFromManifest.push({ dir: c.dir, url: c.url });
-      }
-      if (!c.url) notes.push(`${p.name}/${c.dir}: not on a git server yet (no remote)`);
-    }
-    if (missingFromManifest.length) manifests.push({ name: p.name, root: p.dir, add: missingFromManifest });
-    const entry = { name: p.name, url: o.url, repos: [...byDir.values()].map((r) => withSync(r, `repo:${p.name}/${r.dir}`)) };
-    if (manifest && Object.keys(manifest.memories || {}).length) entry.memories = { ...manifest.memories };
-    map.projects.push(withSync(entry, `project:${p.name}`));
-  }
-  for (const r of otherRepos(dir, projects)) {
-    if (skip.has(r)) continue;
-    const o = await originOf(path.join(dir, r), run);
-    if (!o.url) notes.push(`${r}: ${o.why}`);
-    // The branch it is on (a toolchain is restored on its channel, e.g. "stable"), and tools are never synced.
-    const b = await gitRead(path.join(dir, r), ['symbolic-ref', '--short', '-q', 'HEAD'], { run, timeout: 10_000 });
-    const branch = b.ok && BRANCH_RE.test(b.stdout.trim()) ? b.stdout.trim() : null;
-    map.others.push(withSync({ dir: r, url: o.url, ...(branch ? { branch } : {}) }, `other:${r}`, r.split('/')[0] === 'development' ? false : undefined));
-  }
-  const v = validateMap(map);
-  return { map: v.ok ? v.map : map, notes, manifests, sources, roots };
 }
 
 /** Entries that are tools (sync false): labels, as `status` and `sync` show them. */
 export function toolsOf(map) {
   const out = [];
   for (const p of map.projects || []) {
-    if (p.sync === false) out.push(p.name);
-    for (const r of p.repos || []) if (r.sync === false) out.push(`${p.name}/${r.dir}`);
+    if (p.sync === false) out.push(refOf(p));
+    for (const r of p.repos || []) if (r.sync === false) out.push(`${refOf(p)}/${r.dir}`);
   }
   for (const o of map.others || []) if (o.sync === false) out.push(o.dir);
   return out;
@@ -300,9 +95,10 @@ export function toolsOf(map) {
 /** The map in its written order (sorted), for writing and for "did anything change?". */
 export function normalizeMap(m) {
   const n = JSON.parse(JSON.stringify(m));
-  n.projects.sort((a, b) => a.name.localeCompare(b.name));
+  n.projects.sort((a, b) => refOf(a).localeCompare(refOf(b)));
   for (const p of n.projects) p.repos.sort((a, b) => a.dir.localeCompare(b.dir));
   n.others.sort((a, b) => a.dir.localeCompare(b.dir));
+  if (n.groups) n.groups.sort((a, b) => a.dir.localeCompare(b.dir));
   return n;
 }
 
@@ -311,9 +107,10 @@ const flat = (m) => {
   const out = new Map();
   if (!m) return out;
   out.set(key('brain', 'ai_brain'), m.brain.url);
+  for (const g of m.groups || []) if (g.url) out.set(key('group', g.dir), g.url); // a group that is a repository
   for (const p of m.projects) {
-    out.set(key('project', p.name), p.url);
-    for (const r of p.repos) out.set(key('repo', `${p.name}/${r.dir}`), r.url);
+    out.set(key('project', refOf(p)), p.url);
+    for (const r of p.repos) out.set(key('repo', `${refOf(p)}/${r.dir}`), r.url);
   }
   for (const o of m.others) out.set(key('other', o.dir), o.url);
   return out;
@@ -331,11 +128,6 @@ export function diffMap(before, after) {
 }
 
 /**
- * `workspace map`: build the map from the disk, show the difference, write it (unless dryRun), and add code
- * repositories found on disk to a project.json that lacks them (that file stays the truth for its project).
- * Never commits. → { file, dryRun, diff, map, notes, manifests, commit }
- */
-/**
  * The map is the union of the workspace across your computers, not a picture of this disk. So: what is here is
  * added or updated; what the map has and this computer does not STAYS as it is ("in the map, not on this
  * computer"); only `forget` takes something out. One exception, because a project's own project.json is the truth
@@ -347,8 +139,9 @@ export function diffMap(before, after) {
  *
  * Nothing else ever leaves the map by itself: not because of its address (two entries with one address may be two
  * clones someone keeps), and not because its folder here is a linked worktree (the same folder name may be a full
- * clone on another computer). Such an entry is "in the map, not on this computer" like any other.
- * → { map, notHere: [label], takenOut: [{ project, dir }] }
+ * clone on another computer). Such an entry is "in the map, not on this computer" like any other. Groups, and the
+ * keys a later Hoprig fills in, are the map's (the disk never declares them) and are kept as they are.
+ * → { map, notHere: [label], takenOut: [{ project, dir }] } (a project as <name> or <place>/<name>)
  */
 export function mergeMap(cur, scan) {
   const disk = scan.map;
@@ -359,24 +152,27 @@ export function mergeMap(cur, scan) {
   const skip = new Set(cur.skip || []);
   if (!out.brain.url && cur.brain.url) out.brain.url = cur.brain.url;
   if (!out.config && cur.config) out.config = { ...cur.config };
+  out.version = cur.version;
+  for (const k of ['groups', 'credentials', 'storage']) if (cur[k] !== undefined) out[k] = JSON.parse(JSON.stringify(cur[k]));
   for (const old of cur.projects) {
-    if (skip.has(old.name)) continue;
-    const here = out.projects.find((p) => p.name === old.name);
+    const ref = refOf(old);
+    if (skip.has(ref)) continue;
+    const here = out.projects.find((p) => refOf(p) === ref);
     if (!here) {
       out.projects.push(JSON.parse(JSON.stringify(old)));
-      notHere.push(old.name, ...old.repos.map((r) => `${old.name}/${r.dir}`));
+      notHere.push(ref, ...old.repos.map((r) => `${ref}/${r.dir}`));
       continue;
     }
     if (!here.url && old.url) here.url = old.url;
     if (!here.memories && old.memories) here.memories = { ...old.memories };
     for (const r of old.repos) {
-      if (here.repos.some((x) => x.dir === r.dir) || skip.has(`${old.name}/${r.dir}`)) continue;
-      const root = scan.roots && scan.roots[old.name];
+      if (here.repos.some((x) => x.dir === r.dir) || skip.has(`${ref}/${r.dir}`)) continue;
+      const root = scan.roots && scan.roots[ref];
       const worktreeHere = root && isLinkedWorktree(path.join(root, r.dir));
-      if (scan.sources && scan.sources[old.name] === MANIFEST && !worktreeHere) takenOut.push({ project: old.name, dir: r.dir });
+      if (scan.sources && scan.sources[ref] === MANIFEST && !worktreeHere) takenOut.push({ project: ref, dir: r.dir });
       else {
         here.repos.push(JSON.parse(JSON.stringify(r)));
-        notHere.push(`${old.name}/${r.dir}`);
+        notHere.push(`${ref}/${r.dir}`);
       }
     }
   }
@@ -393,17 +189,43 @@ export function mergeMap(cur, scan) {
 }
 
 /**
+ * What a scan found that would break "one repository, one place" against what the map has (onePlace: a folder whose
+ * name differs from another's in that place only in letter case, an address the map has in another place): the NEW
+ * entry is left out and said, and everything else is written. Without this one such folder stopped every write of
+ * the map. A pair the map has already stays (status names it). → { map, left: [{ ref, why }] }
+ */
+export function leaveOutNew(cur, map) {
+  const known = cur ? onePlace(cur) : [];
+  const had = new Set(((cur && cur.projects) || []).map(refOf));
+  const left = [];
+  let out = map;
+  for (let i = 0; i < 50; i++) {
+    const d = onePlace(out).find((x) => !known.some((k) => k.key === x.key) && (!had.has(x.a) || !had.has(x.b)));
+    if (!d) break;
+    const ref = had.has(d.b) ? d.a : d.b;
+    left.push({ ref, why: d.message });
+    out = { ...out, projects: out.projects.filter((p) => refOf(p) !== ref) };
+  }
+  return { map: out, left };
+}
+
+/**
  * `workspace map`: add or update what is on this computer, keep everything else (mergeMap), show the difference,
  * write it (unless dryRun), and add code repositories found on disk to a project.json that lacks them (that file
  * stays the truth for its project). Never commits.
- * → { file, dryRun, diff, map, notHere, takenOut, notes, tools, otherChanges, manifests, commit }
+ * → { file, dryRun, diff, map, notHere, notFollowed, takenOut, left, notes, tools, otherChanges, manifests, commit }
+ * (`left`: leaveOutNew's; `notFollowed`: entries kept that are here behind a link that leads out)
  */
 export async function updateMap({ dir = workspaceDir(), projects = projectsIn(), dryRun = false, run = capture, manifests: touchManifests = true } = {}) {
   const cur = readMap(dir);
   if (cur.errors) throw Object.assign(new Error(`${MAP_FILE} was not changed: ${cur.errors.join('; ')}`), { status: 409 });
   const scan = await scanWorkspace({ dir, projects, run, previous: cur.map });
   const merged = mergeMap(cur.exists ? cur.map : null, scan);
-  const next = validateMap(merged.map).ok ? validateMap(merged.map).map : merged.map;
+  const kept = leaveOutNew(cur.exists ? cur.map : null, merged.map);
+  // An entry the scan did not find because its folder is behind a link that leads out is here, only not followed.
+  const blocked = cur.exists ? (await mapTargets(cur.map, { dir, projects }, run)).filter((t) => t.blocked).map((t) => t.label) : [];
+  const behind = (l) => blocked.some((b) => l === b || l.startsWith(`${b}/`));
+  const next = validateMap(kept.map).ok ? validateMap(kept.map).map : kept.map;
   const diff = diffMap(cur.exists ? cur.map : null, next);
   const changed = !cur.exists || JSON.stringify(normalizeMap(cur.map)) !== JSON.stringify(normalizeMap(next));
   if (!dryRun) {
@@ -411,7 +233,7 @@ export async function updateMap({ dir = workspaceDir(), projects = projectsIn(),
     // (The automatic upkeep leaves project.json files alone: they belong to their projects' own repositories.)
     for (const m of touchManifests ? scan.manifests : []) {
       const { manifest } = await readManifest(m.root, run);
-      if (manifest) writeManifest(m.root, { ...manifest, repos: [...manifest.repos, ...m.add] });
+      if (manifest) writeManifest(m.root, { ...manifest, repos: [...manifest.repos, ...m.add] }, { dir, projects });
     }
   }
   const brain = path.join(dir, 'ai_brain');
@@ -420,23 +242,32 @@ export async function updateMap({ dir = workspaceDir(), projects = projectsIn(),
     dryRun,
     diff: cur.exists ? diff : { ...diff, created: true },
     map: next,
-    notHere: merged.notHere,
+    notHere: merged.notHere.filter((l) => !behind(l)),
+    notFollowed: merged.notHere.filter(behind),
     takenOut: merged.takenOut,
+    left: kept.left,
     notes: scan.notes,
     tools: toolsOf(next),
     // Besides addresses: the projects folder, memory links, which entries are tools (shown as one line).
     otherChanges: cur.exists && diff.same && changed,
     manifests: scan.manifests.map((m) => ({ project: m.name, added: m.add.map((r) => r.dir) })),
-    commit: `git -C "${brain}" add ${MAP_FILE} && git -C "${brain}" commit -m "${COMMIT_MESSAGE}"`,
+    commit: commitCommand(brain),
   };
 }
 
-/** After `project new|clone|add`: bring the map up to date when there is a brain. Never throws (says why instead). */
-export async function refreshMapAfter(what, { dir = workspaceDir(), projects = projectsIn() } = {}) {
+/**
+ * After `project new|clone|add`: bring the map up to date when there is a brain (with dryRun: say whether it would
+ * be). Only the map is written: a project's own project.json is that project's, so code repositories it does not list
+ * yet are named (`workspace map` adds them). Never throws (says why instead).
+ */
+export async function refreshMapAfter(what, { dir = workspaceDir(), projects = projectsIn(), dryRun = false } = {}) {
   if (!isDir(path.join(dir, 'ai_brain'))) return null;
   try {
-    const r = await updateMap({ dir, projects });
-    return r.diff.same && !r.otherChanges ? null : `the workspace map was updated (${what}): commit it with  ${r.commit}`;
+    const r = await updateMap({ dir, projects, dryRun, manifests: false });
+    const unlisted = r.manifests.filter((m) => m.added.length).map((m) => `${m.project}/project.json does not list ${m.added.join(', ')}`);
+    const also = unlisted.length ? ` (${unlisted.join('; ')}: hoprig workspace map adds them)` : '';
+    if (r.diff.same && !r.otherChanges) return also ? `the workspace map is up to date${also}` : null;
+    return dryRun ? `(dry run) the workspace map would be updated (${what})${also}` : `the workspace map was updated (${what}): commit it with  ${r.commit}${also}`;
   } catch (e) {
     return `the workspace map was not updated: ${e.message}`;
   }
@@ -445,6 +276,8 @@ export async function refreshMapAfter(what, { dir = workspaceDir(), projects = p
 /**
  * Take a project, a code repository of a project (<project>/<dir>, e.g. "shop/code/shop-web") or another repository
  * out of the map; it is never added back by `map`, nor cloned from a project.json by restore. No file is deleted.
+ * A project outside the projects folder is <place>/<name>; a bare name that is in two places is refused with both
+ * choices, so forgetting one never hides its namesake.
  */
 export function forget(name, dir = workspaceDir()) {
   if (typeof name !== 'string' || !relOk(name)) throw Object.assign(new Error('name a project, a code repository (project/code/name) or a folder of the map'), { status: 400 });
@@ -452,10 +285,19 @@ export function forget(name, dir = workspaceDir()) {
   if (cur.errors) throw Object.assign(new Error(cur.errors.join('; ')), { status: 409 });
   if (!cur.exists) throw Object.assign(new Error('there is no workspace map yet (hoprig workspace map)'), { status: 404 });
   const m = cur.map;
+  // A project by the one rule (a bare name in two places is refused with both forms); else a code repository or a
+  // folder as given.
+  let one = null;
+  try {
+    one = findProject(m, name);
+  } catch (e) {
+    if (e.status !== 404) throw e;
+  }
+  if (one) name = refOf(one);
   const count = () => m.projects.length + m.others.length + m.projects.reduce((n, p) => n + p.repos.length, 0);
   const before = count();
-  m.projects = m.projects.filter((p) => p.name !== name);
-  for (const p of m.projects) p.repos = p.repos.filter((r) => `${p.name}/${r.dir}` !== name);
+  m.projects = m.projects.filter((p) => refOf(p) !== name);
+  for (const p of m.projects) p.repos = p.repos.filter((r) => `${refOf(p)}/${r.dir}` !== name);
   m.others = m.others.filter((o) => o.dir !== name);
   const found = count() < before;
   m.skip = [...new Set([...(m.skip || []), name])].sort();
@@ -467,6 +309,8 @@ export function forget(name, dir = workspaceDir()) {
  * The map against this computer, one entry per repository:
  *   here      in the map and here
  *   missing   in the map, not on this computer ("get it": workspace restore)
+ *   notFollowed  in the map and here, but behind a link that leads out (inside.mjs): never followed, `fix` names the
+ *             link as the owner's own (hoprig workspace mylink add)
  *   different in the map, but the folder here is another repository or none
  *   unmapped  here, not in the map ("add it": workspace map)
  * → { exists, file, map, errors?, entries: [{ kind, label, url, path, state }], counts }
@@ -475,9 +319,14 @@ export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(),
   const cur = readMap(dir);
   const base = { exists: cur.exists, file: mapFile(dir), map: cur.map };
   if (cur.errors) return { ...base, errors: cur.errors, entries: [], counts: {} };
-  const disk = (await scanWorkspace({ dir, projects, run, previous: cur.map })).map;
+  const scanned = await scanWorkspace({ dir, projects, run, previous: cur.map });
+  const disk = scanned.map;
   const entries = [];
-  const where = (kind, label) => (kind === 'brain' ? path.join(dir, 'ai_brain') : kind === 'other' ? path.join(dir, label) : path.join(projects, label));
+  // Every folder from mapTargets (groups.mjs): the map's own entries carry `blocked` behind a link that is not followed.
+  const curTargets = cur.exists ? await mapTargets(cur.map, { dir, projects }, run) : [];
+  const paths = entryPaths([await mapTargets(disk, { dir, projects }, run), curTargets], { dir });
+  const blockedAt = new Map(curTargets.filter((t) => t.blocked).map((t) => [`${t.kind}:${t.label}`, t.blocked]));
+  const where = (kind, label) => paths.get(`${kind}:${label}`) || path.join(dir, label);
   const diskFlat = flat(disk);
   // Tools (sync false): the disk scan keeps what the map says, so both together cover entries missing here too.
   const tools = new Set([...toolsOf(disk), ...(cur.exists ? toolsOf(cur.map) : [])]);
@@ -486,11 +335,19 @@ export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(),
       const [kind, label] = [k.slice(0, k.indexOf(':')), k.slice(k.indexOf(':') + 1)];
       const p = where(kind, label);
       let state = 'missing';
-      // A linked worktree in its folder is a second checkout of another repository, never this entry: not here.
+      let fix = null;
+      // A linked worktree in its folder is a second checkout of another repository, never this entry: not here. A
+      // folder that leads out of where the map puts it (inside.mjs) is here but never followed: its own state, with
+      // the command that names the link as the owner's own (restore would only say "not followed" again).
       if (kind !== 'brain' && isLinkedWorktree(p)) state = 'missing';
+      else if (blockedAt.has(k)) {
+        const b = blockedAt.get(k);
+        state = 'notFollowed';
+        fix = `${leavesWords(b)}: not followed; if it is yours:  ${myLinkCommand(b.path)}`;
+      }
       else if (diskFlat.has(k)) state = !url || !diskFlat.get(k) || sameUrl(url, diskFlat.get(k)) ? 'here' : 'different';
       else if (fs.existsSync(p)) state = 'different';
-      entries.push({ kind, label, url: url || null, path: p, state, ...(tools.has(label) ? { tool: true } : {}) });
+      entries.push({ kind, label, url: url || null, path: p, state, ...(fix ? { fix } : {}), ...(tools.has(label) ? { tool: true } : {}) });
     }
   }
   for (const [k, url] of diskFlat) {
@@ -499,10 +356,81 @@ export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(),
     const [kind, label] = [k.slice(0, k.indexOf(':')), k.slice(k.indexOf(':') + 1)];
     entries.push({ kind, label, url: url || null, path: where(kind, label), state: 'unmapped', ...(tools.has(label) ? { tool: true } : {}) });
   }
+  // A project of the map that is here under another name (same address): the mv that gives it the map's name.
+  for (const e of entries) {
+    if (e.kind !== 'project' || e.state !== 'missing' || !e.url) continue;
+    const twin = entries.find((x) => x.kind === 'project' && x.state === 'unmapped' && sameUrl(x.url, e.url));
+    if (twin) e.fix = `it is here as ${twin.label}: ${showCommand(['mv', twin.path, e.path])}`;
+  }
   const counts = {};
   for (const e of entries) counts[e.state] = (counts[e.state] || 0) + 1;
   // The map on disk against the brain's last commit: "changed and not saved in the brain's history yet".
-  return { ...base, entries, counts, saved: await mapSaved({ dir, run }) };
+  // Links met in the groups and code/ folders: one that came with a repository is not followed, one made here is.
+  // Links met on the way to the places, project folders and code/ folders, and to the map's own entries: each one that
+  // leads out is named (inside.mjs), with the command that names it as the owner's own.
+  const links = (await safeFolders(cur.exists && cur.map.version === 2 ? cur.map : null, { dir, projects }, run)).links;
+  for (const t of curTargets.filter((x) => x.blocked && x.blocked.what === LEAVES)) {
+    if (!links.some((l) => l.path === t.blocked.path)) links.push({ path: t.blocked.path, what: t.blocked.now ? `${LEAVES}: your own link, but it points to ${t.blocked.now} now` : LEAVES, fix: myLinkCommand(t.blocked.path) });
+  }
+  // The owner's own links: followed while they point where they did when he named them; one pointed elsewhere since
+  // (a pull of a repository that tracks it) is named with the command that names it again.
+  const mylinks = [];
+  for (const e of myLinkEntries().filter((x) => fs.existsSync(x.path))) {
+    const now = realOf(e.path);
+    if (now === e.to) mylinks.push(e.path);
+    else if (!links.some((l) => l.path === e.path)) links.push({ path: e.path, what: `${LEAVES}: your own link, but it points to ${now} now`, fix: myLinkCommand(e.path) });
+  }
+  // What would stop the map being written (the upkeep then skips with this reason), and one address in two places.
+  const merged = cur.exists ? mergeMap(cur.map, scanned) : null;
+  const kept = merged ? leaveOutNew(cur.map, merged.map) : { map: null, left: [] };
+  const vw = merged ? validateMap(kept.map, { write: true, known: onePlace(cur.map) }) : { ok: true };
+  let blocked = vw.ok ? null : vw.errors;
+  if (cur.exists && !writable(path.dirname(mapFile(dir)))) (blocked || (blocked = [])).push('the brain\'s folder cannot be written on this computer');
+  // The brain itself (or the map file's folder) behind a link that leads out: the map is never written there. Named
+  // with the command, as every other link; and it is what stops the upkeep.
+  const brainOut = leaves(path.join(dir, 'ai_brain'), path.dirname(mapFile(dir)), { dir, projects });
+  if (brainOut) {
+    if (!links.some((l) => l.path === brainOut.path)) links.push({ path: brainOut.path, what: brainOut.what, ...(brainOut.what === LEAVES ? { fix: myLinkCommand(brainOut.path) } : {}) });
+    if (cur.exists) (blocked || (blocked = [])).push(`${leavesWords(brainOut)}: the map is not written through it`);
+  }
+  const duplicates = cur.exists ? onePlace(cur.map).map((d) => ({ entries: [d.a, d.b], fix: `hoprig workspace forget ${d.b}` })) : [];
+  // A folder here left out of the map (leaveOutNew): named with what to do.
+  const leftOut = kept.left.map((l) => ({ entry: l.ref, why: l.why, fix: 'rename or move one of the folders' }));
+  return { ...base, entries, counts, links, mylinks, blocked, duplicates, ...(leftOut.length ? { leftOut } : {}), groups: cur.exists ? await groupChecks(cur.map, dir, run) : [], saved: await mapSaved({ dir, run }) };
+}
+
+const writable = (d) => {
+  try {
+    fs.accessSync(d, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Where each entry of the maps is on this computer (their mapTargets): Map("<kind>:<label>" → folder). */
+function entryPaths(lists, ctx) {
+  const out = new Map([['brain:ai_brain', path.join(ctx.dir, 'ai_brain')]]);
+  for (const t of lists.flat()) out.set(`${t.kind}:${t.label}`, t.dir);
+  return out;
+}
+
+/**
+ * A group that is a repository and is on this computer: whether its ignore file keeps its members out of it.
+ * → [{ dir, missingLines: [line], unignored: [member folder git would take] }] (only groups with something to say)
+ */
+async function groupChecks(map, dir, run) {
+  const out = [];
+  for (const g of map.groups || []) {
+    const gdir = path.join(dir, ...g.dir.split('/'));
+    if (!g.url || !isGitRepo(gdir)) continue;
+    const unignored = await unignoredMembers(g, gdir, run, map.others.map((o) => o.dir));
+    const missingLines = missingIgnoreLines(g, gdir);
+    const f = ignoreFileOf(gdir);
+    if (!f.ok) out.push({ dir: g.dir, missingLines, unignored, refused: f.why });
+    else if (unignored.length || missingLines.length) out.push({ dir: g.dir, missingLines, unignored, fix: `hoprig workspace group ignore ${g.dir}` });
+  }
+  return out;
 }
 
 /** Whether workspace.json differs from the brain's last commit: { unsaved, command } (unsaved false when it does not). */
@@ -511,5 +439,5 @@ export async function mapSaved({ dir = workspaceDir(), run = capture } = {}) {
   if (!isGitRepo(brain)) return { unsaved: false };
   const r = await gitRead(brain, ['status', '--porcelain', '--', MAP_FILE], { run, timeout: 10_000 });
   const unsaved = r.ok && r.stdout.trim() !== '';
-  return { unsaved, ...(unsaved ? { command: `git -C "${brain}" add ${MAP_FILE} && git -C "${brain}" commit -m "${COMMIT_MESSAGE}"` } : {}) };
+  return { unsaved, ...(unsaved ? { command: commitCommand(brain) } : {}) };
 }

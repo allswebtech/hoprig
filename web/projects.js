@@ -17,11 +17,12 @@ import { add, ago, api, btn, fill, h, link, machine, needsYouFirst, openSheet, p
 import { groupOf } from './home.js';
 import { sessionRow } from './sessionitem.js';
 import { projectBrain } from './brain.js';
-import { freshFork, missingCard, workspaceStrip } from './workspace.js';
+import { commandLine, freshFork, missingCard, workspaceStrip } from './workspace.js';
 import { registerPage } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, listRow, okBox, radioCards, skeletonRows as skeleton, stepHeader } from './shell.js';
 import { store } from './store.js';
 import { editorButton } from './editor/index.js';
+import { openNewSession } from './newsession-popup.js';
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const enc = encodeURIComponent;
@@ -34,8 +35,8 @@ const busy = (text) => h('div.empty.compact', h('div.spinner', { 'aria-hidden': 
 export function projectsOf(d) {
   const label = (rel, name) => (rel === '.' ? name : rel.replace(/^code\//, ''));
   return [
-    ...d.workspaces.map((w) => ({ id: w.id || w.dir.split(/[\\/]/).pop(), name: w.name, dir: w.dir, workspace: true, memories: w.memories || {}, repos: w.repos.map((r) => ({ ...r, label: label(r.rel, w.name) })) })),
-    ...d.repos.map((r) => ({ id: r.id || r.rel, name: r.rel, dir: r.dir, workspace: false, memories: {}, repos: [{ ...r, rel: '.', label: r.rel }] })),
+    ...d.workspaces.map((w) => ({ id: w.id || w.dir.split(/[\\/]/).pop(), name: w.name, place: w.place || '', dir: w.dir, workspace: true, memories: w.memories || {}, repos: w.repos.map((r) => ({ ...r, label: label(r.rel, w.name) })), notFollowed: w.notFollowed || [] })),
+    ...d.repos.map((r) => ({ id: r.id || r.rel, name: r.rel, place: r.place || '', dir: r.dir, workspace: false, memories: {}, repos: [{ ...r, rel: '.', label: r.rel }] })),
   ].sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -89,7 +90,7 @@ async function conversationsIn(dir) {
 }
 
 /** A button that opens a chat and says so while it does; an error stays next to it until the next press. */
-export function startButton(dir, { cls = 'small secondary', label = 'Start', title = 'Open a chat here', ...how } = {}) {
+export function startButton(dir, { cls = 'small secondary', label = 'Start', title = 'Open the App here', ...how } = {}) {
   const b = btn(cls, { icon: 'play', label, title });
   b.addEventListener('click', async (e) => {
     e.preventDefault();
@@ -106,6 +107,15 @@ export function startButton(dir, { cls = 'small secondary', label = 'Start', tit
   });
   return b;
 }
+
+/** "New session" in a project: the popup with the project set; App or Terminal and the coding tool are chosen there. */
+const newIn = (dir, name) => openNewSession({ m: machine.current, project: { path: dir, name, short: tildePath(dir) } });
+const newSessionButton = (dir, name, { cls = 'small secondary', label = 'New session' } = {}) =>
+  btn(cls, { icon: 'plus', label, title: `A new session in ${name}`, onclick: (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    newIn(dir, name);
+  } });
 
 // ---------- background jobs (clone, new, sync): their output, followed until they end ----------
 
@@ -161,7 +171,7 @@ function earlier(p) {
       h('div.rows.ws-pastrows', list.slice(0, 8).map((c) => h('div.row.static',
         h('span.row-icon', icon('text')),
         h('span.row-main', h('span.row-title', c.title, toolBadge(c.tool)), h('span.row-sub', ago(c.at))),
-        startButton(p.dir, { sessionId: c.id, tool: c.tool, label: 'Continue', title: 'Continue this conversation in a chat' }))))));
+        startButton(p.dir, { sessionId: c.id, tool: c.tool, label: 'Continue', title: 'Continue this conversation in the App' }))))));
   });
   return slot;
 }
@@ -185,7 +195,7 @@ function projectCard(p, sessions, profiles, home) {
           h('span.row-sub', tildePath(p.dir, home)),
           h(`span.row-sub.pj-git${needsLook(p) ? '.attn' : ''}`, projectWords(p)))),
       h('span.ws-tools',
-        startButton(p.dir, { label: 'New session', title: `Open a chat in ${p.name}, set up as your last one there` }),
+        newSessionButton(p.dir, p.name),
         changesButton(p),
         editorButton(p.dir, { name: p.name, compact: true }),
         h('a.btn.icon.ghost.small', { href: page, title: `Open ${p.name}`, 'aria-label': `Open ${p.name}` }, icon('chevronRight', { size: 18 })))),
@@ -231,8 +241,9 @@ function viewList(frame) {
     // Sessions in the product's own folders (Tia's working folders, `own`) are no folder of the owner's.
     const others = sessions.filter((s) => !s.own && !list.some((p) => inside(p.dir, s.cwd)));
     const ordered = [...list].sort((a, b) => projectRank(of.get(a)) - projectRank(of.get(b)) || lastUse(of.get(b)) - lastUse(of.get(a)) || a.name.localeCompare(b.name));
+    const cards = (ps, aw) => [...ps.map((p) => projectCard(p, of.get(p), profiles, data.home)), ...aw.map(missingCard)];
     fill(body, list.length || away.length
-      ? h('div.ws-list', ordered.map((p) => projectCard(p, of.get(p), profiles, data.home)), away.map(missingCard))
+      ? (placesOf(data).length > 1 ? byPlace(placesOf(data), ordered, away, cards) : h('div.ws-list', cards(ordered, away)))
       // A fresh computer (no projects, no map): bring the workspace from git, or start a new project.
       : map && !map.exists ? freshFork(() => { strip.load(); load(); })
       : emptyState('folder', 'No projects yet. A project is a folder with your code: start a new one, or get one you already have on GitHub.',
@@ -267,6 +278,23 @@ function viewList(frame) {
   };
 }
 
+/** The places of GET /api/pcsetup/projects: the projects folder first, then each group of the workspace map. */
+export const placesOf = (d) => (Array.isArray(d.places) && d.places.length ? d.places : [{ id: '', dir: d.projectsDir }]);
+/** Where a project of the map is: "<place>/<name>" → "<place>", "<name>" → "" (the projects folder). */
+export const placeOfLabel = (label) => (label.includes('/') ? label.slice(0, label.lastIndexOf('/')) : '');
+
+/** With groups in the map: one section per place, the projects folder first, each with its projects (and the ones only in the map). */
+function byPlace(places, ordered, away, cards) {
+  return h('div.ws-places', places.map((pl) => {
+    const ps = ordered.filter((p) => (p.place || '') === pl.id);
+    const aw = away.filter((e) => placeOfLabel(e.label) === pl.id);
+    return h('section.ws-place', { 'aria-label': pl.id || 'Projects' },
+      groupHead(pl.id || 'Projects', ps.length + aw.length),
+      pl.id ? h('p.ws-place-sub', pl.members === 'group' ? `In the group ${pl.group}: its projects come with the group's repository` : pl.group && pl.group !== pl.id ? `In the group ${pl.group}` : 'A group of projects') : null,
+      ps.length || aw.length ? h('div.ws-list', cards(ps, aw)) : h('p.ws-none', 'No project here yet'));
+  }));
+}
+
 /** Advanced: where new projects go, and a way to change it. */
 function folderLine(d, reload) {
   const mark = h('span.saved-mark', { role: 'status' });
@@ -295,6 +323,7 @@ export const TODO = {
   'to-push': () => 'Changes saved here are not uploaded yet: Sync with "also upload my saved changes" does it.',
   'not-online': () => 'Not on GitHub yet, so there is no online copy to sync with. Your coding tool can put it there for you: ask in a session.',
   diverged: () => 'Changed here and online at the same time. This needs a decision: your coding tool can bring the two together.',
+  'kept-back': () => 'The new changes put files where something git does not track is here (a file of your own, or a repository of its own). Nothing was changed: move it away first, then sync again.',
   'pull-blocked': () => 'There are new changes online in the same files you changed here. Save (commit) your changes first, then sync again.',
   uncommitted: (t) => `${(/^(\d+)/.exec(t.why) || [, 'Some'])[1]} change${/^1 /.test(t.why) ? ' is' : 's are'} not saved to git yet; sync leaves ${/^1 /.test(t.why) ? 'it' : 'them'} alone.`,
   'fetch-failed': () => 'Could not reach the online copy. Check the internet connection and the GitHub sign-in.',
@@ -305,7 +334,7 @@ export const TODO = {
 const DID = { pulled: (n) => `Downloaded ${plural(n, 'new change')}.`, pushed: (n) => `Uploaded ${plural(n, 'saved change')}.` };
 
 /**
- * The result of a sync, one row per repository: what it did, what it left in words, "Sort it out in a chat" where
+ * The result of a sync, one row per repository: what it did, what it left in words, "Sort it out in the App" where
  * a decision is needed (in `dir`, the repository's folder when known) and the git command under "Show the git
  * command". `items`: [{ label, did: [{ kind, count } | string], todo: [{ kind, why, command }], dir }].
  */
@@ -313,12 +342,13 @@ export function syncRows(items) {
   return h('div.rows.pj-sync', items.map((x) => {
     const lines = [...x.did.map((d) => (typeof d === 'string' ? d : DID[d.kind] ? DID[d.kind](d.count) : d.text)), ...x.todo.map((t) => (TODO[t.kind] || TODO.other)(t))];
     const fine = !x.todo.length;
-    const decide = x.dir && x.todo.find((t) => t.kind === 'diverged' || t.kind === 'pull-blocked');
+    // Never where something git ignores is in the way: a merge or a rebase would delete it (a repository of its own).
+    const decide = x.dir && !x.todo.some((t) => t.kind === 'kept-back') && x.todo.find((t) => t.kind === 'diverged' || t.kind === 'pull-blocked');
     return h('div.row.static.col.mrow',
       h('div.mrow-top',
         h(`span.row-icon.pj-mark${fine ? '.ok' : '.warn'}`, icon(fine ? 'check' : 'alert')),
         h('span.row-main', h('span.row-title', x.label), h('span.row-sub.pj-wrap', lines.length ? lines.join(' ') : 'Already up to date.'))),
-      decide ? h('div.mrow-actions', startButton(x.dir, { label: 'Sort it out in a chat', prompt: `The repository ${x.label} and its online copy have both changed. Show me what differs, then ask me before you merge or rebase.` })) : null,
+      decide ? h('div.mrow-actions', startButton(x.dir, { label: 'Sort it out in the App', prompt: `The repository ${x.label} and its online copy have both changed. Show me what differs, then ask me before you merge or rebase. A folder this repository ignores may be a repository of its own: a merge or a rebase deletes it when the other side's commits put files there, so check that first.` })) : null,
       x.todo.some((t) => t.command) ? h('details.pj-cmd', h('summary', 'Show the git command'), h('code.mono', x.todo.filter((t) => t.command).map((t) => t.command).join('\n'))) : null);
   }));
 }
@@ -352,7 +382,7 @@ function viewProject(frame, id) {
     back: link('#/workspace'),
     backLabel: 'Workspace',
     intro: 'Everything about this project: the sessions in it, its code and the skills used here.',
-    primary: { label: 'Start a session', icon: 'play', onclick: () => p && startIn(p.dir).catch((e) => toast(e.message, { kind: 'error', ms: 7000 })) },
+    primary: { label: 'New session', icon: 'plus', onclick: () => p && newIn(p.dir, p.name) },
     body: [
       groupHead('Sessions'), sessionsBox, pastBox,
       groupHead('Repositories'), h('p.hint.pj-lead', 'Where the code is kept with its history (git). Sync brings each one up to date with its online copy and never decides anything for you.'),
@@ -391,7 +421,7 @@ function viewProject(frame, id) {
       h('div.rows', (all ? r.sessions : r.sessions.slice(0, 4)).map((c) => h('div.row.static.pj-past',
         h('span.row-icon', icon('text')),
         h('span.row-main', h('span.row-title', c.title, toolBadge(c.tool)), h('span.row-sub', ago(c.at))),
-        startButton(p.dir, { label: 'Continue', title: 'Continue this conversation in a chat', sessionId: c.id, tool: c.tool })))),
+        startButton(p.dir, { label: 'Continue', title: 'Continue this conversation in the App', sessionId: c.id, tool: c.tool })))),
       !all && r.sessions.length > 4 ? h('button.btn.ghost.small.pj-more', { type: 'button', onclick: () => { all = true; paint(); } }, `Show all ${r.sessions.length}`) : null);
     paint();
   }
@@ -404,12 +434,20 @@ function viewProject(frame, id) {
         h('div.mrow-top',
           h('span.row-icon', icon(r.rel === '.' ? 'folder' : 'text')),
           h('span.row-main',
-            h('span.row-title', r.label, r.rel === '.' && p.workspace ? h('span.badge.soft', 'the project itself') : null),
+            h('span.row-title', r.label, r.rel === '.' && p.workspace ? h('span.badge.soft', 'the project itself') : null, r.worktree ? h('span.badge.soft', { title: 'A second checkout of a repository (git worktree): not an entry of the workspace map' }, 'worktree') : null),
             h(`span.row-sub.pj-wrap${!r.ok || r.changes || r.behind ? '.attn' : ''}`, gitWords(r)))),
         h('div.mrow-actions',
           editorButton(r.dir || p.dir, { name: r.label }),
           r.changes > 0 ? editorButton(r.dir || p.dir, { name: r.label, changes: r.changes }) : null,
-          r.ok && r.installs && r.installs.length ? btn('small secondary', { icon: 'download', label: `Install what it needs (${r.installs[0]})`, onclick: (e) => job(e.currentTarget, '/api/pcsetup/install', { dir: installDir(r) }, 'Installing…') }) : null)))),
+          r.ok && r.installs && r.installs.length ? btn('small secondary', { icon: 'download', label: `Install what it needs (${r.installs[0]})`, onclick: (e) => job(e.currentTarget, '/api/pcsetup/install', { dir: installDir(r) }, 'Installing…') }) : null))),
+        // A folder that leads out of the project through a link: never synced, installed or opened from here.
+        ...(p.notFollowed || []).map((x) => h('div.row.static.col.mrow.pj-notfollowed',
+          h('div.mrow-top',
+            h('span.row-icon', icon('lock')),
+            h('span.row-main',
+              h('span.row-title', x.rel, h('span.badge.soft', 'not followed')),
+              h('span.row-sub.pj-wrap', 'It leads out of the project through a link, so Hoprig does not sync it, install in it or link memory into it.'),
+              x.link ? h('span.row-sub.pj-wrap', 'If that link is yours: ', h('code.pj-wrap', `hoprig workspace mylink add ${tildePath(x.link, data && data.home)}`)) : null))))),
       h('div.pj-actions',
         btn('secondary', { icon: 'refresh', label: 'Sync', title: 'Download new changes and upload saved ones; never merges, rebases or overwrites', onclick: (e) => sync(e.currentTarget, false) }),
         p.workspace ? btn('ghost', { icon: 'plus', label: 'Add a repository', onclick: addRepo }) : null));
@@ -577,6 +615,12 @@ function viewProjects({ frame, sub }) {
 const STEPS = ['Name', 'Check', 'Done'];
 const stepper = (i, names = STEPS) => stepHeader(names, i);
 
+/**
+ * How a step page's job ended: done | needs-you (not done: the owner runs the job's `fix`, e.g. the mv for a project
+ * here under another name) | failed.
+ */
+export const jobOutcome = (r) => (r && r.data && r.data.fix ? 'needs-you' : r && (r.ok || (r.data && r.data.made)) ? 'done' : 'failed');
+
 /** The step pages' last step: the job's output while it runs, then the result with what to do next. */
 async function finish(box, { path, body, doing, done, alive, back, plainError = (e) => e }) {
   const log = logBox();
@@ -588,13 +632,18 @@ async function finish(box, { path, body, doing, done, alive, back, plainError = 
     r = { ok: false, error: e.message };
   }
   if (!r || !alive()) return;
-  const made = r.data && r.data.made;
-  const where = (r.started && r.started.dir) || (r.data && r.data.dir);
-  const id = (r.started && r.started.name) || (r.data && r.data.name);
+  // The job's own result first: a cloned project's folder is known only once its project.json was read.
+  const where = (r.data && r.data.dir) || (r.started && r.started.dir);
+  const id = (r.data && r.data.name) || (r.started && r.started.name);
+  const outcome = jobOutcome(r);
   fill(box, stepper(2),
-    r.ok || made
+    outcome === 'needs-you'
+      ? [h('div.banner.warn', { role: 'status' }, icon('alert', { size: 18 }), h('span', `Not done yet: this needs you. ${String(r.error || '').replace(/^./, (c) => c.toUpperCase())}`)),
+        h('p.hint', 'Run this, then try again:'), commandLine(r.data.fix),
+        h('div.pj-next', btn('secondary', { icon: 'back', label: 'Back', onclick: back }))]
+      : outcome === 'done'
       ? [okBox(done(where)), r.ok ? null : h('p.hint', `Some of it did not work: ${r.error || 'see the details below'}.`),
-        h('div.pj-next', startButton(where, { cls: 'primary', label: 'Start a session' }), h('a.btn.secondary', { href: link(`#/workspace/project/${enc(id)}`) }, icon('folder', { size: 18 }), h('span', 'Open the project')))]
+        h('div.pj-next', newSessionButton(where, id || String(where).split(/[\\/]/).pop(), { cls: 'primary', label: 'Start a session' }), h('a.btn.secondary', { href: link(`#/workspace/project/${enc(id)}`) }, icon('folder', { size: 18 }), h('span', 'Open the project')))]
       : [errorBox(plainError(r.error || 'That did not work.')), h('div.pj-next', btn('secondary', { icon: 'back', label: 'Back', onclick: back }))],
     fold('project-steps', 'Details', log));
 }
@@ -678,8 +727,10 @@ function viewNewProject({ frame, sub }) {
   };
 }
 
-/** The folder name a project spec gets (as the server's parseProjectSpec): the last part, without ".git". */
+/** The repository name in a project spec (as the server's parseProjectSpec): the last part, without ".git". */
 const specName = (s) => s.trim().replace(/\.git$/, '').split(/[/:]/).filter(Boolean).pop() || '';
+/** The folder it most likely gets (getproject.mjs): without a trailing "-workspace"; the job says the real one. */
+const folderName = (s) => specName(s).replace(/(.)-workspace$/, '$1');
 
 function viewGetProject({ frame, sub }) {
   store.viewing = null;
@@ -721,7 +772,7 @@ function viewGetProject({ frame, sub }) {
   }
 
   function stepCheck() {
-    const name = specName(spec);
+    const name = folderName(spec);
     const dest = folder ? tildePath(`${folder.projectsDir}/${name}`, folder.home) : `the projects folder, as ${name}`;
     fill(box, stepper(1),
       h('section.card.panel',
@@ -734,7 +785,7 @@ function viewGetProject({ frame, sub }) {
         btn('secondary', { icon: 'back', label: 'Back', onclick: () => stepName() }),
         btn('primary', { icon: 'download', label: 'Get it', onclick: () => finish(box, {
           path: '/api/pcsetup/project/clone', body: { spec }, doing: `Downloading ${name}…`, alive: () => alive,
-          done: (dir) => `${name} is on this computer now, in ${folder ? tildePath(dir, folder.home) : dir}.`,
+          done: (dir) => `${String(dir).split(/[\\/]/).pop() || name} is on this computer now, in ${folder ? tildePath(dir, folder.home) : dir}.`,
           back: stepCheck,
           plainError: (e) => (/clone failed|no repository|needs the GitHub sign-in/.test(e)
             ? `${name} could not be downloaded. Check its name; a private project needs the GitHub sign-in first (Computers → this computer → Setup). The details below say what git answered.`

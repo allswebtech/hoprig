@@ -11,8 +11,9 @@
 import path from 'node:path';
 import { gitRead } from '../gitread.mjs';
 import { parseGhAuth } from '../pcsetup/detect.mjs';
-import { createGithubRepo, git, githubOwners, initRepo, repoInfo } from '../pcsetup/workspace.mjs';
-import { capture, stream, which } from '../setup/system.mjs';
+import { createGithubRepo, githubOwners, initRepo, repoInfo } from '../pcsetup/workspace.mjs';
+import { gitIn } from './inside.mjs';
+import { capture, showCommand, stream, which } from '../setup/system.mjs';
 import { bold, dim } from '../setup/ui.mjs';
 import { isDir, isGitRepo, workspaceDir } from './layout.mjs';
 import { MAP_FILE, updateMap } from './map.mjs';
@@ -172,7 +173,7 @@ export async function startNew(ui, { st, run, term, dir, owner: wantOwner = null
     for (const d of r.did) ui.line('ok', `created ${d.path}`);
   }
   if (!isGitRepo(brain)) {
-    const i = await initRepo(brain, 'Start the AI brain', run);
+    const i = await initRepo(brain, 'Start the AI brain', run, { root: brain, dir });
     if (!i.ok) return ui.line('fail', `git could not make the first commit: ${i.error}`) ?? false;
   }
   const owners = await githubOwners(run);
@@ -189,16 +190,17 @@ export async function startNew(ui, { st, run, term, dir, owner: wantOwner = null
   if (!/^[A-Za-z0-9._-]{1,100}$/.test(name)) return ui.line('fail', 'a repository name is letters, digits, ".", "_" and "-"') ?? false;
   if (!wantName && !(await ui.confirm(`Create the PRIVATE repository ${owner}/${name} and push your AI brain to it?`, true))) return false;
   const lines = [];
-  const r = await createGithubRepo(brain, owner, name, { onLine: (l) => lines.push(l), run: term });
-  if (!r.ok) return ui.line('fail', `gh repo create failed: ${lines.filter(Boolean).pop() || ''} — retry: gh repo create ${owner}/${name} --private --source "${brain}" --remote origin --push`) ?? false;
+  const r = await createGithubRepo(brain, owner, name, { onLine: (l) => lines.push(l), run: term, at: { dir } });
+  if (!r.ok) return ui.line('fail', `gh repo create failed: ${lines.filter(Boolean).pop() || ''} — retry: ${showCommand(['gh', 'repo', 'create', `${owner}/${name}`, '--private', '--source', brain, '--remote', 'origin', '--push'])}`) ?? false;
   ui.line('ok', `private repository ${owner}/${name} created and pushed`);
   // The map now knows the brain's address: write it, commit only that file, push.
   await updateMap({ dir });
-  await git(brain, ['add', '--', MAP_FILE], run);
-  const c = await git(brain, ['commit', '--quiet', '-m', 'Add the workspace map', '--', MAP_FILE], run);
+  const at = { root: brain, dir };
+  await gitIn(at, brain, ['add', '--', MAP_FILE], run);
+  const c = await gitIn(at, brain, ['commit', '--quiet', '-m', 'Add the workspace map', '--', MAP_FILE], run);
   if (c.ok) {
-    const p = await git(brain, ['push', '--quiet'], run, { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
-    ui.line(p.ok ? 'ok' : 'warn', p.ok ? 'the workspace map is in the brain and pushed' : `the map is committed; push it: git -C "${brain}" push`);
+    const p = await gitIn(at, brain, ['push', '--quiet'], run, { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+    ui.line(p.ok ? 'ok' : 'warn', p.ok ? 'the workspace map is in the brain and pushed' : `the map is committed; push it: ${showCommand(['git', '-C', brain, 'push'])}`);
   }
   ui.note(`On your next computer: ${bold(`hoprig workspace restore ${owner}/${name}`)}`);
   return true;

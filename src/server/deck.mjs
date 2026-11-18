@@ -16,7 +16,7 @@ import { hasConversation, sessionTitle, sessionsIn } from '../sessions.mjs';
 import { isOwnFolder } from './folders.mjs';
 import { detectLimit } from './limits.mjs';
 import { alwaysOption } from './prompts.mjs';
-import { screenLook, shownStatus } from './screen.mjs';
+import { IDLE_MS, interrupted, screenLook, shownStatus } from './screen.mjs';
 import { descendsFrom, parentLookup, procParent } from './platform.mjs';
 import { safeSessionName, uniqueName } from './validate.mjs';
 
@@ -138,6 +138,13 @@ const IDLE_GAP_MS = 20_000;
 // "Live status: basic": a screen that changed this recently is a tool at work.
 const BASIC_BUSY_MS = 4000;
 
+// One state of a run record, and one question of it: what a note about its screen holds for (#shown, noteRefused).
+const runKey = (run) => `${run.runId}|${run.status}|${run.statusAt}`;
+const askKey = (run) => `${runKey(run)}|${run.askAt || 0}`;
+
+// What a terminal session's coding tool can be asking (the run record's askType, src/asking.mjs).
+const ASK_TYPES = ['permission', 'question', 'plan'];
+
 // The terminal that stands for a session: the one with a Claude run in it, else the active one.
 const pick = (terms, byId) => terms.find((t) => byId.has(t.id)) || terms.find((t) => t.active) || terms[0];
 
@@ -152,6 +159,7 @@ export class Deck {
     Object.assign(this, { backend, config, profiles, now });
     this.idle = new Map(); // session name → { key, since, last }: how long its screen has looked idle (see #shown)
     this.shown = new Map(); // session name → { key, status, at }: a card that differs from its run record, and since when
+    this.refused = new Map(); // session name → the key of the run state whose question the owner refused from the page
     this.launches = new Map(); // `${tool}:${conversation}` → { name, at, mark }: see noteLaunch
     // The conversation's own queue (handoff.mjs claim, move): one start, take-over or move at a time.
     this.serial = queue();
@@ -211,19 +219,31 @@ export class Deck {
   }
 
   /**
+   * The owner refused the question on session `name`'s screen from the page ("Do not allow": Esc). The turn is over
+   * and no event tells (hook.mjs), so the record of `run` goes on saying "needs your OK": the next look that finds
+   * the screen at an empty message box is believed at once, without the wait a mere look needs (#shown).
+   */
+  noteRefused(name, run) {
+    if (run) this.refused.set(name, askKey(run));
+  }
+
+  /**
    * The run's status as the screen confirms it (screen.mjs: shownStatus), and since when. The run file is not
    * touched: only the hooks write it, and the next event there is the truth again.
    */
   #shown(name, run, screen, now) {
     const look = screenLook(screen);
-    const key = `${run.runId}|${run.status}|${run.statusAt}`;
+    const key = runKey(run);
+    if (this.refused.has(name) && this.refused.get(name) !== askKey(run)) this.refused.delete(name); // the record moved on
     let idleFor = 0;
     if (look === 'idle') {
       // Idle "for a while" means seen idle look after look: a gap between two looks proves nothing about it.
       const was = this.idle.get(name);
       const since = was && was.key === key && now - was.last <= IDLE_GAP_MS ? was.since : now;
       this.idle.set(name, { key, since, last: now });
-      idleFor = now - since;
+      // A question the owner refused from the page, or with Esc in the terminal itself (Claude Code writes "Interrupted ·
+      // What should Claude do instead?" right above the message box): the idle screen is the end of that turn, known at once.
+      idleFor = this.refused.has(name) || interrupted(screen) ? IDLE_MS : now - since;
     } else this.idle.delete(name);
     const status = shownStatus(run, look, idleFor);
     const was = this.shown.get(name);
@@ -312,12 +332,28 @@ export class Deck {
         // Subagents or a workflow go on after the reply ended: Claude continues by itself when they finish.
         const background = Array.isArray(run.background) ? run.background.length : 0;
         if (card.status === 'working' && background) card.background = background;
-        // Needs your OK: the "Yes, and don't ask again …" answer when Claude's question has one (prompts.mjs).
-        if (card.status === 'attention') card.always = alwaysOption(screen);
+        // What Hoprig allowed by itself in bypass mode (hook.mjs), the newest last: the session page lists it.
+        if (Array.isArray(run.allowed) && run.allowed.length) {
+          card.allowed = run.allowed.slice(-5).map((a) => ({ at: Number(a.at) || 0, tool: String(a.tool || '').slice(0, 80), what: String(a.what || '').slice(0, 200), ...(typeof a.folder === 'string' && a.folder ? { folder: a.folder.slice(0, 200) } : {}) }));
+        }
+        if (card.status === 'attention') {
+          // What is asked, in a chat card's words (ask.type): only a permission has "Allow" for an answer; a question
+          // or a plan is answered in the terminal. `askAt` tells a second question from the one just answered. For a
+          // permission also its command or file (`what`, which the page sends back with its answer) and how many
+          // askers wait (`waiting`: with more than one the page offers no answer, the terminal shows its own queue).
+          if (ASK_TYPES.includes(run.askType)) card.ask = { type: run.askType };
+          if (card.ask && card.ask.type === 'permission') {
+            card.ask.what = String(run.askWhat || '').slice(0, 200);
+            card.ask.waiting = Array.isArray(run.asks) ? run.asks.length : 0;
+          }
+          if (Number.isFinite(run.askAt)) card.askAt = run.askAt;
+          // A permission: the "Yes, and don't ask again …" answer when Claude's question has one (prompts.mjs).
+          card.always = card.ask && card.ask.type !== 'permission' ? null : alwaysOption(screen);
+        }
       }
       out.push(card);
     }
-    for (const m of [this.idle, this.shown]) for (const k of m.keys()) if (!groups.has(k)) m.delete(k);
+    for (const m of [this.idle, this.shown, this.refused]) for (const k of m.keys()) if (!groups.has(k)) m.delete(k);
     for (const k of this.movedFrom.keys()) if (!terms.some((t) => t.id === k)) this.movedFrom.delete(k);
     return out.sort((a, b) => (b.statusAt || b.activity || 0) - (a.statusAt || a.activity || 0));
   }

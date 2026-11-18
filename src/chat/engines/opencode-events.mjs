@@ -38,6 +38,9 @@ const TOOLS = {
   subagent: { name: 'Agent', kind: 'agent', input: (i) => ({ description: i.description, prompt: i.prompt, subagent_type: i.agent ?? i.subagent_type ?? i.subagentType }) },
   skill: { name: 'Skill', kind: 'other', input: (i) => ({ skill: i.name ?? i.skill, args: i.args }) },
 };
+// The folder a shell call names for itself (OpenCode's shell tool: `workdir`), as it gave it, of whatever kind.
+const workdirOf = (input) => (input && input.workdir !== undefined && input.workdir !== null ? { workdir: input.workdir } : {});
+
 /** An OK's action → the tool it is about, where no call was seen for it. */
 const ACTION_TOOL = { shell: 'shell', edit: 'edit', read: 'read', webfetch: 'webfetch', websearch: 'websearch', glob: 'glob', grep: 'grep', subagent: 'subagent', skill: 'skill' };
 
@@ -261,6 +264,11 @@ export class OpencodeEvents {
     }];
   }
 
+  /** A call read back from the conversation's messages (not from the event stream): its OK is then seen whole. */
+  knowCall(id, name, input) {
+    if (!this.calls.has(id) && input && typeof input === 'object') this.calls.set(id, { name: String(name || 'tool'), input, agent: null });
+  }
+
   /** An OK the owner (or the chat) gives: what the call does, whole, is its subject. */
   #ask(d, agent) {
     const request = str(d.id);
@@ -287,7 +295,9 @@ export class OpencodeEvents {
     const edits = action === 'edit';
     return [{
       kind: 'ask', request, type: 'permission', tool: p.name, title: p.name, toolId: callId, description: '',
-      input: clipInput(known ? p.input : { ...p.input, resources }), full: known ? p.input : { resources },
+      // `full` keeps the shell's own folder (`workdir`), which the page's input leaves out: in bypass mode the chat
+      // reads a delete in it (src/chat/asks.mjs openCodeAllows). `shell`: OpenCode's shell action, whatever the tool's name.
+      input: clipInput(known ? p.input : { ...p.input, resources }), full: known ? { ...p.input, ...workdirOf(call.input) } : { resources }, shell: action === 'shell',
       ...(diff ? { diff } : {}),
       subject: subject.slice(0, SUBJECT_MAX), subjectCut: subject.length > SUBJECT_MAX || !!(about && about.cut),
       // A call the chat did not see whole: the owner's to answer.

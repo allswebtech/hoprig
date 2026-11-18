@@ -120,20 +120,22 @@ test('clone, install, project names: every input checked', async () => {
   await assert.rejects(call('POST', '/api/pcsetup/clone', { repos: [] }), /1 to 50/);
   await assert.rejects(call('POST', '/api/pcsetup/install', { dir: '../etc' }), /bad project folder/);
   await assert.rejects(call('POST', '/api/pcsetup/install', { dir: 'a/../../b' }), /bad project folder/);
+  for (const dir of ['a/b/c', 'a/b', 'x/y/code/z']) await assert.rejects(call('POST', '/api/pcsetup/install', { dir }), (e) => e.status === 400 && /bad project folder/.test(e.message), dir);
   await assert.rejects(call('POST', '/api/pcsetup/project/new', { name: '../x' }), /project name/);
   await assert.rejects(call('POST', '/api/pcsetup/project/clone', { spec: 'file:///x' }), /name, owner\/name or a Git address/);
   await assert.rejects(call('POST', '/api/pcsetup/project/sync', { name: 'nope' }), /no such project/);
   await assert.rejects(call('POST', '/api/pcsetup/rules', { action: 'sudo' }), /add or remove/);
 });
 
-test('working rules: one file in <claude dir>/rules/, CLAUDE.md never touched, removed again cleanly', () => {
+test('working rules: one file in <claude dir>/rules/, CLAUDE.md never touched, removed again cleanly', async () => {
   const base = path.join(tmp, 'rules1');
   fs.mkdirSync(base);
   const mine = '# My rules\n\nBe brief.\n';
   fs.writeFileSync(path.join(base, 'CLAUDE.md'), mine);
   const file = path.join(base, 'rules', R.RULES_FILE);
   assert.match(R.addRules({ base }).said.join(' '), /wrote .*hoprig-working-rules\.md/);
-  assert.equal(fs.readFileSync(file, 'utf8'), fs.readFileSync(R.TEMPLATE, 'utf8'));
+  assert.equal(fs.readFileSync(file, 'utf8'), fs.readFileSync(R.TEMPLATE, 'utf8'), 'the template, nothing more');
+  assert.equal(R.rulesState({ base }).edited, false);
   assert.equal(fs.readFileSync(path.join(base, 'CLAUDE.md'), 'utf8'), mine, 'CLAUDE.md untouched');
   assert.equal(R.rulesState({ base }).installed, true);
   R.addRules({ base }); // again: nothing changes

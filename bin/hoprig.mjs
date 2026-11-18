@@ -47,9 +47,15 @@ const HELP = `Hoprig — Claude Code and OpenCode under several providers, and a
   hoprig project new <name>   a new project: one folder for rules, AI memory and docs, with its code
                                  repositories under code/, all in git
   hoprig project clone <name> get an existing project with all its code repositories and its AI memory
+  hoprig get <name>…          the same, short (the folder is the project's name; --dry-run shows it first)
   hoprig project status|sync  the state of a project's repositories; pull and push what is safe
+  hoprig project setup <name> what a fresh clone sets up (.env, git hooks, memory link, installs)
   hoprig workspace            the one folder tree for your coding: AI brain, projects, credentials
-                                 (workspace status | setup | link | map | restore | sync | set | forget | git)
+                                 (workspace status | setup | link | map | restore | sync | set | forget | git |
+                                 group | find | tool | mylink | rules)
+  hoprig tasks                Work: your tasks and what needs you today, kept in a file of the workspace
+                                 (tasks today | list | add | edit | done | open | drop | remove | do | runs | save;
+                                 "hoprig tasks help" has the rest)
 
   hoprig setup                install what is missing and set everything up, step by step
   hoprig doctor               check that everything works
@@ -69,7 +75,8 @@ const HELP = `Hoprig — Claude Code and OpenCode under several providers, and a
   hoprig skills               skills for you and your projects: suggest, find, review and
                                  add, update (skills suggest | find | add | list | update)
   hoprig addons               optional companions, such as an AI gateway that lets Claude Code use
-                                 other providers (addons setup trouteai)
+                                 other providers (addons setup <id>)
+  hoprig gateways             the gateways Hoprig knows; gateways add | confirm | remove: one of your own
   hoprig mcp                  Hoprig's tools as an MCP server (for the dashboard's assistant and
                                  for any MCP client, such as your own Claude Code)
 
@@ -209,6 +216,7 @@ async function main() {
       return tools.main(rest);
     }
     case 'pc':
+    case 'get':
     case 'project': {
       const pc = await import('../src/pcsetup/cli.mjs');
       return (await pc.main(cmd, rest)) ?? 0;
@@ -216,6 +224,10 @@ async function main() {
     case 'workspace': {
       const ws = await import('../src/workspace/cli.mjs');
       return ws.main(rest);
+    }
+    case 'tasks': {
+      const work = await import('../src/work/cli.mjs');
+      return work.main(rest);
     }
     case 'demo': {
       const demo = await import('../src/demo/cli.mjs');
@@ -229,6 +241,10 @@ async function main() {
     case 'addons': {
       const addons = await import('../src/addons/cli.mjs');
       return addons.main(cmd, rest);
+    }
+    case 'gateways': {
+      const gw = await import('../src/addons/gatewaycli.mjs');
+      return gw.main(rest);
     }
     case 'public': {
       const pub = await import('../src/addons/publiccli.mjs');

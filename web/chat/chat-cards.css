@@ -17,6 +17,7 @@
 .chat-tool-said { flex: none; color: var(--danger); font-weight: 650; font-size: var(--fs-xs); }
 .chat-tool-said:empty { display: none; }
 .chat-tool.chat-is-taskstop .chat-tool-said, .chat-tool.chat-is-stopped .chat-tool-said { color: var(--muted); }
+.chat-tool-okd { color: var(--muted); font-weight: 500; } /* its answered OK card, folded in: "allowed by you" */
 .chat-tool-end { margin-left: auto; flex: none; color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .chat-plus { color: var(--ok); font-weight: 650; }
 .chat-minus { color: var(--danger); font-weight: 650; }
@@ -128,3 +129,12 @@
   .chat-prompt > summary { min-height: 44px; }
   .chat-key { display: none; }
 }
+
+/* ---------- the transcript view (timeline.js) ----------
+   Normal: no thinking, calls folded to their lines. Thinking: the thinking too. Verbose: everything, and each
+   turn's line (tokens, time). Dollars only for a provider billed by use (data-billed). */
+.chat-timeline[data-view='normal'] .chat-think { display: none; }
+.chat-timeline:not([data-view='verbose']) .chat-turnend { display: none; }
+.chat-timeline:not([data-billed]) .chat-money, .chat-timeline:not([data-billed]) .chat-turnend.chat-moneyonly { display: none; }
+/* A call opened with nothing inside (EnterPlanMode) shows no empty strip under its line. */
+.chat-tool-body:not(:has(> :not(:empty))) { display: none; }

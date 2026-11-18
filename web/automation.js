@@ -45,33 +45,34 @@ export function whenText(w) {
 }
 
 /**
- * "start a chat in api-server on Auto mode" / "send a message to data-pipeline". `accountLabel(name)` gives a
- * provider's display name, `sessionLabel(name)` a session's (a chat is "chat:<id>": its title). o.named: the computer
- * offers more than one coding tool, so the sentence names Claude Code too ("start Claude Code in a terminal").
+ * "start a session in the App in api-server on Auto mode" / "send a message to data-pipeline". `accountLabel(name)`
+ * gives a provider's display name, `sessionLabel(name)` a session's (one in the App is "chat:<id>": its title).
+ * o.named: the computer offers more than one coding tool, so the sentence names Claude Code too ("start Claude Code in
+ * the Terminal").
  */
-export function whatText(a, accountLabel = (n) => n, sessionLabel = (n) => (n.startsWith('chat:') ? 'a chat' : n), o = {}) {
+export function whatText(a, accountLabel = (n) => n, sessionLabel = (n) => (n.startsWith('chat:') ? 'a session in the App' : n), o = {}) {
   if (a.type === 'start') {
     const where = folderName(a.dir);
     const chat = a.in === 'chat';
     const other = chat && a.tool && a.tool !== 'claude';
-    const what = !o.named ? (chat ? 'a chat' : 'a session') + (other ? ` with ${TOOL_NAMES[a.tool] || a.tool}` : '')
-      : chat ? `a chat with ${other ? TOOL_NAMES[a.tool] || a.tool : 'Claude Code'}` : 'Claude Code in a terminal';
+    const what = !o.named ? (chat ? 'a session in the App' : 'a session in the Terminal') + (other ? ` with ${TOOL_NAMES[a.tool] || a.tool}` : '')
+      : chat ? `a session in the App with ${other ? TOOL_NAMES[a.tool] || a.tool : 'Claude Code'}` : 'Claude Code in the Terminal';
     return `start ${what}${where ? ` in ${where}` : ''}${a.profile ? ` on ${accountLabel(a.profile)}` : ''}`;
   }
   return `send a message to ${a.session ? sessionLabel(a.session) : 'a session'}`;
 }
 
-/** The whole schedule as one sentence: "Every day at 08:30, start a session in api-server on Auto mode." */
+/** The whole schedule as one sentence: "Every day at 08:30, start a session in the Terminal in api-server on Auto mode." */
 export const scheduleSentence = (s, accountLabel, sessionLabel, o = {}) => `${whenText(s.when)}, ${whatText(s.action, accountLabel, sessionLabel, o)}.`;
 
 const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a restart', retry: 'Try again', updates: 'Updates', idle: 'Housekeeping', hub: 'Another dashboard' };
 
 /**
  * One line of Activity in plain words: { title, sub, problem } — the title says what happened as a sentence, `problem`
- * (or null) what went wrong. `sessionLabel(name)`: a session as a person reads it (a chat is "chat:<id>": its title,
- * else "a chat"; never its id).
+ * (or null) what went wrong. `sessionLabel(name)`: a session as a person reads it (one in the App is "chat:<id>": its
+ * title, else "a session in the App"; never its id).
  */
-export function activityLine(e, sessionLabel = (n) => (n.startsWith('chat:') ? 'a chat' : n)) {
+export function activityLine(e, sessionLabel = (n) => (n.startsWith('chat:') ? 'a session in the App' : n)) {
   const did = String(e.did || '').trim();
   const title = `${cap(did)}${/[.!?]$/.test(did) ? '' : '.'}`;
   // Lines written before the wording was plain named a setting by its key; said in the page's words instead.
@@ -247,7 +248,7 @@ function schedulesPart(st, { reload, addSchedule }) {
     offBanner,
     groupHead('Schedules', st.schedules.length),
     h('div.rows', list),
-    h('p.hint.au-foot', 'Times are this computer\'s clock. A message waits in the session\'s queue (a chat queues it itself), so it never interrupts a reply. A run missed while the computer was off still runs if it is less than 2 hours late.'),
+    h('p.hint.au-foot', 'Times are this computer\'s clock. A message waits in the session\'s queue (a session in the App queues it itself), so it never interrupts a reply. A run missed while the computer was off still runs if it is less than 2 hours late.'),
   ];
 }
 
@@ -341,11 +342,11 @@ async function scheduleForm(old, preset = null) {
     return (tool === 'claude' ? rec : list.some(([n]) => n === rec) && rec) || (list[0] || [''])[0];
   };
   const firstAccount = firstFor('claude');
-  // Where a message can go: the coding sessions in a terminal and the open chats (by their title).
+  // Where a message can go: the coding sessions in a terminal and the ones open in the App (by their title).
   const targets = (d.sessions || []).filter((x) => isCodingCard(x) || x.kind === 'chat')
-    .map((x) => [x.name, x.kind === 'chat' ? `Chat: ${x.title || x.display || 'New chat'}` : x.name]);
+    .map((x) => [x.name, x.kind === 'chat' ? `App: ${x.title || x.display || 'New session'}` : x.name]);
   const claudeSessions = targets.map(([n]) => n);
-  const sessionLabel = (n) => (targets.find(([x]) => x === n) || [null, n.startsWith('chat:') ? 'a chat' : n])[1].replace(/^Chat: (.*)$/, 'the chat "$1"');
+  const sessionLabel = (n) => (targets.find(([x]) => x === n) || [null, n.startsWith('chat:') ? 'a session in the App' : n])[1].replace(/^App: (.*)$/, 'the App session "$1"');
   const tomorrow = ymd(new Date(Date.now() + 86_400_000));
   const s = old
     ? JSON.parse(JSON.stringify({ label: old.label || '', when: old.when, action: old.action, enabled: old.enabled }))
@@ -404,8 +405,8 @@ async function scheduleForm(old, preset = null) {
         }),
         a.type === 'start'
           ? [
-            h('div.field-label', 'Open in'),
-            seg('Open in', [['chat', 'A chat'], ['terminal', 'A terminal']], a.in === 'chat' ? 'chat' : 'terminal', (v) => {
+            h('div.field-label', 'Open as'),
+            seg('Open as', [['chat', 'App'], ['terminal', 'Terminal']], a.in === 'chat' ? 'chat' : 'terminal', (v) => {
               if (v === 'chat') a.in = 'chat';
               else {
                 delete a.in;
@@ -416,7 +417,7 @@ async function scheduleForm(old, preset = null) {
               paintSentence();
             }),
             // Where more than one coding tool is offered: a terminal a schedule starts is Claude Code's, said so.
-            a.in !== 'chat' && tools.length > 1 ? h('p.hint', 'A schedule starts Claude Code in a terminal; for another coding tool, choose A chat.') : null,
+            a.in !== 'chat' && tools.length > 1 ? h('p.hint', 'A schedule starts Claude Code in a terminal; for another coding tool, choose App.') : null,
             // The coding tool of the chat, where this computer offers more than one.
             a.in === 'chat' && tools.length > 1 ? [
               h('div.field-label', 'Coding tool'),
@@ -606,9 +607,9 @@ async function activityPart(box, isAlive) {
     fill(box, h('div.au-activity', emptyState('text', 'Nothing yet. Each time an automation does something, it shows here in one sentence.'), h('div.au-foot-row', refresh)));
     return;
   }
-  // A chat by its title while it is open; one that closed since is "a chat".
+  // A session in the App by its title while it is open; one that closed since is "a session in the App".
   const chats = new Map(((store.data && store.data.sessions) || []).filter((x) => x.kind === 'chat').map((x) => [x.name, x.title || x.display]));
-  const sessionLabel = (n) => (n.startsWith('chat:') ? (chats.get(n) ? `the chat "${chats.get(n)}"` : 'a chat') : n);
+  const sessionLabel = (n) => (n.startsWith('chat:') ? (chats.get(n) ? `the App session "${chats.get(n)}"` : 'a session in the App') : n);
   fill(box, h('div.au-activity',
     groupHead('Newest first', r.entries.length),
     h('div.rows', foldActivity(r.entries).map(({ e, n }) => {

@@ -299,4 +299,94 @@ for (const kind of kinds) {
     await until('the owner\'s own Up and Enter ran the last command again', () => fs.existsSync(path.join(s.dir, 'OWNER_KEYS')));
     assert.deepEqual(typedIntoShell(s.dir), []);
   });
+
+  test(`${kind}: the page's Allow and Do not allow are typed only while a permission question is on the screen`, { timeout: 120_000 }, async (t) => {
+    const d = await dashboard(t, kind);
+    const s = await d.session('answers');
+    const { term } = await d.app.deck.find(s.name);
+    const show = async (lines, mark) => {
+      fs.writeFileSync(path.join(s.dir, 'SHOW'), lines.join('\n'));
+      // At the bottom: the screen before (or tmux's history of it) may hold the same words further up.
+      await until(`the screen shows ${mark}`, async () => (await d.app.backend.capture(term.id, 40)).trimEnd().endsWith(lines[lines.length - 1].trim()));
+    };
+    // The page's answer buttons send this: the owner's own key, meant for a permission question about this command.
+    const answer = (key, about = 'touch b.txt') => d.req(`/api/sessions/${s.name}/key`, { key, owner: true, question: true, about });
+    const refusedBoth = async (why) => {
+      for (const key of ['1', 'Enter', 'Escape']) {
+        const r = await answer(key);
+        assert.equal(r.status, 409, `${why}, ${key}: ${r.text}`);
+        assert.match(r.json.error, /^No permission question is on the screen now/);
+      }
+      await wait(400);
+      assert.deepEqual(got(s.dir), [], `${why}: nothing reached the coding tool`);
+    };
+    // The card was a moment old: the coding tool went on and sits at its message box.
+    await refusedBoth('no question');
+    // Real screens of Claude Code 2.1.326 (fixtures/claude-screens), the part a 24-line terminal shows at the bottom.
+    const real = (name, n = 22) => fs.readFileSync(path.join(path.dirname(QUIT), 'claude-screens', `${name}.txt`), 'utf8').replace(/\n+$/, '').split('\n').slice(-n);
+    // A question the coding tool put to the owner, its first answer reading "Yes": Enter would pick an answer nobody read.
+    await show(real('ask-80'), 'Enter to select');
+    await refusedBoth('a question to the owner');
+    // The plan's approval: its first answer approves the plan and turns bypass on.
+    await show(real('plan-80', 12), 'ctrl+g to edit');
+    await refusedBoth('the plan');
+    // Claude Code's permission dialog. "Always" is its number, typed only while the dialog still has that answer in
+    // the same words.
+    await show(real('perm-bash-80'), 'Tab to amend');
+    const always = 'Yes, and always allow access to /home/robin/projects/example-shop-storef/frontend/web from this project';
+    let r = await d.req(`/api/sessions/${s.name}/key`, { key: '2', expect: `${always} (changed)`, owner: true, question: true });
+    assert.equal(r.status, 409, r.text);
+    r = await d.req(`/api/sessions/${s.name}/key`, { key: '3', expect: always, owner: true, question: true, about: 'touch b.txt' });
+    assert.equal(r.status, 409, 'another number');
+    r = await d.req(`/api/sessions/${s.name}/key`, { key: '2', expect: always, owner: true, question: true, about: 'touch c.txt' });
+    assert.equal(r.status, 409, 'another command');
+    // The dialog must show the command the card was about (two askers: the card shows the newest, the dialog Claude
+    // Code's own queue); one with nothing to compare, or a masked secret, is refused too.
+    for (const about of ['touch c.txt', 'touch', 'Create empty file b.txt', '', 'touch b.***', null]) {
+      r = await answer('1', about);
+      assert.equal(r.status, 409, `${about}: ${r.text}`);
+      assert.match(r.json.error, /^The question on the screen is not the one the card shows/);
+    }
+    // With more than one asker waiting nothing is typed at all.
+    const { runsDir } = await import('../../src/paths.mjs');
+    const record = fs.readdirSync(runsDir()).map((f) => path.join(runsDir(), f)).find((f) => f.endsWith('.json') && JSON.parse(fs.readFileSync(f, 'utf8')).cwd === s.dir);
+    const { updateRun } = await import('../../src/runs.mjs');
+    updateRun(record, { asks: ['main', 'a0000000000000001'] });
+    r = await answer('1');
+    assert.deepEqual([r.status, r.json.error], [409, 'More than one question waits. Answer them in the terminal']);
+    updateRun(record, { asks: ['main'] });
+    await wait(400);
+    assert.deepEqual(got(s.dir), [], 'nothing reached the coding tool');
+    // Allow is the number of "Yes": it takes that answer wherever the arrow is. Enter (a page of before) only while the
+    // arrow is on "1. Yes".
+    const moved = real('perm-bash-80').map((l) => l.replace(' ❯ 1. Yes', '   1. Yes').replace('   2. Yes, and always', ' ❯ 2. Yes, and always'));
+    await show(moved, 'Tab to amend (moved)');
+    await until('the arrow is on 2', async () => (await d.app.backend.capture(term.id, 40)).includes('❯ 2. Yes, and always'));
+    r = await answer('Enter');
+    assert.deepEqual([r.status, r.json.error], [409, 'The answer chosen on the screen is not "Yes". Look at the session and answer there']);
+    assert.equal((await answer('1')).status, 200);
+    // (The stand-in writes what it got at the next Enter: the 1 shows with it.)
+    await show(['(the dialog went)'], 'the dialog went');
+    await show(real('perm-bash-80'), 'Tab to amend');
+    assert.equal((await answer('Enter')).status, 200);
+    await until('the 1 and the Enter arrived', () => got(s.dir).length === 1);
+    assert.equal(got(s.dir)[0], '1');
+    // Do not allow is Escape; it reaches the coding tool too (seen with the next Enter, which the owner types).
+    await show(['(the dialog went)'], 'the dialog went');
+    await show(real('perm-bash-80'), 'Tab to amend');
+    assert.equal((await answer('Escape')).status, 200);
+    assert.equal((await d.req(`/api/sessions/${s.name}/key`, { key: 'Enter', owner: true })).status, 200, 'the owner\'s own key needs no question');
+    await until('the Escape arrived', () => got(s.dir).length === 2);
+    // The screen is looked at by the terminal backend itself, as the last step before the key goes: a screen that
+    // fails the check types nothing (409), one that passes types.
+    let looked = '';
+    await assert.rejects(d.app.backend.sendKey(term.id, 'Enter', { when: { lines: 80, test: (scr) => { looked = scr; return false; }, message: 'not now' } }), { status: 409, message: 'not now' });
+    assert.match(looked, /Tab to amend/, 'it was given the screen');
+    await assert.rejects(d.app.backend.sendText(term.id, '2', { when: { lines: 80, test: () => false } }), { status: 409 });
+    await wait(400);
+    assert.equal(got(s.dir).length, 2, 'nothing was typed');
+    await d.app.backend.sendKey(term.id, 'Enter', { when: { lines: 80, test: () => true } });
+    await until('the checked Enter arrived', () => got(s.dir).length === 3);
+    assert.equal(got(s.dir)[1], '\x1b');
+  });
 }

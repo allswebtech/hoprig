@@ -1,0 +1,506 @@
+{
+  "commands": [
+    {
+      "args": "addons",
+      "code": 0,
+      "stdout": "trouteai  TRouteAI 9.8.7 · running at http://localhost:<PORT>\n  A self-hosted AI gateway. Add any provider in its dashboard (OpenAI, Gemini, OpenRouter, local models…) and Claude Code can use them all as one more provider.\n  https://github.com/allswebtech/trouteai",
+      "stderr": "",
+      "ids": [
+        "trouteai",
+        "public-link"
+      ]
+    },
+    {
+      "args": "addons status trouteai",
+      "code": 0,
+      "stdout": "trouteai  TRouteAI 9.8.7 · running at http://localhost:<PORT>\n  A self-hosted AI gateway. Add any provider in its dashboard (OpenAI, Gemini, OpenRouter, local models…) and Claude Code can use them all as one more provider.\n  https://github.com/allswebtech/trouteai\n",
+      "stderr": ""
+    },
+    {
+      "args": "addons start trouteai",
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": "addons start nope",
+      "code": 2,
+      "stdout": "",
+      "stderr": "There is no add-on \"nope\".\nusage: hoprig addons                     list the add-ons and their state\n       hoprig addons setup <id>          install it, start it and make a profile for it\n       hoprig addons install|update|start|stop|status <id>\nadd-ons: trouteai, public-link\n"
+    },
+    {
+      "args": "addons stop trouteai",
+      "code": 0,
+      "stdout": "TRouteAI stopped.\n",
+      "stderr": ""
+    },
+    {
+      "args": "addons start trouteai",
+      "code": 0,
+      "stdout": "",
+      "stderr": "TRouteAI started: http://localhost:<PORT>\n"
+    },
+    {
+      "args": "addons status trouteai",
+      "code": 0,
+      "stdout": "trouteai  TRouteAI 9.8.7 · running at http://localhost:<PORT>\n  A self-hosted AI gateway. Add any provider in its dashboard (OpenAI, Gemini, OpenRouter, local models…) and Claude Code can use them all as one more provider.\n  https://github.com/allswebtech/trouteai\n",
+      "stderr": ""
+    },
+    {
+      "args": "addons install trouteai",
+      "code": 0,
+      "stdout": "  added 1 package\n",
+      "stderr": ""
+    },
+    {
+      "args": "addons update trouteai",
+      "code": 0,
+      "stdout": "  added 1 package\n",
+      "stderr": ""
+    },
+    {
+      "args": "addons stop trouteai",
+      "code": 0,
+      "stdout": "TRouteAI stopped.\n",
+      "stderr": ""
+    },
+    {
+      "args": "addons stop trouteai",
+      "code": 0,
+      "stdout": "TRouteAI is not running.\n",
+      "stderr": ""
+    },
+    {
+      "args": "addons setup trouteai",
+      "code": 0,
+      "stdout": "TRouteAI is running at http://localhost:<PORT>\nNow make its profile in a terminal: hoprig addons setup trouteai\n",
+      "stderr": ""
+    },
+    {
+      "args": "addons stop trouteai",
+      "code": 0,
+      "stdout": "TRouteAI stopped.\n",
+      "stderr": ""
+    },
+    {
+      "args": "addons status trouteai",
+      "code": 0,
+      "stdout": "trouteai  TRouteAI 9.8.7 · running at http://localhost:<PORT>\n  A self-hosted AI gateway. Add any provider in its dashboard (OpenAI, Gemini, OpenRouter, local models…) and Claude Code can use them all as one more provider.\n  https://github.com/allswebtech/trouteai\n",
+      "stderr": ""
+    },
+    {
+      "args": "addons stop trouteai",
+      "code": 0,
+      "stdout": "TRouteAI stopped.\n",
+      "stderr": ""
+    },
+    {
+      "args": "addons start trouteai",
+      "code": 0,
+      "stdout": "",
+      "stderr": "TRouteAI started: http://localhost:<PORT>\n"
+    },
+    {
+      "args": "addons stop trouteai",
+      "code": 0,
+      "stdout": "TRouteAI stopped.\n",
+      "stderr": ""
+    }
+  ],
+  "routes": {
+    "addons": {
+      "status": 200,
+      "ids": [
+        "trouteai",
+        "public-link"
+      ],
+      "gateway": {
+        "id": "trouteai",
+        "title": "TRouteAI",
+        "summary": "A self-hosted AI gateway. Add any provider in its dashboard (OpenAI, Gemini, OpenRouter, local models…) and Claude Code can use them all as one more provider.",
+        "homepage": "https://github.com/allswebtech/trouteai",
+        "installed": true,
+        "version": "9.8.7",
+        "running": true,
+        "url": "http://localhost:<PORT>",
+        "job": null
+      }
+    },
+    "accounts": {
+      "status": 200,
+      "json": {
+        "accounts": [
+          {
+            "name": "api",
+            "label": "API via TRouteAI",
+            "kind": "api",
+            "paid": false,
+            "host": "localhost:<PORT>",
+            "model": "",
+            "smallModel": "",
+            "tools": [
+              "claude",
+              "opencode"
+            ],
+            "api": [],
+            "viaTrouteai": true,
+            "remote": null,
+            "limited": null,
+            "usage": null,
+            "inUse": 0,
+            "inAuto": false
+          }
+        ],
+        "defaults": {
+          "subscription": {
+            "name": "sub2",
+            "label": ""
+          },
+          "api": {
+            "name": "claude-api",
+            "label": "Claude API",
+            "baseUrl": "https://api.anthropic.com"
+          },
+          "trouteai": {
+            "name": "api2",
+            "label": "API via TRouteAI",
+            "baseUrl": "http://localhost:<PORT>"
+          },
+          "openai": {
+            "name": "openai",
+            "label": "OpenAI API",
+            "baseUrl": "https://api.openai.com"
+          }
+        },
+        "trouteai": {
+          "installed": true,
+          "version": "9.8.7",
+          "running": true,
+          "url": "http://localhost:<PORT>",
+          "baseUrl": "http://localhost:<PORT>"
+        },
+        "signin": {
+          "state": "none"
+        }
+      }
+    },
+    "gateways": {
+      "status": 200,
+      "json": {
+        "computer": "<HOST>",
+        "gateways": [
+          {
+            "id": "trouteai",
+            "title": "TRouteAI",
+            "installed": true,
+            "version": "9.8.7",
+            "running": true,
+            "address": "http://127.0.0.1:<PORT>",
+            "shared": false,
+            "ready": true,
+            "provider": {
+              "name": "api",
+              "label": "API via TRouteAI"
+            },
+            "keys": []
+          }
+        ]
+      }
+    },
+    "share": {
+      "status": 200,
+      "json": {
+        "id": "trouteai",
+        "title": "TRouteAI",
+        "installed": true,
+        "version": "9.8.7",
+        "running": true,
+        "address": "http://127.0.0.1:<PORT>",
+        "shared": true,
+        "ready": true,
+        "provider": {
+          "name": "api",
+          "label": "API via TRouteAI"
+        },
+        "keys": []
+      }
+    },
+    "keys": {
+      "status": 200,
+      "json": {
+        "key": "<GWKEY>",
+        "keyId": "<KEYID>",
+        "gateway": "trouteai",
+        "title": "TRouteAI",
+        "computer": "<HOST>",
+        "path": "/gateway/trouteai",
+        "publicUrl": null,
+        "model": "",
+        "smallModel": "",
+        "models": ""
+      }
+    },
+    "status": {
+      "status": 200,
+      "json": {
+        "hoprig": "gateway",
+        "gateway": "trouteai",
+        "title": "TRouteAI",
+        "computer": "<HOST>",
+        "running": true,
+        "model": "",
+        "smallModel": "",
+        "models": ""
+      }
+    },
+    "models": {
+      "status": 200,
+      "json": {
+        "data": [
+          {
+            "id": "combo-best",
+            "type": "model"
+          }
+        ]
+      }
+    },
+    "all": {
+      "status": 200,
+      "json": {
+        "computers": [
+          {
+            "machine": null,
+            "label": "<HOST>",
+            "state": "online",
+            "gateways": [
+              {
+                "id": "trouteai",
+                "title": "TRouteAI",
+                "installed": true,
+                "version": "9.8.7",
+                "running": true,
+                "address": "http://127.0.0.1:<PORT>",
+                "shared": true,
+                "ready": true,
+                "provider": {
+                  "name": "api",
+                  "label": "API via TRouteAI"
+                },
+                "keys": [
+                  {
+                    "id": "<KEYID>",
+                    "gateway": "trouteai",
+                    "name": "laptop",
+                    "created": "<TIME>",
+                    "linked": false
+                  }
+                ],
+                "usedAs": {
+                  "name": "api",
+                  "label": "API via TRouteAI"
+                }
+              }
+            ]
+          },
+          {
+            "machine": "box2",
+            "label": "Box 2",
+            "state": "online",
+            "gateways": [
+              {
+                "id": "relay",
+                "title": "Relay",
+                "installed": true,
+                "running": true,
+                "version": "1.0.0",
+                "shared": true,
+                "ready": true,
+                "usedAs": null
+              }
+            ]
+          }
+        ],
+        "used": []
+      }
+    },
+    "probe": {
+      "status": 200,
+      "json": {
+        "probe": "<PROBE>",
+        "auth": "x-api-key",
+        "models": [
+          {
+            "id": "combo-best",
+            "name": "combo-best"
+          }
+        ],
+        "note": "",
+        "baseUrl": "http://localhost:<PORT>"
+      }
+    },
+    "save": {
+      "status": 200,
+      "json": {
+        "ok": true,
+        "name": "api2"
+      }
+    },
+    "after": {
+      "status": 200,
+      "json": {
+        "accounts": [
+          {
+            "name": "api",
+            "label": "API via TRouteAI",
+            "kind": "api",
+            "paid": false,
+            "host": "localhost:<PORT>",
+            "model": "",
+            "smallModel": "",
+            "tools": [
+              "claude",
+              "opencode"
+            ],
+            "api": [],
+            "viaTrouteai": true,
+            "remote": null,
+            "limited": null,
+            "usage": null,
+            "inUse": 0,
+            "inAuto": false
+          },
+          {
+            "name": "api2",
+            "label": "API via TRouteAI",
+            "kind": "api",
+            "paid": false,
+            "host": "localhost:<PORT>",
+            "model": "combo-best",
+            "smallModel": "",
+            "tools": [
+              "claude",
+              "opencode"
+            ],
+            "api": [],
+            "viaTrouteai": true,
+            "remote": null,
+            "limited": null,
+            "usage": null,
+            "inUse": 0,
+            "inAuto": false
+          }
+        ],
+        "defaults": {
+          "subscription": {
+            "name": "sub2",
+            "label": ""
+          },
+          "api": {
+            "name": "claude-api",
+            "label": "Claude API",
+            "baseUrl": "https://api.anthropic.com"
+          },
+          "trouteai": {
+            "name": "api3",
+            "label": "API via TRouteAI",
+            "baseUrl": "http://localhost:<PORT>"
+          },
+          "openai": {
+            "name": "openai",
+            "label": "OpenAI API",
+            "baseUrl": "https://api.openai.com"
+          }
+        },
+        "trouteai": {
+          "installed": true,
+          "version": "9.8.7",
+          "running": true,
+          "url": "http://localhost:<PORT>",
+          "baseUrl": "http://localhost:<PORT>"
+        },
+        "signin": {
+          "state": "none"
+        }
+      }
+    },
+    "job": {
+      "status": 200,
+      "json": {
+        "running": false,
+        "lines": [],
+        "next": 0,
+        "result": null
+      }
+    }
+  },
+  "disk": {
+    "plainPidFile": {
+      "gatewayStopped": true,
+      "unrelatedAlive": true
+    },
+    "pidFile": [
+      "pid",
+      "proc"
+    ],
+    "startedBy026": {
+      "portClosed": true
+    },
+    "stalePidFile": {
+      "unrelatedAlive": true,
+      "portClosed": true
+    },
+    "gatewayArgs": [
+      "--port <PORT>",
+      "--port <PORT>",
+      "--port <PORT>",
+      "--port <PORT>",
+      "--port <PORT>",
+      "--port <PORT>"
+    ],
+    "npm": [
+      "install -g trouteai",
+      "install -g trouteai@latest"
+    ],
+    "addons": [
+      "link.json",
+      "trouteai.log"
+    ],
+    "log": "",
+    "profiles": {
+      "api.env": "LABEL=\"API via TRouteAI\"\nPRERUN=\"<NODE> <ROOT>/bin/hoprig.mjs addons start trouteai\"\nANTHROPIC_BASE_URL=http://localhost:<PORT>\nANTHROPIC_AUTH_TOKEN=gw-key-0123456789\n",
+      "api2.env": "LABEL=\"API via TRouteAI\"\nPRERUN=\"<NODE> <ROOT>/bin/hoprig.mjs addons start trouteai\"\nMODELS=\"*=combo-best\"\nANTHROPIC_BASE_URL=http://localhost:<PORT>\nANTHROPIC_API_KEY=gw-key-0123456789\nANTHROPIC_MODEL=combo-best\n"
+    },
+    "config": {
+      "addons": {
+        "trouteai": {
+          "port": "<PORT>"
+        }
+      },
+      "server": {
+        "passwordHash": "<HASH>",
+        "port": "<DASH>",
+        "backend": "pty",
+        "passwordCheck": {
+          "tag": "<TAG>",
+          "strong": true
+        }
+      },
+      "gateways": {
+        "shared": {
+          "trouteai": {
+            "provider": "api"
+          }
+        },
+        "keys": [
+          {
+            "id": "<KEYID>",
+            "gateway": "trouteai",
+            "name": "laptop",
+            "hash": "<KEYHASH>",
+            "created": "<TIME>"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { loadConfig } from '../config.mjs';
 import { defaultWorkspaceDir, tilde, workspaceEnvDir } from '../paths.mjs';
 import { PRIVATE_DIRS } from '../pcsetup/projects.mjs';
+import { showCommand } from '../setup/system.mjs';
 
 /** The folders of the tree, in the order they are shown, each with the one sentence that says what it is for. */
 export const TREE = [
@@ -221,5 +222,5 @@ export function workspaceLine(st) {
   if (!st.exists) return { status: 'info', detail: `${st.short} not set up yet`, fix: 'hoprig workspace setup' };
   const brain = st.brain.exists ? `brain${st.brain.git ? ' (git)' : ' (not in git)'}` : 'no brain';
   const detail = `${st.short} · ${brain} · ${st.projects.length} project${st.projects.length === 1 ? '' : 's'}${missing.length ? ` · missing ${missing.join(', ')}` : ''}${warn.length ? ` · ${warn.map((f) => `${f.rel}: ${f.warning}`).join('; ')}` : ''}`;
-  return { status: warn.length ? 'warn' : missing.length ? 'info' : 'ok', detail, fix: missing.length ? 'hoprig workspace setup' : warn.some((f) => f.id === 'credentials') ? `chmod 700 "${path.join(st.dir, 'credentials')}"` : '' };
+  return { status: warn.length ? 'warn' : missing.length ? 'info' : 'ok', detail, fix: missing.length ? 'hoprig workspace setup' : warn.some((f) => f.id === 'credentials') ? showCommand(['chmod', '700', path.join(st.dir, 'credentials')]) : '' };
 }

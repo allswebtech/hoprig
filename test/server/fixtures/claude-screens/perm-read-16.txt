@@ -1,0 +1,32 @@
+     ojects/exam
+     erm2/outsid
+     e.txt
+
+────────────────
+ Read file
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Read(/home/rob
+ in/projects/ex
+ ample-shop-sto
+ refr/frontend/
+ notes.txt)
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to
+ proceed?
+ ❯ 1. Yes
+   2. Yes,
+      allow
+      reading
+      from /hom
+      e/robin/p
+      rojects/e
+      xample-sh
+      op-store/
+      frontend
+      during
+      this
+      session
+   3. No
+
+ Esc to cancel
+ · Tab to amend

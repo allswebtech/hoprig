@@ -1,7 +1,5 @@
-// New session's parts for the coding tool (newsession.js): the choice of the tool where a computer offers more than
-// one, and the Options of another tool than Claude Code. The choice is a row of toggle buttons: a press chooses the
-// tool for the project opened next, a second press leaves it to each project again.
-import { icon } from './icons.js';
+// New session's Options parts (newsession-options.js): one choice with its line, and the Options of another coding
+// tool than Claude Code.
 import { h, kindLabel, profileState } from './lib.js';
 import { EFFORT } from './sessiondefaults.js';
 
@@ -19,27 +17,9 @@ export function select(label, value, options, onchange, hint) {
   };
   say(value);
   return h('label.fieldrow', h('span.field-label', label),
-    h('select.field', { onchange: (e) => (onchange(e.target.value), say(e.target.value)) }, options.map(([v, t]) => h('option', { value: v, selected: v === value }, t))),
+    h('select.field', { 'data-key': label, onchange: (e) => (onchange(e.target.value), say(e.target.value)) }, options.map(([v, t]) => h('option', { value: v, selected: v === value }, t))),
     line);
 }
-
-/**
- * The coding tools as toggle buttons. o: { tools: [{ id, name }], chosen (id or ''), choose(id or '') } → node. The
- * page draws them again after a choice; focusTool() puts the focus back on the button that was pressed.
- */
-export function toolButtons({ tools, chosen, choose }) {
-  return h('div.ns-pcs', { role: 'group', 'aria-label': 'Coding tool' }, tools.map((t) => {
-    const on = chosen === t.id;
-    return h(`button.ns-pc${on ? '.on' : ''}`, { type: 'button', 'aria-pressed': String(on), 'data-tool': t.id, onclick: () => choose(on ? '' : t.id, t.id) },
-      h('span.ns-pc-icon', icon(t.id === 'claude' ? 'sparkle' : 'code', { size: 18 })),
-      h('span.ns-pc-text', h('span.ns-pc-name', t.name), h('span.ns-pc-sub', on ? 'Chosen' : 'Use for the next chat')),
-      on ? h('span.ns-pc-tick', icon('check', { size: 16 })) : null);
-  }));
-}
-export const focusTool = (slot, id) => {
-  const b = slot.querySelector(`button[data-tool="${id}"]`);
-  if (b) b.focus();
-};
 
 /**
  * What another tool's terminal may do without asking, as POST /api/sessions takes it: 'ask' unless the owner chose
@@ -56,7 +36,12 @@ export function otherToolOptions({ st, info, name, profiles, chat, same, byDefau
   const words = info.modeWords || {};
   const modes = chat ? info.modes.map((x) => [x, words[x] ? words[x].chip : x]) : [['ask', 'Ask first'], ['own', `${name}'s own defaults: edits and runs commands without asking`], ['bypassPermissions', 'Bypass']];
   const mode = modes.some(([x]) => x === st.permissionMode) ? st.permissionMode : chat ? '' : 'ask';
-  const warn = (v) => (v === 'bypassPermissions' || v === 'own' ? `${name} can run any command and change any file without asking.` : null);
+  // In a chat the bypass is Hoprig's own (src/chat/asks.mjs openCodeAllows): every command is put to Hoprig, which
+  // answers it at once, except a delete written in plain sight (src/asking.mjs mayDelete) that is no plain delete. A
+  // terminal's is the tool's own (OpenCode's --auto).
+  const warn = (v) => (v === 'bypassPermissions' && chat
+    ? `${name} runs commands and changes files without asking. Hoprig asks you first only when a command names a delete in plain sight (rm, find -delete, git clean and a few more) that is not plainly inside the folder it runs in. It is no wall: a script, a program or a command written to get around it can still delete. What your own ${name} settings deny stays denied.`
+    : v === 'bypassPermissions' || v === 'own' ? `${name} can run any command and change any file without asking.` : null);
   return [
     select('Provider', st.profile, [['', byDefault || (chat ? same : 'The first that serves it')], ...profiles.map((p) => [p.name, `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => (st.profile = v)),
     select(`What ${name} may do without asking`, mode, chat ? [['', same], ...modes] : modes, (v) => (st.permissionMode = v), warn),

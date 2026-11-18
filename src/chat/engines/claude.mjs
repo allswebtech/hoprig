@@ -6,7 +6,9 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { claudeCommand } from '../../assistant/engine.mjs';
-import { modelArgs } from '../../launch.mjs';
+import { claudeVersionQuick } from '../../claudecode.mjs';
+import { modelArgs, permissionHook } from '../../launch.mjs';
+import { hookSettingsDir } from '../../paths.mjs';
 import { projectDir, sessionsIn } from '../../sessions.mjs';
 import { CHAT_ENV, allowLine, chatArgs, controlLine, denyLine, grantSettings, interruptLine, sdkMode, userLine } from './claude-lines.mjs';
 import { ClaudeParser } from './claude-parse.mjs';
@@ -20,12 +22,28 @@ const CONTROL_MS = 15_000; // how long an answer to a control request may take
 
 const fail = (status, message, code) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
 
+// What each control request does, in the owner's words: an older Claude Code that does not know one says so in its
+// protocol's words ("Unsupported control request subtype: rewind_files"), which the page must not show.
+const CAN = {
+  rewind_files: 'undo its changes to files', set_permission_mode: 'change the mode while it runs',
+  set_model: 'change the model while it runs', apply_flag_settings: 'change the effort while it runs',
+  stop_task: 'stop one task', rename_session: 'rename the conversation', cancel_async_message: 'take back a queued message',
+  get_context_usage: 'say how full the context is', get_usage: 'say how much of the plan is used',
+};
+/** A refusal of control request `subtype` in plain words. */
+export function refusalWords(subtype, error, code) {
+  if (code === 'unsupported_request' || /^unsupported control request/i.test(error || '')) {
+    return `This version of Claude Code cannot ${CAN[subtype] || 'do that'} from the App. Updating Claude Code may help.`;
+  }
+  return error || 'Claude Code refused';
+}
+
 class ClaudeSession {
   /** o: see claude.open */
   constructor(o) {
     this.o = o;
     this.parser = new ClaudeParser();
-    this.waiting = new Map(); // control request id → { resolve, reject, timer }
+    this.waiting = new Map(); // control request id → { resolve, reject, timer, subtype }
     this.rid = 0;
     this.alive = true;
     this.info = null; // the answer to initialize: { commands, models, … }
@@ -34,11 +52,28 @@ class ClaudeSession {
     const own = !!(o.env && o.env.ANTHROPIC_MODEL);
     let model = own ? null : o.model;
     if (!model && !own && (o.resume || o.fork)) model = modelArgs({ env: {} }, ['--resume', o.fork ? o.fork.from : o.sessionId])[1] || null;
-    const args = chatArgs({
-      sessionId: o.sessionId, resume: o.resume, fork: o.fork || null, permissionMode: o.mode, effort: o.effort, model,
-      settings: grantSettings(o.grants || [], { ultracode: !!o.ultracode }),
-    });
     const env = { ...o.env, ...CHAT_ENV };
+    let settings = grantSettings(o.grants || [], { ultracode: !!o.ultracode });
+    // The PermissionRequest hook of a terminal session (launch.mjs permissionHook), for a Claude Code that knows the
+    // event, on the chat's run record (`runFile`). Seen on 2.1.326 in this headless mode: Claude Code sends its
+    // can_use_tool request and starts the hook at the same moment; when the hook answers "allow" (a plain delete in
+    // bypass mode, hook.mjs) it takes its request back (control_cancel_request) and the tool runs; when the hook
+    // answers nothing, the request stands and the chat's answer counts. So the hook's one rule, read with the shell's
+    // real folder, answers for a chat as for a terminal, and the chat answers nothing by itself (asks.mjs).
+    // The settings go in a file, as a terminal's: the hook's command needs other quoting on every platform, and the
+    // hook reads the "ask" rules of this file (hook.mjs sessionFacts).
+    const version = o.version !== undefined ? o.version : o.command ? null : claudeVersionQuick({ env });
+    const hooks = o.runFile ? permissionHook(version) : null;
+    this.hooked = !!hooks;
+    this.settingsFile = null;
+    if (hooks) {
+      this.settingsFile = path.join(hookSettingsDir(), path.basename(o.runFile));
+      fs.mkdirSync(hookSettingsDir(), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(this.settingsFile, `${JSON.stringify({ ...(settings ? JSON.parse(settings) : {}), hooks })}\n`, { mode: 0o600 });
+      settings = this.settingsFile;
+      env.HOPRIG_RUN_FILE = o.runFile;
+    }
+    const args = chatArgs({ sessionId: o.sessionId, resume: o.resume, fork: o.fork || null, permissionMode: o.mode, effort: o.effort, model, settings });
     const plan = o.command ? { command: o.command.command, args: [...o.command.args, ...args], options: {} } : claudeCommand(args, env);
     const child = (o.spawnImpl || spawn)(plan.command, plan.args, { cwd: o.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...plan.options });
     this.child = child;
@@ -81,6 +116,7 @@ class ClaudeSession {
       o.emit({ kind: 'exit', code, why });
     };
     child.on('exit', (code, signal) => {
+      if (this.settingsFile) fs.rmSync(this.settingsFile, { force: true }); // read at its start: no longer needed
       endedResolve();
       drain = setTimeout(() => gone(code ?? signal), o.drainMs ?? DRAIN_MS);
       drain.unref?.();
@@ -91,6 +127,7 @@ class ClaudeSession {
     });
     child.on('error', (e) => {
       err = e.code === 'ENOENT' ? 'Claude Code was not found on this computer' : e.message;
+      if (this.settingsFile) fs.rmSync(this.settingsFile, { force: true });
       endedResolve();
       gone(127);
     });
@@ -109,7 +146,7 @@ class ClaudeSession {
       this.waiting.delete(ev.requestId);
       clearTimeout(w.timer);
       if (ev.ok) w.resolve(ev.response);
-      else w.reject(fail(409, ev.error || 'Claude Code refused', ev.code || 'refused'));
+      else w.reject(fail(409, refusalWords(w.subtype, ev.error, ev.code), ev.code || 'refused'));
       return;
     }
     this.o.emit(ev);
@@ -133,7 +170,7 @@ class ClaudeSession {
         reject(fail(504, `Claude Code did not answer (${request.subtype})`, 'timeout'));
       }, ms);
       timer.unref?.();
-      this.waiting.set(id, { resolve, reject, timer });
+      this.waiting.set(id, { resolve, reject, timer, subtype: request.subtype });
     });
   }
 
@@ -232,8 +269,9 @@ export const claude = {
   exists: (cwd, id) => fs.existsSync(claude.file(cwd, id)),
   /**
    * Start the coding tool for one chat. o: { cwd, env, sessionId, resume, fork ({ from, at }: a copy of conversation
-   * `from` up to its line `at`, as sessionId), model, effort, ultracode, mode, grants,
-   * emit(event), command { command, args } and spawnImpl (tests), termMs, killMs, drainMs }.
+   * `from` up to its line `at`, as sessionId), model, effort, ultracode, mode, grants, runFile (the chat's run record:
+   * the hook writes what it allowed there), emit(event), command { command, args }, spawnImpl and version (tests: the
+   * Claude Code version the stand-in plays), termMs, killMs, drainMs }.
    */
   open: (o) => new ClaudeSession(o),
   /** The conversation from its files: { events, tasks, todos, title, size }. */

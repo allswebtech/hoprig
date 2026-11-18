@@ -423,3 +423,19 @@ test('a new process starts only after the old one ended; one that ignores SIGTER
   await done;
   assert.equal(starts(c).length, 2);
 });
+
+test('a control request an older Claude Code does not know: plain words, not its protocol\'s', async (t) => {
+  const { refusalWords } = await import('../../src/chat/engines/claude.mjs');
+  assert.equal(refusalWords('rewind_files', 'Unsupported control request subtype: rewind_files', 'unsupported_request'), 'This version of Claude Code cannot undo its changes to files from the App. Updating Claude Code may help.');
+  assert.equal(refusalWords('stop_task', 'No such task', 'not_found'), 'No such task', 'its other refusals say what they say');
+  // The stand-in does not know rename_session (as an older Claude Code would not).
+  const c = newChat();
+  t.after(() => c.stopAndWait());
+  const done = turnEnd(c);
+  await c.send('hello');
+  await done;
+  const e = await c.session.rename('Cart').then(() => null, (x) => x);
+  assert.ok(e, 'refused');
+  assert.equal(e.message, 'This version of Claude Code cannot rename the conversation from the App. Updating Claude Code may help.');
+  assert.doesNotMatch(e.message, /subtype|rename_session/);
+});

@@ -101,7 +101,7 @@ test('New-session defaults: the coding tool\'s own default, the model Claude Cod
   assert.deepEqual(toolWords(false).dflt, ['', 'Claude Code\'s own default']);
   assert.doesNotMatch(toolWords(false).desc, /another coding tool/);
   assert.deepEqual(toolWords(true).dflt, ['', 'The coding tool\'s own default']);
-  assert.match(toolWords(true).desc, /a chat of another coding tool takes the mode and the effort/);
+  assert.match(toolWords(true).desc, /another coding tool in the App takes the mode and the effort/);
 });
 
 test('the starting pill names the coding tool that starts, by its own name', async () => {
@@ -120,6 +120,25 @@ test('a sheet keeps Tab inside it: from the last control round to the first, and
   assert.equal(wrapTab([a, b, c], b, false), null, 'in between: the browser\'s own step');
   assert.equal(wrapTab([a, b, c], b, true), null);
   assert.equal(wrapTab([], a, false), null);
+  // A closed "Options": what is inside it is not reachable (its summary is), so Tab on the summary goes round.
+  const { reachable, keepTabIn } = await import('../../web/tabwrap.js');
+  const shut = { parentElement: null };
+  const el = (tagName, inside = null, parentElement = null) => ({ tagName, tabIndex: 0, parentElement, getClientRects: () => [1], closest: () => inside, focus() { globalThis.document.activeElement = this; } });
+  const first = el('BUTTON');
+  const summary = el('SUMMARY', shut, shut);
+  const hidden = el('SELECT', shut);
+  assert.equal(reachable(first), true);
+  assert.equal(reachable(summary), true, 'the summary of a closed details');
+  assert.equal(reachable(hidden), false, 'a field inside it, though its box is still there');
+  let handler = null;
+  keepTabIn({ addEventListener: (t, f) => (handler = f), querySelectorAll: () => [first, summary, hidden] });
+  const before = globalThis.document.activeElement;
+  globalThis.document.activeElement = summary;
+  let stopped = false;
+  handler({ key: 'Tab', shiftKey: false, defaultPrevented: false, preventDefault: () => (stopped = true) });
+  assert.equal(stopped, true, 'Tab on the summary goes round');
+  assert.equal(globalThis.document.activeElement, first);
+  globalThis.document.activeElement = before;
   assert.match(read('web/lib.js'), /keepTabIn\(sheetEl\)/, 'every sheet, Add provider among them');
   assert.match(read('web/tabwrap.js'), /dialog\.addEventListener\('keydown', \(e\) => \{\n\s+if \(e\.key !== 'Tab'/);
 });

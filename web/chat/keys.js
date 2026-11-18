@@ -19,7 +19,7 @@ export const SHORTCUTS = [
 ];
 
 export function shortcutsSheet() {
-  return openSheet({ title: 'Keyboard shortcuts', subtitle: 'In the chat, as in Claude Code.' }, () => [
+  return openSheet({ title: 'Keyboard shortcuts', subtitle: 'In the App, as in Claude Code.' }, () => [
     h('dl.chat-keys', SHORTCUTS.flatMap(([k, what]) => [h('dt', k.split(' ').map((w, n) => (n === 0 || /^[↑↓/@?]$|^\d|^Esc$|^Shift\+/.test(w) ? h('kbd', w) : ` ${w}`))), h('dd', what)])),
   ]);
 }

@@ -2,21 +2,21 @@
 // usable profile.
 import { ask, askHidden } from '../menu.mjs';
 import { readProfile, validName, writeProfile } from '../profiles.mjs';
-import { ADDONS, findAddon, listAddons } from './index.mjs';
+import { allAddons, findAddon, listAddons } from './index.mjs';
 
-const USAGE = `usage: hoprig addons                     list the add-ons and their state
+const usage = () => `usage: hoprig addons                     list the add-ons and their state
        hoprig addons setup <id>          install it, start it and make a profile for it
        hoprig addons install|update|start|stop|status <id>
-add-ons: ${ADDONS.map((a) => a.id).join(', ')}`;
+add-ons: ${allAddons().map((a) => a.id).join(', ')}`;
 
 const line = (text) => process.stdout.write(`  ${text}\n`);
 
 async function show(list) {
   for (const a of list) {
-    const state = !a.installed ? 'not installed' : a.running ? `running at ${a.url}` : 'installed, not running';
+    const state = !a.installed ? 'not installed' : a.running ? `running at ${a.url}` : a.foreign ? `not running: another program answers at ${a.url}` : 'installed, not running';
     console.log(`${a.id}  ${a.title}${a.version ? ` ${a.version}` : ''} · ${state}`);
     console.log(`  ${a.summary}`);
-    console.log(`  ${a.homepage}`);
+    if (a.homepage) console.log(`  ${a.homepage}`);
   }
 }
 
@@ -27,7 +27,7 @@ async function setup(addon) {
     console.log(`Installing ${addon.title}…`);
     const r = await addon.install({ onLine: line });
     if (!r.ok) {
-      console.error(`${addon.title} could not be installed. Try: npm install -g ${addon.id}`);
+      console.error(`${addon.title} could not be installed. Try: ${addon.installHint ? addon.installHint() : `npm install -g ${addon.id}`}`);
       return 1;
     }
   }
@@ -88,7 +88,7 @@ export async function main(command, args) {
   }
   const addon = findAddon(id);
   if (!addon) {
-    console.error(id ? `There is no add-on "${id}".\n${USAGE}` : USAGE);
+    console.error(id ? `There is no add-on "${id}".\n${usage()}` : usage());
     return 2;
   }
   switch (action) {
@@ -110,14 +110,14 @@ export async function main(command, args) {
     }
     case 'stop': {
       const r = await addon.stop();
-      console.log(r.ok ? (r.already ? `${addon.title} is not running.` : `${addon.title} stopped.`) : `${addon.title} did not stop.`);
+      console.log(r.ok ? (r.already ? r.note || `${addon.title} is not running.` : `${addon.title} stopped.`) : r.error || `${addon.title} did not stop.`);
       return r.ok ? 0 : 1;
     }
     case 'setup':
       if (!addon.profile) return console.log(`${addon.title} is not a provider; start it with: hoprig addons start ${addon.id}`), 2;
       return setup(addon);
     default:
-      console.error(USAGE);
+      console.error(usage());
       return 2;
   }
 }

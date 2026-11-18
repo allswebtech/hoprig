@@ -59,7 +59,17 @@ const gitconfig = join(sandbox, 'gitconfig');
 writeFileSync(gitconfig, '[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n');
 const env = { ...process.env };
 for (const k of Object.keys(env)) {
-  if (/^(ANTHROPIC_|CLAUDE_CODE_|CLAUDECODE$|CLAUDE_CONFIG_DIR$|HOPRIG_|XDG_(CONFIG|STATE|DATA|CACHE)_HOME$|GIT_CONFIG)/.test(k)) delete env[k];
+  if (/^(ANTHROPIC_|CLAUDE_CODE_|CLAUDECODE$|CLAUDE_CONFIG_DIR$|HOPRIG_|XDG_(CONFIG|STATE|DATA|CACHE)_HOME$|GIT_CONFIG|TMUX$|TMUX_PANE$)/.test(k)) delete env[k];
+}
+// tmux keeps a server's socket in $TMUX_TMPDIR/tmux-<uid>/<name> (else in /tmp), and a tmux command run inside tmux
+// ($TMUX, removed above) reaches the server around it. The tests' tmux servers live in this run's own folder: two
+// runs side by side never share one, and a command that names no server of its own reaches an empty default server
+// of this run, never the person's. A socket's path has at most 104 bytes (macOS): a long temporary folder gets a short
+// one in /tmp instead.
+const tmuxDir = process.platform === 'win32' ? null : sandbox.length <= 48 ? join(sandbox, 'tmux') : mkdtempSync('/tmp/hoprig-tmux-');
+if (tmuxDir) {
+  mkdirSync(tmuxDir, { recursive: true });
+  env.TMUX_TMPDIR = tmuxDir;
 }
 Object.assign(env, {
   HOME: home,
@@ -91,5 +101,6 @@ child.on('exit', (code, signal) => {
   const asked = existsSync(forbidden) ? readFileSync(forbidden, 'utf8').trim() : '';
   if (asked) console.error(`A test ran a package manager that installs on this computer (stopped by a stand-in):\n${asked}`);
   rmSync(sandbox, { recursive: true, force: true });
+  if (tmuxDir) rmSync(tmuxDir, { recursive: true, force: true });
   process.exit(signal || asked ? 1 : (code ?? 1));
 });

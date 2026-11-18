@@ -196,12 +196,15 @@ test('model, effort, ultracode and mode change in the running process: no new st
     { effortLevel: 'high', ultracode: false }, { effortLevel: 'high', ultracode: true }, { effortLevel: null, ultracode: true },
   ], 'an effort change always says ultracode too');
   assert.ok(of(c, 'notice').some((e) => e.text === 'Set model to haiku'), 'Claude Code\'s word on it is shown');
-  // a card open while the owner switches to bypass is allowed then
+  // A card open while the owner switches to bypass stays his: the one rule (src/asking.mjs) answers only a plain
+  // delete, and a file change Claude Code asked for before the switch is not one. The next change asks nothing.
   await c.send('write card.txt');
   await until('the card', () => c.status() === 'attention');
   await c.setSettings({ mode: 'bypassPermissions' });
   assert.deepEqual(controls(c, 'set_permission_mode'), [{ subtype: 'set_permission_mode', mode: 'bypassPermissions' }]);
   assert.equal(c.liveMode, 'bypassPermissions');
+  assert.equal(c.status(), 'attention', 'the card is still open');
+  c.answer([...c.pending.keys()][0], { allow: true });
   await until('the end', () => ends(c).length === 2);
   assert.ok(fs.existsSync(path.join(c.cwd, 'card.txt')));
   assert.equal(of(c, 'ask-closed').at(-1).outcome, 'allowed');
@@ -268,6 +271,8 @@ test('the / menu, usage and plan limits, a title, compacting and a new conversat
   assert.deepEqual(c.limits.five_hour, { status: 'allowed_warning', percent: 81, resetsAt: 1900000000000, at: c.limits.five_hour.at });
   const u = await c.usageNow();
   assert.equal(u.usage.contextPercent, 10.5);
+  // What fills the context, as Claude Code's /context counts it (the session rail's Context card); nothing empty.
+  assert.deepEqual(u.usage.contextCategories, [{ name: 'System prompt', tokens: 3100 }, { name: 'System tools', tokens: 11900 }, { name: 'Messages', tokens: 6000 }]);
   assert.deepEqual([u.limits.five_hour.status, u.limits.five_hour.percent, u.limits.five_hour.resetsAt], ['allowed_warning', 42, Date.parse('2030-03-17T17:46:40Z')], 'the status the live line said stays');
   assert.equal(u.limits.seven_day.percent, 10);
   assert.equal(u.limits.spend, undefined, 'a window with nothing in it is left out');

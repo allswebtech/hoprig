@@ -29,7 +29,7 @@ import { defaultHubLabel } from './hub.mjs';
 import { dashboardUrl, label as cleanLabel, slug, tokenName, uniqueSlug } from './names.mjs';
 import { caddyRoot, establishTrust, explainTls, parsePin, toX509, trustOptions } from './hubcert.mjs';
 import { OneTimeStore } from './onetime.mjs';
-import { CODE_TTL_MS, dashboardAddress, listening, machineInfo, makeCode, normalizeCode } from './pairing.mjs';
+import { CODE_TTL_MS, dashboardAddress, answers, machineInfo, makeCode, normalizeCode } from './pairing.mjs';
 import { callJson, rejectUpgrade } from './relay.mjs';
 import { Mux, dashboardConnector } from './mux.mjs';
 import { LEG_HEADER, noteLinkSocket, upgradeEncrypted } from './legs.mjs';
@@ -431,9 +431,9 @@ export async function claimLink(rawUrl, rawCode, { insecure = false, fingerprint
   if (hasPin && !parsePin(fingerprint)) throw new LinkError('bad-fingerprint', `that fingerprint is not in the right form: sha256: followed by 43 letters, digits, - or _. Copy the whole line from ${JOIN_HINT}.`, 400);
   if (hasPin && !base.startsWith('https://')) throw new LinkError('bad-fingerprint', 'a fingerprint is for an https:// address; this one is not encrypted', 400);
   const addr = dashboardAddress();
-  if (!(await listening(addr))) {
-    throw new LinkError('not-running', `This computer's dashboard is not running (nothing on ${addr.host}:${addr.port}). Start it first: hoprig service install`);
-  }
+  const said = await answers(addr);
+  if (said === 'closed') throw new LinkError('not-running', `This computer's dashboard is not running (nothing on ${addr.host}:${addr.port}). Start it first: hoprig service install`);
+  if (said === 'silent') throw new LinkError('no-answer', `This computer's dashboard did not answer on ${addr.host}:${addr.port} in time. Try again in a moment.`);
   const host = new URL(base).hostname;
   // Trust first, before a token is made or the code leaves this computer.
   let trust = { pin: null, ca: null };

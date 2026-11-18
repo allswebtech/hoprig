@@ -19,9 +19,12 @@ import { arr, bool, int, obj, ref, str } from './schema.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
 import { COMPUTER, NAME, actionTool, comp, computer, countOf, folder, minsAgo, said, saidNum, session, sessKey, short, toolError, typedTextRisk } from './toolkit.mjs';
 import { CODING_TOOL_ACTIONS, CODING_TOOL_FIELDS } from './codingtools.mjs';
+import { pickProject } from '../workspace/mapcheck.mjs';
 
 const at = (c, id) => `${c}|${id}`;
-const project = ref('project', str({ max: 100, pattern: NAME, desc: 'Project id from list_projects.' }));
+// A project in a group of the workspace map is <place>/<name> (two places may have one name).
+const PROJECT_ID = /^[A-Za-z0-9._-]{1,100}(\/[A-Za-z0-9._-]{1,100}){0,3}$/;
+const project = ref('project', str({ max: 300, pattern: PROJECT_ID, desc: 'Project id from list_projects (<place>/<name> for a project in a group).' }));
 const projectFolder = str({ max: 1024, pattern: /^(\/|~\/)/, oneLine: true, desc: 'A project folder (from list_projects) to scope it to; omit for skills in every project.' });
 
 // ---- the Workspace page (read) ----
@@ -75,7 +78,7 @@ function mapView(m, c) {
   return {
     summary: m.exists === false
       ? `There is no workspace map on ${c} yet (manage_project workspace_map makes one).`
-      : `The workspace map of ${c}: ${n('here')} here, ${n('missing')} missing, ${n('different')} different, ${n('unmapped')} not in the map; ${m.saved && m.saved.unsaved ? 'NOT saved in the brain\'s history yet' : 'saved in the brain\'s history'}.`,
+      : `The workspace map of ${c}: ${n('here')} here, ${n('missing')} missing, ${n('notFollowed') ? `${n('notFollowed')} behind a link that leads out (not followed), ` : ''}${n('different')} different, ${n('unmapped')} not in the map; ${m.saved && m.saved.unsaved ? 'NOT saved in the brain\'s history yet' : 'saved in the brain\'s history'}.`,
     data: { exists: m.exists !== false, entries, tools: m.tools || [], problems: m.errors || null, saved: m.saved ? !m.saved.unsaved : 'unknown' },
     shown: { mapped: names.map((x) => `${c}|${x}`), address: entries.map((e) => e.address).filter(Boolean) },
   };
@@ -365,10 +368,22 @@ export const manage_computer = actionTool({
 
 // ---- Workspace: projects ----
 
-async function projectOf(ops, a) {
+export async function projectOf(ops, a) {
   const p = await ops.projects({ computer: comp(a) });
-  const w = (p.workspaces || []).find((x) => x.id === a.project) || (p.repos || []).find((x) => x.id === a.project);
-  if (!w) throw toolError(`there is no project "${a.project}" on ${comp(a)}`, 'call list_projects');
+  // The one rule for a name (src/workspace/mapcheck.mjs pickProject): <place>/<name>, projects/<name>, or a bare name
+  // that is in one place only; two places are refused with both ids.
+  const items = [...(p.workspaces || []), ...(p.repos || [])].map((x) => {
+    const id = String(x.id);
+    const cut = id.lastIndexOf('/');
+    return { name: cut > 0 ? id.slice(cut + 1) : id, place: cut > 0 ? id.slice(0, cut) : '', x };
+  });
+  let w;
+  try {
+    w = pickProject(items, String(a.project || ''), comp(a)).x;
+  } catch (e) {
+    if (e.status === 409) throw toolError(`"${a.project}" is in ${e.choices.length} places on ${comp(a)}: say which one (${e.choices.join(', ')})`, 'use one of those ids');
+    throw toolError(`there is no project "${a.project}" on ${comp(a)}`, 'call list_projects');
+  }
   return { ...w, repos: w.repos || [w] };
 }
 
@@ -443,7 +458,15 @@ export const manage_project = actionTool({
       cardLines: (a, b) => [`Get the project ${a.spec} into ${b.projectsDir} on ${comp(a)} (git clone; a private one needs the GitHub sign-in there)`],
       async run(ops, a) {
         const r = await ops.projectGet({ computer: comp(a), spec: a.spec });
-        return { ...jobResult(r.job, `Getting ${a.spec}`), ...(r.name ? { shown: { project: [at(comp(a), r.name)] } } : {}) };
+        // The folder the job made (the project's name, whatever its repository is called); the one guessed while it
+        // runs. Not when it needs the owner (here under another name, or its folder taken) or made nothing (another run
+        // has it, it failed): no project is shown as got.
+        const d = r.job && r.job.data;
+        // A project of a group is <place>/<name>, as the page's list names it (a bare name may be another project),
+        // also while the job runs (the route says the place it guessed).
+        const id = (x) => (x.place ? `${x.place}/${x.name}` : x.name);
+        const name = r.job && r.job.running ? id(r) : d && d.made && !d.fix ? id(d) : null;
+        return { ...jobResult(r.job, `Getting ${a.spec}`), ...(name ? { shown: { project: [at(comp(a), name)] } } : {}) };
       },
     },
     sync: {

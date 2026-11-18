@@ -8,6 +8,7 @@
 // Only the method, the path, the status and the token's NAME are used. The request body, its headers, keys,
 // tokens and passwords are never read here: the Setup routes carry the computer's administrator password.
 import path from 'node:path';
+import { gatewayTitle } from '../addons/gateways.mjs';
 import { createActivityLog } from '../automation/store.mjs';
 import { stateDir } from '../paths.mjs';
 
@@ -27,8 +28,8 @@ export function revokedWords(name, keys = 0) {
     : `The token of the hub ${name} was revoked`;
 }
 
-const ADDON_NAMES = { 'public-link': 'the public link', trouteai: 'TRouteAI' };
-const addonName = (id) => ADDON_NAMES[id] || (/^[a-z0-9-]{1,40}$/.test(id) ? `the add-on ${id}` : 'an add-on');
+// A gateway goes by its title (src/addons/gateways.mjs), the public link by its plain name.
+const addonName = (id) => (id === 'public-link' ? 'the public link' : !/^[a-z0-9-]{1,40}$/.test(id) ? 'an add-on' : gatewayTitle(id) || `the add-on ${id}`);
 const ADDON_VERBS = { install: 'installed', update: 'updated', start: 'started', stop: 'stopped' };
 const ACTION_WORDS = {
   'fixed-sign-in': 'started the sign-in to Cloudflare for the Custom public link',
@@ -43,7 +44,8 @@ const ACTION_WORDS = {
   'quick-service-start': 'gave a service on this computer a temporary address',
   'quick-service-stop': 'stopped the temporary address of a service on this computer',
 };
-const safeId = (s) => (/^[a-z0-9-]{1,40}$/.test(s) ? s : 'a gateway');
+// A gateway by its title, as the add-on lines name it; one this computer does not know by its id.
+const gatewayName = (s) => (!/^[a-z0-9-]{1,40}$/.test(s) ? 'a gateway' : gatewayTitle(s) || `the gateway ${s}`);
 
 /**
  * [method, path, (match) => what was done, asks]. Every capture is checked by the regex itself, so it is safe to
@@ -56,8 +58,8 @@ export const CHANGES = [
   ['POST', /^\/api\/public-link$/, () => 'switched the public link on or off'],
   ['POST', /^\/api\/public-link\/custom\/([a-z-]{1,20})$/, (m) => ACTION_WORDS[`fixed-${m[1]}`] || 'changed the Custom public link'],
   ['POST', /^\/api\/public-link\/temporary\/(add-service|remove-service)$/, (m) => ACTION_WORDS[m[1] === 'add-service' ? 'quick-service-start' : 'quick-service-stop']],
-  ['POST', /^\/api\/gateways\/([a-z][a-z0-9-]{0,30})\/share$/, (m) => `changed the sharing of the gateway ${safeId(m[1])}`],
-  ['POST', /^\/api\/gateways\/([a-z][a-z0-9-]{0,30})\/keys$/, (m) => `made a key for the gateway ${safeId(m[1])}`],
+  ['POST', /^\/api\/gateways\/([a-z][a-z0-9-]{0,30})\/share$/, (m) => `changed the sharing of ${gatewayName(m[1])}`],
+  ['POST', /^\/api\/gateways\/([a-z][a-z0-9-]{0,30})\/keys$/, (m) => `made a key for ${gatewayName(m[1])}`],
   ['POST', /^\/api\/gateways\/keys\/([0-9a-f]{12})\/remove$/, (m) => `removed the gateway key ${m[1]}`],
   ['POST', /^\/api\/pcsetup\/setup$/, () => 'ran Set up this computer', true],
   ['POST', /^\/api\/pcsetup\/fix$/, () => 'ran a fix from PC → Setup', true],

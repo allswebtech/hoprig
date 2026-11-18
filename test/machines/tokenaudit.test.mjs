@@ -26,8 +26,10 @@ test('each change a token may make has its plain words; anything else is not log
   assert.equal(said('POST', '/api/public-link/temporary/add-service'), 'The hub office-pc gave a service on this computer a temporary address');
   assert.equal(said('POST', '/api/addons/public-link/do/quick-service-start'), 'The hub office-pc gave a service on this computer a temporary address');
   assert.equal(said('POST', '/api/addons/other/do/some-thing'), 'The hub office-pc ran "some-thing" of the add-on other');
-  assert.equal(said('POST', '/api/gateways/trouteai/share'), 'The hub office-pc changed the sharing of the gateway trouteai');
-  assert.equal(said('POST', '/api/gateways/trouteai/keys'), 'The hub office-pc made a key for the gateway trouteai');
+  // A gateway goes by its title in every line, as in "installed TRouteAI" above; one not known here by its id.
+  assert.equal(said('POST', '/api/gateways/trouteai/share'), 'The hub office-pc changed the sharing of TRouteAI');
+  assert.equal(said('POST', '/api/gateways/trouteai/keys'), 'The hub office-pc made a key for TRouteAI');
+  assert.equal(said('POST', '/api/gateways/other/share'), 'The hub office-pc changed the sharing of the gateway other');
   assert.equal(said('POST', '/api/gateways/keys/0123456789ab/remove'), 'The hub office-pc removed the gateway key 0123456789ab');
   assert.equal(said('POST', '/api/pcsetup/setup'), 'The hub office-pc ran Set up this computer');
   assert.equal(said('POST', '/api/pcsetup/fix'), 'The hub office-pc ran a fix from PC → Setup');

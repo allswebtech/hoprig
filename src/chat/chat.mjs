@@ -16,7 +16,7 @@ import { allowPending, answerAsk, cancelAsks, keepGrants } from './asks.mjs';
 import { applySettings, renameChat, usageNow } from './controls.mjs';
 import { oneLine } from './events.mjs';
 import { MessageQueue } from './queue.mjs';
-import { knowSize, load, markRecord, refresh, restoredMark } from './reading.mjs';
+import { checkWaiting, knowSize, load, markRecord, refresh, restoredMark } from './reading.mjs';
 import { ensure, start, stop, stopAndWait } from './run.mjs';
 import { LiveBlocks } from './streaming.mjs';
 import { OWED_MS, TaskTable } from './tasks.mjs';
@@ -66,6 +66,8 @@ export class Chat extends Timeline {
     this.turn = null; // the turn that runs: { messageId, auto, at }
     this.stopping = false; // Stop was pressed: the turn's end is the owner's, not a failure
     this.pending = new Map(); // request id → the ask event (with the full input)
+    this.held = new Map(); // request id → { timer, ev } of an ask the hook may still answer (asks.mjs): no card yet
+    this.allowedShown = new Set(); // record file#number of what the hook allowed that the chat has shown (asks.mjs hookAllowed)
     this.tasks = new TaskTable(); // subagents, background shells and workflows (tasks.mjs)
     this.queue = new MessageQueue(() => this.emit('state')); // messages written while a turn runs (queue.mjs)
     this.live = new LiveBlocks(); // what still streams (streaming.mjs)
@@ -78,6 +80,9 @@ export class Chat extends Timeline {
     this.activity = null; // requesting | compacting | retrying (live, for the status line)
     this.liveModel = null;
     this.liveMode = null; // the permission mode the running process reports
+    // Claude Code said it runs in auto mode (started in it, or a switch confirmed): auto mode is there for this
+    // session's model and settings, so a plan's first answer may offer it (else "auto-accept edits").
+    this.autoSeen = false;
     this.bypass = false; // … and whether it allows everything (the chat answers asks then)
     this.statusAt = Date.now();
     this.lastStatus = 'waiting';
@@ -95,6 +100,12 @@ export class Chat extends Timeline {
     this.starting = null; // the start under way
     this.unread = false; // a tool read through its server: not read yet (its server did not run at the first look)
     this.load({ wake: false });
+    checkWaiting(this); // an OK that waited while the dashboard was down (reading.mjs)
+  }
+
+  /** Start the coding tool again for what its conversation waits for (reading.mjs checkWaiting). */
+  wake() {
+    ensure(this).catch(() => {});
   }
 
   /** The conversation's file (null for a tool whose conversations are kept by its server). */
@@ -379,6 +390,7 @@ export class Chat extends Timeline {
     this.stop();
     this.profile = name;
     this.limit = null;
+    this.autoSeen = false; // another provider may not have auto mode: its own process says so
     this.push({ kind: 'notice', level: 'info', text: `The next message goes to another provider (${label}).` });
   }
 

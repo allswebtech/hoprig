@@ -146,6 +146,8 @@ body.desk-mode { overflow: hidden; }
 .desk-menu-item:disabled { opacity: .5; cursor: default; }
 .desk-menu-item.desk-menu-danger { color: var(--danger); }
 .desk-menu-gap { width: 16px; flex: none; }
+.desk-menu-more { margin-left: auto; display: inline-flex; color: var(--muted); }
+@media (pointer: coarse) { .desk-menu-item { min-height: 44px; } } /* a finger: the menu's entries, also the chat's session menu */
 .desk-menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 
 /* ---------- Tia's button and the toasts above the bars ---------- */

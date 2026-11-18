@@ -1,4 +1,4 @@
-// The page's router. Pages draw themselves in the frame of shell.js; Home is home.js, New session newsession.js,
+// The page's router. Pages draw themselves in the frame of shell.js; Home is home.js, New session a popup (newsession-popup.js),
 // a session session.js; every other page is registered by its feature (registry.js) and imported below.
 // Routes: #/  #/new  #/s/<session>  #/more  #/<page>  #/<page>/<sub>  #/<page>?<query> (the code editor's deep links)
 //         #/m/<computer>/...   the same pages for another computer (Home is always every computer at once)
@@ -9,10 +9,11 @@ import { connectionBanner, endFrame, frame, listRow } from './shell.js';
 import { openSession } from './session.js';
 import { arrive } from './trail.js';
 import { viewHome } from './home.js';
-import { viewNew } from './newsession.js';
+import { newFromAddress } from './newsession-popup.js';
 import { hubStandIn, store } from './store.js';
 // Features: one import each; they register their pages and Settings pages (registry.js).
 import './projects.js';
+import './work.js';
 import './accounts.js';
 import './computers.js';
 import './pc.js';
@@ -40,6 +41,7 @@ let stopView = () => {};
  */
 export const PAGE_ADDRESSES = [
   '#/', '#/new', '#/more',
+  '#/work', '#/work/tasks',
   '#/workspace', '#/new-project', '#/get-project',
   '#/providers',
   '#/computers', '#/computers/add', '#/computer', '#/computer/setup', '#/computer/advanced',
@@ -49,7 +51,7 @@ export const PAGE_ADDRESSES = [
   '#/tia', '#/tia/jobs', '#/tia/activity',
   '#/code',
   '#/desktop', '#/desktop/sessions', '#/desktop/terminal', '#/desktop/files', '#/desktop/editor', '#/desktop/tasks', '#/desktop/services', '#/desktop/logs',
-  '#/settings', '#/settings/new-sessions', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/public-link', '#/settings/tia', '#/settings/editor', '#/settings/addons', '#/settings/codingtools', '#/settings/updates', '#/settings/about',
+  '#/settings', '#/settings/new-sessions', '#/settings/work', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/public-link', '#/settings/tia', '#/settings/editor', '#/settings/addons', '#/settings/codingtools', '#/settings/updates', '#/settings/about',
 ];
 
 /** Old addresses (and the screens Tia links to) → where that lives now. */
@@ -171,7 +173,10 @@ function route(e) {
   if (s) {
     document.body.classList.remove('has-nav');
     stop = openSession(app, decodeURIComponent(s[1]));
-  } else if (path === '/new' || path === '/new/here') stop = viewNew({ query });
+  } else if (path === '/new' || path === '/new/here') {
+    stop = viewHome(); // New session is a popup: over Home when it is opened by its address
+    newFromAddress({ query });
+  }
   else if (path === '/more') stop = viewMore();
   else if (page) stop = page.render({ frame, connectionBanner, sub: p[2] || '', query });
   else stop = viewHome();

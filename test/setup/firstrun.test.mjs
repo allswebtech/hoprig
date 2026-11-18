@@ -178,6 +178,23 @@ test('a project from GitHub is cloned; an answer that is no project is refused a
   assert.equal(log2.at(-1)[0], 'userSkills');
 });
 
+test('a project here under another name: first run says it needs you, with the mv, not ok', async () => {
+  fs.rmSync(PROJECTS, { recursive: true, force: true });
+  const log = [];
+  const mv = 'mv "/p/shop-workspace" "/p/shop"';
+  const parts = fakes(log, {
+    cloneProject: async (spec, { onDone }) => {
+      log.push(['cloneProject', spec]);
+      onDone({ ok: false, result: 'misnamed', folder: 'shop', dir: path.join(PROJECTS, 'shop'), mv, fix: mv, message: 'it is here already' });
+      return 1;
+    },
+  });
+  const r = await FR.runParts(ui({ answers: ['someone/shop-workspace'] }).ui, {}, { parts });
+  const p = r.find((x) => x.part === 'project');
+  assert.deepEqual([p.ok, p.dir, p.retry], [false, null, mv]);
+  assert.match(p.note, /here already under another name/);
+});
+
 test('Enter skips the project', async () => {
   const log = [];
   await FR.runParts(ui({ answers: [''] }).ui, {}, { parts: fakes(log) });

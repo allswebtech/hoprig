@@ -52,11 +52,25 @@ test('demo: free port, own temp folder, one-time sign-in link, sample data, clea
     assert.deepEqual(facts.team, ['subscription', true, false]);
     assert.deepEqual(facts.pro, ['login', false, null], 'one provider not signed in');
     assert.equal(facts.api[1], undefined, 'an API key has no sign-in');
-    // The Computer tab shows sample processes, never this computer's, and stops nothing.
     const auth = { Cookie: cookie, 'Content-Type': 'application/json', Origin: url };
+    // The Computer tab shows sample processes, never this computer's, and stops nothing.
     const pc = await (await fetch(`${url}/api/pc`, { headers: auth })).json();
     assert.equal(pc.host, 'workstation');
     assert.ok(!pc.topCpu.some((p) => p.pid === process.pid), 'not the real process list');
+    // The session that needs an OK draws Claude Code's real dialog: the page's Allow is typed into it (its number) and
+    // it goes on; the dashboard found the card's command in the dialog first (server.mjs).
+    const ok = by['mobile-app'];
+    assert.deepEqual([ok.ask, ok.always && ok.always.key], [{ type: 'permission', what: 'npm install react-native-svg@15.8.0', waiting: 1 }, '2']);
+    const press = (body) => fetch(`${url}/api/sessions/mobile-app/key`, { method: 'POST', headers: auth, body: JSON.stringify({ owner: true, question: true, ...body }) });
+    assert.equal((await press({ key: '1', about: 'npm install left-pad' })).status, 409, 'another command: nothing typed');
+    const allowed = await press({ key: '1', about: ok.ask.what });
+    assert.equal(allowed.status, 200, await allowed.text());
+    let after = null;
+    for (let i = 0; i < 40 && !(after && after.status === 'waiting'); i++) {
+      await new Promise((r) => setTimeout(r, 250));
+      after = (await (await fetch(`${url}/api/state`, { headers: { Cookie: cookie } })).json()).sessions.find((s) => s.name === 'mobile-app');
+    }
+    assert.deepEqual([after.status, after.lastMessage], ['waiting', 'Installed react-native-svg and added the weekly chart to the stats screen.']);
     const kill = await fetch(`${url}/api/pc/kill`, { method: 'POST', headers: auth, body: JSON.stringify({ pid: pc.topCpu[0].pid }) });
     assert.equal(kill.status, 409);
     const off = await fetch(`${url}/api/pc/power`, { method: 'POST', headers: auth, body: JSON.stringify({ action: 'reboot', confirm: 'reboot' }) });

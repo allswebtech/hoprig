@@ -1,0 +1,45 @@
+
+
+  Did not run 1
+  call
+  ⎿  $ touch
+     b.txt
+  ⎿  Interrupte…
+
+❯ Use the AskUs
+  erQuestion
+  tool now
+  (single
+  choice) to
+  ask me
+  "Proceed?"
+  with exactly
+  two options:
+  "Yes, go on"
+  and "No,
+  stop".
+  Nothing else.
+────────────────
+ ☐ Proceed
+
+Proceed?
+
+❯ 1. Yes, go on
+     Continue
+     with the
+     next step
+  2. No, stop
+     Stop here
+     and do
+     nothing
+     further
+  3. Type
+     something.
+────────────────
+  4. Chat about
+  this
+
+Enter to select
+· ↑/↓ to
+navigate · Esc
+to cancel

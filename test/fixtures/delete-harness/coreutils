@@ -1,0 +1,4 @@
+#!/usr/bin/bash
+{ printf 'RUN coreutils'; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log
+case "$1" in rm|shred|unlink|truncate|--coreutils-prog=rm*) { printf 'DEL coreutils-%s' "$1"; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log; exit 0;; esac
+exec /mnt/r/coreutils "$@"

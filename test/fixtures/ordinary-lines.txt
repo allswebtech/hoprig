@@ -1,0 +1,213 @@
+git status
+git status --short
+git diff
+git diff --stat HEAD~1
+git log --oneline -20
+git log --format='%H %s' -5
+git add -A
+git add src/index.js
+git commit -m "fix: handle empty input"
+git commit -am 'update readme'
+git push origin main
+git pull --rebase
+git checkout -b feature/login
+git switch main
+git branch -a
+git stash
+git stash pop
+git rev-parse --show-toplevel
+git show HEAD:package.json
+git fetch --all --prune
+git remote -v
+git tag -l
+git blame src/app.ts
+git grep -n "TODO"
+git merge --no-ff feature/x
+git rebase origin/main
+git cherry-pick abc123
+git config user.name
+git ls-files | head -50
+git worktree list
+npm install
+npm ci
+npm test
+npm run build
+npm run lint
+npm run dev
+npm run format
+npm run typecheck
+npm run eval
+npm install --save-dev vitest
+npm uninstall lodash
+npm outdated
+npm audit
+npm ls react
+npx tsc --noEmit
+npx eslint . --fix
+npx prettier --write "src/**/*.ts"
+npx vitest run
+npx playwright test
+pnpm install
+pnpm -r build
+yarn add axios
+yarn test --watch=false
+node index.js
+node -e "console.log(process.version)"
+node --test test/
+node scripts/build.mjs
+python3 -m pytest -q
+python3 -m venv .venv
+python3 manage.py migrate
+python3 scripts/eval.py --limit 10
+python -c "import sys; print(sys.version)"
+pip install -r requirements.txt
+pip list | grep requests
+pytest tests/test_api.py -k login
+uv sync
+uv run pytest
+ruff check .
+black --check .
+mypy src
+grep -rn "useEffect" src/
+grep -r "TODO" --include="*.ts" .
+grep -n "function" src/utils.js
+grep -E "error|warn" logs/app.log
+grep -c "" src/main.go
+grep -rn "rm -rf" scripts/
+grep -nE "^(import|export)" src/index.ts
+rg "fetchUser" src
+rg -n "class .*Controller" app/
+sed -n '1,80p' src/server.js
+sed -i 's/oldName/newName/g' src/a.js
+sed -e 's/foo/bar/' file.txt
+sed '1d;$d' data.csv
+awk '{print $1}' access.log | sort | uniq -c
+awk -F, '{ sum += $3 } END { print sum }' data.csv
+ls -la
+ls src/components
+ls -R | head
+cat package.json
+cat README.md
+cat .env.example
+head -n 40 src/app.py
+tail -f logs/dev.log
+tail -n 100 /var/log/syslog
+wc -l src/*.ts
+find . -name "*.test.ts" -not -path "./node_modules/*"
+find src -type f | wc -l
+find . -maxdepth 2 -type d
+tree -L 2 -I node_modules
+mkdir -p src/components/Button
+mkdir build
+cp .env.example .env
+cp -r templates/ dist/templates/
+mv src/old.ts src/new.ts
+touch src/index.ts
+chmod +x scripts/deploy.sh
+ln -s ../shared shared
+pwd
+echo $PATH
+echo "$HOME"
+which node
+env | grep NODE
+export NODE_ENV=production
+cd src && ls
+cd .. && npm test
+cd frontend && npm run build
+curl -s http://localhost:3000/health
+curl -X POST -H "Content-Type: application/json" -d '{"a":1}' http://localhost:8080/api
+curl -fsSL https://example.com/install.sh -o install.sh
+wget -q https://example.com/file.tar.gz
+tar -xzf file.tar.gz
+unzip archive.zip -d out
+docker ps
+docker build -t app .
+docker run --rm -p 8080:80 app
+docker compose up -d
+docker compose logs -f api
+docker exec -it db psql -U postgres
+docker images
+docker compose down
+make
+make test
+make build
+make clean
+cargo build --release
+cargo test
+cargo clippy
+go build ./...
+go test ./...
+go mod tidy
+go run main.go
+rustc --version
+java -version
+mvn package
+gradle build
+dotnet build
+psql -c "select 1"
+sqlite3 db.sqlite ".tables"
+redis-cli ping
+kill 12345
+lsof -i :3000
+ps aux | grep node
+top -b -n 1 | head
+df -h
+du -sh node_modules
+free -m
+uname -a
+date
+whoami
+sleep 2
+jq '.dependencies' package.json
+jq -r '.[] | .name' data.json
+diff a.txt b.txt
+patch -p1 < fix.patch
+xargs -n1 echo < list.txt
+sort file.txt | uniq
+cut -d: -f1 /etc/passwd
+tr 'a-z' 'A-Z' < in.txt
+tee output.log < input.txt
+openssl rand -hex 16
+ssh-keygen -t ed25519 -f key -N ""
+base64 -d secret.b64 > secret.txt
+gh pr list
+gh pr create --fill
+gh issue view 12
+code .
+open http://localhost:3000
+for f in src/*.ts; do echo $f; done
+for f in $(ls *.md); do wc -l $f; done
+while read line; do echo "$line"; done < list.txt
+if [ -f .env ]; then echo yes; fi
+test -d node_modules || npm install
+[ -n "$CI" ] && npm test
+npm test 2>&1 | tail -20
+npm run build > build.log 2>&1
+node app.js &
+time npm test
+NODE_ENV=test npx jest
+DEBUG=* node server.js
+echo "export const x = 1" > src/x.ts
+cat > notes.md << 'EOT'
+printf '%s\n' a b c
+python3 - <<'PY'
+bash scripts/setup.sh
+sh ./configure
+./gradlew assemble
+./scripts/test.sh
+source .venv/bin/activate
+. ~/.nvm/nvm.sh
+nvm use 22
+composer install
+php artisan migrate
+bundle exec rspec
+rails db:migrate
+flutter pub get
+flutter test
+terraform plan
+kubectl get pods
+helm list
+ansible-playbook site.yml
+aws s3 ls
+gcloud config list
+vercel deploy --prod

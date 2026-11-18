@@ -1,0 +1,32 @@
+
+❯ Use the Write tool to create the file w.txt containing the single word hi.
+  Nothing else.
+
+● Write(w.txt)
+  ⎿  Rejected write to w.txt
+      1 hi
+
+❯ Use the Edit tool to change hello to bye in a.txt. Nothing else.
+
+● Update(a.txt)
+  ⎿  Rejected update to a.txt
+      1 -hello
+      1 +bye
+
+❯ Use the Read tool to read the file ../outside.txt. Nothing else.
+
+● Reading /home/robin/projects/example-shop-storefr/frontend/notes.txt
+  ⎿  /home/robin/projects/example-shop-storefr/frontend/notes.txt
+
+────────────────────────────────────────────────────────────────────────────────
+ Read file
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Read(/home/robin/projects/example-shop-storefr/frontend/notes.txt)
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, allow reading from /home/robin/projects/example-shop-store/frontend
+      during this session
+   3. No
+
+ Esc to cancel · Tab to amend

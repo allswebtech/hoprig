@@ -1,0 +1,6 @@
+#!/usr/bin/bash
+{ printf 'RUN watch'; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log
+x=0
+while [ $# -gt 0 ]; do case "$1" in --) shift; break;; -n|--interval|-d|-q|--equexit) shift 2;; -x|--exec) x=1; shift;; -*) shift;; *) break;; esac; done
+[ $x = 1 ] && exec "$@"
+exec /usr/bin/sh -c "$*"

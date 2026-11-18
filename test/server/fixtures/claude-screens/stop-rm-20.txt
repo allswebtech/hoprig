@@ -1,0 +1,29 @@
+────────────────────
+ Bash command
+ Remove the HOME
+ scratch directory
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ rm -rf ~
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ Dangerous rm
+ │ operation on
+ │ critical path:
+ │ /home/robin/proj
+ │ ects/example-sho
+ │ p/frontend/web/x
+ │ /home
+ ⚠ Claude Code will
+ automatically
+ block this request
+ in 1:47, to avoid
+ holding up an
+ unattended session
+
+
+ Do you want to
+ proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel ·
+ Tab to amend

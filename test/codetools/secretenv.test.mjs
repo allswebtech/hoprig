@@ -53,6 +53,14 @@ test('an install also loses GitHub\'s tokens and the credential names a stored p
   }
 });
 
+test('a gateway the owner defined gets only what a server needs: no name of any list, no session mark', async () => {
+  const { forGateway } = await import('../../src/secretenv.mjs');
+  const env = { ...SECRETS, KEEP_ME: 'plain', AWS_SECRET_ACCESS_KEY: 'x', NPM_TOKEN: 'x', SSH_AUTH_SOCK: 'x', HOPRIG_PROFILE: 'x', HOPRIG_CONFIG_DIR: 'x', NODE_OPTIONS: 'x', PATH: '/bin', HOME: '/h', LANG: 'C', LC_ALL: 'C', TZ: 'UTC', TMPDIR: '/t', XDG_DATA_HOME: '/d', https_proxy: 'p', NO_PROXY: 'n', NODE_EXTRA_CA_CERTS: '/ca' };
+  assert.deepEqual(Object.keys(forGateway(env, 'linux')).sort(), ['HOME', 'LANG', 'LC_ALL', 'NODE_EXTRA_CA_CERTS', 'NO_PROXY', 'PATH', 'TMPDIR', 'TZ', 'XDG_DATA_HOME', 'https_proxy']);
+  assert.equal(forGateway({ path: '/x' }, 'linux').path, undefined, 'a lower-case PATH is another variable there');
+  assert.deepEqual(Object.keys(forGateway({ Path: 'C:\\Windows', SystemRoot: 'C:\\Windows', ComSpec: 'cmd', NPM_TOKEN: 'x', GH_TOKEN: 'x' }, 'win32')).sort(), ['ComSpec', 'Path', 'SystemRoot']);
+});
+
 test('the environments built for npm, a coding tool, its server and its sign-in carry none of them', async () => {
   const { installEnv } = await import('../../src/codetools/npmtool.mjs');
   const claudecode = await import('../../src/claudecode.mjs');
@@ -172,8 +180,8 @@ test('every place that starts npm, an install script or a download hands on none
     // These start the program themselves: the stand-ins on PATH write down what they got.
     const { updateTool } = await import('../../src/skillhub/tools.mjs');
     await updateTool({ command: ['npm', 'install', '--global', 'some-tool@1.0.0'] });
-    const { trouteai } = await import('../../src/addons/trouteai.mjs');
-    await trouteai.install({});
+    const { findAddon } = await import('../../src/addons/index.mjs');
+    await findAddon('trouteai').install({});
     const { buildTerminal } = await import('../../src/setup/setup.mjs');
     await buildTerminal({ note: () => {}, out: () => {} }, { env: process.env, platform: process.platform }, () => true);
     const claudecode = await import('../../src/claudecode.mjs');

@@ -5,11 +5,11 @@ import { h, limitBox, link, liveBasic, machinePill, permissionActions, profileIc
 import { isStarting, markStarting, startingPill } from './newsession.js';
 import { registeredCardBadges } from './registry.js';
 
-// A chat (chat/page.js) has its own page; every other session is a terminal.
+// A session in the App (chat/page.js) has its own page; every other session is a terminal.
 export const sessionHref = (s) => link(s.kind === 'chat' ? `#/chat/${s.chatId}` : `#/s/${encodeURIComponent(s.name)}`, s.machine);
 const open = (s) => (location.hash = sessionHref(s));
 const nameOf = (s) => s.display || s.name;
-const chatTag = (s) => (s.kind === 'chat' ? h('span.badge.soft', icon('text', { size: 13 }), 'Chat') : null);
+const chatTag = (s) => (s.kind === 'chat' ? h('span.badge.soft', icon('text', { size: 13 }), 'App') : null);
 const chip = (s, opts) => (isStarting(s) ? startingPill(s) : statusPill(s, opts));
 
 /**

@@ -62,7 +62,7 @@ saveConfig({ server: { passwordHash: await hashPassword('right-password') } });
 const backend = { list: async () => [], capture: async () => '', kind: 'pty', capabilities: {} };
 const sys = { platform: 'linux', pm: 'apt', root: false, user: 'dev', arch: 'x64', tmp: box.root, home: box.home, env: { PATH: '/usr/bin:/bin', HOME: box.home }, has: (b) => b === 'sudo', exists: () => false, clt: true, run: async () => ({ ok: false, stdout: '', stderr: '' }) };
 const app = createServer({
-  backend, watch: false, accounts: { trouteai: null },
+  backend, watch: false, accounts: { gateways: [] },
   addons: { sweepMs: 200 },
   pcsetup: {
     sys, projectsDir: () => path.join(box.root, 'projects'),

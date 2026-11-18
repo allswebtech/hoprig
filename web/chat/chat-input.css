@@ -1,14 +1,13 @@
 /* The chat's input (web/chat/): the "/" and "@" menus over the box, the files to send and the pictures of a message,
-   what Claude Code answers by itself, rewind beside a message, the history button, the drop target and the keys
+   what Claude Code answers by itself, rewind beside a message, the drop target and the keys
    sheet. Phones: the menu is a sheet above the box (and the keyboard), every row at least 44 px high. */
 
 /* Read by a screen reader, not shown. */
 .chat-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-/* ---------- the head: the folder's history beside the title ---------- */
+/* ---------- the head: the session menu's caret beside the title ---------- */
 .chat-h1row { display: flex; align-items: center; gap: 2px; min-width: 0; }
 .chat-h1row .chat-h1 { min-width: 0; }
-.chat-histbtn { flex: none; width: 30px; min-height: 30px; color: var(--muted); }
 
 /* ---------- the owner's message: rewind beside it, pictures in it ---------- */
 .chat-userrow { display: flex; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
@@ -72,7 +71,6 @@
 
 /* ---------- phones ---------- */
 @media (max-width: 599px) {
-  .chat-histbtn { display: none; } /* the title's sheet has it */
   .chat-pop { left: -8px; right: -8px; bottom: calc(100% + 2px); border-radius: 16px 16px 0 0; border-bottom: 0; max-height: min(60vh, calc(var(--vvh, 100dvh) - 150px)); }
   .chat-pop-item { min-height: 44px; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'name tag' 'desc desc'; gap: 0 8px; align-content: center; }
   .chat-pop-name { grid-area: name; max-width: none; }

@@ -1,0 +1,8 @@
+#!/usr/bin/bash
+{ printf 'RUN parallel'; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log
+cmd=(); args=(); seen=0
+while [ $# -gt 0 ]; do case "$1" in -j|--jobs|-S|--sshlogin|--delay|--timeout|--joblog) [ $seen = 0 ] && { shift 2; continue; };; esac
+  if [ "$1" = ::: ]; then seen=1; shift; continue; fi
+  if [ $seen = 0 ]; then case "$1" in -*) [ ${#cmd[@]} = 0 ] && { shift; continue; };; esac; cmd+=("$1"); else args+=("$1"); fi; shift; done
+for a in "${args[@]:-}"; do c="${cmd[*]}"; if [[ $c == *'{}'* ]]; then c=${c//'{}'/$a}; else c="$c $a"; fi; /usr/bin/bash -c "$c"; done
+exit 0

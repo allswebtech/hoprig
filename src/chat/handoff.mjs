@@ -14,6 +14,7 @@ import { toolFlags } from '../codetools/start.mjs';
 import { matchRuns, queue } from '../server/deck.mjs';
 import { parentLookup, procParent } from '../server/platform.mjs';
 import * as v from '../server/validate.mjs';
+import { handedChats } from './handed.mjs';
 import { chatTools, choicesOf, conversationIdOk, modeFor, modelOk } from './tools.mjs';
 
 const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
@@ -82,14 +83,16 @@ export function terminals(ctx, o = {}) {
 /**
  * o (from feature.mjs): { chats, make, save, chatOr404, memory, models, openChatOf, freeId, and terminals()' terminalOf,
  * claim, serial, forget, auto: { name, on() } (the Auto provider), handedTo(id, name) (what is kept of the closed chat
- * names the terminal it went to) }
+ * names the terminal it went to), handedFile() (where the handed chats' titles are kept) }
  */
 export function handoffRoutes(ctx, o) {
   const { HttpError } = ctx;
   const { chats, make, save, chatOr404, memory, models, openChatOf, freeId, terminalOf, claim, serial, forget, auto, handedTo = () => {} } = o;
   const bad = (msg) => new HttpError(400, msg);
   const cfg = () => ctx.config();
-  const handed = new Map(); // a chat's id → its conversation, for the chats closed by "Open in terminal" (the last 50)
+  // The chats closed by "Open in terminal", with their titles (handed.mjs: kept over a restart of the dashboard).
+  const handed = handedChats(o.handedFile || null);
+  const titleOf = (conversation, tool) => handed.titleOf(conversation, tool);
   /** Continue here: the terminal that runs chat `c`'s conversation stops (it stays, as a plain shell); the chat goes on. */
   async function take(c) {
     const tool = c.engine.id;
@@ -168,7 +171,7 @@ export function handoffRoutes(ctx, o) {
         id, ...(id !== run.sessionId ? { conversationId: run.sessionId } : {}), engine: tool, cwd: run.cwd, profile: run.profile,
         model: tool === 'claude' ? one('--model', 'model', ch.models) : toolModel,
         effort: one('--effort', 'effort', ch.efforts), permissionMode: mode,
-        ultracode: last.ultracode === true,
+        ultracode: last.ultracode === true, ...titleOf(run.sessionId, tool),
       });
       save();
       return { id };
@@ -197,7 +200,7 @@ export function handoffRoutes(ctx, o) {
       const tool = c.engine.id;
       if (tool !== 'claude' && !chatTools(cfg()).includes(tool)) throw new HttpError(409, `${c.engine.label} is off on this computer: turn it on to open its conversations in a terminal`);
       const r = await claim(conversation, async () => {
-        if (!chats.has(c.id)) throw new HttpError(404, 'this chat is not open (it was closed or opened in a terminal)');
+        if (!chats.has(c.id)) throw new HttpError(404, 'this chat is not open (it was archived or opened in a terminal)');
         if (!(await c.engine.exists(c.cwd, conversation, c.o.engineOpts))) throw new HttpError(409, 'send a first message: a conversation that has not started cannot be resumed in a terminal');
         if (c.busy()) throw new HttpError(409, `${tool === 'claude' ? 'Claude' : c.engine.label} is working. Wait until it is done, or press Stop first.`);
         const profile = c.profile === auto.name ? (auto.on() ? { name: auto.name, env: {} } : null) : readProfile(c.profile);
@@ -210,8 +213,7 @@ export function handoffRoutes(ctx, o) {
           ...(c.model ? ['--model', c.model] : []),
         ] : toolFlags(tool, { permissionMode: c.permissionMode === 'bypassPermissions' ? 'bypassPermissions' : 'ask', effort: c.effort, model: c.model });
         chats.delete(c.id);
-        handed.set(c.id, { conversation, tool });
-        if (handed.size > 50) handed.delete(handed.keys().next().value);
+        handed.set(c.id, { conversation, tool, title: c.title || null, named: c.named === true });
         await c.close();
         // Its page learns the outcome only now (live.mjs): gone once the terminal runs, kept when it did not start.
         let name;

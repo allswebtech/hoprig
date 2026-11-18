@@ -21,7 +21,7 @@ saveConfig({ server: { passwordHash: await hashPassword('right-password') } });
 writeProfile('api', { label: 'API via TRouteAI', env: { ANTHROPIC_BASE_URL: `http://localhost:${gw.port}`, ANTHROPIC_AUTH_TOKEN: GW_KEY } });
 const backend = { list: async () => [], capture: async () => '', kind: 'pty', capabilities: {} };
 // The default limits: 10 wrong keys per address.
-const app = createServer({ backend, watch: false, dashboardFile: false, gateway: { addons: [fakeAddon(gw.port)] }, accounts: { trouteai: null } });
+const app = createServer({ backend, watch: false, dashboardFile: false, gateway: { addons: [fakeAddon(gw.port)] }, accounts: { gateways: [] } });
 const { port } = await app.listen(0, '127.0.0.1');
 const base = `http://127.0.0.1:${port}`;
 test.after(() => app.close());

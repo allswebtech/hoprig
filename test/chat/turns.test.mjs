@@ -141,24 +141,32 @@ test('rewind of the conversation to its first message starts it over; files and 
   await assert.rejects(c.rewind('no-such-message', { files: false, conversation: true }), /not in the conversation's file/);
 });
 
-test('bypass allows what waits, except what is the owner\'s own word (a question, a plan, a rule, a hook, a safety stop)', () => {
+test('bypass allows what waits where the one rule allows it: a plain delete inside the chat\'s folder, nothing else', () => {
   const answered = [];
   const pushed = [];
+  const cwd = path.join(process.env.HOPRIG_WORKSPACE_DIR, 'shop');
+  const ask = (request, tool, command, owner = null) => [request, { request, tool, full: command === null ? {} : { command }, owner }];
   const chat = {
+    cwd,
     session: { answer: (r, a) => answered.push([r, a.allow]) },
     pending: new Map([
-      ['p', { request: 'p', full: {}, owner: null }],
-      ['q', { request: 'q', full: {}, owner: 'question' }],
-      ['r', { request: 'r', full: {}, owner: 'rule' }],
-      ['s', { request: 's', full: {}, owner: 'safety' }],
+      ask('p', 'Bash', 'npm test'),
+      ask('q', 'AskUserQuestion', null, 'question'),
+      ask('r', 'Bash', 'git push', 'rule'),
+      // Claude Code's stop before a delete: one plainly inside the chat's folder is allowed (src/asking.mjs) …
+      ask('s', 'Bash', `rm -rf ${cwd}/build/*/*`, 'safety'),
+      // … a relative one (the shell's folder is not known here), one of the home folder and any other tool keep it.
+      ask('t', 'Bash', 'rm -rf build/*/*', 'safety'),
+      ask('h', 'Bash', 'rm -rf ~', 'safety'),
+      ask('m', 'mcp__github__create_issue', null),
     ]),
     push: (e) => pushed.push(e),
     changed() {},
   };
   allowPending(chat);
-  assert.deepEqual(answered, [['p', true]]);
-  assert.deepEqual([...chat.pending.keys()], ['q', 'r', 's'], 'still the owner\'s cards');
-  assert.deepEqual(pushed.map((e) => [e.request, e.outcome]), [['p', 'allowed']]);
+  assert.deepEqual(answered, [['s', true]]);
+  assert.deepEqual([...chat.pending.keys()], ['p', 'q', 'r', 't', 'h', 'm'], 'still the owner\'s cards');
+  assert.deepEqual(pushed.map((e) => [e.request, e.outcome]), [['s', 'allowed']]);
 });
 
 test('each turn\'s end (cost, tokens, time, a Stop) is kept and comes back when the chat is read again', async (t) => {
@@ -179,4 +187,84 @@ test('each turn\'s end (cost, tokens, time, a Stop) is kept and comes back when 
   assert.ok(first.usage && Number.isFinite(first.durationMs), 'with what it used and took');
   const noDir = new Chat({ ...c.record(), command: c.o.command, resolveEnv: c.o.resolveEnv });
   assert.equal(noDir.events.filter((e) => e.kind === 'turn-end').length, 0, 'without the folder nothing is read (as before)');
+});
+
+test('a queued message Claude Code starts after the turn is the owner\'s turn, not one it went on with by itself', () => {
+  const c = newChat();
+  const session = { kind: 'session', version: '9', tools: [], commands: [], skills: [], agents: [], model: 'm', mode: 'default' };
+  // Claude Code holds a message of the owner's (queued while the last turn ran), then says a turn starts, then whose.
+  c.queue.items.push({ id: 'q1', text: 'also check the totals', attachments: [], state: 'sent', at: 0 });
+  hear(c, session);
+  assert.equal(of(c, 'turn-start').length, 0, 'no "went on by itself" above the owner\'s own message');
+  assert.equal(c.turn.auto, false);
+  hear(c, { kind: 'user', messageId: 'q1', text: 'also check the totals', attachments: [] });
+  assert.equal(c.turn.messageId, 'q1', 'the turn knows its message (its end is kept with it)');
+  assert.deepEqual(of(c, 'user').map((e) => e.text), ['also check the totals']);
+  assert.equal(c.queue.length, 0);
+  hear(c, { kind: 'turn-end', ok: true, subtype: 'success', costUsd: null, usage: null, durationMs: 1 });
+  // Nothing of the owner's is held: a turn that starts now is the coding tool's own.
+  hear(c, session);
+  assert.deepEqual(of(c, 'turn-start').map((e) => e.auto), [true], 'a background task ended: that one is labelled');
+  assert.equal(c.turn.auto, true);
+});
+
+test('a queued message, once taken, shows as the owner sent it: its files by name, not Claude Code\'s echo of it', () => {
+  const c = newChat();
+  const files = [{ type: 'image', name: '20301117-131800-e13e-shot.png', mime: 'image/png' }, { type: 'file', name: '20301117-131800-a1b2-notes.csv', mime: 'text/csv' }];
+  c.queue.items.push({ id: 'q1', text: 'check this\n\n@.uploads/20301117-131800-a1b2-notes.csv', attachments: files, state: 'sent', at: 0 });
+  c.turn = { messageId: 'm0', auto: false, at: 0 };
+  // Claude Code's echo: the picture without its name, the file only inside the text.
+  hear(c, { kind: 'user', messageId: 'q1', text: 'check this\n\n@.uploads/20301117-131800-a1b2-notes.csv', attachments: [{ type: 'image', name: '', mime: 'image/png' }] });
+  assert.deepEqual(of(c, 'user')[0].attachments, files);
+});
+
+test('a turn\'s new context size drops the percent and the parts of an older /context answer: one number for one context', () => {
+  const c = newChat();
+  // As the session rail's Context card left them (usageNow, controls.mjs): /context's percent and its parts.
+  Object.assign(c.usage, { contextUsed: 21000, contextWindow: 200000, contextPercent: 10.5, contextCategories: [{ name: 'Messages', tokens: 6000 }] });
+  hear(c, { kind: 'usage', contextUsed: 21000, contextWindow: 200000 });
+  assert.equal(c.usage.contextPercent, 10.5, 'the same size: what /context said still holds');
+  hear(c, { kind: 'usage', contextUsed: 2100, contextWindow: 200000 });
+  assert.equal(c.usage.contextUsed, 2100);
+  assert.equal(c.usage.contextPercent, undefined, 'the percent comes from the size and the window now');
+  assert.equal(c.usage.contextCategories, undefined, 'no parts of another size');
+  hear(c, { kind: 'usage', costTotal: 0.5 });
+  assert.equal(c.usage.contextUsed, 2100, 'a usage event without a size keeps it');
+});
+
+test('auto mode counts as there for a plan\'s first answer only once Claude Code has said it runs in it', () => {
+  const c = newChat();
+  assert.equal(c.autoSeen, false, 'not known: the plan offers auto-accept edits, which works everywhere');
+  hear(c, { kind: 'session', mode: 'default', model: 'x', tools: [] });
+  hear(c, { kind: 'mode', mode: 'plan' });
+  assert.equal(c.autoSeen, false);
+  hear(c, { kind: 'mode', mode: 'auto' });
+  assert.equal(c.autoSeen, true, 'a switch to auto mode confirmed by Claude Code');
+  const d = newChat();
+  hear(d, { kind: 'session', mode: 'auto', model: 'x', tools: [] });
+  assert.equal(d.autoSeen, true, 'started in auto mode');
+});
+
+test('auto mode learned from one process does not hold for the next: another provider, another model or a new start learns it again', async (t) => {
+  const c = newChat({ permissionMode: 'auto' });
+  t.after(() => c.stopAndWait());
+  await turn(c, 'think');
+  assert.equal(c.autoSeen, true, 'this process runs in auto mode');
+  c.setProfile('q');
+  assert.equal(c.autoSeen, false, 'another provider: auto mode may not be there');
+  await c.setSettings({ mode: 'manual' });
+  await turn(c, 'think');
+  assert.equal(c.liveMode, 'default');
+  assert.equal(c.autoSeen, false, 'the new process on the new provider never said auto');
+  await c.setSettings({ mode: 'auto' });
+  await turn(c, 'think');
+  assert.equal(c.autoSeen, true);
+  await c.setSettings({ model: 'other-model' });
+  assert.equal(c.autoSeen, false, 'another model: auto mode needs a model that has it');
+  // A process that starts again (idle, or a setting that needs a restart) says its mode again before it counts.
+  hear(c, { kind: 'mode', mode: 'auto' });
+  await c.stopAndWait();
+  await c.setSettings({ mode: 'manual' });
+  await turn(c, 'think');
+  assert.equal(c.autoSeen, false, 'a new process in the default mode');
 });

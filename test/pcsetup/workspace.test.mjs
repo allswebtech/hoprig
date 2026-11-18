@@ -32,14 +32,59 @@ const bare = (name) => {
 
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-test('manifest validator refuses paths out of the project, bad addresses and unknown keys', () => {
+test('manifest validator refuses paths out of the project and bad addresses', () => {
   const ok = { name: 'shop', repos: [{ dir: 'code/shop-web', url: 'https://github.com/o/shop-web.git' }], memories: { '.': 'ai_brain/claude-memory' } };
   assert.equal(W.validateManifest(ok).ok, true);
   for (const bad of [
-    { ...ok, extra: 1 }, { ...ok, name: '../x' }, { ...ok, repos: [{ dir: '../evil', url: ok.repos[0].url }] }, { ...ok, repos: [{ dir: '/etc', url: ok.repos[0].url }] },
+    { ...ok, name: '../x' }, { ...ok, repos: [{ dir: '../evil', url: ok.repos[0].url }] }, { ...ok, repos: [{ dir: '/etc', url: ok.repos[0].url }] },
     { ...ok, repos: [{ dir: 'code/x', url: 'file:///etc' }] }, { ...ok, repos: [{ dir: 'code/x', url: ok.repos[0].url, branch: '--force' }] },
     { ...ok, memories: { '.': '../../.ssh' } }, { ...ok, memories: { '/abs': 'ai_brain/m' } }, { ...ok, repos: [{ dir: 'no-ai/x', url: ok.repos[0].url }] },
   ]) assert.equal(W.validateManifest(bad).ok, false, JSON.stringify(bad));
+});
+
+test('project.json: a key this Hoprig does not know is kept and reported, never a refusal; the known keys stay strict', async () => {
+  const ok = { name: 'shop', repos: [{ dir: 'code/shop-web', url: 'https://github.com/o/shop-web.git' }], memories: {} };
+  const v = W.validateManifest({ needs: ['x'], ...ok, later: { a: 1 }, repos: [{ ...ok.repos[0], sync: false }] });
+  assert.equal(v.ok, true);
+  assert.deepEqual(v.manifest.repos, [{ dir: 'code/shop-web', url: 'https://github.com/o/shop-web.git', sync: false }]);
+  assert.deepEqual(v.warnings.map((w) => /unknown key "(\w+)"/.exec(w)[1]), ['needs', 'later', 'sync']);
+  assert.equal(W.validateManifest({ ...ok, extra: 1, name: '../x' }).ok, false); // a known key is still checked
+  assert.equal(W.validateManifest({ ...ok, extra: 1, repos: [{ dir: '../evil', url: ok.repos[0].url }] }).ok, false);
+  // a weird key name is never copied anywhere
+  assert.equal(W.validateManifest(JSON.parse('{"name":"shop","__proto__":{"x":1}}')).ok, true);
+
+  const root = path.join(tmp, 'tolerant');
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'project.json'), JSON.stringify({ name: 'shop', needs: ['other/thing'], repos: [], memories: {}, credentials: { link: 'x' } }, null, 2));
+  const m = await W.readManifest(root);
+  assert.equal(m.source, 'project.json');
+  assert.equal(m.manifest.name, 'shop');
+  assert.equal(m.warnings.length, 2);
+  // a write keeps the unknown keys, in the file's own order
+  W.writeManifest(root, { ...m.manifest, repos: ok.repos });
+  const after = JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8'));
+  assert.deepEqual(Object.keys(after), ['name', 'needs', 'repos', 'memories', 'credentials']);
+  assert.deepEqual(after.needs, ['other/thing']);
+  assert.deepEqual(after.credentials, { link: 'x' });
+  assert.deepEqual(after.repos, ok.repos);
+  // a key with an odd name (a space, not ASCII, long) is kept as it is too; only __proto__, constructor and prototype never
+  const odd = { 'a key': 1, 'schlüssel': 'ü', [`k${'x'.repeat(80)}`]: [1], 'bell\u0007': true };
+  fs.writeFileSync(path.join(root, 'project.json'), JSON.stringify({ name: 'shop', ...odd, repos: [{ ...ok.repos[0], 'repo key': 'r' }], memories: {} }).replace('"memories"', '"__proto__":{"x":1},"constructor":2,"prototype":3,"memories"'));
+  const o = await W.readManifest(root);
+  assert.ok(o.warnings.some((w) => /"bell\?" \(kept/.test(w)), 'no control character in a warning');
+  assert.ok(o.warnings.some((w) => /"__proto__" \(left out/.test(w)));
+  W.writeManifest(root, o.manifest);
+  const raw = fs.readFileSync(path.join(root, 'project.json'), 'utf8');
+  const back = JSON.parse(raw);
+  for (const [k, v] of Object.entries(odd)) assert.deepEqual(back[k], v, k);
+  assert.equal(back.repos[0]['repo key'], 'r');
+  for (const k of ['__proto__', 'constructor', 'prototype']) assert.ok(!raw.includes(`"${k}"`), k);
+  assert.equal({}.x, undefined);
+  fs.writeFileSync(path.join(root, 'project.json'), JSON.stringify(after, null, 2)); // as it was before the odd keys
+  // and the status says so
+  const st = await W.workspaceState(root);
+  assert.equal(st.warnings.length, 2);
+  assert.match(st.warnings[0], /unknown key "needs" \(kept/);
 });
 
 test('templates: placeholders in names and text; nothing may land outside the project; no links out', () => {

@@ -33,7 +33,11 @@ fs.writeFileSync(path.join(box.root, 'wrapper.cjs'), `require('node:child_proces
 setInterval(() => {}, 1 << 30);
 `);
 process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
-const GATEWAY_PORT = 7972;
+// The stand-in gateways really listen, and stop() ends whatever listens on the port: a fixed port could be another
+// program's, or the same test's in a suite that runs beside this one (which this one's stop would then end). The
+// other ports below are only words in files and commands; nothing listens on them.
+const { freePort } = await import('../src/machines/tunnels.mjs');
+const GATEWAY_PORT = await freePort();
 // The stand-ins are scripts started by their "#!" line, and a tunnel's command line, the fact that shows an older file's
 // tunnel is ours, is not read on Windows (linkmigrate.mjs): those tests run elsewhere.
 const POSIX = { skip: process.platform === 'win32' };
@@ -264,6 +268,7 @@ test('the gateway: where the process on its port cannot be found, a file without
       process.env.PATH = saved;
     }
     assert.equal(r.ok, false, 'the gateway still runs, and the caller is told');
+    assert.match(r.error, /still answers on port/);
     assert.ok(alive(pid), 'the other program got no signal');
     assert.ok(await listening(), 'nothing of ours was found to stop');
     process.kill(gw, 'SIGKILL');

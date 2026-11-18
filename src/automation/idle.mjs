@@ -58,7 +58,7 @@ export async function apply(actions, ctx) {
       const st = await addon.status();
       if (!st.running) continue; // already stopped: nothing to do, nothing to log
       const r = await addon.stop();
-      ctx.record({ automation: 'idle', did: `stopped ${addon.title || addon.id}: unused for ${Math.round(a.idleMs / 60_000)} minutes`, outcome: r && r.ok ? 'ok' : 'failed: it did not stop' });
+      ctx.record({ automation: 'idle', did: `stopped ${addon.title || addon.id}: unused for ${Math.round(a.idleMs / 60_000)} minutes`, outcome: r && r.ok ? 'ok' : `failed: ${(r && r.error) || 'it did not stop'}` });
     } catch (e) {
       ctx.record({ automation: 'idle', did: `could not stop ${addon.title || addon.id}`, outcome: `failed: ${e.message}` });
     }

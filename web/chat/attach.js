@@ -4,6 +4,7 @@
 // the coding tool to read (src/chat/files.mjs).
 import { icon } from '../icons.js';
 import { bytes, fill, h, toast, url } from '../lib.js';
+import { ownMessageView } from './words.js';
 
 const PICTURE = /^image\/(png|jpeg|gif|webp)$/;
 const THUMB_MAX = 5 * 1024 * 1024; // larger pictures go as a file anyway (src/chat/files.mjs)
@@ -106,6 +107,18 @@ export function createAttachments(o) {
       paint();
     },
   };
+}
+
+/**
+ * A queued message as its row above the box says it, the way its bubble will: its words, and its files by name (not
+ * the "@.uploads/…" paths written for the coding tool). → { text, names, label (the words and the names, for the row's
+ * Remove button) }
+ */
+export function queuedLine(m) {
+  const { text, files } = ownMessageView(m.text, Array.isArray(m.attachments) ? m.attachments : []);
+  const names = files.map((f) => shownName(f.name) || (f.type === 'image' ? 'picture' : 'file'));
+  const words = text.trim();
+  return { text: words, names, label: words && names.length ? `${words} (${names.join(', ')})` : words || names.join(', ') };
 }
 
 /** A message's files in the conversation: pictures as thumbnails (served from this chat's uploads), others as chips. */

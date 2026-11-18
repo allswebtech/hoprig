@@ -16,7 +16,7 @@ import { ensureSpawnHelper } from '../server/backends/pty-helper.mjs';
 import { tmuxNewEnough } from '../server/backends/tmuxversion.mjs';
 import { MIN_NODE_MAJOR } from '../nodeguard.mjs';
 import { brainDir } from '../workspace/layout.mjs';
-import { capture, compareVersions, detectPackageManager, installCommands, isRoot, npmArgv, npmMajor, showCommands, which } from './system.mjs';
+import { capture, compareVersions, detectPackageManager, installCommands, isRoot, npmArgv, npmMajor, showCommand, showCommands, which } from './system.mjs';
 
 export const APP = 'hoprig';
 export const MIN_NODE = `${MIN_NODE_MAJOR}.0.0`; // src/nodeguard.mjs
@@ -98,8 +98,8 @@ export function dirsCheck(platform = process.platform) {
     }
     const open = st.mode & 0o077;
     const mine = typeof process.getuid !== 'function' || st.uid === process.getuid();
-    if (!mine) out.push(result(id, label, 'fail', `${tilde(dir)} belongs to another user`, `sudo chown -R "$(id -un)" "${dir}"`));
-    else if (open) out.push(result(id, label, 'warn', `${tilde(dir)} can be read by other users (mode ${(st.mode & 0o777).toString(8)})`, `chmod 700 "${dir}"`));
+    if (!mine) out.push(result(id, label, 'fail', `${tilde(dir)} belongs to another user`, `sudo chown -R "$(id -un)" ${showCommand([dir])}`));
+    else if (open) out.push(result(id, label, 'warn', `${tilde(dir)} can be read by other users (mode ${(st.mode & 0o777).toString(8)})`, showCommand(['chmod', '700', dir])));
     else out.push(result(id, label, 'ok', `${tilde(dir)} (private)`));
   }
   return out;
@@ -139,7 +139,7 @@ export function profilesCheck(profiles, hidden = []) {
   if (hidden.length) {
     const n = hidden[0];
     return result('profiles', 'Profiles', 'warn', `${hidden.map((x) => `"${x}"`).join(', ')} ${hidden.length === 1 ? 'is a command word now, so that provider is' : 'are command words now, so those providers are'} not used`,
-      `mv "${path.join(profilesDir(), `${n}.env`)}" "${path.join(profilesDir(), `${n}-provider.env`)}"`);
+      showCommand(['mv', path.join(profilesDir(), `${n}.env`), path.join(profilesDir(), `${n}-provider.env`)]));
   }
   if (!profiles.length) return result('profiles', 'Profiles', 'warn', 'none yet (the first start creates "sub" for your login)', `${APP} setup   (or: ${APP} add)`);
   return result('profiles', 'Profiles', 'ok', profiles.map((p) => `${p.name} (${p.kind})`).join(', '));
@@ -258,7 +258,7 @@ export const hasBuildTools = (sys) => typeof sys.has === 'function' && sys.has('
 
 /** The one command line that makes node-pty work, per OS and for what is on disk (ptyState). */
 export function ptyFix(sys, root = appRoot(), state = 'unbuilt') {
-  const build = `cd "${root}" && ${state === 'absent' ? 'npm install --omit=dev' : 'npm rebuild node-pty'}`;
+  const build = `${showCommand(['cd', root])} && ${state === 'absent' ? 'npm install --omit=dev' : 'npm rebuild node-pty'}`;
   if (sys.platform === 'darwin') return `xcode-select --install && ${build}`;
   if (sys.platform === 'win32') return `cd "${root}" && npm install`;
   if (hasBuildTools(sys)) return build;

@@ -6,8 +6,9 @@
 //                         output and saves it as CLAUDE_CODE_OAUTH_TOKEN. The token never reaches the browser or a log.
 //   Anthropic-compatible  base URL + key: the server lists the endpoint's models (x-api-key or Bearer, whichever it
 //                         accepts), tests one tiny request, and saves the profile.
-//   Other providers       through the TRouteAI add-on (it translates OpenAI, Gemini, … to Claude's API): the same as
-//                         above with its address prefilled and PRERUN set so the gateway starts on demand.
+//   Other providers       through a gateway add-on on this computer (src/addons/gateways.mjs: it translates OpenAI,
+//                         Gemini, … to Claude's API): the same as above with its address prefilled and PRERUN set so
+//                         the gateway starts on demand. With more than one gateway, the page asks which.
 //   OpenAI-compatible     base URL + key for OpenAI's API (or a service that speaks it), for OpenCode (and Codex): the
 //                         same steps, tested with the Responses API and chat completions; saved as OPENAI_API_KEY.
 //   Codex sign-in         the ChatGPT account Codex keeps itself (`codex login`): a provider file that says so
@@ -20,12 +21,17 @@
 // shapes it answers (probeShapes) and saves them as its API= line.
 //
 // Routes (behind the login; cookie only — another dashboard's bearer token may not reach them):
-//   GET  /api/accounts                         accounts with kind, state, usage, model, Auto membership; defaults
+//   GET  /api/accounts                         accounts with kind, state, usage, model, Auto membership (viaGateway:
+//                                              { id, title } of the gateway its PRERUN starts, or null; gatewayGone:
+//                                              { id, notLoaded? } when that gateway is not there any more, with why
+//                                              config.json's definition of it was not loaded, if it has one); defaults; the
+//                                              gateways on this computer: [{ id, title, words, page, installable,
+//                                              installed, version, running, url, defaults: { name, label, baseUrl } }]
 //   POST /api/accounts/probe                   { baseUrl, key } or { account }: models + which header works → { probe,
 //                                              auth, models|null, note }. The key stays on the server under `probe`.
 //   POST /api/accounts/test                    { probe, model } → { ok, error? }   one request, max_tokens 1
 //   POST /api/accounts/probe                   … with via: "openai" for an OpenAI-compatible key (Bearer first)
-//   POST /api/accounts/save                    { probe, name, label, model?, smallModel?, via: "api"|"trouteai"|"openai" }
+//   POST /api/accounts/save                    { probe, name, label, model?, smallModel?, via: "api"|"openai"|<gateway id> }
 //   POST /api/accounts/<name>/test             {} the API shapes the provider answers, saved as API= → { ok, shapes, tools, error? }
 //   POST /api/accounts/codex-signin            { name?, label? } a provider for the sign-in Codex keeps itself (404
 //                                              while Codex is not offered)
@@ -48,7 +54,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as autoswitchModule from '../autoswitch.mjs';
 import { ptySpawn } from './backends/nodepty.mjs';
-import { findAddon } from '../addons/index.mjs';
+import { gatewayAddons, gatewayOfPrerun, goneGatewayOf, notLoadedReason } from '../addons/gateways.mjs';
 import { codexSignedIn } from '../codetools/codexsignin.mjs';
 import { findTool } from '../codetools/index.mjs';
 import { MODEL_RE, listModels, probeShapes, scrub, shapesAfterTest, testModel } from './endpoint.mjs';
@@ -271,11 +277,15 @@ class SigninFlow {
 
 // ---------- the feature ----------
 
-/** opts: { fetch, spawn, autoswitch, trouteai, now, times: { link, token, ttl } } — stand-ins for tests. */
+/** A provider's `via<Gateway>: true|false` under the old names an older page reads (gateways.mjs SHIPPED oldNames). */
+const oldVia = (gws, used) => Object.fromEntries(gws.filter((g) => g.oldNames).map((g) => [g.oldNames.via, used === g]));
+
+/** opts: { fetch, spawn, autoswitch, gateways (the gateway add-ons), now, times: { link, token, ttl } } — stand-ins for tests. */
 export function accountsFeature(ctx, opts = {}) {
   const fetchImpl = opts.fetch || fetch;
   const auto = opts.autoswitch || autoswitchModule;
-  const addon = () => opts.trouteai || findAddon('trouteai');
+  const gateways = () => opts.gateways || gatewayAddons();
+  const gatewayOf = (id) => (typeof id === 'string' && gateways().find((g) => g.id === id)) || null;
   const now = opts.now || Date.now;
   // Codex's own sign-in is a provider kind only while Codex is offered (src/codetools/offered.mjs). `opts.findTool`:
   // tests of the kept Codex parts pass one that knows every built tool.
@@ -364,6 +374,7 @@ export function accountsFeature(ctx, opts = {}) {
     const remote = opts.remote ? await opts.remote().catch(() => new Map()) : new Map();
     const st = await ctx.state();
     const order = auto.getAutoSwitch().order || [];
+    const gws = gateways();
     // A Codex sign-in: whether Codex is signed in on this computer (null: Codex is not installed or does not say).
     const all = listProfiles();
     const codexIn = codexOffered() && all.some((p) => p.kind === 'chatgpt') ? await (opts.codexSignedIn || codexSignedIn)().catch(() => null) : null;
@@ -380,7 +391,11 @@ export function accountsFeature(ctx, opts = {}) {
       return {
         name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, host, model: KEYED.includes(p.kind) ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
         tools, api: p.api || [], ...(tools.length ? {} : { unusable: true }),
-        viaTrouteai: Boolean(p.prerun && /addons start trouteai/.test(p.prerun)),
+        viaGateway: ((g) => (g ? { id: g.id, title: g.title } : null))(gatewayOfPrerun(p.prerun, gws)),
+        ...oldVia(gws, gatewayOfPrerun(p.prerun, gws)),
+        // Its PRERUN starts a gateway that is not there any more: every session on it would end at the start.
+        // notLoaded: config.json still holds it, but it was not loaded, and why (Settings → Add-ons says the same).
+        ...((id) => (id ? { gatewayGone: { id, ...((why) => (why ? { notLoaded: why } : {}))(notLoadedReason(id)) } } : {}))(goneGatewayOf(p.prerun, gws)),
         remote: remote.has(p.name) ? (({ computer, title, state, text }) => ({ computer, title: title || null, state, text }))(remote.get(p.name)) : null,
         limited: s.limited || null, usage: s.usage || null, inUse: s.inUse || 0, inAuto: order.includes(p.name),
         // providers that sign in: is the sign-in there, its plan, and whether that plan reports usage at all
@@ -393,23 +408,37 @@ export function accountsFeature(ctx, opts = {}) {
 
   const routes = [
     ['GET', /^\/api\/accounts$/, async () => {
-      let tr = null;
-      try {
-        const a = addon();
-        if (a) tr = { ...(await a.status()), baseUrl: a.profile().env.ANTHROPIC_BASE_URL };
-      } catch {
-        tr = null;
+      // The gateways on this computer, for "Other providers": what each says on the page, its state and its defaults.
+      const gws = (await Promise.all(gateways().map(async (g) => {
+        try {
+          const p = g.profile();
+          return {
+            id: g.id, title: g.title, words: g.words, page: g.page ? g.page() : null, installable: g.installable !== false,
+            ...(await g.status()), defaults: { name: freeName(p.name), label: p.label, baseUrl: p.env.ANTHROPIC_BASE_URL },
+          };
+        } catch {
+          return null;
+        }
+      }))).filter(Boolean);
+      // The same, under the old names an open page of an older version reads (gateways.mjs SHIPPED oldNames).
+      const old = {};
+      const oldDefaults = {};
+      for (const g of gateways().filter((x) => x.oldNames)) {
+        const e = gws.find((x) => x.id === g.id);
+        old[g.oldNames.state] = e ? (({ id, title, words, page, installable, defaults, ...st }) => ({ ...st, baseUrl: defaults.baseUrl }))(e) : null;
+        if (e) oldDefaults[g.oldNames.state] = { ...e.defaults };
       }
       return {
         accounts: await list(),
         defaults: {
           subscription: { name: freeName('sub', { bare: false }), label: '' },
           api: { name: freeName('claude-api'), label: 'Claude API', baseUrl: ANTHROPIC_URL },
-          trouteai: { name: freeName('api'), label: 'API via TRouteAI', baseUrl: tr ? tr.baseUrl : 'http://localhost:20017' },
+          ...oldDefaults,
           openai: { name: freeName('openai'), label: 'OpenAI API', baseUrl: OPENAI_URL },
           ...(codexOffered() ? { codex: { name: freeName('chatgpt'), label: 'Codex sign-in' } } : {}),
         },
-        trouteai: tr,
+        ...old,
+        gateways: gws,
         signin: signinState(),
       };
     }],
@@ -466,11 +495,13 @@ export function accountsFeature(ctx, opts = {}) {
         probes.delete(b.probe);
         return { ok: true, name };
       }
-      const via = b.via === 'trouteai' ? 'trouteai' : 'api';
-      const name = cleanNewName(b.name, via === 'trouteai' ? freeName('api') : freeName('claude-api'));
-      const label = cleanLabel(b.label, via === 'trouteai' ? 'API via TRouteAI' : 'Claude API');
+      // `via`: a gateway's id (0.2.6 sent the shipped one's the same way), else Claude's API itself.
+      const gw = gatewayOf(b.via);
+      const prof = gw ? gw.profile() : null;
+      const name = cleanNewName(b.name, prof ? freeName(prof.name) : freeName('claude-api'));
+      const label = cleanLabel(b.label, prof ? prof.label : 'Claude API');
       const smallModel = cleanModel(b.smallModel, { optional: true });
-      const prerun = via === 'trouteai' ? addon().profile().prerun : '';
+      const prerun = prof ? prof.prerun : '';
       writeProfile(name, { label, prerun, models: model ? `*=${model}` : '', env: envFor({ ...p, auth: p.auth || 'x', model, smallModel }) });
       probes.delete(b.probe);
       return { ok: true, name };

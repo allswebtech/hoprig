@@ -36,6 +36,9 @@ const { createServer } = await import('../../src/server/server.mjs');
 // node:test ends the root early and runs test.after (the sandbox's cleanup) before the rest is even declared.
 
 saveConfig({ claudeBin: FAKE, server: { passwordHash: await hashPassword('right-password') } });
+// The Providers list asks whether the gateway add-on answers on its port: a free port, so the answer never depends on
+// a gateway running on the computer that runs the tests (its default port is a real one's).
+saveConfig({ addons: { trouteai: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() } } });
 const backend = { list: async () => [], capture: async () => '', kind: 'pty', capabilities: {} };
 const TIMES = { link: 4000, browser: 2000, done: 4000, verify: 4000, ttl: 60_000 };
 const app = createServer({ backend, watch: false, claudeLogin: { times: TIMES } });

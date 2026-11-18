@@ -1,0 +1,13 @@
+{
+  "name": "hoprig-site",
+  "private": true,
+  "description": "hoprig.com: built from site/content, the product's docs/*.md, README sections and the code itself. Plain Node, no dependencies.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test ../test/site/site.test.mjs"
+  }
+}

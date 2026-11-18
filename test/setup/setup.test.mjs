@@ -217,6 +217,8 @@ test('--hub: a computer that only shows the others needs no Claude Code, account
   // hub's certificate is its own). A hub on this computer's own plain address needs neither that nor --insecure.
   assert.match(rec.text, /Connect each PC to it \(the code works once, for 10 minutes\): hoprig join http:\/\/127\.0\.0\.1:\d+ [A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}\n/);
   // The doctor agrees: nothing about Claude Code counts as a problem here.
+  // (Its port check asks a free port, never the default one, where the computer running the tests may have its own.)
+  saveConfig({ server: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() } });
   const results = await K.allChecks({ sys: S3, offline: true });
   const claude = results.find((r) => r.id === 'claude');
   assert.deepEqual([claude.status, /not needed on a hub/.test(claude.detail)], ['info', true]);
@@ -251,7 +253,7 @@ test('terminal step: the module is built when it does not work; tmux alone is sa
   u = ui();
   assert.equal(await SU.stepTerminal(u.ui, linux(pathWith(s.tmp)), bad, never), false);
   assert.equal(builds, 1);
-  assert.match(u.rec.text, /✗ Terminal: the built-in terminal does not work \(.*\)\. Fix: Install a C\+\+ compiler, make and python3 && cd ".*" && npm /);
+  assert.match(u.rec.text, /✗ Terminal: the built-in terminal does not work \(.*\)\. Fix: Install a C\+\+ compiler, make and python3 && cd '?[^"]*'? && npm /);
   // with tmux setup goes on, and says what will not work
   u = ui();
   assert.equal(await SU.stepTerminal(u.ui, linux(pathWith(s.tmp, tmuxBin)), bad, never), true);

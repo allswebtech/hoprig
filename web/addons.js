@@ -1,9 +1,15 @@
 // Settings → Add-ons: optional companions hoprig installs, starts and stops for you (src/addons), each with
 // what it is, its state, and Install / Start / Stop / Update with their output live. "Set up as a provider" leads to
 // Providers, where Add provider makes one of the gateway in the page. The public link has its own page in
-// Settings; its entry in /api/addons is kept only for older hubs and is not shown here.
-import { APP_NAME } from './brand.js';
+// Settings; its entry in /api/addons is kept only for older hubs and is not shown here. "Add a gateway" defines one
+// of the owner's own (gatewaydefine.js); such a one shows what it runs and has Remove (so does the warning line of one
+// in config.json that was not loaded), and a program that is not a
+// package (installable: false) has no Install or Update; one whose program changed since the owner confirmed it has
+// Confirm the new program instead of Start. Adding and removing one are this computer's own steps (the
+// routes refuse another computer's hub): on another computer's page neither is offered, one line says where.
+import { APP_NAME, COMMAND } from './brand.js';
 import { icon } from './icons.js';
+import { confirmGatewayProgram, defineGatewaySheet, needsConfirmText, removeGateway, runsLine } from './gatewaydefine.js';
 import { add, api, btn, confirmSheet, fill, h, link, toast } from './lib.js';
 import { registerSettingsPage } from './registry.js';
 
@@ -23,10 +29,25 @@ export function addonView(a) {
 /** The add-ons this page shows: all but the public link, which has its own page in Settings. */
 export const shownAddons = (list) => (list || []).filter((a) => a && a.id !== 'public-link');
 
-const STATE = (a) => (a.job && a.job.running ? ['working', 'Busy…'] : !a.installed ? ['shell', 'Not installed'] : a.running ? ['waiting', 'Running'] : ['ended', 'Installed, stopped']);
+/** An add-on's own page: `page` where it says (a gateway of the owner's own; null when it has none), else its url. */
+export const pageOf = (a) => ('page' in a ? a.page : a.url) || null;
 
-function render({ isAlive }) {
+/** One line per gateway definition that config.json holds but that was not loaded (GET /api/addons `skipped`). */
+const skipped = (r) => ((r && Array.isArray(r.skipped)) ? r.skipped : []);
+export const skippedLines = (r) => skipped(r)
+  .map((x) => `A gateway in config.json${x.id ? ` (${x.id})` : ''} was not loaded: ${x.error}.`);
+
+const STATE = (a) => (a.job && a.job.running ? ['working', 'Busy…'] : !a.installed && /^gone/.test(a.needsConfirm || '') ? ['ended', 'Program moved'] : !a.installed ? ['shell', 'Not installed'] : a.running ? ['waiting', 'Running'] : a.foreign ? ['ended', 'Port in use'] : a.needsConfirm ? ['ended', a.needsConfirm === 'changed' ? 'Program changed' : 'Not confirmed'] : ['ended', 'Installed, stopped']);
+
+function render({ isAlive, here = true }) {
   const box = h('div.rows', h('div.row.static', h('span.row-main', h('span.row-sub', 'Looking at the add-ons…'))));
+  const addButton = here ? btn('secondary', { icon: 'plus', label: 'Add a gateway', onclick: () => defineGatewaySheet(again) }) : null;
+  // After an add or a remove: the list drawn again, and the focus on Add a gateway (the row it was on may be gone).
+  const again = async () => {
+    await paint();
+    if (addButton && isAlive()) addButton.focus();
+  };
+  let painted = false;
 
   async function paint() {
     let r;
@@ -38,7 +59,13 @@ function render({ isAlive }) {
     }
     if (!isAlive()) return;
     const list = shownAddons(r.addons);
-    fill(box, list.length ? list.map(row) : h('div.row.static', h('span.row-main', h('span.row-sub', 'No add-ons on this computer.'))));
+    fill(box, list.length ? list.map(row) : h('div.row.static', h('span.row-main', h('span.row-sub', 'No add-ons on this computer.'))),
+      skipped(r).map((x, i) => h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', skippedLines(r)[i]),
+        // One with an id is taken out of config.json through the same question and route as a row's Remove.
+        x.id && here ? btn('small ghost', { icon: 'trash', label: 'Remove', onclick: () => removeGateway({ id: x.id, title: x.id, defined: true }, again) }) : null)));
+    // Drawn again after an add, a remove or a job: the Settings list's one line under "Add-ons" follows.
+    if (painted) window.dispatchEvent(new Event('saved'));
+    painted = true;
   }
 
   /** Run an action (install, start, stop, update) and show its output under the add-on until it ends. */
@@ -90,20 +117,30 @@ function render({ isAlive }) {
           h('span', h(`span.pill.st-${key}`, h('span.dot'), text)))),
       h('p.hint', a.summary),
       h('div.mrow-actions',
-        !a.installed ? b('download', 'Install', 'install') : null,
-        a.installed && !a.running ? start() : null,
+        !a.installed && a.installable !== false ? b('download', 'Install', 'install') : null,
+        a.installed && !a.running && !a.foreign && !a.needsConfirm ? start() : null,
+        a.defined && here && a.needsConfirm && a.needsConfirm !== 'gone-old' && !a.running ? btn('small secondary', { icon: 'check', label: a.needsConfirm === 'changed' || a.needsConfirm === 'gone' ? 'Confirm the new program' : 'Confirm the program', disabled: busy, onclick: () => confirmGatewayProgram(a, again) }) : null,
         a.running ? b('stop', 'Stop', 'stop') : null,
-        a.installed ? b('refresh', 'Update', 'update') : null,
+        a.installed && a.installable !== false ? b('refresh', 'Update', 'update') : null,
         !v.showAccount ? null : h('a.btn.small.ghost', { href: link('#/providers'), title: 'Providers → Add provider makes one of this gateway' }, icon('user', { size: 18 }), h('span', 'Set up as a provider')),
-        a.running && a.url ? h('a.btn.small.ghost', { href: a.url, target: '_blank', rel: 'noopener' }, icon('chevronRight', { size: 18 }), h('span', 'Open its dashboard')) : null,
-        a.homepage ? h('a.btn.small.ghost', { href: a.homepage, target: '_blank', rel: 'noopener' }, h('span', 'About')) : null),
+        a.running && pageOf(a) ? h('a.btn.small.ghost', { href: pageOf(a), target: '_blank', rel: 'noopener' }, icon('chevronRight', { size: 18 }), h('span', 'Open its dashboard')) : null,
+        a.homepage ? h('a.btn.small.ghost', { href: a.homepage, target: '_blank', rel: 'noopener' }, h('span', 'About')) : null,
+        a.defined && here ? btn('small ghost', { icon: 'trash', label: 'Remove', disabled: busy, onclick: () => removeGateway(a, again) }) : null),
+      a.defined ? runsLine(a) : null,
+      a.defined && !a.installed && !a.needsConfirm ? h('p.hint', 'Its program was not found on this computer.') : null,
+      // Its program changed since the owner confirmed it (an update): not started until he confirms it again.
+      a.defined && needsConfirmText(a) ? h('p.hint', needsConfirmText(a), a.needsConfirm === 'gone-old' ? ` In ${here ? 'this' : 'that'} computer's terminal: ${COMMAND} gateways confirm ${a.id} --program <path>` : here ? '' : ` On that computer's own dashboard, or with ${COMMAND} gateways confirm ${a.id} in its terminal.`) : null,
+      // A gateway of the owner's own whose port another program holds (src/addons/localgateway.mjs): left alone.
+      a.foreign ? h('p.hint', `Another program answers on its port (${a.url}). ${APP_NAME} did not start it, so it does not use or stop it: stop that program, or give ${a.title} another port.`) : null,
       v.notes.length && !a.running ? h('ul.addon-notes', v.notes.map((n) => h('li', n))) : null,
-      a.running && a.url ? h('p.hint', `Its dashboard is at ${a.url} on this computer.`) : null,
+      a.running && pageOf(a) ? h('p.hint', `Its dashboard is at ${pageOf(a)} on this computer.`) : null,
       out);
   }
 
   paint();
-  return [box, h('p.hint', 'An add-on gateway turns other AI providers into one more provider for Claude Code and Auto mode.')];
+  return [box,
+    here ? h('div.savebar.start', addButton) : h('p.hint', `A gateway of your own is added or removed on that computer's own dashboard, or with ${COMMAND} gateways add in its terminal.`),
+    h('p.hint', 'An add-on gateway turns other AI providers into one more provider for Claude Code and Auto mode.')];
 }
 
 registerSettingsPage({

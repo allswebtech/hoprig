@@ -1,5 +1,5 @@
-// One more local service reached from anywhere through a public link (such as TRouteAI's own dashboard on port
-// 20017): which port it is, and whether it has a sign-in of its own. Without one, anyone who has its address can use
+// One more local service reached from anywhere through a public link (such as a gateway's own dashboard on its
+// port): which port it is, and whether it has a sign-in of its own. Without one, anyone who has its address can use
 // it, so the page asks before it is made public.
 //
 // A sign-in page at / is not enough: a service can send / to its login and still answer its API without a key (an AI
@@ -14,7 +14,7 @@ export function checkPort(v, dashboardPort) {
   return { port: n };
 }
 
-// A path that is a sign-in page (TRouteAI: / → /dashboard → /login).
+// A path that is a sign-in page (a gateway's own dashboard: / → /dashboard → /login).
 const LOGIN_PATH = /(^|\/)(login|log-in|signin|sign-in|sign_in|auth|session\/new)(\/|$|\.)/i;
 const LOCAL = new Set(['127.0.0.1', 'localhost', '[::1]']);
 /** API paths an AI gateway or a similar service answers: OpenAI's and Anthropic's model lists, and a common prefix. */

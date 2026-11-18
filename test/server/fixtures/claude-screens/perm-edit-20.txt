@@ -1,0 +1,32 @@
+❯ Use the Edit tool
+  to change hello
+  to bye in a.txt.
+  Nothing else.
+
+● Update(a.txt)
+
+────────────────────
+ Edit file
+ a.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ 1 -hello
+ 1 +bye
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to
+ make this edit to
+ a.txt?
+ ❯ 1. Yes
+   2. Yes, and
+      switch to
+      accept edits
+      (auto-approve
+      file edits
+      and common
+      file
+      commands) for
+      this session
+      (shift+tab)
+   3. No
+
+ Esc to cancel ·
+ Tab to amend

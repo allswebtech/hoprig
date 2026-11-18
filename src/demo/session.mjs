@@ -8,7 +8,6 @@
 // made up.
 import crypto from 'node:crypto';
 import path from 'node:path';
-import readline from 'node:readline';
 import { createRun, removeRun, updateRun } from '../runs.mjs';
 import { applyLaunch } from '../launchfile.mjs';
 
@@ -58,6 +57,30 @@ const diff = (file, lines) => {
     else w(`  ${c.dim(`${n}   ${l}`)}`);
   });
   w();
+};
+// Claude Code's permission dialog as 2.1.326 draws it (test/server/fixtures/claude-screens/perm-bash-46.txt): a rule
+// the full width, the tool, the model's description, the command in a dashed frame, the question, the answers (one
+// that does not fit wraps six spaces deep), the footer. The dashboard reads it from the screen (server/prompts.mjs).
+const dialog = ({ tool: name, about, command, answers }) => {
+  const width = cols();
+  w(c.grey('─'.repeat(width)));
+  w(` ${c.bold(name)}`);
+  w(` ${c.dim(about)}`);
+  w(c.grey('╌'.repeat(width)));
+  w(` ${command}`);
+  w(c.grey('╌'.repeat(width)));
+  w(' Do you want to proceed?');
+  answers.forEach((text, i) => {
+    const lines = [];
+    for (const word of text.split(' ')) {
+      if (lines.length && `${lines.at(-1)} ${word}`.length <= width - 6) lines[lines.length - 1] += ` ${word}`;
+      else lines.push(word);
+    }
+    w(` ${i === 0 ? c.blue('❯') : ' '} ${i + 1}. ${lines[0]}`);
+    for (const more of lines.slice(1)) w(`      ${more}`);
+  });
+  w();
+  w(` ${c.dim('Esc to cancel · Tab to amend')}`);
 };
 const promptBox = (hint = '? for shortcuts') => {
   box([`${c.grey('>')} `]);
@@ -110,13 +133,31 @@ const STORIES = {
     say(msg);
     set({ status: 'waiting', lastMessage: msg });
   },
-  // Needs your OK: a permission question on screen.
+  // Needs your OK: a permission question on screen, answered with its number or Esc, as in Claude Code; the record
+  // says what the hook would (hook.mjs: who asks, for what), so the dashboard's Allow works here too.
   'mobile-app': async () => {
     user('Add the chart to the stats screen');
     tool('Read', 'app/screens/Stats.tsx', 'Read 96 lines');
     say('The chart needs one new package.');
-    box([c.bold('Bash command'), '', '  npm install react-native-svg@15.8.0', c.dim('  Add the SVG library the chart needs'), '', 'Do you want to proceed?', `${c.blue('❯')} 1. Yes`, '  2. Yes, and don\'t ask again for npm install commands', '  3. No, and tell Claude what to do differently (esc)']);
-    set({ status: 'attention', note: 'Claude needs your permission to use Bash: npm install react-native-svg', lastMessage: 'The chart needs one new package.' });
+    const command = 'npm install react-native-svg@15.8.0';
+    dialog({ tool: 'Bash command', about: 'Add the SVG library the chart needs', command, answers: ['Yes', 'Yes, and don\'t ask again for npm install commands', 'No'] });
+    const note = `Claude needs your permission to use Bash: ${command}`;
+    const at = Date.now();
+    set({ status: 'attention', note, attentionKind: 'permission_prompt', askType: 'permission', askWhat: command, asks: ['main'], askers: { main: { type: 'permission', note, kind: 'permission_prompt', at, what: command } }, askAt: at, lastMessage: 'The chart needs one new package.' });
+    const key = await keyFor(['1', '2', '\x1b']);
+    const done = { asks: [], askers: {}, askType: null, askWhat: '', note: '', attentionKind: null };
+    if (key === '\x1b') {
+      w(`  ${c.grey('⎿')}  ${c.dim('Interrupted · What should Claude do instead?')}`);
+      w();
+      set({ ...done, status: 'waiting', lastMessage: 'Waiting: the package was not installed.' });
+      return;
+    }
+    set({ ...done, status: 'working' });
+    tool('Bash', command, 'added 1 package in 2s');
+    await sleep(600);
+    const msg = 'Installed react-native-svg and added the weekly chart to the stats screen.';
+    say(msg);
+    set({ status: 'waiting', lastMessage: msg });
   },
   // At a usage limit: the account ran out, the session waits for another one.
   'docs-site': async () => {
@@ -143,6 +184,18 @@ const story = STORIES[folder] || (async () => set({ status: 'waiting' }));
 
 // ---------- a message typed into it gets a short, scripted answer ----------
 let busyMessage = false;
+let onKey = null; // while a question stands: one key answers it (the terminal is raw then, as Claude Code's is)
+// The next key of `keys` typed into the terminal.
+const keyFor = (keys) => new Promise((resolve) => {
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+  onKey = (s) => {
+    const k = keys.find((x) => s === x || (x !== '\x1b' && s.startsWith(x))); // an arrow key starts with Esc too
+    if (!k) return;
+    onKey = null;
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    resolve(k);
+  };
+});
 async function answer(text) {
   busyMessage = true;
   w();
@@ -160,9 +213,16 @@ async function answer(text) {
   busyMessage = false;
 }
 
-readline.createInterface({ input: process.stdin }).on('line', (l) => {
-  if (!busyMessage) answer(l);
-}).on('close', bye);
+// Lines typed into it, or the key that answers a question that stands.
+let typed = '';
+process.stdin.on('data', (d) => {
+  const s = d.toString();
+  if (onKey) return onKey(s);
+  typed += s;
+  const lines = typed.split(/\r\n|[\r\n]/);
+  typed = lines.pop();
+  for (const l of lines) if (!busyMessage) answer(l);
+}).on('end', bye);
 
 header();
 if (resumed) {
@@ -172,9 +232,6 @@ if (resumed) {
   promptBox();
 } else {
   story().then(() => {
-    if (busyMessage) return;
-    // A question takes the place of the message box, as in Claude Code: only its key hint stands under it.
-    if (folder === 'mobile-app') w(`  ${c.dim('Enter to confirm · Esc to cancel')}`);
-    else promptBox();
+    if (!busyMessage) promptBox();
   });
 }

@@ -40,7 +40,7 @@ test('projects folder: "~/x" and absolute only; it becomes the first folder-pick
   assert.deepEqual(saved.server.roots, ['/w', '/a']);
 });
 
-test('what a project needs: the lockfile decides the install; .nvmrc / engines; .env.example is copied', () => {
+test('what a project needs: the lockfile decides the install; .nvmrc / engines; .env.example is copied', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcsetup-need-'));
   try {
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ engines: { node: '>=22' } }));
@@ -54,10 +54,10 @@ test('what a project needs: the lockfile decides the install; .nvmrc / engines; 
     fs.writeFileSync(path.join(dir, 'pnpm-lock.yaml'), '');
     const p = projectNeeds(dir, { has: (t) => t !== 'pnpm' });
     assert.deepEqual([p.installs[0].label, p.installs[0].ready, p.installs[0].why], ['pnpm install', false, 'pnpm is not installed']);
-    assert.equal(prepareEnv(dir), true);
+    assert.equal(await prepareEnv(dir), true);
     assert.equal(fs.readFileSync(path.join(dir, '.env'), 'utf8'), 'KEY=\n');
     fs.writeFileSync(path.join(dir, '.env'), 'KEY=mine\n');
-    assert.equal(prepareEnv(dir), false); // an existing .env is never overwritten
+    assert.equal(await prepareEnv(dir), false); // an existing .env is never overwritten
     assert.equal(fs.readFileSync(path.join(dir, '.env'), 'utf8'), 'KEY=mine\n');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

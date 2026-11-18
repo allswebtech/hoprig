@@ -63,6 +63,10 @@ textarea.history { flex: 1; min-height: 50dvh; resize: none; font: 12px/1.4 var(
 .sess-ok-head { display: flex; align-items: center; gap: 8px; }
 .sess-ok-text { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-2); overflow-wrap: anywhere; }
 .sess-ok .ok-actions { margin-top: 8px; }
+/* What Hoprig allowed by itself in bypass mode: one quiet line above the terminal, the earlier ones when opened. */
+.sess-allowed { padding: 6px 12px; font-size: var(--fs-sm); color: var(--text-2); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.sess-allowed summary { cursor: pointer; }
+.sess-allowed ul { margin: 4px 0 0 18px; }
 /* Quick messages scroll sideways in one row; the key bar's switch stays at its end. */
 .quick-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px 0; background: var(--surface); min-width: 0; }
 .quick-row.no-quick .quick { flex: 1; }

@@ -46,13 +46,18 @@ await new Promise((r) => gw.listen(0, '127.0.0.1', r));
 const GW = `http://127.0.0.1:${gw.address().port}`;
 test.after(() => { gw.closeAllConnections(); gw.close(); });
 
-const trouteai = { status: async () => ({ installed: true, running: true, version: '1.0.8', url: GW }), profile: () => ({ env: { ANTHROPIC_BASE_URL: GW }, prerun: '/usr/bin/node /x/bin.mjs addons start trouteai' }) };
+// Today's gateway as the accounts route sees an add-on of it (src/addons/localgateway.mjs), at the stand-in's address.
+const trouteai = {
+  id: 'trouteai', title: 'TRouteAI', words: { what: 'w', choice: 'c', add: 'a', key: 'k' }, page: () => GW,
+  status: async () => ({ installed: true, running: true, version: '1.0.8', url: GW }),
+  profile: () => ({ name: 'api', label: 'API via TRouteAI', env: { ANTHROPIC_BASE_URL: GW }, prerun: '/usr/bin/node /x/bin.mjs addons start trouteai' }),
+};
 
 saveConfig({ claudeBin: FAKE_CLAUDE, server: { passwordHash: await hashPassword('right-password') } });
 writeProfile('work', { label: 'Work' });
 const backend = { list: async () => [], capture: async () => '', kind: 'pty', capabilities: {} };
 let codexIn = false; // what Hoprig's Codex says of its own sign-in (a stand-in)
-const app = createServer({ backend, watch: false, accounts: { trouteai, times: { link: 4000, token: 4000, ttl: 60_000 }, codexSignedIn: async () => codexIn } });
+const app = createServer({ backend, watch: false, accounts: { gateways: [trouteai], times: { link: 4000, token: 4000, ttl: 60_000 }, codexSignedIn: async () => codexIn } });
 const { port } = await app.listen(0, '127.0.0.1');
 const base = `http://127.0.0.1:${port}`;
 test.after(() => app.close());
@@ -75,7 +80,7 @@ test('add an API account through a gateway: models, test, save, then manage it',
   let r = await call('/api/accounts');
   assert.equal(r.status, 200);
   assert.deepEqual(r.json.accounts.map((a) => a.name), ['work']);
-  assert.equal(r.json.defaults.trouteai.baseUrl, GW);
+  assert.deepEqual(r.json.gateways.map((g) => [g.id, g.title, g.defaults.baseUrl, g.defaults.name, g.page]), [['trouteai', 'TRouteAI', GW, 'api', GW]]);
   assert.match(r.json.defaults.subscription.name, /^sub\d+$/);
 
   for (const [bad, why] of [
@@ -115,7 +120,7 @@ test('add an API account through a gateway: models, test, save, then manage it',
   assert.equal(a.kind, 'api');
   assert.equal(a.model, 'combo-best');
   assert.equal(a.host, new URL(GW).host);
-  assert.equal(a.viaTrouteai, true);
+  assert.deepEqual(a.viaGateway, { id: 'trouteai', title: 'TRouteAI' });
   assert.equal(a.inAuto, false);
 
   // change model: the key comes from the profile file, not the page
@@ -285,7 +290,7 @@ test('the whole flow times out', async () => {
   // The flow's clock starts with the sign-in program, and the stand-in shows its link 300 ms after it started. With
   // 800 ms for the whole flow a slow start on a busy computer used them up before the link came, and the start
   // itself failed. 3 s leave room for that; the flow still ends by itself, which is what is checked.
-  const app2 = createServer({ backend, watch: false, accounts: { trouteai, times: { link: 4000, token: 4000, ttl: 3000 } } });
+  const app2 = createServer({ backend, watch: false, accounts: { gateways: [trouteai], times: { link: 4000, token: 4000, ttl: 3000 } } });
   const { port: p2 } = await app2.listen(0, '127.0.0.1');
   const b2 = `http://127.0.0.1:${p2}`;
   try {
@@ -419,7 +424,7 @@ test('an OpenAI-compatible key: added, which offered tools it serves, and Test s
 test('the kept Codex sign-in kind, as it works once Codex is offered (the registry\'s full list)', async () => {
   const { anyTool } = await import('../../src/codetools/index.mjs');
   let signedIn = false;
-  const app3 = createServer({ backend, watch: false, accounts: { trouteai, findTool: anyTool, codexSignedIn: async () => signedIn } });
+  const app3 = createServer({ backend, watch: false, accounts: { gateways: [trouteai], findTool: anyTool, codexSignedIn: async () => signedIn } });
   const { port: p3 } = await app3.listen(0, '127.0.0.1');
   const b3 = `http://127.0.0.1:${p3}`;
   try {

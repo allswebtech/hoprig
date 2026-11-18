@@ -93,7 +93,7 @@ test('the launcher from a plain shell: a chat or another terminal on the convers
   for (const args of [['work', '--resume', ID], ['work', `--session-id=${ID}`], ['run', 'nope', '-r', ID]]) {
     const r = launch(args);
     assert.equal(r.status, 2, r.stderr);
-    assert.equal(r.stderr, 'hoprig: this conversation is open in a chat in the dashboard. Close that chat, or choose "Open in terminal" in its menu.\n', args.join(' '));
+    assert.equal(r.stderr, 'hoprig: this conversation is open in a chat in the dashboard. Archive that session, or choose "Open in", then "Terminal", in its session menu.\n', args.join(' '));
     assert.equal(fs.existsSync(started), false, 'Claude Code was not started');
     assert.deepEqual(R.listRuns({ chats: true }).map((x) => x.kind), ['chat'], 'the refused launcher left no record');
   }
@@ -135,7 +135,7 @@ test('the launcher of another coding tool asks too, before any check that can re
     console.error = err;
   }
   assert.equal(code, 2);
-  assert.deepEqual(said, ['hoprig: this conversation is open in a chat in the dashboard. Close that chat, or choose "Open in terminal" in its menu.']);
+  assert.deepEqual(said, ['hoprig: this conversation is open in a chat in the dashboard. Archive that session, or choose "Open in", then "Terminal", in its session menu.']);
   R.removeRun(chat.file);
   console.error = (...x) => said.push(x.join(' '));
   try {

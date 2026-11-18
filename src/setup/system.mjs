@@ -39,19 +39,64 @@ export const adminWay = (sys) => (sys && sys.root ? 'root' : sys && typeof sys.h
  *                       line (commands joined with &&), so nobody builds something in their own folder as root
  */
 export function forThisUser(line, sys) {
-  if (typeof line !== 'string' || !/\bsudo\b/.test(line)) return line;
+  if (typeof line !== 'string' || !/\bsudo\b/.test(unquoted(line))) return line;
   const way = adminWay(sys);
   if (way === 'sudo') return line;
-  const strip = (t) => t.replace(/\bsudo +/g, '');
+  // Only words outside quotes count: a quoted path ('/home/u/a && sudo b') is one argument, never a command.
+  const strip = (t) => {
+    let out = '';
+    let at = 0;
+    for (const m of unquoted(t).matchAll(/\bsudo +/g)) {
+      out += t.slice(at, m.index);
+      at = m.index + m[0].length;
+    }
+    return out + t.slice(at);
+  };
   if (way === 'root') return strip(line);
   const groups = [];
-  for (const part of line.split(' && ')) {
-    const admin = /\bsudo\b/.test(part);
+  for (const part of splitUnquoted(line, ' && ')) {
+    const admin = /\bsudo\b/.test(unquoted(part));
     const last = groups[groups.length - 1];
     if (last && last.admin === admin) last.parts.push(strip(part));
     else groups.push({ admin, parts: [strip(part)] });
   }
   return groups.map((g, i) => `${i ? 'then ' : ''}${g.admin ? 'as root' : 'as yourself'}: ${g.parts.join(' && ')}`).join('   ');
+}
+
+/**
+ * A shell line with every character inside quotes ('…', "…") or after a backslash replaced by "_", the same length:
+ * what is left are the words the shell reads as commands and operators.
+ */
+export function unquoted(line) {
+  let out = '';
+  let q = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '\\' && q !== "'" && i + 1 < line.length) {
+      out += '__';
+      i++;
+    } else if (q) {
+      out += c === q ? c : '_';
+      if (c === q) q = null;
+    } else {
+      if (c === "'" || c === '"') q = c;
+      out += c;
+    }
+  }
+  return out;
+}
+
+/** `line` split on `sep` where it stands outside quotes. */
+export function splitUnquoted(line, sep) {
+  const mask = unquoted(line);
+  const parts = [];
+  let from = 0;
+  for (let i = mask.indexOf(sep); i !== -1; i = mask.indexOf(sep, i + sep.length)) {
+    parts.push(line.slice(from, i));
+    from = i + sep.length;
+  }
+  parts.push(line.slice(from));
+  return parts;
 }
 
 /**

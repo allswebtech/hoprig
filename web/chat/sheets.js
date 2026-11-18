@@ -18,14 +18,14 @@ export async function historySheet({ A, v }) {
     return toast(failText(e), { kind: 'error' });
   }
   // A conversation stays in its coding tool: the list is the chat's tool's own, and says so when it is not Claude Code.
-  const sub = `In ${v.short || v.cwd}${tool !== 'claude' ? `, ${TOOL_NAMES[tool] || tool}'s conversations` : ''}. One tap continues it in a chat.`;
+  const sub = `In ${v.short || v.cwd}${tool !== 'claude' ? `, ${TOOL_NAMES[tool] || tool}'s conversations` : ''}. One tap continues it in the App.`;
   const pick = await openSheet({ title: 'Earlier conversations', subtitle: sub }, (close) => {
     const rows = h('div.choice-list.chat-history');
     const search = list.length > 8 ? h('input.field.chat-history-search', { type: 'search', placeholder: 'Find a conversation', 'aria-label': 'Find a conversation', autocomplete: 'off' }) : null;
     const paint = (q = '') => fill(rows, list.filter((c) => !q || (c.title || '').toLowerCase().includes(q.toLowerCase())).map((c) =>
       h(`button.choice${c.current ? '.current' : ''}`, { type: 'button', onclick: () => close(c) },
         h('span.choice-icon', icon('text')),
-        h('span.choice-main', h('span.choice-label', c.title || '(no words yet)', c.current ? h('span.badge', 'This chat') : c.chat ? h('span.badge', 'Open') : null), h('span.choice-sub', ago(c.at))),
+        h('span.choice-main', h('span.choice-label', c.title || '(no words yet)', c.current ? h('span.badge', 'This conversation') : c.chat ? h('span.badge', 'Open') : null), h('span.choice-sub', ago(c.at))),
         h('span.choice-end', icon(c.current ? 'check' : 'chevronRight')))));
     search?.addEventListener('input', () => paint(search.value.trim()));
     paint();

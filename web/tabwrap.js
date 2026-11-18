@@ -15,13 +15,26 @@ export function wrapTab(items, active, back) {
 }
 
 /**
+ * Whether Tab can reach `x`: in the Tab order, shown, and not inside a closed <details> other than as its summary
+ * (Chrome keeps boxes for a closed details' content, so a select under a closed "Options" looked reachable, was taken
+ * for the last control, and Tab from the summary fell out of the sheet).
+ */
+export function reachable(x) {
+  if (!(x.tabIndex >= 0) || !x.getClientRects().length) return false;
+  const shut = typeof x.closest === 'function' ? x.closest('details:not([open])') : null;
+  if (!shut) return true;
+  const outer = shut.parentElement && typeof shut.parentElement.closest === 'function' ? shut.parentElement.closest('details:not([open])') : null;
+  return x.tagName === 'SUMMARY' && x.parentElement === shut && !outer;
+}
+
+/**
  * Keep Tab inside `dialog` (its controls that can be seen and reached by Tab); `when()`: only while it says so (a
  * panel that is a sheet on a phone and floats beside the page on a desktop).
  */
 export function keepTabIn(dialog, { when = () => true } = {}) {
   dialog.addEventListener('keydown', (e) => {
     if (e.key !== 'Tab' || e.defaultPrevented || !when()) return;
-    const to = wrapTab([...dialog.querySelectorAll(FOCUSABLE)].filter((x) => x.tabIndex >= 0 && x.getClientRects().length), document.activeElement, e.shiftKey);
+    const to = wrapTab([...dialog.querySelectorAll(FOCUSABLE)].filter(reachable), document.activeElement, e.shiftKey);
     if (to) {
       e.preventDefault();
       to.focus();
