@@ -28,6 +28,7 @@ import { loadConfig } from '../config.mjs';
 import { claudeDir, tilde } from '../paths.mjs';
 import { linkMemories, mergeInto, safeReal, stamp } from '../pcsetup/workspace.mjs';
 import { brainDir } from './layout.mjs';
+import { copyIn, kindAt, leaves, leavesWords, mkdirIn, readIn, writeIn } from './inside.mjs';
 
 /** The section the shared rules file gets for tools without a memory of their own (kept to a few lines). */
 export const MEMORY_BEGIN = '<!-- hoprig: memory for coding tools without their own -->';
@@ -122,22 +123,29 @@ function planJson(t, out) {
   return missing.length ? { ...out, action: 'link', missing, how: r.value ? `${missing.join(' and ')} added to its "${t.key}"` : `a new settings file naming ${t.values.join(' and ')}` } : { ...out, action: 'already' };
 }
 
+// The brain is a repository from a git server: its claude/CLAUDE.md or skills may be a link it tracks, to anywhere.
+// What Hoprig writes into the brain, and every link it makes from a coding tool's folder to a file or folder of the
+// brain, stays really inside the brain (inside.mjs): else a coding tool would read (and Hoprig write) a file outside.
+const inBrainOf = (brain) => ({ root: brain, dir: path.dirname(brain) });
+const brainWhy = (b) => `${leavesWords(b)}: Hoprig never links a coding tool to it or writes through it`;
+
 /** The memory section (kind section): already there, to be added, or no rules file to add it to. */
-function planSection(t, out) {
-  let text;
-  try {
-    text = fs.readFileSync(t.link, 'utf8');
-  } catch {
-    return { ...out, action: 'conflict', why: `the brain has no ${path.basename(t.link)} yet (link the rules first)` };
-  }
-  return text.includes(MEMORY_BEGIN) ? { ...out, action: 'already' } : { ...out, action: 'link', how: 'a short "Memory" section is added at the end of the shared rules file' };
+function planSection(t, out, brain) {
+  const b = leaves(brain, t.link, inBrainOf(brain));
+  if (b) return { ...out, action: 'conflict', why: brainWhy(b) };
+  if (kindAt(t.link) === 'link') return { ...out, action: 'conflict', why: `the brain's ${path.basename(t.link)} is a link: Hoprig never writes through one, add the section yourself` };
+  const buf = readIn(inBrainOf(brain), t.link);
+  if (!buf) return { ...out, action: 'conflict', why: `the brain has no ${path.basename(t.link)} yet (link the rules first)` };
+  return buf.toString('utf8').includes(MEMORY_BEGIN) ? { ...out, action: 'already' } : { ...out, action: 'link', how: 'a short "Memory" section is added at the end of the shared rules file' };
 }
 
-/** The plan of one entry (see planLink). */
-function planOne(t) {
+/** The plan of one entry (see planLink). `brain`: the brain's folder. */
+function planOne(t, brain) {
   const out = { ...t, linkShort: tilde(t.link), targetShort: t.kind === 'json' ? t.values.join(', ') : t.kind === 'section' ? t.target : tilde(t.target) };
   if (t.kind === 'json') return planJson(t, out);
-  if (t.kind === 'section') return planSection(t, out);
+  if (t.kind === 'section') return planSection(t, out, brain);
+  const b = leaves(brain, t.target, inBrainOf(brain));
+  if (b) return { ...out, action: 'conflict', why: brainWhy(b) };
   const st = lstat(t.link);
   if (st && st.isSymbolicLink()) {
     const to = path.resolve(path.dirname(t.link), fs.readlinkSync(t.link));
@@ -167,7 +175,8 @@ function planOne(t) {
  * A settings entry (json) and the memory section are "link" when something is to be added (`how` says what).
  */
 export function planLink(opts = {}) {
-  return linkTargets(opts).map(planOne);
+  const brain = opts.brain || brainDir();
+  return linkTargets(opts).map((t) => planOne(t, brain));
 }
 
 /** What will happen to one plan entry, in plain words for the page. */
@@ -185,13 +194,17 @@ export function planWords(p) {
 /** Do the plan. Returns the plan entries with `done` (what was done, in plain words) or `error`. */
 export function applyLink({ platform = process.platform, now = new Date(), home = os.homedir(), ...opts } = {}) {
   // Each entry is planned again right before it is done: an earlier one may have made the brain's rules file.
+  // What is written into the brain stays inside it, never through a link (inside.mjs); the links themselves live in
+  // the coding tools' own folders, outside the workspace.
+  const brain = opts.brain || brainDir();
+  const inBrain = inBrainOf(brain);
   return linkTargets({ home, ...opts }).map((t) => {
-    const p = planOne(t);
+    const p = planOne(t, brain);
     try {
       if (p.action === 'already' || p.action === 'conflict') return { ...p, done: p.action === 'already' ? 'already linked' : 'left alone' };
       if (p.id === 'memory') {
         // The same code that links a project's memory: merge, keep a backup, link (or the Windows setting).
-        const r = linkMemories(home, { '.': path.relative(home, p.target) }, { base: opts.base || claudeDir(), platform, now })[0];
+        const r = linkMemories(home, { '.': path.relative(brain, p.target) }, { base: opts.base || claudeDir(), platform, now, root: brain, at: inBrain })[0];
         return { ...p, done: r.done };
       }
       const backup = `${p.link}.backup-${stamp(now)}`;
@@ -209,23 +222,26 @@ export function applyLink({ platform = process.platform, now = new Date(), home 
         return { ...p, done: cur ? `added to its settings (old file kept: ${path.basename(backup)})` : 'its settings file was made with them' };
       }
       if (p.kind === 'section') {
-        const text = fs.readFileSync(p.link, 'utf8');
-        fs.appendFileSync(p.link, `${text.endsWith('\n') ? '\n' : '\n\n'}${MEMORY_SECTION}`);
+        // Read and written inside the brain, never through a link: written beside it and renamed over it.
+        const buf = readIn(inBrain, p.link);
+        if (!buf) throw new Error(`${p.link} is not a regular file of the brain: left alone`);
+        const text = buf.toString('utf8');
+        writeIn(inBrain, p.link, `${text}${text.endsWith('\n') ? '\n' : '\n\n'}${MEMORY_SECTION}`, { atomic: true, mode: fs.statSync(p.link).mode & 0o777 });
         return { ...p, done: 'the Memory section was added at the end' };
       }
       let said = 'linked';
       if (p.action === 'merge') {
         fs.renameSync(p.link, backup);
-        const n = mergeInto(backup, p.target, stamp(now));
+        const n = mergeInto(backup, p.target, stamp(now), inBrain);
         said = `moved ${n} file${n === 1 ? '' : 's'} in, then linked (old folder kept: ${path.basename(backup)})`;
       } else if (p.action === 'adopt' || p.action === 'backup') {
-        fs.mkdirSync(path.dirname(p.target), { recursive: true });
-        if (p.action === 'adopt') fs.copyFileSync(p.link, p.target, fs.constants.COPYFILE_EXCL);
+        mkdirIn(inBrain, path.dirname(p.target)); // inside the brain, never through a link (inside.mjs)
+        if (p.action === 'adopt' && !copyIn(inBrain, p.link, p.target, { from: null })) throw new Error(`${p.link} is not a regular file: left alone`);
         fs.renameSync(p.link, backup);
         said = `${p.action === 'adopt' ? 'moved your file into the brain' : 'the same text was in the brain'}, then linked (old file kept: ${path.basename(backup)})`;
       }
       fs.mkdirSync(path.dirname(p.link), { recursive: true });
-      if (p.kind === 'dir') fs.mkdirSync(p.target, { recursive: true });
+      if (p.kind === 'dir') mkdirIn(inBrain, p.target);
       try {
         fs.symlinkSync(p.target, p.link, p.kind === 'dir' ? (platform === 'win32' ? 'junction' : 'dir') : 'file');
       } catch (e) {

@@ -1,0 +1,72 @@
+name: site
+
+# Builds hoprig.com (site/build.mjs) and puts it on GitHub Pages. The site is made from site/, the product's docs and
+# README, its commands and Tia's tools (bin/, src/), the bundled skill and the dashboard's styles, so a change to any
+# of them deploys again. Only a push to main of this repository deploys: there is no pull_request trigger, so code
+# from a fork never runs with the rights to publish.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'bin/hoprig.mjs'
+      - 'src/**'
+      - 'templates/skills/**'
+      - 'web/style.css'
+      - 'web/icons.js'
+      - 'web/favicon.ico'
+      - 'web/icon.svg'
+      - 'web/apple-touch-icon.png'
+      - 'assets/**'
+      - 'package.json'
+      - 'test/site/**'
+      - '.github/workflows/site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer push waits for the running one instead of cutting it off half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'allswebtech/hoprig'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Install the site's tools (none today; the lock file keeps it that way)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: site
+      - name: Check the site (links, Markdown twins, llms.txt, commands, nothing private)
+        run: node --test test/site/site.test.mjs
+      - name: Build
+        run: node site/build.mjs --out _site
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

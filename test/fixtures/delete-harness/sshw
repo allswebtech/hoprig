@@ -1,0 +1,3 @@
+#!/usr/bin/bash
+{ printf 'RUN ssh'; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log
+exec /mnt/r/ssh -F /dev/null "$@"

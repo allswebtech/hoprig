@@ -16,6 +16,7 @@
 //   GET  /api/chats/<id>/files?q=                 the @ picker: files of the chat's folder
 //   GET  /api/chats/<id>/commands                 the / menu: the coding tool's commands and skills
 //   GET  /api/chats/<id>/usage                    context and plan usage, asked of the running process
+//   GET  /api/chats/<id>/changes                  what changed in the folder (git): the session rail's Changes card
 //   GET  /api/chats/<id>/history                  the folder's conversations (to continue one in a chat)
 //   GET  /api/chats/<id>/attachment?name=         a picture sent with a message (the timeline's thumbnail)
 // The stream and the pictures are for a page on this computer (behind its login); a chat of another computer is read
@@ -23,6 +24,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { within } from '../server/folders.mjs';
+import { folderChanges } from './changes.mjs';
 import { IMAGE_MAX, IMAGE_TYPES, searchFiles, uploadsReal } from './files.mjs';
 
 const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
@@ -42,6 +44,7 @@ export function stateOf(c) {
     live: [...c.live.values()], usage: c.usage, limits: c.limits, limit: c.limit, lastError: c.lastError, lastEnd: c.lastEnd, title: c.title,
     engine: { id: c.engine.id, label: c.engine.label, capabilities: c.engine.capabilities, version: c.info.version || null },
     model: c.model, effort: c.effort, ultracode: c.ultracode, permissionMode: c.permissionMode, liveModel: c.liveModel, liveMode: c.liveMode,
+    autoMode: c.autoSeen === true, // auto mode shown to be there (a plan's first answer, words.js planModes)
     costTotal: c.costTotal,
   };
 }
@@ -305,6 +308,10 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
       const r = await c.usageNow();
       if (!r) throw new HttpError(409, 'the chat is not running; usage comes with the next message');
       return r;
+    }],
+    ['GET', new RegExp(`^/api/chats/${ID}/changes$`), async (req, m) => {
+      const c = chatOr404(m[1]);
+      return folderChanges(folderOf(c)); // the chat's own folder, inside the allowed roots (feature.mjs)
     }],
   ];
   return { routes, handle };

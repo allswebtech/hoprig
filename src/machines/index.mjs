@@ -51,7 +51,7 @@ const SLOW = /^\/api\/code\/git\/(commit|stage|unstage|discard)$|^\/api\/files\/
 const TOKEN = Symbol('hoprig.token');
 
 // Never reachable with a token, even where the server has the route.
-const TOKEN_FORBIDDEN = [/^\/api\/assistant(?!\/run$)(\/|$)/, /^\/api\/machine\/label$/, /^\/api\/(login|logout|me)(\/|$)/, /^\/api\/settings\/password$/, /^\/api\/pair(\/|$)/, /^\/api\/tokens(\/|$)/, /^\/api\/machines(\/|$)/, /^\/api\/joins(\/|$)/, /^\/api\/links?(\/|$)/, /^\/api\/accounts(\/|$)/];
+const TOKEN_FORBIDDEN = [/^\/api\/assistant(?!\/run$)(\/|$)/, /^\/api\/machine\/label$/, /^\/api\/(login|logout|me)(\/|$)/, /^\/api\/settings\/password$/, /^\/api\/pair(\/|$)/, /^\/api\/tokens(\/|$)/, /^\/api\/machines(\/|$)/, /^\/api\/joins(\/|$)/, /^\/api\/links?(\/|$)/, /^\/api\/accounts(\/|$)/, /^\/api\/gateways\/defined(\/|$)/];
 // The one token-list change a token may make: revoke itself (a hub that removes this computer gives its right back).
 export const SELF_REVOKE = '/api/tokens/self/revoke';
 /** The id of the machine token a request came with (after the gate let it in), or null: the owner's own login. */

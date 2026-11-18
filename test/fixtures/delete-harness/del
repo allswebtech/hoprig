@@ -1,0 +1,3 @@
+#!/usr/bin/bash
+n=${0##*/}; { printf 'DEL %s' "$n"; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log
+exit 0

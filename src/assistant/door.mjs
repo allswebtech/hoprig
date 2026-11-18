@@ -180,6 +180,7 @@ export const NEVER = [
   /^\/api\/profiles(\/|$)/,
   /^\/api\/accounts(\/|$)/,
   /^\/api\/addons\/[^/]+\/setup$/,
+  /^\/api\/gateways\/defined(\/|$)/, // a gateway of the owner's own: a program Hoprig will run (src/addons/gateways.mjs)
   /^\/api\/addons\/public-link\//, // the old routes of the public link: Tia uses its own route, with a card
   /^\/api\/public-link\/.+$/, // the Custom set-up (a Cloudflare sign-in) and its extra addresses: the owner's own steps
   /^\/api\/updates\/settings$/, // updates by themselves or not: the owner's choice

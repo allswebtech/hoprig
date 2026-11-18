@@ -3,56 +3,7 @@
 // proven in a real browser against Claude Code (see the step's notes); here the parts that decide what it says.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-
-// A small stand-in for the browser DOM: what lib.js's h/fill/add and the views use.
-class FakeNode {}
-class FakeText extends FakeNode {
-  constructor(t) {
-    super();
-    this.text = t;
-  }
-}
-class FakeElement extends FakeNode {
-  constructor(tag) {
-    super();
-    Object.assign(this, { tag, className: '', dataset: {}, style: { setProperty() {} }, attrs: {}, children: [], listeners: {} });
-    this.classList = { add: (c) => (this.className += ` ${c}`), remove: () => {}, toggle: () => {}, contains: (c) => this.className.split(' ').includes(c) };
-  }
-  setAttribute(k, v) {
-    this.attrs[k] = v;
-  }
-  getAttribute(k) {
-    return this.attrs[k] ?? null;
-  }
-  addEventListener(k, fn) {
-    this.listeners[k] = fn;
-  }
-  append(...nodes) {
-    for (const n of nodes) this.children.push(n instanceof FakeNode ? n : new FakeText(String(n)));
-  }
-  replaceChildren(...nodes) {
-    this.children = [];
-    this.append(...nodes);
-  }
-  remove() {}
-  querySelector() {
-    return null;
-  }
-  querySelectorAll() {
-    return [];
-  }
-}
-globalThis.Node = FakeNode;
-globalThis.document = {
-  createElement: (t) => new FakeElement(t),
-  createElementNS: (ns, t) => new FakeElement(t),
-  createTextNode: (t) => new FakeText(t),
-  getElementById: () => null,
-  addEventListener: () => {},
-  visibilityState: 'visible',
-};
-const texts = (n) => (n instanceof FakeText ? [n.text] : n.children.flatMap(texts));
-const byClass = (n, c) => (n instanceof FakeText ? [] : [...(n.className.split(' ').includes(c) ? [n] : []), ...n.children.flatMap((x) => byClass(x, c))]);
+import { byClass, texts } from './fakedom.mjs';
 
 const W = await import('../../web/chat/words.js');
 const D = await import('../../web/chat/diff.js');
@@ -61,10 +12,17 @@ const St = await import('../../web/chat/statusline.js');
 const L = await import('../../web/chat/limit.js');
 
 test('chat page words: the mode chip, Shift+Tab order, model and effort, paths, limits, context, exit codes', () => {
-  assert.equal(W.modeChip('bypassPermissions'), 'Bypass');
-  assert.equal(W.modeChip(null), 'Ask first');
+  // Claude Code's own names (its desktop app's mode selector), in its order; don't ask only under "More modes".
+  assert.equal(W.modeChip('bypassPermissions'), 'Bypass permissions');
+  assert.equal(W.modeChip(null), 'Manual');
+  assert.equal(W.modeChip('dontAsk'), 'Don\'t ask');
   assert.ok(W.MODE.bypassPermissions.danger);
-  // Shift+Tab: ask first → accept edits → plan → auto → bypass → ask first; never-ask only in the menu
+  const server = ['manual', 'acceptEdits', 'auto', 'plan', 'dontAsk', 'bypassPermissions']; // the server's order
+  assert.deepEqual(W.modeMenu(server).main.map(W.modeChip), ['Manual', 'Accept edits', 'Plan', 'Auto', 'Bypass permissions']);
+  assert.deepEqual(W.modeMenu(server).rare, ['dontAsk'], 'still reachable');
+  assert.deepEqual(W.modeMenu(['manual', 'acceptEdits', 'bypassPermissions']), { main: ['manual', 'acceptEdits', 'bypassPermissions'], rare: [] }, 'another tool: only its modes');
+  assert.deepEqual(W.modeMenu(['manual', 'later']).main, ['manual', 'later'], 'a mode of a newer server is not lost');
+  // Shift+Tab: manual → accept edits → plan → auto → bypass → manual; don't ask only in the menu
   const ring = [];
   let m = 'manual';
   for (let i = 0; i < 5; i++) ring.push((m = W.nextMode(m)));
@@ -96,9 +54,9 @@ test('chat page words: the mode chip, Shift+Tab order, model and effort, paths, 
   assert.deepEqual(['running', 'asking', 'done'].map((s) => W.toolLine('Bash', { command: 'sleep 8' }, s).verb), ['Running', 'Wants to run', 'Ran']);
   assert.equal(W.toolLine('ExitPlanMode', {}, 'running').verb, 'Has a plan');
   assert.equal(W.toolLine('AskUserQuestion', {}, 'running').verb, 'Asks you');
-  // What "Allow in this chat" covers, in words (it may be a part of the command only).
+  // What "Allow in this session" covers, in words (it may be a part of the command only).
   assert.equal(W.ruleWords('Bash(exit 2)'), 'the command “exit 2”');
-  assert.equal(W.alwaysWords({ tool: 'Bash', input: { command: 'ls nosuchdir; exit 2' }, alwaysText: 'Bash(exit 2)' }), '“Allow in this chat” also lets Claude do this again in this chat without asking: the command “exit 2”. That is only part of this command.');
+  assert.equal(W.alwaysWords({ tool: 'Bash', input: { command: 'ls nosuchdir; exit 2' }, alwaysText: 'Bash(exit 2)' }), '“Allow in this session” also lets Claude do this again in this session without asking: the command “exit 2”. That is only part of this command.');
   assert.doesNotMatch(W.alwaysWords({ tool: 'Bash', input: { command: 'npm test' }, alwaysText: 'Bash(npm test)' }), /only part/, 'the whole command');
   assert.doesNotMatch(W.alwaysWords({ tool: 'Bash', input: { command: 'npm view x' }, alwaysText: 'Bash(npm view *)' }), /only part/, 'a prefix of a simple command');
   assert.equal(W.ruleWords('Bash(npm view *), WebFetch(domain:example.org)'), 'commands that start with “npm view”, pages on example.org');
@@ -162,7 +120,7 @@ test('agents: the strip counts what runs, a task line names its model and effort
   assert.ok(t.some((x) => /done · sonnet-5-5 · 6\.5k tokens/.test(x)));
 });
 
-test('status line: what Claude does now (the tool that runs, for how long), then branch, cost, context and the plan limits', () => {
+test('status line: what Claude does now (the tool that runs, for how long), then branch, cost (Verbose, billed), context and the plan limits', () => {
   const base = { status: 'working', turn: true, model: null, liveModel: 'claude-opus-5-5', effort: 'high', permissionMode: 'bypassPermissions', liveMode: null, costTotal: 0.5, usage: { contextUsed: 20_000, contextWindow: 200_000 }, limits: { five_hour: { percent: 63 } }, tasks: [], live: [], branch: 'main' };
   assert.equal(St.stateWords(base), 'Working…');
   assert.equal(St.stateWords({ ...base, activity: 'compacting' }), 'Compacting the conversation…');
@@ -189,9 +147,13 @@ test('status line: what Claude does now (the tool that runs, for how long), then
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'limit', limit: { text: 'x' } }), 'Stopped at the usage limit');
   assert.equal(St.stateWords({ ...base, status: 'waiting', lastEnd: 'error', lastError: 'boom' }), 'Stopped with an error');
   // The model, effort and mode are the chips right above: not said twice.
-  assert.deepEqual(St.statusParts(base).map((x) => x[1]), ['main', '$0.50 so far', 'context 10%', '5 h 63%']);
+  // The cost so far: only in the Verbose view and only for a provider billed by use (a subscription's dollars mislead).
+  const gw = { ...base, profile: { name: 'gw', kind: 'api' } };
+  assert.deepEqual(St.statusParts(gw, { view: 'verbose' }).map((x) => x[1]), ['main', '$0.50 so far', 'context 10%']);
+  assert.deepEqual(St.statusParts(gw).map((x) => x[1]), ['main', 'context 10%'], 'Normal: no dollars');
+  assert.deepEqual(St.statusParts(base, { view: 'verbose' }).map((x) => x[1]), ['main', 'context 10%', '5 h 63%'], 'a provider not known: no dollars');
   // The plan's limits are a Claude subscription's: a chat on a gateway, an API key or Auto mode shows none.
-  assert.deepEqual(St.statusParts({ ...base, profile: { name: 'sub', kind: 'subscription' } }).map((x) => x[0]), ['Git branch', 'Cost so far', 'Context', 'Plan limits']);
+  assert.deepEqual(St.statusParts({ ...base, profile: { name: 'sub', kind: 'subscription' } }, { view: 'verbose' }).map((x) => x[0]), ['Git branch', 'Context', 'Plan limits']);
   for (const kind of ['api', 'auto']) assert.ok(!St.statusParts({ ...base, profile: { name: 'x', kind } }).some((x) => x[0] === 'Plan limits'), kind);
 });
 
@@ -236,75 +198,6 @@ test('the provider sheet: each provider with its plan usage', async () => {
   assert.equal(editorLink('/p/my shop', 'changes'), '#/code?dir=%2Fp%2Fmy%20shop&view=changes');
 });
 
-test('tool cards: a search, a web page and a skill say what they did; a stopped task shows it in words and by its icon', async () => {
-  globalThis.window = globalThis.window || { addEventListener() {} };
-  const { toolCard } = await import('../../web/chat/tools.js');
-  const card = (name, toolKind, input, result) => {
-    const el = toolCard({ id: 't', name, toolKind, input }, { cwd: '/p' });
-    if (result) el.result(result);
-    return el;
-  };
-  const grep = card('Grep', 'search', { pattern: 'line t', path: '/p/src' }, { ok: true, text: 'notes.txt:2:line two' });
-  assert.equal(grep.dataset.kind, 'search');
-  assert.ok(grep.classList.contains('chat-is-ok'));
-  assert.match(texts(grep).join(''), /^Searched forline tin src.*notes\.txt:2:line two/s);
-  const web = card('WebFetch', 'web', { url: 'http://example.test/page', prompt: 'what' }, { ok: false, text: 'fetch failed' });
-  assert.ok(web.classList.contains('chat-is-err'));
-  assert.match(texts(web).join(''), /Read the pagehttp:\/\/example\.test\/pagefailed/);
-  const skill = card('Skill', 'other', { skill: 'tidy-notes' }, { ok: true, text: 'Launching skill: tidy-notes' });
-  assert.match(texts(skill).join(''), /^Used the skilltidy-notes/);
-  // A background shell: the call started it (ok); it was stopped later, and a late result does not hide that.
-  const bg = card('Bash', 'shell', { command: 'sleep 3', run_in_background: true });
-  bg.task({ taskId: 'b1', type: 'shell', status: 'stopped', title: 'sleep 3' });
-  bg.result({ ok: true, text: 'Command running in background with ID: b1' });
-  assert.ok(bg.classList.contains('chat-is-taskstop'));
-  assert.match(texts(bg).join(''), /stopped/);
-});
-
-test('tool cards: never in the past before they ran; Stop and a no are the owner\'s act, in grey, with no words written for Claude', async () => {
-  const { toolCard } = await import('../../web/chat/tools.js');
-  const w = toolCard({ id: 'w', name: 'Write', toolKind: 'edit', input: { file_path: '/p/made.txt', content: 'x\n' } }, { cwd: '/p' });
-  assert.match(texts(w).join(''), /^Writingmade\.txt\+1/);
-  w.quiet(); // its OK card opened below
-  assert.match(texts(w).join(''), /^Wants to writemade\.txt/);
-  w.answered(false);
-  w.result({ ok: false, denied: true, text: 'Use notes.txt instead' });
-  const said = texts(w).join('');
-  assert.match(said, /^Not writtenmade\.txt/);
-  assert.doesNotMatch(said, /\+1|−0/, 'nothing was written: no counts');
-  assert.match(said, /you said no.*Your reason: “Use notes\.txt instead”/s);
-  assert.ok(w.classList.contains('chat-is-stopped') && !w.classList.contains('chat-is-err'), 'grey, not a failure');
-  const b = toolCard({ id: 'b', name: 'Bash', toolKind: 'shell', input: { command: 'sleep 20' } }, { cwd: '/p' });
-  assert.match(texts(b).join(''), /^Runningsleep 20/);
-  assert.doesNotMatch(texts(b).join(''), /\$ sleep 20/, 'a short command is said once, in the head');
-  b.result({ ok: false, stopped: true, text: '' });
-  assert.match(texts(b).join(''), /^Ransleep 20stopped by you/);
-  assert.ok(b.classList.contains('chat-is-stopped'));
-  const long = toolCard({ id: 'l', name: 'Bash', toolKind: 'shell', input: { command: 'cd sub &&\nnpm test' } }, { cwd: '/p' });
-  assert.match(texts(long).join(''), /\$ cd sub &&\nnpm test/, 'a command of several lines is shown whole');
-});
-
-test('tool cards: Stop while the OK card is open is never said in the past, and has no counts', async () => {
-  const { toolCard } = await import('../../web/chat/tools.js');
-  assert.equal(W.toolLine('Write', { file_path: '/p/a.txt', content: 'x' }, 'stopped').verb, 'Did not write');
-  assert.equal(W.toolLine('Bash', { command: 'ls' }, 'stopped').verb, 'Did not run');
-  assert.equal(W.toolLine('AskUserQuestion', {}, 'stopped').verb, 'Not answered', 'a verb without "Wants to" says it as refused');
-  const w = toolCard({ id: 'w', name: 'Write', toolKind: 'edit', input: { file_path: '/p/out.txt', content: 'x\n' } }, { cwd: '/p' });
-  w.quiet(); // its OK card opened
-  w.result({ ok: false, stopped: true, text: '' }); // Stop: the card was cancelled ("No longer waiting"), nothing written
-  const said = texts(w).join('');
-  assert.match(said, /^Did not writeout\.txtstopped by you/);
-  assert.doesNotMatch(said, /Wrote|\+1|−0/);
-  // An edit read back without its OK card (a reload after a restart): one step, stopped means not written.
-  const e = toolCard({ id: 'e', name: 'Edit', toolKind: 'edit', input: { file_path: '/p/a.js', old_string: 'a', new_string: 'b' } }, { cwd: '/p' });
-  e.result({ ok: false, stopped: true, text: '' });
-  assert.match(texts(e).join(''), /^Did not changea\.jsstopped by you$/);
-  // A command that ran until Stop ran.
-  const b = toolCard({ id: 'b', name: 'Bash', toolKind: 'shell', input: { command: 'sleep 20' } }, { cwd: '/p' });
-  b.result({ ok: false, stopped: true, text: '' });
-  assert.match(texts(b).join(''), /^Ransleep 20stopped by you/);
-});
-
 test('a failed action says the dashboard\'s sentence, never a script\'s own message', async () => {
   const { ApiError } = await import('../../web/lib.js');
   assert.equal(W.failText(new ApiError('This chat is not open', 404)), 'This chat is not open');
@@ -319,15 +212,6 @@ test('one money formatter: a cent that a sum of floats made 0.0099999 reads $0.0
   assert.equal(W.money(0.0042), '$0.0042', 'below a cent: four places');
   assert.equal(W.money(0), '$0');
   assert.match(W.turnLine({ ok: true, turnCostUsd: 0.03 - 0.02, usage: { input: 10, output: 5 } }), /^\$0\.01 · /);
-});
-
-test('tool cards: an error Claude Code wraps in tool_use_error shows only its words', async () => {
-  const { toolCard } = await import('../../web/chat/tools.js');
-  const el = toolCard({ id: 't', name: 'Grep', toolKind: 'search', input: { pattern: 'x' } });
-  el.result({ ok: false, text: '<tool_use_error>Error: No such tool available: Grep.</tool_use_error>' });
-  const all = texts(el).join('');
-  assert.match(all, /Error: No such tool available: Grep\./);
-  assert.doesNotMatch(all, /tool_use_error/);
 });
 
 test('the composer\'s menus: "/" at the start of the box, "@" anywhere, filtered as you type', async () => {
@@ -384,11 +268,11 @@ test('a command Claude Code answered by itself has no cost line; a message\'s pi
   assert.deepEqual(texts(box).filter(Boolean), ['b.log', 'picture'], 'a file, and a picture without a name, as chips');
 });
 
-test('Home\'s card of a chat that waits for an OK: Allow, Allow in this chat and Do not allow; a question leads into the chat', async () => {
+test('Home\'s card of a chat that waits for an OK: Allow, Allow in this session and Do not allow; a question leads into the chat', async () => {
   const { permissionActions } = await import('../../web/lib.js');
   const s = { kind: 'chat', name: 'chat:c1', chatId: '11111111-2222-4333-8444-555555555555', machine: null, status: 'attention', ask: { request: 'r1', type: 'permission', canAlways: true, alwaysText: 'Bash(npm test:*)' } };
   const words = (n) => byClass(n, 'btn').map((b) => texts(b).join(''));
-  assert.deepEqual(words(permissionActions(s)), ['Allow', 'Allow in this chat', 'Do not allow']);
+  assert.deepEqual(words(permissionActions(s)), ['Allow', 'Allow in this session', 'Do not allow']);
   assert.deepEqual(words(permissionActions({ ...s, ask: { ...s.ask, canAlways: false } })), ['Allow', 'Do not allow']);
   const q = permissionActions({ ...s, ask: { request: 'r2', type: 'question' } });
   assert.deepEqual(words(q), ['Answer']);
@@ -405,4 +289,69 @@ test('the chat\'s toasts sit under its head at every width: no rule gives their 
   assert.ok(rules.length >= 1, 'a rule places them');
   // A top and a bottom together stretch the box between them, and a toast in it draws as a tall block.
   for (const r of rules) assert.match(r, /bottom:\s*auto/, r);
+});
+
+test('a plan\'s answers in Claude Code\'s words: auto mode where the chat offers it, else auto-accept edits', async () => {
+  globalThis.window = globalThis.window || { addEventListener() {} };
+  assert.deepEqual(W.planAnswers(['manual', 'acceptEdits', 'auto', 'plan']), [{ label: 'Yes, and use auto mode', mode: 'auto' }, { label: 'Yes, manually approve edits', mode: 'manual' }]);
+  assert.deepEqual(W.planAnswers(['manual', 'acceptEdits', 'plan'])[0], { label: 'Yes, auto-accept edits', mode: 'acceptEdits' });
+  assert.equal(W.planAnswers(null)[0].mode, 'auto', 'an older computer that does not say: its Claude Code has auto mode');
+  const { askCard } = await import('../../web/chat/asks.js');
+  const said = (modes) => texts(askCard({ request: 'r', type: 'plan', tool: 'ExitPlanMode', input: { plan: 'Do it' }, plan: 'Do it' }, { A: '/x', cwd: '/p', modes })).join('|');
+  assert.match(said(['manual', 'auto']), /1\|Yes, and use auto mode\|2\|Yes, manually approve edits\|3\|No, keep planning/);
+  assert.match(said(['manual']), /Yes, auto-accept edits/);
+  assert.doesNotMatch(said(null), /accept edits|ask before edits/i, 'not the old words');
+});
+
+test('a message\'s files are chips, never a raw "@.uploads/…" path in its bubble, also as an older computer sends it', () => {
+  const png = { type: 'image', name: '20301117-131800-e13e-shot.png', mime: 'image/png' };
+  const csv = { type: 'file', name: '20301117-131800-a1b2-notes.csv', mime: 'text/csv' };
+  const sent = 'check the totals\n\n@.uploads/20301117-131800-a1b2-notes.csv';
+  assert.deepEqual(W.ownMessageView(sent, [png, csv]), { text: 'check the totals', files: [png, csv] }, 'as sent: the chip names it already');
+  // Read back from the conversation (or from an older computer): the picture without a name, the file only in the text.
+  const back = W.ownMessageView(sent, [{ type: 'image', name: '', mime: 'image/png' }]);
+  assert.equal(back.text, 'check the totals');
+  assert.deepEqual(back.files.map((f) => [f.type, f.name]), [['image', ''], ['file', '20301117-131800-a1b2-notes.csv']]);
+  assert.deepEqual(W.ownMessageView('a\n\n@".uploads/20301117-1-x y.txt"', []).files.map((f) => f.name), ['20301117-1-x y.txt'], 'a quoted name');
+  assert.deepEqual(W.ownMessageView('look at\n\n@src/app.js', []), { text: 'look at\n\n@src/app.js', files: [] }, 'his own @file stays his words');
+  assert.deepEqual(W.ownMessageView('plain', []), { text: 'plain', files: [] });
+});
+
+test('a message read for its files takes a moment, whatever "@" text it holds', () => {
+  // A long "@!@!…" after a blank line once took the page minutes (the time doubled with every two characters).
+  const timed = (s) => {
+    const t = performance.now();
+    const view = W.ownMessageView(s, []);
+    return { view, ms: performance.now() - t };
+  };
+  for (const s of [`a\n\n@${'!@'.repeat(26)}\nX`, `a\n\n@${'!@'.repeat(2500)}\nX`, `a${'\n\n@x'.repeat(1250)} y`, `\n\n@"${'a @"'.repeat(1250)}`]) {
+    const { view, ms } = timed(s);
+    assert.deepEqual(view, { text: s, files: [] }, 'not names: the text stays');
+    assert.ok(ms < 100, `${s.length} characters read in ${ms.toFixed(0)} ms`);
+  }
+  const names = `a\n\n${'@.uploads/x.txt '.repeat(300)}`;
+  const { view, ms } = timed(names);
+  assert.equal(view.text, 'a');
+  assert.equal(view.files.length, 300);
+  assert.ok(ms < 100, `${ms.toFixed(0)} ms`);
+  assert.deepEqual(W.ownMessageView('b\n\n@".uploads/a b.png"@.uploads/c.txt', []).files.map((f) => f.name), ['a b.png', 'c.txt'], 'two names with no blank between');
+  assert.deepEqual(W.ownMessageView('c\n\n@x\n\n@.uploads/d.txt', []).text, 'c\n\n@x\n\n@.uploads/d.txt', 'his own @x before it: all stays his words');
+});
+
+test('a queued message reads as its bubble will: its words and its files by name, never a raw "@.uploads/…" path', async () => {
+  const { queuedLine } = await import('../../web/chat/attach.js');
+  const m = { id: 'q1', state: 'sent', text: 'look at this\n\n@.uploads/20301117-164344-753d-notes.txt', attachments: [{ type: 'image', name: '20301117-164344-a1b2-screen.png', mime: 'image/png' }] };
+  assert.deepEqual(queuedLine(m), { text: 'look at this', names: ['screen.png', 'notes.txt'], label: 'look at this (screen.png, notes.txt)' });
+  assert.deepEqual(queuedLine({ text: 'plain' }), { text: 'plain', names: [], label: 'plain' }, 'an older computer sends no attachments');
+  assert.equal(queuedLine({ text: '\n\n@.uploads/20301117-164344-0f0f-x.log', attachments: [] }).label, 'x.log', 'only a file: its name');
+});
+
+test('a plan\'s first answer with the server\'s real mode list: auto mode only once the session showed it has it', async () => {
+  const { PERMISSION_MODES } = await import('../../src/config.mjs');
+  const v = { engine: { id: 'claude' }, choices: { modes: PERMISSION_MODES } };
+  assert.ok(PERMISSION_MODES.includes('auto'), 'Claude Code\'s list always names auto mode');
+  assert.deepEqual(W.planAnswers(W.planModes(v))[0], { label: 'Yes, auto-accept edits', mode: 'acceptEdits' }, 'not shown to be there: what works everywhere');
+  assert.deepEqual(W.planAnswers(W.planModes({ ...v, autoMode: true }))[0], { label: 'Yes, and use auto mode', mode: 'auto' });
+  assert.deepEqual(W.planModes({ engine: { id: 'opencode' }, choices: { modes: ['manual', 'auto'] } }), ['manual', 'auto'], 'another coding tool: its own list');
+  assert.equal(W.planModes(null), null, 'before the first state');
 });

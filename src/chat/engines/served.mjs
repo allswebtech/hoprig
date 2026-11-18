@@ -14,25 +14,73 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
  * The permission modes of an OpenCode chat, with the chip's words. The ids are the chat's own (the page's mode chip
  * and Shift+Tab know them): "manual" asks before it changes a file, runs a command, fetches a page or leaves the
  * folder; "acceptEdits" the same without the files; "bypassPermissions" allows everything (a question to the owner
- * still shows). A mode the chat does not offer here (Claude Code's plan, auto or never-ask) runs as "manual".
+ * still shows, and a delete the chat cannot read: src/chat/asks.mjs openCodeAllows). A mode the chat does not offer here (Claude Code's plan, auto or never-ask) runs as "manual".
  */
 export const MODES = Object.freeze(['manual', 'acceptEdits', 'bypassPermissions']);
 export const MODE_WORDS = Object.freeze({
   manual: { chip: 'Ask first', sub: 'Asks before it changes a file, runs a command, reads the web or leaves the folder' },
   acceptEdits: { chip: 'Accept edits', sub: 'Changes files without asking; asks before commands, the web and other folders' },
-  bypassPermissions: { chip: 'Bypass', sub: 'Allows everything without asking (riskiest)', danger: true },
+  bypassPermissions: { chip: 'Bypass', sub: 'Runs everything without asking; asks only before a delete written in plain sight outside the folder (riskiest)', danger: true },
 });
 export const modeOf = (mode) => (MODES.includes(mode) ? mode : 'manual');
 
-/** The rules a conversation gets for a mode (OpenCode's permission rules; the last that matches wins). */
-export function modeRules(mode) {
+/**
+ * The rules a conversation gets for a mode (OpenCode's permission rules; the last that matches wins), then the owner's
+ * own rules for the shell from his first deny on (`own`: ownRules), so that a rule of the chat never turns his "deny"
+ * into "ask" (seen on OpenCode 2.3: a conversation's rules come after those of his config files, and its "ask" for every
+ * shell call won over his deny of one).
+ * Bypass: OpenCode's own defaults allow everything, so without a rule a shell call would never be seen, `rm -rf ~`
+ * included. Every shell call is asked, and the chat answers it at once (src/chat/asks.mjs openCodeAllows): a card only
+ * for a delete it cannot read as plain. Edits, pages and other folders stay unasked. No "allow all" rule: it would
+ * also win over his deny rules.
+ */
+export function modeRules(mode, own = []) {
   const ask = (actions) => actions.map((action) => ({ action, resource: '*', effect: 'ask' }));
   const m = modeOf(mode);
-  // Bypass adds no "allow all" rule: such a rule would also win over the deny rules of the owner's own settings.
-  // OpenCode's defaults allow almost everything; the chat allows what it still asks (asks.mjs).
-  if (m === 'bypassPermissions') return [];
-  if (m === 'acceptEdits') return ask(['shell', 'webfetch', 'external_directory']);
-  return ask(['edit', 'shell', 'webfetch', 'external_directory']);
+  const his = Array.isArray(own) ? own : [];
+  if (m === 'bypassPermissions') return [...ask(['shell']), ...his];
+  if (m === 'acceptEdits') return [...ask(['shell', 'webfetch', 'external_directory']), ...his];
+  return [...ask(['edit', 'shell', 'webfetch', 'external_directory']), ...his];
+}
+
+// OpenCode's wildcard for an action or a resource: * any run of characters, ? one.
+const matches = (pattern, s) => new RegExp(`^${String(pattern).replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 's').test(s);
+
+/**
+ * The owner's own rules that reach the shell, as they follow the chat's rules (modeRules): from OpenCode's config
+ * documents as its server reads them for a folder (GET /api/config: his global file, the project's own, Hoprig's), the
+ * config's rules and those of the agents a chat runs, in his order, from his first "deny" on, with every effect that is
+ * not "deny" turned into "ask". The last match then says what he said: denied where his own last matching rule denies;
+ * asked (answered by the chat or put to him, as the mode says) where a later rule of his excepts it ("git *" deny, then
+ * "git status" allow); and what none of his rules names is asked by the chat's own rule. Before his first deny nothing
+ * is needed: the chat's rule asks for it. null where the rules are of a shape not known (a failed read).
+ */
+export function ownRules(documents) {
+  const all = [];
+  // Rules of a shape OpenCode 2.3 does not answer with (it gives every config file's permissions as a list of { action,
+  // resource, effect }, also for a file that writes the older "permission": { "bash": { … } }): not read (null).
+  const wellFormed = (r) => r && typeof r === 'object' && ['allow', 'ask', 'deny'].includes(r.effect) && typeof r.action === 'string' && typeof r.resource === 'string';
+  let unknown = false;
+  const take = (rules) => {
+    if (rules === undefined) return;
+    if (!Array.isArray(rules) || !rules.every(wellFormed)) {
+      unknown = true;
+      return;
+    }
+    for (const r of rules) if (matches(r.action, 'shell')) all.push({ action: r.action, resource: r.resource, effect: r.effect === 'deny' ? 'deny' : 'ask' });
+  };
+  for (const d of Array.isArray(documents) ? documents : []) {
+    const info = d && d.info && typeof d.info === 'object' ? d.info : null;
+    if (!info) continue;
+    if (info.permission !== undefined) unknown = true; // the older key, never in its answer
+    take(info.permissions);
+    // The agents a chat's conversation runs: "build" and its subagents' "general" (another agent's rules are its own).
+    const agents = info.agents && typeof info.agents === 'object' ? info.agents : {};
+    for (const name of ['build', 'general']) take(agents[name] && agents[name].permissions);
+  }
+  if (unknown) return null;
+  const first = all.findIndex((r) => r.effect === 'deny');
+  return first < 0 ? [] : all.slice(first).slice(0, 500);
 }
 
 /** The efforts (OpenCode: the model's variant). */

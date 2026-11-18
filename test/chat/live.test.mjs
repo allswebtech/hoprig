@@ -3,6 +3,7 @@
 // inside the chat's folder, the / commands, usage, and a message's uploaded picture and file. Claude Code is the
 // stand-in (fixtures/fake-claude.mjs).
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -178,6 +179,28 @@ test('the routes of a running chat', { timeout: 120_000, skip: process.platform 
   assert.deepEqual((await owner('GET', `${A}/commands`)).json.commands.map((x) => x.name), ['compact', 'review']);
   const usage = (await owner('GET', `${A}/usage`)).json;
   assert.equal(usage.limits.five_hour.percent, 42);
+  // The session rail's Changes card: the chat's own folder, behind the login. The folder is a subfolder of a
+  // repository here (made for this check, removed after it): a change beside it never shows.
+  assert.deepEqual((await owner('GET', `${A}/changes`)).json, { git: false }, 'no repository: no card');
+  const git = (...a) => execFileSync('git', ['-c', 'user.name=Alex', '-c', 'user.email=alex@box2', '-c', 'commit.gpgsign=false', ...a], { cwd: work, stdio: 'pipe' });
+  const beside = path.join(work, 'beside');
+  fs.mkdirSync(beside);
+  fs.writeFileSync(path.join(beside, 'x.txt'), 'a\n');
+  git('init', '-q');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'one');
+  fs.writeFileSync(path.join(proj, 'README.md'), 'Y\nmore\n'); // 2 added, 1 removed
+  fs.writeFileSync(path.join(proj, 'todo.md'), 'a\nb\nc\n'); // new: 3 added
+  fs.writeFileSync(path.join(beside, 'x.txt'), 'a\nb\n');
+  fs.writeFileSync(path.join(beside, 'new.txt'), 'n\n');
+  const ch = await owner('GET', `${A}/changes`);
+  assert.equal(ch.status, 200);
+  assert.deepEqual(ch.json, { git: true, files: 2, untracked: 1, added: 5, removed: 1, list: [{ path: 'README.md', added: 2, removed: 1, new: false }, { path: 'todo.md', added: 3, removed: 0, new: true }] });
+  assert.equal((await request(base, 'GET', `${A}/changes`)).status, 401);
+  fs.rmSync(path.join(work, '.git'), { recursive: true, force: true });
+  fs.rmSync(beside, { recursive: true, force: true });
+  fs.rmSync(path.join(proj, 'todo.md'));
+  fs.writeFileSync(path.join(proj, 'README.md'), 'y\n');
 
   // ---- a message's files: a picture goes in as an image, any other file as @path ----
   const up = async (name, bytes) => (await owner('POST', `${A}/upload`, undefined, { raw: bytes, headers: { Cookie: cookie, 'X-File-Name': name } })).json.path;

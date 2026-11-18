@@ -11,7 +11,11 @@ import { test } from 'node:test';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-addon-'));
 process.env.HOPRIG_CONFIG_DIR = path.join(tmp, 'config');
 process.env.HOPRIG_STATE_DIR = path.join(tmp, 'state');
-test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+test.after(() => {
+  // A test that fails midway must not leave its gateway running (it is started detached, to outlive its starter).
+  try { process.kill(JSON.parse(fs.readFileSync(path.join(tmp, 'state', 'addons', 'trouteai.pid'), 'utf8')).pid, 'SIGKILL'); } catch { /* none left */ }
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
 
 // A free port, and a fake `trouteai` on PATH that listens on the port it is given.
 const port = await new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
@@ -60,4 +64,15 @@ test('command line: list, an unknown add-on, start printing nothing on stdout', 
   assert.match(started.stderr, /TRouteAI started/);
   assert.match(run('status', 'trouteai').stdout, /running at http:\/\/localhost:/);
   assert.match(run('stop', 'trouteai').stdout, /TRouteAI stopped/);
+});
+
+test('stop: a gateway whose answer comes late is stopped, not said to be "not running"', { skip: process.platform === 'win32' }, async () => {
+  assert.equal((await T.start()).ok, true);
+  // This process held up longer than the wait for an answer (a computer under load): the answer is there, and so is
+  // the end of the wait.
+  const stopping = T.stop();
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3500);
+  const r = await stopping;
+  assert.deepEqual([r.ok, r.already], [true, undefined], JSON.stringify(r));
+  assert.equal((await T.status()).running, false);
 });

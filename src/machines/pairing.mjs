@@ -9,11 +9,11 @@
 // Codes live in <stateDir>/pair-codes.json (onetime.mjs): the CLI makes them and the running server checks them.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config.mjs';
+import { knock } from '../knock.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 import { OneTimeStore } from './onetime.mjs';
 import { hostName } from '../paths.mjs';
@@ -91,18 +91,15 @@ export function dashboardAddress(cfg = loadConfig(), running = runningDashboard(
   return { host: WILDCARD.has(host) ? '127.0.0.1' : host === 'localhost' ? '127.0.0.1' : host.replace(/^\[|\]$/g, ''), port };
 }
 
-/** Does something listen there? (Whether it is this dashboard, the other side finds out when it connects.) */
-export function listening({ host, port }, timeoutMs = 1500) {
-  return new Promise((resolve) => {
-    const s = net.connect({ host, port });
-    const done = (v) => {
-      s.destroy();
-      resolve(v);
-    };
-    s.setTimeout(timeoutMs, () => done(false));
-    s.once('connect', () => done(true));
-    s.once('error', () => done(false));
-  });
+/**
+ * What the dashboard's address says: "open", "closed" or "silent" (no answer in time), as knock.mjs tells them.
+ * (Whether it is this dashboard, the other side finds out when it connects.)
+ */
+export const answers = ({ host, port }, timeoutMs = 3000) => knock({ host, port }, timeoutMs);
+
+/** Does something listen there? */
+export async function listening(addr, timeoutMs) {
+  return (await answers(addr, timeoutMs)) === 'open';
 }
 
 /** What this computer tells another dashboard about itself. Shared by `pair --json` and GET /api/machine. */

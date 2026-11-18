@@ -42,6 +42,8 @@
 //   A resumed conversation (--resume <id>) keeps writing the same transcript, <claudeDir>/projects/<slug>/<id>.jsonl,
 //     so a chat opens in the terminal (claude --resume <id>) and the other way round.
 
+import { askType } from '../../asking.mjs';
+
 /** The environment a chat's process gets on top of the provider's: file checkpoints, so a turn's edits can be undone. */
 export const CHAT_ENV = { CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1' };
 
@@ -165,14 +167,16 @@ export function grantSettings(atoms, { ultracode = false } = {}) {
 }
 
 // Claude Code marks these two itself (requires_user_interaction); their names hold where a version does not.
-const isQuestion = (ask) => ask.interactive || ask.tool === 'AskUserQuestion' || ask.tool === 'ExitPlanMode';
+const isQuestion = (ask) => ask.interactive || askType(ask.tool) !== 'permission';
 
 /**
  * Why an ask is the owner's to answer even where the chat answers by itself (bypassPermissions), or null:
  *   "question"  the card is the answer (a question to the owner, a plan to approve): never a permission
  *   "rule"      the owner's own settings say "ask" for this
  *   "hook"      a hook of the owner's setup says a person must look
- *   "safety"    Claude Code's stop before a delete that could empty the disk or the home folder
+ *   "safety"    Claude Code's stop before a delete it cannot judge: never "allow in this chat"; in bypass mode the
+ *               one rule decides it as in a terminal (src/chat/asks.mjs: the chat's hook answers a delete plainly
+ *               inside the folder the shell is in)
  */
 export function ownerOnly(ask) {
   if (isQuestion(ask)) return 'question';

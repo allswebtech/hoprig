@@ -94,7 +94,7 @@ test('addresses: a token never gets into the map; a map from a repository is che
   const ok = { version: 1, brain: { url: null }, projects: [{ name: 'shop', url: null, repos: [{ dir: 'code/web', url: null }] }], others: [{ dir: 'git/tool', url: null }] };
   assert.equal(M.validateMap(ok).ok, true);
   for (const bad of [
-    { ...ok, version: 2 }, { ...ok, extra: 1 },
+    { ...ok, version: 3 }, { ...ok, extra: 1 }, { ...ok, groups: [] },
     { ...ok, projects: [{ name: '../x', url: null, repos: [] }] }, { ...ok, projects: [{ name: 'no-ai', url: null, repos: [] }] },
     { ...ok, projects: [{ name: 'shop', url: null, repos: [{ dir: '../../etc', url: null }] }] },
     { ...ok, projects: [{ name: 'shop', url: null, repos: [{ dir: '/etc', url: null }] }] },
@@ -199,9 +199,14 @@ test('sync: behind → fast-forward, unsaved work stays; ahead → listed, pushe
   fs.writeFileSync(path.join(B.ws, 'ai_brain', 'learnings.md'), 'unsaved');
   fs.writeFileSync(path.join(B.projects, 'shop', 'code', 'shop-web', 'scratch.md'), 'unsaved');
 
+  const webB = path.join(B.projects, 'shop', 'code', 'shop-web');
+  const refsBefore = w.sh(webB, 'for-each-ref');
   const dry = await syncAll({ dir: B.ws, projects: B.projects, dryRun: true });
-  assert.deepEqual(byLabel(dry, 'shop/code/shop-web').did, ['would pull 1, unless they touch your 1 uncommitted change']);
-  assert.notEqual(head(path.join(B.projects, 'shop', 'code', 'shop-web')), head(path.join(A.projects, 'shop', 'code', 'shop-web')), 'a dry run changes nothing');
+  // A dry run does not fetch: A's commit is not on B yet, so it is named, not counted.
+  assert.deepEqual(byLabel(dry, 'shop/code/shop-web').did, ["would fetch the server's new commits on main first (a dry run does not fetch, so they are not counted), then fast-forward if main is only behind"]);
+  assert.equal(byLabel(dry, 'shop/code/shop-web').todo[0].kind, 'uncommitted');
+  assert.notEqual(head(webB), head(path.join(A.projects, 'shop', 'code', 'shop-web')), 'a dry run changes nothing');
+  assert.equal(w.sh(webB, 'for-each-ref'), refsBefore, 'not even a remote-tracking ref');
 
   const r = await syncAll({ dir: B.ws, projects: B.projects });
   assert.equal(r.repos[0].label, 'ai_brain', 'the brain first');
@@ -213,8 +218,11 @@ test('sync: behind → fast-forward, unsaved work stays; ahead → listed, pushe
   assert.equal(byLabel(r, 'shop').todo[0].kind, 'diverged');
   assert.match(byLabel(r, 'shop').todo[0].command, /pull --rebase/);
   assert.equal(head(path.join(B.projects, 'shop')), parentB, 'diverged: not touched');
-  assert.equal(byLabel(r, 'ai_brain').todo[0].kind, 'pull-blocked');
-  assert.match(byLabel(r, 'ai_brain').todo[0].command, /stash && .* pull --ff-only && .* stash pop/);
+  // learnings.md is new in A's commit and untracked here: a stash would not take it (git stash leaves untracked files),
+  // so the words are 'move it away first', not stash && pull && stash pop.
+  assert.equal(byLabel(r, 'ai_brain').todo[0].kind, 'kept-back');
+  assert.match(byLabel(r, 'ai_brain').todo[0].why, /put files where learnings\.md is here, which this repository does not track/);
+  assert.doesNotMatch(byLabel(r, 'ai_brain').todo[0].command, /stash/);
   assert.equal(head(path.join(B.ws, 'ai_brain')), brainB, 'unsaved work in the same file: not touched');
   assert.equal(fs.readFileSync(path.join(B.ws, 'ai_brain', 'learnings.md'), 'utf8'), 'unsaved');
   assert.deepEqual(byLabel(r, 'git/gone').todo[0].kind, 'missing');
@@ -239,9 +247,11 @@ test('sync --with another computer over SSH: pull only, the other side is never 
   Object.assign(process.env, { GIT_SSH_COMMAND: fake, GIT_SSH_VARIANT: 'ssh' });
   try {
     const info = { name: 'box2', target: 'alex@box2', dir: A.ws, projectsDir: A.projects };
+    const refsB = w.sh(path.join(B.projects, 'shop', 'code', 'shop-web'), 'for-each-ref');
     const dry = await syncWith('box2', { info, dir: B.ws, projects: B.projects, dryRun: true });
-    // B's shop-web still has the unsaved scratch.md of the test above: it stays, and does not stop the pull.
-    assert.deepEqual(byLabel(dry, 'shop/code/shop-web').did, ['would get 1 from box2, unless they touch your 1 uncommitted change']);
+    // A dry run fetches nothing from the other computer: its new commit is named, not counted.
+    assert.deepEqual(byLabel(dry, 'shop/code/shop-web').did, ["would get main's new commits from box2 (a dry run does not fetch, so they are not counted), and fast-forward if main is only behind"]);
+    assert.equal(w.sh(path.join(B.projects, 'shop', 'code', 'shop-web'), 'for-each-ref'), refsB, 'no ref was written here');
     const r = await syncWith('box2', { info, dir: B.ws, projects: B.projects });
     assert.deepEqual(byLabel(r, 'shop/code/shop-web').did, ['got 1 from box2 (your 1 uncommitted change stays)']);
     assert.equal(fs.readFileSync(path.join(B.projects, 'shop', 'code', 'shop-web', 'scratch.md'), 'utf8'), 'unsaved');
@@ -265,13 +275,14 @@ test('sync --with another computer over SSH: pull only, the other side is never 
   await assert.rejects(peerInfo('box2', { remote: async () => ({ ok: true, result: { stdout: JSON.stringify({ dir: '/x; rm -rf ~', projectsDir: '/x' }) } }) }), (e) => e.status === 502);
 });
 
-test('set: changes where the workspace and the projects folder are, moves nothing, shows the mv', () => {
+test('set: changes where the workspace and the projects folder are, moves nothing, shows the mv', async () => {
   const D = w.computer('dee');
   D.use();
   fs.mkdirSync(path.join(D.home, 'Workspace'), { recursive: true });
   const r = setPlaces({ dir: '~/Code', projects: '~/Code/projects' }, { home: D.home });
   assert.deepEqual(r.changed.map((c) => [c.what, c.toPath]), [['workspace folder', path.join(D.home, 'Code')], ['projects folder', path.join(D.home, 'Code', 'projects')]]);
-  assert.deepEqual(r.moves, [`mv "${path.join(D.home, 'Workspace')}" "${path.join(D.home, 'Code')}"`]);
+  const { showCommand } = await import('../../src/setup/system.mjs');
+  assert.deepEqual(r.moves, [showCommand(['mv', path.join(D.home, 'Workspace'), path.join(D.home, 'Code')])]);
   assert.ok(fs.existsSync(path.join(D.home, 'Workspace')), 'nothing was moved');
   const cfg = JSON.parse(fs.readFileSync(path.join(D.env.HOPRIG_CONFIG_DIR, 'config.json'), 'utf8'));
   assert.equal(cfg.workspaceDir, path.join(D.home, 'Code'));

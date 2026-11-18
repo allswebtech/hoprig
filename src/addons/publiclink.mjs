@@ -24,7 +24,7 @@
 // PATH is used as it is. A downloaded file is checked against its SHA-256 in CLOUDFLARED_SHA256 before it is used.
 //
 // Because the address is new at each start, it is sent through the owner's notifications (Settings → Notifications,
-// the event "link"), so his phone gets the new link. One more local service (such as TRouteAI's own dashboard) can
+// the event "link"), so his phone gets the new link. One more local service (such as a gateway's own dashboard) can
 // get a temporary address of its own the same way.
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';

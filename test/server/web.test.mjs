@@ -133,7 +133,7 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   const src = (f) => fs.readFileSync(path.join(WEB, f), 'utf8');
   const pages = [...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)', title: [^,]+, icon: '[a-z]+'(?:, group: '(main|more)', order: (\d+))?/g)];
   const group = (g) => pages.filter((m) => m[2] === g).sort((a, b) => a[3] - b[3]).map((m) => m[1]);
-  assert.deepEqual(group('main'), ['workspace', 'providers', 'computers'], 'Home is the router\'s own, then Workspace · Providers · Computers');
+  assert.deepEqual(group('main'), ['work', 'workspace', 'providers', 'computers'], 'Home is the router\'s own, then Work · Workspace · Providers · Computers');
   assert.deepEqual(group('more'), ['automations', 'skills', 'brain', 'tia', 'settings']);
   // Every address in PAGE_ADDRESSES (what Tia's open_screen may open) leads to a page that exists.
   const ids = new Set([...pages.map((m) => m[1]), ...[...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)'/g)].map((m) => m[1])]);
@@ -146,7 +146,7 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   }
   const settingsPages = [...pageFiles().map(src).join('\n').matchAll(/registerSettingsPage\(\{\s*id: '([a-z-]+)', title: ([^,]+), icon: '[a-z]+', order: (\d+)/g)]
     .sort((a, b) => a[3] - b[3]).map((m) => m[1]);
-  assert.deepEqual(settingsPages, ['new-sessions', 'workspace', 'notifications', 'appearance', 'security', 'public-link', 'tia', 'editor', 'addons', 'codingtools', 'updates', 'about']);
+  assert.deepEqual(settingsPages, ['new-sessions', 'workspace', 'work', 'notifications', 'appearance', 'security', 'public-link', 'tia', 'editor', 'addons', 'codingtools', 'updates', 'about']);
   const app = src('app.js');
   for (const [from, to] of [['/pc', '/computer'], ['/pc/projects', '/workspace'], ['/settings/accounts', '/providers'], ['/settings/computers', '/computers'], ['/settings/skills', '/skills'], ['/settings/signin', '/settings/security'], ['/settings/auto', '/providers'], ['/tia-settings', '/settings/tia'], ['/settings/claude', '/settings/updates']]) {
     assert.ok(app.includes(`'${from}': '${to}'`), `${from} → ${to}`);
@@ -214,7 +214,7 @@ test('New session: a folder outside the projects folder gets the line that leads
   assert.equal(outsideProjects('C:\\Users\\me\\scratch', 'C:\\Users\\me\\projects'), true);
   assert.equal(outsideProjects('C:\\Users\\me\\projects\\a', 'C:\\Users\\me\\projects'), false);
   assert.equal(outsideProjects('/x', null), false, 'nothing said while the projects folder is not known');
-  const ns = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
+  const ns = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
   assert.match(ns, /'Make it a project'/);
   assert.match(ns, /#\/new-project\/\$\{encodeURIComponent\(name\)\}/);
   const pj = fs.readFileSync(path.join(WEB, 'projects.js'), 'utf8');
@@ -234,6 +234,12 @@ test('AI brain: a file is shown as safe formatting, never as HTML; the list is g
   const c = texts(mdView('Rules.\n<!-- hoprig: memory -->\n## Memory\nKeep it.\n<!-- /hoprig: memory --> trailing'));
   assert.ok(!c.some((t) => t.includes('<!-- hoprig: memory -->')), 'a marker line is not shown');
   assert.ok(c.some((t) => t.includes('<!-- /hoprig: memory --> trailing')), 'a comment with text after it stays text');
+  const multi = texts(mdView('<!-- a comment\n<img src=x onerror=alert(1)>\n-->'));
+  assert.deepEqual(multi, ['<!-- a comment <img src=x onerror=alert(1)> -->'], 'a comment over several lines is shown as text, never read as markup');
+  assert.deepEqual(texts(mdView('## Title ##  \n# ##\n# C# #')), ['Title', '##', 'C#'], 'closing #s go; a heading of only #s stays');
+  const t = performance.now();
+  assert.deepEqual(texts(mdView(`# a${' '.repeat(50_000)}x`)), [`a${' '.repeat(50_000)}x`]);
+  assert.ok(performance.now() - t < 100, `a heading with a long run of blanks: ${(performance.now() - t).toFixed(0)} ms`);
   const { brainGroups } = await import('../../web/brain.js');
   const item = (id, extra = {}) => ({ id, title: id, file: `~/${id}`, size: 1, modified: 0, ...extra });
   const g = brainGroups({
@@ -306,7 +312,7 @@ test('session view: the header holds back, name and state, the account and one m
   assert.match(src, /confirmSheet\(\{\s*title: `End "\$\{name\}"\?`/, 'and confirmed');
   assert.match(src, /title: 'Move to another provider'/);
   assert.match(src, /prefs\.get\('session\.keys', !finePointer\)/, 'the key bar folds away and remembers it: off by default with a mouse and keyboard, on on a phone');
-  assert.match(src, /'Needs your OK'/, 'the same words as Home');
+  assert.match(src, /h\('strong', stateOf\(s\)\.text\)/, 'the same words as Home: the banner\'s head is the state\'s own text');
 });
 
 // ---------- Home ----------
@@ -655,12 +661,12 @@ test('a computer runs sessions only when online, not a hub, with Claude Code and
   assert.match(runsSessions({ status: 'online', hub: true, profiles: p }).why, /hub/);
   assert.match(runsSessions({ status: 'online', profiles: p }, null).why, /Claude Code is not installed/);
   assert.match(runsSessions({ status: 'online', profiles: [{ name: 'auto', virtual: true }] }).why, /No provider/);
-  const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
+  const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
   assert.match(src, /groupHead\('Computer'\)/, 'the computer is the first choice');
-  assert.match(src, /location\.hash = link\('#\/new', m\.machine\)/, 'the choice is the address, as the computer pill');
+  assert.match(src, /prefs\.set\('new\.machine'/, 'the choice is kept for the next time');
   assert.doesNotMatch(src, /select\('Computer'/, 'not hidden under Options any more');
-  assert.match(src, /select\('Model'/, 'a model for this one session');
-  assert.match(src, /model: st\.model \|\| null/);
+  assert.match(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /select\('Model'/, 'a model for this one session');
+  assert.match(fs.readFileSync(path.join(WEB, 'newsession-start.js'), 'utf8'), /model: st\.model \|\| null/);
   const app = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
   assert.match(app, /CODING_PAGES\.includes\(page\.id\) && onHub\(hash\)/, 'a hub opens the coding pages on a computer that codes');
 });
@@ -729,6 +735,26 @@ test('session view: the short placeholder on a narrow screen', () => {
 });
 
 // ---------- the workspace through git ----------
+test('sync rows: what git ignores in the way is its own row, with no merge session; a diverged one keeps it', async () => {
+  const { syncRows, TODO } = await import('../../web/projects.js');
+  const why = '1 to pull, but the incoming commits put files where builds/acme is here, which this repository does not track (another repository, perhaps): nothing was changed; move it away first, then';
+  const kept = texts(syncRows([{ label: 'kits', did: [], todo: [{ kind: 'kept-back', why, command: 'git merge --ff-only' }], dir: '/x/kits' }]));
+  assert.ok(kept.includes(TODO['kept-back']()), 'its own words');
+  assert.ok(!kept.some((t) => /commit/i.test(t) && /Save/.test(t)), 'never "save (commit) your changes": the owner changed nothing');
+  assert.ok(!kept.includes('Sort it out in the App'), 'no session that merges or rebases: that deletes the repository in the way');
+  // A row that also needs a decision (diverged, or a pull held back by changes here) still gets no merge session while
+  // something is in the way: the guard, not the missing kind, keeps the button away.
+  for (const kind of ['diverged', 'pull-blocked']) {
+    const mixed = texts(syncRows([{ label: 'kits', did: [], todo: [{ kind: 'kept-back', why, command: 'git merge --ff-only' }, { kind, why: 'main and its upstream have both moved (1 ahead, 1 behind)', command: '' }], dir: '/x/kits' }]));
+    const said = mixed.join(' ');
+    assert.ok(said.includes(TODO['kept-back']()) && said.includes(TODO[kind]()), `both said (${kind})`);
+    assert.ok(!mixed.includes('Sort it out in the App'), `no merge session where something is in the way, even with a ${kind} to-do`);
+  }
+  const both = texts(syncRows([{ label: 'kits', did: [], todo: [{ kind: 'diverged', why: 'main and its upstream have both moved (1 ahead, 1 behind)', command: '' }], dir: '/x/kits' }]));
+  assert.ok(both.includes('Sort it out in the App'));
+  assert.match(fs.readFileSync(path.join(WEB, 'projects.js'), 'utf8'), /ask me before you merge or rebase\. A folder this repository ignores may be a repository of its own: a merge or a rebase deletes it/, 'the session is told what a merge or a rebase deletes');
+});
+
 test('workspace: one line about it, the map in groups, commands that still work when pasted', async () => {
   const { workspaceLine, mapGroups, homeCommand } = await import('../../web/workspace.js');
   const map = { exists: true, entries: [
@@ -757,6 +783,8 @@ test('workspace: one line about it, the map in groups, commands that still work 
   assert.deepEqual(g[1].rows.map((r) => [r.label, r.repos.map((x) => x.label)]), [['shop', ['shop/code/api']], ['invoices', []]]);
   assert.deepEqual(g[3].rows.map((r) => r.label), ['development/flutter'], 'a tool has a group of its own');
   assert.equal(homeCommand('git -C "/h/me/Workspace/ai_brain" add workspace.json', '/h/me'), 'git -C ~/"Workspace/ai_brain" add workspace.json');
+  assert.equal(homeCommand("git -C '/h/me/my brain' add workspace.json && git -C /h/me/Workspace/ai_brain commit", '/h/me'), "git -C ~/'my brain' add workspace.json && git -C ~/Workspace/ai_brain commit");
+  assert.equal(homeCommand('git -C /h/me2/x status', '/h/me'), 'git -C /h/me2/x status', 'only the home folder itself');
   const { notHereLine } = await import('../../web/workspace.js');
   const texts = (n) => (!n ? [] : n instanceof FakeText ? [n.text] : n.children.flatMap(texts));
   const line = notHereLine({ notHere: ['invoices', 'invoices/code/api'], map: { projects: [{ name: 'invoices', url: 'https://git.example.com/x/invoices.git' }], others: [] } });
@@ -830,12 +858,15 @@ test('web modules import every lib.js helper they call', () => {
 
 test('a question waiting for an OK: the same answers on the card and the banner; "always" only when Claude offers it', async () => {
   const { permissionActions, needsYou } = await import('../../web/lib.js');
-  const ask = { name: 'mobile-app', kind: 'claude', status: 'attention', machine: null };
+  const ask = { name: 'mobile-app', kind: 'claude', status: 'attention', machine: null, ask: { type: 'permission', what: 'npm install', waiting: 1 } };
   assert.deepEqual(texts(permissionActions(ask)), ['Allow', 'Do not allow'], 'no third button without one on the screen');
   const always = { key: '2', text: "Yes, and don't ask again for npm install commands", label: "Don't ask again for npm install commands" };
   assert.deepEqual(texts(permissionActions({ ...ask, always })), ['Allow', "Allow, and don't ask again for npm install commands", 'Do not allow']);
   const edits = { key: '2', text: 'Yes, allow all edits during this session (shift+tab)', label: 'Allow all edits during this session' };
   assert.deepEqual(texts(permissionActions({ ...ask, always: edits })), ['Allow', 'Allow all edits during this session', 'Do not allow']);
+  // Claude Code 2.1.326's own words (server/prompts.mjs alwaysOption).
+  const access = { key: '2', text: 'Yes, and always allow access to /home/alex/app from this project', label: 'Always allow access to /home/alex/app from this project' };
+  assert.deepEqual(texts(permissionActions({ ...ask, always: access })), ['Allow', 'Always allow access to /home/alex/app from this project', 'Do not allow']);
   assert.equal(permissionActions({ ...ask, always: { ...always, key: 'Enter' } }).children.length, 2, 'a key that is not a number is never sent');
   assert.equal(permissionActions({ ...ask, status: 'waiting' }), null);
   assert.equal(permissionActions({ ...ask, kind: 'chat' }), null, 'a chat answers on its own cards');
@@ -850,18 +881,137 @@ test('a question waiting for an OK: the same answers on the card and the banner;
   assert.doesNotMatch(fs.readFileSync(path.join(WEB, 'session.js'), 'utf8'), /rank <= 2/);
 });
 
-test('new session: a folder where a session runs opens that session, one where a chat works opens that chat', async () => {
+test('a terminal session\'s answers: only a permission has them; a question or a plan is answered in the terminal', async () => {
+  const { permissionActions, stateOf, needsYou } = await import('../../web/lib.js');
+  const card = { name: 'web ui', kind: 'claude', status: 'attention', machine: null, note: 'Claude asks: Which toppings?' };
+  const hrefs = (n) => (n instanceof FakeText ? [] : [...(n.attrs.href ? [n.attrs.href] : []), ...n.children.flatMap(hrefs)]);
+  for (const [type, label, here, state] of [
+    ['question', 'Answer', 'Answer in the terminal below: the arrow keys choose, Enter takes the answer.', 'Needs your answer'],
+    ['plan', 'Read the plan', 'Read the plan in the terminal below and choose there.', 'Needs your approval'],
+  ]) {
+    const s = { ...card, ask: { type }, always: { key: '2', text: "Yes, and don't ask again", label: "Don't ask again" } };
+    // On Home and Workspace: no Allow (Enter would pick an answer nobody read), one link to the terminal.
+    assert.deepEqual(texts(permissionActions(s)), [label], type);
+    assert.deepEqual(hrefs(permissionActions(s)), ['#/s/web%20ui'], type);
+    assert.deepEqual(hrefs(permissionActions({ ...s, machine: 'box2' })), ['#/m/box2/s/web%20ui'], 'on its own computer');
+    // On the session page the terminal is right below: a sentence, no button at all.
+    assert.deepEqual(texts(permissionActions(s, null, { here: true })), [here]);
+    assert.equal(stateOf(s).text, state);
+    assert.equal(needsYou(s), true);
+  }
+  const permission = { ...card, ask: { type: 'permission', what: 'touch b.txt', waiting: 1 } };
+  assert.deepEqual(texts(permissionActions(permission, null, { here: true })), ['Allow', 'Do not allow']);
+  assert.equal(stateOf(permission).text, 'Needs your OK');
+  assert.equal(stateOf(card).text, 'Needs your OK', 'a notification alone: the kind is not known');
+  // The server types an answer only into the dialog that shows the card's command or file, and only while one asker
+  // waits: with two, or with nothing to compare, the owner answers in the terminal (Claude Code shows its own queue).
+  for (const [ask, why] of [[{ ...permission.ask, waiting: 2 }, 'More than one question waits: answer them in the terminal'], [{ type: 'permission', what: '' }, 'Answer in the terminal'], [undefined, 'Answer in the terminal']]) {
+    assert.deepEqual(texts(permissionActions({ ...card, ask }, null, { here: true })), [`${why} below.`]);
+    assert.deepEqual(texts(permissionActions({ ...card, ask })), [`${why}.`, 'Answer']);
+    assert.deepEqual(hrefs(permissionActions({ ...card, ask })), ['#/s/web%20ui']);
+  }
+  assert.match(fs.readFileSync(path.join(WEB, 'session.js'), 'utf8'), /permissionActions\([^;]*\{ here: true \}\)/, 'the banner says it is the session page');
+});
+
+test('a terminal session\'s answers: an answer that was sent is not offered again until the card says something new', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  document.body = new FakeElement('body');
+  FakeElement.prototype.remove = function remove() {};
+  const fetchWas = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = fetchWas;
+    delete document.body;
+    delete FakeElement.prototype.remove;
+  });
+  const { permissionActions, answeredNow } = await import('../../web/lib.js');
+  const card = { name: 'web ui', kind: 'claude', status: 'attention', machine: null, statusAt: 5, askAt: 7, ask: { type: 'permission', what: 'touch b.txt', waiting: 1 } };
+  const sent = [];
+  let answer = { ok: true, status: 200, json: async () => ({ ok: true }) };
+  globalThis.fetch = async (u, o) => {
+    sent.push([u, JSON.parse(o.body)]);
+    return answer;
+  };
+  let looks = 0;
+  const press = (b) => b.listeners.click({ preventDefault() {}, stopPropagation() {}, currentTarget: b });
+  let box = permissionActions(card, () => looks++);
+  await press(box.children[0]);
+  // The owner's own answer, meant for a permission question: the server types it only while one is on the screen that
+  // shows the card's command. Allow is the number of "Yes", which takes it wherever the arrow is.
+  assert.deepEqual(sent, [['/api/sessions/web%20ui/key', { key: '1', owner: true, question: true, about: 'touch b.txt' }]]);
+  assert.deepEqual(texts(box), ['Your answer was sent.'], 'the buttons are gone at once, not with the next look seconds later');
+  assert.equal(looks, 1, 'and the page looks at once');
+  t.mock.timers.tick(2000);
+  assert.equal(looks, 3, 'and again soon: the coding tool has gone on by then');
+  // The same card drawn again (Home draws every card anew with every look): still no buttons.
+  assert.equal(answeredNow(card), true);
+  assert.deepEqual(texts(permissionActions(card)), ['Your answer was sent.']);
+  // The next question of the same batch has its own time: its answers show at once.
+  assert.deepEqual(texts(permissionActions({ ...card, askAt: 8 })), ['Allow', 'Do not allow']);
+  // Another session's question is its own.
+  assert.deepEqual(texts(permissionActions({ ...card, name: 'api' })), ['Allow', 'Do not allow']);
+  // "Do not allow" is Escape, with the same mark.
+  box = permissionActions({ ...card, askAt: 9 }, () => looks++);
+  await press(box.children[1]);
+  assert.deepEqual(sent[1], ['/api/sessions/web%20ui/key', { key: 'Escape', owner: true, question: true, about: 'touch b.txt' }]);
+  // Should the card say nothing new for ten seconds, the answers return.
+  t.mock.timers.tick(10_200);
+  assert.equal(answeredNow({ ...card, askAt: 9 }), false);
+  assert.deepEqual(texts(permissionActions({ ...card, askAt: 9 })), ['Allow', 'Do not allow']);
+  // The server found no permission question on the screen (409): nothing was typed, the buttons stay, the page looks again.
+  answer = { ok: false, status: 409, json: async () => ({ error: 'No permission question is on the screen now. Look at the session and answer there' }) };
+  box = permissionActions({ ...card, askAt: 10 }, () => looks++);
+  const before = looks;
+  await press(box.children[0]);
+  assert.deepEqual([texts(box), box.children.map((b) => b.disabled), looks - before], [['Allow', 'Do not allow'], [false, false], 1]);
+  assert.equal(answeredNow({ ...card, askAt: 10 }), false);
+});
+
+test('the mode that asks nothing says what it means, in the same sentences wherever it is chosen, for a terminal and the App', async () => {
+  const sd = await import('../../web/sessiondefaults.js');
+  assert.equal(sd.BYPASS_MEANS, 'Claude Code runs commands and changes files without asking. Use it only for folders you could lose. It still asks you: a question, a plan, a tool your settings say "ask" for, and before some deletes. Where it stops before a delete, Hoprig allows it by itself only when the delete is plainly inside the folder the command runs in (never your home, workspace or projects folder).');
+  assert.equal(sd.BYPASS_MEANS.split(/(?<=\.) /).length, 4, 'four sentences');
+  assert.equal('BYPASS_IN_CHAT' in sd, false, 'one rule (src/asking.mjs), one sentence: a chat and a terminal are the same');
+  // Settings → New-session defaults (the banner under the choice) and New session → Options (the line under it).
+  assert.match(fs.readFileSync(path.join(WEB, 'sessiondefaults.js'), 'utf8'), /h\('p\.banner\.muted', BYPASS_MEANS\)/);
+  const options = fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8');
+  assert.match(options, /select\('What Claude Code may do without asking'[^\n]*\n\s*\(v\) => \(v === 'bypassPermissions' \? BYPASS_MEANS : null\)\)/);
+  assert.doesNotMatch(options, /can run any command and change any file/, 'the sentence of before is gone');
+  // The text itself is written once: every other page takes it from sessiondefaults.js.
+  const holders = fs.readdirSync(WEB, { recursive: true }).filter((f) => f.endsWith('.js') && fs.readFileSync(path.join(WEB, f), 'utf8').includes('Hoprig allows it by itself only when the delete'));
+  assert.deepEqual(holders, ['sessiondefaults.js']);
+});
+
+test('Home keeps "Your answer was sent." only as long as the session page: the answer is part of its render key', () => {
+  // Without it Home drew the card once with the note and never again while the card itself did not change.
+  assert.match(fs.readFileSync(path.join(WEB, 'home.js'), 'utf8'), /const key = JSON\.stringify\(\[only, all\.map\(\(m\) => \[[^\n]*m\.sessions\.map\(\(s\) => answeredNow\(s\)\)\]\)\]\);/);
+  assert.match(fs.readFileSync(path.join(WEB, 'session.js'), 'utf8'), /const key = JSON\.stringify\(\[s, profiles, answeredNow\(/);
+});
+
+test('the session page says what Hoprig allowed by itself in bypass mode', () => {
+  const src = fs.readFileSync(path.join(WEB, 'session.js'), 'utf8');
+  assert.match(src, /'Allowed by Hoprig in bypass mode: '/);
+  assert.match(src, /fill\(needSlot, [^\n]*allowedNote\(s\)\)/);
+  // In the same words as the App's: the command itself for the shell, where it ran when not in the session's folder,
+  // and read out to a screen reader.
+  for (const file of ['session.js', 'chat/timeline.js']) {
+    const text = fs.readFileSync(path.join(WEB, file), 'utf8');
+    assert.match(text, /\.tool && [a-z]+\.tool !== 'Bash' \? `\$\{[a-z]+\.tool\}: ` : ''\}\$\{[a-z]+\.what \|\| [a-z]+\.tool\}\$\{[a-z]+\.folder \? ` · in \$\{[a-z]+\.folder\}` : ''\}/, file);
+    assert.match(text, /allowed', \{ role: 'status'/, file);
+  }
+});
+
+test('new session: what runs in a folder (a terminal session, or a chat at work) is one tap away beside its row', async () => {
   const { runningIn } = await import('../../web/newsession.js');
   assert.equal(runningIn({ live: true, session: 'web ui' }), '#/s/web%20ui');
   assert.equal(runningIn({ live: true, chat: '11111111-2222-4333-8444-555555555555' }), '#/chat/11111111-2222-4333-8444-555555555555');
   assert.equal(runningIn({ live: false, session: 'old' }), null, 'nothing runs there: a tap opens a new chat');
   assert.equal(runningIn({ live: true }), null);
-  const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
-  assert.doesNotMatch(src, /role: 'radiogroup', 'aria-label': 'Work in'/, 'no Terminal | Chat switch at the top');
-  // One row under Options: a chat, the coding tool in a terminal (Claude Code unless another is chosen), a plain shell.
-  assert.match(src, /\['chat', 'A chat \(the default\)'\], \['claude', `\$\{toolName\(\)\} in a terminal`\], \['shell', `A plain terminal, without \$\{toolName\(\)\}`\]/, 'one row under Options');
-  assert.match(src, /const toolNow = \(\) => st\.tool \|\| 'claude';/, 'Claude Code where none is chosen');
-  assert.match(src, /const toolName = \(id = toolNow\(\)\) => TOOL_NAMES\[id\] \|\| id;/);
+  const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
+  // App or Terminal first, then the coding tool, then the project; a plain shell under Options.
+  assert.ok(src.indexOf("groupHead('Open as')") < src.indexOf("groupHead('Coding tool')"), 'App or Terminal before the coding tool');
+  assert.match(src, /row\(f, folderSub\(f, projectsShort\), \(e\) => start\(f, e\.currentTarget\)\)/, 'a tap on a project starts a new session, also where one runs');
+  assert.match(src, /leave\(one \? link\(one, st\.m\) : sessionHref\(list\[0\]\)\)/, 'what runs there is its own button (runningIn)');
+  assert.match(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /'A plain terminal, without a coding tool'/);
 });
 
 test('new session: repositories by their own name, and a path only where it says more than the name', async () => {
@@ -871,10 +1021,10 @@ test('new session: repositories by their own name, and a path only where it says
   assert.equal(folderSub({ name: 'shop', short: '~/Workspace/projects/shop' }, '~/Workspace/projects'), null, 'no "project" under every row');
   assert.equal(folderSub({ name: 'tool', short: '~/src/tool' }, '~/Workspace/projects'), '~/src/tool');
   assert.equal(folderSub({ name: 'x', short: '~/x' }, null), '~/x', 'projects folder not known: the path');
-  const src = fs.readFileSync(path.join(WEB, 'newsession.js'), 'utf8');
+  const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
   assert.match(src, /sub \? h\('span\.row-sub', sub\) : null/, 'a row without a second line draws none');
   // On a phone the computers and the coding tools sit two to a row, so the first project is in the first screen.
-  assert.match(fs.readFileSync(path.join(WEB, 'page-projects.css'), 'utf8'), /@media \(max-width: 520px\) \{\n\s+\.ns-pcs \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
+  assert.match(fs.readFileSync(path.join(WEB, 'page-projects.css'), 'utf8'), /@media \(max-width: 520px\) \{[^}]*\.ns-tile \{ position: relative; flex-direction: column;/);
 });
 
 test('Home cards: the pill leaves out what the heading says; the folder only when it is not projects/<name>', async () => {
@@ -929,12 +1079,107 @@ test('a chat that is not open any more: its page\'s keys go with it (Esc would s
   assert.match(gone, /\bunkeys\(\)/, 'gone() removes the page\'s key handler');
 });
 
-test('a chat that is not open any more is never a dead end, and its head never says "New chat"', () => {
+test('a chat that is not open any more is never a dead end, and its head never says "New session"', () => {
   const page = fs.readFileSync(path.join(WEB, 'chat', 'page.js'), 'utf8');
   const gone = page.slice(page.indexOf('function gone('), page.indexOf('const unfollow = follow('));
   assert.match(gone, /was && was\.terminal \? h\('a\.btn\.primary', \{ href: link\(`#\/s\/\$\{encodeURIComponent\(was\.terminal\)\}`\) \}/, 'the terminal it went to');
-  assert.match(gone, /'Continue in a new chat'/);
-  assert.match(gone, /again\(true\)\ }, icon\('plus', \{ size: 18 \}\), h\('span', 'New chat in this folder'\)/, 'nothing was said in it: a new chat in its folder');
+  assert.match(gone, /'Continue in the App'/);
+  assert.match(gone, /again\(true\)\ }, icon\('plus', \{ size: 18 \}\), h\('span', 'New session in this folder'\)/, 'nothing was said in it: a new session in its folder');
   assert.match(gone, /const lead = term \|\| go;/, 'one primary button');
-  assert.match(fs.readFileSync(path.join(WEB, 'chat', 'header.js'), 'utf8'), /fill\(titleText, title \|\| 'Closed chat'\);/);
+  assert.match(fs.readFileSync(path.join(WEB, 'chat', 'header.js'), 'utf8'), /fill\(titleText, title \|\| 'Archived session'\);/);
+});
+
+test('Add provider → Other providers: as today with one gateway (its title and sentence), a step that asks which with more', async () => {
+  const { otherProvidersChoice } = await import('../../web/accounts.js');
+  const g = (id, title) => ({ id, title, words: { choice: `${title}: its own sentence` } });
+  assert.equal(otherProvidersChoice([]), null, 'no gateway: no choice');
+  assert.deepEqual(otherProvidersChoice([g('trouteai', 'TRouteAI')]), { pick: false, id: 'trouteai', title: 'Other providers through TRouteAI (for Claude Code)', sub: 'TRouteAI: its own sentence' });
+  const two = otherProvidersChoice([g('trouteai', 'TRouteAI'), g('relay', 'Relay')]);
+  assert.equal(two.pick, true);
+  assert.equal(two.title, 'Other providers through a gateway (for Claude Code)');
+  assert.match(two.sub, /a gateway on this computer: TRouteAI, Relay\.$/);
+});
+
+test('Add a gateway: the program and its arguments are shown as code, the sentences around them as text', async () => {
+  const { runsBlocks } = await import('../../web/gatewaydefine.js');
+  assert.deepEqual(runsBlocks([
+    'When it starts, Hoprig runs:',
+    '  /opt/relay/bin/relay --listen=127.0.0.1:20100',
+    '  (relay is /opt/relay/bin/relay on this computer)',
+    'Nothing of it goes through a shell.',
+  ]), [
+    { code: false, text: 'When it starts, Hoprig runs:' },
+    { code: true, text: '/opt/relay/bin/relay --listen=127.0.0.1:20100\n(relay is /opt/relay/bin/relay on this computer)' },
+    { code: false, text: 'Nothing of it goes through a shell.' },
+  ]);
+  assert.deepEqual(runsBlocks(null), []);
+});
+
+test('a gateway that is not running: the shipped package reads as before; a program of the owner\'s own is not "installed"', async () => {
+  const { notRunningText } = await import('../../web/accounts.js');
+  assert.equal(notRunningText({ title: 'TRouteAI', installable: true, page: 'http://localhost:20017/' }), 'TRouteAI is installed but not running. Start it, then add your provider in its page and come back with a key.');
+  assert.equal(notRunningText({ title: 'Relay', installable: false, page: null }), 'Relay is on this computer but not running. Start it, then add your provider in it and come back with a key.');
+});
+
+test('Add a gateway: the short name made from the name keeps its letters and starts with a letter', async () => {
+  const { shortNameOf } = await import('../../web/gatewaydefine.js');
+  assert.equal(shortNameOf('Relé'), 'rele');
+  assert.equal(shortNameOf('2nd Relay'), 'g-2nd-relay');
+  assert.equal(shortNameOf('  My  Relay (local) '), 'my-relay-local');
+  assert.equal(shortNameOf('x'.repeat(40)), 'x'.repeat(31));
+});
+
+test('Add a gateway: every part the server names in an error has its label on the form', async () => {
+  const { FIELD_LABELS } = await import('../../web/gatewaydefine.js');
+  assert.deepEqual(Object.keys(FIELD_LABELS).sort(), ['args', 'bin', 'dashboard', 'id', 'npm', 'port', 'title']);
+  const src = fs.readFileSync(path.join(WEB, 'gatewaydefine.js'), 'utf8');
+  for (const k of Object.keys(FIELD_LABELS)) assert.match(src, new RegExp(`row\\('${k}'`), `${k} is a row of the form, with its error under it`);
+});
+
+test('Add-ons: a gateway definition that was not loaded is said, with its reason', async () => {
+  const { skippedLines } = await import('../../web/addons.js');
+  assert.deepEqual(skippedLines({ skipped: [{ id: 'relay', error: 'port 20017 is TRouteAI\'s' }, { id: null, error: 'a gateway is an object' }] }), [
+    'A gateway in config.json (relay) was not loaded: port 20017 is TRouteAI\'s.',
+    'A gateway in config.json was not loaded: a gateway is an object.',
+  ]);
+  assert.deepEqual(skippedLines({}), [], 'an older computer sends none');
+});
+
+test('Add-ons: a gateway whose program changed says so and offers Confirm the new program instead of Start', async () => {
+  const { needsConfirmText } = await import('../../web/gatewaydefine.js');
+  assert.match(needsConfirmText({ needsConfirm: 'changed' }), /^Its program changed since you confirmed it, so it is not started\. If you changed it yourself \(an update\), confirm the new program\.$/);
+  assert.match(needsConfirmText({ needsConfirm: 'no-fingerprint' }), /keeps no fingerprint of its program/);
+  assert.equal(needsConfirmText({}), null, 'as confirmed, and an older computer: nothing');
+  const src = fs.readFileSync(path.join(WEB, 'addons.js'), 'utf8');
+  assert.match(src, /a\.installed && !a\.running && !a\.foreign && !a\.needsConfirm \? start\(\)/, 'no Start that would only fail');
+  assert.match(src, /label: a\.needsConfirm === 'changed' \|\| a\.needsConfirm === 'gone' \? 'Confirm the new program' : 'Confirm the program', disabled: busy, onclick: \(\) => confirmGatewayProgram\(a, again\)/);
+  assert.match(src, /'Program changed'/, 'its state says it');
+});
+
+test('Add-ons: "Open its dashboard" only for a gateway that has a page; the shipped one as before', async () => {
+  const { pageOf } = await import('../../web/addons.js');
+  assert.equal(pageOf({ url: 'http://localhost:20017' }), 'http://localhost:20017', 'the shipped one (and an older computer): its url');
+  assert.equal(pageOf({ url: 'http://localhost:7777', defined: true, page: null }), null, 'no page of its own: no link, no sentence');
+  assert.equal(pageOf({ url: 'http://localhost:7777', defined: true, page: 'http://localhost:7777/ui' }), 'http://localhost:7777/ui');
+  const src = fs.readFileSync(path.join(WEB, 'addons.js'), 'utf8');
+  assert.doesNotMatch(src, /a\.running && a\.url/, 'the row never offers the API port as a page');
+});
+
+test('Providers: one whose gateway was removed is muted, listed last, and its page says why and offers Remove', async () => {
+  const { profileState } = await import('../../web/lib.js');
+  assert.deepEqual(profileState({ kind: 'api', gatewayGone: { id: 'relay' } }), { key: 'unusable', text: 'Its gateway relay was removed' });
+  assert.deepEqual(profileState({ kind: 'api', gatewayGone: { id: 'relay', notLoaded: 'port 20017 is TRouteAI\'s' } }), { key: 'unusable', text: 'Its gateway relay was not loaded' });
+  assert.deepEqual(profileState({ kind: 'api' }), { key: 'free', text: 'Available' });
+  const src = fs.readFileSync(path.join(WEB, 'accounts.js'), 'utf8');
+  assert.match(src, /a\.unusable \|\| a\.gatewayGone \? unusableBox\(a, d\)/, 'its page: the box with Remove');
+  assert.match(src, /Its gateway \$\{a\.gatewayGone\.id\} was removed from this computer, so its sessions will not start\./);
+  assert.match(src, /Its gateway \$\{a\.gatewayGone\.id\} is in config\.json but was not loaded \(\$\{a\.gatewayGone\.notLoaded\}\), so its sessions will not start\. Fix it there, or remove this provider\./, 'one not loaded: not "removed", and why');
+  assert.match(src, /a\.unusable \|\| a\.gatewayGone \? 2/, 'listed last');
+});
+
+test('Other providers: a gateway whose program is missing says so without saying it is there, and can be checked again', async () => {
+  const src = fs.readFileSync(path.join(WEB, 'accounts.js'), 'utf8');
+  const missing = src.slice(src.indexOf('if (!g.installed) {'), src.indexOf('if (!g.running) {'));
+  assert.match(missing, /g\.installable \? h\('p\.sheet-text', g\.words\.what\) : null,/, 'its "is a gateway on this computer" only when it can be installed');
+  assert.match(missing, /errorBox\(`\$\{g\.title\} is defined on this computer, but its program was not found\. In a terminal there, \$\{COMMAND\} gateways shows what it runs\.`, again\)/, 'with Try again');
 });

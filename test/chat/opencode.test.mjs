@@ -171,7 +171,7 @@ test('a chat on OpenCode: streamed answer, edits with diffs, OKs, Stop, a queued
 
   // Settings change in the running conversation: the mode's rules, the model's variant (ultracode: the highest).
   assert.deepEqual(await c.setSettings({ mode: 'bypassPermissions' }), { restart: false });
-  assert.deepEqual(s.calls.filter((x) => x.method === 'PATCH').at(-1).body, { permissions: [] });
+  assert.deepEqual(s.calls.filter((x) => x.method === 'PATCH').at(-1).body, { permissions: [{ action: 'shell', resource: '*', effect: 'ask' }] }, 'bypass: every shell call is put to the chat');
   assert.equal(c.bypass, true);
   await c.setSettings({ ultracode: true });
   assert.equal(s.calls.filter((x) => x.path.endsWith('/model')).at(-1).body.model.variant, 'max');
@@ -204,20 +204,98 @@ test('a chat on OpenCode: streamed answer, edits with diffs, OKs, Stop, a queued
 test('bypass: an OK is allowed by the chat, unless OpenCode did not say the whole call', { timeout: 20_000 }, async (t) => {
   const write = recordedTurns()[1];
   const blind = { ...write, steps: write.steps.filter((x) => !(x.event && x.event.type === 'session.tool.called')) };
-  const s = await standIn({ turns: [write, blind] });
+  // The owner's own config, as the real server lists it for the folder: his deny of a command, an ask, and a deny of
+  // another agent's that the chat's conversation does not run.
+  const config = [
+    { type: 'document', path: '/home/alex/.config/opencode/opencode.json', info: { permissions: [{ action: 'shell', resource: 'rm -rf /srv*', effect: 'deny' }, { action: 'shell', resource: 'git push*', effect: 'ask' }], agents: { plan: { permissions: [{ action: '*', resource: '*', effect: 'deny' }] } } } },
+    { type: 'document', path: `${CWD}/opencode.json`, info: { permissions: [{ action: 'shell', resource: 'shred *', effect: 'deny' }] } },
+  ];
+  const s = await standIn({ turns: [write, blind], config });
   t.after(() => s.close());
   const c = await chatOn(s, { permissionMode: 'bypassPermissions' });
   await c.send('Create a file');
   await until(() => turnEnds(c).length === 1, 'the turn');
   assert.equal(c.events.filter((e) => e.kind === 'ask').length, 0, 'no card in bypass');
   assert.equal(s.calls.find((x) => /\/reply$/.test(x.path)).body.decision, 'once');
-  assert.deepEqual(s.calls.find((x) => x.method === 'POST' && x.path === '/api/session').body.permissions, [], 'bypass adds no rule');
+  // Every shell call is asked (OpenCode's own defaults would run it unseen), then the owner's rules from his first deny
+  // on, last: a rule of the chat never turns his deny into an ask.
+  assert.deepEqual(s.calls.find((x) => x.method === 'POST' && x.path === '/api/session').body.permissions, [
+    { action: 'shell', resource: '*', effect: 'ask' }, { action: 'shell', resource: 'rm -rf /srv*', effect: 'deny' }, { action: 'shell', resource: 'git push*', effect: 'ask' },
+    { action: 'shell', resource: 'shred *', effect: 'deny' },
+  ]);
+  assert.equal(new URLSearchParams(s.calls.find((x) => x.path === '/api/config').query).get('location[directory]'), CWD, 'the config as read for the chat\'s folder');
   await c.send('Create it again');
   const a = await until(() => [...c.pending.values()][0], 'the card of a call not seen whole');
   assert.equal(a.owner, 'unknown');
   c.answer(a.request, { allow: true });
   await until(() => turnEnds(c).length === 2, 'the second turn');
   await c.close();
+});
+
+test('bypass: where the owner\'s own deny rules cannot be read, every command is his card, with a warning', { timeout: 20_000 }, async (t) => {
+  const shell = recordedTurns()[3];
+  // Not read: an error, and a list of a shape OpenCode 2.3 does not give.
+  for (const config of [[{ unknown: true }], { documents: [] }, [{ type: 'document', path: '/c.json', info: { permission: { bash: { 'git push *': 'deny' } } } }], [{ type: 'document', path: '/c.json', info: { permissions: [{ action: 'shell' }] } }]]) {
+    const x = await standIn({ turns: [shell], config });
+    t.after(() => x.close()); // also when an assertion below fails: the other tests of the file must not fail with it
+    const d = await chatOn(x, { permissionMode: 'bypassPermissions' });
+    t.after(() => d.close());
+    await d.send('List a file');
+    const card = await until(() => [...d.pending.values()][0], `the card (${JSON.stringify(config)})`);
+    d.answer(card.request, { allow: false });
+    await d.close();
+  }
+  const s = await standIn({ turns: [shell], config: false });
+  t.after(() => s.close());
+  const c = await chatOn(s, { permissionMode: 'bypassPermissions' });
+  await c.send('List a file');
+  const a = await until(() => [...c.pending.values()][0], 'the card of the command');
+  assert.equal(a.input.command, 'ls -la /etc/hostname');
+  assert.match(c.events.find((e) => e.kind === 'notice').text, /deny rules could not be read .*every command is put to you/);
+  assert.ok(!s.calls.some((x) => /\/reply$/.test(x.path)), 'nothing answered by the chat');
+  c.answer(a.request, { allow: false });
+  await c.close();
+});
+
+test('an OK that waited while the dashboard was down: the chat starts again on it, and it is answered or shown with its command', { timeout: 20_000 }, async (t) => {
+  const call = (id, command) => ({ id: `msg_${id}`, type: 'assistant', agent: 'build', content: [{ type: 'tool', id, name: 'shell', state: { status: 'running', input: { command } } }] });
+  const per = (id, call, command) => ({ id, sessionID: SESSION_ID, action: 'shell', resources: [command], save: [], source: { type: 'tool', messageID: `msg_${call}`, id: call } });
+  // An ordinary command: answered by the chat itself, as one that just arrived (bypass), with no card.
+  let s = await standIn({ busy: true, messages: [call('call_ls', 'ls -la')], waiting: { permission: [per('per_ls', 'call_ls', 'ls -la')] } });
+  t.after(() => s.close());
+  let c = await chatOn(s, { conversationId: SESSION_ID, permissionMode: 'bypassPermissions' });
+  await until(() => s.calls.some((x) => x.path.endsWith('/permission/per_ls/reply')), 'the answer without a card');
+  assert.equal(s.calls.find((x) => x.path.endsWith('/permission/per_ls/reply')).body.decision, 'once');
+  assert.equal(c.events.filter((e) => e.kind === 'ask').length, 0);
+  await c.close();
+  // A delete outside the folder: the owner's card, with its command, and "needs your OK"; nothing answered.
+  s = await standIn({ busy: true, messages: [call('call_rm', 'rm -rf ../beside/k')], waiting: { permission: [per('per_rm', 'call_rm', 'rm -rf ../beside/k')] } });
+  t.after(() => s.close());
+  c = await chatOn(s, { id: '2d9c2a4e-1b3f-4c5d-8e6f-0a1b2c3d4e5f', conversationId: SESSION_ID, permissionMode: 'bypassPermissions' });
+  const a = await until(() => [...c.pending.values()][0], 'the card');
+  assert.equal(a.input.command, 'rm -rf ../beside/k');
+  assert.equal(a.owner, null, 'seen whole');
+  assert.equal(c.status(), 'attention');
+  assert.ok(!s.calls.some((x) => /\/reply$/.test(x.path)));
+  c.answer(a.request, { allow: false });
+  await c.close();
+});
+
+test('when the dashboard starts, an open OpenCode chat takes up the OK that waits, with no page open', { timeout: 20_000 }, async (t) => {
+  const call = { id: 'msg_w', type: 'assistant', agent: 'build', content: [{ type: 'tool', id: 'call_w', name: 'shell', state: { status: 'running', input: { command: 'ls -la' } } }] };
+  const s = await standIn({ busy: true, messages: [call], waiting: { permission: [{ id: 'per_w', sessionID: SESSION_ID, action: 'shell', resources: ['ls -la'], save: [], source: { type: 'tool', messageID: 'msg_w', id: 'call_w' } }] } });
+  t.after(() => s.close());
+  const dir = tempDir();
+  const file = path.join(dir, 'chats.json');
+  fs.writeFileSync(file, JSON.stringify([{ id: '3d9c2a4e-1b3f-4c5d-8e6f-0a1b2c3d4e5f', conversationId: SESSION_ID, engine: 'opencode', cwd: CWD, profile: 'gw', permissionMode: 'bypassPermissions' }]));
+  const { chatFeature } = await import('../../src/chat/feature.mjs');
+  const f = chatFeature({ HttpError: Error, config: () => ({ server: { roots: ['/'] } }), readJson: async () => ({}) }, { file, resolveEnv: async () => ({}), engineOpts: { enabled: () => true, ...standInOpts(s) }, idleMs: 60_000 });
+  t.after(() => f.close());
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(!s.calls.some((x) => x.path.includes('/permission')), 'nothing read while the feature is only built');
+  f.start(); // the dashboard listens
+  await until(() => s.calls.some((x) => x.path.endsWith('/permission/per_w/reply')), 'the answer, with no page');
+  assert.equal(s.calls.find((x) => x.path.endsWith('/permission/per_w/reply')).body.decision, 'once');
 });
 
 test('a provider that does not serve OpenCode never starts it; the server going away ends the turn plainly', { timeout: 20_000 }, async (t) => {

@@ -170,7 +170,7 @@ function control(m) {
     case 'apply_flag_settings':
       return answerControl(m, {});
     case 'get_context_usage':
-      return answerControl(m, { totalTokens: 38000, maxTokens: 200000, percentage: 19, categories: [] });
+      return answerControl(m, { totalTokens: 38000, maxTokens: 200000, percentage: 19, categories: [{ name: 'System prompt', tokens: 3200, color: 'promptBorder' }, { name: 'System tools', tokens: 12400, color: 'inactive' }, { name: 'Memory files', tokens: 1900, color: 'claude' }, { name: 'Messages', tokens: 20500, color: 'purple' }] });
     case 'get_usage':
       return answerControl(m, { subscription_type: 'max', rate_limits_available: true, rate_limits: { five_hour: { utilization: 41, resets_at: new Date(Date.now() + 2.4 * 3600_000).toISOString() }, seven_day: { utilization: 58, resets_at: new Date(Date.now() + 3.2 * 86400_000).toISOString() } } });
     default:

@@ -1,0 +1,6 @@
+#!/usr/bin/bash
+{ printf 'RUN doas'; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log
+shell=0
+while [ $# -gt 0 ]; do case "$1" in --) shift; break;; -u|-C) shift 2;; -s) shell=1; shift;; -*) shift;; *) break;; esac; done
+[ $shell = 1 ] && exec /usr/bin/bash
+[ $# -gt 0 ] && exec "$@"; exit 0

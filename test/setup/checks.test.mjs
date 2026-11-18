@@ -8,6 +8,7 @@ import { fakeBin, pathWith, scratch } from './helpers.mjs';
 const s = scratch();
 test.after(s.cleanup);
 const K = await import('../../src/setup/checks.mjs');
+const S = await import('../../src/setup/system.mjs');
 
 const info = (o) => ({ installed: '2.1.300', path: '/x/claude', latest: '2.1.300', method: 'native', updateAvailable: false, ...o });
 
@@ -62,10 +63,11 @@ test('node-pty check: needed without tmux and on Windows, a suggestion otherwise
   assert.equal((await K.ptyCheck(linux, { tmux: true }, bad)).status, 'warn');
   assert.equal((await K.ptyCheck(linux, { tmux: false }, bad)).status, 'fail');
   assert.equal((await K.ptyCheck({ platform: 'win32' }, { tmux: false }, bad)).status, 'fail');
-  assert.equal(K.ptyFix(linux, '/app'), 'sudo env DEBIAN_FRONTEND=noninteractive apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential python3 && cd "/app" && npm rebuild node-pty');
-  assert.equal(K.ptyFix({ platform: 'linux', pm: 'apk', root: true }, '/app'), 'apk add build-base python3 linux-headers && cd "/app" && npm rebuild node-pty');
-  assert.equal(K.ptyFix({ platform: 'darwin', pm: 'brew' }, '/app'), 'xcode-select --install && cd "/app" && npm rebuild node-pty');
-  assert.equal(K.ptyFix({ platform: 'win32' }, 'C:\\app'), 'cd "C:\\app" && npm install');
+  assert.equal(K.ptyFix(linux, '/app'), 'sudo env DEBIAN_FRONTEND=noninteractive apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential python3 && cd /app && npm rebuild node-pty');
+  assert.equal(K.ptyFix({ platform: 'linux', pm: 'apk', root: true }, '/app'), 'apk add build-base python3 linux-headers && cd /app && npm rebuild node-pty');
+  assert.equal(K.ptyFix({ platform: 'darwin', pm: 'brew' }, '/app'), 'xcode-select --install && cd /app && npm rebuild node-pty');
+  assert.equal(K.ptyFix({ platform: 'win32' }, 'C:\\app'), 'cd "C:\\app" && npm install'); // cmd.exe: double quotes
+  assert.equal(K.ptyFix({ platform: 'linux', has: () => true }, "/a b/it's"), `cd '/a b/it'\\''s' && npm rebuild node-pty`); // a POSIX shell: quoted for it
 });
 
 test('node-pty: what is on disk names the cause and the one command that builds it', async () => {
@@ -101,21 +103,21 @@ test('node-pty: what is on disk names the cause and the one command that builds 
   assert.deepEqual(K.ptyRepairArgv('absent', 'linux'), ['npm', 'install', '--omit=dev', '--no-audit', '--no-fund']);
   // `npm rebuild` builds only what is there: a module that was left out has to be installed
   const bare = { platform: 'linux', pm: 'apt', root: true, has: () => false };
-  assert.equal(K.ptyFix(bare, '/app', 'absent'), 'env DEBIAN_FRONTEND=noninteractive apt-get update && env DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential python3 && cd "/app" && npm install --omit=dev');
+  assert.equal(K.ptyFix(bare, '/app', 'absent'), 'env DEBIAN_FRONTEND=noninteractive apt-get update && env DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential python3 && cd /app && npm install --omit=dev');
   // with the build tools already there the fix is the build alone
   const tools = { platform: 'linux', pm: 'apt', root: false, has: (c) => ['make', 'g++', 'python3'].includes(c) };
-  assert.equal(K.ptyFix(tools, '/app', 'unbuilt'), 'cd "/app" && npm rebuild node-pty');
+  assert.equal(K.ptyFix(tools, '/app', 'unbuilt'), 'cd /app && npm rebuild node-pty');
 
   const bad = async () => ({ ok: false, why: 'it does not load (Failed to load native module: pty.node)' });
   const blocked = await K.ptyCheck(tools, { tmux: false, state: 'unbuilt', npm: 12 }, bad);
   assert.equal(blocked.status, 'fail');
   assert.equal(blocked.detail, 'it was installed but never built: npm 12 does not run the install script of a dependency until it is allowed');
-  assert.match(blocked.fix, /^cd ".*" && npm rebuild node-pty$/);
+  assert.match(blocked.fix, /^cd '?[^"]*'? && npm rebuild node-pty$/);
   // with tmux it is a warning, and it says what does not work: tmux keeps sessions, the browser terminal needs the module
   const withTmux = await K.ptyCheck(bare, { tmux: true, state: 'absent' }, bad);
   assert.equal(withTmux.status, 'warn');
   assert.match(withTmux.detail, /^no terminal can open in the browser \(sessions still run in tmux and take messages\): it is not installed/);
-  assert.match(withTmux.fix, /apt-get install -y build-essential python3 && cd ".*" && npm install --omit=dev$/);
+  assert.match(withTmux.fix, /apt-get install -y build-essential python3 && cd '?[^"]*'? && npm install --omit=dev$/);
   // a state that tells nothing keeps the module's own error
   assert.equal((await K.ptyCheck(tools, { tmux: false, state: 'present' }, bad)).detail, 'it does not load (Failed to load native module: pty.node)');
 });
@@ -194,7 +196,7 @@ test('folder permissions: private is ok, readable by others is a warning with ch
   const [cfg, prof] = K.dirsCheck('linux');
   assert.equal(cfg.status, 'ok');
   assert.equal(prof.status, 'warn');
-  assert.equal(prof.fix, `chmod 700 "${path.join(process.env.HOPRIG_CONFIG_DIR, 'profiles')}"`);
+  assert.equal(prof.fix, S.showCommand(['chmod', '700', path.join(process.env.HOPRIG_CONFIG_DIR, 'profiles')])); // quoted for a POSIX shell
   fs.rmSync(process.env.HOPRIG_CONFIG_DIR, { recursive: true });
 });
 

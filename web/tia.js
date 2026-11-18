@@ -110,7 +110,7 @@ export function plainCard(card, { accounts = [], computerLabel = null, tools = 1
     question = `Type this into the session ${a.session}${on}?`;
     quote = a.text;
   } else if (card.tool === 'send_to_chat') {
-    const words = { allow: 'Allow', allow_always: 'Allow, and not ask again in this chat,', deny: 'Say no to' };
+    const words = { allow: 'Allow', allow_always: 'Allow, and not ask again in this session,', deny: 'Say no to' };
     question = a.stop ? `Stop the reply in ${chat(a.session)}${on}?` : a.answer ? `${words[a.answer] || a.answer} what ${chat(a.session)}${on} asks?` : `Send this to ${chat(a.session)}${on}?`;
     if (a.text !== undefined) quote = a.text;
   } else if (card.tool === 'press_key' || card.tool === 'send_to_session') {
@@ -284,7 +284,7 @@ function chatPanel(host, { scrollEl = null, fresh = false } = {}) {
   const empty = () => fill(list, h('div.tia-empty',
     h('span.tia-off-icon', icon('sparkle', { size: 26 })),
     h('h2.tia-off-title', `Hi, I am ${NAME}.`),
-    h('p', 'Tell me what to get done: I start chats in your projects, answer their questions, check the result and tell you when it is done. Try one:'),
+    h('p', 'Tell me what to get done: I start sessions in your projects, answer their questions, check the result and tell you when it is done. Try one:'),
     h('div.tia-examples', EXAMPLES.map((x) => h('button.tia-example', { type: 'button', onclick: () => { input.value = x; submit(); } }, icon('send', { size: 15 }), h('span', x))))));
 
   function render(e) {
@@ -849,7 +849,7 @@ export const providerWords = (a) => (a.name === 'auto' ? 'Auto mode'
 
 registerSettingsPage({
   id: 'tia', title: NAME, icon: 'sparkle', order: 50, onlyHere: true, tag: 'experimental',
-  desc: `${NAME} is the assistant: she gets coding work done through chats with your coding tools and tells you when it is done. Choose how far she may go and which providers she may use.`,
+  desc: `${NAME} is the assistant: she gets coding work done through sessions with your coding tools and tells you when it is done. Choose how far she may go and which providers she may use.`,
   summary: async () => {
     const v = await api(`${A}/settings`);
     return v.settings.enabled ? `On · ${{ ask: 'asks first', work: 'does the work', handsoff: 'hands off' }[v.settings.level] || v.settings.level}` : 'Off';

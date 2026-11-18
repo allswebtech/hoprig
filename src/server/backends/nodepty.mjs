@@ -8,6 +8,7 @@
 // rejection: `hoprig doctor` and `hoprig setup` died with a stack trace instead of saying what is wrong. A require
 // that throws is an ordinary exception, caught here.
 import { createRequire } from 'node:module';
+import { ensureSpawnHelper } from './pty-helper.mjs';
 
 let nodePty = null;
 let nodePtyError = '';
@@ -17,9 +18,16 @@ try {
   nodePtyError = String(e.message).split('\n')[0];
 }
 
-/** node-pty's spawn; without the module, a function that says what to do. */
+/**
+ * node-pty's spawn, with its helper made executable first (pty-helper.mjs: a fresh install on macOS leaves it without
+ * the bit, and every spawn then fails with "posix_spawnp failed"), for every part, also the account sign-in that may be
+ * the first terminal a dashboard opens; without the module, a function that says what to do.
+ */
 export const ptySpawn = nodePty
-  ? nodePty.spawn
+  ? (...args) => {
+      ensureSpawnHelper();
+      return nodePty.spawn(...args);
+    }
   : () => {
       throw new Error('the terminal module (node-pty) does not work: run "hoprig doctor"');
     };

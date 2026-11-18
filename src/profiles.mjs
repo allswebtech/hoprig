@@ -33,7 +33,7 @@ import { profilesDir } from './paths.mjs';
 export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 // Words that are commands (hoprig's own, and common wrapper commands), so they cannot name a profile.
 export const RESERVED = new Set([
-  'run', 'add', 'rm', 'profiles', 'serve', 'hook', 'help', 'passwd', 'service', 'doctor', 'version', 'setup', 'claude', 'auto', 'pair', 'tokens', 'machines', 'mcp', 'addons', 'router', 'router-url', 'assistant', 'link', 'join', 'public', 'pc', 'demo', 'project', 'skills', 'workspace', 'tools', 'codex', 'opencode', 'chat',
+  'run', 'add', 'rm', 'profiles', 'serve', 'hook', 'help', 'passwd', 'service', 'doctor', 'version', 'setup', 'claude', 'auto', 'pair', 'tokens', 'machines', 'mcp', 'addons', 'router', 'router-url', 'assistant', 'link', 'join', 'public', 'pc', 'demo', 'project', 'skills', 'workspace', 'tools', 'codex', 'opencode', 'chat', 'tasks', 'gateways',
   'x', 'start', 'stop', 'restart', 'update', 'log', 'logs', 'open', 'status',
 ]);
 const META = new Set(['LABEL', 'PRERUN', 'MODELS', 'API', 'TOOLS', 'SIGNIN']);
@@ -91,7 +91,7 @@ const listOf = (v, known) => {
 
 /**
  * Pay-per-use: an Anthropic API key that goes straight to Anthropic (no address, or Anthropic's own). A key that
- * goes through a gateway (TRouteAI, a proxy, another computer's gateway) is not: what it costs is the gateway's
+ * goes through a gateway (one on this computer, a proxy, another computer's gateway) is not: what it costs is the gateway's
  * business. Auto mode uses pay-per-use providers only when the owner turns that on. The one place of this rule:
  * the page gets it as `paid` on every provider.
  */

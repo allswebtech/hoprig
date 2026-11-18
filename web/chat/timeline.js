@@ -10,13 +10,15 @@ import { mdView } from '../mdtext.js';
 import { messageFiles } from './attach.js';
 import { OUTCOME, askCard } from './asks.js';
 import { outputView, rePaths, toolCard } from './tools.js';
-import { askTitle, failText, took, turnLine } from './words.js';
+import { thinkingOpen, transcriptView } from './transcript.js';
+import { askTitle, failText, ownMessageView, took, turnParts } from './words.js';
 
 const NEAR_PX = 120;
 
 /**
  * o: { scroll (the scrolling element), A (the chat's API path), cwd(), stopTask(id), after(), canRewind(), rewind({ messageId, text }),
- *      who() (the coding tool as a sentence names it: "Claude", "OpenCode"), canStopTask() }
+ *      who() (the coding tool as a sentence names it: "Claude", "OpenCode"), canStopTask(), modes() (the chat's
+ *      permission modes, or null) }
  */
 export function createTimeline(o) {
   const who = () => (o.who ? o.who() : 'Claude');
@@ -35,6 +37,8 @@ export function createTimeline(o) {
   let first = 0; // the number of the first event drawn
   let stick = true;
   let asked = false; // a card that waits for the owner came while the view was scrolled up
+  let view = null; // the transcript view (transcript.js), made with the root below
+  const cardOpts = () => ({ cwd: o.cwd(), stopTask: canStop() ? o.stopTask : null, view: view.now });
 
   // ---------- where an event goes ----------
   function group(at, { auto = false } = {}) {
@@ -65,6 +69,7 @@ export function createTimeline(o) {
     const el = h('details.chat-item.chat-think', h('summary', icon('sparkle', { size: 14 }), head, peek), body);
     Object.assign(el, { head, peek, body, kind: 'thinking', agent });
     fill(head, 'Thinking…');
+    el.open = thinkingOpen(view.now());
     return el;
   }
   function textEl() {
@@ -94,6 +99,7 @@ export function createTimeline(o) {
   }
   function liveBlock(blockId, kind, agent, at = main) {
     let el = blocks.get(blockId);
+    if (el && el.kind !== kind) el = null; // see draw: the same id again with another kind is another block
     if (!el) {
       el = kind === 'thinking' ? thinkingEl(blockId, agent) : textEl();
       el.text = '';
@@ -110,14 +116,12 @@ export function createTimeline(o) {
     switch (ev.kind) {
       case 'user': {
         const g = group(at);
-        const files = Array.isArray(ev.attachments) ? ev.attachments : [];
+        const { text, files } = ownMessageView(ev.text, Array.isArray(ev.attachments) ? ev.attachments : []);
         // Rewind (the files, the conversation or both, to before this message): beside the message.
         const back = ev.messageId && o.canRewind() ? h('button.btn.icon.ghost.chat-rewindbtn', {
           type: 'button', 'aria-label': 'Rewind to before this message', title: 'Rewind to before this message',
           onclick: () => o.rewind({ messageId: ev.messageId, text: ev.text }),
         }, icon('undo', { size: 15 })) : null;
-        // A file sent with the message is named at its end for Claude Code (@path); the chip below says it already.
-        const text = files.some((f) => f.type === 'file') ? ev.text.replace(/\n\n(?:@(?:"[^"]+"|\S+)\s*)+$/, '') : ev.text;
         const row = h('div.chat-item.chat-userrow', { dataset: { message: ev.messageId || '' } }, back, h('div.chat-user', text, messageFiles(files, o.A)));
         row.said = text;
         return add(g, row);
@@ -129,6 +133,9 @@ export function createTimeline(o) {
       case 'text':
       case 'thinking': {
         let el = blocks.get(ev.blockId);
+        // A block id is the coding tool's message id and the block's place in it; one that comes again with another
+        // kind (a stand-in whose numbering started over) is another block, never written into the old one.
+        if (el && el.kind !== ev.kind) el = null;
         if (!el) {
           el = ev.kind === 'thinking' ? thinkingEl(ev.blockId, ev.agent) : textEl();
           blocks.set(ev.blockId, el);
@@ -149,18 +156,22 @@ export function createTimeline(o) {
         let card = tools.get(ev.id);
         if (card) card.finish(ev);
         else {
-          card = toolCard(ev, { cwd: o.cwd(), stopTask: canStop() ? o.stopTask : null });
+          card = toolCard(ev, cardOpts());
           tools.set(ev.id, card);
           add(container(ev, at), card);
         }
         return card;
       }
-      case 'tool-result':
-        tools.get(ev.id)?.result(ev);
+      case 'tool-result': {
+        const card = tools.get(ev.id);
+        if (!card) return null;
+        card.result(ev);
+        if (card.cancelledAsk) foldCancelled(card.cancelledAsk); // closed and waiting for this: said by the card now
         return null;
+      }
       case 'ask': {
         // Always in the main conversation, where it is seen, even when an agent asks.
-        const card = askCard(ev, { A: o.A, cwd: o.cwd(), after: o.after, who: who() });
+        const card = askCard(ev, { A: o.A, cwd: o.cwd(), after: o.after, who: who(), modes: o.modes ? o.modes() : null });
         card.toolId = ev.toolId || null;
         asks.set(ev.request, card);
         if (ev.toolId) tools.get(ev.toolId)?.quiet(); // the card shows what it would do: not twice
@@ -174,6 +185,17 @@ export function createTimeline(o) {
         const [text, ok] = OUTCOME[ev.outcome] || ['Answered', true];
         const plan = card.classList.contains('chat-ask-plan');
         const question = card.classList.contains('chat-ask-question');
+        // An answered OK folds into the tool card it was about (one step, said once: "Ran npm test · allowed by
+        // you"). One no longer waited for (Stop, the turn ended) folds once its tool card says how the call ended
+        // (foldCancelled); until then, and without a tool card, it stays closed in place.
+        const tool = !plan && !question && card.toolId && OUTCOME[ev.outcome] && ev.outcome !== 'cancelled' ? tools.get(card.toolId) : null;
+        if (tool) {
+          card.done = true;
+          card.remove();
+          tool.answered(ok, ev.outcome);
+          return null;
+        }
+        if (ev.outcome === 'cancelled' && !plan && !question && foldCancelled(card)) return null;
         card.closed(plan ? (ok ? 'You approved the plan' : ev.outcome === 'denied' ? `${who()} keeps planning` : text) : question && ok ? 'You answered' : text, ok);
         if (card.toolId && ev.outcome !== 'cancelled') tools.get(card.toolId)?.answered(ok); // "Wants to write" → "Writing"
         return null;
@@ -181,8 +203,12 @@ export function createTimeline(o) {
       case 'turn-end': {
         const g = groupOf(at);
         if (ev.ok) {
-          const t = turnLine(ev);
-          if (t) add(g, h('p.chat-item.chat-turnend', icon('check', { size: 13 }), h('span', t)));
+          // Shown in the Verbose view; its dollars only on a provider billed by use (the root's classes decide).
+          const { cost, rest } = turnParts(ev);
+          if (cost || rest) {
+            add(g, h(`p.chat-item.chat-turnend${rest ? '' : '.chat-moneyonly'}`, icon('check', { size: 13 }),
+              h('span', cost ? h('span.chat-money', rest ? `${cost} · ` : cost) : null, rest)));
+          }
         } else if (ev.stopped || ev.subtype === 'stopped' || ev.error === 'stopped') add(g, h('p.chat-item.chat-note', `You stopped ${who()}.`));
         // A usage limit is said once, by the limit card at the top with what to do next.
         else if (ev.limited) add(g, h('p.chat-item.chat-note', 'Stopped at the provider\'s usage limit (see above).'));
@@ -190,6 +216,11 @@ export function createTimeline(o) {
         at.group = null;
         return null;
       }
+      case 'allowed':
+        // Allowed by Hoprig itself in bypass mode (a plain delete: src/chat/asks.mjs), in the words of a terminal's page.
+        // The command itself for the shell (no tool name), and where it ran when not in the chat's folder; read out.
+        return add(groupOf(at), h('p.chat-item.chat-note.chat-allowed', { role: 'status' }, h('strong', 'Allowed by Hoprig in bypass mode: '),
+          `${ev.tool && ev.tool !== 'Bash' ? `${ev.tool}: ` : ''}${ev.what || ev.tool}${ev.folder ? ` · in ${ev.folder}` : ''}`));
       case 'session-changed':
         at.group = null;
         return add(at.root, h('div.chat-item.chat-divider', h('span', ev.reason === 'compact' ? `Conversation compacted: ${who()} goes on from a summary` : ev.reason === 'clear' ? 'Conversation cleared' : ev.reason === 'fork' ? 'Rewound to here' : 'A new conversation')));
@@ -202,6 +233,21 @@ export function createTimeline(o) {
       default:
         return null;
     }
+  }
+  // An OK no longer waited for (Stop, the turn ended): once its tool card says how the call ended ("Did not write …
+  // stopped by you") the card goes, so the step is said once; until then it stays, closed (that tool card may never
+  // get a result). → whether it went
+  function foldCancelled(card) {
+    const tool = card.toolId ? tools.get(card.toolId) : null;
+    if (!tool) return false;
+    if (!tool.ended()) {
+      tool.cancelledAsk = card;
+      return false;
+    }
+    tool.cancelledAsk = null;
+    card.done = true;
+    card.remove();
+    return true;
   }
   const drawAll = (events, at) => {
     for (const ev of events) draw(ev, at);
@@ -269,8 +315,16 @@ export function createTimeline(o) {
 
   const empty = () => h('div.chat-empty', icon('text', { size: 26 }), h('p', `Write what ${who()} should do in this project. It works here as in the terminal: it reads, edits and runs commands, and asks you before anything that needs your OK.`));
 
+  const root = h('div.chat-col.chat-timeline', moreSlot, olderBox, list, said);
+  view = transcriptView(root, () => ({ cards: tools.values(), blocks: blocks.values() }));
   return {
-    el: h('div.chat-col.chat-timeline', moreSlot, olderBox, list, said),
+    el: root,
+    /** The transcript view now (normal, thinking or verbose), another one (the session menu's), and the dollars. */
+    view: view.now,
+    setView: view.set,
+    billed: view.billed,
+    /** Whether the conversation has thinking to show (the menu offers the Thinking view then). */
+    thought: () => [...blocks.values()].some((b) => b.kind === 'thinking'),
     /** The owner's messages drawn (for the more menu's Rewind): [{ messageId, text }], oldest first. */
     messages: () => [...o.scroll.querySelectorAll('.chat-userrow')].map((e) => ({ messageId: e.dataset.message, text: e.said || '' })),
     downBtn,
@@ -299,7 +353,8 @@ export function createTimeline(o) {
     live(evs) {
       for (const ev of evs) {
         if (ev.kind === 'text-delta' || ev.kind === 'thinking-delta') {
-          if (blocks.get(ev.blockId)?.final) continue;
+          const was = blocks.get(ev.blockId);
+          if (was && was.final && was.kind === (ev.kind === 'text-delta' ? 'text' : 'thinking')) continue;
           list.querySelector('.chat-empty')?.remove();
           const el = liveBlock(ev.blockId, ev.kind === 'text-delta' ? 'text' : 'thinking', ev.agent);
           el.text += ev.text || '';
@@ -308,7 +363,7 @@ export function createTimeline(o) {
         } else if (ev.kind === 'tool-start') {
           let card = tools.get(ev.id);
           if (!card) {
-            card = toolCard(ev, { cwd: o.cwd(), stopTask: canStop() ? o.stopTask : null });
+            card = toolCard(ev, cardOpts());
             tools.set(ev.id, card);
             add(container(ev, main), card);
             follow();
@@ -337,7 +392,11 @@ export function createTimeline(o) {
     },
     /** Cards that no longer wait (answered elsewhere, or the turn ended) close. */
     pending(ids) {
-      for (const [r, card] of asks) if (!ids.includes(r) && !card.done) card.closed('No longer waiting', false);
+      for (const [r, card] of asks) {
+        if (ids.includes(r) || card.done) continue;
+        const kind = card.classList.contains('chat-ask-plan') || card.classList.contains('chat-ask-question');
+        if (!(!kind && foldCancelled(card))) card.closed('No longer waiting', false);
+      }
     },
     /** The newest open card (number keys answer it). */
     openAsk() {

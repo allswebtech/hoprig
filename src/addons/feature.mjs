@@ -1,7 +1,8 @@
 // Add-ons in the dashboard (Settings → Add-ons), as a server feature: { name, routes }.
 //
 //   GET  /api/addons                         every add-on with its state: { addons: [{ id, title, summary, homepage,
-//                                            installed, version, running, url, job }] }
+//                                            installed, version, running, url, job }], skipped: [{ id, error }] (the
+//                                            owner's gateway definitions that were not loaded, and why) }
 //   POST /api/addons/<id>/<action>           install | update | start | stop: runs in the background, one at a time
 //                                            per add-on; answers { started: true }
 //   GET  /api/addons/<id>/job?from=N         that job's output: { running, lines, next, result }
@@ -9,7 +10,12 @@
 //                                            another service) with the JSON body, as a job like the ones above. Its
 //                                            result may carry `confirm`: a question the page asks before it is sent
 //                                            again with { confirmed: true }.
-// The public link has a page of its own (Settings → Public link): its routes are in linkroutes.mjs, served here.
+// The public link has a page of its own (Settings → Public link): its routes are in linkroutes.mjs, served here. The
+// owner's own gateways are added and removed through gatewayroutes.mjs (/api/gateways/defined/…), served here too.
+// A gateway the owner defined carries `defined: true`, `command` (what it runs) and `page` (its own page, or null when
+// it has none: its url is only its API); a program that is not a package carries `installable: false` (no Install or
+// Update), and `needsConfirm` ('changed' | 'no-fingerprint') while it is not started until the owner confirms its
+// program again (/api/gateways/defined/confirm). The shipped gateway's entry is as it was: its page is its url.
 // Making a provider of a gateway is done on the Providers page (Add provider), in the page; `hoprig addons setup <id>`
 // does the same in a terminal.
 // An add-on's attach() runs when the dashboard starts and detach() when it stops (the fixed address runs with it).
@@ -22,7 +28,9 @@
 import { tokenIdOf } from '../machines/index.mjs';
 import { recordHubActivity } from '../machines/tokenaudit.mjs';
 import { onRevoke, storedTokens } from '../machines/tokens.mjs';
-import { ADDONS } from './index.mjs';
+import { gatewayRoutes } from './gatewayroutes.mjs';
+import { definedGateways } from './gateways.mjs';
+import { allAddons } from './index.mjs';
 import { publicLink } from './linkaddon.mjs';
 import { linkRoutes } from './linkroutes.mjs';
 
@@ -37,7 +45,7 @@ const liveTokens = () => new Map(storedTokens().map((t) => [t.id, { name: t.name
 
 /** `opts.addons`: the add-on list (tests pass fakes). `opts.record`, `opts.sweepMs`: for tests. */
 export function addonsFeature(sctx, opts = {}) {
-  const list = () => opts.addons || ADDONS;
+  const list = () => opts.addons || allAddons();
   const jobs = new Map(); // id → { running, lines, result }
 
   // An add-on is named by its own plain spelling only: "public%2Dlink" is not "public-link" here, so no check in front
@@ -74,10 +82,13 @@ export function addonsFeature(sctx, opts = {}) {
 
   const routes = [
     ['GET', /^\/api\/addons$/, async () => ({
+      // The owner's definitions that config.json holds but that do not pass the check (a hand edit, a port given to
+      // another gateway since): { id, error } each, so the page can say why one is missing.
+      skipped: opts.addons ? [] : definedGateways().skipped.map(({ id, error }) => ({ id, error })),
       addons: await Promise.all(list().map(async (a) => {
         const st = await Promise.resolve(a.status()).catch(() => ({ installed: false, running: false }));
         const job = jobs.get(a.id);
-        return { id: a.id, title: a.title, summary: a.summary, homepage: a.homepage, ...st, job: job ? { running: job.running, result: job.result } : null };
+        return { id: a.id, title: a.title, summary: a.summary, homepage: a.homepage, ...(a.installable === false ? { installable: false } : {}), ...(a.defined ? { defined: true, command: a.command(), page: a.page() } : {}), ...st, job: job ? { running: job.running, result: job.result } : null };
       })),
     })],
     ['POST', /^\/api\/addons\/([^/]+)\/(install|update|start|stop)$/, async (req, m) => {
@@ -104,6 +115,7 @@ export function addonsFeature(sctx, opts = {}) {
       return { running: job.running, lines: job.lines.slice(from), next: job.lines.length, result: job.result };
     }],
     ...linkRoutes(sctx, { run, jobs, addon: opts.link || publicLink }),
+    ...gatewayRoutes(sctx),
   ];
 
   const each = (fn) => Promise.all(list().map((a) => Promise.resolve().then(() => fn(a)).catch((e) => console.error(`add-on ${a.id}: ${e.message}`))));

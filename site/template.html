@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="{{csp}}">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+{{indexing}}
+<link rel="alternate" type="text/markdown" href="{{mdUrl}}" title="This page as Markdown">
+<link rel="sitemap" type="application/xml" href="/sitemap.xml">
+<meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0f17" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Hoprig">
+<meta property="og:title" content="{{ogTitle}}">
+<meta property="og:description" content="{{description}}">
+{{ogUrl}}<meta property="og:image" content="https://hoprig.com/social-preview.png">
+<meta property="og:image:alt" content="Hoprig: one command, and a computer is ready to code with AI">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/style.css?v={{assetVersion}}">
+<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
+{{jsonLd}}</head>
+<body class="kind-{{kind}}">
+<a class="skip" href="#main">Skip to the content</a>
+<header class="top">
+  <div class="wrap top-row">
+    <a class="brand" href="/" aria-label="Hoprig, home">{{logo}}<span>Hoprig</span></a>
+    <nav class="nav" aria-label="Main">{{nav}}</nav>
+    <div class="top-tools">
+      <button class="icon-btn theme-btn" type="button" aria-label="Switch between light and dark">{{iconSun}}{{iconMoon}}</button>
+      <a class="icon-btn" href="https://github.com/allswebtech/hoprig" aria-label="The code on GitHub">{{iconGit}}</a>
+      <details class="menu">
+        <summary class="icon-btn" aria-label="Menu">{{iconMenu}}</summary>
+        <nav class="menu-panel" aria-label="Menu">{{nav}}<a href="https://github.com/allswebtech/hoprig">The code on GitHub</a></nav>
+      </details>
+    </div>
+  </div>
+</header>
+<main id="main">
+{{main}}
+</main>
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <div>
+      <a class="brand" href="/">{{logo}}<span>Hoprig</span></a>
+      <p class="muted">Free and open source (<a href="https://github.com/allswebtech/hoprig/blob/main/LICENSE">Apache-2.0</a>). Runs on your own computer. The code is on <a href="https://github.com/allswebtech/hoprig">GitHub</a>.</p>
+    </div>
+    <nav aria-label="Pages">
+      <a href="/use-cases/">Use cases</a>
+      <a href="/docs/">Docs</a>
+      <a href="/docs/install/">Install</a>
+      <a href="/compare/">Compare</a>
+      <a href="/changelog/">Changelog</a>
+    </nav>
+    <nav aria-label="For agents">
+      <a href="/tools/">Tools for agents</a>
+      <a href="/skill/">The Hoprig skill</a>
+      <a href="/llms.txt">llms.txt</a>
+      <a href="{{mdUrl}}">This page as Markdown</a>
+    </nav>
+  </div>
+  <div class="wrap foot-note">
+    <p>{{editLink}}</p>
+    <p>Not affiliated with Anthropic or with OpenCode's makers. "Claude" and "Claude Code" are Anthropic's. This site sets no cookie and has no tracking.</p>
+  </div>
+</footer>
+<script src="/site.js?v={{assetVersion}}" defer></script>
+</body>
+</html>

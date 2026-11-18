@@ -12,6 +12,9 @@ import { scratch } from './helpers.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
+// The doctor asks the dashboard's port whether a dashboard answers: a free port, never the default one, where the
+// computer running the tests may have its own dashboard.
+(await import('../../src/config.mjs')).saveConfig({ server: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() } });
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /** A copy of hoprig whose node-pty is there but throws on load; every other dependency is the real one. */
@@ -46,7 +49,7 @@ test('a terminal module that was never built: doctor names the cause and the fix
   const tmux = checks.find((c) => c.id === 'terminal').detail.startsWith('tmux');
   assert.equal(pty.status, tmux ? 'warn' : 'fail');
   assert.match(pty.detail, /it was installed but never built: (npm \d+ does not run the install script of a dependency until it is allowed|its install script did not run)$/);
-  assert.match(pty.fix, /cd ".*app" && npm rebuild node-pty$/);
+  assert.match(pty.fix, /cd '?[^"]*app'? && npm rebuild node-pty$/);
 
   const load = `await import(${JSON.stringify(pathToFileURL(path.join(app, 'src', 'server', 'server.mjs')).href)});
     const b = await import(${JSON.stringify(pathToFileURL(path.join(app, 'src', 'server', 'backends', 'index.mjs')).href)});

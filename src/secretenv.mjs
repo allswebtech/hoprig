@@ -67,3 +67,26 @@ export function forInstalls(env = process.env) {
   for (const k of Object.keys(out)) if (GITHUB.has(process.platform === 'win32' ? k.toUpperCase() : k) || own.has(k)) delete out[k];
   return out;
 }
+
+// What a program the owner defined as a gateway gets of the starting process's environment: only what a server needs
+// to run (where programs and its own files are, language and time, a proxy and certificates for the providers it
+// calls), and on Windows what the system needs. Nothing else: the PRERUN that starts it runs in a session's
+// environment, which holds other providers' keys, cloud credentials, an SSH agent and the session's own marks, and
+// no list of secrets can name them all. Its key arrives with each request.
+const GATEWAY_NAMES = new Set([
+  'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LANGUAGE', 'TZ', 'TMPDIR', 'TEMP', 'TMP',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+]);
+const GATEWAY_WINDOWS = new Set(['SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'PATHEXT', 'USERPROFILE', 'USERNAME', 'USERDOMAIN', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'COMMONPROGRAMFILES', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'OS']);
+const GATEWAY_PREFIXES = ['LC_', 'XDG_'];
+
+/** The environment a gateway the owner defined starts with: the names above from `env`, nothing else. */
+export function forGateway(env = process.env, platform = process.platform) {
+  const out = {};
+  for (const [k, v] of Object.entries(env || {})) {
+    const n = k.toUpperCase(); // proxy variables are often lower-case; Windows' names are case-blind
+    const known = platform === 'win32' ? GATEWAY_NAMES.has(n) || GATEWAY_WINDOWS.has(n) : GATEWAY_NAMES.has(n) && (n === k || n.endsWith('_PROXY'));
+    if (known || GATEWAY_PREFIXES.some((p) => k.startsWith(p))) out[k] = v;
+  }
+  return out;
+}

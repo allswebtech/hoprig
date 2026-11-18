@@ -4,7 +4,8 @@
 // (up to an Enter outside a paste) goes as a JSON line to <cwd>/got.jsonl. It writes a run record that says it waits;
 // when a file named QUIT appears in its folder it removes its record and ends at once, as the real launcher does when
 // its coding tool ends: the terminal is back at its own shell. A file named STOP stops it (as Ctrl-Z would): its record
-// stays and still says it waits, but the shell has the terminal in front.
+// stays and still says it waits, but the shell has the terminal in front. A file named SHOW is drawn on its screen
+// in place of what stood there (a question as the coding tool would draw it).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -54,7 +55,13 @@ process.stdin.on('data', (d) => {
 });
 const quit = path.join(process.cwd(), 'QUIT');
 const stop = path.join(process.cwd(), 'STOP');
+const show = path.join(process.cwd(), 'SHOW');
 setInterval(() => {
+  if (fs.existsSync(show)) {
+    const text = fs.readFileSync(show, 'utf8');
+    fs.rmSync(show, { force: true });
+    process.stdout.write(`\x1b[2J\x1b[H${text.replace(/\n/g, '\r\n')}\r\n`);
+  }
   if (fs.existsSync(quit)) {
     fs.rmSync(quit, { force: true });
     bye();

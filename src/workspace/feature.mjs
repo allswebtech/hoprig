@@ -38,6 +38,7 @@
 import fs from 'node:fs';
 import { jobUi, tildeText } from '../pcsetup/feature.mjs';
 import { brainIndex, brainRead } from './brain.mjs';
+import { foldersHere } from './where.mjs';
 import { findTool } from '../codetools/index.mjs';
 import { applyLink, planLink, planWords } from './link.mjs';
 import { capture, stream } from '../setup/system.mjs';
@@ -133,14 +134,14 @@ export function workspaceFeature(sctx, opts = {}) {
     ['GET', /^\/api\/brain$/, async (req) => {
       ownerOnly(req);
       const p = places();
-      return brainIndex({ dir: p.dir, projects: p.projects });
+      return brainIndex({ dir: p.dir, projects: p.projects, groups: (await foldersHere({ dir: p.dir, projects: p.projects })).folders });
     }],
     ['GET', /^\/api\/brain\/item$/, async (req, m, q) => {
       ownerOnly(req);
       const id = q.get('id');
       if (!id || id.length > 400) throw fail(400, 'name an item: ?id= from /api/brain');
       const p = places();
-      return brainRead(id, { dir: p.dir, projects: p.projects });
+      return brainRead(id, { dir: p.dir, projects: p.projects, groups: (await foldersHere({ dir: p.dir, projects: p.projects })).folders });
     }],
     ['GET', /^\/api\/workspace\/link$/, async (req) => {
       ownerOnly(req);

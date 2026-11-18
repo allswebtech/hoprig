@@ -184,6 +184,10 @@ test('Leave from the computer: the hub forgets it, its port closes, the token is
 test('Remove on the hub: the link is dropped and the computer stops connecting', async () => {
   const c = await code();
   const h = await join.joinByAddress(hub.base, c.code, { keeper });
+  // The join returns when the link is up on the computer's side; the hub's own end of it (the local port its calls
+  // go through) may open a moment later. A Remove in that moment cannot reach the computer and says so (revoked:
+  // false, with the note to remove it there): true, and not what this test is about. So wait until the hub reaches it.
+  await until('online on the hub', async () => (await stateOnHub()) === 'online');
   const rm = await browser(`/api/machines/${linked().name}/remove`, { body: {} });
   assert.equal(rm.json.revoked, true);
   assert.equal(hub.machines.links.sessions.size, 0);

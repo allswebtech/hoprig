@@ -8,6 +8,7 @@ COPY bin ./bin
 COPY src ./src
 COPY web ./web
 COPY skills ./skills
+COPY LICENSE NOTICE TRADEMARKS.md ./
 RUN mkdir /data && chown node:node /data
 USER node
 # Settings, the password file and state live in /data: mount a volume there so they survive a new image.

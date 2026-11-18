@@ -20,7 +20,7 @@ globalThis.document ??= { createElement: () => ({ style: {}, dataset: {}, setAtt
 globalThis.Node ??= class {};
 globalThis.window ??= { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
 
-const { gitWords, projectWords, projectsOf } = await import('../../web/projects.js');
+const { gitWords, jobOutcome, placeOfLabel, placesOf, projectWords, projectsOf } = await import('../../web/projects.js');
 const { pcsetupFeature, tildeText, todoKind } = await import('../../src/pcsetup/feature.mjs');
 
 test('git state in plain words: branch, changes not saved to git, not on GitHub yet, to upload / download, up to date', () => {
@@ -43,6 +43,21 @@ test('git state in plain words: branch, changes not saved to git, not on GitHub 
   assert.equal(projectWords({ repos: [s({}), s({})] }), '2 repositories · all up to date');
 });
 
+test('with groups in the map: each project carries its place, and the page knows the places in order', () => {
+  const d = {
+    projectsDir: '/p',
+    places: [{ id: '', dir: '/p' }, { id: 'client-work', dir: '/w/client-work', members: 'own', group: 'client-work' }],
+    workspaces: [{ id: 'client-work/shop', place: 'client-work', name: 'shop', dir: '/w/client-work/shop', memories: {}, repos: [] }, { id: 'shop', name: 'shop', dir: '/p/shop', memories: {}, repos: [] }],
+    repos: [{ id: 'client-work/notes', place: 'client-work', rel: 'notes', dir: '/w/client-work/notes', ok: true }],
+  };
+  const list = projectsOf(d);
+  assert.deepEqual(list.map((p) => [p.id, p.place]), [['client-work/notes', 'client-work'], ['client-work/shop', 'client-work'], ['shop', '']]);
+  assert.deepEqual(placesOf(d).map((p) => p.id), ['', 'client-work']);
+  assert.deepEqual(placesOf({ projectsDir: '/p', workspaces: [], repos: [] }), [{ id: '', dir: '/p' }], 'an older computer: the projects folder only');
+  assert.equal(placeOfLabel('kits/packs/blog'), 'kits/packs');
+  assert.equal(placeOfLabel('shop'), '');
+});
+
 test('the home folder is written as ~ in what the page shows; other paths that only start the same stay', () => {
   assert.equal(tildeText('git -C "/home/ann/projects/x" push', '/home/ann'), 'git -C ~/"projects/x" push', 'copied into a shell, the ~ still expands');
   assert.equal(tildeText("cd '/home/ann' && ls", '/home/ann'), 'cd ~ && ls');
@@ -56,6 +71,8 @@ test('sync: what is left gets a kind the page explains in words', () => {
   assert.equal(todoKind('main has no upstream'), 'not-online');
   assert.equal(todoKind('main and its upstream have both moved (1 ahead, 2 behind)'), 'diverged');
   assert.equal(todoKind('2 to pull, but there are 1 uncommitted changes'), 'pull-blocked');
+  assert.equal(todoKind('1 to pull, but the incoming commits put files where builds/acme is here, which this repository does not track (another repository, perhaps): nothing was changed; move it away first, then'), 'kept-back', 'not "commit your changes": the owner changed nothing');
+  assert.equal(todoKind('1 to get from box2, but those commits put files where code/web is here, which this repository does not track (another repository, perhaps): nothing was changed, and your 2 uncommitted changes stay where they are; move it away first, then'), 'kept-back');
   assert.equal(todoKind('3 uncommitted changes'), 'uncommitted');
   assert.equal(todoKind('fetch failed: could not resolve host'), 'fetch-failed');
   assert.equal(todoKind('push failed: denied'), 'push-failed');
@@ -134,6 +151,7 @@ test('Get an existing project and Add a repository: checked input, a job, no pas
     projectAdd: async (args) => (args[1] === 'web' ? 0 : 1),
   });
   await assert.rejects(call('POST', '/api/pcsetup/project/clone', { spec: '--upload-pack=x' }), /Git address/);
+  for (const spec of ['octo/.x', 'octo/-rf', 'octo/no-ai']) await assert.rejects(call('POST', '/api/pcsetup/project/clone', { spec }), /does not make a folder name/, spec);
   assert.deepEqual(await call('POST', '/api/pcsetup/project/clone', { spec: 'octo/app' }), { started: true, name: 'app', dir: path.join(pdir, 'app') });
   assert.equal((await job()).result.ok, true);
   assert.equal(env.GIT_TERMINAL_PROMPT, '0');
@@ -142,6 +160,76 @@ test('Get an existing project and Add a repository: checked input, a job, no pas
   await assert.rejects(call('POST', '/api/pcsetup/project/add', { name: 'shopx', repo: '../x' }), /repository name/);
   await call('POST', '/api/pcsetup/project/add', { name: 'shopx', repo: 'web' });
   assert.equal((await job()).result.ok, true);
+});
+
+test('Get an existing project: the folder is the project\'s name; one here under another name is shown with its mv', async () => {
+  const { call, job } = harness({
+    cloneProject: async (spec, { onDone }) => {
+      if (/old/.test(spec)) {
+        onDone({ ok: true, result: 'misnamed', folder: 'old', dir: path.join(pdir, 'old'), here: path.join(pdir, 'old-workspace'), mv: 'mv a b', message: 'it is here already, as old-workspace' });
+        return 0;
+      }
+      fs.mkdirSync(path.join(pdir, 'website', '.git'), { recursive: true });
+      onDone({ ok: true, result: 'cloned', folder: 'website', dir: path.join(pdir, 'website') });
+      return 0;
+    },
+  });
+  // what the page shows first: the repository's name without "-workspace"; then the job's own folder
+  assert.deepEqual(await call('POST', '/api/pcsetup/project/clone', { spec: 'octo/site-workspace' }), { started: true, name: 'site', dir: path.join(pdir, 'site') });
+  const j = await job();
+  assert.equal(j.result.ok, true);
+  assert.deepEqual(j.result.data, { name: 'website', dir: path.join(pdir, 'website'), made: true });
+  fs.mkdirSync(path.join(pdir, 'old-workspace', '.git'), { recursive: true });
+  await call('POST', '/api/pcsetup/project/clone', { spec: 'octo/old-workspace' });
+  const m = await job();
+  assert.equal(m.result.ok, false);
+  assert.match(m.result.error, /here already, as old-workspace/);
+  assert.deepEqual(m.result.data, { name: 'old-workspace', dir: path.join(pdir, 'old-workspace'), made: false, mv: 'mv a b', fix: 'mv a b' }); // made: never of a folder this run did not place
+  // the page: a project here under another name needs the owner (the mv), never "done"
+  assert.equal(jobOutcome(m.result), 'needs-you');
+  assert.equal(jobOutcome(j.result), 'done');
+  assert.equal(jobOutcome({ ok: false, error: 'clone failed', data: { made: false } }), 'failed');
+});
+
+test('Get an existing project whose folder name is taken: the job names the temporary folder, not the one in the way', async () => {
+  const temp = path.join(pdir, '.hoprig-clone-site-workspace-abc123');
+  const { call, job } = harness({
+    cloneProject: async (spec, { onDone }) => {
+      fs.mkdirSync(path.join(pdir, 'website', '.git'), { recursive: true }); // someone else's repository is in the way
+      fs.mkdirSync(path.join(temp, '.git'), { recursive: true });
+      onDone({ ok: false, result: 'taken', folder: 'website', dir: path.join(pdir, 'website'), temp, fix: 'mv x y', message: 'website is taken by another folder, so the clone was left in a temporary folder' });
+      return 1;
+    },
+  });
+  await call('POST', '/api/pcsetup/project/clone', { spec: 'octo/site-workspace' });
+  const j = await job();
+  assert.equal(j.result.ok, false);
+  assert.match(j.result.error, /taken by another folder/);
+  assert.deepEqual(j.result.data, { name: '.hoprig-clone-site-workspace-abc123', dir: temp, made: true, placed: false, fix: 'mv x y' });
+  assert.equal(jobOutcome(j.result), 'needs-you');
+});
+
+test('Get an existing project whose folder holds another repository: it needs the owner, and no folder of it is shown as made', async () => {
+  for (const fix of ['mv x y', undefined]) {
+    const { call, job } = harness({
+      cloneProject: async (spec, { onDone }) => {
+        fs.mkdirSync(path.join(pdir, 'shop', '.git'), { recursive: true }); // a clone of another repository is in the way
+        onDone({ ok: false, result: 'taken', folder: 'shop', dir: path.join(pdir, 'shop'), ...(fix ? { fix } : {}), message: `${path.join(pdir, 'shop')} is in the way: it is a clone of https://github.com/bob/thing.git` });
+        return 1;
+      },
+    });
+    await call('POST', '/api/pcsetup/project/clone', { spec: 'alex/shop-workspace' });
+    const j = await job();
+    assert.equal(j.result.ok, false);
+    assert.deepEqual(j.result.data, { made: false, placed: false, fix: fix || j.result.error });
+    assert.equal(jobOutcome(j.result), 'needs-you');
+  }
+  // another run has it: the folder that was there is not "made" by this one
+  const { call, job } = harness({ cloneProject: async (spec, { onDone }) => (onDone({ ok: false, result: 'busy', folder: 'shop', dir: path.join(pdir, 'shop'), message: 'shop is being fetched by another run' }), 1) });
+  await call('POST', '/api/pcsetup/project/clone', { spec: 'alex/shop-workspace' });
+  const b = await job();
+  assert.equal(b.result.data.made, false);
+  assert.equal(jobOutcome(b.result), 'failed');
 });
 
 test('Sync: per repository what was done and what is left, for the page to say in words', async () => {

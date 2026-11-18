@@ -1,0 +1,32 @@
+
+  ⎿  Rejected update to a.txt
+      1 -hello
+      1 +bye
+
+❯ Use the Read tool to read
+  the file ../outside.txt.
+  Nothing else.
+
+● Reading /home/robin/projects
+  /example-shop-storefr/fronte
+  nd/notes.txt
+  ⎿  /home/robin/projects/exam
+     ple-shop-storefr/frontend
+     /notes.txt
+
+──────────────────────────────
+ Read file
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Read(/home/robin/projects/ex
+ ample-shop-storefr/frontend/
+ notes.txt)
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, allow reading from
+      /home/robin/projects/e
+      xample-shop-store/front
+      end during this session
+   3. No
+
+ Esc to cancel · Tab to amend

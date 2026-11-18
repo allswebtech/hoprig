@@ -28,8 +28,15 @@ export function taskStop(t, stop) {
   return h('button.btn.small.secondary.chat-taskstop', { type: 'button', 'aria-label': `Stop ${t.title || 'this task'}`, onclick: async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    e.currentTarget.disabled = true;
-    await stop(t.taskId);
+    const b = e.currentTarget;
+    b.disabled = true;
+    try {
+      await stop(t.taskId);
+    } finally {
+      // A stop that did not reach the computer can be tried again: the rail keeps this button for as long as the task
+      // runs (rail.js paintTasks). One that worked takes the row away with the next update.
+      b.disabled = false;
+    }
   } }, icon('stop', { size: 14 }), h('span', 'Stop'));
 }
 
@@ -60,9 +67,12 @@ export function runningWords(tasks) {
   return `${Object.entries(n).map(([k, x]) => `${x} ${k}${x === 1 ? '' : 's'}`).join(' · ')} running`;
 }
 
-/** The whole tree: what runs first, then what ended; each task with its line, its workflow and a Stop. */
-function tree(tasks, stop, jump) {
-  if (!tasks.length) return h('p.chat-hint', 'No agents, background shells or workflows in this chat yet.');
+/**
+ * The whole tree: what runs first, then what ended; each task with its line, its workflow and a Stop (the Background
+ * tasks sheet; the session rail has a compact row per task, rail.js).
+ */
+export function taskTree(tasks, stop, jump) {
+  if (!tasks.length) return h('p.chat-hint', 'No agents, background shells or workflows in this session yet.');
   const order = [...tasks].sort((a, b) => (a.status === 'running' ? 0 : 1) - (b.status === 'running' ? 0 : 1) || (b.updatedAt || 0) - (a.updatedAt || 0));
   return h('ul.chat-tasklist', order.map((t) => h(`li.chat-task.chat-s-${t.status || 'running'}`,
     h('div.chat-task-head',
@@ -77,7 +87,7 @@ function tree(tasks, stop, jump) {
 }
 
 /**
- * The strip above the composer and the sheet it opens. o: { stop(taskId), canStop(), jump(toolId) }. → { el, paint(tasks) }
+ * The strip above the composer and the sheet it opens. o: { stop(taskId), canStop(), jump(toolId) }. → { el, open(), paint(tasks) }
  * The open sheet follows the tasks while it is open.
  */
 export function agentsStrip(o) {
@@ -91,23 +101,27 @@ export function agentsStrip(o) {
     o.jump(id);
   };
   const label = h('span');
-  const el = h('button.chat-strip.hidden', { type: 'button', onclick: async () => {
-    body = h('div.chat-tree', tree(tasks, stop(), jump));
-    await openSheet({ title: 'Agents and background work', subtitle: 'Each with its model and effort where the coding tool says them.' }, (c) => {
+  // The desktop app's Background tasks pane: from the strip, and from the more menu (⋮) as there.
+  async function open() {
+    if (body) return;
+    body = h('div.chat-tree', taskTree(tasks, stop(), jump));
+    await openSheet({ title: 'Background tasks', subtitle: 'Agents, shells and workflows of this session, each with its model and effort where the coding tool says them.' }, (c) => {
       close = c;
       return body;
     });
     body = null;
     close = () => {};
-  } }, h('span.chat-strip-dot', { 'aria-hidden': 'true' }), label, icon('chevronRight', { size: 14 }));
+  }
+  const el = h('button.chat-strip.hidden', { type: 'button', onclick: open }, h('span.chat-strip-dot', { 'aria-hidden': 'true' }), label, icon('chevronRight', { size: 14 }));
   return {
     el,
+    open,
     paint(list) {
       tasks = Array.isArray(list) ? list : [];
       const words = runningWords(tasks);
       el.classList.toggle('hidden', !words);
       fill(label, words);
-      if (body) fill(body, tree(tasks, stop(), jump));
+      if (body) fill(body, taskTree(tasks, stop(), jump));
     },
   };
 }

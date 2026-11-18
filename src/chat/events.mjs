@@ -10,7 +10,8 @@
 //   tool-result   { id, ok, text, diff?: [{ oldStart, oldLines, newStart, newLines, lines }] }
 //   ask           { request, toolId, type: permission | question | plan, tool, title, description, input, plan?,
 //                   why, canAlways, always, alwaysText }   a tool call waits for the owner
-//   ask-closed    { request, outcome: allowed | allowed-always | denied | cancelled }
+//   ask-closed    { request, outcome: allowed | allowed-always | denied | cancelled | hoprig (allowed by the hook) }
+//   allowed       { tool, what, folder? }                 allowed by Hoprig in bypass mode (the hook: src/chat/asks.mjs)
 //   turn-start    { auto, messageId? }                    auto: the coding tool went on by itself (a task ended)
 //   turn-end      { ok, subtype, error, turnCostUsd, usage, durationMs, stopped }
 //   session-changed { id, reason: clear | compact | fork, … }
@@ -83,19 +84,33 @@ export function askNote(ask, cwd, who = 'Claude') {
   return `${who} wants to ${verb}${s ? `: ${oneLine(s, 300)}` : ''}${ask.description && ask.tool === 'Bash' ? ` (${oneLine(ask.description, 120)})` : ''}`;
 }
 
+// A table's rule ("| --- | :-: |"), read on the trimmed line: no two runs of blanks stand side by side in it, so a
+// line of many blanks is read in one pass (with them, 50,000 blanks took the server seconds).
+const TABLE_RULE = /^\|?\s*:?-{3,}:?(?:\s*\|\s*:?-{3,}:?)*\s*\|?$/;
+
 /**
  * A reply written in Markdown as one plain line, for a card's preview (Home, Workspace, Tia): no heading, list or
  * quote marks, no fences, `code`, **bold** or _italic_ marks, a link as its words, a table row as its cells.
  */
 export function previewText(md, max = 300) {
   const lines = [];
+  // Only what the preview can show is read: lines until it is full, each with its runs of blanks made one (the
+  // preview shows them so; an indent of four or more stays four, which is all the patterns tell apart), and up to a
+  // length that leaves room for the marks and a link's address. The bold and italic patterns below take time in the
+  // square of a line's length, and a reply may hold a line of tens of thousands of characters.
+  const room = Math.max(2000, max * 8);
+  let have = 0;
   for (let l of String(md || '').replace(/\r\n?/g, '\n').split('\n')) {
-    if (/^\s*(```|~~~)/.test(l) || /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(l) || /^\s*([-*_]\s*){3,}$/.test(l)) continue;
+    if (have > max) break;
+    const indent = l.length - l.trimStart().length;
+    l = (l.slice(0, Math.min(indent, 4)) + l.slice(indent).replace(/\s+/g, ' ')).slice(0, room);
+    if (/^\s*(```|~~~)/.test(l) || TABLE_RULE.test(l.trim()) || /^\s*([-*_]\s*){3,}$/.test(l)) continue;
     l = l.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/^\s*(>\s*)+/, '').replace(/^\s*[-*+]\s+(\[[ xX]\]\s+)?/, '');
     if (/^\s*\|.*\|\s*$/.test(l)) l = l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim()).filter(Boolean).join(' · ');
     l = l.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
       .replace(/`([^`]*)`/g, '$1').replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '$2').replace(/(^|[\s(])[*_](?=\S)(.+?)(?<=\S)[*_](?=$|[\s).,;:!?])/g, '$1$2');
     lines.push(l);
+    have += oneLine(l, Infinity).length;
   }
   return oneLine(lines.join(' '), max);
 }

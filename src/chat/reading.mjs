@@ -3,7 +3,7 @@
 // conversation is followed by reading it again when it changed.
 import fs from 'node:fs';
 import { oneLine } from './events.mjs';
-import { readTurns, withTurns } from './turns.mjs';
+import { readAllowed, readTurns, withAllowed, withTurns } from './turns.mjs';
 
 const STAMP_MS = 3000; // a conversation kept by a tool's server is looked at no more often than this
 
@@ -33,7 +33,8 @@ export function load(chat, { wake = true } = {}) {
 
 function loaded(chat, t, f, id) {
   chat.unread = false;
-  t = { ...t, events: withTurns(t.events, readTurns(chat.o.turnsDir, id)) }; // each turn's cost and time (turns.mjs)
+  // Each turn's cost and time, and what Hoprig allowed by itself (turns.mjs).
+  t = { ...t, events: withAllowed(withTurns(t.events, readTurns(chat.o.turnsDir, id)), readAllowed(chat.o.turnsDir, id)) };
   if (f) t = cutAt(t, f.messageId);
   chat.reset(t.events);
   chat.todos = t.todos;
@@ -94,10 +95,23 @@ function grewElsewhere(chat) {
   if (chat.dropMark()) chat.emit('record');
 }
 
+/**
+ * A conversation kept by a tool's server that waits for an OK while no process of the chat runs (the dashboard was
+ * restarted while a command waited): the chat starts again on it, and the OK arrives as if it had just been asked
+ * (answered in bypass mode where the rule allows, else a card with its command). Only from a server that runs already.
+ */
+export function checkWaiting(chat) {
+  if (!chat.engine.waiting || chat.session || chat.starting || chat.closed) return;
+  Promise.resolve(chat.engine.waiting({ cwd: chat.cwd, id: chat.conversationId }, chat.o.engineOpts)).then((n) => {
+    if (n > 0 && !chat.session && !chat.starting && !chat.closed) chat.wake();
+  }, () => {});
+}
+
 // A tool read through its server: when the conversation last changed there, at most every few seconds.
 function restamp(chat) {
   if (chat.loading || Date.now() - (chat.stampAt || 0) < STAMP_MS) return false;
   chat.stampAt = Date.now();
+  checkWaiting(chat);
   if (chat.unread) {
     chat.load();
     return false;

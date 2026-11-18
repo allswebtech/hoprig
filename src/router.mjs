@@ -24,6 +24,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
+import { gatewayOfPrerun } from './addons/gateways.mjs';
 import { limitedProfiles, markLimited, usableOrder } from './autoswitch.mjs';
 import { binFile, stateDir } from './paths.mjs';
 import { listProfiles } from './profiles.mjs';
@@ -205,6 +206,18 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
     });
   }
 
+  /**
+   * Why a provider served by a gateway of the owner's own may not be passed a request now, or null: another program
+   * answers on that gateway's port (one Hoprig did not start, localgateway.mjs), and the provider's key would go to it.
+   * Its PRERUN failing says the same, but a PRERUN runs once per router life.
+   */
+  async function foreignGateway(profile) {
+    const g = profile.prerun ? gatewayOfPrerun(profile.prerun) : null;
+    if (!g || !g.defined || typeof g.answering !== 'function') return null;
+    const now = await g.answering();
+    return now.up && !now.mine ? `another program answers on the port of ${g.title}: Hoprig did not start it, so nothing is passed on to it` : null;
+  }
+
   function noteUsage(profile, headers) {
     const u = usageFromHeaders(headers);
     if (!u) return;
@@ -278,12 +291,19 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
       const request = upstreamRequest(profile, { isIdentity: profile.name === identity.name, rest, headers: req.headers, body });
       if (!request) continue;
       await prerun(profile);
-      let answer = await send(request, req.method, abort.signal);
-      if (answer.error && answer.error.code === 'ECONNREFUSED' && profile.prerun) {
+      let foreign = await foreignGateway(profile);
+      let answer = foreign ? null : await send(request, req.method, abort.signal);
+      if (answer?.error && answer.error.code === 'ECONNREFUSED' && profile.prerun) {
         await prerun(profile, true); // its proxy was stopped meanwhile: start it again and try once more
-        answer = await send(request, req.method, abort.signal);
+        foreign = await foreignGateway(profile);
+        if (!foreign) answer = await send(request, req.method, abort.signal);
       }
       if (abort.signal.aborted) return;
+      if (foreign) {
+        tried.push(`${profile.name}:another program`);
+        held = held || { status: 502, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `hoprig router: ${profile.name}: ${foreign}` } })) };
+        continue;
+      }
       if (answer.error) {
         tried.push(`${profile.name}:${answer.error.code || 'error'}`);
         held = held || { status: 502, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `hoprig router: ${profile.name} cannot be reached (${answer.error.code || answer.error.message})` } })) };

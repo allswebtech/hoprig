@@ -28,8 +28,11 @@ export async function workspaceChecks({ run = capture } = {}) {
   else if (!ms.exists) out.push(check('workspace-map', 'Workspace map', 'info', 'none yet: a new computer could not get your repositories from it', 'hoprig workspace map'));
   else {
     const c = ms.counts;
-    const off = [c.missing ? `${c.missing} not on this computer` : '', c.unmapped ? `${c.unmapped} not in the map` : '', c.different ? `${c.different} different here` : ''].filter(Boolean);
-    out.push(check('workspace-map', 'Workspace map', off.length ? 'warn' : 'ok', off.length ? off.join(', ') : `matches this computer (${c.here || 0} repositories)`, c.unmapped ? 'hoprig workspace map' : c.missing ? 'hoprig workspace restore <brain address>' : ''));
+    const off = [c.missing ? `${c.missing} not on this computer` : '', c.notFollowed ? `${c.notFollowed} behind a link that leads out (not followed)` : '', c.unmapped ? `${c.unmapped} not in the map` : '', c.different ? `${c.different} different here` : ''].filter(Boolean);
+    // A folder behind a link is here: its fix names the link (one at a time; status lists them all).
+    const linked = ms.entries.find((e) => e.state === 'notFollowed');
+    const fix = c.unmapped ? 'hoprig workspace map' : c.missing ? 'hoprig workspace restore <brain address>' : linked ? linked.fix.slice(linked.fix.indexOf('hoprig workspace mylink')) : '';
+    out.push(check('workspace-map', 'Workspace map', off.length ? 'warn' : 'ok', off.length ? off.join(', ') : `matches this computer (${c.here || 0} repositories)`, fix));
   }
   return out;
 }

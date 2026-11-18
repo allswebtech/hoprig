@@ -63,7 +63,7 @@ async function open(chat, gen, hold) {
   let session = null;
   session = chat.engine.open({
     cwd: chat.cwd, env, profile: chat.profile, sessionId: chat.conversationId, resume, fork, model: chat.model, effort: chat.effort, ultracode: chat.ultracode,
-    mode: chat.permissionMode, grants: [...chat.grants], emit: (ev) => heard(chat, session, ev),
+    mode: chat.permissionMode, grants: [...chat.grants], runFile: hold.file, emit: (ev) => heard(chat, session, ev),
     command: chat.o.command, spawnImpl: chat.o.spawnImpl, termMs: chat.o.termMs, killMs: chat.o.killMs, drainMs: chat.o.drainMs,
     ...(chat.o.engineOpts || {}), // stand-ins of a tool's server (tests)
   });
@@ -72,6 +72,7 @@ async function open(chat, gen, hold) {
   session.holds = chat.conversationId;
   chat.session = session;
   chat.liveMode = null;
+  chat.autoSeen = false; // auto mode is a fact about one process (its provider and model): it says so again or not at all
   chat.bypass = false; // until this process says so itself
   return session;
 }

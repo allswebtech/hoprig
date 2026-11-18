@@ -13,6 +13,9 @@ export const MODES = {
   dontAsk: 'Never ask: anything not already allowed is refused',
   bypassPermissions: 'Run anything without asking (riskiest)',
 };
+// What that last mode means, said wherever it is chosen: the one rule of src/asking.mjs, the same for a terminal and
+// for a chat (App).
+export const BYPASS_MEANS = 'Claude Code runs commands and changes files without asking. Use it only for folders you could lose. It still asks you: a question, a plan, a tool your settings say "ask" for, and before some deletes. Where it stops before a delete, Hoprig allows it by itself only when the delete is plainly inside the folder the command runs in (never your home, workspace or projects folder).';
 export const EFFORT = { low: 'Low: fastest, least thinking', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Maximum: slowest, most thinking' };
 export const MODELS = [['opus', 'Opus: the most capable'], ['sonnet', 'Sonnet: fast and capable'], ['haiku', 'Haiku: the fastest']];
 const CLAUDE_DEFAULT = ['', 'Claude Code\'s own default'];
@@ -22,7 +25,7 @@ const CLAUDE_DEFAULT = ['', 'Claude Code\'s own default'];
  */
 export const toolWords = (others) => ({
   dflt: others ? ['', 'The coding tool\'s own default'] : CLAUDE_DEFAULT,
-  desc: `For sessions started from now on. A session started with its own options keeps them.${others ? ' The model is for Claude Code; a chat of another coding tool takes the mode and the effort where it has them.' : ''}`,
+  desc: `For sessions started from now on. A session started with its own options keeps them.${others ? ' The model is for Claude Code; another coding tool in the App takes the mode and the effort where it has them.' : ''}`,
 });
 const SHORT_MODE = { manual: 'Asks before changes', acceptEdits: 'Edits without asking', plan: 'Plan only', auto: 'Decides what is safe', dontAsk: 'Never asks', bypassPermissions: 'Runs anything' };
 
@@ -36,7 +39,7 @@ export function summary({ settings }) {
 function defaultsPanel(settings, cur, others = false) {
   const { dflt: DEFAULT, desc } = toolWords(others);
   const choices = settings.sessionChoices || { permissionModes: Object.keys(MODES), efforts: Object.keys(EFFORT) };
-  const warn = h('p.banner.muted', 'The coding tool can then run any command and change any file on this computer without asking. Use it only for folders you could lose.');
+  const warn = h('p.banner.muted', BYPASS_MEANS);
   const showWarn = () => warn.classList.toggle('hidden', cur.permissionMode !== 'bypassPermissions');
   const sel = (key, label, options, hint) =>
     field(label, h('select.field', { onchange: (e) => { cur[key] = e.target.value; showWarn(); } },

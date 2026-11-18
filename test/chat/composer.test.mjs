@@ -114,3 +114,17 @@ test('Send: a message on its way is sent once, even when a state update of the c
   c.paint(idle);
   assert.equal(send.disabled, false);
 });
+
+test('a queued message\'s row says its words and its files by name, never a raw "@.uploads/…" path, also in its Remove label', () => {
+  const c = createComposer({ A: '/api/chats/c1', id: 'c1', stop() {}, compact() {}, own: () => [] });
+  const q = { id: 'q1', state: 'waiting', text: 'look at this\n\n@.uploads/20301117-164344-753d-notes.txt', attachments: [{ type: 'image', name: '20301117-164344-a1b2-screen.png', mime: 'image/png' }] };
+  c.paint({ ...idle, queue: [q] });
+  const row = byClass(c.el, 'chat-queued')[0];
+  assert.ok(row, 'the queued row');
+  const said = (n) => (n instanceof FakeText ? [n.text] : n.children.flatMap(said));
+  const text = said(byClass(row, 'chat-queued-text')[0]).join('|');
+  assert.equal(text, 'look at this|screen.png|notes.txt', 'its words, then its files by name');
+  const label = byClass(row, 'chat-unqueue')[0].attrs['aria-label'];
+  assert.equal(label, 'Remove the queued message: look at this (screen.png, notes.txt)');
+  assert.doesNotMatch(`${text} ${label}`, /\.uploads|@/, 'no upload path anywhere');
+});

@@ -4,6 +4,7 @@
 //   pc recipe save [file] [--with-email]                  "make my next computer like this one"
 //   pc clone <repo>...                                    clone into the projects folder (+ dependency install)
 //   project …                                             project workspaces (project.mjs)
+//   get <name>…                                           = project clone (getproject.mjs)
 import fs from 'node:fs';
 import { formatResults } from '../setup/doctor.mjs';
 import { bold } from '../setup/ui.mjs';
@@ -22,7 +23,8 @@ const USAGE = `usage:
   hoprig pc setup [--yes] [--dry-run] [--kits ${KITS.map((k) => k.id).join(',')}] [--recipe <file|https address>]
   hoprig pc recipe save [file] [--with-email]  write a recipe to set up another computer like this one
   hoprig pc clone <git address | owner/repo>…  clone into the projects folder
-  hoprig project new|add|clone|status|sync|link …   project workspaces (docs/PC-SETUP.md)`;
+  hoprig project new|add|clone|status|sync|link …   project workspaces (docs/PC-SETUP.md)
+  hoprig get <name | owner/name | git address>…     get projects (= project clone)`;
 
 export async function status(args, { write = (s) => process.stdout.write(s), sys } = {}) {
   const known = ['--json', '--offline', '--projects'];
@@ -76,6 +78,7 @@ export async function main(command, args = []) {
   const ui = makeUi({});
   const write = (s) => process.stdout.write(s);
   if (command === 'project') return projectMain(args, { ui, write });
+  if (command === 'get') return (await import('./getproject.mjs')).getMain(args, { ui, write });
   const [sub, ...rest] = args;
   switch (sub) {
     case 'status':

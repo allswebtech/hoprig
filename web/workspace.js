@@ -22,7 +22,9 @@ export const commandLine = (cmd) => h('div.cmdline', h('code', cmd), btn('icon g
  */
 export function homeCommand(cmd, home = (typeof window !== 'undefined' && window.__home) || '') {
   if (!home) return cmd;
-  return cmd.split(`"${home}/`).join('~/"').split(`"${home}"`).join('~');
+  // A path is printed in double quotes, in single quotes (showCommand) or bare: each keeps working with ~ in front.
+  const bare = new RegExp(`(^|\\s)${home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=/|\\s|$)`, 'g');
+  return cmd.split(`"${home}/`).join('~/"').split(`"${home}"`).join('~').split(`'${home}/`).join("~/'").split(`'${home}'`).join('~').replace(bare, '$1~');
 }
 
 /** Follow the workspace's background job into `out` until it ends; resolves its answer. */
@@ -64,7 +66,7 @@ export function workspaceLine(map, job) {
 
 const UNSAVED = 'The map changed and is not saved in the AI brain\'s history yet';
 
-/** The label → folder of each repository the map knows (for "Sort it out in a chat"). */
+/** The label → folder of each repository the map knows (for "Sort it out in the App"). */
 const dirsOf = (map) => new Map(((map && map.entries) || []).map((e) => [e.label, e.path]));
 
 /** The sync sheet: the choices, the progress, the result per repository. `after` runs when it is closed. */
@@ -180,6 +182,7 @@ const ACTION = {
   here: () => 'already here',
   different: (e) => `left alone: ${e.why || 'something else is in that folder'}`,
   'no-address': (e) => `skipped: ${e.why || 'no address in the map'}`,
+  misnamed: (e) => `left alone: ${e.why || 'it is here under another name'}`,
 };
 
 /** "Bring my workspace from git": the brain's address → the plan → the job → what came and what did not. */
@@ -274,6 +277,7 @@ const GROUPS = [
 const STATE = {
   here: ['here', 'On this computer'],
   missing: ['missing', 'Not on this computer yet'],
+  notFollowed: ['notfollowed', 'Not followed: it is behind a link that leads out'],
   different: ['different', 'Something else is in its folder'],
   unmapped: ['unmapped', 'Here, not in the map yet: Update the map adds it'],
 };
@@ -315,7 +319,8 @@ function mapRow(e, refresh, sub = false) {
     h('span.row-main',
       h('span.row-title', sub ? e.label.slice(e.label.indexOf('/') + 1) : e.label, h(`span.badge.soft.map-state.ms-${key}`, words.split(':')[0])),
       h('span.row-sub.pj-wrap', e.url || 'No address: not on a git server yet'),
-      e.state === 'unmapped' ? h('span.row-sub', words) : null),
+      e.state === 'unmapped' ? h('span.row-sub', words) : null,
+      e.fix ? h('span.row-sub.pj-wrap', e.fix) : null),
     forget);
 }
 
@@ -542,7 +547,7 @@ function mapPanel(m, refresh, kept = false) {
   const counts = m.counts || {};
   const rare = kept && m.exists; // the upkeep adds what is new: writing it by hand is the rare case
   const update = () => btn(rare ? 'secondary' : 'primary', { icon: 'refresh', label: 'Update the map', onclick: () => updateMapSheet(refresh) });
-  const said = [counts.here ? `${counts.here} here` : '', counts.missing ? `${counts.missing} not on this computer` : '', counts.different ? `${counts.different} with something else in the folder` : '', counts.unmapped ? `${counts.unmapped} not in the map yet` : ''].filter(Boolean).join(' · ');
+  const said = [counts.here ? `${counts.here} here` : '', counts.missing ? `${counts.missing} not on this computer` : '', counts.notFollowed ? `${counts.notFollowed} behind a link, not followed` : '', counts.different ? `${counts.different} with something else in the folder` : '', counts.unmapped ? `${counts.unmapped} not in the map yet` : ''].filter(Boolean).join(' · ');
   return panel({ icon: 'git', title: 'The map', desc: 'Every repository of your workspace by its address, kept in the AI brain. A new computer gets everything it names.' },
     m.errors ? errorBox(`The map cannot be used: ${m.errors.join('; ')}`) : null,
     !m.exists ? h('p.hint', 'No map yet. Update the map writes the first one from what is on this computer.') : said ? h('p.hint', said) : null,

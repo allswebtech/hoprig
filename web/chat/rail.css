@@ -1,0 +1,57 @@
+/* The session rail (web/chat/rail.js): the session's details beside the chat on a wide screen, as the desktop app's.
+   The chat and its dock are one column (.chat-main), the rail the other. Below 1100 px (rail.js RAIL_MIN_PX), and
+   when the owner hid it, there is no rail: the status line and the agents strip say these things there. */
+.chat-body { flex: 1; min-height: 0; display: flex; }
+.chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.chat-rail { display: none; }
+.chat-railbtn { display: none; }
+
+@media (min-width: 1100px) {
+  .chat-railbtn { display: inline-flex; }
+  .chat-wrap:not(.chat-rail-off) .chat-rail {
+    display: flex; flex-direction: column; gap: 10px; flex: none; width: 300px; overflow-y: auto; overscroll-behavior: contain;
+    padding: 14px 12px; border-left: 1px solid var(--border); background: var(--surface);
+  }
+  /* What the rail says, the dock does not say again: the agents strip, the context, the plan usage and the cost. */
+  .chat-wrap:not(.chat-rail-off) .chat-strip { display: none; }
+  .chat-wrap:not(.chat-rail-off) .chat-st-part:is([data-k='Context'], [data-k='Plan limits'], [data-k='Cost so far']) { display: none; }
+}
+
+.chat-rcard { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 10px 12px; display: grid; gap: 8px; min-width: 0; }
+.chat-rcard.hidden { display: none; }
+.chat-rcard-head { display: flex; align-items: center; gap: 6px; margin: 0; font-size: var(--fs-sm); font-weight: 650; color: var(--text); }
+.chat-rcard-head > span:first-of-type { flex: 1; }
+.chat-rcard-end { flex: none; color: var(--text-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.chat-rcard-count { border: 0; background: none; padding: 2px 4px; margin: -2px -4px; border-radius: 6px; font: inherit; cursor: pointer; }
+.chat-rcard-count:hover { background: var(--surface-2); }
+.chat-rcard-fold > summary { cursor: pointer; list-style: none; min-height: 22px; }
+.chat-rcard-fold > summary::-webkit-details-marker { display: none; }
+.chat-rcard-fold > summary svg { flex: none; color: var(--muted); transition: transform var(--tick); }
+.chat-rcard-fold[open] > summary svg { transform: rotate(90deg); }
+.chat-rcard-fold:not([open]) { gap: 0; }
+.chat-rcard-body { display: grid; gap: 6px; min-width: 0; }
+/* Baseline: the provider's value is a button (its menu); its words sit on the same line as "Provider". */
+.chat-rail-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; gap: 4px 10px; margin: 0; font-size: var(--fs-xs); }
+.chat-rail-rows dt { color: var(--muted); }
+.chat-rail-rows dd { margin: 0; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Over .btn.small (its 30 px and 11 px padding would push the value off the column). */
+.btn.small.chat-rail-link { min-height: 22px; padding: 0 4px; margin: -2px 0 -2px -4px; gap: 4px; font-size: var(--fs-xs); font-weight: 600; max-width: 100%; justify-content: flex-start; }
+.chat-rail-files { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font: 11.5px var(--mono); color: var(--text-2); }
+.chat-rail-files li { display: flex; gap: 8px; min-width: 0; }
+.chat-rail-file { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-rail-n, .chat-rail-new { flex: none; color: var(--muted); }
+.chat-rail-bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.chat-rail-bar > span { display: block; height: 100%; background: var(--accent); }
+/* A task: one compact row (a dot that says it runs, its name, its Stop); the first few, then "N more". A long name
+   wraps: nothing is cut to "W…". */
+.chat-rail-tasks { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.chat-rail-task { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-xs); }
+.chat-rail-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.chat-rail-taskname { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; overflow-wrap: anywhere; }
+button.chat-rail-taskname { cursor: pointer; }
+button.chat-rail-taskname:hover { text-decoration: underline; }
+.chat-rail-task .chat-taskstop { flex: none; min-height: 26px; padding: 0 8px; }
+/* A finger (a tablet shows the rail): every control of the rail 44 px high. */
+@media (pointer: coarse) {
+  .btn.small.chat-rail-link, .chat-rcard-count, .chat-rcard-fold > summary, .chat-rail-taskname, .chat-rail-task .chat-taskstop { min-height: 44px; }
+}

@@ -13,6 +13,11 @@
 //   "title <words>"  the conversation gets a title
 //   "slow <ms>"      answers after <ms> (a turn that runs a while)
 //   "clear"          the conversation gets a new id (conversation_reset), as /clear does
+//   "commit <file>"  writes <file>, commits it (git) and leaves <file>.draft not committed; its report names the
+//                    folder by its full path and carries a key
+//   "fail <words>"   a turn that ends in an error whose words are <words>
+//   "hitlimit"       a 5000-character reply, then a usage-limit result, then it exits (as "big", in a longer message)
+import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -142,6 +147,30 @@ export function tasks({ out, assistant, user, tool, result, sessionId, ownTurn }
     if (text === 'clear') {
       out({ type: 'conversation_reset', new_conversation_id: crypto.randomUUID(), trigger: 'clear', session_id: sessionId });
       return result(true) || true;
+    }
+    if ((m = /^commit (\S+)/.exec(text))) {
+      // Work's "Do it": a commit in the folder's repository, a file left changed and not committed, and a report that
+      // names the folder by its full path and carries a key (the run masks both).
+      const file = m[1];
+      fs.writeFileSync(file, 'made by the stand-in\n');
+      execFileSync('git', ['add', '--', file], { stdio: 'ignore' });
+      execFileSync('git', ['commit', '-q', '-m', `Add ${file}`, '--', file], { stdio: 'ignore' });
+      fs.writeFileSync(`${file}.draft`, 'not committed\n');
+      assistant([{ type: 'text', text: `Report: added ${file} in ${process.cwd()}, checked it with the key ${'sk-ant-api03-' + 'abcdefghijklmnopqrstuvwxyz'}, left ${file}.draft.` }]);
+      return result(true) || true;
+    }
+    if (/^hitlimit\b/.test(text)) {
+      // As "big" (fake-claude.mjs), for a message with more lines than the one word: a long reply, then a usage-limit
+      // result, then it exits at once.
+      assistant([{ type: 'text', text: `${'y'.repeat(5000)}` }]);
+      const last = JSON.stringify({ type: 'result', subtype: 'success', is_error: true, result: "You've hit your usage limit · resets 5pm", session_id: sessionId, total_cost_usd: 0.01, num_turns: 1 }) + '\n';
+      process.stdout.write(last, () => process.exit(1));
+      return new Promise(() => {});
+    }
+    if ((m = /^fail (.+)/.exec(text))) {
+      assistant([{ type: 'text', text: 'Something went wrong.' }]);
+      out({ type: 'result', subtype: 'error_max_turns', is_error: true, result: m[1], session_id: sessionId, total_cost_usd: 0.01, num_turns: 1 });
+      return true;
     }
     return null;
   }

@@ -27,9 +27,9 @@ export function startWords({ kind, tool, folder, named = false, continues = null
   const at = where ? ` in ${where}` : '';
   const withTool = kind !== 'chat' || named || t !== 'claude';
   if (continues) {
-    return `continue ${continues === 'newest' ? 'the newest' : 'an earlier'} ${withTool ? `${codingTool(t)} ` : ''}conversation in ${kind === 'chat' ? 'a chat' : 'a terminal'}${at}`;
+    return `continue ${continues === 'newest' ? 'the newest' : 'an earlier'} ${withTool ? `${codingTool(t)} ` : ''}conversation in ${kind === 'chat' ? 'the App' : 'the Terminal'}${at}`;
   }
-  const what = kind === 'chat' ? (withTool ? `a chat with ${codingTool(t)}` : 'a chat') : `${codingTool(t)} in a terminal`;
+  const what = kind === 'chat' ? (withTool ? `a session in the App with ${codingTool(t)}` : 'a session in the App') : `${codingTool(t)} in the Terminal`;
   return `start ${what}${at}`;
 }
 /** Which conversation a start_session or start_chat input goes on with: 'earlier' (a named one), 'newest' (the
@@ -37,14 +37,14 @@ export function startWords({ kind, tool, folder, named = false, continues = null
 export const continuesOf = (a) => (a.conversation || a.mode === 'resume' ? 'earlier' : a.mode === 'continue' ? 'newest' : null);
 
 /**
- * A session as the owner reads it: a chat by its title, else its folder ("the chat \"Fix it\"", "the chat in shop";
+ * A session as the owner reads it: one in the App by its title, else its folder ("the App session \"Fix it\"", "the App session in shop";
  * never its id), a terminal by its name. `sessions`: the page's list of that computer's sessions.
  */
 export function sessionWords(name, sessions = []) {
   if (!/^chat:/.test(String(name || ''))) return name ? `the session ${name}` : 'a session';
   const s = sessions.find((x) => x.name === name);
   const where = s && folderName(s.cwd);
-  return s && said(s.title) ? `the chat "${s.title.trim()}"` : where ? `the chat in ${where}` : 'a chat';
+  return s && said(s.title) ? `the App session "${s.title.trim()}"` : where ? `the App session in ${where}` : 'a session in the App';
 }
 
 // Tia's settings, by the labels of Settings → Tia.
@@ -133,7 +133,7 @@ const ACTIONS = {
   manage_procedures: { find: () => 'look up how to do it', draft: (a) => `write down how to do "${a.name || 'it'}"` },
 };
 
-const ANSWER = { allow: 'allow what', allow_always: 'allow, and not ask again in this chat, what', deny: 'say no to what' };
+const ANSWER = { allow: 'allow what', allow_always: 'allow, and not ask again in this session, what', deny: 'say no to what' };
 
 /** The other tools: the words, the detail line, the quoted text. */
 const TOOLS = {

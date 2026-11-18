@@ -1,4 +1,4 @@
-// Providers → "Gateways on your computers" (src/gateway): every AI gateway (TRouteAI first) on this computer and on
+// Providers → "Gateways on your computers" (src/gateway): every AI gateway (the shipped ones first) on this computer and on
 // the computers linked to it, whether it runs, its version, and "Use here", which makes a provider on this computer
 // for it. Sharing this computer's gateway (off until turned on), the keys made for other computers, and "Add a
 // shared gateway" for a computer that is not linked. Shown on this dashboard's own page only: a key never travels
@@ -34,7 +34,7 @@ export function gatewayLine(c, g) {
 /** What the row offers: open the provider it is used as, or "Use here" when that can work. */
 export function gatewayAction(c, g) {
   if (g.usedAs) return 'open';
-  if (!c.machine) return 'use-local'; // the TRouteAI steps install and start it when needed
+  if (!c.machine) return 'use-local'; // that gateway's steps in Add provider install and start it when needed
   return c.state === 'online' && g.installed && g.ready ? 'use-remote' : null;
 }
 
@@ -61,7 +61,7 @@ function row(c, g, { useLocal, done }) {
   const what = gatewayAction(c, g);
   const end = what === 'open'
     ? h('a.btn.small.secondary.gw-act', { href: link(`#/providers/${encodeURIComponent(g.usedAs.name)}`) }, 'Open')
-    : what === 'use-local' ? btn('small primary gw-act', { label: 'Use here', onclick: useLocal })
+    : what === 'use-local' ? btn('small primary gw-act', { label: 'Use here', onclick: () => useLocal(g) })
       : what === 'use-remote' ? btn('small primary gw-act', { label: 'Use here', onclick: () => useRemote(c, g, done) }) : null;
   return h('div.row.static.gw-row',
     h('span.row-icon', icon('sparkle')),
@@ -135,7 +135,7 @@ function sharing(g, reload) {
 
 function addSheet(done) {
   return openSheet({ title: 'Add a shared gateway', subtitle: 'A gateway that another computer shares through its dashboard' }, (close) => {
-    const url = h('input.field.mono', { type: 'url', placeholder: 'https://…/gateway/trouteai', autocapitalize: 'off', spellcheck: 'false' });
+    const url = h('input.field.mono', { type: 'url', placeholder: 'https://…/gateway/…', autocapitalize: 'off', spellcheck: 'false' });
     const key = h('input.field.mono', { type: 'password', placeholder: 'hop_gw_…', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
     const out = h('div');
     const go = h('button.btn.primary', { type: 'button' }, 'Check and add');
@@ -164,7 +164,7 @@ function addSheet(done) {
 }
 
 /**
- * The panel. `useLocal()` adds this computer's own gateway as a provider (the TRouteAI steps of Add provider);
+ * The panel. `useLocal(g)` adds this computer's own gateway `g` as a provider (its steps in Add provider);
  * `changed()` draws the provider list again after a provider was added here.
  */
 export function gatewaysPanel({ useLocal, changed }) {
@@ -195,5 +195,5 @@ export function gatewaysPanel({ useLocal, changed }) {
       h('div.savebar.start', btn('secondary', { icon: 'plus', label: 'Add a shared gateway', onclick: () => addSheet(done) })));
   }
   load();
-  return panel({ icon: 'swap', title: 'Gateways on your computers', desc: 'A gateway such as TRouteAI lets Claude Code use other AI providers (and OpenCode, when Test on its provider finds the APIs it needs). Use one from this computer or from another one.' }, box);
+  return panel({ icon: 'swap', title: 'Gateways on your computers', desc: 'A gateway lets Claude Code use other AI providers (and OpenCode, when Test on its provider finds the APIs it needs). Use one from this computer or from another one.' }, box);
 }

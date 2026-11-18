@@ -1,6 +1,6 @@
-// New session's parts for the coding tool (web/newsession-tools.js), in a small stand-in DOM: the tool choice is a
-// row of toggle buttons in plain words, another tool's terminal asks first unless the owner chose otherwise (its own
-// defaults are an explicit choice, with the warning at once), and a warning line follows the choice as it changes.
+// New session's parts for the coding tool (web/newsession-tools.js), in a small stand-in DOM: another tool's terminal
+// asks first unless the owner chose otherwise (its own defaults are an explicit choice, with the warning at once), and
+// a warning line follows the choice as it changes. The popup itself: web-newsession-popup.test.mjs.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -72,19 +72,8 @@ test('another tool\'s terminal asks first; its own defaults are a choice that sa
   // In a chat, the tool's own modes, and "as your last chat" first.
   const [, chatMode] = T.otherToolOptions({ st: { permissionMode: '' }, info, name: 'OpenCode', profiles: [], chat: true, same: 'As your last chat in the project' });
   assert.deepEqual(all(chatMode).filter((x) => x.tag === 'option').map((o) => o.value), ['', 'manual', 'acceptEdits', 'bypassPermissions']);
-});
-
-test('the coding tool choice: toggle buttons that say what a press does', () => {
-  const chosen = [];
-  const row = T.toolButtons({ tools: [{ id: 'claude', name: 'Claude Code' }, { id: 'opencode', name: 'OpenCode' }], chosen: 'opencode', choose: (id, pressed) => chosen.push([id, pressed]) });
-  assert.equal(row.attrs.role, 'group');
-  const buttons = all(row).filter((x) => x.tag === 'button');
-  assert.deepEqual(buttons.map((b) => b.attrs['aria-pressed']), ['false', 'true'], 'pressed, not a radio that keeps a choice');
-  assert.ok(!buttons.some((b) => b.attrs.role === 'radio'));
-  assert.match(text(buttons[0]), /Use for the next chat/);
-  assert.match(text(buttons[1]), /Chosen/);
-  assert.doesNotMatch(text(row), /Tap/);
-  buttons[1].listeners.click();
-  buttons[0].listeners.click();
-  assert.deepEqual(chosen, [['', 'opencode'], ['claude', 'claude']], 'a second press leaves it to each project; the pressed one keeps the focus');
+  // A chat's bypass is Hoprig's own: it says what it still puts to the owner.
+  const chatSel = all(chatMode).find((x) => x.tag === 'select');
+  chatSel.listeners.change({ target: { value: 'bypassPermissions' } });
+  assert.match(all(chatMode).find((x) => /hint/.test(x.className)).textContent, /^OpenCode runs commands and changes files without asking\. Hoprig asks you first only when a command names a delete in plain sight \(rm, find -delete, git clean and a few more\) that is not plainly inside the folder it runs in\. It is no wall: a script, a program or a command written to get around it can still delete\. What your own OpenCode settings deny stays denied\.$/);
 });

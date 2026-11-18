@@ -1,0 +1,32 @@
+
+❯ Run exactly this one Bash command and nothing else: touch b.txt
+
+  Did not run 1 call
+  ⎿  $ touch b.txt
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ Use the Write tool to create the file w.txt containing the single word hi.
+  Nothing else.
+
+● Write(w.txt)
+  ⎿  Rejected write to w.txt
+      1 hi
+
+❯ Use the Edit tool to change hello to bye in a.txt. Nothing else.
+
+● Update(a.txt)
+
+────────────────────────────────────────────────────────────────────────────────
+ Edit file
+ a.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ 1 -hello
+ 1 +bye
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to make this edit to a.txt?
+ ❯ 1. Yes
+   2. Yes, and switch to accept edits (auto-approve file edits and common file
+      commands) for this session (shift+tab)
+   3. No
+
+ Esc to cancel · Tab to amend

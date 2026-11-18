@@ -12,6 +12,7 @@ const P = {
   x: ['M6 6l12 12', 'M18 6L6 18'],
   check: ['M5 12.5l4.5 4.5L19 7.5'],
   checkAll: ['M2 12.5l4.5 4.5L16 7.5', 'M11.5 16l1 1L22 7.5'],
+  tasks: ['M10 6h10', 'M10 12h10', 'M10 18h10', 'M3.5 6l1.5 1.5 2.5-3', 'M3.5 12l1.5 1.5 2.5-3', 'M3.5 18l1.5 1.5 2.5-3'],
   folder: ['M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z'],
   folderUp: ['M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z', 'M12 16v-5', 'M9.5 13.5L12 11l2.5 2.5'],
   terminal: ['M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M7 10l3 2-3 2', 'M12 15h5'],
@@ -31,6 +32,7 @@ const P = {
   send: ['M12 19V5', 'M6 11l6-6 6 6'],
   paperclip: ['M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15 6.9'],
   more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
+  moreV: ['M12 5h.01', 'M12 12h.01', 'M12 19h.01'], // ⋮, the App's more menu as the desktop app draws it
   copy: ['M9 9h10v10H9z', 'M5 15V5h10'],
   clipboard: ['M9 4h6v3H9z', 'M8 5.5H6a1 1 0 0 0-1 1V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6.5a1 1 0 0 0-1-1h-2'],
   pencil: ['M4 20h4L19 9l-4-4L4 16z', 'M13.5 6.5l4 4'],
@@ -50,6 +52,8 @@ const P = {
   moon: ['M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z'],
   text: ['M5 6h14', 'M5 10h14', 'M5 14h10', 'M5 18h7'],
   play: ['M8 5l11 7-11 7z'],
+  terminalGo: ['M14 5H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-5', 'M7 10l3 2-3 2', 'M16 3h5v5', 'M21 3l-7 7'], // a terminal, an arrow out: the conversation goes there
+  rail: ['M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M15 5v14'], // a panel at the right
   code: ['M8 7l-5 5 5 5', 'M16 7l5 5-5 5', 'M13.5 5l-3 14'],
   // A screen on a stand (the desktop); one square and two stacked ones (a window's maximise and restore).
   monitor: ['M3 4.5h18v12H3z', 'M8.5 20.5h7', 'M12 16.5v4'],

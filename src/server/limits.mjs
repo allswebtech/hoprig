@@ -46,7 +46,7 @@ export const LIMIT_LINES = [
 ];
 
 // Typographic apostrophes and the middle dot as a terminal may show them.
-const norm = (s) => s.replace(/[‘’ʼ]/g, "'").replace(/ /g, ' ');
+const norm = (s) => s.replace(/[‘’ʼ]/g, "'").replace(/\u00a0/g, ' ');
 // Decoration Claude Code puts before a line: spaces, bullets (● ⏺ ⎿ ✻ * -), box sides (│ ┃), prompt arrows (❯ >).
 const LEAD = /^[\s│┃⎿●⏺✻❯>*·•-]*/;
 

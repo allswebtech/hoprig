@@ -134,8 +134,11 @@ export async function partProject(ui, opts, p = real) {
     return { part: 'project', ok: false, dir: null, retry: 'hoprig project new <name>' };
   }
   try {
-    const code = spec.url ? await p.cloneProject(answer, { ui, dir }) : await p.projectNew([answer], { ui });
-    const target = path.join(dir, spec.name);
+    let got = null;
+    const code = spec.url ? await p.cloneProject(answer, { ui, dir, onDone: (r) => (got = r) }) : await p.projectNew([answer], { ui });
+    const target = got && got.dir ? got.dir : path.join(dir, spec.name);
+    // Not done, it needs you (here under another name, or its folder taken): the command to run, not a retry.
+    if (got && got.fix) return { part: 'project', ok: false, dir: null, note: got.result === 'misnamed' ? 'it is here already under another name; Hoprig moves nothing by itself' : got.temp ? 'its folder is taken, so the clone was left under a temporary name' : 'its folder holds another repository, so nothing was cloned', retry: got.fix };
     const ok = code === 0;
     return { part: 'project', ok, dir: ok && fs.existsSync(target) ? target : null, retry: ok ? undefined : spec.url ? `hoprig project clone ${answer}` : `hoprig project new ${answer}` };
   } catch (e) {

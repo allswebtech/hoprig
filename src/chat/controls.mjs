@@ -22,6 +22,7 @@ export async function applySettings(chat, { model, effort, ultracode, mode }) {
   let restart = false;
   if (model !== undefined && model !== chat.model) {
     chat.model = model;
+    chat.autoSeen = false; // auto mode needs a model that has it: learned again from the process's next report
     if (!(await tryLive(caps.liveModel, (s) => s.setModel(model)))) restart = true;
   }
   const effortChanged = effort !== undefined && effort !== chat.effort;
@@ -67,7 +68,13 @@ export function mergeLimit(limits, window, { status, percent, resetsAt }) {
 export async function usageNow(chat) {
   if (!chat.session || !chat.engine.capabilities.usage) return null;
   const [context, usage] = await Promise.all([chat.session.contextUsage().catch(() => null), chat.session.usage().catch(() => null)]);
-  if (context && Number.isFinite(context.totalTokens)) Object.assign(chat.usage, { contextUsed: context.totalTokens, contextWindow: context.maxTokens, contextPercent: context.percentage });
+  if (context && Number.isFinite(context.totalTokens)) {
+    Object.assign(chat.usage, { contextUsed: context.totalTokens, contextWindow: context.maxTokens, contextPercent: context.percentage });
+    // What fills it, as Claude Code's /context counts it (the session rail's Context card, when opened).
+    const cats = Array.isArray(context.categories) ? context.categories : [];
+    chat.usage.contextCategories = cats.filter((x) => x && typeof x.name === 'string' && Number.isFinite(x.tokens) && x.tokens > 0)
+      .slice(0, 20).map((x) => ({ name: x.name.slice(0, 60), tokens: Math.round(x.tokens) }));
+  }
   if (usage && usage.rate_limits && typeof usage.rate_limits === 'object') {
     for (const [w, r] of Object.entries(usage.rate_limits)) if (r && typeof r === 'object') mergeLimit(chat.limits, w, { status: r.status, percent: r.utilization, resetsAt: r.resets_at ?? r.resetsAt });
   }

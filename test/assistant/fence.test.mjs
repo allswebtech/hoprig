@@ -65,6 +65,17 @@ test('looksSecret: shapes and named random values, not ordinary text', () => {
   for (const s of ['fix the failing test', 'MAX_TOKENS=200000', 'the author: someone', 'update the token count: 12']) assert.ok(!looksSecret(s), s);
 });
 
+test('redact: the shapes of Hoprig\'s own tokens and other common keys, and a password in a URL', () => {
+  const keys = ['hwc_' + '0123456789abcdef'.repeat(4), 'tia_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v', 'github_pat_' + '11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz',
+    'sk_live_' + '51HabcdefGHIJKLMNOPqrstuv', 'sk_test_' + '51HabcdefGHIJKLMNOPqrstuv', 'AIza' + 'SyA-abcdefghijklmnopqrstuvwxyz12345', 'npm_' + 'abcdefghijklmnopqrstuvwxyz0123456789'];
+  for (const k of keys) {
+    assert.equal(redact(`the key ${k} here`), 'the key *** here', k);
+    assert.ok(looksSecret(k), k);
+  }
+  assert.equal(redact('pushed to https://alex:s3cretPassw0rd@example.com/repo.git'), 'pushed to https://alex:***@example.com/repo.git');
+  assert.equal(redact('see https://example.com/a:b@c and alex@box2'), 'see https://example.com/a:b@c and alex@box2', 'no password: nothing masked');
+});
+
 test('audit masking: secret-named keys and secret-shaped values', () => {
   const m = maskForAudit({ text: 'use sk-ant-api03-abcdefghijkl', apiKey: 'plain', nested: [{ password: 'x' }], n: 3 });
   assert.equal(m.apiKey, '***');

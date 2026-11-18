@@ -1,0 +1,4 @@
+#!/usr/bin/bash
+# log, then run the real program kept under /sbreal
+n=${0##*/}; { printf 'RUN %s' "$n"; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log
+exec /mnt/r/$n "$@"

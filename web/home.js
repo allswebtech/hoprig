@@ -5,8 +5,9 @@ import { APP_NAME } from './brand.js';
 import { limitStripAction } from './claudeaccount.js';
 import { getStartedArea } from './getstarted.js';
 import { icon } from './icons.js';
-import { MACHINE_STATE, WINDOW, ago, btn, fill, h, insecure, link, needsYouFirst, prefs, stateOf, until } from './lib.js';
+import { MACHINE_STATE, WINDOW, ago, answeredNow, btn, fill, h, insecure, needsYouFirst, prefs, stateOf, until } from './lib.js';
 import { isStarting } from './newsession.js';
+import { openNewSession } from './newsession-popup.js';
 import { sessionCard } from './sessionitem.js';
 import { connectionBanner, emptyState, frame, groupHead } from './shell.js';
 import { pageNotify, store } from './store.js';
@@ -78,7 +79,7 @@ export function viewHome() {
     page: 'home',
     intro: fixed ? 'The coding sessions of this computer, the ones that need you first.' : 'Your coding sessions on every computer, the ones that need you first.',
     // In the Sessions app of another computer a new session starts on that computer.
-    primary: { label: 'New session', icon: 'plus', href: fixed && fixed !== '~' ? link('#/new', fixed) : '#/new' },
+    primary: { label: 'New session', icon: 'plus', onclick: () => openNewSession(fixed && fixed !== '~' ? { m: fixed } : fixed === '~' ? { m: null } : {}) },
     body: [
       insecure() ? h('div.banner.muted', icon('lock', { size: 18 }), h('span', 'Not encrypted. Use only on a network you trust, or put it behind HTTPS.')) : null,
       top, gs.el, filters, accountsRow, list,
@@ -97,7 +98,8 @@ export function viewHome() {
     }
     const multi = store.multi;
     if (!fixed && (!multi || !all.some((m) => keyOf(m.machine) === only))) only = 'all';
-    const key = JSON.stringify([only, all.map((m) => [m.machine, m.machineLabel, m.status, m.error, m.sessions, m.profiles])]);
+    // An answer sent a moment ago is part of what a card shows (lib.js answeredNow): its buttons come back when it ends.
+    const key = JSON.stringify([only, all.map((m) => [m.machine, m.machineLabel, m.status, m.error, m.sessions, m.profiles, m.sessions.map((s) => answeredNow(s))])]);
     if (key === last) {
       for (const el of list.querySelectorAll('[data-at]')) el.textContent = `${el.dataset.bare ? '' : ' · '}${ago(Number(el.dataset.at))}`;
       return;
@@ -147,7 +149,7 @@ export function viewHome() {
             ? emptyState('sessions', 'No sessions yet. Add a provider for your coding tool, then start a session.',
               h('a.btn.primary', { href: '#/providers' }, icon('plus', { size: 18 }), h('span', 'Add provider')))
             : emptyState('sessions', 'No sessions yet. Start one in a project; it keeps running when you close this page.',
-              h('a.btn.primary', { href: '#/new' }, icon('plus', { size: 18 }), h('span', 'New session'))));
+              h('button.btn.primary', { type: 'button', onclick: () => openNewSession() }, icon('plus', { size: 18 }), h('span', 'New session'))));
       };
       gs.repaint();
       paintEmpty();

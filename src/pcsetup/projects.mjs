@@ -7,7 +7,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { gitRead } from '../gitread.mjs';
-import { withoutSecrets } from '../secretenv.mjs';
 import { capture, compareVersions, stream, which } from '../setup/system.mjs';
 // (a cycle: layout.mjs takes PRIVATE_DIRS from here; neither uses the other while it loads)
 import { defaultProjectsDir } from '../workspace/layout.mjs';
@@ -42,10 +41,26 @@ export function expandDir(input, home = os.homedir()) {
  */
 export function rememberDir(dir, { load = loadConfig, save = saveConfig, home = os.homedir() } = {}) {
   const cfg = load();
-  const roots = Array.isArray(cfg.server && cfg.server.roots) && cfg.server.roots.length ? cfg.server.roots : [home];
-  const next = [dir, ...roots.filter((r) => r !== dir)];
-  save({ projectsDir: dir, server: { roots: next } });
+  const next = rootsWith(cfg, dir, home);
+  if (wouldRemember(dir, { load: () => cfg, home })) save({ projectsDir: dir, server: { roots: next } });
   return next;
+}
+
+const rootsWith = (cfg, dir, home) => {
+  const roots = Array.isArray(cfg.server && cfg.server.roots) && cfg.server.roots.length ? cfg.server.roots : [home];
+  return [dir, ...roots.filter((r) => r !== dir)];
+};
+
+/** Whether rememberDir would change the settings (a dry run says it; an unchanged file is not written again). */
+export function wouldRemember(dir, { load = loadConfig, home = os.homedir() } = {}) {
+  let cfg = {};
+  try {
+    cfg = load();
+  } catch {
+    return true;
+  }
+  const roots = Array.isArray(cfg.server && cfg.server.roots) ? cfg.server.roots : [];
+  return cfg.projectsDir !== dir || JSON.stringify(roots) !== JSON.stringify(rootsWith(cfg, dir, home));
 }
 
 const SEG = /^[A-Za-z0-9._-]{1,100}$/;
@@ -126,7 +141,15 @@ export function projectNeeds(dir, { has = (c) => !!which(c), nodeVersion = proce
     }
   }
   const node = wants ? { wants: wants.slice(0, 40), have: nodeVersion, ok: nodeSatisfies(nodeVersion, wants) } : null;
-  return { installs, node, envExample: exists('.env.example') && !exists('.env') };
+  // Only a regular .env.example is copied (prepareEnv): one that is a link is never a reason to make a .env.
+  const regular = (f) => {
+    try {
+      return fs.lstatSync(path.join(dir, f)).isFile();
+    } catch {
+      return false;
+    }
+  };
+  return { installs, node, envExample: exists('.env.example') && regular('.env.example') && !exists('.env') };
 }
 
 /** A rough check of "18", "v20.1", ">=18", "^20", "20.x", "lts/*": the common forms; anything else counts as fine. */
@@ -195,35 +218,36 @@ export function listRepos(dir) {
 /**
  * Clone `url` into `<dir>/<name>`. Never into a folder that has something in it; an empty folder is cloned into (a
  * project that keeps a code repository as a submodule leaves its folder empty when it is cloned). With `quiet`, git
- * may not ask for a password on the terminal (the dashboard has none). Resolves { ok, dest, skipped?, output }.
+ * may not ask for a password on the terminal (the dashboard has none). `root`: the entry's own folder the clone must
+ * stay inside (default: the clone's own folder), `at`: { dir, projects } of the workspace (inside.mjs cloneInto).
+ * Resolves { ok, dest, skipped?, output, leaves? }.
  */
-export async function cloneRepo(repo, dir, { onLine = () => {}, quiet = false, run = stream, name, env: extra = {} } = {}) {
+export async function cloneRepo(repo, dir, { onLine = () => {}, quiet = false, run = stream, name, env = {}, root, at = {}, scratch = false } = {}) {
   const dest = path.join(dir, name || repo.name);
-  if (fs.existsSync(dest) && !emptyFolder(dest)) {
-    onLine(`${dest} is already there: left as it is.`);
-    return { ok: true, dest, skipped: true };
-  }
-  fs.mkdirSync(dir, { recursive: true });
-  // A clone needs no provider key; it keeps GitHub's token, which a private repository may need.
-  const env = { ...withoutSecrets(process.env), ...(quiet ? { GIT_TERMINAL_PROMPT: '0' } : {}), ...extra };
-  const r = await run(['git', 'clone', '--', repo.url, dest], { env, onLine, interactive: false });
-  return { ok: r.ok, dest, output: r.output };
+  const { cloneInto } = await import('../workspace/inside.mjs');
+  return cloneInto({ ...at, root: root || dest }, dest, repo.url, { run, env, onLine, quiet, scratch });
 }
 
-function emptyFolder(d) {
-  try {
-    return fs.statSync(d).isDirectory() && fs.readdirSync(d).length === 0;
-  } catch {
-    return false;
-  }
-}
-
-/** After a clone: copy .env.example to .env when there is none. Says what it did. */
-export function prepareEnv(dest, onLine = () => {}) {
+/**
+ * After a clone: copy .env.example to .env when there is none. Says what it did. Only a regular .env.example inside
+ * the project (`root`: the entry's folder), never one that is a link, and the .env never written through a link
+ * (inside.mjs copyIn).
+ */
+export async function prepareEnv(dest, onLine = () => {}, root = dest, at = {}) {
+  const { copyIn, kindAt, leavesWords, leaves } = await import('../workspace/inside.mjs');
   const ex = path.join(dest, '.env.example');
   const env = path.join(dest, '.env');
-  if (fs.existsSync(ex) && !fs.existsSync(env)) {
-    fs.copyFileSync(ex, env, fs.constants.COPYFILE_EXCL);
+  if (kindAt(env) !== 'none') return false;
+  const out = leaves(root, dest, at);
+  if (out) {
+    onLine(`No .env made in ${path.basename(dest)}: ${leavesWords(out)}.`);
+    return false;
+  }
+  if (kindAt(ex) === 'link') {
+    onLine(`No .env made in ${path.basename(dest)}: its .env.example is a link, and Hoprig copies only a regular file.`);
+    return false;
+  }
+  if (kindAt(ex) === 'file' && copyIn({ ...at, root }, ex, env)) {
     onLine(`Copied .env.example to .env in ${path.basename(dest)}: fill in its values.`);
     return true;
   }

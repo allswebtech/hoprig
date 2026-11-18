@@ -80,15 +80,17 @@ const STATES = { done: 0, running: 1, asking: 2, refused: 3, stopped: 4 };
 
 /**
  * One line for a tool call: { verb, detail, mono } — "Ran" + its command, "Edited" + the file and +/- lines, …
- * `state`: done (default), running, asking (waits for the owner's OK), refused (he said no) or stopped (Stop came
- * before it ran: "Did not write", never in the past).
+ * `state`: done (default), running, asking (waits for the owner's OK), refused (he said no), stopped (Stop came
+ * before it ran: "Did not write", never in the past) or failed (only for a change of a file, which is one step: "Could
+ * not write"; nothing was written).
  */
 export function toolLine(name, input = {}, state = 'done') {
-  if (state === 'stopped') {
-    // "Wants to write" → "Did not write"; a verb without "Wants to" ("Asks you") says it as refused ("Not answered").
+  if (state === 'stopped' || state === 'failed') {
+    // "Wants to write" → "Did not write" (stopped) or "Could not write" (it failed: a rule refused it, the file was
+    // not there); a verb without "Wants to" ("Asks you") says it as refused ("Not answered").
     const line = toolLine(name, input, 'asking');
     const m = /^Wants to (.+)$/.exec(line.verb);
-    return { ...line, verb: m ? `Did not ${m[1]}` : toolLine(name, input, 'refused').verb };
+    return { ...line, verb: m ? `${state === 'stopped' ? 'Did not' : 'Could not'} ${m[1]}` : toolLine(name, input, 'refused').verb };
   }
   const i = input && typeof input === 'object' ? input : {};
   const n = STATES[state] ?? 0;
@@ -165,12 +167,12 @@ export function ruleWords(text) {
  */
 export function alwaysWords(ev, who = 'Claude') {
   // Another coding tool's own patterns ("ls *"), which cover each part of a command it asked for.
-  if (who !== 'Claude') return ev.alwaysText ? `“Allow in this chat” also lets ${who} do what matches this again in this chat without asking: ${ev.alwaysText}.` : '';
+  if (who !== 'Claude') return ev.alwaysText ? `“Allow in this session” also lets ${who} do what matches this again in this session without asking: ${ev.alwaysText}.` : '';
   const what = ruleWords(ev.alwaysText);
   if (!what) return '';
   const cmd = ev.tool === 'Bash' && ev.input && typeof ev.input.command === 'string' ? ev.input.command.trim() : '';
   const part = !!cmd && /[;&|\n]/.test(cmd) && !grantItems(ev.alwaysText).includes(`Bash(${cmd})`);
-  return `“Allow in this chat” also lets Claude do this again in this chat without asking: ${what}.${part ? ' That is only part of this command.' : ''}`;
+  return `“Allow in this session” also lets Claude do this again in this session without asking: ${what}.${part ? ' That is only part of this command.' : ''}`;
 }
 
 /** What the coding tool (`who`: "Claude", "OpenCode") asks to do, as the head of the OK card. */
@@ -200,44 +202,169 @@ export function took(ms) {
   return `${Math.floor(s / 3600)} h${Math.floor(s / 60) % 60 ? ` ${Math.floor(s / 60) % 60} min` : ''}`;
 }
 
-/** The line under a finished turn: what it cost and used, as Claude Code reported it. */
-export function turnLine(ev) {
+/**
+ * The line under a finished turn, as Claude Code reported it: { cost ("$0.04", or ""), rest ("19k tokens in · 140
+ * out · 9 s") }. Both empty for a command Claude Code answered by itself (/cost): it used nothing.
+ */
+export function turnParts(ev) {
   const u = ev.usage || {};
-  // A command Claude Code answered by itself (/cost) used nothing: no line.
-  if (!ev.turnCostUsd && !(u.input || u.output || u.cacheRead || u.cacheWrite)) return '';
+  if (!ev.turnCostUsd && !(u.input || u.output || u.cacheRead || u.cacheWrite)) return { cost: '', rest: '' };
   const parts = [];
-  if (Number.isFinite(ev.turnCostUsd)) parts.push(money(ev.turnCostUsd));
   if (ev.usage) {
     const input = (ev.usage.input || 0) + (ev.usage.cacheRead || 0) + (ev.usage.cacheWrite || 0);
     if (input || ev.usage.output) parts.push(`${kilo(input)} tokens in · ${kilo(ev.usage.output || 0)} out`);
   }
   if (Number.isFinite(ev.durationMs)) parts.push(`${Math.max(1, Math.round(ev.durationMs / 1000))} s`);
-  return parts.join(' · ');
+  return { cost: Number.isFinite(ev.turnCostUsd) ? money(ev.turnCostUsd) : '', rest: parts.join(' · ') };
 }
+/** The same in one line: "$0.04 · 19k tokens in · 140 out · 9 s". */
+export function turnLine(ev) {
+  const { cost, rest } = turnParts(ev);
+  return [cost, rest].filter(Boolean).join(' · ');
+}
+
+// One "@name" with the blanks after it: @"a name with spaces" (no line break inside) or @ and all up to a blank. A
+// name has one reading at every place, so the scan below never goes back.
+const END_NAME = /@(?:"([^"\n]+)"(?![^\s@])|(\S+))\s*/y;
+
+/**
+ * The "@name" words that end `s` after a blank line: { index (of that "\n\n"), paths }, or null. One pass over the
+ * text: the regular expression this replaces went back and forth over a long "@!@!@…" for minutes. A later blank
+ * line inside names that failed fails at the same place, so the next try starts after it.
+ */
+function endNames(s) {
+  for (let from = s.indexOf('\n\n@'); from !== -1;) {
+    const paths = [];
+    let at = from + 2;
+    END_NAME.lastIndex = at;
+    for (let n; (n = END_NAME.exec(s));) {
+      paths.push(n[1] || n[2]);
+      at = END_NAME.lastIndex;
+    }
+    if (at === s.length) return { index: from, paths };
+    from = s.indexOf('\n\n@', at);
+  }
+  return null;
+}
+
+/**
+ * The owner's message as its bubble shows it. The files sent with it are named at its end for the coding tool
+ * ("@.uploads/…"); they go out of the text, and each is a chip below. A message read back from the conversation, or
+ * one from an older computer, names an upload only there: it becomes a chip by its name. An "@file" the owner wrote
+ * at the end himself stays his words. → { text, files }
+ */
+export function ownMessageView(text, files = []) {
+  const s = String(text || '');
+  const m = endNames(s);
+  if (!m) return { text: s, files };
+  const paths = m.paths;
+  const uploads = paths.filter((p) => /(?:^|\/)\.uploads\//.test(p));
+  if (!files.some((f) => f.type === 'file') && uploads.length !== paths.length) return { text: s, files };
+  const named = new Set(files.map((f) => f.name));
+  const more = uploads.map((p) => p.split('/').pop()).filter((n) => n && !named.has(n)).map((name) => ({ type: 'file', name, mime: '' }));
+  return { text: s.slice(0, m.index), files: [...files, ...more] };
+}
+
+/**
+ * The transcript views, in the words of the desktop app's session menu (Transcript view). Thinking is offered once
+ * the session has thinking to show.
+ */
+export const VIEWS = [
+  { id: 'normal', label: 'Normal', sub: 'Tool calls collapsed into summaries, with full text responses' },
+  { id: 'thinking', label: 'Thinking', sub: 'Tool calls collapsed into summaries, plus Claude\'s thinking' },
+  { id: 'verbose', label: 'Verbose', sub: 'Every tool call, file read and step, plus Claude\'s thinking' },
+];
+export const viewOk = (id) => VIEWS.some((x) => x.id === id);
+/**
+ * The views the menu offers: Thinking only when there is thinking to show (or it is the view now). `who`: the coding
+ * tool as a sentence names it (toolWord): an OpenCode session's thinking is not Claude's.
+ */
+export const viewChoices = (now, thought, who = 'Claude') => VIEWS.filter((x) => x.id !== 'thinking' || thought || now === 'thinking')
+  .map((x) => ({ ...x, sub: x.sub.replace('Claude\'s thinking', `${who}'s thinking`) }));
+/**
+ * Whether dollars are said for this chat's turns: only on a provider billed by use (an API key or a gateway). A
+ * subscription's sign-in is not billed per turn, so its dollar figures mislead; a provider not known says none.
+ */
+export const billed = (v) => !!(v && v.profile && (v.profile.kind === 'api' || v.profile.kind === 'openai'));
 
 // ---------- the composer's chips ----------
 
-/** The permission modes as the chip and its menu say them. `danger`: runs anything (the chip is marked). */
+/**
+ * The permission modes as the chip and its menu say them: Claude Code's own names (its desktop app's mode selector,
+ * and "don't ask", which only its terminal has). `danger`: runs anything (the chip is marked).
+ */
 export const MODE = {
-  manual: { chip: 'Ask first', sub: 'Asks before every change and command' },
-  acceptEdits: { chip: 'Accept edits', sub: 'Changes files without asking; asks before commands' },
-  plan: { chip: 'Plan', sub: 'Reads and proposes; changes nothing until you approve' },
-  auto: { chip: 'Auto', sub: 'Decides by itself what is safe; asks for the rest' },
-  dontAsk: { chip: 'Never ask', sub: 'Anything not already allowed is refused' },
-  bypassPermissions: { chip: 'Bypass', sub: 'Runs anything without asking (riskiest)', danger: true },
+  manual: { chip: 'Manual', sub: 'Asks before editing files or running commands' },
+  acceptEdits: { chip: 'Accept edits', sub: 'Accepts file edits and common file commands; asks before other commands' },
+  plan: { chip: 'Plan', sub: 'Explores, then proposes a plan without editing your code' },
+  auto: { chip: 'Auto', sub: 'Runs without routine prompts; a background check reviews risky actions' },
+  dontAsk: { chip: 'Don\'t ask', sub: 'Anything not already allowed is refused' },
+  bypassPermissions: { chip: 'Bypass permissions', sub: 'Runs without permission prompts (riskiest)', danger: true },
 };
-/** The order Shift+Tab goes through, as in Claude Code (never-ask is only in the menu). */
+/** The mode menu in the desktop app's order; what it does not offer (don't ask) waits under "More modes". */
+export const MODE_MENU = ['manual', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'];
+export const MODE_RARE = ['dontAsk'];
+/**
+ * The menu's two parts for the modes the chat offers (`modes`, the server's list in any order): { main, rare }. A mode
+ * this page does not know (a newer server's) goes to the end of the main part.
+ */
+export function modeMenu(modes = Object.keys(MODE)) {
+  const main = [...MODE_MENU.filter((m) => modes.includes(m)), ...modes.filter((m) => !MODE_MENU.includes(m) && !MODE_RARE.includes(m))];
+  return { main, rare: MODE_RARE.filter((m) => modes.includes(m)) };
+}
+/**
+ * A plan's first two answers, as Claude Code words them: approve and go on in auto mode ("Yes, auto-accept edits"
+ * where the chat does not offer auto mode), or approve and review each edit. `modes`: the chat's (null: an older
+ * computer that did not say, whose Claude Code had auto mode). → [{ label, mode }]
+ */
+export function planAnswers(modes) {
+  const auto = !Array.isArray(modes) || modes.includes('auto');
+  return [
+    auto ? { label: 'Yes, and use auto mode', mode: 'auto' } : { label: 'Yes, auto-accept edits', mode: 'acceptEdits' },
+    { label: 'Yes, manually approve edits', mode: 'manual' },
+  ];
+}
+/**
+ * The modes a plan's answers may switch to: the chat's, but for Claude Code auto mode only once the session showed it
+ * has it (`autoMode`: it ran in auto mode). Its mode list always names auto, yet auto mode needs a model and settings
+ * that allow it; until then "Yes, auto-accept edits" is the first answer, which works everywhere. → [modes] or null
+ */
+export function planModes(v) {
+  const modes = v && v.choices && Array.isArray(v.choices.modes) ? v.choices.modes : null;
+  if (!modes) return null;
+  const claude = !(v.engine && v.engine.id && v.engine.id !== 'claude');
+  return claude && v.autoMode !== true ? modes.filter((m) => m !== 'auto') : modes;
+}
+/**
+ * What a look's answer (events and state in one, stream.js) says before its state is applied: the first look draws
+ * the events first. Its coding tool (the events are drawn in its words) and its modes (a plan that waits is drawn
+ * with the answers it has: planModes). An older computer's answer without them changes nothing. → the state to draw with
+ */
+export function beforeState(v, r) {
+  let w = v;
+  if (r.engine && !(w && w.engine)) w = { ...(w || {}), engine: r.engine };
+  if (r.choices && !(w && w.choices)) w = { ...(w || {}), choices: r.choices, autoMode: r.autoMode };
+  return w;
+}
+/** The order Shift+Tab goes through, as in Claude Code (don't ask is only in the menu). */
 export const MODE_CYCLE = ['manual', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'];
 export function nextMode(now, modes = Object.keys(MODE)) {
   const ring = MODE_CYCLE.filter((m) => modes.includes(m));
   const i = ring.indexOf(now || 'manual');
   return ring[(i + 1) % ring.length];
 }
-/** The mode the chat runs in: what the running process says, else what is set (null: Claude Code's default, ask first). */
+/** The mode the chat runs in: what the running process says, else what is set (null: Claude Code's default, Manual). */
 export const modeOf = (v) => (v.liveMode ? (v.liveMode === 'default' ? 'manual' : v.liveMode) : v.permissionMode || 'manual');
-export const modeChip = (m) => (MODE[m] ? MODE[m].chip : m ? m : 'Ask first');
-/** A mode in the chat's coding tool's words (its own where it has them: what its modes do differs), else Claude Code's. */
-export const modeInfo = (v, m) => (v && v.choices && v.choices.modeWords && v.choices.modeWords[m]) || MODE[m] || null;
+export const modeChip = (m) => (MODE[m] ? MODE[m].chip : m ? m : MODE.manual.chip);
+/**
+ * A mode as the chip and menu say it: Claude Code's name (one word for one mode, in every coding tool's chat), and
+ * what it does in the chat's coding tool's own words where it has them (what its modes do differs), else Claude Code's.
+ */
+export const modeInfo = (v, m) => {
+  const own = v && v.choices && v.choices.modeWords && v.choices.modeWords[m];
+  if (!own) return MODE[m] || null;
+  return MODE[m] ? { ...own, chip: MODE[m].chip } : own;
+};
 /** How the page names the chat's coding tool in a sentence: "Claude" for Claude Code, else the tool's name. */
 export const toolWord = (v) => (v && v.engine && v.engine.id && v.engine.id !== 'claude' ? v.engine.label || v.engine.id : 'Claude');
 /** What the chat's coding tool can do (its engine's capabilities; before the first state: nothing extra). */
@@ -291,6 +418,12 @@ export const exitCode = (text) => {
   const m = /(?:^|\n)\s*(?:Exit code|exit code:?|exited with code)\s+(-?\d+)/i.exec(String(text || ''));
   return m ? Number(m[1]) : null;
 };
+
+/**
+ * What the page of a session that is not open any more says: moved to its terminal (`was.terminal`), else archived
+ * (the session menu's Archive) or moved to the Terminal. One word for one act: Archive, not "closed".
+ */
+export const goneWords = (was) => (was && was.terminal ? 'This session moved to the Terminal: the conversation goes on there.' : 'This session is not open in the App any more: it was archived, or moved to the Terminal.');
 
 /** A turn runs (Stop and Esc end it; a message is queued). A chat of an older computer says only "working". */
 export const turnRuns = (v) => !!(v && (v.turn !== undefined ? v.turn : v.working));

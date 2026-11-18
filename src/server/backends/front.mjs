@@ -54,4 +54,14 @@ export function assertFront(pid, front, o) {
   if (!g || g.tpgid !== front.group) throw notInFront(FRONT_GONE);
 }
 
+/**
+ * `when` ({ lines, test(screen), message }): type only while the screen's last `lines` lines pass `test`, looked at
+ * right before the bytes go (the page's answer to a permission dialog: server.mjs). Throws a 409 with `message` when
+ * they do not; returns when they do or when there is nothing to check.
+ */
+export function assertScreen(when, screen) {
+  if (!when) return;
+  if (!when.test(screen)) throw Object.assign(new Error(when.message || 'The screen changed. Nothing was typed'), { status: 409 });
+}
+
 export const FRONT_GONE = 'Nothing was typed: the coding tool is not the program in front in that terminal any more (it has ended, or another program runs there). Look at the session, start the coding tool again, then send it again';

@@ -7,7 +7,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tilde } from '../paths.mjs';
 import { initRepo } from '../pcsetup/workspace.mjs';
-import { capture } from '../setup/system.mjs';
+import { leaves, leavesWords, mkdirIn, myLinkCommand, writeIn } from './inside.mjs';
+import { capture, showCommands } from '../setup/system.mjs';
 import { TREE, isDir, workspaceStatus } from './layout.mjs';
 
 const RULES_TEMPLATE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'templates', 'working-rules.md');
@@ -66,13 +67,29 @@ export async function workspaceSetup({ dryRun = false, cfg, projectsDir, run = c
   const st = workspaceStatus({ cfg, projectsDir, platform });
   const did = [];
   const left = [];
+  // Every folder and file is made inside the workspace, never through a link (inside.mjs). A folder of the tree that
+  // is a link (the owner's database folder on another disk) is not followed and never stops the rest: it is named,
+  // with the command that names it as his own, and setup goes on.
+  const at = { root: st.dir, dir: st.dir };
+  const notFollowed = (p, b) => left.push({ path: tilde(p), why: `${leavesWords(b)}: not followed; if that link is yours:  ${myLinkCommand(b.path)}` });
   const make = (p, what, fn) => {
+    const b = leaves(st.dir, p, at);
+    if (b) return (notFollowed(p, b), false);
     did.push({ path: tilde(p), what });
-    if (!dryRun) fn();
+    if (dryRun) return true;
+    try {
+      fn();
+    } catch (e) {
+      if (e.code !== 'ELEAVES') throw e;
+      did.pop(); // it became a link between the look and the act
+      notFollowed(p, e.leaves);
+      return false;
+    }
+    return true;
   };
   if (!st.exists) {
     if (fs.existsSync(st.dir)) return { dir: st.dir, dryRun, did, left: [{ path: st.short, why: 'a file is in the way: nothing was created' }], git: null };
-    make(st.dir, 'the workspace folder', () => fs.mkdirSync(st.dir, { recursive: true }));
+    make(st.dir, 'the workspace folder', () => fs.mkdirSync(st.dir, { recursive: true })); // the workspace itself: the owner's own folder
   }
   let brainMade = false;
   for (const f of TREE) {
@@ -83,14 +100,13 @@ export async function workspaceSetup({ dryRun = false, cfg, projectsDir, run = c
       continue;
     }
     if (f.id === 'ai_brain' && (!s.exists || (s.kind === 'folder' && empty(p)))) {
-      make(p, 'the AI brain: BRAIN.md, learnings, current context, daily logs, home memory, skills, scripts, claude/CLAUDE.md', () => {
+      brainMade = make(p, 'the AI brain: BRAIN.md, learnings, current context, daily logs, home memory, skills, scripts, claude/CLAUDE.md', () => {
         for (const [rel, text] of Object.entries(brainScaffold())) {
           const file = path.join(p, rel);
-          fs.mkdirSync(path.dirname(file), { recursive: true });
-          fs.writeFileSync(file, text, { flag: 'wx' });
+          mkdirIn(at, path.dirname(file));
+          writeIn(at, file, text, { excl: true });
         }
       });
-      brainMade = true;
       continue;
     }
     if (s.exists || s.kind !== 'missing') {
@@ -99,25 +115,24 @@ export async function workspaceSetup({ dryRun = false, cfg, projectsDir, run = c
     }
     if (f.id === 'credentials') {
       make(p, 'credentials, only you can open it, with a short README', () => {
-        fs.mkdirSync(p, { recursive: true, mode: 0o700 });
-        fs.chmodSync(p, 0o700); // mkdir's mode is narrowed by umask only; say it exactly
-        fs.writeFileSync(path.join(p, 'README.md'), CREDENTIALS_README, { flag: 'wx', mode: 0o600 });
+        mkdirIn(at, p, { mode: 0o700 }); // exactly 0700, whatever the umask
+        writeIn(at, path.join(p, 'README.md'), CREDENTIALS_README, { excl: true, mode: 0o600 });
       });
       continue;
     }
-    make(p, f.rel, () => fs.mkdirSync(p, { recursive: true }));
+    make(p, f.rel, () => mkdirIn(at, p));
   }
   let git = null;
-  if (brainMade) git = await brainGit(path.join(st.dir, 'ai_brain'), { dryRun, run });
+  if (brainMade) git = await brainGit(path.join(st.dir, 'ai_brain'), { dryRun, run, ws: st.dir });
   return { dir: st.dir, dryRun, did, left, git };
 }
 
 /** git init and a first commit for a new brain, only when git knows a name and an e-mail (a commit needs them). */
-async function brainGit(dir, { dryRun, run }) {
+async function brainGit(dir, { dryRun, run, ws }) {
   const who = await Promise.all(['user.name', 'user.email'].map((k) => run(['git', 'config', '--get', k], { timeout: 10_000, cwd: os.tmpdir() }).then((r) => (r.ok ? (r.stdout || '').trim() : ''), () => '')));
-  if (!who[0] || !who[1]) return { done: false, why: `git does not know your name and e-mail yet: set them (git config --global user.name / user.email), then: git -C "${dir}" init -b main && git -C "${dir}" add -A && git -C "${dir}" commit -m "Start the AI brain"` };
+  if (!who[0] || !who[1]) return { done: false, why: `git does not know your name and e-mail yet: set them (git config --global user.name / user.email), then: ${showCommands([['git', '-C', dir, 'init', '-b', 'main'], ['git', '-C', dir, 'add', '-A'], ['git', '-C', dir, 'commit', '-m', 'Start the AI brain']])}` };
   if (dryRun) return { done: false, why: 'dry run: would run git init and make a first commit' };
   if (!isDir(dir)) return { done: false, why: 'no brain folder' };
-  const r = await initRepo(dir, 'Start the AI brain', run);
+  const r = await initRepo(dir, 'Start the AI brain', run, { root: dir, dir: ws });
   return r.ok ? { done: true } : { done: false, why: r.error };
 }

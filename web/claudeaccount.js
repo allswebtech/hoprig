@@ -111,8 +111,8 @@ export function switchAccount({ session = null, done = () => {} } = {}) {
       h('ul.howlist',
         h('li', 'You sign in with the other account in your browser. Until that is complete nothing changes: cancel, and the account of now stays.'),
         h('li', running.length
-          ? `${count(running.length, 'session or chat', 'sessions and chats')} run on this sign-in. They keep running and answer as the new account from their next request. No restart is needed (Claude Code 2.1.325 reads the sign-in again before each request).`
-          : 'Sessions and chats on this sign-in need no restart: Claude Code 2.1.325 reads the sign-in again before each request.'),
+          ? `${count(running.length, 'session', 'sessions')} run on this sign-in. They keep running and answer as the new account from their next request. No restart is needed (Claude Code 2.1.325 reads the sign-in again before each request).`
+          : 'Sessions on this sign-in need no restart: Claude Code 2.1.325 reads the sign-in again before each request.'),
         h('li', 'The new account has its own limits: the limit mark and the usage figures of this provider start again.'),
         session ? h('li', `Afterwards "${nameOf(session)}" goes on by itself.`) : null),
       h('label.fieldrow', h('span.field-label', 'E-mail address of the other account (optional)'), email,
@@ -152,7 +152,7 @@ export function signOut({ done = () => {} } = {}) {
       h('ul.howlist',
         h('li', 'Claude Code forgets this sign-in on this computer, and what it saved with it (its sign-ins to MCP servers).'),
         h('li', running.length
-          ? `${count(running.length, 'session or chat', 'sessions and chats')} run on this sign-in. Their next request ends in "Not logged in" until someone signs in again; then they go on. Their conversations are kept.`
+          ? `${count(running.length, 'session', 'sessions')} run on this sign-in. Their next request ends in "Not logged in" until someone signs in again; then they go on. Their conversations are kept.`
           : 'A session on this sign-in cannot answer until someone signs in again. Conversations are kept.'),
         h('li', 'To change the account, use "Sign in with another account" instead: it needs no sign-out.')),
       out,

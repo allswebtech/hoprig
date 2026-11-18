@@ -19,6 +19,8 @@
 //                                  `front` ({ group, pid }, src/server/typing.mjs): type only while that program is the
 //                                  terminal's foreground program, checked right before the bytes go (./front.mjs);
 //                                  else nothing is typed and a 409 error says so. Without it: as the owner types
+//                                  `when` ({ lines, test, message }, front.mjs assertScreen): type only while the
+//                                  screen passes `test`, looked at as the last step before the bytes go (one line only)
 //   capture(id, lines)             the last `lines` lines of history and screen, as plain text
 //   scroll(id, action, n)          history view: action "up" | "down" (n lines) | "exit" (back to live)
 //   respawn(id, dir, argv, { mark, hold }) stop what runs in the terminal (its programs first, while it is open; the

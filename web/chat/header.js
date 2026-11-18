@@ -1,12 +1,16 @@
-// The chat's head: the way back, the title (tap to rename) with the folder's history beside it (its earlier
-// conversations), the folder chip (Files and Changes open the editor, and Open in terminal), the provider chip (move
-// to another provider, each with its usage), and the more menu (Stop, Compact, Clear = a new chat in the same folder
-// with the same settings, Rewind, Keyboard shortcuts, Close). A conversation stays with the coding
-// tool it started with: the provider changes, the coding tool does not.
+// The chat's head, laid out as the Claude Code desktop app's title bar: the way back, the title (click to rename)
+// with the session menu on the caret beside it (Transcript view, Open in, Archive, Copy branch name, and the
+// folder's earlier conversations), the folder and the provider chip (move to another provider, each with its usage)
+// under it, the title-bar buttons Open in Terminal, Changes and Files, "Desktop mode", and the more menu (Stop, Compact,
+// Clear = a new session in the same folder with the same settings, Rewind, Background tasks, Keyboard shortcuts, the
+// rail). A conversation stays with the coding tool it started with: the provider changes, the coding tool does not.
+// On a phone the title opens the session menu, with the provider in it.
 import { icon } from '../icons.js';
 import { BARE, api, chooseSheet, fill, h, kindLabel, link, openApp, profileIcon, profileState, promptSheet, servesTool, toast, toolBadge } from '../lib.js';
+import { closeMenuOf, openMenu } from '../desktop/menu.js'; // the drop-down menu with submenus (also the desktop's)
 import { store } from '../store.js';
-import { canCompact, caps, failText, toolWord, touchScreen, turnRuns } from './words.js';
+import { copyBranch, railFits } from './rail.js';
+import { VIEWS, canCompact, caps, failText, toolWord, touchScreen, turnRuns, viewChoices } from './words.js';
 
 const phone = () => typeof matchMedia !== 'undefined' && matchMedia('(max-width: 599px)').matches;
 const base = (p) => String(p || '').split('/').filter(Boolean).pop() || String(p || '');
@@ -23,37 +27,120 @@ export function usageWords(p) {
  */
 export const terminalItem = (v) => (v && v.terminal
   ? { value: 'terminal', label: 'Open the terminal', sub: v.terminal.name ? `This conversation runs in "${v.terminal.name}"` : 'It runs in a terminal outside the dashboard', icon: 'terminal' }
-  : { value: 'terminal', label: 'Open in terminal', sub: 'The same conversation, in a terminal session', icon: 'terminal' });
+  : { value: 'terminal', label: 'Open in Terminal', sub: 'The same conversation, in a terminal session', icon: 'terminal' });
+
+/**
+ * The session menu's Open in: Hoprig's Terminal and its editor. Inside "Open in" the terminal is just "Terminal",
+ * as the desktop app names its targets; while a terminal runs the conversation, the entry goes there.
+ */
+export const openInItems = (v) => [
+  v && v.terminal ? terminalItem(v) : { ...terminalItem(v), label: 'Terminal' },
+  { value: 'files', label: 'Files', sub: 'The folder in the editor', icon: 'code' },
+  { value: 'changes', label: 'Changes', sub: 'What changed in the folder (git), in the editor', icon: 'git' },
+];
+
+/**
+ * The more menu (⋮): Stop, Compact, Clear, Rewind, Keyboard shortcuts; Background tasks once the session has
+ * background work, as the desktop app's ⋮ lists it; Hide / Show session rail where the rail fits.
+ * o: { rail: { hidden() } | null, wide (the rail fits), touch (a touch screen: no shortcuts) }
+ */
+export function moreItems(v, { rail = null, wide = false, touch = false } = {}) {
+  const can = caps(v);
+  return [
+    turnRuns(v) ? { value: 'stop', label: `Stop ${toolWord(v)}`, sub: can.stopTask ? 'Ends the turn; agents in the background go on' : 'Ends the turn', icon: 'stop' } : null,
+    // Not while the box is read only, nor where the coding tool has none (words.js canCompact).
+    canCompact(v) ? { value: 'compact', label: 'Compact', sub: `${toolWord(v)} goes on from a summary of the conversation, which frees context`, icon: 'minus' } : null,
+    { value: 'clear', label: 'Clear', sub: 'A new session in this folder with the same settings; this one is kept', icon: 'plus' },
+    // Not while a terminal runs the conversation: a rewind runs Claude Code on it (one place at a time).
+    (can.rewind || can.fork) && v && !v.terminal ? { value: 'rewind', label: 'Rewind…', sub: 'Go back to before one of your messages: the files, the conversation or both', icon: 'undo' } : null,
+    v && Array.isArray(v.tasks) && v.tasks.length ? { value: 'tasks', label: 'Background tasks', sub: 'Agents, shells and workflows of this session, each with its Stop', icon: 'grid' } : null,
+    touch ? null : { value: 'shortcuts', label: 'Keyboard shortcuts', sub: 'Enter, Esc, Shift+Tab, ↑, / and @', icon: 'info' },
+    rail && wide ? { value: 'rail', label: rail.hidden() ? 'Show session rail' : 'Hide session rail', sub: 'The session\'s details beside the chat', icon: 'rail' } : null,
+  ].filter(Boolean);
+}
 
 /** The editor's address for a folder (another part of the dashboard draws it). */
 export const editorLink = (dir, view = null, m = undefined) => link(`#/code?dir=${encodeURIComponent(dir)}${view ? `&view=${view}` : ''}`, m);
 // Files and Changes: the editor in place, or inside a window of the desktop an Editor window beside the chat. The
 // folder is the chat's own: the editor checks it against its allowed folders as for any other address.
-const openEditor = (dir, view = null) => openApp('editor', editorLink(dir, view, null));
+export const openEditor = (dir, view = null) => openApp('editor', editorLink(dir, view, null));
 
-/** o: { A, way: { hash, label } | null (a window that started on this chat: no way back), act: { stop, compact, clear, close, terminal, moveTo(name), history, rewind, shortcuts } } → { el, paint(v) } */
+/**
+ * The session menu, as the desktop app's on the caret beside the title (Transcript view, Open in, Archive, Copy
+ * branch name), then Hoprig's own; on a phone Open in's targets at its first level and the provider (its chip does not
+ * fit there). o: { view (the transcript view now; null: none to choose), phone }
+ */
+export function sessionItems(v, { view = null, phone: onPhone = false } = {}) {
+  const viewName = view ? (VIEWS.find((x) => x.id === view) || VIEWS[0]).label : '';
+  return [
+    view ? { value: 'view', label: 'Transcript view', sub: `${viewName}: how much of each step shows`, icon: 'text' } : null,
+    // A phone: Open in's targets at the first level (two taps to the terminal, not three).
+    ...(onPhone ? [terminalItem(v), ...openInItems(v).slice(1)]
+      : [{ value: 'openin', label: 'Open in', sub: `Terminal, Files or Changes${v && v.terminal ? ' (a terminal runs it now)' : ''}`, icon: 'terminal' }]),
+    { value: 'archive', label: 'Archive', sub: 'It leaves Home; the conversation is kept and can be continued', icon: 'archive' },
+    v && v.branch ? { value: 'branch', label: 'Copy branch name', sub: v.branch, icon: 'git' } : null,
+    { value: 'history', label: 'Earlier conversations', sub: 'Of this folder: continue one in the App', icon: 'clock' },
+    { value: 'rename', label: 'Rename', sub: 'Give this session a name', icon: 'pencil' },
+    onPhone ? { value: 'provider', label: 'Provider', sub: `Now ${v && v.profile ? v.profile.label : '…'}: move to another`, icon: 'user' } : null,
+  ].filter(Boolean);
+}
+
+/** The menus' title: the session's, else what its head says (never "App"). */
+export const menuTitle = (v) => (v && v.title) || 'New session';
+
+/**
+ * The session menu as it drops down from the caret on a wider screen, as the desktop app's: Transcript view (the
+ * views, the one now marked) and Open in are submenus. o: { view (now; null: none to choose), thought (there is
+ * thinking: the Thinking view is offered), who (the coding tool's word) } → [{ value, label, icon, checked?, items? }]
+ */
+export function sessionTree(v, { view = null, thought = false, who = 'Claude' } = {}) {
+  return sessionItems(v, { view }).map((x) => (x.value === 'view'
+    ? { ...x, items: viewChoices(view, thought, who).map((c) => ({ value: `view:${c.id}`, label: c.label, checked: c.id === view })) }
+    : x.value === 'openin' ? { ...x, items: openInItems(v) } : x));
+}
+
+/**
+ * o: { A, way: { hash, label } | null (a window that started on this chat: no way back), act: { stop, compact, clear,
+ * close (Archive), terminal, moveTo(name), history, rewind, shortcuts }, view: { now(), set(id), thought() } (the
+ * transcript view, timeline.js), rail: { hidden(), toggle() } (the session rail, rail.js) }
+ * → { el, paint(v), closed(title), providerMenu(), stop() }
+ */
 export function createHeader(o) {
   let v = null;
-  const titleText = h('span.chat-title-text', 'Chat');
+  const titleText = h('span.chat-title-text', 'App');
   const titleSub = h('span.chat-title-sub'); // on a phone: the folder and provider, under the title
-  // On a phone the folder and provider chips do not fit beside the title: the title opens one sheet with all of it.
-  const titleBtn = h('button.chat-title', { type: 'button', onclick: () => (phone() ? phoneMenu() : rename()) }, h('span.chat-title-row', titleText, icon('pencil', { size: 13 })), titleSub);
-  const folderLabel = h('span.chat-chip-label');
-  const folderBtn = h('button.chip.chat-hchip', { type: 'button', onclick: () => folderMenu() }, icon('folder', { size: 13 }), folderLabel, icon('chevronDown', { size: 12 }));
+  // Desktop: the title renames, the caret beside it opens the session menu. Phone: both open the session menu (the
+  // folder and the provider do not fit beside the title; the menu has the provider too).
+  const titleBtn = h('button.chat-title', { type: 'button', onclick: () => (phone() ? sessionMenu() : rename()) }, h('span.chat-title-row', titleText, icon('pencil', { size: 13 })), titleSub);
+  const caretBtn = h('button.btn.icon.ghost.chat-caret', { type: 'button', 'aria-label': 'Session menu', title: 'Session menu', 'aria-haspopup': 'menu', 'aria-expanded': 'false', onclick: () => sessionMenu() }, icon('chevronDown', { size: 16 }));
+  const folderLabel = h('span.chat-folder');
   const provLabel = h('span.chat-chip-label');
   const provBtn = h('button.chip.chat-hchip', { type: 'button', onclick: () => providerMenu() }, icon('user', { size: 13 }), provLabel, icon('chevronDown', { size: 12 }));
   const toolSlot = h('span.chat-toolslot'); // the coding tool's chip, when it is not Claude Code
-  const histBtn = h('button.btn.icon.ghost.chat-histbtn', { type: 'button', 'aria-label': 'Earlier conversations of this folder', title: 'Earlier conversations of this folder', onclick: () => o.act.history() }, icon('clock', { size: 16 }));
+  // The title-bar buttons, named on hover as the desktop app's are. Hoprig has no terminal beside the chat (the desktop
+  // app's Terminal button): its button hands the conversation over to a terminal session (with a confirm), so it is
+  // named and drawn for that, never as a plain shell. Its Files and Changes are its editor.
+  const barBtn = (name, ic, label, onclick) => h('button.btn.icon.ghost.chat-tbtn', { type: 'button', title: name, 'aria-label': label, onclick }, icon(ic, { size: 17 }));
+  const termBtn = barBtn('Open in Terminal', 'terminalGo', 'Open in Terminal: this conversation continues in a terminal session', () => o.act.terminal());
+  // Hide / Show session rail: only where the screen is wide enough for the rail (rail.css).
+  const railBtn = o.rail ? barBtn('Hide session rail', 'rail', 'Hide session rail', () => o.rail.toggle()) : null;
+  if (railBtn) railBtn.classList.add('chat-railbtn');
+  const tbtns = h('div.chat-tbtns',
+    termBtn,
+    barBtn('Changes', 'git', 'Changes: what changed in the folder (git), in the editor', () => openEditor(v.cwd, 'changes')),
+    barBtn('Files', 'code', 'Files: the folder in the editor', () => openEditor(v.cwd)),
+    railBtn);
   const el = h('header.chat-bar',
     o.way && h('a.btn.ghost.chatback', { href: o.way.hash, 'aria-label': `Back to ${o.way.label}`, title: `Back to ${o.way.label}` }, icon('back'), h('span.chatback-label', o.way.label)),
-    h('div.chat-head', h('div.chat-h1row', h('h1.chat-h1', titleBtn), histBtn), h('div.chat-sub', toolSlot, folderBtn, provBtn)),
+    h('div.chat-head', h('div.chat-h1row', h('h1.chat-h1', titleBtn), caretBtn), h('div.chat-sub', toolSlot, folderLabel, provBtn)),
+    tbtns,
     // "Desktop mode", as at the top right of every page head (web/desktop/index.js; its CSS hides it on a small
     // screen); not inside a window of the desktop.
     BARE ? null : h('a.icon-btn.desk-headbtn.chat-deskbtn', { href: link('#/desktop'), title: 'Desktop mode', 'aria-label': 'Desktop mode' }, icon('monitor', { size: 16 })),
-    h('button.btn.icon.ghost.chat-morebtn', { type: 'button', title: 'More for this chat', 'aria-label': 'More for this chat', onclick: () => more() }, icon('more')));
+    h('button.btn.icon.ghost.chat-morebtn', { type: 'button', title: 'More for this session', 'aria-label': 'More for this session', onclick: () => more() }, icon('moreV')));
 
   async function rename() {
-    const title = await promptSheet({ title: 'Rename this chat', value: (v && v.title) || '', ok: 'Rename', check: (x) => (!x.trim() ? 'Write a name' : x.length > 200 ? 'At most 200 characters' : '') });
+    const title = await promptSheet({ title: 'Rename this session', value: (v && v.title) || '', ok: 'Rename', check: (x) => (!x.trim() ? 'Write a name' : x.length > 200 ? 'At most 200 characters' : '') });
     if (!title || !title.trim()) return;
     try {
       await api(`${o.A}/title`, { title: title.trim() });
@@ -62,40 +149,46 @@ export function createHeader(o) {
     }
   }
 
-  async function phoneMenu() {
-    const pick = await chooseSheet({
-      title: (v && v.title) || 'Chat',
-      subtitle: v.short || v.cwd,
-      items: [
-        { value: 'rename', label: 'Rename', sub: 'Give this chat a name', icon: 'pencil' },
-        { value: 'history', label: 'Earlier conversations', sub: 'Of this folder: continue one in a chat', icon: 'clock' },
-        { value: 'files', label: 'Files', sub: 'Open the folder in the editor', icon: 'code' },
-        { value: 'changes', label: 'Changes', sub: 'What changed in the folder (git), in the editor', icon: 'git' },
-        terminalItem(v),
-        { value: 'provider', label: 'Provider', sub: `Now ${v.profile ? v.profile.label : '…'}: move to another`, icon: 'user' },
-      ],
-    });
-    if (pick === 'rename') rename();
-    else if (pick === 'history') o.act.history();
+  let menu = null; // the session menu while it is open (it is drawn on the page's body, not in the head)
+  // A wider screen: a menu that drops down from the caret, with its submenus (Escape and a press outside close it,
+  // the keyboard goes back to the caret). A phone: a sheet from the bottom, its entries large enough for a finger.
+  async function sessionMenu() {
+    const view = o.view ? o.view.now() : null;
+    if (!phone()) {
+      const r = caretBtn.getBoundingClientRect();
+      const item = (x) => ({ label: x.label, icon: x.icon, ...(typeof x.checked === 'boolean' ? { checked: x.checked } : {}),
+        ...(x.items ? { items: x.items.map(item) } : { run: () => sessionPick(x.value) }) });
+      menu = openMenu(r.left, r.bottom + 4, sessionTree(v, { view, thought: o.view ? o.view.thought() : false, who: toolWord(v) }).map(item), `Session menu of ${menuTitle(v)}`, { from: caretBtn });
+      return;
+    }
+    sessionPick(await chooseSheet({
+      title: menuTitle(v),
+      subtitle: v ? v.short || v.cwd : null,
+      items: sessionItems(v, { view, phone: true }),
+    }));
+  }
+  function sessionPick(pick) {
+    if (typeof pick === 'string' && pick.startsWith('view:')) {
+      if (pick.slice(5) !== o.view.now()) o.view.set(pick.slice(5));
+    } else if (pick === 'view') viewMenu();
     else if (pick === 'files') openEditor(v.cwd);
     else if (pick === 'changes') openEditor(v.cwd, 'changes');
     else if (pick === 'terminal') o.act.terminal();
+    else if (pick === 'archive') o.act.close();
+    else if (pick === 'branch') copyBranch(v.branch);
+    else if (pick === 'history') o.act.history();
+    else if (pick === 'rename') rename();
     else if (pick === 'provider') providerMenu();
   }
 
-  async function folderMenu() {
+  async function viewMenu() {
+    const now = o.view.now();
     const pick = await chooseSheet({
-      title: v.short || v.cwd,
-      subtitle: 'The folder this chat works in.',
-      items: [
-        { value: 'files', label: 'Files', sub: 'Open the folder in the editor', icon: 'code' },
-        { value: 'changes', label: 'Changes', sub: 'What changed in the folder (git), in the editor', icon: 'git' },
-        terminalItem(v),
-      ],
+      title: 'Transcript view',
+      subtitle: 'How much of each step shows, in every session in this browser.',
+      items: viewChoices(now, o.view.thought(), toolWord(v)).map((x) => ({ value: x.id, label: x.label, sub: x.sub, current: x.id === now })),
     });
-    if (pick === 'files') openEditor(v.cwd);
-    else if (pick === 'changes') openEditor(v.cwd, 'changes');
-    else if (pick === 'terminal') o.act.terminal();
+    if (pick && pick !== now) o.view.set(pick);
   }
 
   async function providerMenu() {
@@ -117,35 +210,27 @@ export function createHeader(o) {
   }
 
   async function more() {
-    const busy = turnRuns(v);
-    const can = caps(v);
     const what = await chooseSheet({
-      title: (v && v.title) || 'Chat',
+      title: menuTitle(v),
       subtitle: v ? v.short : null,
-      items: [
-        busy ? { value: 'stop', label: `Stop ${toolWord(v)}`, sub: can.stopTask ? 'Ends the turn; agents in the background go on' : 'Ends the turn', icon: 'stop' } : null,
-        // Not while the box is read only, nor where the coding tool has none (words.js canCompact).
-        canCompact(v) ? { value: 'compact', label: 'Compact', sub: `${toolWord(v)} goes on from a summary of the conversation, which frees context`, icon: 'minus' } : null,
-        { value: 'clear', label: 'Clear', sub: 'A new chat in this folder with the same settings; this one is kept', icon: 'plus' },
-        // Not while a terminal runs the conversation: a rewind runs Claude Code on it (one place at a time).
-        (can.rewind || can.fork) && v && !v.terminal ? { value: 'rewind', label: 'Rewind…', sub: 'Go back to before one of your messages: the files, the conversation or both', icon: 'undo' } : null,
-        terminalItem(v),
-        touchScreen() ? null : { value: 'shortcuts', label: 'Keyboard shortcuts', sub: 'Enter, Esc, Shift+Tab, ↑, / and @', icon: 'info' },
-        { value: 'close', label: 'Close this chat', sub: 'The conversation stays; it leaves Home', icon: 'x', danger: true },
-      ].filter(Boolean),
+      items: moreItems(v, { rail: o.rail || null, wide: railFits(), touch: touchScreen() }),
     });
-    if (what && o.act[what]) o.act[what]();
+    if (what === 'rail') o.rail.toggle();
+    else if (what && o.act[what]) o.act[what]();
   }
 
   return {
     el,
     providerMenu,
+    /** The page went: its session menu goes with it (its entries would act on a session no longer shown). */
+    stop: () => closeMenuOf(menu),
     /**
      * The chat is not open any more: the head names it and goes back, nothing else (its menus would act on nothing;
      * the page's .chat-closed hides them).
      */
     closed(title) {
-      fill(titleText, title || 'Closed chat'); // never "New chat" for one that is gone
+      closeMenuOf(menu);
+      fill(titleText, title || 'Archived session'); // never "New session" for one that is gone
       titleBtn.disabled = true;
       titleBtn.removeAttribute('aria-label');
       titleBtn.title = '';
@@ -153,13 +238,20 @@ export function createHeader(o) {
     },
     paint(state) {
       v = state;
-      fill(titleText, v.title || 'New chat');
-      titleBtn.setAttribute('aria-label', phone() ? `${v.title || 'New chat'}: name, folder, provider` : `${v.title || 'New chat'}. Rename`);
-      titleBtn.title = phone() ? '' : 'Rename this chat';
+      fill(titleText, v.title || 'New session');
+      titleBtn.setAttribute('aria-label', phone() ? `${v.title || 'New session'}: session menu` : `${v.title || 'New session'}. Rename`);
+      titleBtn.title = phone() ? '' : 'Rename this session';
       fill(titleSub, [v.engine && v.engine.id !== 'claude' ? v.engine.label : '', base(v.cwd), v.profile ? v.profile.label : ''].filter(Boolean).join(' · '));
-      fill(folderLabel, base(v.cwd));
-      folderBtn.title = v.short || v.cwd || '';
-      folderBtn.setAttribute('aria-label', `Folder ${v.short || v.cwd || ''}: files, changes, terminal`);
+      fill(folderLabel, icon('folder', { size: 13 }), h('span.chat-chip-label', base(v.cwd)));
+      folderLabel.title = v.short || v.cwd || '';
+      if (railBtn) {
+        const word = o.rail.hidden() ? 'Show session rail' : 'Hide session rail';
+        railBtn.title = word;
+        railBtn.setAttribute('aria-label', word);
+      }
+      // While a terminal runs the conversation, the Terminal button goes to it (one conversation, one process).
+      termBtn.title = v.terminal ? 'Open the terminal' : 'Open in Terminal';
+      termBtn.setAttribute('aria-label', v.terminal ? 'Open the terminal that runs this conversation' : 'Open in Terminal: this conversation continues in a terminal session');
       fill(provLabel, v.profile ? v.profile.label : '…');
       fill(toolSlot, toolBadge(v.engine && v.engine.id));
       provBtn.setAttribute('aria-label', `Provider ${v.profile ? v.profile.label : ''}: move to another`);

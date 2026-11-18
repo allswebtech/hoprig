@@ -3,7 +3,7 @@
    pj-  Projects, a project's page, New project, Get an existing project (projects.js)
    sk-  Skills (skillhub.js)
    ws-  Workspace (projects.js, workspace.js) and Workspace folders (brain.js); brain-  the AI brain page (brain.js)
-   ns-  New session's choices on a phone (newsession.js; the cards themselves are in style.css)
+   ns-  New session's choices on a phone (newsession-popup.js; the cards themselves are in style.css)
    map-  Settings → Workspace, the map (workspace.js); git-  Git and GitHub (gitsetup.js) */
 
 
@@ -80,6 +80,10 @@
 
 /* ---------- Workspace: one card per project, its sessions under it ---------- */
 .ws-list { display: grid; gap: 18px; }
+/* With groups in the workspace map: one section per place (the projects folder, then each group). */
+.ws-places { display: grid; gap: 28px; }
+.ws-place > .group-head { margin-top: 0; }
+.ws-place-sub { margin: -4px 0 10px; color: var(--text-2); font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .ws-project { padding: 0; cursor: default; }
 .ws-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 16px; }
 .ws-name { flex: 1 1 260px; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; }
@@ -130,7 +134,7 @@
 .map-row .row-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .map-row.map-sub { padding-left: 40px; }
 .map-state.ms-here { background: var(--ok-soft); color: var(--ok); }
-.map-state.ms-missing, .map-state.ms-different { background: var(--warn-soft); color: var(--warn); }
+.map-state.ms-missing, .map-state.ms-different, .map-state.ms-notfollowed { background: var(--warn-soft); color: var(--warn); }
 .map-state.ms-unmapped { background: var(--surface-3); color: var(--text-2); }
 .map-diff { margin: 4px 0 8px; padding-left: 20px; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 @media (max-width: 899px) { .map-row.map-sub { padding-left: 24px; } }
@@ -158,10 +162,13 @@
 .bl-tool-row.bl-linked .bl-mark { background: var(--ok-soft); color: var(--ok); }
 .bl-tool-row.bl-left .bl-mark { background: var(--surface-3); color: var(--muted); }
 
-/* New session on a phone: the computers and the coding tools two to a row, without their icons, so the first project
-   is in the first screen and not under four full-width cards. */
+/* New session on a phone: the computers, the ways to open and the coding tools two to a row, so the first project is
+   close to the first screen. */
 @media (max-width: 520px) {
-  .ns-pcs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ns-pc { padding: 8px 10px; }
-  .ns-pc-icon { display: none; }
+  /* The large tiles: the icon above the words, so a line has the tile's whole width. */
+  .ns-tile { position: relative; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 0; padding: 10px 12px; }
+  .ns-tile-icon { width: 30px; height: 30px; }
+  .ns-tile-tick { position: absolute; top: 10px; right: 10px; }
+  /* "Open running session" says "Open" here (its label for a screen reader keeps all of it): the name keeps its room. */
+  .ns-open-what { display: none; }
 }

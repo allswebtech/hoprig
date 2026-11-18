@@ -57,6 +57,8 @@ import { adminRunner, checkPassword, scrubber, sudoNeedsPassword } from './admin
 import { runPcSetup } from './setup.mjs';
 import { tokenIdOf } from '../machines/index.mjs';
 import { arrivedEncrypted } from '../machines/legs.mjs';
+import { foldersHere, projectDirFor } from '../workspace/where.mjs';
+import { isLinkedWorktree } from '../workspace/layout.mjs';
 
 /** The password as sent by the page: text of 1 to 512 characters without a line break (it is sent to sudo as one line). */
 function passwordOf(v) {
@@ -100,6 +102,9 @@ export function jobUi(onLine) {
 export function todoKind(why) {
   const w = String(why || '');
   if (/has no upstream/.test(w)) return 'not-online';
+  // Something git ignores (a repository of its own, perhaps) is where the new commits put files: neither a commit nor
+  // a merge helps, it is moved away first.
+  if (/put files where .+ is here/.test(w)) return 'kept-back';
   if (/both moved/.test(w)) return 'diverged';
   if (/to pull, but there are/.test(w)) return 'pull-blocked';
   if (/uncommitted change/.test(w)) return 'uncommitted';
@@ -202,12 +207,8 @@ export function pcsetupFeature(sctx, opts = {}) {
     return [...new Set(list)];
   };
 
-  const projectDirOf = (name) => {
-    if (typeof name !== 'string' || !NAME_RE.test(name)) throw fail(400, 'bad project name');
-    const d = path.join(pdir(), name);
-    if (!fs.existsSync(path.join(d, '.git'))) throw fail(404, 'no such project');
-    return d;
-  };
+  // A project the page names: <name>, or <place>/<name> for one in a group of the workspace map (where.mjs).
+  const projectDirOf = async (name) => (await projectDirFor(name, { projects: pdir() })).root;
 
   const routes = [
     ['GET', /^\/api\/pcsetup\/status$/, async (req, m, q) => {
@@ -277,7 +278,7 @@ export function pcsetupFeature(sctx, opts = {}) {
       if (repos.some((r) => !r)) throw fail(400, 'every repository must be a Git address (https or SSH, no password in it) or owner/repo');
       const dir = pdir();
       return startJob('clone', async (onLine) => {
-        fs.mkdirSync(dir, { recursive: true });
+        (await import('../workspace/inside.mjs')).mkdirIn({ root: dir, projects: dir }, dir);
         rememberDir(dir);
         let ok = true;
         for (const r of repos) {
@@ -288,7 +289,7 @@ export function pcsetupFeature(sctx, opts = {}) {
             onLine(`✗ failed: ${r.url} (a private repository needs the GitHub sign-in first)`);
             continue;
           }
-          prepareEnv(c.dest, onLine);
+          if (!c.skipped) await prepareEnv(c.dest, onLine); // one that was here already is left as it is
           const n = projectNeeds(c.dest);
           for (const i of n.installs) onLine(`  ${path.basename(c.dest)} needs: ${i.label}${i.ready ? ' (Install button below)' : ` — ${i.why}`}`);
           if (n.node && !n.node.ok) onLine(`  ${path.basename(c.dest)} wants Node ${n.node.wants}; this computer has ${n.node.have}`);
@@ -299,8 +300,23 @@ export function pcsetupFeature(sctx, opts = {}) {
     }],
     ['POST', /^\/api\/pcsetup\/install$/, async (req) => {
       const b = await sctx.readJson(req);
-      if (typeof b.dir !== 'string' || !/^[A-Za-z0-9._-]{1,100}(\/code\/[A-Za-z0-9._-]{1,100})?$/.test(b.dir) || b.dir.split('/').some((s) => s === '..' || s === '.')) throw fail(400, 'bad project folder');
-      const dest = path.join(pdir(), b.dir);
+      const m = typeof b.dir === 'string' ? /^(.+?)(\/code\/[A-Za-z0-9._-]{1,100})?$/.exec(b.dir) : null;
+      if (!m || (m[2] && m[2].split('/').some((s) => s === '..' || s === '.'))) throw fail(400, 'bad project folder');
+      // A project part with several parts is <place>/<name> of a place this computer has, else a bad folder (400).
+      const cut = m[1].lastIndexOf('/');
+      if (cut > 0 && m[1].slice(0, cut) !== 'projects' && !(await foldersHere({ projects: pdir() })).places.some((pl) => pl.id && pl.id === m[1].slice(0, cut))) throw fail(400, 'bad project folder');
+      let dest;
+      let root;
+      try {
+        root = await projectDirOf(m[1]);
+        dest = path.join(root, m[2] || '');
+      } catch (e) {
+        throw e.status === 400 ? fail(400, 'bad project folder') : e;
+      }
+      // Only in a folder really inside its project (inside.mjs): never where a link leads out (code -> elsewhere).
+      const { leaves, leavesWords, startIn } = await import('../workspace/inside.mjs');
+      const out = leaves(root, dest, { projects: pdir() });
+      if (out) throw fail(409, `not followed: ${leavesWords(out)}`);
       if (!fs.existsSync(path.join(dest, '.git'))) throw fail(404, 'no such project');
       const installs = projectNeeds(dest).installs.filter((i) => i.ready);
       if (!installs.length) throw fail(400, 'nothing to install there (or its tool is missing)');
@@ -308,7 +324,8 @@ export function pcsetupFeature(sctx, opts = {}) {
         let ok = true;
         for (const i of installs) {
           onLine(`→ ${i.label} in ${b.dir}`);
-          const r = await (opts.stream || stream)(i.argv, { cwd: dest, onLine });
+          const r = await startIn({ root, projects: pdir() }, dest, i.argv, opts.stream || stream, { onLine }); // checked again as it starts
+          if (r.leaves) onLine(`✗ ${r.stderr}`);
           if (!r.ok) ok = false;
         }
         return ok;
@@ -316,28 +333,53 @@ export function pcsetupFeature(sctx, opts = {}) {
     }],
     ['GET', /^\/api\/pcsetup\/projects$/, async () => {
       const dir = pdir();
-      const ws = listWorkspaces(dir);
-      const workspaces = await Promise.all(ws.map(async (w) => {
-        const st = await workspaceState(w, opts.run || capture);
+      // Every place a project can be (the projects folder, and the groups of a map of version 2).
+      const safe = await foldersHere({ projects: dir });
+      const places = safe.places.filter((pl) => !pl.blocked);
+      // Only what is really inside its place (inside.mjs): a project folder that leads out is left out (status names it).
+      const allowed = new Set(safe.folders.map((f) => f.dir));
+      const blockedCode = new Set(safe.folders.filter((f) => f.codeBlocked).map((f) => f.dir));
+      const ok = (pl, d) => allowed.has(d);
+      const found = places.flatMap((pl) => listWorkspaces(pl.dir, { withGroup: pl.members === 'group' }).filter((w) => ok(pl, w)).map((w) => ({ w, pl })));
+      const ws = found.map((x) => x.w);
+      const workspaces = await Promise.all(found.map(async ({ w, pl }) => {
+        const st0 = await workspaceState(w, opts.run || capture);
+        // A member that comes with its group's repository has no repository of its own: its code repositories only.
+        const st = pl.members === 'group' ? { ...st0, repos: st0.repos.filter((r) => r.rel !== '.') } : st0;
+        st.place = pl;
         // A code repository without an online address is not in project.json (project add writes only those that
         // have one): it is still part of the project, so it is listed too.
         let kids = [];
         try {
+          if (blockedCode.has(w)) throw new Error('code/ leads out of the project'); // its code/ is never listed
           kids = fs.readdirSync(path.join(w, 'code'), { withFileTypes: true }).filter((d) => d.isDirectory() && NAME_RE.test(d.name) && fs.existsSync(path.join(w, 'code', d.name, '.git'))).map((d) => `code/${d.name}`);
         } catch {
           /* no code folder */
         }
         const missing = kids.filter((rel) => !st.repos.some((r) => r.rel === rel)).sort();
         const extra = await Promise.all(missing.map(async (rel) => ({ rel, ...(await repoInfo(path.join(w, rel), opts.run || capture)), localOnly: true })));
-        return { ...st, repos: [...st.repos, ...extra] };
+        // What leads out of the project (inside.mjs) is not listed as a repository, but said: the page shows why.
+        const out = [...(st.notFollowed || [])];
+        const cb = safe.folders.find((f) => f.dir === w && f.codeBlocked);
+        if (cb && !out.some((x) => x.rel === 'code' || x.rel.startsWith('code/'))) out.push({ rel: 'code', why: `${cb.codeBlocked.path} ${cb.codeBlocked.what}` });
+        return { ...st, repos: [...st.repos, ...extra], notFollowed: out.map((x) => ({ ...x, link: /leaves its folder through a link$/.test(x.why) ? x.why.replace(/ leaves its folder through a link$/, '') : null })) };
       }));
-      const others = await Promise.all(listRepos(dir).filter((d) => !ws.includes(d)).map((d) => repoState(d, opts.run || capture)));
-      const strip = (s) => ({ rel: s.rel, ok: s.ok, error: s.error || null, branch: s.branch || null, changes: s.changes || 0, ahead: s.ahead || 0, behind: s.behind || 0, upstream: Boolean(s.upstream), installs: s.ok ? projectNeeds(s.dir).installs.filter((i) => i.ready).map((i) => i.label) : [] });
+      // Plain repositories (no code/ folder, no project.json) of every place whose members are repositories.
+      // A linked worktree is never an entry of the map, but the page lists it as before (its sessions stay with it),
+      // marked as a worktree of its repository.
+      const plain = places.filter((pl) => pl.members === 'own').flatMap((pl) => listRepos(pl.dir).filter((d) => !ws.includes(d) && ok(pl, d)).map((d) => ({ d, pl })));
+      const others = await Promise.all(plain.map(async ({ d, pl }) => ({ ...(await repoState(d, opts.run || capture)), place: pl.id })));
+      // Ids by the one rule: <place>/<name> in a group; <name> in the projects folder, or projects/<name> when a group
+      // has a project of that name too (a bare name would then be refused).
+      const inGroups = new Set([...found.filter((x) => x.pl.id).map((x) => path.basename(x.w)), ...others.filter((x) => x.place).map((x) => path.basename(x.dir))]);
+      const idOf = (place, name) => (place ? `${place}/${name}` : inGroups.has(name) ? `projects/${name}` : name);
+      const strip = (s) => ({ ...(s.dir && isLinkedWorktree(s.dir) ? { worktree: true } : {}), rel: s.rel, ok: s.ok, error: s.error || null, branch: s.branch || null, changes: s.changes || 0, ahead: s.ahead || 0, behind: s.behind || 0, upstream: Boolean(s.upstream), installs: s.ok ? projectNeeds(s.dir).installs.filter((i) => i.ready).map((i) => i.label) : [] });
       return {
         projectsDir: dir,
         home: os.homedir(), // shown as ~/… on the page
-        workspaces: workspaces.map((w) => ({ id: path.basename(w.root), name: w.name, dir: w.root, manifest: w.source === 'project.json', memories: w.memories, repos: w.repos.map((s) => ({ ...strip(s), dir: s.dir })) })),
-        repos: others.map((s) => ({ ...strip(s), id: path.basename(s.dir), rel: path.basename(s.dir), dir: s.dir })),
+        places: places.map((pl) => ({ id: pl.id, dir: pl.dir, members: pl.members, ...(pl.group ? { group: pl.group } : {}) })),
+        workspaces: workspaces.map((w) => ({ id: idOf(w.place.id, path.basename(w.root)), place: w.place.id, name: w.name, dir: w.root, manifest: w.source === 'project.json', memories: w.memories, repos: w.repos.map((s) => ({ ...strip(s), dir: s.dir })), ...(w.notFollowed.length ? { notFollowed: w.notFollowed } : {}) })),
+        repos: others.map((s) => ({ ...strip(s), id: idOf(s.place, path.basename(s.dir)), place: s.place, rel: path.basename(s.dir), dir: s.dir })),
       };
     }],
     ['GET', /^\/api\/pcsetup\/project\/preview$/, async (req, m, q) => {
@@ -373,21 +415,44 @@ export function pcsetupFeature(sctx, opts = {}) {
     ['POST', /^\/api\/pcsetup\/project\/clone$/, async (req) => {
       const b = await sctx.readJson(req);
       const p = parseProjectSpec(b.spec);
-      if (!p) throw fail(400, 'give a project name, owner/name or a Git address');
-      const dir = path.join(pdir(), p.name);
+      // A <place>/<name> of the workspace map (or of a place with a naming rule) is no address: guessFor knows it.
+      const first = await (await import('./getproject.mjs')).guessFor(String(b.spec || '').trim(), { dir: pdir() });
+      if (!p && !(first && first.place)) throw fail(400, 'give a project name, owner/name or a Git address');
+      // The folder it will most likely get, with its place when the map has it in a group (<place>/<name>: a bare name
+      // may be another project); the job's result says the real one (project.json may name another).
+      if (!first) throw fail(400, `"${p.name.slice(0, 80)}" does not make a folder name: letters, digits, ".", "_" and "-", starting with a letter or a digit`);
+      const { name: guess, dir } = first;
+      const where = first.place ? { place: first.place } : {};
       // Never a password prompt on the server's own terminal: a private repository needs the GitHub sign-in first.
       const quiet = (argv, o = {}) => (opts.stream || stream)(argv, { ...o, env: { ...(o.env || process.env), GIT_TERMINAL_PROMPT: '0' } });
       return { ...startJob('clone-project', async (onLine, j) => {
         const { ui, failures } = jobUi(onLine);
-        const code = await (opts.cloneProject || cloneProject)(p.url || p.name, { ui, dir: pdir(), runner: quiet });
-        j.data = { name: p.name, dir, made: fs.existsSync(path.join(dir, '.git')) };
+        let got = null;
+        // The spec as given: <place>/<name> and projects/<name> are the map's (one rule for a name, mapcheck.mjs), not
+        // an owner/name on GitHub; anything else getProject reads as before.
+        const code = await (opts.cloneProject || cloneProject)(String(b.spec).trim(), { ui, dir: pdir(), runner: quiet, onDone: (r) => (got = r) });
+        // Here already under another name: that folder is shown, and the mv to run is the job's message and its `fix`
+        // (the page shows it as needing the owner, never as done).
+        const misnamed = got && got.result === 'misnamed';
+        // Its folder name taken (every "taken" needs the owner): the folder named is the clone this run left in a
+        // temporary folder, never the folder that blocked it (someone else's), and none when nothing was cloned.
+        const taken = got && got.result === 'taken';
+        const at = misnamed ? { name: path.basename(got.here), dir: got.here } : taken ? (got.temp ? { name: path.basename(got.temp), dir: got.temp } : {}) : got && got.dir ? { name: got.folder, dir: got.dir, ...(got.place ? { place: got.place } : {}) } : { name: guess, dir, ...where };
+        // `made` only of what this run placed: its clone (also one left under the temporary name), or the project it
+        // finished where it was. Never of a folder that was there before (busy, failed, here under another name).
+        const placed = taken ? Boolean(got.temp) : Boolean(got && ['cloned', 'here'].includes(got.result));
+        j.data = { ...at, made: placed && fs.existsSync(path.join(at.dir, '.git')), ...(misnamed ? { mv: got.mv, fix: got.fix || got.mv } : {}), ...(taken ? { placed: false, fix: got.fix || got.message } : {}) };
+        if (misnamed || taken) {
+          j.error = got.message;
+          return false;
+        }
         j.error = failures[0] || null;
         return code === 0;
-      }), name: p.name, dir };
+      }), name: guess, dir, ...where };
     }],
     ['POST', /^\/api\/pcsetup\/project\/add$/, async (req) => {
       const b = await sctx.readJson(req);
-      projectDirOf(b.name);
+      await projectDirOf(b.name);
       if (typeof b.repo !== 'string' || !NAME_RE.test(b.repo)) throw fail(400, 'a repository name is letters, digits, ".", "_" and "-"');
       return startJob('add', async (onLine, j) => {
         const { ui, failures } = jobUi(onLine);
@@ -398,9 +463,10 @@ export function pcsetupFeature(sctx, opts = {}) {
     }],
     ['POST', /^\/api\/pcsetup\/project\/sync$/, async (req) => {
       const b = await sctx.readJson(req);
-      const root = projectDirOf(b.name);
+      const at = await projectDirFor(b.name, { projects: pdir() });
+      const root = at.root;
       return startJob('sync', async (onLine, j) => {
-        const r = await (opts.syncWorkspace || syncWorkspace)(root, { memory: b.memory === true });
+        const r = await (opts.syncWorkspace || syncWorkspace)(root, { memory: b.memory === true, ...(at.members === 'group' ? { parent: false } : {}) });
         if (r.memory) onLine(r.memory.committed ? '✓ memory committed' : `· memory: ${r.memory.why}`);
         let ok = true;
         for (const x of r.repos) {

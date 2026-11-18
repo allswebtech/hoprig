@@ -84,7 +84,8 @@ export function inputView(ev, cwd) {
 }
 
 /**
- * A tool call's card. ev: the `tool` event, or a `tool-start` while its input is still written. o: { cwd, stopTask }.
+ * A tool call's card. ev: the `tool` event, or a `tool-start` while its input is still written. o: { cwd, stopTask,
+ * view() (the transcript view: normal, thinking or verbose) }.
  * The card has: .finish(toolEvent), .result(resultEvent), .progress(elapsedS), .task(task), and .steps (where a
  * subagent's own events go).
  */
@@ -95,19 +96,20 @@ export function toolCard(ev, o = {}) {
   const detail = h('span.chat-tool-detail');
   const end = h('span.chat-tool-end');
   const said = h('span.chat-tool-said'); // "failed", "running": the state in words
+  const okd = h('span.chat-tool-said.chat-tool-okd'); // "allowed by you": its OK card, folded into this card
   const input = h('div.chat-tool-input');
   const out = h('div.chat-tool-result');
   const taskBox = h('div.chat-tool-task');
   const steps = h('div.chat-steps');
   const el = h('details.chat-item.chat-tool.chat-is-running',
-    h('summary', state, verb, detail, said, end),
+    h('summary', state, verb, detail, said, okd, end),
     h('div.chat-tool-body', input, taskBox, steps, out));
   el.dataset.kind = ev.toolKind || 'other';
   el.steps = steps;
   let last = ev;
   let added = null;
   let quiet = false; // a card that waits for the owner shows the input (a question, a plan): not twice
-  let now = 'running'; // running → asking (an OK card is open) → done | refused (the owner said no)
+  let now = 'running'; // running → asking (an OK card is open) → done | refused (the owner said no) | failed (an edit)
 
   const counts = (c) => fill(end, h('span.chat-plus', `+${c.added}`), ' ', h('span.chat-minus', `−${c.removed}`));
   const head = (e) => {
@@ -119,18 +121,26 @@ export function toolCard(ev, o = {}) {
     // when the owner said no: nothing changed).
     if (e.toolKind === 'edit' && e.input) {
       fill(detail, pathText(i.file_path || i.notebook_path, o.cwd));
-      if (now === 'refused' || now === 'stopped') fill(end);
+      if (now === 'refused' || now === 'stopped' || now === 'failed') fill(end);
       else if (!added && e.name !== 'NotebookEdit') counts(e.name === 'Write' ? { added: lineCount(i.content), removed: 0 } : hunkCounts((Array.isArray(i.edits) ? i.edits : [i]).flatMap((x) => hunksOf(x.old_string || '', x.new_string || ''))));
     } else fill(detail, line.detail || e.title || '');
   };
   head(ev);
 
+  // Open by default: in the transcript view Verbose every call; in Normal and Thinking none (collapsed into its
+  // summary line). Without a view (an older caller): the kinds whose content is the point.
+  const view = () => (o.view ? o.view() : null);
+  const wantsOpen = (e) => (view() ? view() === 'verbose' : OPEN_KINDS.has(e.toolKind) && (e.toolKind !== 'agent' || !e.agent));
   el.finish = (e) => {
     last = e;
     el.dataset.kind = e.toolKind || 'other';
     head(e);
     if (!quiet) fill(input, inputView(e, o.cwd));
-    if (OPEN_KINDS.has(e.toolKind) && !el.dataset.touched) el.open = e.toolKind !== 'agent' || !e.agent;
+    if (!el.dataset.touched) el.open = wantsOpen(e);
+  };
+  /** The transcript view changed: every call opens (Verbose) or folds to its line; one that failed stays open. */
+  el.applyView = (v) => {
+    el.open = v === 'verbose' || el.classList.contains('chat-is-err');
   };
   el.addEventListener('toggle', () => (el.dataset.touched = '1'));
   if (ev.input) el.finish(ev);
@@ -157,12 +167,16 @@ export function toolCard(ev, o = {}) {
       if (now !== 'done' && last.toolKind === 'edit') fill(input); // nothing was written: no diff (the head names the file)
       return fill(out, r.denied && r.text ? h('p.chat-hint', `Your reason: “${r.text}”`) : null);
     }
-    now = 'done';
+    // A change of a file that failed (a rule refused it, the text to replace was not there) wrote nothing: never
+    // "Wrote … failed +1"; its head says so ("Could not write"), without counts or a diff.
+    const unwritten = !r.ok && last.toolKind === 'edit';
+    now = unwritten ? 'failed' : 'done';
     head(last);
     el.classList.add(r.ok ? 'chat-is-ok' : 'chat-is-err');
     fill(state, icon(r.ok ? 'check' : 'x', { size: 14 }));
     const code = last.toolKind === 'shell' ? exitCode(r.text) : null;
-    fill(said, r.ok ? null : code !== null ? `failed · exit ${code}` : 'failed');
+    fill(said, r.ok || unwritten ? null : code !== null ? `failed · exit ${code}` : 'failed');
+    if (unwritten) fill(input);
     if (!r.ok) el.open = true;
     const kind = last.toolKind;
     if (kind === 'edit' && r.ok) {
@@ -191,7 +205,9 @@ export function toolCard(ev, o = {}) {
   };
 
   let task = null;
+  let ended = false;
   el.result = (r) => {
+    ended = true;
     const x = result(r);
     if (task) el.task(task); // a result that comes after the task ended does not hide how it ended
     return x;
@@ -223,12 +239,26 @@ export function toolCard(ev, o = {}) {
     fill(input);
     el.open = false; // one line: the card below shows it
   };
-  /** The OK card below was answered: an allowed call runs now. */
-  el.answered = (allowed) => {
+  /**
+   * The OK card below was answered: an allowed call runs now. `fold`: the card went (timeline.js), so this card says
+   * the answer itself and shows its input again; outcome: allowed | allowed-always | denied.
+   */
+  el.answered = (allowed, fold = null) => {
+    if (fold) {
+      quiet = false;
+      fill(okd, fold === 'allowed-always' ? 'allowed for this session' : allowed ? 'allowed by you' : '');
+      if (allowed && now === 'asking') {
+        fill(input, inputView(last, o.cwd));
+        if (wantsOpen(last) && !el.dataset.touched) el.open = true;
+      }
+      if (!allowed && !said.textContent) fill(said, 'you said no');
+    }
     if (now !== 'asking') return;
     now = allowed ? 'running' : 'refused';
     head(last);
   };
+  /** Its result came: the card says how the call ended (ran, failed, "stopped by you"). */
+  el.ended = () => ended;
   el.kindOf = () => last.toolKind;
   el.added = () => added;
   return el;

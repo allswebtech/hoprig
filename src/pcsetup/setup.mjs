@@ -184,11 +184,13 @@ export async function projectsStep(ui, sys, { recipe = null, runner = stream, re
     ui.out(`\n  ${bold('→')} git clone ${repo.url}`);
     const r = await cloneRepo({ ...repo, name: repo.name.replace(/\.git$/, '') }, dir, { onLine: (l) => ui.out(`    ${dim(l)}`), run: runner });
     if (!r.ok) {
-      out.failed.push({ repo: repo.url, command: `git clone ${repo.url} ${r.dest}` });
+      out.failed.push({ repo: repo.url, command: showCommand(['git', 'clone', repo.url, r.dest]) });
       continue;
     }
-    if (!r.skipped) out.cloned.push(r.dest);
-    prepareEnv(r.dest, (l) => ui.line('info', l));
+    // A repository that was here already is left as it is: no .env made in it, no install run in it.
+    if (r.skipped) continue;
+    out.cloned.push(r.dest);
+    await prepareEnv(r.dest, (l) => ui.line('info', l));
     await offerInstall(ui, r.dest, runner, sys);
   }
   return out;
@@ -204,10 +206,44 @@ export async function offerInstall(ui, dest, runner, sys) {
       ui.line('warn', `${name}: ${i.label} — ${i.why}`);
       continue;
     }
-    if (await ui.confirm(`${name}: run ${i.label}? (installs its dependencies)`, true)) {
-      const r = await runner(i.argv, { cwd: dest, env: { ...withoutSecrets(process.env), PATH: freshPath() }, onLine: (l) => ui.out(`    ${dim(l)}`) });
-      ui.line(r.ok ? 'ok' : 'fail', `${name}: ${i.label} ${r.ok ? 'done' : `failed — retry: cd "${dest}" && ${showCommand(i.argv)}`}`);
-    }
+    if (await ui.confirm(`${name}: run ${i.label}? (installs its dependencies)`, true)) await runInstall(ui, dest, i, runner);
+  }
+}
+
+/** One dependency install of projectNeeds, run in `dest` with its output shown. */
+export async function runInstall(ui, dest, i, runner, { root = dest, at = {} } = {}) {
+  const name = path.basename(dest);
+  // Started only in a folder really inside its project (inside.mjs startIn): never in one a link leads to.
+  const { startIn } = await import('../workspace/inside.mjs');
+  const r = await startIn({ ...at, root }, dest, i.argv, runner, { env: { ...withoutSecrets(process.env), PATH: freshPath() }, onLine: (l) => ui.out(`    ${dim(l)}`) });
+  if (r.leaves) {
+    ui.line('fail', `${name}: ${i.label} not run: ${r.stderr}`);
+    return false;
+  }
+  ui.line(r.ok ? 'ok' : 'fail', `${name}: ${i.label} ${r.ok ? 'done' : `failed — retry: ${showCommand(['cd', dest])} && ${showCommand(i.argv)}`}`);
+  return r.ok;
+}
+
+/**
+ * The short text about this workspace (wsrules.mjs), offered once at a terminal when there is a workspace and the
+ * file is not written yet: shown first, written only on a yes. Never with --yes or without a terminal.
+ */
+async function workspaceRulesStep(ui) {
+  if (!ui.interactive || ui.yes || ui.dryRun) return false;
+  const { isDir, brainDir } = await import('../workspace/layout.mjs');
+  if (!isDir(brainDir())) return false;
+  const w = await import('./wsrules.mjs');
+  const { text } = await w.currentWorkspaceRules();
+  const st = w.workspaceRulesState({ text });
+  if (st.exists) return false;
+  ui.out(`\n${dim(text)}`);
+  if (!(await ui.confirm(`Write this short text about your workspace into ${st.file}, so coding sessions know it? (hoprig workspace rules)`, false))) return false;
+  try {
+    ui.line('ok', `wrote ${w.writeWorkspaceRules({ text }).file}`);
+    return true;
+  } catch (e) {
+    ui.line('warn', e.message);
+    return false;
   }
 }
 
@@ -291,6 +327,7 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     if ((await github(ui, sys, found, recipe, runner)).length) changed = true;
   }
   if (await rulesStep(ui, rules)) changed = true;
+  if (await workspaceRulesStep(ui)) changed = true;
   let proj = null;
   if (projects || repos) {
     const gh = ghList || {
@@ -307,7 +344,12 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     proj = await projectsStep(ui, sys, { recipe, runner, gh });
     if (recipe && recipe.workspaces && recipe.workspaces.length && !ui.dryRun) {
       const { cloneProject } = await import('./project.mjs');
-      for (const w of recipe.workspaces) if ((await cloneProject(w, { ui, dir: proj.dir, runner })) !== 0) proj.failed.push({ repo: w, command: `hoprig project clone ${w}` });
+      for (const w of recipe.workspaces) {
+        // The retry is the result's own fix where it has one (here under another name, its folder taken): getting it
+        // again cannot help there.
+        let got = null;
+        if ((await cloneProject(w, { ui, dir: proj.dir, runner, onDone: (r) => (got = r) })) !== 0) proj.failed.push({ repo: w, command: (got && got.fix) || showCommand(['hoprig', 'project', 'clone', w]) });
+      }
     }
     if (proj.cloned.length) changed = true;
   }

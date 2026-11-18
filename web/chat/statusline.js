@@ -1,9 +1,11 @@
 // The status line under the composer: what the coding tool does now (the tool that runs and for how long, or that it
-// thinks), then the branch, the cost so far, the context used and the plan's limits where the provider says them.
+// thinks), then the branch, the cost so far (Verbose, billed by use), the context used and the plan's limits where the
+// provider says them; beside the session rail only the state and the branch (rail.css).
 // The model, effort and mode are the chips just above it: not said twice. Only the first part is read out by a
 // screen reader when it changes (the list of the conversation is not: it would read every streamed word).
 import { fill, h } from '../lib.js';
-import { contextPercent, hasPlan, limitsLine, money, toolWord, turnRuns } from './words.js';
+import { copyBranch } from './rail.js';
+import { billed, contextPercent, hasPlan, limitsLine, money, toolWord, turnRuns } from './words.js';
 
 const ACTIVITY = { requesting: (who) => `${who} is thinking`, compacting: () => 'Compacting the conversation', retrying: () => 'Retrying' };
 const ASKING = { permission: () => 'Needs your OK', question: (who) => `${who} asks you a question`, plan: () => 'A plan waits for your OK' };
@@ -50,13 +52,17 @@ export function statusKey(v) {
   return v.status;
 }
 
-/** The rest of the line: [label, text] pairs (the label is for a screen reader and the title). */
-export function statusParts(v) {
+/**
+ * The rest of the line: [label, text] pairs (the label is for a screen reader and the title). The cost so far only
+ * in the transcript view Verbose and for a provider billed by use (a subscription's dollars mislead). Where the
+ * session rail shows (rail.css), it says the context, the plan's usage and the cost: the line keeps the branch.
+ */
+export function statusParts(v, { view = 'normal' } = {}) {
   const p = contextPercent(v.usage);
   const lim = hasPlan(v) ? limitsLine(v.limits) : ''; // the plan's limits: a Claude subscription's only
   return [
     v.branch ? ['Git branch', v.branch] : null,
-    Number.isFinite(v.costTotal) && v.costTotal > 0 ? ['Cost so far', `${money(v.costTotal)} so far`] : null,
+    view === 'verbose' && billed(v) && Number.isFinite(v.costTotal) && v.costTotal > 0 ? ['Cost so far', `${money(v.costTotal)} so far`] : null,
     p !== null ? ['Context', `context ${p}%`] : null,
     lim ? ['Plan limits', lim] : null,
   ].filter(Boolean);
@@ -80,13 +86,17 @@ export function createStatusLine() {
   };
   return {
     el,
-    paint(s) {
+    /** o: { view } (the transcript view: the cost so far is Verbose's) */
+    paint(s, o = {}) {
       v = s;
       el.dataset.status = statusKey(v);
       const counting = words();
       clearInterval(tick);
       tick = counting ? setInterval(words, 1000) : null;
-      fill(rest, statusParts(v).map(([label, text]) => h('span.chat-st-part', { title: label, 'data-k': label }, text)));
+      // The branch copies itself on a click, as the desktop app's branch name does.
+      fill(rest, statusParts(v, o).map(([label, text]) => (label === 'Git branch'
+        ? h('button.chat-st-part.chat-branch', { type: 'button', title: 'Copy branch name', 'aria-label': `Copy branch name ${v.branch}`, 'data-k': label, onclick: () => copyBranch(v.branch) }, text)
+        : h('span.chat-st-part', { title: label, 'data-k': label }, text))));
     },
     stop: () => clearInterval(tick),
   };

@@ -58,7 +58,10 @@ import { createBackend } from './backends/index.mjs';
 import { Deck } from './deck.mjs';
 import { browse, insideRoots, recentFolders, resolveRoots } from './folders.mjs';
 import { detectLimit } from './limits.mjs';
-import { alwaysOption, menuOpen } from './prompts.mjs';
+import { alwaysOption, dialogShows, menuOpen, permissionDialog, permissionQuestion } from './prompts.mjs';
+
+// How much of a terminal's screen is read for a permission dialog: its long answers wrap over many lines when narrow.
+const SCREEN_LINES = 80;
 import { killProcess, power, snapshot } from './platform.mjs';
 import { machinesFeature } from '../machines/index.mjs';
 import { assistantFeature } from '../assistant/feature.mjs';
@@ -71,6 +74,7 @@ import { gatewayFeature } from '../gateway/index.mjs';
 import { pcsetupFeature } from '../pcsetup/feature.mjs';
 import { skillhubFeature } from '../skillhub/feature.mjs';
 import { workspaceFeature } from '../workspace/feature.mjs';
+import { workFeature } from '../work/feature.mjs';
 import { editorFeature } from '../editor/feature.mjs';
 import { chatFeature } from '../chat/feature.mjs';
 import { onboardingFeature } from '../setup/onboarding.mjs';
@@ -242,12 +246,13 @@ export function createServer(opts = {}) {
     editorFeature(ctx, opts.editor), // the code editor's files and git under /api/code/ (another computer's token too); removes VS Code Server's leftovers once
     automationFeature(ctx, { tick: opts.watch !== false, chat, ...opts.automation }), // queue, schedules (also of chats), restore, retry, updates, idle care
     addonsFeature(ctx, opts.addons), // Settings → Add-ons: install, start, stop, update, set up as an account
-    accountsFeature(ctx, { remote: gateway.states, removing: gateway.forget, ...opts.accounts }), // Providers: add a subscription, an API key or a TRouteAI gateway in the page
+    accountsFeature(ctx, { remote: gateway.states, removing: gateway.forget, ...opts.accounts }), // Providers: add a subscription, an API key or a gateway in the page
     claudeLoginFeature(ctx, opts.claudeLogin), // Claude Code's own sign-in from the page (Setup, Get started, Providers)
     pcsetupFeature(ctx, opts.pcsetup), // PC → Setup: system status, set up this computer, projects, recipes
     skillhubFeature(ctx, opts.skillhub), // Settings → Skills: installed, suggested for a project, find, review → approve, updates
     onboardingFeature(ctx, opts.onboarding), // Home → Get started: the steps a new user goes through, done or not
     workspaceFeature(ctx, opts.workspace), // Workspace: the tree, its map, restore and sync, Git and GitHub, the AI brain (read-only)
+    workFeature(ctx, { chat, ...opts.work }), // Work: tasks and Today, kept in a file of the workspace and saved to git by name; "Do it" opens a chat
     chat, // coding without the terminal: a Claude Code conversation as a chat (its cards are among the sessions)
     codetoolsFeature(ctx, opts.codetools), // Codex's and OpenCode's servers: stopped when no session uses them
     desktopFeature(ctx, opts.desktop), // the desktop's Task manager, Services and Logs: processes, usage, services, the journal and log files
@@ -571,19 +576,48 @@ export function createServer(opts = {}) {
       // Escape / C-c interrupt; Enter, arrows, Tab and a digit answer a menu or a permission question.
       if (!['Escape', 'C-c', 'Enter', 'Up', 'Down', 'Tab', '1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(b.key)) throw bad('bad key');
       const name = decodeURIComponent(m[1]);
-      const { term } = await sessionOr404(name);
-      // "Always allow" from the page: the number is typed only while the question on screen still has that answer
-      // with the same words, so a question that changed since the page looked is never answered blind.
+      const { term, run } = await sessionOr404(name);
+      // The page's answer to a permission dialog (Allow: 1, Do not allow: Escape, "always": that answer's number,
+      // `expect` its words; `about`: the command or file its card showed) is typed only while Claude Code's permission
+      // dialog stands on the screen (prompts.mjs), shows that command or file, and for "always" still has that answer
+      // in the same words; and only while one asker waits (with two, the card shows the newest ask while the dialog
+      // shows Claude Code's own queue). The card can be a moment old: a key would then answer whatever came next (the
+      // plan's approval, which turns bypass on; a question Claude put to the owner; another tool's call). A number
+      // takes its answer at once wherever the arrow is (seen on 2.1.326); Enter takes the answer the arrow is on, so
+      // it is typed only while the arrow is on "1. Yes" (a page of before sends it). The screen is looked at as the
+      // last step before the key goes (backends/index.mjs `when`).
+      let when = null;
       if (b.expect !== undefined) {
-        const now = alwaysOption(await backend.capture(term.id, 40));
-        if (typeof b.expect !== 'string' || !now || now.key !== b.key || now.text !== b.expect) throw new HttpError(409, 'the question on the screen changed; look at the session and answer there');
+        if (typeof b.expect !== 'string' || !/^[1-9]$/.test(b.key)) throw bad('bad answer');
+        when = { lines: SCREEN_LINES, message: 'The question on the screen changed. Look at the session and answer there', test: (screen) => {
+          const now = alwaysOption(screen);
+          return !!now && now.key === b.key && now.text === b.expect;
+        } };
+      } else if (b.question === true) {
+        if (!['1', 'Enter', 'Escape'].includes(b.key)) throw bad('bad answer');
+        when = { lines: SCREEN_LINES, test: permissionQuestion, message: 'No permission question is on the screen now. Look at the session and answer there' };
+      }
+      if (when) {
+        if (Array.isArray(run?.asks) && run.asks.length > 1) throw new HttpError(409, 'More than one question waits. Answer them in the terminal');
+        const dialog = when.test;
+        const about = typeof b.about === 'string' ? b.about : '';
+        when.test = (screen) => {
+          if (!dialog(screen)) return false;
+          if (!dialogShows(screen, about, run?.cwd)) return !(when.message = 'The question on the screen is not the one the card shows. Look at the session and answer there');
+          if (b.key === 'Enter' && permissionDialog(screen).cursor !== 1) return !(when.message = 'The answer chosen on the screen is not "Yes". Look at the session and answer there');
+          return true;
+        };
       }
       // `owner: true`: the page's own answer and stop buttons, the owner's keys: to whatever runs there, as before. Anyone
       // else (the assistant, which may never send that key: assistant/door.mjs) presses a key only for the coding tool
       // while it is in front (deck.mjs keyToTool; 409 otherwise): an Enter never runs what stands on a shell's line.
-      if (b.owner !== true) await deck.keyToTool(name, b.key);
-      else if (/^[1-9]$/.test(b.key)) await backend.sendText(term.id, b.key);
-      else await backend.sendKey(term.id, b.key);
+      if (b.owner !== true) {
+        if (when && !when.test(await backend.capture(term.id, SCREEN_LINES))) throw new HttpError(409, when.message);
+        await deck.keyToTool(name, b.key);
+      } else if (/^[1-9]$/.test(b.key)) await backend.sendText(term.id, b.key, { when });
+      else await backend.sendKey(term.id, b.key, { when });
+      // "Do not allow" ends the turn without an event from Claude Code: the card follows the screen at once (deck.mjs).
+      if (b.question === true && b.key === 'Escape') deck.noteRefused(name, run);
       return { ok: true };
     }],
     ['GET', /^\/api\/sessions\/([^/]+)\/history$/, async (req, m, q) => {

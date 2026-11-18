@@ -240,7 +240,7 @@ async function run(t, kind) {
     // launcher starts nothing, says where the conversation is open, asks again.
     assert.equal((await req(`/api/sessions/${T}/send`, { text: 'backup', owner: true })).status, 200);
     await until('the menu again', async () => (await menus()) === 2);
-    assert.match(await screen(T), /this conversation is open in a chat in the dashboard\. Close that chat, or choose "Open in terminal" in its menu\./);
+    assert.match(await screen(T), /this conversation is open in a chat in the dashboard\. Archive that session, or choose "Open in", then "Terminal", in its session menu\./);
     assert.deepEqual(await count(id), { term: 0, chat: 1, runs: 0 }, 'A1: the chat is the one process');
     const s = await req(`/api/chats/${c.id}/send`, { text: 'the chat goes on' });
     assert.equal(s.status, 200, s.text);
@@ -276,7 +276,7 @@ async function run(t, kind) {
     await until('the chat\'s answer', async () => (await req(`/api/chats/${c.id}`)).json.events.filter((e) => e.kind === 'turn-end').length >= 1);
     const o = await plainShell(id);
     assert.equal(o.code, 2, o.err);
-    assert.equal(o.err, 'hoprig: this conversation is open in a chat in the dashboard. Close that chat, or choose "Open in terminal" in its menu.\n');
+    assert.equal(o.err, 'hoprig: this conversation is open in a chat in the dashboard. Archive that session, or choose "Open in", then "Terminal", in its session menu.\n');
     assert.deepEqual(await count(id), { term: 0, chat: 1, runs: 0 }, 'O1: the chat is the one process');
 
     // The page's resume meanwhile: the dashboard's claim finds the chat and starts nothing.

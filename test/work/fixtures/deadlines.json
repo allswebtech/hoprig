@@ -1,0 +1,133 @@
+{
+  "items": [
+    {
+      "id": "trial-ends",
+      "date": "2026-12-08",
+      "approx": true,
+      "title": "Hosting trial ends: choose a plan or leave",
+      "brands": [
+        "northwind"
+      ],
+      "kind": "deadline",
+      "owner": "alex",
+      "status": "open",
+      "source": "plan-2026.md"
+    },
+    {
+      "id": "tm-filing",
+      "date": "2026-11-19",
+      "approx": false,
+      "title": "File the trademark reply",
+      "brands": [
+        "brightpath"
+      ],
+      "kind": "deadline",
+      "owner": "lawyer",
+      "status": "open",
+      "source": ""
+    },
+    {
+      "id": "partner-demo",
+      "date": "2026-11-12",
+      "approx": false,
+      "title": "Send the partner the demo build",
+      "brands": [
+        "tidebox"
+      ],
+      "kind": "task",
+      "owner": "partner",
+      "status": "open",
+      "source": ""
+    },
+    {
+      "id": "store-gate",
+      "date": "2027-01-31",
+      "approx": false,
+      "title": "Marketplace live and stable for 4 weeks",
+      "brands": [
+        "brightpath"
+      ],
+      "kind": "gate",
+      "owner": "alex",
+      "status": "open",
+      "source": "",
+      "gateOf": "milestone-2"
+    },
+    {
+      "id": "npm-pub",
+      "date": "2026-11-28",
+      "approx": false,
+      "title": "Publish corelane 0.1",
+      "brands": [
+        "corelane"
+      ],
+      "kind": "task",
+      "owner": "ai",
+      "status": "open",
+      "source": ""
+    },
+    {
+      "id": "old-task",
+      "date": "2026-11-01",
+      "approx": false,
+      "title": "Move DNS to the new host",
+      "brands": [
+        "northwind"
+      ],
+      "kind": "task",
+      "owner": "ai",
+      "status": "done",
+      "source": ""
+    },
+    {
+      "id": "call-a003",
+      "date": null,
+      "approx": false,
+      "title": "Call about the first review build",
+      "brands": [
+        "northwind"
+      ],
+      "kind": "task",
+      "owner": "alex",
+      "status": "open",
+      "source": "alex",
+      "note": "Ask which screens they tested.\nThen book the next call.",
+      "client": "A-2026-003",
+      "priority": "high",
+      "created": "2026-11-14"
+    },
+    {
+      "id": "invoice-a002",
+      "date": "2026-12-20",
+      "approx": false,
+      "title": "Send the second invoice",
+      "brands": [],
+      "kind": "task",
+      "owner": "alex",
+      "status": "open",
+      "source": "alex",
+      "note": "Half now, half on delivery.",
+      "client": "A-2026-002",
+      "created": "2026-11-10",
+      "x-color": "amber",
+      "flags": {
+        "pinned": true
+      }
+    },
+    {
+      "id": "old-quote",
+      "date": "2026-11-12",
+      "approx": false,
+      "title": "Send the install quote",
+      "brands": [],
+      "kind": "task",
+      "owner": "alex",
+      "status": "done",
+      "source": "alex",
+      "client": "A-2026-001",
+      "created": "2026-11-10",
+      "doneAt": "2026-11-12"
+    }
+  ],
+  "updated": "2026-11-15"
+}

@@ -15,7 +15,7 @@ import { Unicode11Addon } from './vendor/addon-unicode11/lib/addon-unicode11.mjs
 import { icon } from './icons.js';
 import {
   TOOL_NAMES, api, btn, bytes, cardTool, chooseSheet, closeWindow, confirmSheet, fill, h, isClaudeCard, isCodingCard, limitBox, liveBasic,
-  kindLabel, needsYou, needsYouFirst, openSheet, permissionActions, link, machine, prefs, profileIcon, profileState, profileText, promptSheet, servesTool,
+  answeredNow, kindLabel, needsYou, needsYouFirst, openSheet, permissionActions, link, machine, prefs, profileIcon, profileState, profileText, promptSheet, servesTool,
   stateOf, statusPill, switchProfile, toast, toolChip, url, wsUrl,
 } from './lib.js';
 import { pageNotify, store } from './store.js';
@@ -599,7 +599,8 @@ export function openSession(app, name) {
     const toolBefore = cardTool(session);
     session = s;
     if (cardTool(s) !== toolBefore) placeholder();
-    const key = JSON.stringify([s, profiles]);
+    // An answer sent a moment ago is part of what the banner shows (lib.js answeredNow), not of the card.
+    const key = JSON.stringify([s, profiles, answeredNow({ ...s, machine: machine.current })]);
     if (key === infoKey) return;
     infoKey = key;
     // Started from this page a moment ago, and Claude has not reported yet: "Starting", not "Terminal".
@@ -614,7 +615,7 @@ export function openSession(app, name) {
     fill(statusSlot, starting ? startingPill(s) : statusPill(s, { time: false }), liveBasic(s));
     fill(toolSlot, toolChip(s));
     const before = needSlot.offsetHeight;
-    fill(needSlot, limitBox(s, profiles, moved) || (stateOf(s).key === 'attention' ? needsOk(s) : null));
+    fill(needSlot, limitBox(s, profiles, moved) || (stateOf(s).key === 'attention' ? needsOk(s) : null), allowedNote(s));
     if (needSlot.offsetHeight !== before) refit();
   });
 
@@ -666,9 +667,24 @@ export function openSession(app, name) {
   // ---------- a question waiting for your OK: its answers above the terminal (lib.js permissionActions) ----------
   function needsOk(s) {
     return h('div.sess-ok', { role: 'alert' },
-      h('div.sess-ok-head', icon('alert', { size: 18 }), h('strong', 'Needs your OK')),
+      h('div.sess-ok-head', icon('alert', { size: 18 }), h('strong', stateOf(s).text)),
       s.note ? h('p.sess-ok-text', s.note) : null,
-      permissionActions({ ...s, machine: machine.current }, () => store.refresh()));
+      permissionActions({ ...s, machine: machine.current }, () => store.refresh(), { here: true }));
+  }
+
+  // ---------- what Hoprig allowed by itself in bypass mode (the run record's `allowed`, src/hook.mjs) ----------
+  // The newest in one line; the earlier ones (up to four) when the line is opened.
+  function allowedNote(s) {
+    const list = Array.isArray(s.allowed) ? s.allowed.filter((a) => a && a.tool) : [];
+    if (!list.length) return null;
+    const at = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // The command itself for the shell (no tool name), and where it ran when not in the session's folder.
+    const line = (a) => `${a.tool && a.tool !== 'Bash' ? `${a.tool}: ` : ''}${a.what || a.tool}${a.folder ? ` · in ${a.folder}` : ''} · ${at(a.at)}`;
+    const newest = list[list.length - 1];
+    const earlier = list.slice(0, -1).reverse();
+    const head = h('span', h('strong', 'Allowed by Hoprig in bypass mode: '), line(newest));
+    if (!earlier.length) return h('p.sess-allowed', { role: 'status' }, head);
+    return h('details.sess-allowed', { role: 'status', ontoggle: () => refit() }, h('summary', head), h('ul', earlier.map((a) => h('li', line(a)))));
   }
 
   // A second session in the same folder, on that folder's default provider: no provider is sent, so the server

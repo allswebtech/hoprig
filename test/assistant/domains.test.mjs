@@ -74,6 +74,28 @@ test('list_projects: projects with repositories and sessions, missing workspace 
   assert.ok(e.text.includes('<untrusted_data tool="list_projects">'));
 });
 
+test('manage_project get that needs the owner (here under another name, folder taken): no project is shown as got', async () => {
+  const { call, ops, core } = setup();
+  ops.projectGet = async () => ({ started: true, name: 'blog', job: { ok: false, error: 'it is here already, as blog-workspace', data: { name: 'blog-workspace', dir: '/home/owner/projects/blog-workspace', made: true, fix: 'mv a b' }, lines: [] } });
+  const r = await call('manage_project', { action: 'get', spec: 'owner/blog-workspace' });
+  assert.equal((await core.confirm((/card (c_[0-9a-z]+)/.exec(r.text) || [])[1])).ok, true);
+  assert.match(core.takeOutcomes('c1').map((o) => o.text).join('\n'), /mv a b/);
+  for (const p of ['blog', 'blog-workspace']) assert.match((await call('manage_project', { action: 'sync', project: p })).text, new RegExp(`project "${p}" was not shown`));
+});
+
+test('manage_project get whose folder holds another repository, or that another run has: no project is shown as got', async () => {
+  for (const job of [
+    { ok: false, error: '/home/owner/projects/shop is in the way: it is a clone of https://github.com/bob/thing.git', data: { made: false, placed: false, fix: 'mv a b' }, lines: [] },
+    { ok: false, error: 'shop is being fetched by another run of Hoprig right now', data: { name: 'shop', dir: '/home/owner/projects/shop', made: false }, lines: [] },
+  ]) {
+    const { call, ops, core } = setup();
+    ops.projectGet = async () => ({ started: true, name: 'shop', job });
+    const r = await call('manage_project', { action: 'get', spec: 'alex/shop-workspace' });
+    assert.equal((await core.confirm((/card (c_[0-9a-z]+)/.exec(r.text) || [])[1])).ok, true);
+    assert.match((await call('manage_project', { action: 'sync', project: 'shop' })).text, /project "shop" was not shown/);
+  }
+});
+
 test('manage_project: new and get are cards that show what will be made; sync is L1 unless it would publish', async () => {
   const { call, ops, core } = setup();
   await call('list_projects', {});

@@ -131,6 +131,27 @@ export function browserHelper(dir, platform = process.platform) {
   return file;
 }
 
+/**
+ * Remove a sign-in's helper folder. Claude Code was told to end a moment ago and may still write into the folder: a
+ * removal that meets a new file there fails ("directory not empty", seen on macOS). So it is tried again, and when the
+ * folder still cannot go, once more a second later. It never throws: an end that failed here left the sign-in half
+ * ended (its text still in memory, the page's request unanswered but for an error). Exported for the tests.
+ */
+export function removeHelper(dir, { rm = fs.rmSync, later = (fn) => setTimeout(fn, 1000).unref() } = {}) {
+  const once = () => rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  try {
+    once();
+  } catch {
+    later(() => {
+      try {
+        once();
+      } catch {
+        /* left in the temporary folder: the helper's two small files, nothing of the account */
+      }
+    });
+  }
+}
+
 class LoginFlow {
   constructor({ bin, spawn = ptySpawn, times, status, email = null, onDone = () => {} }) {
     Object.assign(this, { times, status, onDone, state: 'starting', out: '', codeUrl: null, localUrl: null, error: null, plan: null, changed: false, ended: false, exited: false });
@@ -141,7 +162,7 @@ class LoginFlow {
       // Wide, so the link is not wrapped.
       this.term = spawn(bin, ['auth', 'login', ...(email ? ['--email', email] : [])], { name: 'xterm-256color', cols: 1000, rows: 50, cwd: os.homedir(), env });
     } catch (e) {
-      fs.rmSync(this.dir, { recursive: true, force: true });
+      removeHelper(this.dir);
       throw e;
     }
     this.term.onData((d) => {
@@ -257,7 +278,7 @@ class LoginFlow {
     } catch {
       /* already gone */
     }
-    fs.rmSync(this.dir, { recursive: true, force: true });
+    removeHelper(this.dir);
     this.out = ''; // nothing of the sign-in stays in memory
     this.#wake();
   }

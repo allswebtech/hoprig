@@ -12,9 +12,9 @@
 // removal that failed is tried again at the next start. Remove this module two releases after the feature went.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { knock } from '../knock.mjs';
 
 export const MARKER = 'cleaned-vscode';
 const TMP_PREFIX = 'hoprig-vscode-';
@@ -40,19 +40,6 @@ const sizeOf = (dir) => {
 
 const words = (bytes) => (bytes >= 1 << 30 ? `${(bytes / (1 << 30)).toFixed(1)} GB` : `${Math.round(bytes / (1 << 20))} MB`);
 
-/** True when something accepts a connection on the Unix socket `p`. */
-function listening(p) {
-  return new Promise((resolve) => {
-    const s = net.connect(p);
-    const done = (v) => {
-      s.destroy();
-      resolve(v);
-    };
-    s.once('connect', () => done(true));
-    s.once('error', () => done(false));
-    setTimeout(() => done(false), 1000).unref();
-  });
-}
 
 /** The process groups whose command line carries `marker`, from `ps` (POSIX only). */
 function groupsWith(marker, ps) {
@@ -130,7 +117,8 @@ export async function cleanupVscode(stateDir, opts = {}) {
         // The folder of the server just stopped may still answer for a moment: it goes anyway.
         const justStopped = out.stopped.length > 0 && rec.run === dir;
         const sock = path.join(dir, 'vs.sock');
-        if (!justStopped && fs.existsSync(sock) && (await listening(sock))) continue;
+        // A socket that does not answer in time may belong to a busy server: kept, as one that answers is.
+        if (!justStopped && fs.existsSync(sock) && (await knock({ path: sock }, 1000)) !== 'closed') continue;
         // No socket yet may mean a server of another install that is still starting: only old folders go.
         if (!justStopped && !fs.existsSync(sock) && now() - st.mtimeMs < TMP_AGE_MS) continue;
         fs.rmSync(dir, { recursive: true, force: true });

@@ -15,7 +15,7 @@
 // Like limits.mjs and prompts.mjs it reads screen text: when Claude Code changes how it draws, update this and
 // its tests together. It only ever answers when it is sure; "nothing" leaves the card as the hooks have it.
 
-const norm = (s) => s.replace(/ /g, ' ').replace(/\s+$/, '');
+const norm = (s) => s.replace(/\u00a0/g, ' ').replace(/\s+$/, ''); // a no-break space (drawn after ❯ and ⎿) as a space
 // The rules above and below the message box (older versions drew a rounded box around it).
 const RULE = /^\s*[╭╰]?[─━]{6,}[╮╯]?\s*$/;
 // The message box's first line: the prompt arrow, alone or with what the owner is typing.
@@ -47,6 +47,38 @@ export function screenLook(screen) {
   // and the rule.
   if (lines.slice(Math.max(0, box - 13), box - 1).some((l) => WORKING.test(l))) return 'working';
   return 'idle';
+}
+
+/**
+ * The last thing above the message box is Claude Code's note that the owner stopped the turn at a question with Esc
+ * (2.1.326; the real screens are in test/server/fixtures/claude-screens):
+ *   a permission, or Claude at work    ⎿  Interrupted · What should Claude do instead?
+ *   the question tool                  ● Declined to answer Claude's questions:   (then "⎿  · <question> (<answers>)")
+ *   the plan's approval                ⎿  Rejected Claude's plan:                  (then the plan in a box)
+ * Each may wrap on a narrow terminal. Only meaningful where screenLook says 'idle'.
+ */
+export function interrupted(screen) {
+  if (typeof screen !== 'string' || !screen) return false;
+  const lines = screen.split('\n').map(norm).filter((l) => l.trim());
+  let box = -1;
+  for (let i = lines.length - 1; i >= Math.max(1, lines.length - 14); i--) {
+    if (BOX.test(lines[i]) && RULE.test(lines[i - 1])) {
+      box = i - 1;
+      break;
+    }
+  }
+  if (box < 1) return false;
+  const text = (from, to) => lines.slice(Math.max(0, from), to).map((l) => l.trim()).join(' ').replace(/\s+/g, ' ');
+  if (/⎿ Interrupted · What should Claude do instead\?$/.test(text(box - 4, box))) return true;
+  // What follows the other two notes: the plan's box, or the questions declined (each "⎿  · …", wrapped deeper).
+  let k = box - 1;
+  const top = Math.max(0, box - 60);
+  if (/^\s{3,}╰/.test(lines[k] || '')) {
+    while (k > top && !/^\s{3,}╭/.test(lines[k])) k--;
+    return /^\s*⎿\s+Rejected Claude's plan:$/.test(lines[k - 1] || '');
+  }
+  while (k > top && /^\s{2,}(?:⎿\s+·|\s{3,}\S)/.test(lines[k])) k--;
+  return k < box - 1 && /^● Declined to answer Claude's questions:$/.test(lines[k]);
 }
 
 /** How long the screen must look idle before a run that says "working" or "needs your OK" is not believed. */

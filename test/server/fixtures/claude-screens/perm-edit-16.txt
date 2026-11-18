@@ -1,0 +1,32 @@
+
+
+────────────────
+ Edit file
+ a.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ 1 -hello
+ 1 +bye
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to
+ make this
+ edit to a.txt?
+ ❯ 1. Yes
+   2. Yes, and
+      switch to
+      accept
+      edits
+      (auto-app
+      rove file
+      edits
+      and
+      common
+      file
+      commands)
+      for this
+      session
+      (shift+ta
+      b)
+   3. No
+
+ Esc to cancel
+ · Tab to amend

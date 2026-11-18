@@ -199,6 +199,9 @@ test('the state the page reads carries them: profiles[].signedIn, .plan, .usageR
   P.writeProfile('sub', { label: 'Claude account (stored login)' });
   P.writeProfile('api', { label: 'API', env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' } });
   saveConfig({ server: { backend: 'pty', roots: [box.root], passwordHash: await hashPassword('pw-for-tests') } });
+  // The Providers list asks whether the gateway add-on answers on its port: a free port, so the answer never depends on
+  // a gateway running on the computer that runs the tests (its default port is a real one's).
+  saveConfig({ addons: { trouteai: { port: await (await import('../src/machines/tunnels.mjs')).freePort() } } });
   const seen = Date.now() - 2 * HOUR;
   S.rememberLogin({ loggedIn: false });
   const app = createServer({ watch: false, dashboardFile: false });

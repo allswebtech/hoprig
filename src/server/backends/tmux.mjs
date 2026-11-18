@@ -9,7 +9,7 @@ import { ptySpawn } from './nodepty.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
 import { descendants, endAll } from './proctree.mjs';
 import { shellLine } from './shell.mjs';
-import { assertFront, notInFront, FRONT_GONE } from './front.mjs';
+import { assertFront, assertScreen, notInFront, FRONT_GONE } from './front.mjs';
 import { stateDir } from '../../paths.mjs';
 
 const FIELDS = [
@@ -131,7 +131,12 @@ export class TmuxBackend {
         }
         resolve(stdout);
       });
-      if (input !== undefined) child.stdin.end(input);
+      if (input !== undefined) {
+        // tmux may exit before it has read it all (its server went away): its exit is the answer, and a closed pipe
+        // (EPIPE) must not become an uncaught error that ends the dashboard.
+        child.stdin.on('error', () => {});
+        child.stdin.end(input);
+      }
     });
   }
 
@@ -185,12 +190,14 @@ export class TmuxBackend {
    * paste (-p) when the program asked for it, which Claude Code does, so the newlines stay inside the message.
    * The paste buffer is loaded through stdin: no argument size limit, and the text never shows up in `ps`.
    */
-  async sendText(id, text, { front = null } = {}) {
+  async sendText(id, text, { front = null, when = null } = {}) {
     await this.#live(id);
     if (!text.includes('\n')) {
       await this.#inFront(id, front);
+      await this.#screenIs(id, when);
       return void (await this.run(['send-keys', '-t', id, '-l', '--', text]));
     }
+    if (when) throw new Error('a screen check is for one line'); // nothing calls it so
     const buf = `paste-${crypto.randomBytes(6).toString('hex')}`;
     await this.run(['load-buffer', '-b', buf, '-'], { input: text });
     try {
@@ -202,11 +209,18 @@ export class TmuxBackend {
     await this.run(['paste-buffer', '-p', '-d', '-b', buf, '-t', id]);
   }
 
-  async sendKey(id, key, { front = null } = {}) {
+  async sendKey(id, key, { front = null, when = null } = {}) {
     if (!KEYS.has(key)) throw new Error(`unknown key ${key}`);
     if (key !== 'Escape') await this.#live(id);
     await this.#inFront(id, front);
+    await this.#screenIs(id, when);
     await this.run(['send-keys', '-t', id, key]);
+  }
+
+  // The screen check (index.mjs: `when`), the last step before the keys go. tmux types in a second call of its own:
+  // what the program draws between the capture and that call (a few milliseconds) is not seen.
+  async #screenIs(id, when) {
+    if (when) assertScreen(when, await this.capture(id, when.lines || 40));
   }
 
   capture(id, lines = 40) {

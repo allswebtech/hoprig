@@ -29,6 +29,10 @@
 //   failure    { at, error, text } when the last reply ended in an API error (any kind); null again on the next prompt
 //   attentionKind  what is behind the last "attention": permission_prompt, elicitation_dialog… (Claude Code's
 //              notification types); null when nothing waits
+//   askType    what the last ask is, when Claude Code named the tool that asks (asking.mjs): "permission", "question"
+//              (it asks the owner something) or "plan" (a plan to approve); null when nothing waits or a notification
+//              alone told it. Only a permission is answered with "allow"
+//   askAt      when the last ask came: two questions in a row have two times
 //   fallback   true when the session runs here only because a preferred profile reached its limit
 //   usage      (added when read) how much of the plan's limits is used, from Claude Code's status data:
 //              { fiveHour?: { pct, resetsAt }, week?: { pct, resetsAt }, at }; `at` is when Claude Code wrote it.
@@ -53,10 +57,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { runsDir } from './paths.mjs';
+import { hookSettingsDir, runsDir } from './paths.mjs';
 import { stillOwned, system } from './procid.mjs';
 import { rememberUsage, usageForgotten } from './routerstate.mjs';
-import { readRun, watchFile, writeRun as write } from './runfile.mjs';
+import { changeRun, readRun, watchFile, writeRun as write } from './runfile.mjs';
 
 export { readRun };
 
@@ -184,20 +188,42 @@ export function noteUsage(file, profile) {
 
 /** Merge `patch` into the run file. Does nothing when the file is gone (the launcher already cleaned up). */
 export function updateRun(file, patch) {
-  const run = readRun(file);
-  if (!run) return null;
-  const next = { ...run, ...patch };
-  if (patch.status && patch.status !== run.status) next.statusAt = Date.now();
-  write(file, next);
-  return next;
+  return changeRun(file, (run) => {
+    const next = { ...run, ...patch };
+    if (patch.status && patch.status !== run.status) next.statusAt = Date.now();
+    return next;
+  });
 }
 
 export function removeRun(file) {
-  for (const f of [file, usageFile(file), watchFile(file)]) {
+  // The settings Hoprig handed the run's coding tool (launch.mjs, a chat's: claude.mjs) go with its record.
+  for (const f of [file, usageFile(file), watchFile(file), `${file}.lock`, path.join(hookSettingsDir(), path.basename(file))]) {
     try {
       fs.unlinkSync(f);
     } catch {
       /* already gone */
+    }
+  }
+}
+
+/**
+ * Settings files handed to a coding tool whose run record is gone (a dashboard or launcher stopped by a signal before
+ * it could remove them): removed. Only files named like a record (<runId>.json); the record is written first and goes
+ * last, so a run that starts now always has its record.
+ */
+export function removeSettingsLeftovers() {
+  let names = [];
+  try {
+    names = fs.readdirSync(hookSettingsDir());
+  } catch {
+    return;
+  }
+  for (const n of names) {
+    if (!/^[A-Za-z0-9-]+\.json$/.test(n) || fs.existsSync(path.join(runsDir(), n))) continue;
+    try {
+      fs.unlinkSync(path.join(hookSettingsDir(), n));
+    } catch {
+      /* gone meanwhile */
     }
   }
 }

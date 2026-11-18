@@ -5,6 +5,7 @@ import os from 'node:os';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { tilde, workspaceEnvDir } from '../paths.mjs';
 import { expandDir, rememberDir } from '../pcsetup/projects.mjs';
+import { showCommand } from '../setup/system.mjs';
 import { projectsIn, workspaceDir } from './layout.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -25,7 +26,7 @@ export function setPlaces({ dir, projects } = {}, { save = saveConfig, load = lo
   const moves = [];
   const notes = [];
   const mv = (from, to) => {
-    if (from !== to && fs.existsSync(from) && !fs.existsSync(to)) moves.push(`mv "${from}" "${to}"`);
+    if (from !== to && fs.existsSync(from) && !fs.existsSync(to)) moves.push(showCommand(['mv', from, to]));
   };
   if (dir !== undefined) {
     const to = folderOf(dir, 'the workspace folder', home);

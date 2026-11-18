@@ -14,7 +14,7 @@ import { isToolSessionId, opencodeSessions } from '../../codetools/stores.mjs';
 import { ensureServer, readServer } from '../../codetools/servers.mjs';
 import { OpencodeEvents } from './opencode-events.mjs';
 import { readTranscript } from './opencode-transcript.mjs';
-import { modeOf, modeRules, onServer, providerFor, startModel, topEffort } from './served.mjs';
+import { modeOf, modeRules, onServer, ownRules, providerFor, startModel, topEffort } from './served.mjs';
 
 const TOOL = 'opencode';
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -84,6 +84,7 @@ class OpencodeSession {
     const variant = this.#variant(o.effort, o.ultracode);
     const model = modelId ? { providerID: prov.id, id: modelId, ...(variant ? { variant } : {}) } : null;
     let running = false;
+    await this.#readDenies();
     if (this.id && o.resume) {
       const r = await this.client.req('GET', `/api/session/${enc(this.id)}`).catch(() => null);
       if (!r || !r.data) throw fail(409, 'OpenCode does not know this conversation any more');
@@ -91,13 +92,13 @@ class OpencodeSession {
       running = runsNow(r.data);
       if (model) await this.client.req('POST', `/api/session/${enc(this.id)}/model`, { model });
       // A conversation keeps the rules it was made with: the chat's mode replaces them.
-      await this.client.req('PATCH', `/api/session/${enc(this.id)}`, { permissions: modeRules(o.mode) });
+      await this.client.req('PATCH', `/api/session/${enc(this.id)}`, { permissions: modeRules(o.mode, this.own) });
     } else {
       if (!this.alive) return;
       // OpenCode said it has no such conversation any more (a 404: run.mjs asked): the chat goes on in a new one, and
       // says so. A conversation that could not be asked for never gets here (the start fails instead).
       const lost = !!this.id;
-      const r = await this.client.req('POST', '/api/session', { location: { directory: o.cwd }, ...(model ? { model } : {}), permissions: modeRules(o.mode) });
+      const r = await this.client.req('POST', '/api/session', { location: { directory: o.cwd }, ...(model ? { model } : {}), permissions: modeRules(o.mode, this.own) });
       this.id = r && r.data && r.data.id;
       if (!isToolSessionId(TOOL, this.id)) throw fail(502, 'OpenCode did not make a conversation');
       if (lost) o.emit({ kind: 'notice', level: 'warning', text: 'OpenCode no longer has this chat\'s earlier conversation: this message starts a new one.' });
@@ -113,13 +114,48 @@ class OpencodeSession {
     if (running) await this.#waiting();
   }
 
+  /**
+   * The owner's own deny rules for the shell, as OpenCode reads its config for the chat's folder (served.mjs
+   * ownRules, from his first deny on): kept after the chat's rules. Read once per start (a deny he adds while the chat runs holds from its next
+   * start); when they cannot be read the chat says so and answers no command by itself (`deniesUnread`).
+   */
+  async #readDenies() {
+    this.own = [];
+    this.deniesUnread = false;
+    try {
+      const j = await this.client.req('GET', `/api/config?${new URLSearchParams({ 'location[directory]': this.o.cwd })}`);
+      // A list of config documents ({ type, path, info }); a list with none of that shape is not read either.
+      const known = (d) => d && typeof d === 'object' && typeof d.type === 'string' && typeof d.path === 'string';
+      if (!Array.isArray(j) || (j.length && !j.some(known))) throw new Error('an answer of a shape not known');
+      const own = ownRules(j);
+      if (!own) throw new Error('rules of a shape not known');
+      this.own = own;
+    } catch (e) {
+      // The chat's "ask" rule would come after his rules and win over his denies: so the chat answers no command by
+      // itself now (asks.mjs openCodeAllows), until a start that can read them.
+      this.deniesUnread = true;
+      this.o.emit({ kind: 'notice', level: 'warning', text: `OpenCode's own deny rules could not be read (${String(e.message || e).slice(0, 120)}): every command is put to you until this chat starts again and can read them.` });
+    }
+  }
+
   /** What the conversation waits for already (asked before this chat listened): the OKs and questions, as cards. */
   async #waiting() {
     const list = async (p) => {
       const j = await this.client.req('GET', `/api/session/${enc(this.id)}/${p}`).catch(() => null);
       return Array.isArray(j && j.data) ? j.data : [];
     };
-    for (const p of await list('permission')) this.#event({ type: 'permission.asked', data: { ...p, sessionID: this.id } });
+    const perms = await list('permission');
+    // The calls they are about, from the conversation's messages: an ask is then seen whole (its command on the card,
+    // and answered in bypass mode as one that just arrived, asks.mjs openCodeAllows), not "did not say the whole".
+    if (perms.length && this.map) {
+      const j = await this.client.req('GET', `/api/session/${enc(this.id)}/message`).catch(() => null);
+      for (const m of Array.isArray(j && j.data) ? j.data : []) {
+        for (const part of Array.isArray(m && m.content) ? m.content : []) {
+          if (part && part.type === 'tool' && typeof part.id === 'string' && part.state && part.state.input) this.map.knowCall(part.id, part.name, part.state.input);
+        }
+      }
+    }
+    for (const p of perms) this.#event({ type: 'permission.asked', data: { ...p, sessionID: this.id } });
     for (const f of await list('form')) this.#event({ type: 'form.created', data: { form: { ...f, sessionID: this.id } } });
   }
 
@@ -222,7 +258,7 @@ class OpencodeSession {
   async setMode(mode) {
     await this.ready;
     this.o.mode = mode;
-    const permissions = modeRules(mode);
+    const permissions = modeRules(mode, this.own);
     await this.client.req('PATCH', `/api/session/${enc(this.id)}`, { permissions });
     // A subagent's conversation took its parent's rules when it was made (proven on OpenCode 2.3): it follows too.
     for (const sid of this.map ? this.map.running : []) await this.client.req('PATCH', `/api/session/${enc(sid)}`, { permissions }).catch(() => {});
@@ -343,6 +379,16 @@ export const opencode = {
     if (!isToolSessionId(TOOL, id)) return { events: [], tasks: [], todos: [], title: '', size: 0 };
     const c = await reader(o, { start: start && isOn(o) });
     return c ? readTranscript(c, id) : null;
+  },
+  /**
+   * How many OKs conversation `id` waits for on a server that runs already (0 when none runs): a chat that is not
+   * running starts again for them (reading.mjs checkWaiting), e.g. after the dashboard was restarted while one waited.
+   */
+  waiting: async ({ id }, o = {}) => {
+    if (!isToolSessionId(TOOL, id)) return 0;
+    const c = await reader(o, { start: false });
+    const r = c ? await c.req('GET', `/api/session/${enc(id)}/permission`).catch(() => null) : null;
+    return Array.isArray(r && r.data) ? r.data.length : 0;
   },
   /** When the conversation last changed (the chat reads it again when that moves), or 0. */
   stamp: async ({ id }, o = {}) => {

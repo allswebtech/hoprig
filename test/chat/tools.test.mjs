@@ -374,7 +374,8 @@ test('the chat page in another tool\'s words: its name, its modes, its OK cards 
   assert.equal(W.toolWord({ engine: { id: 'claude', label: 'Claude Code' } }), 'Claude');
   assert.equal(W.toolWord(null), 'Claude');
   assert.equal(W.modeInfo(v, 'manual').sub, 'Asks before it changes a file');
-  assert.equal(W.modeInfo({}, 'manual').chip, 'Ask first', 'Claude Code\'s words otherwise');
+  assert.equal(W.modeInfo(v, 'manual').chip, 'Manual', 'one name for one mode in every coding tool\'s chat (an older server still says "Ask first")');
+  assert.equal(W.modeInfo({}, 'manual').chip, 'Manual', 'Claude Code\'s words otherwise');
   assert.equal(W.caps(v).compact, false);
   // Compact: offered unless the tool says it has none (an older dashboard's Claude Code says nothing, and has it).
   assert.equal(W.canCompact(v), false);
@@ -382,7 +383,7 @@ test('the chat page in another tool\'s words: its name, its modes, its OK cards 
   assert.equal(W.canCompact({ engine: { id: 'claude', capabilities: { liveMode: true } } }), true, 'a peer on the version before');
   assert.equal(W.askTitle('Bash', { command: 'ls' }, 'OpenCode'), 'OpenCode wants to run a command');
   assert.equal(W.askTitle('Write', { file_path: '/a/b.txt' }), 'Claude wants to write b.txt');
-  assert.equal(W.alwaysWords({ tool: 'Bash', input: { command: 'sleep 1 && echo x' }, alwaysText: 'sleep *, echo *' }, 'OpenCode'), '“Allow in this chat” also lets OpenCode do what matches this again in this chat without asking: sleep *, echo *.');
+  assert.equal(W.alwaysWords({ tool: 'Bash', input: { command: 'sleep 1 && echo x' }, alwaysText: 'sleep *, echo *' }, 'OpenCode'), '“Allow in this session” also lets OpenCode do what matches this again in this session without asking: sleep *, echo *.');
   const St = await import('../../web/chat/statusline.js');
   assert.equal(St.stateWords({ ...v, status: 'attention', asking: 'question' }), 'OpenCode asks you a question');
   assert.equal(St.stateWords({ ...v, status: 'working', turn: true, activity: 'requesting', live: [] }), 'OpenCode is thinking…');

@@ -1,12 +1,12 @@
 // What waits for the owner: a permission card (Allow, Allow in this chat, Do not allow with a reason), Claude's questions
 // (one or several, each with its choices, several at once where it allows, and a free answer), and a plan with
-// Claude Code's three answers (approve and accept edits, approve and ask before edits, keep planning with a note).
+// Claude Code's three answers (approve and use auto mode, approve and review each edit, keep planning with a note).
 // The number keys answer the newest card (keys.js of the page routes them here). Answers go to POST /answer.
 import { icon } from '../icons.js';
 import { api, fill, h, toast } from '../lib.js';
 import { mdView } from '../mdtext.js';
 import { inputView } from './tools.js';
-import { alwaysWords, askTitle, failText, ruleWords } from './words.js';
+import { alwaysWords, askTitle, failText, planAnswers, ruleWords } from './words.js';
 
 const FILE_TOOLS = ['Bash', 'Edit', 'MultiEdit', 'Write', 'Read', 'NotebookEdit'];
 
@@ -15,7 +15,7 @@ const keyed = (n, ...kids) => [h('kbd.chat-key', { 'aria-hidden': 'true' }, Stri
 
 /**
  * A card for one `ask` event. o: { A (the chat's API path), cwd, after() (the state changed), who (the coding tool
- * as a sentence names it) }. The card has .keys(n) (a number key pressed; true when it took it) and .closed(text, ok).
+ * as a sentence names it), modes (the chat's permission modes, for a plan's answers; null when not known) }. The card has .keys(n) (a number key pressed; true when it took it) and .closed(text, ok).
  */
 export function askCard(ev, o) {
   const who = o.who || 'Claude';
@@ -122,14 +122,15 @@ export function askCard(ev, o) {
   } else if (ev.type === 'plan') {
     fill(body, ev.plan ? h('div.chat-plan', mdView(ev.plan)) : h('p.chat-hint', `${who} wrote no plan text. Its messages above say what it wants to do.`));
     const keep = () => note('What should change in the plan? (optional)', 'Keep planning', (msg) => answer(false, { message: msg || 'keep planning' }));
+    const [go, review] = planAnswers(o.modes);
     keys = [
-      () => answer(true, { mode: 'acceptEdits' }),
-      () => answer(true, { mode: 'manual' }),
+      () => answer(true, { mode: go.mode }),
+      () => answer(true, { mode: review.mode }),
       keep,
     ];
     fill(actions,
-      h('button.btn.primary', { type: 'button', onclick: keys[0] }, keyed(1, h('span', 'Yes, and accept edits'))),
-      h('button.btn.secondary', { type: 'button', onclick: keys[1] }, keyed(2, h('span', 'Yes, ask before edits'))),
+      h('button.btn.primary', { type: 'button', onclick: keys[0] }, keyed(1, h('span', go.label))),
+      h('button.btn.secondary', { type: 'button', onclick: keys[1] }, keyed(2, h('span', review.label))),
       h('button.btn.secondary', { type: 'button', onclick: keys[2] }, keyed(3, h('span', 'No, keep planning'))));
   } else {
     fill(body, inputView({ ...ev, name: ev.tool, toolKind: kindOf(ev.tool), asking: true }, o.cwd));
@@ -139,8 +140,8 @@ export function askCard(ev, o) {
     fill(actions,
       h('button.btn.primary', { type: 'button', onclick: () => answer(true) }, keyed(++n, icon('check', { size: 16 }), h('span', 'Allow'))),
       ev.canAlways ? h('button.btn.secondary', { type: 'button',
-        title: ev.always === 'edits' ? `${who} changes files without asking for the rest of this chat` : `${who} does not ask again in this chat for: ${ruleWords(ev.alwaysText) || 'this'}`,
-        onclick: () => answer(true, { always: true }) }, keyed(++n, h('span', ev.always === 'edits' ? 'Allow all edits in this chat' : 'Allow in this chat'))) : null,
+        title: ev.always === 'edits' ? `${who} changes files without asking for the rest of this session` : `${who} does not ask again in this session for: ${ruleWords(ev.alwaysText) || 'this'}`,
+        onclick: () => answer(true, { always: true }) }, keyed(++n, h('span', ev.always === 'edits' ? 'Allow all edits in this session' : 'Allow in this session'))) : null,
       h('button.btn.secondary.danger-text', { type: 'button', onclick: deny }, keyed(++n, icon('x', { size: 16 }), h('span', 'Do not allow'))));
   }
   if (!el.keys) el.keys = (n) => (keys[n - 1] ? (keys[n - 1](), true) : false);
@@ -168,7 +169,8 @@ const kindOf = (tool) => KINDS[tool] || 'other';
 /** The words of an ask-closed outcome: [text, ok]. */
 export const OUTCOME = {
   allowed: ['You allowed this', true],
-  'allowed-always': ['You allowed this for the rest of the chat', true],
+  'allowed-always': ['You allowed this for the rest of the session', true],
   denied: ['You said no', false],
   cancelled: ['No longer waiting', false],
+  hoprig: ['Allowed by Hoprig in bypass mode', true], // the hook allowed it after the card showed (src/chat/asks.mjs)
 };

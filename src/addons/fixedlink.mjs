@@ -21,7 +21,7 @@
 //   - cloudflared has `tunnel route dns` to add a record and no command to remove one; `tunnel delete` "will delete
 //     tunnels with the given tunnel UUIDs or names" (its --help). So Hoprig deletes the tunnel and says the record
 //     stays, to be deleted in Cloudflare.
-// One more local service (such as TRouteAI's own dashboard) can be reached through the same tunnel under a second
+// One more local service (such as a gateway's own dashboard) can be reached through the same tunnel under a second
 // name: one more ingress rule and DNS record.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';

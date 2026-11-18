@@ -8,8 +8,10 @@
 //                         offered only while Codex is (the server sends defaults.codex then). A file of this kind
 //                         from a version that offered it comes with `unusable`: one plain line, not an error
 // A provider that serves no coding tool of this version (that sign-in, or a key that answers only Codex's API) is
-// `unusable` (src/profiles.mjs): muted, listed last, and its page says so and offers Remove.
-//   Other providers       OpenAI, Gemini, OpenRouter, local models… through the TRouteAI add-on
+// `unusable` (src/profiles.mjs): muted, listed last, and its page says so and offers Remove. So is one whose gateway
+// was removed or not loaded (`gatewayGone`): its sessions would not start.
+//   Other providers       OpenAI, Gemini, OpenRouter, local models… through a gateway on this computer (its title and
+//                         sentences come from the server: data.gateways); with more than one, it asks which first
 // Every provider says which coding tools it works with ("Test" asks the endpoint which APIs it answers).
 // "Use the terminal instead" stays for when the page flow does not work. Accounts are added on the computer whose
 // page this is (this dashboard's own): a key or a sign-in never travels to another computer through this page.
@@ -79,7 +81,7 @@ const ORDINAL = (n) => `${n}${[, 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 
 
 /** The accounts in the Auto order; the others after it, subscriptions first. */
 function inOrder(accounts, order) {
-  const rank = (a) => (order.includes(a.name) ? order.indexOf(a.name) : order.length + (a.unusable ? 2 : CLAUDE_SIGNIN.includes(a.kind) ? 0 : 1));
+  const rank = (a) => (order.includes(a.name) ? order.indexOf(a.name) : order.length + (a.unusable || a.gatewayGone ? 2 : CLAUDE_SIGNIN.includes(a.kind) ? 0 : 1));
   return [...accounts].sort((a, b) => rank(a) - rank(b));
 }
 
@@ -139,7 +141,7 @@ function limitPanel(auto, accounts, refresh, flash) {
         h('li', 'On another subscription, Claude Code restarts on that provider and carries on with the same conversation.'),
         h('li', 'Providers lower in the order are used only while the ones above are at their limit.'),
         h('li', 'An API key straight to Anthropic costs money for every use; Auto mode uses one only when you allow it below.'),
-        h('li', 'Auto mode and plan usage work with Claude Code only: an OpenCode session is never moved by itself. Tia starts an OpenCode chat when you name it, and every OK of one comes to you.')),
+        h('li', 'Auto mode and plan usage work with Claude Code only: an OpenCode session is never moved by itself. Tia starts an OpenCode session in the App when you name it, and every OK of one comes to you.')),
       subscriptionsNote(rows.map((n) => accounts.find((p) => p.name === n)))),
     choice === 'carry' ? [
       h('div.field-label', 'Order of providers'),
@@ -224,7 +226,7 @@ function viewAccounts({ frame, sub }) {
         : emptyState('user', here ? 'No providers yet. Add the subscription, sign-in or API key your coding tools should use.' : `No providers on ${openLabel()} yet. Add one on that computer's own page.`,
           here ? btn('primary', { icon: 'plus', label: 'Add provider', onclick: () => addWizard(data, refresh) }) : null),
       here ? null : h('p.hint', `Providers of ${openLabel()} are added on that computer's own page: a key or a sign-in never travels through this one.`),
-      here ? gatewaysPanel({ useLocal: () => addWizard(data, refresh, { start: 'trouteai' }), changed: () => refresh() }) : null,
+      here ? gatewaysPanel({ useLocal: (g) => addWizard(data, refresh, { start: g.id }), changed: () => refresh() }) : null,
       fold('accounts', 'Advanced', fixedPanel(settings.autoSwitch)));
   }
   load();
@@ -308,9 +310,13 @@ async function removeProvider(a) {
   }
 }
 
-/** A provider no coding tool of this version can use: why, in one line, and the one thing to do (Remove). */
+/** A provider no coding tool of this version can use, or whose gateway is gone: why, in one line, and Remove. */
 function unusableBox(a, d) {
-  const why = a.kind === 'chatgpt'
+  const why = a.gatewayGone && a.gatewayGone.notLoaded
+    ? `Its gateway ${a.gatewayGone.id} is in config.json but was not loaded (${a.gatewayGone.notLoaded}), so its sessions will not start. Fix it there, or remove this provider.`
+    : a.gatewayGone
+    ? `Its gateway ${a.gatewayGone.id} was removed from this computer, so its sessions will not start. Add that gateway again, or remove this provider.`
+    : a.kind === 'chatgpt'
     ? 'This is the sign-in of a coding tool that this version of Hoprig does not offer, so nothing uses it. It is kept until you remove it.'
     : `No coding tool of this version of Hoprig can use this provider, so nothing uses it.${KEYED.includes(a.kind) ? ' If its address answers more now, Test it again; otherwise remove it.' : ''}`;
   return h('div.banner.muted.mbanner.acct-unusable', icon('info', { size: 18 }), h('span', why),
@@ -338,7 +344,7 @@ function viewAccount(frame, name) {
     const a = d.accounts.find((x) => x.name === name);
     if (!a) return fill(body, emptyState('user', 'There is no such provider on this computer.', h('a.btn.secondary', { href: link('#/providers') }, 'All providers')));
     const ps = profileState(a);
-    const what = [kindText(a), a.remote ? remoteText(a) : a.viaTrouteai ? 'via TRouteAI' : a.host || '', a.model ? `model ${a.model}` : ''].filter(Boolean).join(' · ');
+    const what = [kindText(a), a.remote ? remoteText(a) : a.viaGateway ? `via ${a.viaGateway.title}` : a.host || '', a.model ? `model ${a.model}` : ''].filter(Boolean).join(' · ');
     draw(a.label, what);
     const claude = servesClaude(a);
     const act = (ic, label, sub, fn) => h('button.row', { type: 'button', onclick: async () => {
@@ -360,7 +366,7 @@ function viewAccount(frame, name) {
       panel({},
         h(`p.acct-state.ps-${ps.key}`, h('span.dot'), ps.text),
         who,
-        a.unusable ? unusableBox(a, d)
+        a.unusable || a.gatewayGone ? unusableBox(a, d)
           : a.kind === 'chatgpt' ? codexSigninBox(a, d) : ps.key === 'signin'
           ? h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', 'Claude Code cannot use this provider until you sign in again.'),
             d.full ? btn('small primary', { icon: 'user', label: 'Sign in', onclick: () => signInAgain(a, d, refresh) }) : null)
@@ -475,6 +481,23 @@ function modelPicker(probe, current = '', currentSmall = '', { withSmall = true 
 
 // ======================= Add account =======================
 
+/**
+ * "Other providers" in Add provider: through the one gateway of this computer (its own title and sentence), or, with
+ * more than one, a step that asks which (pick: true). Null when the computer knows no gateway.
+ */
+export function otherProvidersChoice(gws) {
+  if (!gws || !gws.length) return null;
+  if (gws.length === 1) return { pick: false, id: gws[0].id, title: `Other providers through ${gws[0].title} (for Claude Code)`, sub: gws[0].words.choice };
+  return {
+    pick: true,
+    title: 'Other providers through a gateway (for Claude Code)',
+    sub: `OpenAI, Gemini, OpenRouter or a local model, translated for Claude Code by a gateway on this computer: ${gws.map((g) => g.title).join(', ')}.`,
+  };
+}
+
+/** The step of a gateway that is there but not running: today's sentence for a package with a page of its own. */
+export const notRunningText = (g) => `${g.title} is ${g.installable ? 'installed' : 'on this computer'} but not running. Start it, then add your provider ${g.page ? 'in its page' : 'in it'} and come back with a key.`;
+
 /** Add a provider; with `signIn` (a provider), sign that one in again: straight to the sign-in link. */
 function addWizard(data, done, { signIn = null, start = null } = {}) {
   let cleanup = null;
@@ -494,8 +517,18 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
           choice('key', 'OpenAI API key', 'For OpenCode: a key from platform.openai.com, or a service that speaks OpenAI\'s API.', () => apiForm({ via: 'openai' })),
           // Only while Codex is offered (src/codetools/offered.mjs): the server sends its defaults then.
           data.defaults && data.defaults.codex ? choice('user', 'Codex sign-in', 'The ChatGPT account Codex signs in to on this computer. For Codex only.', () => codexSignin()) : null,
-          choice('sparkle', 'Other providers through TRouteAI (for Claude Code)', 'OpenAI, Gemini, OpenRouter or a local model, translated for Claude Code by TRouteAI, a free gateway on this computer.', () => trouteai())),
+          otherProviders()),
         terminalLink());
+    const gateways = () => data.gateways || [];
+    function otherProviders() {
+      const o = otherProvidersChoice(gateways());
+      return o ? choice('sparkle', o.title, o.sub, () => (o.pick ? pickGateway() : viaGateway(o.id))) : null;
+    }
+    function pickGateway() {
+      fill(panel, back(),
+        h('p.sheet-text', 'Which gateway on this computer?'),
+        h('div.choice-list', gateways().map((g) => choice('sparkle', g.title, g.words.choice, () => viaGateway(g.id)))));
+    }
     const back = () => signIn ? null : h('button.btn.ghost.small.backlink', { type: 'button', onclick: async () => { await cleanup?.(); cleanup = null; choose(); } }, icon('back', { size: 16 }), h('span', 'Other ways'));
 
     // ---------- Claude subscription ----------
@@ -556,7 +589,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
       code.focus();
     }
 
-    // ---------- an API key (Claude's API directly, or through TRouteAI) ----------
+    // ---------- an API key (Claude's API directly, or through a gateway) ----------
     // ---------- Codex's own sign-in: a provider that says so; the sign-in itself is Hoprig's `codex login` ----------
     function codexSignin() {
       const d = (data.defaults && data.defaults.codex) || { name: 'chatgpt', label: 'Codex sign-in' };
@@ -584,10 +617,11 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
         h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'), add));
     }
 
-    function apiForm({ via, baseUrl: fixedBase = null, intro = null }) {
-      const d = via === 'trouteai' ? data.defaults.trouteai : via === 'openai' ? data.defaults.openai || { name: 'openai', label: 'OpenAI API', baseUrl: 'https://api.openai.com' } : data.defaults.api;
+    // `gw`: the gateway this key is for (via is then its id).
+    function apiForm({ via, gw = null, baseUrl: fixedBase = null, intro = null }) {
+      const d = gw ? gw.defaults : via === 'openai' ? data.defaults.openai || { name: 'openai', label: 'OpenAI API', baseUrl: 'https://api.openai.com' } : data.defaults.api;
       const baseUrl = h('input.field.mono', { type: 'url', value: fixedBase || d.baseUrl, autocapitalize: 'off', spellcheck: 'false' });
-      const key = h('input.field.mono', { type: 'password', placeholder: via === 'trouteai' ? 'The key you created in TRouteAI' : via === 'openai' ? 'sk-…' : 'sk-ant-…', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+      const key = h('input.field.mono', { type: 'password', placeholder: gw ? `The key you created in ${gw.title}` : via === 'openai' ? 'sk-…' : 'sk-ant-…', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
       const name = h('input.field.mono', { value: d.name, autocapitalize: 'off', spellcheck: 'false', maxlength: 32 });
       const label = h('input.field', { value: d.label, maxlength: 60 });
       const find = h('button.btn.primary.block', { type: 'button' }, h('span', 'Find models'));
@@ -598,7 +632,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
         try {
           const probe = await api(A('/probe'), { baseUrl: baseUrl.value, key: key.value, ...(via === 'openai' ? { via } : {}) });
           key.value = ''; // sent once; it stays on the computer from here
-          fill(panel, back(), h('div.picked-value', icon('key', { size: 18 }), h('span', probe.baseUrl), btn('small ghost', { label: 'Change', onclick: () => apiForm({ via, baseUrl: fixedBase, intro }) })), out);
+          fill(panel, back(), h('div.picked-value', icon('key', { size: 18 }), h('span', probe.baseUrl), btn('small ghost', { label: 'Change', onclick: () => apiForm({ via, gw, baseUrl: fixedBase, intro }) })), out);
           modelStep(probe, { via, name, label, out, find });
         } catch (e) {
           fill(out, errorBox(e.message));
@@ -607,7 +641,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
       });
       fill(panel, back(),
         intro,
-        field('Address of the API', baseUrl, via === 'trouteai' ? 'TRouteAI on this computer. Change it only if you moved TRouteAI.' : via === 'openai' ? 'Leave it for a key from platform.openai.com; change it for a service that speaks OpenAI\'s API.' : 'Leave it for a key from console.anthropic.com; change it for a gateway.'),
+        field('Address of the API', baseUrl, gw ? `${gw.title} on this computer. Change it only if you moved ${gw.title}.` : via === 'openai' ? 'Leave it for a key from platform.openai.com; change it for a service that speaks OpenAI\'s API.' : 'Leave it for a key from console.anthropic.com; change it for a gateway.'),
         insecure() ? h('div.banner.warn', icon('lock', { size: 18 }), h('span', 'This page is not encrypted: the key would travel over the network in plain text. Use it only on a network you trust, or ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); terminalWay(); } }, 'use the terminal instead'), '.')) : null,
         field('API key', key, 'Sent to the computer once, checked, and kept only in its provider file there.'),
         h('details.adv', h('summary', 'Names'), field('Short name', name, 'Used on the command line.'), field('Name to show', label)),
@@ -647,31 +681,33 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
         h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'), save));
     }
 
-    // ---------- other providers through TRouteAI ----------
-    async function trouteai() {
-      fill(panel, back(), busy('Checking TRouteAI on the computer…'));
-      let st;
+    // ---------- other providers through a gateway on this computer ----------
+    async function viaGateway(id) {
+      const known = gateways().find((x) => x.id === id);
+      fill(panel, back(), busy(`Checking ${known ? known.title : 'the gateway'} on the computer…`));
+      let g;
       try {
-        st = (await api(A(''))).trouteai;
+        g = ((await api(A(''))).gateways || []).find((x) => x.id === id);
       } catch (e) {
         return fill(panel, back(), errorBox(e.message));
       }
-      if (!st) return fill(panel, back(), errorBox('The TRouteAI add-on is not available in this version.'));
+      if (!g) return fill(panel, back(), errorBox('This gateway is not available on this computer.'));
+      const again = () => viaGateway(id);
       const job = h('pre.output.hidden', { 'aria-live': 'polite' });
       const run = async (action, then) => {
         job.classList.remove('hidden');
         fill(job);
         try {
-          await api(`~/api/addons/trouteai/${action}`, {});
+          await api(`~/api/addons/${encodeURIComponent(g.id)}/${action}`, {});
           let from = 0;
           for (;;) {
             await new Promise((r) => setTimeout(r, 1000));
-            const j = await api(`~/api/addons/trouteai/job?from=${from}`);
+            const j = await api(`~/api/addons/${encodeURIComponent(g.id)}/job?from=${from}`);
             if (j.lines.length) fill(job, job.textContent + j.lines.join('\n') + '\n');
             from = j.next;
             job.scrollTop = job.scrollHeight;
             if (!j.running) {
-              if (j.result && !j.result.ok) throw new Error(j.result.error || `TRouteAI could not ${action}`);
+              if (j.result && !j.result.ok) throw new Error(j.result.error || `${g.title} could not ${action}`);
               return then();
             }
           }
@@ -679,29 +715,34 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
           add(panel, errorBox(e.message));
         }
       };
-      if (!st.installed) {
+      if (!g.installed) {
+        // A program that is not a package (the owner's own gateway) is not installed from here: it is there or not.
+        // Its sentence says it is on this computer, so a missing program gets its own words, and Try again looks again.
         return fill(panel, back(),
-          h('p.sheet-text', 'TRouteAI is a free gateway that runs on this computer. You add OpenAI, Gemini, OpenRouter or a local model in its own page, and Claude Code uses them through it.'),
-          btn('primary block', { icon: 'download', label: 'Install TRouteAI', onclick: (e) => { e.currentTarget.disabled = true; run('install', trouteai); } }),
+          g.installable ? h('p.sheet-text', g.words.what) : null,
+          g.installable
+            ? btn('primary block', { icon: 'download', label: `Install ${g.title}`, onclick: (e) => { e.currentTarget.disabled = true; run('install', again); } })
+            : errorBox(`${g.title} is defined on this computer, but its program was not found. In a terminal there, ${COMMAND} gateways shows what it runs.`, again),
           job);
       }
-      if (!st.running) {
+      if (!g.running) {
         return fill(panel, back(),
-          h('p.sheet-text', 'TRouteAI is installed but not running. Start it, then add your provider in its page and come back with a key.'),
-          btn('primary block', { icon: 'play', label: 'Start TRouteAI', onclick: (e) => { e.currentTarget.disabled = true; run('start', trouteai); } }),
+          h('p.sheet-text', notRunningText(g)),
+          btn('primary block', { icon: 'play', label: `Start ${g.title}`, onclick: (e) => { e.currentTarget.disabled = true; run('start', again); } }),
           job);
       }
-      // Its address as seen from this browser: the PC's own name instead of "localhost" when the page is remote.
-      const pcUrl = (st.url || 'http://localhost:20017').replace('localhost', ['localhost', '127.0.0.1'].includes(location.hostname) ? 'localhost' : location.hostname);
+      // Its own page as seen from this browser: the PC's own name instead of "localhost" when the page is remote.
+      const pcUrl = g.page ? g.page.replace('localhost', ['localhost', '127.0.0.1'].includes(location.hostname) ? 'localhost' : location.hostname) : null;
       apiForm({
-        via: 'trouteai',
+        via: g.id,
+        gw: g,
         intro: h('div',
           steps(
-            [h('p', 'Open TRouteAI and add your provider there (OpenAI, Gemini, OpenRouter, a local model…).'),
-              h('div.btnrow', h('a.btn.secondary', { href: pcUrl, target: '_blank', rel: 'noopener noreferrer' }, icon('external', { size: 18 }), h('span', 'Open TRouteAI')), h('span.hint.mono', pcUrl))],
-            [h('p', 'In TRouteAI, create an API key.')],
+            [h('p', g.words.add),
+              pcUrl ? h('div.btnrow', h('a.btn.secondary', { href: pcUrl, target: '_blank', rel: 'noopener noreferrer' }, icon('external', { size: 18 }), h('span', `Open ${g.title}`)), h('span.hint.mono', pcUrl)) : null],
+            [h('p', g.words.key)],
             [h('p', 'Come back and paste the key below.')]),
-          h('p.hint', 'TRouteAI starts by itself whenever a session on this provider needs it.')),
+          h('p.hint', `${g.title} starts by itself whenever a session on this provider needs it.`)),
       });
     }
 
@@ -722,7 +763,7 @@ function addWizard(data, done, { signIn = null, start = null } = {}) {
     }
 
     if (signIn) again();
-    else if (start === 'trouteai') trouteai(); // "Use here" on this computer's gateway: straight to its steps
+    else if (start) viaGateway(start); // "Use here" on one of this computer's gateways: straight to its steps
     else choose();
     return panel;
   }).then(() => cleanup?.());

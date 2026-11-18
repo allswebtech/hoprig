@@ -270,7 +270,7 @@ function render({ here, isAlive }) {
     if (sv || k === 'temporary') {
       parts.push(h('div.fieldrow',
         h('span.field-label', 'Another service on this computer'),
-        h('span.hint', 'While the link is on as Temporary, one more local service, such as TRouteAI\'s own dashboard on port 20017, gets a temporary address of its own. It should have its own sign-in page: you are asked first when it has none. It stops with the link.'),
+        h('span.hint', 'While the link is on as Temporary, one more local service, such as a gateway\'s own dashboard on its port, gets a temporary address of its own. It should have its own sign-in page: you are asked first when it has none. It stops with the link.'),
         sv
           ? h('div.addon-svc', ext(sv.url, sv.url), h('span.hint', `port ${sv.port}`),
             btn('small secondary', { icon: 'stop', label: 'Stop', disabled: ui.busy, onclick: () => job('temporary', 'remove-service', {}, 'advanced') }))
@@ -299,7 +299,7 @@ function render({ here, isAlive }) {
           if (r && r.ok) draft.svcPort = draft.svcHost = '';
         } },
           input('svcPort', { type: 'number', inputmode: 'numeric', min: 1, max: 65535, placeholder: '20017', class: 'addon-port', 'aria-label': 'Port' }),
-          input('svcHost', { placeholder: `trouteai-${f.hostname}`, 'aria-label': 'Its address' }),
+          input('svcHost', { placeholder: `gateway-${f.hostname}`, 'aria-label': 'Its address' }),
           h('button.btn.small.secondary', { type: 'submit', disabled: ui.busy }, 'Add')) : null));
     }
     if (k === 'custom' && f.state !== 'ready') parts.push(tokenForm(p));

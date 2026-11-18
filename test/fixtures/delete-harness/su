@@ -1,0 +1,17 @@
+#!/usr/bin/bash
+n=${0##*/}; { printf 'RUN %s' "$n"; printf ' %q' "$@"; printf '\n'; } >> /mnt/log/log
+text=; have=0; rest=()
+while [ $# -gt 0 ]; do a=$1
+  case "$a" in
+    --command=*) text=${a#--command=}; have=1; shift;;
+    --command|-c) text=$2; have=1; shift 2;;
+    -s|--shell|-g|-G|--group|--supp-group|-w|--whitelist-environment|-u|--user) shift 2;;
+    --) shift; rest+=("$@"); break;;
+    -) shift;;
+    -*) shift; k=1; while [ $k -lt ${#a} ]; do ch=${a:$k:1}; k=$((k+1)); if [ "$ch" = c ]; then have=1; if [ $k -lt ${#a} ]; then text=${a:$k}; else text=$1; shift; fi; break; fi; done;;
+    *) rest+=("$a"); shift;;
+  esac
+done
+[ $have = 1 ] && exec /usr/bin/bash -c "$text"
+if [ "$n" = runuser ] && [ ${#rest[@]} -gt 1 ]; then exec "${rest[@]:1}"; fi
+exec /usr/bin/bash
