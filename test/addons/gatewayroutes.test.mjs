@@ -100,15 +100,19 @@ test('the page\'s Remove never ends a program Hoprig did not start on the gatewa
 });
 
 test('an error about one part of the form says which, and how the page can say it under its own label', async () => {
+  // A port that is neither the relay's nor TRouteAI's. Not PORT + 1: macOS hands out free ports one after another, so
+  // TRouteAI's (asked for right after PORT) was PORT + 1 there, and the answer was rightly about the port.
+  let OTHER = await freePort();
+  while ([PORT, loadConfig().addons.trouteai.port].includes(OTHER)) OTHER = await freePort();
   const cases = [
     [{}, 'id'],
     [{ id: 'relay-z', title: '' }, 'title'],
     [{ id: 'relay-z', title: 'Relay Z', port: 'x' }, 'port'],
-    [{ id: 'relay-z', title: 'Relay Z', port: PORT + 1 }, 'bin'],
-    [{ id: 'relay-z', title: 'Relay Z', port: PORT + 1, bin: 'relay-nowhere' }, 'bin'],
-    [{ id: 'relay-z', title: 'Relay Z', port: PORT + 1, bin: relay, args: ['--port'] }, 'args'],
-    [{ id: 'relay-z', title: 'Relay Z', port: PORT + 1, bin: relay, dashboard: 'dash' }, 'dashboard'],
-    [{ id: 'relay-z', title: 'Relay Z', port: PORT + 1, npm: 'Not A Package' }, 'npm'],
+    [{ id: 'relay-z', title: 'Relay Z', port: OTHER }, 'bin'],
+    [{ id: 'relay-z', title: 'Relay Z', port: OTHER, bin: 'relay-nowhere' }, 'bin'],
+    [{ id: 'relay-z', title: 'Relay Z', port: OTHER, bin: relay, args: ['--port'] }, 'args'],
+    [{ id: 'relay-z', title: 'Relay Z', port: OTHER, bin: relay, dashboard: 'dash' }, 'dashboard'],
+    [{ id: 'relay-z', title: 'Relay Z', port: OTHER, npm: 'Not A Package' }, 'npm'],
   ];
   for (const [d, field] of cases) {
     const r = await call('/api/gateways/defined/add', { definition: d });

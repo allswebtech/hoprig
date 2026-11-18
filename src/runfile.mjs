@@ -22,55 +22,89 @@ export function writeRun(file, run) {
 // the record, change it and write it back, and the later write would drop the earlier change. So a change is made
 // under a short lock: a file created only if it is not there (one step on every system), holding its holder's own
 // word. A holder needs a millisecond. A lock whose time is more than STALE_MS from now, either way (left by a process
-// that died; a clock that was set back), is taken over: moved aside under the taker's own name, one step that only
-// one waiter can make, and dropped only when the moved file is the very one judged stale (else it is put back).
+// that died; a clock that was set back), is taken over, and never by moving it away: while the lock's name stands
+// empty a newcomer creates a lock of its own there, and a waiter that judged the old lock stale a moment earlier then
+// moves the newcomer's lock away and holds as well (two holders, one change lost: seen on a slow CI runner). A take-over
+// is made under a second lock (<lock>.takeover, created the same way, one taker at a time), and only when the lock is
+// still the very file judged stale: the taker's own word is then renamed over it in one step, so the name is never
+// empty. A takeover lock left by a taker that died is removed once it is STALE_MS old.
 // A holder removes the lock only while it still holds its word. After WAIT_MS without it the change is made all the
 // same: an event is never dropped for it, and the hook stays far inside the 5 seconds Claude Code gives it.
 const STALE_MS = 1000;
 const WAIT_MS = 1500;
 const nap = new Int32Array(new SharedArrayBuffer(4));
 const lockFile = (file) => `${file}.lock`;
+const stale = (st) => Math.abs(Date.now() - st.mtimeMs) > STALE_MS;
 let taken = 0;
 
-/** Take the record's lock; returns its release. Exported for the tests. */
-export function lockRun(file) {
+/**
+ * Take the record's lock; returns its release, whose `held` says whether the lock was had (false: given up after
+ * WAIT_MS). Exported for the tests, as is `pause(step)`: called at the steps of a take-over, to widen them.
+ */
+export function lockRun(file, { pause = () => {} } = {}) {
   const l = lockFile(file);
   const me = `${process.pid}.${Date.now()}.${++taken}.${Math.random().toString(36).slice(2)}`;
   const until = Date.now() + WAIT_MS;
+  const release = () => {
+    try {
+      if (fs.readFileSync(l, 'utf8') === me) fs.rmSync(l, { force: true });
+    } catch {
+      /* gone already */
+    }
+  };
+  release.held = true;
+  const without = () => {};
+  without.held = false;
   for (;;) {
     try {
       fs.writeFileSync(l, me, { flag: 'wx', mode: 0o600 });
-      return () => {
-        try {
-          if (fs.readFileSync(l, 'utf8') === me) fs.rmSync(l, { force: true });
-        } catch {
-          /* gone already */
-        }
-      };
+      return release;
     } catch (e) {
-      if (e.code !== 'EEXIST') return () => {}; // no lock can be made here (the folder is gone): as before
+      if (e.code !== 'EEXIST') return without; // no lock can be made here (the folder is gone): as before
     }
     try {
       const was = fs.statSync(l);
-      if (Math.abs(Date.now() - was.mtimeMs) > STALE_MS) {
-        const aside = `${l}.${me}`;
-        fs.renameSync(l, aside); // throws when another waiter moved it first
-        const moved = fs.statSync(aside);
-        if (moved.ino !== was.ino || moved.mtimeMs !== was.mtimeMs) {
-          try {
-            fs.linkSync(aside, l); // a fresh lock made in between: its holder keeps it
-          } catch {
-            /* yet another was made: that one stands */
-          }
-        }
-        fs.rmSync(aside, { force: true });
-        continue;
-      }
+      if (stale(was) && takeOver(l, was, me, pause)) return release;
     } catch {
-      continue; // released or moved between the steps
+      /* released or changed between the steps: try again */
     }
-    if (Date.now() > until) return () => {};
+    if (Date.now() > until) return without;
     Atomics.wait(nap, 0, 0, 2 + Math.floor(Math.random() * 6));
+  }
+}
+
+// Replace the stale lock `l` (as `was` saw it) by one holding `me`, under the takeover lock. → true when it is ours.
+function takeOver(l, was, me, pause) {
+  const t = `${l}.takeover`;
+  try {
+    fs.writeFileSync(t, me, { flag: 'wx', mode: 0o600 });
+  } catch (e) {
+    if (e.code === 'EEXIST') {
+      try {
+        if (stale(fs.statSync(t))) fs.rmSync(t, { force: true }); // its taker died
+      } catch {
+        /* gone already */
+      }
+    }
+    return false;
+  }
+  const mine = `${l}.${me}`;
+  try {
+    const now = fs.statSync(l);
+    if (now.ino !== was.ino || now.mtimeMs !== was.mtimeMs || !stale(now)) return false; // released, or taken over
+    pause('judged');
+    fs.writeFileSync(mine, me, { mode: 0o600 });
+    fs.renameSync(mine, l);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    fs.rmSync(mine, { force: true });
+    try {
+      if (fs.readFileSync(t, 'utf8') === me) fs.rmSync(t, { force: true });
+    } catch {
+      /* gone already */
+    }
   }
 }
 

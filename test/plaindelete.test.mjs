@@ -313,14 +313,14 @@ test('the reader says no to what it does not know', () => {
 // A unit of work to measure the computer by, in this process and at this moment (a CI runner is slower, and slower still
 // while other tests run beside it): what the reader does per character, over an ordinary line of 2,000 characters,
 // and 1,000 looks at a path that is not there (what the look does per target). About 6 ms on a desktop of 2026.
-function unit() {
+function unit(dir) {
   const t = performance.now();
   const line = 'rm -rf dist/a b/c '.repeat(111);
   let n = 0;
   for (const c of line) n += /^[\p{L}\p{Nd}._\-/*?@+,=:%]$/u.test(c) ? 1 : 0;
   for (let i = 0; i < 1000; i++) {
     try {
-      fs.statSync(path.join(PROJECT, `none${i}`));
+      fs.statSync(path.join(dir, `none${i}`));
     } catch {
       n++;
     }
@@ -328,7 +328,19 @@ function unit() {
   return n ? performance.now() - t : 0;
 }
 
-test('the reader is fast on any input: a 200 KB line and the worst shapes of 2,000 characters take well under ten units of work (50 ms on a desktop)', () => {
+test('the reader is fast on any input: a 200 KB line and the worst shapes of 2,000 characters take well under ten units of work (50 ms on a desktop)', (t) => {
+  // Its folders lie in the temporary folder and do not exist: on macOS /home is an automounter's folder, where every
+  // look at a missing path asks the automounter (milliseconds each), and this test took six minutes there.
+  const base = path.join(fs.realpathSync(os.tmpdir()), `hoprig-reader-${process.pid}`, 'home', 'alex');
+  const here = { home: base, workspace: path.join(base, 'Workspace'), cwd: path.join(base, 'Workspace', 'p') };
+  if (process.platform === 'darwin') {
+    const look = (dir) => {
+      const s = performance.now();
+      for (let i = 0; i < 50; i++) fs.existsSync(path.join(dir, `none${i}`));
+      return ((performance.now() - s) / 50).toFixed(3);
+    };
+    t.diagnostic(`a look at a missing path: ${look(PROJECT)} ms under /home, ${look(here.cwd)} ms in the temporary folder`);
+  }
   const shapes = [
     `rm -rf ${'a/'.repeat(100000)}`, `rm -rf ${'~'.repeat(200000)}`, // over the length cap
     `rm -rf ${"'a'".repeat(664)}`, `rm -rf "${'a '.repeat(995)}`, `rm ${'a '.repeat(995)}`, `rm a${'; rm a'.repeat(330)}`, `rm a${' && rm a'.repeat(220)}`,
@@ -337,13 +349,13 @@ test('the reader is fast on any input: a 200 KB line and the worst shapes of 2,0
   ];
   // The bound is ten units, measured around each shape (the larger of the two): 50 ms or so on a desktop, and as much
   // more as the computer is slower at that moment. The worst shape takes under two units.
-  unit();
+  unit(here.cwd);
   for (const command of shapes) {
-    const before = unit();
-    const t = performance.now();
-    for (let i = 0; i < 10; i++) plainDelete(command, IN);
-    const ms = (performance.now() - t) / 10;
-    const u = Math.max(before, unit());
+    const before = unit(here.cwd);
+    const start = performance.now();
+    for (let i = 0; i < 10; i++) plainDelete(command, here);
+    const ms = (performance.now() - start) / 10;
+    const u = Math.max(before, unit(here.cwd));
     assert.ok(ms < 10 * u, `${command.slice(0, 30)}…: ${ms.toFixed(2)} ms, ${(ms / u).toFixed(1)} units of ${u.toFixed(2)} ms (bound 10) on ${process.platform}`);
   }
 });

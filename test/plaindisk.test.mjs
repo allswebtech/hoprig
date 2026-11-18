@@ -176,17 +176,22 @@ test('what cannot be told is no plain delete: a name that is not UTF-8, ? agains
     const at = (command) => plainDelete(command, { home: '/home/alex', workspace: '/home/alex/Workspace', cwd: proj });
     const mk = (...ds) => ds.forEach((d) => fs.mkdirSync(path.join(proj, d), { recursive: true }));
     // A name that is not valid UTF-8 (bash matches it; the look could not read it as text). Some disks refuse to make
-    // one (APFS on macOS: EILSEQ); there no such name can be met, and that part is said to be left out.
+    // one (APFS on macOS): there no such name can be met, and that part is left out and said so. The condition: making
+    // that one folder fails while a folder of a plain name beside it is made (the refusal is the name's, nothing else).
     mk('x');
-    let made = true;
+    const bad = Buffer.concat([Buffer.from(`${proj}/x/`), Buffer.from([0xff])]);
+    let refused = null;
     try {
-      fs.mkdirSync(Buffer.concat([Buffer.from(`${proj}/x/`), Buffer.from([0xff]), Buffer.from('/.git')]), { recursive: true });
+      fs.mkdirSync(bad);
     } catch (e) {
-      if (e.code !== 'EILSEQ') throw e;
-      made = false;
-      t.diagnostic('left out: this disk does not take a name that is not UTF-8 (EILSEQ)');
+      fs.mkdirSync(path.join(proj, 'x', 'plain')); // throws when the folder itself is the trouble
+      refused = e.code;
     }
-    if (made) for (const command of ['rm -rf x/*', 'rm -rf x']) assert.equal(at(command), false, command);
+    if (refused) t.diagnostic(`left out: this disk does not make a name that is not UTF-8 (${refused})`);
+    else {
+      fs.mkdirSync(Buffer.concat([bad, Buffer.from('/.git')]));
+      for (const command of ['rm -rf x/*', 'rm -rf x']) assert.equal(at(command), false, command);
+    }
     // ? is one character for bash (one byte under LC_ALL=C), one UTF-16 unit for the look.
     mk('y/😀/.git', 'z/é');
     for (const command of ['rm -rf y/?', 'rm -rf z/?']) assert.equal(at(command), false, command);
