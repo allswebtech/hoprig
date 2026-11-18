@@ -152,8 +152,14 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
 
   // ---- a terminal runs it: the chat reads along, refuses to send, and takes it over ----
   await until('the idle chat process to stop', async () => !(await view()).running);
-  const term = await owner('POST', '/api/sessions', { dir: proj, profile: 'sub', mode: 'resume', sessionId: id });
-  assert.equal(term.status, 200);
+  // "running" turns false when the stop is asked; the process itself ends a moment later, and until its record is gone
+  // the conversation is still the chat's: a start in that moment answers with the chat, as above, and starts no
+  // terminal (seen on a busy CI runner, and with a coding tool that ends slowly). So ask until a terminal was started.
+  const term = await until('a terminal started on the conversation', async () => {
+    const r = await owner('POST', '/api/sessions', { dir: proj, profile: 'sub', mode: 'resume', sessionId: id });
+    assert.equal(r.status, 200);
+    return r.json.name && r;
+  });
   const vt = await until('the chat to see the terminal', async () => {
     const x = await view();
     return x.terminal && x;
@@ -207,7 +213,8 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   const handed = await owner('GET', `/api/chats/${id}`);
   assert.equal(handed.status, 404, 'the chat is closed');
   assert.equal(handed.json.closed.terminal, opened.json.name, 'its page can open the terminal it went to');
-  const resumed = await until('the terminal session', async () => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === opened.json.name && s.kind === 'claude'));
+  const resumed = await until('the terminal session', async () => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === opened.json.name && s.kind === 'claude' && s.sessionId));
+  // (the session is Claude Code's as soon as its launcher's record is there; the coding tool names its conversation a moment later)
   assert.equal(resumed.sessionId, id, 'the same conversation');
 
   // ---- and from the terminal back to a chat ----
