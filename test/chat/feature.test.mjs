@@ -157,6 +157,12 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   const vt = await until('the chat to see the terminal', async () => {
     const x = await view();
     return x.terminal && x;
+  }).catch(async (e) => {
+    // Seen once on a busy CI runner and never again in 25 runs here: the next time says what the dashboard knew.
+    const known = (await owner('GET', '/api/state')).json.sessions.filter((z) => z.name === term.json.name || z.name === `chat:${id}`);
+    const v = await view();
+    const short = (z) => ({ name: z.name, kind: z.kind, status: z.status, tool: z.tool, sessionId: z.sessionId, note: z.note });
+    throw new Error(`${e.message}; the sessions: ${JSON.stringify(known.map(short))}; the chat: ${JSON.stringify({ status: v.status, running: v.running, working: v.working, terminal: v.terminal })}`);
   });
   assert.equal(vt.terminal.name, term.json.name);
   const refused = await owner('POST', `/api/chats/${id}/send`, { text: 'from the chat' });
