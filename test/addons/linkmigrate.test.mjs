@@ -18,12 +18,21 @@ const addons = path.join(tmp, 'state', 'addons');
 const QUICK = 'https://stem-wonder-lucky-hung.trycloudflare.com';
 const FIXED = 'https://office.example.com';
 const kids = [];
-// A stand-in for the old detached tunnel, with its command line (only a process that is one of ours is ended).
-const sleeper = (argv = ['tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:7433']) => {
-  const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', ...argv], { stdio: 'ignore' });
+// A stand-in for the old detached tunnel, with its command line (only a process that is one of ours is ended). It is
+// handed out only once it runs its own code: from then on its command line holds its arguments. Read right after
+// spawn() returns (under load), the command line can still be empty or another program's, and migrate() then rightly
+// takes the number for no tunnel of ours.
+const READY = "process.stdout.write('ready'); setInterval(() => {}, 1000)";
+const sleeper = (argv = ['tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:7433']) => new Promise((resolve, reject) => {
+  const c = spawn(process.execPath, ['-e', READY, ...argv], { stdio: ['ignore', 'pipe', 'ignore'] });
   kids.push(c);
-  return c;
-};
+  c.once('error', reject);
+  c.once('exit', () => reject(new Error('the stand-in ended before it ran')));
+  c.stdout.once('data', () => {
+    c.stdout.destroy();
+    resolve(c);
+  });
+});
 const gone = (pid) => {
   try {
     process.kill(pid, 0);
@@ -50,7 +59,7 @@ const readFixed = () => JSON.parse(fs.readFileSync(path.join(addons, 'fixed-link
 test('both ran at once: Custom wins, the Temporary tunnel ends, the settings are exactly the owner\'s again', async () => {
   // The owner had no trustProxy and one origin; the Temporary link started first, then the Custom one inherited.
   fresh({ passwordHash: 'scrypt$x', trustProxy: true, allowedOrigins: ['https://deck.example.net', QUICK, FIXED] });
-  const q = sleeper();
+  const q = await sleeper();
   writeQuick({ pid: q.pid, url: QUICK, restored: false, restore: { hadTrustProxy: false, hadOrigin: false, origin: QUICK }, openedBy: null });
   writeFixed({ mode: 'named', hostname: 'office.example.com', tunnelId: 'id', extra: [], enabled: true, restored: false, pid: 4242, openedBy: 'tok1', restore: { hadTrustProxy: false, hadOrigin: false, origin: FIXED } });
   assert.deepEqual(S.migrate(), { on: true, kind: 'custom' });
@@ -64,9 +73,9 @@ test('both ran at once: Custom wins, the Temporary tunnel ends, the settings are
   assert.equal(S.migrate(), null, 'read once');
 });
 
-test('only a Temporary one ran: it stays on as Temporary; nothing ran: off, and Custom stays chosen when it is set up', () => {
+test('only a Temporary one ran: it stays on as Temporary; nothing ran: off, and Custom stays chosen when it is set up', async () => {
   fresh({ trustProxy: false, allowedOrigins: [QUICK] });
-  writeQuick({ pid: sleeper().pid, url: QUICK, restored: false, restore: { hadTrustProxy: true, trustProxy: false, hadOrigin: false, origin: QUICK } });
+  writeQuick({ pid: (await sleeper()).pid, url: QUICK, restored: false, restore: { hadTrustProxy: true, trustProxy: false, hadOrigin: false, origin: QUICK } });
   assert.deepEqual(S.migrate(), { on: true, kind: 'temporary' });
   assert.deepEqual(raw().server, { trustProxy: false }, 'trustProxy as the owner had it, false stays false');
 
@@ -81,7 +90,7 @@ test('only a Temporary one ran: it stays on as Temporary; nothing ran: off, and 
 test('the old tunnel is ended only when its record says it runs AND that number is provably ours', async () => {
   // After a restart of the computer the old number may belong to another program: it is neither on nor ended.
   fresh({});
-  const stranger = sleeper(['not', 'cloudflared']);
+  const stranger = await sleeper(['not', 'cloudflared']);
   writeQuick({ pid: stranger.pid, url: QUICK, restored: false, restore: { hadTrustProxy: false, hadOrigin: false, origin: QUICK } });
   assert.deepEqual(S.migrate(), { on: false, kind: 'temporary' });
   // A signal takes a moment to arrive: look again after it would have.
@@ -92,7 +101,7 @@ test('the old tunnel is ended only when its record says it runs AND that number 
   // A record that says the tunnel was stopped (the older version kept it, with the old number): never ended, never on,
   // even when the number now belongs to something that looks like a tunnel.
   fresh({});
-  const lookalike = sleeper();
+  const lookalike = await sleeper();
   writeQuick({ pid: lookalike.pid, url: QUICK, restored: true });
   assert.deepEqual(S.migrate(), { on: false, kind: 'temporary' });
   await new Promise((r) => setTimeout(r, 400));

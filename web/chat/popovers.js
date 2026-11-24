@@ -1,5 +1,6 @@
-// The composer's two menus, as in Claude Code: "/" at the start of the box lists the commands (the page's own:
-// compact, clear, model … and the coding tool's commands and skills, from GET /commands), "@" anywhere lists the
+// The composer's two menus, as in Claude Code: "/" at the start of the box lists the commands by name, as Claude
+// Code's / menu (the page's own: compact, clear, model … and the coding tool's commands and skills, from GET
+// /commands; only a skill is tagged), "@" anywhere lists the
 // files of the chat's folder (GET /files?q=). Both filter as you type and are driven by the keyboard: up and down
 // choose, Enter or Tab takes, Escape closes. On a phone the menu is a sheet over the conversation, above the box (and
 // so above the keyboard).
@@ -8,7 +9,7 @@ import { api, fill, h } from '../lib.js';
 const FILES_WAIT_MS = 120;
 const SHOWN_MAX = 50;
 // The coding tool's commands the page does itself (its own entries) or that need its terminal.
-const HIDDEN = new Set(['clear', 'compact', 'model', 'effort', 'resume', 'continue', 'help', 'rewind', 'login', 'logout', 'exit', 'quit', 'doctor', 'color', 'focus', 'reload-plugins', 'terminal-setup', 'vim', 'theme', 'statusline', 'ide', 'config', 'permissions']);
+const HIDDEN = new Set(['clear', 'compact', 'model', 'effort', 'resume', 'continue', 'help', 'rewind', 'branch', 'fork', 'login', 'logout', 'exit', 'quit', 'doctor', 'color', 'focus', 'reload-plugins', 'terminal-setup', 'vim', 'theme', 'statusline', 'ide', 'config', 'permissions']);
 let seq = 0;
 
 /** What the text before the caret asks for: { type: '/', q, from } or { type: '@', q, from } or null. */
@@ -30,6 +31,23 @@ export function filterCommands(list, q) {
   return list.map((c) => [c, rank(c)]).filter(([, r]) => r < 3).sort((a, b) => a[1] - b[1]).map(([c]) => c);
 }
 
+/**
+ * A line typed into the box that is one of the page's own commands (`own`), with what follows its name: { cmd, arg }
+ * or null. Such a line is never sent to the coding tool as text: the page does it (`arg(text)` where the command takes
+ * one, as Claude Code's /model sonnet, /effort high, /branch name, /fork prompt, /clear name; else `run()`). /compact
+ * is Claude Code's own and a message (its focus text goes with it): it is sent.
+ */
+export function ownSlash(text, own) {
+  const m = /^\/([\w-]+)(?:\s+([\s\S]*\S))?\s*$/.exec(String(text || ''));
+  if (!m) return null;
+  const cmd = (own || []).find((c) => c && c.name === m[1]);
+  if (!cmd || cmd.name === 'compact') return null;
+  return { cmd, arg: m[2] || '' };
+}
+
+/** The commands by name, as Claude Code's / menu lists them (the page's own among the coding tool's). */
+export const byName = (list) => [...list].sort((a, b) => a.name.localeCompare(b.name));
+
 /** The coding tool's commands as menu entries, without those the page does itself. */
 export const toolCommands = (list) => (list || []).filter((c) => c && c.name && !HIDDEN.has(c.name)).map((c) => ({ name: c.name, description: c.description || '', hint: c.argumentHint || '', skill: c.builtin === false }));
 
@@ -37,7 +55,7 @@ export const toolCommands = (list) => (list || []).filter((c) => c && c.name && 
 export const mention = (p) => `@${/\s/.test(p) ? `"${p}"` : p} `;
 
 /**
- * o: { textarea, A, own() (the page's own commands: [{ name, description, run() }]), send(text) }
+ * o: { textarea, A, own() (the page's own commands: [{ name, description, run() }]), send(text), closed() (the menu closed) }
  * → { el, key(e) (true when the menu took the key), update(), close() }
  */
 export function createMenus(o) {
@@ -58,12 +76,14 @@ export function createMenus(o) {
   ta.setAttribute('aria-expanded', 'false');
 
   function close() {
+    const was = !!at;
     at = null;
     items = [];
     el.classList.add('hidden');
     ta.setAttribute('aria-expanded', 'false');
     ta.removeAttribute('aria-activedescendant');
     clearTimeout(filesTimer);
+    if (was) o.closed?.(); // the composer gives back a draft it put aside (composer.js plusMenu)
   }
 
   function paint(note = '') {
@@ -88,12 +108,12 @@ export function createMenus(o) {
 
   function commandItems(q) {
     const own = o.own().map((c) => ({ ...c, own: true }));
-    const all = filterCommands([...own, ...(commands || [])], q).slice(0, SHOWN_MAX);
+    const all = filterCommands(byName([...own, ...(commands || [])]), q).slice(0, SHOWN_MAX);
     return all.map((c) => ({
       ...c,
-      view: [h('span.chat-pop-name', `/${c.name}`, c.hint ? h('span.chat-pop-hint', ` ${c.hint}`) : null),
+      view: [h('span.chat-pop-name', `/${c.name}`, c.hint || c.args ? h('span.chat-pop-hint', ` ${c.hint || c.args}`) : null),
         h('span.chat-pop-desc', c.description || (c.skill ? 'A skill' : '')),
-        h('span.chat-pop-tag', c.own ? 'Hoprig' : c.skill ? 'Skill' : 'Claude Code')],
+        c.skill ? h('span.chat-pop-tag', 'Skill') : null],
     }));
   }
 
@@ -146,12 +166,13 @@ export function createMenus(o) {
       ta.value = v.slice(0, at.from) + put + v.slice(end).replace(/^\s+/, '');
       const caret = at.from + put.length;
       ta.setSelectionRange(caret, caret);
-    } else if (it.own && !complete) {
+    } else if (it.own && !complete && !it.hint) {
       ta.value = '';
       close();
       ta.dispatchEvent(new Event('input'));
       return it.run();
     } else if (complete || it.hint) {
+      // An own command with an argument to give (/compact's focus) goes into the box too: Enter then sends it.
       ta.value = `/${it.name} `;
       ta.setSelectionRange(ta.value.length, ta.value.length);
     } else {
@@ -168,6 +189,17 @@ export function createMenus(o) {
   return {
     el,
     close,
+    /** The coding tool's commands (asked once): for /help. */
+    async commands() {
+      if (!commands) {
+        try {
+          commands = toolCommands((await api(`${o.A}/commands`)).commands);
+        } catch {
+          return [];
+        }
+      }
+      return commands;
+    },
     get open() {
       return !!at;
     },

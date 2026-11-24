@@ -31,9 +31,11 @@ const sleeper = (t) => {
   return p;
 };
 
+// Pid 1 only where /proc tells any process's start: without /proc (macOS) the suite's ps answers only for this test's
+// own processes, so pid 1's identity cannot be told there, and a record that cannot be told counts (the next test).
 test('a record whose pid another living process has now does not count, and goes', { skip: process.platform === 'win32' && 'pid 1 is a POSIX idea' }, (t) => {
   const other = sleeper(t);
-  for (const pid of [1, other.pid]) {
+  for (const pid of process.platform === 'linux' ? [1, other.pid] : [other.pid]) {
     clear();
     const left = R.createRun({ profile: 'work', cwd: box.root, conversation: ID });
     // What a launcher that died left behind, once its pid belongs to another process (pid 1 answers EPERM: alive).
@@ -43,6 +45,24 @@ test('a record whose pid another living process has now does not count, and goes
     assert.deepEqual(R.listRuns().map((r) => r.runId), [], `pid ${pid}: not listed`);
     assert.equal(fs.existsSync(left.file), false, `pid ${pid}: the record of a dead process goes`);
   }
+  clear();
+});
+
+test('without /proc (macOS: ps, here the suite\'s, which tells only this test\'s processes) a record of a process of the test\'s own whose pid another has now goes', { skip: process.platform === 'win32' && 'no ps' }, (t) => {
+  const mac = makeIdentity({ platform: 'darwin' });
+  const other = sleeper(t);
+  const now = mac.of([other.pid]).get(other.pid);
+  assert.match(now || '', /^T:\d+$/, 'ps tells the start of a process of this test\'s');
+  clear();
+  const left = R.createRun({ profile: 'work', cwd: box.root, conversation: ID });
+  fs.writeFileSync(left.file, JSON.stringify({ ...left.run, pid: other.pid, proc: earlierIdentity(now) }));
+  assert.deepEqual(R.listRuns({ ident: mac }).map((r) => r.runId), [], 'not listed');
+  assert.equal(fs.existsSync(left.file), false, 'the record of a dead process goes');
+  // Pid 1 is no process of the test's: its identity cannot be told, so its record counts (not known is never another).
+  const one = R.createRun({ profile: 'work', cwd: box.root, conversation: ID });
+  fs.writeFileSync(one.file, JSON.stringify({ ...one.run, pid: 1, proc: 'T:1000' }));
+  assert.equal(mac.of([1]).get(1), null);
+  assert.deepEqual(R.listRuns({ ident: mac }).map((r) => r.runId), [path.basename(one.file, '.json')]);
   clear();
 });
 
@@ -252,7 +272,7 @@ test('Continue here judges the record again right before its signal: nothing is 
       return was || fs.existsSync(file) ? { name: null, run } : null;
     };
     const c = { id: crypto.randomUUID(), engine: { id: 'claude' }, conversationId: ID, refresh() {}, emit() {}, dropMark: () => false };
-    const routes = handoffRoutes({ HttpError, readJson: async () => ({}), backend: {} }, {
+    const routes = handoffRoutes({ HttpError, readJson: async () => ({}), backend: {}, config: () => ({}) }, {
       chats: new Map([[c.id, c]]), chatOr404: () => c, terminalOf, serial: (id, fn) => fn(), forget: () => {}, save() {}, auto: {},
     });
     const [, re, fn] = routes.find(([, r]) => String(r).includes('take'));

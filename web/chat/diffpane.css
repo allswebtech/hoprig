@@ -1,0 +1,78 @@
+/* The diff pane (web/chat/diffpane.js), as the desktop app's diff view: the whole screen on a phone, over the chat
+   from 900 px, beside it from 1280 px (the session rail gives it its place while it is open). */
+.chat-diffpane.hidden { display: none; }
+.chat-diffpane {
+  position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  background: var(--bg); padding-top: env(safe-area-inset-top);
+}
+/* Beside the session list it covers the chat (with the list at the left the chat would be too narrow beside it);
+   from 1280 px it sits beside the chat, in the session rail's place. */
+@media (min-width: 900px) {
+  .chat-body { position: relative; }
+  .chat-diffpane { position: absolute; inset: 0; z-index: 5; padding-top: 0; }
+  .chat-wrap.chat-diff-open .chat-rail { display: none !important; }
+}
+@media (min-width: 1280px) {
+  .chat-diffpane { position: static; z-index: auto; flex: 0 0 min(50%, 760px); border-left: 1px solid var(--border); }
+}
+.dp-head { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 4px 6px 4px 14px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.dp-title { margin: 0; font-size: var(--fs); font-weight: 650; }
+.dp-count { flex: 1; font-size: var(--fs-sm); font-weight: 600; font-variant-numeric: tabular-nums; }
+.dp-add { color: var(--ok); }
+.dp-del { color: var(--danger); }
+.dp-segs { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.dp-seg { border: 0; background: none; padding: 4px 10px; font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--text-2); cursor: pointer; min-height: 30px; }
+.dp-seg + .dp-seg { border-left: 1px solid var(--border); }
+.dp-seg[aria-pressed='true'] { background: var(--surface-3); color: var(--text); }
+/* minmax(0, 1fr): the track never grows to a long name (nowrap), so the name's ellipsis takes the cut, not the counts. */
+.dp-files { margin: 0; padding: 6px; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; max-height: 30%; overflow-y: auto; border-bottom: 1px solid var(--border); flex: none; }
+.dp-files > li { min-width: 0; }
+.dp-file { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 0 8px; border: 0; border-radius: 6px; background: none; font: 12.5px var(--mono); color: var(--text); text-align: left; cursor: pointer; }
+.dp-file:hover { background: var(--surface-2); }
+.dp-file.on { background: var(--surface-3); font-weight: 600; }
+.dp-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.dp-file-new { flex: none; font: 600 10.5px var(--font); color: var(--info); background: var(--info-soft); border-radius: 4px; padding: 0 5px; }
+.dp-file-n { flex: none; font-variant-numeric: tabular-nums; }
+.dp-file-c { flex: none; display: inline-flex; align-items: center; gap: 3px; color: var(--accent); font: 600 11px var(--font); }
+.dp-more { padding: 4px 8px; color: var(--muted); font-size: var(--fs-xs); }
+.dp-body { flex: 1; min-height: 0; overflow: auto; padding: 10px; }
+.dp-empty { margin: 16px 6px; color: var(--muted); font-size: var(--fs-sm); }
+.dp-diff { display: grid; grid-template-columns: auto auto minmax(0, 1fr); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font: 12px/1.6 var(--mono); background: var(--surface); }
+.dp-diff-split { grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); }
+.dp-row { display: contents; }
+.dp-n { position: relative; min-width: 3.4em; padding: 0 6px 0 22px; text-align: right; color: var(--muted); background: var(--surface-3); user-select: none; font-variant-numeric: tabular-nums; }
+.dp-t { padding: 0 8px 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.dp-m { display: inline-block; width: 1.3em; color: var(--muted); user-select: none; }
+.dp-t.dp-add { background: var(--ok-soft); }
+.dp-t.dp-add .dp-m { color: var(--ok); }
+.dp-t.dp-del { background: var(--danger-soft); }
+.dp-t.dp-del .dp-m { color: var(--danger); }
+.dp-blank { background: var(--surface-2); }
+.dp-diff-split .dp-t + .dp-n { border-left: 1px solid var(--border); }
+.dp-gap { grid-column: 1 / -1; padding: 2px 10px; background: var(--info-soft); color: var(--info); font-size: 11px; }
+/* The + beside a line's number: on hover over the line (or with the keyboard on it), as the desktop app's. */
+.dp-plus {
+  position: absolute; left: 2px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; display: inline-grid; place-items: center;
+  padding: 0; border: 0; border-radius: 4px; background: var(--accent); color: var(--accent-text, #fff); cursor: pointer; opacity: 0;
+}
+.dp-row:hover .dp-plus, .dp-plus:focus-visible { opacity: 1; }
+.dp-note, .dp-box { grid-column: 1 / -1; margin: 4px 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); font: var(--fs-sm)/1.45 var(--font); }
+.dp-note { display: flex; align-items: flex-start; gap: 8px; border-color: var(--accent-soft); }
+.dp-note-body { flex: 1; display: flex; gap: 6px; align-items: flex-start; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dp-note-body svg { flex: none; margin-top: 3px; color: var(--accent); }
+.dp-box { display: grid; gap: 6px; }
+.dp-box-input { width: 100%; min-height: 56px; resize: vertical; font: inherit; }
+.dp-box-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.dp-foot { display: flex; align-items: center; gap: 10px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
+.dp-foot.hidden { display: none; }
+.dp-foot-text { flex: 1; min-width: 0; font-size: var(--fs-xs); color: var(--text-2); }
+/* A finger: every button of the pane 44 px; a line at least 28 px high, so the 26 px + of one line never overlaps the
+   next one's (a 44 px + on every line would make the diff more than twice as long on a phone). */
+@media (pointer: coarse) {
+  .dp-plus { opacity: .85; width: 26px; height: 26px; }
+  .dp-n { padding-left: 30px; min-height: 28px; }
+  .dp-file, .dp-seg { min-height: 44px; }
+  /* Under their parts' classes: .btn.icon and .btn.small (style.css) would otherwise keep them at 38 and 30 px. */
+  .dp-head .dp-close, .dp-head .dp-editor { width: 44px; min-height: 44px; }
+  .dp-foot .dp-send, .dp-box-actions .btn, .dp-note .btn { min-height: 44px; }
+}

@@ -15,6 +15,39 @@
       ]
     },
     {
+      "id": "new-project",
+      "skill": "new-project",
+      "for": "Sets up and builds a new project from its owner's brief, fitted to its kind and size: asks once with recommended answers, writes its documents before code, builds the whole product or the set-up only, then reviews and reports.",
+      "bundled": "templates/skills/new-project",
+      "scope": "project",
+      "license": "same as Hoprig (bundled)",
+      "signals": [
+        "file:brief"
+      ]
+    },
+    {
+      "id": "plan-work",
+      "skill": "plan-work",
+      "for": "Turns a goal into a short research note and a proposed plan with milestones and dated tasks, and creates nothing before a yes; Work's Plan with AI follows it.",
+      "bundled": "skills/plan-work",
+      "scope": "user",
+      "license": "same as Hoprig (bundled)",
+      "signals": [
+        "always"
+      ]
+    },
+    {
+      "id": "adopt-projects",
+      "skill": "adopt-projects",
+      "for": "Brings the projects a computer already has into the workspace: looks only where the owner says, a plan per project, a proved copy after his yes; never retires an original.",
+      "bundled": "skills/adopt-projects",
+      "scope": "user",
+      "license": "same as Hoprig (bundled)",
+      "signals": [
+        "always"
+      ]
+    },
+    {
       "id": "security-audit",
       "skill": "security-audit",
       "for": "A defensive security audit of a codebase: reconnaissance, coverage-led hunting, independent validation, a findings report.",

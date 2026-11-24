@@ -23,5 +23,5 @@ export const findAddon = (id) => allAddons().find((a) => a.id === id) || null;
 
 /** Every add-on with its state, for the command line and the dashboard. */
 export async function listAddons() {
-  return Promise.all(allAddons().map(async (a) => ({ id: a.id, title: a.title, summary: a.summary, homepage: a.homepage, ...(a.installable === false ? { installable: false } : {}), ...(await a.status()) })));
+  return Promise.all(allAddons().map(async (a) => ({ id: a.id, title: a.title, summary: a.summary, homepage: a.homepage, ...(a.installable === false ? { installable: false } : {}), ...(a.builds ? { builds: a.builds, installCommand: a.installHint() } : {}), ...(await a.status()) })));
 }

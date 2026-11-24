@@ -11,6 +11,11 @@ export const TREE_MAX = 2000;
 
 /** The version of a file's bytes: what a save must name, so it never overwrites a change made meanwhile. */
 export const versionOf = (buf) => crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
+/** versionOf of a file on disk, read in pieces off the main thread: a search reads many such files and must not hold the server. */
+export const versionOfFile = (abs) => new Promise((resolve, reject) => {
+  const hash = crypto.createHash('sha256');
+  fs.createReadStream(abs).on('error', reject).on('data', (c) => hash.update(c)).on('end', () => resolve(hash.digest('hex').slice(0, 16)));
+});
 
 /** Binary: a NUL in the first 8 KB, or bytes that are not UTF-8. */
 export function isBinary(buf) {

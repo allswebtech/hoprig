@@ -4,7 +4,7 @@
 #   & ([scriptblock]::Create((irm <address of this file>))) --yes               takes every default
 #
 # What it does, asking first each time:
-#   1. Node.js 22 or newer. When missing it is installed with WinGet (built into Windows 10 1809+ and 11), as the
+#   1. Node.js 22.11 or newer. When missing it is installed with WinGet (built into Windows 10 1809+ and 11), as the
 #      official "Node.js LTS" package (OpenJS.NodeJS.LTS) that nodejs.org lists for Windows. Windows may ask for
 #      permission once (the Node.js installer is for all users).
 #   2. hoprig itself, with npm: from the repository's main branch by default, or from $env:HOPRIG_SOURCE (a .tgz file, a folder or a
@@ -16,7 +16,7 @@
 param([Parameter(ValueFromRemainingArguments = $true)][string[]]$SetupArgs = @())
 
 $ErrorActionPreference = 'Stop'
-$MinNode = 22 # the same as src/nodeguard.mjs
+$MinNode = '22.11' # the same as src/nodefloor.mjs (major.minor)
 # Until the package is on npm the default is the repository's main branch as a tarball, which npm installs directly.
 # The same address as hoprigSource() in src/paths.mjs, which the update and its version lookup read.
 $Source = if ($env:HOPRIG_SOURCE) { $env:HOPRIG_SOURCE } else { 'https://github.com/allswebtech/hoprig/archive/refs/heads/main.tar.gz' }
@@ -32,10 +32,13 @@ function Confirm-Step($question) {
     return ($answer -eq '' -or $answer -match '^(y|yes)$')
 }
 
-function Get-NodeMajor {
-    if (-not (Get-Command node -ErrorAction SilentlyContinue)) { return 0 }
-    try { return [int](& node -p "process.versions.node.split('.')[0]") } catch { return 0 }
+# The version of the node on PATH, or $null when there is none (or it does not start). Compared as a [version], so
+# major and minor both count: 22.5 is too old, 22.11 and 23.0 are not.
+function Get-NodeVersion {
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) { return $null }
+    try { return [version](& node -p "process.versions.node") } catch { return $null }
 }
+function Test-NodeOk($v) { return ($null -ne $v) -and ($v -ge [version]$MinNode) }
 
 # A program installed a moment ago is on the saved PATH, not yet on this window's.
 function Update-PathFromSystem {
@@ -49,11 +52,11 @@ if (-not [Environment]::Is64BitOperatingSystem) { Fail 'Claude Code needs 64-bit
 
 # ---- 1. Node.js -----------------------------------------------------------------------------------------------
 Step "1. Node.js ($MinNode or newer)"
-$major = Get-NodeMajor
-if ($major -ge $MinNode) {
+$found = Get-NodeVersion
+if (Test-NodeOk $found) {
     Say "Found Node.js $(& node --version). Nothing to do."
 } else {
-    if ($major -gt 0) { Say "Found Node.js $(& node --version): too old." } else { Say 'Node.js is not installed.' }
+    if ($null -ne $found) { Say "Found Node.js $(& node --version): too old." } else { Say 'Node.js is not installed.' }
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         Fail "WinGet is not available here. Install Node.js LTS from https://nodejs.org, then run this installer again."
     }
@@ -63,8 +66,8 @@ if ($major -ge $MinNode) {
     & winget install --id OpenJS.NodeJS.LTS --exact --source winget --accept-package-agreements --accept-source-agreements
     # WinGet exits non-zero when the package is already installed but older; the version check below decides.
     Update-PathFromSystem
-    $major = Get-NodeMajor
-    if ($major -lt $MinNode) { Fail "Node.js $MinNode or newer is still not found. Open a new PowerShell window and run this installer again." }
+    $found = Get-NodeVersion
+    if (-not (Test-NodeOk $found)) { Fail "Node.js $MinNode or newer is still not found. Open a new PowerShell window and run this installer again." }
     Say "$([char]0x2713) Node.js $(& node --version)"
 }
 

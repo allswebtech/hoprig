@@ -2,12 +2,13 @@
 // the last line of that rule: tool inputs that look like a secret are refused, and text that goes back to the
 // model or into the audit log has anything secret-shaped masked.
 
-// Values that are secrets by their shape alone.
-const SHAPES = [
+// Values that are secrets by their shape alone (web/redact.js has the same, for the page; a test keeps them equal).
+export const SHAPES = [
   /\bsk-ant-[A-Za-z0-9_-]{8,}/g, // Anthropic keys and OAuth tokens
   /\bsk-[A-Za-z0-9_-]{16,}/g, // other providers' API keys
   /\bhop_[A-Za-z0-9_-]{20,}/g, // hoprig machine tokens
   /\bhwc_[0-9a-f]{64}\b/g, // hoprig's command token (`hoprig tasks do`)
+  /\bhwt_[A-Za-z0-9_-]{20,}/g, // a Work token (another program, src/work/access.mjs)
   /\btia_[A-Za-z0-9_-]{20,}/g, // Tia's token
   /\bgh[pousr]_[A-Za-z0-9]{20,}/g, // GitHub tokens
   /\bgithub_pat_[A-Za-z0-9_]{20,}/g, // GitHub fine-grained tokens
@@ -17,11 +18,17 @@ const SHAPES = [
   /(?<=\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/:@]+:)[^\s/@]+(?=@)/g, // the password in a URL (https://user:password@host)
   /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, // Slack tokens
   /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key ids
-  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWTs
+  // JWTs. The first part ends before a "-eyJ", where the next try starts: else each "eyJ" after a hyphen read the rest
+  // of the run again ("eyJ-eyJ-…" took time with the square of its length). A real header never holds "-eyJ"; if one
+  // did, the part before it would stay and the rest of the token would still be masked.
+  /\beyJ(?:(?!-eyJ)[A-Za-z0-9_-]){10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
 ];
 // A value after a secret-sounding name: TOKEN=…, api_key: …, --password …, Authorization: Bearer …
-const NAMED = /(\b[\w-]*(?:token|api[-_]?key|secret|passw(?:or)?d|credential)[\w-]*["']?\s*(?:=|:)\s*["']?|\bBearer\s+|--(?:token|password|api-key)[= ]\s*)([^\s"'&]{6,})/gi;
+// The name is a whole run of word characters and hyphens that holds one of the words (found by the lookahead): read
+// once from the run's start. (As "\b[\w-]*word[\w-]*" it started again at every "\b" and every word in the run, and
+// "a-a-a-…" or "tokentoken…" took time with the square of their length.)
+export const NAMED = /((?<![\w-])(?=[\w-]*?(?:token|api[-_]?key|secret|passw(?:or)?d|credential))[\w-]+["']?\s*(?:=|:)\s*["']?|\bBearer\s+|--(?:token|password|api-key)[= ]\s*)([^\s"'&]{6,})/gi;
 
 /** Mask everything secret-shaped in `text`. */
 export function redact(text) {

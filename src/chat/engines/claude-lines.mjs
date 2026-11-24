@@ -50,22 +50,25 @@ export const CHAT_ENV = { CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1' };
 /**
  * Claude Code's arguments for one coding chat. Its normal tools, CLAUDE.md, settings, MCP servers and skills stay.
  * Text streams as it is written (partial messages), each message of the owner is echoed with its id when Claude Code
- * takes it (replay), and the switch into bypassPermissions stays possible while it runs.
+ * takes it (replay), and the switch into bypassPermissions stays possible while it runs, but only where the owner
+ * allowed bypass (`allowBypass`, bypassgate.mjs): without it neither the flag nor a bypass start mode is given.
  */
-export function chatArgs({ sessionId, resume = false, fork = null, permissionMode = null, effort = null, model = null, settings = null }) {
+export function chatArgs({ sessionId, resume = false, fork = null, permissionMode = null, effort = null, model = null, settings = null, allowBypass = true, lead = [] }) {
   if (!sessionId) throw new Error('chatArgs needs a session id');
-  // A conversation rewound to an earlier message: a copy of `fork.from` up to the line `fork.at`, under the new id
+  // A conversation rewound to an earlier message, or forked (a copy of all of it: `at` is its newest line): a copy of
+  // `fork.from` up to the line `fork.at`, under the new id
   // (Claude Code 2.1.325: --resume <old> --fork-session --session-id <new> --resume-session-at <uuid>).
   const where = fork ? ['--resume', fork.from, '--fork-session', '--session-id', sessionId, '--resume-session-at', fork.at]
     : [resume ? '--resume' : '--session-id', sessionId];
   return [
     '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
     '--include-partial-messages', '--replay-user-messages',
-    '--permission-prompt-tool', 'stdio', '--allow-dangerously-skip-permissions',
-    ...(permissionMode ? ['--permission-mode', permissionMode] : []),
+    '--permission-prompt-tool', 'stdio', ...(allowBypass ? ['--allow-dangerously-skip-permissions'] : []),
+    ...(permissionMode && (allowBypass || permissionMode !== 'bypassPermissions') ? ['--permission-mode', permissionMode] : []),
     ...(settings ? ['--settings', settings] : []),
     ...(effort ? ['--effort', effort] : []),
     ...(model ? ['--model', model] : []),
+    ...lead, // "Lead model" (src/models/lead.mjs leadArgs): its helpers and the lead's instruction; [] when off
     ...where,
   ];
 }
@@ -100,17 +103,28 @@ const GRANT_MAX = 20; // rules or folders in one answer
  * What "allow in this chat" adds for one ask: Claude Code's own suggestions, for this session only, whatever settings
  * file they name. Only what makes Claude ask less about the same thing is taken: allow rules, more folders, and
  * "edits without asking"; never another mode, a deny or ask rule, or a removal. Returns
- * { updates (for allowLine), atoms (one word per rule, folder and mode, to remember the grant by), edits, text }
- * or null when there is nothing to offer.
+ * { updates (for allowLine), atoms (one word per rule, folder and mode, to remember the grant by), edits, text,
+ * project, projectText, projectAtoms } or null when there is nothing to offer. `project`: "Always allow in this
+ * project", only where Claude Code itself offers a lasting rule (its suggestion names a project's settings file:
+ * localSettings or projectSettings), sent with the destination of the project's own local settings (localSettings:
+ * Claude Code itself writes them into the project's .claude/settings.local.json; Hoprig writes no settings file);
+ * "all edits" goes with it for this session (a mode, which Claude Code keeps per session: projectAtoms remembers it).
+ * null where nothing lasting was offered (a rule or folder for the session only, "all edits" alone, a rule for the
+ * owner's user settings, which is not "this project"). projectText names only the rules and folders it keeps.
  */
 export function sessionGrant(suggestions) {
   const updates = [];
   const atoms = [];
   const words = [];
+  const kept = []; // what Claude Code itself offers to keep in a project's settings file
+  const keptWords = [];
+  let edits = null; // the "all edits" update, when offered
+  const lasting = (s) => s.destination === 'localSettings' || s.destination === 'projectSettings';
   for (const s of Array.isArray(suggestions) ? suggestions : []) {
     if (!s || typeof s !== 'object') continue;
     if (s.type === 'setMode' && s.mode === 'acceptEdits') {
-      updates.push({ type: 'setMode', mode: 'acceptEdits', destination: 'session' });
+      edits = { type: 'setMode', mode: 'acceptEdits', destination: 'session' };
+      updates.push(edits);
       atoms.push('mode:acceptEdits');
       words.push('all edits');
     } else if (s.type === 'addRules' && s.behavior === 'allow' && Array.isArray(s.rules)) {
@@ -118,21 +132,32 @@ export function sessionGrant(suggestions) {
         .map((r) => (r.ruleContent === undefined ? { toolName: r.toolName } : { toolName: r.toolName, ruleContent: r.ruleContent }));
       if (!rules.length || rules.length !== s.rules.length) continue;
       updates.push({ type: 'addRules', rules, behavior: 'allow', destination: 'session' });
-      for (const r of rules) {
-        atoms.push(`rule:${r.toolName}:${r.ruleContent ?? ''}`);
-        words.push(r.ruleContent === undefined ? r.toolName : `${r.toolName}(${r.ruleContent})`);
+      const said = rules.map((r) => (r.ruleContent === undefined ? r.toolName : `${r.toolName}(${r.ruleContent})`));
+      for (const r of rules) atoms.push(`rule:${r.toolName}:${r.ruleContent ?? ''}`);
+      words.push(...said);
+      if (lasting(s)) {
+        kept.push({ type: 'addRules', rules, behavior: 'allow', destination: 'localSettings' });
+        keptWords.push(...said);
       }
     } else if (s.type === 'addDirectories' && Array.isArray(s.directories) && s.directories.length && s.directories.every((d) => typeof d === 'string' && d)) {
       updates.push({ type: 'addDirectories', directories: [...s.directories], destination: 'session' });
-      for (const d of s.directories) {
-        atoms.push(`dir:${d}`);
-        words.push(`the folder ${d}`);
+      const said = s.directories.map((d) => `the folder ${d}`);
+      for (const d of s.directories) atoms.push(`dir:${d}`);
+      words.push(...said);
+      if (lasting(s)) {
+        kept.push({ type: 'addDirectories', directories: [...s.directories], destination: 'localSettings' });
+        keptWords.push(...said);
       }
     }
   }
   if (!updates.length || atoms.length > GRANT_MAX) return null;
-  const text = words.join(', ');
-  return { updates, atoms, edits: atoms.every((a) => a === 'mode:acceptEdits'), text: text.length > 300 ? `${text.slice(0, 300)}…` : text };
+  const cut = (t) => (t.length > 300 ? `${t.slice(0, 300)}…` : t);
+  const project = kept.length ? [...kept, ...(edits ? [edits] : [])] : null;
+  return {
+    updates, atoms, edits: atoms.every((a) => a === 'mode:acceptEdits'), text: cut(words.join(', ')),
+    project, projectText: project ? cut(keptWords.join(', ')) : '',
+    projectAtoms: project && edits ? ['mode:acceptEdits'] : [],
+  };
 }
 
 // Characters of the rules and folders in --settings. Windows starts claude.cmd through cmd.exe, whose whole command

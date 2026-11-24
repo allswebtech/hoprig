@@ -23,12 +23,19 @@
 // name with the launcher's arguments, typing into a session by name.
 import path from 'node:path';
 import { getAutoSwitch } from '../autoswitch.mjs';
+import { gateCarry } from '../bypassgate.mjs';
+import { handsOffOffered } from '../handsoff.mjs';
 import { assertServes, readProfile } from '../profiles.mjs';
 import { chatToolList } from '../chat/tools.mjs';
 import { listRuns } from '../runs.mjs';
+import { isMarkedHers } from '../hermark.mjs';
+import { runsDir } from '../paths.mjs';
 import { launchArgv } from '../server/deck.mjs';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
 import { createAutomation } from './index.mjs';
+import { projectNames } from '../work/place.mjs';
+import { heldUntil, holdWords } from '../operator/decide-store.mjs';
+import { fromHerDoor } from '../server/herdoor.mjs';
 
 const BODY_MAX = 64 * 1024; // a 32 KiB message plus JSON escaping
 const SESSION_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,39}$/;
@@ -65,24 +72,37 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
         return st.sessions.map((c) => {
           const r = c.runId ? runs.get(c.runId) : null;
           if (!r) return c;
-          return { ...c, stopAt: r.stopAt || null, failure: r.failure || null, attentionKind: r.attentionKind || null, carryArgs: Array.isArray(r.carryArgs) ? r.carryArgs : [] };
+          // `hers`: the dashboard marked this run Tia's (hermark.mjs), so a restore after a reboot brings it back as hers.
+          return { ...c, stopAt: r.stopAt || null, failure: r.failure || null, attentionKind: r.attentionKind || null, carryArgs: Array.isArray(r.carryArgs) ? r.carryArgs : [], ...(isMarkedHers(path.join(runsDir(), `${path.basename(r.runId)}.json`)) ? { hers: true } : {}) };
         });
       },
-      async start({ dir, profile, mode = 'new', sessionId = null, carryArgs = [], name = null, fresh = false }) {
+      async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, carryArgs = [], name = null, fresh = false, hers = false }) {
+        // "Start nothing new" (a hold of Tia's while the computer was overloaded) holds a schedule's start too. A
+        // restore after a reboot (mode "move") brings back what ran before, so it is not held.
+        const held = mode === 'move' ? null : heldUntil();
+        if (held) throw new Error(holdWords(held));
         const p = profileObject(profile);
         if (!p) throw new Error(`there is no provider "${profile}"`);
         // Checked again when it runs (a schedule was saved earlier): the provider must still serve Claude Code, which
         // this starts, and Auto mode must still be on.
         if (p.name === 'auto' && getAutoSwitch().enabled !== true) throw new Error('Auto mode is off: choose a provider for this schedule');
-        if (p.name !== 'auto') assertServes(p, 'claude');
-        const argv = launchArgv(sctx.deck.launcher(), { profile: p, mode, sessionId, carryArgs, fresh });
-        // A start on a conversation is noted for the moment before its launcher's record (deck.mjs create).
-        const go = async () => ({ name: await sctx.deck.create({ base: name || path.basename(dir), dir, argv, conversation: sessionId }) });
+        // A restore brings back OpenCode's terminal sessions too (restore.mjs): `tool` says which coding tool to start.
+        if (tool !== 'claude' && tool !== 'opencode') throw new Error(`a restart does not reopen ${tool}`);
+        if (tool !== 'claude' && p.name === 'auto') throw new Error('Auto mode starts Claude Code only');
+        if (p.name !== 'auto') assertServes(p, tool);
+        const argv = launchArgv(sctx.deck.launcher(), { tool, profile: p, mode, sessionId, carryArgs: gateCarry(carryArgs, sctx.config?.()), fresh });
+        // A start on a conversation is noted for the moment before its launcher's record (deck.mjs create). A restore
+        // after a reboot (mode "move") resumes a conversation whose Hands-off state is gone with the old run, so the
+        // new run starts with its answers stopped (a reset hand): it is the owner's until he turns it on. A fresh
+        // scheduled session (no conversation) is not reset — the project's switch covers it as always.
+        const reset = (mode === 'move' || mode === 'resume') && !!sessionId && handsOffOffered(sctx.config?.() || {});
+        // `hers`: a restore of a session of Tia's (restore.mjs), or a schedule she added (schedules.mjs).
+        const go = async () => ({ name: await sctx.deck.create({ base: name || path.basename(dir), dir, argv, conversation: sessionId, ...(tool !== 'claude' ? { tool } : {}), ...(reset ? { hand: { reset: true } } : {}), ...(hers === true ? { hers: true } : {}) }) });
         if (!sessionId || !chat) return (await go()).name;
         // One conversation, one process: a conversation that a chat or a terminal runs already is not started again
         // (a message sent right after a restart, before this terminal reports it, must find it too). A fresh start
         // under the id of a conversation nobody typed into goes through the same claim.
-        const r = await chat.startTerminal(sessionId, go);
+        const r = tool === 'claude' ? await chat.startTerminal(sessionId, go) : await chat.startTerminal(sessionId, go, tool);
         if (r.existing) {
           // Read on Automations → Activity. A terminal outside the dashboard has no name here.
           const where = r.existing.chat ? 'a chat' : r.existing.terminal.name ? `the terminal session "${r.existing.terminal.name}"` : 'a terminal outside the dashboard';
@@ -98,7 +118,7 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
       // a schedule starts), not the folder's last chat: nobody watches a scheduled chat as it starts.
       ...(chat ? {
         // The chat's own checks run here too: the coding tool is on, and the provider still serves it.
-        startChat: async ({ dir, profile, text, tool }) => (await chat.open({ dir, profile, ...(tool ? { tool } : {}), ...(text ? { text } : {}), defaults: true })).id,
+        startChat: async ({ dir, profile, text, tool, hers = false }) => (await chat.open({ dir, profile, ...(tool ? { tool } : {}), ...(text ? { text } : {}), defaults: true, ...(hers ? { hers: true } : {}) })).id,
         sendChat: (id, text) => chat.send(id, text),
       } : {}),
     },
@@ -121,6 +141,8 @@ export function serverAdapter(sctx, { log = console.log, chat = null } = {}) {
         if (prof) assertServes(prof, tool);
         return Boolean(prof);
       },
+      // A run that ends by itself: a project of this computer's workspace (src/work).
+      projectOk: (name) => projectNames(sctx.config()).includes(name),
       // A chat's coding tool: one a chat runs on this computer (on, installed, with a chat).
       chatToolOk: (tool) => chatToolList(sctx.config()).some((t) => t.id === tool),
     },
@@ -188,6 +210,8 @@ export function automationFeature(sctx, opts = {}) {
       return updater().start(itemOf(b.id, true));
     }],
     ['GET', /^\/api\/updates\/log$/, async (req, m, q) => updater().log(Number(q && q.get('from')) || 0)],
+    // Restart the dashboard to use a version just updated, without a terminal (updater.restart, selfrestart.mjs).
+    ['POST', /^\/api\/updates\/restart$/, async () => updater().restart()],
     ['POST', /^\/api\/automation\/settings$/, async (req) => {
       const b = await readJson(req);
       return asBad(() => ({ settings: live().changeSettings(b) }));
@@ -208,7 +232,7 @@ export function automationFeature(sctx, opts = {}) {
       const b = await readJson(req);
       if (!SCHEDULE_KEYS[b.op]) throw fail(400, 'op must be add, change or delete');
       only(b, SCHEDULE_KEYS[b.op]);
-      return asBad(() => ({ schedules: live().changeSchedules(b.op, b) }));
+      return asBad(() => ({ schedules: live().changeSchedules(b.op, b, { hers: fromHerDoor(sctx, req) }) }));
     }],
   ];
   return {
@@ -218,7 +242,9 @@ export function automationFeature(sctx, opts = {}) {
       return auto;
     },
     start() {
-      auto = createAutomation(opts.ctx || { ...serverAdapter(sctx, { chat: opts.chat, ...(opts.log ? { log: opts.log } : {}) }), ...(opts.now ? { now: opts.now } : {}), ...(opts.updateItems ? { updateItems: opts.updateItems } : {}) });
+      // Work's runs that end by themselves (src/work/schedfeature.mjs), when the server has Work: `opts.work()` gives its hooks.
+      const work = opts.work ? { alone: (s2, a) => opts.work().alone(s2, a), work: { itemRuns: () => opts.work().itemRuns(), startItem: (id) => opts.work().startItem(id), drain: () => opts.work().drain() } } : {};
+      auto = createAutomation(opts.ctx || { ...serverAdapter(sctx, { chat: opts.chat, ...(opts.log ? { log: opts.log } : {}) }), ...work, ...(opts.now ? { now: opts.now } : {}), ...(opts.updateItems ? { updateItems: opts.updateItems } : {}) });
       if (opts.tick !== false) auto.start();
       return auto;
     },

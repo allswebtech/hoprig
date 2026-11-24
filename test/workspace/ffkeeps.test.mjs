@@ -147,6 +147,76 @@ test('an uncommitted change in a file the incoming commits change: stash, fast-f
   assert.equal(fs.readFileSync(path.join(here, 'README.md'), 'utf8'), 'theirs\ntwo\nthree\nmine\n', 'both: theirs pulled, the change back');
 });
 
+test('a tracked file changed here that git status does not show (marked to be left alone): the reason, the file and the next step, never a bare "failed"', async () => {
+  const { syncRepo } = await import('../../src/pcsetup/workspace.mjs');
+  const { todoKind } = await import('../../src/pcsetup/feature.mjs');
+  for (const mark of ['--skip-worktree', '--assume-unchanged']) {
+    const n = `marked${mark.replace(/\W/g, '')}`;
+    w.bare(n);
+    const s = seedOf(n, { 'notes/plan.txt': 'one\n', 'README.md': 'a\n' });
+    const here = w.clone(w.url(n), path.join(w.root, `${n}-b`));
+    fs.writeFileSync(path.join(here, 'notes', 'plan.txt'), 'one\nmine\n');
+    w.sh(here, 'update-index', mark, 'notes/plan.txt');
+    assert.equal(w.sh(here, 'status', '--porcelain'), '', 'git status shows no change');
+    fs.writeFileSync(path.join(s, 'notes', 'plan.txt'), 'theirs\n');
+    w.sh(s, 'commit', '-qam', 'theirs');
+    w.sh(s, 'push', '-q', 'origin', 'main');
+    const head = w.sh(here, 'rev-parse', 'HEAD');
+    const r = await syncRepo(here, '.', undefined, { push: false });
+    assert.deepEqual(r.did, [], mark);
+    assert.match(r.todo[0].why, /^1 to pull, but notes\/plan\.txt is changed here and by the incoming commits\. git status does not show it: most likely marked "assume unchanged" or "skip worktree"/, mark);
+    assert.match(r.todo[0].why, /Nothing was changed; take the mark off, then commit it or put it aside\.$/, mark);
+    assert.equal(todoKind(r.todo[0].why), 'pull-blocked');
+    assert.equal(w.sh(here, 'rev-parse', 'HEAD'), head, 'nothing moved');
+    assert.equal(fs.readFileSync(path.join(here, 'notes', 'plan.txt'), 'utf8'), 'one\nmine\n', 'his change is as it was');
+    // The step it names works: the mark off, then the change is one git status shows, and stash, fast-forward, pop go through.
+    assert.match(r.todo[0].command, /update-index --no-assume-unchanged -- notes\/plan\.txt && .* update-index --no-skip-worktree -- notes\/plan\.txt && .* status/);
+    execFileSync('bash', ['-c', r.todo[0].command]);
+    const again = await syncRepo(here, '.', undefined, { push: false });
+    assert.equal(again.todo[0].why, '1 to pull, but there are 1 uncommitted changes in the same files', mark);
+  }
+});
+
+test('the same inside a private folder: the folder and a count, never the file\'s name, for the owner and for an assistant alike', async () => {
+  const { syncRepo } = await import('../../src/pcsetup/workspace.mjs');
+  w.bare('private');
+  const s = seedOf('private', { 'ignore/working-notes.txt': 'one\n', 'docs/no-ai/plan-b.md': 'one\n', 'README.md': 'a\n' });
+  const here = w.clone(w.url('private'), path.join(w.root, 'private-b'));
+  for (const f of ['ignore/working-notes.txt', 'docs/no-ai/plan-b.md', 'README.md']) {
+    fs.appendFileSync(path.join(here, f), 'mine\n');
+    w.sh(here, 'update-index', '--skip-worktree', f);
+    fs.writeFileSync(path.join(s, f), 'theirs\n');
+  }
+  w.sh(s, 'commit', '-qam', 'theirs');
+  w.sh(s, 'push', '-q', 'origin', 'main');
+  const r = await syncRepo(here, '.', undefined, { push: false });
+  const said = `${r.todo[0].why} ${r.todo[0].command}`;
+  assert.match(r.todo[0].why, /^1 to pull, but README\.md, 1 file in your private folder docs\/no-ai\/, 1 file in your private folder ignore\/ are changed here and by the incoming commits/);
+  assert.ok(!/working-notes|plan-b/.test(said), 'no name from a private folder');
+  assert.match(r.todo[0].why, /Run the command in your own terminal to see the names: git lists them and changes nothing while it refuses\.$/);
+  assert.match(r.todo[0].command, /merge --ff-only --no-overwrite-ignore/);
+  assert.ok(!/update-index/.test(r.todo[0].command), 'no command that would have to name them');
+  const { withoutPrivateNames } = await import('../../src/pcsetup/workspace.mjs');
+  assert.equal(withoutPrivateNames("error: Entry 'ignore/working-notes.txt' not uptodate. Cannot merge."), 'error: Entry a file in your private folder ignore/ not uptodate. Cannot merge.');
+});
+
+test('a fast-forward git refuses for another reason: git\'s own reason is said, never a bare "failed"', async () => {
+  const { syncRepo } = await import('../../src/pcsetup/workspace.mjs');
+  w.bare('locked');
+  const s = seedOf('locked', { 'README.md': 'a\n' });
+  const here = w.clone(w.url('locked'), path.join(w.root, 'locked-b'));
+  fs.writeFileSync(path.join(s, 'README.md'), 'theirs\n');
+  w.sh(s, 'commit', '-qam', 'theirs');
+  w.sh(s, 'push', '-q', 'origin', 'main');
+  w.sh(here, 'fetch', '-q');
+  fs.writeFileSync(path.join(here, '.git', 'index.lock'), ''); // as another git process holds it, or left one behind
+  const r = await syncRepo(here, '.', undefined, { push: false });
+  fs.rmSync(path.join(here, '.git', 'index.lock'));
+  const why = r.todo.map((t) => t.why).join(' | ');
+  assert.match(why, /fast-forward failed: Unable to create .*index\.lock.*File exists/);
+  assert.ok(!/fast-forward failed(?: \||$)/.test(why), 'never without its reason');
+});
+
 test('moved on both sides, and the server tracks a member\'s path: the merge or rebase it suggests is preceded by what it would delete', async () => {
   // A merge or a rebase replaces what git ignores (--no-overwrite-ignore guards only a fast-forward): checked here
   // by running the suggested merge in a copy.

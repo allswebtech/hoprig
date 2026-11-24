@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { claudeDir } from './paths.mjs';
+import { conversationTitle } from './titles.mjs';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const isSessionId = (s) => typeof s === 'string' && UUID_RE.test(s);
@@ -56,47 +57,60 @@ export function hasConversation(cwd, id) {
   return dirs.some((d) => fs.existsSync(path.join(root, d, name)));
 }
 
-const textOf = (content) => {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) return content.filter((c) => c && c.type === 'text' && typeof c.text === 'string').map((c) => c.text).join(' ');
-  return '';
-};
-
-/** A short human title for a session: its summary when it has one, else the first thing the user typed. */
+/**
+ * A short human title for a session, as Claude Code's session picker names it: the name it was given, else its
+ * generated title, else its summary, else the first thing the person typed (titles.mjs; the newest of each counts,
+ * wherever it is in the file).
+ */
 export function sessionTitle(file, max = 80) {
-  let head;
-  try {
-    const fd = fs.openSync(file, 'r');
-    try {
-      const buf = Buffer.alloc(256 * 1024);
-      const n = fs.readSync(fd, buf, 0, buf.length, 0);
-      head = buf.toString('utf8', 0, n);
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return '';
-  }
-  let first = '';
-  for (const line of head.split('\n')) {
-    if (!line.startsWith('{')) continue;
-    let m;
-    try {
-      m = JSON.parse(line);
-    } catch {
-      continue; // the last line of the chunk may be cut
-    }
-    if (m.type === 'summary' && typeof m.summary === 'string' && m.summary) return clip(m.summary, max);
-    if (!first && m.type === 'user' && !m.isMeta && !m.isSidechain && m.message) {
-      const t = textOf(m.message.content).trim();
-      // Skip machine-made turns (command wrappers, reminders, tool results).
-      if (t && !t.startsWith('<') && !t.startsWith('Caveat:')) first = t;
-    }
-  }
-  return clip(first, max);
+  return clip(conversationTitle(file).title, max);
 }
 
 const clip = (s, max) => {
   const one = s.replace(/\s+/g, ' ').trim();
   return one.length > max ? one.slice(0, max - 1) + '…' : one;
 };
+
+/**
+ * Copy the conversations of folder `from` under the key of folder `to` (hoprig sessions move): every file of
+ * <claudeDir>/projects/<slug of from> (a conversation, its own sub-folder, the memory folder is left out: it goes
+ * into the project's own memory), never over a file that is there, each compared by its bytes after the copy. The
+ * old ones stay. `dryRun`: only what would be copied. → { from, to, copied: [rel], same: [rel], differ: [rel] }
+ */
+export function copySessions(from, to, { dryRun = false } = {}) {
+  const src = projectDir(from);
+  const dst = projectDir(to);
+  const out = { from: src, to: dst, copied: [], same: [], differ: [] };
+  if (src === dst) return out;
+  const walk = (rel) => {
+    let list;
+    try {
+      list = fs.readdirSync(path.join(src, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of list) {
+      const r = rel ? path.join(rel, e.name) : e.name;
+      if (!rel && e.name === 'memory') continue;
+      if (e.isDirectory()) walk(r);
+      if (!e.isFile()) continue;
+      const a = path.join(src, r);
+      const b = path.join(dst, r);
+      if (fs.existsSync(b)) {
+        (fs.readFileSync(a).equals(fs.readFileSync(b)) ? out.same : out.differ).push(r);
+        continue;
+      }
+      if (dryRun) {
+        out.copied.push(r);
+        continue;
+      }
+      fs.mkdirSync(path.dirname(b), { recursive: true });
+      fs.copyFileSync(a, b, fs.constants.COPYFILE_EXCL);
+      const st = fs.statSync(a);
+      fs.utimesSync(b, st.atime, st.mtime);
+      (fs.readFileSync(a).equals(fs.readFileSync(b)) ? out.copied : out.differ).push(r);
+    }
+  };
+  walk('');
+  return out;
+}

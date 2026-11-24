@@ -62,7 +62,7 @@ remote('alex/tools-cli');
 remote('alex/site-workspace', parent('website'));
 remote('alex/blog'); // two candidates, neither a project parent
 remote('alex/blog-workspace');
-remote('alex/later-workspace', parent('later', { needs: ['some/thing'], futureKey: { a: 1 } }));
+remote('alex/later-workspace', parent('later', { soonKey: ['some/thing'], futureKey: { a: 1 } }));
 
 test.after(() => t.cleanup());
 
@@ -189,7 +189,7 @@ test('a project.json with a key this Hoprig does not know: the clone works, the 
   assert.equal(r.ok, true, r.message);
   assert.equal(r.folder, 'later');
   assert.equal(r.warnings.length, 2);
-  assert.match(ui.lines.join(''), /project\.json: unknown key "needs" \(kept/);
+  assert.match(ui.lines.join(''), /project\.json: unknown key "soonKey" \(kept/);
   const writes = [];
   await projectStatus(['later', '--dir', dir, '--json'], { ui, write: (s) => writes.push(s) });
   assert.equal(JSON.parse(writes.join('')).projects[0].warnings.length, 2);
@@ -246,7 +246,7 @@ test('restore uses the map\'s name; a project here under another name is reporte
   const shop = 'https://github.com/alex/shop-workspace.git';
   const brain = remote('alex/brain', { 'workspace.json': JSON.stringify({ version: 1, brain: { url: 'https://github.com/alex/brain.git' }, projects: [{ name: 'store', url: shop, repos: [{ dir: 'code/shop', url: 'https://github.com/alex/shop.git' }] }], others: [] }) });
   const ws1 = path.join(t.root, 'ws-restore1');
-  const r1 = await restoreWorkspace(brain, { ui: quietUi(), dir: ws1, projects: path.join(ws1, 'projects') });
+  const r1 = await restoreWorkspace(brain, { withProjects: true, ui: quietUi(), dir: ws1, projects: path.join(ws1, 'projects') });
   assert.equal(r1.ok, true);
   assert.ok(fs.existsSync(path.join(ws1, 'projects', 'store', 'code', 'shop', '.git'))); // the map's name, not project.json's "shop"
 
@@ -254,7 +254,7 @@ test('restore uses the map\'s name; a project here under another name is reporte
   const projects = path.join(ws2, 'projects');
   fs.mkdirSync(projects, { recursive: true });
   execFileSync('git', ['clone', '-q', shop, path.join(projects, 'shop-workspace')]);
-  const r2 = await restoreWorkspace(brain, { ui: quietUi(), dir: ws2, projects });
+  const r2 = await restoreWorkspace(brain, { withProjects: true, ui: quietUi(), dir: ws2, projects });
   const e = r2.plan.find((x) => x.kind === 'project');
   assert.equal(e.action, 'misnamed');
   assert.equal(e.mv, showCommand(['mv', path.join(projects, 'shop-workspace'), path.join(projects, 'store')]));
@@ -295,7 +295,7 @@ test('two map entries with one address: the one here is in its place, never offe
   const projects = path.join(ws, 'projects');
   fs.mkdirSync(projects, { recursive: true });
   execFileSync('git', ['clone', '-q', app, path.join(projects, 'app')]);
-  const r = await restoreWorkspace(brain, { ui: quietUi(), dir: ws, projects });
+  const r = await restoreWorkspace(brain, { withProjects: true, ui: quietUi(), dir: ws, projects });
   const plan = Object.fromEntries(r.plan.filter((x) => x.kind === 'project').map((x) => [x.label, x]));
   assert.equal(plan.app.action, 'here');
   assert.equal(plan['app-second'].action, 'clone'); // its own clone, as the map says; no mv of app
@@ -630,13 +630,24 @@ test('a lock names the process of its run: a pid another process has now, or a b
     if (age) fs.utimesSync(f, new Date(Date.now() - age), new Date(Date.now() - age));
     return f;
   };
-  // (Another process's identity in this system's own form: src/procid.mjs compares no identities of two forms.)
-  for (const text of ['1\n', JSON.stringify({ pid: process.ppid, proc: process.platform === 'linux' ? 'L:not-this-boot:1' : 'T:1000' })]) {
-    const dir = fresh();
-    writeLock(dir, text);
-    const c = await run('alex/site-workspace', dir);
-    assert.equal(c.result, 'cloned', `${text}: ${c.message}`);
-    assert.deepEqual(fs.readdirSync(dir), ['website']);
+  // The live process is one of this test's own (a sleeper), so that every system can tell its start (on macOS the
+  // suite's ps answers only for the test's processes); the lock names the process that had its pid before it, in this
+  // system's own form (src/procid.mjs compares no identities of two forms).
+  const { earlierIdentity } = await import('../server/helpers.mjs');
+  const other = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  try {
+    await new Promise((res) => other.once('spawn', res));
+    const now = system.of([other.pid]).get(other.pid);
+    assert.ok(now, 'this system tells the start of a process of this test\'s');
+    for (const text of ['1\n', JSON.stringify({ pid: other.pid, proc: earlierIdentity(now) })]) {
+      const dir = fresh();
+      writeLock(dir, text);
+      const c = await run('alex/site-workspace', dir);
+      assert.equal(c.result, 'cloned', `${text}: ${c.message}`);
+      assert.deepEqual(fs.readdirSync(dir), ['website']);
+    }
+  } finally {
+    other.kill('SIGKILL');
   }
   // the run that wrote it goes on: busy, and the message names the lock and how to remove it
   const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });

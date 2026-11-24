@@ -22,11 +22,14 @@ export class Timeline extends EventEmitter {
     this.on('state', bump);
   }
 
-  /** Start over with `events` (a new epoch). */
-  reset(events) {
+  /**
+   * Start over with `events` (a new epoch). base: the number of the first; a conversation read from its last part
+   * starts at EVENTS_MAX, so its earlier part can be put before it (prepend) with numbers that stay above 0.
+   */
+  reset(events, base = 0) {
     const kept = events.slice(-EVENTS_MAX);
-    this.base = 0;
-    this.events = kept.map(({ full, ...e }, i) => ({ ...e, i }));
+    this.base = base;
+    this.events = kept.map(({ full, ...e }, i) => ({ ...e, i: base + i }));
     this.epoch++;
   }
 
@@ -40,6 +43,14 @@ export class Timeline extends EventEmitter {
     }
     this.emit('change');
     return e;
+  }
+
+  /** Earlier events before the kept ones (the conversation's earlier part, read when the page asked): as many as fit. */
+  prepend(events) {
+    const room = Math.min(this.base, Math.max(0, EVENTS_MAX - this.events.length));
+    const kept = room ? events.slice(-room) : [];
+    this.base -= kept.length;
+    this.events = [...kept.map(({ full, ...e }, i) => ({ ...e, i: this.base + i })), ...this.events];
   }
 
   get next() {

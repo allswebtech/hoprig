@@ -2,6 +2,9 @@
 // worker thread: a regular expression typed in the page can take exponential time on one line (a typo is enough), and
 // a large folder takes long to read; on the server's own thread either would stop every terminal and page. The
 // worker is ended at the time limit, wherever it is (also inside a regular expression).
+// This is the ONLY module of the editor's server that compiles or runs a pattern that came from a request, and only in
+// its worker: the search's own check of the pattern and its count of a long line's matches run here too
+// (patternError, countIn). test/editor/patterns.test.mjs holds the rule.
 import fs from 'node:fs';
 import path from 'node:path';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
@@ -43,16 +46,60 @@ export function walk(root, o, onItems) {
     w.on('message', (m) => {
       if (done) return;
       if (m.items && onItems(m.items) === false) end({ stopped: true });
-      if (m.end) end({ timedOut: Boolean(m.timedOut) });
+      if (m.end) end({ timedOut: Boolean(m.timedOut), ...m.result });
     });
     w.on('error', () => end({}));
     w.on('exit', () => end({}));
   });
 }
 
-function run({ root, mode, skip, fold, re, inc, exc, perFile, fileBytes }) {
+/** Why `re` ({ source, flags }) is not a regular expression, or null: checked in a worker, never on this thread. */
+export async function patternError(re, ms) {
+  const r = await walk(null, { mode: 'check', re, ms }, () => true);
+  return r.invalid || null;
+}
+
+/**
+ * The non-empty matches of `re` in each of `lines` (what the page's Replace All writes), counted in a worker; null when
+ * the time ran out first: a pattern that backtracks over a long line then has no count, and the server goes on.
+ */
+export async function countIn(re, lines, ms) {
+  if (!lines.length) return [];
+  if (!(ms > 0)) return null;
+  const r = await walk(null, { mode: 'count', re, lines, ms }, () => true);
+  return r.counts || null;
+}
+
+/** In the worker: the pattern compiled, or the reason it is not one (posted as the end). */
+function compiled(re, flags = re.flags) {
+  try {
+    return new RegExp(re.source, flags);
+  } catch (e) {
+    parentPort.postMessage({ end: true, result: { invalid: e.message } });
+    return null;
+  }
+}
+
+function count({ re, lines }) {
+  const every = compiled(re, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+  if (!every) return;
+  const counts = lines.map((line) => {
+    let n = 0;
+    for (const m of line.matchAll(every)) if (m[0]) n++;
+    return n;
+  });
+  parentPort.postMessage({ end: true, result: { counts } });
+}
+
+function run({ root, mode, skip, fold, re, inc, exc, perFile, fileBytes, lines }) {
+  if (mode === 'check') {
+    if (compiled(re)) parentPort.postMessage({ end: true });
+    return;
+  }
+  if (mode === 'count') return count({ re, lines });
   const name = (n) => (fold ? n.toLowerCase() : n);
-  const rx = mode === 'search' ? new RegExp(re.source, re.flags) : null;
+  const rx = mode === 'search' ? compiled(re) : null;
+  if (mode === 'search' && !rx) return;
   const incRe = inc.map(globRe);
   const excRe = exc.map(globRe);
   const stack = [''];

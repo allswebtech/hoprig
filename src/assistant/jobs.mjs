@@ -24,7 +24,7 @@ import { LOCAL } from './shown.mjs';
 const who = (e) => (/^chat:/.test(e.session) ? (e.folder ? `the chat in ${e.folder}` : 'a chat') : e.session);
 const named = (e) => `${who(e)} on ${e.computer === LOCAL ? 'this computer' : e.computer}`;
 // What woke her, as the log says it.
-const REASON = { waiting: 'is waiting', needs_ok: 'asks for an OK', limit: 'reached a usage limit' };
+const REASON = { waiting: 'is waiting', needs_ok: 'asks for an OK', notice: 'asks the owner something before it starts', limit: 'reached a usage limit' };
 /** A folder's last part, as a job's entry keeps it (one line, short). */
 const lastPart = (dir) => String(dir || '').split(/[\\/]/).filter(Boolean).pop()?.replace(/[\r\n]+/g, ' ').slice(0, 80) || null;
 import { ASSISTANT_NAME } from './tia.mjs';
@@ -42,6 +42,7 @@ const ID_RE = /^j_[0-9a-f]{10}$/;
  * Which jobs need Tia now. Fires once per change of a session's state, never twice for the same state.
  *   waiting   Claude Code finished its turn and waits (done, or asking something)
  *   needs_ok  Claude Code asks for permission
+ *   notice    the coding tool asks a question of its own before it starts (askcard.mjs): the owner's, never hers
  *   limit     a usage limit (not for Auto sessions: the router moves those by itself)
  *   ended     Claude Code exited or the session is gone
  *   expired   the job's time cap passed
@@ -65,7 +66,8 @@ export function planWakes(jobs, cards, now, armMs = ARM_MS) {
       // The job's own terminal: a later session that got its name (made at another time) is someone else's. A chat's
       // name comes back each time its conversation is opened again, so a chat whose time is not known is never its own.
       const card = cards.find((c) => c.name === e.session && (c.computer || LOCAL) === e.computer && (e.created == null ? !e.session.startsWith('chat:') : c.created === e.created)) || null;
-      const st = card ? statusOf(card) : 'gone';
+      const seen = card ? statusOf(card) : 'gone';
+      const st = seen === 'needs_ok' && card.askCard && card.askCard.kind === 'notice' ? 'notice' : seen;
       // A session that was just started shows as a plain shell until the launcher has registered its run: that
       // is not an end. It ends once it was seen running (armed) or the grace time has passed.
       const settling = !e.armed && now - e.since < armMs;
@@ -83,7 +85,7 @@ export function planWakes(jobs, cards, now, armMs = ARM_MS) {
       const p = { armed };
       if (armed && st !== e.last) {
         p.last = st;
-        if (st === 'waiting' || st === 'needs_ok' || (st === 'limit' && !auto)) events.push({ job, entry: e, reason: st, card });
+        if (st === 'waiting' || st === 'needs_ok' || st === 'notice' || (st === 'limit' && !auto)) events.push({ job, entry: e, reason: st, card });
       }
       patches.push(p);
     }
@@ -95,6 +97,10 @@ export function planWakes(jobs, cards, now, armMs = ARM_MS) {
 /** The turn rules for a wake-up. */
 export function decideMode(event) {
   if (event.reason === 'ended' || event.reason === 'expired') return 'report';
+  // A question of the coding tool itself is the owner's in any job: she tells him, she never answers it.
+  if (event.reason === 'notice') return 'notify';
+  // A job that follows a Work run never answers in it: an OK it asks for is the owner's, any other stop is the run's end.
+  if (workOf(event.job.work)) return event.reason === 'needs_ok' ? 'notify' : 'report';
   return event.job.steps >= event.job.maxSteps ? 'notify' : 'answer';
 }
 
@@ -106,6 +112,12 @@ export function stateAfter(job, event, mode) {
     return open.length ? { state: job.state, log: `${who(event.entry)} ended` } : { state: 'stuck', log: `${who(event.entry)} ended before the job was finished` };
   }
   const why = `${who(event.entry)} ${REASON[event.reason] || event.reason}`;
+  // A Work run that hit a usage limit has ended (the Work route settles it as "limit"): the job is over too, so no
+  // wake comes for it later; her report finishes it in words.
+  if (event.reason === 'limit' && workOf(job.work)) return { state: 'stuck', log: `${why}; the run ended there` };
+  // A Work run's OK is the owner's whatever its answers count (decideMode): no step cap is behind it.
+  if (event.reason === 'needs_ok' && workOf(job.work)) return { state: 'waiting', log: `${why}; the OK is the owner's, waiting for him` };
+  if (event.reason === 'notice') return { state: 'waiting', log: `${why}; the answer is the owner's, waiting for him` };
   if (mode === 'notify') return { state: 'waiting', log: `${why}; the step cap is used up, waiting for the owner` };
   return { state: 'working', log: why };
 }
@@ -113,6 +125,7 @@ export function stateAfter(job, event, mode) {
 const WHY = {
   waiting: 'finished its turn and is waiting',
   needs_ok: 'is asking for permission',
+  notice: 'asks the owner a question of the coding tool itself before it starts',
   limit: 'hit a usage limit',
   ended: 'ended',
   expired: 'is past the job\'s time cap',
@@ -120,18 +133,44 @@ const WHY = {
 const RULE = {
   answer: 'Carry the job on within its goal: read the session; answer its question, ask it to run the tests or show the diff, or move it to another allowed provider after a limit. When the goal is met (checked, not assumed), call finish_job with state "done" and a two-line report. If you cannot go on, finish_job with state "stuck" and say what is needed.',
   notify: 'The job used all its answers. Do not type into the session. Tell the owner what it needs and your suggested answer (notify_owner).',
+  notice: 'The coding tool asks a question of its own before the session starts (whether to trust the folder, to accept Bypass permissions mode, to allow imports): only the owner answers it. Do not type into the session. Tell him in one line what it asks and that he answers it in the session\'s terminal (notify_owner).',
   report: 'Read what is left to read, then finish_job with "done" (only if the goal is met) or "stuck", with a short report.',
 };
+
+// A job that follows a Work run (manage_work start): the session is the owner's (the Work route opens it, not her),
+// and its result is his to accept. She reads the run and tells him; she answers nothing in it and starts nothing new.
+// The report depends on how the run ended (its state, read when the wake is made): only a run that is done waits for
+// his Accept; one that failed, hit a usage limit or was stopped left the task open again.
+const RUN_STATES = ['running', 'done', 'failed', 'limit', 'stopped'];
+const ENDED_WORDS = { failed: 'it failed', limit: 'it stopped at a usage limit of its provider', stopped: 'it was stopped' };
+const TAIL = 'Your reply to him is those same two lines, nothing more. Do not type into the session (it is the owner\'s; what it does after its run is in no record). Never accept, send back or start another session yourself.';
+const doneRule = (w) => `finish_job with "done" and a report of two lines: what was done (and checked; when the run shows no test result, say so in the first line), and what waits for the owner (Accept or Send back of the task ${w.task}), and open_screen "work" so the task is one tap away.`;
+const endedRule = (w) => `finish_job with "stuck" and a report of two lines: why it stopped (the run's reason, in plain words), and that the task ${w.task} is open again: "Do it" on the Work page starts it anew (on another provider, if he chooses). Nothing waits for his Accept, and nothing is moved or retried by you.`;
+const WORK_RULE = {
+  report: (w, state) => (state === 'done' ? `The run is done. Read it (manage_work action run, run ${w.run}). Then ${doneRule(w)} ${TAIL}`
+    : ENDED_WORDS[state] ? `The run ended without a result: ${ENDED_WORDS[state]}. Read it (manage_work action run, run ${w.run}). Then ${endedRule(w)} ${TAIL}`
+      : `Read the run (manage_work action run, run ${w.run}; when it still says it works, read it once more). If it is done: ${doneRule(w)} If it failed, hit a usage limit or was stopped: ${endedRule(w)} ${TAIL}`),
+  owner: () => 'This session is not yours: its OKs and questions are the owner\'s. Tell him in one line what it waits for (notify_owner); do not answer it and do not type into it.',
+  expired: () => 'The job\'s time cap passed. Read the run (manage_work action run) and finish_job with "stuck", saying how it stands.',
+};
+const WORK_TASK = /^[a-z0-9][a-z0-9-]{0,79}$/;
+const WORK_RUN = /^\d{8}-\d{6}-[0-9a-f]{8}$/;
+/** A job's Work part as kept: { task, run, computer } of the forms this code makes, or null. */
+export const workOf = (w) => (w && WORK_TASK.test(w.task) && WORK_RUN.test(w.run) && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(w.computer) ? { task: w.task, run: w.run, computer: w.computer } : null);
 
 /** The user turn that wakes Tia. Header lines are built from validated values; the screen is fenced. */
 export function wakeMessage(event, mode, screen = '') {
   const { job, entry } = event;
   const who = entry ? `Session ${entry.session} on ${entry.computer}` : 'The job';
+  const w = workOf(job.work);
+  // The run's state, when the wake could read it (core.mjs jobTick): one of this code's own words, never a value as given.
+  const state = w && event.run && RUN_STATES.includes(event.run.state) ? event.run.state : null;
+  const rule = event.reason === 'notice' ? RULE.notice : !w ? RULE[mode] : event.reason === 'expired' ? WORK_RULE.expired() : event.reason === 'needs_ok' ? WORK_RULE.owner() : WORK_RULE.report(w, state);
   const head = [
     `[job ${job.id}] ${who} ${WHY[event.reason]}.`,
     `Goal given by the owner: ${neutralize(job.goal, 500).replace(/\n/g, ' ')}`,
-    `Answers used: ${job.steps} of ${job.maxSteps}.`,
-    RULE[mode],
+    ...(w ? [`It is the run ${w.run} of the task ${w.task} on ${w.computer} (Work)${state ? `; the run says: ${state}` : ''}.`] : [`Answers used: ${job.steps} of ${job.maxSteps}.`]),
+    rule,
   ];
   return screen && entry ? `${head.join('\n')}\n${fence('terminal_output', { session: entry.session }, screen, 12_000)}` : head.join('\n');
 }
@@ -202,12 +241,15 @@ export class JobStore {
     }
   }
 
-  create({ conversation, goal, maxMinutes }) {
+  /** work: { task, run, computer } for a job that follows a Work run (manage_work start; wakeMessage). */
+  create({ conversation, goal, maxMinutes, work = null }) {
     const s = this.settings();
     const at = this.now();
+    const w = workOf(work);
     const job = {
       id: `j_${crypto.randomBytes(5).toString('hex')}`, conversation, goal, state: 'working', sessions: [],
       steps: 0, maxSteps: s.maxSteps, createdAt: at, until: at + (maxMinutes || s.maxMinutes) * 60_000, updatedAt: at, log: [],
+      ...(w ? { work: w } : {}),
     };
     this.jobs.set(job.id, job);
     this.#log(job, `started: ${goal.slice(0, 200)}`);
@@ -251,6 +293,20 @@ export class JobStore {
   forSession(computer, session) {
     for (const j of this.jobs.values()) if (ACTIVE.has(j.state) && j.sessions.some((e) => e.computer === computer && e.session === session && !e.ended)) return structuredClone(j);
     return null;
+  }
+
+  /**
+   * This very session is (or was) a Work run's, by any job that followed one, also a finished one: the run's chat stays
+   * the owner's after its job ended (done, or at a usage limit), since a turn typed into it then is in no run record.
+   * Matched by name and when the chat was made; a run whose chat time was not known when it started is matched by name
+   * (an extra card for the owner, never an unguarded act).
+   */
+  workSession(computer, session, created) {
+    for (const j of this.jobs.values()) {
+      if (!workOf(j.work)) continue;
+      if (j.sessions.some((e) => e.computer === computer && e.session === session && (e.created == null || e.created === created))) return true;
+    }
+    return false;
   }
 
   /**

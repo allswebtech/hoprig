@@ -168,7 +168,7 @@ test('a message while a turn runs is queued in Claude Code, can be taken back, a
   assert.deepEqual(of(c, 'user').map((e) => e.text), ['slow 500', 'two']);
   assert.equal(of(c, 'text').at(-1).text, 'echo: two');
   assert.deepEqual(c.queue.items, []);
-  await assert.rejects(c.unqueue(two.id), /not queued/);
+  await assert.rejects(c.unqueue(two.id), /not waiting any more/);
 });
 
 test('a coding tool that does not queue: the chat holds the message and sends it when the turn ends', async (t) => {

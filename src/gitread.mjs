@@ -59,7 +59,7 @@ const NO_CONVERT = new Set(['diff', 'diff-files', 'diff-index', 'diff-tree', 'sh
 // The reads the reader offers: git's own commands (a built-in name is never a folder's alias). Not offered: blame
 // reads the working file through its clean filter, which the reader sets to nothing (git then fails on the empty
 // command); difftool, verify-commit and the like start programs; whatchanged is being removed from git.
-const READS = new Set(['status', 'ls-files', 'diff', 'diff-files', 'diff-index', 'diff-tree', 'show', 'log', 'grep', 'cat-file', 'rev-parse', 'rev-list', 'symbolic-ref', 'for-each-ref', 'merge-base', 'config', 'remote']);
+const READS = new Set(['status', 'check-ignore', 'ls-files', 'diff', 'diff-files', 'diff-index', 'diff-tree', 'show', 'log', 'grep', 'cat-file', 'rev-parse', 'rev-list', 'symbolic-ref', 'for-each-ref', 'merge-base', 'config', 'remote']);
 // Each read's long options, named whole. git takes an option by any start of its name that fits only one option
 // (cat-file --text is --textconv), so a word not on its command's list is refused: an abbreviation can never stand
 // for another option. Left out on purpose: --textconv, --ext-diff, --filters, --path (cat-file), --submodule,
@@ -86,6 +86,7 @@ const OPTS = {
   'for-each-ref': '--format= --sort= --count= --shell --perl --python --tcl --points-at= --merged[=] --no-merged[=] --contains[=] --no-contains[=] --ignore-case --omit-empty --exclude=',
   'merge-base': '--all --octopus --independent --is-ancestor --fork-point',
   remote: '--verbose --push --all',
+  'check-ignore': '--quiet --verbose --non-matching --no-index',
 };
 /** cmd → Map(name → 'flag' | 'value' | 'eq') (git config has its own list, CONFIG_OPTS). */
 export const LONG_OPTIONS = new Map(Object.entries(OPTS).map(([cmd, list]) => [cmd, new Map(list.split(' ').map((o) => {

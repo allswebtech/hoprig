@@ -20,6 +20,7 @@
 //   - the order is the server's, with this computer's new items placed as an add places them (by date); when only
 //     one side changed the list at all, the result is that side's list as it stands, order included.
 import { insertItem, makeId, viewItem } from './model.mjs';
+import { mergeSeries } from './repeat.mjs';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -66,9 +67,12 @@ export function itemChanges(beforeDoc, afterDoc, ownerId = 'me') {
   for (const [key, x] of b) {
     const old = a.get(key);
     const entry = { key, id: isObj(x) && typeof x.id === 'string' ? x.id : null, title: titleOf(x, ownerId) };
-    if (old === undefined) added.push({ ...entry, what: 'added', item: x });
+    // A repeating item's next occurrence (repeat.mjs: one of a series, not its first) and a date the rule moved on.
+    const next = isObj(x) && isObj(x.repeat) && typeof x.repeat.series === 'string' && x.repeat.series !== x.id;
+    if (old === undefined) added.push({ ...entry, what: next ? 'next time made' : 'added', item: x });
     else if (!same(old, x)) {
-      const st = isObj(x) && isObj(old) && x.status !== old.status ? ({ done: 'done', dropped: 'dropped', open: 'opened again' }[x.status] || `now ${x.status}`) : 'changed';
+      const moved = isObj(x) && isObj(old) && isObj(x.repeat) && x.date !== old.date && same({ ...old, date: null, repeat: null }, { ...x, date: null, repeat: null });
+      const st = moved ? 'date moved on' : isObj(x) && isObj(old) && x.status !== old.status ? ({ done: 'done', dropped: 'dropped', open: 'opened again' }[x.status] || `now ${x.status}`) : 'changed';
       out.push({ ...entry, what: st });
     }
   }
@@ -83,7 +87,7 @@ export function itemChanges(beforeDoc, afterDoc, ownerId = 'me') {
       r.matched = true;
     }
   }
-  for (const x of added) out.push({ key: x.key, id: x.id, title: x.title, what: 'added' });
+  for (const x of added) out.push({ key: x.key, id: x.id, title: x.title, what: x.what });
   for (const r of removed) if (!r.matched) out.push({ key: r.key, id: r.id, title: r.title, what: 'removed' });
   return out;
 }
@@ -103,13 +107,16 @@ function pick(b, m, t) {
  *     mine: changes base → mine, theirs: changes base → theirs }. Until every conflict is decided, `doc` holds the
  * server's version of each conflicted item (nothing is written from it: save.mjs asks first).
  */
-export function mergeItems(baseDoc, mineDoc, theirsDoc, { decisions = {}, ownerId = 'me', today = '1970-01-01' } = {}) {
+export function mergeItems(baseDoc, mineArg, theirsArg, { decisions = {}, ownerId = 'me', today = '1970-01-01' } = {}) {
+  let [mineDoc, theirsDoc] = [mineArg, theirsArg];
   for (const d of [mineDoc, theirsDoc]) if (!isObj(d) || (own(d, 'items') && !Array.isArray(d.items))) throw Object.assign(new Error('one version of the Work file has no list of items, so it cannot be merged by item'), { status: 409, code: 'unmergeable' });
   const base = isObj(baseDoc) ? baseDoc : {};
   const changes = { mine: itemChanges(base, mineDoc, ownerId), theirs: itemChanges(base, theirsDoc, ownerId) };
   // Only one side changed anything: that side as it stands, its order and its new items' places included.
   if (same(theirsDoc, base)) return { doc: mineDoc, conflicts: [], undecided: 0, renamed: [], ...changes };
   if (same(mineDoc, base)) return { doc: theirsDoc, conflicts: [], undecided: 0, renamed: [], ...changes };
+  // Repeat steps of one series taken on two computers on different days are one step (repeat.mjs mergeSeries).
+  ({ mine: mineDoc, theirs: theirsDoc } = mergeSeries(base, mineDoc, theirsDoc));
   const B = byKey(base);
   const M = byKey(mineDoc);
   const conflicts = [];

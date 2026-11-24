@@ -4,7 +4,7 @@
 // and leftovers there, printed commands that run as they read (this computer's folder has a space in its path), the
 // same address with a port or an scp-like absolute path, and the dashboard's job and Tia showing "needs you".
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -21,6 +21,8 @@ process.env.HOPRIG_WORKSPACE_DIR = C.ws;
 const M = await import('../../src/workspace/map.mjs');
 const { getProject } = await import('../../src/pcsetup/getproject.mjs');
 const L = await import('../../src/pcsetup/leftovers.mjs');
+const { system } = await import('../../src/procid.mjs');
+const { earlierIdentity } = await import('../server/helpers.mjs');
 const { saveConfig } = await import('../../src/config.mjs');
 const { showCommand } = await import('../../src/setup/system.mjs');
 const { main: wsMain } = await import('../../src/workspace/cli.mjs');
@@ -78,14 +80,20 @@ const statusText = async () => {
 };
 
 for (const [id, pdir] of Object.entries(PLACES)) {
-  test(`${id}: a stale lock of the place is listed by status and taken over by the next get`, async () => {
+  test(`${id}: a stale lock of the place is listed by status and taken over by the next get`, async (t) => {
     const url = U[`stale@${id}`];
     const file = L.lockPathFor(pdir, repoOf(url));
     assert.ok(!file.startsWith(pdir + path.sep), 'the lock lives in the state folder, never in the place\'s folder');
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    // A pid another process has now: the identity of another process, in this system's own form (src/procid.mjs: one of
-    // another form cannot be compared, and is no proof that the writer has ended).
-    fs.writeFileSync(file, `${JSON.stringify({ pid: process.ppid, proc: process.platform === 'linux' ? 'L:not-this-boot:1' : 'T:1000' })}\n`);
+    // A pid another process has now: a process of this test's own (every system tells its start; on macOS the suite's
+    // ps answers only for the test's processes), and the lock names the one that had its pid before, in this system's
+    // own form (src/procid.mjs: one of another form cannot be compared, and is no proof that the writer has ended).
+    const other = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+    t.after(() => other.kill('SIGKILL'));
+    await new Promise((res) => other.once('spawn', res));
+    const now = system.of([other.pid]).get(other.pid);
+    assert.ok(now, 'this system tells the start of a process of this test\'s');
+    fs.writeFileSync(file, `${JSON.stringify({ pid: other.pid, proc: earlierIdentity(now) })}\n`);
     assert.deepEqual((await status()).locks.filter((l) => l.path === file).map((l) => l.running), [false]);
     assert.ok((await statusText()).includes(`${file}  a lock of hoprig get: its run has ended`));
     const r = await get(url, { into: id });

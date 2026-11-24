@@ -81,7 +81,7 @@ test('a user service changed by the hub: done, and written in that computer\'s A
   assert.equal(r.status, 200, r.text);
   assert.deepEqual(ran.at(-1), ['systemctl', '--user', 'restart', '--', 'cron.service']);
   const log = activity();
-  assert.match(log, /The hub the-hub started, stopped or restarted a service/);
+  assert.match(log, /The main computer the-hub started, stopped or restarted a service/);
   assert.doesNotMatch(log, /cron/);
 });
 
@@ -123,7 +123,7 @@ test('Files of another computer through the hub: list, upload as raw bytes, down
   assert.equal(moved.status, 200, moved.text);
   assert.ok(fs.existsSync(path.join(home, 'notes', 'groceries.txt')));
   const log = activity();
-  assert.match(log, /The hub the-hub uploaded a file in Files/);
-  assert.match(log, /The hub the-hub renamed a file or folder in Files/);
+  assert.match(log, /The main computer the-hub uploaded a file in Files/);
+  assert.match(log, /The main computer the-hub renamed a file or folder in Files/);
   assert.doesNotMatch(log, /pic\.bin|todo|groceries|notes/);
 });

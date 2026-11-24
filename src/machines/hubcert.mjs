@@ -28,7 +28,7 @@ import path from 'node:path';
 import tls from 'node:tls';
 
 export const PIN_RE = /^sha256:[A-Za-z0-9_-]{43}$/;
-const FORMAT = 'sha256: followed by 43 letters, digits, - or _ (as the hub shows it)';
+const FORMAT = 'sha256: followed by 43 letters, digits, - or _ (as the main computer shows it)';
 
 export class TrustError extends Error {
   constructor(code, message, status = 502) {
@@ -113,7 +113,7 @@ export function trustOptions({ pin = null, ca = null } = {}, host = null) {
 export function explainTls(e, { host, pin = null } = {}) {
   if (!e) return '';
   if (e.code === 'PIN_MISMATCH' || (pin && isUntrusted(e))) {
-    return `${host}'s certificate is no longer signed by the authority this computer pinned when it joined (${pin}). Nothing was sent. If the hub was set up again, show the join line there again and join with it.`;
+    return `${host}'s certificate is no longer signed by the authority this computer pinned when it joined (${pin}). Nothing was sent. If the main computer was set up again, show the join line there again and join with it.`;
   }
   if (isUntrusted(e)) return `${host}'s HTTPS certificate is not trusted (${e.message}).`;
   if (e.code === 'ERR_TLS_CERT_ALTNAME_INVALID') return `${host}'s certificate is made for another name or address (${e.message}).`;
@@ -171,7 +171,7 @@ const offline = (host, e) => new TrustError('offline', `${host} cannot be reache
  * The trust for joining the hub at `ep` (an https endpoint), before any secret is sent. Resolves
  * { pin, ca } (both null for a publicly trusted hub joined without a fingerprint); throws a TrustError otherwise.
  */
-export async function establishTrust(ep, rawPin, { host = ep.hostname, joinHint = 'the hub', timeoutMs = 8000 } = {}) {
+export async function establishTrust(ep, rawPin, { host = ep.hostname, joinHint = 'the main computer', timeoutMs = 8000 } = {}) {
   const pin = rawPin == null || rawPin === '' ? null : parsePin(rawPin);
   if (rawPin != null && rawPin !== '' && !pin) throw new TrustError('bad-fingerprint', `that fingerprint is not in the right form: ${FORMAT}. Copy the whole line from ${joinHint}.`, 400);
   try {
@@ -181,7 +181,7 @@ export async function establishTrust(ep, rawPin, { host = ep.hostname, joinHint 
     if (e.code === 'PIN_MISMATCH') throw new TrustError('fingerprint', `${host} has a publicly trusted certificate, but nothing in its chain matches the fingerprint ${pin}. Nothing was sent. Check that you copied the whole line from ${joinHint}.`, 400);
     if (!isUntrusted(e)) throw isTlsProblem(e) ? new TrustError('tls', explainTls(e, { host }), 502) : offline(host, e);
     if (!pin) {
-      throw new TrustError('untrusted', `${host}'s HTTPS certificate was made by the hub itself, not by a public authority, so this computer cannot check it on its own. Hoprig does not turn the check off: copy the whole join line, which ends with --fingerprint sha256:…, from ${joinHint}.`, 400);
+      throw new TrustError('untrusted', `${host}'s HTTPS certificate was made by the main computer itself, not by a public authority, so this computer cannot check it on its own. Hoprig does not turn the check off: copy the whole join line, which ends with --fingerprint sha256:…, from ${joinHint}.`, 400);
     }
   }
   // Its own authority: find the certificate whose key has this fingerprint.
@@ -196,7 +196,7 @@ export async function establishTrust(ep, rawPin, { host = ep.hostname, joinHint 
     const pem = await fetchHubAuthority(ep, { timeoutMs });
     if (pem && pinMatches(pin, pem)) root = pem;
   }
-  if (!root) throw new TrustError('fingerprint', `${host}'s certificate does not match the fingerprint ${pin}. Nothing was sent. Check that you copied the whole line from ${joinHint}; if the hub was set up again, show the line there again.`, 400);
+  if (!root) throw new TrustError('fingerprint', `${host}'s certificate does not match the fingerprint ${pin}. Nothing was sent. Check that you copied the whole line from ${joinHint}; if the main computer was set up again, show the line there again.`, 400);
   const ca = pemOf(root);
   try {
     await handshake(ep, { host, trust: trustOptions({ pin, ca }, host), timeoutMs });
@@ -220,11 +220,15 @@ export function caddyRootFiles(env = process.env, home = os.homedir()) {
   ].filter(Boolean))];
 }
 
+// Caddy's admin API listens here by default; the product asks it for the local CA. The test seal refuses a knock on
+// this port (tools/seal-net.mjs reads this constant), so a test never reaches a Caddy the owner runs.
+export const CADDY_ADMIN_PORT = 2019;
+
 /**
  * Caddy's local authority root (PEM), or null. First its admin API (http://localhost:2019/pki/ca/local, on by default
  * and reachable by every user of this computer, also in a container), then its data folder.
  */
-export async function caddyRoot({ admin = 'http://127.0.0.1:2019', files = caddyRootFiles(), timeoutMs = 2000 } = {}) {
+export async function caddyRoot({ admin = `http://127.0.0.1:${CADDY_ADMIN_PORT}`, files = caddyRootFiles(), timeoutMs = 2000 } = {}) {
   const viaApi = await new Promise((resolve) => {
     const r = http.get(`${admin}/pki/ca/local`, { timeout: timeoutMs }, (res) => {
       const chunks = [];
@@ -272,7 +276,7 @@ export async function hubCertificate(base, { root = caddyRoot, timeoutMs = 3000,
   try {
     u = new URL(base);
   } catch {
-    return { kind: 'unknown', why: 'this hub has no address set' };
+    return { kind: 'unknown', why: 'this main computer has no address set' };
   }
   if (u.protocol !== 'https:') return { kind: 'plain' };
   const hit = cache.get(u.origin);
@@ -321,7 +325,7 @@ export function joinCommand(base, code, cert, app = 'hoprig') {
   const plain = cert && cert.kind === 'plain' && !/^http:\/\/(127\.|localhost[:/]|\[::1\])/.test(`${url}/`);
   const line = `${app} join ${url} ${code}${cert && cert.kind === 'own' ? ` --fingerprint ${cert.pin}` : ''}${plain ? ' --insecure' : ''}`;
   let note = null;
-  if (cert && cert.kind === 'own') note = 'The fingerprint is that of this hub\'s own certificate authority: with it, that computer checks it really talks to this hub. It stays the same when the certificate renews.';
-  if (cert && cert.kind === 'unknown') note = `This hub could not check its own certificate (${cert.why}). If that computer says the certificate is not trusted, read the fingerprint here with: ${MANUAL}, and add --fingerprint <it> to the line.`;
+  if (cert && cert.kind === 'own') note = 'The fingerprint is that of this main computer\'s own certificate authority: with it, that computer checks it really talks to this main computer. It stays the same when the certificate renews.';
+  if (cert && cert.kind === 'unknown') note = `This main computer could not check its own certificate (${cert.why}). If that computer says the certificate is not trusted, read the fingerprint here with: ${MANUAL}, and add --fingerprint <it> to the line.`;
   return { line, note };
 }

@@ -62,9 +62,11 @@ export const launchctlArgs = {
   load: (file) => ['bootstrap', domain(), file],
   unload: () => ['bootout', `${domain()}/${LABEL}`],
   status: () => ['print', `${domain()}/${LABEL}`],
+  // -k: the running agent is ended first, then started again.
+  restart: () => ['kickstart', '-k', `${domain()}/${LABEL}`],
 };
 
-const run = (cmd, args) =>
+const runReal = (cmd, args) =>
   new Promise((resolve) => {
     execFile(cmd, args, { timeout: 20_000 }, (err, stdout, stderr) =>
       resolve({ ok: !err, out: (stdout || '').trim(), err: (stderr || (err && err.message) || '').trim() }),
@@ -80,7 +82,8 @@ export function summarizePrint(text) {
     .join('\n');
 }
 
-export async function service(sub) {
+/** `deps.run(cmd, args)` → { ok, out, err }: how launchctl is started (tests hand in a stand-in). */
+export async function service(sub, { run = runReal } = {}) {
   const file = plistFile();
   switch (sub) {
     case 'install': {
@@ -96,6 +99,19 @@ export async function service(sub) {
       }
       console.log(`The dashboard agent is loaded and starts at every login. Log: ${logFile()}`);
       console.log(`See it with: ${APP_NAME} service status`);
+      return 0;
+    }
+    case 'restart': {
+      if (!fs.existsSync(file)) {
+        console.error(`The service is not installed. Install it with: ${APP_NAME} service install`);
+        return 3;
+      }
+      const r = await run('launchctl', launchctlArgs.restart());
+      if (!r.ok) {
+        console.error(`launchctl ${launchctlArgs.restart().join(' ')} failed: ${r.err}`);
+        return 1;
+      }
+      console.log(`The dashboard agent was restarted. See it with: ${APP_NAME} service status`);
       return 0;
     }
     case 'uninstall': {
@@ -119,7 +135,7 @@ export async function service(sub) {
       return 0;
     }
     default:
-      console.error(`usage: ${APP_NAME} service install | uninstall | status`);
+      console.error(`usage: ${APP_NAME} service install | uninstall | status | restart`);
       return 2;
   }
 }

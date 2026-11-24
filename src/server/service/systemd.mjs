@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { binFile } from '../../paths.mjs';
 import { APP_NAME } from '../brand.mjs';
-import { CARRIED_ENV } from './env.mjs';
+import { CARRIED_ENV, carried } from './env.mjs';
 
 export const UNIT = `${APP_NAME}.service`;
 
@@ -21,7 +21,7 @@ const sdQuote = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 const envQuote = (k, val) => `"${k}=${String(val).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/%/g, '%%')}"`;
 
 /** The unit file text. Pure, so it can be tested. */
-export function unitText({ node = process.execPath, bin = binFile(), env = process.env } = {}) {
+export function unitText({ node = process.execPath, bin = binFile(), env = process.env, locales = undefined } = {}) {
   const lines = [
     `# Written by \`${APP_NAME} service install\`. Remove with \`${APP_NAME} service uninstall\`.`,
     '[Unit]',
@@ -33,7 +33,7 @@ export function unitText({ node = process.execPath, bin = binFile(), env = proce
     'Type=simple',
     `ExecStart=${sdQuote(node)} ${sdQuote(bin)} serve`,
   ];
-  for (const k of CARRIED_ENV) if (env[k]) lines.push(`Environment=${envQuote(k, env[k])}`);
+  for (const [k, v] of carried(env, locales)) lines.push(`Environment=${envQuote(k, v)}`);
   lines.push(
     'Restart=on-failure',
     'RestartSec=3',
@@ -48,16 +48,17 @@ export function unitText({ node = process.execPath, bin = binFile(), env = proce
   return lines.join('\n');
 }
 
-const run = (cmd, args) =>
+// `env` is the caller's: set-up passes its own (sys.env), so the systemctl and loginctl it means are the ones started.
+const runReal = (cmd, args, env = process.env) =>
   new Promise((resolve) => {
-    execFile(cmd, args, { timeout: 20_000 }, (err, stdout, stderr) =>
+    execFile(cmd, args, { timeout: 20_000, env }, (err, stdout, stderr) =>
       resolve({ ok: !err, out: (stdout || '').trim(), err: (stderr || (err && err.message) || '').trim() }),
     );
   });
 
-async function lingerNote() {
+async function lingerNote(run, env) {
   const user = os.userInfo().username;
-  const r = await run('loginctl', ['show-user', user, '-p', 'Linger']);
+  const r = await run('loginctl', ['show-user', user, '-p', 'Linger'], env);
   if (r.ok && /Linger=no/.test(r.out)) {
     return (
       '\nLingering is off, so the service stops when you log out and only starts when you log in.\n' +
@@ -68,26 +69,44 @@ async function lingerNote() {
   return '';
 }
 
-export async function service(sub) {
-  const file = path.join(unitDir(), UNIT);
+/**
+ * `env`: the environment systemctl and loginctl run with and the unit file is written from (default: this process's).
+ * `lingerNote: false`: no "run this once yourself" paragraph after an install (set-up runs that step itself, linger.mjs).
+ * `run(cmd, args, env)` → { ok, out, err }: how systemctl and loginctl are started (tests hand in a stand-in).
+ */
+export async function service(sub, { run = runReal, env = process.env, lingerNote: sayLinger = true } = {}) {
+  const file = path.join(unitDir(env), UNIT);
   switch (sub) {
     case 'install': {
-      fs.mkdirSync(unitDir(), { recursive: true });
-      fs.writeFileSync(file, unitText(), { mode: 0o644 });
+      fs.mkdirSync(unitDir(env), { recursive: true });
+      fs.writeFileSync(file, unitText({ env }), { mode: 0o644 });
       console.log(`Wrote ${file}`);
       for (const args of [['--user', 'daemon-reload'], ['--user', 'enable', UNIT], ['--user', 'restart', UNIT]]) {
-        const r = await run('systemctl', args);
+        const r = await run('systemctl', args, env);
         if (!r.ok) {
           console.error(`systemctl ${args.join(' ')} failed: ${r.err}`);
           return 1;
         }
       }
       console.log(`The dashboard service is enabled and running. See it with: ${APP_NAME} service status`);
-      process.stdout.write(await lingerNote());
+      if (sayLinger) process.stdout.write(await lingerNote(run, env));
+      return 0;
+    }
+    case 'restart': {
+      if (!fs.existsSync(file)) {
+        console.error(`The service is not installed. Install it with: ${APP_NAME} service install`);
+        return 3;
+      }
+      const r = await run('systemctl', ['--user', 'restart', UNIT], env);
+      if (!r.ok) {
+        console.error(`systemctl --user restart ${UNIT} failed: ${r.err}`);
+        return 1;
+      }
+      console.log(`The dashboard service was restarted. See it with: ${APP_NAME} service status`);
       return 0;
     }
     case 'uninstall': {
-      await run('systemctl', ['--user', 'disable', '--now', UNIT]);
+      await run('systemctl', ['--user', 'disable', '--now', UNIT], env);
       try {
         fs.unlinkSync(file);
         console.log(`Removed ${file}`);
@@ -95,17 +114,17 @@ export async function service(sub) {
         if (e.code !== 'ENOENT') throw e;
         console.log('The service was not installed.');
       }
-      await run('systemctl', ['--user', 'daemon-reload']);
+      await run('systemctl', ['--user', 'daemon-reload'], env);
       return 0;
     }
     case 'status': {
-      const r = await run('systemctl', ['--user', 'status', UNIT, '--no-pager', '-n', '15']);
+      const r = await run('systemctl', ['--user', 'status', UNIT, '--no-pager', '-n', '15'], env);
       console.log(r.out || r.err || 'not installed');
-      process.stdout.write(await lingerNote());
+      process.stdout.write(await lingerNote(run, env));
       return r.ok ? 0 : 3;
     }
     default:
-      console.error(`usage: ${APP_NAME} service install | uninstall | status`);
+      console.error(`usage: ${APP_NAME} service install | uninstall | status | restart`);
       return 2;
   }
 }

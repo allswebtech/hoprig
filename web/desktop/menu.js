@@ -5,6 +5,7 @@
 // what had it (the button), unless the choice took it elsewhere (a sheet, another page).
 import { icon } from '../icons.js';
 import { add, h } from '../lib.js';
+import { keyParts } from './keymap.js';
 
 let open = null;
 let openedAt = 0;
@@ -34,9 +35,11 @@ export function closeMenuOf(el) {
 }
 
 /**
- * Open a menu at (x, y) on the page: `items` [{ label, icon, run, disabled, danger, checked, items }] or null for a
+ * Open a menu at (x, y) on the page: `items` [{ label, icon, run, disabled, danger, checked, items, hint, keys }] or null for a
  * divider. `checked` (true or false): one of a set of choices, marked when chosen. `items`: a submenu that opens beside
- * its entry (a click, Enter, the right arrow or the pointer over it; the left arrow or Escape goes back). `label` names
+ * its entry (a click, Enter, the right arrow or the pointer over it; the left arrow or Escape goes back). `hint`: the key
+ * for it, shown at its right; `keys`: the same for a screen reader (aria-keyshortcuts), which then hears it once, and
+ * with no `hint` the keys of the command, shown at the item's end. `label` names
  * the menu for screen readers. `from`: the button it drops from (aria-expanded while open; a second press of it closes
  * the menu, as a drop-down button does). → the menu, or null when the press closed it
  */
@@ -83,6 +86,7 @@ export function openMenu(x, y, items, label = 'Menu', { from = null } = {}) {
           type: 'button', role: radio ? 'menuitemradio' : 'menuitem', disabled: !!it.disabled, tabindex: '-1',
           ...(radio ? { 'aria-checked': String(it.checked) } : {}),
           ...(subOf ? { 'aria-haspopup': 'menu', 'aria-expanded': 'false' } : {}),
+          ...(it.keys ? { 'aria-keyshortcuts': it.keys } : {}),
           onclick: () => {
             if (subOf) return openChild(b, subOf, it.label);
             closeMenu(true); // the keyboard back on the button, unless the choice takes it elsewhere
@@ -94,7 +98,7 @@ export function openMenu(x, y, items, label = 'Menu', { from = null } = {}) {
             else closeChild();
           },
         }, radio ? (it.checked ? icon('check', { size: 16 }) : h('span.desk-menu-gap')) : it.icon ? icon(it.icon, { size: 16 }) : h('span.desk-menu-gap'),
-        h('span', it.label), subOf ? h('span.desk-menu-more', icon('chevronRight', { size: 14 })) : null);
+        h('span', it.label), it.hint ? h('kbd.desk-menu-key', it.keys ? { 'aria-hidden': 'true' } : {}, keyParts(it.hint).map((p) => (p.arrow ? h('span.desk-key-arrow', p.text) : p.text))) : it.keys ? h('span.desk-menu-keys', { 'aria-hidden': 'true' }, it.keys) : null, subOf ? h('span.desk-menu-more', icon('chevronRight', { size: 14 })) : null);
         b.sub = subOf ? { list: subOf, name: it.label } : null;
         if (!it.disabled) buttons.push(b);
         return b;

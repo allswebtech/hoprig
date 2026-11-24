@@ -4,6 +4,7 @@
 // from the real CLI), and for any code that contains a "#" it prints a made-up token, which the demo throws away
 // on exit. The link points at the real sign-in page; signing in there does nothing for the demo.
 import fs from 'node:fs';
+import { TOOLS } from './versions.mjs';
 
 const mode = process.env.FAKE_CLAUDE_MODE || 'normal';
 if (process.argv[2] !== 'setup-token') {
@@ -20,7 +21,7 @@ if (mode === 'exit') {
   process.exit(1);
 }
 const w = (s) => process.stdout.write(s);
-w('\x1b[?25l\x1b[?2004h\x1b[38;5;174mWelcome\x1b[9Gto\x1b[12GClaude\x1b[19GCode\x1b[24G\x1b[38;5;246mv2.1.325\x1b[39m\r\n\r\n');
+w(`\x1b[?25l\x1b[?2004h\x1b[38;5;174mWelcome\x1b[9Gto\x1b[12GClaude\x1b[19GCode\x1b[24G\x1b[38;5;246mv${TOOLS.claude.installed}\x1b[39m\r\n\r\n`);
 w('\x1b[2G\x1b[1mThis\x1b[7Gwill\x1b[12Gguide\x1b[18Gyou\x1b[22Gthrough\x1b[30Glong-lived\x1b[41G(1-year)\x1b[50Gauth\x1b[55Gtoken\x1b[61Gsetup\x1b[22m\r\n\r\n');
 w('\x1b[2G·\x1b[4GOpening\x1b[12Gbrowser\x1b[20Gto\x1b[23Gsign\x1b[28Gin…\r\n');
 if (mode === 'nolink') {

@@ -24,7 +24,7 @@ export class MessageQueue {
 
   /** A message written while a turn runs; `session` (when it runs and queues by itself) gets it at once. */
   add(msg, session) {
-    if (this.items.length >= QUEUE_MAX) throw fail(409, `${QUEUE_MAX} messages are queued already; wait for them, or remove one`);
+    if (this.items.length >= QUEUE_MAX) throw fail(409, `${QUEUE_MAX} messages wait already: wait for them, or take one back`);
     const item = { ...msg, state: 'held', at: Date.now() };
     this.items.push(item);
     if (session) {
@@ -62,7 +62,7 @@ export class MessageQueue {
   /** Take a message back; refused once the coding tool has started on it. */
   async remove(id, session, label) {
     const q = this.find(id);
-    if (!q) throw fail(409, 'that message is not queued any more');
+    if (!q) throw fail(409, 'that message is not waiting any more: it was read, or taken back already');
     if (q.state === 'sent' && session && !(await session.cancel(id).catch(() => false))) throw fail(409, `${label} has already taken that message`);
     this.take(id);
   }

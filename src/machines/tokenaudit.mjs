@@ -3,7 +3,7 @@
 //
 // One place for every feature: the machines gate calls auditToken() for each request it lets through with a token.
 // When the answer is finished, a change that succeeded and matches one of CHANGES is written as one plain sentence
-// that names the token, such as "The hub office-pc started the public link".
+// that names the token, such as "The main computer office-pc started the public link".
 //
 // Only the method, the path, the status and the token's NAME are used. The request body, its headers, keys,
 // tokens and passwords are never read here: the Setup routes carry the computer's administrator password.
@@ -24,8 +24,8 @@ export function recordHubActivity(did, outcome = 'ok') {
 /** The line for a revoked token, written by revokeToken (tokens.mjs) in whichever process revoked it. */
 export function revokedWords(name, keys = 0) {
   return keys
-    ? `The token of the hub ${name} was revoked; the ${keys === 1 ? 'gateway key' : `${keys} gateway keys`} it made ended with it, and the sharing of the gateways stays as it is`
-    : `The token of the hub ${name} was revoked`;
+    ? `The token of the main computer ${name} was revoked; the ${keys === 1 ? 'gateway key' : `${keys} gateway keys`} it made ended with it, and the sharing of the gateways stays as it is`
+    : `The token of the main computer ${name} was revoked`;
 }
 
 // A gateway goes by its title (src/addons/gateways.mjs), the public link by its plain name.
@@ -67,7 +67,7 @@ export const CHANGES = [
   ['POST', /^\/api\/workspace\/link$/, () => "linked Claude Code's own folder into the AI brain"],
   ['POST', /^\/api\/workspace\/git\/identity$/, () => "changed git's name and e-mail"],
   ['POST', /^\/api\/workspace\/git\/signin$/, () => 'started the GitHub sign-in'],
-  ['POST', /^\/api\/workspace\/git\/brain$/, () => "created the AI brain's repository"],
+  ['POST', /^\/api\/workspace\/git\/brain$/, () => "created the AI brain's repository or saved the AI brain to it"],
   ['POST', /^\/api\/workspace\/map\/commit$/, () => "saved the workspace map in the AI brain's history"],
   ['POST', /^\/api\/system\/processes\/end$/, () => 'ended a process from the Task manager'],
   ['POST', /^\/api\/services\/action$/, () => 'started, stopped or restarted a service', true],
@@ -96,7 +96,7 @@ export const CHANGES = [
 export function changeOf(method, p, name) {
   for (const [m, re, words, asks] of CHANGES) {
     const match = m === method ? re.exec(p) : null;
-    if (match) return { did: `The hub ${name} ${words(match)}`, asks: asks === true };
+    if (match) return { did: `The main computer ${name} ${words(match)}`, asks: asks === true };
   }
   return null;
 }

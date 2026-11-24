@@ -22,11 +22,12 @@ test('chat page words: the mode chip, Shift+Tab order, model and effort, paths, 
   assert.deepEqual(W.modeMenu(server).rare, ['dontAsk'], 'still reachable');
   assert.deepEqual(W.modeMenu(['manual', 'acceptEdits', 'bypassPermissions']), { main: ['manual', 'acceptEdits', 'bypassPermissions'], rare: [] }, 'another tool: only its modes');
   assert.deepEqual(W.modeMenu(['manual', 'later']).main, ['manual', 'later'], 'a mode of a newer server is not lost');
-  // Shift+Tab: manual → accept edits → plan → auto → bypass → manual; don't ask only in the menu
+  // Shift+Tab as in Claude Code: manual → accept edits → plan → bypass → auto → manual; don't ask only in the menu
   const ring = [];
   let m = 'manual';
   for (let i = 0; i < 5; i++) ring.push((m = W.nextMode(m)));
-  assert.deepEqual(ring, ['acceptEdits', 'plan', 'auto', 'bypassPermissions', 'manual']);
+  assert.deepEqual(ring, ['acceptEdits', 'plan', 'bypassPermissions', 'auto', 'manual']);
+  assert.equal(W.nextMode('plan', ['manual', 'acceptEdits', 'plan', 'auto']), 'auto', 'without bypass: plan → auto');
   assert.equal(W.nextMode('dontAsk'), 'manual');
   assert.equal(W.nextMode('acceptEdits', ['manual', 'acceptEdits']), 'manual'); // only the modes the server offers
   // What the process says wins over what is set; Claude Code's "default" is the dashboard's "manual".
@@ -59,6 +60,10 @@ test('chat page words: the mode chip, Shift+Tab order, model and effort, paths, 
   assert.equal(W.alwaysWords({ tool: 'Bash', input: { command: 'ls nosuchdir; exit 2' }, alwaysText: 'Bash(exit 2)' }), '“Allow in this session” also lets Claude do this again in this session without asking: the command “exit 2”. That is only part of this command.');
   assert.doesNotMatch(W.alwaysWords({ tool: 'Bash', input: { command: 'npm test' }, alwaysText: 'Bash(npm test)' }), /only part/, 'the whole command');
   assert.doesNotMatch(W.alwaysWords({ tool: 'Bash', input: { command: 'npm view x' }, alwaysText: 'Bash(npm view *)' }), /only part/, 'a prefix of a simple command');
+  // On a touch screen the button's title never shows: the note says what the project answer covers and where it is kept.
+  assert.equal(W.alwaysWords({ tool: 'Bash', input: { command: 'npm view x' }, alwaysText: 'Bash(npm view *)', canProject: true, projectText: 'Bash(npm view *)' }),
+    '“Allow in this session” also lets Claude do this again in this session without asking: commands that start with “npm view”. “Always allow in this project” does it for every session in this folder, and Claude Code keeps it in .claude/settings.local.json.');
+  assert.doesNotMatch(W.alwaysWords({ tool: 'Bash', input: { command: 'npm view x' }, alwaysText: 'Bash(npm view *)' }), /this project/, 'no project answer: not named');
   assert.equal(W.ruleWords('Bash(npm view *), WebFetch(domain:example.org)'), 'commands that start with “npm view”, pages on example.org');
   // The rule is the whole command, and the grant adds a folder or all edits too: not "only part" (one splitter for both).
   const chain = 'ls src; touch made2.txt';
@@ -123,7 +128,7 @@ test('agents: the strip counts what runs, a task line names its model and effort
 test('status line: what Claude does now (the tool that runs, for how long), then branch, cost (Verbose, billed), context and the plan limits', () => {
   const base = { status: 'working', turn: true, model: null, liveModel: 'claude-opus-5-5', effort: 'high', permissionMode: 'bypassPermissions', liveMode: null, costTotal: 0.5, usage: { contextUsed: 20_000, contextWindow: 200_000 }, limits: { five_hour: { percent: 63 } }, tasks: [], live: [], branch: 'main' };
   assert.equal(St.stateWords(base), 'Working…');
-  assert.equal(St.stateWords({ ...base, activity: 'compacting' }), 'Compacting the conversation…');
+  assert.equal(St.stateWords({ ...base, activity: 'compacting' }), 'Shortening the conversation to make room…');
   assert.equal(St.stateWords({ ...base, activity: 'requesting' }), 'Claude is thinking…');
   // A tool that runs comes first, even where "requesting" was left set: its command and its seconds.
   const runAt = Date.now() - 4200;
@@ -203,6 +208,10 @@ test('a failed action says the dashboard\'s sentence, never a script\'s own mess
   assert.equal(W.failText(new ApiError('This chat is not open', 404)), 'This chat is not open');
   assert.equal(W.failText(new TypeError("Cannot read properties of null (reading 'cwd')")), 'That did not work. Reload the page and try again.');
   assert.equal(W.failText(null), 'That did not work. Reload the page and try again.');
+  // The tool-off words (src/chat/tools.mjs) end with a full stop in the toast, as in the chat's banner; once only.
+  const off = 'OpenCode is off on this computer: turn it on under Settings → Coding tools to go on with this chat';
+  assert.equal(W.failText(new ApiError(off, 409, { code: 'tool-off' })), `${off}.`);
+  assert.equal(W.failText(new ApiError(`${off}.`, 409, { code: 'tool-off' })), `${off}.`);
 });
 
 test('one money formatter: a cent that a sum of floats made 0.0099999 reads $0.01', () => {
@@ -354,4 +363,15 @@ test('a plan\'s first answer with the server\'s real mode list: auto mode only o
   assert.deepEqual(W.planAnswers(W.planModes({ ...v, autoMode: true }))[0], { label: 'Yes, and use auto mode', mode: 'auto' });
   assert.deepEqual(W.planModes({ engine: { id: 'opencode' }, choices: { modes: ['manual', 'auto'] } }), ['manual', 'auto'], 'another coding tool: its own list');
   assert.equal(W.planModes(null), null, 'before the first state');
+});
+
+test('the message box\'s placeholder names no key a browser user lacks, and says send (not queue) while Claude works', async () => {
+  const W = await import('../../web/chat/words.js');
+  const v = { engine: { id: 'claude' } };
+  assert.equal(W.boxWords(v), 'Message Claude · / for commands · @ for files');
+  assert.doesNotMatch(W.boxWords(v), /Shift\+Tab|\/help|Ctrl|Cmd|Esc/, 'no terminal key: the keys are in the shortcut sheet');
+  assert.equal(W.boxWords({ ...v, turn: true }), 'Send Claude a message: read after its current step', 'steering, as the desktop app: the message is sent');
+  assert.doesNotMatch(W.boxWords({ ...v, turn: true }), /[Qq]ueue/);
+  assert.equal(W.boxWords({ engine: { id: 'opencode', label: 'OpenCode' } }), 'Message OpenCode · / for commands · @ for files');
+  assert.equal(W.boxWords(v, { readOnly: true }), 'Read only while the terminal runs this conversation');
 });

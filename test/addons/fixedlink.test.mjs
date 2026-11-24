@@ -151,8 +151,8 @@ test('the command lines: arrays, our own files, never ~/.cloudflared or the comp
   assert.deepEqual(F.runArgv('/b/cf', '/s/config.yml', ID), ['/b/cf', 'tunnel', '--no-autoupdate', '--config', '/s/config.yml', 'run', ID]);
   assert.deepEqual(F.runTokenArgv('/b/cf', '/s/config.yml', '/s/token'), ['/b/cf', 'tunnel', '--no-autoupdate', '--config', '/s/config.yml', 'run', '--token-file', '/s/token']);
   assert.ok(F.certFile().startsWith(fixedDir + path.sep), F.certFile());
-  const env = C.cloudflaredEnv('/s/home', '/s/empty', { HOME: '/home/someone', PATH: '/usr/bin', TUNNEL_TOKEN: 'x', ANTHROPIC_API_KEY: 'k', HTTPS_PROXY: 'http://proxy.example.com:3128' });
-  assert.deepEqual(env, { HOME: '/s/home', USERPROFILE: '/s/home', PATH: '/s/empty', HTTPS_PROXY: 'http://proxy.example.com:3128' });
+  const env = C.cloudflaredEnv('/s/home', '/s/empty', { HOME: '/home/someone', PATH: '/usr/bin', TUNNEL_TOKEN: 'x', ANTHROPIC_API_KEY: 'k', HTTPS_PROXY: 'http://proxy.example.com:3128' }); // seal: a value no program is started with
+  assert.deepEqual(env, { HOME: '/s/home', USERPROFILE: '/s/home', PATH: '/s/empty', HTTPS_PROXY: 'http://proxy.example.com:3128' }); // seal: a value no program is started with
 });
 
 test('the config file: the dashboard first, each other service, then nothing', () => {
@@ -423,7 +423,7 @@ test('a name outside the domain picked at sign-in: nothing is left half-made', a
 test('a tunnel of that name made before is used; the token cloudflared prints never shows', async () => {
   fs.writeFileSync(mark('taken-name'), '');
   try {
-    const r = await act('fixed-create', { hostname: 'pc3.example.com' });
+    const r = await act('fixed-create', { hostname: 'box3.example.com' });
     assert.equal(r.ok, true, r.error);
     assert.ok(r.lines.some((l) => /is there already/.test(l)));
     assert.ok(!r.lines.join('\n').includes('MUST-NOT-SHOW'), r.lines.join('\n'));
@@ -439,7 +439,7 @@ test('when cloudflared keeps failing, the page says why and when it tries again'
   fs.writeFileSync(F.certFile(), 'stand-in', { mode: 0o600 });
   fs.writeFileSync(mark('crash'), '');
   try {
-    assert.equal((await act('fixed-create', { hostname: 'pc4.example.com' })).ok, true);
+    assert.equal((await act('fixed-create', { hostname: 'box4.example.com' })).ok, true);
     assert.ok(await until(() => S.status().error && S.status().nextTryAt), 'an error and a next try');
     assert.equal(S.status().state, 'retrying');
     assert.match(S.status().error, /stand-in crash/);

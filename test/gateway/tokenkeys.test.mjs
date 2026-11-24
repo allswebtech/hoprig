@@ -67,7 +67,7 @@ test('keys made with a machine token end with it, by every way of revoking; the 
   for (const t of [{ key: mine.key }, ...tokens]) assert.equal(await direct(t.key), 200);
   // Each key a token made is in this computer's Activity log under the token's name; the owner's is not.
   const hubLines = fs.readFileSync(path.join(box.state, 'automation.log'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.automation === 'hub').map((e) => e.did);
-  assert.deepEqual(hubLines, tokens.map((t) => `The hub ${t.name} made a key for TRouteAI`));
+  assert.deepEqual(hubLines, tokens.map((t) => `The main computer ${t.name} made a key for TRouteAI`));
   for (const t of tokens) assert.equal(JSON.stringify(hubLines).includes(t.key), false, 'never the key');
 
   // The linked path: this dashboard linked to itself by address, with a provider that holds the first hub's key.
@@ -86,12 +86,12 @@ test('keys made with a machine token end with it, by every way of revoking; the 
   assert.equal(await direct(self.key), 401);
 
   // 3. `hoprig tokens revoke <id>` on this computer.
-  execFileSync(process.execPath, [path.join(REPO, 'bin', 'hoprig.mjs'), 'tokens', 'revoke', cli.id], { env: process.env, encoding: 'utf8' });
+  execFileSync(process.execPath, [path.join(REPO, 'bin', 'hoprig.mjs'), 'tokens', 'revoke', cli.id, '--yes'], { env: process.env, encoding: 'utf8' });
   assert.equal(await direct(cli.key), 401);
 
   // 4. Remove on the hub: the hub asks this computer to revoke its token (here the hub is this dashboard itself).
   putMachine({ name: 'hubself', label: 'Hub', via: 'url', url: base, token: removed.token, added: Date.now() });
-  const r = await owner('/api/machines/hubself/remove', {});
+  const r = await owner('/api/machines/hubself/remove', { confirm: 'hubself' });
   assert.equal(r.status, 200);
   assert.equal(r.json.revoked, true);
   assert.equal(await direct(removed.key), 401);

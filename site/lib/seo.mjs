@@ -7,7 +7,7 @@ export const INSTALL = 'curl -fsSL https://raw.githubusercontent.com/allswebtech
 
 // Where it runs, in the words of the README's "Where it runs" and "Not built, or not proven yet": one sentence for
 // every place that names the platforms.
-export const PLATFORMS = 'Runs on Linux. On macOS its tests run on every change, but the setup\'s installs and what is new since 0.2 have not been run on a real Mac yet. Windows is not ready.';
+export const PLATFORMS = 'Works on Linux. On a Mac the tests pass, but the install and the newer parts (the chat, the editor, Work) were not tried on a real Mac. Windows is not ready.';
 
 /** "### Question" + paragraphs under a "## …questions…" heading → [{ q, a }]. */
 export function questions(md) {
@@ -100,7 +100,7 @@ export const NOT_DONE = [
   'OpenCode never runs on a Claude subscription: only on an API key or a gateway (README, "Two coding tools").',
   'Auto mode is Claude Code\'s only (README, "Two coding tools" and "Auto mode (Claude Code)").',
   'Codex is not offered in this version: its code is kept and tested, but no page, command or provider kind offers it (README, "Not built, or not proven yet").',
-  'macOS: what is new since 0.2 (the chat, OpenCode, the editor, the desktop, the public link switch, Updates, Work, the workspace\'s groups, a gateway of your own) was not run on macOS; the setup\'s installs on macOS were checked read-only, not run; the background service is written, not yet installed for real (README, "Where it runs").',
+  'macOS: the tests pass there on every change, but the install and the newer parts (the chat, OpenCode, the editor, the desktop, the public link switch, Updates, Work, a gateway of your own) were not tried on a real Mac; the background service is written, not yet installed for real (README, "Where it runs").',
   'Windows is not ready: its code is written, and the tests do not pass on Windows yet (README, "Where it runs").',
   'The last checks of this version ran on stand-ins for the coding tools, not on real Claude Code or real OpenCode (README, "Not built, or not proven yet").',
   'One dashboard password and no user accounts or roles: whoever signs in can drive every computer it shows (README, "Security": one password, stored as a hash).',
@@ -127,7 +127,7 @@ export function llmsTxt(pages, { version }) {
     '- Price: free. It runs on your own computers and has no server of its own. The code is on GitHub: https://github.com/allswebtech/hoprig',
     '- Licence: open source (Apache-2.0): https://github.com/allswebtech/hoprig/blob/main/LICENSE',
     `- Install: \`${INSTALL}\``,
-    `- Platforms: ${PLATFORMS} Needs Node.js 22 or newer (the installer adds it).`,
+    `- Platforms: ${PLATFORMS} Needs Node.js 22.11 or newer (the installer adds it).`,
     '- It runs the official, unmodified Claude Code and OpenCode. Not affiliated with Anthropic or with OpenCode\'s makers.',
     '- The dashboard works in any browser, also on a phone. There is no phone app.',
     '',
@@ -146,6 +146,8 @@ export function llmsTxt(pages, { version }) {
     '## For agents',
     '',
     ...pages.filter((p) => p.kind === 'tools' || p.url === '/skill/').map((p) => `- [${p.title}](${md(p)}): ${p.description}`),
+    `- [The Hoprig skill itself](${SITE}/skill/SKILL.md): its SKILL.md as this version ships it, with every command's help in [references/commands.md](${SITE}/skill/references/commands.md).`,
+    '- Get the skill into a coding tool: `npx hoprig-skill --claude` (your Claude Code skills; `--agents` for the shared agents folder, `--project <dir>` for one project, `--dry-run` to see first). With Hoprig installed: `hoprig skills add hoprig --user`, and `hoprig skills update` brings a newer one.',
     '',
     '## Comparisons',
     '',

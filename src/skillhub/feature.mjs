@@ -97,7 +97,7 @@ export function skillhubFeature(sctx, opts = {}) {
     }
     writeSettings({ lastCheck: now, lastResult: found });
     if (found.length) {
-      await Promise.resolve(sctx.notify({ title: `Skill updates: ${found.length}`, message: `${found.map((f) => f.name).join(', ')}. Review them in Settings → Skills.`, status: 'automation', session: '', url: '' })).catch(() => {});
+      await Promise.resolve(sctx.notify({ title: `Skill updates: ${found.length}`, message: `${found.map((f) => f.name).join(', ')}. Review them on the Skills page.`, status: 'automation', session: '', url: '' })).catch(() => {});
     }
     return found;
   }

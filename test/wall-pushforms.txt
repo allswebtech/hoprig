@@ -1,0 +1,286 @@
+# Command lines beside the push and program forms the wall reads, one per row, read by test/wall-pushforms.test.mjs.
+#
+# A row is:  verdict | branch | text
+#   verdict  held <reason id>  wallHeld holds the line with this reason id (WALL_REASON in src/wall.mjs)
+#            not held          wallHeld lets it through: an everyday line that must keep going through
+#   branch   the branch the session stands on (feature or main), in a repository whose default branch is main
+#   text     the command line, as a coding tool would hand it to its shell
+# The session stands in its own folder /w/shop. Lines that begin with # and empty lines are not rows.
+
+# systemd-run: the user's own service manager on this computer only (--user, and nothing that leaves it)
+held admin | feature | systemd-run id
+held admin | feature | systemd-run --system id
+held admin | feature | systemd-run --user --system id
+held admin | feature | systemd-run --system --user id
+held admin | feature | systemd-run --user -M root@ id
+held admin | feature | systemd-run -M root@ --user id
+held admin | feature | systemd-run --user -Mroot@ id
+held admin | feature | systemd-run --user -qM root@ id
+held admin | feature | systemd-run --user --machine=root@ id
+held admin | feature | systemd-run --user --machine root@ id
+held admin | feature | systemd-run --user --machine=shop id
+held admin | feature | systemd-run --user -H box2 id
+held admin | feature | systemd-run --user -Hbox2 id
+held admin | feature | systemd-run --user --host=box2 id
+held admin | feature | systemd-run --user --host box2 id
+held admin | feature | systemd-run --user --host=alex@box2 id
+held admin | feature | systemd-run --user --sys id
+held admin | feature | systemd-run --user --mach=root@ id
+held admin | feature | systemd-run --user --uid=root id
+held admin | feature | systemd-run --user --gid 0 id
+held admin | feature | systemd-run --user --frobnicate id
+held admin | feature | sh -c "systemd-run --user --system id"
+held admin | feature | systemd-run --user sh -c "sudo su"
+held admin | feature | systemd-run --us id
+held admin | feature | systemd-run "--user" --system id
+held admin | feature | systemd-run --user "--system" id
+held admin | feature | systemd-run --user make test -M root@
+held admin | feature | systemd-run --user make test --system
+held admin | feature | nice systemd-run --user --system id
+held admin | feature | strace -f systemd-run --user --system id
+held admin | feature | strace systemd-run id
+held admin | feature | ls && systemd-run --user -M root@ id
+held admin | feature | systemd-run --user sudo su
+held admin | feature | systemd-run --user -- sudo su
+held admin | feature | systemd-run --user --scope sudo apt-get update
+held release | feature | systemd-run --user npm publish
+held release | feature | systemd-run --user --wait gh release create v1
+held pr | feature | systemd-run --user gh pr create
+not held | feature | systemd-run --user make test
+not held | feature | systemd-run --user --scope make
+not held | feature | systemd-run --user --scope make test
+not held | feature | systemd-run -q --user make test
+not held | feature | systemd-run --scope --user make test
+not held | feature | systemd-run --user -p MemoryMax=2G make test
+not held | feature | systemd-run --user --property=CPUQuota=50% npm test
+not held | feature | systemd-run --user -u build make test
+not held | feature | systemd-run --user --unit=build make test
+not held | feature | systemd-run --user --wait --pipe npm test
+not held | feature | systemd-run --user -E NODE_ENV=test npm test
+not held | feature | systemd-run --user --setenv NODE_ENV=test npm test
+not held | feature | systemd-run --user -d make test
+not held | feature | systemd-run --user --collect --quiet make test
+not held | feature | systemd-run --user -- make test
+not held | feature | systemd-run --user --on-active=30 make test
+not held | feature | timeout 600 systemd-run --user make test
+not held | feature | systemd-run --user make test -j4
+
+# A word in double quotes is judged as the same word without them: a variable as the program is held
+held unreadable | feature | $EDITOR notes.txt
+held unreadable | feature | "$EDITOR" notes.txt
+held unreadable | feature | "${EDITOR}" notes.txt
+held unreadable | feature | "$EDITOR"
+held unreadable | feature | FOO=1 "$EDITOR" notes.txt
+held unreadable | feature | ''"$EDITOR" notes.txt
+held unreadable | feature | "$A""$B" notes.txt
+held unreadable | feature | "$A"b notes.txt
+held unreadable | feature | "$@"
+held unreadable | feature | ls && "$EDITOR" notes.txt
+held unreadable | feature | true; "$CMD" --flag
+held unreadable | feature | sh -c '"$EDITOR" notes.txt'
+held unreadable | feature | "$X" -c 'npm test'
+not held | feature | "$VENV/bin/python" -m pytest -q
+not held | feature | "${VENV}/bin/python" -m pytest -q
+not held | feature | "$PWD"/node_modules/.bin/vitest run
+not held | feature | $VENV/bin/python -m pytest -q
+not held | feature | echo "$EDITOR"
+not held | feature | cat "$FILE"
+not held | feature | git commit -m "$MSG"
+not held | feature | NODE_ENV="$MODE" npm test
+not held | feature | X="$Y"
+not held | feature | export PATH="$PWD/bin:$PATH"
+not held | feature | printf '%s\n' "$A" "$B"
+not held | feature | test -n "$CI" && npm test
+not held | feature | [ -z "$CI" ] && npm test
+
+# A push whose remote or refspec holds a variable: where it would go cannot be told, so it is held
+held push-elsewhere | feature | git push origin $BRANCH
+held push-elsewhere | feature | git push origin ${BRANCH}
+held push-elsewhere | feature | git push origin "$BRANCH"
+held push-elsewhere | feature | git push origin "${BRANCH}"
+held push-elsewhere | feature | git push -u origin $BRANCH
+held push-elsewhere | feature | git push --set-upstream origin "$BRANCH"
+held push-elsewhere | feature | git push "$R" feature
+held push-elsewhere | feature | git push $R feature
+held push-elsewhere | feature | git push "$REMOTE"
+held push-elsewhere | feature | git push origin HEAD:$B
+held push-elsewhere | feature | git push origin HEAD:"$B"
+held push-elsewhere | feature | git push origin HEAD:refs/heads/$B
+held push-elsewhere | feature | git push origin $B:feature
+held push-elsewhere | feature | git push origin feature-$N
+held push-elsewhere | feature | git push origin "release/$V"
+held push-elsewhere | feature | git push origin feature $EXTRA
+held push-elsewhere | feature | git push origin "$@"
+held push-elsewhere | feature | git push https://$HOST/o/r.git feature
+held push-elsewhere | feature | sh -c "git push origin $B"
+held push-elsewhere | feature | sh -c 'git push origin $B'
+held push-elsewhere | feature | bash -c "git push origin \"$B\""
+held push-elsewhere | feature | timeout 60 git push origin $B
+held push-elsewhere | feature | for b in a c; do git push origin $b; done
+held push-elsewhere | feature | git commit -am fix && git push origin $BRANCH
+held push | feature | git push origin +$B
+held push | feature | git push --force origin $B
+held push | feature | git push origin $B --tags
+held push | main | git push origin $BRANCH
+held push | main | git push "$R"
+held unreadable | feature | git push origin `git branch --show-current`
+not held | feature | git push origin feature
+not held | feature | git push -u origin feature
+not held | feature | git push --set-upstream origin feature
+not held | feature | git push origin HEAD
+not held | feature | git push origin HEAD:feature
+not held | feature | git push origin feature:feature
+not held | feature | git push origin "feature"
+not held | feature | git push origin 'feature'
+not held | feature | git push
+not held | feature | git push -u
+not held | feature | git push origin feature && echo "$DONE"
+not held | feature | git commit -m "$MSG" && git push origin feature
+not held | feature | echo $BRANCH && git push origin feature
+not held | feature | git push origin feature 2>&1 | tee push.log
+not held | feature | git fetch origin $BRANCH
+not held | feature | git checkout -b "$BRANCH"
+not held | feature | git log origin/$BRANCH
+
+# A push that deletes a branch on the remote by name is held as the pruning push is
+held push-prune | feature | git push --prune origin
+held push-prune | feature | git push origin --delete feature
+held push-prune | feature | git push --delete origin feature
+held push-prune | feature | git push origin -d feature
+held push-prune | feature | git push -d origin feature
+held push-prune | feature | git push origin --delete feature other
+held push-prune | feature | git push origin -d feature other
+held push-prune | feature | git push origin --del feature
+held push-prune | feature | git push origin --dele feature
+held push-prune | feature | git push --pru origin
+held push-prune | feature | git push -ud origin feature
+held push-prune | feature | git push -du origin feature
+held push-prune | feature | git push -qd origin feature
+held push-prune | feature | git push origin "--delete" feature
+held push-prune | feature | git push origin :feature
+held push-prune | feature | git push origin :refs/heads/feature
+held push-prune | feature | git push origin ":feature"
+held push-prune | feature | git push origin feature :old
+held push-prune | feature | git push origin :feature :other
+held push-prune | main | git push origin --delete feature
+held push-prune | main | git push origin :feature
+held push-prune | feature | git push origin --delete main
+held push-prune | feature | git push origin :main
+held push-prune | feature | git push origin --delete $B
+held push-prune | feature | sh -c "git push origin --delete feature"
+held push-prune | feature | timeout 60 git push origin :feature
+held push-prune | feature | git fetch && git push origin --delete feature
+held push | feature | git push origin :
+held push | feature | git push -uf origin feature
+held push | feature | git push --force-w origin feature
+held push | feature | git push --branches origin
+held push | feature | git push --mir origin
+not held | feature | git push -u origin feature:feature
+not held | feature | git push -uq origin feature
+not held | feature | git push -n origin feature
+not held | feature | git push --dry-run origin feature
+not held | feature | git push --no-delete origin feature
+not held | feature | git push --no-prune origin feature
+not held | feature | git push -o ci.skip origin feature
+not held | feature | git push -oci.skip origin feature
+not held | feature | git push --push-option=ci.skip origin feature
+not held | feature | git push --no-verify origin feature
+not held | feature | git push --atomic origin feature
+not held | feature | git push -v origin feature
+not held | feature | git branch -d feature
+not held | feature | git branch -D old
+not held | feature | git branch --delete old
+not held | feature | git tag -d v0
+not held | feature | git remote prune origin
+not held | feature | git fetch --prune
+not held | feature | git push origin feature:refs/heads/feature
+
+# HEAD names the branch the session stands on: on the main branch a push of it moves the main branch
+held push | main | git push origin HEAD
+held push | main | git push -u origin HEAD
+held push | main | git push origin @
+held push | main | git push origin HEAD:refs/heads/main
+not held | feature | git push origin @
+not held | feature | git push -u origin HEAD
+not held | feature | git push origin HEAD:refs/heads/feature
+
+# The current branch named through git, $(git branch --show-current) or $(git rev-parse --abbrev-ref HEAD), bare or in
+# double quotes, as a whole word after `git … push` written in plain words: read as HEAD, so held on the main branch
+# and through on a work branch, as `git push origin HEAD` is
+held push | main | git push origin $(git branch --show-current)
+held push | main | git push origin "$(git branch --show-current)"
+held push | main | git push origin $(git rev-parse --abbrev-ref HEAD)
+held push | main | git push origin "$(git rev-parse --abbrev-ref HEAD)"
+held push | main | git push -u origin "$(git branch --show-current)"
+held push | main | git commit -am fix && git push origin "$(git rev-parse --abbrev-ref HEAD)"
+not held | feature | git push origin $(git branch --show-current)
+not held | feature | git push origin "$(git branch --show-current)"
+not held | feature | git push origin $(git rev-parse --abbrev-ref HEAD)
+not held | feature | git push origin "$(git rev-parse --abbrev-ref HEAD)"
+not held | feature | git push -u origin $(git rev-parse --abbrev-ref HEAD)
+not held | feature | git push --set-upstream origin "$(git branch --show-current)"
+not held | feature | git push origin "$( git branch --show-current )"
+not held | feature | git commit -am fix && git push -u origin "$(git branch --show-current)"
+not held | feature | git push origin "$(git branch --show-current)" 2>&1 | tee push.log
+held push | feature | git push --force origin "$(git branch --show-current)"
+held push-prune | feature | git push origin --delete "$(git branch --show-current)"
+held unreadable | feature | git push "$(git branch --show-current)"
+held unreadable | feature | git push -u "$(git branch --show-current)"
+# Their neighbours stay held: another command in the substitution, a second substitution, a pipe inside it, git run
+# elsewhere, the substitution as part of a longer word or as the program, a remote that is a variable
+held unreadable | feature | git push origin "$(git branch --show-current; date)"
+held unreadable | feature | git push origin $(git log -1 --format=%D)
+held unreadable | feature | git push origin "$(git branch --show-current)" "$(date)"
+held unreadable | feature | git push origin "$(git branch --show-current)" && echo $(date)
+held unreadable | feature | git push origin "$(git branch --show-current | head -1)"
+held unreadable | feature | git push origin "$(git rev-parse --abbrev-ref HEAD | tr a-z A-Z)"
+held unreadable | feature | git push origin "$(git -C ../other branch --show-current)"
+held unreadable | feature | git push origin "$(git branch --show-current --no-color)"
+held unreadable | feature | git push origin "$(git rev-parse --abbrev-ref @{u})"
+held unreadable | feature | git push origin HEAD:"$(git branch --show-current)"
+held unreadable | feature | git push origin "$(git branch --show-current)":main
+held unreadable | feature | git push origin x$(git branch --show-current)
+held unreadable | feature | $(git branch --show-current) --version
+held unreadable | feature | sh -c "git push origin $(git branch --show-current)"
+held unreadable | feature | git push "$R" "$(git branch --show-current)"
+held unreadable | feature | git push --receive-pack=$(git branch --show-current) origin
+
+# A redirection's target (a file name after > >> < &> N>) is no program and no command head: a variable in it
+# goes through as an ordinary line does, and a program that stands after the redirection is still read.
+not held | feature | npm test > "$LOG" 2>&1
+not held | feature | echo done > "$OUT"
+not held | feature | npm test >"$LOG"
+not held | feature | npm test >> "$LOG"
+not held | feature | npm test 2> "$ERR"
+not held | feature | npm test &> "$LOG"
+not held | feature | npm test 1> "$LOG"
+not held | feature | npm test > "${LOG}"
+not held | feature | : > "$LOG"
+not held | feature | wc -l < "$IN"
+not held | feature | git log --oneline > "$OUT"
+not held | feature | cat "$A" > "$B"
+not held | feature | jq -r .version < "$PKG"
+not held | feature | npm test > "$TMPDIR/test.log"
+not held | feature | npm test > out.txt
+held admin | feature | > out.txt sudo su
+held admin | feature | >"$LOG" sudo su
+held admin | feature | 2> err.txt sudo su
+held admin | feature | 2>/dev/null sudo su
+held admin | feature | 1> out.txt sudo su
+held unreadable | feature | "$EDITOR" > out.txt
+
+# Leading redirection targets and assignments in any order do not hide the program behind them
+held admin | feature | x=1 2> err.txt sudo su
+held admin | feature | 2> err.txt x=1 sudo su
+held release | feature | FOO=a > e.txt npm publish
+not held | feature | x=1 2> err.txt npm test
+
+# A variable as the program, held after a leading redirection, alone, or after another command
+held unreadable | feature | 2> err.txt "$EDITOR" notes.txt
+held unreadable | feature | > err.txt "$EDITOR" notes.txt
+held unreadable | feature | > err.txt "$EDITOR"
+held unreadable | feature | 2> err.txt $EDITOR notes.txt
+held unreadable | feature | > err.txt $EDITOR notes.txt
+held unreadable | feature | $PROG
+held unreadable | feature | x="sudo su"; $x
+held unreadable | feature | npm test && $PROG

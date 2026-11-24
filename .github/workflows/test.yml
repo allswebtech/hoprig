@@ -12,7 +12,7 @@ jobs:
   test:
     name: ${{ matrix.os }} · node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -26,5 +26,25 @@ jobs:
       - name: tmux (the end-to-end test also runs on it where it exists)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y tmux
+      - run: npm ci
+      - run: npm test
+
+  # Windows tells, it does not block yet: its results are shown, a failure does not fail the run. Every test process
+  # gets a home of its own there (USERPROFILE, APPDATA, LOCALAPPDATA in the run's temporary folder), and the runner
+  # fails by name when a test still wrote into the real profile (tools/home-guard.mjs).
+  windows:
+    name: windows-latest · node ${{ matrix.node }} (allowed to fail)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm test

@@ -10,6 +10,11 @@ import { rankItems, todayView } from './today.mjs';
 import { CLOSED } from './model.mjs';
 import { alterText } from './jsontext.mjs';
 import { doCommand, runsCommand } from './clido.mjs';
+import { planCommand, plansCommand } from './cliplans.mjs';
+import { listProposals, rowOf } from './proposals.mjs';
+import { repeatOf, runAtOf, schedulesCommand } from './clisched.mjs';
+import { progressLines, readProgress, sinceOf } from './pulse.mjs';
+import { tokensCommand } from './clitokens.mjs';
 
 export const USAGE = `usage: hoprig tasks [today]                      what needs you, this week, done lately
        hoprig tasks list [--all] [--project P] [--by me|ai|<role>]
@@ -27,15 +32,39 @@ export const USAGE = `usage: hoprig tasks [today]                      what need
                          (or P) and its own folder (or F: one of its code repositories, code/<name>); it shows the brief
                          and starts on a yes (--yes: without asking)
        hoprig tasks runs [<id>]                       what the sessions did: their answers, commits and changed files
+       hoprig tasks schedules                         the schedules and the repeating items: what, on which computer, when next
+       hoprig tasks progress [--since 12h|<time>]
+                         what runs and how far, when it will be done (by what
+                         finished here before), what waits for you, what
+                         finished and failed (the last 24 hours)
+       add and edit also take --repeat daily|weekly:1,4|monthly:31|none and --run-at HH:MM|none [--computer here|<id>]
+                         (a run time is a run that ends by itself, on the computer named: without one it runs nowhere)
+       hoprig tasks plans                             the plans: their progress and next date
+       hoprig tasks plan <id>                         one plan: its goal, milestones and tasks, what waits, its note
        hoprig tasks save [--seen <token> --decide "<task>=mine|theirs,..."] [--drop-interrupted]
                          commit the Work file by name and send it; a list changed on another computer too is merged
                          by task, and a task changed on both is yours to decide (the save prints the token of what it
                          showed you); --drop-interrupted drops the record of an interrupted save you have looked at
+       hoprig tasks tokens [revoke <id or name>]     the Work tokens of other programs (made, last used, their webhooks);
+                         revoke ends one at once and removes its webhooks (they are made in Settings → Work)
   Every command takes --json; the ones that change something take --dry-run.
   Where the data lives: Settings → Work in the dashboard (the AI brain's work/ folder by default).`;
 
-const BOOLEANS = ['json', 'dry-run', 'all', 'approx', 'yes', 'drop-interrupted'];
-const VALUES = ['date', 'project', 'priority', 'by', 'note', 'kind', 'title', 'status', 'decide', 'seen', 'folder', 'brief'];
+/** The lines of USAGE about one command: its own line and the lines under it that go on with it. */
+export function usageOf(sub) {
+  const lines = USAGE.split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const words = lines[i].replace(/^usage:/, '').trim().split(/\s+/);
+    if (words[0] !== 'hoprig' || words[1] !== 'tasks' || !(words[2] || '').replace(/^\[|\]$/g, '').split('|').includes(sub)) continue;
+    out.push(lines[i].replace(/^usage: {0,1}/, '       ').replace(/^ {7}/, 'usage: '));
+    while (i + 1 < lines.length && /^ {20,}\S/.test(lines[i + 1])) out.push(lines[++i]);
+  }
+  return out.length ? out.join('\n') : USAGE;
+}
+
+const BOOLEANS = ['json', 'dry-run', 'all', 'approx', 'yes', 'drop-interrupted', 'help'];
+const VALUES = ['since', 'date', 'project', 'priority', 'by', 'note', 'kind', 'title', 'status', 'decide', 'seen', 'folder', 'brief', 'repeat', 'run-at', 'computer'];
 
 /** "--key value", "--key=value", "--flag". Unknown options are an error, so a typo never passes silently. */
 export function parseArgs(args) {
@@ -61,7 +90,7 @@ export function parseArgs(args) {
   return { flags, positional };
 }
 // The options each command understands; anything else is refused with a reason.
-const ITEM = ['date', 'project', 'priority', 'by', 'note', 'kind', 'approx'];
+const ITEM = ['date', 'project', 'priority', 'by', 'note', 'kind', 'approx', 'repeat', 'run-at', 'computer'];
 const FLAGS_OF = {
   today: ['json'],
   list: ['json', 'all', 'project', 'by'],
@@ -77,6 +106,11 @@ const FLAGS_OF = {
   owner: ['json'],
   do: ['json', 'dry-run', 'yes', 'project', 'folder', 'brief'],
   runs: ['json'],
+  plans: ['json'],
+  schedules: ['json'],
+  progress: ['json', 'since'],
+  plan: ['json'],
+  tokens: ['json', 'dry-run'],
 };
 const NOT_HERE = {
   'add status': 'add takes no --status: a new task is open; mark it after with hoprig tasks done <id> (or edit --status)',
@@ -86,7 +120,7 @@ const usage = (message) => Object.assign(new Error(message), { status: 400, usag
 
 const orNone = (v) => (v === 'none' ? null : v);
 /** The item fields given on the command line (undefined: not given). */
-function fieldsOf(f, { edit = false } = {}) {
+function fieldsOf(f, { edit = false, dryRun = false } = {}) {
   const out = {};
   if (f.title !== undefined) out.title = f.title;
   if (f.date !== undefined) out.date = edit ? orNone(f.date) : f.date;
@@ -97,6 +131,9 @@ function fieldsOf(f, { edit = false } = {}) {
   if (f.kind !== undefined) out.kind = f.kind;
   if (f.approx) out.approx = true;
   if (edit && f.status !== undefined) out.status = f.status;
+  if (f.repeat !== undefined) out.repeat = repeatOf(f.repeat);
+  if (f.computer !== undefined && f['run-at'] === undefined) throw usage('--computer goes with --run-at');
+  if (f['run-at'] !== undefined) out.runAt = runAtOf(f['run-at'], f.computer, { dryRun });
   return out;
 }
 
@@ -137,11 +174,13 @@ function saveText(r) {
   return lines.join('\n');
 }
 
+// A task another program added (a Work token) says so wherever it is shown: its words are that program's.
+const fromText = (it) => (it.from && it.from.name ? `  (from ${it.from.name})` : '');
 const when = (it) => (typeof it.days !== 'number' ? '' : it.days < 0 ? `${-it.days}d overdue` : it.days === 0 ? 'today' : `in ${it.days}d`);
 /** One line of `work list`. */
 export function itemLine(it) {
   const pri = it.priority === 'high' ? '!' : it.priority === 'low' ? '_' : ' ';
-  return `${pri} ${(it.date || '').padEnd(10)}${it.approx ? '~' : ' '} ${when(it).padEnd(11)} ${it.status.padEnd(7)} ${it.by.padEnd(6)} ${(it.project || '').padEnd(14)} ${it.id.padEnd(28)} ${it.title}`;
+  return `${pri} ${(it.date || '').padEnd(10)}${it.approx ? '~' : ' '} ${when(it).padEnd(11)} ${it.status.padEnd(7)} ${it.by.padEnd(6)} ${(it.project || '').padEnd(14)} ${it.id.padEnd(28)} ${it.title}${fromText(it)}`;
 }
 
 /** A yes/no question on the terminal (only when both ends are one): resolves true for "y" or "yes". */
@@ -157,7 +196,7 @@ function askOnTerminal() {
   };
 }
 
-export async function main(args, { out = (s) => process.stdout.write(`${s}\n`), err = (s) => process.stderr.write(`${s}\n`), cfg = null, places = {}, run, ask = askOnTerminal(), dashboard = null, fetchImpl } = {}) {
+export async function main(args, { out = (s) => process.stdout.write(`${s}\n`), err = (s) => process.stderr.write(`${s}\n`), cfg = null, places = {}, run, ask = askOnTerminal(), dashboard = null, fetchImpl, now = null } = {}) {
   const json = args.includes('--json');
   // A refusal: with --json one JSON object on standard output ({ ok: false, code, message }), else a line on standard
   // error; the same exit code either way (2: not understood, 1: refused or failed).
@@ -182,6 +221,11 @@ export async function main(args, { out = (s) => process.stdout.write(`${s}\n`), 
     out(USAGE);
     return 0;
   }
+  // "tasks <command> --help": that command's own lines of the usage.
+  if (flags.help === true) {
+    out(positional.length && Object.hasOwn(FLAGS_OF, sub) ? usageOf(sub) : USAGE);
+    return 0;
+  }
   if (!Object.hasOwn(FLAGS_OF, sub)) return refuse(usage(`unknown command "${String(sub).slice(0, 40)}"`));
   // What a command does not understand is refused, never passed over in silence.
   for (const k of Object.keys(flags)) {
@@ -191,17 +235,35 @@ export async function main(args, { out = (s) => process.stdout.write(`${s}\n`), 
     return refuse(usage(why));
   }
   try {
+    // Work tokens live in the config folder, not in the Work list: no place is needed for them.
+    if (sub === 'tokens') {
+      if (extra.length > 1) throw usage('too many words: tokens revoke takes one id or name (in quotes when it has spaces)');
+      return tokensCommand(id, extra[0], { show, dryRun });
+    }
     const c = cfg || loadConfig();
     const place = resolvePlace(c, places);
     const store = workStore(place, { projects: projectNames(c, places) });
     const where = { label: place.label, file: tilde(place.file) };
     const o = { dryRun };
-    const needsId = ['edit', 'done', 'open', 'drop', 'remove', 'do'].includes(sub);
-    if (needsId && !id) throw usage(`${sub} needs the id of an item (hoprig tasks list shows them)`);
+    const needsId = ['edit', 'done', 'open', 'drop', 'remove', 'do', 'plan'].includes(sub);
+    if (needsId && !id) throw usage(sub === 'plan' ? 'plan needs the id of a plan (hoprig tasks plans shows them)' : `${sub} needs the id of an item (hoprig tasks list shows them)`);
     if (sub === 'add' && !id) throw usage('add needs a title: hoprig tasks add "Renew the domain" --date 2026-12-01');
-    if (extra.length || (['today', 'list', 'save', 'tidy', 'fix-ids'].includes(sub) && id)) throw usage('too many words: put a title or a note in quotes');
+    if (extra.length || (['today', 'list', 'save', 'tidy', 'fix-ids', 'plans', 'schedules'].includes(sub) && id)) throw usage('too many words: put a title or a note in quotes');
     const dry = dryRun ? ' (dry run: nothing written)' : '';
     // A save that was interrupted is finished (or shown) before the list is read or changed; save does it itself.
+    if (sub === 'progress') {
+      if (id) throw usage('progress takes no id');
+      let items = [];
+      try {
+        items = store.list().items;
+      } catch {
+        /* a list that cannot be read: the runs and sessions still count */
+      }
+      const at = now ? now() : Date.now();
+      const p = await readProgress({ cfg: c, place, items, now: at, since: sinceOf(flags.since, at) });
+      show(p, progressLines(p).join('\n'));
+      return 0;
+    }
     if (sub === 'do') return await doCommand(id, flags, { show, refuse, out, ask: json ? null : ask, dashboard, ...(fetchImpl ? { fetchImpl } : {}) });
     if (sub === 'runs') return runsCommand(place, id, { show });
     if (sub !== 'save' && !dryRun) {
@@ -209,19 +271,25 @@ export async function main(args, { out = (s) => process.stdout.write(`${s}\n`), 
       if (fin.sentence || fin.code === 'interrupted') err(`tasks: ${fin.sentence || `${fin.problem.charAt(0).toUpperCase()}${fin.problem.slice(1)}.`}`);
     }
 
+    if (sub === 'plans') return plansCommand(place, store, { show });
+    if (sub === 'schedules') return schedulesCommand(c, place, { show });
+    if (sub === 'plan') return planCommand(place, store, id, { show });
     if (sub === 'today') {
       const { items } = store.list();
       const t = todayView(items, store.today());
       const lines = [`Work: ${where.label} · today ${t.today}`, '', 'Needs you'];
-      lines.push(...(t.needsYou.length ? t.needsYou.map((it) => `  ${it.title}  (${it.why})  [${it.id}]`) : ['  nothing in the next seven days']));
-      if (t.toReview.length) lines.push('', 'To review (hoprig tasks runs <id>)', ...t.toReview.map((it) => `  ${it.title}  [${it.id}]`));
+      lines.push(...(t.needsYou.length ? t.needsYou.map((it) => `  ${it.title}${fromText(it)}  (${it.why})  [${it.id}]`) : ['  nothing in the next seven days']));
+      if (t.toReview.length) lines.push('', 'To review (hoprig tasks runs <id>)', ...t.toReview.map((it) => `  ${it.title}${fromText(it)}  [${it.id}]`));
+      // Proposals of "Plan with AI" not answered yet (they are looked at and accepted on the dashboard's Work page).
+      const proposals = listProposals(place).map(rowOf);
+      if (proposals.length) lines.push('', 'Plans to look at (on the dashboard\'s Work page)', ...proposals.map((p) => `  ${{ ready: p.title, working: 'A session is planning', unreadable: 'The proposal could not be read', failed: 'Planning ended without a proposal' }[p.state]}: ${p.goal}`));
       lines.push('', 'This week');
-      for (const d of t.week) for (const it of d.items) lines.push(`  ${d.date}  ${it.status === 'done' ? '✓ ' : ''}${it.title}  [${it.id}]`);
+      for (const d of t.week) for (const it of d.items) lines.push(`  ${d.date}  ${it.status === 'done' ? '✓ ' : ''}${it.title}${fromText(it)}  [${it.id}]`);
       if (!t.week.some((d) => d.items.length)) lines.push('  nothing dated');
       lines.push('', 'Done lately');
-      lines.push(...(t.doneLately.length ? t.doneLately.map((it) => `  ${it.doneAt}  ${it.title}`) : ['  nothing yet']));
+      lines.push(...(t.doneLately.length ? t.doneLately.map((it) => `  ${it.doneAt}  ${it.title}${fromText(it)}`) : ['  nothing yet']));
       lines.push('', 'Sessions that need an OK are on the dashboard\'s Today.');
-      show({ place: where, ...t }, lines.join('\n'));
+      show({ place: where, ...t, proposals }, lines.join('\n'));
       return 0;
     }
     if (sub === 'list') {
@@ -232,19 +300,19 @@ export async function main(args, { out = (s) => process.stdout.write(`${s}\n`), 
       return 0;
     }
     if (sub === 'add') {
-      const r = await store.add({ ...fieldsOf(flags), title: id }, o);
-      show({ ...r, dryRun }, `Added ${r.item.id}${dry}`);
+      const r = await store.add({ ...fieldsOf(flags, { dryRun }), title: id }, o);
+      show({ ...r, dryRun }, `Added ${r.item.id}${r.item.repeat ? ` (repeats; first ${r.item.date})` : ''}${dry}`);
       return 0;
     }
     if (sub === 'edit') {
-      const r = await store.edit(id, fieldsOf(flags, { edit: true }), o);
+      const r = await store.edit(id, fieldsOf(flags, { edit: true, dryRun }), o);
       show({ ...r, dryRun }, `${r.item.id} changed${dry}`);
       return 0;
     }
     if (['done', 'open', 'drop'].includes(sub)) {
       if (Object.keys(fieldsOf(flags, { edit: true })).length) throw usage(`${sub} takes only the id`);
       const r = await store.status(id, sub, o);
-      show({ ...r, dryRun }, `${r.item.id}: ${r.before} → ${r.item.status}${dry}`);
+      show({ ...r, dryRun }, `${r.item.id}: ${r.before} → ${r.item.status}${r.next ? `; next time ${r.next.date} (${r.next.id})` : ''}${dry}`);
       return 0;
     }
     if (sub === 'remove') {

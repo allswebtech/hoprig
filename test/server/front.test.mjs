@@ -154,7 +154,30 @@ test('sendToTool: the text went, its Enter did not: "typed but not sent", a code
   await assert.rejects(broken.deck.sendToTool('s', 'hello'), (e) => e.code === 'typed_not_sent');
 });
 
-test('keyToTool: a key for anyone but the owner goes only to the coding tool in front, a digit as text', { skip: process.platform === 'win32' && 'POSIX groups' }, async () => {
+test('sendToTool: enterGuard reads the record again right before the Enter; a refused Enter is typed but not sent', { skip: process.platform === 'win32' && 'POSIX groups' }, async () => {
+  const asked = [];
+  const enterGuard = (rec) => {
+    asked.push(rec.status);
+    if (rec.status !== 'waiting') throw new Error('no longer waiting');
+  };
+  // In the pause after the text the record turned to a question (a permission ask): its Enter would answer it.
+  const turned = rig([{ term, run: run({ runId: 'r5', status: 'waiting' }) }]);
+  turned.backend.sendText = async (id, text, o) => {
+    turned.calls.push(['text', id, text, o]);
+    fs.writeFileSync(recordOf({ runId: 'r5' }), JSON.stringify({ runId: 'r5', pid: process.pid, status: 'attention' }));
+  };
+  await assert.rejects(turned.deck.sendToTool('s', '2', { enterGuard }), (e) => e.status === 409 && e.code === 'typed_not_sent');
+  assert.deepEqual(turned.calls.map((c) => c[0]), ['text'], 'no Enter');
+  assert.deepEqual(asked, ['attention'], 'asked under the lock, from the record as it is now');
+  // Still waiting: the Enter goes.
+  asked.length = 0;
+  const still = rig([{ term, run: run({ runId: 'r6', status: 'waiting' }) }]);
+  await still.deck.sendToTool('s', '2', { enterGuard });
+  assert.deepEqual(still.calls.map((c) => c[0]), ['text', 'key']);
+  assert.deepEqual(asked, ['waiting']);
+});
+
+test('keyToTool: a key for anyone but the owner goes only to the coding tool in front, a digit as text',{ skip: process.platform === 'win32' && 'POSIX groups' }, async () => {
   const group = groups(process.pid).pgrp;
   const r = rig([{ term, run: run() }]);
   await r.deck.keyToTool('s', 'Enter');

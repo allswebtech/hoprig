@@ -11,6 +11,7 @@ import { promptArgs } from '../../src/server/deck.mjs';
 import { sandbox } from '../server/helpers.mjs';
 import { BASE_PROMPT, systemPrompt } from '../../src/assistant/prompt.mjs';
 import { recordUsage, readUsage, summarizeUsage, turnUsage } from '../../src/assistant/usage.mjs';
+import { sealed } from '../seal.mjs';
 
 test('engineArgs: headless, only our MCP tools, no built-in tools, nothing that would prompt', () => {
   const a = engineArgs({ systemPrompt: 'P', mcpConfigFile: '/x/mcp.json', sessionId: 'abc', model: 'haiku', maxBudgetUsd: 0.5 });
@@ -43,7 +44,7 @@ test('engineEnv: the profile\'s own environment and PRERUN, no other account\'s 
   const { writeProfile } = await import('../../src/profiles.mjs');
   const marker = path.join(box.root, 'prerun-ran');
   writeProfile('gw', { env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_AUTH_TOKEN: 'x-test' }, prerun: `touch ${marker}` });
-  const env = await engineEnv('gw', { PATH: process.env.PATH, ANTHROPIC_API_KEY: 'from-the-dashboard', HOPRIG_RUN_FILE: '/x', TMUX: '/t' });
+  const env = await engineEnv('gw', sealed({ PATH: process.env.PATH, ANTHROPIC_API_KEY: 'from-the-dashboard', HOPRIG_RUN_FILE: '/x', TMUX: '/t' }));
   assert.equal(env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:9');
   assert.equal(env.ANTHROPIC_API_KEY, undefined, 'another account\'s key never leaks in');
   assert.equal(env.HOPRIG_RUN_FILE, undefined);
@@ -52,12 +53,12 @@ test('engineEnv: the profile\'s own environment and PRERUN, no other account\'s 
   assert.ok(fs.existsSync(marker), 'PRERUN ran (a gateway that starts on demand)');
   await assert.rejects(engineEnv('nope', {}), /no provider "nope"/);
   writeProfile('bad', { prerun: 'exit 3' });
-  await assert.rejects(engineEnv('bad', { PATH: process.env.PATH }), /start command failed/);
+  await assert.rejects(engineEnv('bad', sealed({ PATH: process.env.PATH })), /start command failed/);
 });
 
 test('claudeCommand: claudeBin as configured; on Windows a .cmd shim goes through cmd.exe', () => {
   assert.deepEqual(claudeCommand(['-p'], {}, { bin: 'claude', platform: 'linux' }), { command: 'claude', args: ['-p'], options: {} });
-  const w = claudeCommand(['-p', 'a b'], { PATH: 'C:\\bin', PATHEXT: '.CMD' }, { bin: 'C:\\nope\\claude', platform: 'win32' });
+  const w = claudeCommand(['-p', 'a b'], { PATH: 'C:\\bin', PATHEXT: '.CMD' }, { bin: 'C:\\nope\\claude', platform: 'win32' }); // seal: a value no program is started with
   assert.equal(w.command, 'C:\\nope\\claude', 'not found: run as given');
 });
 
@@ -110,7 +111,7 @@ test('Engine: profile env + claude + args; turns in order; resumes after the pro
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hop-engine-'));
   try {
     const record = [];
-    const e = new Engine({ profile: 'api', systemPrompt: 'P', url: 'u', tokenFile: '/s/token', conversation: 'c1', dir, spawnImpl: fakeSpawn(record), resolveEnv: async (p) => ({ PROFILE_ENV: p }), command: { command: 'fake-claude', args: ['--x'] } });
+    const e = new Engine({ profile: 'api', systemPrompt: 'P', url: 'http://127.0.0.1:1', tokenFile: '/s/token', conversation: 'c1', dir, spawnImpl: fakeSpawn(record), resolveEnv: async (p) => ({ PROFILE_ENV: p }), command: { command: 'fake-claude', args: ['--x'] } });
     const [a, b] = await Promise.all([e.send('one'), e.send('two')]);
     assert.equal(a.done.text, 'echo: one');
     assert.equal(b.done.text, 'echo: two');

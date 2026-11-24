@@ -25,7 +25,7 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
  * ctx: { items (./updateitems.mjs), cards() → the session cards, config(), saveConfig(patch), record(entry),
  *        now() }
  */
-export function createUpdater({ items, cards, config, saveConfig, record = () => {}, now = Date.now }) {
+export function createUpdater({ items, cards, config, saveConfig, record = () => {}, now = Date.now, restarter = { installed: () => false, run: () => {} } }) {
   const facts = new Map(); // id → { at, info } | { at, error }
   const last = new Map(); // id → { ok, version, at, error }
   let job = null; // { ids, id, running, lines, results }
@@ -187,6 +187,15 @@ export function createUpdater({ items, cards, config, saveConfig, record = () =>
       const next = cleanUpdateSettings(patch, readUpdateSettings(config()));
       saveConfig({ updates: next });
       return next;
+    },
+    // A restart the dashboard runs for itself, so an update finished on the page needs no terminal (selfrestart.mjs).
+    // Only when it is installed as a service: a plain `serve` is restarted by the person who started it.
+    restart() {
+      if (!restarter.installed()) {
+        return { ok: false, why: 'This dashboard is not running as a background service, so it cannot restart itself. On the computer, stop it and start it again to use the new version.' };
+      }
+      restarter.run();
+      return { ok: true, restarting: true };
     },
     log(from = 0) {
       if (!job) return { running: false, id: null, ids: [], lines: [], next: 0, results: {} };

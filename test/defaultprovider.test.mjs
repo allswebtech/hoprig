@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-defprov-')));
 Object.assign(process.env, {
-  HOME: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: path.join(tmp, 'config'), HOPRIG_STATE_DIR: path.join(tmp, 'state'),
+  HOME: path.join(tmp, 'home'), USERPROFILE: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: path.join(tmp, 'config'), HOPRIG_STATE_DIR: path.join(tmp, 'state'),
   HOPRIG_PROFILES_DIR: path.join(tmp, 'profiles'), CLAUDE_CONFIG_DIR: path.join(tmp, 'claude'), HOPRIG_WORKSPACE_DIR: path.join(tmp, 'workspace'),
 });
 fs.mkdirSync(process.env.HOME);

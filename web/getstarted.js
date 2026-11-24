@@ -6,16 +6,18 @@ import { icon } from './icons.js';
 import { add, api, btn, fill, h, link, openSheet, toast } from './lib.js';
 import { linkBrainSheet } from './brainlink.js';
 import { claudeSignIn } from './claudelogin.js';
+import { signIn } from './computers.js';
 import { errorBox, okBox } from './shell.js';
 import { gitDone, gitRows, openGitSetup } from './gitsetup.js';
 import { store } from './store.js';
+import { SETTINGS_ALIASES } from './settings.js';
 
 /** Where a "page" action leads. */
 export const TARGETS = {
   'pc/setup': '#/computer/setup',
   'pc/projects': '#/workspace',
   'settings/skills': '#/skills',
-  'settings/signin-device': '#/settings/security',
+  'settings/signin-device': `#/settings/${SETTINGS_ALIASES['signin-device']}`,
   'settings/accounts': '#/providers',
   'settings/computers': '#/computers',
 };
@@ -30,8 +32,8 @@ export const PITCH = 'Install it on a fresh computer and it sets everything up; 
 export function hubOnboarding(onb, { https, joined }) {
   const phone = onb && Array.isArray(onb.steps) ? onb.steps.find((s) => s.id === 'phone') : null;
   const steps = [
-    { id: 'reachable', title: 'This hub is reachable', done: !!https, optional: false,
-      detail: https ? 'Open over HTTPS at its own address.' : 'Open it at its HTTPS address; the setup of the hub gives it one.', action: https ? null : { kind: 'page', target: 'settings/security' } },
+    { id: 'reachable', title: 'This main computer is reachable', done: !!https, optional: false,
+      detail: https ? 'Open over HTTPS at its own address.' : 'Open it at its HTTPS address; the setup of the main computer gives it one.', action: https ? null : { kind: 'page', target: 'settings/security' } },
     { id: 'computer', title: 'A first computer joined', done: !!joined, optional: false,
       detail: joined ? '' : 'Add the computer you code on: its sessions then show here.', action: { kind: 'page', target: 'settings/computers' } },
     { id: 'phone', title: phone ? phone.title : 'Your phone signed in', done: !!(phone && phone.done), optional: false,
@@ -49,7 +51,8 @@ export function withGitStep(onb, g) {
   if (!onb || !Array.isArray(onb.steps) || !g || onb.steps.some((s) => s.id === 'git')) return onb;
   const done = gitDone(g);
   const step = { id: 'git', title: 'Git and GitHub set up', optional: false, done,
-    detail: done ? `signed in as ${g.gh.account}` : gitRows(g).filter((r) => !r.ok).map((r) => `${r.title.toLowerCase()}: ${r.text.toLowerCase()}`).join('; '),
+    // Only what set-up lacks: files not saved yet are the brain row's daily line, never this step's.
+    detail: done ? `signed in as ${g.gh.account}` : gitRows(g).filter((r) => !r.ok && !(r.id === 'brain' && g.brain && g.brain.remote && g.brain.upstream)).map((r) => `${r.title[0].toLowerCase()}${r.title.slice(1)}: ${r.text[0].toLowerCase()}${r.text.slice(1)}`).join('; '),
     action: done ? null : { kind: 'git' } };
   return { ...onb, steps: [...onb.steps, step], done: (onb.done ?? onb.steps.filter((s) => !s.optional && s.done).length) + (done ? 1 : 0), total: (onb.total ?? onb.steps.filter((s) => !s.optional).length) + 1 };
 }
@@ -79,6 +82,15 @@ export function planGetStarted(onb, { dismissed = false } = {}) {
   };
 }
 
+/** "provider" said once in plain words, where a newcomer meets it first: the second-provider step. */
+export const PROVIDER_PLAIN = 'A provider is the AI account a session runs on (a Claude subscription, an API key, a gateway).';
+
+/** The second-provider step with the plain words after its own detail (the step's title is the server's). */
+export function withProviderWords(onb) {
+  if (!onb || !Array.isArray(onb.steps)) return onb;
+  return { ...onb, steps: onb.steps.map((s) => (s.id === 'account2' && !s.done ? { ...s, detail: `${s.detail ? `${s.detail.replace(/\.$/, '')}. ` : ''}${PROVIDER_PLAIN}` } : s)) };
+}
+
 /**
  * The skills step with the AI brain's skills that Claude Code does not read yet (GET /api/brain `skills.brainOnly`):
  * its detail says how many, and its button links the brain (the same sheet as the AI brain page). The count stays
@@ -86,9 +98,20 @@ export function planGetStarted(onb, { dismissed = false } = {}) {
  */
 export function withBrainSkills(onb, brainOnly) {
   if (!onb || !Array.isArray(onb.steps) || !(brainOnly > 0)) return onb;
-  const more = `${brainOnly} more in the AI brain ${brainOnly === 1 ? 'is' : 'are'} not used yet`;
-  return { ...onb, steps: onb.steps.map((s) => (s.id === 'skills' ? { ...s, done: false, detail: s.done ? `${s.detail}; ${more}` : more, action: { kind: 'link-brain' } } : s)),
+  return { ...onb, steps: onb.steps.map((s) => (s.id === 'skills' ? { ...s, done: false, detail: skillsWords(s, brainOnly), action: { kind: 'link-brain' } } : s)),
     done: onb.steps.some((s) => s.id === 'skills' && s.done) ? (onb.done ?? onb.steps.filter((s) => !s.optional && s.done).length) - 1 : onb.done };
+}
+
+/**
+ * The skills step's words when the AI brain holds skills Claude Code does not read yet: "skill" said once in plain
+ * words, and "AI brain" or "link" not at all (a newcomer knows neither). The count Claude Code knows is the server's
+ * (its detail starts with it); `more` is the brain's.
+ */
+export function skillsWords(step, more) {
+  const n = step && step.done ? Number((/^(\d+)/.exec(step.detail || '') || [])[1]) || 0 : 0;
+  const stored = `${more} more ${more === 1 ? 'is' : 'are'} stored but not switched on.`;
+  if (n > 0) return `Claude Code knows ${n} extra ${n === 1 ? 'skill' : 'skills'} (a ready-made way of working). ${stored}`;
+  return `${more} ${more === 1 ? 'skill' : 'skills'} (a ready-made way of working) ${more === 1 ? 'is' : 'are'} stored but not switched on.`;
 }
 
 /** The label of a step's one button. */
@@ -97,8 +120,11 @@ export function actionLabel(a) {
   if (a.kind === 'terminal' || a.kind === 'claude-login') return a.label || 'Open a terminal';
   if (a.kind === 'git') return 'Set up git and GitHub';
   if (a.kind === 'install-claude') return a.label || 'Install Claude Code';
-  if (a.kind === 'request') return 'Do it';
-  if (a.kind === 'link-brain') return 'Link now';
+  // A step that one press does names what it does (the server's label); an older Hoprig's step sends none.
+  if (a.kind === 'request') return a.label || 'Do it';
+  if (a.kind === 'link-brain') return 'Switch on';
+  // The phone step's press makes a sign-in code at once (phoneSheet): the button says so.
+  if (a.kind === 'page' && a.target === 'settings/signin-device') return 'Show a sign-in code';
   return 'Open';
 }
 
@@ -112,7 +138,7 @@ function installClaude(after) {
       try {
         await api('~/api/onboarding/install-claude', {});
       } catch (e) {
-        return fill(state, errorBox(e.message));
+        return fill(state, errorBox(e));
       }
       let from = 0;
       for (;;) {
@@ -137,14 +163,43 @@ function installClaude(after) {
   });
 }
 
+/**
+ * The phone step's sheet: the sign-in code of Settings → Security and sign-in (signIn of computers.js), made at once.
+ * Only his press of the step's button makes a code; an address alone (#/settings/security) never does.
+ */
+export function phoneSheet(after) {
+  let alive = true;
+  // No subtitle: the line under the code says how to scan it (it was said twice).
+  return openSheet({ title: 'Sign in your phone' }, () => {
+    const parts = signIn({ isAlive: () => alive });
+    // He pressed the step's button to get the code: it is shown now, not after a second press of the same words. The
+    // button then makes another code, so it says so, as a second choice: an earlier code still works once until its
+    // time (the server keeps each one apart).
+    const make = parts[1] && typeof parts[1].querySelector === 'function' ? parts[1].querySelector('button') : null;
+    if (make) {
+      queueMicrotask(() => {
+        make.click();
+        make.className = make.className.replace(/\bprimary\b/, 'secondary');
+        const label = make.querySelector('span');
+        if (label) fill(label, 'Make a new code');
+      });
+    }
+    return [...parts, h('p.hint', 'A new code does not end the one before: each works once, until its time runs out.')];
+  }).then(() => {
+    alive = false;
+    after?.();
+  });
+}
+
 /** Run a step's action: open a part of the page, install Claude Code or sign it in (in the page), a terminal session, or call a route. */
 export async function runAction(a, after) {
   try {
     if (a.kind === 'git') {
       if (await openGitSetup()) after?.();
     } else if (a.kind === 'install-claude') installClaude(after);
-    else if (a.kind === 'link-brain') await linkBrainSheet(after, { prefix: '~' });
+    else if (a.kind === 'link-brain') await linkBrainSheet(after, { prefix: '~', switchOn: true }); // the button said Switch on
     else if (a.kind === 'claude-login') await claudeSignIn({ done: after }); // in the page, no terminal
+    else if (a.kind === 'page' && a.target === 'settings/signin-device') await phoneSheet(after);
     else if (a.kind === 'page') location.hash = link(TARGETS[a.target] || '#/settings');
     else if (a.kind === 'terminal') {
       const r = await api('~/api/onboarding/run', { run: a.run });
@@ -155,7 +210,7 @@ export async function runAction(a, after) {
       after?.();
     }
   } catch (e) {
-    toast(e.message, { kind: 'error' });
+    toast(e, { kind: 'error' });
   }
 }
 
@@ -178,7 +233,8 @@ export function getStartedCard(onb, opts = {}) {
       h('span.gs-body',
         h('span.gs-title', s.title),
         s.detail && (isNext || !s.done) ? h('span.gs-detail', s.detail) : null),
-      !s.done && s.action && (isNext || s.optional)
+      // Every open step has its button: a person who comes for one step (the phone) must not wait for the others.
+      !s.done && s.action
         ? h(`button.btn.small${isNext ? '.primary' : '.secondary'}`, { type: 'button', onclick: () => runAction(s.action, opts.refresh) }, actionLabel(s.action))
         : null);
   };
@@ -220,7 +276,7 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
   // On a hub the checklist is the hub's own (hubOnboarding); elsewhere the coding one from the server.
   let git = null; // GET /api/workspace/git, for the Git and GitHub step
   let brainOnly = 0; // GET /api/brain skills.brainOnly, for the skills step
-  const steps = () => (onb && hub() ? hubOnboarding(onb, { https: location.protocol === 'https:', joined: store.all.length > 1 }) : withGitStep(withBrainSkills(onb, brainOnly), git));
+  const steps = () => (onb && hub() ? hubOnboarding(onb, { https: location.protocol === 'https:', joined: store.all.length > 1 }) : withGitStep(withBrainSkills(withProviderWords(onb), brainOnly), git));
   const paint = () => {
     fill(el, getStartedCard(steps(), {
       dismissed: dismissed(),
@@ -235,9 +291,9 @@ export function getStartedArea({ firstRun = () => false, onChange = () => {} } =
         try {
           await api('~/api/settings', { server: { getStartedDismissed: true } });
           await store.refresh();
-          toast('Closed. Settings → About brings it back.');
+          toast('Closed. Settings → About brings it back.', { ms: 8000, action: { label: 'Open About', run: () => (location.hash = link('#/settings/about?show=this-device')) } });
         } catch (e) {
-          toast(e.message, { kind: 'error' });
+          toast(e, { kind: 'error' });
         }
         paint();
         onChange();

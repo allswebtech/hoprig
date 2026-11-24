@@ -1,33 +1,31 @@
-// Automations (#/automations/<tab>): things the dashboard does by itself, by fixed rules, without AI (src/automation).
-// One page per computer, in four parts, each with its own address:
-//   Schedules  (#/automations, the first)   the list, "Add schedule", a form that reads like a sentence
-//   Queue      (#/automations/queue)        the messages waiting per session (added from a session's "Queue" button)
-//   Rules      (#/automations/rules)        one switch per automation, in two groups
-//   Activity   (#/automations/activity)     what the automations did, newest first, in plain sentences
-// "Pause all automations", rarely used, is under Rules → Advanced; while it is on, a banner with Resume says so on
-// every part.
+// The automations (src/automation): things the dashboard does by itself, by fixed rules, without AI. There is no page of
+// their own any more (fewer pages): their parts live where a person looks for them.
+//   Schedules  Work → Schedules (#/work/schedules, web/workschedules.js): the list, "Add schedule" (this file's form,
+//              a sentence that says what will happen), and the queue below it
+//   Rules      Settings → Automations (#/settings/automations, below): one switch per automation; "Pause all
+//              automations", rarely used, under Advanced
+//   Activity   Work → Activity (#/work/activity): what the automations did, under the runs of the tasks
 // The same file brings the session view's "Queue" button and the "3 queued" badge on Home's session cards.
 import { icon } from './icons.js';
 import { TOOL_NAMES, ago, api, at, btn, chooseSheet, confirmSheet, fill, h, isCodingCard, link, machine, needsYouFirst, openSheet, servesTool, stateOf, tildePath, toast } from './lib.js';
+
+// The queue's switch on Settings → Automations, opened at the switch itself (showpart.js).
+export const QUEUE_SWITCH = '#/settings/automations?show=queue';
 import { chatTools } from './chat/start.js';
-import { registerCardBadge, registerPage, registerSessionAction } from './registry.js';
-import { emptyState, errorBox, fold, groupHead, panel, savedMark, tabBar, toggle } from './shell.js';
+import { registerCardBadge, registerSessionAction, registerSettingsPage } from './registry.js';
+import { emptyState, errorBox, fold, groupHead, panel, savedMark, toggle } from './shell.js';
 import { store } from './store.js';
 import { accountLabel, providerLine } from './providerword.js';
 import './addons.js';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const TABS = [
-  ['schedules', 'Schedules', 'clock'],
-  ['queue', 'Queue', 'send'],
-  ['rules', 'Rules', 'zap'],
-  ['activity', 'Activity', 'text'],
-];
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 const folderName = (dir) => String(dir || '').split(/[\\/]/).filter(Boolean).pop() || dir || '';
 
 // ---------- words (exported for the tests) ----------
+
+export const nth = (n) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`;
 
 /** "Every day at 08:30", "Weekdays at 18:00", "Mon, Wed at 09:00", "Once, Sat 15 Nov at 10:00". */
 export function whenText(w) {
@@ -40,6 +38,7 @@ export function whenText(w) {
     if (w.days.length === 1) return `Every ${DAY_NAMES[w.days[0]]} at ${w.time}`;
     return `${[...w.days].sort().map((x) => DAYS[x]).join(', ')} at ${w.time}`;
   }
+  if (w.kind === 'monthly') return `Every month on the ${nth(w.day)}${w.day > 28 ? ' (or its last day)' : ''} at ${w.time}`;
   const date = /^\d{4}-\d{2}-\d{2}$/.test(w.date || '') ? new Date(`${w.date}T00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) : 'a day to pick';
   return `Once, ${date} at ${w.time}`;
 }
@@ -51,6 +50,10 @@ export function whenText(w) {
  * the Terminal").
  */
 export function whatText(a, accountLabel = (n) => n, sessionLabel = (n) => (n.startsWith('chat:') ? 'a session in the App' : n), o = {}) {
+  if (a.type === 'alone') {
+    const where = `${a.project || 'a project'}${a.folder ? `/${a.folder}` : ''}`;
+    return `let the AI work by itself in ${where} in a separate copy, so your project is not changed until you accept, for at most ${a.minutes || 30} minutes${a.provider ? ` on ${accountLabel(a.provider)}` : ''}${a.mode === 'bypassPermissions' ? ', allowed everything without asking' : a.mode === 'acceptEdits' ? ', allowed to edit files in its own copy' : ''}, and ${a.tell === 'always' ? 'tell you every time' : 'tell you only when there is something to report'}`;
+  }
   if (a.type === 'start') {
     const where = folderName(a.dir);
     const chat = a.in === 'chat';
@@ -65,7 +68,7 @@ export function whatText(a, accountLabel = (n) => n, sessionLabel = (n) => (n.st
 /** The whole schedule as one sentence: "Every day at 08:30, start a session in the Terminal in api-server on Auto mode." */
 export const scheduleSentence = (s, accountLabel, sessionLabel, o = {}) => `${whenText(s.when)}, ${whatText(s.action, accountLabel, sessionLabel, o)}.`;
 
-const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a restart', retry: 'Try again', updates: 'Updates', idle: 'Housekeeping', hub: 'Another dashboard' };
+const WHO = { queue: 'Queue', schedules: 'Schedule', restore: 'Reopen after a restart', retry: 'Try again', updates: 'Updates', idle: 'Housekeeping', hub: 'Another dashboard', handsoff: 'Hands-off' };
 
 /**
  * One line of Activity in plain words: { title, sub, problem } — the title says what happened as a sentence, `problem`
@@ -80,9 +83,14 @@ export function activityLine(e, sessionLabel = (n) => (n.startsWith('chat:') ? '
   const problem = /^failed/.test(o) ? `It did not work${o.slice(6) ? `: ${o.replace(/^failed:?\s*/, '')}` : ''}.`
     : /^gave up/.test(o) ? 'It gave up; open the session to see why.'
       : /^missed/.test(o) ? `Missed: ${o.replace(/^missed:?\s*/, '')}.`
-        : null;
+        // A run that ended but had a step refused (src/work/alone.mjs): it needs the owner, never a plain success.
+        : /^ok: a step needed an OK and was refused/.test(o) ? `${cap(o.replace(/^ok:\s*/, ''))}: nobody was there to allow it.`
+          : /^ok: another branch moved/.test(o) ? `${cap(o.replace(/^ok:\s*/, ''))} while it ran, by the run or by you: if it was not you, look at it.`
+            : null;
   const note = problem || o === 'ok' ? null : cap(o.replace(/:\s*/, ': '));
-  return { title, sub: [WHO[e.automation] || cap(e.automation), e.session ? sessionLabel(String(e.session)) : null, note].filter(Boolean).join(' · '), problem };
+  // A line that names a setting opens its page (`to`): the sentence says where, the link goes there.
+  const to = /Settings → Workspace/.test(o) ? { href: '#/settings/workspace', label: 'Open Settings → Workspace' } : null;
+  return { title, sub: [WHO[e.automation] || cap(e.automation), e.session ? sessionLabel(String(e.session)) : null, note].filter(Boolean).join(' · '), problem, ...(to ? { to } : {}) };
 }
 
 const GAINED = /^The map gained (.+)$/;
@@ -135,90 +143,9 @@ async function saveSettings(patch) {
 
 const loading = (text = 'Loading…') => h('div.empty.compact.au-loading', h('div.spinner', { 'aria-hidden': 'true' }), h('p', text));
 
-// ---------- the page ----------
-function viewAutomations({ frame, sub }) {
-  const tab = TABS.find((t) => t[0] === sub) ? sub : sub ? null : 'schedules';
-  if (!tab) {
-    location.replace(link('#/automations'));
-    return () => {};
-  }
-  let alive = true;
-  const isAlive = () => alive;
-  const bannerSlot = h('div.au-banner');
-  const content = h('div.au-content');
-  const tabs = tabBar('Parts of Automations', TABS.map(([id, label, ic]) => ({ id, label, icon: ic, href: link(id === 'schedules' ? '#/automations' : `#/automations/${id}`) })), tab);
-
-  const addSchedule = (preset = null) => scheduleForm(null, preset).then((ok) => ok && load());
-  frame({
-    title: 'Automations',
-    page: 'automations',
-    intro: 'What the dashboard does for you by fixed rules, without AI.',
-    primary: tab === 'schedules' ? { label: 'Add schedule', icon: 'plus', onclick: () => addSchedule() } : null,
-    body: [tabs, bannerSlot, content],
-  });
-
-  const setPaused = async (v) => {
-    const next = await saveSettings({ paused: v });
-    paintBanner(next);
-    if (tab === 'rules') paintContent(next);
-  };
-  /** The rare switch, for Rules → Advanced (on a card, as every rule above it is). */
-  function pauseRow(st) {
-    const row = toggle('Pause all automations', !!st.settings.paused, async (v) => {
-      try {
-        await setPaused(v);
-      } catch (e) {
-        row.querySelector('input').checked = !v;
-        throw e;
-      }
-    }, 'Nothing is sent, started, closed or updated by itself while this is on. Your schedules and queues are kept.');
-    return row;
-  }
-  function paintBanner(st) {
-    fill(bannerSlot, st && st.settings.paused
-      ? h('div.banner.warn.au-inline', { role: 'status' }, icon('alert', { size: 18 }), h('span', 'All automations are paused. Nothing runs by itself until you resume them.'),
-        btn('small secondary', { label: 'Resume', onclick: () => setPaused(false).catch(() => {}) }))
-      : null);
-  }
-  function paintContent(st) {
-    if (tab === 'schedules') return fill(content, schedulesPart(st, { reload: load, addSchedule }));
-    if (tab === 'queue') return fill(content, queuePart(st, load));
-    if (tab === 'rules') return fill(content, rulesPart(st, (next) => { paintBanner(next); }), fold('automations-advanced', 'Advanced', panel({}, pauseRow(st))));
-    return activityPart(content, isAlive);
-  }
-
-  async function load() {
-    let st;
-    try {
-      st = await api('/api/automation');
-    } catch (e) {
-      if (!alive) return;
-      if (!cache.get(keyOf())) {
-        fill(content, errorBox(`Could not load the automations: ${e.message}`, load));
-      } else toast(`Could not refresh: ${e.message}`, { kind: 'error' });
-      return;
-    }
-    if (!alive) return;
-    cache.set(keyOf(), st);
-    paintBanner(st);
-    paintContent(st);
-  }
-
-  const seen = cache.get(keyOf());
-  paintBanner(seen || null);
-  if (seen) paintContent(seen);
-  else fill(content, loading());
-  load();
-  return () => {
-    alive = false;
-  };
-}
-
-registerPage({ id: 'automations', title: 'Automations', icon: 'clock', group: 'more', order: 10, perComputer: true, render: viewAutomations });
-
 // ---------- Schedules ----------
 
-function schedulesPart(st, { reload, addSchedule }) {
+export function schedulesPart(st, { reload, addSchedule, rows = null, computers = [] }) {
   const off = !st.settings.schedules.enabled;
   const turnOn = async () => {
     try {
@@ -232,23 +159,23 @@ function schedulesPart(st, { reload, addSchedule }) {
   const offBanner = off
     ? h('div.banner.info.au-inline', icon('info', { size: 18 }), h('span', 'Schedules are turned off, so none of these runs.'), btn('small secondary', { label: 'Turn schedules on', onclick: turnOn }))
     : null;
-  if (!st.schedules.length) {
+  if (!st.schedules.length && !(rows && rows.length)) {
     const example = {
       label: 'Morning dependency check',
       when: { kind: 'weekly', time: '08:30', days: [1, 2, 3, 4, 5] },
       prompt: 'Check for outdated dependencies and write a short summary',
     };
     return [offBanner, h('div.au-empty',
-      emptyState('clock', 'No schedules yet. A schedule starts a session or sends a message at a set time, for example:'),
-      h('p.au-example', '“Weekdays at 08:30, start a session in my project that checks for outdated dependencies.”'),
+      emptyState('clock', 'No schedules yet. A schedule lets the AI work by itself, starts a session or sends a message at a set time, for example:'),
+      h('p.au-example', '“Weekdays at 08:30, let the AI work by itself in my project and check for outdated dependencies.”'),
       btn('secondary', { icon: 'pencil', label: 'Start from this example', onclick: () => addSchedule(example) }))];
   }
-  const list = st.schedules.map((s) => scheduleRow(s, reload, st.timeZone));
+  const list = st.schedules.map((s) => scheduleRow(s, reload, st.timeZone, computers));
   return [
     offBanner,
-    groupHead('Schedules', st.schedules.length),
-    h('div.rows', list),
-    h('p.hint.au-foot', 'Times are this computer\'s clock. A message waits in the session\'s queue (a session in the App queues it itself), so it never interrupts a reply. A run missed while the computer was off still runs if it is less than 2 hours late.'),
+    groupHead('Schedules and repeating tasks', st.schedules.length + (rows ? rows.length : 0)),
+    h('div.rows', list, rows || []),
+    h('p.hint.au-foot', `Times are this computer's clock${st.timeZone ? ` (${st.timeZone})` : ''}. A run that ends by itself works in a separate copy of the project, so your project is not changed until you accept; a message waits in the session's queue, so it never interrupts a reply. A run missed while the computer was off still runs if it is less than ${st.settings.schedules.lateHours} hours late. A run on another computer that cannot be reached at its time is missed and runs nowhere else; at its time limit a run is stopped and keeps what it did.`),
   ];
 }
 
@@ -278,14 +205,18 @@ export function nextRunText(ms, now = Date.now(), timeZone = undefined) {
   return `${day} ${two(a.hour % 24)}:${two(a.minute)}`; // % 24: an engine that writes midnight as 24
 }
 
-function scheduleRow(s, reload, timeZone) {
+function scheduleRow(s, reload, timeZone, computers = []) {
   const mark = savedMark();
   const line = providerLine((label) => scheduleSentence(s, label));
-  const next = !s.enabled ? 'Off' : s.nextAt ? `Next run ${nextRunText(s.nextAt, Date.now(), timeZone)}` : 'Done: it ran once';
+  // The computer it runs on, by its name, and the time on that computer's own clock where it is another.
+  const other = s.computer ? computers.find((c) => c.id === s.computer) : null;
+  const on = s.computer && !(other && other.here) ? ` · on ${other ? other.label : 'a computer not linked now'}${other && other.timeZone && other.timeZone !== timeZone && s.nextAt ? ` (${nextRunText(s.nextAt, Date.now(), other.timeZone)} there)` : ''}` : ' · on this computer';
+  const next = (!s.enabled ? 'Off' : s.nextAt ? `Next run ${nextRunText(s.nextAt, Date.now(), timeZone)}` : 'Done: it ran once') + (s.action.type === 'alone' ? on : '');
+  const away = s.computer && other && !other.here && other.reachable === false ? `${other.label} is not connected now: at its time this does not run anywhere.` : null;
   const turn = async (e) => {
     const on = e.target.checked;
     try {
-      const { id, nextAt, lastAt, since, ...rest } = s;
+      const { id, nextAt, lastAt, since, ...rest } = s; // (computer stays in rest)
       await api('/api/automation/schedules', { op: 'change', id, schedule: { ...rest, enabled: on } });
       mark.show(on ? 'On' : 'Off');
       setTimeout(reload, 900);
@@ -310,6 +241,7 @@ function scheduleRow(s, reload, timeZone) {
       h('span.row-title', s.label || line, mark),
       s.label ? h('span.au-sentence-line', line) : null,
       h('span.row-sub', next, s.lastAt ? ` · last ran ${ago(s.lastAt)}` : ''),
+      away ? h('span.wk-waits', icon('alert', { size: 14 }), h('span', away)) : null,
       h('div.au-sched-actions',
         btn('small ghost', { icon: 'pencil', label: 'Change', onclick: async () => (await scheduleForm(s)) && reload() }),
         btn('small ghost', { icon: 'trash', label: 'Remove', onclick: remove }))),
@@ -319,14 +251,18 @@ function scheduleRow(s, reload, timeZone) {
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 /** The add / change form. `preset` fills a new one (the example). Resolves true when saved. */
-async function scheduleForm(old, preset = null) {
+export async function scheduleForm(old, preset = null) {
   const d = store.data || { sessions: [], profiles: [] };
   // The projects to pick from, recent first, as New session lists them; "Another folder" types one.
-  const [recent, proj, tools] = await Promise.all([
+  const [recent, proj, tools, work, comps] = await Promise.all([
     api('/api/folders/recent').catch(() => ({ folders: [] })),
     api('/api/pcsetup/projects').catch(() => null), // an older computer, or no projects folder
     chatTools(), // the coding tools a chat can run on the open computer (Claude Code alone on most)
+    api('/api/work').catch(() => ({ projects: [] })), // the workspace's projects (a run that ends by itself works in one)
+    api('/api/work/computers').catch(() => ({ computers: [] })), // this computer and the linked ones
   ]);
+  const wsProjects = work.projects || [];
+  const computers = comps.computers || [];
   const folders = [...new Set([
     ...recent.folders.map((f) => f.path),
     ...(proj ? [...proj.workspaces.flatMap((w) => w.repos.map((r) => r.dir)), ...proj.repos.map((r) => r.dir)] : []),
@@ -348,13 +284,14 @@ async function scheduleForm(old, preset = null) {
   const claudeSessions = targets.map(([n]) => n);
   const sessionLabel = (n) => (targets.find(([x]) => x === n) || [null, n.startsWith('chat:') ? 'a session in the App' : n])[1].replace(/^App: (.*)$/, 'the App session "$1"');
   const tomorrow = ymd(new Date(Date.now() + 86_400_000));
+  const aloneOf = (prompt = '') => ({ type: 'alone', project: wsProjects[0] || '', prompt, provider: firstAccount, minutes: 30 });
   const s = old
-    ? JSON.parse(JSON.stringify({ label: old.label || '', when: old.when, action: old.action, enabled: old.enabled }))
+    ? JSON.parse(JSON.stringify({ label: old.label || '', when: old.when, action: old.action, enabled: old.enabled, ...(old.computer ? { computer: old.computer } : {}) }))
     : {
       label: (preset && preset.label) || '',
       enabled: true,
       when: (preset && preset.when) || { kind: 'daily', time: '09:00' },
-      action: { type: 'start', in: 'chat', dir: folders[0] || '', profile: firstAccount, prompt: (preset && preset.prompt) || '' },
+      action: wsProjects.length ? aloneOf((preset && preset.prompt) || '') : { type: 'start', in: 'chat', dir: folders[0] || '', profile: firstAccount, prompt: (preset && preset.prompt) || '' },
     };
   return openSheet({ title: old ? 'Change schedule' : 'New schedule', subtitle: 'Read the sentence: that is what will happen.', wide: true }, (close) => {
     const err = h('p.form-error', { role: 'alert' });
@@ -367,15 +304,17 @@ async function scheduleForm(old, preset = null) {
     const paintWhen = () => {
       const w = s.when;
       fill(whenBox,
-        seg('How often', [['daily', 'Every day'], ['weekly', 'On some days'], ['once', 'Once']], w.kind, (k) => {
-          s.when = k === 'once' ? { kind: k, time: w.time, date: tomorrow } : k === 'weekly' ? { kind: k, time: w.time, days: [1, 2, 3, 4, 5] } : { kind: k, time: w.time };
+        seg('How often', [['daily', 'Every day'], ['weekly', 'On some days'], ['monthly', 'Every month'], ['once', 'Once']], w.kind, (k) => {
+          s.when = k === 'once' ? { kind: k, time: w.time, date: tomorrow } : k === 'weekly' ? { kind: k, time: w.time, days: [1, 2, 3, 4, 5] } : k === 'monthly' ? { kind: k, time: w.time, day: new Date().getDate() } : { kind: k, time: w.time };
           paintWhen();
           paintSentence();
         }),
+        w.kind === 'monthly' ? h('p.hint', 'In a shorter month, a day past its end is its last day (the 31st in April is the 30th).') : null,
         w.kind === 'weekly'
           ? h('div.checks.au-days', { role: 'group', 'aria-label': 'Days' }, DAYS.map((name, i) => h('label.check', h('input', { type: 'checkbox', checked: w.days.includes(i), onchange: (e) => { w.days = e.target.checked ? [...w.days, i].sort() : w.days.filter((x) => x !== i); } }), h('span', name))))
           : null,
         h('div.au-inline-fields',
+          w.kind === 'monthly' ? h('label.fieldrow', h('span.field-label', 'On day'), h('input.field.au-num', { type: 'number', min: 1, max: 31, value: w.day, oninput: (e) => (w.day = Number(e.target.value)) })) : null,
           w.kind === 'once' ? h('label.fieldrow', h('span.field-label', 'Day'), h('input.field', { type: 'date', value: w.date, min: ymd(new Date()), oninput: (e) => (w.date = e.target.value) })) : null,
           h('label.fieldrow', h('span.field-label', 'At'), h('input.field', { type: 'time', value: w.time, required: true, oninput: (e) => (w.time = e.target.value) }))));
     };
@@ -398,12 +337,13 @@ async function scheduleForm(old, preset = null) {
     const paintWhat = () => {
       const a = s.action;
       fill(whatBox,
-        seg('What it does', [['start', 'Start a session'], ['send', 'Send a message']], a.type, (t) => {
-          s.action = t === 'start' ? { type: 'start', in: 'chat', dir: folders[0] || '', profile: firstAccount, prompt: '' } : { type: 'send', session: claudeSessions[0] || '', text: '' };
+        seg('What it does', [['alone', 'Let the AI work by itself'], ['start', 'Start a session'], ['send', 'Send a message']], a.type, (t) => {
+          s.action = t === 'alone' ? aloneOf() : t === 'start' ? { type: 'start', in: 'chat', dir: folders[0] || '', profile: firstAccount, prompt: '' } : { type: 'send', session: claudeSessions[0] || '', text: '' };
+          if (t !== 'alone') delete s.computer;
           paintWhat();
           paintSentence();
         }),
-        a.type === 'start'
+        a.type === 'alone' ? aloneFields(a) : a.type === 'start'
           ? [
             h('div.field-label', 'Open as'),
             seg('Open as', [['chat', 'App'], ['terminal', 'Terminal']], a.in === 'chat' ? 'chat' : 'terminal', (v) => {
@@ -433,7 +373,7 @@ async function scheduleForm(old, preset = null) {
             accountsFor(toolOf(a)).length
               ? h('label.fieldrow', h('span.field-label', 'On the provider'),
                 h('select.field', { onchange: (e) => { a.profile = e.target.value; paintSentence(); } }, accountsFor(toolOf(a)).map(([v, t]) => h('option', { value: v, selected: v === a.profile }, t))))
-              : h('p.hint', `No provider serves ${TOOL_NAMES[toolOf(a)] || toolOf(a)} yet: add one under Providers.`),
+              : h('p.hint', `No provider serves ${TOOL_NAMES[toolOf(a)] || toolOf(a)} yet: add one under `, h('a', { href: link('#/providers') }, 'Providers'), '.'),
             h('label.fieldrow', h('span.field-label', 'First message (optional)'),
               h('textarea.field', { rows: 2, value: a.prompt || '', placeholder: `What ${toolOf(a) === 'claude' ? 'Claude' : TOOL_NAMES[toolOf(a)] || 'it'} should start with`, oninput: (e) => (a.prompt = e.target.value) })),
           ]
@@ -447,6 +387,45 @@ async function scheduleForm(old, preset = null) {
               h('textarea.field', { rows: 2, value: a.text || '', required: true, placeholder: 'run the tests and fix what fails', oninput: (e) => (a.text = e.target.value) })),
           ]);
     };
+    // A run that ends by itself: where, what, on which provider and computer, how long at most, what to tell.
+    function aloneFields(a) {
+      // Shown only while it is chosen (a banner's own display would beat `hidden`, so it is left out instead).
+      const bypass = a.mode === 'bypassPermissions' ? h('p.banner.warn.au-inline', icon('alert', { size: 18 }), h('span', 'Nobody watches this run: with this on, it can change, delete or send anything without asking you, also switch or move other branches, push and delete them. A branch other than its own that moves while it runs is always told.')) : null;
+      return [
+        wsProjects.length
+          ? h('label.fieldrow', h('span.field-label', 'In the project'), h('select.field', { onchange: (e) => { a.project = e.target.value; paintSentence(); } }, wsProjects.map((p) => h('option', { value: p, selected: p === a.project }, p))))
+          : h('p.hint', 'The workspace has no project yet: a run by itself works in one.'),
+        h('label.fieldrow', h('span.field-label', 'What it should do'),
+          h('textarea.field', { rows: 3, value: a.prompt || '', required: true, maxlength: 4000, placeholder: 'Check for outdated dependencies and update the safe ones', oninput: (e) => (a.prompt = e.target.value) })),
+        h('div.au-inline-fields',
+          accountsFor('claude').length
+            ? h('label.fieldrow', h('span.field-label', 'On the provider'), h('select.field', { onchange: (e) => { a.provider = e.target.value; paintSentence(); } }, accountsFor('claude').map(([v, t]) => h('option', { value: v, selected: v === a.provider }, t))))
+            : h('p.hint', 'No provider serves Claude Code yet: add one under ', h('a', { href: link('#/providers') }, 'Providers'), '.'),
+          h('label.fieldrow', h('span.field-label', 'Time limit (minutes)'), h('input.field.au-num', { type: 'number', min: 1, max: 240, value: a.minutes || 30, oninput: (e) => (a.minutes = Number(e.target.value)) }))),
+        computers.length > 1 ? h('label.fieldrow', h('span.field-label', 'On the computer'), h('select.field', { onchange: (e) => {
+          if (e.target.value) s.computer = e.target.value;
+          else delete s.computer;
+          paintSentence();
+        } }, computers.map((c) => h('option', { value: c.here ? '' : c.id, selected: c.here ? !s.computer : c.id === s.computer }, c.here ? `${c.label} (this computer)` : `${c.label}${c.reachable ? '' : ' (not connected now)'}`)))) : null,
+        h('div.field-label', 'Tell me'),
+        seg('Tell me', [['news', 'Only when there is something to report'], ['always', 'Every time']], a.tell === 'always' ? 'always' : 'news', (v) => {
+          if (v === 'always') a.tell = 'always';
+          else delete a.tell;
+          paintWhat();
+          paintSentence();
+        }),
+        h('div.field-label', 'What it may do without asking'),
+        // Between the mode that asks (a step that needs an OK is refused) and allow-everything: edits of files.
+        seg('What it may do without asking', [['manual', 'Nothing: a step that needs an OK is refused'], ['acceptEdits', 'Edit files in its own copy'], ['bypassPermissions', 'Every step']], ['acceptEdits', 'bypassPermissions'].includes(a.mode) ? a.mode : 'manual', (v) => {
+          if (v === 'manual') delete a.mode;
+          else a.mode = v;
+          paintWhat();
+          paintSentence();
+        }),
+        bypass,
+        h('p.hint', 'It runs once without a person, in a separate copy of the project, and ends at the time limit. A step that needs your OK is refused and said in its result. Nothing is pushed or merged.'),
+      ];
+    }
     paintWhen();
     paintWhat();
     paintSentence();
@@ -457,6 +436,10 @@ async function scheduleForm(old, preset = null) {
         const schedule = { ...s, label: s.label.trim() };
         if (!schedule.label) delete schedule.label;
         if (schedule.action.type === 'start' && !schedule.action.prompt) delete schedule.action.prompt;
+        if (schedule.action.type === 'alone' && !String(schedule.action.prompt || '').trim()) {
+          err.textContent = 'Say what it should do.';
+          return;
+        }
         if (schedule.when.kind === 'weekly' && !schedule.when.days.length) {
           err.textContent = 'Pick at least one day.';
           return;
@@ -487,11 +470,11 @@ async function scheduleForm(old, preset = null) {
 
 // ---------- Queue ----------
 
-function queuePart(st, reload) {
+export function queuePart(st, reload) {
   const rows = Object.entries(st.queues || {}).filter(([, q]) => q.count || q.paused).sort((a, b) => b[1].count - a[1].count);
   const off = !st.settings.queue.enabled;
   return [
-    off ? h('p.banner.info', icon('info', { size: 18 }), h('span', 'Sending the next queued message is turned off under Rules, so queued messages wait.')) : null,
+    off ? h('p.banner.info', icon('info', { size: 18 }), h('span', 'Sending the next queued message is turned off in Settings → Automations, so queued messages wait. ', h('a', { href: link(QUEUE_SWITCH) }, 'Open the switch'))) : null,
     h('div.savebar.start', btn('primary', { icon: 'plus', label: 'Queue a message', onclick: () => queueFor(reload) })),
     rows.length
       ? [groupHead('Sessions with a queue', rows.length),
@@ -574,13 +557,13 @@ function rulesPart(st, after) {
   idleGateway.hidden = !s.idle.gateway;
   return [
     panel({ icon: 'clock', title: 'While you are away', desc: 'Keep the work going when you are not watching.' },
-      rule('Send the next queued message', s.queue.enabled, (v) => ({ queue: { enabled: v } }),
-        'Each time a reply ends, the next message from that session\'s queue is sent.'),
+      Object.assign(rule('Send the next queued message', s.queue.enabled, (v) => ({ queue: { enabled: v } }),
+        'Each time a reply ends, the next message from that session\'s queue is sent.'), { id: 'queue' }),
       rule('Try again after a server error', s.retry.enabled, (v) => ({ retry: { enabled: v } }),
         'In a Claude Code session: when the provider\'s servers are busy or the connection breaks, it waits a little and sends "continue", up to three times; never at a usage limit.'),
       rule('Reopen sessions after a restart', !!st.restoreOn, (v) => ({ restore: { enabled: v } }),
-        'Claude Code sessions lost when the computer or the dashboard restarts come back with their conversation; nothing is typed into them.')),
-    panel({ icon: 'settings', title: 'Housekeeping', desc: 'Keep the computer tidy. New versions have a page of their own: Settings → Updates.' },
+        'Claude Code and OpenCode sessions lost when the computer or the dashboard restarts come back with their conversation; nothing is typed into them.')),
+    panel({ icon: 'settings', title: 'Housekeeping', desc: ['Keep the computer tidy. New versions have a page of their own: ', h('a', { href: link('#/settings/updates') }, 'Settings → Updates'), '.'] },
       rule('Close idle terminals', s.idle.shells, (v) => ({ idle: { shells: v } }),
         'Closes a plain terminal that nobody uses after it has been quiet for a while; a coding tool\'s session is never closed.', (v) => (idleShells.hidden = !v)),
       idleShells,
@@ -590,9 +573,63 @@ function rulesPart(st, after) {
   ];
 }
 
+/** The rare switch, under Advanced. `after(next)`: the status as saved. */
+function pauseRow(st, after) {
+  const row = toggle('Pause all automations', !!st.settings.paused, async (v) => {
+    try {
+      after(await saveSettings({ paused: v }));
+    } catch (e) {
+      row.querySelector('input').checked = !v;
+      throw e;
+    }
+  }, 'Nothing is sent, started, closed or updated by itself while this is on. Your schedules and queues are kept.');
+  return row;
+}
+
+/** The banner every place of the automations shows while they are paused, with Resume (one tap). */
+export function pausedBanner(st, after) {
+  return st && st.settings.paused
+    ? h('div.banner.warn.au-inline', { role: 'status' }, icon('alert', { size: 18 }), h('span', 'All automations are paused. Nothing runs by itself until you resume them.'),
+      btn('small secondary', { label: 'Resume', onclick: () => saveSettings({ paused: false }).then(after, () => {}) }))
+    : null;
+}
+
+/** "Runs by themselves at once": how many runs that end by themselves this computer runs side by side. */
+function atOnceRow(st, after) {
+  return choiceRow('Runs by themselves at once', st.settings.schedules.atOnce || 1, [1, 2, 3, 4].map((n) => [n, String(n)]),
+    async (v) => after(await saveSettings({ schedules: { atOnce: Number(v) } })),
+    'Never two of one project; a run that has to wait starts when a place is free.');
+}
+
+// Settings → Automations: the switches of what the dashboard does by itself (the schedules are in Work → Schedules).
+function automationSettings() {
+  const box = h('div.au-settings', loading());
+  const paint = (st) => {
+    cache.set(keyOf(), st);
+    const again = (next) => paint(next);
+    fill(box,
+      pausedBanner(st, again),
+      panel({ icon: 'clock', title: 'Schedules', desc: 'What starts at a set time: the list is in Work → Schedules.' },
+        toggle('Run schedules', st.settings.schedules.enabled, async (v) => again(await saveSettings({ schedules: { enabled: v } })),
+          'The master switch of everything that starts by itself at a time: schedules and the run times of tasks.'),
+        atOnceRow(st, again),
+        h('p.hint', h('a', { href: link('#/work/schedules') }, 'Open the schedules'))),
+      rulesPart(st, again),
+      fold('automations-advanced', 'Advanced', panel({}, pauseRow(st, again))));
+  };
+  const seen = cache.get(keyOf());
+  if (seen) paint(seen);
+  api('/api/automation').then(paint, (e) => fill(box, errorBox(`Could not load the automations: ${e.message}`, () => automationSettings())));
+  return box;
+}
+registerSettingsPage({
+  id: 'automations', title: 'Automations', icon: 'zap', order: 18, desc: 'What the dashboard does by itself, by fixed rules, without AI: schedules, the queue, reopening sessions, trying again, housekeeping.',
+  summary: () => (cache.get(keyOf()) && cache.get(keyOf()).settings.paused ? 'Paused' : 'Schedules, queue, restart, housekeeping'), render: automationSettings,
+});
+
 // ---------- Activity ----------
 
-async function activityPart(box, isAlive) {
+export async function activityPart(box, isAlive) {
   if (!box.querySelector('.au-activity')) fill(box, loading('Loading what the automations did…'));
   let r;
   try {
@@ -604,14 +641,14 @@ async function activityPart(box, isAlive) {
   if (!isAlive()) return;
   const refresh = btn('secondary small', { icon: 'refresh', label: 'Refresh', onclick: () => activityPart(box, isAlive).then(() => toast('Up to date')) });
   if (!r.entries.length) {
-    fill(box, h('div.au-activity', emptyState('text', 'Nothing yet. Each time an automation does something, it shows here in one sentence.'), h('div.au-foot-row', refresh)));
+    fill(box, h('div.au-activity', groupHead('What the automations did', 0), emptyState('text', 'Nothing yet. Each time an automation does something (a schedule, the queue, a restart), it shows here in one sentence.'), h('div.au-foot-row', refresh)));
     return;
   }
   // A session in the App by its title while it is open; one that closed since is "a session in the App".
   const chats = new Map(((store.data && store.data.sessions) || []).filter((x) => x.kind === 'chat').map((x) => [x.name, x.title || x.display]));
   const sessionLabel = (n) => (n.startsWith('chat:') ? (chats.get(n) ? `the App session "${chats.get(n)}"` : 'a session in the App') : n);
   fill(box, h('div.au-activity',
-    groupHead('Newest first', r.entries.length),
+    groupHead('What the automations did', r.entries.length),
     h('div.rows', foldActivity(r.entries).map(({ e, n }) => {
       const l = activityLine(e, sessionLabel);
       return h(`div.row.static.au-act${l.problem ? '.bad' : ''}`,
@@ -619,7 +656,8 @@ async function activityPart(box, isAlive) {
         h('span.row-main',
           h('span.au-act-title', l.title, n > 1 ? h('span.badge.soft.au-act-n', `${n} times`) : null),
           l.problem ? h('span.au-act-problem', l.problem) : null,
-          h('span.row-sub', `${l.sub} · ${n > 1 ? 'last ' : ''}${ago(Date.parse(e.time))}`)));
+          h('span.row-sub', `${l.sub} · ${n > 1 ? 'last ' : ''}${ago(Date.parse(e.time))}`),
+          l.to ? h('a.au-act-link', { href: link(l.to.href) }, l.to.label) : null));
     })),
     h('div.au-foot-row', h('p.hint', 'The newest 50, kept on this computer.'), refresh)));
 }

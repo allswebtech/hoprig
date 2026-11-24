@@ -16,3 +16,5 @@
 /* The kits list in "Set up this computer": a .rows list clips (overflow: hidden), so in the sheet's flex column it
    would shrink and its rows run into each other; it keeps its height and the sheet scrolls instead. */
 .sj-kits { flex: none; }
+/* The Java line under the kits: the same, or the sheet's column squeezes it to nothing. */
+.sj-java { flex: none; }

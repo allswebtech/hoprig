@@ -229,7 +229,8 @@ async function run(t, kind) {
     const id = await newConv('a1');
     const T = await opened(id);
     const menus = async () => (await screen(T)).split('Continue it on another profile').length - 1;
-    assert.equal((await req(`/api/sessions/${T}/send`, { text: '/exit' })).status, 200);
+    // A sign-out, not /exit: a session the person ends just ends, with no menu (test/launcher.test.mjs).
+    assert.equal((await req(`/api/sessions/${T}/send`, { text: '/logout' })).status, 200);
     await until('the menu', async () => (await menus()) === 1);
     // While the menu waits nothing runs the conversation: a chat takes it.
     const c = await chatWith(id, undefined);

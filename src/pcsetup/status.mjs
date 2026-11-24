@@ -1,6 +1,7 @@
 // `hoprig pc status`: what this computer has, what is missing, what needs attention — in the doctor's style.
 // Every check returns { id, label, status, detail, fix, group } (status ok | fail | warn | info), and a check that a
-// kit fixes carries `fixKit` (the dashboard's Fix button runs `pc setup --kits <kit>` for it). Nothing here
+// kit fixes carries `fixKit` (the dashboard's Fix button runs `pc setup --kits <kit>` for it) or, for an optional kit,
+// `setupKit` (its button opens the Set up sheet with that kit ticked: nothing runs from the row itself). Nothing here
 // changes anything or needs administrator rights, and no answer ever holds a key, a token or a file's content.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -8,7 +9,10 @@ import path from 'node:path';
 import { claudeCheck, loginCheck } from '../setup/checks.mjs';
 import { osName, showCommand } from '../setup/system.mjs';
 import { detectKits, ghAuth, gitIdentity, sshKeys } from './detect.mjs';
-import { KITS, buildPlan, kitById } from './kits.mjs';
+import { KITS, buildPlan, kitById, kitCovered } from './kits.mjs';
+import { brokenText, javaHomeText } from './java.mjs';
+import { extraSteps, optionalExtras } from './optional.mjs';
+import { leftOutText } from './suggest.mjs';
 import { listRepos, repoState } from './projects.mjs';
 import { rulesState } from './rules.mjs';
 import { discoverChildren } from './workspace.mjs';
@@ -47,8 +51,9 @@ export async function updatesCheck(sys, { offline = false } = {}) {
     return r('system', 'os', label, restart || updates ? 'warn' : 'ok', parts.join(' · '), updates ? how : restart ? 'Restart the computer when it suits you.' : '');
   };
   if (sys.platform === 'linux') {
-    const restart = sys.exists('/var/run/reboot-required');
-    if (sys.pm === 'apt') {
+    const restart = sys.exists('/var/run/reboot-required'); // a file read, always safe
+    // offline skips the package-manager probe (which starts a real program), as the macOS branch skips softwareupdate.
+    if (!offline && sys.pm === 'apt') {
       if (sys.exists('/usr/lib/update-notifier/apt-check')) {
         const c = parseAptCheck((await sys.run(['/usr/lib/update-notifier/apt-check'])).stderr);
         if (c) return say(c.updates, restart, 'sudo apt update && sudo apt upgrade');
@@ -56,13 +61,13 @@ export async function updatesCheck(sys, { offline = false } = {}) {
       const l = await sys.run(['apt', 'list', '--upgradable'], { timeout: 20_000 });
       return say(l.ok ? parseAptList(l.stdout) : null, restart, 'sudo apt update && sudo apt upgrade');
     }
-    if (sys.pm === 'dnf') {
+    if (!offline && sys.pm === 'dnf') {
       const c = await sys.run(['dnf', 'check-update', '-q', '--cacheonly'], { timeout: 30_000 });
       const n = c.code === 100 ? countLines(c.stdout) : c.code === 0 ? 0 : null;
       const nr = sys.has('needs-restarting') ? (await sys.run(['needs-restarting', '-r'])).code === 1 : false;
       return say(n, restart || nr, 'sudo dnf upgrade');
     }
-    if (sys.pm === 'pacman' && sys.has('checkupdates')) {
+    if (!offline && sys.pm === 'pacman' && sys.has('checkupdates')) {
       const c = await sys.run(['checkupdates'], { timeout: 60_000 });
       return say(c.code === 0 ? countLines(c.stdout) : c.code === 2 ? 0 : null, restart, 'sudo pacman -Syu');
     }
@@ -164,22 +169,62 @@ export async function clockCheck(sys, { offline = false, fetchImpl = globalThis.
 
 // ---------- kits, GitHub, Claude Code, projects ----------
 
-const STATE_MARK = { ok: 'ok', missing: 'fail', old: 'warn', na: 'info' };
+const STATE_MARK = { ok: 'ok', missing: 'fail', old: 'warn', na: 'info', offpath: 'warn' };
 
-export function kitChecks(found, sys) {
+export function kitChecks(found, sys, extras = null) {
   const out = [];
   for (const kit of KITS) {
+    const optional = !kit.defaultOn;
+    // A fix runs `pc setup --kits <kit>`: every missing item of the kit, not only the row's. So a row's fix is the kit's
+    // whole plan. An optional kit is never installed from its row: its button opens "Set up this computer" with that kit
+    // ticked (`setupKit`), where its commands, MariaDB's start and the PHP note are shown before the one yes.
+    const plan = (found[kit.id] || []).some((i) => i.state === 'missing') ? buildPlan([kit.id], found, sys, { extra: extraSteps(extras) }) : null;
+    let told = false; // the suggestion is said once per kit, on its first missing row
     for (const it of found[kit.id] || []) {
       if (it.state === 'na' || it.id === 'identity' || it.id === 'signin') continue;
-      const optional = !kit.defaultOn;
       const status = it.state === 'missing' && optional ? 'info' : STATE_MARK[it.state];
-      const plan = it.state === 'missing' ? buildPlan([kit.id], { [kit.id]: [it] }, sys) : null;
+      // A kit whose plan installs nothing here (fvm without Flutter's dart, no package manager) gets no button: its
+      // row says what comes first instead of offering an Install that installs nothing. Only an optional kit's row
+      // becomes a note: a default kit's missing item (git with no package manager) stays among the things to fix.
+      const nothing = it.state === 'missing' && !plan.steps.length;
+      const none = nothing && optional;
+      const why0 = nothing ? (plan.cannot.find((c) => c.item === it.id) || plan.cannot[0] || {}).why : null;
       const fix = it.state === 'missing'
-        ? plan.steps.length ? plan.steps.map((s) => showCommand(s.argv)).join(' && ') : `hoprig pc setup --kits ${kit.id}`
-        : it.state === 'old' ? oldFix(it.id) : '';
-      out.push(r(`kit:${kit.id}`, `${kit.id}.${it.id}`, it.name, status, it.state === 'ok' ? it.version || it.detail || 'present' : it.state === 'old' ? `${it.version} ${it.detail}` : optional ? 'not installed (optional)' : it.detail || 'missing', fix, it.state === 'missing' ? { fixKit: kit.id } : {}));
+        ? nothing ? '' : !optional ? plan.steps.map((s) => showCommand(s.argv)).join(' && ') : `hoprig pc setup --kits ${kit.id}`
+        : it.state === 'old' ? oldFix(it.id) : it.state === 'offpath' ? it.fix : '';
+      // An optional kit a project here would use says why ("suggested: shop has composer.json"); it stays optional.
+      const why = optional && it.state === 'missing' && extras && !told ? (extras.suggested || []).filter((x) => x.kit === kit.id).map((x) => x.reason) : [];
+      if (why.length) told = true;
+      const okText = it.version ? `${it.version}${it.detail && optional ? ` · ${it.detail}` : ''}` : it.detail || 'present';
+      // Nothing to install here: the reason is said once, in the row's words (no command line under it).
+      const said = nothing ? why0 || 'Hoprig has no way to install it on this computer.' : it.detail;
+      const missText = optional ? `not installed (optional)${said ? `: ${said}` : ''}${why.length ? ` · suggested: ${why.join('; ')}` : ''}` : said || 'missing';
+      out.push(r(`kit:${kit.id}`, `${kit.id}.${it.id}`, it.name, status, it.state === 'ok' ? okText : it.state === 'old' || it.state === 'offpath' ? `${it.version} ${it.detail}` : missText, fix, it.state === 'missing' ? none ? { note: true } : nothing ? {} : optional ? { setupKit: kit.id } : { fixKit: kit.id } : {}));
     }
   }
+  return out;
+}
+
+/**
+ * The PHP note of each PHP project (a warning when the PHP here, or the one the kit would install, does not fit: the same
+ * '!' pc setup shows), the Java line, and on
+ * Windows one line that the optional kits are not covered there.
+ */
+export function extraChecks(extras, platform) {
+  const out = [];
+  for (const [i, n] of ((extras && extras.php) || []).entries()) {
+    const bad = ['newer', 'older', 'other'].includes(n.verdict);
+    out.push(r('kit:php', `php.note-${i}`, `PHP for ${n.where ? `${n.project}/${n.where}` : n.project}`, n.verdict === 'fits' ? 'ok' : bad ? 'warn' : 'info', n.text, n.offer ? showCommand(n.offer.argv) : '', { note: true }));
+  }
+  if (extras && extras.leftOut) out.push(r('system', 'projects-left-out', 'Projects read', 'info', leftOutText(extras.leftOut), '', { note: true }));
+  const not = KITS.filter((k) => !kitCovered(k, platform)).map((k) => k.title);
+  if (not.length) out.push(r('system', 'optional-windows', 'Optional kits', 'info', `${not.join(' and ')}: not covered on Windows (Hoprig does not set them up there)`));
+  const j = extras && extras.java;
+  // A Java that works beside a JAVA_HOME that does not is a warning, so what to do is shown on the Setup tab and in pc
+  // status (neither shows a fix under a row that is fine); still a note, never "to fix". The sentence goes with the
+  // row's words and only the export line is the command (the page draws a fix as a command to type).
+  if (j && j.staleJavaHome) out.push(r('java', 'java', 'Java', 'warn', [j.text, brokenText(j), j.javaHomeHint].filter(Boolean).join(' '), j.javaHome || '', { note: true }));
+  else if (j) out.push(r('java', 'java', 'Java', j.state === 'ok' ? 'ok' : 'info', [j.text, brokenText(j)].filter(Boolean).join(' '), javaHomeText(j), { note: true }));
   return out;
 }
 
@@ -261,7 +306,7 @@ export function repoLine(s, group = 'projects', name = path.basename(s.dir)) {
 /** Every check. Slow ones run in parallel. */
 export async function pcStatus({ sys, offline = false, projects, fetchImpl } = {}) {
   const found = await detectKits(sys);
-  const [os1, mem, clock, gh, claude, tools, proj] = await Promise.all([
+  const [os1, mem, clock, gh, claude, tools, proj, extras] = await Promise.all([
     updatesCheck(sys, { offline }),
     memoryChecks(sys),
     clockCheck(sys, { offline, fetchImpl }),
@@ -269,13 +314,17 @@ export async function pcStatus({ sys, offline = false, projects, fetchImpl } = {
     claudeChecks(sys, { offline }),
     codingToolChecks(),
     projectChecks(projects, sys.run),
+    optionalExtras(sys, projects, found).catch(() => null),
   ]);
-  const kits = kitChecks(found, sys);
+  const kits = kitChecks(found, sys, extras);
+  const more = extraChecks(extras, sys.platform);
+  const phpAt = kits.findLastIndex((c) => c.group === 'kit:php') + 1;
+  kits.splice(phpAt || kits.length, 0, ...more.filter((c) => c.group === 'kit:php'));
   const ghAt = kits.findLastIndex((c) => c.group === 'kit:github') + 1;
   kits.splice(ghAt, 0, ...gh);
-  return [os1, ...diskChecks([sys.home, projects]), ...mem, clock, ...kits, ...claude, ...tools, ...proj];
+  return [os1, ...diskChecks([sys.home, projects]), ...mem, clock, ...more.filter((c) => c.group === 'system'), ...kits, ...more.filter((c) => c.group === 'java'), ...claude, ...tools, ...proj];
 }
 
-export const GROUPS = { system: 'This computer', ...Object.fromEntries(KITS.map((k) => [`kit:${k.id}`, k.title])), claude: 'Claude Code', codetools: 'Coding tools', projects: 'Projects' };
+export const GROUPS = { system: 'This computer', ...Object.fromEntries(KITS.map((k) => [`kit:${k.id}`, k.title])), java: 'Java', claude: 'Claude Code', codetools: 'Coding tools', projects: 'Projects' };
 export const exitCode = (checks) => (checks.some((c) => c.status === 'fail') ? 1 : 0);
 export { kitById };

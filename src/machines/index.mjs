@@ -20,12 +20,24 @@
 //   login            GET  /api/machines                      the other computers and their state
 //                    POST /api/machine/label                 this computer's name next to the others
 //                    GET  /api/machines/sessions             the sessions of every computer, in parallel
+//                    GET  /api/machines/<name>/health        its health (health.mjs) through this hub's link, or since when it is not reached
+//                    POST /api/machines/<name>/forward { gateway, confirm }, …/forward/stop, GET …/forward
+//                                                            "Open its page": a forward on this computer's other loopback address to that gateway (forward.mjs)
 //                    POST /api/machines/ssh                  add by SSH: { target, name?, label? }
 //                    POST /api/machines/url                  add by address + code: { url, code, name?, label? }
-//                    POST /api/machines/install              install hoprig there over SSH: { target }
+//                    POST /api/machines/ssh/key              add by SSH with a key file, step 1: { host, user, port, key, name?, label? }
+//                                                            → { pending, name, target, print } (nothing logs in yet)
+//                    POST /api/machines/ssh/key/confirm      step 2: { pending, print, confirm: <name> } → as /api/machines/ssh
+//                    POST /api/machines/ssh/key/install      install there with that key: { pending, confirm: <name> }
+//                                                            (the three: the owner's own page only, never Tia's door)
+//                    GET  /api/machines/<name>/hostkey       a computer added with a key file: { kept, now, same } prints
+//                    POST /api/machines/<name>/hostkey { print, confirm: <name> }   keep the key it shows now (the owner's page only)
+//                    POST /api/machines/install              install hoprig there over SSH: { target, confirm: <target> }
+//                                                            (a root login: 409 root-login, unless stayRoot: { sentence })
 //                    GET  /api/machines/install?from=N       its output so far
-//                    POST /api/machines/<name>/rename|remove|test
+//                    POST /api/machines/<name>/rename|test, POST /api/machines/<name>/remove { confirm: <name> }
 //                    GET  /api/tokens, POST /api/tokens/<id>/revoke   who may control this computer
+//                    POST /api/tokens/<id>/hub {hub}  the owner marks a token as his hub's (src/workspace/whomay.mjs)
 //                    POST /api/pair/code, GET /api/pair/code?id=      a code for the page to show
 //                    /m/<name>/api/*, /m/<name>/ws/term      relayed to that computer
 //                    /m/<name>/<page or file>                this dashboard's own page (rewritten, see below)
@@ -39,20 +51,28 @@ import { reachable } from '../addons/reach.mjs';
 import { joinLine, parseJoinLine } from './joinline.mjs';
 import { label as cleanLabel, machineName, tokenName } from './names.mjs';
 import { claimCode, codeStatus, createCode, machineInfo } from './pairing.mjs';
-import { SELF_HEADER, errorBody, relayHttp, relayUpgrade, rejectUpgrade } from './relay.mjs';
+import { OWNER_PAGE_HEADER, SELF_HEADER, errorBody, relayHttp, relayUpgrade, rejectUpgrade } from './relay.mjs';
 import { getMachine } from './store.mjs';
+import { keyAdder } from './keyadd.mjs';
+import { Forwards, fromThisComputer } from './forward.mjs';
+import { sshExtraOf } from './keys.mjs';
+import { createHubMove } from './movehub.mjs';
+import { callJson } from './relay.mjs';
 import { RAW_BODY, legEncrypted, relayLeg } from './legs.mjs';
 import { auditToken } from './tokenaudit.mjs';
-import { bearerOf, createToken, listTokens, revokeToken, touchToken, verifyToken } from './tokens.mjs';
+import { bearerOf, createToken, listTokens, markHub, revokeToken, touchToken, verifyToken } from './tokens.mjs';
 
 const BODY_MAX = 64 * 1024;
 // Changes that can take minutes on the computer (git, and large files in Files): the hub waits longer for them.
-const SLOW = /^\/api\/code\/git\/(commit|stage|unstage|discard)$|^\/api\/files\/(copy|move|trash|delete|pack|unpack)$/;
+const SLOW = /^\/api\/workspace\/drop(\/check)?$|^\/api\/code\/git\/(commit|stage|unstage|discard)$|^\/api\/files\/(copy|move|trash|delete|pack|unpack)$/;
 const TOKEN = Symbol('hoprig.token');
 
 // Never reachable with a token, even where the server has the route.
-const TOKEN_FORBIDDEN = [/^\/api\/assistant(?!\/run$)(\/|$)/, /^\/api\/machine\/label$/, /^\/api\/(login|logout|me)(\/|$)/, /^\/api\/settings\/password$/, /^\/api\/pair(\/|$)/, /^\/api\/tokens(\/|$)/, /^\/api\/machines(\/|$)/, /^\/api\/joins(\/|$)/, /^\/api\/links?(\/|$)/, /^\/api\/accounts(\/|$)/, /^\/api\/gateways\/defined(\/|$)/];
+const TOKEN_FORBIDDEN = [/^\/api\/assistant(?!\/run$)(\/|$)/, /^\/api\/machine\/label$/, /^\/api\/(login|logout|me)(\/|$)/, /^\/api\/settings\/password$/, /^\/api\/herrights$/, /^\/api\/hersignin(\/|$)/, /^\/api\/pair(\/|$)/, /^\/api\/tokens(\/|$)/, /^\/api\/machines(\/|$)/, /^\/api\/joins(\/|$)/, /^\/api\/links?(\/|$)/, /^\/api\/accounts(\/|$)/, /^\/api\/gateways\/defined(\/|$)/];
 // The one token-list change a token may make: revoke itself (a hub that removes this computer gives its right back).
+/** The page's choice for a root login: true, or { name, noAdmin } from its sheet; anything else is no. */
+const workUserOf = (w) => (w === true ? true : w && typeof w === 'object' ? { ...(typeof w.name === 'string' ? { name: w.name } : {}), noAdmin: w.noAdmin === true } : false);
+
 export const SELF_REVOKE = '/api/tokens/self/revoke';
 /** The id of the machine token a request came with (after the gate let it in), or null: the owner's own login. */
 export const tokenIdOf = (req) => (req && req[TOKEN] ? req[TOKEN].id : null);
@@ -133,6 +153,20 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
   const joinSsh = joinOpt.ssh || hubOpt.ssh || {};
   const joins = new JoinKeeper({ ssh: joinSsh, ...joinOpt });
   const info = async () => ({ ...machineInfo(), claude: await claudeVersion() });
+  // "Open its page" of a gateway on another computer: a forward on this computer's 127.0.0.1 (forward.mjs).
+  const sshOf = hubOpt.ssh || {};
+  const forwards = hubOpt.forwards || new Forwards({ ssh: Object.fromEntries(Object.entries({ sshBin: sshOf.sshBin, spawnImpl: sshOf.spawnImpl, env: sshOf.env }).filter(([, v]) => v !== undefined)), extraOf: sshExtraOf });
+  // The move to an ordinary user on a computer this hub reaches by SSH (movehub.mjs).
+  const hubMove = hubOpt.move || createHubMove({ ssh: { env: sshOf.env, spawnImpl: sshOf.spawnImpl, sshBin: sshOf.sshBin }, extraOf: sshExtraOf, onSwitched: (name) => hub.tunnels?.close?.(name) });
+  const keys = keyAdder({ addBySsh: (o) => hub.addBySsh(o), ssh: { env: (hubOpt.ssh || {}).env, spawnImpl: (hubOpt.ssh || {}).spawnImpl, keyscanBin: (hubOpt.ssh || {}).keyscanBin } });
+  /** A change to a computer carries the name its confirmation showed: { confirm: <that computer> }, else a 400. */
+  const confirmed = (b, name) => {
+    if (typeof name !== 'string' || !name || b.confirm !== name) throw new HubError(400, `confirm it for that computer: send confirm with its name (${typeof name === 'string' ? name.slice(0, 64) : ''})`, { code: 'confirm' });
+  };
+  /** A step that only the owner's own page takes: never Tia's door (her requests carry the owner's login in-process). */
+  const ownPage = (req) => {
+    if (fromSelf(req)) throw new HubError(403, 'adding a computer with a key file is the owner\'s own step, on this computer\'s page', { code: 'owner-only' });
+  };
 
   /** A request with a bearer token: answer it here when it must not go further, else mark it and let it pass. */
   function gate(req, p) {
@@ -153,7 +187,7 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
     const name = tokenName(b.name) || 'another computer';
     if (!claimCode(b.code, name)) return send(res, 403, { error: 'wrong or expired code', code: 'bad-code' });
     pairLimiter.succeed(ip);
-    const { id, token } = createToken(name);
+    const { id, token } = createToken(name, { hub: true }); // the owner made the code to add this computer to that hub
     return send(res, 200, { hoprig: 'pair', ...(await info()), token, tokenId: id });
   }
 
@@ -169,13 +203,95 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
       return { label: l };
     }],
     ['GET', /^\/api\/machines\/sessions$/, () => hub.sessions(localState)],
-    ['POST', /^\/api\/machines\/ssh$/, async (req) => hub.addBySsh(await readJson(req))],
+    ['GET', /^\/api\/machines\/([^/]+)\/health$/, async (req, m) => hub.health(m[1])],
+    ['POST', /^\/api\/machines\/([^/]+)\/forward$/, async (req, m) => {
+      const b = await readJson(req);
+      if (fromSelf(req)) throw new HubError(403, 'a gateway\'s page is opened only by its owner, on the page', { code: 'owner-only' });
+      confirmed(b, m[1]);
+      const mm = getMachine(m[1]);
+      if (!mm) throw new HubError(404, 'no such computer');
+      // Only a browser on this computer can use a forward on its 127.0.0.1; elsewhere the page says what to do.
+      if (!fromThisComputer(req)) throw new HubError(409, 'This page is not open on the computer this dashboard runs on, so a forward here would not reach your browser. Open the dashboard on that computer, or open the gateway\'s page on the computer it runs on.', { code: 'not-here' });
+      if (mm.via !== 'ssh') throw new HubError(409, `${mm.label || mm.name} is not added by SSH, so this dashboard cannot open a forward to it. Open the gateway's page on ${mm.label || mm.name} itself.`, { code: 'no-forward' });
+      if (typeof b.gateway !== 'string' || !/^[a-z][a-z0-9-]{0,30}$/.test(b.gateway)) throw new HubError(400, 'say which gateway');
+      // Its port as that computer itself says it, never a port from the browser.
+      let r;
+      try {
+        r = await callJson(await hub.endpoint(mm), { machine: mm.label || mm.name, path: '/api/gatewayhost', token: mm.token, timeoutMs: 15_000 });
+      } catch (e) {
+        const { status, body } = errorBody(mm.label || mm.name, e);
+        throw new HubError(status, body.error, { code: body.code });
+      }
+      const g = r.status === 200 && r.json && Array.isArray(r.json.gateways) ? r.json.gateways.find((x) => x.id === b.gateway) : null;
+      if (!g || !Number.isInteger(g.port) || g.port < 1 || g.port > 65535) throw new HubError(404, 'that computer has no such gateway');
+      if (!g.running) throw new HubError(409, `${g.title} is not running on ${mm.label || mm.name}: start it first`, { code: 'not-running' });
+      return { forward: await forwards.open(mm, g.id, g.port, { pageHost: req.headers.host }) };
+    }],
+    ['POST', /^\/api\/machines\/([^/]+)\/forward\/stop$/, async (req, m) => {
+      await readJson(req);
+      return { stopped: forwards.stop(m[1]) };
+    }],
+    ['GET', /^\/api\/machines\/([^/]+)\/forward$/, async (req, m) => {
+      const mm = getMachine(m[1]);
+      if (!mm) throw new HubError(404, 'no such computer');
+      // ssh: a forward can be opened; any other way of linking: the page says in one sentence where to open its page.
+      return { forward: forwards.status(m[1]), here: fromThisComputer(req), via: mm.via === 'ssh' ? 'ssh' : 'other' };
+    }],
+    ['POST', /^\/api\/machines\/ssh$/, async (req) => {
+      const b = await readJson(req);
+      // A key and its options come only through the key routes below.
+      return hub.addBySsh({ target: b.target, name: b.name, label: b.label });
+    }],
+    ['POST', /^\/api\/machines\/ssh\/key$/, async (req) => {
+      ownPage(req);
+      return keys.begin(await readJson(req));
+    }],
+    ['POST', /^\/api\/machines\/ssh\/key\/confirm$/, async (req) => {
+      ownPage(req);
+      return keys.finish(await readJson(req));
+    }],
+    // A changed host key: both prints, then the kept one replaced only on his press (the owner's own page only).
+    ['GET', /^\/api\/machines\/([^/]+)\/hostkey$/, async (req, m) => {
+      ownPage(req);
+      return keys.hostKey(m[1]);
+    }],
+    ['POST', /^\/api\/machines\/([^/]+)\/hostkey$/, async (req, m) => {
+      ownPage(req);
+      const b = await readJson(req);
+      confirmed(b, m[1]);
+      const r = await keys.replaceHostKey(m[1], b);
+      hub.tunnels.close(m[1]); // the next request connects anew, with the key now kept
+      return { ...r, machine: await hub.probe(getMachine(m[1]), { fresh: true }) };
+    }],
+    ['POST', /^\/api\/machines\/ssh\/key\/install$/, async (req) => {
+      ownPage(req);
+      const b = await readJson(req);
+      return keys.install(b, (target, o) => hub.install(target, { ...o, stayRoot: b.stayRoot, workUser: workUserOf(b.workUser) }));
+    }],
     ['POST', /^\/api\/machines\/url$/, async (req) => hub.addByUrl(await readJson(req))],
-    ['POST', /^\/api\/machines\/install$/, async (req) => hub.install((await readJson(req)).target)],
+    ['POST', /^\/api\/machines\/install$/, async (req) => {
+      const b = await readJson(req);
+      confirmed(b, b.target);
+      return hub.install(b.target, { stayRoot: b.stayRoot, workUser: workUserOf(b.workUser) });
+    }],
     ['GET', /^\/api\/machines\/install$/, async (req, m, q) => hub.installStatus(Math.max(0, Number(q.get('from')) || 0))],
+    // Its move to an ordinary user: the look, the start (the owner's own page, with the computer's name), its lines.
+    ['GET', /^\/api\/machines\/([^/]+)\/move$/, async (req, m) => hubMove.look(m[1])],
+    ['POST', /^\/api\/machines\/([^/]+)\/move$/, async (req, m) => {
+      const b = await readJson(req);
+      if (fromSelf(req)) throw new HubError(403, 'the move to an ordinary user is the owner\'s own step, on this page', { code: 'owner-only' });
+      confirmed(b, m[1]);
+      try {
+        return await hubMove.start(m[1], { noAdmin: b.noAdmin === true });
+      } catch (e) {
+        throw e instanceof hubMove.MoveError ? new HubError(e.status, e.message) : e;
+      }
+    }],
+    ['GET', /^\/api\/machines\/([^/]+)\/move\/job$/, async (req, m, q) => hubMove.status(m[1], Math.max(0, Number(q.get('from')) || 0))],
     ['POST', /^\/api\/machines\/([^/]+)\/rename$/, async (req, m) => hub.rename(m[1], await readJson(req))],
     ['POST', /^\/api\/machines\/([^/]+)\/remove$/, async (req, m) => {
-      await readJson(req);
+      confirmed(await readJson(req), m[1]);
+      forwards.stop(m[1]);
       return hub.remove(m[1]);
     }],
     ['POST', /^\/api\/machines\/([^/]+)\/test$/, async (req, m) => {
@@ -232,6 +348,13 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
       if (!gone.length) throw new HubError(404, 'no such token');
       return { revoked: gone };
     }],
+    ['POST', /^\/api\/tokens\/([0-9a-f]{12})\/hub$/, async (req, m) => {
+      const b = await readJson(req);
+      if (!b || typeof b !== 'object' || Object.keys(b).some((k) => k !== 'hub') || typeof b.hub !== 'boolean') throw new HubError(400, 'send { "hub": true } or { "hub": false }');
+      const t = markHub(m[1], b.hub);
+      if (!t) throw new HubError(404, 'no such token');
+      return { token: t };
+    }],
     ['POST', /^\/api\/pair\/code$/, async (req) => {
       await readJson(req);
       return createCode();
@@ -286,15 +409,18 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
       return send(res, status, body);
     }
     // A request of this dashboard's own (Tia's door) says so to the other computer: a browser's never can (relay.mjs).
-    const headers = fromSelf(req) ? { ...leg.headers, [SELF_HEADER]: '1' } : leg.headers;
+    // The owner's own page (signed in, this site's origin for a change: checked above) says so too; Tia's never does.
+    const headers = fromSelf(req) ? { ...leg.headers, [SELF_HEADER]: '1' } : { ...leg.headers, [OWNER_PAGE_HEADER]: '1' };
     await relayHttp(leg.req, res, ep, { machine: m.label || name, path: rest + url.search, token: m.token, headers, idleMs: RAW_BODY.test(rest) || SLOW.test(rest) ? Math.max(150_000, relayIdleMs) : relayIdleMs });
     return true;
   }
 
   return {
     hub,
+    forwards,
     joins,
     links,
+    table: routes, // its routes behind the login, read by the inventory test of what Tia can do (test/assistant/inventory.test.mjs)
 
     /** Resolves true when this module answered the request; false to let the server handle it. */
     async handle(req, res) {
@@ -349,7 +475,7 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
         if (status === 500) console.error(`${req.method} ${p}: ${e.message}`);
         if (!res.headersSent) {
           const extra = {};
-          for (const k of ['code', 'installCommand', 'canInstall']) if (e[k] !== undefined) extra[k] = e[k];
+          for (const k of ['code', 'installCommand', 'canInstall', 'pending']) if (e[k] !== undefined) extra[k] = e[k];
           send(res, status, { error: e.message || 'server error', ...extra });
         } else res.end();
         return true;
@@ -412,6 +538,7 @@ export function createMachines({ authed, originOk, clientIp = (req) => (req.sock
     authedByToken: (req) => !!(req && req[TOKEN]),
 
     close() {
+      forwards.closeAll();
       hub.close();
       joins.close();
       links.close();

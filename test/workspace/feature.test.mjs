@@ -157,3 +157,53 @@ test('the git routes: input checked, one background job at a time with its lines
   const made = await call('POST', '/api/workspace/map', { dryRun: true });
   assert.equal(made.dryRun, true);
 });
+
+test('this computer in the page: its label given once over the route, which computer has what, the brains found on GitHub', async () => {
+  saveConfig({ server: { passwordHash: await hashPassword('pw'), roots: [t.home] } });
+  const gitState = async () => ({ gh: { signedIn: true, account: 'alex' }, brain: { exists: true, git: true, remote: null } });
+  const brainCandidates = async () => [{ owner: 'alex', name: 'ai_brain', url: 'https://github.com/alex/ai_brain.git', private: true, hasMap: true }, { owner: 'alex', name: 'old-brain', url: 'https://github.com/alex/old-brain.git', private: true, hasMap: false }];
+  const app = createServer({ backend: { list: async () => [], capture: async () => '' }, watch: false, dashboardFile: false, workspace: { gitState, brainCandidates } });
+  const { port } = await app.listen(0, '127.0.0.1');
+  const origin = `http://127.0.0.1:${port}`;
+  try {
+    for (const p of ['/api/workspace/computers', '/api/workspace/git/brains']) assert.equal((await fetch(origin + p)).status, 401, p);
+    const login = await fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ password: 'pw' }) });
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    const get = async (p) => (await fetch(origin + p, { headers: { Cookie: cookie } })).json();
+    const post = (p, body, h = {}) => fetch(origin + p, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin, Cookie: cookie, ...h }, body: JSON.stringify(body) });
+    const before = await get('/api/workspace/computers');
+    assert.equal(before.label, null);
+    assert.match(before.suggestion, /^[a-z0-9][a-z0-9_-]*$/);
+    assert.equal((await post('/api/workspace/label', { label: 'a/b' })).status, 400);
+    assert.equal((await post('/api/workspace/label', { label: 'box1', extra: 1 })).status, 400);
+    assert.equal((await post('/api/workspace/label', { label: 'box1' }, { Authorization: 'Bearer tia_0123456789abcdef' })).status, 401);
+    const r = await post('/api/workspace/label', { label: 'Box1' });
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).label, 'box1');
+    const after = await get('/api/workspace/computers');
+    assert.equal(after.label, 'box1');
+    assert.deepEqual(after.computers.map((c) => [c.label, c.mine]), [['box1', true]]);
+    assert.equal((await post('/api/workspace/label', { label: 'other' })).status, 409, 'given once');
+    const b = await get('/api/workspace/git/brains');
+    assert.deepEqual(b, { signedIn: true, brains: [{ owner: 'alex', name: 'ai_brain', url: 'https://github.com/alex/ai_brain.git' }] }, 'only a brain that holds a map');
+  } finally {
+    await app.close();
+  }
+});
+
+test('the brains route when GitHub cannot be asked: an error, and no empty list the page would take for "no workspace"', async () => {
+  saveConfig({ server: { passwordHash: await hashPassword('pw'), roots: [t.home] } });
+  const gitState = async () => ({ gh: { signedIn: true, account: 'alex' }, brain: { exists: false, git: false, remote: null } });
+  const brainCandidates = async () => ({ list: [], failed: 'the repositories of alex could not be listed (HTTP 403: API rate limit exceeded)' });
+  const app = createServer({ backend: { list: async () => [], capture: async () => '' }, watch: false, dashboardFile: false, workspace: { gitState, brainCandidates } });
+  const { port } = await app.listen(0, '127.0.0.1');
+  const origin = `http://127.0.0.1:${port}`;
+  try {
+    const login = await fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ password: 'pw' }) });
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    const b = await (await fetch(`${origin}/api/workspace/git/brains`, { headers: { Cookie: cookie } })).json();
+    assert.deepEqual(b, { signedIn: true, brains: [], error: 'GitHub could not be asked about your workspace: the repositories of alex could not be listed (HTTP 403: API rate limit exceeded)' });
+  } finally {
+    await app.close();
+  }
+});

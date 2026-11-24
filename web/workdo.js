@@ -2,9 +2,12 @@
 // it, a task's runs (what each session did), Accept and Send back for a task in review, and the Activity part (the
 // runs of all tasks). Every choice goes to /api/work/…, which checks it; a folder is one of the project's choices,
 // never a path.
+import { taskProgress } from './workpulse.js';
 import { icon } from './icons.js';
-import { api, btn, fill, h, link, openSheet, promptSheet, toast } from './lib.js';
-import { emptyState, errorBox, groupHead, skeletonRows } from './shell.js';
+import { api, btn, fill, h, link, openSheet, promptSheet, toast, wayLink } from './lib.js';
+import { modelPicker } from './modelpicker.js';
+import { emptyState, errorBox, fold, groupHead, skeletonRows } from './shell.js';
+import { learningOn } from './skilllearned.js';
 
 const enc = encodeURIComponent;
 // The product's own words: "Limit reached", as Home and Today say it (lib.js stateOf), with the icon of a limit.
@@ -31,6 +34,11 @@ export function timeText(iso) {
 export const runBadge = (state) => h(`span.badge.wk-run-badge.wk-run-${state}`, icon(RUN_ICONS[state] || 'info', { size: 12 }), RUN_WORDS[state] || state);
 
 // ---------- the Do it sheet ----------
+
+/** What the Do it sheet says of a task another program added (a Work token), or null: in words, not only a tooltip. */
+export function fromLine(it) {
+  return it && it.from && it.from.name ? `Another program added this task (the Work token "${it.from.name}"): its words are that program's, not yours. It starts only when you start it.` : null;
+}
 
 /**
  * "Do it" for item `it`: what will start (the brief, the project and its folder, the coding tool, the provider, the
@@ -71,7 +79,7 @@ export function doItSheet(it) {
       try {
         plan = await api(`/api/work/items/${enc(it.id)}/do?${q}`);
       } catch (e) {
-        if (!plan) return fill(body, errorBox(e.message));
+        if (!plan) return fill(body, errorBox(e));
         err.textContent = e.message;
         return null;
       }
@@ -147,13 +155,15 @@ export function doItSheet(it) {
             delete v.provider;
             load({ project: v.project, folder: '.', tool: v.tool });
           }),
-          project ? select('Folder', folder, p.folders.map((f) => [f.value, f.value === '.' ? `${project} (its own folder)` : f.label]), (x) => {
-            v.folder = x;
-            delete v.provider;
-            load({ project, folder: x, tool: v.tool });
-          }) : h('div')),
-        // What it runs on: the coding tool (when there is a choice), the provider (the folder's own, as New session
-        // picks it), the model and the effort (Settings' defaults).
+          h('div')),
+        // Folder and what it runs on, folded under Options with one line of what is chosen: the folder, the coding
+        // tool (when there is a choice), the provider (the folder's own, as New session picks it), the model and the
+        // effort (Settings' defaults). Same choices, same defaults; the line says when the AI account is still to be chosen.
+        options(p, v, project, folder, h('div.wk-pair', project ? select('Folder', folder, p.folders.map((f) => [f.value, f.value === '.' ? `${project} (its own folder)` : f.label]), (x) => {
+          v.folder = x;
+          delete v.provider;
+          load({ project, folder: x, tool: v.tool });
+        }) : null),
         h('div.wk-trio',
           p.tools.length > 1 ? select('Coding tool', v.tool || p.tool, p.tools.map((x) => [x.id, x.name]), (x) => {
             v.tool = x;
@@ -162,10 +172,17 @@ export function doItSheet(it) {
             delete v.effort;
             load({ ...(project ? { project, folder } : {}), tool: x });
           }) : null,
-          select('Provider', v.provider || p.provider || '', [...(p.provider ? [] : [['', 'Choose one']]), ...p.providers.map((x) => [x.name, x.label])], (x) => (v.provider = x)),
-          select('Model', v.model || p.model || '', [['', p.model ? `Default (${p.model})` : 'Default'], ...p.models.filter((m) => m !== p.model).map((m) => [m, m])], (x) => (v.model = x || null)),
-          select('Effort', v.effort || p.effort || '', [['', p.effort ? `Default (${p.effort})` : 'Default'], ...p.efforts.filter((x) => x !== p.effort).map((x) => [x, x])], (x) => (v.effort = x || null))),
+          select('Provider', v.provider || p.provider || '', [...(p.provider ? [] : [['', 'Choose one']]), ...p.providers.map((x) => [x.name, x.label])], (x) => {
+            v.provider = x || null;
+            delete v.model; // another provider has its own models
+            paint();
+          }),
+          // The provider's own models (src/models/catalog.mjs), asked when the sheet is drawn.
+          modelPicker({ provider: v.provider || p.provider, tool: v.tool || p.tool, value: v.model || p.model || '', key: 'Model',
+            emptyLabel: p.model ? `Default (${p.model})` : 'Default', onchange: (x) => (v.model = x || null) }),
+          select('Effort', v.effort || p.effort || '', [['', p.effort ? `Default (${p.effort})` : 'Default'], ...p.efforts.filter((x) => x !== p.effort).map((x) => [x, x])], (x) => (v.effort = x || null)))),
         elsewhere,
+        fromLine(it) ? h('p.wk-do-line', icon('key', { size: 16 }), h('span', fromLine(it))) : null,
         h('p.wk-do-line', icon('info', { size: 16 }), h('span', where
           ? `A session starts in ${where} with this brief. It changes files there as you allow in that session; nothing is pushed or merged by this.`
           : 'This task has no project: choose the project a session works in.')),
@@ -175,6 +192,21 @@ export function doItSheet(it) {
     load();
     return body;
   });
+}
+
+/** The Do it sheet's one line of what is chosen: "Claude Code on Auto mode", and a folder that is not the project's own. */
+export function optionsLine(p, v = {}, project = p.project, folder = v.folder || p.folder) {
+  const tool = (p.tools.find((x) => x.id === (v.tool || p.tool)) || {}).name || v.tool || p.tool;
+  const pv = (p.providers.find((x) => x.name === (v.provider || p.provider)) || {}).label;
+  const parts = [pv ? `${tool} on ${pv}` : `${tool}: choose a provider`];
+  if (project && folder && folder !== '.') parts.push(`in ${(p.folders.find((f) => f.value === folder) || {}).label || folder}`);
+  return parts.join(', ');
+}
+
+function options(p, v, project, folder, ...children) {
+  const d = fold('work-do-options', `Options · ${optionsLine(p, v, project, folder)}`, ...children);
+  d.classList?.add('wk-do-options');
+  return d;
 }
 
 // ---------- Accept, Send back ----------
@@ -189,8 +221,20 @@ export async function accept(it, after) {
   after();
 }
 
+/** Done with a schedule's run: its worktree is removed when clean (the branch stays). */
+async function releaseRun(r) {
+  try {
+    const x = await api('/api/work/alone/release', { run: r.id });
+    toast(x.removed ? `Its copy of the project is removed; the branch ${r.branch} stays` : `${x.why.charAt(0).toUpperCase()}${x.why.slice(1)}`, x.removed ? {} : { kind: 'error', ms: 6000 });
+  } catch (e) {
+    toast(`${e.message}. Nothing was changed.`, { kind: 'error', ms: 6000 });
+  }
+}
+
 export async function sendBack(it, after) {
-  const text = await promptSheet({ title: 'Send back', text: 'The task is open again. What you write here is added to its brief, so the next run starts with it.', multiline: true, ok: 'Send back', placeholder: 'What is to be done differently', label: 'What is to be done differently', check: (x) => (x.trim() ? '' : 'Say what is to be done differently') });
+  // With learning on, his words are also read for a skill draft: said here, before he writes them.
+  const learn = (await learningOn()) ? [' Learning skills is on: your words are also read for a skill draft, which waits in ', h('a', { href: link('#/skills/learned') }, 'Skills → Learned'), ' until you install it.'] : [];
+  const text = await promptSheet({ title: 'Send back', text: ['The task is open again. What you write here is added to its brief, so the next run starts with it.', ...learn], multiline: true, ok: 'Send back', placeholder: 'What is to be done differently', label: 'What is to be done differently', check: (x) => (x.trim() ? '' : 'Say what is to be done differently') });
   if (text === null) return;
   try {
     await api(`/api/work/items/${enc(it.id)}/send-back`, { at: it.at, text });
@@ -218,17 +262,30 @@ function answerBox(text) {
 }
 
 /** What one run did: its state and when, the reason, the answer, the commits and the files left changed. */
-export function runCard(r, { title = false, onTask = null } = {}) {
+const TIER_WORD = { fast: 'Fast', strong: 'Strong', strongest: 'Strongest', other: 'Other' };
+/** Who did what in a run (Lead model): one line per tier with its parts, tokens and models, read from the tool's records. */
+export function whoDidWhat(p) {
+  const rows = (p.tiers || []).map((t) => `${TIER_WORD[t.tier] || t.tier}: ${t.parts} part${t.parts === 1 ? '' : 's'} · ${Number(t.tokens || 0).toLocaleString()} tokens · ${(t.models || []).join(', ') || '?'}`);
+  return h('div.wk-run-parts', h('strong', 'Who did what'), ...rows.map((x) => h('p.hint', x)));
+}
+
+export function runCard(r, { title = false, onTask = null, onRelease = null, onLearn = null } = {}) {
   const repoOf = (x) => (x.repo === '.' || x.repo === r.folder ? '' : `${x.repo}/`);
+  // "Learn from this" says its answer here, in the card (a toast would lie behind the open sheet).
+  const said = onLearn ? h('p.wk-learn-said', { role: 'status', tabindex: '-1' }) : null;
   const files = r.changed.length + (r.more || 0);
   return h(`article.wk-run.wk-run-is-${r.state}`,
     h('div.wk-run-head',
       runBadge(r.state),
       title ? h('strong.wk-run-title', r.title) : null,
+      r.from ? h('span.wk-tag.wk-from', { title: 'Added by another program with a Work token: its words are that program\'s' }, icon('key', { size: 13 }), `From ${r.from}`) : null,
       h('span.wk-run-when', timeText(r.startedAt), r.endedAt ? ` – ${timeText(r.endedAt).split(', ')[1] || ''}` : ''),
       h('span.wk-tag', icon('folder', { size: 13 }), whereText(r)),
       h('span.wk-tag', { title: 'The provider it ran on' }, icon('user', { size: 13 }), `${r.providerLabel || r.provider}${r.model ? ` · ${r.model}` : ''}`),
-      r.here === false ? h('span.wk-tag', icon('cpu', { size: 13 }), 'Another computer') : null),
+      r.here === false ? h('span.wk-tag', icon('cpu', { size: 13 }), 'Another computer') : null,
+      // A run that ended by itself: its result waits on a branch of its own (never pushed, never merged).
+      r.branch ? h('span.wk-tag', { title: 'Not pushed, not merged' }, icon('git', { size: 13 }), `on the branch ${r.branch}`) : null),
+    r.parts ? whoDidWhat(r.parts) : null,
     r.reason ? h('p.wk-run-reason', r.reason) : null,
     r.statusError ? h('p.wk-run-reason.wk-run-warn', icon('alert', { size: 14 }), h('span', r.statusError)) : null,
     r.answer ? answerBox(r.answer) : r.state === 'running' ? h('p.hint', 'The answer comes when the session\'s turn ends.') : null,
@@ -236,16 +293,23 @@ export function runCard(r, { title = false, onTask = null } = {}) {
       h('ul', r.commits.map((c) => h('li', h('code', `${repoOf(c)}${c.short}`), ' ', c.subject)))) : null,
     files ? h('div.wk-run-list', h('span.wk-run-label', icon('pencil', { size: 13 }), `${files === 1 ? '1 file' : `${files} files`} changed, not committed`),
       h('ul', r.changed.map((f) => h('li', h('code', `${repoOf(f)}${f.path}`), ` ${KIND_WORDS[f.kind] || f.kind}`)), r.more ? h('li.wk-more-files', `and ${r.more} more`) : null)) : null,
-    openable(r) || onTask ? h('div.wk-run-actions',
+    // A schedule's run has no task: its schedule, and once it ended, the worktree it keeps until he is done with it.
+    r.schedule && r.state !== 'running' && r.here ? h('p.hint', `Its copy of the project (branch ${r.branch || ''}) stays on this computer until you are done with it; nothing is pushed or merged.`) : null,
+    openable(r) || onTask || onLearn || r.schedule ? h('div.wk-run-actions',
       openable(r) ? h('a.btn.small.secondary', { href: sessionLink(r.session) }, icon('external', { size: 14 }), 'Open the session') : null,
-      onTask ? btn('small ghost', { label: 'All runs of the task', onclick: onTask }) : null) : null);
+      r.schedule && onRelease && r.state !== 'running' && r.here ? btn('small secondary', { icon: 'check', label: 'Done with it: remove its copy of the project', onclick: onRelease }) : null,
+      r.schedule ? h('a.btn.small.ghost', { href: '#/work/schedules' }, 'Open the schedules')
+        : onTask ? btn('small ghost', { label: 'All runs of the task', onclick: onTask }) : null,
+      onLearn ? btn('small secondary', { icon: 'sparkle', label: 'Learn from this', title: 'Look at this run for a skill worth keeping (a draft you read first)', onclick: (e) => onLearn(e, said) }) : null) : null,
+    said);
 }
 
 /** A task's runs, newest first, in a sheet; for a task in review: Accept and Send back. */
 export function runsSheet(it, after) {
   return openSheet({ title: 'Runs of this task', subtitle: it.title, tall: true }, (close) => {
     const body = h('div.wk-runs', skeletonRows(2));
-    api(`/api/work/runs?item=${enc(it.id)}`).then(({ runs }) => {
+    const now = h('div.wk-pulse-slot');
+    Promise.all([api(`/api/work/runs?item=${enc(it.id)}`), it.status === 'done' ? learningOn() : false]).then(([{ runs }, learning]) => {
       const review = it.status === 'review' ? h('div.wk-review-bar',
         h('span', 'A session has done this task: look at what it did, then'),
         btn('small primary', { icon: 'check', label: 'Accept', onclick: () => {
@@ -256,10 +320,41 @@ export function runsSheet(it, after) {
           close(true);
           sendBack(it, after);
         } })) : null;
-      fill(body, review, runs.length ? runs.map((r) => runCard(r)) : emptyState('play', 'No session has worked on this task yet. "Do it" starts one.'));
-    }, (e) => fill(body, errorBox(e.message)));
+      // "Learn from this": on the newest run that ended well of a task he accepted, while learning is on.
+      const learnable = learning ? runs.find((r) => r.state === 'done') : null;
+      fill(body, now, review, runs.length ? runs.map((r) => runCard(r, r === learnable ? { onLearn: (e, said) => learnFrom(r, e.currentTarget, said) } : {})) : emptyState('play', 'No session has worked on this task yet. "Do it" starts one.'));
+      taskProgress(now, it.id); // what of it runs now, with its estimate (workpulse.js)
+    }, (e) => fill(body, errorBox(e)));
     return body;
   });
+}
+
+/**
+ * "Learn from this": one look at the run; its draft, if any, waits in Skills → Learned. The answer is said in the
+ * card's line `said` (role status), and the focus goes there: the button is disabled while it waits.
+ */
+export async function learnFrom(r, button, said) {
+  const label = button.lastChild;
+  const say = (...text) => {
+    fill(said, ...text);
+    said.focus();
+  };
+  button.disabled = true;
+  label.textContent = 'Looking…';
+  try {
+    const out = await api('/api/skills/learned/look', { run: r.id });
+    if (out.skipped) {
+      label.textContent = 'Not looked at';
+      say(`Not looked at: ${out.why || out.skipped}.`);
+    } else {
+      label.textContent = 'Looked at';
+      say('Looking at it. A draft, if this run shows something worth keeping, waits in ', h('a', { href: link('#/skills/learned') }, 'Skills → Learned'), '.');
+    }
+  } catch (e) {
+    label.textContent = 'Learn from this';
+    button.disabled = false;
+    say(e.message, ' ', wayLink(e));
+  }
 }
 
 // ---------- Activity ----------
@@ -309,7 +404,7 @@ export function paintActivity(slot, { prefs, onItem, today = null }) {
     fill(slot,
       h('div.wk-filters', sel('Project', 'project', [['', 'All projects'], ...projects.map((p) => [p, p])]), sel('Day', 'day', [['', 'Every day'], ...days.map((d) => [d, dayLabel(d, today)])])),
       shown.length ? [...byDay].map(([day, list]) => h('section.wk-section', groupHead(dayLabel(day, today), list.length),
-        h('div.wk-activity', list.map((r) => runCard(r, { title: true, onTask: onItem ? () => onItem(r.item) : null })))))
+        h('div.wk-activity', list.map((r) => runCard(r, { title: true, onTask: onItem ? () => onItem(r.item) : null, onRelease: () => releaseRun(r) })))))
         : emptyState('search', 'Nothing matches this filter.'),
       more);
   };
@@ -320,7 +415,7 @@ export function paintActivity(slot, { prefs, onItem, today = null }) {
     key = k;
     keepFocus(slot, draw);
   }, (e) => {
-    if (!runs) fill(slot, errorBox(e.message));
+    if (!runs) fill(slot, errorBox(e));
   });
   refresh();
   return { refresh, working: () => !!runs && runs.some((r) => r.state === 'running' && r.here) };

@@ -3,8 +3,9 @@
 import { ask, askHidden } from '../menu.mjs';
 import { readProfile, validName, writeProfile } from '../profiles.mjs';
 import { allAddons, findAddon, listAddons } from './index.mjs';
+import { noteStarted, noteStopped } from './stopmark.mjs';
 
-const usage = () => `usage: hoprig addons                     list the add-ons and their state
+export const usage = () => `usage: hoprig addons                     list the add-ons and their state
        hoprig addons setup <id>          install it, start it and make a profile for it
        hoprig addons install|update|start|stop|status <id>
 add-ons: ${allAddons().map((a) => a.id).join(', ')}`;
@@ -24,7 +25,7 @@ async function show(list) {
 async function setup(addon) {
   let s = await addon.status();
   if (!s.installed) {
-    console.log(`Installing ${addon.title}…`);
+    console.log(`Installing ${addon.title}…${addon.builds ? ` ${addon.builds}` : ''}`);
     const r = await addon.install({ onLine: line });
     if (!r.ok) {
       console.error(`${addon.title} could not be installed. Try: ${addon.installHint ? addon.installHint() : `npm install -g ${addon.id}`}`);
@@ -96,6 +97,7 @@ export async function main(command, args) {
       await show([{ id: addon.id, title: addon.title, summary: addon.summary, homepage: addon.homepage, ...(await addon.status()) }]);
       return 0;
     case 'install':
+      if (addon.builds) console.log(addon.builds);
       return (await addon.install({ onLine: line })).ok ? 0 : 1;
     case 'update':
       return (await addon.update({ onLine: line })).ok ? 0 : 1;
@@ -103,6 +105,7 @@ export async function main(command, args) {
       // An add-on may explain itself and ask first (the public link), and show more once it runs.
       if (addon.beforeStart && !(await addon.beforeStart({ args: args.slice(2), ask }))) return 1;
       const r = await addon.start();
+      if (r.ok) noteStarted(addon.id);
       if (r.ok && !r.already && addon.afterStart) await addon.afterStart(r);
       // Written to stderr: this command is a profile's PRERUN, and stdout there belongs to Claude Code.
       process.stderr.write(r.ok ? (r.already ? '' : `${addon.title} started: ${r.url}\n`) : `${r.error || `${addon.title} did not start`}\n`);
@@ -110,6 +113,7 @@ export async function main(command, args) {
     }
     case 'stop': {
       const r = await addon.stop();
+      if (r.ok) noteStopped(addon.id); // his own stop: the Operator's gateway rule leaves it stopped
       console.log(r.ok ? (r.already ? r.note || `${addon.title} is not running.` : `${addon.title} stopped.`) : r.error || `${addon.title} did not stop.`);
       return r.ok ? 0 : 1;
     }

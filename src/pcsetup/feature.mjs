@@ -18,8 +18,9 @@
 //   POST /api/pcsetup/clone { repos }     clone into the projects folder (background job, live output)
 //   POST /api/pcsetup/install { dir }     a cloned project's dependency install (background job)
 //   GET  /api/pcsetup/projects            the projects folder, its workspaces (parent + code repos) and other repos
-//   GET  /api/pcsetup/project/preview?name=N             what "New project" would create, before anything is made
-//   POST /api/pcsetup/project/new { name, github }       `project new` as a background job (never asks: GitHub only when chosen)
+//   GET  /api/pcsetup/project/preview?name=N&brief=1     what "New project" would create (with a brief: brief=1), before anything is made
+//   POST /api/pcsetup/project/new { name, github, brief?, kind?, scope? }   `project new` as a background job (never asks: GitHub
+//                                                        only when chosen); the brief is checked first (newproject.mjs)
 //   POST /api/pcsetup/project/clone { spec }             `project clone` as a background job (installs are left to the page)
 //   POST /api/pcsetup/project/add { name, repo, github } `project add`: a new code repository in the project's code/
 //   POST /api/pcsetup/project/sync { name, memory }      background job; its result says per repository what was
@@ -43,7 +44,9 @@ import { stateDir } from '../paths.mjs';
 import { uniqueName } from '../server/validate.mjs';
 import { capture, stream } from '../setup/system.mjs';
 import { detectKits, ghAuth, sysFacts } from './detect.mjs';
-import { KITS, KIT_IDS, buildPlan } from './kits.mjs';
+import { KITS, KIT_IDS, afterText, buildPlan, kitCovered } from './kits.mjs';
+import { leftOutText } from './suggest.mjs';
+import { extraSteps, optionalExtras } from './optional.mjs';
 import { cloneRepo, expandDir, listRepos, parseRepo, prepareEnv, projectNeeds, projectsDir, rememberDir, repoState } from './projects.mjs';
 import { cloneProject, projectAdd, projectNew } from './project.mjs';
 import { parseRecipeText, validateRecipe, loadRecipe } from './recipe.mjs';
@@ -56,6 +59,8 @@ import { addRules, removeRules } from './rules.mjs';
 import { adminRunner, checkPassword, scrubber, sudoNeedsPassword } from './admin.mjs';
 import { runPcSetup } from './setup.mjs';
 import { tokenIdOf } from '../machines/index.mjs';
+import { defaultHubLabel } from '../machines/hub.mjs';
+import { ownersPress } from '../server/ownerpress.mjs';
 import { arrivedEncrypted } from '../machines/legs.mjs';
 import { foldersHere, projectDirFor } from '../workspace/where.mjs';
 import { isLinkedWorktree } from '../workspace/layout.mjs';
@@ -72,15 +77,17 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 const plain = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, '');
 
 /**
- * Text for the page: the home folder written as "~", so no user name shows in the output or a screenshot. A path in
- * quotes keeps working when it is copied into a shell: "~/x" would not expand there, ~/"x" does.
+ * Text for the page: the home folder written as "~" where it starts a path, so no user name shows in the output or a
+ * screenshot. A path in quotes keeps working when it is copied into a shell: "~/x" would not expand there, ~/"x" does.
  */
 export function tildeText(s, home = os.homedir()) {
   let t = String(s);
   if (!home || home === path.parse(home).root) return t;
   const esc = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   t = t.replace(new RegExp(`(["'])${esc}([\\\\/])`, 'g'), '~$2$1').replace(new RegExp(`(["'])${esc}\\1`, 'g'), '~');
-  return t.split(home).reduce((out, part, i) => (i === 0 ? part : /^([\\/]|$|["'\s:),.])/.test(part) ? `${out}~${part}` : `${out}${home}${part}`));
+  // Only where the home starts a path (nothing of a path before it) and ends there (a separator, the end, a space, a
+  // quote, or a closing mark before a space): "<home>.bak/x" and "/mirror<home>/x" are other places and stay whole.
+  return t.replace(new RegExp(`(?<![\\w.~\\\\/-])${esc}(?=[\\\\/]|$|[\\s"'\`]|[),.:;](?:\\s|$))`, 'g'), '~');
 }
 
 /**
@@ -106,7 +113,7 @@ export function todoKind(why) {
   // a merge helps, it is moved away first.
   if (/put files where .+ is here/.test(w)) return 'kept-back';
   if (/both moved/.test(w)) return 'diverged';
-  if (/to pull, but there are/.test(w)) return 'pull-blocked';
+  if (/to pull, but there are/.test(w) || /to pull, but .+ changed here and by the incoming commits/.test(w)) return 'pull-blocked';
   if (/uncommitted change/.test(w)) return 'uncommitted';
   if (/^fetch failed/.test(w)) return 'fetch-failed';
   if (/^push failed/.test(w)) return 'push-failed';
@@ -118,6 +125,7 @@ export function todoKind(why) {
 export function pcsetupFeature(sctx, opts = {}) {
   const facts = () => (opts.sys ? Promise.resolve(opts.sys) : sysFacts());
   const pdir = () => (opts.projectsDir ? opts.projectsDir() : projectsDir());
+  const computer = opts.computer || (() => defaultHubLabel()); // the name a Fix's confirmation must give
   let job = null; // one background job at a time: { kind, running, lines, steps, result }
   const busy = () => {
     if (job && job.running) throw fail(409, 'another setup job is still running; wait until it finishes');
@@ -162,7 +170,9 @@ export function pcsetupFeature(sctx, opts = {}) {
     if (b.terminal === true) return terminal(kind === 'fix' ? `fix-${kits[0]}` : kind, args);
     busy();
     const sys = await facts();
-    const plan = buildPlan(kits, await detectKits(sys), sys);
+    const found = await detectKits(sys);
+    const extras = await extrasOf(sys, found);
+    const plan = buildPlan(kits, found, sys, { extra: extraSteps(extras) });
     const hands = plan.steps.find((s) => s.interactive);
     if (hands) return { needsTerminal: true, why: hands.why || showCommand(hands.argv) };
     let password = null;
@@ -177,7 +187,7 @@ export function pcsetupFeature(sctx, opts = {}) {
       ui.page = true; // setup's wording: "on this page", not "run … in a terminal"
       j.steps = [];
       const r = await (opts.runPcSetup || runPcSetup)({
-        ui, yes: true, kits, recipe, sys, runner: adminRunner(password, opts.stream || stream),
+        ui, yes: true, kits, recipe, sys, extras, runner: adminRunner(password, opts.stream || stream),
         onStep: (i, s, state) => {
           j.steps[i] = { label: s.why || (s.items && s.items.length ? `install ${s.items.join(', ')}` : 'install'), command: showCommand(s.argv), state };
         },
@@ -202,6 +212,9 @@ export function pcsetupFeature(sctx, opts = {}) {
     return { session: name };
   }
 
+  // The suggestions, the PHP note and the Java line (optional.mjs: it only reads). Never in the way of the page.
+  const extrasOf = (sys, found) => (opts.extras ? Promise.resolve(opts.extras) : optionalExtras(sys, pdir(), found).catch(() => ({ suggested: [], php: [], java: null })));
+
   const kitsOf = (list) => {
     if (!Array.isArray(list) || !list.length || list.some((k) => !KIT_IDS.includes(k))) throw fail(400, `kits must be some of: ${KIT_IDS.join(', ')}`);
     return [...new Set(list)];
@@ -213,21 +226,34 @@ export function pcsetupFeature(sctx, opts = {}) {
   const routes = [
     ['GET', /^\/api\/pcsetup\/status$/, async (req, m, q) => {
       const checks = await (opts.status ? opts.status() : pcStatus({ sys: await facts(), offline: q && q.get('offline') === '1', projects: pdir() }));
-      return { ok: exitCode(checks) === 0, checks, projectsDir: pdir() };
+      return { ok: exitCode(checks) === 0, checks, projectsDir: pdir(), computer: computer() };
     }],
     ['GET', /^\/api\/pcsetup\/kits$/, async () => {
       const sys = await facts();
       const found = await detectKits(sys);
+      const extras = await extrasOf(sys, found);
+      const extra = extraSteps(extras);
+      const t = (x) => tildeText(x, sys.home);
       return {
         platform: sys.platform, pm: sys.pm,
-        kits: KITS.map((k) => {
-          const plan = buildPlan([k.id], found, sys);
+        // A kit Hoprig does not set up here (the PHP and fvm kits on Windows) is not offered: `notCovered` names it.
+        kits: KITS.filter((k) => kitCovered(k, sys.platform)).map((k) => {
+          const plan = buildPlan([k.id], found, sys, { extra });
+          const mariadb = k.start && plan.steps.some((s) => s.items.includes('mariadb'));
           return {
-            id: k.id, title: k.title, summary: k.summary, defaultOn: k.defaultOn, after: k.after || null,
-            items: found[k.id].filter((i) => i.state !== 'na').map(({ id, name, state, version }) => ({ id, name, state, version })),
+            // MariaDB's sentence only when this plan installs MariaDB (not when it is held back or already here).
+            id: k.id, title: k.title, summary: k.summary, defaultOn: k.defaultOn, after: k.start && !mariadb ? null : afterText(k, sys),
+            items: found[k.id].filter((i) => i.state !== 'na').map(({ id, name, state, version, detail }) => ({ id, name, state, version, detail: t(detail || '') })),
             commands: plan.steps.map((s) => showCommand(s.argv)), admin: plan.admin,
+            cannot: plan.cannot.map((c) => c.why || `${c.name}: no way to install it here automatically`),
+            start: mariadb ? k.start(sys).map((l) => showCommand(l)) : [],
+            suggested: extras.suggested.filter((x) => x.kit === k.id).map((x) => x.reason),
+            notes: k.id === 'php' ? extras.php.map((n) => ({ verdict: n.verdict, text: n.text })) : [],
           };
         }),
+        notCovered: KITS.filter((k) => !kitCovered(k, sys.platform)).map((k) => k.title),
+        leftOut: extras.leftOut ? leftOutText(extras.leftOut) : null,
+        java: extras.java ? { state: extras.java.state, text: t(extras.java.text), broken: extras.java.broken.map((b) => ({ place: t(b.place), why: b.why })), javaHome: extras.java.javaHome || null, javaHomeHint: extras.java.javaHomeHint || null } : null,
       };
     }],
     ['POST', /^\/api\/pcsetup\/setup$/, async (req) => {
@@ -239,7 +265,9 @@ export function pcsetupFeature(sctx, opts = {}) {
       const b = await sctx.readJson(req);
       const checks = await (opts.status ? opts.status() : pcStatus({ sys: await facts(), offline: true, projects: pdir() }));
       const c = checks.find((x) => x.id === b.id);
+      if (c && c.setupKit) throw fail(400, `${(KITS.find((k) => k.id === c.setupKit) || {}).title || c.setupKit} is optional: choose it under "Set up this computer", where its commands are shown before anything runs`);
       if (!c || !c.fixKit) throw fail(400, 'that check has no fix Hoprig can run');
+      ownersPress(sctx, req, b, { name: computer(), what: `The fix of "${c.label || c.id}"`, card: (x) => x.tool === 'manage_computer' && x.input.action === 'setup_fix' && x.input.check === c.id });
       return setupJob('fix', [c.fixKit], b, ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', c.fixKit], { req });
     }],
     ['GET', /^\/api\/pcsetup\/recipe$/, async (req, m, q) => {
@@ -396,17 +424,44 @@ export function pcsetupFeature(sctx, opts = {}) {
       let files = null;
       if (!template) files = Object.keys(BUILTIN_TEMPLATE);
       else if (fs.existsSync(template)) files = (() => { try { return readTemplate(template).map((f) => f.rel); } catch { return null; } })();
+      // With a brief (brief=1) the new-project skill and docs/brief.md come in too (newproject.mjs), unless the template
+      // has its own skill.
+      if (files && q.get('brief') === '1') {
+        const np = await import('./newproject.mjs');
+        files = np.withProjectFiles(files.map((rel) => ({ rel })), { files: np.briefFileList().map((rel) => ({ rel })), brief: '' }).map((f) => f.rel);
+      }
       const gh = await ghAuth(await facts()).catch(() => ({ signedIn: false }));
-      return { name, dir, home: os.homedir(), exists: fs.existsSync(dir), template: template ? 'yours' : 'built-in', files, github: { signedIn: Boolean(gh.signedIn), account: gh.signedIn ? gh.account || null : null } };
+      // No name and e-mail for the first commit anywhere (a fresh computer): the page asks for them.
+      let cfgNow = {};
+      try {
+        cfgNow = loadConfig();
+      } catch {
+        /* defaults */
+      }
+      const askIdentity = !(await (await import('./project.mjs')).identityKnown(cfgNow));
+      return { name, dir, home: os.homedir(), exists: fs.existsSync(dir), template: template ? 'yours' : 'built-in', files, github: { signedIn: Boolean(gh.signedIn), account: gh.signedIn ? gh.account || null : null }, askIdentity };
     }],
     ['POST', /^\/api\/pcsetup\/project\/new$/, async (req) => {
       const b = await sctx.readJson(req);
       if (typeof b.name !== 'string' || !NAME_RE.test(b.name)) throw fail(400, 'a project name is letters, digits, ".", "_" and "-"');
       if (fs.existsSync(path.join(pdir(), b.name))) throw fail(409, 'a folder with that name is already there');
       const dir = path.join(pdir(), b.name);
+      // A brief and a kind are checked before the job starts: a refusal (a character that cannot be seen) is the
+      // answer, with the brief without them for the page to offer (details).
+      const np = await import('./newproject.mjs');
+      const brief = b.brief === undefined || b.brief === null || b.brief === '' ? undefined : np.checkProjectBrief(b.brief);
+      if (b.kind !== undefined && b.kind !== null && b.kind !== '' && !np.kindOf(b.kind)) throw fail(400, `the kind is one of: ${np.KINDS.map((k) => k.id).join(', ')}`);
+      if (b.scope !== undefined && b.scope !== null && b.scope !== '' && !np.scopeOf(b.scope)) throw fail(400, `the scope is one of: ${np.SCOPES.map((s) => s.id).join(', ')}`);
+      if ((b.kind || b.scope) && brief === undefined) throw fail(400, 'a kind and a scope go with a brief');
+      const kind = [...(b.kind ? ['--kind', b.kind] : []), ...(b.scope ? ['--scope', b.scope] : [])];
+      // A name and an e-mail typed on the page (when git has none): checked here, given to git for this project's first
+      // commit only, as --git-name and --git-email are.
+      const who = (await import('./project.mjs')).pageIdentity(b.gitName, b.gitEmail);
+      if (who.error) throw fail(400, who.error);
+      const idArgs = who.name ? ['--git-name', who.name, '--git-email', who.email] : [];
       return { ...startJob('new', async (onLine, j) => {
         const { ui, failures } = jobUi(onLine);
-        const code = await (opts.projectNew || projectNew)([b.name, b.github === true ? '--github' : '--no-github'], { ui, run: opts.stream || stream });
+        const code = await (opts.projectNew || projectNew)([b.name, b.github === true ? '--github' : '--no-github', ...kind, ...idArgs], { ui, run: opts.stream || stream, ...(brief !== undefined ? { brief } : {}) });
         j.data = { name: b.name, dir, made: fs.existsSync(path.join(dir, '.git')) };
         j.error = failures[0] || null;
         return code === 0;
@@ -466,7 +521,9 @@ export function pcsetupFeature(sctx, opts = {}) {
       const at = await projectDirFor(b.name, { projects: pdir() });
       const root = at.root;
       return startJob('sync', async (onLine, j) => {
-        const r = await (opts.syncWorkspace || syncWorkspace)(root, { memory: b.memory === true, ...(at.members === 'group' ? { parent: false } : {}) });
+        // Publishing is the owner's own press: a sync through Tia's door (here, or relayed from a hub) never pushes.
+        const theirs = (sctx.caller && sctx.caller(req) === 'self') || String((req.headers || {})['x-hoprig-self'] || '') === '1';
+        const r = await (opts.syncWorkspace || syncWorkspace)(root, { memory: b.memory === true, push: !theirs, ...(at.members === 'group' ? { parent: false } : {}) });
         if (r.memory) onLine(r.memory.committed ? '✓ memory committed' : `· memory: ${r.memory.why}`);
         let ok = true;
         for (const x of r.repos) {

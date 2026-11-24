@@ -5,7 +5,7 @@
 // after the yes is shown where the form is. The same question for Remove (it names the providers that start it), and
 // for Confirm the program (its program changed since the owner confirmed it: the file as it is now, its fingerprint).
 import { COMMAND } from './brand.js';
-import { api, fill, h, openSheet, toast } from './lib.js';
+import { api, fill, h, link, openSheet, toast } from './lib.js';
 import { errorBox, field } from './shell.js';
 
 const busy = (text) => h('div.empty.compact', h('div.spinner', { 'aria-hidden': 'true' }), h('p', text));
@@ -51,7 +51,7 @@ export function shortNameOf(title) {
 }
 
 /** The form's label of each part of a definition, as the server names it in an error's `field`. */
-export const FIELD_LABELS = { title: 'Name', id: 'Short name', bin: 'Program', port: 'Port', args: 'Arguments', dashboard: 'Its own page', npm: 'npm package' };
+export const FIELD_LABELS = { title: 'Name', id: 'Short name', bin: 'Program', port: 'Port', args: 'Arguments', dashboard: 'Its own page', npm: 'npm package', firstPassword: 'Its first password\'s line' };
 
 /** The definition the form describes (the server checks every part of it). */
 function definitionOf(f) {
@@ -62,6 +62,7 @@ function definitionOf(f) {
   const args = f.args.value.trim();
   if (args && args !== '--port PORT') d.args = args.split(/\s+/);
   if (f.dashboard.value.trim()) d.dashboard = f.dashboard.value.trim();
+  if (f.firstPassword.value.trim()) d.firstPassword = f.firstPassword.value.trim();
   return d;
 }
 
@@ -77,6 +78,7 @@ export function defineGatewaySheet(done) {
       args: input('input.field.mono', { value: '--port PORT' }),
       dashboard: input('input.field.mono', { placeholder: '/' }),
       npm: input('input.field.mono', { placeholder: 'relay-gateway' }),
+      firstPassword: input('input.field', { placeholder: 'password', maxlength: 60 }),
     };
     // The short name follows the name until it is typed itself, and again once it is emptied.
     let idTyped = false;
@@ -125,10 +127,10 @@ export function defineGatewaySheet(done) {
           await api('/api/gateways/defined/add', { definition, confirmed: true, pin: r.pin });
         } catch (e) {
           // Said at once, the list drawn again (another tab may have added it), and the form back with the reason.
-          toast(e.message, { kind: 'error' });
+          toast(e, { kind: 'error' });
           done();
           showForm();
-          fill(out, showError(e) ? null : errorBox(e.message));
+          fill(out, showError(e) ? null : errorBox(e));
           return;
         }
         toast(`${definition.title} added`);
@@ -151,16 +153,17 @@ export function defineGatewaySheet(done) {
         fill(out);
         question(definition, r);
       } catch (e) {
-        fill(out, showError(e) ? null : errorBox(e.message));
+        fill(out, showError(e) ? null : errorBox(e));
         go.disabled = false;
       }
     });
     const row = (k, hint) => h('div', field(FIELD_LABELS[k], f[k], hint), errs[k]);
     const more = h('details.adv', h('summary', 'More'),
       row('dashboard', 'The path of its page on that port, such as /. Leave it empty when it has none.'),
-      row('npm', 'Only for a gateway installed with npm: Hoprig installs and updates it, and Program is then the name it installs.'));
+      row('npm', 'Only for a gateway installed with npm: Hoprig installs and updates it, and Program is then the name it installs.'),
+      row('firstPassword', 'A word on the line where it prints its first password, such as password. That line is shown to you once when it starts and kept out of its log. Empty: its log is as it prints it.'));
     const form = h('div.wizard',
-      h('p.sheet-text', 'Hoprig starts it when a session on its provider needs it, and stops it when you say. Then add your providers in it, and make it a provider here: Providers → Add provider.'),
+      h('p.sheet-text', 'Hoprig starts it when a session on its provider needs it, and stops it when you say. Then add your providers in it, and make it a provider here: ', h('a', { href: link('#/providers'), onclick: () => close() }, 'Providers → Add provider'), '.'),
       row('title', 'How the pages call it.'),
       row('id', `Lower-case letters, digits and -. Used in commands: ${COMMAND} addons start <short name>.`),
       row('bin', 'Its full path, or a name found on the computer\'s PATH.'),
@@ -181,7 +184,7 @@ export async function removeGateway(a, done) {
     await api('/api/gateways/defined/remove', { id: a.id, confirmed: true });
     toast(`${a.title} removed`);
   } catch (e) {
-    toast(e.message, { kind: 'error' });
+    toast(e, { kind: 'error' });
   }
   done();
 }
@@ -200,7 +203,7 @@ export async function confirmGatewayProgram(a, done) {
       toast(`${a.title}: program confirmed`);
     }
   } catch (e) {
-    toast(e.message, { kind: 'error' });
+    toast(e, { kind: 'error' });
   }
   done();
 }

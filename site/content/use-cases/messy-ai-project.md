@@ -25,7 +25,7 @@ The rules for the AI are in a file nobody updates, the memory is on one computer
 5. `hop skills suggest` reads what the project is made of (its `package.json` and other manifests, no AI) and proposes skills that fit. You see every file and the risky lines before one is added.
 6. `hop project status` shows each repository's branch, changes and whether it is ahead or behind; `hop project sync --memory` commits the memory folders and brings everything in step.
 
-![A project's page: its sessions, its code repositories and its skills](/screenshots/project-page-desktop-light.webp)
+![A project's page: its sessions, its earlier conversations and its code repositories](/screenshots/project-page-desktop-light.webp)
 
 ## What you need
 

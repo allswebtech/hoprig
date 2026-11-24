@@ -17,14 +17,14 @@ import { readTranscript } from './opencode-transcript.mjs';
 import { modeOf, modeRules, onServer, ownRules, providerFor, startModel, topEffort } from './served.mjs';
 
 const TOOL = 'opencode';
-const fail = (status, message) => Object.assign(new Error(message), { status });
+const fail = (status, message, code = null) => Object.assign(new Error(message), { status, ...(code ? { details: { code } } : {}) });
 const enc = encodeURIComponent;
 
 // Turned off in Settings → Coding tools: an open chat of it runs no turn and starts no server any more. o.enabled: a
 // stand-in (tests).
 const isOn = (o) => (o.enabled ? o.enabled() : enabledToolIds(loadConfig()).includes(TOOL));
 function assertOn(o) {
-  if (!isOn(o)) throw fail(409, 'OpenCode is off on this computer: turn it on under Settings → Coding tools to go on with this chat');
+  if (!isOn(o)) throw fail(409, 'OpenCode is off on this computer: turn it on under Settings → Coding tools to go on with this chat.', 'tool-off');
 }
 
 /** A turn runs on the server now (its last start is later than its last end). */
@@ -338,7 +338,7 @@ async function reader(o = {}, { start = true } = {}) {
   }
   assertOn(o);
   const r = await (o.ensure || ensureServer)(TOOL);
-  if (!r || !r.ok) throw fail(409, (r && r.why) || 'OpenCode\'s server did not start');
+  if (!r || !r.ok) throw fail(409, (r && r.why) || 'OpenCode\'s server did not start', r && r.code);
   return (o.client || opencodeClient)({ ...r.server, fetchImpl: o.fetchImpl });
 }
 

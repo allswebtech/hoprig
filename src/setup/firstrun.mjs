@@ -18,7 +18,11 @@ export const PARTS = ['base', 'pc', 'git', 'workspace', 'project', 'skills'];
 const real = {
   workspace: async (o) => (await import('../workspace/step.mjs')).runWorkspaceStep(o),
   git: async (o) => (await import('../workspace/gitstep.mjs')).runGitStep(o),
-  pc: async (o) => (await import('../pcsetup/index.mjs')).runPcSetup(o),
+  pc: async ({ facts, ...o }) => {
+    const { runPcSetup } = await import('../pcsetup/index.mjs');
+    if (!facts || o.sys) return runPcSetup(o);
+    return runPcSetup({ ...o, sys: await (await import('../pcsetup/detect.mjs')).sysFacts(facts) });
+  },
   projectNew: async (args, o) => (await import('../pcsetup/project.mjs')).projectNew(args, o),
   cloneProject: async (spec, o) => (await import('../pcsetup/project.mjs')).cloneProject(spec, o),
   projectSkills: async (o) => (await import('../skillhub/hub.mjs')).runSkillsStep(o),
@@ -93,8 +97,10 @@ export async function partPc(ui, opts, p = real) {
   // runPcSetup prints its own heading ("This computer" and the OS).
   try {
     // --yes: the default kits, no working rules (they are an opt-in, asked for in a terminal).
-    const r = await p.pc({ ui, yes: opts.yes, dryRun: opts.dryRun, rules: opts.yes ? false : null, projects: false });
-    return { part: 'pc', ok: r.ok, note: r.ok ? (r.missing && r.missing.length ? `still missing: ${r.missing.join(', ')}` : '') : 'some installs failed (the retry commands are above)' };
+    const r = await p.pc({ ui, yes: opts.yes, dryRun: opts.dryRun, rules: opts.yes ? false : null, projects: false, extraSteps: opts.extraSteps || [], facts: opts.pcFacts });
+    opts.extraRan = true; // the computer step listed them (setup.mjs then only says what came of them)
+    if (opts.afterPc) await opts.afterPc();
+    return { part: 'pc', ok: r.ok, note: r.ok ? (r.missing && r.missing.length ? `still missing: ${r.missing.join(', ')}` : '') : 'an install failed: its retry command is above' };
   } catch (e) {
     ui.line('fail', `This computer for coding: ${e.message}`);
     return { part: 'pc', ok: false, note: e.message, retry: 'hoprig pc setup' };

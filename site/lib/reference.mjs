@@ -45,10 +45,13 @@ function helpLines(root) {
   const out = [];
   for (const line of help.split('\n')) {
     const m = /^ {2}hoprig(?: (\S.*?))?(?: {2,}(.*))?$/.exec(line);
+    const example = /^ {10,}(hoprig \S.*?) {2,}(\S.*)$/.exec(line);
     if (m) out.push(splitUsage(`hoprig${m[1] ? ` ${m[1]}` : ''}`, m[2] || ''));
+    // An example under a line ("hoprig api -c   continue the last session"): the command as code, then its words.
+    else if (example && out.length) (out[out.length - 1].examples ||= []).push(`${code(example[1])}: ${example[2].trim()}`);
     else if (/^ {10,}\S/.test(line) && out.length) out[out.length - 1].text += ` ${line.trim()}`;
   }
-  return out.map((l) => ({ ...l, text: l.text.trim() }));
+  return out.map(({ examples, ...l }) => ({ ...l, text: `${l.text.trim()}${examples ? ` (${examples.join('; ')})` : ''}` }));
 }
 
 function sourceFiles(dir) {
@@ -64,6 +67,7 @@ function sourceFiles(dir) {
  */
 export function jsonCommands(root) {
   const known = new Set(cliCommands(root));
+  const help = helpLines(root);
   const found = new Map();
   for (const file of [...sourceFiles(path.join(root, 'bin')), ...sourceFiles(path.join(root, 'src'))]) {
     const lines = fs.readFileSync(file, 'utf8').split('\n');
@@ -75,12 +79,25 @@ export function jsonCommands(root) {
       const [usage, ...rest] = s.split(/\s{2,}/);
       if (!usage || !usage.includes('--json') || !known.has(usage.split(' ')[0])) return;
       if (!prefixed && !comment) return;
+      // A comment's usage line without "hoprig" is set in from the "//" ("//   workspace status [--json]   ..."); a
+      // comment's prose that merely starts with a command's name ("// version }; proc: ...") is no usage line.
+      if (!prefixed && !/^\s*\/\/\s{2,}\S/.test(raw)) return;
       let text = rest.join(' ').trim();
-      // The text goes on in lines indented far to the right (a usage that is too long has all its text there).
-      for (let k = n + 1; /^(\s*\/\/)?\s{20,}\S/.test(lines[k] || '') && !/^\s*(\/\/\s*)?hoprig\s/.test(lines[k]); k++) {
+      // The text goes on in lines indented far to the right (a usage that is too long has all its text there), or, in
+      // a usage text that puts it under the line ("  hoprig x [--json]" then "      what it does"), in lines set in
+      // deeper than the usage line itself.
+      const indent = (l) => /^(\s*\/\/)?(\s*)/.exec(l)[2].length;
+      const under = !text && !comment ? indent(raw) : Infinity;
+      for (let k = n + 1; (/^(\s*\/\/)?\s{20,}\S/.test(lines[k] || '') || (/\S/.test(lines[k] || '') && indent(lines[k]) > under)) && !/^\s*(\/\/\s*)?hoprig\s/.test(lines[k]); k++) {
         text = `${text} ${lines[k].replace(/^\s*\/\/?/, '').trim().replace(/`;$/, '')}`.trim();
       }
       const key = usage.split(' ').filter((w) => !/^[[<-]/.test(w)).join(' ');
+      // A comment's note for the code's readers ("= hoprig get (getproject.mjs)") is no text for a visitor: the
+      // command's own line in `hoprig help` says it.
+      if (/^=|\b[\w-]+\.mjs\b/.test(text)) {
+        const lead = (u) => u.split(' ').filter((w, n, a) => a.slice(0, n + 1).every((x) => /^[a-z][a-z-]*$/.test(x))).join(' ');
+        text = help.find((h) => lead(h.usage.slice('hoprig '.length)) === lead(usage))?.text || '';
+      }
       const entry = { usage: `hoprig ${usage}`, text: text.replace(/`;$/, ''), file: path.relative(root, file).split(path.sep).join('/'), prefixed };
       const had = found.get(key);
       if (!had || (prefixed && !had.prefixed)) found.set(key, entry);
@@ -105,7 +122,8 @@ function levelRange(level) {
 
 /** Tia's tools, imported from the product: [{ name, level, card, description, actions: [{ name, level }] }]. */
 export async function tiaTools(root) {
-  const mod = await import(pathToFileURL(path.join(root, 'src/assistant/tools.mjs')).href);
+  // Loaded by Node itself, also inside the Next build: the product's module is not part of the site's bundle.
+  const mod = await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ pathToFileURL(path.join(root, 'src/assistant/tools.mjs')).href);
   return mod.TOOLS.map((t) => ({
     name: t.name,
     level: levelRange(t.level),
@@ -147,7 +165,10 @@ export async function toolsPage(root) {
   md.push('');
   md.push('| Command | What it does |');
   md.push('|---|---|');
-  for (const c of inHelp) for (const h of listed(c)) md.push(`| ${code(h.usage)} | ${cell(h.text || '—')} |`);
+  // In the help's own order, so a line that points at the one before it ("the same, short", "as above") reads right;
+  // with the lines that start a coding tool (hoprig, hoprig <profile> [args], hoprig -c), which name no command.
+  const ownLine = (h) => /^hoprig(?: [<-]|$)/.test(h.usage) || inHelp.some((c) => h.usage === `hoprig ${c}` || h.usage.startsWith(`hoprig ${c} `));
+  for (const h of help.filter(ownLine)) md.push(`| ${code(h.usage)} | ${cell(h.text || '—')} |`);
   for (const c of typed.filter((t) => commands.includes(t) && !listed(t).length)) md.push(`| ${code(`hoprig ${c}`)} | ${cell(INTERNAL[c])} |`);
   md.push('');
   md.push('### Not in `hoprig help`');

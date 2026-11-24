@@ -73,3 +73,15 @@ test('delivery to a local receiver; event filter; timeout; error answer', async 
     srv.close();
   }
 });
+
+test('an ntfy title in another script goes as RFC 2047 encoded words; plain ASCII and JSON receivers as before', async () => {
+  const { encodedWords } = await import('../../src/server/notify.mjs');
+  const long = 'काम: 3 हो गए, 2 चल रहे हैं और 1 आपका इंतज़ार कर रहा है';
+  const t = buildRequest({ url: 'https://ntfy.sh/abc' }, { title: long, status: 'automation' }).headers.Title;
+  const words = t.split(' ');
+  assert.ok(words.length > 1 && words.every((w) => /^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/.test(w) && w.length <= 75), t);
+  assert.equal(words.map((w) => Buffer.from(w.slice(10, -2), 'base64').toString('utf8')).join(''), long, 'no character cut in two');
+  assert.equal(buildRequest({ url: 'https://ntfy.sh/abc' }, { title: 'Ünïcode ✓', status: 'waiting' }).headers.Title, encodedWords('Ünïcode ✓'));
+  assert.equal(buildRequest({ url: 'https://ntfy.sh/abc' }, { title: 'proj is waiting', status: 'waiting' }).headers.Title, 'proj is waiting');
+  assert.equal(buildRequest({ url: 'https://x' }, { title: 'Ünïcode ✓', status: 'waiting' }).headers.Title, '?n?code ?', 'a JSON receiver reads the body');
+});

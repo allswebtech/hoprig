@@ -19,17 +19,17 @@
 // dashboard offers its session, not a second start (another computer's running run is only said: this one cannot
 // settle it, and it must not block the task here). Nothing here pushes, merges or publishes: the session's own rules decide what it
 // changes in its folder.
-import { MODELS } from '../config.mjs';
 import { listProfiles, publicProfile } from '../profiles.mjs';
-import { chatTool, chatToolList, choicesOf, serves } from '../chat/tools.mjs';
+import { chatTool, chatToolList, choicesOf, modelOk, modelRefusal, serves } from '../chat/tools.mjs';
 import { capture } from '../setup/system.mjs';
 import { projectsIn, workspaceDir } from '../workspace/layout.mjs';
 import { dirtyOf, folderChoices, folderOf, headsOf, leftIn, projectsByName, reposOf } from './folders.mjs';
 import { withLock } from './lock.mjs';
-import { BRIEF_MAX, CLOSED, briefOf, checkBrief, findItem, setBrief, setStatus, statusOf, todayIn } from './model.mjs';
+import { BRIEF_MAX, CLOSED, FROM_FENCE, briefOf, checkBrief, fencedFrom, findItem, fromOf, setBrief, setStatus, statusOf, todayIn } from './model.mjs';
+import { WAIT_OVER } from './planview.mjs';
 import { resolvePlace } from './place.mjs';
 import { chatFacts, cleanFolder, cleanText, dropStart, keepStart, listRuns, newRunId, pathsOf, readRun, readStart, viewRun, writeRun, writerId } from './runs.mjs';
-import { changeHeld, readDoc } from './store.mjs';
+import { afterClose, changeHeld, readDoc } from './store.mjs';
 
 // What every brief ends with: the run's answer is the session's last message, so it is asked to be a report.
 const AFTER = '\n\nAfter the last run: '; // what stands before each text the owner sent back, in the brief
@@ -109,9 +109,11 @@ export function workRuns(o) {
     if (serves('auto', tool)) out.unshift({ name: 'auto', label: 'Auto mode', kind: 'auto' });
     return out;
   }
+  // The saved values a check keeps accepting (the default of Settings → New-session defaults); the provider's own list
+  // comes from src/models/catalog.mjs (chat/tools.mjs choicesOf).
   const models = () => {
     const saved = (cfg().sessionDefaults || {}).model;
-    return saved && !MODELS.includes(saved) ? [...MODELS, saved] : [...MODELS];
+    return saved ? [saved] : [];
   };
 
   /**
@@ -162,15 +164,15 @@ export function workRuns(o) {
    * the task's own and the defaults; seen: the task's brief as it was shown, refused when it differs now). → { run,
    * existing? } (existing: the item has a running run: its session is offered), or { dryRun, would } with `dryRun`.
    */
-  function start(ref, c = {}, { dryRun = false } = {}) {
+  function start(ref, c = {}, { dryRun = false, hers = false } = {}) {
     const key = `${place().file}#${typeof ref === 'string' ? ref : ref && ref.id}`;
     if (starting.has(key)) return starting.get(key);
-    const p = begin(ref, c, { dryRun }).finally(() => starting.delete(key));
+    const p = begin(ref, c, { dryRun, hers }).finally(() => starting.delete(key));
     starting.set(key, p);
     return p;
   }
 
-  async function begin(ref, c, { dryRun }) {
+  async function begin(ref, c, { dryRun, hers = false }) {
     const { p, raw } = itemOf(ref);
     const id = raw.id;
     const status = statusOf(raw);
@@ -179,6 +181,10 @@ export function workRuns(o) {
     if (CLOSED.has(status)) throw fail(409, `"${id}" is ${status}: open it again first`, 'closed');
     // A task in review waits for Accept or Send back: a new run would leave that answer unanswered.
     if (status === 'review') throw fail(409, `"${id}" waits for your review: Accept it or Send it back first`, 'review');
+    // A task of a plan that waits for another not done yet (nor dropped) is not started: the plan says that one comes first.
+    const { doc } = readDoc(p.file);
+    const waits = (Array.isArray(raw.after) ? raw.after : []).filter((a) => !(doc.items || []).some((x) => isObj(x) && x.id === a && WAIT_OVER.includes(statusOf(x))));
+    if (waits.length) throw fail(409, `"${id}" waits for ${waits.slice(0, 3).map((a) => `"${String(a).slice(0, 60)}"`).join(', ')} to be done first`, 'waits');
     const name = c.project !== undefined && c.project !== null ? c.project : raw.project;
     if (typeof name !== 'string' || !name) throw fail(400, 'this task has no project: choose the project a session works in', 'no-project');
     const pdir = projectDir(name);
@@ -187,7 +193,7 @@ export function workRuns(o) {
     const dir = folderOf(pdir, folder);
     const tool = chatTool(c.tool, cfg());
     const provider = c.provider === undefined || c.provider === null || c.provider === '' ? await o.defaultProvider(dir, null, tool) : c.provider;
-    if (!provider) throw fail(400, 'there is no provider for this coding tool yet: add one under Providers first');
+    if (!provider) throw fail(400, 'there is no provider for this coding tool yet: add one under Providers first', 'no-provider');
     if (typeof provider !== 'string' || !serves(provider, tool)) throw fail(400, 'that provider does not serve this coding tool');
     // The brief the session gets is the one the owner saw (`seen`: the sheet's, or the command's) or the one he wrote,
     // checked either way: a task that changed since it was shown (a merge, a save) is not started on text he never saw.
@@ -195,7 +201,7 @@ export function workRuns(o) {
     if ((c.brief === undefined || c.brief === null) && c.seen !== undefined && !same(c.seen, briefOf(raw))) throw fail(409, 'the task changed since its brief was shown: look at it again', 'brief-changed');
     const brief = checkBrief(c.brief === undefined || c.brief === null ? briefOf(raw) : c.brief);
     const ch = choicesOf(tool, provider, models);
-    if (c.model !== undefined && c.model !== null && !ch.models.includes(c.model)) throw fail(400, `the model must be one of: ${ch.models.join(', ')}`);
+    if (c.model !== undefined && c.model !== null && !modelOk(tool, c.model, ch)) throw fail(400, modelRefusal(c.model, ch));
     if (c.effort !== undefined && c.effort !== null && !ch.efforts.includes(c.effort)) throw fail(400, `the effort must be one of: ${ch.efforts.join(', ')}`);
     const would = { item: id, project: name, folder, tool, provider, model: c.model ?? null, effort: c.effort ?? null, brief };
     if (dryRun) return { dryRun: true, would };
@@ -218,7 +224,7 @@ export function workRuns(o) {
     let opened;
     try {
       // The chat is named after the task (its first message, the brief with the report sentence, would name it).
-      opened = await o.chat.open({ dir, tool, profile: provider, title: r.title, ...(c.model ? { model: c.model } : {}), ...(c.effort ? { effort: c.effort } : {}), text: `${brief}\n\n${REPORT_ASK}`, defaults: true });
+      opened = await o.chat.open({ dir, tool, profile: provider, title: r.title, ...(c.model ? { model: c.model } : {}), ...(c.effort ? { effort: c.effort } : {}), text: `${fromOf(raw) && !brief.includes(FROM_FENCE) ? `${brief}\n\n${fencedFrom(raw)}` : brief}\n\n${REPORT_ASK}`, defaults: true, ...(hers ? { hers: true } : {}) });
     } catch (e) {
       return { run: await settle(r, { state: 'failed', reason: `${REASONS.never}: ${words(e.message, 300)}`, answer: '' }) };
     }
@@ -352,7 +358,8 @@ export function workRuns(o) {
       return;
     }
     for (const r of listRuns(p)) {
-      if (r.state !== 'running' || r.writer !== me() || followed.has(r.id) || settling.has(r.id) || starting.size) continue;
+      // A run that ends by itself (alone.mjs: it has a branch) has no chat: its own runner settles it.
+      if (r.state !== 'running' || r.writer !== me() || r.branch || followed.has(r.id) || settling.has(r.id) || starting.size) continue;
       if (!r.session) {
         settleFrom(r, null);
         continue;
@@ -367,12 +374,17 @@ export function workRuns(o) {
   async function accept(ref) {
     const p = place();
     return withLock(p.file, async () => {
+      let next = null;
       const r = await changeHeld(p.file, (doc) => {
         const item = findItem(doc, ref);
         if (statusOf(item) !== 'review') throw fail(409, `"${item.id}" is not ready for review`, 'not-review');
-        return setStatus(doc, ref, 'done', ctx(p)).item;
+        const c = ctx(p);
+        const done = setStatus(doc, ref, 'done', c).item;
+        // A repeating task accepted is done like any other close: its next occurrence is made (store.mjs afterClose).
+        next = afterClose(doc, done, c.today);
+        return done;
       });
-      return { item: r.result.id };
+      return { item: r.result.id, ...(next ? { next: next.id } : {}) };
     });
   }
 
@@ -407,15 +419,34 @@ export function workRuns(o) {
 
   /**
    * The runs, newest first, as the page and the command get them. f: { item, project, day (YYYY-MM-DD in Work's time
-   * zone) }.
+   * zone), id (that one run, read by its file alone: also one older than the newest a list reads) }.
    */
   function list(f = {}) {
     const p = place();
     const tz = p.settings.timeZone;
     const label = labels();
-    return listRuns(p, f.item ? { item: f.item } : {})
+    const one = f.id ? readRun(p, f.id) : null;
+    // A task another program added (a Work token): its runs carry the token's name, so Activity never shows its words
+    // as the owner's. Only a run that started after the task came in (a task of his that once had this id is another).
+    const fromById = new Map();
+    try {
+      const { doc } = readDoc(p.file);
+      for (const x of Array.isArray(doc.items) ? doc.items : []) {
+        const fr = x && typeof x === 'object' ? fromOf(x) : null;
+        if (fr && typeof x.id === 'string') fromById.set(x.id, fr);
+      }
+    } catch {
+      /* no list to read now: the runs are shown without it */
+    }
+    const fromOfRun = (r) => {
+      const fr = fromById.get(r.item);
+      return fr && (!fr.at || String(r.startedAt || '') >= fr.at) ? { from: fr.name } : {};
+    };
+    // A look of Tia's (src/operator/look.mjs) is no run of Work's: its record stays in the folder, not in the list.
+    return (f.id ? (one ? [one] : []) : listRuns(p, f.item ? { item: f.item } : {}))
+      .filter((r) => r.by !== 'look' && (!f.item || r.item === f.item))
       .filter((r) => (!f.project || r.project === f.project) && (!f.day || todayIn(tz, new Date(r.startedAt)) === f.day))
-      .map((r) => ({ ...shown(r, label), day: todayIn(tz, new Date(r.startedAt)), where: where(r) }));
+      .map((r) => ({ ...shown(r, label), day: todayIn(tz, new Date(r.startedAt)), where: where(r), ...fromOfRun(r) }));
   }
 
   /** The newest run of each item: { [item id]: { id, state, session, startedAt, endedAt, reason, here, answer } }. */
@@ -428,7 +459,7 @@ export function workRuns(o) {
     }
     const out = {};
     for (const r of listRuns(p)) {
-      if (out[r.item]) continue;
+      if (out[r.item] || r.by === 'look') continue;
       out[r.item] = { id: r.id, state: r.state, session: r.session, startedAt: r.startedAt, endedAt: r.endedAt, reason: r.reason, here: r.writer === me(), answer: r.answer.length > 300 ? `${r.answer.slice(0, 299)}…` : r.answer, statusError: r.statusError };
     }
     return out;

@@ -55,6 +55,9 @@ export const opensAsChat = (s, m) => isClaudeCard(s) || offersChat(m, cardTool(s
 export async function startChat(dir, o = {}, m = null) {
   const body = { dir };
   for (const k of ['tool', 'sessionId', 'text', 'profile', 'permissionMode', 'model', 'effort']) if (o[k]) body[k] = o[k];
+  if (typeof o.lead === 'boolean') body.lead = o.lead; // "Lead model" chosen in the sheet; left out: as the folder's last chat, else Settings
+  if (Array.isArray(o.others)) body.others = o.others; // "Use other providers": the ticks chosen in the sheet
+  if (Array.isArray(o.with) && o.with.length) body.with = o.with; // "Also open": checked again on the server
   const { id } = await api(at(m, '/api/chats'), body);
   store.refresh();
   const to = link(`#/chat/${id}`, m);

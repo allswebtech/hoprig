@@ -10,10 +10,19 @@ git clone https://github.com/allswebtech/hoprig.git
 cd hoprig
 npm install
 npm test            # must pass; the tmux end-to-end test runs where tmux is installed
+node tools/test.mjs test/x.test.mjs   # one file, through the same runner
 node bin/hoprig.mjs demo   # the dashboard with sample data, no coding tool needed
 ```
 
 - One change per pull request, with a test that fails without it.
+- Run tests through the runner (`npm test`, or one file with `node tools/test.mjs test/x.test.mjs`), never plain
+  `node --test`: the runner keeps a test from reaching this computer's own `sudo`, `systemctl`, global `npm`,
+  `ssh`, its disks, processes and ports (`df`, `ps`, `ss` are stand-ins) or the dashboard's port. A run that reaches
+  one fails with a line that names the test: "A TEST REACHED THE REAL …" (give the test a stand-in of its own, first
+  on PATH), "A TEST STARTED A COMPUTER PROGRAM BY ITS FULL PATH" (give it facts or a stand-in; or, when only the real program
+  proves it, name it in `HOPRIG_SEAL_REAL` with a reason), "A TEST KNOCKED ON
+  THE DEFAULT PORT" (give its settings ports of their own). What each means, what the seal holds and what it does
+  not: AGENTS.md, "The suite cannot touch the computer it runs on".
 - Agree to the [contributor licence agreement](CLA.md): keep the line "I have read the CLA and agree to it" with
   your name in the pull request (the template has it). Without it a pull request is not merged.
 - Say what you ran, on which system, and what you could not run.
@@ -21,6 +30,11 @@ node bin/hoprig.mjs demo   # the dashboard with sample data, no coding tool need
 - Words a beginner understands in everything a user reads.
 - Changes to what Tia may do, to the router, to the login or to the token rules need a test for the refusal,
   not only for the happy path.
+
+## Making a release
+
+A release is a tag on a commit of main; the steps, and the owner's one-time npm setup, are in
+[RELEASING.md](RELEASING.md).
 
 ## The licence of a contribution
 

@@ -429,11 +429,24 @@ test('Settings → Updates lists the offered coding tools only: Hoprig, Claude C
   const { realItems } = await import('../../src/automation/updateitems.mjs');
   const { demoUpdateItems } = await import('../../src/demo/updates.mjs');
   assert.deepEqual([...U.UPDATE_ITEMS], ['hoprig', 'claude', 'opencode', 'cloudflared']);
-  assert.deepEqual(realItems().map((i) => [i.id, i.title]), [['hoprig', 'Hoprig'], ['claude', 'Claude Code'], ['opencode', 'OpenCode'], ['cloudflared', 'Tunnel helper (cloudflared)']]);
+  assert.deepEqual(realItems().map((i) => [i.id, i.title]), [['hoprig', 'Hoprig'], ['claude', 'Claude Code'], ['opencode', 'OpenCode'], ['cloudflared', 'The helper for the public link (cloudflared)']]);
   assert.deepEqual(demoUpdateItems().map((i) => i.id), ['hoprig', 'claude', 'opencode', 'cloudflared'], 'the demo too');
   assert.doesNotMatch(JSON.stringify(realItems().concat(demoUpdateItems()).map((i) => [i.title, i.whenRunning])), /Codex/);
   // A setting that names Codex (written by a version that offered it) is read as if it did not; a new one is refused.
   const s = U.readUpdateSettings({ updates: { mode: 'manual', notify: false, itemModes: { codex: 'auto', opencode: 'auto' } } });
   assert.deepEqual(s, { mode: 'manual', notify: false, itemModes: { opencode: 'auto' } });
   assert.throws(() => U.cleanUpdateSettings({ itemModes: { codex: 'auto' } }, s), /"codex" is not updated here/);
+});
+
+test('restart: only as a service; it runs the helper once and says it is restarting, else says to do it yourself', () => {
+  const ran = [];
+  const base = { items: [], cards: async () => [], config: () => ({}), saveConfig: () => {}, record: () => {}, now: () => 1 };
+  const off = createUpdater({ ...base, restarter: { installed: () => false, run: () => ran.push('run') } });
+  const a = off.restart();
+  assert.equal(a.ok, false);
+  assert.match(a.why, /not running as a background service/);
+  assert.deepEqual(ran, [], 'nothing is restarted when it is not a service');
+  const on = createUpdater({ ...base, restarter: { installed: () => true, run: () => ran.push('run') } });
+  assert.deepEqual(on.restart(), { ok: true, restarting: true });
+  assert.deepEqual(ran, ['run']);
 });

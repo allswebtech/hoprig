@@ -4,25 +4,38 @@
 //                                sessions that need an OK or reached a limit, as Home knows them), "To review" (what
 //                                a session has done: Accept or Send back), "This week" day by day, "Done lately"
 //   Tasks     (#/work/tasks)     every item in groups by status and date, filtered by project and by who does it
-//   Activity  (#/work/activity)  the runs of every task, newest first, by project and by day
+//   Plans     (#/work/plans)     plans with their progress, one plan with its milestones and timeline, and "Plan with
+//                                AI" with its proposals (workplans.js, workpropose.js)
+//   Schedules (#/work/schedules) the schedules and the repeating tasks in one list, the queue below (workschedules.js)
+//   Activity  (#/work/activity)  the runs of every task, newest first, by project and by day; under them what the
+//                                automations did (automation.js activityPart)
 // "Do it" on a task starts a coding session that does it (workdo.js). "Save" commits the Work file (and the run files)
 // in its git repository and shows what it will commit first. Where the data lives is Settings → Work (also in this
 // file). Rows and sheets are workitems.js.
 import { icon } from './icons.js';
 import { api, btn, fill, h, needsYou, needsYouFirst, openSheet, prefs, statusPill, toast } from './lib.js';
 import { registerPage, registerSettingsPage } from './registry.js';
+import { accessPanel } from './workaccess.js';
 import { emptyState, errorBox, field, fold, groupHead, panel, radioCards, saveBar, skeletonRows, tabBar } from './shell.js';
 import { sessionHref } from './sessionitem.js';
 import { store } from './store.js';
 import { dayWord, itemRow, itemSheet, weekLabel, whoText } from './workitems.js';
 import { keepFocus, paintActivity, runsSheet } from './workdo.js';
+import { paintPlans } from './workplans.js';
+import { planWithAiSheet, proposalSections } from './workpropose.js';
+import { paintSchedules } from './workschedules.js';
+import { activityPart } from './automation.js';
+import { goalSheet, paintBrief, paintTeam, viewMission } from './mission.js';
+import { needsNoneWords, paintProgress } from './workpulse.js';
+import { paintShip } from './ship.js';
 
-const TABS = [['today', 'Today', 'sun'], ['tasks', 'Tasks', 'tasks'], ['activity', 'Activity', 'clock']];
+const TABS = [['today', 'Today', 'sun'], ['tasks', 'Tasks', 'tasks'], ['plans', 'Plans', 'stack'], ['schedules', 'Schedules', 'refresh'], ['activity', 'Activity', 'clock'], ['golive', 'Go live', 'zap'], ['team', 'Team', 'user']];
 const CLOSED = ['done', 'dropped'];
 let cache = null; // the last answer of GET /api/work: a page opened again shows it at once
 
 function viewWork({ frame, sub }) {
-  const tab = sub === 'tasks' || sub === 'activity' ? sub : sub ? null : 'today';
+  // Team (#/work/team) and one mission of Tia's (#/work/mission/<id>): mission.js.
+  const tab = sub === 'tasks' || sub === 'activity' || sub === 'schedules' || sub === 'golive' || sub === 'team' ? sub : /^mission\/[^/]+$/.test(sub) ? 'team' : sub === 'plans' || /^(plans|proposal)\/[^/]+$/.test(sub) ? 'plans' : sub ? null : 'today';
   if (!tab) {
     location.replace('#/work');
     return () => {};
@@ -33,21 +46,40 @@ function viewWork({ frame, sub }) {
   const content = h('div.wk-content');
   const foot = h('div.wk-foot');
   const tabs = tabBar('Parts of Work', TABS.map(([id, label, ic]) => ({ id, label, icon: ic, href: id === 'today' ? '#/work' : `#/work/${id}` })), tab);
+  // Five parts are wider than a phone: page-work.css drops their icons there, and the open one is scrolled into view.
+  tabs.classList.add('wk-tabs');
+  setTimeout(() => tabs.querySelector?.('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }), 0);
   // Tasks' filter, per device.
   const filter = { project: prefs.get('work.project', ''), by: prefs.get('work.by', '') };
-  const ctx = () => ({ projects: (data && data.projects) || [], today: data && data.today, project: tab === 'tasks' && filter.project !== '-' ? filter.project || '' : '', runs: (data && data.runs) || {}, doIt: !!(data && data.doIt) });
+  const ctx = () => ({ projects: (data && data.projects) || [], today: data && data.today, project: tab === 'tasks' && filter.project !== '-' ? filter.project || '' : '', runs: (data && data.runs) || {}, doIt: !!(data && data.doIt), planTitles: (data && data.planTitles) || {} });
   const add = () => itemSheet(null, ctx()).then((ok) => ok && load());
-  frame({
+  // The Plans part reads the page's data as it is now (it stays drawn while the page looks again: a proposal being
+  // changed is not drawn anew under the owner's hands).
+  const live = new Proxy({}, { get: (_, k) => (data ? data[k] : undefined) });
+  // The page's main action. None on a proposal's screen (its own Accept is the one thing to press there), and none
+  // while the list could not be read: then Try again is the one thing to press, and an Add task would go nowhere.
+  let unread = false;
+  const primary = () => (unread || /^proposal\//.test(sub) || tab === 'golive' ? null : tab === 'team' ? { label: 'Give Tia a goal', icon: 'sparkle', onclick: () => goalSheet((data && data.projects) || []).then((r) => r && teamPart && teamPart.refresh()) } : tab === 'schedules' ? { label: 'Add schedule', icon: 'plus', onclick: () => schedulesPart && schedulesPart.add() } : tab === 'plans' ? { label: 'Plan with AI', icon: 'sparkle', onclick: () => planWithAiSheet(live) } : { label: 'Add task', icon: 'plus', onclick: add });
+  const drawFrame = () => frame({
     title: 'Work',
     page: 'work',
-    intro: 'What your workspace has to do: your tasks, what is due, and what needs you now.',
-    primary: { label: 'Add task', icon: 'plus', onclick: add },
+    intro: 'Your tasks and plans. Today: what is due, and what waits for your yes.',
+    primary: primary(),
+    primaryInHead: true, // on a phone in the page head: a floating button would sit on a task's text
     body: [tabs, top, content, foot],
   });
+  drawFrame();
+  // The list could be read again, or not: the frame is drawn again only when that changes its main action.
+  const readable = (ok) => {
+    if (unread === !ok || !alive) return;
+    unread = !ok;
+    drawFrame();
+  };
 
   // Today's "Needs you" (paintToday makes it). Declared before the store's first call below, which may draw into it at
   // once: a page opened again has its last answer (cache) and is drawn before the first look.
   let needsSlot = null;
+  let pulseWaits = 0; // what Progress lists as waiting for him: Needs you's empty line points to it
   // The sessions that need an OK or reached a limit, on every computer: what Home shows first. Redrawn on each poll.
   const sessionsSlot = h('div.wk-sessions');
   let lastSessions = '';
@@ -70,13 +102,19 @@ function viewWork({ frame, sub }) {
     const sessions = sessionsSlot.childElementCount;
     const head = groupHead('Needs you', items.length + sessions);
     if (!items.length && !sessions) {
+      const [title, sub] = needsNoneWords(pulseWaits);
       fill(needsSlot, head, h('div.rows', h('div.row.static.wk-calm', h('span.row-icon', icon('check')),
-        h('span.row-main', h('span.row-title', 'Nothing needs you right now'), h('span.row-sub', 'Tasks due in the next seven days, waiting for you or ready for your review show here, and sessions that need an OK.')))));
+        h('span.row-main', h('span.row-title', title), h('span.row-sub', sub)))));
       return;
     }
     fill(needsSlot, head, h('div.rows', sessionsSlot.childElementCount ? [...sessionsSlot.children].map((n) => n.cloneNode(true)) : null,
       items.map((it) => itemRow(it, ctx(), load, { why: cap(it.why) }))));
   }
+
+  const afterProgress = (p) => {
+    pulseWaits = p ? p.counts.waiting : 0;
+    if (alive && tab === 'today') paintNeeds();
+  };
 
   function paintToday() {
     const t = data.todayView;
@@ -99,15 +137,25 @@ function viewWork({ frame, sub }) {
         ? h('div.rows', t.doneLately.map((it) => itemRow(it, ctx(), load, { why: doneWord(it.doneAt) })))
         : h('p.hint.wk-hint', 'What you mark done in the last seven days shows here.'));
     if (!data.items.length) {
-      fill(content, needsSlot, h('div.card.wk-start', emptyState('tasks', 'No tasks yet. Add your first one: what is to be done and, if it has one, the day it is due. Whatever is due in the next seven days then shows here.', btn('primary', { icon: 'plus', label: 'Add your first task', onclick: add }))));
+      const pulse0 = h('div.wk-pulse-slot');
+      paintProgress(pulse0).then(afterProgress);
+      fill(content, pulse0, needsSlot, plansToLook(), h('div.card.wk-start', emptyState('tasks', 'No tasks of your own yet. Add your first one: what is to be done and, if it has one, the day it is due. Whatever is due in the next seven days then shows here.', btn('primary', { icon: 'plus', label: 'Add your first task', onclick: add }))));
       paintNeeds();
       return;
     }
     // What a session has done: Accept or Send back, right here.
     const review = t.toReview && t.toReview.length ? h('section.wk-section', groupHead('To review', t.toReview.length), h('div.rows', t.toReview.map((it) => itemRow(it, ctx(), load, { why: 'A session has done it' })))) : null;
-    fill(content, needsSlot, review, week, done);
+    // Progress first: what runs, how far, when it will be done, what waits for you (workpulse.js).
+    const pulse = h('div.wk-pulse-slot');
+    fill(content, pulse, needsSlot, briefSlot, plansToLook(), review, week, done);
+    paintProgress(pulse).then(afterProgress);
+    paintBrief(briefSlot);
     paintNeeds();
   }
+
+  // "Plan with AI": the proposals that wait for the owner (a plan to look at or one that could not be read, a session
+  // still planning, one that ended without a proposal).
+  const plansToLook = () => proposalSections(data.proposals || []);
 
   function paintTasks() {
     const items = data.items;
@@ -126,7 +174,7 @@ function viewWork({ frame, sub }) {
     const parts = groups.filter((g) => !g.closed && g.items.length).map((g) => h('section.wk-section', groupHead(g.title, g.items.length), h('div.rows', g.items.map((it) => itemRow(it, ctx(), load)))));
     const closed = groups.filter((g) => g.closed && g.items.length).map((g) => fold(`work-${g.id}`, `${g.title} (${g.items.length})`, h('div.rows', g.items.map((it) => itemRow(it, ctx(), load)))));
     const empty = !items.length
-      ? h('div.card.wk-start', emptyState('tasks', 'No tasks yet. Add one: a title is enough, a date and a project help.', btn('primary', { icon: 'plus', label: 'Add a task', onclick: add })))
+      ? h('div.card.wk-start', emptyState('tasks', 'No tasks of your own yet. Add one: a title is enough, a date and a project help.', btn('primary', { icon: 'plus', label: 'Add a task', onclick: add })))
       : !shown.length ? emptyState('search', 'Nothing matches this filter.', btn('secondary', { label: 'Show everything', onclick: () => {
         filter.project = '';
         filter.by = '';
@@ -138,7 +186,7 @@ function viewWork({ frame, sub }) {
   }
 
   // The bar over both parts: why the Work folder cannot be used, a file a change would alter (with "Tidy the file
-  // once"), or the changes not saved in git yet, with Save.
+  // once"), or the offer to keep a copy of the list in its repository (saveBand).
   async function paintTop() {
     if (!data || data.problem) return fill(top, data && data.problem ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', data.problem, ' ', h('a', { href: '#/settings/work' }, 'Settings → Work'))) : null);
     const tidy = data.untidy ? h('div.banner.warn.wk-untidy', icon('alert', { size: 18 }),
@@ -175,7 +223,7 @@ function viewWork({ frame, sub }) {
             toast('Saved: your id in this file');
             load();
           } catch (x) {
-            toast(x.message, { kind: 'error', ms: 6000 });
+            toast(x, { kind: 'error', ms: 6000 });
             e.currentTarget.disabled = false;
           }
         } })));
@@ -190,7 +238,7 @@ function viewWork({ frame, sub }) {
           await api('/api/work/save/drop', {});
           toast('Dropped: Save works again');
         } catch (x) {
-          toast(x.message, { kind: 'error', ms: 6000 });
+          toast(x, { kind: 'error', ms: 6000 });
         }
         load();
       } })) : null;
@@ -203,15 +251,15 @@ function viewWork({ frame, sub }) {
     }
     if (!alive) return;
     if (plan.problem || plan.nothing) return fill(top, lead);
+    const words = saveBand(plan, data.place);
+    if (!words) return fill(top, lead);
     const save = () => saveSheet().then(load);
-    // An earlier commit of the Work file not on the server (an older version, or made by hand): said quietly; Save
+    // An earlier copy of the Work file not on the server (an older version, or made by hand): said quietly; the button
     // sends it. A save of this version never leaves one: it reaches the server or stays a change in the file.
-    if (!plan.files.length) {
-      return fill(top, lead, h('p.hint.wk-hint', icon('git', { size: 14 }), ` ${plural(plan.unsent.saves, 'earlier commit')} of the Work file ${plan.unsent.saves === 1 ? 'is' : 'are'} not on the server yet. `, btn('small secondary', { label: 'Send', onclick: save })));
-    }
+    if (words.quiet) return fill(top, lead, h('p.hint.wk-hint', icon('git', { size: 14 }), ` ${words.text} `, btn('small secondary', { label: words.label, onclick: save })));
     fill(top, lead, h('div.banner.info.wk-savebar', icon('git', { size: 18 }),
-      h('span', `${unsavedText(plan)} not saved in git yet`),
-      btn('small primary', { icon: 'upload', label: 'Save', onclick: save })));
+      h('span', words.text),
+      btn('small primary', { icon: 'upload', label: words.label, onclick: save })));
   }
 
   function paintFoot() {
@@ -220,16 +268,62 @@ function viewWork({ frame, sub }) {
   }
 
   let activity = null; // the Activity part's handle (paintActivity): refresh, working
+  let plansPart = null; // the Plans part's handle (paintPlans): drawn once, then refreshed
+  let schedulesPart = null; // the Schedules part's handle (paintSchedules): drawn once
+  let teamPart = null; // the Team part's or a mission's handle (mission.js): drawn once, then refreshed
+  const briefSlot = h('div.ms-brief-slot'); // Today: Tia's morning brief (mission.js paintBrief), only when she has missions
+  let shipPart = null; // the Go live part's handle (ship.js paintShip): drawn once, it loads its own data
+  const logSlot = h('div.wk-autolog');
+  const runsSlot = h('div.wk-runs');
   function paint() {
     activity = null;
+    if (tab === 'team') {
+      const m = /^mission\/([^/]+)$/.exec(sub);
+      if (teamPart) teamPart.refresh();
+      else teamPart = m ? viewMission(content, decodeURIComponent(m[1])) : paintTeam(content, { onGoal: () => goalSheet((data && data.projects) || []).then((r) => r && teamPart && teamPart.refresh()) });
+      paintTop();
+      paintFoot();
+      return;
+    }
+    if (tab === 'golive') {
+      if (!shipPart) shipPart = paintShip(content);
+      fill(top); // Work's own banners (where its list is kept) are not about going live
+      paintFoot();
+      return;
+    }
+    if (tab === 'schedules') {
+      if (!schedulesPart) schedulesPart = paintSchedules(content, { open: (id) => {
+        const it = data && data.items.find((x) => x.id === id);
+        if (it) itemSheet(it, ctx()).then((ok) => ok && (load(), schedulesPart && schedulesPart.refresh()));
+        else toast('That task is not in the list any more');
+      } });
+      paintTop();
+      paintFoot();
+      return;
+    }
+    if (tab === 'plans' && !data.problem) {
+      if (plansPart) plansPart.refresh();
+      else plansPart = paintPlans(content, { sub, data: live, ctx, reload: () => load({ quiet: true }) });
+      paintTop();
+      paintFoot();
+      return;
+    }
     if (data.problem) {
-      fill(content, data.place ? null : h('div.card.wk-start', emptyState('folder', 'Work keeps its list in a folder of your workspace. Choose where in Settings → Work.', btn('primary', { label: 'Open Settings → Work', onclick: () => (location.hash = '#/settings/work') }))));
+      fill(content, data.place ? null : h('div.card.wk-start', emptyState('folder', 'Work keeps its list in a folder of your workspace. Choose where in Settings → Work.', btn('primary', { label: 'Open Settings → Work', onclick: () => (location.hash = '#/settings/work') }))),
+        // What the automations did (Hands-off's answers among them) needs no list of tasks: it is shown all the same.
+        tab === 'activity' ? h('section.wk-section', logSlot) : null);
+      if (tab === 'activity') activityPart(logSlot, () => alive);
     } else if (tab === 'today') paintToday();
-    else if (tab === 'activity') activity = paintActivity(content, { prefs, today: data.today, onItem: (id) => {
-      const it = data.items.find((x) => x.id === id);
-      if (it) runsSheet(it, load);
-      else toast('That task is not in the list any more');
-    } });
+    else if (tab === 'activity') {
+      // The runs of the tasks, then what the automations did (the log that was the Automations page's).
+      if (!content.contains(runsSlot)) fill(content, runsSlot, h('section.wk-section', logSlot));
+      activity = paintActivity(runsSlot, { prefs, today: data.today, onItem: (id) => {
+        const it = data.items.find((x) => x.id === id);
+        if (it) runsSheet(it, load);
+        else toast('That task is not in the list any more');
+      } });
+      activityPart(logSlot, () => alive);
+    }
     else paintTasks();
     paintTop();
     paintFoot();
@@ -243,6 +337,7 @@ function viewWork({ frame, sub }) {
       const next = await api('/api/work');
       if (!alive) return;
       failed = false;
+      readable(true);
       const key = JSON.stringify(next);
       data = cache = next;
       if (quiet && key === drawn) return;
@@ -250,8 +345,10 @@ function viewWork({ frame, sub }) {
       keepFocus(content, paint);
     } catch (e) {
       if (!alive) return;
-      if (!data) fill(content, errorBox(`Could not load Work: ${e.message}`, load));
-      else if (!failed) {
+      if (!data) {
+        readable(false);
+        fill(content, errorBox('Hoprig could not read your task list. Try again; if it stays, the details below say why.', load, e.message));
+      } else if (!failed) {
         failed = true;
         toast(`Could not refresh: ${e.message}`, { kind: 'error' });
       }
@@ -267,10 +364,14 @@ function viewWork({ frame, sub }) {
     if (!alive || !data) return;
     if (tab === 'activity') {
       if (activity && activity.working()) activity.refresh();
-    } else if (watching(data)) load({ quiet: true });
+    } else if (tab === 'plans' && plansPart && plansPart.working()) plansPart.refresh();
+    else if (watching(data)) load({ quiet: true });
   }, 5000);
   return () => {
     alive = false;
+    plansPart?.stop?.();
+    teamPart?.stop?.();
+    shipPart?.stop?.();
     clearInterval(watch);
     unsubscribe();
   };
@@ -278,12 +379,27 @@ function viewWork({ frame, sub }) {
 
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
-/** Whether the page looks again by itself: while a session of this computer works on one of its tasks. */
-export const watching = (d) => !!(d && d.runs && Object.values(d.runs).some((r) => r.state === 'running' && r.here));
+/** Whether the page looks again by itself: while a session of this computer works on one of its tasks, or plans. */
+export const watching = (d) => !!(d && ((d.runs && Object.values(d.runs).some((r) => r.state === 'running' && r.here)) || (d.proposals && d.proposals.some((p) => p.state === 'working'))));
 
 /** What is not saved yet, in words: "2 changes and 3 runs" (a run file is a run, not a change of the list). */
+/**
+ * The band over Work in plain words, or null for none. The list is saved already (in its file on this computer); the
+ * band offers a copy in the AI brain's (or the project's) history on its git server. Where that repository has no
+ * server there is no band: the copy would stay on this computer as well. No git words: no commit, push or upstream.
+ */
+export function saveBand(plan, place) {
+  if (!plan || plan.problem || plan.nothing || !plan.repo || !plan.repo.upstream) return null;
+  const where = !place || place.kind === 'brain' ? 'your AI brain' : place.project || place.label;
+  if (!plan.files.length) {
+    const n = plan.unsent.saves;
+    return { quiet: true, text: `${n === 1 ? 'An earlier copy' : `${n} earlier copies`} of your list ${n === 1 ? 'is' : 'are'} not on the server yet.`, label: 'Upload' };
+  }
+  return { quiet: false, text: 'Your list is saved on this computer.', label: `Keep a copy in ${where}` };
+}
+
 export function unsavedText(plan) {
-  const parts = [plan.changes.length ? plural(plan.changes.length, 'change') : null, plan.runs ? plural(plan.runs, 'run') : null].filter(Boolean);
+  const parts = [plan.changes.length ? plural(plan.changes.length, 'change') : null, plan.runs ? plural(plan.runs, 'run') : null, plan.plans ? plural(plan.plans, 'plan file') : null].filter(Boolean);
   return parts.length ? parts.join(' and ') : plural(plan.files.length, 'change');
 }
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -367,14 +483,14 @@ function tidySheet() {
           d.op === '…' ? `…${d.text ? ` ${d.text}` : ''}` : `${d.op} ${d.text}`))),
         err,
         h('div.sheet-actions', btn('secondary', { label: 'Cancel', onclick: () => close(false) }), go));
-    }, (e) => fill(body, errorBox(e.message)));
+    }, (e) => fill(body, errorBox(e)));
     return body;
   }).then((x) => x === true);
 }
 
 /** Save: what will be committed first (the repository, the file, each change), then the result in plain words. */
 function saveSheet() {
-  return openSheet({ title: 'Save to git' }, (close) => {
+  return openSheet({ title: 'Keep a copy of your list' }, (close) => {
     const body = h('div.wk-save', skeletonRows(2));
     const closeOnly = () => h('div.sheet-actions', btn('primary', { label: 'Close', onclick: () => close() }));
     // One plan drawn: the repository, the file, each change, and Commit. A plan that is out of date when Commit is
@@ -383,14 +499,14 @@ function saveSheet() {
     function paintPlan(plan, notice = null) {
       if (plan.recovered) notice = [notice, h('div.banner.info', icon('check', { size: 18 }), h('span', plan.recovered))];
       if (plan.problem) return fill(body, notice, h('p.banner.warn', plan.problem), closeOnly());
-      if (plan.nothing) return fill(body, notice, h('p.sheet-text', 'Nothing to save: the Work file is as it was last committed.'), closeOnly());
+      if (plan.nothing) return fill(body, notice, h('p.sheet-text', 'Nothing to keep: the copy in the history has every change of your list already.'), closeOnly());
       const r = plan.repo;
       const remote = plan.remote || null;
       if (remote && remote.mode === 'blocked') return fill(body, notice, h('div.banner.warn', icon('alert', { size: 18 }), h('span', remote.message)), closeOnly());
       const merge = remote && remote.mode === 'merge' ? remote : null;
       const decisions = {};
       if (merge) for (const c of merge.conflicts) if (c.decided) decisions[c.key] = c.decided;
-      const go = btn('primary', { icon: 'upload', label: merge ? 'Merge and send' : !plan.files.length ? 'Send' : r.upstream ? 'Commit and send' : 'Commit' });
+      const go = btn('primary', { icon: 'upload', label: merge ? 'Bring together and upload' : !plan.files.length ? 'Upload' : r.upstream ? 'Keep a copy and upload' : 'Keep a copy' });
       const left = h('span.wk-left');
       const ready = () => {
         const open = merge ? merge.conflicts.filter((c) => !decisions[c.key]).length : 0;
@@ -416,7 +532,7 @@ function saveSheet() {
       const parts = [];
       if (merge) {
         const counts = [plural(merge.mine.length, 'change') + ' of yours', `${plural(merge.theirs.length, 'change')} from another computer`, merge.conflicts.length ? `${merge.conflicts.length} to decide` : null].filter(Boolean).join(', ');
-        parts.push(h('p.sheet-text', h('strong', cap(counts)), `. ${r.name} changed on the server too, so the two lists are brought together task by task, then committed and sent to ${r.upstream}. Nothing else in the repository is committed.`));
+        parts.push(h('p.sheet-text', h('strong', cap(counts)), `. ${r.name} changed on your git server too, so the two lists are brought together task by task, then kept in its history and uploaded. Nothing else there changes.`));
         if (merge.conflicts.length) parts.push(h('h3.wk-save-head', 'Changed on both computers: choose one'), conflictChoices(merge.conflicts, decisions, ready));
         if (merge.mine.length) parts.push(h('h3.wk-save-head', 'Yours'), changeList(merge.mine));
         if (merge.theirs.length) parts.push(h('h3.wk-save-head', 'From another computer'), changeList(merge.theirs));
@@ -424,15 +540,15 @@ function saveSheet() {
         const list = plan.files.filter((f) => !plan.runs || !f.path.includes('/runs/') && !f.path.startsWith('runs/'));
         const named = [...list.map((f) => f.path), ...(plan.runs ? [plural(plan.runs, 'run')] : [])].join(' and ');
         parts.push(h('p.sheet-text', plan.files.length
-          ? `Commits only ${named} in ${r.name}${r.branch ? ` (${r.branch})` : ''}${r.upstream ? `, then sends it to ${r.upstream}; when it cannot be sent, it stays a change in the file` : ''}. Nothing else in the repository is committed.`
-          : `Sends ${plural(plan.unsent.saves, 'earlier commit')} of the Work file to ${r.upstream}. Nothing new is committed.`));
-        if (remote && remote.mode === 'ff') parts.push(h('p.hint', `The server has ${plural(remote.behind, 'new commit')}; they come in first.`));
+          ? `Keeps ${named} in the history of ${r.name}${r.upstream ? ' and uploads it to your git server; if it cannot be uploaded, it stays here as it is' : ''}. Nothing else there changes.`
+          : `Uploads ${plan.unsent.saves === 1 ? 'an earlier copy' : `${plan.unsent.saves} earlier copies`} of your list to your git server. Nothing new is kept.`));
+        if (remote && remote.mode === 'ff') parts.push(h('p.hint', `Your git server has ${plural(remote.behind, 'newer change')}; ${remote.behind === 1 ? 'it comes' : 'they come'} here first.`));
         parts.push(changeList(plan.changes));
       }
       fill(body, notice, parts, result, h('div.sheet-actions', left, btn('secondary', { label: 'Cancel', onclick: () => close() }), go));
       ready();
     }
-    api('/api/work/save?fetch=1').then((plan) => paintPlan(plan), (e) => fill(body, errorBox(e.message)));
+    api('/api/work/save?fetch=1').then((plan) => paintPlan(plan), (e) => fill(body, errorBox(e)));
     return body;
   });
 }
@@ -447,7 +563,7 @@ registerSettingsPage({
   summary: () => api('/api/work').then((w) => (w.place ? `Kept in ${w.place.label}` : 'Not set up yet'), () => ''),
   render: () => {
     const slot = h('div', skeletonRows(2));
-    api('/api/work').then((w) => fill(slot, settingsPanels(w)), (e) => fill(slot, errorBox(e.message)));
+    api('/api/work').then((w) => fill(slot, settingsPanels(w)), (e) => fill(slot, errorBox(e)));
     return [slot];
   },
 });
@@ -475,7 +591,7 @@ function settingsPanels(w) {
   const more = panel({ title: 'Saving, dates and planning files' },
     field('Commit subject', h('input.field', { value: s.saveSubject, maxlength: 100, oninput: (e) => (s.saveSubject = e.target.value) }), 'The message of the commit each Save makes.'),
     field('Time zone', h('input.field', { value: s.timeZone, placeholder: 'This computer\'s own', autocapitalize: 'off', spellcheck: 'false', oninput: (e) => (s.timeZone = e.target.value.trim()) }), 'What "today" means for due dates. Empty: this computer\'s clock. Or a name such as Europe/Berlin.'),
-    field('Your id in a planning file', h('input.field.mono', { value: s.ownerId, autocapitalize: 'off', spellcheck: 'false', oninput: (e) => (s.ownerId = e.target.value.trim()) }), 'A planning tool\'s list names who does an item; this is the word it uses for you. Items with it are yours, and only the ones you added can be removed.'),
+    field('Your id in a planning file', h('input.field.mono', { id: 'owner-id', value: s.ownerId, autocapitalize: 'off', spellcheck: 'false', oninput: (e) => (s.ownerId = e.target.value.trim()) }), 'A planning tool\'s list names who does an item; this is the word it uses for you. Items with it are yours, and only the ones you added can be removed.'),
     saveBar('Save', () => api('/api/work/settings', { saveSubject: s.saveSubject, timeZone: s.timeZone, ownerId: s.ownerId })));
-  return [where, more];
+  return [where, more, accessPanel()];
 }

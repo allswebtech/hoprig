@@ -7,6 +7,7 @@
 // It ticks every 5 s while there are Claude sessions or a move in progress, else every 30 s.
 import { isClaudeCard, isCodingCard } from '../automation/cards.mjs';
 import { describe, sendNotification } from './notify.mjs';
+import { passBack } from '../oneturn.mjs';
 
 export const GRACE_MS = 20_000;
 const PENDING_MAX_MS = 3 * 60_000;
@@ -108,6 +109,7 @@ export class Watcher {
     this.running = false;
     this.again = false; // a poke came during a look
     this.stopped = true;
+    this.ended = false; // stop() was called (the server closes): a tick under way calls no further listener
     this.tickListeners = new Set();
   }
 
@@ -119,11 +121,13 @@ export class Watcher {
 
   start() {
     this.stopped = false;
+    this.ended = false;
     this.#schedule(1000);
   }
 
   stop() {
     this.stopped = true;
+    this.ended = true;
     clearTimeout(this.timer);
   }
 
@@ -155,6 +159,11 @@ export class Watcher {
       await this.#autoSwitch(cards);
       await this.#followUp(cards);
       for (const fn of this.tickListeners) {
+        // A pass of the loop between the cards and each listener (the automation, the Operator): run back to back, the
+        // first tick with fifty open sessions held the thread 57-66 ms before a request was answered (measured once the
+        // program starts took turns). A watcher stopped meanwhile (the server closes) calls no further listener.
+        await passBack();
+        if (this.ended) break;
         try {
           await fn(cards);
         } catch (e) {

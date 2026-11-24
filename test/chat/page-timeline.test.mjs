@@ -276,3 +276,101 @@ test('a plan that waits when the page opens is drawn with the chat\'s modes: the
   const known = { engine: { id: 'opencode' }, choices: { modes: ['manual'] }, autoMode: false };
   assert.equal(W.beforeState(known, look(true)), known, 'the state the page has wins over the look\'s');
 });
+
+test('a part\'s card answered by keyboard: its buttons go, and the focus moves to the line that says what happened', async () => {
+  globalThis.window = globalThis.window || { addEventListener() {} };
+  globalThis.requestAnimationFrame ||= () => 0;
+  const { createTimeline } = await import('../../web/chat/timeline.js');
+  const scroll = document.createElement('div');
+  Object.assign(scroll, { scrollHeight: 0, scrollTop: 0, clientHeight: 0 });
+  const tl = createTimeline({ scroll, A: '/x', cwd: () => '/p', canRewind: () => false, who: () => 'Claude' });
+  document.body.append(tl.el);
+  try {
+    tl.apply({ reset: true, events: [{ kind: 'user', text: 'go', i: 0 }, { kind: 'part-ask', part: 'p_0123456789', provider: 'paid', label: 'Example API key', partKind: 'running and recording', brief: 'list the TODOs', i: 1 }], next: 2 });
+    const card = byClass(tl.el, 'chat-ask-part')[0];
+    const no = card.querySelectorAll('button').find((b) => texts(b).join('') === 'No, the lead does it');
+    no.focus();
+    assert.equal(document.activeElement, no);
+    // The press: a browser drops the focus of a button it disables, so it moves to the status line at once.
+    const before = globalThis.fetch;
+    const sent = [];
+    globalThis.fetch = async (u, init = {}) => (sent.push([String(u), init.body]), { ok: true, status: 200, json: async () => ({ ok: true, started: false }) });
+    try {
+      no.listeners.click({ preventDefault() {} });
+      assert.equal(document.activeElement, card.querySelector('.chat-ask-status'), 'the focus is on the status line from the press on');
+      // An empty status line is not shown, and what is not shown cannot take the focus: it says what happens first.
+      assert.match(texts(card.querySelector('.chat-ask-status')).join(''), /Telling the lead/);
+      await new Promise((r) => setTimeout(r, 10));
+      assert.deepEqual(sent, [['/api/parts/p_0123456789/answer', JSON.stringify({ allow: false })]]);
+    } finally {
+      globalThis.fetch = before;
+    }
+    tl.apply({ events: [{ kind: 'part-ask-closed', part: 'p_0123456789', outcome: 'no', i: 2 }], next: 3 });
+    assert.equal(card.querySelectorAll('button').length, 0, 'its buttons are gone');
+    const st = card.querySelector('.chat-ask-status');
+    assert.match(texts(st).join(''), /You said no: the lead does this part itself/);
+    assert.equal(document.activeElement, st, 'the focus is on what happened, not lost to the page');
+  } finally {
+    tl.el.remove();
+  }
+});
+
+test('a turn the AI account refused: a plain line and a way on, the coding tool\'s own words folded', async () => {
+  globalThis.window = globalThis.window || { addEventListener() {} };
+  globalThis.requestAnimationFrame ||= () => 0;
+  assert.equal(W.turnErrorWords('Invalid API key · Please run /login').kind, 'auth');
+  assert.equal(W.turnErrorWords('Your credit balance is too low to access the Anthropic API.').kind, 'billing');
+  assert.equal(W.turnErrorWords('Something else broke'), null, 'an unknown error is shown as it is');
+  assert.doesNotMatch(W.turnErrorWords('Invalid API key · Please run /login').line, /\/login|terminal/, 'no terminal step in the line');
+  const { createTimeline } = await import('../../web/chat/timeline.js');
+  const scroll = new (document.createElement('div').constructor)('div');
+  Object.assign(scroll, { scrollHeight: 0, scrollTop: 0, clientHeight: 0 });
+  const tl = createTimeline({ scroll, A: '/x', cwd: () => '/p', canRewind: () => false, who: () => 'Claude', provider: () => ({ profile: { name: 'main', kind: 'login' }, tool: 'claude' }) });
+  tl.apply({ reset: true, events: [{ kind: 'user', text: 'go', i: 0 }, { kind: 'turn-end', ok: false, error: 'Invalid API key · Please run /login', i: 1 }], next: 2 });
+  const banner = byClass(tl.el, 'error-box')[0];
+  assert.match(texts(banner).join(''), /did not accept the sign-in/);
+  assert.doesNotMatch(texts(banner).join(''), /\/login/, 'the tool\'s words are not the line');
+  assert.match(texts(tl.el).join('|'), /Sign in again/);
+  assert.match(texts(tl.el).join('|'), /Details\|Invalid API key · Please run \/login/, 'folded under Details');
+  tl.apply({ events: [{ kind: 'user', text: 'again', i: 2 }, { kind: 'turn-end', ok: false, error: 'Something else broke', i: 3 }] });
+  assert.match(texts(byClass(tl.el, 'error-box')[1]).join(''), /^Something else broke$/);
+});
+
+test('a refused sign-in uses the chat\'s word "provider" and offers what fixes it for that provider', async () => {
+  for (const k of ['auth', 'billing']) {
+    const line = W.turnErrorWords(k === 'auth' ? 'Invalid API key' : 'Your credit balance is too low').line;
+    assert.match(line, /^This provider /, line);
+    assert.doesNotMatch(line, /AI account|its provider/, line);
+  }
+  // Only the HTTP status is a sign-in error, not any 401 in a text.
+  assert.equal(W.turnErrorWords('Wrote 401 lines to notes.md and then failed'), null);
+  assert.equal(W.turnErrorWords('API Error: 401 Unauthorized').kind, 'auth');
+  assert.equal(W.turnErrorWords('request failed with status 401').kind, 'auth');
+  for (const t of ['Request failed with status code 401', 'HTTP 401: Unauthorized', 'statusCode: 401', 'HTTP/1.1 401', 'HTTP/2 401']) assert.equal((W.turnErrorWords(t) || {}).kind, 'auth', t);
+  assert.equal(W.turnErrorWords('Listening on port 4010, HTTP 200'), null, 'another number near HTTP is not it');
+  // Claude Code's own sign-in: signing in again fixes it. An API key, a gateway, OpenCode: the provider's page.
+  assert.deepEqual(W.signInWay({ name: 'main', kind: 'login' }, 'claude'), { kind: 'claude-signin' });
+  assert.deepEqual(W.signInWay({ name: 'work-key', kind: 'api' }, 'claude'), { kind: 'provider', hash: '#/providers/work-key' });
+  assert.deepEqual(W.signInWay({ name: 'main', kind: 'login' }, 'opencode'), { kind: 'provider', hash: '#/providers/main' });
+  assert.deepEqual(W.signInWay(null), { kind: 'provider', hash: '#/providers' });
+  // The page's sign-in signs in this computer's default Claude folder only: not a provider with a folder of its own,
+  // and not a chat on another computer (its Providers page, there, is the way).
+  assert.deepEqual(W.signInWay({ name: 'second', kind: 'login', ownFolder: true }, 'claude'), { kind: 'provider', hash: '#/providers/second' });
+  assert.deepEqual(W.signInWay({ name: 'main', kind: 'login' }, 'claude', { remote: true }), { kind: 'provider', hash: '#/providers/main' });
+  const { createTimeline } = await import('../../web/chat/timeline.js');
+  const scroll = new (document.createElement('div').constructor)('div');
+  Object.assign(scroll, { scrollHeight: 0, scrollTop: 0, clientHeight: 0 });
+  const tl = createTimeline({ scroll, A: '/x', cwd: () => '/p', canRewind: () => false, who: () => 'Claude', provider: () => ({ profile: { name: 'work-key', kind: 'api' }, tool: 'claude' }) });
+  tl.apply({ reset: true, events: [{ kind: 'user', text: 'go', i: 0 }, { kind: 'turn-end', ok: false, error: 'Invalid API key · Please run /login', i: 1 }], next: 2 });
+  assert.doesNotMatch(texts(tl.el).join('|'), /Sign in again/, 'a Claude sign-in does not fix an API key');
+  const a = byClass(tl.el, 'btn').find((b) => b.tag === 'a');
+  assert.ok(a, 'a link to the provider');
+  assert.equal(a.attrs.href, '#/providers/work-key');
+  assert.match(texts(a).join(''), /Open the provider/);
+  // A chat on another computer, on its default Claude sign-in: the way is that computer's Providers, never this
+  // computer's sign-in.
+  const far = createTimeline({ scroll, A: '/x', cwd: () => '/p', canRewind: () => false, who: () => 'Claude', provider: () => ({ profile: { name: 'main', kind: 'login' }, tool: 'claude', remote: true }) });
+  far.apply({ reset: true, events: [{ kind: 'user', text: 'go', i: 0 }, { kind: 'turn-end', ok: false, error: 'Invalid API key · Please run /login', i: 1 }], next: 2 });
+  assert.doesNotMatch(texts(far.el).join('|'), /Sign in again/);
+  assert.ok(byClass(far.el, 'btn').some((b) => b.tag === 'a' && /#\/providers\/main$/.test(b.attrs.href)));
+});

@@ -22,6 +22,16 @@
 //                        macOS: the docker-desktop cask (formulae.brew.sh/cask/docker-desktop); Windows: Docker.DockerDesktop
 //   Homebrew             https://brew.sh: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 //   Python on Windows    https://docs.python.org/3/using/windows.html: winget install 9NQ7512CXL7T -e (the Python install manager)
+//   PHP + database       the distros' package pages (checked 18 Nov 2026): Debian/Ubuntu php-cli, composer, mariadb-server
+//                        (Ubuntu 26.04: php-cli 8.5, composer 2.9, mariadb-server 11.8, no other PHP series); Fedora php-cli,
+//                        composer, mariadb-server; Arch php, composer, mariadb; openSUSE php8, php-composer2, mariadb;
+//                        Alpine (edge) php85 (it holds /usr/bin/php), composer, mariadb + mariadb-client; Homebrew php,
+//                        composer, mariadb. Where the package does not start MariaDB itself, the start commands are SHOWN
+//                        (wiki.archlinux.org/title/MariaDB, wiki.alpinelinux.org/wiki/MariaDB, Fedora's and openSUSE's
+//                        `systemctl enable --now mariadb`, `brew services start mariadb`), never run.
+//   fvm                  https://fvm.app/documentation/getting-started/installation: `dart pub global activate fvm`, for the
+//                        user (no administrator rights; it lands in ~/.pub-cache/bin). Its Homebrew tap is a package source
+//                        of its own, so it is not used.
 //   winget ids           https://github.com/microsoft/winget-pkgs (manifests/<letter>/<Publisher>/<Name>)
 //   VS Build Tools       winget id Microsoft.VisualStudio.BuildTools (2026); workload id Microsoft.VisualStudio.Workload.VCTools
 //                        https://learn.microsoft.com/visualstudio/install/workload-component-id-vs-build-tools
@@ -43,8 +53,10 @@ const same = (pkgs, pms = ['apt', 'dnf', 'yum', 'pacman', 'zypper', 'apk', 'brew
 
 /**
  * An item: { id, name, bins (all must be on PATH), version (argv), platforms?, packages: { pm: [names] },
- * winget (id), steps (sys) => argv steps instead of packages, eol (version → 'old'?) }.
- * A kit: { id, title, summary, defaultOn, items, after (one sentence: what needs a new login/shell) }.
+ * winget (id), steps (sys) => argv steps instead of packages, eol (version → 'old'?), detect (sys) => result (its own
+ * way to look, detect.mjs), cannot (sys) => why it cannot be installed here, in words }.
+ * A kit: { id, title, summary, defaultOn, items, after (one sentence, or (sys) => one: what needs a new login/shell),
+ * windows (false: Hoprig does not set it up on Windows, and says so), start (sys) => argv lines SHOWN to run by hand }.
  */
 export const KITS = [
   {
@@ -127,6 +139,42 @@ export const KITS = [
       { id: 'docker', name: 'Docker', bins: ['docker'], version: ['docker', '--version'], packages: { pacman: ['docker'], zypper: ['docker'], apk: ['docker'] }, winget: 'Docker.DockerDesktop', steps: dockerSteps },
     ],
   },
+  {
+    id: 'php',
+    title: 'PHP + database',
+    summary: 'PHP\'s command line, Composer and the MariaDB database server, for PHP projects. Optional: needs administrator rights. Hoprig never removes or downgrades a PHP, adds a package source or changes which PHP the php command runs.',
+    defaultOn: false,
+    windows: false,
+    after: (sys) => (mariadbStart(sys).length
+      ? 'MariaDB is a database that runs in the background. Hoprig does not start it; to start it now and with the computer, run:'
+      : 'MariaDB is a service: it starts now and with the computer, and keeps running in the background.'),
+    start: mariadbStart,
+    items: [
+      { id: 'php', name: 'PHP (command line)', bins: ['php'], detect: (sys) => import('./detect.mjs').then((d) => d.detectPhp(sys)), packages: { apt: ['php-cli'], dnf: ['php-cli'], yum: ['php-cli'], pacman: ['php'], zypper: ['php8'], apk: ['php85'], brew: ['php'] } },
+      // Composer runs `sudo -K` before any command, its version too, and so would end the person's sudo sign-in on
+      // every status; COMPOSER_ALLOW_SUPERUSER leaves that check out.
+      { id: 'composer', name: 'Composer', bins: ['composer'], version: ['composer', '--version', '--no-interaction'], versionEnv: { COMPOSER_ALLOW_SUPERUSER: '1' }, packages: { ...same(['composer']), zypper: ['php-composer2'] } },
+      // A MySQL or MariaDB server already here counts (detect.mjs): MariaDB is never put beside MySQL, a package
+      // manager would replace it.
+      { id: 'mariadb', name: 'MariaDB (server)', detect: (sys) => import('./detect.mjs').then((d) => d.detectDbServer(sys)), packages: { apt: ['mariadb-server'], dnf: ['mariadb-server'], yum: ['mariadb-server'], pacman: ['mariadb'], zypper: ['mariadb'], apk: ['mariadb', 'mariadb-client'], brew: ['mariadb'] } },
+    ],
+  },
+  {
+    id: 'fvm',
+    title: 'Flutter versions (fvm)',
+    summary: 'Only for work on several Flutter versions at once: fvm keeps one Flutter per project. Needs Flutter first.',
+    defaultOn: false,
+    windows: false,
+    after: 'fvm is in ~/.pub-cache/bin: add that folder to your PATH (Dart says how at the end of the install), then open a new terminal.',
+    items: [
+      {
+        id: 'fvm', name: 'fvm', bins: ['fvm'], version: ['fvm', '--version'],
+        detect: (sys) => import('./detect.mjs').then((d) => d.detectFvm(sys)),
+        steps: (sys) => (sys.has && sys.has('dart') ? [{ argv: ['dart', 'pub', 'global', 'activate', 'fvm'], admin: false, why: 'fvm with Dart, for you only' }] : null),
+        cannot: () => 'Install Flutter first; fvm comes with Flutter\'s dart command.',
+      },
+    ],
+  },
 ];
 
 export const KIT_IDS = KITS.map((k) => k.id);
@@ -159,6 +207,14 @@ export function pmInstall(sys, packages) {
   }
 }
 
+/** pmInstall without the flags that answer yes for the person (one argv, or null): the package manager lists what it
+ * would change, and asks first. Shown, never run. */
+export function askingInstall(sys, packages) {
+  const argv = pmInstall(sys, packages);
+  if (!argv) return null;
+  return argv.filter((a, i) => !['-y', '--noconfirm', '--non-interactive', 'DEBIAN_FRONTEND=noninteractive'].includes(a) && !(a === 'env' && argv[i + 1] === 'DEBIAN_FRONTEND=noninteractive'));
+}
+
 const aptUpdate = (sys) => su(sys, ['env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'update']);
 const wingetInstall = (id) => ['winget', 'install', '-e', '--id', id, '--accept-package-agreements', '--accept-source-agreements'];
 
@@ -171,9 +227,40 @@ function nodeSteps(sys) {
   ];
 }
 
+/** Whether this runs in an SSH session (OpenSSH for Windows sets these as it does elsewhere). */
+export const sshSession = (env = {}) => !!(env.SSH_CONNECTION || env.SSH_CLIENT || env.SSH_TTY);
+
+/** The command a person types in a window of their own to finish the Python kit (see pyWin). */
+export const PY_INSTALL = ['pymanager', 'install', 'default'];
+
+// The install manager puts the Pythons it installs, and their python/pip commands, in %LOCALAPPDATA%\Python\bin, and
+// that folder is not on Path until it is added. Added to the user's Path in the registry as an expandable entry, once
+// (the folder as it is stored, or expanded, already there: nothing is written). Read and written with the registry's own
+// calls, not [Environment]::SetEnvironmentVariable: Windows PowerShell 5.1 writes that as plain text, and every
+// %USERPROFILE% in the user's Path would stop being expanded.
+export const PY_BIN = '%LOCALAPPDATA%\\Python\\bin';
+export const PY_PATH_SCRIPT = `$ErrorActionPreference = 'Stop'
+$k = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+$old = [string]$k.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+$dir = '${PY_BIN.replace(/\\\\/g, '\\')}'
+$want = [Environment]::ExpandEnvironmentVariables($dir).TrimEnd('\\')
+$have = @($old -split ';' | Where-Object { $_ -ne '' })
+if (-not ($have | Where-Object { [Environment]::ExpandEnvironmentVariables($_).Trim('"').TrimEnd('\\') -ieq $want })) {
+  $k.SetValue('Path', (@($have) + $dir) -join ';', [Microsoft.Win32.RegistryValueKind]::ExpandString)
+}`;
+
 function pyWin(sys) {
   if (sys.platform !== 'win32') return null;
-  return [{ argv: ['winget', 'install', '9NQ7512CXL7T', '-e', '--accept-package-agreements', '--disable-interactivity'], admin: false, why: 'the Python install manager; the first `python` installs the newest Python' }];
+  const ps = ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(PY_PATH_SCRIPT, 'utf16le').toString('base64')];
+  // The install manager alone gives no Python: its first `python` would install one, but not in a session without a
+  // desktop, and its docs advise an explicit install. `pymanager` (not `py`: an older launcher may hold that name). In
+  // an SSH session the install manager only updates itself, so that step is left to the person, in a window of their
+  // own on that computer (setup.mjs says so at the end); the Path folder is added either way.
+  return [
+    { argv: ['winget', 'install', '9NQ7512CXL7T', '-e', '--accept-package-agreements', '--disable-interactivity'], admin: false, why: 'the Python install manager' },
+    ...(sshSession(sys.env) ? [] : [{ argv: PY_INSTALL, admin: false, why: 'the newest Python, for you only' }]),
+    { argv: ps, admin: false, why: `${PY_BIN.replace(/\\\\/g, '\\')} on your Path` },
+  ];
 }
 
 /** dpkg's name for this CPU (what `dpkg --print-architecture` prints). */
@@ -228,6 +315,23 @@ function dockerSteps(sys) {
   return out;
 }
 
+/** The commands that start MariaDB where its package does not (shown for the person to run, never run). */
+export function mariadbStart(sys) {
+  const enable = ['systemctl', 'enable', '--now', 'mariadb'];
+  switch (sys.pm) {
+    case 'dnf': case 'yum': case 'zypper': return [su(sys, enable)];
+    case 'pacman': return [su(sys, ['mariadb-install-db', '--user=mysql', '--basedir=/usr', '--datadir=/var/lib/mysql']), su(sys, enable)];
+    case 'apk': return [su(sys, ['rc-service', 'mariadb', 'setup']), su(sys, ['rc-service', 'mariadb', 'start']), su(sys, ['rc-update', 'add', 'mariadb', 'default'])];
+    case 'brew': return [['brew', 'services', 'start', 'mariadb']];
+    default: return []; // apt: Debian's package starts and enables it itself
+  }
+}
+
+/** A kit's `after` sentence on this computer (it may depend on the package manager). */
+export const afterText = (kit, sys) => (typeof kit.after === 'function' ? kit.after(sys) : kit.after || null);
+/** False where Hoprig does not set the kit up (the new optional kits on Windows). */
+export const kitCovered = (kit, platform) => !(kit.windows === false && platform === 'win32');
+
 /** True when the item is meant for this OS. */
 export const itemHere = (item, platform) => !item.platforms || item.platforms.includes(platform);
 
@@ -276,19 +380,28 @@ export function kitSteps(kit, missing, sys) {
  * lists are refreshed once at the start (on a fresh machine they are empty); Homebrew is installed first on a Mac
  * without it. Returns { steps, cannot, admin }.
  */
-export function buildPlan(kitIds, found, sys) {
+export function buildPlan(kitIds, found, sys, { extra = {} } = {}) {
   const steps = [];
   const cannot = [];
   let brewFirst = false;
   for (const id of kitIds) {
     const kit = kitById(id);
-    if (!kit) continue;
-    const missing = (found[id] || []).filter((r) => r.state === 'missing').map((r) => kit.items.find((i) => i.id === r.id)).filter(Boolean);
-    if (!missing.length) continue;
+    if (!kit || !kitCovered(kit, sys.platform)) continue;
+    // A missing item that detection holds back (`hold`: MariaDB where only MySQL's client is here) is never planned:
+    // it is said, with its reason, among what cannot be installed.
+    const held = (found[id] || []).filter((r) => r.state === 'missing' && r.hold);
+    const missing = (found[id] || []).filter((r) => r.state === 'missing' && !r.hold).map((r) => kit.items.find((i) => i.id === r.id)).filter(Boolean);
+    cannot.push(...held.map((r) => ({ kit: id, item: r.id, name: (kit.items.find((i) => i.id === r.id) || {}).name || r.id, why: r.hold })));
+    // `extra`: steps a kit adds for this computer (another PHP series a project needs, optional.mjs), after its own.
+    const more = (extra[id] || []).map((s) => ({ ...s, kit: id }));
+    if (!missing.length) {
+      steps.push(...more);
+      continue;
+    }
     if (sys.platform === 'darwin' && sys.pm !== 'brew' && missing.some((i) => !i.kind && i.packages && i.packages.brew && !(i.steps && i.steps(sys)))) brewFirst = true;
     const plan = kitSteps(kit, missing, { ...sys, pm: sys.platform === 'darwin' && brewFirst ? 'brew' : sys.pm });
-    steps.push(...plan.steps.map((s) => ({ ...s, kit: id })));
-    cannot.push(...plan.cannot.map((i) => ({ kit: id, item: i.id, name: i.name })));
+    steps.push(...plan.steps.map((s) => ({ ...s, kit: id })), ...more);
+    cannot.push(...plan.cannot.map((i) => ({ kit: id, item: i.id, name: i.name, why: i.cannot ? i.cannot(sys) : null })));
   }
   if (sys.pm === 'apt' && steps.some((s) => s.argv.includes('apt-get') && s.argv.includes('install'))) {
     steps.unshift({ argv: aptUpdate(sys), admin: !sys.root, kit: null, items: [], why: 'refresh the package lists' });

@@ -35,7 +35,11 @@ saveConfig({ server: { passwordHash: await hashPassword('right-password') } });
 // a gateway running on the computer that runs the tests (its default port is a real one's).
 saveConfig({ addons: { trouteai: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() } } });
 const backend = { list: async () => [], capture: async () => '', kind: 'pty', capabilities: {} };
-const app = createServer({ backend, watch: false, dashboardFile: false, gateway: { addons: [fakeAddon(gw.port)], perKeyPerMinute: 6, failuresPerIp: 12 }, accounts: { gateways: [] } });
+// The per-key limit is small so a test can reach it, but not smaller than a provider added by address uses by itself:
+// its first check (one round, up to 20 requests) runs through its own key while the test reads the provider's state,
+// and with a limit of 6 which came first decided whether that state said online or refused.
+const PER_KEY = 30;
+const app = createServer({ backend, watch: false, dashboardFile: false, gateway: { addons: [fakeAddon(gw.port)], perKeyPerMinute: PER_KEY, failuresPerIp: 12 }, accounts: { gateways: [] } });
 const { port } = await app.listen(0, '127.0.0.1');
 const base = `http://127.0.0.1:${port}`;
 test.after(() => app.close());
@@ -174,7 +178,7 @@ test('only Claude\'s API is shared: the gateway\'s own dashboard and settings ar
 test('each key is rate limited', async () => {
   const two = await call('/api/gateways/trouteai/keys', { name: 'busy computer' });
   let last;
-  for (let i = 0; i < 7; i++) last = await viaGateway('/gateway/trouteai/v1/models', { authorization: `Bearer ${two.json.key}` }, { method: 'GET', body: '' });
+  for (let i = 0; i <= PER_KEY; i++) last = await viaGateway('/gateway/trouteai/v1/models', { authorization: `Bearer ${two.json.key}` }, { method: 'GET', body: '' });
   assert.equal(last.status, 429);
   assert.equal(JSON.parse(last.text).error.type, 'rate_limit_error');
   assert.ok(last.headers['retry-after']);

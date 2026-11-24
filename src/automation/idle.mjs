@@ -57,6 +57,7 @@ export async function apply(actions, ctx) {
     try {
       const st = await addon.status();
       if (!st.running) continue; // already stopped: nothing to do, nothing to log
+      if (st.byService) continue; // its service keeps it running on purpose (Health → Gateways → Run as a service)
       const r = await addon.stop();
       ctx.record({ automation: 'idle', did: `stopped ${addon.title || addon.id}: unused for ${Math.round(a.idleMs / 60_000)} minutes`, outcome: r && r.ok ? 'ok' : `failed: ${(r && r.error) || 'it did not stop'}` });
     } catch (e) {

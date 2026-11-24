@@ -1,5 +1,5 @@
 // The session details beside the chat on a wide screen, as the Claude Code desktop app's session rail: cards that
-// say where the session runs (Environment: computer, folder, provider, branch), what it changed (Changes: +N −M,
+// say where the session runs (Where it works: computer, folder, provider, branch), what it changed (Changes: +N −M,
 // opens the editor's Changes), how full its context is (Context: the percent; opened, what fills it) and what it
 // runs in the background (Background tasks, each with its Stop). "Hide session rail" / "Show session rail" in the
 // title bar and the more menu, remembered in this browser. A card with nothing true to say is left out (a coding
@@ -8,7 +8,9 @@
 import { icon } from '../icons.js';
 import { api, copyText, fill, h, toast } from '../lib.js';
 import { taskLine, taskStop } from './agents.js';
-import { billed, caps, contextPercent, hasPlan, inFolder, kilo, limitsLine, money, toolWord } from './words.js';
+import { CONTEXT_SAID, billed, caps, contextPercent, hasPlan, inFolder, kilo, limitsLine, money, toolWord } from './words.js';
+import { partsCard } from './parts.js';
+
 
 const RAIL_KEY = 'chat.rail'; // "off" when the owner hid it
 export const RAIL_MIN_PX = 1100; // the width from which the rail shows (rail.css says the same)
@@ -23,6 +25,9 @@ export function railHidden() {
 }
 /** The screen is wide enough for the rail (asked each time). */
 export const railFits = () => typeof matchMedia !== 'undefined' && matchMedia(`(min-width: ${RAIL_MIN_PX}px)`).matches;
+
+/** "provider" in plain words, said once beside the Provider row (the same words as Get started's). */
+export const PROVIDER_SAID = 'The AI account this chat runs on (a Claude subscription, an API key, a gateway).';
 
 /** The Environment card's rows: [label, text]. o: { computer (its name), view (the transcript view) } */
 export function environmentRows(v, { computer = 'This computer', view = 'normal' } = {}) {
@@ -80,19 +85,20 @@ export function folderNews(r) {
  * → { el, paint(v), hidden(), toggle(), changed(), turnEnded(), stop() }
  */
 export function createRail(o) {
+  const parts = partsCard(o); // Lead model: who did what
   let v = null;
   let hidden = railHidden();
   const env = h('dl.chat-rail-rows');
-  const envCard = h('section.chat-rcard', h('h2.chat-rcard-head', h('span', 'Environment')), env);
+  const envCard = h('section.chat-rcard', h('h2.chat-rcard-head', h('span', 'Where it works')), env);
   const changesBody = h('div.chat-rcard-body');
   const changesCount = h('span.chat-rcard-end');
   const changesCard = h('section.chat-rcard.hidden', h('h2.chat-rcard-head', h('span', 'Changes'), changesCount), changesBody);
   const ctxPct = h('span.chat-rcard-end');
   const ctxBody = h('div.chat-rcard-body');
-  const ctxCard = h('details.chat-rcard.chat-rcard-fold.hidden', h('summary.chat-rcard-head', icon('chevronRight', { size: 14 }), h('span', 'Context'), ctxPct), ctxBody);
+  const ctxCard = h('details.chat-rcard.chat-rcard-fold.hidden', h('summary.chat-rcard-head', { title: CONTEXT_SAID, 'aria-label': CONTEXT_SAID }, icon('chevronRight', { size: 14 }), h('span', 'Context'), ctxPct), ctxBody);
   const tasksBody = h('div.chat-rcard-body');
   const tasksCard = h('section.chat-rcard.hidden', h('h2.chat-rcard-head', h('span', 'Background tasks')), tasksBody);
-  const el = h('aside.chat-rail', { 'aria-label': 'Session details' }, envCard, changesCard, ctxCard, tasksCard);
+  const el = h('aside.chat-rail', { 'aria-label': 'Session details' }, envCard, parts.el, changesCard, ctxCard, tasksCard);
 
   // ---------- Changes: asked of the server when the session opens and after each turn or tool ----------
   let changesNone = false; // an older computer without the route: the card stays out for the life of the page
@@ -128,7 +134,7 @@ export function createRail(o) {
       fill(changesBody, c.files
         ? [h('button.btn.small.ghost.chat-rail-link', { type: 'button', onclick: () => o.changes() }, `${c.files === 1 ? '1 file' : `${c.files} files`} changed${c.untracked ? ` (${c.untracked} new)` : ''}`, icon('chevronRight', { size: 14 })),
           h('ul.chat-rail-files', c.list.slice(0, 6).map((f) => h('li', h('span.chat-rail-file', inFolder(f.path, '')), f.new ? h('span.chat-rail-new', 'new') : h('span.chat-rail-n', `+${f.added} −${f.removed}`))))]
-        : h('p.chat-hint', 'Nothing changed since the last commit.'));
+        : h('p.chat-hint', 'No changes yet since the last save point.'));
     } catch (e) {
       // No such route (the server's own "not found"): the computer is on an older Hoprig, not asked again. Any other
       // failure (this session not open for a moment, the connection) hides the card until the next news.
@@ -220,9 +226,15 @@ export function createRail(o) {
   function envRow(k) {
     const dt = h('dt', k);
     if (k === 'Provider') {
+      // "provider" said once in plain words where a newcomer meets it in the chat: under the row, and in its tooltip.
+      dt.setAttribute('title', PROVIDER_SAID);
       const label = h('span');
-      const dd = h('dd', h('button.btn.small.ghost.chat-rail-link', { type: 'button', title: 'Continue on another provider', onclick: () => o.providers() }, label, icon('chevronDown', { size: 12 })));
-      return { nodes: [dt, dd], set: (x) => fill(label, x) };
+      const btn = h('button.btn.small.ghost.chat-rail-link', { type: 'button', title: `${PROVIDER_SAID} Continue on another provider`, onclick: () => o.providers() }, label, icon('chevronDown', { size: 12 }));
+      const dd = h('dd', btn, h('span.chat-hint.chat-rail-said', PROVIDER_SAID));
+      return { nodes: [dt, dd], set: (x) => {
+        fill(label, x);
+        btn.setAttribute('aria-label', `Provider ${x}: ${PROVIDER_SAID} Continue on another provider`);
+      } };
     }
     if (k === 'Branch') {
       let now = '';
@@ -271,7 +283,10 @@ export function createRail(o) {
       paintEnv();
       paintContext();
       paintTasks();
-      if (first || force) loadChanges();
+      if (first || force) {
+        loadChanges();
+        parts.load(v);
+      }
     },
     /** The page went: nothing more is asked or drawn. */
     stop() {
@@ -288,6 +303,7 @@ export function createRail(o) {
      */
     turnEnded() {
       loadChanges();
+      parts.load(v);
       if (ctxCard.open) loadContext();
     },
   };

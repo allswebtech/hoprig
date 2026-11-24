@@ -46,6 +46,7 @@ const P = {
   key: ['M15 3a6 6 0 1 1-5.2 9H3v-3h2V7h3v2h1.8A6 6 0 0 1 15 3z', 'M16.5 7.5h.01'],
   power: ['M12 3v8', 'M6.3 6.8a8 8 0 1 0 11.4 0'],
   lock: ['M6 11h12v10H6z', 'M8.5 11V8a3.5 3.5 0 0 1 7 0v3'],
+  pin: ['M9 4h6l-1 6 3 3H7l3-3-1-6z', 'M12 13v7'],
   info: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 11v5', 'M12 8h.01'],
   sparkle: ['M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z'],
   sun: ['M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M12 2v2', 'M12 20v2', 'M4.9 4.9l1.4 1.4', 'M17.7 17.7l1.4 1.4', 'M2 12h2', 'M20 12h2', 'M4.9 19.1l1.4-1.4', 'M17.7 6.3l1.4-1.4'],
@@ -70,6 +71,13 @@ const P = {
   trashBack: ['M4 7h16', 'M9 7V4h6v3', 'M6 7l1 13h10l1-13', 'M12 17v-6', 'M9.5 13.5L12 11l2.5 2.5'],
   // Services: a stack of running parts (the power glyph reads as "turn the computer off").
   stack: ['M12 3l9 4.5-9 4.5-9-4.5z', 'M3 12l9 4.5 9-4.5', 'M3 16.5l9 4.5 9-4.5'],
+  // A microphone (voice typing), and one struck through (the browser cannot hear).
+  mic: ['M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z', 'M5.5 11a6.5 6.5 0 0 0 13 0', 'M12 17.5V21', 'M9 21h6'],
+  micOff: ['M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z', 'M5.5 11a6.5 6.5 0 0 0 13 0', 'M12 17.5V21', 'M9 21h6', 'M4 4l16 16'],
+  // The App's session list: Group and sort (three lines, each shorter).
+  sort: ['M4 7h16', 'M7 12h10', 'M10 17h4'],
+  // A comment on a line of a diff.
+  comment: ['M4 5h16v11H9l-5 4z'],
 };
 
 const NS = 'http://www.w3.org/2000/svg';

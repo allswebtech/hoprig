@@ -1,0 +1,32 @@
+/* A provider's page: its check, its model map and what is left (providerhealth.js). */
+.ph { display: grid; gap: 12px; margin: 12px 0; }
+.ph-check { display: grid; gap: 10px; justify-items: start; }
+.ph-check > .btn { max-width: 100%; white-space: normal; text-align: left; }
+.ph-sum { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-weight: 600; }
+.ph-sum svg { flex: none; margin-top: 2px; }
+.ph-sum.ph-ok { color: var(--ok); }
+.ph-sum.ph-bad { color: var(--danger); }
+.ph-sum .hint { font-weight: 400; }
+.ph-result { display: grid; gap: 8px; width: 100%; }
+.ph-list, .ph-map, .ph-left { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ph-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; min-width: 0; }
+.ph-row p { margin: 0; }
+.ph-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ph-tag { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); }
+.ph-tag.ph-refused, .ph-tag.ph-key { background: var(--danger-soft); color: var(--danger); }
+.ph-said { font-size: var(--fs-sm); color: var(--text-2); overflow-wrap: anywhere; }
+.ph-mends { display: grid; gap: 6px; margin-top: 4px; }
+.ph-do, .ph-or { font-size: var(--fs-sm); color: var(--text-2); }
+.ph-mend { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ph-code { flex: 1; min-width: 0; overflow-wrap: anywhere; padding: 6px 8px; border-radius: 8px; background: var(--ok-soft); color: var(--text-2); }
+.ph-map li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.ph-left li { font-size: 14px; color: var(--text-2); overflow-wrap: anywhere; }
+.ph-use { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.ph-by::before { content: ' '; }
+@media (max-width: 560px) { .ph-map .ph-by { flex-basis: 100%; } }
+
+/* A phone with the floating button: the Providers page keeps room at its bottom for it (the list scrolls clear of it),
+   so a switch's sentence takes the card's whole width instead of a narrow column beside the button's room. */
+@media (max-width: 899px) {
+  body.has-fab main.page:has(#gateways) .card .switchrow { padding-right: 0; }
+}

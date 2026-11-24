@@ -7,6 +7,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { fakeBin, fakeClaude, pathWith, scratch } from './helpers.mjs';
+import { sealed } from '../seal.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
@@ -24,14 +25,15 @@ async function freePort() {
 /** A fresh home for one case: { env } with its own config, state and Claude folders. */
 async function home(name, { password = false, programs = {} } = {}) {
   const root = path.join(s.tmp, name);
-  const env = {
+  const env = sealed({
     HOME: path.join(root, 'home'),
+    USERPROFILE: path.join(root, 'home'),
     HOPRIG_CONFIG_DIR: path.join(root, 'config'),
     HOPRIG_STATE_DIR: path.join(root, 'state'),
     CLAUDE_CONFIG_DIR: path.join(root, 'claude'),
     PATH: pathWith(root, fakeBin(path.join(root, 'bin'), programs)),
     NO_COLOR: '1',
-  };
+  });
   fs.mkdirSync(env.HOME, { recursive: true });
   fs.mkdirSync(env.HOPRIG_CONFIG_DIR, { recursive: true, mode: 0o700 });
   const server = { port: await freePort() };
@@ -93,6 +95,8 @@ test('doctor: an API profile does not need the login -> exit 0; --json; bad opti
 test('doctor: a broken settings file -> exit 1', async () => {
   const env = await home('broken', { password: true, programs: { claude: fakeClaude(), tmux: 'echo "tmux 3.4"' } });
   fs.writeFileSync(path.join(env.HOPRIG_CONFIG_DIR, 'config.json'), '{ not json');
+  // Unreadable settings name no port: doctor would ask the default, where this computer's own dashboard may listen.
+  env.PORT = String(await freePort());
   const r = doctor(env);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /✗ Settings file/);
@@ -109,7 +113,8 @@ test('doctor: a fix that needs administrator rights is phrased for this user (su
     workspace: async () => ({ id: 'workspace', label: 'Workspace', status: 'ok', detail: 'here', fix: '' }),
   };
   const fixFor = async (over) => {
-    const list = await overview({ sys: sysInfo({ env: { ...process.env, ...env }, platform: 'linux', pm: 'apt', ...over }), offline: true, parts });
+    // The checks run in this process, on its settings (no port in them): the port is answered here, not asked.
+    const list = await overview({ sys: sysInfo({ env: { ...process.env, ...env }, platform: 'linux', pm: 'apt', probe: async () => 0, running: async () => null, ...over }), offline: true, parts });
     return list.find((c) => c.id === 'extras.tmux').fix;
   };
   assert.equal(await fixFor({ root: false, has: () => true }), fix);

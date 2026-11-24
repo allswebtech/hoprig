@@ -11,6 +11,7 @@ import { CardStore } from '../../src/assistant/cards.mjs';
 import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
+import { WORK_OPS, workState } from './fake-work.mjs';
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
@@ -62,6 +63,20 @@ export function baseState() {
       saved: { unsaved: true },
     },
     mapNotes: ['tools/notes has no online address: it is listed without one'],
+    whoHas: {
+      label: 'desk',
+      computers: [{ label: 'desk', mine: true, hoprig: '0.3.3', here: ['shop'], written: Date.parse('2026-11-18T08:00:00Z'), old: false }, { label: 'box2', mine: false, hoprig: '0.3.3', here: ['blog'], written: Date.parse('2026-11-02T08:00:00Z'), old: true }],
+      unknown: ['lab'],
+      entries: [{ kind: 'project', name: 'shop', place: '', url: 'https://git.example.com/owner/shop.git', here: true, on: ['desk'] }, { kind: 'project', name: 'blog', place: '', url: 'https://git.example.com/owner/blog.git', here: false, on: ['box2'], lastHere: Date.parse('2026-10-30T08:00:00Z') }],
+      notes: ['lab has written no file in the brain: what it has is not known'],
+    },
+    // Another computer's own projects and drop checks: box2 has blog, as its file in whoHas says.
+    projectsOn: { box2: { projectsDir: '/home/owner/projects', workspaces: [{ id: 'blog', name: 'blog', dir: '/home/owner/projects/blog', repos: [] }], repos: [] } },
+    dropChecksOn: { box2: { blog: { name: 'blog', result: 'nothing only here', ok: true, refusals: [], questions: [], confirm: [], lines: [] } } },
+    dropChecks: {
+      shop: { name: 'shop', result: 'only here', ok: true, refusals: [], questions: [{ ask: 'confirm', name: 'shop', items: 1, words: "Type the project's name (shop) to delete them with it; leave it empty and press Cancel to stop" }], confirm: [{ repo: 'projects/shop', path: '.env', kind: '.env file', size: 9 }], lines: [] },
+    },
+    findResult: { place: 'kits/builds', found: [{ name: 'gizmo', url: 'https://git.example.com/owner/kit-gizmo.git' }], inMap: ['kits/builds/widget'], misfits: [] },
     git: { identity: { set: true, name: 'Owner', email: 'owner@example.com' }, gh: { installed: true, signedIn: true, account: 'owner' }, gitUsesGh: true, brain: { remote: 'https://git.example.com/owner/brain.git', inStep: true } },
     syncLines: ['shop/code/web  pulled 2', 'brain  2 commits to push'],
     syncRepos: [{ label: 'shop/code/web', did: ['pulled 2'], todo: [] }, { label: 'brain', did: [], todo: [{ kind: 'push', why: '2 local commits are not uploaded', command: 'git -C ~/Workspace/ai_brain push' }] }],
@@ -83,12 +98,13 @@ export function baseState() {
         { id: 'hoprig', title: 'Hoprig', whenRunning: 'The new version is used after the dashboard restarts.', installed: '0.9.0', latest: '0.9.0', updateAvailable: false, canUpdate: true, action: null, blocked: null },
         { id: 'claude', title: 'Claude Code', whenRunning: 'Running sessions keep the version they started with and use the new one when they start again.', installed: '2.1.325', latest: '2.1.330', updateAvailable: true, canUpdate: true, action: 'update', blocked: null },
         { id: 'opencode', title: 'OpenCode', whenRunning: 'Close its sessions first: the update replaces the program\'s files.', installed: null, latest: '2.3.0', updateAvailable: false, canUpdate: true, action: 'install', blocked: null, note: 'Installs 2.3.0, the version this Hoprig is tested with.' },
-        { id: 'cloudflared', title: 'Tunnel helper (cloudflared)', whenRunning: 'Never while a public link is on.', installed: '2025.1.0', latest: '2025.1.0', updateAvailable: false, canUpdate: true, action: null, blocked: null },
+        { id: 'cloudflared', title: 'The helper for the public link (cloudflared)', whenRunning: 'Never while a public link is on.', installed: '2025.1.0', latest: '2025.1.0', updateAvailable: false, canUpdate: true, action: null, blocked: null },
       ],
     },
     automation: { settings: { paused: false, queue: { enabled: true }, schedules: { enabled: true, list: [] }, restore: { enabled: null }, retry: { enabled: false }, updates: { claude: 'off' }, idle: { shells: false, gateway: false } }, schedules: [{ id: 'abcd1234', label: 'Morning tests', enabled: true, when: { kind: 'daily', time: '08:00' }, action: { type: 'start', dir: '/home/owner/projects/shop', profile: 'sub', prompt: 'run the tests' }, nextAt: null }], queues: {} },
     skills: { user: { skills: [{ name: 'tdd', source: 'catalog' }] }, settings: { weekly: false } },
     reviews: { 'pdf-tools': { id: 'r1', name: 'pdf-tools', description: 'Read PDFs.', source: { type: 'git', repo: 'acme/skills', path: 'pdf', commit: 'abcdef123' }, scope: { kind: 'user' }, files: [{ path: 'SKILL.md' }, { path: 'run.sh' }], findings: [{ severity: 'warn', rule: 'script', message: 'runs a shell script', file: 'run.sh' }], counts: { block: 0 }, skillMd: '# PDF tools\nUse pdftotext.' } },
+    work: workState(), // Work: tasks, Today, runs (fake-work.mjs)
     assistant: { enabled: true, level: 'work' }, // config.json "assistant" (src/assistant/tia.mjs); she is off by default, the tests turn her on
   };
 }
@@ -130,7 +146,10 @@ export class FakeOps {
   async recentFolders() {
     return { folders: this.s.recent, roots: this.s.roots };
   }
-  async browse({ path }) {
+  async browse({ computer, path }) {
+    // A computer with its own folder list (foldersOn): only those exist there.
+    const on = computer && computer !== 'this' && this.s.foldersOn ? this.s.foldersOn[computer] : null;
+    if (on && !on.includes(path)) throw Object.assign(new Error('folder not found or not allowed'), { status: 404 });
     // Every folder this fake dashboard lists elsewhere (a project, a repository, a recent folder) exists here too.
     const known = [...this.s.projects.workspaces.map((w) => w.dir), ...this.s.projects.repos.map((r) => r.dir), ...this.s.recent];
     const dirs = this.s.subdirs[path] || (known.includes(path) ? [] : null);
@@ -144,6 +163,19 @@ export class FakeOps {
     const recommended = this.s.autoSwitch.enabled ? 'auto' : 'sub';
     return { profiles: clone(this.s.profiles), autoSwitch: clone(this.s.autoSwitch), recommended };
   }
+  async attention({ kind = null } = {}) {
+    this.#read('attention', { kind });
+    const a = clone(this.s.attention || { count: 0, items: [], acts: {}, hidden: 0, watched: [], timeline: [] });
+    if (kind) {
+      // The route filters before its cut to 50, and counts only that kind.
+      const items = (this.s.attentionAll || a.items).filter((i) => i.kind === kind);
+      a.items = items.slice(0, 50);
+      a.count = items.length;
+      if (items.length > 50) a.more = items.length - 50;
+      else delete a.more;
+    }
+    return a;
+  }
   async computers() {
     return clone(this.s.computers);
   }
@@ -155,6 +187,11 @@ export class FakeOps {
   }
   async settings() {
     return clone(this.s.settings);
+  }
+  // Each computer's room (src/operator/rooms.mjs view); none kept: every room unknown.
+  async rooms() {
+    this.#read('rooms', {});
+    return clone(this.s.rooms || { computers: [] });
   }
   async assistantSettings() {
     return clone(this.s.assistant);
@@ -226,6 +263,39 @@ export class FakeOps {
     this.#write('killSession', a);
     this.s.sessions = this.s.sessions.filter((c) => !(c.computer === a.computer && c.name === a.session));
   }
+  async renameChat(a) {
+    this.#write('renameChat', a);
+    this.#session(a.computer, `chat:${a.id}`).title = a.title;
+    return { title: a.title };
+  }
+  async closeChat(a) {
+    this.#write('closeChat', a);
+    this.#session(a.computer, `chat:${a.id}`);
+    this.s.sessions = this.s.sessions.filter((c) => !(c.computer === a.computer && c.name === `chat:${a.id}`));
+    return { ok: true };
+  }
+  async chatToTerminal(a) {
+    this.#write('chatToTerminal', a);
+    const c = this.#session(a.computer, `chat:${a.id}`);
+    this.s.sessions = this.s.sessions.filter((x) => x !== c);
+    const name = `term-${a.id.slice(0, 4)}`;
+    this.s.sessions.push({ ...c, name, kind: undefined, chatId: undefined, status: 'waiting', created: this.#made() });
+    return { name };
+  }
+  async chatFromSession(a) {
+    this.#write('chatFromSession', a);
+    const c = this.#session(a.computer, a.session);
+    const id = c.sessionId && /^[0-9a-f-]{36}$/.test(c.sessionId) ? c.sessionId : '66666666-6666-4666-8666-666666666601';
+    if (!this.s.sessions.some((x) => x.name === `chat:${id}`)) this.s.sessions.push({ ...c, name: `chat:${id}`, kind: 'chat', chatId: id, byTia: false, created: this.#made() });
+    return { id };
+  }
+  async continueSession(a) {
+    this.#write('continueSession', a);
+    const c = this.#session(a.computer, a.session);
+    c.limit = null;
+    c.status = 'working';
+    return { ok: true };
+  }
   async moveChat(a) {
     this.#write('moveChat', a);
     const c = this.#session(a.computer, `chat:${a.id}`);
@@ -283,8 +353,9 @@ export class FakeOps {
     if (!p || !(p.tools || ['claude']).includes(a.tool)) throw Object.assign(new Error(`The provider cannot be used for ${t.name}.`), { status: 400 });
   }
   // ---- projects, workspace, brain ----
-  async projects() {
-    return clone(this.s.projects);
+  async projects(a = {}) {
+    const on = a.computer && a.computer !== 'this' && this.s.projectsOn ? this.s.projectsOn[a.computer] : null;
+    return clone(on || this.s.projects);
   }
   async projectPreview({ name }) {
     return { name, dir: `/home/owner/projects/${name}`, exists: this.s.projects.workspaces.some((w) => w.id === name), template: 'built-in', files: ['README.md', 'AGENTS.md'], github: { signedIn: true, account: 'owner' } };
@@ -330,6 +401,8 @@ export class FakeOps {
     const plan = [
       { kind: 'brain', label: 'ai_brain', url: a.url, dest: '~/Workspace/ai_brain', action: 'clone' },
       { kind: 'project', label: 'shop', url: 'https://git.example.com/owner/shop.git', dest: '~/projects/shop', action: 'here' },
+      { kind: 'project', label: 'blog', url: 'https://git.example.com/owner/blog.git', dest: '~/projects/blog', action: 'notHere', why: 'in the map, not on this computer: hoprig get blog' },
+      { kind: 'repo', label: 'blog/code/blog-web', project: 'blog', url: 'https://git.example.com/owner/blog-web.git', dest: '~/projects/blog/code/blog-web', action: 'notHere', why: 'in the map, not on this computer: hoprig get blog' },
     ];
     if (a.dryRun) return { ok: true, dryRun: true, plan, notes: [] };
     this.#write('workspaceRestore', a);
@@ -342,6 +415,23 @@ export class FakeOps {
   async workspacePlaces(a) {
     this.#write('workspacePlaces', a);
     return { changed: ['projects'], notes: [] };
+  }
+  async workspaceWhoHas(a) {
+    this.#read('workspaceWhoHas', a);
+    return clone(this.s.whoHas);
+  }
+  async workspaceFind(a) {
+    this.#read('workspaceFind', a);
+    return clone(this.s.findResult);
+  }
+  async dropCheck(a) {
+    this.#read('dropCheck', a);
+    const on = a.computer && a.computer !== 'this' && this.s.dropChecksOn ? this.s.dropChecksOn[a.computer] || {} : this.s.dropChecks;
+    return clone(on[a.name] || { name: a.name, result: 'not here', ok: true, refusals: [], questions: [], confirm: [] });
+  }
+  async groupDryRun(a) {
+    this.#read('groupDryRun', a);
+    return { group: { dir: a.dir, ...(a.repo ? { url: a.repo } : {}) }, added: true, ignore: null, notes: [], dryRun: true };
   }
   async workspaceForget(a) {
     this.#write('workspaceForget', a);
@@ -463,6 +553,22 @@ export class FakeOps {
     this.#write('runCommand', a);
     return { code: 0, output: `ran: ${a.command}`, timedOut: false };
   }
+  // Whether this computer's sudo asks for a password (set this.adminPw in a test; default true, as a real machine
+  // with a password does). A read, never a write: it does not run anything.
+  async adminNeedsPassword() {
+    return this.adminPw === undefined ? true : this.adminPw;
+  }
+  // A stand-in administrator run (the real path is sudo through the suite's seal, proven in adminrouting.test.mjs).
+  // The password reaches the runner here (kept on lastAdminPassword so a test can prove it arrived) but it is NOT put
+  // in this.calls: a test proves it is in no audit line, no card record and no result. this.adminRightPassword, when
+  // set, is the one that runs; anything else runs nothing (wrong). this.adminNotAllowedFlag runs nothing (notAllowed).
+  async runAdmin(a) {
+    this.lastAdminPassword = a.password;
+    this.calls.push({ op: 'runAdmin', args: { computer: a.computer, argv: clone(a.argv), cwd: a.cwd || null } });
+    if (this.adminNotAllowedFlag) return { ran: false, notAllowed: true };
+    if (this.adminRightPassword !== undefined && a.password !== this.adminRightPassword) return { ran: false, wrong: true };
+    return { ran: true, ok: true, code: 0, output: `admin ran: ${(a.argv || []).join(' ')}` };
+  }
   async addComputer(a) {
     this.#write('addComputer', a);
     const name = a.name || 'new-pc';
@@ -477,6 +583,9 @@ export class FakeOps {
     this.#write('power', a);
   }
 }
+
+// Work's operations (manage_work) live beside, in fake-work.mjs.
+Object.assign(FakeOps.prototype, WORK_OPS);
 
 /**
  * Host a core over HTTP like the real dashboard will: POST /api/assistant/call with Authorization: Bearer <token>

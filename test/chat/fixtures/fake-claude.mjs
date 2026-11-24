@@ -43,9 +43,14 @@
 // get_context_usage, get_usage; anything else: "unsupported_request"). system/init comes at the start of each turn.
 // $FAKE_CLAUDE_ARGS: a file that gets one line per start with the arguments it was given, the answers to OK cards
 // ({answer}) and the control requests ({control}).
+// $FAKE_CLAUDE_TITLE: generate_session_title is known: its answer (and, with persist, the ai-title line it writes) is
+// this text, "%s" in it replaced by the request's description. Without it the request is unknown, as on older versions.
 // $FAKE_CLAUDE_STUBBORN=1: it keeps running when its input ends and ignores SIGTERM (only SIGKILL ends it).
 // $FAKE_CLAUDE_NO_LIVE=1: model, effort and mode cannot change while it runs (the control requests are refused).
 // $FAKE_CLAUDE_NO_BYPASS=1: the settings turn bypassPermissions off: it starts in the default mode instead.
+// $FAKE_CLAUDE_EXIT_LINE=1: as Claude Code 2.1.327, a line (its cost) is appended to the transcript when it ends.
+// $FAKE_CLAUDE_RECORD=1: as Claude Code 2.1.327, a record of the running session, <CLAUDE_CONFIG_DIR>/sessions/<pid>.json
+// { pid, sessionId, procStart (Linux: its start in clock ticks) }, removed when it ends.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -57,6 +62,19 @@ if (process.env.FAKE_CLAUDE_ARGS) fs.appendFileSync(process.env.FAKE_CLAUDE_ARGS
 // --resume <old> --fork-session --session-id <new> --resume-session-at <uuid>: a copy of <old> up to that line.
 const fork = argv.includes('--fork-session') ? { from: val('--resume'), at: val('--resume-session-at') } : null;
 const sessionId = fork ? val('--session-id') : val('--resume') || val('--session-id');
+if (process.env.FAKE_CLAUDE_RECORD) {
+  const f = path.join(process.env.CLAUDE_CONFIG_DIR, 'sessions', `${process.pid}.json`);
+  let procStart;
+  try {
+    const st = fs.readFileSync('/proc/self/stat', 'utf8');
+    procStart = st.slice(st.lastIndexOf(')') + 2).split(' ')[19];
+  } catch {
+    /* not Linux */
+  }
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify({ pid: process.pid, sessionId, procStart, kind: 'sdk-cli' }));
+  process.on('exit', () => fs.rmSync(f, { force: true }));
+}
 // "manual" is the flag's word for the mode Claude Code reports as "default".
 const wanted = val('--permission-mode') || 'default';
 const startMode = wanted === 'manual' || (wanted === 'bypassPermissions' && process.env.FAKE_CLAUDE_NO_BYPASS) ? 'default' : wanted;
@@ -405,6 +423,11 @@ async function turn(text, content = [{ type: 'text', text }]) {
     return result(true);
   }
   if ((m = await more(text))) return m;
+  // Work's "Plan with AI": a proposal in the shape its first message asks for (fake-claude-plan.mjs).
+  if (text.startsWith('Make a plan for this goal')) {
+    assistant([{ type: 'text', text: (await import('./fake-claude-plan.mjs')).planAnswer(text) }]);
+    return result(true);
+  }
   assistant([{ type: 'text', text: `echo: ${text}${images ? ` [${images} image${images > 1 ? 's' : ''}]` : ''}` }]);
   return result(true);
 }
@@ -497,6 +520,12 @@ function control(m) {
       return answerControl(m, { totalTokens: 21000, maxTokens: 200000, percentage: 10.5, categories: [{ name: 'System prompt', tokens: 3100, color: 'promptBorder' }, { name: 'System tools', tokens: 11900, color: 'inactive' }, { name: 'Messages', tokens: 6000, color: 'purple' }, { name: 'Free space', tokens: 0, color: 'promptBorder' }] });
     case 'get_usage':
       return answerControl(m, { subscription_type: 'max', rate_limits_available: true, rate_limits: { five_hour: { utilization: 42, resets_at: '2030-03-17T17:46:40+00:00' }, seven_day: { utilization: 10, resets_at: '2030-03-20T00:00:00+00:00' }, spend: { utilization: null, resets_at: null } } });
+    case 'generate_session_title': {
+      if (!process.env.FAKE_CLAUDE_TITLE) return refuse(m, `Unsupported control request subtype: ${r.subtype}`, 'unsupported_request');
+      const title = process.env.FAKE_CLAUDE_TITLE.replace('%s', String(r.description || ''));
+      if (r.persist) fs.appendFileSync(transcript, JSON.stringify({ type: 'ai-title', aiTitle: title, sessionId }) + '\n');
+      return answerControl(m, { title });
+    }
     default:
       return refuse(m, `Unsupported control request subtype: ${r.subtype}`, 'unsupported_request');
   }
@@ -518,6 +547,7 @@ readline.createInterface({ input: process.stdin }).on('line', (l) => {
     r?.(m.response.response);
   } else if (m.type === 'control_request') control(m);
 }).on('close', () => {
+  if (process.env.FAKE_CLAUDE_EXIT_LINE && fs.existsSync(transcript)) fs.appendFileSync(transcript, JSON.stringify({ type: 'cost-state', sessionId }) + '\n');
   if (!process.env.FAKE_CLAUDE_STUBBORN) process.exit(0);
 });
 if (process.env.FAKE_CLAUDE_STUBBORN) {

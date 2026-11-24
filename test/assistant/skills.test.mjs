@@ -59,6 +59,19 @@ test('a skill naming an unknown tool, a wrong name or bad front matter is not lo
   }
 });
 
+test('a skill that names a tool by its old name loads with the tool it became, once', () => {
+  const owner = fs.mkdtempSync(path.join(os.tmpdir(), 'hop-owner-'));
+  try {
+    write(owner, 'old-name', skill('old-name', 'Written before the tool was renamed.', 'get_accounts list_sessions get_computer_status'));
+    const s = new Skills({ dirs: [{ dir: owner, source: 'owner' }] });
+    assert.deepEqual(s.problems, []);
+    assert.deepEqual(s.get('old-name').allowedTools, ['get_computer_status', 'list_sessions']);
+    assert.ok(!TOOL_NAMES.includes('get_accounts'), 'the old name is no tool of the list');
+  } finally {
+    fs.rmSync(owner, { recursive: true, force: true });
+  }
+});
+
 test('YAML list form of allowed-tools; format/parse round trip; save only into the owner folder, never over one', () => {
   const p = parseSkill('---\nname: a-b\ndescription: "Quoted: yes"\nallowed-tools:\n  - list_sessions\n  - read_session\n---\nbody');
   assert.deepEqual(p.allowedTools, ['list_sessions', 'read_session']);

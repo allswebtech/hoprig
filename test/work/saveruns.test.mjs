@@ -29,6 +29,9 @@ const run = (id, extra = {}) => writeRun(place(), {
   brief: 'Renew the domain', state: 'running', reason: null, answer: '', commits: [], changed: [], more: 0, was: 'open', statusError: null, ...extra,
 });
 
+const { STOP_ENV } = await import('../../src/work/save.mjs');
+const { spawnSync } = await import('node:child_process');
+
 test('the rule of what a save may send: the list and files right in runs/ are Work\'s; anything else beside them is the owner\'s', () => {
   const c = (files, parents = ['p']) => ({ sha: files.join(), short: 'abc1234', subject: 's', parents, files });
   const o = { rel: 'docs/plans/tasks.json', runsRel: 'docs/plans/runs' };
@@ -59,7 +62,7 @@ test('save commits the list and the run files by name, nothing else, and sends t
   const r = await saveWork(place(), { subject: SUBJECT });
   assert.equal(r.ok, true, r.message);
   assert.equal(r.sent, true);
-  assert.match(r.message, /Committed docs\/plans\/tasks\.json \(1 change\) and 2 runs and sent it/);
+  assert.match(r.message, /Kept a copy of your list \(1 change\) and 2 runs and uploaded it/);
   assert.deepEqual(lines('show', '--name-only', '--format=%s', 'HEAD'), [SUBJECT, 'docs/plans/runs/20261117-100000-aaaaaaaa.json', 'docs/plans/runs/20261117-110000-bbbbbbbb.json', 'docs/plans/tasks.json']);
   assert.equal(t.git(shop, 'rev-parse', 'HEAD'), t.git(bare, 'rev-parse', 'main'), 'the server has it');
   assert.deepEqual(lines('status', '--porcelain', '--untracked-files=all').sort(), ['?? docs/plans/numbers.json', '?? docs/plans/runs/notes.txt', 'M src/app.js'], 'the rest as it was');
@@ -85,7 +88,7 @@ test('a file of a run\'s name that is no run record (a link to a private file, o
   assert.deepEqual(plan.notRuns, ['docs/plans/runs/20261117-090000-11111111.json', 'docs/plans/runs/20261117-090000-22222222.json', 'docs/plans/runs/20261117-090000-44444444.json']);
   const r = await saveWork(place(), { subject: SUBJECT });
   assert.equal(r.ok, true, r.message);
-  assert.match(r.message, /^Committed 1 run and sent it to origin\/main\. 3 files in docs\/plans\/runs are not a run Work wrote \(a link, or something else\): Work left them alone\./);
+  assert.match(r.message, /^Kept 1 run and uploaded it to your git server\. 3 files in docs\/plans\/runs are not a run Work wrote \(a link, or something else\): Work left them alone\./);
   const sent = t.git(bare, 'ls-tree', '-r', '--name-only', 'main').split('\n');
   assert.ok(sent.includes('docs/plans/runs/20261117-090000-55555555.json'));
   for (const n of ['11111111', '22222222', '44444444']) assert.ok(!sent.includes(`docs/plans/runs/20261117-090000-${n}.json`), n);
@@ -165,7 +168,7 @@ test('only a run file changed, and the server moved the list meanwhile: its comm
   run('20261117-100000-aaaaaaaa', { state: 'done', endedAt: '2026-11-17T10:30:00.000Z', answer: 'All done.' });
   const r = await saveWork(place(), { subject: SUBJECT });
   assert.equal(r.ok, true, r.message);
-  assert.match(r.message, /^Committed 1 run and sent it to origin\/main\. Brought in 1 new commit from the server first\./);
+  assert.match(r.message, /^Kept 1 run and uploaded it to your git server\. Brought in 1 new commit from the server first\./);
   assert.deepEqual(lines('show', '--name-only', '--format=%s', 'HEAD'), [SUBJECT, 'docs/plans/runs/20261117-100000-aaaaaaaa.json']);
   assert.match(fs.readFileSync(path.join(shop, 'docs/plans/tasks.json'), 'utf8'), /from another computer/);
   assert.equal(t.git(shop, 'rev-parse', 'HEAD'), t.git(bare, 'rev-parse', 'main'));
@@ -192,8 +195,6 @@ test('a send that fails takes the commit back: the run file is as before the sav
 // A save with run files killed after a step (save.mjs HOPRIG_TEST_WORK_STOP_AFTER, as interrupt.test.mjs does): the
 // next look finishes it, and the next Save has the list and the run file, here and on the server, with nothing left
 // staged or over.
-const { STOP_ENV } = await import('../../src/work/save.mjs');
-const { spawnSync } = await import('node:child_process');
 const SAVE = new URL('../../src/work/save.mjs', import.meta.url).href;
 let n = 0;
 for (const step of ['journal', 'commit', 'takeback']) {

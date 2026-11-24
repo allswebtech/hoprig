@@ -6,7 +6,7 @@
 // the page asks for that in place (linkforms.js). The rarer things are under Advanced.
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
-import { add, api, btn, confirmSheet, copyText, fill, h, openSheet, qrSvg, toast } from './lib.js';
+import { add, api, btn, confirmSheet, copyText, fill, h, openSheet, qrSvg, toast, wayLink } from './lib.js';
 import { customBody, forgetText, makePassword, needBox, strongForm, tokenForm } from './linkforms.js';
 import { registerSettingsPage } from './registry.js';
 import { panel } from './shell.js';
@@ -25,6 +25,16 @@ export function statePill(s) {
     error: ['attention', 'Not working'],
   }[s.state] || ['starting', 'Starting…'];
 }
+
+// The Temporary card in words a person who never heard of a tunnel reads: who carries the link, and what changes.
+// The server's words (KIND_WORDS of src/addons/linkswitch.mjs) are taken where the page has none of its own.
+export const KIND_PLAIN = Object.freeze({
+  temporary: {
+    needs: 'Nothing. The first time, Hoprig downloads a small free program from Cloudflare (the company that carries the link).',
+    gives: 'An https address that opens this page from anywhere, a new address each time the computer starts.',
+  },
+});
+export const kindWords = (k) => (k && Object.hasOwn(KIND_PLAIN, k.id) ? { ...k, ...KIND_PLAIN[k.id] } : k);
 
 /** The one line in the Settings list: Off, or the kind and its address. */
 export function linkSummary(s) {
@@ -64,7 +74,7 @@ async function qrSheet(url) {
       h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close(null) }, 'Close')),
     ]);
   } catch (e) {
-    toast(e.message, { kind: 'error' });
+    toast(e, { kind: 'error' });
   }
 }
 
@@ -157,28 +167,32 @@ function render({ here, isAlive }) {
     // refused turn-on does.
     const need = ui.need || s.need || null;
     const why = ui.need ? ui.error : s.state === 'blocked' ? s.error : null;
-    return panel({},
+    return panel({ id: 'public-link-switch' },
       h('label.switchrow.pl-switch',
         h('span.switchrow-text', h('span.switchrow-label', 'Public link'), h('span', pill(statePill(s)))),
         sw),
       busy && s.progress.length ? h('ul.pl-progress', s.progress.slice(-4).map((l) => h('li', l))) : null,
-      s.error && s.state !== 'blocked' && (s.on || s.state === 'error') ? failure(s.error, wait) : null,
+      s.error && s.state !== 'blocked' && (s.on || s.state === 'error') ? failure(s.error, wait, s) : null,
       ui.error && !ui.need ? h('p.mrow-error', ui.error) : null,
       needBox(p, need, why),
       !s.on ? h('p.hint', 'Off until you turn it on. Nothing is reachable from outside while it is off.') : null);
   }
 
   // A failure: plain words and what happens next; cloudflared's own line behind "Details".
-  function failure(raw, wait) {
+  // `from`: the status, whose code (no-password) gets its place's button (errorways.js).
+  function failure(raw, wait, from = null) {
     const plain = plainError(raw);
     const next = wait ? ` It tries again by itself in ${wait} s.` : s.on && s.state === 'retrying' ? ' It tries again by itself.' : '';
+    const way = from ? wayLink(from) : null;
     return h('div.pl-fail',
       h('p.mrow-error', `${sentence(plain || raw)}${next}`),
+      way ? h('p.pl-way', way) : null,
       plain ? h('details.pl-details', h('summary', 'Details'), h('code', raw)) : null);
   }
 
   // ---------- the two kinds ----------
-  function kindCard(k) {
+  function kindCard(server) {
+    const k = kindWords(server);
     const on = kind() === k.id;
     const choose = async () => {
       if (on) return;
@@ -329,7 +343,7 @@ function render({ here, isAlive }) {
     try {
       await api(`/api/public-link/${k}/${step}`, body);
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(e, { kind: 'error' });
       return null;
     }
     ui.busy = true;
@@ -359,7 +373,7 @@ function render({ here, isAlive }) {
           if (res.ok) clearOutput();
           if (res.ok && step === 'sign-in') ui.focus = 'open-cloudflare';
           // The sign-in step only opens Cloudflare's page: nothing is done until the owner approves there.
-          if (!res.ok) toast(res.error || 'That did not work', { kind: 'error' });
+          if (!res.ok) toast(res.error || 'That did not work', { kind: 'error', from: res });
           else if (step !== 'sign-in') toast('Done');
           load(true);
           return res;

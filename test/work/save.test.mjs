@@ -39,7 +39,7 @@ test('save commits only the Work file and sends it; other changes, staged or not
   const r = await saveWork(place(), { subject: SUBJECT });
   assert.equal(r.ok, true, r.message);
   assert.equal(r.sent, true);
-  assert.match(r.message, /Committed docs\/plans\/deadlines\.json \(2 changes\) and sent it to origin\/main/);
+  assert.match(r.message, /Kept a copy of your list \(2 changes\) and uploaded it to your git server/);
   assert.deepEqual(t.git(shop, 'show', '--name-only', '--format=%s', 'HEAD').split('\n').filter(Boolean), [SUBJECT, 'docs/plans/deadlines.json']);
   assert.equal(head(shop), t.git(bare, 'rev-parse', 'main'), 'the server has it');
   // The rest is exactly as it was: changed, untracked and staged.
@@ -51,7 +51,7 @@ test('save commits only the Work file and sends it; other changes, staged or not
 
   const again = await saveWork(place(), { subject: SUBJECT });
   assert.equal(again.ok, true);
-  assert.match(again.message, /^Nothing to save/);
+  assert.match(again.message, /^Nothing to keep/);
   t.git(shop, 'reset', '-q', '--', 'staged.txt');
   t.git(shop, 'checkout', '-q', '--', 'src/app.js', 'docs/plans/numbers.json');
   fs.rmSync(path.join(shop, 'notes.txt'));
@@ -67,7 +67,7 @@ test('the server moved elsewhere: its commits come in by fast-forward first, the
   const r = await saveWork(place(), { subject: SUBJECT });
   assert.equal(r.ok, true, r.message);
   assert.equal(r.sent, true);
-  assert.match(r.message, /and sent it to origin\/main\. Brought in 1 new commit from the server first\./);
+  assert.match(r.message, /and uploaded it to your git server\. Brought in 1 new commit from the server first\./);
   assert.deepEqual(subjects(shop, '-2'), [SUBJECT, 'Change the readme elsewhere']);
   assert.equal(head(shop), t.git(bare, 'rev-parse', 'main'));
 });
@@ -154,7 +154,7 @@ test('an earlier commit of the Work file left unsent (an older version, or by ha
   assert.equal(plan.unsent.saves, 1);
   const again = await saveWork(place(), { subject: SUBJECT });
   assert.equal(again.sent, true, again.message);
-  assert.match(again.message, /^Sent 1 earlier commit of the Work file to origin\/main\./);
+  assert.match(again.message, /^Uploaded 1 earlier copy of your list to your git server\./);
   assert.equal(head(shop), t.git(bare, 'rev-parse', 'main'));
   // With a new change: committed and sent together.
   await store().add({ title: 'Earlier one', date: '2026-12-09' });
@@ -162,7 +162,7 @@ test('an earlier commit of the Work file left unsent (an older version, or by ha
   await store().add({ title: 'And a new one', date: '2026-12-10' });
   const both = await saveWork(place(), { subject: SUBJECT });
   assert.equal(both.sent, true, both.message);
-  assert.match(both.message, /^Committed docs\/plans\/deadlines\.json \(1 change\) with 1 earlier commit of the Work file and sent it/);
+  assert.match(both.message, /^Kept a copy of your list \(1 change\) with 1 earlier copy of it and uploaded it/);
   assert.equal(head(shop), t.git(bare, 'rev-parse', 'main'));
   // Behind an owner's commit: the plan has nothing to do while the file has no new change.
   await store().add({ title: 'Held back', date: '2026-12-10' });
@@ -231,7 +231,7 @@ test('a dry run commits nothing; a folder outside git and a new file are said pl
   const brainPlace = resolvePlace({});
   const none = await saveWork(brainPlace, { subject: SUBJECT });
   assert.equal(none.ok, true);
-  assert.match(none.message, /Nothing to save/);
+  assert.match(none.message, /Nothing to keep/);
   await workStore(brainPlace, { projects: projectNames() }).add({ title: 'First thing to do' });
   const nogit = await saveWork(brainPlace, { subject: SUBJECT });
   assert.equal(nogit.ok, false);

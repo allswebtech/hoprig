@@ -1,0 +1,42 @@
+/* The public site's frame: the top bar, the phone menu, the footer. Tokens and pieces come from design/. */
+/* Nearly solid: at 86 % the story's big headings showed through the bar and ran into the menu's words. */
+/* Solid in both themes: at 97 % a heading scrolled under it still showed through as a ghost. */
+.bar { position: sticky; top: 0; z-index: 20; background: var(--bg); border-bottom: 1px solid var(--border); }
+.bar-row { display: flex; align-items: center; height: 60px; gap: var(--s2); }
+.brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); text-decoration: none; min-height: var(--tap); }
+.brand:hover { color: var(--text); }
+.brand .logo { width: 28px; height: 28px; }
+.nav { display: none; margin-left: var(--s5); gap: 2px; }
+.nav a { color: var(--text-2); text-decoration: none; font-size: 14.5px; padding: 9px 11px; border-radius: var(--r); }
+.nav a:hover { background: var(--surface-3); color: var(--text); }
+.nav a[aria-current='page'] { color: var(--text); background: var(--surface-3); }
+.bar-tools { margin-left: auto; display: flex; align-items: center; gap: var(--s1); }
+.bar-install { display: none; margin-left: var(--s1); }
+.menu { position: relative; }
+.menu summary { list-style: none; }
+.menu summary::-webkit-details-marker { display: none; }
+.menu-panel { position: absolute; right: 0; top: calc(100% + 8px); min-width: 220px; display: grid; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-2); }
+.menu-panel a { padding: 11px 12px; border-radius: var(--r); color: var(--text); text-decoration: none; }
+.menu-panel a:hover { background: var(--surface-3); }
+@media (min-width: 900px) {
+  .nav { display: flex; }
+  .menu { display: none; }
+  .bar-install { display: inline-flex; }
+}
+
+.foot { margin-top: var(--s8); border-top: 1px solid var(--border); background: var(--surface); font-size: 15px; }
+.foot-grid { display: grid; gap: var(--s6); padding-top: var(--s7); padding-bottom: var(--s6); }
+.foot-about p { margin: var(--s3) 0 0; color: var(--text-2); max-width: 30em; }
+.foot nav { display: grid; align-content: start; gap: 2px; }
+.foot nav a { color: var(--text-2); text-decoration: none; padding: 6px 0; display: flex; align-items: center; }
+/* As tall as a finger where a finger taps (a phone, a touch screen), and the list's own line elsewhere. The edit link
+   stands alone in its line, outside a sentence, so it is a target too. */
+@media (max-width: 719px), (pointer: coarse) {
+  .foot nav a { min-height: var(--tap); }
+  .foot-edit > a:first-child { display: inline-flex; align-items: center; min-height: var(--tap); }
+}
+.foot nav a:hover { color: var(--accent); }
+.foot-head { margin: 0 0 6px; font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: .02em; }
+.foot-note { padding-bottom: var(--s6); color: var(--muted); font-size: 14px; display: grid; gap: var(--s2); }
+.foot-note p { margin: 0; }
+@media (min-width: 800px) { .foot-grid { grid-template-columns: 2fr 1fr 1fr; } }

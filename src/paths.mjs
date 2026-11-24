@@ -87,3 +87,14 @@ export const INSTALL_SCRIPT_URL = `https://raw.githubusercontent.com/${REPO}/${B
 
 /** `~/x` for display. */
 export const tilde = (p) => (p === home() || p.startsWith(home() + path.sep) ? '~' + p.slice(home().length) : p);
+
+/**
+ * Hoprig's own folders on this computer: its settings (configDir, which holds the profiles), its runtime state
+ * (stateDir, which holds the runs, the handed hook settings and the coding tools Hoprig installs — all under it, so
+ * one entry covers them), and the directory Hoprig is installed in (the parent of bin/). An administrator command of
+ * Tia's that would write any of these is refused with no card at every level, Full too, since it could switch a
+ * safety rule of Hoprig's off: the run_command administrator path passes this list to adminRefusal / sudoArgv
+ * (src/assistant/adminrefused.mjs), which stays pure and reads no real path of its own. It is the same set the hook's
+ * wall protects (src/hook.mjs places().hoprig); keep them in step.
+ */
+export const hoprigOwnDirs = () => [configDir(), stateDir(), path.dirname(path.dirname(hookFile()))];

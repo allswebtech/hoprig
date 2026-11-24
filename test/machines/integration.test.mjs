@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import WebSocket from 'ws';
+import { closedGateways, sealedPath } from '../seal.mjs';
 import { REPO, fakeRemote } from './harness.mjs';
 
 const integrated = fs.readFileSync(path.join(REPO, 'src', 'server', 'server.mjs'), 'utf8').includes('../machines/index.mjs');
@@ -51,11 +52,17 @@ async function machine(root, name, extraEnv = {}) {
   for (const x of Object.values(d)) fs.mkdirSync(x, { recursive: true });
   const port = await freePort();
   const env = { ...process.env, HOPRIG_CONFIG_DIR: d.config, HOPRIG_STATE_DIR: d.state, HOPRIG_PROFILES_DIR: d.profiles, CLAUDE_CONFIG_DIR: d.claude, HOPRIG_WORKSPACE_DIR: d.workspace, ...extraEnv };
+  // A claude stand-in first on PATH (after any sealed PATH extraEnv brought): the dashboard checks Claude Code's
+  // version and sign-in (resolveClaude -> which claude), so the owner's real Claude Code is never read.
+  const cbin = path.join(dir, 'cbin');
+  fs.mkdirSync(cbin, { recursive: true });
+  fs.writeFileSync(path.join(cbin, 'claude'), '#!/bin/sh\ncase "$1" in --version) echo "1.0.0 (Claude Code)";; auth) exit 1;; *) exit 0;; esac\n', { mode: 0o755 });
+  env.PATH = sealedPath([cbin, env.PATH]);
   const setup = `
     const { saveConfig } = await import(${JSON.stringify(path.join(REPO, 'src', 'config.mjs'))});
     const { writeProfile } = await import(${JSON.stringify(path.join(REPO, 'src', 'profiles.mjs'))});
     const { hashPassword } = await import(${JSON.stringify(path.join(REPO, 'src', 'server', 'auth.mjs'))});
-    saveConfig({ launcher: [process.execPath, ${JSON.stringify(FAKE_LAUNCHER)}], server: { backend: 'pty', host: '127.0.0.1', port: ${port}, roots: [${JSON.stringify(dir)}], passwordHash: await hashPassword(${JSON.stringify(PASSWORD)}) } });
+    saveConfig({ addons: ${JSON.stringify(closedGateways())}, launcher: [process.execPath, ${JSON.stringify(FAKE_LAUNCHER)}], server: { backend: 'pty', host: '127.0.0.1', port: ${port}, roots: [${JSON.stringify(dir)}], passwordHash: await hashPassword(${JSON.stringify(PASSWORD)}) } });
     writeProfile('work', { label: 'Work' });
     writeProfile('backup', { label: 'Backup', env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' } });`;
   execFileSync(process.execPath, ['--input-type=module', '-e', setup], { env });
@@ -124,7 +131,7 @@ test('two dashboards: pair, see, drive and revoke through the hub', { skip, time
   const ssh = fakeRemote(path.join(root, 'ssh'), {
     script: `export HOPRIG_CONFIG_DIR='${b.config}' HOPRIG_STATE_DIR='${b.state}' HOPRIG_PROFILES_DIR='${b.profiles}' CLAUDE_CONFIG_DIR='${b.claude}' HOPRIG_WORKSPACE_DIR='${b.workspace}'\nexec "${process.execPath}" "${BIN}" "$@"`,
   });
-  const a = await machine(root, 'a', { PATH: ssh.sshEnv.PATH, FAKE_SSH_LOG: ssh.log, FAKE_SSH_SHELL: ssh.sshEnv.FAKE_SSH_SHELL });
+  const a = await machine(root, 'a', { PATH: ssh.sshEnv.PATH, FAKE_SSH_LOG: ssh.log, FAKE_SSH_SHELL: ssh.sshEnv.FAKE_SSH_SHELL }); // seal: the PATH test/machines/harness.mjs sealed
   t.after(() => stopAll([a, b], root));
   await Promise.all([serve(a), serve(b)]);
   const hub = await browser(a);
@@ -188,16 +195,16 @@ test('two dashboards: pair, see, drive and revoke through the hub', { skip, time
   // --- B revokes the code-paired hub: "not authorised" at once ---
   const tokens = JSON.parse(b.cli('tokens', '--json'));
   assert.equal(tokens.length, 2);
-  b.cli('tokens', 'revoke', tokens[0].id);
+  b.cli('tokens', 'revoke', tokens[0].id, '--yes');
   const after = await hub('/m/b/api/state');
   assert.equal(after.status, 403);
-  assert.equal(after.json.code, 'not-authorised');
+  assert.equal(after.json.code, 'computer-not-allowed');
   const list = (await hub('/api/machines?fresh=1')).json.machines;
   assert.equal(list.find((m) => m.name === 'b').state, 'unauthorised');
   assert.equal(list.find((m) => m.name === 'bssh').state, 'online', 'the other token still works');
 
   // --- removing the SSH one revokes its token on B too ---
-  assert.equal((await hub('/api/machines/bssh/remove', { body: {} })).json.revoked, true);
+  assert.equal((await hub('/api/machines/bssh/remove', { body: { confirm: 'bssh' } })).json.revoked, true);
   assert.deepEqual(JSON.parse(b.cli('tokens', '--json')), []);
   ws.close();
   await hub(`/m/b/api/sessions/${name}/kill`, { body: {} }).catch(() => {});
@@ -210,7 +217,7 @@ test('a computer behind a router joins the hub by itself: driven from the hub, b
   const toA = fakeRemote(path.join(root, 'ssh-to-a'), {
     script: `export HOPRIG_CONFIG_DIR='${a.config}' HOPRIG_STATE_DIR='${a.state}' HOPRIG_PROFILES_DIR='${a.profiles}' CLAUDE_CONFIG_DIR='${a.claude}' HOPRIG_WORKSPACE_DIR='${a.workspace}'\nexec "${process.execPath}" "${BIN}" "$@"`,
   });
-  const b = await machine(root, 'b', { PATH: toA.sshEnv.PATH, FAKE_SSH_LOG: toA.log, FAKE_SSH_SHELL: toA.sshEnv.FAKE_SSH_SHELL });
+  const b = await machine(root, 'b', { PATH: toA.sshEnv.PATH, FAKE_SSH_LOG: toA.log, FAKE_SSH_SHELL: toA.sshEnv.FAKE_SSH_SHELL }); // seal: the PATH test/machines/harness.mjs sealed
   t.after(() => stopAll([a, b], root));
   await Promise.all([serve(a), serve(b)]);
   const hub = await browser(a);

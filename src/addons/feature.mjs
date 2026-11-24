@@ -26,11 +26,15 @@
 // sweep runs at once after a revoke in this process, when the dashboard starts, and every SWEEP_MS, which catches a
 // revoke by another process (`hoprig tokens revoke`). The revoke itself is logged by revokeToken (tokens.mjs).
 import { tokenIdOf } from '../machines/index.mjs';
+import { defaultHubLabel } from '../machines/hub.mjs';
+import { ownersPress } from '../server/ownerpress.mjs';
 import { recordHubActivity } from '../machines/tokenaudit.mjs';
 import { onRevoke, storedTokens } from '../machines/tokens.mjs';
 import { gatewayRoutes } from './gatewayroutes.mjs';
+import { gatewayBusy, onePress } from './gatewayhost.mjs';
 import { definedGateways } from './gateways.mjs';
 import { allAddons } from './index.mjs';
+import { noteStarted, noteStopped } from './stopmark.mjs';
 import { publicLink } from './linkaddon.mjs';
 import { linkRoutes } from './linkroutes.mjs';
 
@@ -46,6 +50,7 @@ const liveTokens = () => new Map(storedTokens().map((t) => [t.id, { name: t.name
 /** `opts.addons`: the add-on list (tests pass fakes). `opts.record`, `opts.sweepMs`: for tests. */
 export function addonsFeature(sctx, opts = {}) {
   const list = () => opts.addons || allAddons();
+  const computer = opts.computer || (() => defaultHubLabel()); // the name a confirmation must give
   const jobs = new Map(); // id → { running, lines, result }
 
   // An add-on is named by its own plain spelling only: "public%2Dlink" is not "public-link" here, so no check in front
@@ -63,11 +68,21 @@ export function addonsFeature(sctx, opts = {}) {
       job.lines.push(String(l));
       if (job.lines.length > LINES_MAX) job.lines.splice(0, job.lines.length - LINES_MAX);
     };
-    const go = ACTIONS.includes(action)
+    const act = () => (ACTIONS.includes(action)
       ? (action === 'install' || action === 'update' ? a[action]({ onLine }) : action === 'start' ? a.start({ by }) : a[action]())
-      : a.actions[action](body, { onLine, by });
+      : a.actions[action](body, { onLine, by }));
+    // A gateway: the same one press at a time as Health's routes (gatewayhost.mjs), so the two never run beside each other.
+    const go = a.gateway ? onePress(a.id, act, () => new Error(`${a.title} is busy with another press: wait until it finishes`)) : act();
     return Promise.resolve(go)
       .then((r) => {
+        // The owner's own stop is remembered (the Operator's gateway rule leaves such a gateway stopped); a start ends it.
+        if (r && r.ok && action === 'stop') noteStopped(a.id);
+        if (r && r.ok && action === 'start') noteStarted(a.id);
+        // A start's first lines (a first password among them): handed to the job's first reader, once (the job route).
+        if (action === 'start' && a.firstLines) {
+          const lines = a.firstLines.take();
+          job.first = lines.length ? { at: Date.now(), lines } : null;
+        }
         job.result = { ok: Boolean(r && r.ok), error: (r && r.error) || null, url: (r && r.url) || null, confirm: (r && typeof r.confirm === 'string' && r.confirm) || null, need: (r && typeof r.need === 'string' && r.need) || null };
         if (r && r.error) onLine(r.error);
       })
@@ -82,20 +97,25 @@ export function addonsFeature(sctx, opts = {}) {
 
   const routes = [
     ['GET', /^\/api\/addons$/, async () => ({
+      computer: computer(), // what the page's confirmation names, and what it sends back as confirm
       // The owner's definitions that config.json holds but that do not pass the check (a hand edit, a port given to
       // another gateway since): { id, error } each, so the page can say why one is missing.
       skipped: opts.addons ? [] : definedGateways().skipped.map(({ id, error }) => ({ id, error })),
       addons: await Promise.all(list().map(async (a) => {
         const st = await Promise.resolve(a.status()).catch(() => ({ installed: false, running: false }));
         const job = jobs.get(a.id);
-        return { id: a.id, title: a.title, summary: a.summary, homepage: a.homepage, ...(a.installable === false ? { installable: false } : {}), ...(a.defined ? { defined: true, command: a.command(), page: a.page() } : {}), ...st, job: job ? { running: job.running, result: job.result } : null };
+        return { id: a.id, title: a.title, summary: a.summary, homepage: a.homepage, ...(a.gateway ? { gateway: true } : {}), ...(a.installable === false ? { installable: false } : {}), ...(a.builds ? { builds: a.builds, installCommand: a.installHint() } : {}), ...(a.defined ? { defined: true, command: a.command(), page: a.page() } : {}), ...st, job: job ? { running: job.running, result: job.result } : null };
       })),
     })],
     ['POST', /^\/api\/addons\/([^/]+)\/(install|update|start|stop)$/, async (req, m) => {
-      await sctx.readJson(req);
+      const b = await sctx.readJson(req);
       const a = addonOf(m);
       if (!ACTIONS.includes(m[2])) throw fail(400, 'unknown action');
-      if (jobs.get(a.id)?.running) throw fail(409, `${a.title} is busy with something else; wait until it finishes`);
+      // A gateway's install and update change what is installed here: the owner's press (start and stop stay as they were).
+      if (a.gateway && (m[2] === 'install' || m[2] === 'update')) {
+        ownersPress(sctx, req, b, { name: computer(), what: `${m[2] === 'install' ? 'Installing' : 'Updating'} ${a.title}`, card: (c) => c.tool === 'manage_computer' && c.input.action === 'addon' && c.input.addon === a.id && c.input.addon_action === m[2] });
+      }
+      if (jobs.get(a.id)?.running || (a.gateway && gatewayBusy(a.id))) throw fail(409, `${a.title} is busy with something else; wait until it finishes`);
       run(a, m[2], {}, tokenIdOf(req));
       return { started: true };
     }],
@@ -112,7 +132,10 @@ export function addonsFeature(sctx, opts = {}) {
       const a = addonOf(m);
       const job = jobs.get(a.id) || { running: false, lines: [], result: null };
       const from = Math.max(0, Math.min(job.lines.length, Number(q && q.get('from')) || 0));
-      return { running: job.running, lines: job.lines.slice(from), next: job.lines.length, result: job.result };
+      // Once, and for ten minutes at most: after that Hoprig has forgotten them.
+      const first = !job.running && job.first && Date.now() - job.first.at <= 10 * 60_000 ? job.first.lines : null;
+      job.first = null;
+      return { running: job.running, lines: job.lines.slice(from), next: job.lines.length, result: job.result, ...(first ? { first } : {}) };
     }],
     ...linkRoutes(sctx, { run, jobs, addon: opts.link || publicLink }),
     ...gatewayRoutes(sctx),
@@ -126,7 +149,7 @@ export function addonsFeature(sctx, opts = {}) {
   let sweeping = Promise.resolve();
   let timer = null;
   let stopListening = null;
-  const who = (id) => (known.has(id) ? `the hub ${known.get(id).name}` : 'a linked hub');
+  const who = (id) => (known.has(id) ? `the main computer ${known.get(id).name}` : 'a linked main computer');
   async function sweepNow(ev) {
     if (ev) known.set(ev.id, { name: ev.name });
     const live = liveTokens();

@@ -19,7 +19,15 @@
 // never a linked hub's machine token, never one of Tia's requests (src/assistant/door.mjs refuses the path too).
 import { tokenIdOf } from '../machines/index.mjs';
 import { confirmQuestion, runsLines } from './gatewaycli.mjs';
+import { removeService, servicePlan, serviceState } from './gatewayservice.mjs';
 import { SHIPPED, addDefinition, checkNew, confirmProgram, gatewayAddons, notLoadedReason, providersOf, removeDefinition, repinned } from './gateways.mjs';
+
+/** A gateway's service taken away before the gateway is: [] when it has none, else what was done. Shared with the command. */
+export async function serviceGone(g, { plan = servicePlan(g) } = {}) {
+  if (!(await serviceState(plan)).made) return [];
+  const r = await removeService(plan);
+  return r.lines;
+}
 
 export function gatewayRoutes(sctx) {
   const fail = (code, message) => new sctx.HttpError(code, message);
@@ -77,14 +85,17 @@ export function gatewayRoutes(sctx) {
         const users = providersOf(id);
         return {
           ok: false,
-          confirm: `${g ? `${g.title} is stopped if it runs, and forgotten.` : `The gateway ${id} is taken out of config.json. It was not loaded (${notLoaded}), so Hoprig does not stop it.`}${users.length ? ` The ${users.length === 1 ? 'provider' : 'providers'} ${users.join(', ')} start${users.length === 1 ? 's' : ''} it: ${users.length === 1 ? 'its' : 'their'} sessions will not start until you change or remove ${users.length === 1 ? 'it' : 'them'}.` : ''}`,
+          confirm: `${g ? `${g.title} is stopped if it runs${(await serviceState(servicePlan(g))).made ? ', its service is removed' : ''}, and forgotten.` : `The gateway ${id} is taken out of config.json. It was not loaded (${notLoaded}), so Hoprig does not stop it.`}${users.length ? ` The ${users.length === 1 ? 'provider' : 'providers'} ${users.join(', ')} start${users.length === 1 ? 's' : ''} it: ${users.length === 1 ? 'its' : 'their'} sessions will not start until you change or remove ${users.length === 1 ? 'it' : 'them'}.` : ''}`,
         };
       }
+      // What is really there goes first: its service (stopped, disabled, its file removed), then a copy that still runs.
+      const lines = g ? await serviceGone(g) : [];
       const stopped = g ? await g.stop() : { ok: true };
-      if (!stopped.ok) throw fail(409, stopped.error || `${g.title} did not stop`);
+      if (!stopped.ok) throw Object.assign(fail(409, stopped.error || `${g.title} did not stop`), stopped.code ? { details: { code: stopped.code } } : {});
       const r = removeDefinition(id);
       if (!r.ok) throw fail(400, r.error);
-      return { ok: true };
+      // What the service step did, only when it did something: a gateway without a service answers as before.
+      return { ok: true, ...(lines.length ? { lines } : {}) };
     }],
   ];
 }

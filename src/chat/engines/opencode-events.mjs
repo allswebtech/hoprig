@@ -329,7 +329,8 @@ export class OpencodeEvents {
       keys.set(q, x);
       const options = x.type === 'boolean' ? [{ label: 'Yes' }, { label: 'No' }]
         : Array.isArray(x.options) ? x.options.filter((o) => o && typeof o.label === 'string').slice(0, 12).map((o) => ({ label: plainText(o.label, 200) })) : [];
-      questions.push({ question: q, header: '', options, multiSelect: x.type === 'multiselect' });
+      // `fieldType`: the field's own type, so only a text field takes written words (askcard.mjs freeText).
+      questions.push({ question: q, header: '', options, multiSelect: x.type === 'multiselect', fieldType: typeof x.type === 'string' ? x.type.slice(0, 20) : 'string' });
     }
     this.asks.set(f.id, { kind: 'form', keys });
     const input = { questions };

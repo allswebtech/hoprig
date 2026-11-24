@@ -1,0 +1,132 @@
+/* Tia's conversation: messages that are easy to read and her cards (web/tiamsg.js, web/tiacards.js). Every class starts
+   with "tia-". Hindi and Hinglish are set in system fonts that draw Devanagari well, with room for its marks; no font is
+   fetched from outside. */
+:root { --tia-font: var(--font), 'Noto Sans Devanagari', 'Nirmala UI', 'Kohinoor Devanagari', 'Devanagari Sangam MN', Mangal, sans-serif; }
+
+/* ---- messages: his on the right in the accent colour, hers on the left on the card colour ---- */
+.tia-row { display: grid; justify-items: start; gap: 4px; min-width: 0; }
+/* A row has a display of its own, so the hidden attribute alone would not hide it. */
+.tia-row[hidden] { display: none; }
+.tia-row.owner { justify-items: end; }
+.tia-row .tia-msg { font-family: var(--tia-font); font-size: var(--fs); line-height: 1.6; }
+.tia-row .tia-msg.tia { max-width: min(680px, 92%); white-space: normal; }
+.tia-row .tia-msg.owner { white-space: pre-wrap; }
+.tia-time { display: block; justify-self: start; text-align: start; color: var(--muted); font-size: var(--fs-xs); }
+.tia-row.owner .tia-time { justify-self: end; text-align: end; }
+.tia-time.day, .tia-row.owner .tia-time.day { justify-self: center; width: 100%; text-align: center; }
+.tia-time[hidden] { display: none; }
+.tia-md { gap: 8px; font-size: inherit; line-height: inherit; }
+.tia-md p { margin: 0; }
+.tia-md ul, .tia-md ol { padding-left: 20px; }
+.tia-codewrap { position: relative; min-width: 0; }
+.tia-codewrap .md-code { padding-right: 84px; max-height: 320px; overflow: auto; }
+.tia-copy { position: absolute; top: 6px; right: 6px; background: var(--surface); color: var(--text); min-height: 32px; }
+.md-tablewrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-sm); }
+/* A table keeps its words whole and scrolls sideways in its frame on a phone, instead of breaking them letter by letter
+   (her message's text may break anywhere, .md in style.css). */
+.md-table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: var(--fs-sm); }
+.md-table th, .md-table td { padding: 6px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); overflow-wrap: normal; word-break: normal; }
+.md-table th { background: var(--surface-3); font-weight: 650; white-space: nowrap; }
+.md-table tr:last-child td { border-bottom: 0; }
+/* A long answer: about a phone screen of it, then "Show more". */
+.tia-msg.folded > .tia-md { max-height: min(62vh, 520px); overflow: hidden; mask-image: linear-gradient(to bottom, #000 78%, transparent); }
+.tia-more { margin-top: 6px; }
+/* Folded by its length but whole on this screen: nothing to show more of. */
+.tia-msg.folded.fits > .tia-md { mask-image: none; }
+.tia-msg.fits .tia-more { display: none; }
+.tia-msg:not(.folded) .tia-more .icon { transform: rotate(180deg); }
+.tia-again { margin-left: auto; }
+.tia-stopped { align-items: center; flex-wrap: wrap; }
+
+/* ---- "New messages" while he reads further up ---- */
+.tia-dock { position: sticky; }
+.tia-newpill { position: absolute; left: 50%; top: -48px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 16px; border-radius: 999px; border: 0; background: var(--accent); color: var(--accent-text); font-weight: 650; font-size: var(--fs-sm); box-shadow: var(--shadow-2); cursor: pointer; }
+.tia-newpill[hidden] { display: none; }
+
+/* ---- cards ---- */
+.tia-cardrow { width: 100%; }
+.tia-c { width: min(680px, 100%); min-width: 0; display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: var(--r-lg); background: var(--surface); font-family: var(--tia-font); font-size: var(--fs-sm); line-height: 1.5; overflow-wrap: anywhere; box-sizing: border-box; }
+.tia-c.ended { background: var(--surface-2); }
+.tia-c-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.tia-c-icon { flex: none; padding-top: 2px; color: var(--accent); }
+.tia-c-icon.ok { color: var(--ok); }
+.tia-c-icon.bad { color: var(--danger); }
+.tia-c-title { flex: 1; min-width: 0; margin: 0; font-size: var(--fs); font-weight: 700; line-height: 1.4; color: var(--text); }
+.tia-c-pill { flex: none; }
+.tia-c-sub { color: var(--muted); font-size: var(--fs-xs); }
+.tia-c-note { margin: 0; color: var(--text-2); }
+.tia-c-since { margin: 0; min-height: 1.5em; }
+.tia-c-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: space-between; }
+.tia-c-foot > .tia-c-sub:only-child { margin-right: auto; }
+.tia-c-foot .btn:last-child { margin-left: auto; }
+/* list */
+.tia-c-items { list-style: none; margin: 0; padding: 0; display: grid; }
+.tia-c-items li + li { border-top: 1px solid var(--border); }
+.tia-c-item { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 4px; color: var(--text); text-decoration: none; border-radius: var(--r-sm); }
+a.tia-c-item:hover { background: var(--surface-2); }
+.tia-c-itemtext { flex: 1; min-width: 0; display: grid; }
+.tia-c-label { font-weight: 600; }
+.tia-c-state { flex: none; color: var(--text-2); font-size: var(--fs-xs); }
+.tia-c-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.tia-c-dot.st-working { background: var(--ok-solid); }
+.tia-c-dot.st-waiting { background: var(--accent); }
+.tia-c-dot.st-attention { background: var(--warn-solid); }
+.tia-c-dot.st-limit { background: var(--danger-solid); }
+/* numbers */
+.tia-c-rows { margin: 0; display: grid; gap: 8px; }
+.tia-c-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; }
+.tia-c-row dt { color: var(--text-2); }
+.tia-c-row dd { margin: 0; display: grid; justify-items: end; gap: 3px; }
+.tia-c-fig { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.tia-c-meter { width: 96px; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.tia-c-meter i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+/* progress */
+.tia-c-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.tia-c-steps li { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.tia-c-steps li.done, .tia-c-steps li.now { color: var(--text); }
+.tia-c-steps li.now { font-weight: 650; }
+.tia-c-tick { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--border-strong); box-sizing: border-box; }
+.tia-c-steps li.done .tia-c-tick { background: var(--ok-solid); border-color: var(--ok-solid); color: var(--on-solid); }
+.tia-c-steps li.now .tia-c-tick { border-color: var(--accent); }
+/* choice */
+.tia-c-choice { border-color: var(--accent); }
+.tia-c-options { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+/* An answer may be long (60 characters, or one long word): it wraps inside the card instead of running out of it. */
+.tia-c-option { min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: center; line-height: 1.3; padding-block: 8px; }
+.tia-c-option[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-soft-text); }
+.tia-c-ownrow { display: flex; gap: 8px; }
+.tia-c-ownrow .field { flex: 1; min-width: 0; min-height: 44px; }
+.tia-c-said { margin: 0; color: var(--text-2); font-weight: 600; }
+.tia-c-said:empty { display: none; }
+/* result */
+.tia-c-changed { margin: 0; padding-left: 20px; color: var(--text-2); }
+/* needs you */
+.tia-c-needlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.tia-c-need { display: grid; gap: 4px; padding: 10px; border-radius: var(--r); background: var(--warn-soft); }
+.tia-c-need.gone { background: var(--surface-3); }
+.tia-c-needhead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; }
+.tia-c-facts { margin: 0; padding-left: 18px; color: var(--text-2); }
+.tia-c-risk { margin: 0; color: var(--warn); font-weight: 600; }
+.tia-c-act { justify-self: start; }
+/* open */
+.tia-c-openbtn { justify-self: start; }
+/* form (inside a confirm card) */
+.tia-c-form { display: grid; gap: 8px; }
+.tia-c-form .tia-c-row { grid-template-columns: auto minmax(0, 1fr); }
+.tia-c-field { display: grid; gap: 4px; }
+
+/* Fingers: every step and answer of a card is 44 px tall on a phone. */
+@media (max-width: 899px) {
+  .tia-c-field .field { min-height: 44px; }
+  .tia-c .btn, .tia-row .btn.tia-more, .tia-row .btn.tia-copy, .tia-stopped .btn.tia-again, .tia-newpill { min-height: 44px; }
+  /* A one-line command is as tall as its 44 px Copy button and the 6 px above it, with room below. */
+  .tia-codewrap .md-code { min-height: 56px; }
+  .tia-c-options .tia-c-option { flex: 1 1 calc(50% - 4px); }
+  .tia-c-meter { width: 72px; }
+}
+
+/* Settings → Tia: the sentence that a session she started stays hers stands apart from the level's "Now:" line. */
+.tia-rights-stays { margin-top: 12px; }
+/* The rights control spans the page as the level control above it does, and its list is indented as that one's. */
+.tia-rights > .segmented { display: flex; }
+.tia-rights-levels { margin: 8px 0 0; padding-left: 18px; }

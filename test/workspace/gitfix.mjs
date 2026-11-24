@@ -21,7 +21,17 @@ export function gitWorld(name = 'ws-git') {
   const url = (n) => `https://git.example.test/team/${n}.git`;
   /** A bare repository on the "server" with one commit (a README), or empty. */
   const bare = (n, { empty = false } = {}) => {
-    const d = path.join(server, 'team', `${n}.git`);
+    const team = path.join(server, 'team');
+    fs.mkdirSync(team, { recursive: true });
+    let d = path.join(team, `${n}.git`);
+    // A name that differs from one already there only in letter case (Shop and shop) would be the SAME folder on a
+    // disk that ignores case (macOS): git would re-init the first and refuse the seed's push ("fetch first"). Such a
+    // repository is kept in a folder of its own, and git is told its address by an exact insteadOf (the longest wins).
+    // Decided by the names, not the disk, so Linux takes this way too.
+    if (fs.readdirSync(team).some((e) => e !== `${n}.git` && e.toLowerCase() === `${n}.git`.toLowerCase())) {
+      d = path.join(fs.mkdtempSync(path.join(server, 'case-')), `${n}.git`);
+      fs.appendFileSync(gitcfg, `[url "${d}"]\n\tinsteadOf = ${url(n)}\n`);
+    }
     fs.mkdirSync(d, { recursive: true });
     execFileSync('git', ['init', '-q', '--bare', '-b', 'main', d]);
     if (!empty) {
@@ -43,7 +53,7 @@ export function gitWorld(name = 'ws-git') {
       ws: path.join(home, 'Workspace'),
       projects: path.join(home, 'Workspace', 'projects'),
       claude: path.join(home, '.claude'),
-      env: { HOME: home, HOPRIG_CONFIG_DIR: path.join(home, '.config', 'hoprig'), HOPRIG_STATE_DIR: path.join(home, '.state'), HOPRIG_PROFILES_DIR: path.join(home, '.profiles'), CLAUDE_CONFIG_DIR: path.join(home, '.claude') },
+      env: { HOME: home, USERPROFILE: home, HOPRIG_CONFIG_DIR: path.join(home, '.config', 'hoprig'), HOPRIG_STATE_DIR: path.join(home, '.state'), HOPRIG_PROFILES_DIR: path.join(home, '.profiles'), CLAUDE_CONFIG_DIR: path.join(home, '.claude') },
     };
     fs.mkdirSync(home, { recursive: true });
     c.use = () => Object.assign(process.env, c.env);

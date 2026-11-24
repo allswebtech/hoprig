@@ -11,7 +11,7 @@ import { loadConfig, saveConfig } from '../config.mjs';
 import { TOOL_IDS, enabledToolIds, findTool, notOffered, withTool } from './index.mjs';
 import { readyToReplace } from './servers.mjs';
 
-const USAGE = `usage:
+export const USAGE = `usage:
   hoprig tools [status] [--json]          the coding tools: on or off, installed, newest
   hoprig tools install <tool> [version]   install one (${TOOL_IDS.join(', ')}) and turn it on
   hoprig tools update <tool | all>        update one, or every installed one

@@ -110,23 +110,25 @@ export function onboardingSteps(f) {
     },
     {
       id: 'rules', title: 'Working rules', optional: false, done: !!f.rules.installed,
-      detail: f.rules.installed ? `${f.rules.edited ? 'your edited copy' : 'added'}` : 'a good set of rules, yours to edit',
-      action: f.rules.installed ? null : { kind: 'request', method: 'POST', path: '/api/pcsetup/rules', body: { action: 'add' } },
+      detail: f.rules.installed ? `${f.rules.edited ? 'your edited copy' : 'added'}` : 'a good set of rules, yours to edit: one press adds them as a file of their own in Claude Code\'s rules folder (your own files are not changed)',
+      // The button says what one press does (it writes the file at once, with no sheet).
+      action: f.rules.installed ? null : { kind: 'request', method: 'POST', path: '/api/pcsetup/rules', body: { action: 'add' }, label: 'Add the rules' },
     },
     {
       id: 'project', title: 'A first project', optional: false, done: f.projects.length > 0,
       detail: f.projects.length ? f.projects.slice(0, 4).join(', ') : 'none yet: start one or get one from GitHub',
       action: f.projects.length ? null : page('pc/projects'),
     },
-    {
-      id: 'skills', title: 'Skills', optional: false, done: f.skills.length > 0,
-      detail: f.skills.length ? `${f.skills.length} that Claude Code uses` : 'none yet: the one that comes with Hoprig is a good start',
-      action: f.skills.length ? null : page('settings/skills'),
-    },
+    // The phone before the skills: it is the step a newcomer came for, and Skills is the one he understands least.
     {
       id: 'phone', title: 'Your phone signed in', optional: false, done: f.sessions >= 2,
       detail: f.sessions >= 2 ? `${f.sessions} browsers signed in` : 'scan a code with the phone: no password to type',
       action: f.sessions >= 2 ? null : page('settings/signin-device'),
+    },
+    {
+      id: 'skills', title: 'Skills', optional: false, done: f.skills.length > 0,
+      detail: f.skills.length ? `${f.skills.length} that Claude Code uses` : 'none yet: the one that comes with Hoprig is a good start',
+      action: f.skills.length ? null : page('settings/skills'),
     },
     {
       id: 'account2', title: 'A second provider, for Auto mode', optional: true, done: f.profiles.length >= 2,

@@ -25,21 +25,31 @@ body.term-mode { overflow: hidden; }
 .term-box { flex: 1; min-height: 100px; position: relative; background: var(--term-bg, #0f1115); }
 .term-el { position: absolute; inset: 6px 4px 2px 8px; }
 .term-box .xterm-viewport { background-color: var(--term-bg, #0f1115) !important; }
+.term-box.bell { box-shadow: inset 0 0 0 2px var(--accent); }
 .term-overlay { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; text-align: center; background: rgb(10 12 18 / 72%); color: #fff; font-weight: 600; }
 .live { position: absolute; right: 12px; bottom: 12px; z-index: 2; box-shadow: var(--shadow-2); }
 .quick { flex: 1; min-width: 0; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
 .quick::-webkit-scrollbar { display: none; }
-.keybar { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 6px; padding: 8px 10px; background: var(--surface); }
-@media (max-width: 700px) { .keybar { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.keybar { display: grid; grid-template-columns: repeat(13, minmax(0, 1fr)); gap: 6px; padding: 8px 10px; background: var(--surface); }
+.keybar.has-file { grid-template-columns: repeat(14, minmax(0, 1fr)); }
+/* A phone: two rows of seven (File fills the last place on a touch screen); a label of two words takes two lines
+   instead of being cut. */
+@media (max-width: 700px) {
+  .keybar, .keybar.has-file { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; padding: 6px 8px; }
+  .keybar .key { white-space: normal; line-height: 1.05; font-size: 12px; text-align: center; padding: 0 2px; }
+  .keybar .key svg { display: none; }
+}
 .key {
   display: inline-flex; align-items: center; justify-content: center; gap: 4px;
   min-width: 0; height: 40px; padding: 0 4px; border: 1px solid var(--border); border-radius: 10px;
-  background: var(--surface-2); color: var(--text); font: 600 13px var(--mono); cursor: pointer; white-space: nowrap; overflow: hidden;
+  /* Noto Sans Symbols2 after the list: on Linux it draws the ⇧ of ⇧Tab at this weight (the bold mono faces lack it). */
+  background: var(--surface-2); color: var(--text); font: 600 13px var(--mono), "Noto Sans Symbols2"; cursor: pointer; white-space: nowrap; overflow: hidden;
   touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
-.key:active { background: var(--accent-soft); border-color: var(--accent); }
+.key:active, .key[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); }
 .key span { font-family: var(--font); }
 .upload-status { padding: 4px 12px; background: var(--surface); font-size: var(--fs-sm); color: var(--muted); }
+.upload-status.error { color: var(--danger, #c0392b); }
 .composer { display: flex; align-items: flex-end; gap: 6px; padding: 6px 8px calc(8px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--border); }
 textarea.msg { flex: 1; min-width: 0; min-height: var(--tap); max-height: 30vh; padding: 11px 14px; resize: none; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--bg); color: var(--text); line-height: 1.35; }
 textarea.msg:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
@@ -61,6 +71,7 @@ textarea.history { flex: 1; min-height: 50dvh; resize: none; font: 12px/1.4 var(
 .sess-need:empty { display: none; }
 .sess-ok { padding: 10px 12px; background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--border); }
 .sess-ok-head { display: flex; align-items: center; gap: 8px; }
+.sess-failed { background: var(--danger-soft); color: var(--danger); }
 .sess-ok-text { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-2); overflow-wrap: anywhere; }
 .sess-ok .ok-actions { margin-top: 8px; }
 /* What Hoprig allowed by itself in bypass mode: one quiet line above the terminal, the earlier ones when opened. */
@@ -76,3 +87,61 @@ textarea.history { flex: 1; min-height: 50dvh; resize: none; font: 12px/1.4 var(
   .profilebtn { max-width: 38vw; padding: 0 8px; }
   .sessbar { padding-left: 2px; padding-right: 2px; gap: 2px; }
 }
+/* Earlier conversations' Delete: a finger's size on a phone. */
+@media (max-width: 599px) { .ses-pastdel { width: 44px; min-height: 44px; } }
+
+/* The exact card of a question or plan, and Hands-off (web/handsoff.js) */
+.ho-card { margin-top: 6px; display: grid; gap: 8px; color: var(--text); }
+/* Above the terminal the owner answers in: the card scrolls inside itself, so the terminal and the bar stay in view. */
+.sess-need .ho-card { max-height: 40dvh; overflow: auto; overscroll-behavior: contain; }
+@media (max-width: 480px) { .sess-need .ho-card { max-height: 24dvh; } }
+.ho-q-text { font-weight: 650; overflow-wrap: anywhere; }
+.ho-q-how, .ho-from { font-size: var(--fs-xs); color: var(--text-2); }
+.ho-opts { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
+.ho-opt { overflow-wrap: anywhere; }
+.ho-opt-label { font-weight: 600; margin-right: 6px; }
+.ho-opt-sub { display: block; font-size: var(--fs-sm); color: var(--text-2); }
+.ho-rec .ho-opt-label { color: var(--accent); }
+.ho-plan { margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--fs-sm)/1.45 var(--mono, monospace); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.ho-wait { color: var(--text-2); }
+.ho-done { display: flex; gap: 6px; align-items: baseline; padding: 6px 12px; font-size: var(--fs-sm); color: var(--text-2); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+details.ho-done { display: block; }
+details.ho-done summary { cursor: pointer; }
+details.ho-done ul { margin: 4px 0 0 18px; }
+.ho-older { opacity: .7; }
+.ho-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 12px; font-size: var(--fs-sm); color: var(--text-2); border-bottom: 1px solid var(--border); }
+.ho-bar.ho-on { background: var(--accent-soft, var(--surface)); color: var(--text); }
+.ho-bar-text { flex: 1 1 220px; min-width: 0; }
+.chat-item.ho-done, .chat-item.ho-wait { padding: 4px 0; border: 0; }
+.chat-col > .ho-bar { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 6px; }
+/* The bar's background is the accent's soft colour, which the usual focus shadow uses too: an outline instead. */
+.ho-bar .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The card of an act the wall held (web/handsoff.js heldActCard): the command whole, wrapped, never cut by the box. */
+.ho-held-title { font-size: var(--fs-md, 1rem); }
+.ho-held-label, .ho-held-why { color: var(--text-2); font-size: var(--fs-sm); }
+.ho-held-what { margin: 0; padding: 8px 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font: var(--fs-sm)/1.45 var(--mono, ui-monospace, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ho-held-more { color: var(--text-2); }
+/* One Allow runs the whole command, so a line with more than one of his acts lists them, each set off from the next. */
+.ho-held-act { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid var(--border); }
+.ho-held-act:first-of-type { border-top: 0; padding-top: 4px; }
+.ho-held-answers { margin: 0; padding-left: 18px; font-size: var(--fs-sm); color: var(--text); display: grid; gap: 2px; }
+.ho-uncovered { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; padding: 8px 10px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.ho-uncovered svg { flex: none; margin-top: 2px; }
+/* A held act's card is short: its reason and both answers always show; only a long command scrolls, inside its box. */
+.sess-need .ho-card.ho-held { max-height: none; overflow: visible; }
+.sess-need .ho-held-what { max-height: 30dvh; overflow: auto; }
+@media (max-width: 480px) { .sess-need .ho-held-what { max-height: 14dvh; } .ho-held .ho-from { display: none; } }
+/* A line with many of his acts: the list scrolls inside the card, so Allow and Do not allow stay inside the window. */
+.sess-need .ho-held-acts { max-height: 32dvh; overflow: auto; overscroll-behavior: contain; display: grid; gap: 0; padding-right: 4px; border-bottom: 1px solid var(--border); }
+.sess-need .ho-held-acts .ho-held-what { max-height: none; }
+.ho-held-acts:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 480px) { .sess-need .ho-held-acts { max-height: 22dvh; } }
+
+/* In the App chat the held card sits in a chat-ask body (web/chat/asks.js). Scoped for the chat with the same height
+   rule as the session page above: the act list scrolls inside its own box, so however many acts a command holds the
+   two answers and the Allow / Do not allow buttons below them stay in view and the chat does not grow unboundedly. */
+.chat-ask .ho-held-acts { max-height: 32dvh; overflow: auto; overscroll-behavior: contain; }
+.chat-ask .ho-held-what { max-height: 30dvh; overflow: auto; }
+.chat-ask .ho-held-acts .ho-held-what { max-height: none; }
+@media (max-width: 480px) { .chat-ask .ho-held-acts { max-height: 22dvh; } .chat-ask .ho-held-what { max-height: 14dvh; } }

@@ -6,43 +6,56 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getAutoSwitch, limitedProfiles, markLimited, nextProfile, parseResets, preferredAvailable, usableOrder } from './autoswitch.mjs';
+import { getAutoSwitch, leftOutOfOrder, limitedProfiles, markLimited, nextProfile, parseResets, preferredAvailable, usableOrder } from './autoswitch.mjs';
 import { claudeLoginStatus, claudeVersionQuick } from './claudecode.mjs';
+import { WALL_MATCHER, handsOffOffered } from './handsoff.mjs';
 import { loadConfig, sessionArgs } from './config.mjs';
 import { rememberFolderProvider } from './defaultprovider.mjs';
 import { claudeDir, hookFile, hookSettingsDir } from './paths.mjs';
-import { listProfiles, notServedLines, profileEnv, readProfile, servesTools } from './profiles.mjs';
+import { listProfiles, notServedLines, ownFolder, profileEnv, readProfile, servesTools } from './profiles.mjs';
 import { loginSeen, rememberLogin } from './routerstate.mjs';
 import { createRun, noteUsage, readRun, readUsage, updateRun, usageFile } from './runs.mjs';
 import { hasConversation, isSessionId } from './sessions.mjs';
 import { refuseIfHeld } from './held.mjs';
 import { endRun, removeLocked, settleInput } from './typinglock.mjs';
 import { compareVersions } from './setup/system.mjs';
-import { AUTO, autoIdentity, ensureRouter } from './router.mjs';
+import { AUTO, autoIdentity, ensureRouter, nothingUsableLine } from './router.mjs';
+import { providerName } from './operator/detect/util.mjs';
+import { mapEnv, mapSettings, sessionMap } from './providers/sessionmap.mjs';
 import { resolveWindowsBin, windowsSpawnPlan } from './winspawn.mjs';
+import { withExtras } from './workspace/needs.mjs';
+import { carryOf, takeHand, takeHers } from './launchfile.mjs';
+import { startAsHers } from './assistant/hersignin.mjs';
+import { credsDir } from './workspace/credlinks.mjs';
+import { endedAtStart, endedLine, noteStartFailure } from './startfail.mjs';
+
+/**
+ * The account Auto mode runs Claude Code as (see router.mjs), or null when no order is set. The router is not started.
+ */
+export async function autoIdentityFor({ loginStatus = claudeLoginStatus, names = usableOrder() } = {}) {
+  const profiles = listProfiles();
+  const limited = limitedProfiles();
+  const identity = autoIdentity(names, profiles, limited);
+  // Claude Code refuses to send anything while its stored login is expired, whatever the router could do. So
+  // when nobody is logged in, run as another account of the order: a subscription token, else an API account.
+  // The check reads the default folder's sign-in: a provider with a folder of its own keeps its own, so it is not asked.
+  if (!identity || identity.kind !== 'login' || ownFolder(identity)) return identity;
+  const status = await loginStatus().catch(() => ({ loggedIn: null }));
+  if (status.loggedIn !== false) return identity;
+  const other = autoIdentity(names, profiles, limited, [identity.name]);
+  if (!other) return identity;
+  console.error(`hoprig: nobody is logged in to Claude Code on this computer (run: claude auth login). Auto mode runs as "${providerName(other.name, other.label)}" meanwhile.`);
+  return other;
+}
 
 /**
  * The profile behind the name "auto": Claude Code runs as the identity account (see router.mjs) and talks to the
  * router, which spreads its requests over the accounts in the owner's order. null when no order is set.
  */
 export async function autoProfile({ loginStatus = claudeLoginStatus } = {}) {
-  const profiles = listProfiles();
   const names = usableOrder();
-  const limited = limitedProfiles();
-  let identity = autoIdentity(names, profiles, limited);
+  const identity = await autoIdentityFor({ loginStatus, names });
   if (!identity) return null;
-  if (identity.kind === 'login') {
-    // Claude Code refuses to send anything while its stored login is expired, whatever the router could do. So
-    // when nobody is logged in, run as another account of the order: a subscription token, else an API account.
-    const status = await loginStatus().catch(() => ({ loggedIn: null }));
-    if (status.loggedIn === false) {
-      const other = autoIdentity(names, profiles, limited, [identity.name]);
-      if (other) {
-        console.error(`hoprig: nobody is logged in to Claude Code on this computer (run: claude auth login). Auto mode runs as "${other.name}" meanwhile.`);
-        identity = other;
-      }
-    }
-  }
   const url = await ensureRouter();
   return {
     name: AUTO, label: `Auto: ${names.join(' → ')}`, kind: 'auto', prerun: '', models: '', router: true, identity: identity.name,
@@ -77,6 +90,9 @@ const CARRY_VALUE = new Set([
   '--settings', '--setting-sources', '--agents', '--plugin-dir',
 ]);
 const CARRY_MANY = new Set(['--add-dir', '--mcp-config', '--allowedTools', '--allowed-tools', '--disallowedTools', '--disallowed-tools', '--tools']);
+// Hoprig's own flag, never handed to Claude Code: `--with <name>` opens one more entry of the workspace map as an extra
+// folder for this session (workspace/needs.mjs). One value each time, and it may be given several times.
+const CARRY_REPEAT = new Set(['--with']);
 const CARRY_BOOL = new Set([
   '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions', '--verbose', '--chrome', '--no-chrome',
   '--ide', '--strict-mcp-config',
@@ -112,7 +128,9 @@ export function carryArgs(args) {
     const a = args[i];
     const name = a.startsWith('--') ? a.split('=')[0] : a;
     if (a.includes('=') && a.startsWith('--')) {
-      if (CARRY_VALUE.has(name) || CARRY_MANY.has(name)) out.push(a);
+      if (CARRY_VALUE.has(name) || CARRY_MANY.has(name) || CARRY_REPEAT.has(name)) out.push(a);
+    } else if (CARRY_REPEAT.has(name)) {
+      if (i + 1 < args.length) out.push(a, args[++i]);
     } else if (CARRY_BOOL.has(name)) {
       out.push(a);
     } else if (CARRY_VALUE.has(name)) {
@@ -124,6 +142,28 @@ export function carryArgs(args) {
     }
   }
   return out;
+}
+
+/**
+ * `--with <name>` (and `--with=<name>`) taken out of the arguments before Claude Code gets them; nothing after "--" (a
+ * first message) is read. → { withs: [name], rest: [args] }
+ */
+export function takeWith(args) {
+  const withs = [];
+  const rest = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') {
+      rest.push(...args.slice(i));
+      break;
+    }
+    if (a === '--with') {
+      if (i + 1 < args.length) withs.push(args[++i]);
+      else withs.push('');
+    } else if (a.startsWith('--with=')) withs.push(a.slice(7));
+    else rest.push(a);
+  }
+  return { withs, rest };
 }
 
 const flagName = (a) => (a.startsWith('--') ? a.split('=')[0] : a);
@@ -212,7 +252,10 @@ const EXACT_EVENTS = ['PermissionRequest', 'PostToolBatch', 'SubagentStop'];
 export const EXACT_SINCE = '2.1.319';
 const knowsExactEvents = (version) => !!version && compareVersions(version, EXACT_SINCE) >= 0;
 const hookCommand = () => `${shq(process.execPath)} ${shq(hookFile())}`;
-const hookEntry = (cmd) => [{ hooks: [{ type: 'command', command: cmd, timeout: 5 }] }];
+const hookEntry = (cmd, matcher = null) => [{ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command: cmd, timeout: 5 }] }];
+// The tools the wall reads: the shell, and the file-writing tools (so a write that changes the rules Hoprig runs the
+// session under is seen too). A matcher keeps the hook from starting for a read, a search or a question.
+const WALL_TOOLS = WALL_MATCHER;
 
 /**
  * The one hook a coding chat's Claude Code gets (src/chat/engines/claude.mjs): PermissionRequest, the same program as a
@@ -223,11 +266,40 @@ const hookEntry = (cmd) => [{ hooks: [{ type: 'command', command: cmd, timeout: 
 export const permissionHook = (version) => (knowsExactEvents(version) ? { PermissionRequest: hookEntry(hookCommand()) } : null);
 
 /**
+ * A coding chat's hooks: PermissionRequest (above), and the events that say how a provider stopped the chat or an agent
+ * of it and what clears that again (hook.mjs CHAT_EVENTS: they write only those fields of the chat's record). The same
+ * versions only, so a chat on an older Claude Code starts as before.
+ */
+/**
+ * The hook of a "Lead model" session: Claude Code's agent tool (Agent; Task in older versions) goes through the same
+ * program, which takes a model or effort the lead named out of the call (hook.mjs leadAnswer).
+ */
+export const leadHook = () => ({ PreToolUse: [{ matcher: 'Agent|Task', hooks: [{ type: 'command', command: hookCommand(), timeout: 5 }] }] });
+
+export function chatHooks(version, offered = false, hers = false) {
+  const p = permissionHook(version);
+  // A chat of Tia's holds below Full on every version: PreToolUse is older than the exact events, as a terminal of
+  // hers carries it (hookSettings). It gets that hold alone, so nothing answers its OKs by hook.
+  if (!p) return hers ? { PreToolUse: hookEntry(hookCommand(), WALL_TOOLS) } : null;
+  const e = hookEntry(hookCommand());
+  const hooks = { ...p, SessionStart: e, UserPromptSubmit: e, Stop: e, StopFailure: e };
+  // The wall of Hands-off for a coding chat: the same PreToolUse hold a terminal gets (hookSettings), gated by the
+  // same cheap state-folder marker, so a chat holds a command that is the owner's alone in bypass mode too. The hook
+  // program reads the switch itself and judges by the chat's folder (hook.mjs sessionFacts). Installed only while
+  // offered; a chat of his on a Claude Code too old for the exact events has no hooks at all (p is null).
+  if (offered && process.platform !== 'win32') hooks.PreToolUse = hookEntry(`if [ -e "\${HOPRIG_RUN_FILE%/runs/*}/handsoff-active" ]; then ${hookCommand()}; fi`, WALL_TOOLS);
+  // A chat of Tia's holds what is the owner's alone below Full whatever Hands-off says (hook.mjs sessionHold), as her
+  // terminal does (hookSettings): its hook runs for every call the wall reads, with no gate a switch decides.
+  if (hers) hooks.PreToolUse = hookEntry(hookCommand(), WALL_TOOLS);
+  return hooks;
+}
+
+/**
  * Settings handed to Claude Code for this launch only: hooks that report the session id and state to the run
  * file, and (when `statusScript` is given) a status line command that saves the plan-usage numbers. `version` is
  * the Claude Code that will read them (null when not known).
  */
-export function hookSettings({ statusScript = null, padding = 0, version = null } = {}) {
+export function hookSettings({ statusScript = null, padding = 0, version = null, offered = false, hers = false } = {}) {
   const command = hookCommand();
   const hooks = {};
   for (const e of HOOK_EVENTS) hooks[e] = hookEntry(command);
@@ -238,6 +310,21 @@ export function hookSettings({ statusScript = null, padding = 0, version = null 
     // only while its news could change something. Windows has no one shell to write that test for.
     if (process.platform !== 'win32') hooks.PostToolBatch = hookEntry(`if [ -e "$HOPRIG_RUN_FILE.watch" ]; then ${command}; fi`);
   }
+  // The wall of Hands-off (hook.mjs preToolHold): PreToolUse sees each tool call before it runs and answers "ask" for
+  // a command that is the owner's alone (wall.mjs), so the coding tool draws his card, in every mode. The hook reads
+  // the switch from the config itself and is the last word on whether Hands-off is on; it holds nothing while the
+  // switch is off. A cheap shell test gates it so an ordinary command starts no node process while nobody has
+  // Hands-off on: the node hook runs only while one marker exists (server/handsoff.mjs writes it while any Hands-off
+  // switch is on, and clears it otherwise). The marker sits in the state folder, which the wall itself protects, so a
+  // session cannot remove it to go unheld. It only decides whether to START the hook — the hook still reads the
+  // switch and is the authority, so a marker left behind merely wastes a start, never holds wrongly or lets a held
+  // act through, and a project switch being on means the marker is present, so a session started after it was turned
+  // on is held too. The state folder is `$HOPRIG_RUN_FILE` without its `/runs/<id>.json` tail. Read, Grep and Glob are
+  // excluded by the matcher. Installed only while Hands-off is offered.
+  if (offered && process.platform !== 'win32') hooks.PreToolUse = hookEntry(`if [ -e "\${HOPRIG_RUN_FILE%/runs/*}/handsoff-active" ]; then ${command}; fi`, WALL_TOOLS);
+  // A session Tia started holds what is the owner's alone below Full whatever Hands-off says, and whether or not it is
+  // offered (hook.mjs sessionHold): its hook runs for every call the wall reads, with no gate that a switch decides.
+  if (hers) hooks.PreToolUse = hookEntry(command, WALL_TOOLS);
   const settings = { hooks };
   if (statusScript) settings.statusLine = { type: 'command', command: `sh ${shq(statusScript)}`, padding };
   return settings;
@@ -278,8 +365,10 @@ export function statusScript(user) {
  * Run one Claude Code process under `profile`. Resolves to { code, sessionId, signalled, auto }, where `auto` is
  * { to, why } when the launcher itself stopped Claude to continue the session on another profile.
  */
-function runOnce(profile, args, cfg, { interactive = false, fallback = false, file: again = null } = {}) {
+function runOnce(profile, args, cfg, { interactive = false, fallback = false, file: again = null, extras = null, hers = false } = {}) {
   const { file } = createRun({ profile: profile.name, cwd: process.cwd(), carryArgs: carryArgs(args), conversation: conversationOf(args), file: again });
+  // The session's extra folders (by their map names) for its card and page.
+  if (extras && extras.refs.length) updateRun(file, { extras: [...extras.refs] });
   // `fallback`: this session is here only because a preferred profile reached its limit (see launch()).
   if (fallback) updateRun(file, { fallback: true });
   // A new conversation started here on purpose makes this the folder's provider: the next new session here starts
@@ -287,8 +376,17 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
   // carry a conversation on (they always name it: --resume, --session-id, -c) and say nothing about where the next
   // one should start.
   if (!hasSessionFlag(args)) rememberFolderProvider(process.cwd(), profile.name);
-  const env = profileEnv(profile);
+  // The profile's model map, for this session only (providers/sessionmap.mjs): a moved session gets the new profile's.
+  const map = sessionMap(profile);
+  let env = mapEnv(profileEnv(profile), map);
   env.HOPRIG_RUN_FILE = file;
+  // A session the dashboard started for Tia (its launch file said so: launchfile.mjs takeHers) is marked hers before
+  // the coding tool starts, and signs in to the git server with the file the owner chose in place of his own, both
+  // through the one startAsHers. Every run of this launcher is hers: a move to another provider, a restart on a new
+  // record. A session started by a person's own `hoprig` never is (no launch file says so).
+  if (hers) {
+    env = startAsHers(file, env, { cfg: loadConfig(), credsDir: credsDir(), onProblem: (why) => console.error(`hoprig: Tia's git sign-in could not be used (${why}); this session signs in to git with no token until the file is fixed`) });
+  }
 
   if (profile.prerun) {
     // Its output goes to stderr: stdout belongs to Claude Code alone (think `-p --output-format json | jq`).
@@ -304,7 +402,8 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
   // When the caller passes their own --settings we leave it alone: no live status then.
   // A first message after "--" (the dashboard's start with a prompt, deck.mjs) stays last: flags added below
   // must come before it, or Claude Code would read them as part of the prompt.
-  const all = dedupeFlags([...sessionArgs(cfg), ...cfg.claudeArgs, ...args]);
+  const taken = takeWith(dedupeFlags([...sessionArgs(cfg), ...cfg.claudeArgs, ...args]));
+  const all = taken.rest;
   const cut = all.indexOf('--');
   const given = cut < 0 ? all : all.slice(0, cut);
   const promptTail = cut < 0 ? [] : all.slice(cut);
@@ -322,19 +421,24 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
       fs.writeFileSync(scriptFile, statusScript(user), { mode: 0o700 });
       status = { statusScript: scriptFile, padding: user ? user.padding : 0 };
     }
-    fs.writeFileSync(settingsFile, JSON.stringify(hookSettings({ ...status, version: claudeVersionQuick({ bin: cfg.claudeBin, env }) })) + '\n', { mode: 0o600 });
+    // One file carries the hooks (with the wall of Hands-off when offered), this provider's model map
+    // (providers/sessionmap.mjs) and the project's extra folders.
+    const version = claudeVersionQuick({ bin: cfg.claudeBin, env });
+    fs.writeFileSync(settingsFile, JSON.stringify(withExtras({ ...hookSettings({ ...status, version, offered: handsOffOffered(cfg), hers }), ...mapSettings(map, version) }, extras && extras.settings)) + '\n', { mode: 0o600 });
   }
-  const full = [...given, ...modelArgs(profile, given), ...(settingsFile ? ['--settings', settingsFile] : []), ...promptTail];
+  const addDirs = settingsFile && extras ? extras.dirs : [];
+  const full = [...given, ...modelArgs(profile, given), ...(addDirs.length ? ['--add-dir', ...addDirs] : []), ...(settingsFile ? ['--settings', settingsFile] : []), ...promptTail];
   // `keep`: this launcher moves the conversation on by itself. Its record stays, naming the conversation, until the
   // next run writes it anew: no moment without one, in which something else could start a process on it.
   // Returns true when the record went and something was typed for Claude during the run (typinglock.mjs).
   const cleanup = (keep = null) => {
     // What this run learnt stays known after it: its plan usage, per provider (the Providers page shows it with its
-    // time), and that the stored sign-in works when a reply came back on it.
+    // time), and that the stored sign-in works when a reply came back on it (the default folder's: a provider with a
+    // folder of its own says nothing about it).
     try {
       noteUsage(file, profile.name);
       const run = readRun(file);
-      if (profile.kind === 'login' && run && run.stopAt && !run.failure) rememberLogin({ loggedIn: true, plan: loginSeen()?.plan });
+      if (profile.kind === 'login' && !ownFolder(profile) && run && run.stopAt && !run.failure) rememberLogin({ loggedIn: true, plan: loginSeen()?.plan });
     } catch {
       /* never in the way of ending a run */
     }
@@ -354,6 +458,7 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
       const found = resolveWindowsBin(cfg.claudeBin, env);
       if (found) plan = windowsSpawnPlan(found, full, env);
     }
+    const spawnedAt = Date.now(); // an error end within the first seconds is an end at the start (startfail.mjs)
     const child = spawn(plan.command, plan.args, { stdio: 'inherit', env, ...plan.options });
     let signalled = false;
     // Ctrl+C belongs to Claude Code (it shares our terminal and gets the key itself): we only must not die of it.
@@ -425,6 +530,9 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
       process.off('SIGHUP', onHup);
       const run = readRun(file);
       const keep = auto && !signalled && run?.sessionId ? run.sessionId : null;
+      // Claude Code ended at its start (it refuses bypass permissions mode for root, a sign-in or the network is
+      // missing): noted for the dashboard's card before the record goes, and said under the tool's own words.
+      if (endedAtStart({ code, ms: Date.now() - spawnedAt, signalled, moved: !!auto }) && noteStartFailure(run, { code, tool: 'claude' })) console.error(endedLine('claude', code));
       const typed = cleanup(keep);
       // The record is gone: text typed for Claude that it did not read is thrown away before the menu or the shell
       // reads this terminal (typinglock.mjs). A kept record goes on with the next run, which reads the terminal.
@@ -434,7 +542,10 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
           process.stdout.write('\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[0m\r\n');
           if (process.platform !== 'win32') spawnSync('stty', ['sane'], { stdio: 'inherit' });
         }
-        resolve({ code, sessionId: run?.sessionId || null, signalled, auto, kept: keep ? file : null });
+        // Hands-off's stops of the run that just ended (the record is about to go): the launcher's own menu move
+        // hands them, with this run id, to the next run (createRun reuses the id). A kept record (an auto move) keeps
+        // them itself, so none is read for it.
+        resolve({ code, sessionId: run?.sessionId || null, signalled, auto, kept: keep ? file : null, carry: keep ? null : carryOf(run), ended: endedBySelf(run, code) });
       });
     };
     child.on('error', (e) => {
@@ -449,16 +560,64 @@ function runOnce(profile, args, cfg, { interactive = false, fallback = false, fi
 }
 
 /**
- * Launch `profileName` with `args` for Claude Code. In a terminal, after Claude exits, `askNext` (see menu.mjs)
- * may name another profile; the same session then continues there. Returns the exit code.
+ * Did the person end this session themselves (/exit, Ctrl+D, Ctrl+C twice)? Not when it stopped at a limit or a
+ * provider's error that is still on the record, nor when Claude Code ended with an error code. Claude Code's own
+ * reason (SessionEnd, hook.mjs) decides; without one (an older Claude Code, a hook that did not run) exit code 0
+ * means yes.
  */
+export function endedBySelf(run, code) {
+  if (code !== 0 || run?.limit || run?.failure) return false;
+  return !run?.endReason || run.endReason === 'prompt_input_exit';
+}
+
+/**
+ * Launch `profileName` with `args` for Claude Code. In a terminal, after Claude stops at a limit, an error or an
+ * error code, `askNext` (see menu.mjs) may name another profile; the same session then continues there. A session
+ * the person ended themselves just ends, with one line on how to continue it later. Returns the exit code.
+ */
+/**
+ * The extra folders of a session started here (workspace/needs.mjs): its project's needs that are on this computer and
+ * each `--with`, decided once at the start; said on the error output before Claude Code starts. A `--with` that cannot
+ * be opened refuses the start (→ { refused }); a need that cannot is only said. Read from the settings Hoprig hands the
+ * session, so a session started with its own --settings gets no extra folder (and is told so).
+ */
+export async function startExtras(args, { cwd = process.cwd(), say = (l) => console.error(l) } = {}) {
+  const { withs, rest } = takeWith(args);
+  const cut = rest.indexOf('--');
+  const own = hasFlag(cut < 0 ? rest : rest.slice(0, cut), '--settings'); // the caller's own settings file
+  const N = await import('./workspace/needs.mjs');
+  const ex = await N.sessionExtras(cwd, { withs });
+  if (ex.refused.length) return { refused: ex.refused.map((r) => `hoprig: ${r}`) };
+  for (const l of N.startNote(ex)) say(`hoprig: ${l}`);
+  if (!ex.dirs.length) return { extras: null };
+  if (own) {
+    say('hoprig: these extra folders are not opened: this session has settings of your own (--settings), where Hoprig cannot keep them read-only');
+    if (withs.length) return { refused: ['hoprig: --with cannot be used together with --settings'] };
+    return { extras: null };
+  }
+  return { extras: { dirs: ex.dirs, refs: ex.refs, settings: await N.extraSettings(ex.dirs, { walked: ex.walked }) } };
+}
+
 export async function launch(profileName, args, { askNext = null } = {}) {
   const cfg = loadConfig();
+  // Decided once, at the start: a need renamed or taken out of the map meanwhile changes nothing until the next start.
+  const ex = await startExtras([...sessionArgs(cfg), ...cfg.claudeArgs, ...args]).catch((e) => ({ refused: [`hoprig: the extra folders could not be read: ${e.message}`] }));
+  if (ex.refused) {
+    for (const l of ex.refused) console.error(l);
+    console.error('hoprig: the session was not started');
+    return 2;
+  }
+  const extras = ex.extras;
   let name = profileName;
   let current = args;
   let fallback = false; // true once a limit moved this session off the profile it was started on
   // This launch's run record: written before anything can refuse the start, and kept by the launcher's own moves.
   let kept = null;
+  // A move of the dashboard's hands this launcher the run id and the stops of the run it came from (launchfile.mjs):
+  // for its first record only.
+  let hand = takeHand();
+  // Whether the dashboard started this launcher for Tia (launchfile.mjs): for every run of this launch.
+  const hers = takeHers();
   let menu = null; // while a choice of the launcher's own menu starts: { ask (what askNext was given), args, fresh }
   // Whatever ends the launch, no record names a conversation that nothing runs (a record of a launcher that has
   // ended goes by itself too: runs.mjs listRuns).
@@ -482,7 +641,8 @@ export async function launch(profileName, args, { askNext = null } = {}) {
     // The record first, naming the conversation: from here on nothing else starts a process on it. Every check below
     // that refuses the start removes it again, so a terminal that runs nothing holds nothing.
     const conversation = conversationOf(current);
-    if (!kept) kept = createRun({ profile: name, cwd: process.cwd(), carryArgs: carryArgs(current), conversation }).file;
+    if (!kept) kept = createRun({ profile: name, cwd: process.cwd(), carryArgs: carryArgs(current), conversation, hand }).file;
+    hand = null;
     const mine = readRun(kept);
     // One conversation, one process: a chat or another terminal that runs it already keeps it (held.mjs).
     let why = mine && refuseIfHeld(mine, conversation) ? [] : null;
@@ -493,7 +653,10 @@ export async function launch(profileName, args, { askNext = null } = {}) {
         return null;
       });
     }
-    if (!why && !profile && name === AUTO) why = ['hoprig: Auto mode needs the order of providers first, for example: hoprig auto order sub api'];
+    // An order whose every provider is left out (gone, not serving Claude Code, billed by use) is there, it may not be
+    // used: say why, each provider with its own reason (the router's 503 says the same).
+    if (!why && !profile && name === AUTO) why = [nothingUsableLine(leftOutOfOrder())
+      || 'hoprig: Auto mode needs the order of providers first, for example: hoprig auto order sub api'];
     else if (!why && !profile) why = [`hoprig: no profile "${name}" (profiles: ${listProfiles().map((p) => p.name).join(', ') || 'none yet'}). Add one with: hoprig add`];
     // An OpenAI key or another coding tool's sign-in: Claude Code cannot use it (profileEnv refuses it too). Why, and
     // what to do instead.
@@ -506,8 +669,10 @@ export async function launch(profileName, args, { askNext = null } = {}) {
     }
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !isPrintMode(current);
     if (interactive) console.error(`hoprig: profile ${profile.name} · ${profile.label}`);
-    const once = await runOnce(profile, current, cfg, { interactive, fallback, file: kept });
-    const { code, sessionId, signalled, auto } = once;
+    const once = await runOnce(profile, current, cfg, { interactive, fallback, file: kept, extras, hers });
+    const { code, sessionId, signalled, auto, ended } = once;
+    const ranId = kept ? path.basename(kept, '.json') : null; // the run that just ended, for the launcher's own menu move
+    const ranCarry = once.carry; // its Hands-off stops, read before runOnce removed its record
     kept = once.kept;
     menu = null;
     // A session nobody typed into has nothing on disk to resume: it starts on the next profile under the same id.
@@ -515,8 +680,10 @@ export async function launch(profileName, args, { askNext = null } = {}) {
     if (auto && sessionId && !signalled) {
       const target = await profileNamed(auto.to);
       if (target) {
-        const from = profile.identity || profile.name;
-        const to = target.identity || target.name;
+        // Named as the Providers page names them: the label (an account Auto mode runs as, by its own profile).
+        const named = (p) => (p.identity ? providerName(p.identity, readProfile(p.identity)?.label) : providerName(p.name, p.label));
+        const from = named(profile);
+        const to = named(target);
         if (auto.why === 'limit') {
           console.error(`hoprig: ${from} reached its usage limit. Continuing this session on ${to}.`);
           // The interrupted request is in the transcript; this prompt makes Claude pick it up again.
@@ -531,7 +698,15 @@ export async function launch(profileName, args, { askNext = null } = {}) {
       }
     }
     await drop();
-    if (!interactive || signalled || !askNext || !sessionId) return code;
+    if (!interactive || signalled || !sessionId) return code;
+    if (ended) {
+      if (!fresh) {
+        const line = `To continue it later: hoprig -c, or on another profile: hoprig <profile> --resume ${sessionId}`;
+        process.stderr.write(`${process.stderr.isTTY ? `\x1b[2m${line}\x1b[0m` : line}\n`);
+      }
+      return code;
+    }
+    if (!askNext) return code;
     const ask = { current: profile.name, sessionId, saved: !fresh };
     const next = await askNext(ask);
     if (!next) return code;
@@ -540,5 +715,11 @@ export async function launch(profileName, args, { askNext = null } = {}) {
     menu = { ask, args: current, fresh };
     name = next;
     current = moveArgs(target, current, sessionId, { fresh });
+    // Hand the stops and the old run id to the fresh run (createRun reuses the id, since its record is gone, and the
+    // owner's switch sits under that id): without this the menu move would lose both and follow the project's switch.
+    // A run with no stops still hands its id while Hands-off is offered: the owner's own Off or On for the session sits
+    // under it, and a new id would leave the session on the project's switch. The config is read now, since the owner
+    // may have offered it after this launcher started. With it not offered (and no stops) the move is as it always was.
+    if (ranId && (ranCarry || handsOffOffered(loadConfig()))) hand = { from: ranId, runId: ranId, conversation: sessionId, carry: ranCarry || {} };
   }
 }

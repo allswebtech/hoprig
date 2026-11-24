@@ -11,9 +11,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { capture, forThisUser, osName, showCommand, stream } from '../setup/system.mjs';
-import { bold, dim } from '../setup/ui.mjs';
+import { bold, dim, yours } from '../setup/ui.mjs';
 import { detectKits, preselect, sysFacts } from './detect.mjs';
-import { KITS, KIT_IDS, buildPlan, kitById } from './kits.mjs';
+import { KITS, KIT_IDS, PY_INSTALL, afterText, buildPlan, kitById, kitCovered, sshSession } from './kits.mjs';
+import { brokenText, javaHomeText } from './java.mjs';
+import { extraSteps, optionalExtras } from './optional.mjs';
+import { leftOutText } from './suggest.mjs';
 import { cloneRepo, expandDir, parseRepo, prepareEnv, projectNeeds, projectsDir, rememberDir } from './projects.mjs';
 import { loadRecipe } from './recipe.mjs';
 import { addRules, removeRules, rulesState } from './rules.mjs';
@@ -36,19 +39,55 @@ export function freshPath(env = process.env, home = os.homedir(), platform = pro
   return [...parts, ...add.filter((p) => !parts.includes(p))].join(':');
 }
 
-/** The kits, compact: one line per kit; the items only where something is missing or old. */
-export function formatKits(found, chosen) {
+// The items that only the person can do (their name and e-mail, their sign-in): inside set-up's run, without a terminal to
+// ask in, they go to its closing list (setup/ui.mjs), and this step does not say them again.
+const PERSONAL = { identity: 'identity', signin: 'github' };
+
+/**
+ * The kits, compact: one line per kit; the items only where something is missing or old. An optional kit says so;
+ * under it, why a project here suggests it (`extras`, optional.mjs) and, under PHP, the version note; then the Java line.
+ * `personal`: inside set-up without questions, where a kit missing only those items is "yours to do", not set up.
+ */
+export function formatKits(found, chosen, extras = null, { personal = false } = {}) {
   const lines = [];
   for (const kit of KITS) {
-    const items = (found[kit.id] || []).filter((i) => i.state !== 'na');
+    const all = found[kit.id] || [];
+    const items = all.filter((i) => i.state !== 'na');
+    const opt = kit.defaultOn ? '' : dim(' (optional)');
+    if (!items.length && all.some((i) => i.detail === 'not covered on Windows')) {
+      lines.push(`  · ${bold(kit.title)}${opt}: not covered on Windows (Hoprig does not set it up there)`);
+      continue;
+    }
     const miss = items.filter((i) => i.state === 'missing');
     const old = items.filter((i) => i.state === 'old');
     const mark = miss.length ? (kit.defaultOn ? '✗' : '·') : old.length ? '!' : '✓';
-    const have = items.filter((i) => i.state === 'ok').map((i) => `${i.name}${i.version ? ` ${i.version}` : ''}`).join(', ');
-    const pick = chosen.includes(kit.id) && miss.length ? bold(' ← will set up') : '';
-    lines.push(`  ${mark} ${bold(kit.title)}${miss.length ? `: missing ${miss.map((i) => i.name).join(', ')}` : ''}${old.length ? `${miss.length ? ';' : ':'} old ${old.map((i) => `${i.name} ${i.version}`).join(', ')}` : ''}${have ? dim(`  (${have})`) : ''}${pick}`);
+    const have = items.filter((i) => i.state === 'ok' || i.state === 'offpath').map((i) => `${i.name}${i.version ? ` ${i.version}` : ''}`).join(', ');
+    const own = personal && miss.length && miss.every((i) => PERSONAL[i.id]);
+    const pick = chosen.includes(kit.id) && miss.length ? bold(own ? ' ← yours to do (listed at the end)' : ' ← will set up') : '';
+    lines.push(`  ${mark} ${bold(kit.title)}${opt}${miss.length ? `: missing ${miss.map((i) => i.name).join(', ')}` : ''}${old.length ? `${miss.length ? ';' : ':'} old ${old.map((i) => `${i.name} ${i.version}`).join(', ')}` : ''}${have ? dim(`  (${have})`) : ''}${pick}`);
+    for (const i of items) if (i.detail && i.state === 'ok' && !kit.defaultOn) lines.push(`      ${dim(`${i.name}: ${i.detail}`)}`);
+    if (!extras) continue;
+    const why = (extras.suggested || []).filter((x) => x.kit === kit.id).map((x) => x.reason);
+    if (why.length) lines.push(`      suggested: ${why.join('; ')}${chosen.includes(kit.id) ? '' : dim(` (not chosen: add --kits ${kit.id})`)}`);
+    if (kit.id === 'php') for (const n of extras.php || []) lines.push(`      ${n.verdict === 'fits' ? '✓' : n.verdict === 'unknown' || n.verdict === 'unreadable' ? '·' : '!'} ${n.text}`);
+  }
+  if (extras && extras.leftOut) lines.push(`  · ${dim(leftOutText(extras.leftOut))}`);
+  const j = extras && extras.java;
+  if (j) {
+    lines.push(`  ${j.state === 'ok' ? '✓' : '·'} ${bold('Java')}${dim(' (no kit: Hoprig only looks for it)')}: ${j.text}`);
+    if (j.broken.length) lines.push(`      ${brokenText(j)}`);
+    if (javaHomeText(j)) lines.push(`      ${dim(javaHomeText(j))}`);
   }
   return lines.join('\n');
+}
+
+/** The extras, never in the way of setup: what cannot be read is left out. */
+export async function readExtras(sys, found, dir = projectsDir()) {
+  try {
+    return await optionalExtras(sys, dir, found);
+  } catch {
+    return { suggested: [], php: [], java: null };
+  }
 }
 
 /** Parse the flags. Unknown flags are an error (exit 2). */
@@ -113,6 +152,8 @@ async function github(ui, sys, found, recipe, runner) {
   const res = [];
   const items = Object.fromEntries((found.github || []).map((i) => [i.id, i]));
   const live = ui.interactive && !ui.dryRun;
+  // Inside set-up with no one to ask: the kit line said it; the closing list gives the next step.
+  const personal = !!ui.todo && !live;
   if (items.identity && items.identity.state !== 'ok' && sys.has('git')) {
     let name = recipe && recipe.git ? recipe.git.name : '';
     let email = recipe && recipe.git ? recipe.git.email || '' : '';
@@ -125,16 +166,19 @@ async function github(ui, sys, found, recipe, runner) {
       ui.line('ok', 'commit name set' + (email ? ' and e-mail set' : ''));
       res.push('identity');
     } else if (ui.page) ui.line('warn', 'commit name and e-mail not set yet: set them under Git and GitHub on this page');
-    else ui.line('warn', 'commit name and e-mail not set: git config --global user.name "Your Name" && git config --global user.email you@example.com');
+    else if (personal) ui.todo('identity');
+    else yours(ui, 'warn', 'commit name and e-mail not set', 'identity');
   }
   if (items.signin && items.signin.state !== 'ok') {
     if (!sys.has('gh')) ui.line('warn', 'GitHub sign-in: gh is not installed (choose the GitHub kit)');
     else if (live && await ui.confirm('Sign in to GitHub now? (gh opens a browser or shows a code; choose HTTPS and let it set up git)', true)) {
       const r = await runner(['gh', 'auth', 'login', '--hostname', 'github.com'], { interactive: true });
-      ui.line(r.ok ? 'ok' : 'warn', r.ok ? 'signed in to GitHub' : 'GitHub sign-in did not finish: run gh auth login');
+      if (r.ok) ui.line('ok', 'signed in to GitHub');
+      else yours(ui, 'warn', 'GitHub sign-in did not finish', 'github');
       if (r.ok) res.push('signin');
     } else if (ui.page) ui.line('warn', 'not signed in to GitHub yet: use Sign in under Git and GitHub on this page');
-    else ui.line('warn', `GitHub sign-in: run ${bold('gh auth login')}${ui.interactive ? '' : ' in a terminal'}`);
+    else if (personal) ui.todo('github');
+    else yours(ui, 'warn', 'not signed in to GitHub', 'github', { alone: `GitHub sign-in: run ${bold('gh auth login')}${ui.interactive ? '' : ' in a terminal'}` });
   }
   return res;
 }
@@ -268,16 +312,26 @@ async function rulesStep(ui, want) {
  * `ui` is setup/ui.mjs makeUi(); `kits` a list of kit ids (default: the kits that miss something);
  * `missing` lists "kit.item" still missing afterwards; `changed` is true when anything was installed or set.
  */
-export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null, recipe = null, projects = false, rules = null, hold = false, sys: sysOver, runner = stream, ghList, onStep, codingTools: tools = null } = {}) {
+// `extraSteps`: steps of `hoprig setup` itself (lingering), named `ownSteps` here: optional.mjs's extraSteps() is another thing.
+export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null, recipe = null, projects = false, rules = null, hold = false, sys: sysOver, runner = stream, ghList, onStep, codingTools: tools = null, extras: extrasOver, extraSteps: ownSteps = [] } = {}) {
   ui.yes = ui.yes || yes;
   ui.dryRun = ui.dryRun || dryRun;
   const sys = sysOver || (await sysFacts());
   let found = await detectKits(sys);
+  // An optional kit is taken only when it is named (--kits, a recipe, a tick on the page): never by a suggestion.
   const chosen = kits || (recipe && recipe.kits) || preselect(found);
-  ui.out(`\n${bold('This computer')}  ${dim(`${osName(sys.platform)}${sys.pm ? ` · ${sys.pm}` : ''}${sys.root ? ' · root' : ''}`)}`);
-  ui.out(formatKits(found, chosen));
-  const plan = buildPlan(chosen, found, sys);
-  for (const c of plan.cannot) ui.line('warn', `${c.name} (${kitById(c.kit).title}): no way to install it here automatically`);
+  const extras = extrasOver || (await readExtras(sys, found));
+  ui.out(`\n${bold('This computer')}  ${dim(`${osName(sys.platform, sys.release)}${sys.pm ? ` · ${sys.pm}` : ''}${sys.root ? ' · root' : ''}`)}`);
+  const personal = !!ui.todo && !(ui.interactive && !ui.dryRun);
+  ui.out(formatKits(found, chosen, extras, { personal }));
+  for (const k of chosen.filter((id) => kitById(id) && !kitCovered(kitById(id), sys.platform))) ui.line('warn', `${kitById(k).title}: not covered on Windows, so nothing of it is installed here`);
+  const plan = buildPlan(chosen, found, sys, { extra: extraSteps(extras) });
+  // Steps of `hoprig setup` that need sudo too (lingering, setup/linger.mjs): in the same list, under the same yes.
+  if (ownSteps.length) {
+    plan.steps.push(...ownSteps);
+    plan.admin = plan.admin || ownSteps.some((x) => x.admin);
+  }
+  for (const c of plan.cannot) ui.line('warn', `${c.name} (${kitById(c.kit).title}): ${c.why || 'no way to install it here automatically'}`);
   const asks = chosen.includes('github') && (found.github || []).some((i) => ['identity', 'signin'].includes(i.id) && i.state === 'missing');
   const rulesDue = rules === true || (rules === null && ui.interactive && !ui.yes && !(rulesState().installed && !rulesState().oldBlock));
   const repos = recipe && ((recipe.repos && recipe.repos.length) || (recipe.workspaces && recipe.workspaces.length));
@@ -299,7 +353,14 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     }
     ui.out(`\n${bold('Will run')}${plan.admin && !ui.page ? dim('  (sudo asks for your password itself; Hoprig never sees it)') : ''}`);
     for (const s of plan.steps) ui.out(`    ${showCommand(s.argv)}`);
-    const go = await ui.confirm(`Install ${plan.steps.length === 1 ? 'this' : `these ${plan.steps.length} steps`} now?`, true);
+    // A kit that sets up a service (MariaDB) says so before the yes, with the start commands it leaves to you.
+    for (const k of new Set(plan.steps.map((s) => s.kit))) {
+      const kit = kitById(k);
+      if (!kit || !kit.start || !plan.steps.some((s) => s.kit === k && s.items.includes('mariadb'))) continue;
+      ui.out(`  ${dim(`${kit.title}: ${afterText(kit, sys)}`)}`);
+      for (const l of kit.start(sys)) ui.out(`    ${showCommand(l)}`);
+    }
+    const go = await ui.confirm(`${ownSteps.length === plan.steps.length ? 'Run' : 'Install'} ${plan.steps.length === 1 ? 'this' : `these ${plan.steps.length} steps`} now?`, true);
     if (go) results = await runSteps(plan.steps, { ui, interactive: ui.interactive, runner, onStep });
     else if (!ui.dryRun) ui.note('Nothing installed.');
   }
@@ -353,32 +414,62 @@ export async function runPcSetup({ ui, yes = false, dryRun = false, kits = null,
     }
     if (proj.cloned.length) changed = true;
   }
-  // Summary: what is ready, what failed (with the exact command to retry), what needs a new shell or login.
+  // Summary: what is ready, what failed (with the exact command to retry), what needs a new shell or login. On
+  // Windows the Path is read again from the system first: what was just installed is found in this same run.
+  if (results.some((x) => x.ok) && sys.refreshPath) await sys.refreshPath();
   const after = await detectKits(sys, chosen);
   ui.out(`\n${bold(ui.dryRun ? 'Dry run: nothing was changed' : 'Done')}`);
-  const failed = results.filter((x) => !x.ok);
+  // Set-up's own extra steps (lingering) say what came of them themselves (setup/linger.mjs lingerOutcome): no retry
+  // line, no "new terminal" note and no failed part for them here.
+  const own = results.filter((x) => !ownSteps.includes(x.step));
+  const failed = own.filter((x) => !x.ok);
   const missing = [];
   for (const k of chosen) {
     const kit = kitById(k);
+    if (!kitCovered(kit, sys.platform)) continue;
     const miss = (after[k] || []).filter((i) => i.state === 'missing');
     missing.push(...miss.map((i) => `${k}.${i.id}`));
-    ui.line(miss.length ? 'warn' : 'ok', `${kit.title}: ${miss.length ? `still missing ${miss.map((i) => i.name).join(', ')}` : 'ready'}`);
-    if (kit.after && results.some((x) => x.ok && x.step.kit === k)) ui.note(`   ${kit.after}`);
+    // What is in the closing list already is not said here again.
+    const said = miss.filter((i) => !(personal && PERSONAL[i.id] && ui.todos.has(PERSONAL[i.id])));
+    if (said.length < miss.length && !said.length) continue;
+    ui.line(said.length ? 'warn' : 'ok', `${kit.title}: ${said.length ? `still missing ${said.map((i) => i.name).join(', ')}` : 'ready'}`);
+    // A kit with a service (MariaDB) says its sentence and start commands only when the service was installed now.
+    const service = results.some((x) => x.ok && x.step.kit === k && x.step.items.includes('mariadb'));
+    if (kit.after && results.some((x) => x.ok && x.step.kit === k) && (!kit.start || service)) {
+      ui.note(`   ${afterText(kit, sys)}`);
+      if (kit.start) for (const l of kit.start(sys)) ui.out(`    ${showCommand(l)}`);
+    }
   }
   for (const f of failed) ui.out(`  ${dim('retry:')} ${showCommand(f.step.argv)}${f.skipped ? dim('  (skipped: an earlier step failed)') : ''}`);
   for (const f of (proj && proj.failed) || []) ui.out(`  ${dim('retry:')} ${f.command}`);
   for (const id of toolsFailed) ui.out(`  ${dim('retry:')} hoprig tools install ${id}`);
-  if (results.some((x) => x.ok) && sys.platform !== 'win32') ui.note('Open a new terminal (or log in again) so every new program is found.');
+  if (own.some((x) => x.ok) && sys.platform !== 'win32') {
+    if (ui.todo) ui.todo('terminal');
+    else ui.note('Open a new terminal (or log in again) so every new program is found.');
+  }
+  // Windows: installed now, and still not found with the system's own Path: Windows shows it to programs only after a
+  // new sign-in.
+  // Only a kit whose every step went through: one with a failed step shows that failure and its retry line, and a new
+  // sign-in would not help it.
+  const allOk = (k) => results.some((x) => x.step.kit === k) && results.filter((x) => x.step.kit === k).every((x) => x.ok);
+  const pyLeft = sys.platform === 'win32' && chosen.includes('python') && sshSession(sys.env) && allOk('python') && (after.python || []).some((i) => i.state === 'missing');
+  const unseen = sys.platform === 'win32' ? chosen.filter((k) => !(k === 'python' && pyLeft) && allOk(k) && (after[k] || []).some((i) => i.state === 'missing')) : [];
+  // In an SSH session the install manager only updates itself: the last step is the person's, in a window of their own.
+  if (pyLeft) ui.note(`Python: one step is left, and it cannot be done over SSH. On that computer, in a window of your own (PowerShell from the Start menu), run:\n    ${showCommand(PY_INSTALL)}\n  Then run hoprig pc setup again: it looks once more.`);
+  if (unseen.length) ui.note(`${unseen.map((k) => kitById(k).title).join(', ')}: installed, but Windows shows ${unseen.length > 1 ? 'them' : 'it'} to programs only after you sign out of Windows and sign in again (or restart the computer). Then run hoprig pc setup again: it checks once more.`);
   if (hold && ui.interactive) await ui.ask('\nPress Enter to close. ');
   const code = failed.length || (proj && proj.failed.length) || toolsFailed.length ? 1 : 0;
   return { ok: code === 0, changed, missing: [...missing, ...toolsFailed.map((id) => `codingTools.${id}`)], code };
 }
 
+/** The usage of `hoprig pc setup` (printed for a wrong option, and as its help). */
+export const SETUP_USAGE = `usage: hoprig pc setup [--yes] [--dry-run] [--kits ${KIT_IDS.join(',')}] [--recipe <file or https address>] [--no-projects] [--rules | --remove-rules]`;
+
 /** `hoprig pc setup …`. Returns the exit code. */
 export async function pcSetup(args, { ui, sys, runner = stream, ghList } = {}) {
   const o = parseArgs(args);
   if (o.errors.length) {
-    ui.out(`${o.errors.join('\n')}\nusage: hoprig pc setup [--yes] [--dry-run] [--kits ${KIT_IDS.join(',')}] [--recipe <file or https address>] [--no-projects] [--rules | --remove-rules]`);
+    ui.out(`${o.errors.join('\n')}\n${SETUP_USAGE}`);
     return 2;
   }
   if (o.removeRules) {
@@ -395,11 +486,19 @@ export async function pcSetup(args, { ui, sys, runner = stream, ghList } = {}) {
     recipe = r.recipe;
   }
   ui.out(`\n${bold('hoprig pc setup')}`);
-  const r = await runPcSetup({ ui, yes: o.yes, dryRun: o.dryRun, kits: o.kits, recipe, projects: o.projects && !o.kits && ui.interactive && !o.yes, rules: o.rules, hold: o.hold, sys, runner, ghList });
+  const startedAt = Date.now();
+  // How each step ended, for the field report (src/field): heard through onStep, as the dashboard hears it.
+  const ended = [];
+  const onStep = (i, step, state) => {
+    if (state === 'ok' || state === 'fail' || state === 'skipped') ended[i] = { step, ok: state === 'ok', skipped: state === 'skipped' };
+  };
+  const r = await runPcSetup({ ui, yes: o.yes, dryRun: o.dryRun, kits: o.kits, recipe, projects: o.projects && !o.kits && ui.interactive && !o.yes, rules: o.rules, hold: o.hold, sys, runner, ghList, onStep });
   // Then git and GitHub (gh is there now), which may restore a workspace from GitHub, then the workspace itself.
   if (!o.kits && !recipe) {
     await (await import('../workspace/gitstep.mjs')).runGitStep({ ui });
     await (await import('../workspace/step.mjs')).runWorkspaceStep({ ui });
   }
+  // A field report (src/field): "kit" when only kits were asked for; a dry run changes nothing and makes none.
+  if (!o.dryRun) (await import('../field/wire.mjs')).reportPcSetup(o.kits ? 'kit' : 'pc-setup', ended.filter(Boolean), r.code, startedAt);
   return r.code;
 }

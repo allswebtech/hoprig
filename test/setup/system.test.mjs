@@ -85,9 +85,54 @@ test('showCommand quotes only what needs it', () => {
 });
 
 test('npm goes through cmd.exe on Windows only', () => {
-  assert.deepEqual(S.npmArgv(['install', '-g', 'x'], 'linux'), ['npm', 'install', '-g', 'x']);
-  assert.deepEqual(S.npmArgv(['install', '-g', 'x'], 'darwin'), ['npm', 'install', '-g', 'x']);
-  assert.deepEqual(S.npmArgv(['install', '-g', 'x'], 'win32'), ['cmd.exe', '/d', '/s', '/c', 'npm', 'install', '-g', 'x']);
+  const env = { PATH: fakeBin(path.join(s.tmp, 'npm-on-path'), { npm: 'exit 0' }) }; // seal: a value no program is started with
+  assert.deepEqual(S.npmArgv(['install', '-g', 'x'], 'linux', env), ['npm', 'install', '-g', 'x']);
+  assert.deepEqual(S.npmArgv(['install', '-g', 'x'], 'darwin', env), ['npm', 'install', '-g', 'x']);
+  assert.deepEqual(S.npmArgv(['install', '-g', 'x'], 'win32', env), ['cmd.exe', '/d', '/s', '/c', 'npm', 'install', '-g', 'x']);
+});
+
+// A made-up Node folder: bin/node (this Node) and lib/node_modules/npm/bin/npm-cli.js, a stand-in that prints the first
+// folder of its PATH and its arguments. nodeNpm is given it with no override, so nothing real is ever run.
+function madeUpNode(name) {
+  const root = path.join(s.tmp, name);
+  fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(root, 'bin', 'node'));
+  const cli = path.join(root, 'lib', 'node_modules', 'npm', 'bin');
+  fs.mkdirSync(cli, { recursive: true });
+  fs.writeFileSync(path.join(cli, 'npm-cli.js'), "console.log('first ' + process.env.PATH.split(require('node:path').delimiter)[0]); console.log('args ' + process.argv.slice(2).join(' '));\n");
+  return { node: path.join(root, 'bin', 'node'), bin: path.join(root, 'bin'), cli: path.join(cli, 'npm-cli.js') };
+}
+
+test('npm: the one on PATH when there is one, else the npm of the Node Hoprig runs on, else one plain sentence', async () => {
+  const withNpm = fakeBin(path.join(s.tmp, 'g5-path'), { npm: 'echo "path npm $*"' });
+  const empty = fakeBin(path.join(s.tmp, 'g5-empty'), {});
+  const n = madeUpNode('g5-node');
+  // The npm beside the Node is used only for the system this runs on (npmArgv): the tests' own platform.
+  const here = process.platform;
+  const own = S.nodeNpm(here, { node: n.node, instead: '' });
+  assert.equal(own[0], n.node);
+  assert.equal(own.at(-1), n.cli);
+  // PATH first: an npm stand-in on PATH is what runs, never the one beside the Node
+  assert.deepEqual(S.npmArgv(['ls'], here, { PATH: withNpm }, own), ['npm', 'ls']); // seal: a value no program is started with
+  // no npm on PATH (a service, an ssh login without nvm's folder): the Node's own npm, its folder first on PATH
+  const argv = S.npmArgv(['install', 'x'], here, { PATH: empty }, own); // seal: a value no program is started with
+  assert.equal(S.showCommand(argv), `${n.node} ${n.cli} install x`, 'shown as it would be typed');
+  const r = await S.capture(argv, { env: { PATH: empty } }); // seal: only the test's own folders, in an environment that keeps the runner's variables
+  assert.equal(r.ok, true, r.stderr);
+  assert.deepEqual(r.stdout.trim().split('\n'), [`first ${n.bin}`, 'args install x']);
+  // neither: plain npm, which says what to do instead of "spawn npm ENOENT"
+  assert.deepEqual(S.npmArgv(['ls'], here, { PATH: empty }, null), ['npm', 'ls']); // seal: a value no program is started with
+  const c = await S.capture(['npm', 'ls'], { env: { PATH: empty } }); // seal: only the test's own folders, in an environment that keeps the runner's variables
+  assert.equal(c.stderr, S.NPM_MISSING);
+  const lines = [];
+  const st = await S.stream(['npm', 'ls'], { env: { PATH: empty }, onLine: (l) => lines.push(l) }); // seal: only the test's own folders, in an environment that keeps the runner's variables
+  assert.equal(st.ok, false);
+  assert.deepEqual(lines, [S.NPM_MISSING]);
+  assert.doesNotMatch(`${c.stderr} ${st.output}`, /ENOENT|spawn/);
+  // a Node with no npm beside it
+  assert.equal(S.nodeNpm('linux', { node: path.join(empty, 'node'), instead: '' }), null);
+  // the version check finds npm the same way
+  assert.equal(await S.npmMajor({ env: { PATH: withNpm }, platform: 'linux' }), null, 'the stand-in prints no version'); // seal: only the test's own folders, in an environment that keeps the runner's variables
 });
 
 test('npm 12 and newer get the flag that allows a package named by an address; older npm and other sources get none', async () => {
@@ -99,8 +144,8 @@ test('npm 12 and newer get the flag that allows a package named by an address; o
   for (const plain of ['hoprig', 'hoprig@latest', '/tmp/hoprig-0.1.0.tgz', './hoprig']) assert.deepEqual(S.npmSourceFlags(plain, 12), [], plain);
   // the version of whatever npm is first on PATH
   const bin = fakeBin(path.join(s.tmp, 'npm12'), { npm: 'echo 12.2.2' });
-  assert.equal(await S.npmMajor({ env: { PATH: bin }, platform: 'linux' }), 12);
-  assert.equal(await S.npmMajor({ env: { PATH: path.join(s.tmp, 'nothing-here') }, platform: 'linux' }), null);
+  assert.equal(await S.npmMajor({ env: { PATH: bin }, platform: 'linux' }), 12); // seal: only the test's own folders, in an environment that keeps the runner's variables
+  assert.equal(await S.npmMajor({ env: { PATH: path.join(s.tmp, 'nothing-here') }, platform: 'linux' }), null); // seal: only the test's own folders, in an environment that keeps the runner's variables
 });
 
 test('versions: parse and compare', () => {
@@ -119,12 +164,39 @@ test('versions: parse and compare', () => {
 test('which finds executables on the given PATH only', () => {
   const dir = fakeBin(path.join(s.tmp, 'bin-which'), { tool: 'exit 0' });
   fs.writeFileSync(path.join(dir, 'notexec'), 'x', { mode: 0o644 });
-  const env = { PATH: dir };
+  const env = { PATH: dir }; // seal: a value no program is started with
   assert.equal(S.which('tool', env, 'linux'), path.join(dir, 'tool'));
   assert.equal(S.which('notexec', env, 'linux'), null);
   assert.equal(S.which('missing', env, 'linux'), null);
   assert.equal(S.which(path.join(dir, 'tool'), {}, 'linux'), path.join(dir, 'tool'));
   assert.equal(S.which('', env, 'linux'), null);
+});
+
+test('which on Windows takes the file Windows can start, not the shell script npm puts beside it', () => {
+  const dir = path.join(s.tmp, 'bin-which-win');
+  const other = path.join(s.tmp, 'bin-which-win-2');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(other, { recursive: true });
+  for (const name of ['gate', 'gate.cmd', 'gate.ps1', 'bare']) fs.writeFileSync(path.join(dir, name), 'x');
+  fs.writeFileSync(path.join(other, 'bare.cmd'), 'x');
+  fs.writeFileSync(path.join(other, 'late.exe'), 'x');
+  fs.writeFileSync(path.join(other, 'plain'), 'x');
+  fs.writeFileSync(path.join(other, 'plain.CMD'), 'x');
+  // (the extensions in the case the files have: the test also runs where file names are case-sensitive)
+  const env = { PATH: `${dir};${other}`, PATHEXT: '.exe;.cmd' };  // seal: which() is a pure function; no program is started
+  // npm's three files side by side: the .cmd, never the extensionless script and never the .ps1
+  assert.equal(S.which('gate', env, 'win32'), path.join(dir, 'gate.cmd'));
+  // a later folder's startable file wins over an earlier folder's bare name
+  assert.equal(S.which('bare', env, 'win32'), path.join(other, 'bare.cmd'));
+  assert.equal(S.which('late', env, 'win32'), path.join(other, 'late.exe'));
+  // a name given with its extension is that file
+  assert.equal(S.which('gate.cmd', env, 'win32'), path.join(dir, 'gate.cmd'));
+  // the bare name is the last resort, and a path is checked the same way
+  assert.equal(S.which('bare', { ...env, PATH: dir }, 'win32'), path.join(dir, 'bare'));  // seal: which() is a pure function; no program is started
+  assert.equal(S.which(path.join(dir, 'gate'), env, 'win32'), path.join(dir, 'gate.cmd'));
+  assert.equal(S.which('missing', env, 'win32'), null);
+  // the default extensions when PATHEXT is not set, and PATH spelled as Windows spells it
+  assert.equal(S.which('plain', { Path: other }, 'win32'), path.join(other, 'plain.CMD'));  // seal: which() is a pure function; no program is started
 });
 
 test('capture and stream report output, exit codes and programs that do not exist', async () => {

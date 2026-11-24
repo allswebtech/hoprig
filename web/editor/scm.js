@@ -28,6 +28,15 @@ export function marksOf(st) {
   return m;
 }
 
+/**
+ * The number on Source Control's icon, as VS Code's git counts it (git.countBadge 'all', the default): every entry of
+ * its groups, so a file staged and changed again counts twice, once in Staged Changes and once in Changes.
+ */
+export function changeCount(st) {
+  if (!st || !st.repo) return 0;
+  return st.staged.length + st.changes.length + st.untracked.length + st.conflicts.length;
+}
+
 /** wb: { get, post, root, tabs, onStatus(status) }. */
 export function createScm(wb) {
   let st = null;
@@ -167,7 +176,7 @@ export function createScm(wb) {
     try {
       await wb.post(`git/${what}`, { paths });
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(e, { kind: 'error' });
     }
     await refresh();
     wb.tabs.refreshDiffs();
@@ -186,7 +195,7 @@ export function createScm(wb) {
       await wb.post('git/discard', { paths: items.map((x) => x.path), confirm: true });
       toast(items.length === 1 ? 'Changes discarded' : `${items.length} changes discarded`);
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(e, { kind: 'error' });
     }
     await refresh();
     wb.onDiscarded(items.map((x) => x.path));
@@ -215,7 +224,7 @@ export function createScm(wb) {
             toast(e2.message, { kind: 'error' });
           }
         } else if (!all.length) toast('There is nothing to commit.', { kind: 'error' });
-      } else toast(e.message, { kind: 'error', ms: 9000 });
+      } else toast(e, { kind: 'error', ms: 9000 });
     } finally {
       commitBtn.disabled = false;
     }

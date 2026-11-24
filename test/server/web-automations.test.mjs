@@ -80,6 +80,10 @@ test('Activity: one sentence per entry, and what went wrong said plainly', () =>
   assert.equal(activityLine({ automation: 'retry', did: 'stopped retrying after 3 tries', outcome: 'gave up' }).problem, 'It gave up; open the session to see why.');
   assert.equal(activityLine({ automation: 'updates', did: 'looked for new versions', outcome: 'nothing new' }).sub, 'Updates · Nothing new');
   assert.match(activityLine({ automation: 'schedules', did: 'skipped "x"', outcome: 'missed: 3 hours late, more than allowed' }).problem, /^Missed: 3 hours late/);
+  // a run that ended with a refused step is a problem to see, not a green check (src/work/alone.mjs settle)
+  assert.match(activityLine({ automation: 'schedules', did: 'ran "Run the tests" by itself on work/refuse1', outcome: 'ok: a step needed an OK and was refused (Bash)' }).problem, /refused \(Bash\): nobody was there/);
+  // a branch that moved while a run worked may be the owner's own commit: said so, with the commit
+  assert.equal(activityLine({ automation: 'schedules', did: 'ran "Nightly" by itself on work/nightly', outcome: 'ok: another branch moved (main moved from 1111111 to 2222222 ("Update the price list"))' }).problem, 'Another branch moved (main moved from 1111111 to 2222222 ("Update the price list")) while it ran, by the run or by you: if it was not you, look at it.');
   // A chat is never named by its id: by its title where the page knows it, else "a chat".
   const chat = { automation: 'schedules', session: 'chat:55555555-5555-4555-8555-555555555555', did: 'started "start a chat in blog on Gateway"', outcome: 'ok' };
   assert.equal(activityLine(chat).sub, 'Schedule · a session in the App');
@@ -156,7 +160,8 @@ test('the empty chat offers three requests to tap', () => {
   for (const x of EXAMPLES) assert.ok(x.length < 120, x);
   // True with any coding tool on: the memory is the AI brain they all share, not one coding tool's.
   for (const x of EXAMPLES) assert.doesNotMatch(x, /Claude|OpenCode|Codex/, x);
-  assert.ok(EXAMPLES.some((x) => /the AI brain remember/.test(x)));
+  // Three plain asks for a person who is not a programmer.
+  assert.deepEqual(EXAMPLES, ['What needs me?', 'What is running?', 'Start a new project']);
 });
 
 test('both pages: styles in their own prefixed file, the shared words, no typed product name', () => {

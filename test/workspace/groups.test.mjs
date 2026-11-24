@@ -200,7 +200,7 @@ test('restore on a second computer: the group\'s repository first, then every pl
   const { restoreWorkspace } = await import('../../src/workspace/restore.mjs');
   const { quietUi } = await import('./gitfix.mjs');
   const q = await quietUi();
-  const r = await restoreWorkspace(U('brain'), { ui: q.ui, dir: D.ws, projects: D.projects });
+  const r = await restoreWorkspace(U('brain'), { withProjects: true, ui: q.ui, dir: D.ws, projects: D.projects });
   const res = Object.fromEntries(r.plan.map((e) => [e.label, e.result]));
   assert.equal(res.kits, 'cloned');
   assert.ok(r.plan.findIndex((e) => e.label === 'kits') < r.plan.findIndex((e) => e.label.startsWith('kits/')), 'the group before its members');

@@ -22,6 +22,9 @@ class FakeElement extends FakeNode {
   append(...n) {
     this.children.push(...n);
   }
+  replaceChildren(...n) {
+    this.children = n;
+  }
 }
 globalThis.Node ??= FakeNode;
 globalThis.document ??= {
@@ -36,9 +39,10 @@ globalThis.document ??= {
 const { PARTS, processList, reachOf, upFor, osName, busyFigures, diskName } = await import('../../web/pc.js');
 const { computerLine } = await import('../../web/computers.js');
 const { setupSummary } = await import('../../web/pcsetup.js');
+const { fixText } = await import('../../web/health.js');
 
 test('one computer: three parts, each with its own address and one sentence', () => {
-  assert.deepEqual(PARTS.map((p) => [p.id, p.title]), [['', 'Overview'], ['setup', 'Setup'], ['advanced', 'Advanced']]);
+  assert.deepEqual(PARTS.map((p) => [p.id, p.title]), [['', 'Overview'], ['setup', 'Setup'], ['health', 'Health'], ['advanced', 'Advanced']]);
   for (const p of PARTS) assert.match(p.text, /^[A-Z][^.]*\.$/, `${p.title}: one sentence`);
   // Home → Get started still lands on Setup
   assert.match(src('getstarted.js'), /'pc\/setup': '#\/computer\/setup'/);
@@ -76,7 +80,8 @@ test('Overview: whether the computer can be reached from anywhere, in plain word
   assert.equal(reachOf(s('0.0.0.0'), { on: true, kind: 'custom', state: 'error', url: null }).level, 'network');
   assert.equal(reachOf(s('127.0.0.1'), null).level, 'local', 'an older computer without the route');
   for (const f of ['pc.js', 'settings.js', 'computers.js', 'gateways.js']) assert.doesNotMatch(src(f), /Tailscale|SSH tunnel/, `${f}: the public link is the way from anywhere`);
-  assert.equal(upFor(3 * 86400 + 5 * 3600 + 120), '3 d 5 h');
+  assert.equal(upFor(3 * 86400 + 5 * 3600 + 120), '3 days 5 h');
+  assert.equal(upFor(86400 + 120), '1 day 0 h', 'one day, as the rest of the page writes it');
   assert.equal(upFor(3600 + 120), '1 h 2 min');
   assert.equal(upFor(NaN), '');
   assert.equal(osName('darwin'), 'macOS');
@@ -102,7 +107,7 @@ test('the list: one row per computer with its state, system, sessions and Claude
   assert.equal(computerLine(s, { platform: 'linux', claude: '2.1.0' }, '2.2.0').claude, 'Claude Code 2.1.0 · version 2.2.0 is out');
   assert.equal(computerLine({ ...s, sessions: [{}] }, { claude: null }).claude, 'Claude Code not installed');
   const off = computerLine({ machine: 'nas', machineLabel: 'NAS', status: 'offline', error: 'It does not answer.' }, { platform: 'linux', claude: null });
-  assert.deepEqual(off, { online: false, first: 'Offline · Linux', claude: 'It does not answer.' }, 'no session count and no "not installed" for a computer that does not answer');
+  assert.deepEqual(off, { online: false, first: 'Cannot be reached · open it to see what to check', claude: 'It does not answer.' }, 'no session count and no "not installed" for a computer that does not answer');
 });
 
 test('the pages: one list, Add a computer by situation, Rename/Test/Remove on the computer\'s own page', () => {
@@ -110,6 +115,15 @@ test('the pages: one list, Add a computer by situation, Rename/Test/Remove on th
   assert.doesNotMatch(list, /Open a computer|Your computers/, 'the computers appear once');
   assert.match(list, /primary: \{ label: 'Add a computer', icon: 'plus', href: '#\/computers\/add' \}/);
   for (const t of ['I can reach it by SSH from this computer', 'It is at home or behind a router and cannot be reached from here', 'It has an address (the same network, or its public link)']) assert.ok(list.includes(t), t);
+  // a laptop of his first; SSH is not offered as "the easiest way" to someone who does not know the word
+  const ways = list.slice(list.indexOf('const WAYS'), list.indexOf('];', list.indexOf('const WAYS')));
+  assert.ok(ways.indexOf("value: 'join'") < ways.indexOf("value: 'ssh'"), 'the way for a laptop comes first');
+  assert.doesNotMatch(ways, /easiest/i);
+  assert.match(ways, /A laptop or another computer of yours/);
+  // no terminal step on the page where the page has its own way: the key file, and the pairing code on its page
+  assert.doesNotMatch(list, /run once on this computer: ssh-copy-id|ssh-copy-id \$\{target\} sets that up/);
+  assert.match(list, /choose "I have a key file for it" above/);
+  assert.ok(list.indexOf('Let another computer add this one. (In a terminal there') > 0, 'the page way first, the command after it');
   assert.match(list, /fold\('computers-add', 'Advanced'/, 'the rare things are under a closed Advanced');
   assert.doesNotMatch(list, /\/rename|\/remove|\/test`/, 'renaming, testing and removing live on the computer\'s page');
   const pc = src('pc.js');
@@ -135,4 +149,122 @@ test('Overview: how busy in plain words first, the raw load second; the system d
   assert.equal(diskName('C:\\'), 'Main disk');
   assert.equal(diskName('/data'), '/data');
   for (const l of [reachOf({ server: { publicUrl: 'https://x.example' }, network: {} })]) assert.doesNotMatch(l.text, /^Yes/, 'the title says yes once');
+});
+
+test('Add by SSH with a key file: the key is sent once and the field emptied before the answer; the print is confirmed by name', () => {
+  const k = src('sshkey.js');
+  const sent = k.indexOf("key.value = ''");
+  assert.ok(sent > 0 && sent < k.indexOf("await api('~/api/machines/ssh/key', body)"), 'the field is emptied before the request is answered');
+  assert.doesNotMatch(k, /localStorage|sessionStorage|console\.(log|error)/, 'the key is never kept or logged by the page');
+  assert.match(k, /\/api\/machines\/ssh\/key\/confirm', \{ pending: s\.pending, print: s\.print, confirm: s\.name \}/);
+  // Confirmed by name; the sentence of a root login goes with it only when typed (web/rootlogin.js).
+  assert.match(k, /\/api\/machines\/ssh\/key\/install', \{ pending, confirm: s\.name, \.\.\.\(stayRoot \? \{ stayRoot \} : \{\}\), \.\.\.\(workUser \? \{ workUser \} : \{\}\) \}/, 'the root-login box\'s choice ({ name, noAdmin }) is sent as it is');
+  assert.match(src('computers.js'), /byKey\(isAlive, added\)/, 'Add a computer → by SSH offers it');
+});
+
+test('Health: since when a computer is not reached, the figures in words, and the rules of its buttons', async () => {
+  const { figures, notReached } = await import('../../web/health.js');
+  assert.equal(notReached('Box 2', null), 'Box 2 was never reached from here.');
+  assert.match(notReached('Box 2', Date.now() - 3 * 3600_000), /^Box 2 was not reached since .+ \(3 h ago\)\.$|^Box 2 was not reached since .+\)\.$/);
+  const f = figures({ load: [0.5, 0.4, 0.3], cpus: 4, memory: { total: 8e9, available: 6e9 }, disks: [{ mount: '/', size: 1e11, used: 2e10, avail: 8e10 }] });
+  assert.deepEqual(f.map(([k]) => k), ['Load', 'Memory', 'Main disk']);
+  const hs = src('health.js');
+  assert.doesNotMatch(hs, /setInterval|setTimeout\(load|setTimeout\(gateways/, 'read when opened or on Refresh, never on a timer');
+  assert.match(hs, /confirm: d\.computer/, 'every press carries the computer\'s name');
+  assert.match(hs, /href: r\.forward\.url, target: '_blank', rel: 'noopener noreferrer'/, 'a gateway\'s page opens at its own address');
+  assert.doesNotMatch(hs, /<iframe|h\('iframe/, 'never inside the dashboard');
+});
+
+test('a Fix on Health always says what it runs there, and that it needs administrator rights when its plan does', () => {
+  assert.equal(fixText({ admin: true, commands: ['sudo apt-get install -y gh'], fix: 'hoprig pc setup --kits github' }, 'box2'), 'This needs administrator rights on box2. It runs on box2: sudo apt-get install -y gh');
+  assert.equal(fixText({ admin: false, commands: [], fix: 'hoprig pc setup --kits git' }, 'box2'), 'It runs on box2: hoprig pc setup --kits git');
+});
+
+test('Health says what lingering means in plain words; the word lingering stays only inside the command', () => {
+  const s = src('health.js');
+  assert.match(s, /start only after you log in there, not after a restart/);
+  assert.match(s, /Let them start after a restart/);
+  assert.doesNotMatch(s.replace(/\/\/.*$/gm, ''), /[`'"][^`'"]*\b[Ll]ingering\b/, 'no "lingering" in what the page says');
+});
+
+test('the hidden key file input shows its focus on its label button', () => {
+  assert.match(src('sshkey.js'), /label\.btn\.secondary\.small\.cp-keybtn/);
+  assert.match(src('page-computers.css'), /\.cp-keybtn:has\(\.cp-keyfile:focus-visible\)\s*\{[^}]*box-shadow/);
+});
+
+test('at a phone\'s width a Health check\'s name and reason wrap instead of being cut', () => {
+  assert.match(src('page-computers.css'), /@media \(max-width: 640px\) \{ \.cp-health \.row-title, \.cp-health \.row-sub \{ white-space: normal;/);
+});
+
+test('during an add the server is called by the address typed, and Health calls an offline computer by its label', () => {
+  const k = src('sshkey.js');
+  assert.match(k, /shown: body\.host/);
+  assert.doesNotMatch(k, /(label|title|text|ok): `[^`]*\$\{s\.name\}/, 'no inner name in what the page says');
+  assert.match(src('health.js'), /unreachedWords\(r, r\.label \|\| ctx\.label\(\)\)/);
+  assert.match(src('health.js'), /head: notReached\(label, r\.seenAt\)/);
+  assert.match(src('health.js'), /head: `\$\{label\}: \$\{MACHINE_STATE\.unauthorised\}\.`/);
+});
+
+test('Health says where a command is typed, shows the service once, and the use-case page does not promise no terminal', () => {
+  const s = src('health.js');
+  assert.match(s, /Type this in a terminal on \$\{ctx\.label\(\)\}:/);
+  assert.doesNotMatch(s, /'Fix there:'/);
+  assert.match(s, /filter\(\(c\) => c\.id !== 'service'\)/);
+  const uc = fs.readFileSync(path.join(WEB, '..', 'site', 'content', 'use-cases', 'server-from-the-dashboard.md'), 'utf8');
+  assert.doesNotMatch(uc, /no terminal is needed/);
+});
+
+test('Health\'s banner lets its button go under the text on a phone instead of squeezing the text', () => {
+  assert.match(src('page-computers.css'), /\.cp-health \.banner \{ flex-wrap: wrap;/);
+  assert.match(src('page-computers.css'), /\.cp-health \.banner > span \{ flex: 1 1 220px;/);
+});
+
+test('Health shows why a computer was not reached, and says "on and online" only for one that is off', async () => {
+  const { healthSection } = await import('../../web/health.js');
+  const { machine } = await import('../../web/lib.js');
+  const words = (n) => (typeof n === 'string' ? n : (n.children || []).map(words).join(' '));
+  const drawn = async (answer) => {
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => answer });
+    machine.set('box2');
+    try {
+      const el = healthSection({ label: () => 'Box 2' });
+      for (let i = 0; i < 20 && !words(el).includes('not reached'); i++) await new Promise((r) => setTimeout(r, 10));
+      return words(el);
+    } finally {
+      machine.set(null);
+      delete globalThis.fetch;
+    }
+  };
+  const old = await drawn({ reached: false, state: 'too-old', label: 'Box 2', seenAt: Date.now() - 60_000, error: 'Box 2 runs a Hoprig too old for this. Update it there: hoprig update' });
+  assert.match(old, /Box 2 was not reached since/);
+  assert.match(old, /runs a Hoprig too old for this\. Update it there: hoprig update/, 'the hub\'s reason is shown');
+  assert.doesNotMatch(old, /on and online/, 'no advice to switch on a computer that answered');
+  const off = await drawn({ reached: false, state: 'offline', label: 'Box 2', seenAt: null, error: 'Box 2 cannot be reached by SSH: connection refused' });
+  assert.match(off, /cannot be reached by SSH: connection refused/);
+  assert.match(off, /Check that it is on and online/);
+});
+
+test('when sudo asks for a password, Health names the computer where the command is typed', () => {
+  const s = src('health.js');
+  assert.match(s, /Type this once in a terminal on \$\{d\.computer\}:/);
+  assert.doesNotMatch(s, /in a terminal there/);
+});
+
+test('Open its page: the plain link uses a name the owner is not signed in under; a computer without SSH gets one sentence', async () => {
+  const { plainHost, noForwardWords } = await import('../../web/health.js');
+  assert.equal(plainHost('127.0.0.1', []), 'localhost');
+  assert.equal(plainHost('localhost', []), '127.0.0.1');
+  assert.equal(plainHost('127.0.0.1', ['localhost']), null, 'signed in under the other name too: no link that would carry it');
+  assert.equal(plainHost('[::1]', ['localhost']), '127.0.0.1');
+  assert.equal(plainHost('[::1]', []), 'localhost');
+  const line = noForwardWords('Relay', 'Box 9', 8197);
+  assert.equal(line, 'Relay\'s page cannot be opened from here, because Box 9 is linked to this dashboard without SSH and so this dashboard has no way to reach that page: open it in a browser on Box 9 itself, at http://127.0.0.1:8197/.');
+  assert.equal(line.split('. ').length, 1, 'one sentence');
+  const s = src('health.js');
+  assert.match(s, /st\.via === 'other'\) return fill\(msg, .*noForwardWords\(/);
+  assert.match(s, /plainHost\(location\.hostname, signedIn\)/);
+});
+
+test('Health at a phone\'s width: a check\'s button goes under its name, never beside a name squeezed to one word a line', () => {
+  assert.match(src('page-computers.css'), /@media \(max-width: 640px\) \{ \.cp-health \.row > \.row-main \{ flex: 1 1 200px; \} \.cp-health \.row > a\.btn, \.cp-health \.row > button\.btn \{ margin-left: 44px; \} \}/);
 });

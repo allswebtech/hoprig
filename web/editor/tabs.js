@@ -8,6 +8,12 @@ import { icon } from '../icons.js';
 import { editorPrefs, languageName, languageOf, loadMonaco } from './monaco.js';
 import { createDiffs } from './diffs.js';
 import { createSaving } from './saving.js';
+import { withMenu } from '../desktop/menu.js';
+import { editorKeys, monacoKey, paletteLabel } from './commands.js';
+import { closesBy, dragPath, focusLost, moveBefore, regroup, stepFrom, tabTakes, toClose, wrapOf, wraps } from './tabops.js';
+
+// The languages Monaco formats itself (no program of the project is started to format).
+const FORMATS = new Set(['json', 'css', 'scss', 'less', 'html', 'javascript', 'typescript']);
 
 const base = (p) => p.split('/').pop();
 const keyOf = (t) => (t.kind === 'file' ? `file:${t.path}` : t.kind === 'diff' ? `diff:${t.staged ? 's' : 'w'}:${t.path}` : `compare:${t.path}`);
@@ -47,6 +53,20 @@ export function createTabs(wb) {
       wordWrap: p.wordWrap ? 'on' : 'off', scrollBeyondLastLine: false, renderWhitespace: 'selection', fixedOverflowWidgets: true,
     });
     editor.onDidChangeCursorPosition((e) => wb.onCursor({ line: e.position.lineNumber, col: e.position.column }));
+    editor.onDidChangeCursorSelection(() => {
+      const m = editor.getModel();
+      const sel = m ? editor.getSelections().reduce((n, x) => n + m.getValueLengthInRange(x), 0) : 0;
+      wb.onCursor({ selected: sel, cursors: editor.getSelections().length });
+    });
+    // The page's commands in Monaco's own command palette, with their keys (a chord such as Ctrl+K S works in the
+    // editor this way: the editor reads its own chords). The one plain line is in the label where a browser keeps a key.
+    for (const c of wb.commands || []) {
+      editor.addAction({
+        id: `hoprig.${c.id}`, label: paletteLabel(c),
+        keybindings: editorKeys(c).map((k) => monacoKey(monaco, k)).filter((x) => x !== null),
+        run: () => c.run(),
+      });
+    }
     return editor;
   }
 
@@ -65,12 +85,19 @@ export function createTabs(wb) {
   function applyPrefs() {
     const p = editorPrefs();
     const o = { fontSize: p.fontSize, wordWrap: p.wordWrap ? 'on' : 'off' };
-    if (editor) editor.updateOptions({ ...o, tabSize: p.tabSize });
-    if (diff) diff.updateOptions(o);
+    if (editor) editor.updateOptions({ ...o, tabSize: p.tabSize, wordWrap: wrapOf(active && active.kind === 'file' ? active : null, p.wordWrap) });
+    if (diff) diff.updateOptions({ ...o, wordWrap: wrapOf(active && active.kind !== 'file' ? active : null, p.wordWrap) });
     for (const t of tabs) if (t.model) t.model.updateOptions({ tabSize: p.tabSize });
     text.style.fontSize = `${p.fontSize}px`;
     text.style.tabSize = String(p.tabSize);
-    text.wrap = p.wordWrap ? 'soft' : 'off';
+    text.wrap = wrapOf(active && active.kind === 'file' ? active : null, p.wordWrap) === 'on' ? 'soft' : 'off';
+  }
+
+  /** Alt+Z: word wrap on or off for this file (or these changes) while it is open; the Word Wrap setting stays. */
+  function toggleWrap(t = active) {
+    if (!wraps(t)) return;
+    t.wrap = wrapOf(t, editorPrefs().wordWrap) === 'on' ? 'off' : 'on';
+    if (t === active) applyPrefs();
   }
 
   // ---------- a tab's text, the same for Monaco and the plain box ----------
@@ -108,19 +135,47 @@ export function createTabs(wb) {
     fill(strip, tabs.map((t) => {
       const dirty = isDirty(t);
       const label = t.kind === 'file' ? `${base(t.path)}${t.gone ? ' (deleted)' : ''}` : `${base(t.path)} ${t.kind === 'compare' ? '(on disk ↔ yours)' : t.staged ? '(staged)' : '(changes)'}`;
-      return h(`div.ed-tab${t === active ? '.on' : ''}${t.preview ? '.preview' : ''}${dirty ? '.dirty' : ''}${t.gone ? '.gone' : ''}`, {
-        role: 'tab', 'aria-selected': String(t === active), title: t.gone ? `${t.path}: deleted on disk. Saving makes it again.` : t.path, tabindex: '0',
+      const el = h(`div.ed-tab${t === active ? '.on' : ''}${t.preview ? '.preview' : ''}${dirty ? '.dirty' : ''}${t.gone ? '.gone' : ''}${t.pinned ? '.pinned' : ''}`, {
+        role: 'tab', 'aria-selected': String(t === active), title: `${t.gone ? `${t.path}: deleted on disk. Saving makes it again.` : t.path}${t.preview ? ' (preview: the next file opened from a list takes its place)' : ''}`, tabindex: '0',
+        'aria-label': `${label}${dirty ? ', unsaved changes' : ''}${t.preview ? ', preview' : ''}${t.pinned ? ', pinned' : ''}`,
+        draggable: 'true',
         onclick: () => show(t),
         ondblclick: () => pin(t),
-        onauxclick: (e) => e.button === 1 && close(t),
-        onkeydown: (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), show(t)),
+        onauxclick: (e) => e.button === 1 && closesBy(t, 'middle') && close(t),
+        onmousedown: (e) => e.button === 1 && e.preventDefault(), // a middle press closes, it does not scroll
+        onkeydown: (e) => tabTakes(e) && (e.preventDefault(), show(t)),
+        ondragstart: (e) => {
+          dragged = t;
+          dragPath(e.dataTransfer, t.path);
+        },
+        ondragover: (e) => {
+          if (!dragged || dragged === t) return;
+          e.preventDefault();
+          el.classList.add('drop');
+        },
+        ondragleave: () => el.classList.remove('drop'),
+        ondrop: (e) => {
+          e.preventDefault();
+          if (dragged && dragged !== t) moveBefore(tabs, dragged, t);
+          dragged = null;
+          paintStrip();
+        },
+        ondragend: () => (dragged = null),
       },
       icon(t.kind === 'file' ? 'text' : 'git', { size: 14 }),
       h('span.ed-tab-name', label),
-      h('button.ed-tab-x', { type: 'button', title: dirty ? 'Unsaved changes. Close' : 'Close', 'aria-label': `Close ${label}`, onclick: (e) => {
-        e.stopPropagation();
-        close(t);
-      } }, dirty ? h('span.ed-dot', { 'aria-hidden': 'true' }) : null, icon('x', { size: 14 })));
+      t.pinned && !dirty
+        ? h('button.ed-tab-x', { type: 'button', title: 'Unpin', 'aria-label': `Unpin ${label}`, onclick: (e) => {
+          e.stopPropagation();
+          togglePin(t);
+        } }, icon('pin', { size: 14 }))
+        : h('button.ed-tab-x', { type: 'button', title: dirty ? 'Unsaved changes. Close (Ctrl+Shift+Alt+N)' : 'Close (Ctrl+Shift+Alt+N)', 'aria-label': `Close ${label}`, onclick: async (e) => {
+          e.stopPropagation();
+          await close(t);
+          keepKeyboard();
+        } }, dirty ? h('span.ed-dot', { 'aria-hidden': 'true' }) : null, icon('x', { size: 14 })));
+      withMenu(el, () => tabMenu(t), `${label}: tab`);
+      return el;
     }));
     const on = strip.querySelector('.ed-tab.on');
     if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -132,6 +187,80 @@ export function createTabs(wb) {
     t.preview = false;
     paintStrip();
   };
+  let dragged = null;
+  function togglePin(t = active) {
+    if (!t) return;
+    t.pinned = !t.pinned;
+    t.preview = false;
+    regroup(tabs);
+    paintStrip();
+  }
+
+  /** After a close: the keyboard, when it was on what went (a tab, its menu), goes to the editor, else the side bar. */
+  function keepKeyboard() {
+    if (!focusLost(document.activeElement, document.body)) return;
+    if (active) focusActive();
+    if (focusLost(document.activeElement, document.body) && wb.keyboardHome) wb.keyboardHome();
+  }
+  const thenKeyboard = (fn) => async () => {
+    await fn();
+    keepKeyboard();
+  };
+
+  // A tab's menu (a right click, the context-menu key, a long press), as VS Code's: what it closes, its path, its place.
+  function tabMenu(t) {
+    const others = toClose(tabs, t, 'others').length;
+    const right = toClose(tabs, t, 'right').length;
+    return [
+      { label: 'Close', keys: 'Ctrl+Shift+Alt+N', icon: 'x', run: thenKeyboard(() => close(t)) },
+      { label: 'Close Others', icon: 'x', disabled: !others, run: thenKeyboard(() => closeMany('others', t)) },
+      { label: 'Close to the Right', icon: 'x', disabled: !right, run: thenKeyboard(() => closeMany('right', t)) },
+      { label: 'Close Saved', keys: 'Ctrl+K U', icon: 'check', run: thenKeyboard(() => closeMany('saved', t)) },
+      { label: 'Close All', keys: 'Ctrl+K W', icon: 'x', run: thenKeyboard(() => closeMany('all', t)) },
+      null,
+      { label: 'Copy Path', keys: 'Ctrl+K P', icon: 'copy', run: () => wb.copyPath && wb.copyPath(true, t.path) },
+      { label: 'Copy Relative Path', keys: 'Ctrl+Shift+Alt+C', icon: 'copy', run: () => wb.copyPath && wb.copyPath(false, t.path) },
+      null,
+      // No key shown: VS Code's Ctrl+K R opens the system's file manager, which a browser cannot (commands.js).
+      { label: 'Reveal in Explorer View', icon: 'folder', run: () => wb.revealPath && wb.revealPath(t.path) },
+      t.preview ? { label: 'Keep Open', keys: 'Ctrl+K Enter', icon: 'check', run: () => pin(t) } : null,
+      { label: t.pinned ? 'Unpin' : 'Pin', keys: 'Ctrl+K Shift+Enter', icon: 'pin', run: () => togglePin(t) },
+    ].filter((x, i, a) => x !== null || (a[i - 1] && a[i + 1]));
+  }
+
+  /** Close the tabs `kind` names around `ref` (tabops.js): unsaved ones only after one question for all of them. */
+  async function closeMany(kind, ref = active) {
+    const list = toClose(tabs, ref, kind, isDirty);
+    const unsaved = list.filter(isDirty);
+    if (unsaved.length) {
+      const names = unsaved.slice(0, 5).map((t) => base(t.path)).join(', ') + (unsaved.length > 5 ? ` and ${unsaved.length - 5} more` : '');
+      const ok = await confirmSheet({ title: `Close ${unsaved.length} file${unsaved.length === 1 ? '' : 's'} without saving?`, text: `${names}: the changes in ${unsaved.length === 1 ? 'it are' : 'them are'} lost.`, ok: 'Close without saving', danger: true });
+      if (!ok) return false;
+    }
+    for (const t of list) await close(t, { ask: false });
+    return true;
+  }
+
+  // Closed file tabs, newest last, for Reopen Closed Editor.
+  const closed = [];
+  async function reopen() {
+    while (closed.length) {
+      const c = closed.pop();
+      if (find(`file:${c.path}`)) continue;
+      const t = await open(c.path, { preview: false });
+      if (t && c.view && editor && t.model && editor.getModel() === t.model) editor.restoreViewState(c.view);
+      return t;
+    }
+    return null;
+  }
+
+  /** The keyboard into what the open tab shows (nothing for a binary or too large file). */
+  function focusActive() {
+    if (!active) return;
+    if (active.kind === 'file' && active.model && editor) editor.focus();
+    else if (active.kind === 'file' && !active.note) text.focus();
+    else if (diff && !active.note) diff.getModifiedEditor().focus();
+  }
 
   // ---------- what the open tab shows ----------
   function hideAll() {
@@ -155,10 +284,12 @@ export function createTabs(wb) {
       host.classList.remove('hidden');
       const ed = codeEditor();
       ed.setModel(t.model);
+      ed.updateOptions({ wordWrap: wrapOf(t, editorPrefs().wordWrap) });
       if (t.view) ed.restoreViewState(t.view);
       if (focus) ed.focus();
     } else if (t.kind === 'file') {
       text.classList.remove('hidden');
+      text.wrap = wrapOf(t, editorPrefs().wordWrap) === 'on' ? 'soft' : 'off';
       text.value = t.text;
       if (focus && matchMedia('(pointer: fine)').matches) text.focus();
     } else {
@@ -167,7 +298,7 @@ export function createTabs(wb) {
       diffHost.classList.remove('hidden');
       const d = diffEditor();
       d.setModel({ original: t.original, modified: t.modified });
-      d.updateOptions({ readOnly: t.kind !== 'compare' });
+      d.updateOptions({ readOnly: t.kind !== 'compare', wordWrap: wrapOf(t, editorPrefs().wordWrap) });
     }
     paintStrip();
     wb.onActive(t, focus);
@@ -269,6 +400,8 @@ export function createTabs(wb) {
         if (t.preview) t.preview = false;
         paintStrip();
       });
+      // Tab size or tabs/spaces changed (Settings, the status bar): the status bar says it again.
+      t.model.onDidChangeOptions(() => t === active && wb.onCursor({}));
     } else {
       t.text = lf(r.text);
       t.savedText = t.text;
@@ -320,6 +453,11 @@ export function createTabs(wb) {
     for (const c of tabs.filter((x) => x.kind === 'compare' && x.file === t)) close(c, { ask: false });
     const i = tabs.indexOf(t);
     if (i < 0) return true;
+    if (t.kind === 'file' && !t.note) {
+      leave(t);
+      closed.push({ path: t.path, view: t.view });
+      if (closed.length > 20) closed.shift();
+    }
     detach(t);
     tabs.splice(i, 1);
     dispose(t);
@@ -379,13 +517,42 @@ export function createTabs(wb) {
       return !tabs.some(isDirty);
     },
     check: saving.check,
-    focus() {
-      if (!active) return;
-      if (active.kind === 'file' && active.model && editor) editor.focus();
-      else if (active.kind === 'file' && !active.note) text.focus();
-      else if (diff && !active.note) diff.getModifiedEditor().focus();
+    focus: () => focusActive(),
+    /** The Close Editor key: a pinned tab stays (closesBy). */
+    close: () => active && closesBy(active, 'key') && close(active),
+    closeMany,
+    reopen,
+    togglePin,
+    toggleWrap,
+    keep: () => active && pin(active),
+    step: (d) => {
+      const t = stepFrom(tabs, active, d);
+      if (t) show(t);
     },
-    close: () => active && close(active),
+    /** The open tab of file `path`, or null. */
+    fileTab: (path) => find(`file:${path}`) || null,
+    isDirty,
+    /**
+     * New text into a file tab as one edit (its undo takes it back), without saving. False for a tab that shows no
+     * text (binary, too large).
+     */
+    putText(t, v) {
+      if (t.note || t.binary) return false;
+      if (t.model) {
+        t.model.pushStackElement();
+        t.model.pushEditOperations([], [{ range: t.model.getFullModelRange(), text: v }], () => null);
+        t.model.pushStackElement();
+      } else {
+        t.text = lf(v);
+        if (t === active) text.value = t.text;
+        if (t.preview) t.preview = false;
+      }
+      paintStrip();
+      return true;
+    },
+    textOf: (t) => value(t),
+    /** Monaco formats this tab's language itself (format runs nothing else). */
+    canFormat: (t = active) => Boolean(t && t.model && FORMATS.has(t.model.getLanguageId())),
     refreshDiffs: diffs.refreshDiffs,
     renamed,
     removed,
@@ -415,6 +582,7 @@ export function createTabs(wb) {
       if (diff) diff.dispose();
       for (const t of tabs) dispose(t);
       tabs.length = 0;
+      active = null; // nothing reads a disposed model through it later
     },
     dirOf,
   };

@@ -1,0 +1,36 @@
+{
+  "name": "hoprig-skill",
+  "version": "0.3.3",
+  "description": "Puts the Hoprig skill into an AI coding tool's skills folder (Claude Code, the shared agents folder, or one project), with a record of what it wrote, so an edited copy is never overwritten.",
+  "keywords": [
+    "hoprig",
+    "agent-skills",
+    "skill",
+    "claude-code",
+    "opencode"
+  ],
+  "license": "Apache-2.0",
+  "author": "Kevin Pareek",
+  "homepage": "https://hoprig.com/skill/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/allswebtech/hoprig.git",
+    "directory": "packages/hoprig-skill"
+  },
+  "bugs": {
+    "url": "https://github.com/allswebtech/hoprig/issues"
+  },
+  "type": "module",
+  "bin": {
+    "hoprig-skill": "bin/hoprig-skill.mjs"
+  },
+  "engines": {
+    "node": ">=22.11"
+  },
+  "files": [
+    "bin",
+    "skill",
+    "README.md",
+    "LICENSE"
+  ]
+}

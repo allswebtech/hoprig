@@ -57,19 +57,81 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { hookSettingsDir, runsDir } from './paths.mjs';
+import { herMarkFile } from './hermark.mjs';
+import { hookSettingsDir, runsDir, stateDir } from './paths.mjs';
 import { stillOwned, system } from './procid.mjs';
 import { rememberUsage, usageForgotten } from './routerstate.mjs';
 import { changeRun, readRun, watchFile, writeRun as write } from './runfile.mjs';
+import { RUN_ID_RE } from './launchfile.mjs';
 
 export { readRun };
 
-/** `file`: the record of this launcher's previous run, written anew (its own move to another profile keeps it). */
-export function createRun({ profile, cwd, carryArgs = [], tool = 'claude', conversation = null, file: again = null }) {
-  const runId = again ? path.basename(again, '.json') : `${Date.now().toString(36)}-${process.pid}`;
+// Which provider each run of a conversation was on, until when: a record is written anew for another provider (the
+// launcher's own move: Auto mode in the terminal, its menu after a stop) or removed (its launcher ended: a move from
+// the dashboard restarts the terminal, and so does the owner who ends a session and resumes it on another provider).
+// One JSON line per run that left its provider, <state>/runs-ended.jsonl, the last day. The Operator's limit rule reads
+// it: it never moves a session back to a provider the session left within the hour, whoever moved it. A line is
+// appended in one write (two writers never mix theirs); a line that cannot be read is skipped.
+const ENDED_DAY = 24 * 3600_000;
+const ENDED_MAX_BYTES = 64 * 1024;
+const endedFile = () => path.join(stateDir(), 'runs-ended.jsonl');
+
+function noteEnded(run, at = Date.now()) {
+  try {
+    const conversation = run && (run.sessionId || run.conversation);
+    if (typeof conversation !== 'string' || !conversation || typeof run.profile !== 'string' || !run.profile) return;
+    fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
+    fs.appendFileSync(endedFile(), `${JSON.stringify({ conversation, tool: run.tool || 'claude', profile: run.profile, until: at })}\n`, { mode: 0o600 });
+    if (fs.statSync(endedFile()).size > ENDED_MAX_BYTES) {
+      const keep = ranBefore(at).map((r) => JSON.stringify(r)).join('\n');
+      const tmp = `${endedFile()}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, keep ? `${keep}\n` : '', { mode: 0o600 });
+      fs.renameSync(tmp, endedFile());
+    }
+  } catch {
+    /* never in the way of a run: a run that is not noted still ends */
+  }
+}
+
+/** The runs of the last day that left their provider: [{ conversation, tool, profile, until }] (a time later than `now` counts as now). */
+export function ranBefore(now = Date.now()) {
+  let text = '';
+  try {
+    text = fs.readFileSync(endedFile(), 'utf8');
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const l of text.split('\n')) {
+    if (!l) continue;
+    try {
+      const r = JSON.parse(l);
+      if (!r || typeof r.conversation !== 'string' || typeof r.profile !== 'string' || !Number.isFinite(r.until)) continue;
+      const until = Math.min(r.until, now);
+      if (now - until < ENDED_DAY) out.push({ conversation: r.conversation, tool: typeof r.tool === 'string' ? r.tool : 'claude', profile: r.profile, until });
+    } catch {
+      /* a line cut off: skipped */
+    }
+  }
+  return out;
+}
+
+/**
+ * `file`: the record of this launcher's previous run, written anew (its own move to another profile keeps it).
+ * `hand`: a move of the dashboard's (launchfile.mjs HAND): the record takes the run id the dashboard chose, unless a
+ * record of that id is there already, and the stops and the count of the run it came from, only when it starts on the
+ * conversation that move carries on.
+ */
+export function createRun({ profile, cwd, carryArgs = [], tool = 'claude', conversation = null, file: again = null, hand = null }) {
+  const given = !again && hand && typeof hand.runId === 'string' && RUN_ID_RE.test(hand.runId) && !fs.existsSync(path.join(runsDir(), `${hand.runId}.json`)) ? hand.runId : null;
+  const runId = again ? path.basename(again, '.json') : given || `${Date.now().toString(36)}-${process.pid}`;
   const file = again || path.join(runsDir(), `${runId}.json`);
   const now = Date.now();
   const before = again ? readRun(again) : null;
+  if (before && before.profile !== profile) noteEnded(before, now);
+  // The run the dashboard moved this session from, as the move read it from that one record (its stops, its count).
+  const c = given && conversation && hand.conversation === conversation && hand.carry && typeof hand.carry === 'object' ? hand.carry : null;
+  const was = before || (c ? { handsOffStop: c.stop, handsOffRow: c.row, handsOffDone: c.done } : null);
   const run = {
     runId,
     pid: process.pid,
@@ -89,6 +151,18 @@ export function createRun({ profile, cwd, carryArgs = [], tool = 'claude', conve
     startedAt: before && Number.isFinite(before.startedAt) ? before.startedAt : now,
     statusAt: now,
   };
+  // The same session goes on (a move to another provider): Hands-off's stops (a loop's, the hour's), its count and the
+  // answers the hour is counted from go on with it, so a move never answers again after a stop and never starts the
+  // hour's count at nothing. Its own switch is kept under the run id, which stays (handsoff.mjs); a move of the
+  // dashboard's keeps it under the id it chose for this record (server/deck.mjs).
+  if (was && (was.handsOffStop === 'loop' || was.handsOffStop === 'hour' || was.handsOffStop === 'reset')) run.handsOffStop = was.handsOffStop;
+  if (was && Number.isInteger(was.handsOffRow) && was.handsOffRow > 0) run.handsOffRow = was.handsOffRow;
+  if (was && Array.isArray(was.handsOffDone) && was.handsOffDone.length) run.handsOffDone = was.handsOffDone;
+  // A resumed run the dashboard could not carry Hands-off for (a restore after a reboot, a chat/terminal hand-off):
+  // it starts with its answers stopped, so it is the owner's until he turns it on, whatever the project's switch
+  // says. The wall still holds by the switch (hook.mjs preToolHold); the stop only ends the answers. Never on a
+  // relaunch of the same record (`again`), and never over a real carried stop.
+  if (!again && !run.handsOffStop && hand && hand.reset === true) run.handsOffStop = 'reset';
   fs.mkdirSync(runsDir(), { recursive: true, mode: 0o700 });
   write(file, run);
   return { file, run };
@@ -196,8 +270,10 @@ export function updateRun(file, patch) {
 }
 
 export function removeRun(file) {
-  // The settings Hoprig handed the run's coding tool (launch.mjs, a chat's: claude.mjs) go with its record.
-  for (const f of [file, usageFile(file), watchFile(file), `${file}.lock`, path.join(hookSettingsDir(), path.basename(file))]) {
+  noteEnded(readRun(file));
+  // The settings Hoprig handed the run's coding tool (launch.mjs, a chat's: claude.mjs) go with its record, and so
+  // does the mark that said the session was Tia's (hermark.mjs: the hold it fed must not outlive the session).
+  for (const f of [file, usageFile(file), watchFile(file), `${file}.lock`, path.join(hookSettingsDir(), path.basename(file)), herMarkFile(file)]) {
     try {
       fs.unlinkSync(f);
     } catch {
@@ -219,7 +295,10 @@ export function removeSettingsLeftovers() {
     return;
   }
   for (const n of names) {
-    if (!/^[A-Za-z0-9-]+\.json$/.test(n) || fs.existsSync(path.join(runsDir(), n))) continue;
+    // A handed settings file (<runId>.json) or the Tia mark beside it (<runId>.json.tia, hermark.mjs); both go when
+    // their run record is gone.
+    const record = n.endsWith('.tia') ? n.slice(0, -4) : n;
+    if (!/^[A-Za-z0-9-]+\.json$/.test(record) || fs.existsSync(path.join(runsDir(), record))) continue;
     try {
       fs.unlinkSync(path.join(hookSettingsDir(), n));
     } catch {
@@ -269,6 +348,9 @@ export function listRuns({ chats = false, usage: withUsage = true, ident = syste
       if (run || old) removeRun(file);
       continue;
     }
+    // A record's id is its file's name, whatever the file says: a command of the session can write its own record,
+    // and the owner's press on its page (server/handsoff.mjs) must not land on another session's switch.
+    run.runId = f.slice(0, -'.json'.length);
     if (!only || only(run)) read.push({ run, file });
   }
   const owned = stillOwned(read, ident); // all pids at once: on Windows asking the system takes most of a second

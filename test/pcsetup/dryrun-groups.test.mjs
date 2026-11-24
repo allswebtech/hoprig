@@ -139,11 +139,11 @@ test('hoprig workspace map --dry-run with groups: the map is not written; withou
 test('hoprig workspace restore --dry-run with groups: nothing cloned or linked; without it what is missing comes, and what was here is left alone', async (tc) => {
   const w = await dryWorld(tc, 'grestore', groups);
   const g = w.groups;
-  const r = await w.unchanged('workspace restore --dry-run', () => workspace(['restore', gh('brain'), '--dry-run']));
+  const r = await w.unchanged('workspace restore --dry-run', () => workspace(['restore', gh('brain'), '--with-projects', '--dry-run']));
   assert.equal(r.code, 0, r.text);
-  await w.unchanged('workspace restore --dry-run --json', () => workspace(['restore', gh('brain'), '--dry-run', '--json']));
+  await w.unchanged('workspace restore --dry-run --json', () => workspace(['restore', gh('brain'), '--with-projects', '--dry-run', '--json']));
   const acmeEnv = path.join(g.acme, 'code', 'acme-app', '.env');
-  const real = await w.changed('workspace restore --yes', () => workspace(['restore', gh('brain'), '--yes']));
+  const real = await w.changed('workspace restore --yes', () => workspace(['restore', gh('brain'), '--with-projects', '--yes']));
   assert.equal(real.r.code, 0, real.r.text);
   assert.ok(exists(path.join(g.clients, 'zeta', '.git')));
   assert.ok(exists(path.join(g.builds, 'widget', '.git')));

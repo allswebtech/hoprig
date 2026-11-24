@@ -1,7 +1,7 @@
 /* Styles of the projects pages only. Shared parts (sidebar, page head, list rows, folds, radio cards) live in style.css:
    use them first, and keep every class here prefixed so it cannot touch another page.
    pj-  Projects, a project's page, New project, Get an existing project (projects.js)
-   sk-  Skills (skillhub.js)
+   sk-  Skills (skillhub.js); lr-  Skills → Learned (skilllearned.js)
    ws-  Workspace (projects.js, workspace.js) and Workspace folders (brain.js); brain-  the AI brain page (brain.js)
    ns-  New session's choices on a phone (newsession-popup.js; the cards themselves are in style.css)
    map-  Settings → Workspace, the map (workspace.js); git-  Git and GitHub (gitsetup.js) */
@@ -77,6 +77,39 @@
 @media (max-width: 480px) {
       .sk-act { margin-left: 48px; }
   }
+
+/* ---------- Skills → Learned: a draft as a card ---------- */
+.lr-list { display: grid; gap: 14px; }
+.lr-card { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); min-width: 0; }
+.lr-head { display: flex; gap: 12px; align-items: flex-start; }
+.lr-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.lr-title h3 { margin: 0; font-size: var(--fs-lg); overflow-wrap: anywhere; }
+.lr-from, .lr-why { margin: 0; overflow-wrap: anywhere; }
+.lr-words { font-style: italic; }
+.lr-label { font-weight: 650; color: var(--text-2); }
+.lr-scan { margin: 0; }
+.lr-risky { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--danger-soft); color: var(--danger); }
+.lr-risky p { margin: 4px 0 0; color: var(--text); overflow-wrap: anywhere; }
+.lr-more > summary { cursor: pointer; font-weight: 650; padding: 4px 0; }
+.lr-more[open] > summary { margin-bottom: 6px; }
+.lr-findings { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.lr-excerpt { display: block; margin-top: 2px; padding: 4px 6px; border-radius: 6px; background: var(--surface-3); white-space: pre-wrap; }
+.lr-test { display: grid; gap: 6px; margin-top: 10px; }
+.lr-prompt { display: flex; gap: 6px; align-items: baseline; margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.lr-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lr-side { padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; min-width: 0; }
+.lr-side p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-sm); }
+.lr-with { border-color: var(--accent); }
+.lr-text { max-height: 360px; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lr-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.lr-actions .btn[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.lr-looking { display: flex; gap: 6px; align-items: center; margin: 0; color: var(--text-2); }
+.lr-off { align-items: center; flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .lr-sides { grid-template-columns: 1fr; }
+  .lr-card { padding: 12px; }
+  .lr-actions > .btn { flex: 1 1 auto; justify-content: center; }
+}
 
 /* ---------- Workspace: one card per project, its sessions under it ---------- */
 .ws-list { display: grid; gap: 18px; }
@@ -169,6 +202,64 @@
   .ns-tile { position: relative; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 0; padding: 10px 12px; }
   .ns-tile-icon { width: 30px; height: 30px; }
   .ns-tile-tick { position: absolute; top: 10px; right: 10px; }
-  /* "Open running session" says "Open" here (its label for a screen reader keeps all of it): the name keeps its room. */
-  .ns-open-what { display: none; }
 }
+
+/* ---------- New project: the brief and "Start with AI" (newproject.js) ---------- */
+.np-fields { display: grid; gap: 6px; margin-top: 8px; }
+.np-more:not([hidden]) { display: grid; gap: 14px; margin: 6px 0 10px; }
+.np-more .radiocards { margin-top: 2px; }
+.np-brief { min-height: 140px; resize: vertical; font: inherit; line-height: 1.45; }
+.np-hint { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.np-count { font-variant-numeric: tabular-nums; }
+.np-count.over { color: var(--danger); font-weight: 650; }
+.np-start { display: grid; gap: 10px; }
+.np-switch { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; line-height: 1.45; }
+.np-switch input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; }
+.np-choices > .fieldrow { margin-top: 0; }
+.np-failed, .np-later { display: grid; gap: 8px; justify-items: start; }
+.np-later > .hint { margin: 0; }
+/* Earlier conversations' Delete: a finger's size on a phone. */
+@media (max-width: 599px) { .pj-pastdel { width: 44px; min-height: 44px; } }
+/* Skills → proposals (skillproposals.js) */
+.pp-box { display: grid; gap: 10px; margin: 0 0 16px; }
+.pp-nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.pp-num { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; min-width: 0; }
+.pp-vals { display: flex; align-items: center; gap: 6px; font-size: var(--fs-lg); }
+.pp-up { color: var(--ok); }
+.pp-down { color: var(--danger); font-weight: 650; }
+.pp-nogain { grid-column: 1 / -1; margin: 0; color: var(--danger); }
+.pp-cost { grid-column: 1 / -1; margin: 0; }
+.pp-why { margin: 4px 0 0; padding-left: 18px; overflow-wrap: anywhere; }
+.pp-texts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pp-text { margin: 4px 0 0; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 var(--mono); }
+.pp-issue { max-height: 220px; }
+@media (max-width: 640px) { .pp-texts { grid-template-columns: 1fr; } }
+
+/* The workspace without a terminal (wsplaces.js): groups, which computer has what, the drop sheet's check and questions. */
+.ws-groups, .ws-computers { margin-top: 28px; }
+.ws-groups .btnrow { margin-top: 10px; }
+.ws-drop { display: grid; gap: 14px; }
+.ws-drop-lines, .ws-drop-items ul, .ws-q-list { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-sm); color: var(--text-2); overflow-wrap: anywhere; }
+.ws-q-files { margin: 2px 0 4px; padding-left: 16px; list-style: disc; }
+.ws-drop-lines li, .ws-drop-items li { margin: 2px 0; }
+.ws-qs { display: grid; gap: 12px; }
+.ws-q { border: 1px solid var(--border); border-radius: var(--r); padding: 10px 12px; margin: 0; min-width: 0; }
+.ws-q legend { font-weight: 600; padding: 0 4px; overflow-wrap: anywhere; }
+.ws-q .toggle-line { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; }
+.ws-q .toggle-line input { margin-top: 3px; flex: none; }
+.ws-q-choices { display: grid; gap: 2px; }
+.ws-q .fieldrow { display: grid; gap: 6px; }
+.badge.soft.warn { background: var(--warn-soft); color: var(--warn); }
+@media (pointer: coarse) { .ws-q .toggle-line { min-height: 44px; align-items: center; } }
+
+/* ---------- New session: the one line of the choices over the project list (newsession-popup.js) ---------- */
+.ns-choices { margin: 0 0 12px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.ns-choices-line { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 14px; list-style: none; cursor: pointer; }
+.ns-choices-line::-webkit-details-marker { display: none; }
+.ns-choices-what { flex: 1; min-width: 0; font-weight: 550; }
+.ns-choices-change { flex: none; color: var(--accent); font-weight: 600; }
+.ns-choices-line .icon { flex: none; color: var(--muted); transition: transform 0.15s; }
+.ns-choices[open] > .ns-choices-line .icon { transform: rotate(180deg); }
+.ns-choices-body { padding: 4px 14px 10px; border-top: 1px solid var(--border); }
+/* A project row's own action, in words: Start (a new session there); Continue beside it opens what runs. */
+.ns-startword { display: flex; align-items: center; gap: 4px; color: var(--accent); font-size: var(--fs-sm); font-weight: 600; }

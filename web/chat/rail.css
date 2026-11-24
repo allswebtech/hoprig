@@ -34,6 +34,9 @@
 .chat-rail-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; gap: 4px 10px; margin: 0; font-size: var(--fs-xs); }
 .chat-rail-rows dt { color: var(--muted); }
 .chat-rail-rows dd { margin: 0; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Who did what (parts.js): a part's tokens and its model wrap under its kind, never cut ("claude-sonnet-…"). */
+.chat-parts-rows { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
+.chat-parts-rows dd { white-space: normal; overflow: visible; overflow-wrap: anywhere; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
 /* Over .btn.small (its 30 px and 11 px padding would push the value off the column). */
 .btn.small.chat-rail-link { min-height: 22px; padding: 0 4px; margin: -2px 0 -2px -4px; gap: 4px; font-size: var(--fs-xs); font-weight: 600; max-width: 100%; justify-content: flex-start; }
 .chat-rail-files { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font: 11.5px var(--mono); color: var(--text-2); }
@@ -55,3 +58,5 @@ button.chat-rail-taskname:hover { text-decoration: underline; }
 @media (pointer: coarse) {
   .btn.small.chat-rail-link, .chat-rcard-count, .chat-rcard-fold > summary, .chat-rail-taskname, .chat-rail-task .chat-taskstop { min-height: 44px; }
 }
+/* The provider's plain words under its button: they wrap, the row's value does not. */
+.chat-rail-rows dd .chat-rail-said { display: block; margin: 2px 0 0; white-space: normal; }

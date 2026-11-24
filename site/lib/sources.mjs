@@ -31,8 +31,8 @@ const DOC_DESCRIPTIONS = {
   work: 'Your tasks and a Today screen in one file of your workspace, a coding session that does a task for you (Do it), and hoprig tasks in a terminal.',
   workspace: 'One folder tree on every computer, the map of every repository, restore and sync, and how the coding tools share one AI brain.',
   'computer-setup': 'Set up a computer for coding: the kits, projects with their own rules and memory, recipes for the next computer, and the status.',
-  computers: 'Several computers in one dashboard: which setup fits you, the direct link, SSH, the public link and a hub.',
-  hub: 'Put a hub on a server: one command, HTTPS by domain or IP address, its own certificate, Docker, and what it needs.',
+  computers: 'Several computers in one dashboard: which setup fits you, the direct link, SSH, the public link and a main computer on a server.',
+  hub: 'Put the main computer on a server: one command, HTTPS by domain or IP address, its own certificate, Docker, and what it needs.',
   skills: 'Suggest, find, review and install skills for your coding tools, with every file shown before it is added.',
   chat: 'A chat with Claude Code or OpenCode for every project: what you see, what you control, the OKs, and moving between a chat and a terminal.',
   'usage-limits': 'Providers, going on with the same session on another provider or Claude account at a limit, and Auto mode.',
@@ -48,7 +48,7 @@ const DOC_DESCRIPTIONS = {
 
 const read = (f) => fs.readFileSync(f, 'utf8');
 const firstParagraph = (md) => {
-  const para = md.replace(/^---[\s\S]*?---\n/, '').split(/\n\s*\n/).find((b) => b.trim() && !/^\s*(#|<|```|\||:::|!\[|- |\d+\. )/.test(b.trim()));
+  const para = md.replace(/^---[\s\S]*?---\n/, '').split(/\n\s*\n/).find((b) => b.trim() && !/^\s*(#|>|<|```|\||:::|!\[|- |\d+\. )/.test(b.trim()));
   return para ? plainText(para.replace(/\n/g, ' ')) : '';
 };
 export const describe = (md, max = 160) => {
@@ -102,7 +102,7 @@ function readmeSections(root) {
 
 /**
  * Every page as { url, file (the source, for "edit on GitHub"), kind, data, markdown, link }. `markdown` is the page's
- * source; `link` rewrites its links. Pages made from code (/tools/) are added by build.mjs.
+ * source; `link` rewrites its links. Pages made from code (/tools/) are added by pages.mjs.
  */
 export function collect(root) {
   const pages = [];

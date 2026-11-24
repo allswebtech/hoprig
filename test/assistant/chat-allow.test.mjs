@@ -13,6 +13,7 @@ import { CardStore } from '../../src/assistant/cards.mjs';
 import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { JobStore, planWakes } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
+import { fakeBin, fakeClaude } from '../setup/helpers.mjs';
 import { sandbox } from '../server/helpers.mjs';
 import { FakeOps, baseState, projectWork } from './fake-dashboard.mjs';
 
@@ -147,6 +148,9 @@ const until = async (what, fn, ms = 20_000) => {
 /** A test dashboard of its own (sandbox folders, built-in terminals, the stand-ins), Tia on at `level`. */
 async function dashboard(t, name, { level = 'handsoff', idleMs = 30_000 } = {}) {
   const box = sandbox(name);
+  // A claude stand-in first on PATH: the dashboard checks Claude Code's version and sign-in (resolveClaude -> which
+  // claude), so without it the owner's real Claude Code is read. The chat itself uses FAKE_CLAUDE below.
+  process.env.PATH = `${fakeBin(path.join(box.root, 'cbin'), { claude: fakeClaude({ loggedIn: false }) })}${path.delimiter}${process.env.PATH}`;
   // Tia allows herself nothing in a system folder (/tmp among them), so the project lies where a project may, by its
   // real path, as the chat's folder is.
   const work = projectWork(`hoprig-${name}-`);
@@ -174,7 +178,9 @@ async function dashboard(t, name, { level = 'handsoff', idleMs = 30_000 } = {}) 
   })).headers['set-cookie'][0].split(';')[0];
   const owner = (method, p, body) => request(base, method, p, { body, headers: { Cookie: login } });
   const cardOf = async (id) => (await owner('GET', '/api/state')).json.sessions.find((s) => s.name === `chat:${id}`);
-  const start = async (message = 'hello', folder = proj) => {
+  // Each start its own first message: the same start twice within two minutes is one start (core.mjs REPEATS).
+  let made = 0;
+  const start = async (message = `hello ${++made}`, folder = proj) => {
     const r = await call('start_chat', { folder, message });
     assert.equal(r.isError, false, r.text);
     const id = /Started chat chat:([0-9a-f-]{36})/.exec(r.text)[1];
@@ -310,7 +316,9 @@ test('in the real dashboard: her mark comes only from her own door, and goes whe
   const { createToken } = await import('../../src/machines/tokens.mjs');
   const { putMachine } = await import('../../src/machines/store.mjs');
   const { SELF_HEADER } = await import('../../src/machines/relay.mjs');
-  const hers = async (id) => (await cardOf(id)).byTia;
+  // Read from the App's own list of open chats: the page's list of sessions shows a conversation once, so a chat
+  // whose conversation a terminal runs has no card of its own there for that time.
+  const hers = async (id) => (await owner('GET', '/api/chats')).json.chats.find((c) => c.chatId === id).byTia;
   const { token, id: tokenId } = createToken('hub');
   const bearer = (method, p, body, extra = {}) => req(base, method, p, { body, headers: { Authorization: `Bearer ${token}`, ...extra } });
 

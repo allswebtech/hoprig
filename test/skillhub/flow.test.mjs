@@ -10,7 +10,7 @@ import { fakeUi, gitRepo, sandbox, skillMd, writeTree } from './helpers.mjs';
 const box = sandbox('skills-flow');
 test.after(() => box.cleanup());
 const hub = await import('../../src/skillhub/hub.mjs');
-const { MANIFEST, readManifest, safeName } = await import('../../src/skillhub/store.mjs');
+const { MANIFEST, readManifest, safeName, userRecordFile } = await import('../../src/skillhub/store.mjs');
 const { parseSpec } = await import('../../src/skillhub/source.mjs');
 const cli = await import('../../src/skillhub/cli.mjs');
 
@@ -53,7 +53,10 @@ test('add: quarantine first, the review shows everything, approve installs with 
   const m = readManifest(userSkills);
   assert.equal(m.skills.helper.source.commit, repo.head());
   assert.equal(Object.keys(m.skills.helper.files).length, 3);
-  assert.ok(fs.existsSync(path.join(userSkills, MANIFEST)));
+  // The record of the person's own skills is Hoprig's, in its state folder: never a file beside them (that folder is
+  // often the AI brain's, a git repository of the person's).
+  assert.ok(fs.existsSync(userRecordFile()));
+  assert.ok(!fs.existsSync(path.join(userSkills, MANIFEST)), 'no record beside the person\'s skills');
   assert.throws(() => hub.loadReview(review.id), /gone/);
   const listed = hub.installed({}).skills.find((s) => s.name === 'helper');
   assert.deepEqual([listed.managed, listed.edited], [true, []]);
@@ -175,12 +178,14 @@ test('--yes only for catalog entries at their reviewed commit: a git URL is refu
 test('the bundled hoprig skill: suggested first, added for the user by runSkillsStep --yes, no network', async () => {
   const project = writeTree(path.join(box.root, 'proj-step'), { 'README.md': 'x' });
   const dry = await hub.runSkillsStep({ ui: fakeUi(), project, dryRun: true });
-  assert.deepEqual(dry, { ok: true, added: [], skipped: [{ id: 'hoprig', why: 'dry run' }] });
+  assert.deepEqual(dry, { ok: true, added: [], skipped: [{ id: 'hoprig', why: 'dry run' }, { id: 'adopt-projects', why: 'dry run' }, { id: 'plan-work', why: 'dry run' }] });
   assert.equal(fs.existsSync(path.join(userSkills, 'hoprig')), false);
   const ui = fakeUi();
   const r = await hub.runSkillsStep({ ui, project, yes: true });
-  assert.deepEqual(r, { ok: true, added: ['hoprig'], skipped: [] });
+  assert.deepEqual(r, { ok: true, added: ['hoprig', 'adopt-projects', 'plan-work'], skipped: [] });
   assert.ok(fs.existsSync(path.join(userSkills, 'hoprig', 'SKILL.md')));
+  // plan-work is copied exactly as it ships.
+  assert.equal(fs.readFileSync(path.join(userSkills, 'plan-work', 'SKILL.md'), 'utf8'), fs.readFileSync(new URL('../../skills/plan-work/SKILL.md', import.meta.url), 'utf8'));
   const rec = readManifest(userSkills).skills.hoprig;
   assert.equal(rec.source.type, 'bundled');
   assert.match(rec.source.version, /^\d+\.\d+\.\d+/);
@@ -198,4 +203,21 @@ test('the bundled hoprig skill: suggested first, added for the user by runSkills
   assert.deepEqual(r2.added, []);
   assert.equal(asked.asked.length, 1);
   noMarker();
+});
+
+test('a bundled skill is copied into its review folder whole: every file, its content and its mode', async () => {
+  // The copy from the installed package (src/copytree.mjs, as fs.cpSync({ recursive, verbatimSymlinks }) did).
+  const { bundledDir, catalogEntry } = await import('../../src/skillhub/catalog.mjs');
+  const from = bundledDir(catalogEntry('plan-work'));
+  const review = await hub.prepare('plan-work');
+  try {
+    const list = (d) => fs.readdirSync(d, { recursive: true }).map(String).filter((r) => fs.lstatSync(path.join(d, r)).isFile()).sort();
+    assert.deepEqual(list(review.folder), list(from));
+    for (const r of list(from)) {
+      assert.ok(fs.readFileSync(path.join(review.folder, r)).equals(fs.readFileSync(path.join(from, r))), r);
+      assert.equal(fs.statSync(path.join(review.folder, r)).mode & 0o777, fs.statSync(path.join(from, r)).mode & 0o777, r);
+    }
+  } finally {
+    hub.cancel(review.id);
+  }
 });

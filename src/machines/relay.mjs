@@ -12,6 +12,10 @@ const PASS_REQ = ['content-type', 'content-length', 'x-file-name', 'accept'];
 // Set by the hub (never passed on from a browser): the request is the hub's own, from Tia's door, not a page's. The
 // other computer trusts it only with the hub's token (src/chat/feature.mjs: only her requests mark a chat hers).
 export const SELF_HEADER = 'x-hoprig-self';
+// Set by the hub (never passed on from a browser) on a request that came from its own signed-in page, from its own
+// origin, and not from Tia's door. The other computer accepts the owner's own acts (a drop, a group of the map) by a
+// token only with this mark, and only from a hub it joined itself (src/workspace/whomay.mjs).
+export const OWNER_PAGE_HEADER = 'x-hoprig-owner-page';
 // Response headers worth passing back. Set-Cookie and the other side's security headers are dropped (the hub
 // sets its own).
 const PASS_RES = ['content-type', 'content-length', 'cache-control', 'retry-after', 'content-disposition', 'last-modified', 'etag'];
@@ -28,7 +32,7 @@ const pick = (headers, names) => {
 const mod = (ep) => (ep.protocol === 'https:' ? https : http);
 
 export class RelayError extends Error {
-  /** code: offline | timeout | not-authorised | too-old | bad-answer */
+  /** code: offline | timeout | computer-not-allowed | too-old | bad-answer | hostkey (a kept host key that no longer matches) */
   constructor(code, message, status) {
     super(message);
     this.code = code;
@@ -36,7 +40,10 @@ export class RelayError extends Error {
   }
 }
 
-const STATUS = { offline: 502, timeout: 504, 'not-authorised': 403, 'too-old': 502, 'bad-answer': 502 };
+/** The codes of "no longer lets this dashboard in": the old build's and this one's. */
+export const NOT_ALLOWED = new Set(['computer-not-allowed', 'not-authorised']);
+
+const STATUS = { offline: 502, timeout: 504, 'computer-not-allowed': 403, 'too-old': 502, 'bad-answer': 502, hostkey: 502 };
 
 /** The error a page gets: never 401 (that would mean "your login on the hub expired"). */
 export function errorBody(machine, e) {
@@ -63,7 +70,12 @@ export function netError(machine, e) {
  */
 export function classifyRefusal(machine, status, json) {
   if (status === 401 && json && json.code === 'token') {
-    return new RelayError('not-authorised', `${machine} no longer lets this dashboard in (it was revoked there). Allow it again in Settings → Computers.`);
+    return new RelayError('computer-not-allowed', `${machine} no longer lets this dashboard in. Add it again here: Computers → Add a computer.`);
+  }
+  // A computer that relays for another (a main computer on an older build) names the same refusal by its old code,
+  // not-authorised; the new one says computer-not-allowed. Both are the one state: the computer no longer lets us in.
+  if (status === 403 && json && NOT_ALLOWED.has(json.code)) {
+    return new RelayError('computer-not-allowed', `${machine} no longer lets this dashboard in. Add it again here: Computers → Add a computer.`);
   }
   if (status === 403 && json && json.code === 'token-forbidden') return new RelayError('bad-answer', `${machine} does not allow that from another dashboard.`, 403);
   if (status === 401 || (status === 403 && json && json.error === 'cross-site request refused')) {

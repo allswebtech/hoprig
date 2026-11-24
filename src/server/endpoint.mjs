@@ -14,7 +14,9 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 export const scrub = (s, ...secrets) => {
   let out = String(s || '');
   for (const x of secrets) if (x && x.length >= 6) out = out.split(x).join('***');
-  return out.replace(/sk-ant-[A-Za-z0-9_-]{8,}/g, '***').replace(/Bearer\s+\S+/gi, 'Bearer ***').slice(0, 300);
+  // A name and password in an address (scheme://name:password@host) are cut too, up to the last "@" before the host:
+  // a password may hold a raw "@" of its own.
+  return out.replace(/sk-ant-[A-Za-z0-9_-]{8,}/g, '***').replace(/Bearer\s+\S+/gi, 'Bearer ***').replace(/(\/\/)[^\s/"'<>]+@/g, '$1***@').slice(0, 300);
 };
 
 /** Read at most BODY_CAP bytes of a response as text. */

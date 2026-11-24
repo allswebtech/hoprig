@@ -1,0 +1,23 @@
+/* Home's own styles (home.js, homefold.js, closesheet.js). */
+
+/* The fold of the sessions that have waited for more than 6 hours: one line, Show and End them… beside it. */
+.home-fold { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 12px; padding: 10px 12px; border-radius: var(--r); background: var(--surface); border: 1px dashed var(--border-strong); }
+/* Scrolled to, the line stays below the sticky page head (style.css .pagehead), as a panel does. */
+.home-fold { scroll-margin-top: calc(88px + env(safe-area-inset-top)); }
+/* On a phone the head's hint takes a second line (115 px measured at 390 px). */
+@media (max-width: 600px) { .home-fold { scroll-margin-top: calc(132px + env(safe-area-inset-top)); } }
+.home-fold-line { flex: 1 1 240px; display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text-2); font-size: var(--fs-sm); }
+.home-fold-line .icon { color: var(--muted); flex: none; }
+.home-fold-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.home-fold-cards { margin-top: 12px; }
+.home-fold-cards[hidden] { display: none; }
+
+/* The sheet "End them…": a tick per session, its title, computer and how long it has waited. */
+.close-list { display: grid; gap: 6px; margin: 4px 0 10px; }
+.close-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: var(--r); border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
+.close-row input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+.close-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.close-row-title { font-size: 13.5px; font-weight: 550; overflow-wrap: anywhere; }
+.close-row-sub { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.close-result { margin: 4px 0 10px; }
+.close-result ul { margin: 6px 0 0; padding-left: 20px; }

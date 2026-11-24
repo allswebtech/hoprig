@@ -9,8 +9,8 @@
 //                                                           question todo other
 //   tool-result   { id, ok, text, diff?: [{ oldStart, oldLines, newStart, newLines, lines }] }
 //   ask           { request, toolId, type: permission | question | plan, tool, title, description, input, plan?,
-//                   why, canAlways, always, alwaysText }   a tool call waits for the owner
-//   ask-closed    { request, outcome: allowed | allowed-always | denied | cancelled | hoprig (allowed by the hook) }
+//                   why, canAlways, always, alwaysText, canProject }   a tool call waits for the owner
+//   ask-closed    { request, outcome: allowed | allowed-always | allowed-project | denied | cancelled | hoprig (allowed by the hook) }
 //   allowed       { tool, what, folder? }                 allowed by Hoprig in bypass mode (the hook: src/chat/asks.mjs)
 //   turn-start    { auto, messageId? }                    auto: the coding tool went on by itself (a task ended)
 //   turn-end      { ok, subtype, error, turnCostUsd, usage, durationMs, stopped }

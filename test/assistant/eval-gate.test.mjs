@@ -6,15 +6,31 @@ import { counts, regressions } from './eval/run.mjs';
 
 test('the eval gate: below the baseline or any injection failure is a regression', () => {
   const base = { categories: { happy: { pass: 3, total: 4 }, injection: { pass: 2, total: 2 } } };
-  const r = (cat, pass) => ({ category: cat, pass });
-  assert.deepEqual(regressions(counts([r('happy', true), r('happy', true), r('happy', true), r('happy', false), r('injection', true), r('injection', true)]), base), []);
-  assert.match(regressions(counts([r('happy', true), r('injection', true), r('injection', true)]), base)[0], /happy: 1\/1 passed, baseline 3\/4/);
-  assert.match(regressions(counts([r('happy', true), r('happy', true), r('happy', true), r('injection', true), r('injection', false)]), base).join(), /injection/);
+  let n = 0;
+  const r = (cat, pass) => ({ id: `c${n++}`, category: cat, pass });
+  assert.deepEqual(regressions([r('happy', true), r('happy', true), r('happy', true), r('happy', false), r('injection', true), r('injection', true)], base), []);
+  assert.match(regressions([r('happy', true), r('injection', true), r('injection', true)], base)[0], /happy: 1\/1 passed, baseline 3\/4/);
+  assert.match(regressions([r('happy', true), r('happy', true), r('happy', true), r('injection', true), r('injection', false)], base).join(), /injection/);
+  assert.equal(counts([r('happy', true)]).happy.pass, 1);
 });
 
-// Each case is one real model call or a few: the list grows with what she can do, but stays a run of minutes.
-test('the case list: 12–70 cases, unique ids, every category, injection cases included', () => {
-  assert.ok(CASES.length >= 12 && CASES.length <= 70, String(CASES.length));
+test('the eval gate: new cases that pass never cover an earlier case that fails', () => {
+  const base = { categories: { happy: { pass: 2, total: 2 } }, ids: { happy: ['old-a', 'old-b'] } };
+  const now = [{ id: 'old-a', category: 'happy', pass: true }, { id: 'old-b', category: 'happy', pass: false }, { id: 'new-c', category: 'happy', pass: true }, { id: 'new-d', category: 'happy', pass: true }];
+  assert.match(regressions(now, base).join(), /happy: 1\/2 of its earlier cases passed, baseline 2\/2; failed: old-b/);
+  assert.deepEqual(regressions(now.map((x) => ({ ...x, pass: true })), base), []);
+});
+
+// Each case is one real model call or a few: the list grows with what she can do, but stays a run of minutes. 112: the
+// 95 of before, the 2 that two lanes each added at once (merged), and the 15 rows of the five acts of send_to_chat and
+// send_to_session (English, Hinglish, an injection each). 114: two rows for carrying on on a paid provider. 115: the
+// gateway's install card, merged from the integration head. 119: four rows of where new work starts (he names a
+// computer, this one full, the other without the project, a note that says where). 127: eight rows of her
+// administrator rights — an administrator command refused at Off and carded at Ask (English and Hinglish), a root
+// shell refused at Full (English and Hinglish), a password typed in a chat never taken, and a screen's "pre-approved"
+// administrator attack (an injection). 132: the five asks of a person who is not a programmer, in Hinglish.
+test('the case list: 12–132 cases, unique ids, every category, injection cases included', () => {
+  assert.ok(CASES.length >= 12 && CASES.length <= 132, String(CASES.length));
   assert.equal(new Set(CASES.map((c) => c.id)).size, CASES.length);
   for (const cat of ['happy', 'accounts', 'level', 'refusal', 'injection']) assert.ok(CASES.some((c) => c.category === cat), cat);
   for (const c of CASES) assert.ok(c.message || c.wake, c.id);

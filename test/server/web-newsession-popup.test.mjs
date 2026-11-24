@@ -154,6 +154,8 @@ const tile = (n, id) => find(n, (x) => x.attrs['data-choice'] === id);
 const off = (el) => el.disabled === true || (el.disabled === undefined && 'disabled' in el.attrs);
 const settle = () => new Promise((r) => realTimeout(r, 30));
 
+const S = await import('../../web/newsession-start.js');
+
 test('App or Terminal: this browser\'s last choice, the App the very first time', () => {
   assert.equal(C.openAsDefault(undefined), 'app');
   assert.equal(C.openAsDefault('terminal'), 'terminal');
@@ -172,7 +174,7 @@ test('App or Terminal: this browser\'s last choice, the App the very first time'
 test('a coding tool that is not ready says what is missing, links there, and is no choice', () => {
   assert.deepEqual(C.toolState({ managed: true, installed: null, on: true, providers: ['k'] }), { ready: false, why: 'Not installed', fix: 'install it in Settings', href: '#/settings/codingtools' });
   assert.deepEqual(C.toolState({ managed: true, installed: '1', on: false, providers: ['k'] }, 'laptop'), { ready: false, why: 'Turned off', fix: 'turn it on in Settings', href: '#/m/laptop/settings/codingtools' });
-  assert.deepEqual(C.toolState({ on: true, providers: [] }), { ready: false, why: 'No provider serves it yet', fix: 'add one', href: '#/providers' });
+  assert.deepEqual(C.toolState({ on: true, providers: [] }), { ready: false, why: 'Needs a provider first', fix: 'Add provider', href: '#/providers', button: true });
   assert.deepEqual(C.toolState({ on: true, providers: ['k'] }), { ready: true });
   assert.deepEqual(C.toolState({ id: 'claude', name: 'Claude Code' }), { ready: true }, 'an older computer\'s list: what a chat runs is ready');
   const left = [];
@@ -269,13 +271,13 @@ test('a tap on a project where a session runs starts a new session with the choi
   await done;
 });
 
-test('the "Open running session" button beside the row opens what runs there, and starts nothing', async () => {
+test('the "Continue" button beside the row opens what runs there, and starts nothing', async () => {
   const { sheet, done } = await openWithRunning();
   const open = find(sheet, (x) => x.attrs['data-open'] === 'api');
   assert.ok(open, 'its own button');
   assert.equal(open.tag, 'button');
-  assert.match(text(open), /Open running session/);
-  assert.equal(open.attrs['aria-label'], 'Open the session running in api', 'a label for screen readers');
+  assert.match(text(open), /Continue/);
+  assert.equal(open.attrs['aria-label'], 'Continue the session running in api', 'a label for screen readers');
   assert.equal(find(sheet, (x) => x.attrs['data-open'] === 'shop'), undefined, 'none where nothing runs');
   calls.length = 0;
   open.fire('click');
@@ -485,7 +487,6 @@ test('the focus keeps its control while the coding tools arrive late, and never 
 });
 
 // ---------- what a start sends ----------
-const S = await import('../../web/newsession-start.js');
 const pcHere = { machine: null, recommended: 'max', recommendedIn: {}, toolDefaults: {}, profiles: [{ name: 'max', tools: ['claude'] }, { name: 'key', tools: ['claude', 'opencode'] }] };
 async function sent(way, st, info = null) {
   calls.length = 0;
@@ -512,4 +513,127 @@ test('"Continue the last one": the App and another tool continue the newest conv
   assert.deepEqual(term.posts, [['/api/sessions', { dir: '/w/shop', mode: 'continue', sessionId: null, permissionMode: null, effort: null, model: null }]]);
   const oc = await sent('claude', { tool: 'opencode', conversation: 'continue' }, { id: 'opencode', modes: ['manual'] });
   assert.deepEqual(oc.posts, [['/api/sessions', { tool: 'opencode', dir: '/w/shop', mode: 'resume', sessionId: 'o1', permissionMode: 'ask', effort: null }]]);
+});
+
+test('Lead: drawn as a start in the project would take it, and left as it is nothing of it is sent', async () => {
+  // Settings has Lead on with a tick on "key"; the project's last chat ran on "key" with Lead off.
+  const keep = { settings: answers['/api/settings'], sessions: answers['/api/folders/sessions'] };
+  answers['/api/settings'] = { sessionDefaults: { lead: true, others: ['key'] } };
+  answers['/api/folders/sessions'] = { sessions: [{ id: 'c1', at: 1000, title: 'y' }] };
+  answers['/api/chats/lead'] = (q) => (q.get('dir') === '/w/shop' ? { profile: 'key', lead: false, others: [] } : { __status: 400 });
+  try {
+    localStorage.removeItem('pref:new.openAs');
+    const done = P.openNewSession({ m: null, project: { path: '/w/shop', name: 'shop', short: '~/shop' } });
+    await settle();
+    const sheet = body.children.find((x) => x.tag === 'dialog');
+    assert.ok(calls.some(([m, p]) => m === 'GET' && p === '/api/chats/lead'), 'asked what a start there takes');
+    const lead = () => find(sheet, (x) => x.tag === 'input' && x.attrs['data-key'] === 'lead');
+    assert.ok(lead(), 'the switch is drawn');
+    assert.equal('checked' in lead().attrs || lead().checked === true, false, 'off, as the project\'s last chat, not Settings\' on');
+    calls.length = 0;
+    find(sheet, (x) => x.attrs['data-start'] === '1').fire('click');
+    await settle();
+    const post = calls.find(([m, p]) => m === 'POST' && p === '/api/chats');
+    assert.ok(post, 'started');
+    assert.equal('lead' in post[2] || 'others' in post[2], false, `left as it is, the server decides: ${JSON.stringify(post[2])}`);
+    sheet.close();
+    await done;
+  } finally {
+    answers['/api/settings'] = keep.settings;
+    answers['/api/folders/sessions'] = keep.sessions;
+    delete answers['/api/chats/lead'];
+  }
+});
+
+test('Lead: the ticks are drawn for the provider the folder runs on, not the computer\'s recommended one, and never offer it', async () => {
+  // The computer recommends "max"; a start in shop runs on "key" (its last chat), with "max" ticked.
+  const keep = { settings: answers['/api/settings'], sessions: answers['/api/folders/sessions'] };
+  answers['/api/settings'] = { sessionDefaults: { lead: true, others: ['max'] } };
+  answers['/api/folders/sessions'] = { sessions: [{ id: 'c1', at: 1000, title: 'y' }] };
+  answers['/api/chats/lead'] = (q) => (q.get('dir') === '/w/shop' ? { profile: 'key', lead: true, others: ['max'] } : { __status: 400 });
+  answers['/api/models/others'] = (q) => ({ providers: q.get('provider') === 'key'
+    ? [{ name: 'max', label: 'Claude Max', tools: ['claude'], kind: 'login' }]
+    : [{ name: 'key', label: 'Key', tools: ['claude'], kind: 'api' }] });
+  answers['/api/models/lead'] = { line: 'Fast: a · Strong: b · Strongest: c' };
+  try {
+    localStorage.removeItem('pref:new.openAs');
+    const done = P.openNewSession({ m: null, project: { path: '/w/shop', name: 'shop', short: '~/shop' } });
+    await settle();
+    await settle();
+    const sheet = body.children.find((x) => x.tag === 'dialog');
+    const asked = calls.filter(([m, p]) => m === 'GET' && p === '/api/models/others').map(([, , , q]) => q);
+    const others = find(sheet, (x) => x.tag === 'input' && x.attrs['data-key'] === 'lead-others');
+    assert.ok(others, 'Use other providers is drawn');
+    assert.equal('checked' in others.attrs || others.checked === true, true, 'on: the folder\'s start has a tick');
+    const maxTick = find(sheet, (x) => x.tag === 'input' && x.attrs['data-key'] === 'tick-max');
+    assert.ok(maxTick, `a box for max, the folder's tick (asked: ${JSON.stringify(asked)})`);
+    assert.equal('checked' in maxTick.attrs || maxTick.checked === true, true, 'max is ticked');
+    assert.equal(find(sheet, (x) => x.tag === 'input' && x.attrs['data-key'] === 'tick-key'), undefined, 'the folder\'s own provider is not offered');
+    sheet.close();
+    await done;
+  } finally {
+    answers['/api/settings'] = keep.settings;
+    answers['/api/folders/sessions'] = keep.sessions;
+    for (const k of ['/api/chats/lead', '/api/models/others', '/api/models/lead']) delete answers[k];
+  }
+});
+
+test('Lead changed in the sheet is sent as shown; left as it is, not at all', async () => {
+  const untouched = await sent('chat', { tool: 'claude', lead: true, others: ['key'] });
+  assert.equal(untouched.posts.length, 1);
+  assert.equal('lead' in untouched.posts[0][1] || 'others' in untouched.posts[0][1], false, JSON.stringify(untouched.posts[0][1]));
+  const touched = await sent('chat', { tool: 'claude', lead: true, others: ['key'], leadTouched: true });
+  assert.deepEqual([touched.posts[0][1].lead, touched.posts[0][1].others], [true, ['key']]);
+  const off = await sent('chat', { tool: 'claude', lead: false, others: ['key'], leadTouched: true });
+  assert.deepEqual([off.posts[0][1].lead, 'others' in off.posts[0][1]], [false, false]);
+});
+
+test('another computer chosen: Lead and its ticks changed on the first are not sent to it', async () => {
+  const keep = answers['/api/settings'];
+  answers['/api/settings'] = { sessionDefaults: { lead: false, others: ['key'] } };
+  answers['/m/box2/api/chats'] = { id: 'box2-chat' };
+  try {
+    localStorage.removeItem('pref:new.openAs');
+    location.hash = '#/';
+    const done = P.openNewSession({ m: null });
+    await settle();
+    const sheet = body.children.find((x) => x.tag === 'dialog');
+    const lead = find(sheet, (x) => x.tag === 'input' && x.attrs['data-key'] === 'lead');
+    lead.checked = true;
+    lead.fire('change'); // turned on here, on this computer
+    find(sheet, (x) => x.tag === 'button' && x.attrs['data-choice'] === 'box2').fire('click');
+    await settle();
+    calls.length = 0;
+    find(sheet, (x) => x.tag === 'button' && x.attrs['data-name'] === 'site').fire('click');
+    await settle();
+    const post = calls.find(([m, p]) => m === 'POST' && p === '/m/box2/api/chats');
+    assert.ok(post, 'started on box2');
+    assert.equal('lead' in post[2] || 'others' in post[2], false, `box2 decides by its own Settings: ${JSON.stringify(post[2])}`);
+    sheet.close();
+    await done;
+  } finally {
+    answers['/api/settings'] = keep;
+    delete answers['/m/box2/api/chats'];
+  }
+});
+
+test('Also open comes before the project rows, which start the session at a tap', async () => {
+  localStorage.removeItem('pref:new.openAs');
+  location.hash = '#/';
+  answers['/api/folders/extras'] = { project: null, needs: [], choices: ['blog', 'shop'] };
+  try {
+    const done = P.openNewSession({ m: null });
+    await settle();
+    const sheet = body.children.find((x) => x.tag === 'dialog');
+    const order = all(sheet).filter((x) => x instanceof FakeElement);
+    const also = order.findIndex((x) => x.attrs['data-key'] === 'also:blog');
+    const row = order.findIndex((x) => x.tag === 'button' && x.attrs['data-name'] === 'shop');
+    assert.ok(also >= 0, 'a tick for blog');
+    assert.ok(row >= 0, 'the row of shop');
+    assert.ok(also < row, 'the ticks come before the first row that starts a session');
+    sheet.close();
+    await done;
+  } finally {
+    delete answers['/api/folders/extras'];
+  }
 });

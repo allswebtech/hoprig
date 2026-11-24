@@ -102,3 +102,70 @@ test('the new files\' lines are counted up to a few megabytes in all: a folder o
   assert.equal(r.added, 4 * 524288, 'four of them fit in the 4 MiB the card reads; the rest add no lines');
   assert.deepEqual(r.list.map((x) => x.added), [524288, 524288, 524288, 524288, 0, 0]);
 });
+
+test('the diff pane\'s file: git\'s hunks of a changed file, a new file as added lines, and nothing outside the folder\'s changes', { skip: process.platform === 'win32' && 'POSIX paths' }, async () => {
+  const { fileDiff, changedPath, parseUnified } = await import('../../src/chat/changes.mjs');
+  const dir = path.join(box.root, 'pane');
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+  git(dir, 'init', '-q');
+  fs.writeFileSync(path.join(dir, 'src', 'cart.js'), Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n') + '\n');
+  fs.writeFileSync(path.join(dir, 'same.txt'), 'x\n');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'one');
+  const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+  lines[9] = 'line ten';
+  fs.writeFileSync(path.join(dir, 'src', 'cart.js'), lines.join('\n') + '\n');
+  fs.writeFileSync(path.join(dir, 'new [1].md'), 'a\nb\n'); // a name with glob characters is read as it is written
+  const d = await fileDiff(dir, 'src/cart.js');
+  assert.deepEqual([d.path, d.new, d.binary, d.cut], ['src/cart.js', false, false, false]);
+  assert.equal(d.hunks.length, 1);
+  assert.deepEqual([d.hunks[0].oldStart, d.hunks[0].newStart], [7, 7], 'the numbers are the file\'s own');
+  assert.deepEqual(d.hunks[0].lines.filter((l) => l[0] !== ' '), ['-line 10', '+line ten']);
+  const n = await fileDiff(dir, 'new [1].md');
+  assert.deepEqual([n.new, n.hunks[0].newStart, n.hunks[0].lines], [true, 1, ['+a', '+b']]);
+  assert.equal(await fileDiff(dir, 'same.txt'), null, 'a file without a change has no diff');
+  assert.equal(await fileDiff(dir, 'missing.txt'), null);
+  for (const bad of ['../outside', '/etc/passwd', 'src/../same.txt', 'a\\b', '', 'x\ny', null]) assert.equal(changedPath(bad), null, String(bad));
+  assert.equal(await fileDiff(dir, '../pane/src/cart.js'), null, 'a way out of the folder is refused before git is asked');
+  const big = parseUnified(['@@ -1,3 +1,3 @@', ' a', '-b', '+c'].join('\n'), 2);
+  assert.deepEqual([big.cut, big.hunks[0].lines], [true, [' a', '-b']], 'a very long diff is cut, and says so');
+});
+
+test('a moved file: its old and its new name are each a real path the diff pane opens', { skip: process.platform === 'win32' && 'POSIX paths' }, async () => {
+  const { fileDiff } = await import('../../src/chat/changes.mjs');
+  const dir = path.join(box.root, 'moved');
+  fs.mkdirSync(dir);
+  git(dir, 'init', '-q');
+  fs.writeFileSync(path.join(dir, 'old.js'), 'a\nb\n');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'one');
+  git(dir, 'mv', 'old.js', 'new.js');
+  const r = await folderChanges(dir);
+  assert.deepEqual(r.list.map((x) => [x.path, x.added, x.removed]), [['new.js', 2, 0], ['old.js', 0, 2]], 'no "old.js => new.js"');
+  for (const x of r.list) assert.ok(await fileDiff(dir, x.path), `${x.path} opens`);
+  assert.deepEqual((await fileDiff(dir, 'old.js')).hunks[0].lines, ['-a', '-b']);
+});
+
+test('a private folder is never in the diff pane, as in the editor: not listed, its diff refused, nor git\'s own folder', { skip: process.platform === 'win32' && 'POSIX paths' }, async () => {
+  const { fileDiff, changedPath } = await import('../../src/chat/changes.mjs');
+  const { PRIVATE_DIRS } = await import('../../src/editor/paths.mjs');
+  const priv = PRIVATE_DIRS[0];
+  const dir = path.join(box.root, 'private');
+  fs.mkdirSync(path.join(dir, priv), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'docs', priv), { recursive: true });
+  git(dir, 'init', '-q');
+  fs.writeFileSync(path.join(dir, priv, 'notes.md'), 'private\n'); // tracked in git by design
+  fs.writeFileSync(path.join(dir, 'open.md'), 'one\n');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'one');
+  fs.writeFileSync(path.join(dir, priv, 'notes.md'), 'private changed\n');
+  fs.writeFileSync(path.join(dir, 'docs', priv, 'new.md'), 'also private\n');
+  fs.writeFileSync(path.join(dir, 'open.md'), 'two\n');
+  const r = await folderChanges(dir);
+  assert.deepEqual(r.list.map((x) => x.path), ['open.md']);
+  assert.deepEqual([r.files, r.added, r.removed, r.untracked], [1, 1, 1, 0], 'nor counted');
+  assert.equal(await fileDiff(dir, `${priv}/notes.md`), null);
+  assert.equal(await fileDiff(dir, `docs/${priv}/new.md`), null);
+  for (const p of [`${priv}/notes.md`, `a/${priv}/b`, '.git/config', 'sub/.git/HEAD']) assert.equal(changedPath(p), null, p);
+  assert.ok(await fileDiff(dir, 'open.md'));
+});

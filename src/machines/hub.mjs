@@ -4,14 +4,23 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config.mjs';
-import { dashboardUrl, label as cleanLabel, machineName, slug, sshHost, sshTarget, tokenName, uniqueSlug } from './names.mjs';
+import { MACHINE_RE, dashboardUrl, label as cleanLabel, machineName, slug, sshHost, sshTarget, tokenName, uniqueSlug } from './names.mjs';
 import { API_VERSION, normalizeCode } from './pairing.mjs';
-import { RelayError, callJson } from './relay.mjs';
-import { installHint, installOverSsh, installSource, pairOverSsh, revokeOverSsh } from './ssh.mjs';
+import { NOT_ALLOWED, RelayError, callJson } from './relay.mjs';
+import { installHint, installOverSsh, installSource, pairOverSsh, remoteUid, revokeOverSsh, runHoprig } from './ssh.mjs';
+import { ROOT_LOGIN_WHY, USER_NAME_RE, stayRootChoice } from '../setup/rootfacts.mjs';
+import { withUser } from './movehub.mjs';
 import { getMachine, loadMachines, publicMachine, putMachine, removeMachine, renameMachine, saveMachines } from './store.mjs';
 import { Tunnels } from './tunnels.mjs';
+
+// The other computer's label in the workspace, as it said (an answer from another computer: checked here, kept only
+// when it is a label). Absent, never null, so an older computer's entry is not written again for it.
+export const workspaceOf = (j) => (j && typeof j.workspace === 'string' && MACHINE_RE.test(j.workspace) ? { workspace: j.workspace } : {});
 import { legEncrypted } from './legs.mjs';
+import { dropKey, moveKey, sshExtraOf } from './keys.mjs';
+import { hostKeyRefused } from './hostkeys.mjs';
 import { hostName } from '../paths.mjs';
+import { pickHealth } from './health.mjs';
 
 export class HubError extends Error {
   constructor(status, message, extra = {}) {
@@ -64,7 +73,7 @@ const settle = (p, ms, onTimeout) =>
  * @param {number}  [o.probeTimeoutMs]  per machine, for the list and the sessions of all machines
  * @param {number}  [o.tunnelWaitMs]    how long a request waits for a tunnel to come up
  */
-export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(Object.entries({ sshBin: ssh.sshBin, spawnImpl: ssh.spawnImpl, env: ssh.env }).filter(([, v]) => v !== undefined))), hubName = defaultHubName(), hubLabel = defaultHubLabel, onRemove = () => {}, linkEncrypted = () => false, installer = () => configuredInstaller(), probeTimeoutMs = 4000, tunnelWaitMs = 15_000, now = Date.now } = {}) {
+export function createHub({ ssh = {}, tunnels = new Tunnels({ ...Object.fromEntries(Object.entries({ sshBin: ssh.sshBin, spawnImpl: ssh.spawnImpl, env: ssh.env }).filter(([, v]) => v !== undefined)), extraOf: sshExtraOf }), hubName = defaultHubName(), hubLabel = defaultHubLabel, onRemove = () => {}, linkEncrypted = () => false, installer = () => configuredInstaller(), probeTimeoutMs = 4000, tunnelWaitMs = 15_000, now = Date.now } = {}) {
   const probeCache = new Map(); // name -> { at, result }
 
   /** Where machine `m`'s dashboard answers. Starts its tunnel when needed. */
@@ -80,11 +89,13 @@ export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(O
       const port = await tunnels.get(m).ensure(waitMs);
       return { protocol: 'http:', hostname: '127.0.0.1', port, basePath: '' };
     } catch (e) {
+      // A computer with a kept host key that now shows another: ssh refused to connect (StrictHostKeyChecking=yes).
+      if (m.key === true && hostKeyRefused(e.message)) throw new RelayError('hostkey', `${m.label || m.name} shows another host key than the one kept for it, so nothing is sent to it. Compare the two prints on its page, under Advanced → Its host key, and choose there.`);
       throw new RelayError(e.code === 'timeout' ? 'timeout' : 'offline', `${m.label || m.name} cannot be reached by SSH: ${e.message}`);
     }
   }
 
-  const stateOf = (e) => (e.code === 'not-authorised' ? 'unauthorised' : e.code === 'too-old' ? 'too-old' : 'offline');
+  const stateOf = (e) => (NOT_ALLOWED.has(e.code) ? 'unauthorised' : e.code === 'too-old' ? 'too-old' : e.code === 'hostkey' ? 'hostkey' : 'offline');
   // A computer that joined is offline when its own connection is down; say that, not "its dashboard is not running".
   const why = (m, e) => ((m.via === 'join' || m.via === 'link') && stateOf(e) === 'offline' ? `${m.label || m.name} is not connected right now. It connects again by itself once it is on and online.` : e.message);
 
@@ -102,7 +113,7 @@ export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(O
       const j = r.json;
       Object.assign(out, { state: 'online', hostname: j.hostname || null, platform: j.platform || null, version: j.version || null, claude: j.claude || null });
       // Keep what it told us, so the list shows it while the machine is offline later.
-      const info = { hostname: out.hostname, platform: out.platform, version: out.version };
+      const info = { hostname: out.hostname, platform: out.platform, version: out.version, ...workspaceOf(j) };
       if (JSON.stringify(info) !== JSON.stringify(m.info || null)) {
         const list = loadMachines();
         const cur = list.find((x) => x.name === m.name && x.token === m.token);
@@ -167,12 +178,14 @@ export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(O
    * token, starts the tunnel and returns how the machine is. Failures carry `code` (ssh-auth, ssh-hostkey,
    * not-installed, too-old, ...) and, when hoprig is missing, the install command.
    */
-  async function addBySsh({ target: rawTarget, name, label } = {}) {
+  async function addBySsh({ target: rawTarget, name, label, key = false, sshExtra = [] } = {}) {
     const target = sshTarget(rawTarget);
     if (!target) throw new HubError(400, 'type the SSH target as user@host, a host name, or a name from ~/.ssh/config');
     if (label !== undefined && label !== '' && !cleanLabel(label)) throw new HubError(400, 'the label must be 1 to 40 characters on one line');
-    const existing = loadMachines().find((m) => m.via === 'ssh' && m.target === target) || null;
-    const r = await pairOverSsh(target, hubName, ssh);
+    // A computer added with a kept key is its own entry (its own key and host key), never merged into one ssh knows.
+    const existing = key ? null : loadMachines().find((m) => m.via === 'ssh' && m.target === target && !m.key) || null;
+    const opts = { ...ssh, sshExtra };
+    const r = await pairOverSsh(target, hubName, opts);
     if (!r.ok) {
       const extra = { code: r.code };
       if (r.code === 'not-installed') {
@@ -192,7 +205,8 @@ export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(O
       token: info.token,
       tokenId: info.tokenId || null,
       added: now(),
-      info: { hostname: info.hostname || null, platform: info.platform || null, version: info.version || null },
+      info: { hostname: info.hostname || null, platform: info.platform || null, version: info.version || null, ...workspaceOf(info) },
+      ...(key ? { key: true } : {}),
     };
     putMachine(m);
     // Paired again: the old token there is no longer used. Revoked (best effort) before the answer: left running in
@@ -237,7 +251,7 @@ export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(O
       token: info.token,
       tokenId: info.tokenId || null,
       added: now(),
-      info: { hostname: info.hostname || null, platform: info.platform || null, version: info.version || null },
+      info: { hostname: info.hostname || null, platform: info.platform || null, version: info.version || null, ...workspaceOf(info) },
     };
     putMachine(m);
     probeCache.delete(m.name);
@@ -257,10 +271,12 @@ export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(O
     } catch {
       /* offline, or already revoked */
     }
-    if (!revoked && m.via === 'ssh' && m.tokenId) revoked = !!(await revokeOverSsh(m.target, m.tokenId, ssh)).ok;
+    if (!revoked && m.via === 'ssh' && m.tokenId) revoked = !!(await revokeOverSsh(m.target, m.tokenId, { ...ssh, sshExtra: sshExtraOf(m) })).ok;
     removeMachine(name);
-    onRemove(m);
     tunnels.close(name);
+    // Its kept key and host key go with it (after the tunnel that used them).
+    if (m.key === true) dropKey(name);
+    onRemove(m);
     probeCache.delete(name);
     return {
       removed: true,
@@ -275,6 +291,7 @@ export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(O
     try {
       const m = renameMachine(name, patch);
       if (m.name !== name) {
+        if (m.key === true) moveKey(name, m.name);
         tunnels.close(name);
         probeCache.delete(name);
       }
@@ -286,20 +303,94 @@ export function createHub({ ssh = {}, tunnels = new Tunnels(Object.fromEntries(O
 
   // ---- "install it there for me": one at a time, the page polls the output ----
   const job = { running: false, target: null, lines: [], result: null };
-  function install(rawTarget) {
+  // A login that is root there (`id -u` is 0) gets no install under root by itself: the page says why and what to do.
+  // `stayRoot` ({ sentence }, typed on the page) keeps Hoprig on root there on purpose: install.sh gets --stay-root.
+  // `workUser` (true, after the page's confirmation that names the server): a root login makes the work user there and
+  // sets Hoprig up as it (install.sh --yes as root). The result names that user's login only after a real login as it
+  // worked (`ssh <user>@host hoprig version`); `onUser(user, target)` is told then (the key path keeps its own target).
+  // His choices on the page's sheet: the user's name (checked) and no administrator rights. → true or { name, noAdmin }.
+  const workChoice = (w) => {
+    if (!w || typeof w !== 'object') return true;
+    if (w.name !== undefined && !USER_NAME_RE.test(String(w.name))) throw new HubError(400, `"${w.name}" is not a user name (small letters, digits, - and _)`, { code: 'user-name' });
+    return { ...(w.name ? { name: String(w.name) } : {}), noAdmin: w.noAdmin === true };
+  };
+  async function install(rawTarget, { sshExtra = [], stayRoot, workUser = false, onUser = () => {} } = {}) {
     const target = sshTarget(rawTarget);
     if (!target) throw new HubError(400, 'type the SSH target as user@host or a host name');
+    if (workUser) workChoice(workUser); // a bad name is refused before anything is asked there
     const src = installer();
     if (!src) throw new HubError(409, 'no installer is set up on this dashboard (server.installScript)', { code: 'no-installer' });
     if (job.running) throw new HubError(409, `an install on ${job.target} is still running`);
+    let stay = false;
+    if (stayRoot !== undefined) {
+      try {
+        stay = stayRootChoice(stayRoot, true);
+      } catch (e) {
+        throw new HubError(400, e.message, { code: 'stay-root' });
+      }
+    }
+    // Asked before anything is sent; when it cannot be told the installer itself still refuses root (install.sh).
+    const isRoot = !stay && (await remoteUid(target, { ...ssh, sshExtra })) === 0;
+    if (isRoot && !workUser) {
+      throw new HubError(409, `The login ${target} is root, so nothing was installed there yet. ${ROOT_LOGIN_WHY}`, { code: 'root-login' });
+    }
+    if (job.running) throw new HubError(409, `an install on ${job.target} is still running`);
     Object.assign(job, { running: true, target, lines: [], result: null });
-    installOverSsh(target, src, { ...ssh, onLine: (l) => job.lines.length < 5000 && job.lines.push(String(l).slice(0, 500)) })
-      .then((r) => (job.result = { ok: r.code === 0, code: r.code, timedOut: r.timedOut }))
+    const say = (l) => job.lines.length < 5000 && job.lines.push(String(l).slice(0, 500));
+    installOverSsh(target, src, { ...ssh, sshExtra, stayRoot: stay, workUser: isRoot ? workChoice(workUser) : false, onLine: say })
+      .then(async (r) => {
+        if (r.code !== 0 || !isRoot) return (job.result = { ok: r.code === 0, code: r.code, timedOut: r.timedOut });
+        job.result = await reachAsUser(target, sshExtra, say, onUser);
+      })
       .catch((e) => (job.result = { ok: false, error: e.message }))
       .finally(() => (job.running = false));
     return { started: true, target };
   }
+  /** After a root login made the work user: its name from the installer's closing words, then a real login as it. */
+  async function reachAsUser(target, sshExtra, say, onUser) {
+    const m = job.lines.map((l) => /Hoprig is set up for the user ([a-z_][a-z0-9_-]{0,31}), and works as/.exec(l)).find(Boolean);
+    const user = m && USER_NAME_RE.test(m[1]) ? m[1] : null;
+    if (!user) return { ok: false, code: 0, error: 'The installer ended without saying which user it set Hoprig up for: its lines above say what it did.' };
+    const next = withUser(target, user);
+    say(`Trying a login as ${next}…`);
+    const t = await runHoprig(next, ['version'], { ...ssh, sshExtra, timeoutMs: 30_000 });
+    if (!t.ok) {
+      say(`A login as ${next} did not work (${t.message || 'no answer'}), so this main computer does not add the server yet. Hoprig is set up there for ${user}. Put your SSH key into ${user}'s ~/.ssh/authorized_keys there, then add ${next}.`);
+      return { ok: false, code: 0, user, switched: false, error: `Hoprig is set up for ${user} there, but a login as ${next} did not work: see the last line above.` };
+    }
+    onUser(user, next);
+    say(`A login as ${next} worked: this main computer reaches the server as ${user}.`);
+    return { ok: true, code: 0, user, switched: true, target: next };
+  }
   const installStatus = (from = 0) => ({ running: job.running, target: job.target, lines: job.lines.slice(from), next: job.lines.length, result: job.result });
 
-  return { tunnels, hubName, hubLabel, endpoint, probe, list, sessions, stateOfMachine, addBySsh, addByUrl, remove, rename, install, installStatus, close: () => tunnels.closeAll() };
+  /**
+   * One computer's health (health.mjs), read through this hub's own link with its token, only when the owner asks.
+   * A computer that does not answer is { reached: false, seenAt } ("not reached since", or never): never fine.
+   * The Operator's rooms (src/operator/rooms.mjs) ask with a short limit and `keep: false`: they write nothing here.
+   */
+  async function health(name, { timeoutMs = 30_000, waitMs = tunnelWaitMs, keep = true } = {}) {
+    const m = getMachine(name);
+    if (!m) throw new HubError(404, 'no such computer');
+    const label = m.label || m.name;
+    try {
+      const ep = await endpoint(m, waitMs);
+      const r = await callJson(ep, { machine: label, path: '/api/health', token: m.token, timeoutMs });
+      if (r.status === 404) throw new RelayError('too-old', `${label} runs a Hoprig too old to show its health here. Update it there: hoprig update`);
+      if (r.status !== 200 || !r.json || r.json.hoprig !== 'health') throw new RelayError('bad-answer', `${label} gave an answer this dashboard does not understand (HTTP ${r.status}).`);
+      const at = now();
+      const list = loadMachines();
+      const cur = keep && list.find((x) => x.name === m.name && x.token === m.token);
+      if (cur) {
+        cur.seenAt = at;
+        saveMachines(list);
+      }
+      return { machine: m.name, label, reached: true, seenAt: at, health: pickHealth(r.json) };
+    } catch (e) {
+      const seenAt = (getMachine(name) || {}).seenAt || null;
+      return { machine: m.name, label, reached: false, state: stateOf(e), error: why(m, e), seenAt, health: null };
+    }
+  }
+
+  return { tunnels, hubName, hubLabel, endpoint, probe, health, list, sessions, stateOfMachine, addBySsh, addByUrl, remove, rename, install, installStatus, close: () => tunnels.closeAll() };
 }

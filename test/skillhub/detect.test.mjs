@@ -93,7 +93,14 @@ test('Python, Go and Rust manifests are parsed', () => {
   assert.ok(ids(p).includes('mcp-builder'));
 });
 
-test('an empty folder gets only the bundled skill', () => {
+test('an empty folder gets only the bundled skills', () => {
   const p = project('empty', { 'README.md': 'hi' });
-  assert.deepEqual(ids(p), ['hoprig']);
+  assert.deepEqual(ids(p), ['hoprig', 'adopt-projects', 'plan-work']);
+});
+
+test('a project with a brief (docs/brief.md) is offered the new-project skill too; one without is not', () => {
+  const p = project('briefed', { 'docs/brief.md': 'A shop.\n' });
+  assert.deepEqual(ids(p), ['hoprig', 'adopt-projects', 'new-project', 'plan-work']); // plan-work and adopt-projects are offered to every project
+  assert.equal(detectProject(p).files.brief[0], 'docs/brief.md');
+  assert.ok(!ids(project('nobrief', { 'docs/README.md': 'x' })).includes('new-project'));
 });

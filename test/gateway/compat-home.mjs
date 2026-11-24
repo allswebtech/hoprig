@@ -17,6 +17,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { sealedPath } from '../seal.mjs';
 
 const root = path.resolve(process.argv[2] || '.');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gw-compat-')));
@@ -50,7 +51,7 @@ console.log('added 1 package');
 
 const env = {
   ...process.env,
-  PATH: [dirs.bin, path.dirname(process.execPath), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(path.delimiter),
+  PATH: sealedPath([dirs.bin, path.dirname(process.execPath), '/usr/bin', '/bin', '/usr/sbin', '/sbin']),
   HOME: home,
   HOPRIG_CONFIG_DIR: dirs.config,
   HOPRIG_STATE_DIR: dirs.state,

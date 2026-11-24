@@ -60,11 +60,18 @@ function providerKeys() {
   }
 }
 
-/** The environment of an install or update Hoprig runs from the internet: no secret, and no GitHub token either. */
-export function forInstalls(env = process.env) {
+/** No secret, and none of the credential names the stored providers export (GitHub's tokens stay). */
+export function withoutProviderKeys(env = process.env) {
   const out = withoutSecrets(env);
   const own = providerKeys();
-  for (const k of Object.keys(out)) if (GITHUB.has(process.platform === 'win32' ? k.toUpperCase() : k) || own.has(k)) delete out[k];
+  for (const k of Object.keys(out)) if (own.has(k)) delete out[k];
+  return out;
+}
+
+/** The environment of an install or update Hoprig runs from the internet: no secret, and no GitHub token either. */
+export function forInstalls(env = process.env) {
+  const out = withoutProviderKeys(env);
+  for (const k of Object.keys(out)) if (GITHUB.has(process.platform === 'win32' ? k.toUpperCase() : k)) delete out[k];
   return out;
 }
 

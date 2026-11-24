@@ -6,7 +6,7 @@ test('systemd unit: absolute paths, carried PATH, escaping, restart, kill mode',
   const u = unitText({
     node: '/opt/node 26/bin/node',
     bin: '/home/u/app/bin/x.mjs',
-    env: { PATH: '/a/bin:/b/100%/bin', HOME: '/home/u', SECRET_TOKEN: 'nope', LANG: 'en_US.UTF-8', HOPRIG_STATE_DIR: '/s' },
+    env: { PATH: '/a/bin:/b/100%/bin', HOME: '/home/u', SECRET_TOKEN: 'nope', LANG: 'en_US.UTF-8', HOPRIG_STATE_DIR: '/s' }, // seal: a value no program is started with
   });
   assert.match(u, /^ExecStart="\/opt\/node 26\/bin\/node" "\/home\/u\/app\/bin\/x\.mjs" serve$/m);
   assert.match(u, /^Environment="PATH=\/a\/bin:\/b\/100%%\/bin"$/m);
@@ -28,7 +28,7 @@ import { LABEL, launchctlArgs, plistFile, plistText, summarizePrint } from '../.
 import * as winsvc from '../../src/server/service/windows.mjs';
 import { service } from '../../src/server/service/index.mjs';
 
-const ENV = { PATH: '/opt/node 26/bin:/usr/bin', HOME: '/Users/u', SECRET_TOKEN: 'nope', LANG: 'en_US.UTF-8', HOPRIG_STATE_DIR: '/s & <t>' };
+const ENV = { PATH: '/opt/node 26/bin:/usr/bin', HOME: '/Users/u', SECRET_TOKEN: 'nope', LANG: 'en_US.UTF-8', HOPRIG_STATE_DIR: '/s & <t>' }; // seal: a value no program is started with
 
 test('launchd plist: absolute paths, carried variables only, escaping, restart on crash, log file', () => {
   const p = plistText({ node: '/opt/node 26/bin/node', bin: '/Users/u/app/bin/x.mjs', env: ENV, home: '/Users/u', log: '/Users/u/.local/state/x/dashboard.log' });
@@ -72,7 +72,7 @@ test('launchctl print summary', () => {
 test('Windows startup script: carried variables quoted for PowerShell, UTF-8 log, exit code passed on', () => {
   const s = winsvc.scriptText({
     node: 'C:\\Program Files\\nodejs\\node.exe', bin: "C:\\Users\\o'brien\\app\\bin\\x.mjs",
-    env: { PATH: 'C:\\Windows;C:\\Users\\me\\.local\\bin', SECRET_TOKEN: 'nope', HOPRIG_STATE_DIR: "C:\\it's $(here)" },
+    env: { PATH: 'C:\\Windows;C:\\Users\\me\\.local\\bin', SECRET_TOKEN: 'nope', HOPRIG_STATE_DIR: "C:\\it's $(here)" }, // seal: a value no program is started with
     home: 'C:\\Users\\me', log: 'C:\\Users\\me\\AppData\\Local\\x\\dashboard.log',
   });
   const lines = s.split('\r\n');
@@ -135,4 +135,49 @@ test('service: one manager per OS, a clear refusal elsewhere', async () => {
     console.error = err;
   }
   assert.match(said, /not supported on aix/);
+});
+
+// `service restart` on every system, with a stand-in for the service manager: the real one would restart the
+// dashboard of whoever runs the tests.
+import * as systemdsvc from '../../src/server/service/systemd.mjs';
+import * as launchdsvc from '../../src/server/service/launchd.mjs';
+
+const silent = async (fn) => {
+  const { log, error } = console;
+  let said = '';
+  console.log = console.error = (...m) => (said += m.join(' ') + '\n');
+  try {
+    return { code: await fn(), said };
+  } finally {
+    Object.assign(console, { log, error });
+  }
+};
+
+test('service restart exists on Linux and macOS and asks only the service manager', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'svc-restart-'));
+  const saved = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = path.join(home, '.config');
+  try {
+    const calls = [];
+    const run = async (cmd, args) => (calls.push([cmd, ...args]), { ok: true, out: '', err: '' });
+    let r = await silent(() => systemdsvc.service('restart', { run }));
+    assert.equal(r.code, 3, 'not installed: says so');
+    assert.match(r.said, /not installed\. Install it with: hoprig service install/);
+    assert.deepEqual(calls, []);
+    fs.mkdirSync(systemdsvc.unitDir(), { recursive: true });
+    fs.writeFileSync(path.join(systemdsvc.unitDir(), systemdsvc.UNIT), '');
+    r = await silent(() => systemdsvc.service('restart', { run }));
+    assert.equal(r.code, 0, r.said);
+    assert.deepEqual(calls, [['systemctl', '--user', 'restart', systemdsvc.UNIT]]);
+    assert.deepEqual(launchdsvc.launchctlArgs.restart().slice(0, 2), ['kickstart', '-k']);
+  } finally {
+    if (saved === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = saved;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('the usage names service restart', async () => {
+  const r = await silent(() => systemdsvc.service('nope', { run: async () => ({ ok: true }) }));
+  assert.match(r.said, /install \| uninstall \| status \| restart/);
 });

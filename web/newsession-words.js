@@ -43,6 +43,16 @@ export function runningIn(f) {
 }
 
 /**
+ * The line under the Provider list when nothing is chosen and Auto mode is on, yet the session starts on another
+ * provider because Auto mode's is slow or refusing now (the server's `autoSlow`, src/defaultprovider.mjs
+ * fasterThanAuto). null otherwise.
+ */
+export function autoSlowLine(m, profiles) {
+  const p = m && m.autoSlow && profiles.find((x) => x.name === m.recommended);
+  return p ? `Auto mode's provider is slow now; this session starts on ${p.label}.` : null;
+}
+
+/**
  * What "nothing chosen" means, in the Provider list. The server decides per folder and coding tool
  * (src/defaultprovider.mjs): the provider that tool used last in that folder while it can work, else the computer's
  * default for it; Auto mode, when on, everywhere (Claude Code only). Once a folder is open (`dir`: Another folder,

@@ -1,0 +1,71 @@
+# Neighbours of the wall's gaps 5 and 6, read by test/wall-globcd.test.mjs. One per line: "verdict | line".
+#   held     the wall holds this line (wallHeld answers a hold)
+#   through  the line goes through (wallHeld answers null)
+# The session stands in its own folder /w/shop on the work branch feature; Hoprig's own folders are
+# /w/.config/hoprig and /w/.local/state/hoprig. A line break inside a line is written as \n (none here).
+# Lines that begin with # and empty lines are not rows.
+
+# --- gap 5: a wildcard, a [...] class or a brace list that could name one of Hoprig's own folders ---
+# A wildcard in a folder of the path that could name one of Hoprig's own folders, from ~ and from $HOME.
+held | cat ~/.config/hop*/config.json
+held | cat ~/.config/*/config.json
+held | cat $HOME/.config/*/config.json
+held | cat ${HOME}/.config/hopri?/config.json
+held | cat ~/.config/?oprig/config.json
+held | cat ~/.config/[h]oprig/config.json
+# The wildcard stands in a folder ABOVE one of Hoprig's own folders (.conf* could be .config).
+held | cat ~/.conf*/hoprig/config.json
+held | cat ~/.co*/hoprig/config.json
+held | cat ~/.l*/state/hoprig/run.json
+held | cat ~/.local/state/hop*/run.json
+# A brace list that could name one of Hoprig's own folders.
+held | cat ~/.config/{hoprig,other}/config.json
+held | cat ~/.config/{foo,hoprig}/config.json
+# A program that is not a delete, pointed at one of Hoprig's own folders through a wildcard.
+held | chmod 000 ~/.config/*
+held | chmod -R 700 ~/.config/hop*
+# From a relative path that climbs to one of Hoprig's own folders.
+held | cat ../.config/hop*/config.json
+
+# --- everyday wildcards that must still go through ---
+# Reads, lists and deletes with wildcards inside the session's own folder.
+through | ls *.md
+through | cat src/*.json
+through | rm -rf node_modules/.cache/*
+through | rm -f dist/*.js
+through | grep -rn TODO src/*.mjs
+# Wildcards in folders of the home that cannot hold Hoprig's (a Downloads, a Documents, another app's config).
+through | ls ~/Downloads/*
+through | cat ~/Downloads/*.txt
+through | ls ~/Documents/*.pdf
+through | cat ~/notes/*.md
+through | ls ~/.config/nvim/*
+through | cat ~/.config/nvim/*.lua
+
+# --- gap 6: a cd/pushd the wall can follow before a short path to one of Hoprig's own folders ---
+# The target can be told (a plain path, ~, $HOME, ${HOME}, with ..), so the short path after it is read from there.
+held | cd ~ && cat .config/hoprig/config.json
+held | cd $HOME && cat .config/hoprig/config.json
+held | cd ${HOME} && cat .config/hoprig/config.json
+held | pushd ~ && cat .config/hoprig/config.json
+held | cd .. && cat .config/hoprig/config.json
+held | cd && cat .config/hoprig/config.json
+held | cd "$HOME" && cat .config/hoprig/config.json
+held | cd ~/.config && cat hoprig/config.json
+held | cd ~ && grep -rn token .config/hoprig
+# The followed folder also places a wildcard or a brace list (gaps 5 and 6 together).
+held | cd ~ && cat .config/hop*/config.json
+held | cd ~ && cat .config/{hoprig,x}/config.json
+# A move or a read of the folder above Hoprig's own, named by a bare word after a cd the wall follows, is held too.
+held | cd ~ && mv .config old
+held | cd $HOME && mv .config old
+held | cd ~ && ls .config
+through | cd ~ && mv docs old
+through | cd ~ && mv project old
+
+# A cd whose target cannot be told leaves the folder unknown, so the line is judged as it is today and goes through.
+through | cd $DIR && cat .config/hoprig/config.json
+through | cd - && cat .config/hoprig/config.json
+# A cd into the session's own subfolders.
+through | cd src && cat index.mjs
+through | cd src && ls

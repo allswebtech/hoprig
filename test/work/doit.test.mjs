@@ -78,9 +78,11 @@ async function dashboard() {
 }
 
 let d;
-test.before(async () => {
+// Set up before the first test by a top-level await, not an async root before(): below Node 22.2 such a hook is not
+// awaited by the tests (nodejs/node#52791), so they ran before it ended.
+await (async () => {
   d = await dashboard();
-});
+})();
 test.after(async () => {
   await d?.close();
   t.cleanup();
@@ -265,6 +267,11 @@ test('Activity: the runs of all tasks, newest first, by project and by day; no f
   assert.equal((await d.get(`/api/work/runs?day=${all[0].day}`)).body.runs.length, all.filter((r) => r.day === all[0].day).length);
   assert.equal((await d.get('/api/work/runs?day=yesterday')).status, 400);
   assert.equal((await d.get('/api/work/runs?item=../x')).status, 400);
+  // One run by its id, read by its file alone (also one older than the newest a list reads).
+  const one = (await d.get(`/api/work/runs?id=${all.at(-1).id}`)).body.runs;
+  assert.deepEqual(one.map((r) => r.id), [all.at(-1).id]);
+  assert.equal((await d.get('/api/work/runs?id=20991231-235959-00000000')).body.runs.length, 0);
+  assert.equal((await d.get('/api/work/runs?id=../x')).status, 400);
   assert.ok(all.every((r) => r.where === 'shop' && !('writer' in r) && r.here === true));
   assert.ok(all.every((r) => r.providerLabel === { sub: 'Main', spare: 'Spare' }[r.provider]), 'the provider as the page names it');
   for (const body of d.seen) assert.ok(!JSON.stringify(body).includes(t.root), `no full path: ${JSON.stringify(body).slice(0, 200)}`);

@@ -80,3 +80,36 @@ export function dropJournal(file) {
   fs.rmSync(p, { force: true });
   return was;
 }
+
+/**
+ * Write `text` to `target` whole and flush it (and its folder) to disk, as writeJournal does: the record of an Accept
+ * of a plan (planstore.mjs) is written so too. Mode 600.
+ */
+export function writeSynced(target, text) {
+  const dir = path.dirname(target);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const tmp = `${target}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  const fd = fs.openSync(tmp, 'w', 0o600);
+  try {
+    fs.writeSync(fd, text);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  try {
+    fs.renameSync(tmp, target);
+  } catch (e) {
+    fs.rmSync(tmp, { force: true });
+    throw e;
+  }
+  try {
+    const d = fs.openSync(dir, 'r');
+    try {
+      fs.fsyncSync(d);
+    } finally {
+      fs.closeSync(d);
+    }
+  } catch {
+    /* not on every system (Windows) */
+  }
+}

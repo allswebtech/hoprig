@@ -72,7 +72,7 @@ test('start plans: POSIX types into a login shell, Windows runs argv directly an
 });
 
 test('terminal environment: its own id, no tmux leak, a UTF-8 locale when none is set', () => {
-  const e = termEnv('pty-1', 'linux', { PATH: '/bin', TMUX: '/tmp/t,1,0', TMUX_PANE: '%3' });
+  const e = termEnv('pty-1', 'linux', { PATH: '/bin', TMUX: '/tmp/t,1,0', TMUX_PANE: '%3' }); // seal: a value no program is started with
   assert.equal(e.HOPRIG_TERM_ID, 'pty-1');
   assert.equal(e.TMUX, undefined);
   assert.equal(e.TMUX_PANE, undefined);
@@ -314,7 +314,7 @@ test('bufferText trims trailing blank rows', async () => {
 });
 
 test('createBackend: auto picks tmux when it runs, else pty; the kind can be forced', () => {
-  const missing = '/nonexistent/tmux-for-test';
+  const missing = path.join(os.tmpdir(), 'no-such-tmux-for-test'); // the test's own area, so the seal leaves it; it is simply not there
   assert.equal(tmuxUsable(missing), false);
   assert.equal(tmuxUsable('tmux', 'win32'), false, 'never on Windows');
   const auto = createBackend({ kind: 'auto', bin: missing });

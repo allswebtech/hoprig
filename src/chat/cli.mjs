@@ -12,7 +12,7 @@ import { linkBase } from '../machines/cli.mjs';
 import { dashboardAddress } from '../machines/pairing.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 
-const USAGE = 'usage: hoprig chat [folder] [--tool <coding tool>] [--no-open]   (the folder: this one when left out)';
+export const USAGE = 'usage: hoprig chat [folder] [--tool <coding tool>] [--no-open]   (the folder: this one when left out)';
 
 /** The page address that opens a chat in `dir` on the dashboard at `base` (`tool`: in that coding tool). */
 export const chatAddress = (base, dir, tool = null) => `${String(base).replace(/\/+$/, '')}/#/new?${new URLSearchParams({ dir, ...(tool ? { tool } : {}) })}`;

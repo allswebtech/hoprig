@@ -15,7 +15,8 @@
 //   POST /api/workspace/map/commit                      save workspace.json, only it, in the brain's history
 //                                                       (what the commitMap switch does; refused over staged changes;
 //                                                       { done, already } when there is nothing to save)
-//   POST /api/workspace/restore { url, dryRun? }        dryRun: the plan at once; else a background job
+//   POST /api/workspace/restore { url, dryRun?, withProjects? }  dryRun: the plan at once; else a background job; no
+//                                                       project is cloned unless withProjects
 //   POST /api/workspace/sync { memory?, push?, with?, dryRun? }   a background job
 //   GET  /api/workspace/job?from=N      the background job: { kind, running, lines, next, result }
 //   POST /api/workspace/settings { dir?, projects? }    where the workspace and the projects folder are (nothing moves)
@@ -28,14 +29,41 @@
 //   GET  /api/workspace/git/signin      how far it is: { state: idle | starting | code | done | failed | expired |
 //                                       cancelled, code, url, account, error }
 //   POST /api/workspace/git/signin/cancel   stop waiting for the code
+//   GET  /api/workspace/computers       this computer's label (or a suggestion) and which computer has what
+//   POST /api/workspace/label { label, again? }   give this computer its label (once); 409 code ETAKEN for a label
+//                                       another computer's file holds (again: this computer IS that one, set up again)
+//   GET  /api/workspace/whohas         which computer has what (whohas.mjs): every place's entries, here and only in
+//                                       the map, each computer's file with when it was written; read only
+//   GET  /api/workspace/find?in=<place> what the hosting site has that fits a place's naming rule (read only, no --add)
+//   POST /api/workspace/drop/check { name }   drop's --check (read only); from the owner's own page also a one-use
+//                                       ticket for the sheet (dropweb.mjs)
+//   POST /api/workspace/drop { ticket, work?, defaults?, typed? }   the drop: the owner's own page only (whomay.mjs)
+//   POST /api/workspace/group { dir, repo?, holds?, dryRun?, writeIgnore? }   group add (groupcmd.mjs); a real one:
+//                                       the owner's own page only; a dry run says what goes into the map
+//   POST /api/workspace/group/remove { dir, dryRun? }   out of the map, never its folder (the owner's own page only)
+//   GET  /api/workspace/rules           the "Your workspace" text for coding sessions and its file's state
+//   POST /api/workspace/rules {}        write it (the owner's own page only; never by a group add itself)
+//   GET  /api/workspace/git/brains      the owner's brains on GitHub that hold a map: { signedIn, brains: [{ owner, name, url }],
+//                                       error? } (error: GitHub could not be asked, so no new workspace is offered)
 //   POST /api/workspace/git/brain { owner?, name? }   the AI brain into a new PRIVATE GitHub repository, pushed with
 //                                       its map (a background job, GET /api/workspace/job)
+//   GET  /api/workspace/git/brain       its files not saved to its git server yet: { count, files, more, repo, ahead,
+//                                       behind, upstream } (brainsave.mjs)
+//   POST /api/workspace/mylink { path, dryRun? }   "This link is mine" on a project's page: the same step as
+//                                       `hoprig workspace mylink add <path>` (inside.mjs addMyLink); dryRun: where it
+//                                       leads, nothing saved (the sheet before his yes)
+//   POST /api/workspace/git/brain/moveout { files }   the owner's yes on the save sheet's key refusal: the named files
+//                                       the save refuses are moved to the folder beside the brain the sheet named
+//                                       (brainmove.mjs), never deleted; each name is checked again here
+//   POST /api/workspace/git/brain { save: true, seen }   the owner's yes: save them and upload, a background job; the
+//                                       owner's own page only; refused when the files are not those his sheet showed
 // No GitHub password and no token ever goes through these: GitHub asks on its own page, the token stays in gh.
 //
 // Behind the owner's login like every /api route, or another dashboard's machine token (the relay: the same owner
 // looking at this computer). Tia's token is refused here. The page never sends a path for the brain view (only an
 // id from the index); folders it sends for settings are checked like any typed folder.
 import fs from 'node:fs';
+import path from 'node:path';
 import { jobUi, tildeText } from '../pcsetup/feature.mjs';
 import { brainIndex, brainRead } from './brain.mjs';
 import { foldersHere } from './where.mjs';
@@ -43,7 +71,10 @@ import { findTool } from '../codetools/index.mjs';
 import { applyLink, planLink, planWords } from './link.mjs';
 import { capture, stream } from '../setup/system.mjs';
 import { githubSignin } from './ghsignin.mjs';
-import { gitState, startNew } from './gitstep.mjs';
+import { brainCandidates, gitState, startNew } from './gitstep.mjs';
+import { brainChanges, saveBrain } from './brainsave.mjs';
+import { moveOut } from './brainmove.mjs';
+import { addMyLink } from './inside.mjs';
 import { brainDir, projectsIn, workspaceDir, workspaceStatus } from './layout.mjs';
 import { forget, mapSaved, mapStatus, updateMap } from './map.mjs';
 import { syncWith } from './peer.mjs';
@@ -52,8 +83,16 @@ import { setPlaces } from './places.mjs';
 import { restoreWorkspace } from './restore.mjs';
 import { workspaceSetup } from './setup.mjs';
 import { syncAll } from './sync.mjs';
+import { withRepoLock } from '../work/lock.mjs';
+import { tokenIdOf } from '../machines/index.mjs';
+import { pageDrop } from './dropweb.mjs';
+import { ownerPageOnly } from './whomay.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
+/** `fn` holding the AI brain's lock (src/work/lock.mjs), waiting a moment for the upkeep or a save; else 409. */
+const brainLocked = (dir, fn) => withRepoLock(path.join(dir, 'ai_brain'), fn, { wait: 2_000 });
+/** A dry run writes nothing, not even the lock's file. */
+const dryOrLocked = (dry, dir, fn) => (dry ? fn() : brainLocked(dir, fn));
 const LINES_MAX = 3000;
 const bool = (v, what) => {
   if (v !== undefined && typeof v !== 'boolean') throw fail(400, `${what} is true or false`);
@@ -119,7 +158,92 @@ export function workspaceFeature(sctx, opts = {}) {
     return { started: true, kind };
   }
 
+  const drops = pageDrop({ ctx: places, tilde: (t) => tildeText(t), ...(opts.run ? { run: opts.run } : {}), ...(opts.share ? { share: opts.share } : {}) });
+  const mine = (req, what, o = {}) => ownerPageOnly(req, sctx, what, { tokenId: tokenIdOf, ...o });
+  const NAME = /^[A-Za-z0-9._-]{1,100}(\/[A-Za-z0-9._-]{1,100}){0,3}$/;
+  const nameOf = (v, what = 'name a project of the map') => {
+    if (typeof v !== 'string' || !NAME.test(v)) throw fail(400, what);
+    return v;
+  };
+  const isMine = async (req) => {
+    try {
+      await mine(req, 'it');
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const routes = [
+    ['GET', /^\/api\/workspace\/whohas$/, async (req) => {
+      ownerOnly(req);
+      const w = await import('./whohas.mjs');
+      return w.whoHas({ ...places(), machines: await w.machineNames(), ...(opts.run ? { run: opts.run } : {}) });
+    }],
+    ['GET', /^\/api\/workspace\/find$/, async (req, m, q) => {
+      ownerOnly(req);
+      const place = q.get('in');
+      if (!place || place.length > 200) throw fail(400, 'say the place: ?in=<group> or <group>/<held folder>');
+      const { findInPlace } = await import('./findcmd.mjs');
+      return findInPlace(place, { ...places(), ...(opts.gh ? { gh: opts.gh } : {}), ...(opts.site ? { site: opts.site } : {}) });
+    }],
+    ['POST', /^\/api\/workspace\/drop\/check$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['name']);
+      // Read only for anyone who may read the workspace; the sheet's ticket only for the owner's own page.
+      return drops.check(nameOf(b.name), { ticket: await isMine(req) });
+    }],
+    ['POST', /^\/api\/workspace\/drop$/, async (req) => {
+      ownerOnly(req);
+      await mine(req, 'a drop');
+      const b = await sctx.readJson(req);
+      keys(b, ['ticket', 'work', 'defaults', 'typed']);
+      if (b.work !== undefined && typeof b.work !== 'boolean') throw fail(400, 'work is true or false');
+      if (b.typed !== undefined && (typeof b.typed !== 'string' || b.typed.length > 200)) throw fail(400, 'typed is the name you typed');
+      if (b.defaults !== undefined && (!b.defaults || typeof b.defaults !== 'object' || Array.isArray(b.defaults) || Object.values(b.defaults).some((v) => !['push', 'wip', 'stop'].includes(v)))) throw fail(400, 'each default branch is answered push, wip or stop');
+      return drops.drop(b.ticket, { work: b.work === true, defaults: b.defaults || {}, typed: b.typed || '' });
+    }],
+    ['POST', /^\/api\/workspace\/group$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['dir', 'repo', 'holds', 'dryRun', 'writeIgnore']);
+      const dry = bool(b.dryRun, 'dryRun');
+      if (!dry) await mine(req, 'a change of the groups of the map');
+      for (const k of ['dir', 'repo', 'holds']) if (b[k] !== undefined && (typeof b[k] !== 'string' || b[k].length > 300)) throw fail(400, `${k} is text`);
+      if (typeof b.dir !== 'string' || !b.dir.trim()) throw fail(400, 'name the group\'s folder');
+      const { groupAdd } = await import('./groupcmd.mjs');
+      const p = places();
+      const go = () => groupAdd(b.dir.trim(), { ...(b.repo ? { repo: b.repo.trim() } : {}), ...(b.holds ? { holds: b.holds.trim() } : {}), dryRun: dry, writeIgnore: bool(b.writeIgnore, 'writeIgnore'), ...p, ...(opts.run ? { run: opts.run } : {}) });
+      const r = await (dry ? go() : brainLocked(p.dir, go));
+      return { ...r, ...(r.ignore ? { ignore: { ...r.ignore, file: tildeText(r.ignore.file) } } : {}), notes: (r.notes || []).map((t) => tildeText(t)) };
+    }],
+    ['POST', /^\/api\/workspace\/group\/remove$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['dir', 'dryRun']);
+      const dry = bool(b.dryRun, 'dryRun');
+      if (!dry) await mine(req, 'a change of the groups of the map');
+      if (typeof b.dir !== 'string' || !b.dir.trim() || b.dir.length > 300) throw fail(400, 'name the group\'s folder');
+      const { groupRemove } = await import('./groupcmd.mjs');
+      const p = places();
+      return dry ? groupRemove(b.dir.trim(), { dryRun: true, dir: p.dir }) : brainLocked(p.dir, () => groupRemove(b.dir.trim(), { dir: p.dir }));
+    }],
+    ['GET', /^\/api\/workspace\/rules$/, async (req) => {
+      ownerOnly(req);
+      const w = await import('../pcsetup/wsrules.mjs');
+      const r = await w.currentWorkspaceRules(places());
+      const st = w.workspaceRulesState({ text: r.text });
+      return { text: tildeText(r.text), left: r.left, file: tildeText(st.file), state: w.rulesFileState(st), ...(w.notWrittenWhy(st) ? { why: tildeText(w.notWrittenWhy(st)) } : {}) };
+    }],
+    ['POST', /^\/api\/workspace\/rules$/, async (req) => {
+      ownerOnly(req);
+      await mine(req, 'writing the text for coding sessions');
+      keys(await sctx.readJson(req), []);
+      const w = await import('../pcsetup/wsrules.mjs');
+      const r = w.writeWorkspaceRules({ text: (await w.currentWorkspaceRules(places())).text });
+      return { file: tildeText(r.file), changed: r.changed };
+    }],
     ['GET', /^\/api\/workspace$/, async (req) => {
       ownerOnly(req);
       return workspaceStatus(where());
@@ -167,20 +291,24 @@ export function workspaceFeature(sctx, opts = {}) {
       ownerOnly(req);
       keys(await sctx.readJson(req), []);
       const run = opts.run ? { run: opts.run } : {};
-      // Nothing changed since the brain's last commit (or no map, or no git): nothing to save, and that is fine.
-      if (!(await mapSaved({ dir: places().dir, ...run })).unsaved) return { done: true, already: true };
-      const r = await commitMap({ dir: places().dir, ...run });
-      if (!r.done) throw fail(409, r.staged ? 'the AI brain has other staged changes; nothing was saved, so they stay as they are' : `it could not be saved: ${tildeText(r.why)}`);
-      return { done: true };
+      // The brain's lock, as the upkeep holds it: a save never lands between the steps of the map's rule.
+      return brainLocked(places().dir, async () => {
+        // Nothing changed since the brain's last commit (or no map, or no git): nothing to save, and that is fine.
+        if (!(await mapSaved({ dir: places().dir, ...run })).unsaved) return { done: true, already: true };
+        const r = await commitMap({ dir: places().dir, ...run });
+        if (!r.done) throw fail(409, r.staged ? 'the AI brain has other staged changes; nothing was saved, so they stay as they are' : `it could not be saved: ${tildeText(r.why)}`);
+        return { done: true };
+      });
     }],
     ['POST', /^\/api\/workspace\/restore$/, async (req) => {
       ownerOnly(req);
       const b = await sctx.readJson(req);
-      keys(b, ['url', 'dryRun']);
+      keys(b, ['url', 'dryRun', 'withProjects']);
       if (typeof b.url !== 'string' || !b.url.trim() || b.url.length > 300) throw fail(400, 'give the address of your AI brain');
       const restore = opts.restore || restoreWorkspace;
       // The projects folder is restore's to decide (this computer's choice, else the map's): only the workspace here.
-      const p = { dir: places().dir, ...(opts.projectsDir ? { projects: opts.projectsDir() } : {}) };
+      // No project is cloned unless the owner asks for every one (withProjects).
+      const p = { dir: places().dir, ...(opts.projectsDir ? { projects: opts.projectsDir() } : {}), ...(bool(b.withProjects, 'withProjects') ? { withProjects: true } : {}) };
       if (bool(b.dryRun, 'dryRun')) return restore(b.url.trim(), { ui: jobUi(() => {}).ui, dryRun: true, ...p });
       return startJob('restore', (onLine) => restore(b.url.trim(), { ui: jobUi(onLine).ui, ...p }));
     }],
@@ -189,13 +317,18 @@ export function workspaceFeature(sctx, opts = {}) {
       const b = await sctx.readJson(req);
       keys(b, ['memory', 'push', 'with', 'dryRun']);
       const o = { memory: bool(b.memory, 'memory'), push: bool(b.push, 'push'), dryRun: bool(b.dryRun, 'dryRun') };
+      // Uploading (push, and the memory commit it pushes) is the owner's: his page, or Tia's card he confirmed. A
+      // script's token or another dashboard's gets the dry run and the pull-only sync.
+      // Uploading is his own press on this page: Tia's card for it only opens the page (domains.mjs workspace_sync).
+      if (o.push && !o.dryRun) await mine(req, 'a sync that pushes');
+      else if (o.memory && !o.dryRun) await mine(req, 'a sync that commits the memory', { card: true });
       const p = places();
       if (b.with !== undefined) {
         if (typeof b.with !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(b.with)) throw fail(400, 'name a computer from the list');
         if (o.push || o.memory) throw fail(400, 'with another computer it only gets commits (pull only)');
-        return startJob('sync', (onLine) => (opts.syncWith || syncWith)(b.with, { ...p, dryRun: o.dryRun, onLine }));
+        return startJob('sync', (onLine) => dryOrLocked(o.dryRun, p.dir, () => (opts.syncWith || syncWith)(b.with, { ...p, dryRun: o.dryRun, onLine })));
       }
-      return startJob('sync', (onLine) => (opts.sync || syncAll)({ ...p, ...o, onLine }));
+      return startJob('sync', (onLine) => dryOrLocked(o.dryRun, p.dir, () => (opts.sync || syncAll)({ ...p, ...o, onLine })));
     }],
     ['GET', /^\/api\/workspace\/job$/, async (req, m, q) => {
       ownerOnly(req);
@@ -257,9 +390,91 @@ export function workspaceFeature(sctx, opts = {}) {
       await sctx.readJson(req);
       return signin.cancel();
     }],
+    // This computer in the workspace (computer.mjs): its label, given once, and which computer has what.
+    ['GET', /^\/api\/workspace\/computers$/, async () => {
+      const c = await import('./computer.mjs');
+      const who = c.whoHasWhat(places().dir);
+      return { ...who, ...(who.label ? {} : { suggestion: c.suggestLabel() }) };
+    }],
+    ['POST', /^\/api\/workspace\/label$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['label', 'again']);
+      if (typeof b.label !== 'string' || b.label.length > 64) throw fail(400, 'give this computer a short name');
+      const c = await import('./computer.mjs');
+      const { dir, projects } = places();
+      try {
+        return await brainLocked(dir, () => c.setLabel(b.label, { dir, projects, again: bool(b.again, 'again') }));
+      } catch (e) {
+        throw Object.assign(fail(e.status || 400, e.message), e.code ? { code: e.code } : {});
+      }
+    }],
+    // Set-up's one path in the page: the owner's brain on GitHub (a repository of his with "brain" in its name that
+    // holds a map), so the page offers to get it, or to start a workspace when there is none.
+    ['GET', /^\/api\/workspace\/git\/brains$/, async () => {
+      const dir = places().dir;
+      const st = await (opts.gitState || gitState)({ dir });
+      if (!st.gh.signedIn) return { signedIn: false, brains: [] };
+      const got = await (opts.brainCandidates || brainCandidates)(opts.run || capture);
+      const { list, failed } = Array.isArray(got) ? { list: got, failed: '' } : got;
+      const brains = list.filter((x) => x.hasMap).slice(0, 9).map(({ owner, name, url }) => ({ owner, name, url }));
+      // GitHub could not be asked: the page offers no new workspace (the owner's brain may be one it could not see).
+      return { signedIn: true, brains, ...(failed && !brains.length ? { error: `GitHub could not be asked about your workspace: ${failed}` } : {}) };
+    }],
+    // The brain's files not saved to its git server yet, for the page's sheet: the first few names, how many more,
+    // the repository's name. Read only.
+    ['GET', /^\/api\/workspace\/git\/brain$/, async (req) => {
+      ownerOnly(req);
+      const c = await (opts.brainChanges || brainChanges)({ dir: places().dir, run: opts.run || capture });
+      return c && c.movedOut ? { ...c, movedOut: tildeText(c.movedOut) } : c;
+    }],
+    // "This link is mine": a link in the workspace that leads out is followed from now on, on this computer. The same
+    // function as the command; the owner's own page only, as the save is. The dry run is his sheet's question.
+    ['POST', /^\/api\/workspace\/mylink$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['path', 'dryRun', 'seen']);
+      if (typeof b.path !== 'string' || !path.isAbsolute(b.path) || b.path.length > 4096 || b.path.includes('\0')) throw fail(400, 'path is the full path of the link');
+      const dry = bool(b.dryRun, 'dryRun');
+      await mine(req, 'naming a link as yours');
+      // His yes names the place his sheet showed by the dry run's `seen` (an exact value of the real place, not the
+      // page's text of it, which writes the home as ~): only that place is saved.
+      if (!dry && (typeof b.seen !== 'string' || !/^[0-9a-f]{64}$/.test(b.seen))) throw fail(400, 'seen is where the sheet showed the link leads: open it again');
+      const p = places();
+      const r = (opts.addMyLink || addMyLink)(b.path, { dir: p.dir, projects: p.projects }, { dryRun: dry, ...(dry ? {} : { seen: b.seen }) });
+      return { ok: true, path: tildeText(r.path), to: tildeText(r.to), added: r.added, ...(dry ? { dryRun: true, seen: r.seen } : {}), ...(r.moved ? { moved: tildeText(r.moved) } : {}) };
+    }],
+    // The save sheet's Move out: the owner's press on his own page only, as the save is (never Tia, a script's or a
+    // session's token, another site, or by itself). The names come from the sheet; brainmove.mjs checks each again
+    // against this moment's refusal list, inside the brain, never a private folder or a link that leads out.
+    ['POST', /^\/api\/workspace\/git\/brain\/moveout$/, async (req) => {
+      ownerOnly(req);
+      const b = await sctx.readJson(req);
+      keys(b, ['files', 'seen']);
+      if (!Array.isArray(b.files) || !b.files.length || b.files.length > 500 || b.files.some((f) => typeof f !== 'string' || !f || f.length > 4096)) throw fail(400, 'files are the paths the sheet named');
+      if (typeof b.seen !== 'string' || !/^[0-9a-f]{64}$/.test(b.seen)) throw fail(400, 'seen is the list the sheet showed: open the save again');
+      await mine(req, 'moving files out of the AI brain');
+      const dir = places().dir;
+      const r = await brainLocked(dir, () => (opts.moveOut || moveOut)({ dir, files: b.files, seen: b.seen, run: opts.run || capture }));
+      return { ok: true, folder: tildeText(r.folder), moved: r.moved.map((m) => ({ from: m.from, to: tildeText(m.to) })), untracked: r.untracked };
+    }],
     ['POST', /^\/api\/workspace\/git\/brain$/, async (req) => {
       ownerOnly(req);
       const b = await sctx.readJson(req);
+      if (b && b.save !== undefined) {
+        // { save: true }: the owner's yes in the sheet: save the brain's changes and upload them, as a job. Only his
+        // own page (or a hub of his, relayed): never Tia, a script's or a session's token, never by itself.
+        keys(b, ['save', 'seen']);
+        if (b.save !== true) throw fail(400, 'save is true or left out');
+        // The list his sheet showed (brainChanges' seen): only those files are saved, never one that came after. A page
+        // of an older Hoprig (a hub not updated yet) sends none: it saves as it did before.
+        if (b.seen !== undefined && (typeof b.seen !== 'string' || !/^[0-9a-f]{64}$/.test(b.seen))) throw fail(400, 'seen is the list the sheet showed: open the sheet again');
+        await mine(req, 'saving the AI brain to its git server (it uploads it)');
+        const dir = places().dir;
+        const seen = b.seen;
+        return startJob('brain-save', (onLine) => (opts.saveBrain || saveBrain)({ dir, run: opts.run || capture, onLine, seen }));
+      }
+      await mine(req, 'starting the AI brain on GitHub (it pushes it)');
       keys(b, ['owner', 'name']);
       if (b.owner !== undefined && (typeof b.owner !== 'string' || !/^[A-Za-z0-9-]{1,39}$/.test(b.owner))) throw fail(400, 'owner is a GitHub account name');
       if (b.name !== undefined && (typeof b.name !== 'string' || !/^[A-Za-z0-9._-]{1,100}$/.test(b.name))) throw fail(400, 'a repository name is letters, digits, ".", "_" and "-"');

@@ -44,4 +44,4 @@ Yes. With tmux 3.2 or newer, Hoprig's terminal sessions run in tmux. They surviv
 
 ### Can I keep the dashboard off the internet?
 
-Yes. Setup asks who may open the dashboard. Pressing Enter makes it reachable from devices on your network, over plain http (not encrypted), behind its password; choose 1 to keep it on this computer only. On a computer with a public address, "devices on my network" is not offered. `hoprig setup --access tailscale` serves it at an https address that only your own Tailscale devices can open.
+Yes. Setup asks who may open the dashboard. Pressing Enter makes it reachable from devices on your network, over plain http (not encrypted), behind its password; choose 1 to keep it on this computer only. On a server (a computer with a public address, or, on Linux, also one you reach over SSH with no desktop or one in a cloud), "devices on my network" is not offered. `hoprig setup --access tailscale` serves it at an https address that only your own Tailscale devices can open.

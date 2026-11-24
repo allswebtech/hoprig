@@ -36,7 +36,7 @@ const asked = [];
 const lists = {
   '/api/chats/tools': [{ id: 'claude', name: 'Claude Code' }],
   '/m/laptop/api/chats/tools': [{ id: 'claude', name: 'Claude Code' }, { id: 'opencode', name: 'OpenCode' }],
-  '/m/pc3/api/chats/tools': [{ id: 'claude', name: 'Claude Code' }],
+  '/m/box3/api/chats/tools': [{ id: 'claude', name: 'Claude Code' }],
 };
 globalThis.fetch = async (url) => {
   asked.push(url);
@@ -62,11 +62,11 @@ test('the coding tools are asked of the computer whose screen is open; null is t
 test('"Open as chat" on another tool\'s terminal: offered until the computer is known not to have its chat', async () => {
   const oc = { kind: 'claude', tool: 'opencode', name: 'oc-1', sessionId: 'ses_x' };
   const claude = { kind: 'claude', name: 'cc-1', sessionId: 'x' };
-  assert.equal(S.opensAsChat(oc, 'pc3'), true, 'not known yet: offered (the computer refuses a tool that is off)');
-  assert.ok(asked.includes('/m/pc3/api/chats/tools'), 'and its list is asked for');
-  await S.chatTools('pc3');
-  assert.equal(S.opensAsChat(oc, 'pc3'), false, 'known: that computer has no chat for OpenCode');
-  assert.equal(S.opensAsChat(claude, 'pc3'), true, 'Claude Code\'s always');
+  assert.equal(S.opensAsChat(oc, 'box3'), true, 'not known yet: offered (the computer refuses a tool that is off)');
+  assert.ok(asked.includes('/m/box3/api/chats/tools'), 'and its list is asked for');
+  await S.chatTools('box3');
+  assert.equal(S.opensAsChat(oc, 'box3'), false, 'known: that computer has no chat for OpenCode');
+  assert.equal(S.opensAsChat(claude, 'box3'), true, 'Claude Code\'s always');
   await S.chatTools('laptop');
   assert.equal(S.opensAsChat(oc, 'laptop'), true);
 });

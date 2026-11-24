@@ -89,8 +89,8 @@ export function suggestFor(project) {
     }
     if (why.length) {
       const strong = e.signals.some((s) => !s.startsWith('stack:') && s !== 'always' && signalEvidence(project, s));
-      // A bundled entry comes first: it is the one skill every project gets offered.
-      out.push({ entry: e, why, score: e.bundled ? 1000 : why.length + (strong ? 3 : 0) });
+      // A bundled entry comes first: it is the one skill every project gets offered; Hoprig's own skill before the rest.
+      out.push({ entry: e, why, score: e.bundled ? (e.id === 'hoprig' ? 1001 : 1000) : why.length + (strong ? 3 : 0) });
     }
   }
   return out.sort((a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id));

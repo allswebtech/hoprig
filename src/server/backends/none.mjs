@@ -9,7 +9,7 @@ export class NoBackend {
     this.capabilities = { nativeScrollback: true, persistent: false };
     this.message =
       reason === 'hub'
-        ? 'This computer is a hub: it shows your other computers and has no terminals of its own.'
+        ? 'This computer is a main computer: it shows your other computers and has no terminals of its own.'
         : `No terminal is available on this computer: install tmux, or the terminal module (run "hoprig doctor")${detail ? ` (${detail})` : ''}.`;
   }
 

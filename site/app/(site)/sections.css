@@ -1,0 +1,66 @@
+/* The landing page's bands from the content: centred titles, the kit's cards, steps, a table in its own scrolling
+   box, and the questions in two columns on a wide screen. Scoped to .band so the content's class names (cards,
+   steps, table, faq) take the site's look only here. */
+.band { padding: var(--s8) 0; }
+@media (min-width: 1000px) { .band { padding: var(--s9) 0; } }
+.band:nth-of-type(even), .band-who-it-is-for, .band-compared-honestly { background: var(--surface-2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.band-title { text-align: center; max-width: 22em; margin: 0 auto; }
+.band .prose > p:first-child { text-align: center; max-width: 40em; margin: var(--s3) auto 0; color: var(--text-2); font-size: 17px; }
+.band .prose p { margin: var(--s3) 0 0; color: var(--text-2); }
+.band .prose a { font-weight: 600; }
+
+/* The three things: the kit's card, a number badge from the heading's own "1." */
+.band .cards.three { display: grid; gap: var(--s4); margin-top: var(--s6); }
+@media (min-width: 900px) { .band .cards.three { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; } }
+.band .cards.three .card h3 { font-size: var(--fs-lg); line-height: 1.3; }
+.band .cards.three .card p:last-child { margin-top: auto; padding-top: var(--s3); }
+.band .cards.three .card p:last-child a { min-height: var(--tap); display: inline-flex; align-items: center; }
+
+/* Who it is for: one card per use case. */
+.usecases { margin-top: var(--s6); }
+.usecases li { display: flex; }
+.usecases .card { width: 100%; }
+.usecases .who { margin: 0 0 var(--s2); font-size: 13px; font-weight: 650; color: var(--accent-soft-text); display: flex; gap: var(--s2); align-items: center; }
+.usecases .card h3 { font-size: 17px; }
+.usecases .card p:last-child { font-size: 15px; }
+
+/* How it works: three numbered steps. */
+.band .steps ol { list-style: none; counter-reset: step; padding: 0; margin: var(--s6) auto 0; display: grid; gap: var(--s4); max-width: 1000px; }
+@media (min-width: 900px) { .band .steps ol { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.band .steps li { counter-increment: step; position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 56px var(--s5) var(--s5); box-shadow: var(--shadow-1); color: var(--text-2); }
+.band .steps li::before { content: counter(step); position: absolute; left: var(--s5); top: var(--s5); width: 28px; height: 28px; border-radius: 99px; display: grid; place-items: center; background: var(--accent); color: var(--accent-text); font-weight: 700; font-size: 14px; }
+.band .steps li strong:first-child { display: block; color: var(--text); font-size: 17px; margin-bottom: 4px; }
+.band .install { margin-top: var(--s6); }
+
+/* The comparison: the kit's table in its own scrolling box; the first column names the row. */
+.band .table { margin-top: var(--s6); overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-1); }
+.band .table table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 15px; }
+.band .table th, .band .table td { text-align: left; vertical-align: top; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.band .table thead th { font-size: 13px; font-weight: 700; color: var(--muted); background: var(--surface-2); }
+.band .table tbody tr:last-child td, .band .table tbody tr:last-child th { border-bottom: 0; }
+.band .table tbody th { font-weight: 600; color: var(--text); background: none; }
+.band .table td:nth-child(2) { background: color-mix(in srgb, var(--accent-soft) 55%, transparent); color: var(--text); font-weight: 600; }
+.band .prose ul { margin: var(--s5) 0 0; padding-left: 1.2em; color: var(--text-2); }
+.band .prose li { margin: 6px 0; }
+
+/* Questions and answers: each a small card, two columns on a wide screen. */
+.band .faq { display: grid; gap: var(--s4); margin-top: var(--s6); }
+@media (min-width: 900px) { .band .faq { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.band .faq h3 { font-size: 17px; margin: 0; }
+.faq-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--s5); box-shadow: var(--shadow-1); }
+.faq-item p { margin: var(--s2) 0 0; }
+
+/* Start now: the install line and the two ways on. */
+.band-start-now .prose:last-child p { text-align: center; }
+
+/* On a phone each row of the comparison is a card of its own: the row's name, then each tool's answer under its
+   name (the renderer's data-label), so no column is hidden past the edge. */
+@media (max-width: 599px) {
+  .band .table { overflow: visible; border: 0; background: none; box-shadow: none; }
+  .band .table table, .band .table tbody, .band .table tr, .band .table td, .band .table tbody th { display: block; min-width: 0; width: 100%; }
+  .band .table thead { display: none; }
+  .band .table tr { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-1); margin-bottom: var(--s3); overflow: hidden; }
+  .band .table td, .band .table tbody th { border-bottom: 1px solid var(--border); padding: 10px 14px; }
+  .band .table tbody th { background: var(--surface-2); }
+  .band .table td[data-label]::before { content: attr(data-label); display: block; font-size: 12px; font-weight: 700; color: var(--muted); }
+}

@@ -1,0 +1,107 @@
+/* The design system's pieces: base, type, buttons, cards, form fields, tables, the install line. Each reads only the
+   tokens of tokens.css, so a page in another layout group (a later account area) gets the same look by importing
+   design/. Class names start with no prefix of a page: they are the kit's. */
+
+/* ---------- base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 76px; }
+body { margin: 0; background: var(--bg); color: var(--text); font: var(--fs)/1.6 var(--font); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+img, svg, video, canvas { display: block; max-width: 100%; }
+img { height: auto; }
+a { color: var(--accent-soft-text); text-underline-offset: 3px; }
+a:hover { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 var(--gutter); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.skip { position: absolute; left: -9999px; top: 8px; z-index: 50; background: var(--surface); color: var(--text); padding: 10px 14px; border-radius: var(--r); box-shadow: var(--shadow-2); }
+.skip:focus { left: 8px; }
+
+/* ---------- type ---------- */
+h1, h2, h3, h4 { margin: 0; color: var(--text); text-wrap: balance; }
+.t-display { font-size: var(--fs-h1); line-height: 1.04; letter-spacing: -.035em; font-weight: 750; }
+.t-display em { font-style: normal; color: var(--accent); }
+.t-h2 { font-size: var(--fs-h2); line-height: 1.1; letter-spacing: -.03em; font-weight: 700; }
+.t-h3 { font-size: var(--fs-h3); line-height: 1.2; letter-spacing: -.02em; font-weight: 700; }
+.t-lead { font-size: clamp(17px, 2.2vw, 20px); line-height: 1.5; color: var(--text-2); text-wrap: pretty; }
+.t-body { color: var(--text-2); }
+.t-small { font-size: var(--fs-sm); color: var(--muted); }
+.t-kicker { display: inline-block; font-size: 13px; font-weight: 650; color: var(--accent-soft-text); background: var(--accent-soft); padding: 4px 10px; border-radius: 99px; }
+code, kbd, pre { font-family: var(--mono); font-size: .875em; }
+
+/* ---------- buttons ---------- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--tap); padding: 0 18px; border-radius: var(--r); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: 600 15px/1 var(--font); text-decoration: none; cursor: pointer; white-space: nowrap; transition: background var(--tick), border-color var(--tick), color var(--tick), box-shadow var(--tick); }
+.btn:hover { background: var(--surface-2); color: var(--text); border-color: var(--muted); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--accent-text); }
+.btn-primary:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.btn-quiet { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn-quiet:hover { background: var(--surface-3); border-color: transparent; }
+.btn-small { min-height: 38px; padding: 0 14px; font-size: 14px; }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.icon-btn { display: inline-grid; place-items: center; width: var(--tap); height: var(--tap); padding: 0; border: 0; border-radius: var(--r); background: none; color: var(--text-2); cursor: pointer; }
+.icon-btn:hover { background: var(--surface-3); color: var(--text); }
+.icon-btn svg { width: 20px; height: 20px; }
+
+/* ---------- chips ---------- */
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 99px; background: var(--surface); border: 1px solid var(--border); font-size: 13.5px; color: var(--text-2); white-space: nowrap; }
+.chip .dot { width: 7px; height: 7px; border-radius: 99px; background: var(--ok); }
+.badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 7px; font-size: 12px; font-weight: 700; background: var(--accent-soft); color: var(--accent-soft-text); }
+
+/* ---------- cards ---------- */
+.card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--s5); box-shadow: var(--shadow-1); color: inherit; }
+a.card { text-decoration: none; transition: box-shadow var(--tick), border-color var(--tick); }
+a.card:hover { box-shadow: var(--shadow-2); border-color: var(--border-strong); color: inherit; }
+.card-icon { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-soft-text); margin-bottom: var(--s4); }
+.card-icon svg { width: 22px; height: 22px; }
+.card h3 { font-size: var(--fs-lg); line-height: 1.3; margin: 0 0 var(--s2); letter-spacing: -.01em; }
+.card p { margin: 0; color: var(--text-2); font-size: 15.5px; }
+.card .card-more { margin-top: auto; padding-top: var(--s3); font-weight: 600; font-size: 15px; min-height: var(--tap); display: inline-flex; align-items: center; }
+.cards { display: grid; gap: var(--s4); padding: 0; margin: 0; list-style: none; }
+@media (min-width: 900px) { .cards-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; } .cards-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------- form fields ---------- */
+.field { display: grid; gap: 6px; }
+.field label { font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.field .hint { font-size: 13px; color: var(--muted); }
+.input { width: 100%; min-height: var(--tap); padding: 10px 12px; border-radius: var(--r); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: inherit; }
+.input::placeholder { color: var(--muted); }
+.input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ---------- tables: a wide one scrolls in its own box, never the page ---------- */
+.table-box { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.table th, .table td { text-align: left; vertical-align: top; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.table thead th { font-size: 13px; font-weight: 700; color: var(--muted); background: var(--surface-2); }
+.table tbody tr:last-child td { border-bottom: 0; }
+.table th[scope='row'] { font-weight: 600; color: var(--text); }
+
+/* ---------- the install line: the command, and one button that copies exactly it ---------- */
+.install { display: flex; align-items: center; max-width: 800px; margin: 0 auto; background: var(--console-bg); border-radius: var(--r-lg); padding: 6px 6px 6px 18px; box-shadow: var(--shadow-2); text-align: left; }
+.install code { flex: 1; min-width: 0; font: 13.5px/1.5 var(--mono); color: var(--console-text); overflow-x: auto; white-space: nowrap; padding: 8px 0; scrollbar-width: none; }
+.install code::-webkit-scrollbar { display: none; }
+.install .prompt { color: var(--console-muted); user-select: none; }
+.install .btn { flex: none; margin-left: 12px; border-radius: 9px; }
+/* Copy sits on the dark console in both themes (the install line, a code block): its ring is white there. */
+.copy:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+/* Where the header's Install leads: a ring that fades out in about a second; with reduced motion it stands still. */
+.install-flash { animation: install-flash 1.2s ease-out; }
+@keyframes install-flash { from { box-shadow: 0 0 0 5px var(--accent), var(--shadow-2); } to { box-shadow: 0 0 0 0 transparent, var(--shadow-2); } }
+@media (prefers-reduced-motion: reduce) { .install-flash { animation: none; box-shadow: 0 0 0 4px var(--accent), var(--shadow-2); } }
+@media (max-width: 599px) {
+  .install { flex-direction: column; align-items: stretch; padding: 14px 14px 10px; }
+  .install code { white-space: normal; overflow-wrap: break-word; font-size: 13px; padding: 0 0 10px; }
+  .install .btn { margin: 0; min-height: var(--tap); }
+}
+
+/* ---------- with scripts off: no control that needs one (the theme switch, a Copy button); the text stays to select ---------- */
+:root:not([data-js]) .theme-switch, :root:not([data-js]) .copy { display: none; }
+
+/* ---------- the theme switch: which icon shows follows the theme in CSS, so it is right before any script ---------- */
+.theme-switch .moon { display: none; }
+:root[data-theme='dark'] .theme-switch .sun { display: none; }
+:root[data-theme='dark'] .theme-switch .moon { display: contents; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .theme-switch .sun { display: none; }
+  :root:not([data-theme='light']) .theme-switch .moon { display: contents; }
+}

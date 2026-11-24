@@ -11,7 +11,7 @@ import { Readable } from 'node:stream';
 import test from 'node:test';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'projects-page-'));
-Object.assign(process.env, { HOME: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state'), CLAUDE_CONFIG_DIR: path.join(tmp, 'claude') });
+Object.assign(process.env, { HOME: path.join(tmp, 'home'), USERPROFILE: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state'), CLAUDE_CONFIG_DIR: path.join(tmp, 'claude') });
 fs.mkdirSync(process.env.HOME, { recursive: true });
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -80,14 +80,14 @@ test('sync: what is left gets a kind the page explains in words', () => {
 });
 
 const pdir = path.join(tmp, 'projects');
-function harness(over = {}) {
-  const sctx = { readJson: async (req) => req.body || {}, backend: { list: async () => [], create: async () => {} }, deck: { launcher: () => ['node', 'x'] } };
+function harness(over = {}, { caller } = {}) {
+  const sctx = { readJson: async (req) => req.body || {}, backend: { list: async () => [], create: async () => {} }, deck: { launcher: () => ['node', 'x'] }, ...(caller ? { caller: () => caller } : {}) };
   const f = pcsetupFeature(sctx, { sys: { platform: 'linux', has: () => false, run: async () => ({ ok: false, stdout: '', stderr: '' }), env: process.env, home: process.env.HOME }, projectsDir: () => pdir, run: async () => ({ ok: false, stdout: '', stderr: '' }), ...over });
-  const call = async (method, p, body) => {
+  const call = async (method, p, body, headers = {}) => {
     const u = new URL(p, 'http://x');
     for (const [m, re, fn] of f.routes) {
       const match = re.exec(u.pathname);
-      if (match && m === method) return fn(Object.assign(Readable.from([]), { body }), match, u.searchParams);
+      if (match && m === method) return fn(Object.assign(Readable.from([]), { body, headers }), match, u.searchParams);
     }
     throw new Error(`no route ${method} ${p}`);
   };
@@ -118,6 +118,10 @@ test('New project: a preview first (nothing made), then a background job that ne
   assert.equal(pv.exists, false);
   assert.equal(pv.template, 'built-in');
   assert.ok(pv.files.includes('AGENTS.md') && pv.files.includes('code/.gitignore'));
+  assert.ok(!pv.files.some((f) => f.startsWith('.claude/skills/') || f === 'docs/brief.md'), 'without a brief: no skill and no brief');
+  const withBrief = (await call('GET', '/api/pcsetup/project/preview?name=shop&brief=1')).files;
+  for (const f of ['.claude/skills/new-project/SKILL.md', '.claude/skills/.hoprig-skills.json', 'docs/brief.md']) assert.ok(withBrief.includes(f), `with a brief: ${f}`);
+  assert.equal(withBrief.length, pv.files.length + withBrief.filter((f) => f.startsWith('.claude/skills/')).length + 1);
   assert.equal(pv.github.signedIn, false);
   assert.equal(fs.existsSync(pv.dir), false, 'the preview makes nothing');
   assert.equal((await call('GET', '/api/pcsetup/project/preview?name=taken')).exists, true);
@@ -135,6 +139,49 @@ test('New project: a preview first (nothing made), then a background job that ne
   await call('POST', '/api/pcsetup/project/new', { name: 'shop2', github: true });
   await job();
   assert.deepEqual(seen[1].args, ['shop2', '--github']);
+});
+
+test('New project with no git name and e-mail anywhere: the preview asks the page for them, and the typed ones reach the first commit', async () => {
+  const saved = process.env.GIT_CONFIG_GLOBAL;
+  const empty = path.join(tmp, 'empty-gitconfig');
+  fs.writeFileSync(empty, '');
+  process.env.GIT_CONFIG_GLOBAL = empty;
+  try {
+    const seen = [];
+    const { call, job } = harness({ projectNew: async (args) => (seen.push(args), 0) });
+    assert.equal((await call('GET', '/api/pcsetup/project/preview?name=idshop')).askIdentity, true);
+    await assert.rejects(call('POST', '/api/pcsetup/project/new', { name: 'idshop', gitName: 'Alex Lee', gitEmail: 'not an address' }), /e-mail address/);
+    await assert.rejects(call('POST', '/api/pcsetup/project/new', { name: 'idshop', gitName: 'two\nlines', gitEmail: 'alex@example.com' }), /name for commits/);
+    await call('POST', '/api/pcsetup/project/new', { name: 'idshop', gitName: 'Alex Lee', gitEmail: 'alex@example.com' });
+    await job();
+    assert.deepEqual(seen[0], ['idshop', '--no-github', '--git-name', 'Alex Lee', '--git-email', 'alex@example.com']);
+  } finally {
+    process.env.GIT_CONFIG_GLOBAL = saved;
+  }
+  assert.equal((await harness({}).call('GET', '/api/pcsetup/project/preview?name=idshop')).askIdentity, false, 'git knows them: nothing is asked');
+});
+
+test('New project with a brief: the brief is checked before the job, then given to it unchanged with the kind\'s hint and the scope', async () => {
+  const seen = [];
+  const { call, job } = harness({
+    projectNew: async (args, o) => {
+      seen.push({ args, brief: o.brief });
+      return 0;
+    },
+  });
+  const brief = 'A booking site for many salons.\r\nCustomers pay online.';
+  await call('POST', '/api/pcsetup/project/new', { name: 'salons', brief, kind: 'multi-tenant', scope: 'setup' });
+  await job();
+  assert.deepEqual(seen[0], { args: ['salons', '--no-github', '--kind', 'multi-tenant', '--scope', 'setup'], brief });
+  for (const [body, re] of [
+    [{ name: 'x1', brief: 'Hidden\u200b here' }, /cannot be seen/],
+    [{ name: 'x6', brief: 'A shop.\u2028Customers pay.' }, (e) => /cannot be seen/.test(e.message) && e.details.clean === 'A shop.\nCustomers pay.'],
+    [{ name: 'x2', brief, kind: 'game' }, /the kind is one of/],
+    [{ name: 'x3', brief, scope: 'all' }, /the scope is one of/],
+    [{ name: 'x4', kind: 'cli' }, /go with a brief/],
+    [{ name: 'x5', scope: 'setup' }, /go with a brief/],
+  ]) await assert.rejects(call('POST', '/api/pcsetup/project/new', body), re, JSON.stringify(body));
+  assert.equal(seen.length, 1, 'a refused brief, kind or scope starts no job');
 });
 
 test('Get an existing project and Add a repository: checked input, a job, no password prompt on the server', async () => {
@@ -287,4 +334,17 @@ test('Skills for "Just for me": the catalog\'s skills meant for every project, m
   assert.ok(r.suggestions.length >= 1);
   assert.ok(r.suggestions.every((s) => s.scope === 'user' && typeof s.installed === 'boolean'));
   assert.ok(r.suggestions.some((s) => s.id === 'hoprig'));
+});
+
+// Publishing is the owner's own press: a project sync through Tia's door (or relayed as hers from a hub) never pushes.
+test('Sync through Tia\'s door never pushes; from the owner\'s page it does', async () => {
+  fs.mkdirSync(path.join(pdir, 'synced', '.git'), { recursive: true });
+  const seen = [];
+  const syncWorkspace = async (root, o) => (seen.push(o.push), { memory: null, repos: [] });
+  for (const [caller, headers, want] of [['self', {}, false], ['computer', { 'x-hoprig-self': '1' }, false], ['page', {}, true]]) {
+    const { call, job } = harness({ syncWorkspace }, { caller });
+    await call('POST', '/api/pcsetup/project/sync', { name: 'synced' }, headers);
+    await job();
+    assert.equal(seen.at(-1), want, `${caller}: push ${seen.at(-1)}`);
+  }
 });

@@ -38,6 +38,27 @@ export function fitRect(r, area) {
   return { x, y, w, h };
 }
 
+/**
+ * Where a window is shown in an area. Its own rect is kept as the owner put it, so its place comes back once the area
+ * is large again (a smaller browser window for a while, the Dock's bars, a layout from a larger screen). Shown: that
+ * rect where it lies wholly inside; one the owner put partly out (`placedIn`: the area it was put in, not kept) stays
+ * as put while the area is at least that large, its title bar reachable (clampRect); anything else is fitted wholly
+ * inside, title bar and buttons included (fitRect).
+ */
+export function shownRect(r, area, placedIn = null) {
+  if (placedIn && area.w >= placedIn.w && area.h >= placedIn.h) return clampRect(r, area);
+  return fitRect(r, area);
+}
+
+/**
+ * A snapped or maximised window taken away by its title bar: its own size back, under the pointer at the same share
+ * of the title bar as where it was held (`px`, in the area). `snapped` is the rect it had, `own` its own rect.
+ */
+export function unsnapRect(snapped, own, px) {
+  const share = snapped.w > 0 ? Math.min(Math.max((px - snapped.x) / snapped.w, 0), 1) : 0.5;
+  return { x: int(px - share * own.w), y: int(snapped.y), w: int(own.w), h: int(own.h) };
+}
+
 /** The rect of a snap place in the area. */
 export function snapRect(snap, area) {
   const hw = Math.round(area.w / 2);
@@ -140,6 +161,7 @@ export function keySnap(snap, key) {
 // ---------- the layout kept in the browser ----------
 
 const HASH = /^#\/[^\s<>"']{0,500}$/;
+const LOOKED_AT = 1000;
 const ID = /^w[0-9a-z]{1,12}$/;
 
 /**
@@ -150,7 +172,10 @@ export function cleanLayout(raw, apps) {
   const out = { windows: [], focus: null };
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.windows)) return out;
   const seen = new Set();
-  for (const v of raw.windows.slice(0, MAX_WINDOWS)) {
+  // Sound windows are collected until there are MAX_WINDOWS (bad entries first do not hide them); a hostile list is
+  // looked at only so far.
+  for (const v of raw.windows.slice(0, LOOKED_AT)) {
+    if (out.windows.length >= MAX_WINDOWS) break;
     if (!v || typeof v !== 'object' || !apps.has(v.app) || !ID.test(v.id) || seen.has(v.id)) continue;
     if (typeof v.hash !== 'string' || !HASH.test(v.hash)) continue;
     const r = v.rect || {};
@@ -190,4 +215,52 @@ export function gridRects(n, size) {
   const w = Math.floor(size.w / cols);
   const hh = Math.floor(size.h / rows);
   return Array.from({ length: n }, (_, i) => clampRect({ x: (i % cols) * w, y: Math.floor(i / cols) * hh, w, h: hh }, size));
+}
+
+// ---------- the order of the windows ----------
+
+/** The window in front: the highest layer that is not minimised, or null. */
+export const frontOf = (windows) => windows.filter((v) => !v.min).sort((a, b) => b.z - a.z)[0] || null;
+
+/**
+ * The layers again from 1 to n with window `id` on top (`top`) or at the bottom: a window brought forward goes on
+ * top; a minimised one goes to the bottom, so the cycle key reaches it last, as on other desktops. Changes the `z` of
+ * each window in place.
+ */
+export function restack(windows, id, top = true) {
+  const v = windows.find((w) => w.id === id);
+  const rest = windows.filter((w) => w !== v).sort((a, b) => a.z - b.z);
+  (v ? (top ? [...rest, v] : [v, ...rest]) : rest).forEach((w, i) => (w.z = i + 1));
+}
+
+/** The order the cycle key goes through: the window in front first, then each in the order last used. */
+export const cycleOrder = (windows) => [...windows].sort((a, b) => b.z - a.z).map((v) => v.id);
+
+// ---------- two tabs on one desktop ----------
+
+/** What this tab keeps of window `v`, to tell later what it changed itself: its place, minimised or not, its address. */
+export const keptState = (v, hash = v.hash) => ({ rect: { ...v.rect }, snap: v.snap || null, min: v.min === true, hash });
+
+const sameRect = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+const trimHash = (hash) => String(hash || '#/').replace(/\/+$/, '');
+
+/**
+ * Window `here` (as this tab shows it) when this tab takes another tab's kept window `theirs`; `kept` is what this tab
+ * last kept or took of it (keptState). What this tab changed since (its place, minimised or not, its address) stays:
+ * it is the newer change, and this tab's next keep writes it. The rest follows the other tab. Returns
+ * { rect, snap, min, hash, own: { place, min, hash } } (own: which of the three stayed this tab's).
+ */
+export function mergeWindow(here, kept, theirs) {
+  const own = {
+    place: !kept || !sameRect(here.rect, kept.rect) || (here.snap || null) !== (kept.snap || null),
+    min: !kept || (here.min === true) !== (kept.min === true),
+    hash: !kept || trimHash(here.hash) !== trimHash(kept.hash),
+  };
+  return {
+    rect: own.place ? here.rect : theirs.rect,
+    snap: own.place ? here.snap || null : theirs.snap || null,
+    min: own.min ? here.min === true : theirs.min === true,
+    hash: own.hash ? here.hash : theirs.hash,
+    own,
+  };
 }

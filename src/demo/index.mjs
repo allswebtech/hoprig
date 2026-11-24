@@ -21,8 +21,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { repoInfo } from '../pcsetup/workspace.mjs';
 import { demoOpenCode, seedCart } from './coding.mjs';
 import { demoDesktop } from './desktop.mjs';
+import { GATEWAY, HOPRIG, KITS, TOOLS, newer } from './versions.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SESSION = path.join(HERE, 'session.mjs');
@@ -67,6 +69,13 @@ const KEEP = new Set([
   'LANG', 'LANGUAGE', // the language and characters of the terminals' text (with every LC_* variable)
   'TERM', // what the terminal can draw
   'TMPDIR', 'TEMP', 'TMP', // the temp folder: the demo's own folder is there, and the second computer's ready file
+  'HOPRIG_TEST_SUDO', // the demo stands in a sample answer for this computer's sudo (below); this lets a screenshot run choose which state it shows, so the demo never runs the real sudo
+  'HOPRIG_TEST_GITCHECK', // the demo stands in a git server for Tia's sign-in check (below); this lets a screenshot run choose which answer it shows, so the demo never reaches a real git server
+  'HOPRIG_TEST_SIGNIN', // the demo stands in Claude Code's stored sign-in (claudesignin.mjs); this lets a screenshot run show it signed in, so the demo never asks a real Claude Code
+  // The test runner's own variables (tools/test.mjs: the folder of its traps for sudo, systemctl and the like, the test
+  // file and process they name, its ports refused). They are there only under the suite. Thrown away, a demo a test
+  // started, and its second computer, started the computer's real programs and reached its real ports.
+  'HOPRIG_TEST_TRAPS', 'HOPRIG_TEST_FILE', 'HOPRIG_TEST_PID', 'HOPRIG_TEST_MARK', 'HOPRIG_NODE_NPM', 'HOPRIG_SEAL_EXTRA_TRAPS', 'HOPRIG_SEAL_EXTRA_PORTS', 'HOPRIG_SEAL_REAL', 'TMUX_TMPDIR',
   // Windows itself: its folder, its command shell, how a program name is found, the system drive.
   'SystemRoot', 'SYSTEMROOT', 'windir', 'WINDIR', 'ComSpec', 'COMSPEC', 'PATHEXT', 'SystemDrive', 'SYSTEMDRIVE',
   // Where Windows' programs and PowerShell's modules are: a demo terminal's PowerShell loads its own modules from
@@ -109,15 +118,29 @@ export function isolate(root, env = process.env) {
   return home;
 }
 
+// A port nothing listens on now, picked by the system: the demo's pretend gateway lives there, never on the shipped
+// gateway's own port (a gateway the person runs on this computer may answer there).
+async function freePort() {
+  const net = await import('node:net');
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
 // A pretend add-on of the gateway Hoprig ships (src/addons/gateways.mjs): its own words and names, but "install"
-// prints believable lines and installs nothing, and nothing is started.
-async function demoAddon() {
+// prints believable lines and installs nothing, and nothing is started. `port`: where it says it is (freePort).
+async function demoAddon(port) {
   const { SHIPPED } = await import('../addons/gateways.mjs');
   const { localGateway } = await import('../addons/localgateway.mjs');
   const st = { installed: false, running: false };
   const def = SHIPPED[0];
   const real = localGateway(def, { shipped: true });
-  const url = `http://localhost:${def.port}`;
+  const url = `http://localhost:${port}`;
   const lines = async (onLine, list) => {
     for (const l of list) {
       onLine(l);
@@ -130,8 +153,10 @@ async function demoAddon() {
     summary: real.summary,
     homepage: real.homepage,
     words: real.words,
+    // The gateway feature (src/gateway) lists it by this port; nothing listens there, so it reads as not running.
+    gateway: { port: () => port },
     page: () => url,
-    status: async () => ({ installed: st.installed, version: st.installed ? '1.0.8' : null, running: st.running, url }),
+    status: async () => ({ installed: st.installed, version: st.installed ? GATEWAY : null, running: st.running, url }),
     install: async ({ onLine = () => {} } = {}) => {
       await lines(onLine, [`(demo) npm install -g ${def.npm}`, 'added 41 packages in 3s', '(demo) nothing was installed: this is the demo']);
       st.installed = true;
@@ -153,10 +178,16 @@ async function demoAddon() {
   };
 }
 
+// The one made-up Claude Code version of the demo (versions.mjs): Setup, Health, the Overview, Updates and the
+// Computers page all name it, and the Overview offers the same newer one Updates offers.
+const CLAUDE_VERSION = TOOLS.claude.installed;
+// The background service as the real doctor names it on this kind of computer (src/setup/checks.mjs serviceCheck).
+const DEMO_SERVICE = process.platform === 'darwin' ? 'LaunchAgent' : process.platform === 'win32' ? 'scheduled task' : 'systemd user service';
+
 // Home → Get started and Computer → Setup in the demo: made-up facts instead of this computer's own (which could
 // show its user name, its tools, its projects).
 const DEMO_FACTS = {
-  claude: async () => ({ installed: '2.1.330', loggedIn: true }),
+  claude: async () => ({ installed: CLAUDE_VERSION, loggedIn: true }),
   tools: async () => ({ missing: [] }),
   rules: async () => ({ installed: true, edited: false }),
   projects: async () => ['shop-frontend', 'api-server', 'data-pipeline'],
@@ -170,17 +201,30 @@ const DEMO_CHECKS = [
   C('system', 'os', 'macOS 15.4', 'ok', 'up to date'),
   C('system', 'disk', 'Free disk space', 'ok', '182 GB free'),
   C('system', 'memory', 'Memory', 'ok', '16 GB'),
-  C('kit:basics', 'basics.git', 'git', 'ok', '2.47.1'),
-  C('kit:basics', 'basics.ripgrep', 'ripgrep', 'ok', '14.1.1'),
-  C('kit:node', 'node.node', 'Node.js', 'ok', '22.12.0'),
+  C('kit:basics', 'basics.git', 'git', 'ok', KITS.git),
+  C('kit:basics', 'basics.ripgrep', 'ripgrep', 'ok', KITS.ripgrep),
+  C('kit:node', 'node.node', 'Node.js', 'ok', KITS.node),
   C('kit:node', 'node.pnpm', 'pnpm', 'fail', 'missing', { fixKit: 'node' }),
-  C('kit:python', 'python.python', 'Python', 'ok', '3.13.1'),
-  C('kit:python', 'python.uv', 'uv', 'warn', '0.4.2 is old; 0.6.1 is out', { fixKit: 'python' }),
-  C('kit:github', 'github.gh', 'GitHub CLI', 'ok', '2.63.0'),
+  C('kit:python', 'python.python', 'Python', 'ok', KITS.python),
+  C('kit:python', 'python.uv', 'uv', 'warn', `${KITS.uv.installed} is old; ${KITS.uv.latest} is out`, { fixKit: 'python' }),
+  C('kit:github', 'github.gh', 'GitHub CLI', 'ok', KITS.gh),
   C('kit:github', 'github.signin', 'Signed in to GitHub', 'info', 'not signed in (optional)'),
-  C('claude', 'claude.code', 'Claude Code', 'ok', '2.1.330'),
+  C('claude', 'claude.code', 'Claude Code', 'ok', CLAUDE_VERSION),
   C('claude', 'claude.rules', 'Working rules', 'ok', 'added'),
 ];
+// Health's checks in the demo: the same made-up lines, without a Fix (a Fix there runs the set-up for real), and its
+// service line. The real doctor would run this computer's systemctl, gh and tmux and show what it found.
+const DEMO_HEALTH = [
+  ...DEMO_CHECKS.map(({ fixKit, ...c }) => c),
+  C('dashboard', 'service', 'Background service', 'ok', `installed (${DEMO_SERVICE}, starts with your login)`),
+];
+// The versions Health names: the same made-up Claude Code as Setup and the Computers page, Hoprig's own and the demo's
+// OpenCode as the real lookup finds them (its package file in the demo's tools folder), never this computer's claude.
+const demoVersions = async () => {
+  const { VERSION } = await import('../machines/pairing.mjs');
+  const oc = (await import('../codetools/index.mjs')).anyTool('opencode');
+  return { hoprig: VERSION, claude: CLAUDE_VERSION, opencode: (oc && (await Promise.resolve(oc.installedVersion()).catch(() => null))) || null };
+};
 
 /** The Computer tab in the demo: sample numbers and processes, never the real computer's; stopping is refused. */
 export function demoSystem(secondary) {
@@ -220,7 +264,7 @@ export function demoSystem(secondary) {
   };
 }
 
-const CLAUDE_INFO = { installed: '2.1.330', path: '~/.local/bin/claude', latest: '2.1.330', method: 'native', updateAvailable: false };
+const CLAUDE_INFO = { installed: CLAUDE_VERSION, path: '~/.local/bin/claude', latest: TOOLS.claude.latest, method: 'native', updateAvailable: newer(TOOLS.claude.latest, CLAUDE_VERSION) };
 
 // git for the demo's own sample repositories: never the owner's git settings, a made-up author.
 const gitEnv = () => ({ ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' });
@@ -318,6 +362,9 @@ function demoWorkspaceMore(home, secondary) {
       others: [{ dir: 'development/flutter', url: 'https://git.example.com/tools/flutter.git', sync: false }],
     };
     fs.writeFileSync(path.join(ws, 'ai_brain', 'workspace.json'), `${JSON.stringify(map, null, 2)}\n`);
+    // The other computer's own file in the brain (computer.mjs): it has invoices, which this one does not.
+    fs.mkdirSync(path.join(ws, 'ai_brain', 'computers'), { recursive: true });
+    fs.writeFileSync(path.join(ws, 'ai_brain', 'computers', 'laptop.json'), `${JSON.stringify({ folders: {}, here: ['bookshop', 'invoices', 'invoices/code/invoices-api'], hoprig: HOPRIG, id: '0f1e2d3c4b5a69788796a5b4c3d2e1f0', label: 'laptop' }, null, 2)}\n`);
   }
   // Every sample repository gets a made-up https address, so the map, its notes and the pages show those and never
   // a folder of this computer. git reaches the address through `url.<local>.insteadOf`: a bare copy next to the
@@ -356,10 +403,17 @@ function demoWorkspaceMore(home, secondary) {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const P = (rel) => path.join(ws, 'projects', rel);
   return {
-    gitState: async () => (secondary
-      ? { git: true, identity: { name: '', email: '' }, gh: { installed: true, signedIn: false, account: null }, helper: false, brain: { exists: true, git: true, remote: null, branch: 'main', upstream: null, ahead: 0, behind: 0, changes: 0 } }
-      : { git: true, identity: { name: 'Demo', email: 'demo@example.invalid' }, gh: { installed: true, signedIn: true, account: 'demo-user' }, helper: true, brain: { exists: true, git: true, remote: at('ai_brain'), branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, changes: 0 } }),
-    // One thing to decide (both sides changed), one to upload unless uploading was chosen, one not on this computer.
+    // The name, the sign-in and the address are made up; what waits in the brain is read from its folder, the same
+    // folder the save sheet's list reads (GET /api/workspace/git/brain), so the brain's row and its sheet never disagree.
+    gitState: async () => {
+      if (secondary) return { git: true, identity: { name: '', email: '' }, gh: { installed: true, signedIn: true, account: 'demo-user' }, helper: true, brain: { exists: true, git: true, remote: null, branch: 'main', upstream: null, ahead: 0, behind: 0, changes: 0 } };
+      const s = await repoInfo(path.join(ws, 'ai_brain'));
+      const st = s.ok ? { branch: s.branch, upstream: s.upstream || null, ahead: s.ahead, behind: s.behind, changes: s.changes } : { branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, changes: 0 };
+      return { git: true, identity: { name: 'Demo', email: 'demo@example.invalid' }, gh: { installed: true, signedIn: true, account: 'demo-user' }, helper: true, brain: { exists: true, git: true, remote: at('ai_brain'), ...st } };
+    },
+    // Set-up's one path: the owner's brain on GitHub, with a map in it.
+    brainCandidates: async () => [{ owner: 'demo-user', name: 'ai_brain', url: at('ai_brain'), private: true, hasMap: true }],
+    // One thing to decide (both sides changed), one to upload unless uploading was chosen; invoices is only in the map.
     sync: async ({ memory = false, push = false, onLine = () => {} } = {}) => {
       const repos = [
         { label: 'ai_brain', did: memory ? ['saved the memory'] : [], todo: [] },
@@ -367,37 +421,43 @@ function demoWorkspaceMore(home, secondary) {
         { label: 'bookshop/code/bookshop-api', did: [], todo: [{ why: 'changed here and on the server', command: `git -C ${P('bookshop/code/bookshop-api')} pull --rebase`, kind: 'diverged' }] },
         { label: 'bookshop/code/bookshop-web', did: [], todo: [] },
         push ? { label: 'shop-frontend', did: ['pushed 1'], todo: [] } : { label: 'shop-frontend', did: [], todo: [{ why: '1 commit to push', command: `git -C ${P('shop-frontend')} push`, kind: 'to-push' }] },
-        { label: 'invoices', did: [], todo: [{ why: 'not on this computer', command: 'hoprig workspace restore <brain address>', kind: 'missing' }] },
       ];
       for (const r of repos) {
         await wait(250);
         onLine(`${r.todo.length ? '!' : '✓'} ${r.label}${r.did.length ? `  ${r.did.join(', ')}` : r.todo.length ? '' : '  in step'}${r.todo.map((t) => `\n    ${t.why}  →  ${t.command}`).join('')}`);
       }
-      return { fromMap: !secondary, memory: memory ? [{ label: 'ai_brain', committed: true }] : [], repos, tools: secondary ? [] : ['development/flutter'], done: repos.filter((r) => !r.todo.length).length, todo: repos.reduce((n, r) => n + r.todo.length, 0) };
+      return { fromMap: !secondary, memory: memory ? [{ label: 'ai_brain', committed: true }] : [], repos, tools: secondary ? [] : ['development/flutter'], notHere: secondary ? [] : ['invoices'], done: repos.filter((r) => !r.todo.length).length, todo: repos.reduce((n, r) => n + r.todo.length, 0) };
     },
     syncWith: async (name, { onLine = () => {} } = {}) => {
       await wait(400);
       onLine('✓ blog  pulled 2');
       return { peer: name, repos: [{ label: 'blog', did: ['pulled 2'], todo: [], notes: [] }] };
     },
-    // A fresh computer bringing its workspace: everything cloned but one repository that cannot be reached.
-    restore: async (url, { ui, dryRun = false } = {}) => {
+    // A fresh computer bringing its workspace: the brain and the tool; the projects stay in the map unless every
+    // project was asked for (then one repository cannot be reached).
+    restore: async (url, { ui, dryRun = false, withProjects = false } = {}) => {
+      const away = (e) => (withProjects || e.kind === 'brain' || e.kind === 'other' ? e : { ...e, action: 'notHere', why: `in the map, not on this computer: hoprig get ${e.project || e.label}` });
       const plan = [
         { kind: 'brain', label: 'ai_brain', url: at('ai_brain'), dest: path.join(ws, 'ai_brain'), action: 'clone' },
         { kind: 'project', label: 'bookshop', url: at('bookshop'), dest: P('bookshop'), action: 'clone' },
-        { kind: 'repo', label: 'bookshop/code/bookshop-api', url: at('bookshop-api'), dest: P('bookshop/code/bookshop-api'), action: 'clone' },
+        { kind: 'repo', project: 'bookshop', label: 'bookshop/code/bookshop-api', url: at('bookshop-api'), dest: P('bookshop/code/bookshop-api'), action: 'clone' },
         { kind: 'project', label: 'invoices', url: at('invoices'), dest: P('invoices'), action: 'clone' },
-        { kind: 'repo', label: 'invoices/code/invoices-api', url: at('invoices-api'), dest: P('invoices/code/invoices-api'), action: 'clone' },
+        { kind: 'repo', project: 'invoices', label: 'invoices/code/invoices-api', url: at('invoices-api'), dest: P('invoices/code/invoices-api'), action: 'clone' },
         { kind: 'other', label: 'development/flutter', url: 'https://git.example.com/tools/flutter.git', dest: path.join(ws, 'development', 'flutter'), action: 'clone' },
-      ];
-      if (dryRun) return { ok: true, dryRun, brain: String(url), plan, folders: ['credentials', 'backups'], notes: [], projectsDir: P('') };
+      ].map(away);
+      const notHere = withProjects ? {} : { notHere: ['bookshop', 'invoices'] };
+      if (dryRun) return { ok: true, dryRun, brain: String(url), plan, folders: ['credentials', 'backups'], notes: [], projectsDir: P(''), ...notHere };
       for (const e of plan) {
+        if (e.action === 'notHere') {
+          e.result = e.why;
+          continue;
+        }
         await wait(300);
         ui.out(`  git clone ${e.url}`);
         e.result = e.label === 'invoices/code/invoices-api' ? 'failed: remote: Repository not found.' : 'cloned';
         ui.line(e.result === 'cloned' ? 'ok' : 'fail', `${e.label}: ${e.result}`);
       }
-      return { ok: false, dryRun, brain: String(url), plan, folders: ['credentials', 'backups'], notes: [], projectsDir: P('').replace(/[\\/]$/, '') };
+      return { ok: !withProjects, dryRun, brain: String(url), plan, folders: ['credentials', 'backups'], notes: [], projectsDir: P('').replace(/[\\/]$/, ''), ...notHere };
     },
   };
 }
@@ -439,9 +499,12 @@ const DEMO_SIGNIN = {
   team: { signedIn: true, plan: 'team', usageReported: false },
   pro: { signedIn: false, plan: null, usageReported: null },
 };
+// "Claude Pro" uses Claude Code's stored sign-in: its state comes from the demo's stand-in for that sign-in, the
+// same one the page's "who is signed in" asks (claudesignin.mjs), so the two always agree.
+let stored = null; // the demo's stored sign-in (main sets it after isolate())
 async function demoRouterState() {
   const rs = await import('../routerstate.mjs');
-  return { ...rs, providerFacts: (p) => DEMO_SIGNIN[p.name] || rs.providerFacts(p) };
+  return { ...rs, providerFacts: (p) => (p.name === 'pro' ? stored.facts() : DEMO_SIGNIN[p.name] || rs.providerFacts(p)) };
 }
 
 // A made-up certificate fingerprint in the shape of a real one: "sha256:" and 43 base64url characters.
@@ -483,13 +546,15 @@ async function seed(home, { secondary, password }) {
     // One subscription, then the API account: the order the README recommends. "Team plan" is an account of its
     // own, outside Auto mode (moving to it stays a manual choice).
     autoSwitch: { enabled: true, order: ['max', 'api'], returnToPreferred: true, prompt: 'Continue from where you stopped.' },
-    assistant: { enabled: true, level: 'work', accounts: ['auto', 'max', 'team', 'api'] },
+    // Tia thinks on the subscription: Auto mode's order holds the API account, and her paid thinking needs a daily
+    // cap that the demo leaves unset, so on "Automatic" she would answer every message with the cap notice.
+    assistant: { enabled: true, level: 'work', accounts: ['auto', 'max', 'team', 'api'], runsOn: 'max' },
     server: {
       backend: 'pty', host: '127.0.0.1', roots: [projects],
       passwordHash: await hashPassword(password),
       machineLabel: secondary ? 'Laptop' : 'Workstation',
       publicUrl: 'https://203.0.113.10/', // a documentation address (RFC 5737): reaches nothing
-      quickActions: [{ label: 'continue', text: 'continue' }, { label: 'run the tests', text: 'run the tests and fix what fails' }, { label: '/compact', text: '/compact' }, { label: '/model', text: '/model' }],
+      quickActions: [{ label: 'continue', text: 'continue' }, { label: 'run the tests', text: 'run the tests and fix what fails' }],
     },
   });
   // Made-up values that look like what each kind of account stores; none of them works anywhere.
@@ -503,6 +568,41 @@ async function seed(home, { secondary, password }) {
   saveProfileUsage('max', { fiveHour: { pct: 96, resetsAt: now + 2.4 * h }, week: { pct: 58, resetsAt: now + 3.2 * 24 * h }, status: 'allowed_warning', at: now });
   // "Team plan" reports no usage (DEMO_SIGNIN): it has no figures, and the page says so.
   return projects;
+}
+
+/**
+ * The hold file of each demo session (the settings Hoprig hands a session at its start, launch.mjs settingsFile), so a
+ * session's Hands-off switch can be shown: the server turns it on only for a session whose handed settings carry the
+ * wall's hold (server/handsoff.mjs sessionHasHold). The demo's sessions are stand-ins that run no hook, so the file
+ * holds only the wall's matcher. Written into the demo's OWN state folder under `root`, never anywhere else; a session
+ * that already has one is left as it is. → the run ids it wrote for.
+ */
+export async function demoHolds(root) {
+  const { hookSettingsDir, runsDir } = await import('../paths.mjs');
+  const { WALL_MATCHER } = await import('../handsoff.mjs');
+  const dir = hookSettingsDir();
+  const inside = (p) => path.relative(root, p).split(path.sep)[0] !== '..' && !path.isAbsolute(path.relative(root, p));
+  if (!inside(dir) || !inside(runsDir())) return []; // not the demo's own state folder: write nothing
+  let names = [];
+  try {
+    names = fs.readdirSync(runsDir()).filter((n) => n.endsWith('.json'));
+  } catch {
+    return [];
+  }
+  const wrote = [];
+  for (const n of names) {
+    const file = path.join(dir, n);
+    if (fs.existsSync(file)) continue;
+    try {
+      if (JSON.parse(fs.readFileSync(path.join(runsDir(), n), 'utf8')).kind === 'chat') continue; // an App chat holds by its own channel
+    } catch {
+      continue; // a record being written: the next round takes it
+    }
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, JSON.stringify({ hooks: { PreToolUse: [{ matcher: WALL_MATCHER, hooks: [] }] } }), { mode: 0o600 });
+    wrote.push(n.slice(0, -'.json'.length));
+  }
+  return wrote;
 }
 
 /**
@@ -620,6 +720,48 @@ function endLaptop(laptop) {
   return Promise.race([laptop.ended, sleep(10_000)]);
 }
 
+// ---- Tia's git sign-in check (src/server/hersignin.mjs), stood in for the demo ----
+// The check asks the git server what the chosen token may do. The demo must never reach a real git server or use a
+// real token, so it stands both in: a made-up token file in the demo's own credentials folder, made-up github.com
+// repositories, and a fetch that answers from HOPRIG_TEST_GITCHECK so a screenshot run can show each state.
+// Values: delete | nodelete | unknown | fail (default nodelete). The token value is never read back by the page.
+const DEMO_GIT_TOKEN_FILE = 'git-token.txt';
+
+/** The stand-in git server: answers the check's requests from HOPRIG_TEST_GITCHECK, reaches no network. */
+async function demoGitFetch(url) {
+  const state = process.env.HOPRIG_TEST_GITCHECK || 'nodelete';
+  const p = new URL(url).pathname;
+  const res = (status, { scopes = null, body = null } = {}) => ({
+    status,
+    headers: { get: (k) => (String(k).toLowerCase() === 'x-oauth-scopes' ? scopes : null) },
+    json: async () => body,
+  });
+  if (p === '/') { // the token itself: whether it is accepted, and its scopes (whether it can delete)
+    if (state === 'fail') return res(401);
+    const scopes = state === 'delete' ? 'repo, delete_repo' : state === 'unknown' ? null : 'repo, read:org';
+    return res(200, { scopes, body: { login: 'example' } });
+  }
+  if (/^\/repos\/[^/]+\/[^/]+$/.test(p)) return res(200, { body: { default_branch: 'main' } });
+  const m = /^\/repos\/[^/]+\/([^/]+)\/branches\/[^/]+\/protection$/.exec(p);
+  if (m) return m[1] === 'shop' // one repository's default branch is protected, one is not
+    ? res(200, { body: { allow_force_pushes: { enabled: false }, allow_deletions: { enabled: false } } })
+    : res(404);
+  return res(404);
+}
+
+/** The demo's git-sign-in stand-in: a made-up token file, made-up repositories, and the stand-in git server. */
+function demoHerSignin(home) {
+  const credsDir = path.join(home, 'Workspace', 'credentials');
+  fs.mkdirSync(credsDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(credsDir, DEMO_GIT_TOKEN_FILE), 'demo-not-a-real-token\n', { mode: 0o600 });
+  const repos = [
+    { ref: 'shop', url: 'https://github.com/example/shop.git' }, // a protected default branch → a rule blocks it
+    { ref: 'alpha', url: 'https://github.com/example/alpha.git' }, // no protection rule → allowed
+    { ref: 'docs-site', url: 'https://gitlab.example.com/example/docs-site.git' }, // not github.com → not known
+  ];
+  return { credsDir: () => credsDir, repos: () => repos, apiBase: 'https://api.github.invalid', fetchImpl: demoGitFetch };
+}
+
 /**
  * Run the demo. Returns null (keeps running) after printing the address; Ctrl+C stops it and removes everything.
  * `hooks.onReady(info)` is for tests.
@@ -638,15 +780,18 @@ export async function main(args = [], hooks = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-demo-')));
   fs.writeFileSync(path.join(root, 'demo.pid'), String(process.pid));
   const home = isolate(root);
+  stored = (await import('./claudesignin.mjs')).demoStoredSignin(); // after isolate(): it reads HOPRIG_TEST_SIGNIN of the demo's own environment
   if (o.secondary) process.env.HOPRIG_HOSTNAME = 'laptop';
   const password = crypto.randomBytes(18).toString('base64url'); // only this process knows it
   let app = null;
   let laptop = null;
   let stopped = false;
   let background = Promise.resolve();
+  let holds = null;
   const stop = async () => {
     if (stopped) return;
     stopped = true;
+    clearInterval(holds);
     try {
       if (laptop) endLaptop(laptop); // it stops while this one does
       if (app) await app.close();
@@ -661,29 +806,53 @@ export async function main(args = [], hooks = {}) {
     const projects = await seed(home, { secondary: o.secondary, password });
     if (!o.secondary) demoOpenCode(root);
     const { createServer } = await import('../server/server.mjs');
-    const addon = await demoAddon();
+    const addon = await demoAddon(await freePort());
     app = createServer({
       demo: true,
       routerstate: await demoRouterState(),
       watchTickMs: 1000,
-      claudecode: { claudeInfo: async () => CLAUDE_INFO, claudeUpdate: async ({ onLine }) => { onLine('(demo) Claude Code is up to date'); return { ok: true, version: CLAUDE_INFO.installed, output: '' }; } },
+      claudecode: { claudeInfo: async () => CLAUDE_INFO, claudeUpdate: async ({ onLine }) => { onLine('(demo) Claude Code would be updated here; nothing is installed in the demo'); return { ok: true, version: CLAUDE_INFO.installed, output: '' }; } },
       addons: { addons: [addon] },
+      // The Operator's look checks the pretend gateway too: the real one's port on this computer is never asked.
+      operator: { gateways: () => [addon] },
       // The automations' lines go to the demo's own log file: under the address they read as if something real ran.
       automation: { updateItems: (await import('./updates.mjs')).demoUpdateItems(), log: (line) => fs.appendFileSync(path.join(root, 'demo.log'), `${line}\n`) },
       onboarding: { facts: DEMO_FACTS },
       pcsetup: { status: async () => DEMO_CHECKS },
+      // Tia's administrator-rights page reads whether this computer has sudo and asks a password. The demo must never
+      // run the real sudo, so it stands in a sample answer (sudo present, no password, so Full may be offered).
+      // HOPRIG_TEST_SUDO (none | password) picks another state for the screenshots; it is the only sudo this page sees.
+      herrights: { sudoInfo: async () => ({ present: process.env.HOPRIG_TEST_SUDO !== 'none', needsPassword: process.env.HOPRIG_TEST_SUDO === 'password' }) },
+      // Tia's git sign-in page has a "check" that asks the git server what the chosen token may do. The demo stands
+      // in a git server and a made-up token so the check never reaches a real one (HOPRIG_TEST_GITCHECK picks the state).
+      hersignin: demoHerSignin(home),
       // The workspace tree and the AI brain (sample files), then the map, sync, restore and git state samples.
       workspace: { ...demoWorkspace(home, o.secondary), ...demoWorkspaceMore(home, o.secondary) },
       system: demoSystem(o.secondary),
+      // The Operator's Computers part and the Health answer another demo computer reads: the made-up computer's figures, never the real one's.
+      rooms: { snapshot: demoSystem(o.secondary).snapshot },
+      health: { parts: { snapshot: demoSystem(o.secondary).snapshot, checks: async () => DEMO_HEALTH, plans: async () => ({}), versions: demoVersions } },
+      // Health → Gateways: the pretend gateway too, and no service manager or loginctl of this computer is asked.
+      gatewayhost: {
+        addons: () => [addon],
+        plan: () => ({ kind: 'none', sentence: 'In the demo a gateway does not run as a service. On your own computer it can, from here.' }),
+        run: async () => ({ ok: false, code: 1, stdout: '', stderr: '', error: null }),
+      },
+      // The gateway page and its checks know only the pretend gateway: the shipped gateway's real port is never asked.
+      gateway: { addons: [addon] },
       desktop: demoDesktop(root, o.secondary), // the desktop's Task manager, Services and Logs: samples, nothing real
       // The list of computers: the sample version, not "not installed". The join line: what a hub with its own
       // certificate answers (the address in server.publicUrl below; a made-up fingerprint), so the page shows it whole.
       machines: { claudeVersion: async () => CLAUDE_INFO.installed, certOf: async () => ({ kind: 'own', pin: DEMO_PIN }) },
       accounts: { gateways: [addon] },
+      // Who is signed in to Claude Code (Providers, the sign-in sheets): the demo's made-up stored sign-in, never a program.
+      claudeLogin: { status: stored.status, logout: stored.logout },
       // The demo's chat talks to no model. OpenCode is on (its pages show it) but has no server here: a chat of it says
       // so in one plain line instead of a server that did not start. No provider's environment either: a chat on Auto
       // would start Auto mode's router on its usual port, outside the demo's folder, and leave it running.
       chat: { command: { command: process.execPath, args: [CHAT] }, resolveEnv: async () => ({ ...process.env }), engineOpts: { served: { ensure: async () => ({ ok: false, why: 'OpenCode does not run in the demo. On your own computer it runs as Claude Code does here.' }) } } },
+      // Learning skills talks to no model in the demo: a look answers with one sample draft, a test request with a line.
+      learn: { turn: demoLearnTurn },
       assistant: {
         claudecode: async () => ({ claudeInfo: async () => CLAUDE_INFO }),
         engine: { command: { command: process.execPath, args: [TIA] }, resolveEnv: async () => ({ ...process.env }) },
@@ -695,6 +864,9 @@ export async function main(args = [], hooks = {}) {
 
     // ---- sessions: each folder's story is in session.mjs ----
     const start = (folder, profile) => api('/api/sessions', { dir: path.join(projects, folder), profile, mode: 'new' });
+    // Each session's hold file, also for one started or moved later from the page (a new run id each time).
+    holds = setInterval(() => demoHolds(root).catch(() => {}), 1000);
+    holds.unref();
     if (o.secondary) {
       await start('blog', 'team');
       await start('scripts', 'max');
@@ -705,6 +877,7 @@ export async function main(args = [], hooks = {}) {
       await start('docs-site', 'max');
       await start('data-pipeline', 'team');
       await until(async () => (await api('/api/state')).sessions.filter((s) => s.kind === 'claude').length >= 5);
+      await demoHolds(root);
 
       // ---- automations: a queue and a schedule ----
       await api('/api/automation/queue/data-pipeline', { op: 'pause', paused: true }).catch(() => {});
@@ -733,7 +906,8 @@ export async function main(args = [], hooks = {}) {
         const chat = async (text, conversation) => (await api('/api/assistant/chat', { text, ...(conversation ? { conversation } : {}) })).conversation;
         const conv = await chat('What needs me right now?');
         await sleep(2500);
-        await chat('Start a session in ~/Workspace/projects/landing-page: add a dark mode toggle, and tell me when it is done', conv);
+        // On the subscription by name: Auto mode's order holds the API account, so a start under it waits for an OK.
+        await chat('Start a session in ~/Workspace/projects/landing-page on Claude Max: add a dark mode toggle, and tell me when it is done', conv);
         await until(async () => (await api('/api/assistant/jobs')).jobs?.some((j) => j.state === 'done'), 30_000);
         await chat('Move docs-site to the API provider so it can go on', conv);
         await until(async () => (await api('/api/assistant/cards')).cards?.length, 15_000);
@@ -795,6 +969,15 @@ if (process.argv[1] === SELF) {
   main(process.argv.slice(2)).then((code) => {
     if (Number.isInteger(code)) process.exit(code);
   });
+}
+
+/** The demo's stand-in for the model turn of a look (src/skillhub/learnlook.mjs): no model, made-up answers. */
+async function demoLearnTurn({ system }) {
+  const look = system.startsWith('You review');
+  const text = look
+    ? JSON.stringify({ kind: 'new', name: 'tests-before-done', description: 'Run the project\'s tests before saying a task is done. Use at the end of every coding task.', steps: '1. Find the test command in the project (package.json, a Makefile, the README).\n2. Run it.\n3. Say what passed and what failed, in one line each.', edgeCases: 'No tests in the project: say so, and say how you checked the change instead.', why: 'The result was sent back because the tests were not run.', tests: ['Fix the typo in the page header and tell me when you are done', 'Add a phone number field to the sign-up form'] })
+    : system.includes('<skill>') ? 'I would make the change, then run the project\'s tests and report: 42 passed, 0 failed.' : 'I would make the change and tell you it is done.';
+  return { ok: true, text, usd: look ? 0.0031 : 0.0004, tokens: look ? 2900 : 350 };
 }
 
 // ---------- the demo's workspace and AI brain (owned by the workspace feature: src/workspace) ----------

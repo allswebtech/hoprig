@@ -11,6 +11,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { REPO } from '../machines/harness.mjs';
 import { sandbox } from '../server/helpers.mjs';
+import { sealed } from '../seal.mjs';
 
 const box = sandbox('tokenopened');
 const PIDS = path.join(box.root, 'pids.txt');
@@ -60,7 +61,7 @@ test.after(() => Object.assign(console, keep));
 
 saveConfig({ server: { passwordHash: await hashPassword('right-password') } });
 const backend = { list: async () => [], capture: async () => '', kind: 'pty', capabilities: {} };
-const sys = { platform: 'linux', pm: 'apt', root: false, user: 'dev', arch: 'x64', tmp: box.root, home: box.home, env: { PATH: '/usr/bin:/bin', HOME: box.home }, has: (b) => b === 'sudo', exists: () => false, clt: true, run: async () => ({ ok: false, stdout: '', stderr: '' }) };
+const sys = { platform: 'linux', pm: 'apt', root: false, user: 'dev', arch: 'x64', tmp: box.root, home: box.home, env: sealed({ PATH: '/usr/bin:/bin', HOME: box.home }), has: (b) => b === 'sudo', exists: () => false, clt: true, run: async () => ({ ok: false, stdout: '', stderr: '' }) };
 const app = createServer({
   backend, watch: false, accounts: { gateways: [] },
   addons: { sweepMs: 200 },
@@ -134,8 +135,8 @@ test('a token\'s changes are logged with its name; its revoke closes what it ope
   assert.equal((await asHub(office.token, '/api/public-link', { on: true, kind: 'custom' })).json.ok, true);
   assert.equal(record().openedBy, null);
   assert.deepEqual(hubLines(), [
-    'The hub office-pc added a service to the Custom public link',
-    'The hub office-pc switched the public link on or off',
+    'The main computer office-pc added a service to the Custom public link',
+    'The main computer office-pc switched the public link on or off',
   ]);
 
   // Revoked on the page ("Who may control this computer"): what it added ends, and that is logged.
@@ -143,8 +144,8 @@ test('a token\'s changes are logged with its name; its revoke closes what it ope
   await until('its service is removed', () => readFixed().extra.length === 0);
   await until('the log says so', () => hubLines().length >= 4);
   assert.deepEqual(hubLines().slice(2).sort(), [
-    'The service trouteai-office.example.com that the hub office-pc added to the Custom address was removed: its token was revoked',
-    'The token of the hub office-pc was revoked',
+    'The service trouteai-office.example.com that the main computer office-pc added to the Custom address was removed: its token was revoked',
+    'The token of the main computer office-pc was revoked',
   ].sort());
   // What stays: the owner's link (on, and running again without the service) and his temporary address.
   assert.equal(isOn(), true);
@@ -162,9 +163,9 @@ test('every way of revoking turns off the link that token turned on; one the own
   };
   const stopped = async (t) => {
     await until(`${t.name}: its public link is off`, () => !isOn());
-    await until(`${t.name}: logged`, () => hubLines().includes(`The public link the hub ${t.name} turned on was turned off: its token was revoked`));
+    await until(`${t.name}: logged`, () => hubLines().includes(`The public link the main computer ${t.name} turned on was turned off: its token was revoked`));
     // The revoke itself, with the token's name, whichever process revoked it (the CLI too).
-    await until(`${t.name}: its revoke logged`, () => hubLines().includes(`The token of the hub ${t.name} was revoked`));
+    await until(`${t.name}: its revoke logged`, () => hubLines().includes(`The token of the main computer ${t.name} was revoked`));
   };
   const [self, cli, removed, other] = ['hub self', 'hub cli', 'hub removed', 'hub other'].map((n) => ({ name: n, ...createToken(n) }));
   await new Promise((r) => setTimeout(r, 400));
@@ -177,13 +178,13 @@ test('every way of revoking turns off the link that token turned on; one the own
 
   // `hoprig tokens revoke <id>`: another process; the dashboard sees the token gone at its next look.
   await start(cli);
-  execFileSync(process.execPath, [path.join(REPO, 'bin', 'hoprig.mjs'), 'tokens', 'revoke', cli.id], { env: process.env, encoding: 'utf8' });
+  execFileSync(process.execPath, [path.join(REPO, 'bin', 'hoprig.mjs'), 'tokens', 'revoke', cli.id, '--yes'], { env: process.env, encoding: 'utf8' });
   await stopped(cli);
 
   // Remove on the hub: the hub asks this computer to revoke its token (here the hub is this dashboard itself).
   await start(removed);
   putMachine({ name: 'hubself', label: 'Hub', via: 'url', url: base, token: removed.token, added: Date.now() });
-  const r = await owner('/api/machines/hubself/remove', {});
+  const r = await owner('/api/machines/hubself/remove', { confirm: 'hubself' });
   assert.equal(r.json.revoked, true, JSON.stringify(r.json));
   await stopped(removed);
 
@@ -194,7 +195,7 @@ test('every way of revoking turns off the link that token turned on; one the own
   assert.equal(record().openedBy, null);
   assert.equal(hubLines().length, before);
   assert.equal((await owner(`/api/tokens/${other.id}/revoke`, {})).status, 200);
-  await until('the revoke is logged', () => hubLines().includes('The token of the hub hub other was revoked'));
+  await until('the revoke is logged', () => hubLines().includes('The token of the main computer hub other was revoked'));
   await new Promise((r) => setTimeout(r, 400));
   assert.ok(isOn() && (await linkState()).state === 'on', 'the owner\'s public link still runs');
 
@@ -208,7 +209,7 @@ test('every way of revoking turns off the link that token turned on; one the own
   assert.equal(record().openedBy, fixedHub.id);
   assert.equal((await owner(`/api/tokens/${fixedHub.id}/revoke`, {})).status, 200);
   await until('turned off', () => !isOn());
-  await until('logged', () => hubLines().includes('The public link the hub hub fixed turned on was turned off: its token was revoked'));
+  await until('logged', () => hubLines().includes('The public link the main computer hub fixed turned on was turned off: its token was revoked'));
   assert.equal(record().openedBy, null);
 
   // A hub never checks the password here, over any leg: a guess checked through a token would outlive its revoke.
@@ -235,7 +236,7 @@ test('Setup started with a token is logged, and its password is nowhere: not the
   const r = await asHub(t.token, '/api/pcsetup/setup', { kits: ['extras'], password: PASSWORD }, leg);
   assert.deepEqual(r.json, { started: true });
   await until('logged', () => hubLines().length === before + 1);
-  assert.equal(hubLines().at(-1), 'The hub setup-hub ran Set up this computer');
+  assert.equal(hubLines().at(-1), 'The main computer setup-hub ran Set up this computer');
   await until('the job ends', async () => !(await owner('/api/pcsetup/job')).json.running);
 
   assert.equal(fs.readFileSync(LOG, 'utf8').includes(PASSWORD), false, 'not in the Activity log');

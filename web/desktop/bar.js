@@ -7,12 +7,14 @@
 //            app that has a window)
 // In both styles the way back is at the top right, where "Desktop mode" is in a dashboard page's head.
 // The start menu and the launcher are one list: a search field, the apps, and the sessions of this computer that
-// can be opened in a window. Everything here is drawn again when the windows or the sessions change.
+// can be opened in a window. Everything here is drawn again when the windows or the sessions change. A window's
+// button carries the tray's mark while its session needs you and says when its session ended (winstate.js).
 import { icon } from '../icons.js';
 import { MACHINE_STATE, add, applyPageTheme, fill, h, needsYou, needsYouFirst, prefs, stateOf, toolChip } from '../lib.js';
 import { store } from '../store.js';
 import { APPS, appById, onComputer, searchApps } from './apps.js';
 import { closeMenu, openMenu, withMenu } from './menu.js';
+import { barName, endedOf, sessionOf } from './winstate.js';
 
 const dark = () => (document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
 const clockText = (d = new Date()) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -20,7 +22,7 @@ const clockText = (d = new Date()) => `${String(d.getHours()).padStart(2, '0')}:
 /**
  * Draw the bars into `top` and `bottom` of desktop `root` for `style` ('taskbar' | 'dock'). `desk` is what the
  * bars can ask of the desktop: { wm, machineName, launch(appId, hash?), openSession(session), leave(), setStyle(s) }.
- * Returns { paint(), stop() }.
+ * Returns { paint(), focusWindow(id), stop() }.
  */
 export function drawBars({ root, top, bottom, style, desk }) {
   const { wm } = desk;
@@ -43,7 +45,7 @@ export function drawBars({ root, top, bottom, style, desk }) {
   };
   function computerPill() {
     const label = computerName();
-    const b = h('button.desk-tray-btn.desk-pc', { type: 'button', title: `Computer: ${label}`, 'aria-haspopup': 'menu' }, icon('cpu', { size: 15 }), h('span', label));
+    const b = h('button.desk-tray-btn.desk-pc', { type: 'button', title: `Computer: ${label}`, 'aria-haspopup': 'menu', dataset: { key: 'pc' } }, icon('cpu', { size: 15 }), h('span', label));
     b.addEventListener('click', () => {
       const r = b.getBoundingClientRect();
       openMenu(r.left, style === 'dock' ? r.bottom + 6 : r.top - 8 - Math.min(store.all.length, 8) * 38, store.all.map((x) => ({
@@ -58,18 +60,18 @@ export function drawBars({ root, top, bottom, style, desk }) {
   const waitingCount = () => ((own() || {}).sessions || []).filter(needsYou).length;
   function waiting() {
     const n = waitingCount();
-    return n ? h('button.desk-tray-btn.desk-waiting', { type: 'button', title: `${n} session${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you`, onclick: () => desk.showSessions() }, icon('bell', { size: 15 }), h('span', String(n))) : null;
+    return n ? h('button.desk-tray-btn.desk-waiting', { type: 'button', dataset: { key: 'waiting' }, title: `${n} session${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you`, onclick: () => desk.showSessions() }, icon('bell', { size: 15 }), h('span', String(n))) : null;
   }
   function themeBtn() {
     const label = dark() ? 'Light colours' : 'Dark colours';
-    return h('button.desk-tray-btn', { type: 'button', title: label, 'aria-label': label, onclick: () => {
+    return h('button.desk-tray-btn', { type: 'button', title: label, 'aria-label': label, dataset: { key: 'theme' }, onclick: () => {
       prefs.set('page.theme', dark() ? 'light' : 'dark');
       applyPageTheme();
       paint();
     } }, icon(dark() ? 'sun' : 'moon', { size: 15 }));
   }
   // The way back sits where "Desktop mode" sits on a dashboard page: the top right, in both styles.
-  const back = () => h('button.desk-tray-btn.desk-back', { type: 'button', title: 'Back to the dashboard', onclick: () => desk.leave() }, icon('back', { size: 15 }), h('span', 'Dashboard'));
+  const back = () => h('button.desk-tray-btn.desk-back', { type: 'button', title: 'Back to the dashboard', dataset: { key: 'back' }, onclick: () => desk.leave() }, icon('back', { size: 15 }), h('span', 'Dashboard'));
   const tray = () => h('div.desk-tray', computerPill(), waiting(), themeBtn(), clock, style === 'dock' ? back() : null);
 
   // ---------- the start menu / the launcher ----------
@@ -156,6 +158,18 @@ export function drawBars({ root, top, bottom, style, desk }) {
 
   // ---------- the window buttons ----------
 
+  /**
+   * What a window's session asks of the bar: { needs, ended }, read only while this computer answers. "Ended" only for
+   * a session this bar saw (winstate.js endedOf): gone from the list, or a coding session whose program ended (until
+   * its window is in front).
+   */
+  const seen = new Map();
+  function stateOfWin(w) {
+    const m = own();
+    if (!m || m.status !== 'online') return { needs: false, ended: false };
+    const s = sessionOf(w.hash, m.sessions);
+    return { needs: !!s && needsYou(s), ended: endedOf(`${w.id} ${w.hash}`, s, seen, w.focused) };
+  }
   const windowMenu = (w) => [
     { label: w.min ? 'Restore' : 'Bring to front', icon: 'up', run: () => wm.raise(w.id) },
     { label: 'Minimise', icon: 'minus', disabled: w.min, run: () => wm.minimise(w.id) },
@@ -165,21 +179,28 @@ export function drawBars({ root, top, bottom, style, desk }) {
   ];
   function winButton(w) {
     const app = appById(w.app);
-    const b = h('button.desk-task', { type: 'button', title: w.label, 'aria-pressed': String(w.focused), dataset: { id: w.id, min: w.min ? '1' : '' }, onclick: () => wm.toggleFromBar(w.id) },
-      icon(app.icon, { size: 16 }), h('span.desk-task-name', w.label));
+    const st = stateOfWin(w);
+    // "In front" is aria-pressed (said once); the name says what aria-pressed cannot: minimised, needs you, ended.
+    const name = barName(w.label, { min: w.min, ...st });
+    const b = h('button.desk-task', { type: 'button', title: name, 'aria-label': name, 'aria-pressed': String(w.focused), dataset: { id: w.id, min: w.min ? '1' : '', needs: st.needs ? '1' : '', ended: st.ended ? '1' : '' }, onclick: (e) => wm.toggleFromBar(w.id, { byKey: e.detail === 0 }) },
+      icon(app.icon, { size: 16 }), h('span.desk-task-name', w.label),
+      st.needs ? h('span.desk-task-mark', { 'aria-hidden': 'true' }, icon('bell', { size: 12 })) : null,
+      st.ended && !st.needs ? h('span.desk-task-ended', { 'aria-hidden': 'true' }, 'ended') : null);
     withMenu(b, () => windowMenu(w), 'Window');
     return b;
   }
 
   /** A dock item: an app (pinned, or open), with a dot while it has a window. */
   function dockItem(app, open) {
-    const label = app.title;
-    const b = h('button.desk-dock-item', { type: 'button', title: label, 'aria-label': label, dataset: { app: app.id, open: open.length ? '1' : '' }, onclick: () => {
+    const states = open.map(stateOfWin);
+    const needs = states.some((x) => x.needs);
+    const label = barName(app.title, { front: open.some((w) => w.focused), min: open.length > 0 && open.every((w) => w.min), needs, ended: open.length > 0 && states.every((x) => x.ended) });
+    const b = h('button.desk-dock-item', { type: 'button', title: label, 'aria-label': label, dataset: { app: app.id, open: open.length ? '1' : '', needs: needs ? '1' : '' }, onclick: (e) => {
       // The app's window in front goes down; one behind comes up; none: a new one.
       const front = open.find((w) => w.focused) || open[open.length - 1];
-      if (front) wm.toggleFromBar(front.id);
+      if (front) wm.toggleFromBar(front.id, { byKey: e.detail === 0 });
       else desk.launch(app.id);
-    } }, icon(app.icon, { size: 22 }), h('span.desk-dock-dot', { 'aria-hidden': 'true' }));
+    } }, icon(app.icon, { size: 22 }), h('span.desk-dock-dot', { 'aria-hidden': 'true' }), needs ? h('span.desk-task-mark', { 'aria-hidden': 'true' }, icon('bell', { size: 12 })) : null);
     withMenu(b, () => [
       app.single && wm.only(app.id) ? null : { label: open.length && !app.single ? `New ${app.title} window` : `Open ${app.title}`, icon: 'plus', run: () => desk.launch(app.id) },
       ...open.map((w) => ({ label: w.title, icon: app.icon, run: () => wm.raise(w.id) })),
@@ -190,16 +211,27 @@ export function drawBars({ root, top, bottom, style, desk }) {
     return b;
   }
 
-  const mark = (label, cls, word = null) => h(`button.${cls}`, { type: 'button', title: label, 'aria-label': label, 'aria-haspopup': 'dialog', 'aria-expanded': String(!!popup), onclick: (e) => openPopup(e.currentTarget) },
+  const mark = (label, cls, word = null) => h(`button.${cls}`, { type: 'button', title: label, 'aria-label': label, dataset: { key: cls }, 'aria-haspopup': 'dialog', 'aria-expanded': String(!!popup), onclick: (e) => openPopup(e.currentTarget) },
     h('img', { src: 'icon.svg', alt: '', width: 22, height: 22 }), word ? h('span.desk-start-word', word) : null);
 
-  // Drawn again only when something it shows changed, so the keyboard's place in the bar survives the next poll.
+  // Drawn again only when something it shows changed, so the keyboard's place in the bar survives the next poll; when
+  // it is drawn again, the keyboard goes back to the same button: a window's, an app's, or one of the bars' own
+  // (data-key: the tray's, Start, the launcher), whose title may have changed (the theme button's does).
   let shown = '';
   function paint(force = true) {
     const wins = wm.list();
-    const now = JSON.stringify([wins, !!popup, dark(), store.all.map((m) => [m.machine, m.machineLabel, m.status]), waitingCount()]);
+    const now = JSON.stringify([wins, wins.map(stateOfWin), !!popup, dark(), store.all.map((m) => [m.machine, m.machineLabel, m.status]), waitingCount()]);
     if (!force && now === shown) return;
     shown = now;
+    const had = document.activeElement;
+    const inBars = had && (bottom.contains(had) || top.contains(had));
+    const again = !inBars ? null : had.dataset.key ? `[data-key="${CSS.escape(had.dataset.key)}"]`
+      : had.dataset.id ? `.desk-task[data-id="${CSS.escape(had.dataset.id)}"]` : had.dataset.app ? `.desk-dock-item[data-app="${CSS.escape(had.dataset.app)}"]` : null;
+    draw(wins);
+    const b = again && (bottom.querySelector(again) || top.querySelector(again));
+    if (b) b.focus({ preventScroll: true });
+  }
+  function draw(wins) {
     if (style === 'taskbar') {
       // A slim strip at the top holds only the way back, where the "Desktop mode" button was on the page.
       fill(top, h('div.desk-strip', h('span.desk-strip-name', h('img', { src: 'icon.svg', alt: '', width: 16, height: 16 }), h('span', `Desktop · ${computerName()}`)), h('span.desk-grow'), back()));
@@ -211,7 +243,7 @@ export function drawBars({ root, top, bottom, style, desk }) {
     }
     // Dock: the front window's name and its menu in the top bar.
     const f = wins.find((w) => w.focused);
-    const appMenu = f ? h('button.desk-appmenu', { type: 'button', 'aria-haspopup': 'menu', title: `${f.title}: window menu`, onclick: (e) => {
+    const appMenu = f ? h('button.desk-appmenu', { type: 'button', 'aria-haspopup': 'menu', title: `${f.title}: window menu`, dataset: { key: 'appmenu' }, onclick: (e) => {
       const r = e.currentTarget.getBoundingClientRect();
       openMenu(r.left, r.bottom + 6, [
         { label: 'Minimise', icon: 'minus', run: () => wm.minimise(f.id) },
@@ -228,7 +260,7 @@ export function drawBars({ root, top, bottom, style, desk }) {
     const pinned = APPS.filter((a) => a.pinned);
     const extra = APPS.filter((a) => !a.pinned && wins.some((w) => w.app === a.id));
     fill(bottom, h('nav.desk-dock', { 'aria-label': 'Dock' },
-      h('button.desk-dock-item.desk-dock-all', { type: 'button', title: 'All apps', 'aria-label': 'All apps', onclick: (e) => openPopup(e.currentTarget) }, icon('grid', { size: 22 })),
+      h('button.desk-dock-item.desk-dock-all', { type: 'button', title: 'All apps', 'aria-label': 'All apps', dataset: { key: 'all' }, onclick: (e) => openPopup(e.currentTarget) }, icon('grid', { size: 22 })),
       h('span.desk-dock-sep', { 'aria-hidden': 'true' }),
       [...pinned, ...extra].map((a) => dockItem(a, wins.filter((w) => w.app === a.id)))));
   }
@@ -239,6 +271,12 @@ export function drawBars({ root, top, bottom, style, desk }) {
   paint();
   return {
     paint,
+    /** The keyboard on the bar's button of window `id` (after a minimise by the keyboard, as other desktops do). */
+    focusWindow(id) {
+      const w = wm.list().find((x) => x.id === id);
+      const b = bottom.querySelector(`.desk-task[data-id="${CSS.escape(id)}"]`) || (w && bottom.querySelector(`.desk-dock-item[data-app="${CSS.escape(w.app)}"]`));
+      if (b) b.focus({ preventScroll: true });
+    },
     stop() {
       clearInterval(clockTimer);
       unsubscribe();

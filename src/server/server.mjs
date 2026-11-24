@@ -36,6 +36,7 @@
 //   routes              [method, regex, handler(req, match, query, res)], behind the login, merged with the core ones
 //   start(ctx)          after the server listens;  close()  when it stops
 // A new feature is one file plus one line in that list.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -46,11 +47,20 @@ import { WebSocketServer } from 'ws';
 import * as autoswitchModule from '../autoswitch.mjs';
 import { chooseDefault, folderProviders, lastProviderIn } from '../defaultprovider.mjs';
 import { EFFORTS, MODELS, PERMISSION_MODES, cleanSessionDefaults, loadConfig, saveConfig } from '../config.mjs';
+import { BYPASS, bypassAllowed, gateModes, ROOT_BYPASS_LINE, runsAsRoot } from '../bypassgate.mjs';
+import { bypassFeature } from './bypass.mjs';
+import { moveFeature } from '../setup/moveroutes.mjs';
+import { handsOffFeature } from './handsoff.mjs';
+import { herRightsFeature } from './herrights.mjs';
+import { herSigninFeature } from './hersignin.mjs';
+import { handsOffOffered } from '../handsoff.mjs';
 import { stateDir, tilde } from '../paths.mjs';
+import { fromHerDoor } from './herdoor.mjs';
 import { assertServes, deleteProfile, listProfiles, publicProfile } from '../profiles.mjs';
-import { listRuns } from '../runs.mjs';
+import { listRuns, runsConversation } from '../runs.mjs';
 import { system as processes } from '../procid.mjs';
-import { sessionTitle, sessionsIn } from '../sessions.mjs';
+import { sessionsIn } from '../sessions.mjs';
+import { readTitles, sessionName, setOwnName } from '../titles.mjs';
 import {
   COOKIE, RateLimiter, SessionStore, THIS_COMPUTER, clearCookie, hashPassword, parseCookies, sessionCookie, sha256, verifyPassword,
 } from './auth.mjs';
@@ -64,6 +74,9 @@ import { alwaysOption, dialogShows, menuOpen, permissionDialog, permissionQuesti
 const SCREEN_LINES = 80;
 import { killProcess, power, snapshot } from './platform.mjs';
 import { machinesFeature } from '../machines/index.mjs';
+import { healthFeature } from '../machines/health.mjs';
+import { gatewayHostFeature } from '../addons/gatewayhost.mjs';
+import { confirmedCard } from '../assistant/confirmed.mjs';
 import { assistantFeature } from '../assistant/feature.mjs';
 import { automationFeature } from '../automation/feature.mjs';
 import { addonsFeature } from '../addons/feature.mjs';
@@ -72,29 +85,56 @@ import { accountsFeature } from './accounts.mjs';
 import { claudeLoginFeature, sameComputer } from './claudelogin.mjs';
 import { gatewayFeature } from '../gateway/index.mjs';
 import { pcsetupFeature } from '../pcsetup/feature.mjs';
+import { newProjectFeature } from '../pcsetup/newprojectstart.mjs';
 import { skillhubFeature } from '../skillhub/feature.mjs';
+import { learnFeature } from '../skillhub/learnfeature.mjs';
+import { fieldFeature } from '../field/feature.mjs';
+import { proposalsFeature } from '../skillhub/proposals.mjs';
 import { workspaceFeature } from '../workspace/feature.mjs';
+import { projectsIn, workspaceDir } from '../workspace/layout.mjs';
+import { adoptFeature } from '../adopt/feature.mjs';
 import { workFeature } from '../work/feature.mjs';
+import { modelsFeature } from '../models/feature.mjs';
+import { partDoor } from '../models/partdoor.mjs';
+import { modelProblem } from '../models/catalog.mjs';
 import { editorFeature } from '../editor/feature.mjs';
 import { chatFeature } from '../chat/feature.mjs';
 import { onboardingFeature } from '../setup/onboarding.mjs';
+import { forwardLine, reasonWords, serverReason, serverWays } from '../setup/server.mjs';
+import { findWorkUser, rootFacts, rootView, STAY_ROOT_KEY, stayRootChoice } from '../setup/rootfacts.mjs';
 import { desktopFeature } from '../desktop/feature.mjs';
-import { removeDashboardFile, writeDashboardFile } from './dashboardfile.mjs';
+import { localKey, removeDashboardFile, stateKey, writeDashboardFile } from './dashboardfile.mjs';
 import { createLoginLink, loginLinkStatus, qrRows, useLoginLink } from './loginlink.mjs';
 import { clientIp, forwardedVisitor, isHttps, originOk, requestHost, securityHeaders } from './security.mjs';
 import { notePassword, passwordProblem } from './strength.mjs';
 import { monacoManifest, resolveStatic, sendFile } from './static.mjs';
 import { attachTerminal } from './terminal.mjs';
-import { EVENTS, sendNotification } from './notify.mjs';
+import { EVENTS, keepHeaders, sendNotification } from './notify.mjs';
 import { AUTO, DEFAULT_QUICK_ACTIONS, cleanServerPatch } from './settings.mjs';
-import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, saveUpload, uploadsDirName } from './uploads.mjs';
+import { DEFAULT_UPLOADS_DIR, DEFAULT_UPLOAD_MAX_MB, dropsFolder, pruneDrops, saveUpload, uploadsDirName } from './uploads.mjs';
 import * as v from './validate.mjs';
 import { Watcher, enrich } from './watcher.mjs';
-import { isClaudeCard } from '../automation/cards.mjs';
+import { isClaudeCard, isCodingCard, toolOf } from '../automation/cards.mjs';
 import { codetoolsFeature } from '../codetools/feature.mjs';
+import { operatorFeature } from '../operator/feature.mjs';
+import { roomsFeature } from '../operator/rooms.mjs';
+import { providersFeature } from '../providers/feature.mjs';
+import { heldError, heldUntil } from '../operator/decide-store.mjs';
+import { asksAdapter } from '../operator/decide-asks.mjs';
+import { shipFeature } from '../ship/feature.mjs';
 import { enabledToolIds } from '../codetools/index.mjs';
-import { assertToolReady, toolFlags, toolFromRequest } from '../codetools/start.mjs';
+import { assertHerToolBound, assertToolReady, toolFlags, toolFromRequest } from '../codetools/start.mjs';
 import { isToolSessionId, toolSessions } from '../codetools/stores.mjs';
+
+/**
+ * { server: { why, ways } } when this computer is a server, else {}. Asked at each answer: the service has no ssh session,
+ * so the reason is mostly the one set-up saved (server.mjs), and a set-up run while the dashboard runs may change it.
+ */
+function onServer(port, over = {}) {
+  const sys = { env: process.env, platform: process.platform, ...over };
+  const r = serverReason(sys);
+  return r ? { server: { why: reasonWords(r), ways: serverWays(port), forward: forwardLine(port, { ...sys, sshPort: r.sshPort }) } } : {};
+}
 
 export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 7433;
@@ -162,9 +202,14 @@ function readJson(req) {
  */
 export function createServer(opts = {}) {
   const cfg = () => loadConfig();
+  // Hoprig runs as root here (a test hands it in): Claude Code refuses bypass permissions mode for root.
+  const asRoot = opts.root !== undefined ? opts.root === true : runsAsRoot();
+  // As root, the work user Hoprig made, looked up once: the page's ssh line names it, never root@ (rootfacts.mjs).
+  let workUser = opts.workUser || null;
+  if (asRoot && opts.workUser === undefined) findWorkUser().then((u) => (workUser = u), () => {});
   const first = cfg().server;
   const backend = opts.backend || createBackend({ kind: first.backend || 'auto', socket: opts.tmuxSocket ?? first.tmuxSocket ?? '', configFile: opts.tmuxConfigFile || '' });
-  const deck = new Deck({ backend, config: cfg, profiles: listProfiles });
+  const deck = new Deck({ backend, config: cfg, profiles: listProfiles, saveConfig, root: asRoot });
   const sessions = new SessionStore(path.join(stateDir(), 'web-sessions.json'));
   const limiter = new RateLimiter();
   const linkLimiter = new RateLimiter(); // sign-in links: their own count, which wrong passwords never fill
@@ -199,6 +244,8 @@ export function createServer(opts = {}) {
   const roots = () => resolveRoots(cfg().server.roots);
   // The models one session may start with: the fixed aliases, plus the model saved as the default for new sessions
   // (already checked when it was saved), so the page offers exactly what Settings → New-session defaults offers.
+  // An older page's list (sessionChoices.models): the family names, plus the saved default. A picker of this version
+  // asks GET /api/models for the provider's own list (src/models/catalog.mjs).
   const sessionModels = () => {
     const saved = (cfg().sessionDefaults || {}).model;
     return saved && !MODELS.includes(saved) ? [...MODELS, saved] : [...MODELS];
@@ -208,10 +255,15 @@ export function createServer(opts = {}) {
   // A request the server makes to itself for the owner (ctx.dispatch, Tia's tools) carries this mark; no request
   // from the network can, so it counts as the owner's own login and its own site.
   const INTERNAL = Symbol('hoprig.internal');
-  const authed = (req) => req[INTERNAL] === true || sessions.valid(parseCookies(req.headers.cookie)[COOKIE], passwordTag());
+  const CARD = Symbol('hoprig.confirmed-card'); // the card of Tia's the owner confirmed, on a request its act makes
+  const authed = (req) => req[INTERNAL] === true || sessions.valid(parseCookies(req.headers.cookie)[COOKIE], passwordTag(), req.headers && req.headers.host);
   // What a feature gets (see the header). state() and readJson are declared further down; they are called later.
   const ctx = {
     deck, backend, config: cfg, saveConfig, authed,
+    root: asRoot, // Hoprig runs as root here: no bypass permissions mode (bypassgate.mjs)
+    // The loopback names the owner is signed in under here: a plain link to a gateway on this computer avoids them, as
+    // a cookie goes to every port of its name (src/addons/gatewayhost.mjs, web/health.js plainHost).
+    signedInHosts: () => sessions.hosts(passwordTag()).filter((x) => ['127.0.0.1', 'localhost', '[::1]'].includes(x)),
     state: () => state(),
     originOk: (req) => req[INTERNAL] === true || originOk(req, proxyOpts()),
     // Who sent a request: 'self' (ctx.dispatch, Tia's door), 'computer' (another dashboard's bearer token) or 'page'.
@@ -221,6 +273,14 @@ export function createServer(opts = {}) {
     // ONLY Tia's door (src/assistant/door.mjs: an allowlist of routes) may call it — no other feature: it acts as the
     // owner on any route. A test (test/assistant/door.test.mjs) checks the source for other callers.
     dispatch: (method, url, body) => dispatch(method, url, body),
+    // Where THIS server listens ({ address, port } once listening, else null): a feature that tells a program of its own
+    // where the dashboard is (Tia's MCP server) takes it from here, never from a default port another dashboard may hold.
+    listening: () => {
+      const a = server.listening ? server.address() : null;
+      return a && typeof a === 'object' ? a : null;
+    },
+    // The confirmed card of Tia's whose act made this in-process request (src/assistant/confirmed.mjs), or null.
+    ownerCard: (req) => (req[INTERNAL] === true && req[CARD]) || null,
     clientIp: (req) => clientIp(req, proxyOpts()),
     onTick: (fn) => watcher.onTick(fn),
     poke: () => watcher.poke(), // look at the sessions soon (a feature just started or typed into one)
@@ -233,29 +293,89 @@ export function createServer(opts = {}) {
     // (src/defaultprovider.mjs). `last`: the provider the caller's own record says ran there last (a chat's); else
     // the folder's record of that tool.
     defaultProvider: (dir, last = null, tool = 'claude') => defaultProviderIn(dir, last, tool),
+    // "Also open" from a browser: map names of extra folders for one session in `dir`, each decided by the one function
+    // (workspace/needs.mjs extraFolder). → [name]; throws 400 with why.
+    checkWith: async (list, dir) => {
+      if (list === undefined || list === null) return [];
+      if (!Array.isArray(list) || list.length > 10 || list.some((x) => typeof x !== 'string')) throw new HttpError(400, '"with" is a list of at most 10 names of the workspace map');
+      if (!list.length) return [];
+      const N = await import('../workspace/needs.mjs');
+      const m = N.mapFor();
+      if (m.why) throw new HttpError(400, m.why);
+      const at = { dir: workspaceDir(), projects: projectsIn() };
+      let self = null;
+      try {
+        self = fs.realpathSync(dir);
+      } catch {
+        /* the folder is checked by the caller */
+      }
+      const out = [];
+      for (const name of list) {
+        // No walk of links here: the start walks once and refuses or names what it finds (needs.mjs sessionExtras).
+        const r = await N.extraFolder(name, { map: m.map, ctx: at, self, walk: false });
+        if (r.own) continue; // ticked in the list, then that very project was started: it is the session's folder already
+        if (!r.ok) throw new HttpError(400, r.fix ? `${r.why}: get it first with  ${r.fix}` : r.why);
+        if (!out.includes(r.ref)) out.push(r.ref);
+      }
+      return out;
+    },
     HttpError,
   };
   // ---- the features: one line each ----
   const machines = machinesFeature(ctx, opts.machines);
   const gateway = gatewayFeature(ctx, { hub: machines.machines.hub, ...opts.gateway });
   const chat = chatFeature(ctx, opts.chat);
+  // "Use other providers": a Lead chat's one tool. Work's runs and these parts share the computer's slots.
+  let work = null;
+  const parts = partDoor({ chat, config: cfg, readJson: (req) => readJson(req), aloneRunning: () => (work && work.sched && work.sched.running ? work.sched.running() : 0), ...opts.parts });
+  chat.setPartsConfig((c) => parts.configFor(c), (id) => parts.handedOf(id));
+  const learn = learnFeature(ctx, opts.learn);
+  // A mission's choices go through the Operator's one decision door (src/mission/seam.mjs); the Operator is built below.
+  const door = (item) => features.find((f) => f.name === 'operator')?.decide?.mission(item) ?? null;
+  work = workFeature(ctx, { chat, learn, hub: machines.machines.hub, door, othersRunning: () => parts.running(), ...opts.work });
+  // Each computer's room for new work (src/operator/rooms.mjs): read on his look; by itself only with his switch.
+  const rooms = roomsFeature(ctx, { hub: machines.machines.hub, running: () => (work.sched && work.sched.running ? work.sched.running() : 0), machine: () => features.find((f) => f.name === 'operator')?.machine(), changed: () => features.find((f) => f.name === 'operator')?.forget(), undone: () => features.find((f) => f.name === 'operator')?.elsewhereUndone(), ...opts.rooms });
   const features = [
-    assistantFeature(ctx, { hub: machines.machines.hub, ...opts.assistant }), // Tia; first, so her own token is checked before the machines gate
+    work.boxTool, // a mission session's tool token (src/mission/boxtool.mjs): its one route, and refused everywhere else; first, before any feature that takes a bearer as its own
+    work.tokens, // a Work token (another program, src/work/tokenfeature.mjs): answered here and nowhere else; first, before any other door
+    bypassFeature(ctx, { chat, ...opts.bypass }), // Settings → Allow bypass permissions mode; first: its one-time step at the start comes before any session starts
+    moveFeature(ctx, opts.move), // Settings → Runs as root: move Hoprig to an ordinary user, as a job, from this server's own page only
+    handsOffFeature(ctx, opts.handsOff), // Hands-off: the project's and the session's switch, the project's note
+    herRightsFeature(ctx, opts.herrights), // Settings → Tia: the owner's choice of Tia's administrator-rights level (off, ask, full), per computer
+    herSigninFeature(ctx, opts.hersignin), // Settings → Tia: the owner's choice of which credentials file signs her sessions in to the git server
+    assistantFeature(ctx, { hub: machines.machines.hub, chat, ...opts.assistant }), // Tia; first, so her own token is checked before the machines gate
+    parts, // a Lead chat's part token (src/models/partdoor.mjs): answered here only, before the machines gate
     gateway, // /gateway/…: a gateway shared with a gateway key (before the machines gate, which takes any bearer as its own)
     machines, // other computers: relay, pairing, bearer tokens
+    healthFeature(ctx, { own: () => rooms.own(), ...opts.health }), // GET /api/health: this computer's checks, versions, service, load, memory and disks (a hub reads it with its token)
     editorFeature(ctx, opts.editor), // the code editor's files and git under /api/code/ (another computer's token too); removes VS Code Server's leftovers once
-    automationFeature(ctx, { tick: opts.watch !== false, chat, ...opts.automation }), // queue, schedules (also of chats), restore, retry, updates, idle care
+    automationFeature(ctx, { tick: opts.watch !== false, chat, work: () => work.sched, ...opts.automation }), // queue, schedules (also of chats and runs that end by themselves), restore, retry, updates, idle care
     addonsFeature(ctx, opts.addons), // Settings → Add-ons: install, start, stop, update, set up as an account
+    gatewayHostFeature(ctx, opts.gatewayhost), // Health → Gateways: start, stop and run a gateway as a service on this computer, behind a confirmation that names it
+    modelsFeature(ctx, { autoOn: () => autoOn(), ...opts.models }), // the models a picker offers: the provider's own list (src/models)
     accountsFeature(ctx, { remote: gateway.states, removing: gateway.forget, ...opts.accounts }), // Providers: add a subscription, an API key or a gateway in the page
+    providersFeature(ctx, opts.providers), // Providers → a provider: its check (sent only on the owner's press), its map, what is left
     claudeLoginFeature(ctx, opts.claudeLogin), // Claude Code's own sign-in from the page (Setup, Get started, Providers)
     pcsetupFeature(ctx, opts.pcsetup), // PC → Setup: system status, set up this computer, projects, recipes
+    newProjectFeature(ctx, { chat, ...opts.newproject }), // New project's "Start with AI": a session with the new-project skill and the brief
     skillhubFeature(ctx, opts.skillhub), // Settings → Skills: installed, suggested for a project, find, review → approve, updates
     onboardingFeature(ctx, opts.onboarding), // Home → Get started: the steps a new user goes through, done or not
     workspaceFeature(ctx, opts.workspace), // Workspace: the tree, its map, restore and sync, Git and GitHub, the AI brain (read-only)
-    workFeature(ctx, { chat, ...opts.work }), // Work: tasks and Today, kept in a file of the workspace and saved to git by name; "Do it" opens a chat
+    adoptFeature(ctx, opts.adopt), // Workspace → Projects found on this computer: look, suggest, arrange (the owner's own page only)
+    learn, // Skills → Learned: drafts of skills from the owner's own work (off by default), Install, Discard, Undo
+    fieldFeature(ctx, opts.field), // Settings → Field reports and their Home lines: nothing is sent, shown or learned without the owner's choice
+    proposalsFeature(ctx, { reload: () => features.find((f) => f.name === 'assistant')?.core?.skills?.reload(), ...opts.proposals }), // Skills: proposal files of an outside improvement loop, Accept with Undo, Not now
+    work, // Work: tasks and Today, kept in a file of the workspace and saved to git by name; "Do it" opens a chat
     chat, // coding without the terminal: a Claude Code conversation as a chat (its cards are among the sessions)
     codetoolsFeature(ctx, opts.codetools), // Codex's and OpenCode's servers: stopped when no session uses them
     desktopFeature(ctx, opts.desktop), // the desktop's Task manager, Services and Logs: processes, usage, services, the journal and log files
+    operatorFeature(ctx, { session: { // Operator: the board, the attention list and the owner's taps (the same move and stop as the session routes)
+      move: async (name, to) => { const { term, run } = await sessionOr404(name); if (!run) throw new HttpError(409, 'this is a plain shell'); const p = pickProfile(to, run.tool || 'claude'); if (!p) throw bad('there is no such provider'); await moveTo(term, run, p.name); },
+      stop: async (name) => { await sessionOr404(name); await backend.kill(name); },
+      nudge: async (name, text) => { await sessionOr404(name); await deck.sendToTool(name, text, { enter: true }); }, // only while the coding tool is in front (typing.mjs)
+    }, asks: asksAdapter({ chat }), rooms: () => rooms.keeper.view(), work: () => work.looks, ...opts.operator }),
+    rooms, // GET /api/operator/rooms: each computer's room for new work; the switch "Look at my other computers too"
+    shipFeature(ctx, { chat, assistant: () => features.find((f) => f.name === 'assistant'), ...opts.ship }), // Work → Go live: put finished task branches together, check them, go live on the owner's tap
   ];
   const trusted = (req) => features.some((f) => f.trusted && f.trusted(req));
 
@@ -312,6 +432,7 @@ export function createServer(opts = {}) {
       c.autoOn = now && now.profile ? { name: now.profile, label: names.get(now.profile) || now.profile, at: now.at || null } : null;
     }
     // Open chats are sessions too (kind "chat"): Home lists them, the watcher notifies about them.
+    await chat.readNames?.(); // the App sessions' names read in pieces first (titles.mjs readTitles)
     return [...list, ...chat.cards()];
   };
 
@@ -328,6 +449,7 @@ export function createServer(opts = {}) {
   function profileStates(list) {
     const limited = autoswitch.limitedProfiles();
     const routerUsage = safe(() => (rsCache || {}).profileUsage?.());
+    const speed = safe(() => (rsCache || {}).speedVerdicts?.()); // how soon each starts its answers (router.mjs)
     // Where each provider is in the order Auto mode really uses (no pay-per-use key unless allowed): the limit card
     // offers the first free one, and says where Auto would go.
     const order = autoswitch.usableOrder ? autoswitch.usableOrder() : [];
@@ -344,6 +466,7 @@ export function createServer(opts = {}) {
           ? { until: l.until || null, exact: l.exact !== false, reason: l.reason || '', text: String(l.text || '').slice(0, 200) }
           : ru && ru.status === 'rejected' ? { until: null, exact: false, reason: 'router', text: '' } : null,
         inUse: mine.length,
+        ...(speed[p.name] ? { speed: speed[p.name] } : {}),
         autoPlace: order.includes(p.name) ? order.indexOf(p.name) : null,
         // `at`: when the figures were seen (they are kept after the session that showed them ended).
         usage: ru && (ru.fiveHour || ru.week) ? { fiveHour: ru.fiveHour, week: ru.week, status: ru.status, at: ru.at || null } : fromRun ? fromRun.usage : null,
@@ -355,8 +478,22 @@ export function createServer(opts = {}) {
     return out;
   }
 
+  // One conversation, one card on the page. A chat of the App whose conversation a terminal runs now only reads along
+  // there (chat/handoff.mjs): the terminal's card is the session, and a second card for the chat showed the same work
+  // twice, once as "working" and once as "waiting". The chat's own card is back when that terminal has ended; a chat
+  // whose own process runs always keeps its card. Only what the page gets: cards() keeps every chat, for the
+  // assistant's jobs and marks, which follow a chat by its own card.
+  const onePerConversation = (list) => {
+    const key = (c) => `${toolOf(c)}:${c.sessionId}`;
+    const inTerminal = new Set(list.filter((c) => isCodingCard(c) && c.sessionId).map(key));
+    const along = (c) => c.kind === 'chat' && !c.running && c.sessionId && inTerminal.has(key(c));
+    // The terminal's card says that the App has its conversation open to read along (Tia's list_sessions says it too).
+    const read = new Set(list.filter(along).map(key));
+    return list.filter((c) => !along(c)).map((c) => (c.kind !== 'chat' && c.sessionId && read.has(key(c)) ? { ...c, readAlong: true } : c));
+  };
+
   async function state() {
-    const list = await cards();
+    const list = onePerConversation(await cards());
     const auto = autoswitch.getAutoSwitch();
     const profiles = profileStates(list);
     const names = new Set(profiles.map((p) => p.name));
@@ -373,6 +510,8 @@ export function createServer(opts = {}) {
     // The provider a new session starts on (src/defaultprovider.mjs): "auto" while Auto mode is on. `recommendedIn`:
     // the folders whose own default (the provider used last there) differs from it.
     const recommended = defaultFor(profiles);
+    // Auto mode is on, yet a new session starts elsewhere: Auto's provider is slow or refusing now (fasterThanAuto).
+    const autoSlow = autoOn() && recommended !== AUTO.name;
     const recommendedIn = {};
     const folders = Object.entries(folderProviders());
     if (!autoOn()) for (const [d, e] of folders) {
@@ -393,7 +532,7 @@ export function createServer(opts = {}) {
     })) : null;
     const qa = cfg().server.quickActions;
     return {
-      sessions: list, profiles, autoSwitch: auto, recommended, recommendedIn, ...(toolDefaults ? { toolDefaults } : {}),
+      sessions: list, profiles, autoSwitch: auto, recommended, recommendedIn, ...(autoSlow ? { autoSlow: true } : {}), ...(toolDefaults ? { toolDefaults } : {}),
       quickActions: Array.isArray(qa) ? qa : DEFAULT_QUICK_ACTIONS,
       backend: { kind: backend.kind, capabilities: backend.capabilities || {} },
       ...(opts.demo ? { demo: true } : {}), // `hoprig demo` (src/demo): the page shows a "Demo" marker
@@ -428,12 +567,23 @@ export function createServer(opts = {}) {
           port: a && typeof a === 'object' ? a.port : s.port || DEFAULT_PORT,
           trustProxy: s.trustProxy === true,
           allowedOrigins: Array.isArray(s.allowedOrigins) ? s.allowedOrigins : [],
+          // On a server (setup/server.mjs) the page names the ways to reach it instead of "serve --host 0.0.0.0".
+          ...onServer(a && typeof a === 'object' ? a.port : s.port || DEFAULT_PORT, { ...(workUser ? { workUser } : {}), ...opts.serverFacts }),
         };
       })(),
       uploads: { dir: s.uploadsDir || DEFAULT_UPLOADS_DIR, maxMB: Number(s.uploadMaxMB) || DEFAULT_UPLOAD_MAX_MB },
       notifyEvents: EVENTS,
       sessionDefaults: cfg().sessionDefaults || {},
-      sessionChoices: { permissionModes: PERMISSION_MODES, efforts: EFFORTS, models: sessionModels() },
+      sessionTitles: cfg().sessionTitles !== false, // the App asks Claude Code for a session's title (chat.mjs askTitle)
+      sessionChoices: { permissionModes: gateModes(PERMISSION_MODES, cfg(), asRoot), efforts: EFFORTS, models: sessionModels() },
+      // As root: the line the sheet and Settings say where bypass would be chosen (null otherwise).
+      rootBypass: asRoot ? ROOT_BYPASS_LINE : null,
+      // As root: the facts that make it on purpose (a container, his kept choice) and the sentence that keeps it (null otherwise).
+      // `opts.rootExists` answers the container files in tests.
+      root: rootView({ ...rootFacts({ cfg: cfg(), ...(opts.rootExists ? { exists: opts.rootExists } : {}) }), root: asRoot }),
+      // Whether Hands-off is offered on this computer (handsOff.offered): the page shows its switch and Settings entry
+      // only when this is true. Offered is the shipped default; only handsOff.offered:false hides it (handsOffOffered).
+      handsOff: { offered: handsOffOffered(cfg()) },
       version: VERSION,
       platform: process.platform,
     };
@@ -482,19 +632,58 @@ export function createServer(opts = {}) {
         assertToolReady(tool, cfg());
         return { tool, sessions: (await listToolSessions(tool, dir)).slice(0, 30).map((s) => ({ ...s, title: s.title || '(untitled)' })) };
       }
-      return { sessions: sessionsIn(dir).slice(0, 30).map((s) => ({ id: s.id, at: s.mtimeMs, title: sessionTitle(s.file) || '(untitled)' })) };
+      const list = sessionsIn(dir).slice(0, 30);
+      await readTitles(list.map((s) => s.file)); // only the ones shown, in pieces (titles.mjs)
+      // chat: the App session that has it open (as the App's own list says); terminal: a terminal session runs it now
+      // (its run record names it, read once for the whole list). A page offers no Delete for either.
+      const runs = listRuns().filter((r) => r.status !== 'ended');
+      return { sessions: list.map((s) => ({ id: s.id, at: s.mtimeMs, title: sessionName(s.file, s.id).slice(0, 120) || '(untitled)', chat: chat.openOf(s.id), terminal: runs.some((r) => runsConversation(r, s.id)) })) };
+    }],
+    // "Also open" in the new-session sheet: what may be opened beside a session in this folder, and its project's needs.
+    ['GET', /^\/api\/folders\/extras$/, async (req, m, q) => {
+      // No path: the choices before a project is chosen.
+      const dir = q.get('path') ? insideRoots(v.absPath(q.get('path')), roots()) : null;
+      if (q.get('path') && !dir) throw new HttpError(404, 'folder not found or not allowed');
+      return (await import('../workspace/needs.mjs')).extraChoices(dir, { dir: workspaceDir(), projects: projectsIn() });
+    }],
+    // The owner's yes for a need of a project on this computer, or its taking back (workspace/needsyes.mjs): from his
+    // own page only (the project's page, the new-session sheet), never from Tia's door or another computer.
+    ['POST', /^\/api\/folders\/extras\/accept$/, async (req) => {
+      if (ctx.caller(req) !== 'page') throw new HttpError(403, 'a need is allowed only on this dashboard\'s own page, by you');
+      const b = await readJson(req);
+      if (typeof b.need !== 'string' || typeof b.path !== 'string' || typeof b.allow !== 'boolean') throw bad('send { path, need, allow }');
+      const dir = insideRoots(v.absPath(b.path), roots());
+      if (!dir) throw new HttpError(404, 'folder not found or not allowed');
+      try {
+        return await (await import('../workspace/needs.mjs')).acceptNeed(null, b.need, { yes: b.allow, dir: workspaceDir(), projects: projectsIn(), folder: dir });
+      } catch (e) {
+        throw new HttpError(e.status || 400, e.message);
+      }
     }],
     ['POST', /^\/api\/sessions$/, async (req) => {
       const b = await readJson(req);
+      // Started through Tia's door (her in-process call, or another computer's dashboard relaying hers): the session
+      // is hers, marked and signed in as hers by its launcher (launch.mjs). Never from the body: a page, a token or a
+      // session cannot say it. Every other start is the owner's own and stays unmarked.
+      const hers = fromHerDoor(ctx, req);
+      const held = heldUntil(); // "start nothing new": a decision of Tia's while the computer was overloaded
+      if (held) throw heldError(held);
+      if (b.permissionMode === BYPASS && asRoot) throw Object.assign(new HttpError(409, ROOT_BYPASS_LINE), { details: { code: 'root-bypass' } });
+      if (b.permissionMode === BYPASS && !bypassAllowed(cfg(), asRoot)) throw Object.assign(bad('bypass permissions mode (the coding tool then acts without asking you first) is off: turn on "Allow bypass permissions mode" in Settings → New-session defaults first.'), { details: { code: 'bypass-off' } });
       const dir = insideRoots(v.absPath(b.dir), roots());
       if (!dir) throw bad('choose a folder inside the allowed roots');
       // `tool`: the coding tool (absent: Claude Code, as before). Codex and OpenCode take their own choices.
       const tool = toolFromRequest(b.tool);
+      // "Also open" is Claude Code's only: another coding tool cannot keep an extra folder read-only (refused first).
+      if (tool !== 'claude' && Array.isArray(b.with) && b.with.length) throw bad('"Also open" works with Claude Code only: this coding tool gets no extra folders, because Hoprig cannot keep them read-only there');
       if (tool !== 'claude') assertToolReady(tool, cfg());
+      // A session she started on Codex or OpenCode gets no hook, so her administrator-rights level cannot hold an
+      // administrator command in it: Hoprig lets her start one only at Full (where her commands run cardless anyway).
+      assertHerToolBound(tool, { hers, cfg: cfg() });
       // No provider chosen: the folder's default for that coding tool (the one it used there last, …: defaultprovider.mjs).
       if (b.profile === undefined || b.profile === null || b.profile === '') {
         b.profile = await defaultProviderIn(dir, null, tool);
-        if (!b.profile) throw bad(tool === 'claude' ? 'there is no provider on this computer yet: add one under Providers first' : 'there is no provider for this coding tool yet: add one under Providers first');
+        if (!b.profile) throw Object.assign(bad(tool === 'claude' ? 'there is no provider on this computer yet: add one under Providers first' : 'there is no provider for this coding tool yet: add one under Providers first'), { details: { code: 'no-provider' } });
       }
       const profile = pickProfile(b.profile, tool);
       if (!profile) throw bad('there is no such provider');
@@ -515,7 +704,7 @@ export function createServer(opts = {}) {
           if (!prompt) throw bad(`the first message must be 1 to ${v.MESSAGE_MAX} bytes`);
         }
         // The newest is started by its id, as for Claude Code: its launcher names it in its run record from the start.
-        const go = async () => ({ name: await deck.start({ tool, dir, profile, mode: runs ? 'resume' : mode, sessionId: runs || sid, prompt, flags: toolFlags(tool, b) }) });
+        const go = async () => ({ name: await deck.start({ tool, dir, profile, mode: runs ? 'resume' : mode, sessionId: runs || sid, prompt, flags: toolFlags(tool, b), hers }) });
         const r = runs ? await chat.startTerminal(runs, go, tool) : await go();
         if (r.existing) return runsAlready(r.existing, prompt);
         watcher.poke();
@@ -545,13 +734,16 @@ export function createServer(opts = {}) {
         flags.push('--effort', b.effort);
       }
       if (b.model !== undefined && b.model !== null) {
-        const models = sessionModels();
-        if (!models.includes(b.model)) throw bad(`the model must be one of: ${models.join(', ')}`);
+        // The provider's own list as known now, a family name, the saved default or a checked exact name (catalog.mjs).
+        const why = modelProblem(profile.name === AUTO.name ? 'auto' : profile, b.model, { saved: sessionModels() });
+        if (why) throw bad(why);
         flags.push('--model', b.model);
       }
       // The folder's newest conversation is started by its id, not by -c: the launcher then names it in its run record
       // from the first moment (launch.mjs conversationOf), and nothing else can start a process on it meanwhile.
-      const go = async () => ({ name: await deck.start({ dir, profile, mode: runs ? 'resume' : mode, sessionId: runs || sid, prompt, flags }) });
+      // "Also open": each name checked here, and again by the launcher at the start (launch.mjs startExtras).
+      for (const name of await ctx.checkWith(b.with, dir)) flags.push('--with', name);
+      const go = async () => ({ name: await deck.start({ dir, profile, mode: runs ? 'resume' : mode, sessionId: runs || sid, prompt, flags, hers }) });
       const r = runs ? await chat.startTerminal(runs, go) : await go();
       if (r.existing) return runsAlready(r.existing, prompt);
       watcher.poke();
@@ -629,13 +821,30 @@ export function createServer(opts = {}) {
       const b = await readJson(req);
       const text = v.message(b.text);
       if (!text) throw bad(`the message must be 1 to ${v.MESSAGE_MAX} bytes`);
+      // `expect: 'waiting'` (the reply box on a Home card): typed only while the session still waits for an answer, as
+      // the card showed it. Its run record is read again under the typing lock right before the bytes (typing.mjs), and
+      // a menu on its screen (a permission dialog, a question, the menu at a limit: prompts.mjs menuOpen, as the
+      // continue route reads it) would take the words as its answer: 409 then, nothing typed. Its one value; without it
+      // the send is as before.
+      if (b.expect !== undefined && b.expect !== 'waiting') throw bad('expect knows one value: "waiting"');
+      if (b.expect !== undefined && b.owner === true) throw bad('expect is for a message to the coding tool, not for the owner\'s own keys');
       const name = decodeURIComponent(m[1]);
       const { term } = await sessionOr404(name);
+      const stillWaiting = (run) => {
+        if (run.status !== 'waiting') throw new HttpError(409, `Nothing was sent: ${name} is no longer waiting for an answer.`);
+      };
+      const guard = b.expect === 'waiting' ? async (run, t) => {
+        stillWaiting(run);
+        if (menuOpen(await backend.capture(t.id, SCREEN_LINES, { now: true }))) throw new HttpError(409, `Nothing was sent: ${name} shows a question on its screen. Open the session to answer it there.`);
+      } : null;
+      // Its Enter, a moment after the text, goes only while the record still waits (a question since would take it as
+      // its answer): the record alone then, as the typed text in the message box can read as a menu. A refused Enter
+      // is "typed but not sent" (typing.mjs).
       // `owner: true`: the session page's message box, the owner's own keys: typed into whatever runs there, as he sees
       // it. Anyone else (the assistant, which may never send that key: assistant/door.mjs; a request without it) types
       // only for the coding tool while it is in front, never a control byte (src/server/typing.mjs; 409 otherwise).
       if (b.owner === true) await deck.send(term.id, text, { enter: b.enter !== false });
-      else await deck.sendToTool(name, text, { enter: b.enter !== false });
+      else await deck.sendToTool(name, text, { enter: b.enter !== false, ...(guard ? { guard, enterGuard: stillWaiting } : {}) });
       return { ok: true };
     }],
     ['POST', /^\/api\/sessions\/([^/]+)\/scroll$/, async (req, m) => {
@@ -688,9 +897,15 @@ export function createServer(opts = {}) {
       const b = await readJson(req);
       if (!backend.validName(b.name)) throw bad('use letters, digits, - and _ (up to 40)');
       const name = decodeURIComponent(m[1]);
-      const { taken } = await sessionOr404(name);
+      const { taken, run } = await sessionOr404(name);
       if (taken.includes(b.name)) throw new HttpError(409, 'that name is taken');
       await backend.rename(name, b.name);
+      // A Claude Code session is shown by its conversation's name (deck.mjs): the rename names the conversation, as
+      // a rename in the App does, so it is the name everywhere and wins over Claude Code's later titles.
+      if (run && (run.tool || 'claude') === 'claude' && run.sessionId) {
+        const s = sessionsIn(run.cwd).find((x) => x.id === run.sessionId);
+        setOwnName(run.sessionId, b.name, s ? s.file : null);
+      }
       return { name: b.name };
     }],
     ['POST', /^\/api\/sessions\/([^/]+)\/kill$/, async (req, m) => {
@@ -715,6 +930,29 @@ export function createServer(opts = {}) {
         /* keep the default */
       }
       return saveUpload(req, { cwd, dirName, fileName, maxBytes });
+    }],
+    // A file dropped or pasted on a session's terminal (web/session.js): the page types the path it gets back, as a
+    // terminal does on a drop. Kept in Hoprig's state folder (<state>/drops/<session>), never in the session's
+    // repository; the same size limit and clean name as an attachment; a week, then a later drop removes it.
+    // The path ends in /upload: a relay to another computer passes the body on as raw bytes (machines/legs.mjs).
+    ['POST', /^\/api\/sessions\/([^/]+)\/drop\/upload$/, async (req, m) => {
+      const s = cfg().server;
+      const maxBytes = Math.max(1, Number(s.uploadMaxMB) || DEFAULT_UPLOAD_MAX_MB) * 1024 * 1024;
+      const name = decodeURIComponent(m[1]);
+      await sessionOr404(name); // a name of letters, digits, ". _ -" that never starts with "." (validate.mjs)
+      const dir = dropsFolder(stateDir());
+      try {
+        pruneDrops(dir);
+      } catch {
+        /* a file that cannot be removed now is tried again with the next drop */
+      }
+      let fileName = 'upload';
+      try {
+        fileName = decodeURIComponent(String(req.headers['x-file-name'] || 'upload'));
+      } catch {
+        /* keep the default */
+      }
+      return saveUpload(req, { cwd: dir, dirName: name, fileName, maxBytes, ignoreFile: false });
     }],
     ['GET', /^\/api\/pc$/, async () => {
       const snap = await system.snapshot();
@@ -746,19 +984,30 @@ export function createServer(opts = {}) {
       const b = await readJson(req);
       let serverPatch = null;
       let sessionDefaults = null;
+      let stayRoot = null;
       try {
         // Check everything first; save only when all of it is valid.
         if (b.server !== undefined) serverPatch = cleanServerPatch(b.server);
         if (b.sessionDefaults !== undefined) sessionDefaults = cleanSessionDefaults(b.sessionDefaults);
+        if (sessionDefaults && sessionDefaults.permissionMode === BYPASS && asRoot && (cfg().sessionDefaults || {}).permissionMode !== BYPASS) throw new Error(ROOT_BYPASS_LINE);
+        if (sessionDefaults && sessionDefaults.permissionMode === BYPASS && !asRoot && !bypassAllowed(cfg())) throw Object.assign(new Error('bypass permissions mode (the coding tool then acts without asking you first) is off: turn on "Allow bypass permissions mode" in Settings → New-session defaults first.'), { details: { code: 'bypass-off' } });
+        // Keeping Hoprig on root on purpose: only as root, and only with the sentence typed as it is written (its case
+        // aside), so it is never chosen by one click or for a computer that is not on root.
+        if (b.stayRoot !== undefined) stayRoot = stayRootChoice(b.stayRoot, asRoot);
+        if (b.sessionTitles !== undefined && typeof b.sessionTitles !== 'boolean') throw new Error('sessionTitles must be true or false');
         if (b.autoSwitch !== undefined) {
           if (!b.autoSwitch || typeof b.autoSwitch !== 'object' || Array.isArray(b.autoSwitch)) throw new Error('autoSwitch must be an object');
           autoswitch.setAutoSwitch(b.autoSwitch);
         }
       } catch (e) {
-        throw bad(e.message);
+        // A refusal that names its place keeps its code (web/errorways.js), so the page draws the button to it.
+        throw Object.assign(bad(e.message), e.details ? { details: e.details } : {});
       }
+      if (serverPatch && serverPatch.notify) serverPatch.notify = keepHeaders(serverPatch.notify, cfg().server.notify);
       if (serverPatch && Object.keys(serverPatch).length) saveConfig({ server: serverPatch });
       if (sessionDefaults) saveConfig({ sessionDefaults });
+      if (typeof b.sessionTitles === 'boolean') saveConfig({ sessionTitles: b.sessionTitles });
+      if (stayRoot !== null) saveConfig({ [STAY_ROOT_KEY]: stayRoot });
       watcher.poke();
       return settingsView();
     }],
@@ -871,7 +1120,7 @@ export function createServer(opts = {}) {
         if (!want || !known.has(want)) throw bad('that address is not one this dashboard is reached at');
         base = want;
       }
-      if (!base) throw bad('cannot tell this page\'s address; set it in Settings → Notifications → This page\'s address');
+      if (!base) throw Object.assign(bad('this page\'s address is not known here: set it in Settings → Notifications → This page\'s address'), { details: { code: 'notify-address' } });
       const link = createLoginLink({ baseUrl: base, minutes: 15 });
       const hostname = new URL(link.url).hostname;
       return { ...link, qr: qrRows(link.url), local: /^(127\.|localhost$|\[?::1\]?$)/.test(hostname) };
@@ -928,7 +1177,7 @@ export function createServer(opts = {}) {
     }
     const b = await readJson(req);
     linkLimiter.fail(ip, lim);
-    if (!useLoginLink(b.token)) return send(res, 401, { error: 'This sign-in link was used already or has expired. Make a new one on a device that is signed in.' });
+    if (!useLoginLink(b.token)) return send(res, 401, { error: 'This sign-in code was used already or is too old. On the computer, press Show a sign-in code again.' });
     linkLimiter.succeed(ip, lim);
     return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(sessions.create(passwordTag()), { secure: isHttps(req, proxyOpts()) }) });
   }
@@ -953,6 +1202,19 @@ export function createServer(opts = {}) {
     if (p === '/api/login' && method === 'POST') return login(req, res);
     if (p === '/api/login/link' && method === 'POST') return loginByLink(req, res);
     if (p === '/api/me' && method === 'GET') return send(res, 200, { authed: authed(req) });
+    // What set-up and doctor ask the running dashboard: its version, where it really listens, and the sessions in its
+    // built-in terminals (they end with it; tmux sessions do not). Only from this computer, with the key of the
+    // dashboard file only this user can read; anything else is told nothing.
+    if (p === '/api/local/facts' && method === 'GET') {
+      const k = req.headers['x-hoprig-local-key'];
+      // Bytes, not characters, are compared: a header of the right length in letters but not in bytes (é) is a wrong key.
+      const got = typeof k === 'string' ? Buffer.from(k) : null;
+      const ok = sameComputer(req) && got && got.length === Buffer.byteLength(localKey()) && crypto.timingSafeEqual(got, Buffer.from(localKey()));
+      if (!ok) return send(res, 404, { error: 'not found' });
+      const a = server.address();
+      const terms = backend.kind === 'pty' ? (await backend.list()).map((t) => t.session).filter(Boolean) : [];
+      return send(res, 200, { version: VERSION, pid: process.pid, state: stateKey(), host: a && typeof a === 'object' ? a.address : null, port: a && typeof a === 'object' ? a.port : null, backend: backend.kind, terminals: terms });
+    }
 
     if (p.startsWith('/api/')) {
       if (!viaToken && !authed(req)) return send(res, 401, { error: 'log in first' });
@@ -993,6 +1255,8 @@ export function createServer(opts = {}) {
         socket: { remoteAddress: '127.0.0.1' },
       });
       req[INTERNAL] = true;
+      const card = confirmedCard();
+      if (card) req[CARD] = card;
       const chunks = [];
       let status = 200;
       const finish = () => {
@@ -1084,10 +1348,23 @@ export function createServer(opts = {}) {
     sessions,
     watcher,
     features,
+    routes, // the route table (the page's and every feature's), read by the inventory test of what Tia can do (test/assistant/inventory.test.mjs)
     listen(port = opts.port ?? first.port ?? DEFAULT_PORT, host = opts.host ?? first.host ?? DEFAULT_HOST) {
       return new Promise((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(port, host, () => {
+        // Each try takes its own two handlers off again, whichever comes: a start that tries again on a held port
+        // (takeover.mjs) would otherwise add a 'listening' handler per try (MaxListenersExceededWarning).
+        const failed = (e) => {
+          server.off('listening', listening);
+          reject(e);
+        };
+        const listening = () => {
+          server.off('error', failed);
+          started();
+        };
+        server.once('error', failed);
+        server.once('listening', listening);
+        server.listen(port, host);
+        function started() {
           if (opts.watch !== false) watcher.start();
           // Its requests list the run records: on Windows asking the system who runs a pid takes most of a second.
           processes.askInBackground();
@@ -1117,7 +1394,7 @@ export function createServer(opts = {}) {
           // Where this dashboard really listens, for `hoprig pair --json`, `link` and setup (dashboardfile.mjs).
           const a = server.address();
           if (opts.dashboardFile !== false && a && typeof a === 'object') writeDashboardFile({ host: a.address, port: a.port });
-          for (const f of features) {
+          for (const f of opts.startFeatures === false ? [] : features) {
             try {
               f.start?.(ctx);
             } catch (e) {
@@ -1125,7 +1402,7 @@ export function createServer(opts = {}) {
             }
           }
           resolve(server.address());
-        });
+        }
       });
     },
     async close() {

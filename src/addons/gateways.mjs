@@ -51,9 +51,17 @@ export const SHIPPED = [
     summary: 'A self-hosted AI gateway. Add any provider in its dashboard (OpenAI, Gemini, OpenRouter, local models…) and Claude Code can use them all as one more provider.',
     homepage: 'https://github.com/allswebtech/trouteai',
     npm: 'trouteai',
+    // The parts whose install scripts its README allows (npm install -g trouteai --allow-scripts=tls-client-node,koffi
+    // --loglevel=error): each builds a helper program. Names only; Hoprig adds the flags (localgateway.mjs installFlags).
+    allowScripts: ['tls-client-node', 'koffi'],
     bin: 'trouteai',
     port: 20017,
     args: ['--port', 'PORT'],
+    // Its accounts, keys and logs: a folder of its own in the home of the user it runs as.
+    dataDir: '.trouteai',
+    // Where the dashboard listens on this computer only (or the computer is a server): these arguments keep the gateway
+    // there too. Its own default is every address; a flag outranks its environment (HOST) and its data folder's .env.
+    localOnly: ['--host', '127.0.0.1'],
     version: ['--version'],
     dashboard: '/',
     profile: { name: 'api', label: 'API via TRouteAI', token: 'ANTHROPIC_AUTH_TOKEN' },
@@ -85,7 +93,10 @@ const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const LABEL_RE = /^[^\x00-\x1f\x7f]{1,60}$/; // eslint-disable-line no-control-regex
 const TEXT_RE = /^[^\x00-\x1f\x7f]{1,300}$/; // eslint-disable-line no-control-regex
 const TOKENS = ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY'];
-const KEYS = ['id', 'title', 'summary', 'homepage', 'npm', 'bin', 'sha256', 'typed', 'port', 'args', 'dashboard', 'profile', 'words'];
+const KEYS = ['id', 'title', 'summary', 'homepage', 'npm', 'bin', 'sha256', 'typed', 'port', 'args', 'localOnly', 'dashboard', 'firstPassword', 'profile', 'words', 'dataDir'];
+// Where a gateway keeps its own data (accounts, keys, logs), as a folder under the home of the user it runs as: the move
+// to an ordinary user (src/setup/movegateway.mjs) copies it. Plain folder names only, never a way out of the home.
+export const DATA_DIR_RE = /^(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){0,4}$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const WORDS = ['what', 'choice', 'add', 'key'];
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
@@ -212,9 +223,25 @@ export function checkDefinition(raw, { others = [], forAdd = false, cfg = safeCo
     args = [...raw.args];
   }
   const def = { id, title, npm, bin, sha256, typed, port, args, version: null, dashboard: null };
+  // The words that keep it on this computer (as a shipped one's: --host 127.0.0.1), passed on a server and where the
+  // dashboard is this computer only (localgateway.mjs hostArgs).
+  if (raw.localOnly !== undefined) {
+    if (!Array.isArray(raw.localOnly) || !raw.localOnly.length || raw.localOnly.length > 8 || raw.localOnly.some((a) => typeof a !== 'string' || !ARG_RE.test(a))) return no('localOnly is a list of 1 to 8 words with only letters, digits and . _ = : , @ / + -', 'localOnly', '1 to 8 words: only letters, digits and . _ = : , @ / + -');
+    def.localOnly = [...raw.localOnly];
+  }
   if (raw.dashboard !== undefined && raw.dashboard !== null) {
     if (typeof raw.dashboard !== 'string' || !DASHBOARD_RE.test(raw.dashboard)) return no('dashboard is the path of its page, such as /', 'dashboard', 'the path of its page on its port, such as /');
     def.dashboard = raw.dashboard;
+  }
+  // A word or words on the line where it prints its first password: that line is shown once on its page and kept out
+  // of its log (localgateway.mjs start, firstlines.mjs).
+  if (raw.firstPassword !== undefined && raw.firstPassword !== null && raw.firstPassword !== '') {
+    if (typeof raw.firstPassword !== 'string' || !/^[^\x00-\x1f\x7f]{3,60}$/.test(raw.firstPassword)) return no('firstPassword is a word on the line where it prints its first password, 3 to 60 characters', 'firstPassword', 'a word on that line, such as password: 3 to 60 characters');
+    def.firstPassword = raw.firstPassword;
+  }
+  if (raw.dataDir !== undefined && raw.dataDir !== null) {
+    if (typeof raw.dataDir !== 'string' || raw.dataDir.length > 100 || !DATA_DIR_RE.test(raw.dataDir)) return no('dataDir is the folder under the home where it keeps its data, such as .mygateway', 'dataDir', 'a folder under the home, such as .mygateway');
+    def.dataDir = raw.dataDir;
   }
   if (raw.summary !== undefined) {
     if (typeof raw.summary !== 'string' || !TEXT_RE.test(raw.summary)) return no('the summary is one line of up to 300 characters');

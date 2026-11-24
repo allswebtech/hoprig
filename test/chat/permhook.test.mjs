@@ -77,8 +77,16 @@ test('the start line: the hook in a settings file for a Claude Code that knows t
       // remembered rules too, and the hook program of a terminal session.
       assert.equal(path.dirname(given), hookSettingsDir(), version);
       const s = JSON.parse(fs.readFileSync(given, 'utf8'));
-      assert.deepEqual(Object.keys(s.hooks), ['PermissionRequest'], 'only the one event: the chat follows the rest through its channel');
+      // PermissionRequest answers; the four stop events only write how a provider stopped it (hook.mjs CHAT_KEEPS).
+      // Hands-off is offered by default now, so a versioned chat also carries the wall's gated PreToolUse hold.
+      assert.deepEqual(Object.keys(s.hooks), ['PermissionRequest', 'SessionStart', 'UserPromptSubmit', 'Stop', 'StopFailure', 'PreToolUse']);
+      // Every hook but the gated wall is exactly the hook program and ends there: the end-anchor keeps a stray tail
+      // out. PreToolUse is the wall's gated form (handsoff-active marker ... then the hook ... ; fi), checked on its
+      // own just below, so it is the one key the anchored match leaves out.
+      for (const [name, e] of Object.entries(s.hooks)) if (name !== 'PreToolUse') assert.match(e[0].hooks[0].command, /hoprig-hook\.mjs'$/, name);
       assert.match(s.hooks.PermissionRequest[0].hooks[0].command, /hoprig-hook\.mjs'$/);
+      assert.ok(s.hooks.PreToolUse[0].hooks[0].command.includes('handsoff-active') && s.hooks.PreToolUse[0].hooks[0].command.includes('hoprig-hook.mjs'), 'the wall hold is gated by the cheap marker and calls the hook');
+      assert.equal(s.hooks.PreToolUse[0].matcher, 'Bash|Write|Edit|MultiEdit|NotebookEdit');
       assert.deepEqual(s.permissions.allow, ['Bash(npm view *)']);
       assert.equal(path.basename(given), path.basename(c.session.hold), 'named after the chat\'s run record');
       assert.equal(c.session.hooked, true);

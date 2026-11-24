@@ -126,7 +126,7 @@ test('a hub stops after the dashboard steps', async () => {
   const again = ui({ yes: true });
   await SU.setup(['--only', 'skills', '--yes'], { ui: again.ui, sys: sys(), parts: fakes(log) });
   assert.deepEqual(log, [], 'hubOnly is remembered: no parts later either');
-  assert.match(again.rec.text, /A hub has no computer, project or skills step/);
+  assert.match(again.rec.text, /so it has no computer, project or skills step/);
   fs.writeFileSync(path.join(process.env.HOPRIG_CONFIG_DIR, 'config.json'), '{}');
 });
 
@@ -201,13 +201,14 @@ test('Enter skips the project', async () => {
   assert.deepEqual(log.map((x) => x[0]), ['pc', 'userSkills']);
 });
 
-test('the real user skills step: the bundled hoprig skill, without a network, once', async () => {
+test('the real user skills step: the bundled skills (hoprig, plan-work, adopt-projects), without a network, once', async () => {
   const said = [];
   const sui = { say: (l) => said.push(l), confirm: async () => true };
   const r = await FR.userSkills({ ui: sui, yes: true });
   assert.equal(r.ok, true, said.join('\n'));
-  assert.deepEqual(r.added, ['hoprig']);
+  assert.deepEqual(r.added, ['hoprig', 'plan-work', 'adopt-projects']);
   assert.ok(fs.existsSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'skills', 'hoprig', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(process.env.CLAUDE_CONFIG_DIR, 'skills', 'plan-work', 'SKILL.md')));
   const again = await FR.userSkills({ ui: sui, yes: true });
   assert.deepEqual(again.added, []);
   assert.match(said.at(-1), /the ones that come with Hoprig are installed/);

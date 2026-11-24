@@ -4,18 +4,22 @@
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import os from 'node:os';
+import { startInTurn } from '../../oneturn.mjs';
 import { system } from '../../procid.mjs';
 import { ptySpawn } from './nodepty.mjs';
 import { ensureSpawnHelper } from './pty-helper.mjs';
 import { descendants, endAll } from './proctree.mjs';
 import { shellLine } from './shell.mjs';
+import { prefixBytes, prefixDoubler } from './tmuxprefix.mjs';
 import { assertFront, assertScreen, notInFront, FRONT_GONE } from './front.mjs';
 import { stateDir } from '../../paths.mjs';
 
 const FIELDS = [
-  'session_name', 'session_created', 'session_attached', 'session_activity', 'window_activity',
+  'session_name', 'session_id', 'session_created', 'session_attached', 'session_activity', 'window_activity',
   'window_active', 'pane_active', 'pane_id', 'pane_pid', 'pane_dead', 'pane_current_command', 'pane_current_path',
 ];
+/** The terminal title tmux gives the attach: the program's own, nothing while it is tmux's default (the host name). */
+export const TITLE_FORMAT = '#{?#{==:#{pane_title},#{host}},,#{pane_title}}';
 export const PANE_FORMAT = FIELDS.map((f) => `#{${f}}`).join('\t');
 
 /** Parse `list-panes -a -F PANE_FORMAT`. The path is last so a tab inside it cannot shift the other fields. */
@@ -30,6 +34,7 @@ export function parsePanes(out) {
     panes.push({
       session: r.session_name,
       id: r.pane_id,
+      sid: r.session_id, // tmux's own id of the session ("$3"): a rename keeps it, a new session with the old name has another
       pid: Number(r.pane_pid),
       cwd: r.pane_current_path,
       command: r.pane_current_command,
@@ -68,6 +73,10 @@ export const tmuxDir = (dir) => String(dir).replace(/(#+)(\[?)/g, (run, hashes, 
 // A pane's shell, for ending what runs under it: whether the pane is dead (remain-on-exit), and the shell's pid.
 const SHELL_FORMAT = '#{pane_dead} #{pane_pid}';
 
+/** tmux's question to the outer terminal for its name, and the answer the attach gives for the browser's terminal. */
+export const XTVERSION_ASK = '\x1b[>q';
+export const XTVERSION_REPLY = '\x1bP>|xterm.js\x1b\\';
+
 export class TmuxBackend {
   /**
    * @param {object} o
@@ -85,6 +94,7 @@ export class TmuxBackend {
     // container, a CI step). Without it tmux turns every tab and non-ASCII character it prints into "_": list()
     // then finds no session at all (its fields are split on tabs), and a folder named "café" reads "caf_".
     this.base = ['-u', ...(socket ? ['-L', socket] : []), ...(configFile ? ['-f', configFile] : [])];
+    this.socket = socket; // the Operator never calls the server of this socket left over (operator/sources.mjs)
     this.kind = 'tmux';
     // tmux owns the screen and its history (the page scrolls it through scroll()), and its sessions outlive us.
     this.capabilities = { nativeScrollback: false, persistent: true };
@@ -121,8 +131,12 @@ export class TmuxBackend {
     return env;
   }
 
-  run(args, { input } = {}) {
-    return new Promise((resolve, reject) => {
+  // `now`: start at once, not in the queue. Typing (sendText, sendKey) and its checks (#live, #inFront, #screenIs) use
+  // it: the owner waits for the keys, which must go right after the check's answer, and never behind a tick's starts.
+  run(args, { input, now = false } = {}) {
+    // One program start per turn of the server's thread (oneturn.mjs startInTurn), in the order asked.
+    const start = now ? (fn) => Promise.resolve().then(fn) : startInTurn;
+    return new Promise((resolve, reject) => start(() => {
       const child = execFile(this.bin, this.argv(...args), { env: this.#env(), timeout: 10_000, maxBuffer: 16 << 20 }, (err, stdout, stderr) => {
         if (err) {
           const e = new Error((stderr || err.message).trim());
@@ -137,7 +151,7 @@ export class TmuxBackend {
         child.stdin.on('error', () => {});
         child.stdin.end(input);
       }
-    });
+    }).catch(reject));
   }
 
   async list() {
@@ -158,6 +172,10 @@ export class TmuxBackend {
     // The target is the pane id: set-option does not take the "=name" exact-match form other commands do.
     await this.run(['set-option', '-t', id, 'status', 'off']).catch(() => {});
     await this.run(['set-option', '-s', 'focus-events', 'on']).catch(() => {});
+    // The program's title (Claude Code names its task there) reaches the attach only with set-titles; tmux's own
+    // title before the program sets one is the host name, which the page has no use for.
+    await this.run(['set-option', '-t', id, 'set-titles', 'on']).catch(() => {});
+    await this.run(['set-option', '-t', id, 'set-titles-string', TITLE_FORMAT]).catch(() => {});
     return { name, id };
   }
 
@@ -168,7 +186,7 @@ export class TmuxBackend {
 
   /** Leave copy mode (the history view) if the pane is in it, so typed text reaches the program, not tmux. */
   #live(id) {
-    return this.run(['copy-mode', '-q', '-t', id]).catch(() => {});
+    return this.run(['copy-mode', '-q', '-t', id], { now: true }).catch(() => {});
   }
 
   /**
@@ -179,7 +197,7 @@ export class TmuxBackend {
    */
   async #inFront(id, front) {
     if (!front) return;
-    const out = await this.run(['display-message', '-p', '-t', id, '#{pane_dead} #{pane_pid}']).catch(() => '');
+    const out = await this.run(['display-message', '-p', '-t', id, '#{pane_dead} #{pane_pid}'], { now: true }).catch(() => '');
     const [dead, pid] = String(out).trim().split(' ');
     if (dead !== '0') throw notInFront(FRONT_GONE);
     assertFront(Number(pid), front);
@@ -195,18 +213,18 @@ export class TmuxBackend {
     if (!text.includes('\n')) {
       await this.#inFront(id, front);
       await this.#screenIs(id, when);
-      return void (await this.run(['send-keys', '-t', id, '-l', '--', text]));
+      return void (await this.run(['send-keys', '-t', id, '-l', '--', text], { now: true }));
     }
     if (when) throw new Error('a screen check is for one line'); // nothing calls it so
     const buf = `paste-${crypto.randomBytes(6).toString('hex')}`;
-    await this.run(['load-buffer', '-b', buf, '-'], { input: text });
+    await this.run(['load-buffer', '-b', buf, '-'], { input: text, now: true });
     try {
       await this.#inFront(id, front);
     } catch (e) {
-      await this.run(['delete-buffer', '-b', buf]).catch(() => {});
+      await this.run(['delete-buffer', '-b', buf], { now: true }).catch(() => {});
       throw e;
     }
-    await this.run(['paste-buffer', '-p', '-d', '-b', buf, '-t', id]);
+    await this.run(['paste-buffer', '-p', '-d', '-b', buf, '-t', id], { now: true });
   }
 
   async sendKey(id, key, { front = null, when = null } = {}) {
@@ -214,17 +232,17 @@ export class TmuxBackend {
     if (key !== 'Escape') await this.#live(id);
     await this.#inFront(id, front);
     await this.#screenIs(id, when);
-    await this.run(['send-keys', '-t', id, key]);
+    await this.run(['send-keys', '-t', id, key], { now: true });
   }
 
   // The screen check (index.mjs: `when`), the last step before the keys go. tmux types in a second call of its own:
   // what the program draws between the capture and that call (a few milliseconds) is not seen.
   async #screenIs(id, when) {
-    if (when) assertScreen(when, await this.capture(id, when.lines || 40));
+    if (when) assertScreen(when, await this.capture(id, when.lines || 40, { now: true }));
   }
 
-  capture(id, lines = 40) {
-    return this.run(['capture-pane', '-p', '-J', '-t', id, '-S', `-${lines}`]);
+  capture(id, lines = 40, { now = false } = {}) {
+    return this.run(['capture-pane', '-p', '-J', '-t', id, '-S', `-${lines}`], { now });
   }
 
   /**
@@ -301,26 +319,85 @@ export class TmuxBackend {
     return this.argv('-T', 'RGB', 'attach-session', '-t', `=${name}`);
   }
 
-  /** The session as a byte stream: `tmux attach` inside a pseudo-terminal of the requested size. */
+  /**
+   * The session as a byte stream: `tmux attach` inside a pseudo-terminal of the requested size. tmux asks the outer
+   * terminal for its name (XTVERSION) and, until it hears back or 5 s pass, holds a lone Esc for half a second and
+   * joins it to the next key (Esc then Tab arrived as Alt+Tab). The browser's terminal library does not answer that
+   * question, so the attach answers it once, for tmux only.
+   */
   attach(name, { cols = 80, rows = 24 } = {}) {
     const env = { ...this.#env(), TERM: 'xterm-256color' };
     ensureSpawnHelper();
     const term = ptySpawn(this.bin, this.attachArgv(name), { name: 'xterm-256color', cols, rows, cwd: os.homedir(), env });
+    let answered = false;
+    term.onData((d) => {
+      if (answered || !d.includes(XTVERSION_ASK)) return;
+      answered = true;
+      term.write(XTVERSION_REPLY);
+    });
+    // What the browser types waits the few milliseconds until tmux has said which key is its prefix (tmuxprefix.mjs),
+    // at most a second: a slow tmux must not hold every key (its calls time out after 10 s); until it answers the
+    // keys go as they are. Nothing is written once the page has left: the client is gone (node-pty: EBADF).
+    let filter = null;
+    let closed = false;
+    let wrote = 0; // when the browser last typed: the client gets a moment to read it before it ends
+    const early = [];
+    const use = (f) => {
+      if (closed) return;
+      filter = f;
+      for (const s of early.splice(0)) term.write(f(s));
+    };
+    const slow = setTimeout(() => filter || use((s) => s), 1000);
+    this.#prefixFilter(name).then((f) => {
+      clearTimeout(slow);
+      use(f);
+    });
     return {
       onData: (fn) => term.onData(fn),
       onExit: (fn) => term.onExit(fn),
-      write: (s) => term.write(s),
+      write: (s) => {
+        if (closed) return;
+        wrote = Date.now();
+        if (filter) term.write(filter(s));
+        else early.push(s);
+      },
       resize: (c, r) => term.resize(c, r),
       pause: () => term.pause(),
       resume: () => term.resume(),
       close: () => {
-        try {
-          term.kill(); // ends only this attach client; the session keeps running
-        } catch {
-          /* already gone */
-        }
+        closed = true;
+        early.length = 0;
+        clearTimeout(slow);
+        // Ended at once, the client lost what it had not read yet: a whole paste written just before the page left
+        // reached the program as its first 4 KiB, without its end mark, and the program stayed inside the paste.
+        // node-pty writes in the background; the client ends once that queue is empty and it has had a moment to
+        // read the rest, at most 5 s later. (The queue is node-pty's own field: without it, the moment only.)
+        const queued = () => term._writeStream?._writeQueue?.length || 0;
+        const until = Date.now() + 5000;
+        const end = () => {
+          if (queued() && Date.now() < until) return void setTimeout(end, 20);
+          setTimeout(() => {
+            try {
+              term.kill(); // ends only this attach client; the session keeps running
+            } catch {
+              /* already gone */
+            }
+          }, Date.now() - wrote < 2000 ? 200 : 0);
+        };
+        end();
       },
     };
+  }
+
+  /** The writer's filter that doubles session `name`'s prefix key; one that changes nothing when tmux cannot say. */
+  async #prefixFilter(name) {
+    try {
+      const [prefix, prefix2, escapeTime] = String(await this.run(['display-message', '-p', '-t', `=${name}`, '#{prefix}\t#{prefix2}\t#{escape-time}'])).trim().split('\t');
+      const joinMs = Number(escapeTime) || 0;
+      return prefixDoubler(prefixBytes({ prefix, prefix2, keys: await this.run(['list-keys', '-T', 'prefix']) }), { joinMs });
+    } catch {
+      return (s) => s;
+    }
   }
 
   /** The whole tmux server (tests; the dashboard never ends it): every pane's programs first, as in kill. */

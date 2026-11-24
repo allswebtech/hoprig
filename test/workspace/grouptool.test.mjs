@@ -63,7 +63,7 @@ test('after restore the tool only waits: no launcher; restore and status say it 
   const { restoreWorkspace } = await import('../../src/workspace/restore.mjs');
   const q = await quietUi();
   q.ui.yes = true;
-  const r = await restoreWorkspace(w.url('brain'), { ui: q.ui, dir: C.ws, projects: C.projects });
+  const r = await restoreWorkspace(w.url('brain'), { withProjects: true, ui: q.ui, dir: C.ws, projects: C.projects });
   assert.ok(r.notes.some((n) => /kits has its own command kit: it is made only after your yes on this computer: +hoprig workspace tool allow kits/.test(n)), r.notes.join('\n'));
   assert.ok(!fs.existsSync(launcher()));
   assert.equal((await T.toolsState())[0].state, 'waits');
@@ -187,7 +187,7 @@ test('the yes is tied to the group\'s repository: another repository in its fold
   const { restoreWorkspace } = await import('../../src/workspace/restore.mjs');
   const q = await quietUi();
   q.ui.yes = true;
-  const r = await restoreWorkspace(w.url('brain'), { ui: q.ui, dir: C.ws, projects: C.projects });
+  const r = await restoreWorkspace(w.url('brain'), { withProjects: true, ui: q.ui, dir: C.ws, projects: C.projects });
   assert.ok(r.notes.some((n) => /kt \(the command of kits\) would not start: .*hoprig workspace tool allow kits/.test(n)), r.notes.join('\n'));
   // Back as it was.
   fs.rmSync(kits, { recursive: true, force: true });
@@ -261,7 +261,7 @@ test('"is a command now" only when its folder is on PATH; else the line to add',
     const r = await run(['allow', 'kits', '--yes']);
     assert.equal(r.code, 0, r.text);
     assert.doesNotMatch(r.text, /is a command now/);
-    assert.ok(r.text.includes(`which is not on your PATH: to run it by its name, add this line to your shell's start file (Hoprig does not edit it):  export PATH="${bin}:$PATH"`), r.text);
+    assert.ok(r.text.includes(`which is not on your PATH: to run it by its name, add this line to your shell's start file (Hoprig does not edit it):  export PATH="${bin}:$PATH"`), r.text); // seal: a value no program is started with
   } finally {
     process.env.PATH = before;
   }

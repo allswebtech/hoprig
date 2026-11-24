@@ -168,3 +168,13 @@ test('a delete written in plain sight is a card unless plainly inside; a name bu
 test('the chip of an OpenCode chat\'s bypass says what it does', () => {
   assert.equal(MODE_WORDS.bypassPermissions.sub, 'Runs everything without asking; asks only before a delete written in plain sight outside the folder (riskiest)');
 });
+
+test('a scan that throws leaves no question unanswered: the shell call is a card, never allowed and never dropped', () => {
+  const chat = { cwd: process.cwd(), session: {} };
+  const ev = { type: 'permission', shell: true, tool: 'bash', full: { command: 'ls' } };
+  const boom = () => { throw new RangeError('too deep'); };
+  let r;
+  assert.doesNotThrow(() => { r = A.openCodeAllows(chat, ev, 'bypassPermissions', { scan: boom }); });
+  assert.equal(r, false, 'a card for the owner');
+  assert.equal(A.openCodeAllows(chat, ev, 'bypassPermissions'), true, 'the same call with the real scan is answered by itself');
+});

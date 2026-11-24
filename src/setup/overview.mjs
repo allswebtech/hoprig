@@ -7,8 +7,8 @@ import { forThisUser } from './system.mjs';
 export const GROUPS = ['This computer', 'Claude Code and providers', 'Dashboard', 'Coding tools', 'Projects', 'Skills'];
 
 const OWN = {
-  node: 'This computer', app: 'This computer', config: 'This computer', 'dir-config': 'This computer', 'dir-profiles': 'This computer', 'dir-state': 'This computer',
-  claude: 'Claude Code and providers', login: 'Claude Code and providers', profiles: 'Claude Code and providers',
+  node: 'This computer', root: 'This computer', app: 'This computer', config: 'This computer', 'dir-config': 'This computer', 'dir-profiles': 'This computer', 'dir-state': 'This computer',
+  claude: 'Claude Code and providers', login: 'Claude Code and providers', profiles: 'Claude Code and providers', ownendpoint: 'Claude Code and providers',
   terminal: 'Dashboard', pty: 'Dashboard', password: 'Dashboard', service: 'Dashboard', port: 'Dashboard', access: 'Dashboard',
 };
 
@@ -42,7 +42,7 @@ export async function overview({ sys, offline = false, hub = false, parts = {} }
   // no sudo, whichever part of the product wrote it.
   const who = sys || sysInfo();
   const phrased = (list) => list.map((c) => (c.fix ? { ...c, fix: forThisUser(c.fix, who) } : c));
-  const own = (await allChecks({ sys, offline })).map((c) => ({ ...c, group: OWN[c.id] || 'This computer' }));
+  const own = (await allChecks({ sys, offline })).map((c) => ({ ...c, group: OWN[c.id] || (c.id.startsWith('gateway-') ? 'Claude Code and providers' : 'This computer') }));
   if (hub) return phrased(own);
   const pc = parts.pc || (async () => (await import('../pcsetup/index.mjs')).pcStatus({ offline }));
   const skills = parts.skills || (async () => (await import('../skillhub/hub.mjs')).skillsStatus({ check: !offline }));

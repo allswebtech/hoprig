@@ -8,13 +8,13 @@ import { comp, computer, tool } from './toolkit.mjs';
 // The page addresses she can open (web/app.js PAGE_ADDRESSES; a test keeps the two lists in step). Pages that
 // belong to one computer open for that computer ("#/m/<computer>/…") when a computer is given.
 export const SCREENS = [
-  'new', 'code', 'workspace', 'new-project', 'get-project', 'providers', 'computers', 'computers/add', 'computer', 'computer/setup', 'computer/advanced',
-  'automations', 'automations/queue', 'automations/rules', 'automations/activity', 'skills', 'skills/installed', 'skills/suggested',
-  'skills/find', 'brain', 'tia', 'tia/jobs', 'tia/activity', 'settings', 'settings/new-sessions', 'settings/workspace', 'settings/notifications',
-  'settings/appearance', 'settings/security', 'settings/public-link', 'settings/tia', 'settings/editor', 'settings/addons', 'settings/codingtools', 'settings/updates', 'settings/about',
+  'new', 'code', 'work', 'work/tasks', 'workspace', 'new-project', 'get-project', 'providers', 'computers', 'computers/add', 'computer', 'computer/setup', 'computer/advanced',
+  'work/schedules', 'work/activity', 'skills', 'skills/installed', 'skills/suggested',
+  'skills/find', 'brain', 'operator', 'tia', 'tia/jobs', 'tia/activity', 'settings', 'settings/new-sessions', 'settings/work', 'settings/workspace', 'settings/notifications',
+  'settings/automations', 'settings/appearance', 'settings/security', 'settings/public-link', 'settings/tia', 'settings/editor', 'settings/addons', 'settings/codingtools', 'settings/updates', 'settings/about',
   'desktop', 'desktop/sessions', 'desktop/terminal', 'desktop/files', 'desktop/editor', 'desktop/tasks', 'desktop/services', 'desktop/logs',
 ];
-const PER_COMPUTER = /^(computer|workspace|code|new-project|get-project|automations|skills|providers|desktop)(\/|$)/;
+const PER_COMPUTER = /^(computer|workspace|code|new-project|get-project|skills|providers|desktop)(\/|$)/;
 export const open_screen = tool({
   name: 'open_screen',
   level: 'L1',

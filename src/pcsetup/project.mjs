@@ -1,7 +1,16 @@
 // `hoprig project …`: project workspaces (see workspace.mjs for the shape).
 //   project new <name> [--template <folder or git address>] [--github [--repo-name <n>] | --remote <git address>] [--owner <o>]
+//               [--brief <file> | --brief -] [--kind <kind>] [--scope product|setup]
+//               [--start [--tool T] [--provider P] [--model M] [--effort E]]
+//                                                                        a brief, a hint for its kind, the scope, the
+//                                                                        new-project skill (newproject.mjs)
+//   project start <name> [--kind <kind>] [--scope product|setup] [--tool T] [--provider P] [--model M] [--effort E]
+//                 [--again]                                              its session, later (--again: another one
+//                                                                        while one is open)
 //   project add <project> <name> [--github | --remote <git address>]     a code repository: code/<project>-<name> (or code/<project>)
-//   project clone <name | owner/name | git address>… [--yes] [--json] [--dry-run]   = hoprig get (getproject.mjs)
+//   project clone <name | owner/name | git address>… [--yes] [--json] [--dry-run]   the same as hoprig get: gets an
+//                                                                        existing project onto this computer with its
+//                                                                        code repositories and AI memory (getproject.mjs)
 //   project status [name] [--json]                                       parent and children: branch, changes, ahead/behind
 //   project sync [name] [--memory] [--dry-run]                           fetch, fast-forward, push; never merge/rebase/force/stash
 //   project link <name> [--dry-run]                                      link Claude Code's memory folders again
@@ -15,9 +24,10 @@ import { bold, dim } from '../setup/ui.mjs';
 import { parseRepo, projectsDir, rememberDir } from './projects.mjs';
 import { finishProject, groupPlan, report } from './finish.mjs';
 import { withoutSecrets } from '../secretenv.mjs';
+import { gitRead } from '../gitread.mjs';
 import { gitIn, mkdirIn, writeIn } from '../workspace/inside.mjs';
 import {
-  MANIFEST, NAME_RE, builtinFiles, createGithubRepo, githubOwners, initRepo, linkMemories, listWorkspaces,
+  MANIFEST, NAME_RE, builtinFiles, createGithubRepo, fillName, githubOwners, identityArgs, initRepo, linkMemories, listWorkspaces,
   planMemories, readManifest, readTemplate, syncWorkspace, useHooks, workspaceState, writeManifest, writeTemplate,
 } from './workspace.mjs';
 
@@ -106,10 +116,82 @@ async function publish(ui, dir, projectName, o, run, { parent = false } = {}) {
   return r.ok ? `https://github.com/${owner}/${name}.git` : null;
 }
 
-export async function projectNew(args, { ui, run = stream }) {
-  const o = flags(args, { template: 'v', github: 'bool', remote: 'v', owner: 'v', 'no-github': 'bool', 'repo-name': 'v', in: 'v', 'dry-run': 'bool' });
+const START_FLAGS = { kind: 'v', scope: 'v', tool: 'v', provider: 'v', model: 'v', effort: 'v' };
+export const NEW_USAGE = 'usage: hoprig project new <name> [--in <group>] [--template <folder|git address>] [--github [--repo-name <name>] | --remote <address>] [--brief <file> | --brief -] [--kind <kind>] [--scope product|setup] [--git-name <name> --git-email <e-mail>] [--start] [--dry-run]';
+export const START_USAGE = 'usage: hoprig project start <name> [--kind <kind>] [--scope product|setup] [--tool <coding tool>] [--provider <name>] [--model <model>] [--effort <effort>] [--again]';
+export const ADD_USAGE = 'usage: hoprig project add <project> <name> [--github | --remote <address>] [--git-name <name> --git-email <e-mail>] [--dry-run]';
+export const STATUS_USAGE = 'usage: hoprig project status [name] [--dir <folder>] [--json]';
+export const SYNC_USAGE = 'usage: hoprig project sync [name] [--memory] [--dry-run]';
+export const LINK_USAGE = 'usage: hoprig project link <name> [--dry-run]   (<place>/<name> for a project in a group, <group> for a group\'s own memory)';
+export const SETUP_USAGE = 'usage: hoprig project setup <name> [--dry-run] [--yes]';
+export const PROJECT_USAGE = 'usage: hoprig project new|add|start|clone|status|sync|link|setup …   (see docs/PC-SETUP.md)\n'
+  + '  start <name>   the AI session that sets up a project made with a brief (project new --brief); --help for its options';
+/** `--help` (or -h) anywhere asks for the usage line: it is printed, and nothing else happens. */
+const wantsHelp = (args, ui, usage) => (args.includes('--help') || args.includes('-h') ? (ui.out(usage), true) : false);
+
+const plainOne = (v, max = 200) => (typeof v === 'string' && v.trim() && v.trim().length <= max && !/[\r\n\0]/.test(v) ? v.trim() : '');
+const plainEmail = (v) => (/^[^\s@<>]+@[^\s@<>]+$/.test(plainOne(v)) ? plainOne(v) : '');
+
+/** [name, email] git itself knows ('' each when not), asked outside any repository. */
+const gitIdentityNow = () => Promise.all(['user.name', 'user.email'].map((k) => capture(['git', 'config', '--get', k], { timeout: 10_000, cwd: os.tmpdir() }).then((r) => (r.stdout || '').trim(), () => '')));
+
+/**
+ * The name and e-mail a project's own commits are made with: git's (any config it reads), else --git-name and
+ * --git-email, else Hoprig's settings (config.json gitIdentity), else asked in a terminal. Given to git with -c for
+ * that command only (identityArgs): nothing global is ever set. → { who } (null: git's own), or { error }.
+ */
+export async function commitIdentity(o, ui, cfg = {}) {
+  const who = await gitIdentityNow();
+  if (who[0] && who[1] && o['git-name'] === undefined && o['git-email'] === undefined) return { who: null };
+  const saved = cfg.gitIdentity || {};
+  let name = plainOne(o['git-name']) || who[0] || plainOne(saved.name);
+  let email = plainEmail(o['git-email']) || who[1] || plainEmail(saved.email);
+  if (o['git-name'] !== undefined && !plainOne(o['git-name'])) return { error: '--git-name needs a name on one line' };
+  if (o['git-email'] !== undefined && !plainEmail(o['git-email'])) return { error: '--git-email needs an e-mail address such as you@example.com' };
+  if ((!name || !email) && ui.interactive && !ui.yes) {
+    ui.out('  git needs a name and an e-mail for the first commit of this project. They are used for this project only.');
+    if (!name) name = plainOne(await ui.ask('  Your name for commits: '));
+    if (!email) email = plainEmail(await ui.ask('  Your e-mail for commits: '));
+  }
+  if (!name || !email) {
+    return { error: 'git does not know your name and e-mail yet, and the first commit needs them. Give them for this project:\n'
+      + `    ${NEW_USAGE.split(' [')[0].replace('usage: ', '')} --git-name "Your Name" --git-email you@example.com\n`
+      + 'or set them once for every project:\n    git config --global user.name "Your Name"\n    git config --global user.email "you@example.com"' };
+  }
+  return { who: { name, email } };
+}
+
+/**
+ * What the person is told after a first commit made with an identity given for it: only that commit has it (it was
+ * given to git for that command, nothing was set), so the next commit needs one, and here is the one command for it.
+ */
+function identityNote(ui, dir, who) {
+  ui.note(`the first commit was made as ${who.name} <${who.email}>; nothing was set in git. For your next commits in this project, git still needs your name and e-mail: in ${dir} run\n    git config user.name ${JSON.stringify(who.name)}\n    git config user.email ${who.email}\n  (for this project only), or git config --global … once for every project.`);
+}
+
+/** Whether the first commit of a new project has a name and an e-mail without asking: git's own, or Hoprig's settings. */
+export async function identityKnown(cfg = {}) {
+  const who = await gitIdentityNow();
+  const saved = cfg.gitIdentity || {};
+  return Boolean((who[0] || plainOne(saved.name)) && (who[1] || plainEmail(saved.email)));
+}
+
+/** A name and an e-mail typed on the page: { name, email } as commitIdentity takes them, or { error }. */
+export function pageIdentity(name, email) {
+  if (name === undefined && email === undefined) return {};
+  if (!plainOne(name)) return { error: 'Type your name for commits (one line).' };
+  if (!plainEmail(email)) return { error: 'Type an e-mail address such as you@example.com.' };
+  return { name: plainOne(name), email: plainEmail(email) };
+}
+
+/** `brief`: the brief as typed in the dashboard (the command line gives --brief); `stdin`: where --brief - reads. */
+export async function projectNew(args, { ui, run = stream, brief = undefined, stdin = undefined }) {
+  if (wantsHelp(args, ui, NEW_USAGE)) return 0;
+  const o = flags(args, { template: 'v', github: 'bool', remote: 'v', owner: 'v', 'no-github': 'bool', 'repo-name': 'v', in: 'v', 'dry-run': 'bool', brief: 'v', start: 'bool', 'git-name': 'v', 'git-email': 'v', ...START_FLAGS });
   const name = o._[0];
-  if (o.errors.length || !name) return fail(ui, `${o.errors.join('; ') || 'a name is needed'} — usage: hoprig project new <name> [--in <group>] [--template <folder|git address>] [--github [--repo-name <name>] | --remote <address>] [--dry-run]`);
+  if (o.errors.length || !name) return fail(ui, `${o.errors.join('; ') || 'a name is needed'} — ${NEW_USAGE}`);
+  const empty = (await import('./newproject.mjs')).emptyChoice(o, Object.keys(START_FLAGS));
+  if (empty) return fail(ui, empty);
   if (o['dry-run']) ui.dryRun = true;
   if (!NAME_RE.test(name)) return fail(ui, 'a project name is letters, digits, ".", "_" and "-"');
   if (o['repo-name'] !== undefined && !NAME_RE.test(String(o['repo-name']))) return fail(ui, 'a repository name is letters, digits, ".", "_" and "-"');
@@ -123,33 +205,42 @@ export async function projectNew(args, { ui, run = stream }) {
   }
   const root = path.join(place.dir, name);
   const ref = place.place ? `${place.place}/${name}` : name;
-  if (fs.existsSync(root)) return fail(ui, `${root} already exists`);
+  if (fs.existsSync(root)) return fail(ui, `${root} already exists${(await halfMade(root)) ? ': an earlier run left it half made (its files, but no first commit). Look at it, remove it, then run this again' : ''}`);
   let cfg = {};
   try {
     cfg = loadConfig();
   } catch {
     /* defaults */
   }
+  // The brief, the kind and --start: checked (and the kind asked) before anything is written (newproject.mjs).
+  const np = await (await import('./newproject.mjs')).prepareNew(o, { ui, brief, stdin });
+  if (np.error) return fail(ui, np.error);
   const t = await templateFiles(o.template || cfg.projectTemplate || null, ui).catch((e) => ({ error: e.message }));
   if (t.error) return fail(ui, t.error);
   if (ui.dryRun) {
     const files = t.files ? `${t.files.length} files` : `cloned from ${t.remote} first`;
     const online = o.remote ? `, and push it to ${o.remote}` : o.github ? ', and create a private GitHub repository for it and push' : '';
     ui.note(`(dry run) would create ${root} from the ${t.from} template (${files}), make its first commit and link its memory${online}`);
+    for (const l of np.said) ui.note(`(dry run) would ${l}`);
     return 0;
   }
   // The first commit needs a name and an e-mail. Find out BEFORE anything is written, so a failure does not leave
   // a half-made project folder behind.
   // Asked outside any repository: the folder hoprig runs in may be one, and its own name would not apply to the new one.
-  const who = await Promise.all(['user.name', 'user.email'].map((k) => capture(['git', 'config', '--get', k], { timeout: 10_000, cwd: os.tmpdir() }).then((r) => (r.stdout || '').trim(), () => '')));
-  if (!who[0] || !who[1]) {
-    return fail(ui, 'git does not know your name and e-mail yet, and a commit needs them. Set them once, then run this again:\n'
-      + '    git config --global user.name "Your Name"\n    git config --global user.email "you@example.com"');
+  const id = await commitIdentity(o, ui, cfg);
+  if (id.error) return fail(ui, id.error);
+  writeTemplate(root, (await import('./newproject.mjs')).withProjectFiles(t.files, np, (r) => fillName(r, name)), name);
+  // From here the folder is there: a step that fails says what it leaves, so the next run is not a bare "exists".
+  const half = `The folder ${root} is left half made: its files are there, without a first commit. Look at it, remove it, then run this again`;
+  try {
+    np.after(root);
+    if (!fs.existsSync(path.join(root, MANIFEST))) writeManifest(root, { name, repos: [], memories: (await readManifest(root)).manifest.memories });
+  } catch (e) {
+    return fail(ui, `${e.message}. ${half}`);
   }
-  writeTemplate(root, t.files, name);
-  if (!fs.existsSync(path.join(root, MANIFEST))) writeManifest(root, { name, repos: [], memories: (await readManifest(root)).manifest.memories });
-  const init = await initRepo(root, `Start ${name}`);
-  if (!init.ok) return fail(ui, `git could not make the first commit: ${init.error} (set your name: git config --global user.name "Your Name")`);
+  const init = await initRepo(root, `Start ${name}`, undefined, { root }, id.who);
+  if (!init.ok) return fail(ui, `git could not make the first commit: ${init.error}. ${half}`);
+  if (id.who) identityNote(ui, root, id.who);
   ui.line('ok', `created ${root} (${t.from} template), first commit made`);
   await useHooks(root);
   report(ui, linkMemories(root, (await readManifest(root)).manifest.memories, { ref }));
@@ -158,14 +249,36 @@ export async function projectNew(args, { ui, run = stream }) {
   await publish(ui, root, name, { ...o, github: wantGithub }, run, { parent: true });
   if (o.template && o.template !== cfg.projectTemplate && fs.existsSync(o.template) === false && parseRepo(o.template)) saveConfig({ projectTemplate: parseRepo(o.template).url });
   await mapNote(ui, `new project ${ref}`);
-  ui.out(`\nNext: ${bold(`hoprig project add ${ref} <stack>`)}  ${dim('(a code repository in code/)')}`);
+  if (np.start) return (await import('./newprojectstart.mjs')).startCommand({ name: ref, kind: np.kind, scope: np.scope, tool: o.tool, provider: o.provider, model: o.model, effort: o.effort }, { ui });
+  if (np.brief !== null) ui.out(`\nNext: ${bold(`hoprig project start ${ref}${np.kind ? ` --kind ${np.kind}` : ''}${np.scope ? ` --scope ${np.scope}` : ''}`)}  ${dim('(a session that sets it up from the brief, with the new-project skill)')}`);
+  else ui.out(`\nNext: ${bold(`hoprig project add ${ref} <stack>`)}  ${dim('(a code repository in code/)')}`);
   return 0;
 }
 
+/** A folder with a git repository that has no commit yet: what a `project new` stopped before its first commit leaves. */
+async function halfMade(root) {
+  if (!fs.existsSync(path.join(root, '.git'))) return false;
+  const r = await gitRead(root, ['rev-parse', '--verify', '-q', 'HEAD^{commit}']);
+  return !r.ok && !r.refused;
+}
+
+/** `project start <name>`: the session of a new project made with a brief (newprojectstart.mjs), through the dashboard. */
+export async function projectStart(args, { ui }) {
+  if (wantsHelp(args, ui, START_USAGE)) return 0;
+  const o = flags(args, { ...START_FLAGS, again: 'bool' });
+  const { emptyChoice, kindOf, KINDS, scopeOf, SCOPES } = await import('./newproject.mjs');
+  if (o.errors.length || o._.length !== 1) return fail(ui, `${o.errors.join('; ') || 'one project'} — ${START_USAGE}`);
+  const empty = emptyChoice(o, Object.keys(START_FLAGS));
+  if (empty) return fail(ui, empty);
+  if (o.kind !== undefined && !kindOf(o.kind)) return fail(ui, `the kind is one of: ${KINDS.map((k) => k.id).join(', ')}`);
+  if (o.scope !== undefined && !scopeOf(o.scope)) return fail(ui, `the scope is one of: ${SCOPES.map((s) => s.id).join(', ')}`);
+  return (await import('./newprojectstart.mjs')).startCommand({ name: o._[0], kind: o.kind, scope: o.scope, tool: o.tool, provider: o.provider, model: o.model, effort: o.effort, again: o.again }, { ui });
+}
+
 export async function projectAdd(args, { ui, run = stream }) {
-  const o = flags(args, { github: 'bool', remote: 'v', owner: 'v', 'dry-run': 'bool' });
+  const o = flags(args, { github: 'bool', remote: 'v', owner: 'v', 'dry-run': 'bool', 'git-name': 'v', 'git-email': 'v' });
   const [ref, sub] = o._;
-  if (o.errors.length || !ref || !sub) return fail(ui, 'usage: hoprig project add <project> <name> [--github | --remote <address>] [--dry-run]');
+  if (o.errors.length || !ref || !sub) return fail(ui, ADD_USAGE);
   if (o['dry-run']) ui.dryRun = true;
   let at;
   try {
@@ -185,6 +298,14 @@ export async function projectAdd(args, { ui, run = stream }) {
     ui.note(`(dry run) would create ${dir} with a README and a first commit, ${online}${o.remote || o.github ? `, and record it in ${ref}/project.json with a commit` : ''}`);
     return 0;
   }
+  let cfgAdd = {};
+  try {
+    cfgAdd = loadConfig();
+  } catch {
+    /* defaults */
+  }
+  const id = await commitIdentity(o, ui, cfgAdd);
+  if (id.error) return fail(ui, id.error);
   // Only inside the project (inside.mjs): a project whose code/ leads elsewhere gets nothing made there.
   try {
     mkdirIn(root, dir);
@@ -192,8 +313,9 @@ export async function projectAdd(args, { ui, run = stream }) {
   } catch (e) {
     return fail(ui, e.message);
   }
-  const init = await initRepo(dir, `Start ${repoName}`, undefined, { root });
+  const init = await initRepo(dir, `Start ${repoName}`, undefined, { root }, id.who);
   if (!init.ok) return fail(ui, `git could not make the first commit: ${init.error}`);
+  if (id.who) identityNote(ui, dir, id.who);
   ui.line('ok', `created ${dir}`);
   const url = await publish(ui, dir, repoName, o, run);
   const { manifest } = await readManifest(root);
@@ -209,7 +331,7 @@ export async function projectAdd(args, { ui, run = stream }) {
   if (url && at.members === 'group') ui.note(`project.json is tracked by the group's repository: commit it there`);
   else if (url) {
     await gitIn(root, root, ['add', '--', MANIFEST, 'ai_brain/claude-memory.json']);
-    const c = await gitIn(root, root, ['commit', '-q', '-m', `Add ${repoName}`, '--', MANIFEST]);
+    const c = await gitIn(root, root, [...identityArgs(id.who), 'commit', '-q', '-m', `Add ${repoName}`, '--', MANIFEST]);
     if (c.ok) ui.line('ok', 'recorded in project.json and committed');
   }
   await mapNote(ui, `added ${repoName} to ${project}`);
@@ -255,7 +377,7 @@ const pick = async (name) => {
   return safe.places.filter((pl) => !pl.blocked).flatMap((pl) => listWorkspaces(pl.dir, { withGroup: pl.members === 'group' }).filter((root) => !pl.id || allowed.has(root)).map((root) => ({ root, members: pl.members, ref: pl.id ? `${pl.id}/${path.basename(root)}` : path.basename(root), place: pl.id })));
 };
 
-const stateText = (s) => (s.ok ? [s.branch, s.changes ? `${s.changes} changed` : '', s.ahead ? `${s.ahead} to push` : '', s.behind ? `${s.behind} to pull` : '', s.upstream ? '' : 'no upstream'].filter(Boolean).join(' · ') : s.error);
+const stateText = (s) => (s.ok ? [s.branch, s.changes ? `${s.changes} changed` : '', s.lineEndings ? `${s.lineEndings} with line endings only` : '', s.ahead ? `${s.ahead} to push` : '', s.behind ? `${s.behind} to pull` : '', s.upstream ? '' : 'no upstream'].filter(Boolean).join(' · ') : s.error);
 
 export async function projectStatus(args, { ui, write }) {
   const o = flags(args, { json: 'bool', dir: 'v' });
@@ -290,7 +412,7 @@ export async function projectStatus(args, { ui, write }) {
 
 export async function projectSync(args, { ui }) {
   const o = flags(args, { memory: 'bool', 'dry-run': 'bool' });
-  if (o.errors.length || o._.length > 1) return fail(ui, `${o.errors.join('; ') || 'one project at a time'} — usage: hoprig project sync [name] [--memory] [--dry-run]`);
+  if (o.errors.length || o._.length > 1) return fail(ui, `${o.errors.join('; ') || 'one project at a time'} — ${SYNC_USAGE}`);
   const dryRun = Boolean(o['dry-run'] || ui.dryRun);
   const roots = await pick(o._[0]);
   if (!roots.length) return fail(ui, o._[0] ? `no project "${o._[0]}"` : 'no projects yet');
@@ -336,7 +458,7 @@ export async function projectLink(args, { ui }) {
       return 0;
     }
   }
-  if (o.errors.length || !roots.length) return fail(ui, 'usage: hoprig project link <name> [--dry-run]   (<place>/<name> for a project in a group, <group> for a group\'s own memory)');
+  if (o.errors.length || !roots.length) return fail(ui, LINK_USAGE);
   const at = roots[0];
   if (at.place) {
     if (!(await groupLinks(at.ref))) ui.note('no memory to link: neither the project nor its group keeps one');
@@ -356,7 +478,7 @@ export async function projectLink(args, { ui }) {
 export async function projectSetup(args, { ui, runner = stream }) {
   const o = flags(args, { 'dry-run': 'bool', yes: 'bool' });
   const roots = o._.length === 1 ? await pick(o._[0]) : [];
-  if (o.errors.length || !roots.length) return fail(ui, `${o.errors.length ? `${o.errors.join('; ')} — ` : o._.length === 1 ? `no project "${o._[0]}" — ` : ''}usage: hoprig project setup <name> [--dry-run] [--yes]`);
+  if (o.errors.length || !roots.length) return fail(ui, `${o.errors.length ? `${o.errors.join('; ')} — ` : o._.length === 1 ? `no project "${o._[0]}" — ` : ''}${SETUP_USAGE}`);
   if (o['dry-run']) ui.dryRun = true;
   if (o.yes) ui.yes = true;
   const at = roots[0];
@@ -373,6 +495,7 @@ export async function projectMain(args, { ui, write }) {
   switch (sub) {
     case 'new': return projectNew(rest, { ui });
     case 'add': return projectAdd(rest, { ui });
+    case 'start': return projectStart(rest, { ui });
     case 'clone': return (await import('./getproject.mjs')).getMain(rest, { ui, write });
     // A bare name in two places is refused with both <place>/<name> forms (where.mjs: the one rule).
     case 'status': case undefined: return projectStatus(rest, { ui, write }).catch((e) => fail(ui, e.message));
@@ -380,7 +503,7 @@ export async function projectMain(args, { ui, write }) {
     case 'link': return projectLink(rest, { ui }).catch((e) => fail(ui, e.message));
     case 'setup': return projectSetup(rest, { ui }).catch((e) => fail(ui, e.message));
     default:
-      ui.out('usage: hoprig project new|add|clone|status|sync|link|setup …   (see docs/PC-SETUP.md)');
+      ui.out(PROJECT_USAGE);
       return 2;
   }
 }

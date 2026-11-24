@@ -16,21 +16,23 @@ import { assistantEvents, workflowTree } from './claude-parse.mjs';
 
 const KNOWN = ['"type":"user"', '"type":"assistant"', '"compact_boundary"', '"custom-title"', '"local_command"'];
 
-/** The events of the lines of one transcript file. `agent`: the tool call a subagent's lines nest under. */
-function linesToEvents(text, agent) {
-  const events = [];
-  let title = null;
-  for (const l of text.split('\n')) {
-    if (!KNOWN.some((k) => l.includes(k))) continue;
+/**
+ * One line of a transcript into `st` ({ events, title, agent }: `agent`, the tool call a subagent's lines nest under).
+ * The same step for the whole file at once (linesToEvents) and for one read in pieces (transcript-pieces.mjs).
+ */
+export function lineStep(st, l) {
+  const { events, agent } = st;
+  {
+    if (!KNOWN.some((k) => l.includes(k))) return;
     let m;
     try {
       m = JSON.parse(l);
     } catch {
-      continue; // the last line may be half written
+      return; // the last line may be half written
     }
-    if (!m || typeof m !== 'object') continue;
+    if (!m || typeof m !== 'object') return;
     const at = Date.parse(m.timestamp) || null;
-    if (m.type === 'custom-title' && typeof m.customTitle === 'string') title = plainText(m.customTitle, 200);
+    if (m.type === 'custom-title' && typeof m.customTitle === 'string') st.title = plainText(m.customTitle, 200);
     else if (m.type === 'system' && m.subtype === 'compact_boundary') {
       const c = m.compactMetadata || m.compact_metadata || {};
       events.push({ kind: 'session-changed', id: m.sessionId || null, reason: 'compact', trigger: typeof c.trigger === 'string' ? c.trigger : null, at, agent });
@@ -38,7 +40,7 @@ function linesToEvents(text, agent) {
       // What a command the owner typed printed (/cost, /context …): kept as the notice it was in the chat.
       const out = localOutput(m.content);
       if (out) events.push({ ...localNotice(out), at });
-    } else if (!m.message || (!agent && m.isSidechain)) continue;
+    } else if (!m.message || (!agent && m.isSidechain)) return;
     else if (m.type === 'assistant' && m.message.model === '<synthetic>') {
       // An API error Claude Code wrote as a reply (live, the turn's end said it; read back there is no turn end).
       const t = (m.message.content || []).filter((c) => c && c.type === 'text').map((c) => c.text).join('\n').trim();
@@ -51,7 +53,7 @@ function linesToEvents(text, agent) {
     } else if (m.type === 'user' && !m.isMeta && !m.isCompactSummary && !m.isVisibleInTranscriptOnly) {
       const results = toolResults(m.message.content, m.toolUseResult, agent);
       if (results.length) events.push(...results.map((e) => ({ ...e, at })));
-      else if (agent) continue; // a subagent's prompt: its Agent call shows it
+      else if (agent) return; // a subagent's prompt: its Agent call shows it
       else if (INTERRUPTED.test(typeof m.message.content === 'string' ? m.message.content : (m.message.content || []).map((c) => (c && c.text) || '').join('\n'))) {
         events.push({ kind: 'notice', level: 'info', text: 'Stopped.', at, agent: null });
       } else if (typedCommand(m.message.content)) {
@@ -62,7 +64,13 @@ function linesToEvents(text, agent) {
       }
     }
   }
-  return { events, title };
+}
+
+/** The events of the lines of one transcript file. `agent`: the tool call a subagent's lines nest under. */
+function linesToEvents(text, agent) {
+  const st = { events: [], title: null, agent };
+  for (const l of text.split('\n')) lineStep(st, l);
+  return { events: st.events, title: st.title };
 }
 
 const readJson = (f) => {
@@ -80,8 +88,8 @@ const listDir = (d) => {
   }
 };
 
-/** The subagents of a conversation (files in <id>/subagents): their events and a task each. */
-function subagents(dir) {
+/** The subagents of a conversation (files in <id>/subagents), without their lines: [{ toolId, file, task }]. */
+export function subagentList(dir) {
   const out = [];
   const sub = path.join(dir, 'subagents');
   for (const f of listDir(sub)) {
@@ -89,16 +97,10 @@ function subagents(dir) {
     if (!m) continue;
     const meta = readJson(path.join(sub, f));
     if (!meta || typeof meta.toolUseId !== 'string') continue;
-    let text = '';
-    try {
-      text = fs.readFileSync(path.join(sub, `agent-${m[1]}.jsonl`), 'utf8');
-    } catch {
-      /* no lines yet */
-    }
     const model = typeof meta.model === 'string' ? meta.model : typeof meta.pickedEffortModel === 'string' ? meta.pickedEffortModel : null;
     out.push({
       toolId: meta.toolUseId,
-      events: linesToEvents(text, meta.toolUseId).events,
+      file: path.join(sub, `agent-${m[1]}.jsonl`),
       task: {
         kind: 'task', taskId: m[1], toolId: meta.toolUseId, type: 'agent', title: plainText(meta.description, 200), agentType: typeof meta.agentType === 'string' ? meta.agentType : null,
         status: meta.finished === true ? 'completed' : 'unknown', background: meta.requestShape === 'background' || undefined, model, effort: typeof meta.effort === 'string' ? meta.effort : null,
@@ -108,8 +110,43 @@ function subagents(dir) {
   return out;
 }
 
+/** The subagents of a conversation: their events and a task each. */
+function subagents(dir) {
+  return subagentList(dir).map((s) => {
+    let text = '';
+    try {
+      text = fs.readFileSync(s.file, 'utf8');
+    } catch {
+      /* no lines yet */
+    }
+    return { ...s, events: linesToEvents(text, s.toolId).events };
+  });
+}
+
+/** The main conversation's events with each subagent's events right after the call that started it. byTool: Map(toolId → events) */
+export function nestAgents(mainEvents, byTool) {
+  const events = [];
+  for (const e of mainEvents) {
+    events.push(e);
+    if (e.kind === 'tool' && byTool.has(e.id)) {
+      events.push(...byTool.get(e.id));
+      byTool.delete(e.id);
+    }
+  }
+  return events;
+}
+
+/** A workflow is linked to its call by the task id its call's result names. */
+export function linkWorkflows(tasks, mainEvents) {
+  for (const t of tasks) {
+    if (t.type !== 'workflow' || t.toolId) continue;
+    const r = mainEvents.find((e) => e.kind === 'tool-result' && e.text.includes(t.taskId));
+    if (r) t.toolId = r.id;
+  }
+}
+
 /** The workflows of a conversation (<id>/workflows/*.json) as tasks with their phases and agents. */
-function workflows(dir) {
+export function workflows(dir) {
   const out = [];
   const wf = path.join(dir, 'workflows');
   for (const f of listDir(wf)) {
@@ -142,22 +179,9 @@ export function readTranscript(file) {
   const main = linesToEvents(text, null);
   const dir = file.replace(/\.jsonl$/, '');
   const subs = subagents(dir);
-  const byTool = new Map(subs.map((s) => [s.toolId, s.events]));
-  const events = [];
-  for (const e of main.events) {
-    events.push(e);
-    if (e.kind === 'tool' && byTool.has(e.id)) {
-      events.push(...byTool.get(e.id));
-      byTool.delete(e.id);
-    }
-  }
+  const events = nestAgents(main.events, new Map(subs.map((s) => [s.toolId, s.events])));
   const tasks = [...subs.map((s) => s.task), ...workflows(dir)];
-  // A workflow is linked to its call by the task id its call's result names.
-  for (const t of tasks) {
-    if (t.type !== 'workflow' || t.toolId) continue;
-    const r = main.events.find((e) => e.kind === 'tool-result' && e.text.includes(t.taskId));
-    if (r) t.toolId = r.id;
-  }
+  linkWorkflows(tasks, main.events);
   const todos = newTodos();
   for (const e of main.events) todoStep(todos, e);
   return { events, tasks, todos: todos.list, title: main.title, size: st.size, mtimeMs: st.mtimeMs };
@@ -186,6 +210,32 @@ export function forkPoint(file, messageId) {
     if (!m || m.type !== 'user' || m.uuid !== messageId || !m.message || m.isSidechain) continue;
     const own = ownMessage(m.message.content);
     return { at: typeof m.parentUuid === 'string' && m.parentUuid ? m.parentUuid : null, text: typedCommand(m.message.content) || (own ? own.text : '') };
+  }
+  return null;
+}
+
+/**
+ * Where a copy of the whole conversation goes on from (the session menu's Fork): the uuid of its newest line of the
+ * main conversation (a message of the owner's or of Claude's, not a subagent's), or null when the file has none yet.
+ */
+export function endPoint(file) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (!l.includes('"uuid"')) continue;
+    let m;
+    try {
+      m = JSON.parse(l);
+    } catch {
+      continue; // a line still being written
+    }
+    if (m && (m.type === 'user' || m.type === 'assistant') && typeof m.uuid === 'string' && m.uuid && !m.isSidechain && m.message) return m.uuid;
   }
   return null;
 }

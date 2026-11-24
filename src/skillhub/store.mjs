@@ -5,6 +5,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { copyTree } from '../copytree.mjs';
 import { claudeDir, stateDir } from '../paths.mjs';
 import { parseFrontMatter } from './frontmatter.mjs';
 import { safeRel } from './scan.mjs';
@@ -49,21 +50,69 @@ export function skillPath(scope, name) {
   return p;
 }
 
-export function readManifest(dir) {
+/**
+ * The record of the person's own skills (the user scope) is kept in Hoprig's state folder, not next to them: their
+ * folder is often the AI brain's (a git repository of the person's, linked by hoprig workspace link), and only
+ * Hoprig reads the record, so it would be a loose change there. A project's record stays in its .claude/skills.
+ */
+export const userRecordFile = () => path.join(hubDir(), 'user-skills.json');
+const realOr = (p) => {
   try {
-    const m = JSON.parse(fs.readFileSync(path.join(dir, MANIFEST), 'utf8'));
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+};
+const isUserDir = (dir) => realOr(dir) === realOr(path.join(claudeDir(), 'skills'));
+/** Where the record of the skills folder `dir` is written. */
+export const recordFile = (dir) => (isUserDir(dir) ? userRecordFile() : path.join(dir, MANIFEST));
+
+const readRecord = (file) => {
+  try {
+    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (m && m.version === 1 && m.skills && typeof m.skills === 'object') return m;
   } catch {
-    /* none yet, or unreadable: start empty */
+    /* none yet, or unreadable */
   }
-  return { version: 1, skills: {} };
+  return null;
+};
+
+/**
+ * The record of a skills folder. The person's own: the state folder's, else the one an older Hoprig left next to the
+ * skills (read only: it is never deleted, moved or committed by Hoprig; the next change writes the state folder's).
+ */
+export function readManifest(dir) {
+  const here = readRecord(path.join(dir, MANIFEST));
+  if (!isUserDir(dir)) return here || { version: 1, skills: {} };
+  const m = readRecord(userRecordFile()) || { version: 1, skills: {} };
+  // An older record next to the skills (also one that came with the brain from another computer) still names the
+  // skills it installed, as long as that skill's folder is here and the state folder's record has no word on it.
+  for (const [name, rec] of Object.entries((here && here.skills) || {})) if (!m.skills[name] && safeName(name) && fs.existsSync(path.join(dir, name))) m.skills[name] = rec;
+  return m;
+}
+
+function writeRecord(file, m) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(m, null, 2)}\n`);
+  fs.renameSync(tmp, file);
 }
 
 export function writeManifest(dir, m) {
-  fs.mkdirSync(dir, { recursive: true });
-  const tmp = path.join(dir, `${MANIFEST}.${process.pid}.tmp`);
-  fs.writeFileSync(tmp, `${JSON.stringify(m, null, 2)}\n`);
-  fs.renameSync(tmp, path.join(dir, MANIFEST));
+  writeRecord(recordFile(dir), m);
+}
+
+/**
+ * A record found in the person's old skills folder (the link moves that folder's skills into the brain): its entries
+ * the person's record lacks are added to it, so Hoprig still knows the skills it installed. The file is left alone.
+ */
+export function foldUserRecord(file) {
+  const old = readRecord(file);
+  if (!old) return false;
+  const m = readManifest(path.join(claudeDir(), 'skills'));
+  for (const [name, rec] of Object.entries(old.skills)) if (!m.skills[name]) m.skills[name] = rec;
+  writeRecord(userRecordFile(), m);
+  return true;
 }
 
 /** { rel: sha256 } of every regular file below a folder (symlinks are not followed). */
@@ -160,19 +209,28 @@ export function listInstalled(scope) {
       edited,
       canUndo: Boolean(previousOf(scope, e.name)),
       viaSkillsCli: c ? { source: c.source, commit: c.commit || null, path: c.skillPath || null } : null,
+      // A skill Hoprig learned from the owner's work (src/skillhub/learned.mjs) says so in its own front matter.
+      learned: learnedMark(fm.data.metadata),
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Move a folder, also across file systems (rename, else copy and delete). */
-function moveDir(from, to) {
+/** { from, on } of a learned skill's front matter (metadata learned-by: hoprig), else null. */
+function learnedMark(m) {
+  if (!m || typeof m !== 'object' || m['learned-by'] !== 'hoprig') return null;
+  const one = (v) => (typeof v === 'string' ? v.replace(/[^\w .:-]/g, '').slice(0, 80) : '');
+  return { from: one(m['learned-from']), on: one(m['learned-on']) };
+}
+
+/** Move a folder, also across file systems (rename, else copy by the names' bytes and delete). */
+export function moveDir(from, to, { rename = fs.renameSync } = {}) {
   fs.mkdirSync(path.dirname(to), { recursive: true });
   try {
-    fs.renameSync(from, to);
+    rename(from, to);
   } catch (e) {
     if (e.code !== 'EXDEV') throw e;
-    fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true });
+    copyTree(from, to, { times: false });
     fs.rmSync(from, { recursive: true, force: true });
   }
 }

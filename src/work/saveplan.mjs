@@ -26,13 +26,27 @@ import path from 'node:path';
 import { gitRead } from '../gitread.mjs';
 import { capture } from '../setup/system.mjs';
 import { MAP_FILE } from '../workspace/map.mjs';
-import { fileAt, gitWrite, isAncestor, isWorkFile, lastLine, nameCommits, repoInfo, sortUnsent, unsentCommits } from './git.mjs';
+import { MISSION_FILE_RE, fileAt, gitWrite, isAncestor, isWorkFile, lastLine, nameCommits, repoInfo, sortUnsent, unsentCommits } from './git.mjs';
 import { decodeBytes } from './jsontext.mjs';
 import { itemChanges, mergeItems } from './merge.mjs';
 import { todayIn } from './model.mjs';
+
+// 'missions' matches src/mission/file.mjs MISSIONS_FOLDER; named here so work/ keeps no dependency on mission/.
+const MISSIONS_FOLDER = 'missions';
+/** A plain file (not a link) under missions/ that reads as a mission record of its own name. */
+export function isMissionFile(full) {
+  try {
+    if (fs.lstatSync(full).isSymbolicLink()) return false;
+    const o = JSON.parse(fs.readFileSync(full, 'utf8'));
+    return !!o && o.v === 1 && typeof o.id === 'string' && MISSION_FILE_RE.test(`${o.id}.json`) && typeof o.writer === 'string';
+  } catch {
+    return false;
+  }
+}
 import { finishInterrupted } from './resume.mjs';
 import { formatOf, parseText, readDoc, serialize, untidy } from './store.mjs';
 import { RUNS_FOLDER, RUN_FILE_RE, isRunFile } from './runs.mjs';
+import { NOTE_FILE_RE, PLANS_FOLDER, PLAN_FILE_RE, checkPlanCommits, planFileKind } from './plans.mjs';
 
 export const s = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 export const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -94,7 +108,29 @@ async function planOf(place, { run, fetch, decisions }) {
   const isRun = (e) => isRunFile(path.join(g.top, ...e.path.split('/')));
   const runFiles = named.filter(isRun).map((e) => ({ path: e.path, state: e.code === '??' ? 'new' : 'changed' })).sort((a, b) => a.path.localeCompare(b.path));
   const notRuns = named.filter((e) => !isRun(e)).map((e) => e.path).sort();
-  const files = [...(state ? [{ path: rel, state }] : []), ...runFiles];
+  // The plans' files (plans.mjs) beside the list: a plan and its note that are Work's, new or changed, are committed with
+  // it by name, as run files are. One of a plan's name that says it is Work's and does not pass is named and left alone;
+  // a planning tool's own files in that folder are passed over in silence.
+  const plansRel = path.posix.join(path.posix.dirname(rel), PLANS_FOLDER);
+  const ps = await gitRead(g.top, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', '--', `${plansRel}/`], { run });
+  const planNamed = (ps.ok ? ps.stdout.split('\0').filter(Boolean) : [])
+    .map((e) => ({ code: e.slice(0, 2), path: e.slice(3) }))
+    .filter((e) => !e.code.includes('D') && e.path.startsWith(`${plansRel}/`) && (PLAN_FILE_RE.test(e.path.slice(plansRel.length + 1)) || NOTE_FILE_RE.test(e.path.slice(plansRel.length + 1))))
+    .map((e) => ({ ...e, kind: planFileKind(path.join(g.top, ...e.path.split('/'))) }));
+  const planFiles = planNamed.filter((e) => e.kind === 'plan' || e.kind === 'note').map((e) => ({ path: e.path, state: e.code === '??' ? 'new' : 'changed' })).sort((a, b) => a.path.localeCompare(b.path));
+  const notPlans = planNamed.filter((e) => e.kind === 'broken').map((e) => e.path).sort();
+  // The mission files (src/mission/file.mjs) beside the list: a mission this dashboard runs is written there and is
+  // committed with the list by name, as run and plan files are. One of a mission's name that is not a plain mission
+  // file (a link, or something a session wrote) is named and left alone.
+  const missionsRel = path.posix.join(path.posix.dirname(rel), MISSIONS_FOLDER);
+  const mss = await gitRead(g.top, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', '--', `${missionsRel}/`], { run });
+  const missionNamed = (mss.ok ? mss.stdout.split('\0').filter(Boolean) : [])
+    .map((e) => ({ code: e.slice(0, 2), path: e.slice(3) }))
+    .filter((e) => !e.code.includes('D') && e.path.startsWith(`${missionsRel}/`) && MISSION_FILE_RE.test(e.path.slice(missionsRel.length + 1)));
+  const isMission = (e) => isMissionFile(path.join(g.top, ...e.path.split('/')));
+  const missionFiles = missionNamed.filter(isMission).map((e) => ({ path: e.path, state: e.code === '??' ? 'new' : 'changed' })).sort((a, b) => a.path.localeCompare(b.path));
+  const notMissions = missionNamed.filter((e) => !isMission(e)).map((e) => e.path).sort();
+  const files = [...(state ? [{ path: rel, state }] : []), ...runFiles, ...planFiles, ...missionFiles];
   let changes = [];
   if (state) {
     let before = { items: [] };
@@ -118,13 +154,13 @@ async function planOf(place, { run, fetch, decisions }) {
   };
   let head = await headNow();
   const unsentNow = async () => {
-    const list = head ? await unsentCommits(g.top, run, `@{u}..${head}`) : null;
-    const sorted = list ? sortUnsent(list, { rel, mapRel, runsRel }) : null;
+    const list = head ? await checkPlanCommits(g.top, await unsentCommits(g.top, run, `@{u}..${head}`), plansRel, run) : null;
+    const sorted = list ? sortUnsent(list, { rel, mapRel, runsRel, plansRel, missionsRel }) : null;
     return { list, sorted, unsent: sorted ? { saves: sorted.ours.length, others: sorted.theirs } : { saves: 0, others: null } };
   };
   const sendable = (u) => u.saves > 0 && Array.isArray(u.others) && !u.others.length;
   let now = g.remote ? await unsentNow() : { list: [], sorted: { ours: [], theirs: [] }, unsent: { saves: 0, others: [] } };
-  let plan = { label: place.label, repo, files, changes, unsent: now.unsent, nothing: !files.length && !sendable(now.unsent), hash: fileHash(place.file), head, rel, mapRel, runsRel, runs: runFiles.map((f) => f.path), notRuns, git: g, state, ...(elsewhere ? { elsewhere } : {}) };
+  let plan = { label: place.label, repo, files, changes, unsent: now.unsent, nothing: !files.length && !sendable(now.unsent), hash: fileHash(place.file), head, rel, mapRel, runsRel, runs: runFiles.map((f) => f.path), notRuns, plansRel, plans: planFiles.map((f) => f.path), notPlans, missionsRel, missions: missionFiles.map((f) => f.path), notMissions, git: g, state, ...(elsewhere ? { elsewhere } : {}) };
   if (!fetch || !g.remote || plan.nothing) return plan;
 
   // The server's news; what the server's branch was before, to see whether it was rewritten.
@@ -157,7 +193,7 @@ async function planOf(place, { run, fetch, decisions }) {
   }
   if (ahead) {
     // This computer has commits the server lacks, and the server moved: nothing is touched.
-    const workOnly = own && !own.length && now.list.every((c) => c.files.every((x) => isWorkFile(x, { rel, runsRel })));
+    const workOnly = own && !own.length && now.list.every((c) => c.files.every((x) => isWorkFile(x, { rel, runsRel, plansRel, missionsRel })));
     if (workOnly) {
       const mb = await gitRead(g.top, ['merge-base', head, upstream], { run });
       const at = mb.ok ? mb.stdout.trim().slice(0, 12) : '@{u}';
@@ -167,7 +203,10 @@ async function planOf(place, { run, fetch, decisions }) {
     return blocked('blocked', `${NOT_SAVED}: ${g.name} has ${s(behind, 'new commit')} on the server, and this computer has ${which}. Nothing was changed. Those are yours to bring together: in a terminal in ${g.name}, ${steps}; then Save again.`);
   }
   // The server's commits come in by fast-forward: never over a file that is changed here or is here outside git.
-  const clash = await clashes(g.top, head, upstream, rel, run);
+  const clash0 = await clashes(g.top, head, upstream, rel, run);
+  // A plan's file changed here and on the server is a question for the owner, as a task changed on both is (below).
+  const planClash = clash0 ? clash0.filter((p) => plan.plans.includes(p)) : [];
+  const clash = clash0 ? clash0.filter((p) => !plan.plans.includes(p)) : null;
   if (clash && clash.length) {
     return blocked('clash', `${NOT_SAVED}: the server's ${s(behind, 'new commit')} change${behind === 1 ? 's' : ''} files that are changed here too, or are here as files git does not keep (${clash.slice(0, 3).join(', ')}${clash.length > 3 ? ` and ${clash.length - 3} more` : ''}). Nothing was changed; your changes are kept in the file. Commit those files or put them aside, then Save again.`);
   }
@@ -179,9 +218,47 @@ async function planOf(place, { run, fetch, decisions }) {
   } catch (e) {
     return { ...plan, problem: e.message, detail: e.detail };
   }
-  // The server's list comes in by fast-forward when it is the one this computer had, or when only run files changed
-  // here (the list here is its last commit: nothing of it to merge).
-  if ((theirs ? theirs.id : null) === (baseF ? baseF.id : null) || !state) return { ...plan, remote: { ...remote, mode: 'ff' } };
+  // The server's list comes in by fast-forward when it is the one this computer had, or when only run files and plans'
+  // files changed here (the list here is its last commit: nothing of it to merge), unless a plan's file changed on both.
+  const listSame = (theirs ? theirs.id : null) === (baseF ? baseF.id : null);
+  if ((listSame || !state) && !planClash.length) return { ...plan, remote: { ...remote, mode: 'ff' } };
+  const files2 = [];
+  const fileConflicts = [];
+  // A plan and its note are one question: a note whose plan file is a question too follows the owner's answer for the
+  // plan, so a plan never ends up with the other computer's note.
+  const asked = [];
+  for (const p of planClash) {
+    let one;
+    try {
+      one = await planConflict(g.top, p, head, upstream, decisions, run);
+    } catch (e) {
+      return { ...plan, problem: e.message, detail: e.detail };
+    }
+    files2.push(one.file);
+    if (one.conflict) asked.push(one);
+  }
+  for (const one of asked) {
+    const json = one.file.path.endsWith('.md') ? asked.find((x) => x.file.path === `${one.file.path.slice(0, -3)}.json`) : null;
+    if (!json) {
+      fileConflicts.push(one.conflict);
+      continue;
+    }
+    const d = json.conflict.decided;
+    one.file.target = d === 'mine' ? one.file.mineText : one.file.theirsText;
+    json.conflict.title = `${json.conflict.title} and its note`;
+  }
+  if (listSame || !state) {
+    // Only plans' files to bring together: the list as the server has it after the fast-forward, or as it is here.
+    const mineText = fs.readFileSync(place.file, 'utf8');
+    const theirsText0 = theirs ? theirs.text : null;
+    const mergedText = state ? mineText : theirsText0 ?? mineText;
+    const theirsChanges = listSame ? [] : await changesOf(baseF, theirs, place.settings.ownerId);
+    return {
+      ...plan,
+      remote: { ...remote, mode: 'merge', mine: [...plan.changes, ...planFiles.map((f) => planChange(f, 'mine'))], theirs: [...theirsChanges, ...planClash.map((p) => planChange({ path: p }, 'theirs'))], conflicts: fileConflicts, undecided: fileConflicts.filter((c) => !c.decided).length, renamed: [] },
+      merge: { mineText, theirsText: theirsText0 ?? mineText, baseText: baseF ? baseF.text : null, mergedText, files: files2 },
+    };
+  }
   if (theirs && !theirs.exact) return { ...plan, problem: 'the server\'s Work file has bytes that are not UTF-8 (it was written by hand somewhere): tidy it once on a computer that has it, then save again; nothing was changed' };
 
   // The server changed the list too: merged by item.
@@ -206,9 +283,53 @@ async function planOf(place, { run, fetch, decisions }) {
   }
   return {
     ...plan,
-    remote: { ...remote, mode: 'merge', mine: m.mine, theirs: m.theirs, conflicts: m.conflicts, undecided: m.undecided, renamed: m.renamed },
-    merge: { mineText: mine.text, theirsText, baseText, mergedText: serialize(m.doc, formatOf(mine.text)) },
+    remote: { ...remote, mode: 'merge', mine: [...m.mine, ...planFiles.map((f) => planChange(f, 'mine'))], theirs: [...m.theirs, ...planClash.map((p) => planChange({ path: p }, 'theirs'))], conflicts: [...m.conflicts, ...fileConflicts], undecided: m.undecided + fileConflicts.filter((c) => !c.decided).length, renamed: m.renamed },
+    merge: { mineText: mine.text, theirsText, baseText, mergedText: serialize(m.doc, formatOf(mine.text)), files: files2 },
   };
+}
+
+/** A plan's file in a list of changes: { key, id, title, what }. */
+const planChange = (f, side) => ({ key: `file:${f.path}`, id: null, title: `${f.path.endsWith('.md') ? 'the note of the plan' : 'the plan'} ${path.posix.basename(f.path).replace(/\.(json|md)$/, '')}`, what: side === 'mine' && f.state === 'new' ? 'added' : 'changed' });
+
+/** The tasks the server changed in the list (for the Save sheet), [] when a version does not read. */
+async function changesOf(baseF, theirs, ownerId) {
+  try {
+    return itemChanges(baseF ? parseText(baseF.text, 'the last common Work file') : { items: [] }, theirs ? parseText(theirs.text, 'the server\'s Work file') : { items: [] }, ownerId);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A plan's file changed here and on the server (planClash): { file: { path, mineText, theirsText, target, mineNew },
+ * conflict? }. The same content on both: no question, and nothing to write after the fast-forward. Else the owner's
+ * question, "this computer's or the other's" (key "file:<path>"), and `target` is what the file is to hold after the
+ * fast-forward (the server's until he chooses; null: the server has no such file).
+ */
+async function planConflict(top, p, head, upstream, decisions, run) {
+  const mineText = fs.readFileSync(path.join(top, ...p.split('/')), 'utf8');
+  const theirsF = await fileAt(top, upstream, p, run);
+  const baseF = await fileAt(top, head, p, run);
+  const theirsText = theirsF ? theirsF.text : null;
+  const file = { path: p, mineText, theirsText, target: theirsText, mineNew: !baseF };
+  if (theirsText === mineText) return { file };
+  const key = `file:${p}`;
+  const d = decisions[key] || decisions[p];
+  const decided = d === 'mine' || d === 'theirs' ? d : null;
+  if (decided === 'mine') file.target = mineText;
+  const version = (text) => {
+    if (text === null) return null;
+    if (p.endsWith('.md')) return text;
+    try {
+      const x = JSON.parse(text);
+      return { title: x.title, status: x.status, date: Array.isArray(x.milestones) ? x.milestones.map((m) => m.date).filter(Boolean).sort().pop() || null : null, note: x.goal };
+    } catch {
+      return text;
+    }
+  };
+  const name = path.posix.basename(p).replace(/\.(json|md)$/, '');
+  const title = p.endsWith('.md') ? `The note of the plan ${name}` : `The plan "${(version(mineText) || {}).title || name}"`;
+  return { file, conflict: { key, name: p, title, base: baseF ? version(baseF.text) : null, mine: version(mineText), theirs: version(theirsText), decided } };
 }
 
 /**
@@ -255,7 +376,7 @@ function versionOf(v) {
 export function publicPlan(p) {
   const r = p.remote;
   return {
-    label: p.label, repo: p.repo, files: p.files, changes: p.changes, nothing: p.nothing, hash: p.hash || null, runs: p.runs ? p.runs.length : 0, notRuns: p.notRuns || [],
+    label: p.label, repo: p.repo, files: p.files, changes: p.changes, nothing: p.nothing, hash: p.hash || null, runs: p.runs ? p.runs.length : 0, notRuns: p.notRuns || [], plans: p.plans ? p.plans.length : 0, notPlans: p.notPlans || [],
     unsent: p.unsent ? { saves: p.unsent.saves, others: p.unsent.others ? p.unsent.others.map((c) => ({ short: c.short, subject: c.subject })) : null } : { saves: 0, others: [] },
     ...(r ? {
       remote: {

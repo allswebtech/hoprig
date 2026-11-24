@@ -23,7 +23,8 @@ export function securityHeaders(host) {
     'X-Frame-Options': 'SAMEORIGIN',
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Cross-Origin-Resource-Policy': 'same-origin',
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    // The microphone for this dashboard's own pages only (voice typing, web/voice.js); no other site, no frame of one.
+    'Permissions-Policy': 'camera=(), microphone=(self), geolocation=()',
   };
 }
 

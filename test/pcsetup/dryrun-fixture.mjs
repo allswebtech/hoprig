@@ -23,6 +23,14 @@
 //                                      unfinished clone and a stale lock an earlier run left)
 //   spare                            an empty plain group of the map, not on this computer yet
 //
+// With { kits: true } the projects folder holds projects that suggest the optional kits, and the computer has stand-in
+// programs (bin/) that write their argv to a log OUTSIDE the world (`kitLog`), so a run that would install shows itself:
+//   home/Workspace/projects/legacy     a PHP project: composer.json asks for PHP ^8.1 <8.4 (older than the 8.5 here),
+//                                      and a docker-compose.yml (it suggests Docker too)
+//   home/Workspace/projects/mobile     a Flutter project that pins its version (.fvmrc)
+//   home/android-studio/jbr/bin/java   a made-up Android Studio's own Java (prints a version; `brokenJava()` breaks it)
+//   bin/php (8.5.4), bin/dart, bin/apt-cache (php-cli 8.5, no other series), bin/java-less PATH
+//
 // With { find: true } (it implies groups) kits/builds has a naming rule (FIND_RULE), the sign-in reaches the
 // organisation "team" too, and the "server" holds projects only it has (addFindRepos):
 //   alex/shop-alpha-project  a parent without project.json (ignores code/ and apps/, has .githooks), with
@@ -51,7 +59,7 @@ function writeTree(dir, files) {
   }
 }
 
-export async function makeWorld(name, { groups = false, find = false } = {}) {
+export async function makeWorld(name, { groups = false, find = false, kits = false } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(BASE_TMP, `hoprig-dry-${name}-`)));
   const home = path.join(root, 'home');
   const ws = path.join(home, 'Workspace');
@@ -64,7 +72,7 @@ export async function makeWorld(name, { groups = false, find = false } = {}) {
   fs.writeFileSync(gitcfg, `[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[url "${server}/"]\n\tinsteadOf = https://github.com/\n[protocol "file"]\n\tallow = always\n`);
   fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec "${process.execPath}" "${FAKE_GH}" "$@"\n`, { mode: 0o755 });
   const env = {
-    HOME: home, HOPRIG_CONFIG_DIR: path.join(home, '.config', 'hoprig'), HOPRIG_STATE_DIR: path.join(home, '.local', 'state', 'hoprig'),
+    HOME: home, USERPROFILE: home, HOPRIG_CONFIG_DIR: path.join(home, '.config', 'hoprig'), HOPRIG_STATE_DIR: path.join(home, '.local', 'state', 'hoprig'),
     HOPRIG_PROFILES_DIR: path.join(home, '.config', 'hoprig', 'profiles'), CLAUDE_CONFIG_DIR: path.join(home, '.claude'), HOPRIG_WORKSPACE_DIR: ws,
     GIT_CONFIG_GLOBAL: gitcfg, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', FAKE_GH_ROOT: server, FAKE_GH_USER: 'alex', FAKE_GH_ORGS: find ? 'team' : '', TMPDIR: tmp,
   };
@@ -146,6 +154,7 @@ export async function makeWorld(name, { groups = false, find = false } = {}) {
     fs.writeFileSync(l, `${JSON.stringify({ pid: DEAD_PID, proc: 'gone', id: 'earlier' })}\n`);
     fs.utimesSync(l, old, old);
   }
+  const k = kits ? addKitWorld({ root, home, projects, bin }) : null;
   if (g) {
     // What an interrupted get of widget left in kits/builds: an unfinished clone and a stale lock.
     const widgetRef = { url: gh('widget-workspace'), repo: 'widget-workspace' };
@@ -162,7 +171,34 @@ export async function makeWorld(name, { groups = false, find = false } = {}) {
   }
   // Let every mtime settle before the first snapshot (a write in the same instant would look the same).
   await new Promise((r) => setTimeout(r, 20));
-  return { root, home, ws, projects, server, tmp, env, use, sh, shop, brain, leftover, locks, groups: g, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return { root, home, ws, projects, server, tmp, env, use, sh, shop, brain, leftover, locks, groups: g, ...(k || {}), cleanup: () => {
+    fs.rmSync(root, { recursive: true, force: true });
+    if (k) k.cleanupLog();
+  } };
+}
+
+/** The projects and stand-in programs of a { kits: true } world (see the head of this file). */
+function addKitWorld({ home, projects, bin }) {
+  const logDir = fs.mkdtempSync(path.join(BASE_TMP, 'hoprig-kitlog-'));
+  const kitLog = path.join(logDir, 'argv.log');
+  writeTree(path.join(projects, 'legacy'), { 'composer.json': `${JSON.stringify({ name: 'example/legacy', require: { php: '^8.1 <8.4' } }, null, 2)}\n`, 'index.php': '<?php echo "hi";\n', 'docker-compose.yml': 'services: {}\n' });
+  // Its `android` folder holds a Gradle file: the one project here that needs Java, so Java is looked for.
+  writeTree(path.join(projects, 'mobile'), { '.fvmrc': '{ "flutter": "3.24.5" }\n', 'pubspec.yaml': 'name: mobile\n' });
+  writeTree(path.join(projects, 'mobile', 'android'), { 'build.gradle': '' });
+  const standIn = (name, body) => fs.writeFileSync(path.join(bin, name), `#!/bin/sh\necho "${name} $*" >> "${kitLog}"\n${body}\n`, { mode: 0o755 });
+  standIn('php', 'echo "PHP 8.5.4-0ubuntu1.5 (cli) (built: Oct 1 2026)"');
+  standIn('dart', 'exit 0');
+  standIn('apt-cache', 'case "$1 $2" in "policy php-cli") printf "php-cli:\\n  Installed: (none)\\n  Candidate: 2:8.5+99ubuntu1\\n" ;; "pkgnames php") printf "php-cli\\nphp8.5-cli\\n" ;; *) printf "  Candidate: (none)\\n" ;; esac');
+  const java = path.join(home, 'android-studio', 'jbr', 'bin', 'java');
+  fs.mkdirSync(path.dirname(java), { recursive: true });
+  fs.writeFileSync(java, `#!/bin/sh\necho "java $*" >> "${kitLog}"\necho 'openjdk version "21.0.6" 2025-01-21' >&2\n`, { mode: 0o755 });
+  return {
+    kitLog, java,
+    kitCalls: () => (fs.existsSync(kitLog) ? fs.readFileSync(kitLog, 'utf8').split('\n').filter(Boolean) : []),
+    clearKitLog: () => fs.rmSync(kitLog, { force: true }),
+    brokenJava: () => fs.writeFileSync(java, '#!/bin/sh\nexit 3\n', { mode: 0o755 }),
+    cleanupLog: () => fs.rmSync(logDir, { recursive: true, force: true }),
+  };
 }
 
 /**
@@ -291,12 +327,21 @@ export async function dryWorld(tc, name, opts = {}) {
   const assert = (await import('node:assert/strict')).default;
   const w = await makeWorld(name, opts);
   tc.after(() => w.cleanup());
-  w.unchanged = async (what, fn) => {
+  // { reports: n }: a command that is not a dry run ends with a field report (src/field): exactly n report files of
+  // Hoprig's state folder are added, with the folders they need, and nothing else of the computer changes.
+  w.unchanged = async (what, fn, { reports = 0 } = {}) => {
     w.use();
     const before = snapshot(w);
     const r = await fn();
-    const diff = changes(before, snapshot(w));
-    assert.equal(diff, '', `${what} changed the computer:\n${diff}`);
+    const lines = changes(before, snapshot(w)).split('\n').filter(Boolean);
+    const state = path.relative(w.root, process.env.HOPRIG_STATE_DIR);
+    const field = path.join(state, 'field');
+    const reportsDir = path.join(field, 'reports');
+    const made = lines.filter((l) => l.startsWith(`added ${reportsDir}${path.sep}`) && /-[0-9a-f]{16}\.json$/.test(l));
+    const folders = new Set([`added ${field}`, `added ${reportsDir}`, `changed ${state}: size, mtime`, `changed ${reportsDir}: size, mtime`, `changed ${state}: mtime`, `changed ${reportsDir}: mtime`]);
+    const rest = lines.filter((l) => !made.includes(l) && !(made.length && folders.has(l)));
+    assert.equal(rest.join('\n'), '', `${what} changed the computer:\n${rest.join('\n')}`);
+    assert.equal(made.length, reports, `${what}: ${made.length} field report(s) made, ${reports} expected`);
     return r;
   };
   w.changed = async (what, fn) => {

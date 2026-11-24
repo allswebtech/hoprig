@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { copyTree } from '../copytree.mjs';
 import { bundledDir, catalogEntry, loadCatalog, packageVersion, searchCatalog, suggestFor } from './catalog.mjs';
 import { detectProject } from './detect.mjs';
 import { diffText, folderDiff } from './diff.mjs';
@@ -95,7 +96,7 @@ export async function prepare(spec, opts = {}) {
     if (entry && entry.bundled) {
       // Shipped with hoprig: copied from the installed package, which is its integrity; no network.
       folder = path.join(qdir, 'skill');
-      fs.cpSync(bundledDir(entry), folder, { recursive: true, verbatimSymlinks: true });
+      copyTree(bundledDir(entry), folder, { times: false });
       source = { type: 'bundled', catalogId: entry.id, path: entry.bundled, version: packageVersion() };
     } else {
       const src = entry

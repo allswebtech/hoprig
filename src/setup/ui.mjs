@@ -85,3 +85,59 @@ export function makeUi({ yes = false, dryRun = false, interactive, write, askLin
   ui.note = (text) => ui.out(`  ${dim(text)}`);
   return ui;
 }
+
+// What is still the person's to do after set-up: each item once, with its one next step, in ONE list at the end of the
+// run ("Still yours to do"). A step names it when it happens with its mark only (yours); outside set-up (hoprig pc
+// setup, hoprig workspace git on their own) the step says its next step on the same line, as before.
+export const TODO = {
+  identity: { label: 'Your name and e-mail for commits', step: 'git config --global user.name "Your Name" && git config --global user.email you@example.com' },
+  github: { label: 'Sign in to GitHub', step: 'gh auth login' },
+  claude: { label: 'Sign in to Claude Code', step: 'run claude, then type /login' },
+  linger: { label: 'Keep the dashboard running after you log out (lingering)', step: 'sudo loginctl enable-linger <you>' },
+  // `page`: the way on the dashboard, named first as it really is (web/getstarted.js withGitStep; only its brain row's
+  // Keep on GitHub makes the first commit, with a GitHub sign-in, into a new private repository); the command after it
+  // is the way that stays on this computer.
+  brainCommit: { label: 'The AI brain\'s first commit, once git knows your name and e-mail', page: 'Home → Get started → Git and GitHub set up, then Keep on GitHub (with a GitHub account: it also keeps the brain in a new private GitHub repository)', step: 'git -C <workspace>/ai_brain init -b main && git -C <workspace>/ai_brain add -A && git -C <workspace>/ai_brain commit -m \'Start the AI brain\'' },
+  brain: { label: 'Your AI brain on a git server (its first commit there)', step: 'hoprig workspace git' },
+  restart: { label: 'Restart the dashboard, so it runs this version and its settings', step: 'hoprig service install' },
+  terminal: { label: 'A new terminal, so every new program and the hoprig command are found', step: 'open a new terminal (or log in again)' },
+};
+const TODO_ORDER = Object.keys(TODO);
+
+/** Set-up's closing list: from now on `yours` collects into it. */
+export function collectTodo(ui) {
+  ui.todos = new Map();
+  ui.todo = (key, step) => {
+    if (!ui.todos.has(key)) ui.todos.set(key, step || TODO[key].step);
+  };
+  return ui;
+}
+
+/**
+ * Something left for the person: `text` with its mark now, and `key`'s next step (or `step`) in the closing list.
+ * Outside set-up the line says it at once: `alone` when given, else `text: step`.
+ */
+export function yours(ui, status, text, key, { step = null, alone = null } = {}) {
+  if (ui.todo) {
+    // Marked once in a run: a later step that finds it again says nothing, and only a next step of its own (a better
+    // one: GitHub's no-reply address) replaces the one kept.
+    if (ui.todos.has(key)) {
+      if (step) ui.todos.set(key, step);
+      return;
+    }
+    ui.line(status, text);
+    ui.todo(key, step || TODO[key].step);
+  } else ui.line(status, alone ?? `${text}: ${step || TODO[key].step}`);
+}
+
+/** The closing list, once, at the very end of the run (nothing when nothing is left). */
+export function closingList(ui) {
+  if (!ui.todos || !ui.todos.size) return;
+  ui.out();
+  ui.out(`  ${bold('Still yours to do:')}`);
+  for (const key of TODO_ORDER) {
+    if (!ui.todos.has(key)) continue;
+    const { label, page } = TODO[key];
+    ui.out(`    · ${label}: ${page ? `On the dashboard: ${page}. Or only here, on this computer: ${ui.todos.get(key)}` : ui.todos.get(key)}`);
+  }
+}

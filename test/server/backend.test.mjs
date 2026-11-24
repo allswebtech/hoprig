@@ -6,7 +6,7 @@ import test from 'node:test';
 import { sandbox } from './helpers.mjs';
 import { shellLine, shellQuote, tmuxUsable } from '../../src/server/backends/index.mjs';
 import { CLEAR, assertTypable } from '../../src/server/backends/shell.mjs';
-import { PANE_FORMAT, TmuxBackend, parsePanes } from '../../src/server/backends/tmux.mjs';
+import { PANE_FORMAT, TITLE_FORMAT, TmuxBackend, XTVERSION_REPLY, parsePanes } from '../../src/server/backends/tmux.mjs';
 import { tmuxNewEnough } from '../../src/server/backends/tmuxversion.mjs';
 import { launchArgv } from '../../src/server/deck.mjs';
 
@@ -50,7 +50,9 @@ test('tmux calls are argument arrays (recorded)', async () => {
   assert.deepEqual(calls[2][0], ['send-keys', '-t', '%7', 'Enter']);
   // tmux's own status line is hidden for the session (by pane id: set-option has no "=name" form), and focus
   // events are on for Claude Code.
-  assert.deepEqual(calls.slice(3).map((c) => c[0]), [['set-option', '-t', '%7', 'status', 'off'], ['set-option', '-s', 'focus-events', 'on']]);
+  // The program's title goes to the page (set-titles), never tmux's default of the host name.
+  assert.deepEqual(calls.slice(3).map((c) => c[0]), [['set-option', '-t', '%7', 'status', 'off'], ['set-option', '-s', 'focus-events', 'on'],
+    ['set-option', '-t', '%7', 'set-titles', 'on'], ['set-option', '-t', '%7', 'set-titles-string', TITLE_FORMAT]]);
   calls.length = 0;
   await b.sendText('%7', 'one line; rm -rf / $(x)');
   assert.deepEqual(calls.map((c) => c[0]), [['copy-mode', '-q', '-t', '%7'], ['send-keys', '-t', '%7', '-l', '--', 'one line; rm -rf / $(x)']]);
@@ -107,12 +109,12 @@ test('tmux: the programs ended before a respawn or a Close are those under the l
 });
 
 test('list-panes parsing (path may contain tabs)', () => {
-  assert.equal(PANE_FORMAT.split('\t').length, 12);
+  assert.equal(PANE_FORMAT.split('\t').length, 13);
   // window_activity (1700000160) is the program's last output: the later of the two counts.
-  const line = ['proj', '1700000000', '1', '1700000100', '1700000160', '1', '1', '%3', '4242', '0', 'node', '/home/u/a\tb'].join('\t');
+  const line = ['proj', '$7', '1700000000', '1', '1700000100', '1700000160', '1', '1', '%3', '4242', '0', 'node', '/home/u/a\tb'].join('\t');
   const [p] = parsePanes(line + '\n\n');
   assert.deepEqual(p, {
-    session: 'proj', id: '%3', pid: 4242, cwd: '/home/u/a\tb', command: 'node', created: 1700000000000,
+    session: 'proj', id: '%3', sid: '$7', pid: 4242, cwd: '/home/u/a\tb', command: 'node', created: 1700000000000,
     attached: 1, activity: 1700000160000, active: true, dead: false,
   });
   assert.deepEqual(parsePanes('garbage\n'), []);
@@ -228,4 +230,120 @@ test('the sign-in check at start belongs to the real serve command only', async 
   assert.match(read('../../src/server/cli.mjs'), /createServer\(\{ host, port, loginCheck: true \}\)/);
   assert.match(read('../../src/server/server.mjs'), /if \(opts\.loginCheck === true\) \{/);
   assert.doesNotMatch(read('../../src/demo/index.mjs'), /loginCheck/);
+});
+
+test('tmux attach: tmux\'s question for the terminal\'s name is answered once, so a lone Esc is not held and joined to the next key', { skip: process.platform === 'win32' && 'POSIX pseudo-terminal' }, async () => {
+  // A stand-in for tmux: it asks the outer terminal what tmux 3.6 asks at attach, twice, and records what it reads.
+  const got = path.join(box.root, 'xtversion-got');
+  const bin = path.join(box.root, 'tmux-asks');
+  fs.writeFileSync(bin, `#!${process.execPath}\nconst fs = require('fs');\nprocess.stdin.setRawMode(true);\nprocess.stdout.write('\\x1b[c\\x1b[>q');\nsetTimeout(() => process.stdout.write('\\x1b[>q'), 300);\nprocess.stdin.on('data', (b) => fs.appendFileSync(${JSON.stringify(got)}, b));\nsetTimeout(() => process.exit(0), 1500);\n`, { mode: 0o755 });
+  const stream = new TmuxBackend({ bin, socket: 'xtv' }).attach('proj', { cols: 80, rows: 24 });
+  const seen = [];
+  stream.onData((d) => seen.push(d));
+  await new Promise((resolve) => stream.onExit(resolve));
+  assert.match(seen.join(''), /\x1b\[>q/, 'the question still reaches the browser (its terminal answers what it knows)');
+  const answer = fs.existsSync(got) ? fs.readFileSync(got, 'latin1') : '';
+  assert.equal(answer, XTVERSION_REPLY, 'one answer, a name tmux does not take for a terminal it must work around');
+  assert.match(XTVERSION_REPLY, /^\x1bP>\|[\x20-\x7e]+\x1b\\$/);
+});
+
+/**
+ * A stand-in for tmux whose attach client records what it reads, ignores the hang-up (so a write after close would
+ * still arrive) and ends after 2.5 s; it names the prefix after `answerMs`.
+ */
+function slowTmux(file, got, answerMs) {
+  fs.writeFileSync(file, `#!${process.execPath}\nconst fs = require('fs');\nconst a = process.argv.slice(2);\nif (a.includes('display-message')) setTimeout(() => console.log('C-b\\tNone\\t10'), ${answerMs});\nelse if (a.includes('list-keys')) console.log('bind-key -T prefix C-b send-prefix');\nelse {\n  process.on('SIGHUP', () => {});\n  process.stdin.setRawMode(true);\n  process.stdin.on('data', (b) => fs.appendFileSync(${JSON.stringify(got)}, b));\n  setTimeout(() => process.exit(0), 2500);\n}\n`, { mode: 0o755 });
+}
+const readOr = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'latin1') : '');
+
+test('tmux attach: keys typed before tmux has named its prefix are dropped when the page leaves first, never written to a closed client', { skip: process.platform === 'win32' && 'POSIX pseudo-terminal' }, async () => {
+  const got = path.join(box.root, 'late-got');
+  const bin = path.join(box.root, 'tmux-late');
+  slowTmux(bin, got, 300);
+  const stream = new TmuxBackend({ bin, socket: 'late' }).attach('proj', { cols: 80, rows: 24 });
+  stream.onData(() => {});
+  await new Promise((r) => setTimeout(r, 100));
+  stream.write('z'); // typed, and the page closed, in the same moment
+  stream.close();
+  stream.write('y');
+  await new Promise((r) => setTimeout(r, 900));
+  assert.equal(readOr(got), '', 'nothing is written after close (node-pty: "Unhandled pty write error EBADF")');
+  await new Promise((r) => stream.onExit(r));
+});
+
+test('tmux attach: a tmux slow to name its prefix does not hold the keys: they go on after a second', { skip: process.platform === 'win32' && 'POSIX pseudo-terminal' }, async () => {
+  const got = path.join(box.root, 'slow-got');
+  const bin = path.join(box.root, 'tmux-slow');
+  slowTmux(bin, got, 2000);
+  const stream = new TmuxBackend({ bin, socket: 'slow' }).attach('proj', { cols: 80, rows: 24 });
+  stream.onData(() => {});
+  await new Promise((r) => setTimeout(r, 100));
+  stream.write('a');
+  for (const end = Date.now() + 1800; !readOr(got) && Date.now() < end;) await new Promise((r) => setTimeout(r, 50));
+  assert.equal(readOr(got), 'a', 'within about a second, not the 10 s a hung tmux call takes');
+  await new Promise((r) => stream.onExit(r));
+});
+
+test('tmux attach: a Ctrl+B typed in the browser reaches the program, and the key after it is not a tmux command', { skip: (!tmuxUsable() || process.platform === 'win32') && 'no tmux 3.2 or newer here' }, async (t) => {
+  // The program in the pane asks for bracketed paste (as Claude Code does) and records every byte it reads; tmux runs
+  // with an empty config (its default prefix, Ctrl+B).
+  const got = path.join(box.root, 'prefix-got');
+  const prog = path.join(box.root, 'record.cjs');
+  fs.writeFileSync(prog, `const fs = require('fs');\nprocess.stdin.setRawMode(true);\nprocess.stdout.write('\\x1b[?2004h');\nprocess.stdin.on('data', (b) => fs.appendFileSync(${JSON.stringify(got)}, b));\nsetInterval(() => {}, 1000);\n`);
+  const conf = path.join(box.root, 'prefix.conf');
+  fs.writeFileSync(conf, '');
+  const b = new TmuxBackend({ socket: `prefix-test-${process.pid}`, configFile: conf });
+  let stream = null;
+  t.after(async () => {
+    if (stream) stream.close();
+    const sock = await b.run(['display', '-p', '#{socket_path}']).catch(() => '');
+    await b.killServer();
+    if (sock.trim()) fs.rmSync(sock.trim(), { force: true });
+  });
+  await b.run(['new-session', '-d', '-s', 'rec', '-x', '80', '-y', '24', process.execPath, prog]);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  stream = b.attach('rec', { cols: 80, rows: 24 });
+  stream.onData(() => {});
+  await wait(800);
+  stream.write('\x02');
+  await wait(300);
+  stream.write('x'); // after a prefix tmux would ask to kill the pane
+  await wait(300);
+  stream.write('\x1b[200~p\x02q\x1b[201~');
+  await wait(300);
+  stream.write('\x1b\x02'); // Ctrl+Alt+B: one key for tmux (M-C-b), no prefix
+  await wait(300);
+  stream.write('x'); // a prefix left over would make it a tmux command again
+  await wait(300);
+  stream.write('d'); // and this one would detach
+  const read = () => (fs.existsSync(got) ? fs.readFileSync(got, 'latin1').replace(/\x1b\[[IO]/g, '') : '');
+  for (const end = Date.now() + 5000; !read().endsWith('d') && Date.now() < end;) await wait(50);
+  assert.equal(read(), '\x02x\x1b[200~p\x02q\x1b[201~\x1b\x02xd', 'each key once, as typed; the paste as it is; Ctrl+Alt+B as it is');
+  assert.match(await b.run(['list-panes', '-t', '=rec', '-F', '#{pane_dead}']), /^0$/m, 'the pane lives');
+});
+
+test('tmux attach: a whole paste written just before the page leaves reaches the program whole, end mark included', { skip: (!tmuxUsable() || process.platform === 'win32') && 'no tmux 3.2 or newer here' }, async (t) => {
+  const got = path.join(box.root, 'leave-got');
+  const prog = path.join(box.root, 'record-leave.cjs');
+  fs.writeFileSync(prog, `const fs = require('fs');\nprocess.stdin.setRawMode(true);\nprocess.stdout.write('\\x1b[?2004h');\nprocess.stdin.on('data', (b) => fs.appendFileSync(${JSON.stringify(got)}, b));\nsetInterval(() => {}, 1000);\n`);
+  const conf = path.join(box.root, 'leave.conf');
+  fs.writeFileSync(conf, '');
+  const b = new TmuxBackend({ socket: `leave-test-${process.pid}`, configFile: conf });
+  t.after(async () => {
+    const sock = await b.run(['display', '-p', '#{socket_path}']).catch(() => '');
+    await b.killServer();
+    if (sock.trim()) fs.rmSync(sock.trim(), { force: true });
+  });
+  await b.run(['new-session', '-d', '-s', 'rec', '-x', '80', '-y', '24', process.execPath, prog]);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const stream = b.attach('rec', { cols: 80, rows: 24 });
+  stream.onData(() => {});
+  await wait(800);
+  const paste = `\x1b[200~${'A'.repeat(1 << 20)}\x1b[201~`;
+  stream.write(paste);
+  stream.close(); // the page left at once: the socket hands over a paste only when it is whole
+  const read = () => (fs.existsSync(got) ? fs.readFileSync(got, 'latin1').replace(/\x1b\[[IO]/g, '') : '');
+  for (const end = Date.now() + 8000; !read().endsWith('\x1b[201~') && Date.now() < end;) await wait(100);
+  assert.equal(read().length, paste.length, 'cut off, the program stays inside the paste and takes the next keys as paste text');
+  await new Promise((r) => stream.onExit(r));
 });

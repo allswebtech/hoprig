@@ -56,3 +56,20 @@ test('the editor files are cached for good; the page itself is checked every tim
   assert.equal(immutable(resolveStatic('/index.html')), false);
   assert.equal(immutable(resolveStatic('/vendor/xterm/lib/xterm.mjs')), false);
 });
+
+test('monaco-editor\'s copyright and permission notice goes with every copy Hoprig hands out', () => {
+  const root = new URL('../../', import.meta.url);
+  const dir = path.resolve(path.dirname(require.resolve('monaco-editor')), '..', '..');
+  const licence = fs.readFileSync(path.join(dir, 'LICENSE'), 'utf8').trim();
+  assert.match(licence, /^The MIT License \(MIT\)\n\nCopyright \(c\) .* Microsoft Corporation\n\nPermission is hereby granted/);
+  // Hoprig's own NOTICE (in the npm package and in the image) holds it word for word.
+  const notice = fs.readFileSync(new URL('NOTICE', root), 'utf8');
+  assert.ok(notice.includes(licence), 'NOTICE holds monaco-editor\'s licence as the package ships it');
+  assert.ok(pkg.files.includes('NOTICE'), 'NOTICE is in the npm package');
+  // The image installs it with npm, as a plain dependency (not dev, not optional), so its own LICENSE comes too.
+  assert.ok(pkg.dependencies['monaco-editor'] && !(pkg.optionalDependencies || {})['monaco-editor'] && !(pkg.devDependencies || {})['monaco-editor']);
+  const docker = fs.readFileSync(new URL('Dockerfile', root), 'utf8');
+  assert.match(docker, /npm ci --omit=dev --omit=optional/);
+  assert.match(docker, /^COPY .*\bNOTICE\b/m, 'the image copies NOTICE');
+});
+

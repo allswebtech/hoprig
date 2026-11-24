@@ -25,7 +25,7 @@ const RULES = [
   ['persistence', 'high', 'changes start-up files, cron or services', /\bcrontab\b|\blaunchctl\s+(load|bootstrap|submit)|\bsystemctl\s+(--user\s+)?enable|>>?\s*~?\/?[^\s]*\.(bashrc|zshrc|profile|bash_profile|zprofile)\b|\bschtasks\b|\bRun\\(?:Once)?\b|LaunchAgents/i, 'any'],
   ['sudo', 'medium', 'asks for administrator rights', /(^|[\s;&|`(])sudo\s+\S/, 'any'],
   ['network', 'medium', 'reaches the network', /\b(curl|wget|nc|ncat|netcat|scp|rsync|ftp)\s+\S|\bfetch\s*\(|\brequests\.(get|post|put|delete|patch)\b|\burllib(\.request)?\b|\bhttpx?\.\w+\(|\baxios\b|\bhttps?\.(get|request)\s*\(|\bInvoke-(WebRequest|RestMethod)\b|\bnew\s+WebSocket\b|\bsocket\.(socket|connect)\b/i, 'any'],
-  ['webfetch', 'medium', 'tells the agent to fetch instructions or content from the internet', /\bWebFetch\b|\b(fetch|download|retrieve|curl|get)\b[^.\n]{0,30}\b(rules|instructions|guidelines|prompts?|commands?)\b[^\n]{0,40}https?:\/\/|https?:\/\/\S+[^.\n]{0,30}\b(and follow|follow (it|them|these)|and run|and execute)\b/i, 'md'],
+  ['webfetch', 'medium', 'tells the agent to fetch instructions or content from the internet', /\bWebFetch\b|\b(fetch|download|retrieve|curl|get)\b[^.\n]{0,30}\b(rules|instructions|guidelines|prompts?|commands?)\b[^\n]{0,40}https?:\/\/|https?:\/\/(?:(?!https?:\/\/)\S)+[^.\n]{0,30}\b(and follow|follow (it|them|these)|and run|and execute)\b/i, 'md'],
   ['exec', 'medium', 'runs other programs or code built at run time', /\beval\s*\(|\bexec\s*\(|\bnew\s+Function\s*\(|\bchild_process\b|\bspawn(Sync)?\s*\(|\bexecSync\s*\(|\bsubprocess\.|\bos\.(system|popen|exec\w*)\s*\(|\bpexpect\b|\bRuntime\.getRuntime\(\)\.exec/, 'code'],
   ['encoded', 'medium', 'decodes hidden (base64/hex) content', /\bbase64\s+(-d|--decode|-D)\b|\batob\s*\(|\bb64decode\b|Buffer\.from\([^)]*['"]base64['"]|\bfromCharCode\(\s*(\d+\s*,\s*){8,}|\bxxd\s+-r/i, 'any'],
   ['chmod', 'low', 'makes a file executable or changes permissions', /\bchmod\s+(\+x|[0-7]{3,4}|-R)\b/i, 'any'],
@@ -36,9 +36,14 @@ const RULES = [
 const PROSE_LOWER = new Set(['credentials', 'delete', 'persistence', 'sudo', 'network', 'encoded', 'install', 'chmod']);
 const LOWER = { high: 'medium', medium: 'low', low: 'low' };
 const BLOB = /[A-Za-z0-9+/]{240,}={0,2}/;
-// Characters a reader cannot see: zero-width, bidirectional controls, Unicode "tag" characters, other format chars.
-const HIDDEN = /[​-‏‪-‮⁠-⁤⁦-⁩­᠎﻿\u{E0000}-\u{E007F}]/u;
+// Characters a reader cannot see: zero-width, bidirectional controls, Unicode "tag" characters, the supplementary
+// variation selectors (a run of them hides bytes), other format chars. Of the basic selectors only U+FE0E and U+FE0F
+// are text, and only one of them right after an emoji (⚠️) or in a keycap (1️⃣, #️⃣: the selector before U+20E3);
+// U+FE00-FE0D anywhere, a selector elsewhere and a run of them are hidden (ODD_SELECTOR).
+const HIDDEN = /[​-‏‪-‮⁠-⁤⁦-⁩­᠎﻿\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/u;
 const HIDDEN_G = new RegExp(HIDDEN.source, 'gu');
+const ODD_SELECTOR = /[\uFE00-\uFE0D]|(?<!\p{Extended_Pictographic}|[0-9#*])[\uFE0E\uFE0F]|(?<=[0-9#*])[\uFE0E\uFE0F](?!\u20E3)|[\uFE00-\uFE0F]{2}/u;
+const ODD_SELECTOR_G = new RegExp(ODD_SELECTOR.source, 'gu');
 
 const fileKind = (rel, buf, mode) => {
   const ext = path.extname(rel).toLowerCase();
@@ -131,8 +136,8 @@ export function scanText(rel, text) {
   lines.forEach((line, i) => {
     if (isMd && /^\s*(```|~~~)/.test(line)) fenced = !fenced;
     const prose = isMd && !fenced && !line.includes('`');
-    if (HIDDEN.test(line)) {
-      const cps = [...new Set(line.match(HIDDEN_G).map((c) => `U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`))];
+    if (HIDDEN.test(line) || ODD_SELECTOR.test(line)) {
+      const cps = [...new Set([...(line.match(HIDDEN_G) || []), ...(line.match(ODD_SELECTOR_G) || []).flatMap((m) => [...m])].map((c) => `U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`))];
       push({ file: rel, line: i + 1, rule: 'hidden-unicode', severity: 'high', message: `characters you cannot see (${cps.join(', ')})`, excerpt: excerpt(line) });
     }
     if (BLOB.test(line)) push({ file: rel, line: i + 1, rule: 'blob', severity: 'medium', message: 'a long encoded blob (base64 or similar)', excerpt: `${line.trim().slice(0, 80)}…` });

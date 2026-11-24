@@ -26,7 +26,32 @@ test('the shipped catalog is valid and complete', () => {
   const repos = new Set(cat.entries.map((e) => e.repo));
   for (const r of ['cloudflare/security-audit-skill', 'morluto/rea']) assert.ok(repos.has(r), r);
   assert.equal(cat.entries.find((e) => e.id === 'reverse-engineer-anything').tool.npm, 'rea-agents');
-  assert.equal(cat.entries.filter((e) => e.bundled).length, 1);
+  // Bundled with Hoprig: its own skill (for the user) and the new-project skill (put into each new project).
+  assert.equal(cat.entries.find((e) => e.id === 'hoprig').scope, 'user');
+  assert.equal(cat.entries.find((e) => e.id === 'new-project').scope, 'project');
+  // …and plan-work (the method Work's Plan with AI asks its sessions to follow), and adopt-projects (the judging part
+  // of hoprig adopt: a computer that already has projects).
+  assert.deepEqual(cat.entries.filter((e) => e.bundled).map((e) => e.id).sort(), ['adopt-projects', 'hoprig', 'new-project', 'plan-work']);
+  assert.equal(cat.entries.find((e) => e.id === 'adopt-projects').scope, 'user');
+});
+
+test('a bundled skill says only what a skill is: its front matter holds a name and a description, nothing about where it was made', () => {
+  // A skill copied in from another (private) project may carry that project's header: a comment naming it, or a
+  // metadata block of its own. The package is public, so a bundled skill's front matter is the skill's alone.
+  for (const e of loadCatalog().entries.filter((x) => x.bundled)) {
+    const text = fs.readFileSync(path.join(PACKAGE_ROOT, e.bundled, 'SKILL.md'), 'utf8');
+    const m = /^---\n([\s\S]*?)\n---\n/.exec(text);
+    assert.ok(m, `${e.id}: front matter`);
+    const lines = m[1].split('\n');
+    assert.deepEqual(lines.filter((l) => /^\s*#/.test(l)), [], `${e.id}: no comment in the front matter`);
+    const keys = lines.filter((l) => /^[A-Za-z]/.test(l)).map((l) => l.split(':')[0]);
+    // `metadata` is a skill's own key too, for what the skill says about itself: its version and the tool of this
+    // repository that made it (the generated Hoprig skill). Nothing else may be nested, and no other key under it.
+    assert.deepEqual(keys.filter((k) => !['name', 'description', 'license', 'compatibility', 'allowed-tools', 'metadata'].includes(k)), [], `${e.id}: only a skill's own keys`);
+    const nested = lines.filter((l) => !/^[A-Za-z]/.test(l));
+    assert.deepEqual(nested.filter((l) => !/^  (version|generated-by): /.test(l)), [], `${e.id}: nothing nested but its own version and maker`);
+    if (nested.length) assert.ok(keys.includes('metadata'), `${e.id}: nested lines belong to metadata`);
+  }
 });
 
 test('the validator refuses incomplete or malformed entries', () => {

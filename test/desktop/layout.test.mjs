@@ -121,6 +121,11 @@ test('the kept layout is read back only where it is sound', () => {
   for (const bad of [null, 'x', {}, { windows: 'no' }]) assert.deepEqual(cleanLayout(bad, APP_IDS), { windows: [], focus: null });
   const many = { windows: Array.from({ length: 30 }, (_, i) => ({ ...good, id: `w${i}` })) };
   assert.equal(cleanLayout(many, APP_IDS).windows.length, MAX_WINDOWS);
+  // Bad entries first do not hide the sound windows after them; a huge list is looked at only so far.
+  const junkFirst = { windows: [...Array.from({ length: 12 }, (_, i) => ({ ...good, id: `wj${i}`, app: 'nope' })), { ...good, id: 'wok1' }, { ...good, id: 'wok2' }] };
+  assert.deepEqual(cleanLayout(junkFirst, APP_IDS).windows.map((w) => w.id).sort(), ['wok1', 'wok2']);
+  const huge = { windows: [...Array.from({ length: 5000 }, () => null), { ...good, id: 'wlate' }] };
+  assert.deepEqual(cleanLayout(huge, APP_IDS).windows, [], 'entries past the first 1000 are not looked at');
   // What is kept is the model only: no element, no frame.
   const kept = keepLayout([{ ...good, el: {}, frame: {}, watch: 1 }], 'wabc123');
   assert.deepEqual(Object.keys(kept.windows[0]).sort(), ['app', 'hash', 'home', 'id', 'min', 'own', 'rect', 'snap', 'title', 'z']);
@@ -197,7 +202,8 @@ test('the native apps\' shared words and sorting', async () => {
   assert.equal(duration(40), '40 s');
   assert.equal(duration(8 * 60 + 5), '8 min');
   assert.equal(duration(5 * 3600 + 12 * 60), '5 h 12 min');
-  assert.equal(duration(3 * 86400 + 4 * 3600), '3 d 4 h');
+  assert.equal(duration(3 * 86400 + 4 * 3600), '3 days 4 h');
+  assert.equal(duration(86400 + 60), '1 day 0 h');
   const list = [{ n: 'b', v: 2 }, { n: 'a', v: null }, { n: 'c', v: 10 }];
   assert.deepEqual(sortBy(list, 'v', true).map((x) => x.n), ['c', 'b', 'a'], 'numbers, the unknown last');
   assert.deepEqual(sortBy(list, 'v', false).map((x) => x.n), ['b', 'c', 'a']);

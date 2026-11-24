@@ -94,6 +94,11 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   assert.equal((await owner('POST', '/api/chats', { dir: proj, profile: 'sub', model: 'gpt-9' })).status, 400, 'models from the fixed list');
   assert.equal((await owner('POST', '/api/chats', { dir: proj, profile: 'sub', sessionId: '00000000-0000-4000-8000-000000000000' })).status, 400, 'an id must be a conversation of the folder');
 
+  // ---- a session with no title yet is named as the title bar names it ----
+  const untitled = (await owner('POST', '/api/chats', { dir: proj, profile: 'sub' })).json.id;
+  assert.equal((await owner('GET', '/api/state')).json.sessions.find((s) => s.chatId === untitled).display, 'New session');
+  await owner('POST', `/api/chats/${untitled}/close`, {});
+
   // ---- a new chat with a first message ----
   const made = await owner('POST', '/api/chats', { dir: proj, profile: 'sub', text: 'hello chat' });
   assert.equal(made.status, 200);
@@ -116,6 +121,15 @@ test('the coding chat in the dashboard', { timeout: 120_000, skip: process.platf
   assert.ok(Date.now() - t0 >= 900, 'waited for news');
   assert.deepEqual(quiet.events, []);
   assert.equal(quiet.reset, false);
+
+  // ---- the owner hid Hands-off (offered:false): its switch is refused and nothing of it is kept ----
+  saveConfig({ handsOff: { offered: false } });
+  const chatsFile = path.join(box.state, 'chats.json');
+  const chatsBefore = fs.readFileSync(chatsFile, 'utf8');
+  const ho = await owner('POST', `/api/chats/${id}/handsoff`, { on: true });
+  assert.deepEqual([ho.status, ho.json && ho.json.error], [409, 'Hands-off is not offered on this computer']);
+  assert.equal(fs.readFileSync(chatsFile, 'utf8'), chatsBefore, 'the open chats file is unchanged');
+  assert.equal('handsOff' in (await owner('GET', `/api/chats/${id}`)).json, false);
 
   // ---- the card among the sessions ----
   const st = (await owner('GET', '/api/state')).json;

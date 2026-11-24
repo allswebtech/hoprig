@@ -26,6 +26,12 @@ export function message(v) {
   return Buffer.byteLength(v) <= MESSAGE_MAX ? v : null;
 }
 
+/**
+ * A chat's own name as the chat keeps it (POST /api/chats title): one line, no control characters, at most 80
+ * characters. Whoever looks an open chat up by the name it gave it compares with this, not with what it sent.
+ */
+export const chatTitle = (v) => String(v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+
 /** An absolute path string (existence and root containment are checked by folders.mjs). */
 export function absPath(v) {
   if (typeof v !== 'string' || !path.isAbsolute(v) || v.includes('\0') || v.length > 4096) return null;

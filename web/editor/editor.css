@@ -81,6 +81,7 @@ body.code-mode .tia-boxroot { display: none; }
 .ed-hit:hover { background: var(--surface-2); }
 .ed-hit-line { flex: none; min-width: 26px; font: 11px/1.6 var(--mono); color: var(--muted); text-align: right; }
 .ed-hit-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; font: 12px/1.6 var(--mono); }
+.ed-hit-more { flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; }
 .ed-hit-mark { background: color-mix(in srgb, var(--warm) 35%, transparent); color: inherit; border-radius: 2px; }
 
 /* Source Control */
@@ -177,7 +178,7 @@ button.ed-st:hover { background: var(--surface-2); color: var(--text); }
   .ed-activity, .ed-resize { display: none; }
   .ed-side { border-right: 0; }
   .ed-wrap.ed-noside .ed-side { visibility: visible; }
-  .ed-wrap.ed-pane-editor .ed-side, .ed-wrap:not(.ed-pane-editor) .ed-area { display: none; }
+  .ed-wrap.ed-pane-editor .ed-side, .ed-wrap:not(.ed-pane-editor) .ed-center { display: none; }
   .ed-st-wide { display: none; }
   .ed-back { width: var(--tap); padding: 0; }
   .ed-back-label { display: none; }
@@ -207,3 +208,44 @@ button.ed-st:hover { background: var(--surface-2); color: var(--text); }
 .ed-fail-title { margin: 6px 0 0; font-size: var(--fs-lg); font-weight: 700; color: var(--text); }
 .ed-fail-text { margin: 0; overflow-wrap: anywhere; }
 .ed-fail-tools { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
+
+/* ---------- the editor area and the panel under it (the terminal, Ctrl+`) ---------- */
+.ed-center { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
+.ed-panelarea { display: flex; flex-direction: column; height: clamp(160px, 34vh, 420px); min-height: 0; background: var(--surface); border-top: 1px solid var(--border); }
+.ed-panelbar { display: flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--border); }
+.ed-panelarea > .ed-panelnote { margin: 8px 12px; }
+.ed-termbox { flex: 1; min-height: 0; display: flex; }
+.ed-termframe { flex: 1; width: 100%; height: 100%; border: 0; background: var(--bg); }
+
+/* ---------- tabs: pinned, a drop place while one is dragged ---------- */
+.ed-tab.pinned { padding-left: 10px; }
+.ed-tab.drop, .ed-row.drop { box-shadow: inset 2px 0 0 var(--accent); background: var(--accent-soft); }
+.desk-menu-keys { margin-left: auto; padding-left: 16px; font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+
+/* ---------- Search: the replace toggle at the left, the replace box under the search box ---------- */
+.ed-search-top { display: flex; align-items: flex-start; gap: 2px; margin: 0 10px 6px 4px; }
+.ed-search-fields { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.ed-search-top .ed-search-box { margin: 0; }
+.ed-replace-toggle { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 34px; padding: 0; }
+.ed-search-replace { display: flex; align-items: center; gap: 2px; }
+.ed-search-r { flex: 1; min-width: 0; min-height: 34px; }
+.ed-hit-del { background: color-mix(in srgb, var(--danger) 22%, transparent); text-decoration: line-through; }
+.ed-hit-ins { background: color-mix(in srgb, var(--ok) 25%, transparent); text-decoration: none; }
+.ed-quick-keys { flex: none; margin-left: auto; font: 11px/1 var(--mono); color: var(--muted); }
+
+/* ---------- Keyboard shortcuts (Ctrl+K Ctrl+S) ---------- */
+.ed-keys { display: grid; gap: 0; margin-top: 8px; }
+.ed-keyrow { display: flex; align-items: baseline; gap: 12px; padding: 6px 2px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
+.ed-keyrow-label { flex: 1; min-width: 0; }
+.ed-keyrow-keys { flex: none; max-width: 50%; text-align: right; font: 12px/1.4 var(--mono); color: var(--text-2); }
+/* A finger: Search's Replace All, the Replace toggle and the three switches at the kit's tap size. */
+@media (pointer: coarse) {
+  .ed-replace-toggle, .ed-search-replace .btn.icon, .ed-flags .ed-flag { min-width: var(--tap); min-height: var(--tap); }
+  .ed-search-q { padding-right: calc(3 * var(--tap) + 12px); min-height: var(--tap); }
+  .ed-search-r { min-height: var(--tap); }
+}
+/* The session page inside the editor's terminal panel (terminal.js): the terminal alone. Its controls carry
+   data-chrome (web/sessionchrome.js), set by the session page itself. A touch screen keeps the key bar: a phone's
+   keyboard has no Esc, Tab, Ctrl or arrows. */
+html.ed-term-panel [data-chrome="bar"] { display: none !important; }
+@media (pointer: fine) { html.ed-term-panel [data-chrome="keys"] { display: none !important; } }

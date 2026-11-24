@@ -21,13 +21,13 @@ const byId = (steps) => Object.fromEntries(steps.map((x) => [x.id, x]));
 
 test('each step done or not, with what to open', () => {
   const e = byId(ON.onboardingSteps(empty));
-  assert.deepEqual(Object.keys(e), ['claude', 'tools', 'rules', 'project', 'skills', 'phone', 'account2', 'computer']);
+  assert.deepEqual(Object.keys(e), ['claude', 'tools', 'rules', 'project', 'phone', 'skills', 'account2', 'computer']);
   for (const x of Object.values(e)) assert.equal(x.done, false, x.id);
   // The rules and the skills are every coding tool's (the brain links them to each); only the first step is Claude Code's.
   assert.deepEqual([e.claude.title, e.rules.title, e.skills.title], ['Claude Code installed and signed in', 'Working rules', 'Skills']);
   assert.deepEqual(e.claude.action, { kind: 'install-claude', label: 'Install Claude Code' });
   assert.deepEqual(e.tools.action, { kind: 'page', target: 'pc/setup' });
-  assert.deepEqual(e.rules.action, { kind: 'request', method: 'POST', path: '/api/pcsetup/rules', body: { action: 'add' } });
+  assert.deepEqual(e.rules.action, { kind: 'request', method: 'POST', path: '/api/pcsetup/rules', body: { action: 'add' }, label: 'Add the rules' });
   assert.deepEqual(e.project.action, { kind: 'page', target: 'pc/projects' });
   assert.deepEqual(e.skills.action, { kind: 'page', target: 'settings/skills' });
   assert.deepEqual(e.phone.action, { kind: 'page', target: 'settings/signin-device' });
@@ -184,4 +184,10 @@ test('sign-in links for another address: only one this dashboard is reached at',
   } finally {
     await app.close();
   }
+});
+
+test('the Working rules step\'s one press says what it does and where the file goes', async () => {
+  const r = byId(ON.onboardingSteps(empty)).rules;
+  assert.equal(r.action.label, 'Add the rules');
+  assert.match(r.detail, /a file of their own in Claude Code's rules folder \(your own files are not changed\)/);
 });

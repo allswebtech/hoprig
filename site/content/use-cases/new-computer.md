@@ -6,7 +6,7 @@ short: Install, sign in to git, and everything comes back where it was.
 
 # How do I get my whole AI coding setup back on a new, formatted or lost computer?
 
-If your workspace is in git, three commands bring it back: the install line, `hop workspace git` to sign in to GitHub, and `hop workspace restore` with your brain's address. It clones the brain and every project and code repository its map names, links the AI memory, and offers the dependency installs.
+If your workspace is in git, three commands bring it back: the install line, `hop workspace git` to sign in to GitHub, and `hop workspace restore` with your brain's address and `--with-projects`. It clones the brain and every project and code repository its map names, links the AI memory, and offers the dependency installs.
 
 ## Who this is for
 
@@ -25,19 +25,20 @@ Before anything happens, on the computer you have now:
 
 On the new computer:
 
-1. Install Hoprig with the one line. Its setup installs git, Node.js, Python, GitHub's `gh` and the rest, after asking once. These installs were run on clean Ubuntu, Debian and Fedora; on macOS they were checked read-only, not run yet.
+1. Install Hoprig with the one line. Its setup installs git, Node.js, Python, GitHub's `gh` and the rest, after asking once. These installs were run on clean Ubuntu, Debian and Fedora; on a Mac they were not tried yet.
 2. `hop workspace git` sets git's name and e-mail and signs you in to GitHub.
-3. `hop workspace restore <your brain's address>` clones the brain, reads its map, shows the whole plan, asks once, then clones every project and code repository where it belongs, links each project's memory, copies `.env.example` and offers the dependency installs.
+3. `hop workspace restore <your brain's address> --with-projects` clones the brain, reads its map, shows the whole plan, asks once, then clones every project and code repository where it belongs, links each project's memory, copies `.env.example` and offers the dependency installs. Without `--with-projects` it brings the brain and the other repositories only, and `hop get <name>` fetches one project when you need it.
 4. `hop workspace link` makes your coding tools read the brain's rules, skills and memory again.
 5. `hop pc setup --recipe my-setup.json` sets up the same kits as the old computer.
+6. After a format, `hop workspace label <its old label> --again` tells the workspace that this is the same computer, so its own file in the brain goes on.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
 hop workspace git
-hop workspace restore <your brain's address>
+hop workspace restore <your brain's address> --with-projects
 ```
 
-Run restore again and it only gets what is missing. What is there is never overwritten or moved.
+Run restore again and it only gets what is missing. What is there is never overwritten; a clone that was cut off half way is moved aside under a dated name, never deleted, and cloned again.
 
 ![A computer's page, Setup: what it has for coding, what is missing, and one button to install it](/screenshots/computer-setup-desktop-light.webp)
 

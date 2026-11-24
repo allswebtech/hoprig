@@ -9,12 +9,17 @@
 //                                             terminal runs it already → { name, existing: true } (the chat stays)
 import crypto from 'node:crypto';
 import { assertServes, readProfile } from '../profiles.mjs';
+import { handsOffOffered } from '../handsoff.mjs';
 import { listRuns, runsConversation, stillRuns } from '../runs.mjs';
 import { toolFlags } from '../codetools/start.mjs';
 import { matchRuns, queue } from '../server/deck.mjs';
 import { parentLookup, procParent } from '../server/platform.mjs';
 import * as v from '../server/validate.mjs';
 import { handedChats } from './handed.mjs';
+import { isMarkedHers } from '../hermark.mjs';
+import { runsDir } from '../paths.mjs';
+import { noteTaken } from '../automation/taken.mjs';
+import path from 'node:path';
 import { chatTools, choicesOf, conversationIdOk, modeFor, modelOk } from './tools.mjs';
 
 const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
@@ -93,17 +98,30 @@ export function handoffRoutes(ctx, o) {
   // The chats closed by "Open in terminal", with their titles (handed.mjs: kept over a restart of the dashboard).
   const handed = handedChats(o.handedFile || null);
   const titleOf = (conversation, tool) => handed.titleOf(conversation, tool);
+  // One "Open in terminal" start per conversation: `${tool}:${conversation}` → the promise of the terminal name it is
+  // opening in. A second request for the same conversation (a double tap, two tabs) waits for that one and opens in
+  // the same terminal, never a second process and never a 404 in the window before the new terminal's record is seen.
+  const openingTerminal = new Map();
   /** Continue here: the terminal that runs chat `c`'s conversation stops (it stays, as a plain shell); the chat goes on. */
   async function take(c) {
     const tool = c.engine.id;
     const term = await terminalOf(c.conversationId, tool);
     if (!term) return { ok: true };
+    let takeBack = () => {};
     if (term.termId) {
       // The terminal stays, as a plain shell: the coding tool stops in it, the conversation goes on here. (`-e 0`: a
       // program that ends at once, with no empty word on the typed line.)
       // Its launcher holds the conversation until its coding tool has saved and ended: waited for, as in a move.
       const hold = term.run && v.pid(term.run.pid) ? term.run.pid : null;
-      await ctx.deck.respawn(term.termId, term.cwd || c.cwd, [process.execPath, '-e', '0'], { hold });
+      // Written down first, so a restore after a restart at any moment from now does not reopen this terminal on the
+      // conversation (src/automation/taken.mjs); taken back when the terminal could not be stopped.
+      takeBack = noteTaken({ tool, conversation: c.conversationId, runId: term.run && term.run.runId });
+      try {
+        await ctx.deck.respawn(term.termId, term.cwd || c.cwd, [process.execPath, '-e', '0'], { hold });
+      } catch (e) {
+        takeBack();
+        throw e;
+      }
     } else if (term.run && v.pid(term.run.pid) && (await stillRuns(term.run))) {
       // Judged again right before the signal: a record whose process has ended (its pid another process's now) goes
       // instead, and nothing is sent to that other process.
@@ -115,9 +133,15 @@ export function handoffRoutes(ctx, o) {
     }
     forget(c.conversationId, tool);
     for (let i = 0; i < 40 && (await terminalOf(c.conversationId, tool)); i++) await new Promise((r) => setTimeout(r, 200));
-    if (await terminalOf(c.conversationId, tool)) throw new HttpError(409, `the terminal did not stop; stop ${tool === 'claude' ? 'Claude' : c.engine.label} there and try again`);
+    if (await terminalOf(c.conversationId, tool)) {
+      takeBack(); // it still runs the conversation: a restore may bring it back as before
+      throw new HttpError(409, `the terminal did not stop; stop ${tool === 'claude' ? 'Claude' : c.engine.label} there and try again`);
+    }
     // The conversation ran in that terminal, where the owner may have written in it: not Tia's chat any more.
     if (c.dropMark()) save();
+    // It started again here, outside the dashboard's own move, so its Hands-off state was not carried: it is the
+    // owner's until he turns it on for the chat (chatSwitch reads this stop; the wall still holds by the switch).
+    if (handsOffOffered(cfg()) && c.handsOffStop !== 'reset') { c.handsOffStop = 'reset'; save(); }
     // A coding tool whose turns run on its server (OpenCode) goes on without its terminal: that turn stops too, as
     // Claude Code's does with its process. The chat goes on from where it ended.
     if (c.engine.interrupt) await c.engine.interrupt(c.conversationId, c.o.engineOpts);
@@ -169,9 +193,13 @@ export function handoffRoutes(ctx, o) {
       const id = tool === 'claude' ? freeId(run.sessionId) : crypto.randomUUID();
       make({
         id, ...(id !== run.sessionId ? { conversationId: run.sessionId } : {}), engine: tool, cwd: run.cwd, profile: run.profile,
-        model: tool === 'claude' ? one('--model', 'model', ch.models) : toolModel,
+        // Claude Code: also an exact name the terminal ran with, while the provider's list does not leave it out.
+        model: tool === 'claude' ? [flag('--model'), last.model, d.model].find((x) => typeof x === 'string' && modelOk(tool, x, ch)) || null : toolModel,
         effort: one('--effort', 'effort', ch.efforts), permissionMode: mode,
         ultracode: last.ultracode === true, ...titleOf(run.sessionId, tool),
+        // A terminal of Tia's shown as a chat stays hers for her safety (the mark and her sign-in), read from the mark
+        // the dashboard wrote for its run; its OKs stay the owner's (byTia is never set for an existing conversation).
+        ...(run.runId && isMarkedHers(path.join(runsDir(), `${path.basename(String(run.runId))}.json`)) ? { hers: true } : {}),
       });
       save();
       return { id };
@@ -192,6 +220,9 @@ export function handoffRoutes(ctx, o) {
       if (!chats.has(m[1]) && handed.has(m[1])) {
         // Handed to a terminal a moment ago (the other tab was first): that terminal, while it runs the conversation.
         const h = handed.get(m[1]);
+        // The other tab's start may still be under way (its record not written yet): wait for it, not a stale look.
+        const pk = `${h.tool}:${h.conversation}`;
+        if (openingTerminal.has(pk)) return { name: await openingTerminal.get(pk), existing: true };
         const term = await terminalOf(h.conversation, h.tool);
         if (term) return there(term);
       }
@@ -199,6 +230,15 @@ export function handoffRoutes(ctx, o) {
       const conversation = c.conversationId;
       const tool = c.engine.id;
       if (tool !== 'claude' && !chatTools(cfg()).includes(tool)) throw new HttpError(409, `${c.engine.label} is off on this computer: turn it on to open its conversations in a terminal`);
+      // A start for this very conversation already under way (a double tap, two tabs): open in that terminal. The
+      // check and the set below are synchronous (no await between), so a concurrent request always sees the start.
+      const key = `${tool}:${conversation}`;
+      if (openingTerminal.has(key)) return { name: await openingTerminal.get(key), existing: true };
+      let settle;
+      const pending = new Promise((res, rej) => { settle = { res, rej }; });
+      pending.catch(() => {}); // a lone request need not await it: do not warn on a rejection nobody reads
+      openingTerminal.set(key, pending);
+      try {
       const r = await claim(conversation, async () => {
         if (!chats.has(c.id)) throw new HttpError(404, 'this chat is not open (it was archived or opened in a terminal)');
         if (!(await c.engine.exists(c.cwd, conversation, c.o.engineOpts))) throw new HttpError(409, 'send a first message: a conversation that has not started cannot be resumed in a terminal');
@@ -212,13 +252,18 @@ export function handoffRoutes(ctx, o) {
           ...(c.effort ? ['--effort', c.effort] : []),
           ...(c.model ? ['--model', c.model] : []),
         ] : toolFlags(tool, { permissionMode: c.permissionMode === 'bypassPermissions' ? 'bypassPermissions' : 'ask', effort: c.effort, model: c.model });
+        // Read before the chat closes: a chat of hers (her own start, a terminal of hers shown as a chat) stays hers.
+        const wasHers = c.byTia === true || c.hers === true || !!c.restoredMark;
         chats.delete(c.id);
         handed.set(c.id, { conversation, tool, title: c.title || null, named: c.named === true });
         await c.close();
         // Its page learns the outcome only now (live.mjs): gone once the terminal runs, kept when it did not start.
         let name;
         try {
-          name = await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: conversation, flags });
+          // The conversation starts again in a terminal, outside the dashboard's own move: its Hands-off state is not
+          // carried, so the new run starts with its answers stopped (a reset hand); the owner turns it on there.
+          // A chat of Tia's goes on in the terminal as hers (the mark, her sign-in), whoever pressed.
+          name = await ctx.deck.start({ ...(tool === 'claude' ? {} : { tool }), dir: c.cwd, profile, mode: 'resume', sessionId: conversation, flags, resetHandsOff: true, hers: wasHers });
         } catch (e) {
           make(c.record()); // the terminal did not start: the chat stays open
           c.emit('kept');
@@ -228,11 +273,18 @@ export function handoffRoutes(ctx, o) {
         c.emit('gone');
         return { name };
       }, { tool, self: c.id });
-      if (r.terminal) return there(r.terminal);
+      if (r.terminal) { const t = there(r.terminal); settle.res(t.name); return t; }
       if (r.chat) throw new HttpError(409, 'another chat runs this conversation right now');
       save();
       ctx.poke?.();
+      settle.res(r.started.name);
       return { name: r.started.name };
+      } catch (e) {
+        settle.rej(e); // a request waiting on this start gets the same outcome
+        throw e;
+      } finally {
+        openingTerminal.delete(key);
+      }
     }],
   ];
 }

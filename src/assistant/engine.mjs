@@ -51,7 +51,12 @@ export async function providerEnv(name, base = process.env) {
   if (name === 'auto') {
     const { autoProfile } = await import('../launch.mjs');
     p = await autoProfile();
-    if (!p) throw new Error('Auto mode has no order of providers yet');
+    // No provider it may use: an order whose every provider is left out (gone, not serving Claude Code, billed by use)
+    // says why in the router's own words; only an empty order has no order yet.
+    if (!p) {
+      const [{ leftOutOfOrder }, { nothingUsableWhy }] = await Promise.all([import('../autoswitch.mjs'), import('../router.mjs')]);
+      throw new Error(nothingUsableWhy(leftOutOfOrder()) || 'Auto mode has no order of providers yet');
+    }
   } else {
     p = readProfile(name);
     if (!p) throw new Error(`there is no provider "${name}"`);
@@ -107,6 +112,8 @@ export function engineArgs({ systemPrompt, mcpConfigFile, sessionId = null, resu
  * conversation.
  */
 export function mcpConfig({ url, tokenFile, conversation, command = process.execPath, args = [binFile(), 'mcp'] }) {
+  // Without its own address `hoprig mcp` would fall back to the default port, where another dashboard may listen.
+  if (typeof url !== 'string' || !/^https?:\/\/[^/]+/.test(url)) throw new Error('the dashboard\'s own address is not known');
   return {
     mcpServers: {
       [SERVER_NAME]: {

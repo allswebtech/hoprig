@@ -130,7 +130,8 @@ export async function workspaceSetup({ dryRun = false, cfg, projectsDir, run = c
 /** git init and a first commit for a new brain, only when git knows a name and an e-mail (a commit needs them). */
 async function brainGit(dir, { dryRun, run, ws }) {
   const who = await Promise.all(['user.name', 'user.email'].map((k) => run(['git', 'config', '--get', k], { timeout: 10_000, cwd: os.tmpdir() }).then((r) => (r.ok ? (r.stdout || '').trim() : ''), () => '')));
-  if (!who[0] || !who[1]) return { done: false, why: `git does not know your name and e-mail yet: set them (git config --global user.name / user.email), then: ${showCommands([['git', '-C', dir, 'init', '-b', 'main'], ['git', '-C', dir, 'add', '-A'], ['git', '-C', dir, 'commit', '-m', 'Start the AI brain']])}` };
+  const steps = showCommands([['git', '-C', dir, 'init', '-b', 'main'], ['git', '-C', dir, 'add', '-A'], ['git', '-C', dir, 'commit', '-m', 'Start the AI brain']]);
+  if (!who[0] || !who[1]) return { done: false, needsIdentity: true, steps, why: `git does not know your name and e-mail yet: set them (git config --global user.name / user.email), then: ${steps}` };
   if (dryRun) return { done: false, why: 'dry run: would run git init and make a first commit' };
   if (!isDir(dir)) return { done: false, why: 'no brain folder' };
   const r = await initRepo(dir, 'Start the AI brain', run, { root: dir, dir: ws });

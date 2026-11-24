@@ -53,7 +53,7 @@ export const KIND_WORDS = {
     title: 'Temporary',
     text: 'A new address each time it starts. Nothing to set up.',
     needs: 'Nothing. Hoprig installs Cloudflare\'s free helper (cloudflared) the first time you turn it on.',
-    gives: 'An https://….trycloudflare.com address through Cloudflare\'s free quick tunnel. It changes whenever Hoprig or the computer restarts (also the restart that finishes an update of Hoprig); the new one is shown here and sent to your notifications.',
+    gives: 'An https address ending in trycloudflare.com, given for free by Cloudflare, the company that carries the link. It changes whenever Hoprig or the computer restarts (also the restart that finishes an update of Hoprig); the new one is shown here and sent to your notifications.',
   },
   custom: {
     title: 'Custom',
@@ -69,6 +69,7 @@ let sup = null;
 let cur = null; // { kind, url, pending } while a link runs in this process
 let phase = 'off'; // off | installing | starting | error | blocked (on / retrying come from the supervisor)
 let lastError = null;
+let lastCode = null; // the code of lastError when it names a place (web/errorways.js), else null
 let blocked = null; // while on but held back: { need, error } (the password is not strong enough)
 let failures = 0; // starts that failed in a row by themselves, for the wait before the next try
 let retryAt = 0;
@@ -154,6 +155,7 @@ async function stopRun() {
 async function startRun(kind) {
   progress = [];
   lastError = null;
+  lastCode = null;
   writeRecord({ error: null, errorAt: null });
   let bin = findBin();
   if (!bin) {
@@ -167,7 +169,8 @@ async function startRun(kind) {
     if (!now.on || now.kind !== kind) return { cancelled: true };
     if (!r.ok || !bin) return { error: `cloudflared could not be installed${r.error ? `: ${r.error}` : ''}.` };
   }
-  if (!hasPassword()) return { error: 'Set a dashboard password first (Settings → Security): the address leads to the sign-in page.' };
+  // The password was taken away while cloudflared installed (cannotTurnOn passed before): its code names the place.
+  if (!hasPassword()) return { error: 'Set a dashboard password first (Settings → Security and sign-in): the public link opens the sign-in page, and it needs a password.', code: 'no-password' };
   let run;
   if (kind === 'custom') {
     run = customRun(bin);
@@ -233,6 +236,7 @@ function reconcile({ force = false, explicit = false, restart = false } = {}) {
       phase = 'blocked';
       blocked = { need: no.need, error: no.error };
       lastError = no.error;
+      lastCode = null; // the page asks for what is needed in place (need)
       writeRecord({ error: no.error, errorAt: Date.now() });
       return;
     }
@@ -252,6 +256,7 @@ function reconcile({ force = false, explicit = false, restart = false } = {}) {
     }
     phase = 'error';
     lastError = r.error;
+    lastCode = r.code || null;
     say(r.error);
     writeRecord({ error: r.error, errorAt: Date.now() });
     if (explicit) {
@@ -266,6 +271,7 @@ function reconcile({ force = false, explicit = false, restart = false } = {}) {
   queue = queue.then(step).catch((e) => {
     phase = 'error';
     lastError = e.message;
+    lastCode = null;
   });
   return queue;
 }
@@ -278,7 +284,7 @@ function reconcile({ force = false, explicit = false, restart = false } = {}) {
 export function cannotTurnOn(kind, cfg = loadConfig()) {
   if (!KINDS.includes(kind)) return { need: null, error: 'kind must be "temporary" or "custom"' };
   const pw = passwordState(cfg.server);
-  if (pw.state === 'none') return { need: 'password', error: 'Set a dashboard password first: the address leads to the sign-in page.' };
+  if (pw.state === 'none') return { need: 'password', error: 'Set a dashboard password first (Settings → Security and sign-in): the public link opens the sign-in page, and it needs a password.' };
   if (pw.state === 'unknown') return { need: 'check-password', error: 'Type your dashboard password once, so Hoprig can check that it is strong enough for a page anyone can reach.' };
   if (pw.state === 'weak') return { need: 'stronger-password', error: `Your dashboard password is too weak for a public link: ${pw.why}. Make a stronger one (at least 12 characters, or a generated one).` };
   if (kind === 'custom' && !readFixed()?.mode) return { need: 'custom-setup', error: 'Set up Custom first: sign in to Cloudflare and name the address.' };
@@ -358,6 +364,7 @@ export function status({ why = true } = {}) {
     need: state === 'blocked' && blocked ? blocked.need : want.on && cur && pw.state === 'unknown' ? 'check-password' : null,
     url: state === 'on' || (cur && cur.kind === 'custom') ? liveUrl() : null,
     error: phase === 'error' || state === 'blocked' ? lastError : (r && !r.connected && r.error) || null,
+    ...(phase === 'error' && lastCode ? { code: lastCode } : {}),
     nextTryAt: (r && r.nextTryAt) || null,
     restarts: (r && r.restarts) || 0,
     progress: [...progress],
@@ -458,6 +465,7 @@ export async function resetForTests() {
   sup = null;
   progress = [];
   lastError = null;
+  lastCode = null;
   blocked = null;
   failures = 0;
   retryAt = 0;

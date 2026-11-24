@@ -193,16 +193,16 @@ test('the hub settings for its address', () => {
 
 test('firewall: ufw or firewalld when active, with the command for 80 and 443', async () => {
   const ufw = fakeBin(path.join(s.tmp, 'fw-ufw'), { ufw: 'exit 0', systemctl: '[ "$2" = ufw ] && echo active || echo inactive' });
-  assert.deepEqual(await H.firewallPlan({ env: { PATH: pathWith(s.tmp, ufw) }, platform: 'linux' }), { name: 'ufw', steps: [['sudo', 'ufw', 'allow', '80,443/tcp']] });
+  assert.deepEqual(await H.firewallPlan({ env: { PATH: pathWith(s.tmp, ufw) }, platform: 'linux' }), { name: 'ufw', steps: [['sudo', 'ufw', 'allow', '80,443/tcp']] }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   const fwd = fakeBin(path.join(s.tmp, 'fw-firewalld'), { 'firewall-cmd': 'exit 0', systemctl: '[ "$2" = firewalld ] && echo active || echo inactive' });
-  assert.deepEqual((await H.firewallPlan({ env: { PATH: pathWith(s.tmp, fwd) }, platform: 'linux', root: true })).steps,
+  assert.deepEqual((await H.firewallPlan({ env: { PATH: pathWith(s.tmp, fwd) }, platform: 'linux', root: true })).steps, // seal: only the test's own folders, in an environment that keeps the runner's variables
     [['firewall-cmd', '--permanent', '--add-service=http', '--add-service=https'], ['firewall-cmd', '--reload']]);
   const off = fakeBin(path.join(s.tmp, 'fw-off'), { ufw: 'exit 0', systemctl: 'echo inactive' });
-  assert.equal(await H.firewallPlan({ env: { PATH: pathWith(s.tmp, off) }, platform: 'linux' }), null);
+  assert.equal(await H.firewallPlan({ env: { PATH: pathWith(s.tmp, off) }, platform: 'linux' }), null); // seal: only the test's own folders, in an environment that keeps the runner's variables
 });
 
 test('detection with fake programs: nginx running, Caddy installed, nothing', async () => {
-  const run = async (programs, exists = () => false) => H.detectWebServer({ env: { PATH: pathWith(s.tmp, fakeBin(path.join(s.tmp, `web-${Object.keys(programs).join('-')}`), programs)) }, platform: 'linux', exists });
+  const run = async (programs, exists = () => false) => H.detectWebServer({ env: { PATH: pathWith(s.tmp, fakeBin(path.join(s.tmp, `web-${Object.keys(programs).join('-')}`), programs)) }, platform: 'linux', exists }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   const nginx = await run({ nginx: 'exit 0', ss: 'echo "LISTEN 0 511 0.0.0.0:80 0.0.0.0:*"', systemctl: '[ "$2" = nginx ] && echo active || echo inactive' });
   assert.equal(nginx.kind, 'nginx');
   const caddy = await run({ caddy: 'exit 0', ss: 'echo "LISTEN 0 128 127.0.0.1:7433 0.0.0.0:*"', systemctl: 'echo inactive' });

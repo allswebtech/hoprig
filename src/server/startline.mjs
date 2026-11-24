@@ -20,10 +20,12 @@ export function assertFolder(dir) {
 /**
  * What a terminal runs for `argv` in `dir`, as { argv, file }: the launcher's own command (`launcher`) with a launch
  * file in place of its words, so nothing of them, nor the folder, is typed into a shell. Refused plainly (400) before
- * anything is written when the launcher's own command or the state folder cannot be typed. A command that is not the
+ * anything is written when the launcher's own command or the state folder cannot be typed. `hand`: a move's
+ * hand-over of Hands-off's stops (../launchfile.mjs), only into the launcher's file. A command that is not the
  * launcher (a plain program of ours) is typed only when each of its words may be. `argv` null: a plain shell.
+ * `hers`: a session the dashboard starts for Tia (../launchfile.mjs writeLaunch), only into the launcher's file.
  */
-export function startCommand({ launcher, dir, argv, mark = null, platform = process.platform }) {
+export function startCommand({ launcher, dir, argv, mark = null, hand = null, hers = false, platform = process.platform }) {
   if (!argv) return { argv: null, file: null };
   const ours = argv.length >= launcher.length && launcher.every((w, i) => argv[i] === w);
   const extra = mark ? [mark] : [];
@@ -32,6 +34,6 @@ export function startCommand({ launcher, dir, argv, mark = null, platform = proc
     return { argv, file: null };
   }
   assertTypable([...launcher, LAUNCH_FLAG, launchDir(), ...extra], platform);
-  const file = writeLaunch({ cwd: dir, argv: argv.slice(launcher.length) });
+  const file = writeLaunch({ cwd: dir, argv: argv.slice(launcher.length), ...(hand ? { hand } : {}), ...(hers ? { hers: true } : {}) });
   return { argv: [...launcher, LAUNCH_FLAG, file], file };
 }

@@ -11,15 +11,18 @@ import { notePassword, passwordProblem } from './strength.mjs';
 import { firstPassword, passwordFileFrom, publicUrlSettings, resolveListen } from './serveopts.mjs';
 import { APP_NAME } from './brand.mjs';
 import { service } from './service/index.mjs';
+import { listenTakingOver } from './takeover.mjs';
 
 const A = APP_NAME;
-const USAGE = `usage:
-  ${A} serve [--host H] [--port P] [--password-file F]
+export const USAGE = `usage:
+  ${A} serve [--host H] [--port P] [--password-file F] [--take-over]
                                        start the dashboard (default ${DEFAULT_HOST}:${DEFAULT_PORT}; HOST and PORT in the
-                                       environment also work; with no password set yet, F gets a new one)
+                                       environment also work; with no password set yet, F gets a new one;
+                                       --take-over ends this Hoprig's dashboard on that port first)
   ${A} passwd                          set the dashboard password (asked twice, not shown)
   ${A} passwd --generate <file>        write a random password to <file> (mode 600) and use it
-  ${A} service install|uninstall|status   run the dashboard in the background from login
+  ${A} service install|uninstall|status|restart
+                                       run the dashboard in the background from login
                                        (systemd on Linux, launchd on macOS, Task Scheduler on Windows)
 `;
 
@@ -137,6 +140,10 @@ function parseServeArgs(args) {
       if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error('--port must be 1-65535');
       out.port = p;
     } else if (a === '--password-file' || a.startsWith('--password-file=')) out.passwordFile = val('--password-file');
+    else if (a === '--take-over') out.takeOver = true;
+    // The move to an ordinary user (src/setup/moveswitch.mjs) tries the user's dashboard on copied settings first: it
+    // answers, and starts nothing of its own (no restored sessions, no public link, no gateway, no looks).
+    else if (a === '--trial') out.trial = true;
     else throw new Error(`unknown option ${a}`);
   }
   return out;
@@ -178,9 +185,10 @@ async function serve(args) {
     console.error(`${A} serve: ${e.message}`);
     return 2;
   }
-  const app = createServer({ host, port, loginCheck: true });
+  // A trial (--trial) starts nothing of its own, and asks no sign-in check either.
+  const app = o.trial ? createServer({ host, port, watch: false, startFeatures: false }) : createServer({ host, port, loginCheck: true });
   try {
-    await app.listen(port, host);
+    await listenTakingOver(() => app.listen(port, host), port, { takeOver: o.takeOver === true });
   } catch (e) {
     console.error(`${A} serve: cannot listen on ${host}:${port}: ${e.message}`);
     return 1;
@@ -215,19 +223,75 @@ async function serve(args) {
 
 /** Entry point from the bin script. Returns an exit code, or null while the server runs. */
 export async function main(command, args = []) {
+  // --help prints the usage (before, "serve --help" only said "unknown option" and showed none).
+  if (args.includes('--help') || args.includes('-h')) {
+    process.stdout.write(USAGE);
+    return 0;
+  }
   switch (command) {
     case 'serve':
       return serve(args);
     case 'passwd':
       return passwd(args);
     case 'service':
+      // As root on a computer where Hoprig was never set up for root: the same making of the work user as set-up's.
+      if (args[0] === 'install') {
+        const code = await freshRootSetup();
+        if (code !== null) return code;
+      }
       if (args[0] === 'install' && !hasPassword()) {
         console.error(`Set a dashboard password first (${A} passwd).`);
         return 1;
       }
+      if (args[0] === 'install') return installWithReport();
       return service(args[0]);
+    // Hidden: the detached helper of a restart asked for from the dashboard's own page (selfrestart.mjs). Not in the
+    // usage; a person never types it.
+    case '__service-restart': {
+      const { restartAfterExit } = await import('./selfrestart.mjs');
+      return restartAfterExit(args[0]);
+    }
     default:
       process.stderr.write(USAGE);
       return 2;
   }
+}
+
+/**
+ * "service install" restarts the dashboard. When the one running before was another version (an update of Hoprig went
+ * before it), that restart is the go-live: a field report says whether it restarted and the new version answers
+ * (src/field/wire.mjs reportRestart). Reading the running dashboard never fails the install.
+ */
+/**
+ * `service install` as root, not on purpose, with Hoprig never set up for root: runs the installer that makes the work
+ * user (rootwork.mjs) and returns its exit code; null in every other case (the command goes on as before). `facts`,
+ * `installed` and `work` are handed in by tests.
+ */
+export async function freshRootSetup({ facts, installed, work } = {}) {
+  const R = await import('../setup/rootfacts.mjs');
+  const f = facts || R.rootFacts({ cfg: loadConfig() });
+  if (!f.root || R.workAsRootAllowed(f)) return null;
+  const W = await import('../setup/rootwork.mjs');
+  const { serviceInstalled } = await import('./service/index.mjs');
+  if (!W.freshRoot({ serviceInstalled: installed ?? serviceInstalled(), cfg: loadConfig() })) return null;
+  console.log(W.FRESH_ROOT_START);
+  return (work || W.runWorkSetup)([]);
+}
+
+export async function installWithReport({ facts, run = () => service('install'), wait = 250, tries = 20 } = {}) {
+  const ask = facts || (async () => (await import('../setup/running.mjs')).runningFacts().catch(() => null));
+  const startedAt = Date.now();
+  const before = await ask().catch(() => null);
+  const code = await run();
+  let after = null;
+  if (before && code === 0) {
+    for (let i = 0; i < tries && !(after && after.version && after.pid !== before.pid); i++) {
+      after = await ask().catch(() => null);
+      if (!(after && after.version && after.pid !== before.pid)) await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  const { reportRestart } = await import('../field/wire.mjs');
+  const { appVersion } = await import('../setup/checks.mjs');
+  reportRestart({ before, code, after, mine: appVersion(), startedAt });
+  return code;
 }

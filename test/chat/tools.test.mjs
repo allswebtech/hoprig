@@ -101,7 +101,9 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
   const tools = (await owner('GET', '/api/chats/tools')).json.tools;
   assert.deepEqual(tools.map((x) => x.id), ['claude', 'opencode']);
-  assert.deepEqual(tools[1].modes, ['manual', 'acceptEdits', 'bypassPermissions']);
+  assert.deepEqual(tools[1].modes, ['manual', 'acceptEdits'], 'Bypass permissions only once Settings allows it');
+  saveConfig({ allowBypass: true });
+  assert.deepEqual((await owner('GET', '/api/chats/tools')).json.tools[1].modes, ['manual', 'acceptEdits', 'bypassPermissions']);
   assert.ok(!JSON.stringify(tools).includes('Codex'));
 
   // A Claude subscription never reaches OpenCode: where a chat starts, and where it moves.
@@ -284,6 +286,16 @@ test('a chat of OpenCode: refused while off or missing; only a provider that ser
   assert.equal(r.status, 200, r.json && r.json.error);
   assert.equal((await chatCard(r.json.id)).byTia, false, 'a page cannot open a chat marked hers');
   assert.equal((await owner('POST', `/api/chats/${r.json.id}/close`, {})).status, 200);
+  // A session of hers on a coding tool Hoprig cannot hook (OpenCode, Codex) gets no hold for her administrator-rights
+  // level, so below Full her door is turned away: her level could not hold an administrator command there. At the
+  // default level (off) the hers OpenCode start is refused.
+  const refused = await door('POST', '/api/chats', { dir: proj, tool: 'opencode', profile: 'gw', byTia: true, defaults: true });
+  assert.equal(refused.status, 400, 'a hers OpenCode chat is refused below Full');
+  assert.match(refused.json.error, /Full/, 'it says it may start only at Full');
+  // At Full her administrator commands run with no card anyway, so she may start an OpenCode chat, and its mark holds
+  // as for Claude Code's.
+  const { hoprigVersion } = await import('../../src/handsoff.mjs');
+  saveConfig({ server: { herRights: { level: 'full', version: hoprigVersion(), at: Date.now() } } });
   r = await door('POST', '/api/chats', { dir: proj, tool: 'opencode', profile: 'gw', byTia: true, defaults: true });
   assert.equal(r.status, 200, r.json && r.json.error);
   const hers = r.json.id;
@@ -401,4 +413,14 @@ test('the engine itself refuses a provider that does not serve its coding tool, 
   assert.throws(() => providerFor('sub', 'opencode'), (e) => e.status === 400 && /a Claude subscription is for Claude Code only/.test(e.message));
   assert.throws(() => providerFor('auto', 'opencode'), /Auto mode is for Claude Code only/);
   assert.equal(providerFor('gw', 'opencode').name, 'gw');
+});
+
+test('Tia archiving a chat says Archive, as the App calls that act: the card\'s line and her tool\'s answer', async () => {
+  const { send_to_chat } = await import('../../src/assistant/chats.mjs');
+  const a = { session: 'chat:01234567-89ab-cdef-0123-456789abcdef', close: true };
+  assert.match(send_to_chat.cardLines(a, {})[0], /^Archive chat chat:01234567-89ab-cdef-0123-456789abcdef on /);
+  const ops = { listSessions: async () => [{ name: a.session, kind: 'chat' }], closeChat: async () => ({ ok: true }) };
+  const r = await send_to_chat.run(ops, a);
+  assert.match(r.summary, /^Archived chat:01234567-89ab-cdef-0123-456789abcdef /);
+  assert.doesNotMatch(r.summary, /\bClosed\b/);
 });

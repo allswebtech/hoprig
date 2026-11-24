@@ -4,7 +4,8 @@
 // It prints the command line it got, then runs the hooks the launcher gave it (--settings) the way Claude Code
 // does: SessionStart at start; per line typed, UserPromptSubmit, a short "think", then Stop with the answer.
 // A line containing FAIL-OVERLOADED ends in StopFailure (error "overloaded") the first time it is seen, one containing
-// FAIL-LIMIT in StopFailure at a usage limit (error "rate_limit"); "/exit" ends it. <state>/fake-claude-late-ms: the
+// FAIL-LIMIT in StopFailure at a usage limit (error "rate_limit"); "/exit" ends it as the person does (no menu from
+// the launcher), "/logout" as a sign-out does (the launcher's menu). <state>/fake-claude-late-ms: the
 // milliseconds before SessionStart (a slow start, as when a question stands on the screen first).
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -64,7 +65,11 @@ let busy = Promise.resolve();
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   busy = busy.then(async () => {
     if (line.trim() === '/exit') {
-      hook('SessionEnd'); // a command, not a message: nothing is added to the conversation
+      hook('SessionEnd', { reason: 'prompt_input_exit' }); // a command, not a message: nothing is added to the conversation
+      process.exit(0);
+    }
+    if (line.trim() === '/logout') {
+      hook('SessionEnd', { reason: 'logout' }); // signed out: it ends with code 0 too, and the launcher offers another profile
       process.exit(0);
     }
     said(line);

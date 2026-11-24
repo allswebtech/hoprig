@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const FOLDERS_MAX = 200;
-const KEYS = ['engine', 'profile', 'permissionMode', 'model', 'effort', 'ultracode'];
+const KEYS = ['engine', 'profile', 'permissionMode', 'model', 'effort', 'ultracode', 'lead'];
 
 export function folderMemory(file) {
   let map = null;
@@ -43,7 +43,7 @@ export function folderMemory(file) {
     /** A chat's settings (its record) are now the last ones of its folder. */
     remember(rec) {
       if (!rec || !path.isAbsolute(String(rec.cwd || '')) || typeof rec.profile !== 'string') return;
-      const next = { ...Object.fromEntries(KEYS.map((k) => [k, rec[k] ?? null])), ultracode: rec.ultracode === true, at: Date.now() };
+      const next = { ...Object.fromEntries(KEYS.map((k) => [k, rec[k] ?? null])), ultracode: rec.ultracode === true, lead: rec.lead === true, at: Date.now() };
       const old = load().get(rec.cwd);
       if (old && KEYS.every((k) => old[k] === next[k])) return;
       map.set(rec.cwd, next);

@@ -1,0 +1,28 @@
+{
+  "about": "Which model does which kind of work when \"Lead model\" is on: the lead plans and hands each part to a helper by its kind. A tier is picked from the provider's own list (src/models/tiers.mjs); a tier the provider lacks falls to the next it has. The highest effort only for a part whose brief says why.",
+  "tiers": ["fast", "strong", "strongest"],
+  "kinds": [
+    {
+      "id": "runner",
+      "tier": "fast",
+      "effort": "low",
+      "label": "Running and recording",
+      "work": "running tests and builds, searching the code, reading logs, collecting numbers, mechanical edits with no judgement in them"
+    },
+    {
+      "id": "coder",
+      "tier": "strong",
+      "effort": "medium",
+      "label": "Writing and reviewing code",
+      "work": "writing or changing code with its test, finishing a piece of work, reviewing a change"
+    },
+    {
+      "id": "thinker",
+      "tier": "strongest",
+      "effort": "high",
+      "label": "Hard thinking",
+      "work": "a defect whose cause is not known, a design decision, the last check before the work is called done"
+    }
+  ],
+  "highest": { "effort": "max", "when": "only for a part whose brief says why it needs the most thinking" }
+}

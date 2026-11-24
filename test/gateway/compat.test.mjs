@@ -20,13 +20,39 @@ const { SHIPPED } = await import('../../src/addons/gateways.mjs');
  * changed, and only by adding: each provider also has `viaGateway: { id, title }` beside its `viaTrouteai`, and the
  * gateway's state and defaults are also one entry of `gateways`, with the sentences the page shows for it. Every
  * field 0.2.6 sent is still there with its value, so a page of 0.2.6 left open across the update keeps working.
+ * Also added: `ownEndpoint`, an address in Claude Code's own settings file, and `ownBackup`, the copy a press on it
+ * left (both null here: the home names none).
  */
 function CHANGED(old) {
+  // The gateway is installed and updated with the options its README names, and an install says in one line that two
+  // of its parts build a helper (decided for 0.2.x: the README's own install line).
+  const flags = '--allow-scripts=tls-client-node,koffi --loglevel=error';
+  old.disk.npm = old.disk.npm.map((l) => l.replace(/^install -g /, `install -g ${flags} `));
+  // A gateway Hoprig starts listens no wider than the dashboard: this home's dashboard is on this computer only (its
+  // default), so each start by Hoprig also passes the definition's --host 127.0.0.1. The first and the fifth start are
+  // the home's own (compat-home.mjs starts the program itself: one running before, one as 0.2.6 started it).
+  old.disk.gatewayArgs = old.disk.gatewayArgs.map((l, i) => (i === 0 || i === 4 ? l : `${l} --host 127.0.0.1`));
+  const install = old.commands.find((c) => c.args === 'addons install trouteai');
+  const builds = 'Two of its parts (tls-client-node, koffi) build a helper program each on this computer while it installs.';
+  install.stdout = `${builds}\n${install.stdout}`;
+  // The page's list carries that line and the install command for its Install confirmation: two fields added, every
+  // field 0.2.6 sent kept.
+  Object.assign(old.routes.addons.gateway, { builds, installCommand: `npm install -g ${flags} trouteai` });
+  // It is marked as a gateway, so the page asks before an install or update, naming the computer: one field added.
+  old.routes.addons.gateway.gateway = true;
+  // The owner's page reads what `hoprig gateways` says of each gateway (what it runs, why it waits) from GET
+  // /api/gateways, so a missing program is explained on the page: two fields added there only, every field kept.
+  for (const g of old.routes.gateways.json.gateways) Object.assign(g, { needsConfirm: null, runs: ['trouteai', '--port', '<PORT>', '--host', '127.0.0.1'] });
   for (const k of ['accounts', 'after']) {
     const j = old.routes[k].json;
     for (const a of j.accounts) a.viaGateway = a.viaTrouteai ? { id: 'trouteai', title: 'TRouteAI' } : null;
     const { baseUrl, ...state } = j.trouteai;
     j.gateways = [{ id: 'trouteai', title: 'TRouteAI', words: SHIPPED[0].words, page: state.url, installable: true, ...state, defaults: { ...j.defaults.trouteai, baseUrl } }];
+    j.ownEndpoint = null;
+    j.ownBackup = null;
+    // Also added: whether "Also use pay-per-use providers" is on, so a provider's page says before "Use in Auto mode"
+    // that the press turns it on (off in this home). One field added, every field 0.2.6 sent kept.
+    j.payPerUse = false;
   }
   return old;
 }

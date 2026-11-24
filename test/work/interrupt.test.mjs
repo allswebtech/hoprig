@@ -14,6 +14,7 @@ const t = tempWork('work-interrupt');
 test.after(() => t.cleanup());
 const { saveWork, savePlan, STOP_ENV } = await import('../../src/work/save.mjs');
 const { workStore } = await import('../../src/work/store.mjs');
+const { readJournal } = await import('../../src/work/journal.mjs');
 const SAVE = new URL('../../src/work/save.mjs', import.meta.url).href;
 
 const SUBJECT = 'Update work items';
@@ -150,4 +151,45 @@ test('a save killed after its commit, then a hand edit of the Work file: the rec
   assert.match(plan.problem, /\(the Work file changed after that save's commit\)/);
   assert.equal(t.git(c.here, 'rev-parse', 'HEAD'), made, 'the save\'s commit stays where it is');
   assert.equal(t.git(c.here, 'status', '--porcelain'), 'M work/tasks.json', 'his edit, not committed');
+});
+
+test('a save killed after "putback", then the automations\' tick on a later day: the tick finishes the save first, and the owner\'s list comes back by itself', async () => {
+  const here = path.join(t.root, `c${++n}`);
+  const bare = t.repo(here, { 'README.md': '# brain\n', 'work/tasks.json': listText([item('a'), item('b'), item('daily', { date: '2026-11-16', repeat: { kind: 'daily' } })]) });
+  const place = { file: path.join(here, 'work', 'tasks.json'), folder: path.join(here, 'work'), base: here, label: 'brain/work', fileName: 'tasks.json', kind: 'project', settings };
+  const elsewhere = t.otherClone(bare);
+  const f = path.join(elsewhere, 'work', 'tasks.json');
+  const doc = JSON.parse(fs.readFileSync(f, 'utf8'));
+  doc.items.push(item('from-b'));
+  fs.writeFileSync(f, listText(doc.items));
+  t.git(elsewhere, 'commit', '-q', '-am', 'From the other computer');
+  t.git(elsewhere, 'push', '-q');
+  const store = workStore(place, { now: () => new Date('2026-11-16T12:00:00') });
+  await store.status('a', 'done');
+  await store.add({ title: 'New here' });
+  assert.equal(killedSave(place, 'putback').signal, 'SIGKILL');
+  // The tick of the automations (schedfeature.mjs itemRuns) two days later, before any page looked at the list.
+  const { schedPart } = await import('../../src/work/schedfeature.mjs');
+  const later = workStore(place, { now: () => new Date('2026-11-18T12:00:00') });
+  const part = schedPart({ sctx: {}, cfg: () => ({}), places: () => ({}), place: () => place, store: () => later });
+  await part.hooks.itemRuns();
+  const ids = JSON.parse(fs.readFileSync(place.file, 'utf8')).items.map((x) => `${x.id}:${x.status}`).sort();
+  assert.ok(ids.includes('a:done') && ids.includes('new-here:open'), `his done mark and his new task are in the Work file: ${ids.join(' ')}`);
+  assert.equal(readJournal(place.file), null, 'the interrupted save is finished');
+});
+
+test('a roll while the journal of an interrupted save is there moves nothing and leaves the Work file as it is', async () => {
+  const here = path.join(t.root, `c${++n}`);
+  t.repo(here, { 'README.md': '# brain\n', 'work/tasks.json': listText([item('daily', { date: '2026-11-16', repeat: { kind: 'daily' } })]) });
+  const place = { file: path.join(here, 'work', 'tasks.json'), folder: path.join(here, 'work'), base: here, label: 'brain/work', fileName: 'tasks.json', kind: 'project', settings };
+  const { writeJournal, dropJournal } = await import('../../src/work/journal.mjs');
+  writeJournal(place.file, { top: here, rel: 'work/tasks.json', branch: 'main' });
+  try {
+    const before = fs.readFileSync(place.file, 'utf8');
+    const store = workStore(place, { now: () => new Date('2026-11-18T12:00:00') });
+    assert.deepEqual(await store.roll(), { moved: [], written: false, interrupted: true });
+    assert.equal(fs.readFileSync(place.file, 'utf8'), before, 'the file is unchanged');
+  } finally {
+    dropJournal(place.file);
+  }
 });

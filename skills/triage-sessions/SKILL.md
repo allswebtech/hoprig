@@ -1,7 +1,7 @@
 ---
 name: triage-sessions
 description: "Find what needs the owner now across all sessions and computers: questions waiting, permission prompts, usage limits, finished work. Use for 'what needs me', 'anything stuck', 'status of my sessions'."
-allowed-tools: list_sessions read_session get_accounts notify_owner
+allowed-tools: list_sessions read_session notify_owner get_computer_status
 ---
 
 ## When to use
@@ -12,7 +12,7 @@ The owner asks what needs him, what is stuck, or how his sessions are doing.
 2. For each, at most five, read_session with 40 lines to see the exact question or limit.
 3. Group the answer: needs an OK (permission prompts) first, then questions, then usage limits, then finished work waiting for a next step.
 4. For each item give one line: session, what it asks or why it stopped, and your suggested answer or next step.
-5. For a usage limit, check get_accounts and suggest the next provider (see handle-usage-limit).
+5. For a usage limit, check get_computer_status with providers: true and suggest the next provider (see handle-usage-limit).
 6. Nothing needs him → say so in one line, with how many sessions are working.
 
 ## Pitfalls

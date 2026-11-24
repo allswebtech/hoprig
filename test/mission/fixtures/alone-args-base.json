@@ -1,0 +1,186 @@
+{
+  "a schedule's session (missions off)": {
+    "given": {},
+    "args": [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--permission-mode",
+      "default"
+    ]
+  },
+  "a schedule's session with its own tools and mode": {
+    "given": {
+      "mode": "acceptEdits",
+      "model": "sonnet",
+      "effort": "low",
+      "allowed": [
+        "Read",
+        "Edit"
+      ],
+      "denied": [
+        "Bash"
+      ]
+    },
+    "args": [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--permission-mode",
+      "acceptEdits",
+      "--model",
+      "sonnet",
+      "--effort",
+      "low",
+      "--allowedTools",
+      "Read,Edit",
+      "--disallowedTools",
+      "Bash"
+    ]
+  },
+  "a bypass session": {
+    "given": {
+      "mode": "bypassPermissions"
+    },
+    "args": [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--permission-mode",
+      "bypassPermissions",
+      "--allow-dangerously-skip-permissions"
+    ]
+  },
+  "a tester's work run with no box or no test command": {
+    "given": {
+      "mode": "manual",
+      "model": "haiku",
+      "effort": "medium",
+      "allowed": [
+        "Read",
+        "Glob",
+        "Grep",
+        "Edit",
+        "Write"
+      ],
+      "restricted": [
+        "Read",
+        "Glob",
+        "Grep",
+        "Edit",
+        "Write"
+      ],
+      "denied": [
+        "WebFetch"
+      ],
+      "budget": 0.5
+    },
+    "args": [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--permission-mode",
+      "default",
+      "--restricted",
+      "--strict-mcp-config",
+      "--mcp-config",
+      "{\"mcpServers\":{}}",
+      "--tools",
+      "Read,Glob,Grep,Edit,Write",
+      "--model",
+      "haiku",
+      "--effort",
+      "medium",
+      "--allowedTools",
+      "Read,Glob,Grep,Edit,Write",
+      "--disallowedTools",
+      "WebFetch",
+      "--max-budget-usd",
+      "0.5"
+    ]
+  },
+  "a writer's run": {
+    "given": {
+      "mode": "manual",
+      "allowed": [
+        "Read",
+        "Glob",
+        "Grep",
+        "Edit",
+        "Write"
+      ],
+      "restricted": [
+        "Read",
+        "Glob",
+        "Grep",
+        "Edit",
+        "Write"
+      ],
+      "budget": 1
+    },
+    "args": [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--permission-mode",
+      "default",
+      "--restricted",
+      "--strict-mcp-config",
+      "--mcp-config",
+      "{\"mcpServers\":{}}",
+      "--tools",
+      "Read,Glob,Grep,Edit,Write",
+      "--allowedTools",
+      "Read,Glob,Grep,Edit,Write",
+      "--max-budget-usd",
+      "1"
+    ]
+  },
+  "a review run with the changes folder": {
+    "given": {
+      "mode": "manual",
+      "model": "sonnet",
+      "allowed": [
+        "Read",
+        "Glob",
+        "Grep"
+      ],
+      "restricted": [
+        "Read",
+        "Glob",
+        "Grep"
+      ],
+      "dirs": [
+        "/tmp/x/changes"
+      ],
+      "budget": 0.25
+    },
+    "args": [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--permission-mode",
+      "default",
+      "--restricted",
+      "--strict-mcp-config",
+      "--mcp-config",
+      "{\"mcpServers\":{}}",
+      "--tools",
+      "Read,Glob,Grep",
+      "--add-dir",
+      "/tmp/x/changes",
+      "--model",
+      "sonnet",
+      "--allowedTools",
+      "Read,Glob,Grep",
+      "--max-budget-usd",
+      "0.25"
+    ]
+  }
+}

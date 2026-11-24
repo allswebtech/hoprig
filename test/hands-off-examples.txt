@@ -1,0 +1,243 @@
+# Every code span and code block of docs/HANDS-OFF.md, one row each, read by test/hands-off-examples.test.mjs.
+#
+# A row is:  verdict | context | text
+#   verdict  held      the page says the wall holds this command line (wallHeld answers a hold)
+#            not held  the page says it goes through (wallHeld answers null)
+#            word      the page shows a name, a setting, an option or a part of a line, not a whole command a
+#                      session would run; it is not asked of the wall
+#            , unsaid  after held or not held: the page only names the command and says no verdict for it; the
+#                      wall is still asked. Every other asked row's verdict is read from the page's own words too:
+#                      the first "held" or "go(es) through" after the example, in its sentence.
+#   context  plain     a repository whose default branch is main, the session on its branch feature
+#            nodefault the same with no origin/HEAD: the default branch is not known
+#            -         for a word
+#   text     the span as the page shows it (its line breaks taken as one space); a code block is one row in which
+#            each line break is written as the two characters \n
+# Lines that begin with # and empty lines are not rows.
+
+word | - | handsOff.offered
+word | - | false
+word | - | src/handsoff.mjs
+word | - | src/wall.mjs
+word | - | src/work/alone.mjs
+word | - | run_tests
+word | - | launcher
+
+held | plain | sudo
+held | plain | sudoedit
+held | plain | su
+held | plain | doas
+held | plain | pkexec
+held | plain | run0
+held | plain | machinectl shell
+held | plain | machinectl login
+held | plain | systemd-run
+word | - | --user
+not held | plain | systemd-run --user make test
+word | - | --system
+word | - | -M
+word | - | --machine
+word | - | -H
+word | - | --host
+word | - | --uid
+word | - | --gid
+held | plain | systemd-run --user --system id
+held | plain | systemd-run --user -M root@ id
+held | plain | systemd-run --user --uid=root id
+held | plain | systemd-run --user sudo su
+
+held | plain | npm publish
+held | plain | pnpm publish
+held | plain | yarn publish
+held | plain | cargo publish
+held | plain | twine upload
+held | plain | gem push
+held | plain | docker push
+held | plain | podman push
+held | plain | nerdctl push
+held | plain | gh release create
+held | plain | gh release upload v1 x.tgz
+held | plain | gh release edit v1 --draft=false
+held | plain | glab release create v1
+held | plain | glab release upload v1 x.tgz
+held | plain | poetry publish
+held | plain | uv publish
+held | plain | bun publish
+held | plain | flit publish
+held | plain | hatch publish
+held | plain | dotnet nuget push shop.1.0.0.nupkg
+held | plain | helm push shop-1.0.0.tgz oci://example.com/charts
+held | plain | vsce publish
+held | plain | ovsx publish
+held | plain | npm unpublish shop@1.0.0
+held | plain | npm deprecate shop@1 "use 2"
+held | plain | npm dist-tag add shop@1.0.1 latest
+held | plain | pod trunk push Shop.podspec
+held | plain | dart pub publish
+held | plain | flutter pub publish
+held | plain | mix hex.publish
+held | plain | mvn deploy
+held | plain | gradle publish
+held | plain | ./gradlew publish
+not held | plain | gh release view v1
+not held | plain | gh release list
+held | plain | gh pr create
+held | plain | gh pr merge
+held | plain | glab mr create
+held | plain | glab mr merge
+word | - | gh api
+word | - | glab api
+held | plain | gh api -X POST repos/o/r/pulls
+held | plain | gh api repos/o/r/issues -f title=x
+not held | plain | gh api -X HEAD repos/o/r/pulls
+not held | plain | gh api repos/o/r/pulls
+not held | plain | gh api -X GET search/issues -f q=bug
+held | plain | gh api graphql
+word | - | /graphql
+held | plain | gh api -X GET graphql -f query=x
+held | plain | gh api -X GET "$EP" -f query=x
+held | plain | gh api -X GET "$BASE/graphql" -f query=x
+not held | plain | gh api "$EP"
+not held | plain | gh api -X GET "search/$KIND" -f q=bug
+not held | plain | gh api -X GET search/issues -f q="$Q"
+
+word | - | main
+not held | plain | git merge main
+not held | plain | git rebase main
+held | plain | git push --prune origin
+held | plain | git push origin --delete feature
+held | plain | git push origin :feature
+word | - | project.json
+held | plain | cp draft.json project.json
+
+not held, unsaid | nodefault | git init
+not held, unsaid | nodefault | git remote add
+word | - | origin/HEAD
+held | nodefault | git push origin feature
+not held, unsaid | nodefault | git remote set-head origin -a
+
+# Words of the shell, explained
+word | - | *.txt
+word | - | {a,b}
+word | - | xargs
+
+# What the wall does not read
+not held | plain | bash fix.sh
+not held | plain | ./build.sh
+not held | plain | source steps.sh
+not held | plain | python3 -c "import os; os.system('npm publish')"
+not held | plain | node -e "require('child_process').execSync('npm publish')"
+not held | plain | echo "npm publish" | sh
+not held | plain | sh < steps.txt
+not held | plain | echo "npm publish" | at now
+not held | plain | crontab steps.cron
+not held | plain | git p
+word | - | p
+not held | plain | cd $DIR && cat .config/hoprig/config.json
+not held | plain | cat "$FILE"
+word | - | $BRANCH
+word | - | ssh
+held | plain | ssh box2 npm publish
+not held | plain | ssh box2 git push origin feature
+
+# What it reads
+held | plain | timeout 60 npm publish
+held | plain | nice -n 5 gh pr create
+held | plain | strace -f npm publish
+held | plain | FOO="a b" npm publish
+held | plain | if true; then npm publish; fi
+held | plain | flock /tmp/l -c 'npm publish'
+held | plain | sh -c "npm publish"
+held | plain | eval "npm publish"
+word | - | X=1
+word | - | X+=1
+word | - | A[0]=1
+word | - | A[$i]=1
+word | - | A["k"]=1
+word | - | X=$HOME/out
+word | - | A[i + 1]=1
+word | - | A[$(id -u)]=1
+word | - | npx
+word | - | cross-env
+held | plain | npx npm publish
+held | plain | cross-env A=1 npm publish
+held | plain | uv run twine upload dist/*
+held | plain | poetry run twine upload dist/*
+held | plain | bundle exec gem push shop-1.0.gem
+held | plain | python3 -m twine upload
+word | - | -m
+not held | plain | npx vitest run
+not held | plain | uv run pytest
+not held | plain | python3 -m pytest -q
+not held | plain | rm -rf build
+held | plain | rm -rf ../blog
+held | plain | rm -rf "$DIR"
+word | - | ~
+word | - | $HOME
+word | - | ..
+held | plain | rm -rf $HOME/.config//hoprig/
+held | plain | cat ../.config/hoprig/config.json
+held | plain | cat ~/.config/hoprig/config.json
+held | plain | mv ~/.config ~/old
+word | - | *
+word | - | ?
+word | - | [...]
+held | plain | cat ~/.config/hop*/config.json
+held | plain | cat ~/.config/[h]oprig/config.json
+held | plain | cat ~/.conf*/hoprig/config.json
+held | plain | cat ~/.config/{hoprig,other}/config.json
+held | plain | cd ~ && cat .config/hoprig/config.json
+held | plain | cd $HOME && cat .config/hoprig/config.json
+
+# Where it cannot tell
+held | plain | $EDITOR notes.txt
+held | plain | "$EDITOR" notes.txt
+held | plain | ./run-$TARGET.sh
+not held | plain | bin/$TOOL/run
+not held | plain | FOO=$A$B npm test
+held | plain | FOO=$A$B npm publish
+held | plain | git push origin $BRANCH
+held | plain | cd ../blog && git push origin feature
+held | plain | git -C ../blog push origin feature
+
+# Known limits
+held | plain | $( … )
+not held | plain | git push origin "$(git branch --show-current)"
+not held | plain | git push origin "$(git rev-parse --abbrev-ref HEAD)"
+word | - | HEAD
+not held | plain | git commit -m "$(cat <<'EOF'\nFix the build\nEOF\n)"
+held | plain | <<EOF
+word | - | git
+not held | plain | mygit push
+not held | plain | cp git g && ./g push
+word | - | xargs -I
+not held | plain | echo main | xargs -I REF git push origin REF
+held | plain | env -S "sudo su"
+held | plain | npm run deploy
+held | plain | make release
+held | plain | ./publish.sh
+held | plain | bash deploy.sh
+held | plain | python3 deploy.py
+held | plain | node scripts/release.mjs
+held | plain | deno run -A deploy.ts
+held | plain | bun run deploy
+not held | plain | node scripts/build.mjs
+not held | plain | python3 manage.py test
+word | - | npm run
+word | - | make
+word | - | bash
+not held | plain | npm run ship
+not held | plain | make ship
+not held | plain | node scripts/release.test.mjs
+not held | plain | python3 deploy_test.py
+not held | plain | node --test
+
+word | - | cd
+word | - | cd -
+word | - | pushd
+word | - | popd
+word | - | env -C
+
+# An interpreter running a script that writes release notes is not a deploy
+not held | plain | node scripts/release-notes.mjs
+not held | plain | python3 scripts/release_notes.py

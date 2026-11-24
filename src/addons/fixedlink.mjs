@@ -253,10 +253,10 @@ export function makeSupervisor({ spawnFn = spawn, setTimer = setTimeout, clearTi
 // ---------- the set-up (the switch in linkswitch.mjs runs it) ----------
 
 const writeState = (st) => writeAtomic(fixedStateFile(), JSON.stringify(st));
-const fail = (error) => ({ ok: false, error });
+const fail = (error, code = null) => ({ ok: false, error, ...(code ? { code } : {}) });
 const env = () => cloudflaredEnv(homeDir(), emptyDir());
 const NO_BIN = 'cloudflared is not installed yet: turn the public link on once, and Hoprig installs it.';
-const NO_PASSWORD = 'Set a dashboard password first (Settings → Security): the address leads to the sign-in page.';
+const NO_PASSWORD = 'Set a dashboard password first (Settings → Security and sign-in): the public link opens the sign-in page, and it needs a password.';
 
 function prepare() {
   for (const d of [fixedDir(), homeDir(), emptyDir()]) fs.mkdirSync(d, { recursive: true, mode: 0o700 });
@@ -350,7 +350,7 @@ async function create({ hostname } = {}, { onLine = () => {} } = {}) {
   }
   const bin = findBin();
   if (!bin) return fail(NO_BIN);
-  if (!hasPassword()) return fail(NO_PASSWORD);
+  if (!hasPassword()) return fail(NO_PASSWORD, 'no-password');
   if (!fs.existsSync(certFile())) return fail('Sign in to Cloudflare first.');
   if (readFixed()?.mode) return fail('The Custom address is set up already.');
   const name = tunnelName(host);
@@ -393,7 +393,7 @@ function useToken({ token, hostname } = {}) {
     return fail(e.message);
   }
   if (!findBin()) return fail(NO_BIN);
-  if (!hasPassword()) return fail(NO_PASSWORD);
+  if (!hasPassword()) return fail(NO_PASSWORD, 'no-password');
   if (readFixed()?.mode) return fail('The Custom address is set up already.');
   prepare();
   writeAtomic(tokenFile(), t.token);

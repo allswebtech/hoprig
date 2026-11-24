@@ -114,13 +114,14 @@ async function run(t, kind) {
   });
   assert.ok(!s2.includes('--session-id'));
 
-  // ---- the launcher's own menu after Claude exits: it does not call a session "saved" that holds nothing ----
+  // ---- the launcher's own menu after Claude Code ended by a sign-out (a session the person ends with /exit just ends,
+  //      with no menu: test/launcher.test.mjs): it does not call a session "saved" that holds nothing ----
   const other = fs.realpathSync(fs.mkdtempSync(path.join(box.root, 'other-')));
   const made2 = await req('/api/sessions', { dir: other, profile: 'work', mode: 'new' });
   assert.equal(made2.status, 200, made2.text);
   const name2 = made2.json.name;
   const id2 = (await waitsOn(name2, 'work')).sessionId;
-  assert.equal((await req(`/api/sessions/${name2}/send`, { text: '/exit' })).status, 200);
+  assert.equal((await req(`/api/sessions/${name2}/send`, { text: '/logout' })).status, 200);
   const menu = await until('the launcher\'s menu', async () => {
     const s = await screen(name2);
     return /on another profile\?/.test(s) ? s : null;

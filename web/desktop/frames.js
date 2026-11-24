@@ -1,7 +1,7 @@
 // What the window manager (wm.js) asks of the page or app inside a window: to take the keyboard, and whether the
 // Editor in it holds unsaved changes (web/editor/index.js says how many, and saves them on request). A window's
 // frame is a page of this same site, so it is read directly; one still loading answers next time.
-import { h, openSheet } from '../lib.js';
+import { h, openSheet, samePlace } from '../lib.js';
 
 /**
  * The keyboard goes into window `v`: its page (the terminal, the editor) or the first field of a native app, so
@@ -36,6 +36,32 @@ export function frameKeys(v) {
     v.frame.contentWindow.postMessage({ type: 'hoprig:keys' }, location.origin);
   } catch {
     /* not loaded yet: wm.js does it on the frame's load */
+  }
+}
+
+/** The address window `v` shows now: its page's own (read at once, before its next sync in wm.js), else its model's. */
+export function liveHash(v) {
+  try {
+    const w = v.frame && v.frame.contentWindow;
+    if (w && w.location.href !== 'about:blank') return w.location.hash || '#/';
+  } catch {
+    /* not loaded yet */
+  }
+  return v.hash;
+}
+
+/**
+ * Window `v` goes to address `hash`, the one another tab moved it to (wmsync.js decides when): its page follows (its
+ * title is read from it a moment later), a native app starts again there. One with unsaved changes stays where it is.
+ */
+export function followHash(v, hash) {
+  if (samePlace(liveHash(v), hash) || unsavedOf(v)) return;
+  v.hash = hash;
+  if (v.native) return v.native.reload();
+  try {
+    v.frame.contentWindow.location.hash = hash;
+  } catch {
+    /* not loaded yet: it shows the address it was opened at */
   }
 }
 

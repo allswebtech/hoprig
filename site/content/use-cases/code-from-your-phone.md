@@ -20,15 +20,15 @@ You want "Claude Code from my phone" without renting a server, opening ports on 
 
 1. Install Hoprig on the PC. In setup, the second question is who may open the dashboard; "devices on my network" is the default: your phone on the same Wi-Fi reaches it over plain http, behind its password.
 2. Scan the QR code at the end of setup with your phone's camera. The phone is signed in; no password to type. Later, `hop link` makes a new one-time link and QR code.
-3. On the phone, **New session**, pick the project: a chat opens. Replies appear as they are written, each change as a diff, with **Allow**, **Allow in this chat** and **Do not allow**. The real terminal is one tap away.
+3. On the phone, **New session**, pick the project: a chat opens. Replies appear as they are written, each change as a diff, with **Allow**, **Allow in this session** and **Do not allow** (and **Always allow in this project** where Claude Code offers it). The real terminal is one tap away.
 4. From anywhere: **Settings → Public link → On**, or `hop public on`. *Temporary* gives a new https address at each start, with nothing to set up. *Custom* keeps your own address, on a domain in a free Cloudflare account. It turns on only with a strong dashboard password, and a visitor sees only the sign-in page.
 5. Turn on **Notifications**: a push to your phone when a session waits for you, needs your OK or reaches a limit.
 
-<p align="center"><img src="/screenshots/chat-phone-light.webp" alt="A chat on a phone: the diff, the OK card and the message box with its chips" width="250"> <img src="/screenshots/session-phone-light.webp" alt="A terminal session on a phone: the real terminal, a key bar and a message box" width="250"></p>
+<p align="center"><img src="/screenshots/chat-phone-light.webp" alt="A chat on a phone: the OK card with its answers and the message box with its chips" width="250"> <img src="/screenshots/session-phone-light.webp" alt="A terminal session on a phone: the real terminal, a key bar and a message box" width="250"></p>
 
 ## What you need
 
-- A PC with Linux that stays on while you work from the phone. On macOS its tests run on every change, but the setup's installs and what is new in 0.2 (the chat, the editor, the desktop) have not been run on a real Mac yet.
+- A PC with Linux that stays on while you work from the phone. On macOS its tests run on every change, but the install and the newer parts (the chat, the editor, the desktop) have not been run on a real Mac yet.
 - A phone with a browser. Nothing to install on it.
 - For the Custom public link only: a domain in a free Cloudflare account.
 

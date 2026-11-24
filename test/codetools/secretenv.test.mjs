@@ -55,10 +55,10 @@ test('an install also loses GitHub\'s tokens and the credential names a stored p
 
 test('a gateway the owner defined gets only what a server needs: no name of any list, no session mark', async () => {
   const { forGateway } = await import('../../src/secretenv.mjs');
-  const env = { ...SECRETS, KEEP_ME: 'plain', AWS_SECRET_ACCESS_KEY: 'x', NPM_TOKEN: 'x', SSH_AUTH_SOCK: 'x', HOPRIG_PROFILE: 'x', HOPRIG_CONFIG_DIR: 'x', NODE_OPTIONS: 'x', PATH: '/bin', HOME: '/h', LANG: 'C', LC_ALL: 'C', TZ: 'UTC', TMPDIR: '/t', XDG_DATA_HOME: '/d', https_proxy: 'p', NO_PROXY: 'n', NODE_EXTRA_CA_CERTS: '/ca' };
+  const env = { ...SECRETS, KEEP_ME: 'plain', AWS_SECRET_ACCESS_KEY: 'x', NPM_TOKEN: 'x', SSH_AUTH_SOCK: 'x', HOPRIG_PROFILE: 'x', HOPRIG_CONFIG_DIR: 'x', NODE_OPTIONS: 'x', PATH: '/bin', HOME: '/h', LANG: 'C', LC_ALL: 'C', TZ: 'UTC', TMPDIR: '/t', XDG_DATA_HOME: '/d', https_proxy: 'p', NO_PROXY: 'n', NODE_EXTRA_CA_CERTS: '/ca' }; // seal: a value no program is started with
   assert.deepEqual(Object.keys(forGateway(env, 'linux')).sort(), ['HOME', 'LANG', 'LC_ALL', 'NODE_EXTRA_CA_CERTS', 'NO_PROXY', 'PATH', 'TMPDIR', 'TZ', 'XDG_DATA_HOME', 'https_proxy']);
   assert.equal(forGateway({ path: '/x' }, 'linux').path, undefined, 'a lower-case PATH is another variable there');
-  assert.deepEqual(Object.keys(forGateway({ Path: 'C:\\Windows', SystemRoot: 'C:\\Windows', ComSpec: 'cmd', NPM_TOKEN: 'x', GH_TOKEN: 'x' }, 'win32')).sort(), ['ComSpec', 'Path', 'SystemRoot']);
+  assert.deepEqual(Object.keys(forGateway({ Path: 'C:\\Windows', SystemRoot: 'C:\\Windows', ComSpec: 'cmd', NPM_TOKEN: 'x', GH_TOKEN: 'x' }, 'win32')).sort(), ['ComSpec', 'Path', 'SystemRoot']); // seal: a value no program is started with
 });
 
 test('the environments built for npm, a coding tool, its server and its sign-in carry none of them', async () => {
@@ -222,6 +222,7 @@ test('a start by launch file: the file holds the folder and the launcher\'s word
     assert.ok(held.argv.includes('first message') && held.argv.includes('api'));
     // The launcher takes the file and changes its folder and arguments, not its environment (the provider's is set
     // by the launcher itself afterwards, as before).
+    process.env.PWD = process.cwd(); // a contributor's shell sets PWD; the test runner's list of names let in does not carry it, so set it here
     const before = { ...process.env };
     const argv = [process.execPath, '/opt/hoprig/bin/hoprig.mjs', '--launch', file];
     const cwd = process.cwd();

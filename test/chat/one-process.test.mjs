@@ -94,11 +94,14 @@ test('one conversation, one process: no second terminal or chat process on a con
   await until('the idle chat process to stop', async () => !(await view()).running);
 
   // ---- "Open in terminal" from the chat, twice at once (a double tap, two tabs): one terminal ----
-  const [o1, o2] = await Promise.all([owner('POST', `/api/chats/${id}/terminal`, {}), owner('POST', `/api/chats/${id}/terminal`, {})]);
-  assert.equal(o1.status, 200);
-  assert.equal(o2.status, 200, 'the second asks for the same conversation: it gets that terminal, not an error');
-  assert.equal(o1.json.name, o2.json.name);
-  assert.equal([o1.json, o2.json].filter((x) => x.existing).length, 1, 'one of them started it');
+  // Four at once (a double tap, two tabs, Tia): the first starts the terminal and the three others wait for THAT
+  // start and open in it — one process, no 404 in the window before its record is seen (one pending start per
+  // conversation; this file was run 200 times at 0 failures when it was written).
+  const opens = await Promise.all(Array.from({ length: 4 }, () => owner('POST', `/api/chats/${id}/terminal`, {})));
+  for (const o of opens) assert.equal(o.status, 200, `each opens in the terminal, never an error (got ${o.status}: ${JSON.stringify(o.json)})`);
+  assert.equal(new Set(opens.map((o) => o.json.name)).size, 1, 'all four name the same terminal');
+  assert.equal(opens.filter((o) => !o.json.existing).length, 1, 'exactly one started it; the three others opened in it');
+  const o1 = opens[0];
   const term = o1.json.name;
   await until('the terminal on the conversation', async () => (await terminalsOn(id)).length === 1);
 
@@ -112,6 +115,14 @@ test('one conversation, one process: no second terminal or chat process on a con
     return x.terminal && x;
   });
   assert.equal(cv.terminal.name, term);
+  // ---- one conversation, one card: Home lists the terminal that runs it, not a second card for the chat that reads along ----
+  const cardsOf = async (conv) => (await owner('GET', '/api/state')).json.sessions.filter((s) => s.sessionId === conv).map((s) => s.kind);
+  assert.deepEqual(await cardsOf(id), ['claude'], 'the terminal\'s card only');
+  // Tia's list_sessions reads every computer's sessions (/api/machines/sessions): the terminal only, marked as read
+  // along in the App; Tia's own words for it (tools.mjs sessionView) say so on its line.
+  const hers = (await owner('GET', '/api/machines/sessions')).json.machines.flatMap((m) => m.sessions).filter((s) => s.sessionId === id);
+  assert.deepEqual(hers.map((s) => [s.kind, s.name, s.readAlong === true]), [['claude', term, true]], 'one session, the terminal, read along');
+  assert.equal((await owner('GET', '/api/chats')).json.chats.length, 1, 'the chat itself stays open in the App');
 
   // ---- every way to a second terminal answers with this one ----
   const ways = [
@@ -144,6 +155,8 @@ test('one conversation, one process: no second terminal or chat process on a con
   await until('no terminal on it', async () => (await terminalsOn(id)).length === 0);
   assert.equal((await owner('POST', `/api/chats/${chat}/send`, { text: 'here now' })).status, 200);
   await until('the answer in the chat', async () => (await owner('GET', `/api/chats/${chat}`)).json.events.some((e) => e.text === 'echo: here now'));
+  // The terminal has ended and the chat runs the conversation: its card is back, and it is the only one.
+  assert.deepEqual(await cardsOf(id), ['chat'], 'the chat\'s card, now that it runs the conversation');
 
   // ---- a chat runs it (its process waits idle): a terminal start gives the chat ----
   assert.ok((await owner('GET', `/api/chats/${chat}`)).json.running, 'the chat process is up');

@@ -66,7 +66,7 @@ test('an update id, a why and a title from the computer: in the data, never in t
   Object.assign(ops.s.updates.items.find((x) => x.id === 'cloudflared'), { title: EVIL, why: EVIL });
   r = await call('manage_computer', { action: 'update', item: 'cloudflared' });
   assert.equal(r.isError, true);
-  assert.match(r.text, /^Error: the tunnel helper has nothing to update on this\./);
+  assert.match(r.text, /^Error: the helper for the public link \(cloudflared\) has nothing to update on this\./);
   onlyFenced(r.text, 'an item without an action');
   const tunnel = ops.s.updates.items.find((x) => x.id === 'cloudflared');
   Object.assign(tunnel, { action: 'update', updateAvailable: true, blocked: EVIL });
@@ -126,7 +126,7 @@ test('names a computer gives (a session, a provider, a computer, a version) reac
   onlyFenced((await call('list_sessions', {})).text, 'list_sessions');
   ops.s.profiles.push({ name: EVIL, label: 'x', kind: 'subscription', inUse: 0, limited: { until: null, text: 'x' }, usage: null });
   ops.s.autoSwitch = { ...ops.s.autoSwitch, enabled: true, order: ['sub', EVIL] };
-  onlyFenced((await call('get_accounts', {})).text, 'get_accounts');
+  onlyFenced((await call('get_computer_status', { providers: true })).text, 'get_computer_status providers');
   ops.s.computers.push({ name: EVIL, label: EVIL, online: false });
   onlyFenced((await call('get_computer_status', {})).text, 'the computers');
   ops.s.status.this = { ...ops.s.status.this, claude: { version: EVIL } };
@@ -145,10 +145,7 @@ test('the domain tools: a job\'s error, a GitHub account, a search problem, a sk
   let r = await call('manage_project', { action: 'get', spec: 'owner/blog' });
   assert.equal((await core.confirm(cardId(r))).ok, true);
   onlyFenced(core.takeOutcomes('c1').map((o) => o.text).join('\n'), 'a job that failed');
-  ops.addComputer = async () => ({ name: EVIL });
-  r = await call('manage_computer', { action: 'add', ssh_target: 'me@box3' });
-  assert.equal((await core.confirm(cardId(r))).ok, true);
-  onlyFenced(core.takeOutcomes('c1').map((o) => o.text).join('\n'), 'an added computer');
+  // Adding a computer is his own press now (her card opens Computers): no name of another computer comes back to her.
 });
 
 test('the typing answers: a session whose tool is not in front, text typed but not sent, a path that cannot be typed, a queue that waits', async () => {

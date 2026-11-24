@@ -1,0 +1,32 @@
+/* The landing page: the first screen (a centred stage with the dashboard tipped back), then its sections. */
+.hero { position: relative; text-align: center; padding-top: var(--s6); overflow: hidden; }
+.hero::before { content: ''; position: absolute; inset: 0; z-index: -1; background: radial-gradient(60% 50% at 50% 0%, var(--glow), transparent 70%); }
+.pills { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 8px; list-style: none; padding: 0; margin: 0 0 var(--s4); }
+/* Two lines on a wide screen (the accent clause is the second), so the dashboard is in the first screen. */
+.hero h1 { max-width: 13em; margin: 0 auto; }
+@media (min-width: 1000px) { .hero h1 { max-width: 17em; font-size: 58px; } }
+.hero-lead { margin: var(--s3) auto var(--s5); max-width: 34em; }
+/* Where the line goes (over it) and what costs money (under it): read before the fine print. */
+.hero-paste { margin: 0 auto var(--s2); font-size: 15px; color: var(--text-2); }
+.hero-paste a { font-weight: 600; white-space: nowrap; }
+.hero-cost { margin: var(--s3) auto 0; max-width: 40em; font-size: 15px; color: var(--text-2); }
+/* On a phone only: the Terminal app is a computer's, so the phone gets its own next step. */
+.hero-phone { display: none; }
+@media (max-width: 699px) { .hero-phone { display: block; margin: var(--s3) auto 0; max-width: 30em; font-size: 15px; font-weight: 600; color: var(--text); } }
+.hero-under { margin: var(--s2) auto 0; max-width: 62em; font-size: 13.5px; line-height: 1.5; color: var(--muted); text-wrap: pretty; }
+.hero-under code { color: var(--text-2); }
+@media (max-width: 599px) {
+  /* One row of facts on a phone: smaller chips, never wrapped. */
+  .pills { flex-wrap: nowrap; gap: 6px; margin-bottom: var(--s4); }
+  .pills .chip { font-size: 12.5px; padding: 3px 8px; }
+}
+
+.stage { perspective: 1800px; margin: var(--s5) auto 0; max-width: 1080px; padding: 0 var(--gutter); }
+.window { transform: rotateX(14deg); transform-origin: 50% 100%; border-radius: var(--r-xl); overflow: hidden; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-pane); }
+.chrome { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; background: var(--surface-3); border-bottom: 1px solid var(--border); }
+.chrome i { width: 10px; height: 10px; border-radius: 99px; background: var(--border-strong); }
+.chrome b { margin-left: 10px; font: 500 12px var(--font); color: var(--muted); }
+.shot { width: 100%; filter: var(--shot-filter); }
+/* The window fades into the next section, so the first screen ends on the product, not on a hard line. */
+.stage-fade { height: 90px; margin-top: -90px; position: relative; background: linear-gradient(transparent, var(--bg)); }
+@media (max-width: 699px) { .stage { margin-top: var(--s5); } .window { transform: rotateX(8deg); border-radius: var(--r-lg); } .chrome { height: 24px; } .chrome b { font-size: 11px; } }

@@ -31,7 +31,7 @@ export function cleanFileName(name) {
  * Stream `req` into a new file under <cwd>/<dirName>. Resolves { path, name, size }. Rejects with .status set:
  * 413 when larger than maxBytes, 400 when the folder would leave cwd.
  */
-export async function saveUpload(req, { cwd, dirName, fileName, maxBytes }) {
+export async function saveUpload(req, { cwd, dirName, fileName, maxBytes, ignoreFile = true }) {
   const fail = (status, msg) => Object.assign(new Error(msg), { status });
   const realCwd = fs.realpathSync(cwd);
   const dir = path.join(realCwd, dirName);
@@ -39,10 +39,12 @@ export async function saveUpload(req, { cwd, dirName, fileName, maxBytes }) {
   const realDir = fs.realpathSync(dir); // a symlinked uploads folder must still point inside cwd
   if (!realDir.startsWith(realCwd + path.sep)) throw fail(400, 'the uploads folder is not inside the session folder');
   // The folder sits inside a project: keep its files (screenshots, logs) out of that project's git history.
-  try {
-    fs.writeFileSync(path.join(realDir, '.gitignore'), '*\n', { flag: 'wx' });
-  } catch (e) {
-    if (e.code !== 'EEXIST') throw e;
+  if (ignoreFile) {
+    try {
+      fs.writeFileSync(path.join(realDir, '.gitignore'), '*\n', { flag: 'wx' });
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+    }
   }
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
   const name = `${stamp}-${crypto.randomBytes(2).toString('hex')}-${cleanFileName(fileName)}`;
@@ -82,4 +84,41 @@ export async function saveUpload(req, { cwd, dirName, fileName, maxBytes }) {
     throw fail(400, 'the file is empty');
   }
   return { path: file, name, size };
+}
+
+/** How long a file dropped or pasted on a session's terminal is kept: a week, then the next drop removes it. */
+export const DROP_KEEP_MS = 7 * 24 * 3600_000;
+
+/**
+ * The folder for files dropped or pasted on a session's terminal: <stateDir>/drops, readable by its user only. Never
+ * inside the session's repository; the path typed into the terminal is absolute, so the coding tool reads it there.
+ */
+export function dropsFolder(stateDir) {
+  const dir = path.join(stateDir, 'drops');
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(dir, 0o700);
+  return dir;
+}
+
+/** Remove what is older than `keepMs` in each session's folder under `dir`, and a session folder left empty. */
+export function pruneDrops(dir, keepMs = DROP_KEEP_MS, now = Date.now()) {
+  let removed = 0;
+  for (const sub of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!sub.isDirectory()) continue;
+    const folder = path.join(dir, sub.name);
+    let left = 0;
+    for (const f of fs.readdirSync(folder, { withFileTypes: true })) {
+      const file = path.join(folder, f.name);
+      try {
+        if (f.isFile() && now - fs.statSync(file).mtimeMs > keepMs) {
+          fs.rmSync(file, { force: true });
+          removed++;
+        } else left++;
+      } catch {
+        left++; // gone meanwhile, or not ours to judge: kept
+      }
+    }
+    if (!left) fs.rmSync(folder, { recursive: true, force: true });
+  }
+  return removed;
 }

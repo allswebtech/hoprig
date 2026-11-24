@@ -10,7 +10,7 @@ const justStarted = new Map(); // key → { at, tool }
 const keyOf = (machineName, name) => `${machineName || ''}/${name}`;
 export const markStarting = (machineName, name, tool = 'claude') => justStarted.set(keyOf(machineName, name), { at: Date.now(), tool });
 const started = (s, machineName = s.machine) => justStarted.get(keyOf(machineName, s.name)) || { at: 0, tool: 'claude' };
-export const isStarting = (s, machineName = s.machine) => !isCodingCard(s) && Date.now() - started(s, machineName).at < 30_000;
+export const isStarting = (s, machineName = s.machine) => !isCodingCard(s) && !s.startFailed && Date.now() - started(s, machineName).at < 30_000;
 /** "Starting Claude Code…": the coding tool that was started, by its own name (s: the card, when known). */
 export const startingPill = (s = null) => {
   const tool = s ? started(s).tool || cardTool(s) : 'claude';

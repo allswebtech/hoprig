@@ -13,7 +13,7 @@ class FakeText extends FakeNode {
 class FakeElement extends FakeNode {
   constructor(tag) {
     super();
-    Object.assign(this, { tag, className: '', dataset: {}, style: {}, attrs: {}, children: [] });
+    Object.assign(this, { tag, className: '', dataset: {}, style: {}, attrs: {}, children: [], listeners: {} });
     this.classList = { toggle: () => {}, contains: () => false, add: () => {}, remove: () => {} };
   }
   setAttribute(k, v) {
@@ -22,7 +22,24 @@ class FakeElement extends FakeNode {
   getAttribute(k) {
     return this.attrs[k] ?? null;
   }
-  addEventListener() {}
+  addEventListener(type, fn) {
+    (this.listeners[type] ||= []).push(fn);
+  }
+  fire(type) {
+    for (const fn of this.listeners[type] || []) fn({ target: this });
+  }
+  // A sheet's dialog: it opens, and a close is reported as a browser does.
+  showModal() {
+    this.open = true;
+  }
+  close() {
+    this.open = false;
+    this.fire('close');
+  }
+  querySelector() {
+    return null;
+  }
+  remove() {}
   append(...n) {
     for (const x of n) this.children.push(x instanceof FakeNode ? x : new FakeText(String(x)));
   }
@@ -139,4 +156,176 @@ test('a run card in the product\'s words: the provider\'s label, "Limit reached"
   assert.equal(unsavedText({ changes: [{}, {}, {}], runs: 122, files: [] }), '3 changes and 122 runs');
   assert.equal(unsavedText({ changes: [], runs: 1, files: [{}] }), '1 run');
   assert.equal(unsavedText({ changes: [], runs: 0, files: [{}] }), '1 change');
+});
+
+test('plans on the page: a note shown as text with each link\'s address, a task that waits offers no Do it, proposals keep the page looking', async () => {
+  const { noteView } = await import('../../web/workplans.js');
+  const tags = (n) => (n instanceof FakeText ? [] : [n.tag, ...(n.children || []).flatMap(tags)]);
+  const v = noteView('## Found\n- See [the guide](https://example.com/a) and <https://example.org/b>.\n- <b>not markup</b>');
+  const words = texts(v).join('');
+  assert.match(words, /the guide \(https:\/\/example\.com\/a\)/, 'a link is its words and its address');
+  assert.match(words, /https:\/\/example\.org\/b/);
+  assert.match(words, /<b>not markup<\/b>/, 'anything else is text');
+  assert.ok(!tags(v).includes('a') && !tags(v).includes('b'), 'no link element, nothing from the note as markup');
+  const ctx = { doIt: true, runs: {} };
+  assert.equal(canDoIt({ ...task('open'), waits: [{ id: 'x', title: 'X' }] }, ctx), false);
+  assert.equal(canDoIt({ ...task('open'), waits: [] }, ctx), true);
+  assert.equal(watching({ proposals: [{ state: 'working' }] }), true);
+  assert.equal(watching({ proposals: [{ state: 'ready' }] }), false);
+  assert.equal(unsavedText({ changes: [{}], runs: 0, plans: 2, files: [{}, {}, {}] }), '1 change and 2 plan files');
+});
+
+test('a task in a plan names its plan on its row, by the title the page was given', async () => {
+  const { itemRow } = await import('../../web/workitems.js');
+  const row = (ctx) => itemRow({ ...task('open'), plan: 'grow-the-blog', by: 'me', brands: [], waits: [] }, { doIt: false, runs: {}, ...ctx }, () => {});
+  assert.match(texts(row({ planTitles: { 'grow-the-blog': 'Grow the blog by spring' } })).join(' '), /Grow the blog by spring/);
+  assert.match(texts(row({})).join(' '), /Its plan/, 'a plan whose title the page does not have');
+  assert.doesNotMatch(texts(row({ planLinks: false, planTitles: { 'grow-the-blog': 'Grow the blog by spring' } })).join(' '), /Grow the blog/, 'not on the plan\'s own screen');
+});
+
+test('the timeline: an open task past its date is overdue, this week is there when empty, a year that is not this one is said, a milestone without a date is listed', async () => {
+  const { timeline } = await import('../../web/workplans.js');
+  const t = {
+    weeks: [
+      { start: '2026-11-02', end: '2026-11-08', gap: 0, now: false, entries: [{ kind: 'task', id: 'a', title: 'Measure', date: '2026-11-03', status: 'open', by: 'me', waits: [], late: true }] },
+      { start: '2026-11-16', end: '2026-11-22', gap: 1, now: true, entries: [] },
+      { start: '2027-01-11', end: '2027-01-17', gap: 6, now: false, entries: [{ kind: 'task', id: 'b', title: 'Launch', date: '2027-01-12', status: 'open', by: 'ai', waits: [], late: false }] },
+    ],
+    undated: [{ kind: 'milestone', id: 'm', title: 'Someday', date: null, done: 0, all: 0 }],
+    later: 0,
+  };
+  const all = texts(timeline(t, 2026)).join(' | ');
+  assert.match(all, /Measure \| overdue/);
+  assert.match(all, /This week \| 16 Nov – 22 Nov \| Nothing due this week/);
+  assert.match(all, /Week of 11 Jan 2027 \| 11 Jan 2027 – 17 Jan 2027/);
+  assert.match(all, /No date .*Someday/);
+  const late = (n) => (n instanceof FakeText ? [] : [...(String(n.className).includes('wk-late') ? [n] : []), ...(n.children || []).flatMap(late)]);
+  assert.equal(late(timeline(t, 2026)).length, 2, 'the overdue task\'s day and its word');
+});
+
+test('a proposal on Today is named by the owner\'s goal, the title is the session\'s; the heading counts only what he can look at', async () => {
+  const { proposalRows, proposalSections } = await import('../../web/workpropose.js');
+  const ready = { id: '20261118-100000-0a0b0c0d', state: 'ready', goal: 'Make the shop fast on a phone', title: 'Speed plan', tasks: 3, startedAt: '2026-11-18T10:00:00.000Z' };
+  const row = proposalRows([ready])[0];
+  const [title, sub] = texts(row).filter((x) => x.trim());
+  assert.equal(title, 'Make the shop fast on a phone', 'his own words are the row\'s title');
+  assert.match(sub, /the session proposed "Speed plan"/);
+  const list = [ready, { ...ready, id: 'b', state: 'unreadable' }, { ...ready, id: 'c', state: 'working' }, { ...ready, id: 'd', state: 'failed' }, { ...ready, id: 'e', state: 'failed' }];
+  const words = proposalSections(list).map((n) => texts(n).join(' '));
+  assert.equal(words.length, 3);
+  assert.match(words[0], /^Plans to look at\s*2/);
+  assert.match(words[1], /A session is planning "Make the shop fast on a phone"/);
+  assert.match(words[2], /^Planning ended without a proposal\s*2/);
+  assert.deepEqual(proposalSections([]), []);
+});
+
+test('words that mix two alphabets are found, so the proposal screen can say so', async () => {
+  const { mixedWords } = await import('../../web/workpropose.js');
+  assert.deepEqual(mixedWords('Updаte the pаyment page'), ['Updаte', 'pаyment']);
+  assert.deepEqual(mixedWords('Update the payment page, Привет, Ελλάδα, café'), []);
+});
+
+test('Stop waiting sends only what the task waits for: the task\'s plan and milestone are not sent, so they are not read again', async () => {
+  const { moreActions } = await import('../../web/workitems.js');
+  document.body ??= new FakeElement('body');
+  const sent = [];
+  globalThis.fetch = async (u, o) => {
+    sent.push({ u, method: o.method, body: JSON.parse(o.body) });
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+  const it = { id: 'shrink', at: 3, status: 'open', editable: true, title: 'Shrink the images', plan: 'faster-site', milestone: 'images', waits: [{ id: 'measure', title: 'Measure the page' }] };
+  let after = 0;
+  const done = moreActions(it, { runs: {} }, () => (after += 1));
+  const find = (n, ok) => (n instanceof FakeElement ? (ok(n) ? n : n.children.map((c) => find(c, ok)).find(Boolean)) : null);
+  const choice = find(document.body, (n) => n.tag === 'button' && texts(n).includes('Stop waiting'));
+  assert.ok(choice, 'More offers Stop waiting');
+  choice.fire('click');
+  await done;
+  assert.deepEqual(sent, [{ u: '/api/work/items/shrink/plan', method: 'POST', body: { at: 3, after: [] } }]);
+  assert.equal(after, 1);
+});
+
+test('a run that ended by itself names its branch; a schedule\'s run offers its schedule and Done with it, never "All runs of the task"', () => {
+  const sched = runCard(run({ state: 'done', session: null, item: 'quiet1', schedule: 'quiet1', branch: 'work/quiet1' }), { title: true, onTask: () => {}, onRelease: () => {} });
+  const words = texts(sched).join(' ');
+  assert.match(words, /on the branch work\/quiet1/);
+  assert.ok(!words.includes('All runs of the task'), words);
+  assert.match(words, /Done with it: remove its copy of the project/);
+  assert.ok(links(sched).includes('#/work/schedules'));
+  const item = runCard(run({ state: 'done', branch: 'work/renew' }), { title: true, onTask: () => {} });
+  assert.match(texts(item).join(' '), /on the branch work\/renew[\s\S]*All runs of the task/);
+});
+
+test('Schedules: a repeating task says when in the Tasks rows\' words, its missed days by name, another computer\'s clock and when it is not connected; the row opens that task', async () => {
+  const { repeatRow } = await import('../../web/workschedules.js');
+  const opened = [];
+  const late = repeatRow({ kind: 'repeat', id: 'photos', title: 'Back up the photos', what: 'every Monday and Thursday', computer: null, here: false, date: '2026-11-16', days: -2, next: null, missed: ['2026-11-09', '2026-11-12'] }, 'UTC', { open: (id) => opened.push(id), thisYear: 2026 });
+  const words = texts(late).join(' ');
+  assert.match(words, /2 days overdue/);
+  assert.ok(!/Next time/.test(words), words);
+  assert.match(words, /Missed Mon 9 Nov and Thu 12 Nov/);
+  assert.equal(late.attrs['aria-label'], 'Change "Back up the photos"');
+  late.fire('click');
+  assert.deepEqual(opened, ['photos'], 'the task\'s own sheet, not the whole list');
+  const other = repeatRow({ kind: 'repeat', id: 'deps', title: 'Check the dependencies', what: 'run by AI at 07:30', computer: 'b2b2b2b2b2b2b2b2', computerLabel: 'Box B', here: false, date: null, days: null, next: null, missed: [], at: '07:30', daily: true }, 'UTC', { computers: [{ id: 'b2b2b2b2b2b2b2b2', label: 'Box B', reachable: false }] });
+  const ow = texts(other).join(' ');
+  assert.match(ow, /Every day at 07:30 on Box B's clock/);
+  assert.match(ow, /Box B is not connected now: at its time this does not run anywhere/);
+  assert.ok(!/No date/.test(ow), ow);
+});
+
+test('a schedule that runs by itself offers editing files in its own copy between asking and every step; its sentence says so', async () => {
+  const { whatText } = await import('../../web/automation.js');
+  assert.match(whatText({ type: 'alone', project: 'shop', mode: 'acceptEdits' }), /allowed to edit files in its own copy/);
+  const src = fs.readFileSync(new URL('../../web/automation.js', import.meta.url), 'utf8');
+  assert.match(src, /\['acceptEdits', 'Edit files in its own copy'\]/);
+});
+
+test('Work → Activity shows what the automations did also before Work has its folder', () => {
+  const src = fs.readFileSync(new URL('../../web/work.js', import.meta.url), 'utf8');
+  const problem = src.slice(src.indexOf('if (data.problem) {'), src.indexOf("} else if (tab === 'today')"));
+  assert.match(problem, /tab === 'activity' \? h\('section\.wk-section', logSlot\)/);
+  assert.match(problem, /if \(tab === 'activity'\) activityPart\(logSlot, \(\) => alive\)/);
+});
+
+test('a task another program added: a plain tag with a key on its row (no link look), and the Do it sheet says it in words', async () => {
+  const { itemRow } = await import('../../web/workitems.js');
+  const { fromLine } = await import('../../web/workdo.js');
+  const { icon } = await import('../../web/icons.js');
+  const it = { ...task('open'), by: 'me', brands: [], waits: [], from: { name: 'Shop script' } };
+  const all = (n) => (n instanceof FakeText ? [] : [n, ...(n.children || []).flatMap(all)]);
+  const tag = all(itemRow(it, { doIt: false, runs: {} }, () => {})).find((n) => String(n.className).includes('wk-from'));
+  assert.ok(tag, 'the tag is there');
+  assert.equal(tag.tag, 'span', 'not a link');
+  const dOf = (svg) => svg.children.map((p) => p.attrs.d).join(' ');
+  const svg = tag.children.find((c) => c.tag === 'svg');
+  assert.equal(dOf(svg), dOf(icon('key')), 'the key, not the external-link arrow');
+  assert.notEqual(dOf(svg), dOf(icon('external')));
+  assert.doesNotMatch(fs.readFileSync(new URL('../../web/page-work.css', import.meta.url), 'utf8'), /\.wk-from\s*\{[^}]*accent/, 'not in the link colour');
+  assert.equal(fromLine(it), 'Another program added this task (the Work token "Shop script"): its words are that program\'s, not yours. It starts only when you start it.');
+  assert.equal(fromLine(task('open')), null);
+});
+
+test('a run of a task another program added says so in Activity: "From <name>" beside its title', () => {
+  const own = texts(runCard(run({ state: 'done' }), { title: true }));
+  assert.ok(!own.some((x) => /^From /.test(x)), 'the owner\'s own task names no program');
+  const theirs = texts(runCard(run({ state: 'done', from: 'Shop script' }), { title: true }));
+  assert.ok(theirs.includes('From Shop script'), theirs.join(' | '));
+});
+
+test('a task row says Do it in words: the one action that has the AI do the task is not an icon alone', () => {
+  const items = fs.readFileSync(new URL('../../web/workitems.js', import.meta.url), 'utf8');
+  const line = items.split('\n').find((l) => l.includes('.wk-doit'));
+  assert.ok(line, 'the row has its Do it button');
+  assert.match(line, /label: 'Do it'/, 'a word on the button, not only an aria label');
+  assert.doesNotMatch(line, /btn\('icon /, 'not an icon button');
+});
+
+test('the Do it button names its task to a screen reader, beside its title', () => {
+  const items = fs.readFileSync(new URL('../../web/workitems.js', import.meta.url), 'utf8');
+  const line = items.split('\n').find((l) => l.includes('.wk-doit'));
+  assert.match(line, /title: `Do it with a session: \$\{it\.title\}`/);
+  assert.match(line, /'aria-label': `Do it with a session: \$\{it\.title\}`/, 'an aria-label, not only a title');
+  const lib = fs.readFileSync(new URL('../../web/lib.js', import.meta.url), 'utf8');
+  assert.match(lib, /'aria-label': label \? null : title \|\| name, onclick, disabled, \.\.\.rest \}/, 'btn() lets a given aria-label stand');
 });

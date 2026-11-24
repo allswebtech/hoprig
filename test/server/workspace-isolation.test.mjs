@@ -52,3 +52,19 @@ test('every test that starts a server or a dashboard has a workspace of its own'
   }
   assert.deepEqual(gaps, [], 'without HOPRIG_WORKSPACE_DIR (or the sandbox, scratch or tempHome helper) the real workspace is used');
 });
+
+// Windows takes the home from USERPROFILE (and the app folders from APPDATA and LOCALAPPDATA): a child whose env is the
+// runner's with only HOME replaced lives in the runner's shared home there, not in the test's own.
+test('a child env built from process.env with a HOME of its own also sets USERPROFILE, APPDATA and LOCALAPPDATA', () => {
+  const files = fs.readdirSync(TEST, { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.mjs'))
+    .map((e) => path.join(e.parentPath ?? e.path, e.name));
+  const gaps = [];
+  for (const f of files) {
+    const text = fs.readFileSync(f, 'utf8');
+    for (const m of text.matchAll(/\.\.\.process\.env,\s*HOME:[^}]*\}/g)) {
+      if (!['USERPROFILE', 'APPDATA', 'LOCALAPPDATA'].every((k) => new RegExp(`\\b${k}:`).test(m[0]))) gaps.push(`${path.relative(TEST, f)}: ${m[0].slice(0, 60)}…`);
+    }
+  }
+  assert.deepEqual(gaps, []);
+});

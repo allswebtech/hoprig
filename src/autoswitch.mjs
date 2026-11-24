@@ -6,9 +6,10 @@
 //   enabled            false by default: moving to an API profile costs money, so the owner turns it on
 //   order              profile names, most preferred first, e.g. ["sub", "sub2", "api"]. Only profiles in this
 //                      list are ever chosen automatically.
-//   payPerUse          "also use pay-per-use API keys" (profiles.mjs isPayPerUse). Off: Auto never moves a session
-//                      to one. Never chosen: on when the saved order already holds one (the owner put it there).
-//                      Turning it on adds them at the end of the order; turning it off takes them out.
+//   payPerUse          "also use pay-per-use providers" (profiles.mjs isPayPerUse), and a stored sign-in billed by use
+//                      (routerstate.mjs billedLogin, a Console account's key). Off: Auto never serves or moves a
+//                      session through one. Never chosen: on when the saved order already holds one (the owner put it
+//                      there). Turning it on adds them at the end of the order; turning it off takes them out.
 //   returnToPreferred  when a session runs on a later profile and an earlier one is available again, move it back
 //                      at the end of the current reply
 //   prompt             what is typed after a switch so Claude carries on with the interrupted work
@@ -18,6 +19,7 @@ import path from 'node:path';
 import { loadConfig, saveConfig } from './config.mjs';
 import { stateDir } from './paths.mjs';
 import { listProfiles, servesTools, validName } from './profiles.mjs';
+import { billedLogin } from './routerstate.mjs';
 
 export const DEFAULTS = {
   enabled: false,
@@ -32,14 +34,18 @@ function rawSettings() {
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
 }
 
-const paidNames = () => new Set(listProfiles().filter((p) => p.paid).map((p) => p.name));
+// Billed by use: a key the profile file says is paid per use, or the stored sign-in when its last check said it holds
+// a key billed by use (a Console account's). The one rule for everything Auto mode does with "payPerUse".
+const billed = (p) => p.paid === true || billedLogin(p);
+const paidNames = (profiles = listProfiles()) => new Set(profiles.filter(billed).map((p) => p.name));
 
-// The default of a choice never made. The profile files are read once, and only when the order is not empty:
-// getAutoSwitch() runs on every state poll.
-function orderHasPaid(order, paid = null) {
+// The default of a choice never made: on when the owner put a key paid by its own file into the order. A sign-in that
+// became billed by use after he put it there is no such choice, so it does not count here. The profile files are read
+// once, and only when the order is not empty: getAutoSwitch() runs on every state poll.
+function orderHasPaid(order) {
   if (!order.length) return false;
-  const set = paid || paidNames();
-  return order.some((n) => set.has(n));
+  const keys = new Set(listProfiles().filter((p) => p.paid === true).map((p) => p.name));
+  return order.some((n) => keys.has(n));
 }
 
 export function getAutoSwitch() {
@@ -62,6 +68,7 @@ export function setAutoSwitch(patch) {
   // A choice never made stays unmade (it keeps following the order), unless this change makes it.
   let chosen = typeof rawSettings().payPerUse === 'boolean';
   const next = { ...getAutoSwitch() };
+  const before = next.order;
   if ('enabled' in patch) next.enabled = patch.enabled === true;
   if ('returnToPreferred' in patch) next.returnToPreferred = patch.returnToPreferred === true;
   if ('order' in patch) {
@@ -75,8 +82,10 @@ export function setAutoSwitch(patch) {
     next.payPerUse = patch.payPerUse === true;
     next.order = next.payPerUse ? [...next.order, ...[...paid].filter((n) => !next.order.includes(n))] : next.order.filter((n) => !paid.has(n));
     chosen = true;
-  } else if ('order' in patch && next.order.some((n) => paid.has(n))) {
-    next.payPerUse = true; // the owner put a pay-per-use key in the order
+  } else if ('order' in patch && next.order.some((n) => paid.has(n) && !before.includes(n))) {
+    // The owner put a pay-per-use key in the order. One that was there already is no choice: moving the rows of the
+    // order (or a sign-in that became billed by use while it stood there) never turns paid use on.
+    next.payPerUse = true;
     chosen = true;
   }
   if ('prompt' in patch) {
@@ -92,7 +101,7 @@ export function setAutoSwitch(patch) {
   }
   const { payPerUse, ...rest } = next;
   saveConfig({ autoSwitch: chosen ? next : rest });
-  return { ...rest, payPerUse: chosen ? payPerUse : orderHasPaid(rest.order, paid) };
+  return { ...rest, payPerUse: chosen ? payPerUse : orderHasPaid(rest.order) };
 }
 
 // ---- which profile is at its limit, and until when ----
@@ -152,14 +161,61 @@ export function clearLimited(name) {
 
 // ---- choosing ----
 
-/** The order Auto mode really uses: providers that exist, without pay-per-use keys unless the owner allows them. */
+/**
+ * The order Auto mode really uses: providers that exist, without one billed by use (a pay-per-use key, a sign-in on a
+ * Console account's key) unless the owner allows them. The router serves from it and every move at a limit picks from it.
+ */
 export function usableOrder() {
+  return splitOrder().usable;
+}
+
+/**
+ * The providers of the order that exist and serve Claude Code but are left out of usableOrder only because they are
+ * billed by use while "Also use pay-per-use providers" is off. Empty while it is on. `names` asks the same of other
+ * names than the order's: the router asks it of the provider a running Auto session runs as (its "/as/<name>"),
+ * which turning the switch off takes out of the order.
+ */
+export function billedOutOfOrder(names) {
+  return splitOrder(names).billed;
+}
+
+/**
+ * Why each provider of the order is left out of usableOrder, read only: [{ name, why }], in the order's order, with
+ * why 'missing' (no provider of that name any more), 'tools' (it does not serve Claude Code) or 'billed' (billed by
+ * use while "Also use pay-per-use providers" is off). Empty for an empty order and when every provider takes part.
+ * `accounts` ({ profiles, autoSwitch } as the dashboard lists them, perhaps another computer's) asks the same of that
+ * list: its `tools` and its `paid` mark (a stored sign-in billed by use carries it there) stand in for the files.
+ */
+export function leftOutOfOrder(accounts) {
+  if (accounts && typeof accounts === 'object') {
+    const listed = Array.isArray(accounts.profiles) ? accounts.profiles : [];
+    const as = accounts.autoSwitch || {};
+    return [...new Set(Array.isArray(as.order) ? as.order : [])].map((name) => {
+      const p = listed.find((x) => x && x.name === name && !x.virtual);
+      const why = !p ? 'missing' : Array.isArray(p.tools) && !p.tools.includes('claude') ? 'tools' : as.payPerUse === false && p.paid === true ? 'billed' : null;
+      return why ? { name, why, ...(p && p.label ? { label: p.label } : {}) } : null;
+    }).filter(Boolean);
+  }
   const profiles = listProfiles();
-  // Auto mode moves Claude Code sessions: only providers that serve Claude Code take part.
-  const known = new Set(profiles.filter((p) => servesTools(p).includes('claude')).map((p) => p.name));
-  const paid = new Set(profiles.filter((p) => p.paid).map((p) => p.name));
+  const paid = paidNames(profiles);
   const as = getAutoSwitch();
-  return as.order.filter((n) => known.has(n) && (as.payPerUse || !paid.has(n)));
+  return as.order.map((name) => {
+    const p = profiles.find((x) => x.name === name);
+    const why = !p ? 'missing' : !servesTools(p).includes('claude') ? 'tools' : !as.payPerUse && paid.has(name) ? 'billed' : null;
+    return why ? { name, why, ...(p && p.label ? { label: p.label } : {}) } : null;
+  }).filter(Boolean);
+}
+
+// The one rule of both: a provider of the order takes part when it exists and serves Claude Code (Auto mode moves
+// Claude Code sessions), unless it is billed by use while the switch is off.
+function splitOrder(names) {
+  const profiles = listProfiles();
+  const known = new Set(profiles.filter((p) => servesTools(p).includes('claude')).map((p) => p.name));
+  const paid = paidNames(profiles);
+  const as = getAutoSwitch();
+  const inOrder = (Array.isArray(names) ? names : as.order).filter((n) => known.has(n));
+  const left = (n) => !as.payPerUse && paid.has(n);
+  return { usable: inOrder.filter((n) => !left(n)), billed: inOrder.filter(left) };
 }
 
 /**

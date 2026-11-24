@@ -102,12 +102,16 @@ function rawLines(text) {
 
 // file → [how many raw acts, why they stay raw]
 const ALLOWED = {
+  'src/workspace/dropacts.mjs': [1, 'a memory link of a dropped project taken away in Claude Code\'s own folder, outside the workspace (only a link, never a real folder: lstat first)'],
   'src/workspace/grouptool.mjs': [6, 'the launcher in Hoprig\'s own command folder (~/.local/bin), outside the workspace'],
   'src/workspace/link.mjs': [11, 'the coding tools\' own files and links (~/.claude, ~/.config/opencode), outside the workspace; what is written into the brain (the Memory section, merged and adopted files) goes through inside.mjs, and a link is made only to a place of the brain leaves() finds inside it'],
   'src/workspace/restore.mjs': [3, 'the temporary folder of a dry run, made by mkdtemp and removed after'],
+  'src/workspace/credrepo.mjs': [3, 'git ls-remote --get-url and ssh -G, run outside any folder: which server an address reaches, from the owner\'s own settings only; and pushAddresses\' reads of the credentials folder\'s own remote (git config --get-all, git remote get-url), asked in the push\'s own environment so the check sees the rules the push will use'],
   'src/workspace/setup.mjs': [2, 'the workspace folder itself (the base every check starts from), and git asked for the name outside any folder'],
   'src/pcsetup/cli.mjs': [1, 'a recipe saved to the file the owner typed (never over one: wx)'],
   'src/pcsetup/feature.mjs': [3, 'a recipe in Hoprig\'s state folder, and the projects folder the owner chose (a base)'],
+  'src/pcsetup/newprojectstart.mjs': [4, 'the command token of `project new --start` in Hoprig\'s state folder (mode 600, made at each start of the dashboard and removed with it); the project itself is only read, through inside.mjs'],
+  'src/pcsetup/getproject.mjs': [4, 'signInProbe: the GIT_ASKPASS stand-in in a temporary folder made by mkdtemp (and removed after), and git ls-remote run outside any folder'],
   'src/pcsetup/leftovers.mjs': [13, 'the locks of hoprig get in Hoprig\'s state folder; what is in a place goes through inside.mjs'],
   'src/pcsetup/project.mjs': [4, 'a template cloned into a temporary folder made by mkdtemp (and removed after), and git asked for the name outside any folder'],
   'src/pcsetup/rules.mjs': [7, 'the working rules in Claude Code\'s own folder, outside the workspace (as the released version)'],

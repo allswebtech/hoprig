@@ -5,7 +5,7 @@
 // left alone with its reason). toolsPart() is the AI brain page's "Coding tools": the state per tool, one button.
 import { icon } from './icons.js';
 import { TOOL_NAMES, api, btn, fill, h, openSheet } from './lib.js';
-import { errorBox, groupHead, okBox } from './shell.js';
+import { errorBox, fold, groupHead, okBox } from './shell.js';
 
 const LEFT = ['already', 'conflict'];
 const mark = (e) => (e.error ? 'alert' : e.action === 'conflict' ? 'minus' : 'check');
@@ -43,54 +43,77 @@ const whoReads = (entries) => {
 };
 
 /**
- * The sheet: the plan, then "Link". `after()` runs once links were made. `prefix`: '' for the open computer, '~'
- * for this dashboard itself (Get started). Resolves with true when it linked.
+ * The sheet's words. `switchOn`: opened from a button that says Switch on (Get started's skills step, the Skills
+ * page), so the sheet says the same, with one plain line of what it does first and the links folded under "What
+ * exactly"; else the AI brain page's own words (Link).
  */
-export async function linkBrainSheet(after = () => {}, { prefix = '' } = {}) {
+export function linkSheetWords(entries, switchOn = false) {
+  if (!switchOn) return { title: 'Link the AI brain', subtitle: `So ${whoReads(entries)} the same rules, skills and memory from the AI brain, and they travel with it.`, lead: null, button: 'Link', done: 'Linked.' };
+  const who = toolNames(entries);
+  const one = new Set(entries.flatMap(toolsOf)).size <= 1;
+  return { title: 'Switch on your stored skills', subtitle: null,
+    lead: `${who[0].toUpperCase()}${who.slice(1)} then ${one ? 'uses' : 'use'} the skills, rules and memory kept in your AI brain, on this computer. Nothing is deleted.`,
+    button: 'Switch on', done: 'Switched on.' };
+}
+
+/**
+ * The sheet: the plan, then "Link" (or "Switch on", `switchOn`). `after()` runs once links were made. `prefix`: ''
+ * for the open computer, '~' for this dashboard itself (Get started). Resolves with true when it linked.
+ */
+export async function linkBrainSheet(after = () => {}, { prefix = '', switchOn = false } = {}) {
   let plan;
   try {
     plan = await api(`${prefix}/api/workspace/link`);
   } catch (e) {
-    return void openSheet({ title: 'Link the AI brain' }, (close) => [errorBox(e.message), h('div.sheet-actions', btn('secondary', { label: 'Close', onclick: () => close() }))]);
+    return void openSheet({ title: linkSheetWords([], switchOn).title }, (close) => [errorBox(e), h('div.sheet-actions', btn('secondary', { label: 'Close', onclick: () => close() }))]);
   }
-  return openSheet({ title: 'Link the AI brain', subtitle: `So ${whoReads(plan.entries)} the same rules, skills and memory from the AI brain, and they travel with it.` }, (close) => {
+  const w = linkSheetWords(plan.entries, switchOn);
+  return openSheet({ title: w.title, ...(w.subtitle ? { subtitle: w.subtitle } : {}) }, (close) => {
     const out = h('div');
     const actions = h('div.sheet-actions');
     if (!plan.todo) {
       fill(actions, btn('primary', { label: 'Close', onclick: () => close() }));
       return [plan.already ? okBox('Everything is linked already.') : h('p.sheet-text', 'Nothing can be linked now:'), plan.already ? null : entryList(plan.entries, false), actions];
     }
-    const go = btn('primary', { icon: 'check', label: 'Link', onclick: async () => {
+    const go = btn('primary', { icon: 'check', label: w.button, onclick: async () => {
       go.disabled = true;
       go.classList.add('busy');
       try {
         const r = await api(`${prefix}/api/workspace/link`, {});
         const bad = r.entries.filter((e) => e.error).length;
-        fill(out, bad ? errorBox(`${bad} could not be linked; the rest is done.`) : okBox(r.entries.some((e) => e.action === 'conflict') ? 'Linked. What was in the way is left as it was.' : `Linked. ${whoReads(r.entries)} these from the AI brain now.`),
+        fill(out, bad ? errorBox(`${bad} could not be linked; the rest is done.`) : okBox(r.entries.some((e) => e.action === 'conflict') ? `${w.done} What was in the way is left as it was.` : `${w.done} ${whoReads(r.entries)} these from the AI brain now.`),
           entryList(r.entries, true));
-        list.remove();
-        intro.remove();
+        plain.remove();
         fill(actions, btn('primary', { label: 'Done', onclick: () => close(true) }));
         after();
       } catch (e) {
-        fill(out, errorBox(e.message));
+        fill(out, errorBox(e));
         go.disabled = false;
         go.classList.remove('busy');
       }
     } });
     fill(actions, btn('secondary', { label: 'Cancel', onclick: () => close() }), go);
-    const intro = h('p.sheet-text', 'What will happen to each link:');
-    const list = entryList(plan.entries, false);
-    return [intro, list, h('p.hint', 'Nothing is overwritten: a file or folder that is moved is kept as a dated backup next to where it was.'), out, actions];
+    const what = [h('p.sheet-text', 'What will happen to each link:'), entryList(plan.entries, false), h('p.hint', 'Nothing is overwritten: a file or folder that is moved is kept as a dated backup next to where it was.')];
+    // Switch on: the one plain line first, the paths folded (a newcomer cannot judge them, the curious can open them).
+    const plain = w.lead ? h('div', h('p.sheet-text', w.lead), fold('link-what', 'What exactly', ...what)) : h('div', ...what);
+    return [plain, out, actions];
   }).then((v) => v === true);
 }
 
 /**
- * The note with the "Link now" button, for any page: empty while it loads and when there is nothing to link (no
+ * The note with the "Switch on" button (the same word as Get started's skills step), for any page: empty while it loads and when there is nothing to link (no
  * brain, everything linked, an older computer). `only`: kinds of link to look at, for every coding tool (['skills'] on
  * Skills also takes OpenCode's "opencode:skills"); `text(todo)` the sentence; `after()` once it linked. `prefix` as above.
+ * `switchOn`: the Skills page's stored skills (the button and its sheet say Switch on); else Link, the AI brain page's word.
  */
-export function linkBrainNote({ only = null, text = null, after = () => {}, prefix = '' } = {}) {
+/** The note's sentence: what is not linked yet, with "does" for one coding tool and "do" for more. */
+export function noteWords(todo) {
+  if (todo.every((e) => toolsOf(e).join() === 'claude')) return `Claude Code does not read ${todo.map((e) => e.what).join(', ').replace(/, ([^,]*)$/, ' and $1')} from the AI brain yet.`;
+  const one = new Set(todo.flatMap(toolsOf)).size === 1;
+  return `Not everything is linked yet: ${whoReads(todo).replace(/ reads?$/, '')} ${one ? 'does' : 'do'} not read all of the AI brain.`;
+}
+
+export function linkBrainNote({ only = null, text = null, after = () => {}, prefix = '', switchOn = false } = {}) {
   const box = h('div.bl-note-slot');
   async function load() {
     let plan;
@@ -101,13 +124,11 @@ export function linkBrainNote({ only = null, text = null, after = () => {}, pref
     }
     const todo = plan.entries.filter((e) => !LEFT.includes(e.action) && (!only || only.includes(String(e.id).split(':').pop())));
     if (!plan.brain || !todo.length) return fill(box);
-    const said = text ? text(todo) : todo.every((e) => toolsOf(e).join() === 'claude')
-      ? `Claude Code does not read ${todo.map((e) => e.what).join(', ').replace(/, ([^,]*)$/, ' and $1')} from the AI brain yet.`
-      : `Not everything is linked yet: ${whoReads(todo).replace(/ reads?$/, '')} do not read all of the AI brain.`;
+    const said = text ? text(todo) : noteWords(todo);
     fill(box, h('div.banner.info.bl-note', { role: 'status' }, icon('brain', { size: 18 }),
       h('span.bl-note-text', said),
-      btn('small primary', { icon: 'check', label: 'Link now', onclick: async () => {
-        if (await linkBrainSheet(() => {}, { prefix })) {
+      btn('small primary', { icon: 'check', label: switchOn ? 'Switch on' : 'Link', onclick: async () => {
+        if (await linkBrainSheet(() => {}, { prefix, switchOn })) {
           await load();
           after();
         }

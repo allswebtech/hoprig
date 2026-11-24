@@ -7,6 +7,7 @@ import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { fakeTools } from '../setup/helpers.mjs';
 import { sandbox } from '../server/helpers.mjs';
 
 const FAKE_SESSION = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-session.mjs');
@@ -46,6 +47,9 @@ const until = async (what, fn, ms = 15_000) => {
 
 test('Tia\'s page tools go through the page\'s own routes', { timeout: 120_000, skip: process.platform === 'win32' && 'the fake launcher is POSIX' }, async (t) => {
   const box = sandbox('tia-dom');
+  // Stand-ins (gh, docker, tailscale) first on PATH: the Setup check and git steps run them, so the owner's real
+  // GitHub, container daemon and private network are never reached (this test's steps are stand-ins, not the real ones).
+  process.env.PATH = `${fakeTools(path.join(box.root, 'tools'))}${path.delimiter}${process.env.PATH}`;
   const work = path.join(box.root, 'work');
   const projects = path.join(work, 'projects');
   fs.mkdirSync(path.join(projects, 'shop', '.git'), { recursive: true });

@@ -55,3 +55,22 @@ test('restore: a start writes a launch file; a conversation that still runs leav
   assert.ok(held.argv.includes(SID) && held.argv.includes('--model') && held.argv.includes('opus'), JSON.stringify(held.argv));
   assert.equal(entries.at(-1).outcome, 'ok');
 });
+
+test('restore: the launch file carries a reset hand (Hands-off offered), so the reopened run starts off', async () => {
+  const { writeProfile } = await import('../../src/profiles.mjs');
+  const { Deck } = await import('../../src/server/deck.mjs');
+  const { serverAdapter } = await import('../../src/automation/feature.mjs');
+  const restore = await import('../../src/automation/restore.mjs');
+  writeProfile('api', { label: 'API', env: { ANTHROPIC_API_KEY: 'sk-test-not-real' } });
+  const created = [];
+  const backend = { platform: process.platform, list: async () => [], create: async (o) => (created.push(o), { name: o.name, id: `%${created.length}` }) };
+  const deck = new Deck({ backend, config: () => ({ launcher: [process.execPath, '/opt/hoprig/bin/hoprig.mjs'], handsOff: { offered: true } }), profiles: () => [] });
+  const chat = { startTerminal: async (id, go) => ({ name: await go() }) }; // nothing runs it: the start proceeds
+  const ctx = serverAdapter({ deck, state: async () => ({ sessions: [] }), config: () => ({ handsOff: { offered: true } }) }, { chat, log: () => {} });
+  const action = { type: 'reopen', session: { name: 'work', cwd: box.root, profile: 'api', sessionId: SID, carryArgs: [] } };
+  await restore.apply([action], { deck: ctx.deck, record: () => {}, conversationExists: () => true, later: () => {} });
+  assert.equal(created.length, 1, 'the reopen started');
+  const argv = created[0].argv;
+  const held = JSON.parse(fs.readFileSync(argv[argv.indexOf('--launch') + 1], 'utf8'));
+  assert.deepEqual(held.hand, { reset: true }, 'a restore after a reboot hands a reset: the reopened run is the owner\'s until he turns it on');
+});

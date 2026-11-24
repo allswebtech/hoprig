@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { sealed } from './seal.mjs';
 
 const { plainDelete } = await import('../src/asking.mjs');
 const { SHARE, listing, scaled } = await import('./plainjudge.mjs');
@@ -120,7 +121,7 @@ function runLines(root, template, markers, lines) {
   ].join('\n');
   fs.writeFileSync(`${template}.markers`, `${markers.join('\n')}\n`);
   return new Promise((resolve, reject) => {
-    const p = spawn('bash', ['--norc', '--noprofile', '-c', script], { env: { PATH: process.env.PATH, HOME: path.join(root, 'nohome'), LC_ALL: 'C.UTF-8' } });
+    const p = spawn('bash', ['--norc', '--noprofile', '-c', script], { env: sealed({ PATH: process.env.PATH, HOME: path.join(root, 'nohome'), LC_ALL: 'C.UTF-8' }) });
     let out = '';
     p.stdout.on('data', (d) => (out += d));
     p.on('error', reject);

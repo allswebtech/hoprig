@@ -1,6 +1,10 @@
 // Settings → Updates in the demo: sample versions, and an "update" that only prints a line. Nothing here looks at
 // the real computer or asks a server (the demo must never show or change the owner's own installs).
 import { ALL_TOOLS, TOOL_IDS } from '../codetools/index.mjs';
+import { HOPRIG, TOOLS, newer } from './versions.mjs';
+
+// Each row's versions from versions.mjs, the one place the demo keeps them (Hoprig's is the package's own).
+const row = (v, method, extra = {}) => ({ installed: v.installed, latest: v.latest, method, updateAvailable: newer(v.latest, v.installed), canUpdate: true, ...extra });
 
 const say = (id, version) => async ({ onLine = () => {} } = {}) => {
   onLine(`(demo) ${id} would be updated here; nothing is installed in the demo`);
@@ -20,14 +24,14 @@ export function demoUpdateItems() {
   const shown = (i) => !ALL_TOOLS.some((t) => t.id === i.id) || TOOL_IDS.includes(i.id);
   return [
     item('hoprig', 'Hoprig', 'The new version is used after the dashboard restarts: sessions kept by tmux go on through the restart, sessions in the built-in terminals end then (their conversations can be continued). Hoprig never updates itself: Automatic tells you, and you choose the moment.',
-      { installed: '0.1.0', latest: '0.1.0', method: 'npm', updateAvailable: false, canUpdate: true }),
+      row({ installed: HOPRIG, latest: HOPRIG }, 'npm')),
     item('claude', 'Claude Code', 'Running sessions keep the version they started with and use the new one when they start again. Automatic updates wait until no Claude Code session is working.',
-      { installed: '2.1.330', latest: '2.1.332', method: 'official installer', updateAvailable: true, canUpdate: true }),
+      row(TOOLS.claude, 'official installer')),
     item('codex', 'Codex', 'Close its sessions first: the update replaces the program\'s files. Automatic updates wait until no Codex session is open.',
-      { installed: '0.169.0', latest: '0.170.1', method: "Hoprig's tools folder", updateAvailable: true, canUpdate: true, note: 'Installs 0.169.0 at first, the version this Hoprig is tested with.' }),
+      row(TOOLS.codex, "Hoprig's tools folder", { note: `Installs ${TOOLS.codex.installed} at first, the version this Hoprig is tested with.` })),
     item('opencode', 'OpenCode', 'Close its sessions first: the update replaces the program\'s files. Automatic updates wait until no OpenCode session is open.',
-      { installed: '2.3.0', latest: '2.3.0', method: "Hoprig's tools folder", updateAvailable: false, canUpdate: true }),
-    item('cloudflared', 'Tunnel helper (cloudflared)', 'Turn the public link off first: a Temporary link comes back with a new address. Automatic updates wait until the public link is off.',
-      { installed: '2026.10.1', latest: '2026.10.1', method: "Hoprig's add-ons folder", updateAvailable: false, canUpdate: true }),
+      row(TOOLS.opencode, "Hoprig's tools folder")),
+    item('cloudflared', 'The helper for the public link (cloudflared)', 'Turn the public link off first: a Temporary link comes back with a new address. Automatic updates wait until the public link is off.',
+      row(TOOLS.cloudflared, "Hoprig's add-ons folder")),
   ].filter(shown);
 }

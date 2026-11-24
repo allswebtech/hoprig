@@ -77,5 +77,5 @@ test('the upkeep holds the brain: a save waits, then says the workspace is being
   // Two saves at once: the second waits for the first, then finds nothing left to save.
   await add('One more');
   const [a, b] = await Promise.all([saveWork(place(), { subject: 'Update work items' }), saveWork(place(), { subject: 'Update work items' })]);
-  assert.deepEqual([a.sent || b.sent, /^Nothing to save/.test(a.sent ? b.message : a.message)], [true, true], `${a.message} | ${b.message}`);
+  assert.deepEqual([a.sent || b.sent, /^Nothing to keep/.test(a.sent ? b.message : a.message)], [true, true], `${a.message} | ${b.message}`);
 });

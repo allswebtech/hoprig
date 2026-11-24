@@ -11,11 +11,14 @@
 
 /* ---------- the owner's message: rewind beside it, pictures in it ---------- */
 .chat-userrow { display: flex; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
-.chat-rewindbtn { flex: none; width: 32px; min-height: 32px; color: var(--muted); opacity: 0; transition: opacity var(--tick); }
-.chat-userrow:hover .chat-rewindbtn, .chat-rewindbtn:focus-visible { opacity: 1; }
+/* "Rewind to here" in words beside the message, quiet until the pointer is on the message (a touch screen: always as
+   it is, large enough for a finger). */
+/* At rest in the muted colour at full strength (4.5:1 and more in both themes, for 12 px text on every message); on
+   hover it turns to the text colour. */
+.chat-rewindbtn { flex: none; min-height: 28px; padding: 0 8px; gap: 4px; font-size: var(--fs-xs); font-weight: 500; color: var(--muted); transition: color var(--tick); }
+.chat-userrow:hover .chat-rewindbtn, .chat-rewindbtn:focus-visible { color: var(--text); }
 .chat-no-rewind .chat-rewindbtn { display: none; }
-/* No hover on a touch screen: rewind is in the more menu there. */
-@media (hover: none) and (pointer: coarse) { .chat-rewindbtn { display: none; } }
+@media (hover: none) and (pointer: coarse) { .chat-rewindbtn { opacity: 1; min-height: 44px; } }
 .chat-files { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-top: 6px; }
 .chat-user .chat-files .chip { min-height: 24px; border-color: transparent; background: rgb(255 255 255 / .18); color: inherit; white-space: nowrap; }
 .chat-thumb-link { display: block; border-radius: 8px; overflow: hidden; line-height: 0; background: var(--surface-2); }
@@ -82,4 +85,82 @@
   .chat-keys { grid-template-columns: 1fr; gap: 2px; }
   .chat-keys dd { margin-bottom: 8px; }
   .chat-thumb { max-width: 140px; max-height: 120px; }
+}
+
+/* ---------- "!" in the box: a shell command in the folder (bang.js); its runs above the box ---------- */
+.chat-shell-mode .chat-composer { box-shadow: 0 0 0 2px var(--warn-soft); }
+.chat-shell-mode .chat-input { font-family: var(--mono); }
+.chat-shell-runs { display: grid; gap: 6px; margin: 0 0 6px; }
+.chat-shell-runs.hidden { display: none; }
+.chat-shell-run { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); min-width: 0; }
+.chat-shell-run > summary, .chat-shell-head { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 4px 0 10px; cursor: pointer; list-style: none; font-size: var(--fs-sm); }
+.chat-shell-run > summary::-webkit-details-marker { display: none; }
+.chat-shell-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12.5px var(--mono); }
+.chat-shell-end { flex: none; color: var(--ok); font-size: var(--fs-xs); font-weight: 600; }
+.chat-shell-run.failed .chat-shell-end { color: var(--danger); }
+.chat-shell-busy .chat-shell-end { color: var(--muted); }
+.chat-shell-head { cursor: default; }
+.chat-shell-stop { flex: none; }
+.chat-shell-live { max-height: 160px; }
+.chat-shell-x { flex: none; width: 30px; height: 30px; min-height: 30px; }
+.chat-shell-out { margin: 0; max-height: 220px; overflow: auto; padding: 8px 10px; border-top: 1px solid var(--border); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); background: var(--bg); }
+.chat-shell-note { margin: 0 2px; font-size: var(--fs-xs); color: var(--muted); }
+@media (pointer: coarse) { .chat-shell-x { width: 44px; height: 44px; } .chat-shell-stop { min-height: 44px; } }
+.chat-help-h { margin: 14px 0 8px; font-size: var(--fs-sm); font-weight: 650; color: var(--text-2); }
+.chat-help-h:first-child { margin-top: 0; }
+.chat-help-cmds dt code { font: 600 12.5px var(--mono); color: var(--text); }
+
+/* ---------- the composer's menus (menu.js): at their control, above it; a sheet on a narrow touch screen ---------- */
+.chat-menu { position: fixed; z-index: 60; display: grid; gap: 2px; min-width: 240px; max-width: min(360px, calc(100vw - 16px)); padding: 6px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-2); }
+.chat-menu-group + .chat-menu-group { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border); }
+.chat-menu-head { margin: 2px 10px 4px; font-size: var(--fs-xs); font-weight: 650; color: var(--muted); }
+.chat-menu-item { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; min-height: 34px; padding: 5px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.chat-menu-item:hover, .chat-menu-item:focus-visible { outline: none; background: var(--accent-soft); color: var(--accent-soft-text); }
+.chat-menu-item:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.chat-menu-item:disabled { opacity: .5; cursor: default; }
+.chat-menu-item.chat-is-danger .chat-menu-label { color: var(--danger); }
+.chat-menu-mark { display: grid; place-items: center; color: var(--accent); }
+.chat-menu-main { display: grid; min-width: 0; }
+.chat-menu-label { font-weight: 550; }
+.chat-menu-sub { color: var(--muted); font-size: var(--fs-xs); line-height: 1.35; }
+.chat-menu-item:hover .chat-menu-sub, .chat-menu-item:focus-visible .chat-menu-sub { color: inherit; opacity: .85; }
+.chat-menu-num { min-width: 20px; padding: 0 5px; border: 1px solid var(--border); border-radius: 5px; color: var(--muted); font: 600 11px/18px var(--mono); text-align: center; }
+@media (pointer: coarse) { .chat-menu-item { min-height: 44px; } .chat-menu-num { display: none; } }
+
+/* ---------- the + button and the microphone at the left of the box; a message that did not arrive ---------- */
+.chat-plus { flex: none; border-radius: 50%; }
+.chat-unsent { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 2px 4px 2px 10px; border: 1px solid var(--danger); border-radius: 10px; background: var(--danger-soft); color: var(--danger); font-size: var(--fs-sm); }
+.chat-unsent.hidden { display: none; }
+.chat-unsent-text { flex: 1; min-width: 0; }
+.chat-plan { margin: 0 0 12px; padding-left: 18px; font-size: var(--fs-sm); line-height: 1.7; }
+.chat-modelchip .chat-chip-label { max-width: 26ch; }
+@media (max-width: 599px) {
+  .chat-plus { width: 44px; min-height: 44px; }
+  .chat-unsent .btn { min-height: 44px; }
+  .chat-modelchip .chat-chip-label { max-width: 18ch; }
+}
+
+/* ---------- the limit banner right above the box (limit.js), at every width ---------- */
+.chat-limitslot:empty { display: none; }
+.chat-limitslot .chat-banner { border-radius: 10px; }
+/* A phone: the words beside the icon (not under it), the buttons on the line below. */
+@media (max-width: 599px) { .chat-limitslot .chat-banner > span:not(.chat-banner-actions) { min-width: 0; flex: 1 1 calc(100% - 40px); } }
+/* Why a desktop app key is another one here: its own line under what the key does, quieter. */
+.chat-keys-why { display: block; margin-top: 2px; color: var(--muted); font-size: var(--fs-xs); }
+/* Lead model's chip, on: marked as ultracode's is. */
+.chat-lead[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-soft-text); border-color: var(--accent); }
+.chat-lead[aria-pressed='true'] .chat-chip-k { color: inherit; }
+/* A phone: the row fits at 390 px with nothing cut (the ring's label on one line). */
+.chat-ring-text { white-space: nowrap; }
+@media (max-width: 599px) {
+  .chat-chips { gap: 4px; }
+  .chat-chip { padding: 0 8px; gap: 4px; }
+  .chat-ring { padding: 0 2px; gap: 4px; }
+  /* A long model name (a provider's own id) shrinks the model control, cut with an ellipsis: the ring stays whole. */
+  .chat-modelchip { flex: 0 1 auto; min-width: 0; }
+  .chat-ring { flex: none; }
+  /* Lead model's chip is its icon alone here (its title and spoken label say on or off), so the model control keeps
+     room for its name; it never shrinks below its icon and a few letters. */
+  .chat-lead .chat-chip-k, .chat-lead .chat-chip-v { display: none; }
+  .chat-modelchip { min-width: 64px; }
 }

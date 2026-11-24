@@ -34,9 +34,9 @@ export const countOf = (v) => (Array.isArray(v) ? v.length : 0);
 /** A number a computer gave, for a summary: a finite number or "?". */
 export const saidNum = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : '?');
 
-export const computer = ref('computer', str({ max: 32, pattern: COMPUTER, desc: `Computer name from get_computer_status; omit for this computer ("${LOCAL}").` }));
+export const computer = ref('computer', str({ max: 32, pattern: COMPUTER, desc: `Computer name from get_computer_status, never a session's name; omit for this computer ("${LOCAL}").` }));
 export const session = ref('session', str({ max: 41, pattern: SESSION, desc: 'Session name exactly as list_sessions showed it.' }));
-export const account = str({ max: 32, pattern: ACCOUNT, desc: 'Provider name from get_accounts, or "auto" while Auto mode is on.' });
+export const account = str({ max: 32, pattern: ACCOUNT, desc: 'Provider name from get_computer_status providers, or "auto" while Auto mode is on.' });
 export const job = ref('job', str({ max: 12, pattern: /^j_[0-9a-f]{10}$/, desc: 'Job id from start_session, start_chat, watch_session or list_sessions.' }));
 export const conversation = ref('conversation', str({ max: 36, pattern: UUID, desc: 'Conversation id from list_projects with folder.' }));
 export const folder = str({ max: 1024, pattern: ABS, oneLine: true, desc: 'Absolute folder path (or ~/...) inside the folders the dashboard allows.' });
@@ -138,7 +138,7 @@ export async function findSession(ops, a, { chatOk = false } = {}) {
   const c = list.find((x) => x.name === a.session && (x.computer || LOCAL) === comp(a));
   if (!c) throw toolError(`there is no session "${a.session}" on ${comp(a)} any more`, 'call list_sessions to see the current ones');
   if (c.kind === 'chat' && !chatOk) {
-    throw toolError(`"${a.session}" is a chat in the dashboard page, not a terminal session: this tool cannot act on it`, 'use send_to_chat to write to it, answer its OK or stop it; read_session shows its status');
+    throw toolError(`"${a.session}" is a chat in the dashboard page, not a terminal session: this tool cannot act on it`, 'use send_to_chat (text, answer, stop, name, close or terminal); read_session shows its status');
   }
   return c;
 }
@@ -147,12 +147,13 @@ const ORDER = { L0: 0, L1: 1, L2: 2 };
 
 /**
  * One tool for a few actions on one domain object. `actions`: { <name>: { level, need: [fields], allow: [fields],
- * run(ops, a, ctx), before?(ops, a, ctx), cardLines?(a, before), check?(a, ctx), facts?(ops, a, ctx),
+ * run(ops, a, ctx), before?(ops, a, ctx), cardLines?(a, before), view?(a, before), check?(a, ctx), facts?(ops, a, ctx),
  * policy?(a, facts, tia) → { level, why } | null } }. `level` may be a function of the input. `fields`: the
  * schema parts the actions use; each action accepts only its own (plus `computer`), so a stray field is an error.
  */
-export function actionTool({ name, description, actions, fields }) {
-  const input = obj({ action: str({ enum: Object.keys(actions), desc: 'What to do.' }), ...fields, computer }, { required: ['action'] });
+export function actionTool({ name, description, actions, fields, actionDesc = 'What to do.' }) {
+  // actionDesc: what each action does, when the tool's description would pass the contract's 1024 characters.
+  const input = obj({ action: str({ enum: Object.keys(actions), desc: actionDesc }), ...fields, computer }, { required: ['action'] });
   const levelOf = (a) => {
     const l = actions[a.action].level;
     return typeof l === 'function' ? l(a) : l;
@@ -177,6 +178,8 @@ export function actionTool({ name, description, actions, fields }) {
     run: (ops, a, ctx) => act(a).run(ops, a, ctx),
     before: (ops, a, ctx) => (act(a).before ? act(a).before(ops, a, ctx) : Promise.resolve({ action: a.action })),
     cardLines: (a, b) => (act(a).cardLines ? act(a).cardLines(a, b) : [`${name}: ${a.action}`]),
+    // The card's values for the page's own words (cards.mjs `view`), where an action gives them.
+    cardView: (a, b) => (act(a).view ? act(a).view(a, b) : null),
     facts: (ops, a, ctx) => (act(a).facts ? act(a).facts(ops, a, ctx) : null),
     policy: (a, f, tia) => (act(a).policy ? act(a).policy(a, f, tia) : null),
   };

@@ -7,7 +7,7 @@
 //                                        brief written, or `seen`, the task's brief as shown (409 when it changed since)
 //   POST /api/work/items/<id>/accept { at }              a task in review is done
 //   POST /api/work/items/<id>/send-back { at, text }     open again; the text is added to the brief of the next run
-//   GET  /api/work/runs?item=&project=&day=              the runs, newest first (Activity, a task's runs)
+//   GET  /api/work/runs?item=&project=&day=&id=          the runs, newest first (Activity, a task's runs; id: that one run)
 //   POST /api/work/command/do            `hoprig tasks do` on this computer: { id, brief? | seen?, project?, folder?,
 //                                        tool?, provider?, model?, effort?, dryRun? } with the command token (below)
 //
@@ -23,7 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { stateDir } from '../paths.mjs';
 import { ID_RE, PROJECT_RE, isYmd } from './model.mjs';
-import { cleanFolder } from './runs.mjs';
+import { RUN_ID_RE, cleanFolder } from './runs.mjs';
 
 export const COMMAND_PATH = '/api/work/command/do';
 // The token goes in a header of its own, not as a bearer: a bearer token is another computer's (src/machines).
@@ -77,8 +77,11 @@ function shownFirst(c, dryRun) {
   return c;
 }
 
-/** o: { runs (doit.mjs workRuns), readJson, refOf(m, at), ownerOnly(req), resume() } → [[method, re, fn]]. */
-export function doRoutes({ runs, readJson, refOf, ownerOnly, resume }) {
+/**
+ * o: { runs (doit.mjs workRuns), readJson, refOf(m, at), ownerOnly(req), resume(), learn (src/skillhub/learnfeature.mjs:
+ * a send back is handed to it; it does nothing while learning is off) } → [[method, re, fn]].
+ */
+export function doRoutes({ runs, readJson, refOf, ownerOnly, resume, learn = null, partsByRun = null, corrected = null, fromTia = () => false }) {
   return [
     ['GET', /^\/api\/work\/items\/([^/]+)\/do$/, async (req, m, q) => {
       ownerOnly(req);
@@ -94,7 +97,8 @@ export function doRoutes({ runs, readJson, refOf, ownerOnly, resume }) {
       keys(b, ['at', ...CHOICES]);
       const c = shownFirst(cleanChoices(b), b.dryRun === true);
       await resume();
-      return runs.start(refOf(m, b.at), c, { dryRun: b.dryRun === true });
+      // Started through Tia's door (manage_work start, on the owner's yes to her card): the session is hers.
+      return runs.start(refOf(m, b.at), c, { dryRun: b.dryRun === true, hers: fromTia(req) });
     }],
     ['POST', /^\/api\/work\/items\/([^/]+)\/accept$/, async (req, m) => {
       ownerOnly(req);
@@ -108,7 +112,10 @@ export function doRoutes({ runs, readJson, refOf, ownerOnly, resume }) {
       const b = await readJson(req);
       keys(b, ['at', 'text']);
       await resume();
-      return runs.sendBack(refOf(m, b.at), b.text);
+      const out = await runs.sendBack(refOf(m, b.at), b.text);
+      if (learn) learn.sentBack(out.item, b.text);
+      if (corrected) corrected('sent-back', out.item, b.text);
+      return out;
     }],
     ['GET', /^\/api\/work\/runs$/, async (req, m, q) => {
       ownerOnly(req);
@@ -125,7 +132,14 @@ export function doRoutes({ runs, readJson, refOf, ownerOnly, resume }) {
         if (!isYmd(q.get('day'))) throw fail(400, 'a day is YYYY-MM-DD');
         f.day = q.get('day');
       }
-      return { runs: runs.list(f) };
+      if (q.get('id')) {
+        if (!RUN_ID_RE.test(q.get('id'))) throw fail(400, 'that is not a run id');
+        f.id = q.get('id');
+      }
+      const list = runs.list(f);
+      // Who did what (Lead model): read through workUnits (pulse.mjs), attached to the runs that had helpers.
+      const parts = partsByRun && list.length ? await partsByRun().catch(() => new Map()) : new Map();
+      return { runs: list.map((r) => (parts.has(r.id) ? { ...r, parts: parts.get(r.id) } : r)) };
     }],
   ];
 }

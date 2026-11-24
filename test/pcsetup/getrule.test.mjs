@@ -135,7 +135,7 @@ test('get shop --in kits/builds: the look-up, then kits/builds/alpha-shop with i
 test('get <place>/<folder> of a project only the hosting site has, two fits for one word asked once (an error without a terminal), a word that fits nothing', async (tc) => {
   const w = await dryWorld(tc, 'getrule2', find);
   onServer(w, 'team', 'shop-delta-project', { 'README.md': '# delta\n', '.gitignore': '/code/\n/apps/\n' });
-  const json = await w.unchanged('get shop --in kits/builds --json (two fit)', () => get(['shop', '--in', 'kits/builds', '--json']));
+  const json = await w.unchanged('get shop --in kits/builds --json (two fit)', () => get(['shop', '--in', 'kits/builds', '--json']), { reports: 1 });
   assert.equal(json.code, 1);
   const r = jsonOf(json).projects[0];
   assert.equal(r.result, 'refused');
@@ -143,7 +143,7 @@ test('get <place>/<folder> of a project only the hosting site has, two fits for 
   const dry = await w.unchanged('get shop --in kits/builds --dry-run (two fit)', () => get(['shop', '--in', 'kits/builds', '--dry-run']));
   assert.equal(dry.code, 1);
   assert.match(dry.text, /fits 2 projects \(alex\/shop-alpha-project → kits\/builds\/alpha-shop, team\/shop-delta-project → kits\/builds\/delta-shop\)/);
-  const none = await w.unchanged('get zine --in kits/builds', () => get(['zine', '--in', 'kits/builds']));
+  const none = await w.unchanged('get zine --in kits/builds', () => get(['zine', '--in', 'kits/builds']), { reports: 1 });
   assert.equal(none.code, 1);
   assert.match(none.text, /no repository in alex, team fits .* for "zine"\. These do not fit the rule: alex\/zine-gamma-app/);
   // At a terminal: one question, the choice; it is the yes.
@@ -159,7 +159,7 @@ test('get <place>/<folder> of a project only the hosting site has, two fits for 
   assert.ok(exists(path.join(w.groups.builds, 'beta-blog', 'code', 'blog-beta-api', '.git')));
   untouched(w, path.join(w.groups.builds, 'beta-blog'));
   // One fit at a terminal: asked once, and no is no.
-  const no = await w.unchanged('get alpha --in kits/builds, answered no', () => get(['alpha', '--in', 'kits/builds'], { interactive: true, answers: () => 'n' }));
+  const no = await w.unchanged('get alpha --in kits/builds, answered no', () => get(['alpha', '--in', 'kits/builds'], { interactive: true, answers: () => 'n' }), { reports: 1 });
   assert.equal(no.code, 1);
   assert.equal(no.ui.asked.length, 1);
 });
@@ -186,7 +186,7 @@ test('a plain group without a rule: get still writes project.json after asking; 
 test('restore of a project of a place with a naming rule writes nothing into it either', async (tc) => {
   const w = await dryWorld(tc, 'getrule4', find);
   await workspace(['find', '--in', 'kits/builds', '--add']);
-  const r = await workspace(['restore', 'https://github.com/alex/brain.git', '--yes']);
+  const r = await workspace(['restore', 'https://github.com/alex/brain.git', '--with-projects', '--yes']);
   assert.equal(r.code, 0, r.text);
   const root = path.join(w.groups.builds, 'alpha-shop');
   assert.ok(exists(path.join(root, 'code', 'shop-alpha-app', '.git')));
@@ -211,7 +211,7 @@ test('get <owner/name> or <git address> --in a place with a rule follows the rul
   assert.equal(jsonOf(a.r).projects[0].folder, 'beta-blog');
   assert.deepEqual(mapOf(w).projects.find((p) => p.name === 'beta-blog').repos.map((x) => x.dir), ['code/blog-beta-api', 'code/blog-beta-app', 'code/blog-beta-web']);
   // One that does not fit the rule is refused plainly, and nothing changes.
-  const no = await w.unchanged('get alex/zine-gamma-app --in kits/builds', () => get(['alex/zine-gamma-app', '--in', 'kits/builds']));
+  const no = await w.unchanged('get alex/zine-gamma-app --in kits/builds', () => get(['alex/zine-gamma-app', '--in', 'kits/builds']), { reports: 1 });
   assert.equal(no.code, 1);
   assert.match(no.text, /alex\/zine-gamma-app does not fit the naming rule of kits\/builds \(\{project\}-\{product\}-project\)/);
 });
@@ -248,7 +248,7 @@ test('one folder in a place whatever its letter case, one address once: find --a
   const m = mapOf(w);
   m.projects = m.projects.filter((p) => p.name !== 'beta-blog').concat([{ name: 'Beta-Blog', in: 'kits/builds', url: 'https://github.com/alex/x-other-project.git', repos: [] }]);
   fs.writeFileSync(path.join(w.ws, 'ai_brain', 'workspace.json'), JSON.stringify(m, null, 2) + '\n');
-  const g = await w.unchanged('get blog --in kits/builds (a case twin in the map)', () => get(['blog', '--in', 'kits/builds', '--json']));
+  const g = await w.unchanged('get blog --in kits/builds (a case twin in the map)', () => get(['blog', '--in', 'kits/builds', '--json']), { reports: 1 });
   assert.equal(g.code, 1);
   assert.match(jsonOf(g).projects[0].message, /kits\/builds\/Beta-Blog is in the map already for another repository .*: beta-blog would be the same folder/);
   const add = await w.unchanged('find --add with a case twin in the map', () => workspace(['find', '--in', 'kits/builds', '--add', '--json']));
@@ -318,7 +318,7 @@ test('one organisation GitHub does not list (single sign-on): the look-up uses t
   assert.equal(g.code, 0, g.text);
   assert.equal(jsonOf(g).projects[0].result, 'cloned');
   // A repository named in that account: its own reason, not "no such repository".
-  const t = await w.unchanged('get team/… --in with team not listed', () => get(['team/blog-beta-project', '--in', 'kits/builds', '--json']));
+  const t = await w.unchanged('get team/… --in with team not listed', () => get(['team/blog-beta-project', '--in', 'kits/builds', '--json']), { reports: 1 });
   assert.equal(t.code, 1);
   assert.match(jsonOf(t).projects[0].message, /GitHub did not list the repositories of team/);
 });
@@ -329,7 +329,7 @@ test('an address on another host in a place with a naming rule is refused, never
     const dry = await w.unchanged(`get ${addr} --in --dry-run`, () => get([addr, '--in', 'kits/builds', '--dry-run']));
     assert.equal(dry.code, 1, dry.text);
     assert.match(dry.text, /is not on GitHub, and a place with a naming rule looks its projects up on GitHub: nothing was fetched/);
-    const r = await w.unchanged(`get ${addr} --in`, () => get([addr, '--in', 'kits/builds', '--json']));
+    const r = await w.unchanged(`get ${addr} --in`, () => get([addr, '--in', 'kits/builds', '--json']), { reports: 1 });
     assert.equal(r.code, 1);
     assert.equal(jsonOf(r).projects[0].result, 'refused');
   }
@@ -348,7 +348,7 @@ test('two parents in two accounts that give one folder: the refusal suggests own
   w.sh(seed, 'add', '-A');
   w.sh(seed, 'commit', '-q', '-m', 'start');
   w.sh(w.root, 'clone', '-q', '--bare', seed, path.join(w.server, 'team', 'shop-alpha-project.git'));
-  const a = await w.unchanged('get shop --in (two parents, one folder)', () => get(['shop', '--in', 'kits/builds', '--json']));
+  const a = await w.unchanged('get shop --in (two parents, one folder)', () => get(['shop', '--in', 'kits/builds', '--json']), { reports: 1 });
   const o = jsonOf(a).projects[0];
   assert.equal(a.code, 1);
   assert.deepEqual(o.choices.sort(), ['alex/shop-alpha-project', 'team/shop-alpha-project']);

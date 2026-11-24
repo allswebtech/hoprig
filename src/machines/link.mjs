@@ -25,7 +25,7 @@ import { EventEmitter } from 'node:events';
 import net from 'node:net';
 import WebSocket, { WebSocketServer } from 'ws';
 import { RateLimiter } from '../server/auth.mjs';
-import { defaultHubLabel } from './hub.mjs';
+import { defaultHubLabel, workspaceOf } from './hub.mjs';
 import { dashboardUrl, label as cleanLabel, slug, tokenName, uniqueSlug } from './names.mjs';
 import { caddyRoot, establishTrust, explainTls, parsePin, toX509, trustOptions } from './hubcert.mjs';
 import { OneTimeStore } from './onetime.mjs';
@@ -140,7 +140,7 @@ export class LinkHub {
       token: body.token,
       tokenId: ID_RE.test(String(body.tokenId)) ? body.tokenId : null,
       added: old ? old.added : this.now(),
-      info: { hostname: info.hostname || null, platform: info.platform || null, version: info.version || null },
+      info: { hostname: info.hostname || null, platform: info.platform || null, version: info.version || null, ...workspaceOf(info) },
     };
     if (old) this.drop(old.linkId); // its socket, on the old secret, ends now
     putMachine(m); // same name: the old entry, its secret hash and its token are gone
@@ -246,7 +246,7 @@ export class LinkHub {
   }
 
   close() {
-    for (const [id, s] of this.sessions) this.#end(id, s, 1001, 'the hub is stopping');
+    for (const [id, s] of this.sessions) this.#end(id, s, 1001, 'the main computer is stopping');
     this.wss.close();
   }
 
@@ -297,6 +297,7 @@ export class LinkClient extends EventEmitter {
     this.upSince = null;
     this.lastError = '';
     this.ws = null;
+    this.mux = null;
     this.timer = null;
   }
 
@@ -320,7 +321,7 @@ export class LinkClient extends EventEmitter {
     let beat = null;
     let why = '';
     ws.on('unexpected-response', (req, res) => {
-      why = res.statusCode === 401 ? 'the hub does not know this computer any more (it was removed there)' : `the hub answered HTTP ${res.statusCode}`;
+      why = res.statusCode === 401 ? 'the main computer does not know this computer any more (it was removed there)' : `the main computer answered HTTP ${res.statusCode}`;
       if (res.statusCode === 401) this.failures = Math.max(this.failures, 6); // retry rarely
       res.resume();
       ws.terminate();
@@ -331,6 +332,7 @@ export class LinkClient extends EventEmitter {
       this.state = 'up';
       this.lastError = '';
       mux = new Mux({ role: 'machine', send: (b) => ws.readyState === ws.OPEN && ws.send(b, { binary: true }), connectLocal: () => noteLinkSocket(dashboardConnector(this.local)(), /^https:/i.test(this.entry.url)), onError: () => ws.close(1002, 'protocol error') });
+      this.mux = mux;
       let alive = true;
       ws.on('pong', () => (alive = true));
       beat = setInterval(() => {
@@ -391,6 +393,26 @@ export class LinkClient extends EventEmitter {
     if (this.ws) this.ws.terminate();
     this.ws = null;
   }
+
+  /**
+   * Close without cutting what is on its way: no new connection, and the socket ends once the hub's streams over it have
+   * ended, at the latest after `graceMs`. For a hub whose token is gone (JoinKeeper.sync): the token is revoked by the
+   * hub's own request, and the answer to it is still on its way back over this link.
+   */
+  retire(graceMs = 3000) {
+    this.state = 'closed';
+    clearTimeout(this.timer);
+    const ws = this.ws;
+    if (!ws) return;
+    const until = this.now() + graceMs;
+    const check = () => {
+      if (this.ws !== ws) return; // closed meanwhile
+      if (this.mux && this.mux.streams.size > 0 && this.now() < until) return void setTimeout(check, 50).unref?.();
+      ws.close(1000, 'its token is gone'); // after what is queued on it
+      setTimeout(() => ws.terminate(), 1000).unref?.();
+    };
+    check();
+  }
 }
 
 export class LinkError extends Error {
@@ -404,7 +426,7 @@ export class LinkError extends Error {
 /** The TLS options for every connection of a joined link (none for http:// or a hub joined without a fingerprint). */
 export const linkTrust = (entry) => (/^https:/.test(entry.url) ? trustOptions({ pin: entry.pin || null, ca: entry.ca || null }, new URL(entry.url).hostname.replace(/^\[|\]$/g, '')) : {});
 
-const JOIN_HINT = 'the hub (run "hoprig machines invite" there, or on its page: Computers → Add a computer → Show a code)';
+const JOIN_HINT = 'the main computer (run "hoprig machines invite" there, or on its page: Computers → Add a computer → Show a code)';
 
 /** Where to reach the hub at `base` for a JSON call. */
 const endpointOf = (base) => {
@@ -421,7 +443,7 @@ const endpointOf = (base) => {
  */
 export async function claimLink(rawUrl, rawCode, { insecure = false, fingerprint = null, replaces = null, now = Date.now } = {}) {
   const base = dashboardUrl(String(rawUrl || ''));
-  if (!base) throw new LinkError('bad-url', 'type the other dashboard\'s address, like https://hub.example.com', 400);
+  if (!base) throw new LinkError('bad-url', 'type the other dashboard\'s address, like https://main.example.com', 400);
   if (base.startsWith('http://') && !isLocalUrl(base) && !insecure) {
     throw new LinkError('insecure', `${base} is not encrypted (http://): the token and everything typed into the sessions would cross the network readable by anyone on the way. Put that dashboard behind HTTPS, or confirm with --insecure (in the page: "Connect without encryption") on a network you trust.`, 400);
   }
@@ -448,7 +470,7 @@ export async function claimLink(rawUrl, rawCode, { insecure = false, fingerprint
   const me = machineInfo();
   let r;
   try {
-    r = await callJson(endpointOf(base), { machine: host, method: 'POST', path: '/api/link/claim', body: { code, token, tokenId, info: { hostname: me.hostname, platform: me.platform, version: me.version, label: defaultHubLabel() }, ...(SECRET_RE.test(String(replaces)) ? { replaces } : {}) }, timeoutMs: 15_000, raw: true, tls: linkTrust({ url: base, ...trust }) });
+    r = await callJson(endpointOf(base), { machine: host, method: 'POST', path: '/api/link/claim', body: { code, token, tokenId, info: { hostname: me.hostname, platform: me.platform, version: me.version, label: defaultHubLabel(), ...(me.workspace ? { workspace: me.workspace } : {}) }, ...(SECRET_RE.test(String(replaces)) ? { replaces } : {}) }, timeoutMs: 15_000, raw: true, tls: linkTrust({ url: base, ...trust }) });
   } catch (e) {
     revokeToken(tokenId, { log: false }); // never in use
     throw new LinkError(e.code || 'offline', e.message, 502);

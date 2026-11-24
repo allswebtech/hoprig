@@ -82,8 +82,12 @@ test('workspace rules only shows the text; --write needs the yes on this compute
   assert.equal(t.split('\n')[0], S.FIRST_LINE, 'its first line says Hoprig made it and replaces it as a whole');
   assert.equal(fs.readFileSync(rulesFile, 'utf8').endsWith('- keep me\n'), true, 'the owner\'s file as it was');
   assert.equal(before[rulesFile], aiFiles()[rulesFile], 'not even its time changed');
-  // Only what this version does: no `needs`, no pointer into a repository's AGENTS.md, no folder that is not here.
-  assert.doesNotMatch(t, /needs|read its `AGENTS\.md` first/);
+  // Only what this version does: a need is said in one sentence (honest: no wall), no pointer into a repository's
+  // AGENTS.md, no folder that is not here.
+  assert.doesNotMatch(t, /read its `AGENTS\.md` first/);
+  assert.equal(t.split('\n').filter((l) => /`needs`/.test(l)).length, 1, 'one sentence on needs');
+  assert.match(t, /named in its project\.json's `needs` \(asked for with `hoprig get <name>`\).*never to write.*it is no wall/);
+  assert.match(t, /a shell command could still write there, and can read its private folders \(`grep -r`\) and follow its links/);
   assert.match(t, /- `ai_brain\/`/);
   assert.doesNotMatch(t, /- `credentials\/`/, 'credentials/ is not on this computer');
   assert.match(t, /Not made yet: .*`credentials\/`.*hoprig workspace setup/);
@@ -169,7 +173,7 @@ test('the upkeep, a group command, a tool command and a restore write nothing an
   const { restoreWorkspace } = await import('../../src/workspace/restore.mjs');
   const r2 = await quietUi();
   r2.ui.yes = true;
-  await restoreWorkspace(w.url('brain'), { ui: r2.ui, dir: C.ws, projects: C.projects });
+  await restoreWorkspace(w.url('brain'), { withProjects: true, ui: r2.ui, dir: C.ws, projects: C.projects });
   assert.deepEqual(aiFiles(), before);
 });
 

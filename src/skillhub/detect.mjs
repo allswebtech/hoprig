@@ -210,6 +210,8 @@ export function detectProject(dir) {
       } else if (/^\.github\/workflows\/[^/]+\.ya?ml$/.test(r) || /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/.test(r) || e.name === '.gitlab-ci.yml' || r === '.circleci/config.yml' || e.name === 'Jenkinsfile' || e.name === 'bitbucket-pipelines.yml') {
         (files.ci ||= []).push(r);
         stack('ci', `${r} found`);
+      } else if (r === 'docs/brief.md') {
+        (files.brief ||= []).push(r); // a project's brief (hoprig project new --brief): the new-project skill's signal
       } else if (/^build\.gradle(\.kts)?$/.test(e.name) && /(^|\/)android(\/app)?$/.test(rel)) {
         stack('mobile', `${r} found (Android app)`);
       } else if (e.name === 'Podfile' && /(^|\/)ios$/.test(rel)) {
@@ -292,6 +294,6 @@ export function validSignal(s) {
   if (ECOSYSTEMS.includes(m[1])) return /^[A-Za-z0-9@][A-Za-z0-9@/._-]*$/.test(m[2]);
   if (m[1] === 'stack') return STACKS.includes(m[2]);
   if (m[1] === 'artifact') return ARTIFACTS.includes(m[2]);
-  if (m[1] === 'file') return ['docker', 'ci', 'xcodeproj'].includes(m[2]);
+  if (m[1] === 'file') return ['docker', 'ci', 'xcodeproj', 'brief'].includes(m[2]);
   return false;
 }

@@ -11,8 +11,38 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { alterText, bytesShown, checkLimits, decodeBytes, limitText, lineDiff, readTree, wouldAlter } from './jsontext.mjs';
+import { readJournal } from './journal.mjs';
 import { withLock } from './lock.mjs';
-import { addItem, doubledIds, editItem, fixIds, likelyOwnerId, needsOwnerId, placedItems, plannerShape, removeItem, setStatus, todayIn, viewItem } from './model.mjs';
+import { CLOSED, addItem, fromOf, hiddenIn, insertItem, setKey, doubledIds, editItem, findItem, fixIds, likelyOwnerId, needsOwnerId, placedItems, plannerShape, removeItem, setStatus, statusOf, todayIn, viewItem } from './model.mjs';
+import { dayAtOrBefore, nextDay } from '../automation/schedules.mjs';
+import { checkRepeat, checkRunAt, nextOccurrence, rollRepeats, ruleOf, setRepeat, setRunAt, takeBackNext } from './repeat.mjs';
+
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const rawItemsOf = (doc) => (isObj(doc) && Array.isArray(doc.items) ? doc.items.filter(isObj) : []);
+/** An item's input without Work's repeat keys, and those checked: { rest, repeat, runAt } (undefined: not given). */
+function repeatKeys(input) {
+  if (!isObj(input)) return { rest: input };
+  const { repeat, runAt, ...rest } = input;
+  return { rest, repeat: repeat === undefined ? undefined : checkRepeat(repeat), runAt: runAt === undefined ? undefined : checkRunAt(runAt) };
+}
+/** Put a rule on an item; one without a date gets the rule's first day from today. */
+function applyRepeat(item, rule, runAt, today) {
+  if (rule !== undefined) {
+    setRepeat(item, rule);
+    if (rule && !(typeof item.date === 'string' && item.date)) item.date = dayAtOrBefore(rule, today) === today ? today : nextDay(rule, today);
+  }
+  if (runAt !== undefined) setRunAt(item, runAt);
+}
+/**
+ * After an item's status changed: closed (done or dropped), its next occurrence when it repeats (→ the new item);
+ * opened again, the occurrence that close made is taken back while untouched (repeat.mjs takeBackNext). → new item or null.
+ */
+export function afterClose(doc, item, today) {
+  if (!ruleOf(item)) return null;
+  if (CLOSED.has(statusOf(item))) return nextOccurrence(doc, item, today);
+  takeBackNext(doc, item);
+  return null;
+}
 
 
 /**
@@ -204,16 +234,77 @@ export function workStore(place, { projects = [], now = () => new Date() } = {})
     },
     // `ref`: { id, at } from the page (its place and its id), or an id alone from the command (model.mjs findItem).
     async add(input, opts) {
-      const r = await run((doc, c) => addItem(doc, input, c), opts);
+      const r = await run((doc, c) => {
+        const { rest, repeat, runAt } = repeatKeys(input);
+        const item = addItem(doc, rest, c);
+        if (repeat || runAt) {
+          const at = doc.items.indexOf(item);
+          applyRepeat(item, repeat, runAt, c.today);
+          // a date given by the rule moves the item to its place
+          doc.items.splice(at, 1);
+          insertItem(doc.items, item);
+        }
+        return item;
+      }, opts);
+      return { item: view(r.result, r.doc), written: r.written };
+    },
+    /**
+     * Add a task for another program (a Work token, tokenfeature.mjs): only a title, a note, a project and a date; the
+     * item carries who added it (`from`). Under the file's lock: the token is looked up again (a revoke a moment ago
+     * refuses it) and its tasks of today are counted against `perDay`. → { item, written }.
+     */
+    async addFrom(input, from, { live = () => true, perDay = Infinity } = {}, opts) {
+      if (!isObj(input)) throw Object.assign(new Error('send the task as a JSON object'), { status: 400 });
+      for (const k of Object.keys(input)) if (!['title', 'note', 'project', 'date'].includes(k)) throw Object.assign(new Error(`"${String(k).slice(0, 30)}" is not something a Work token can set (title, note, project, date)`), { status: 400 });
+      // Someone else's words: a character nobody can see is refused, as in a brief (model.mjs checkBrief).
+      for (const k of ['title', 'note']) {
+        const ch = typeof input[k] === 'string' ? hiddenIn(input[k]) : null;
+        if (ch) throw Object.assign(new Error(`the ${k} has a character that cannot be seen (U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}): take it out`), { status: 400, details: { code: 'hidden' } });
+      }
+      const r = await run((doc, c) => {
+        if (!live()) throw Object.assign(new Error('this Work token was revoked'), { status: 401, details: { code: 'token' } });
+        const mine = rawItemsOf(doc).filter((x) => { const f = fromOf(x); return f && f.token === from.token && x.created === c.today; }).length;
+        if (mine >= perDay) throw Object.assign(new Error(`this Work token added ${perDay} tasks today, its limit: try again tomorrow`), { status: 429, details: { code: 'day-limit' } });
+        const item = addItem(doc, input, c);
+        setKey(item, 'from', { token: from.token, name: from.name, at: now().toISOString() });
+        return item;
+      }, opts);
       return { item: view(r.result, r.doc), written: r.written };
     },
     async edit(ref, changes, opts) {
-      const r = await run((doc, c) => editItem(doc, ref, changes, c), opts);
-      return { item: view(r.result, r.doc), written: r.written };
+      let made = null;
+      const r = await run((doc, c) => {
+        const { rest, repeat, runAt } = repeatKeys(changes);
+        // A task another program added is never run by a schedule: the owner starts it himself (docs/WORK.md).
+        if (runAt && fromOf(findItem(doc, ref))) throw Object.assign(new Error('this task came from another program, so it runs only when you start it: no run time'), { status: 400, details: { code: 'from-program' } });
+        const has = isObj(rest) && Object.keys(rest).length;
+        if (!has && repeat === undefined && runAt === undefined) return editItem(doc, ref, rest, c); // "nothing to change"
+        const item = has ? editItem(doc, ref, rest, c) : findItem(doc, ref);
+        applyRepeat(item, repeat, runAt, c.today);
+        if (has && rest.status !== undefined) made = afterClose(doc, item, c.today);
+        return item;
+      }, opts);
+      return { item: view(r.result, r.doc), written: r.written, ...(made ? { next: view(made, r.doc) } : {}) };
     },
     async status(ref, status, opts) {
-      const r = await run((doc, c) => setStatus(doc, ref, status, c), opts);
-      return { item: view(r.result.item, r.doc), before: r.result.before, written: r.written };
+      let made = null;
+      const r = await run((doc, c) => {
+        const out = setStatus(doc, ref, status, c);
+        made = afterClose(doc, out.item, c.today);
+        return out;
+      }, opts);
+      return { item: view(r.result.item, r.doc), before: r.result.before, written: r.written, ...(made ? { next: view(made, r.doc) } : {}) };
+    },
+    /** Move on the repeating items whose day came round again (repeat.mjs rollRepeats). → { moved, written }. */
+    async roll(opts) {
+      // A save that was interrupted is finished (resume.mjs) before anything else writes the file: a roll on top of
+      // its half-written state would make the automatic finish impossible, and the owner's changes would be left only
+      // in the journal. Until then nothing moves on.
+      if (readJournal(place.file)) return { moved: [], written: false, interrupted: true };
+      const { doc } = readDoc(place.file);
+      if (!rollRepeats(structuredClone(doc), ctx().today).length) return { moved: [], written: false };
+      const r = await run((d, c) => rollRepeats(d, c.today), opts);
+      return { moved: r.result, written: r.written };
     },
     async remove(ref, opts) {
       const r = await run((doc, c) => removeItem(doc, ref, c), opts);

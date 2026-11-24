@@ -15,22 +15,34 @@
 // itself too: a relayed request arrives there with the hub's machine token and passes that computer's own gate
 // (src/machines/index.mjs TOKEN_FORBIDDEN).
 
+import { NAME_RE } from '../profiles.mjs';
+import { cardComputer, confirmedCard } from './confirmed.mjs';
+
 const SEG = '[^/]+';
 const CHAT_ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const r = (method, path, tool, body = null) => ({ method, re: new RegExp(`^${path}$`), path, tool, body });
+const r = (method, path, tool, body = null, card = null) => ({ method, re: new RegExp(`^${path}$`), path, tool, body, card });
 
 /** Keys of POST /api/settings her tools may send (change_setting, set_auto_mode). */
 const SETTINGS_KEYS = {
   server: ['quickActions', 'roots', 'publicUrl', 'uploadMaxMB', 'uploadsDir'],
   autoSwitch: ['enabled', 'order', 'returnToPreferred', 'prompt', 'cooldownMinutes'],
-  sessionDefaults: ['model', 'effort', 'permissionMode'], // permissionMode only unchanged: see settingsBody
+  // permissionMode, lead and others only unchanged (see settingsBody): change_setting sends the whole set it read.
+  sessionDefaults: ['model', 'effort', 'permissionMode', 'lead', 'others'],
 };
 const AUTOMATION_SECTIONS = { paused: true, queue: ['enabled'], schedules: ['enabled'], restore: ['enabled'], retry: ['enabled'], idle: ['shells', 'gateway'], updates: ['claude'], workspace: ['map', 'commitMap', 'sync', 'push', 'everyHours'] };
 
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
-/** POST /api/settings: only her keys; the permission mode of new sessions may be carried along, never changed. */
-function settingsBody(b, ctx) {
+// Session defaults of the owner's that she may only carry along unchanged (change_setting sends the whole set it read).
+const OWNERS_DEFAULTS = ['permissionMode', 'lead', 'others'];
+const carries = (b) => isObj(b) && isObj(b.sessionDefaults) && OWNERS_DEFAULTS.some((k) => k in b.sessionDefaults);
+
+/**
+ * POST /api/settings: only her keys; the permission mode, Lead and its ticks of new sessions may be carried along, never
+ * changed. They are compared with the settings of the computer the request goes to: this one's config, or for
+ * "/m/<computer>" what that computer answered just now (ctx.settingsOf, filled by gatedDispatch). Unknown: refused.
+ */
+function settingsBody(b, ctx, computer) {
   if (!isObj(b)) return 'the body must be an object';
   for (const [top, v] of Object.entries(b)) {
     const allowed = SETTINGS_KEYS[top];
@@ -38,9 +50,15 @@ function settingsBody(b, ctx) {
     if (!isObj(v)) return `"${top}" must be an object`;
     for (const k of Object.keys(v)) if (!allowed.includes(k)) return `"${top}.${k}" is the owner's setting`;
   }
-  if (b.sessionDefaults && 'permissionMode' in b.sessionDefaults) {
-    const cur = ((ctx.config() || {}).sessionDefaults || {}).permissionMode;
-    if (b.sessionDefaults.permissionMode !== cur) return 'the permission mode of new sessions is the owner\'s setting';
+  if (!carries(b)) return null;
+  const there = computer ? (ctx.settingsOf ? ctx.settingsOf(computer) : null) : ctx.config();
+  if (!there) return `the settings of ${computer} could not be read to check that the owner's session defaults stay as they are`;
+  const cur = there.sessionDefaults || {};
+  if ('permissionMode' in b.sessionDefaults && b.sessionDefaults.permissionMode !== cur.permissionMode) return 'the permission mode of new sessions is the owner\'s setting';
+  // "Lead model" and its ticks for new sessions are the owner's: carried along as they are, never changed.
+  for (const k of ['lead', 'others']) {
+    if (!(k in b.sessionDefaults)) continue;
+    if (JSON.stringify(b.sessionDefaults[k] ?? null) !== JSON.stringify(cur[k] ?? null)) return `"sessionDefaults.${k}" is the owner's setting`;
   }
   return null;
 }
@@ -69,9 +87,14 @@ const onlyKeys = (allowed) => (b) => {
   return k ? `"${k}" is the owner's to send` : null;
 };
 
+/** A Work item is named by its place in the list with its id (src/work/feature.mjs). */
+const atOk = (b) => (Number.isInteger(b.at) && b.at >= 0 ? null : 'say the place of the item in the list ("at")');
+
 /** Every route her tools use: method, route, the tool (or tools) behind it. */
 export const ALLOW = [
-  r('GET', '/api/state', 'list_sessions, get_accounts'),
+  r('GET', '/api/state', 'list_sessions, get_computer_status (providers)'),
+  r('GET', '/api/operator/attention', 'read_attention'),
+  r('GET', '/api/operator/rooms', 'start_session, start_chat (where there is room)'),
   r('GET', '/api/machines/sessions', 'list_sessions (every computer)'),
   r('GET', `/api/sessions/${SEG}/history`, 'read_session'),
   r('POST', '/api/sessions', 'start_session'),
@@ -79,7 +102,7 @@ export const ALLOW = [
   r('POST', `/api/sessions/${SEG}/send`, 'send_to_session', onlyKeys(['text'])),
   // Only the key, as for /send: `owner: true` is the page's own buttons; her keys go only to the coding tool in front.
   r('POST', `/api/sessions/${SEG}/key`, 'send_to_session (key)', onlyKeys(['key'])),
-  r('POST', `/api/sessions/${SEG}/rename`, 'rename_session'),
+  r('POST', `/api/sessions/${SEG}/rename`, 'send_to_session (name)'),
   r('POST', `/api/sessions/${SEG}/kill`, 'stop_session'),
   r('POST', `/api/sessions/${SEG}/switch`, 'switch_account'),
   // A chat (src/chat): only the fields her tools send. The model, effort and permission mode of a chat, its plan
@@ -87,12 +110,22 @@ export const ALLOW = [
   // does (switch_account: the same rules, a card unless it is her own chat).
   // A chat she starts takes Settings → New-session defaults (defaults: true), never the folder's last chat of the owner,
   // and is marked hers (byTia: the chat it creates, see src/chat/feature.mjs openChat).
-  r('POST', '/api/chats', 'start_chat', (b) => onlyKeys(['dir', 'tool', 'profile', 'sessionId', 'text', 'defaults', 'byTia'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)),
+  // "Lead model" and its ticks as Settings → Tia has them (src/assistant/chats.mjs); the part door checks her allowed
+  // providers again for every part (src/models/others.mjs partGate).
+  r('POST', '/api/chats', 'start_chat', (b) => onlyKeys(['dir', 'tool', 'profile', 'sessionId', 'text', 'defaults', 'byTia', 'lead', 'others'])(b) || (b.defaults !== true ? 'a chat Tia starts takes Settings\' defaults (defaults: true)' : null)
+    || ('lead' in b && typeof b.lead !== 'boolean' ? 'lead is true or false' : null)
+    || ('others' in b && !(Array.isArray(b.others) && b.others.length <= 10 && b.others.every((n) => typeof n === 'string' && NAME_RE.test(n))) ? 'others is a list of provider names' : null)),
   // Her message says it is hers (byTia: true): a message from anyone else takes her mark off the chat.
   r('POST', `/api/chats/${CHAT_ID}/send`, 'send_to_chat (text)', (b) => onlyKeys(['text', 'byTia'])(b) || (b.byTia !== true ? 'a message Tia sends says it is hers (byTia: true)' : null)),
   r('POST', `/api/chats/${CHAT_ID}/answer`, 'send_to_chat (answer)', onlyKeys(['request', 'allow', 'always'])),
   r('POST', `/api/chats/${CHAT_ID}/stop`, 'send_to_chat (stop)', onlyKeys([])),
   r('POST', `/api/chats/${CHAT_ID}/provider`, 'switch_account (a chat)', (b) => onlyKeys(['profile'])(b) || (typeof b.profile !== 'string' ? 'say which provider' : null)),
+  r('POST', `/api/chats/${CHAT_ID}/title`, 'send_to_chat (name)', (b) => onlyKeys(['title'])(b) || (typeof b.title !== 'string' ? 'say the name' : null)),
+  r('POST', `/api/chats/${CHAT_ID}/close`, 'send_to_chat (close)', onlyKeys([])),
+  r('POST', `/api/chats/${CHAT_ID}/terminal`, 'send_to_chat (terminal)', onlyKeys([])),
+  r('POST', '/api/chats/from-session', 'send_to_session (to_chat)', (b) => onlyKeys(['session'])(b) || (typeof b.session !== 'string' ? 'say which session' : null)),
+  // Only the carry-on message: a restart of the session in place (restart: true) is the page's own button.
+  r('POST', `/api/sessions/${SEG}/continue`, 'send_to_session (continue)', onlyKeys([])),
   r('GET', '/api/folders/recent', 'list_projects'),
   r('GET', '/api/folders/browse', 'list_projects (folder)'),
   r('GET', '/api/folders/sessions', 'list_projects (folder)'),
@@ -114,6 +147,29 @@ export const ALLOW = [
   r('GET', '/api/workspace/job', 'manage_project (workspace job result)'),
   r('POST', '/api/workspace/settings', 'manage_project workspace_places'),
   r('POST', '/api/workspace/forget', 'manage_project workspace_forget'),
+  r('GET', '/api/workspace/whohas', 'manage_project where'),
+  r('GET', '/api/workspace/find', 'manage_project find'),
+  r('POST', '/api/workspace/drop/check', 'manage_project drop_check, drop', onlyKeys(['name'])),
+  // Only the dry run: a group goes into the map by the owner's own press on the page.
+  r('POST', '/api/workspace/group', 'manage_project group_add (the dry run for her card)', (b) => onlyKeys(['dir', 'repo', 'holds', 'dryRun'])(b) || (b.dryRun !== true ? 'a group is added by the owner\'s own press on the Workspace page' : null)),
+  // Work (manage_work): the list, its items and "Do it". Only the fields her tool sends: a start always carries the brief
+  // her card showed (never `seen` or a dry run), and a status she sets is done, open, dropped, or waiting again (undo).
+  // Save, Tidy, the doubles, the settings and the command's route stay the owner's (NEVER below).
+  r('GET', '/api/work', 'manage_work today, list, task'),
+  r('POST', '/api/work/items', 'manage_work add', onlyKeys(['title', 'date', 'project', 'by', 'note'])),
+  r('POST', `/api/work/items/${SEG}`, 'manage_work edit, undo', (b) => onlyKeys(['at', 'title', 'date', 'project', 'by', 'note'])(b) || atOk(b)),
+  r('POST', `/api/work/items/${SEG}/status`, 'manage_work done, reopen, drop, undo', (b) => onlyKeys(['at', 'status'])(b) || atOk(b) || (['done', 'open', 'dropped', 'waiting'].includes(b.status) ? null : 'that status is the owner\'s or the run\'s to set')),
+  r('POST', `/api/work/items/${SEG}/remove`, 'manage_work remove, undo', (b) => onlyKeys(['at'])(b) || atOk(b)),
+  r('GET', `/api/work/items/${SEG}/do`, 'manage_work start (what it would start)'),
+  r('POST', `/api/work/items/${SEG}/do`, 'manage_work start', (b) => onlyKeys(['at', 'brief', 'project', 'folder', 'tool', 'provider', 'model', 'effort'])(b) || atOk(b) || (typeof b.brief !== 'string' || !b.brief.trim() ? 'a start of hers carries the brief her card showed' : null)),
+  r('POST', `/api/work/items/${SEG}/accept`, 'manage_work accept', (b) => onlyKeys(['at'])(b) || atOk(b)),
+  r('POST', `/api/work/items/${SEG}/send-back`, 'manage_work send_back', (b) => onlyKeys(['at', 'text'])(b) || atOk(b)),
+  r('GET', '/api/work/runs', 'manage_work task, run'),
+  r('GET', '/api/work/progress', 'manage_work progress'),
+  // Missions: she reads them, and gives a goal by her card (its dry run first); stop, add and the switches stay his.
+  r('GET', '/api/work/missions', 'manage_work mission'),
+  r('GET', '/api/work/missions/m-[^/]+', 'manage_work mission'),
+  r('POST', '/api/work/missions', 'manage_work goal', (b) => onlyKeys(['goal', 'project', 'dryRun'])(b) || (b.dryRun !== undefined && typeof b.dryRun !== 'boolean' ? 'dryRun is true or false' : null)),
   r('GET', '/api/brain', 'read_brain'),
   r('GET', '/api/brain/item', 'read_brain (item)'),
   r('GET', '/api/machines', 'get_computer_status, manage_computer'),
@@ -121,7 +177,8 @@ export const ALLOW = [
   r('GET', '/api/claude', 'get_computer_status'),
   r('GET', '/api/pcsetup/status', 'get_computer_status (setup), manage_computer setup_fix'),
   r('GET', '/api/pcsetup/kits', 'get_computer_status (setup), manage_computer set_up'),
-  r('POST', '/api/pcsetup/fix', 'manage_computer setup_fix', onlyKeys(['id'])),
+  // A Fix changes what is installed: only as the act of a card the owner confirmed for that check (confirmed.mjs).
+  r('POST', '/api/pcsetup/fix', 'manage_computer setup_fix', onlyKeys(['id', 'confirm']), (c, p, b) => c.input.action === 'setup_fix' && isObj(b) && c.input.check === b.id),
   r('POST', '/api/pcsetup/setup', 'manage_computer set_up', onlyKeys(['kits'])),
   r('POST', '/api/claude/update', 'manage_computer update (Claude Code, on a computer without Settings → Updates)', onlyKeys([])),
   // The coding tools and Settings → Updates. Installing, updating and turning a coding tool on or off are cards; how
@@ -133,14 +190,15 @@ export const ALLOW = [
   r('POST', '/api/updates/run', 'manage_computer update', (b) => onlyKeys(['id'])(b) || (typeof b.id !== 'string' ? 'say which item to update' : null)),
   r('POST', '/api/pc/kill', 'manage_computer end_process'),
   r('POST', '/api/pc/power', 'manage_computer reboot, power_off'),
-  r('POST', '/api/machines/ssh', 'manage_computer add'),
   r('POST', '/api/machine/label', 'manage_computer rename (this computer)'),
   r('POST', `/api/machines/${SEG}/rename`, 'manage_computer rename (another computer)'),
   r('GET', '/api/addons', 'manage_computer addon'),
   // Not the public link's: it opens the computer to the internet, through its own route and a card.
-  r('POST', `/api/addons/(?!public-link/)${SEG}/(install|update|start|stop)`, 'manage_computer addon'),
+  r('POST', `/api/addons/(?!public-link/)${SEG}/(start|stop)`, 'manage_computer addon', onlyKeys([])),
+  // Installing or updating one changes what is installed: only as the act of a card he confirmed for exactly that.
+  r('POST', `/api/addons/(?!public-link/)${SEG}/(install|update)`, 'manage_computer addon', onlyKeys(['confirm']), (c, p) => c.input.action === 'addon' && p === `/api/addons/${c.input.addon}/${c.input.addon_action}`),
   r('GET', '/api/public-link', 'manage_computer public_link'),
-  r('POST', '/api/public-link', 'manage_computer public_link', onlyKeys(['on', 'kind'])),
+  r('POST', '/api/public-link', 'manage_computer public_link (off only: on is his own press)', (b) => onlyKeys(['on'])(b) || (b.on !== false ? 'turning the public link on is the owner\'s own press on Settings → Public link' : null)),
   r('GET', '/api/automation', 'manage_automation'),
   r('POST', '/api/automation/settings', 'manage_automation set_rule, pause, resume', automationBody),
   r('POST', '/api/automation/schedules', 'manage_automation add / change / delete_schedule'),
@@ -168,7 +226,10 @@ export const ALLOW = [
  * and everything of Tia's own except run (her settings, her token, the cards she may never confirm herself).
  */
 export const NEVER = [
+  /^\/api\/workspace\/(drop|group\/remove|rules)$/, // the owner's own presses on the Workspace page (src/workspace/whomay.mjs)
   /^\/api\/settings\/password$/,
+  /^\/api\/herrights$/, // the level of Tia's administrator rights: the owner's own choice on his page, never through her door
+  /^\/api\/hersignin(\/|$)/, // the git sign-in her sessions use, and its check: the owner's own choice on his page, never through her door
   /^\/api\/(login|logout|me)(\/|$)/,
   /^\/api\/tokens(\/|$)/,
   /^\/api\/pair(\/|$)/,
@@ -176,11 +237,14 @@ export const NEVER = [
   /^\/api\/links?(\/|$)/,
   /^\/api\/machines\/url$/,
   /^\/api\/machines\/install$/,
-  /^\/api\/machines\/[^/]+\/(remove|test)$/,
+  /^\/api\/machines\/ssh\/key(\/|$)/, // a computer added with a key file: the key, its host key and its install are the owner's
+  /^\/api\/machines\/[^/]+\/(remove|test|hostkey)$/, // hostkey: comparing and replacing a computer's host key
+  /^\/api\/machines\/[^/]+\/forward(\/|$)/, // "Open its page" of a gateway: a forward on this computer, the owner's own step
   /^\/api\/profiles(\/|$)/,
   /^\/api\/accounts(\/|$)/,
   /^\/api\/addons\/[^/]+\/setup$/,
   /^\/api\/gateways\/defined(\/|$)/, // a gateway of the owner's own: a program Hoprig will run (src/addons/gateways.mjs)
+  /^\/api\/gatewayhost(\/|$)/, // a gateway's start, stop and service from Health: the owner's own presses (src/addons/gatewayhost.mjs)
   /^\/api\/addons\/public-link\//, // the old routes of the public link: Tia uses its own route, with a card
   /^\/api\/public-link\/.+$/, // the Custom set-up (a Cloudflare sign-in) and its extra addresses: the owner's own steps
   /^\/api\/updates\/settings$/, // updates by themselves or not: the owner's choice
@@ -189,7 +253,12 @@ export const NEVER = [
   /^\/api\/onboarding(\/|$)/,
   /^\/api\/pcsetup\/recipe$/,
   /^\/api\/workspace\/git\/.+$/, // signing in to GitHub, the commit name, the brain's repository: the owner's own steps
+  /^\/api\/work\/(save|tidy|fix-ids|settings|command)(\/|$)/, // Work's Save (git), Tidy, the doubles, where it lives, the command's route
+  /^\/api\/work\/(access|token)(\/|$)/, // Work tokens and webhooks for another program: made, listed and revoked by the owner only
   /^\/api\/assistant(?!\/run$)(\/|$)/,
+  // What Tia may do by herself (the rules, the master switch, budgets, projects taken out), "Tia OFF", Undo and the
+  // taps: the owner's acts from his page only. She reads the rules through read_attention.
+  /^\/api\/operator\/(?!attention$|board$|rooms$).+$/,
   /^\/ws(\/|$)/,
 ];
 
@@ -214,11 +283,8 @@ function decodedPath(p) {
   return out.join('/');
 }
 
-/**
- * Check one request of Tia's tools. Returns { method, route, computer } or throws a 403 error. `ctx` is needed only
- * for the settings body check (the current permission mode).
- */
-export function checkRoute(method, url, body, ctx) {
+/** The computer ("/m/<computer>" taken off, null: this one) and the decoded path of `url`, or a 403 error. */
+function target(url) {
   let u;
   try {
     u = new URL(url, 'http://x');
@@ -235,19 +301,44 @@ export function checkRoute(method, url, body, ctx) {
   } else if (p.startsWith('/m/')) throw refuse('that computer name is not valid');
   const d = decodedPath(p);
   if (d === null) throw refuse('that address holds an encoded character no route of Tia\'s takes');
-  p = d;
+  return { computer, p: d };
+}
+
+/**
+ * Check one request of Tia's tools. Returns { method, route, computer } or throws a 403 error. `ctx` is needed only
+ * for the settings body check: ctx.config() (this computer), ctx.settingsOf(computer) (another one's, as it answered).
+ */
+export function checkRoute(method, url, body, ctx) {
+  const { computer, p } = target(url);
   if (NEVER.some((re) => re.test(p))) throw refuse(`${method} ${p} is the owner's own step, not Tia's`);
   const entry = ALLOW.find((e) => e.method === method && e.re.test(p));
   if (!entry) throw refuse(`${method} ${p} is not a route Tia's tools use`);
   if (entry.body) {
-    const why = entry.body(body, ctx);
+    const why = entry.body(body, ctx, computer);
     if (why) throw refuse(why);
+  }
+  if (entry.card) {
+    const c = confirmedCard();
+    if (!c || c.tool !== 'manage_computer' || cardComputer(c) !== computer || !entry.card(c, p, body)) throw refuse(`${method} ${p} is the owner's own: it runs only when he confirms her card for it`);
   }
   return { method, route: p, computer, tool: entry.tool };
 }
 
-/** The door: check, then dispatch. The only place that calls ctx.dispatch. */
+/**
+ * The door: check, then dispatch. The only place that calls ctx.dispatch. A settings change for another computer that
+ * carries the owner's session defaults is checked against that computer's own settings, read through the door first:
+ * its Lead and ticks are not this computer's.
+ */
 export function gatedDispatch(ctx, method, url, body) {
-  checkRoute(method, url, body, ctx);
-  return ctx.dispatch(method, url, body);
+  const { computer, p } = target(url);
+  if (!(computer && method === 'POST' && p === '/api/settings' && carries(body))) {
+    checkRoute(method, url, body, ctx);
+    return ctx.dispatch(method, url, body);
+  }
+  return (async () => {
+    const r = await gatedDispatch(ctx, 'GET', `/m/${computer}/api/settings`, undefined);
+    const there = r && r.status === 200 && isObj(r.json) ? r.json : null;
+    checkRoute(method, url, body, { ...ctx, settingsOf: (c) => (c === computer ? there : null) });
+    return ctx.dispatch(method, url, body);
+  })();
 }

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { sealed } from './seal.mjs';
 
 const { plainDelete } = await import('../src/asking.mjs');
 const { SHARE, listing, scaled } = await import('./plainjudge.mjs');
@@ -267,7 +268,7 @@ function judge(ROOT, worker, NT, NL, SEED) {
       // what bash hands to rm
       fs.rmSync(RMLOG, { force: true });
       fs.writeFileSync(RMLOG, '');
-      spawnSync('/bin/bash', ['-c', l], { cwd: run, env: { PATH: `${ROOT}/bin`, RMLOG, LANG: 'en_US.UTF-8', HOME: `${T}/home` } });
+      spawnSync('/bin/bash', ['-c', l], { cwd: run, env: { PATH: `${ROOT}/bin`, RMLOG, LANG: 'en_US.UTF-8', HOME: `${T}/home` } }); // seal: only the test's own folder
       // What rm got as targets: an option before -- is an option, and after the first target too for GNU rm only (see
       // PERMUTES); after -- everything is a target (a file named -rf included).
       let afterDD = false;
@@ -280,7 +281,7 @@ function judge(ROOT, worker, NT, NL, SEED) {
         return (named = true);
       });
       // the real rm, PATH with the system's rm
-      spawnSync('/bin/bash', ['-c', l], { cwd: run, env: { PATH: '/usr/bin:/bin', LANG: 'en_US.UTF-8', HOME: `${T}/home` } });
+      spawnSync('/bin/bash', ['-c', l], { cwd: run, env: sealed({ PATH: '/usr/bin:/bin', LANG: 'en_US.UTF-8', HOME: `${T}/home` }) });
       stats.ran++;
       const after = snapshot();
       const runL = L(run);

@@ -7,7 +7,8 @@
 //                                                 when the chat left the open list for good; at a restart, or a
 //                                                 hand-off that failed, the stream just ends and the page looks again
 //   POST /api/chats/<id>/mode                     { mode }   the permission mode, in the running process
-//   POST /api/chats/<id>/settings                 { model?, effort?, ultracode? }   (null: Auto) → { restart }
+//   POST /api/chats/<id>/settings                 { model?, effort?, ultracode?, lead? }   (null: Auto) → { restart }
+//   GET  /api/chats/<id>/parts                    who did what (Lead model): { lead, parts: [{ agent, kind, tier, model, tokens }], tiers }
 //   POST /api/chats/<id>/title                    { title }  the owner names the chat
 //   POST /api/chats/<id>/unqueue                  { id }     take a queued message back
 //   POST /api/chats/<id>/tasks/<task>/stop                   stop one background agent, shell or workflow
@@ -17,15 +18,27 @@
 //   GET  /api/chats/<id>/commands                 the / menu: the coding tool's commands and skills
 //   GET  /api/chats/<id>/usage                    context and plan usage, asked of the running process
 //   GET  /api/chats/<id>/changes                  what changed in the folder (git): the session rail's Changes card
+//   GET  /api/chats/<id>/diff?path=               one changed file's diff (git): the App's diff pane
+//   POST /api/chats/<id>/shell                    { command }   "!" in the box: the owner's shell command, run in the
+//                                                 folder (bang.mjs) → { code, output, cut, timedOut, stopped, ms }
+//   GET  /api/chats/<id>/shell                    the one that runs now: { running, command, output (its end), ms }
+//   POST /api/chats/<id>/shell/stop               stop it (its whole process group)
 //   GET  /api/chats/<id>/history                  the folder's conversations (to continue one in a chat)
 //   GET  /api/chats/<id>/attachment?name=         a picture sent with a message (the timeline's thumbnail)
 // The stream and the pictures are for a page on this computer (behind its login); a chat of another computer is read
 // through the relay with the long poll of feature.mjs, which stays.
 import fs from 'node:fs';
 import path from 'node:path';
+import { chatSwitch } from './handsoff.mjs';
+import { handsOffOffered } from '../handsoff.mjs';
 import { within } from '../server/folders.mjs';
-import { folderChanges } from './changes.mjs';
+import { bangCommand, runBang } from './bang.mjs';
+import { fileDiff, folderChanges } from './changes.mjs';
+import { LEAD_ONLY_CLAUDE, leadPlan } from '../models/lead.mjs';
+import { partsOf } from '../models/parts.mjs';
+import { cleanOthers } from '../models/others.mjs';
 import { IMAGE_MAX, IMAGE_TYPES, searchFiles, uploadsReal } from './files.mjs';
+import { listRuns, runsConversation } from '../runs.mjs';
 
 const ID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 const STREAM = new RegExp(`^/api/chats/${ID}/(stream|attachment)$`);
@@ -34,6 +47,12 @@ const BATCH_MS = 50; // deltas and changes sent together at most this often
 const PING_MS = 20_000;
 
 /** The chat's state for the page: everything but the numbered events. */
+/** The one line under "Lead model" for chat `c`: which models it uses on this provider, or why it cannot lead. */
+function leadLineOf(c) {
+  const p = leadPlan(c.profile, { tool: c.engine.id });
+  return p.can ? p.line : p.why;
+}
+
 export function stateOf(c) {
   return {
     // working: a turn or background work runs; turn: a turn runs (only that one Stop ends, and only then is a
@@ -41,11 +60,21 @@ export function stateOf(c) {
     status: c.status(), running: !!c.session, working: c.busy(), turn: !!c.turn, activity: c.activity, pending: [...c.pending.keys()], now: Date.now(),
     asking: c.pending.size ? [...c.pending.values()][0].type : null, // permission | question | plan: the status line's words
     todos: c.todos, tasks: [...c.tasks.values()], queue: c.queue.list(),
-    live: [...c.live.values()], usage: c.usage, limits: c.limits, limit: c.limit, lastError: c.lastError, lastEnd: c.lastEnd, title: c.title,
+    live: [...c.live.values()], usage: c.usage, limits: c.limits, limit: c.limit, lastError: c.lastError, lastEnd: c.lastEnd, title: c.currentTitle(),
     engine: { id: c.engine.id, label: c.engine.label, capabilities: c.engine.capabilities, version: c.info.version || null },
-    model: c.model, effort: c.effort, ultracode: c.ultracode, permissionMode: c.permissionMode, liveModel: c.liveModel, liveMode: c.liveMode,
+    // lead: the switch; leadLine: which models it uses on this provider (or why it cannot), said before the next start.
+    lead: c.lead, leadLine: c.lead ? leadLineOf(c) : null, others: c.others,
+    model: c.model, effort: c.effort, ultracode: c.ultracode, permissionMode: c.permissionMode, liveModel: c.liveModel, liveMode: c.liveMode, modeLater: c.modeLater || null,
     autoMode: c.autoSeen === true, // auto mode shown to be there (a plan's first answer, words.js planModes)
     costTotal: c.costTotal,
+    // Hands-off's state only where it is offered on this computer; otherwise the field is absent and the page shows
+    // nothing of it (no bar, no menu entry), whatever the chat record holds.
+    ...(() => {
+      const cfg = c.o && c.o.handsOffConfig ? c.o.handsOffConfig() : {};
+      if (!handsOffOffered(cfg)) return {};
+      const st = chatSwitch(c, cfg);
+      return { handsOff: { on: st.on, stale: st.stale, loop: st.loop, ...(st.stopped ? { stopped: st.stopped } : {}), own: !!c.handsOff } };
+    })(),
   };
 }
 
@@ -58,7 +87,7 @@ export function stateOf(c) {
  * still the open chat of its id: its process ends at a restart, not the chat) } from feature.mjs. The feature emits
  * 'gone' on a chat that left the list for good, and 'kept' on one whose hand-off to a terminal failed.
  */
-export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf, shutOf = () => null, openNow = () => true }) {
+export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remember, bad, choices, pickModel, folderOf, uploadsDir, openChatOf, about, terminalOf, shutOf = () => null, openNow = () => true, handed = () => [] }) {
   const { HttpError } = ctx;
   const pick = (val, list, what) => {
     if (val === undefined) return undefined;
@@ -179,7 +208,14 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
     lookTerminal();
     const ping = setInterval(() => !res.writableEnded && res.write(': ping\n\n'), PING_MS);
     // A terminal that runs it: follow along, and say so.
+    // A title written to the conversation's file (Claude Code's, a rename in a terminal) reaches the title bar and the
+    // tab too: the state is sent again when the name changed.
+    let title = c.currentTitle();
     const look = setInterval(() => {
+      if (c.currentTitle() !== title) {
+        title = c.currentTitle();
+        onState();
+      }
       if (c.session) return;
       c.refresh();
       lookTerminal();
@@ -219,15 +255,18 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
     fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
   }
 
+  const shells = new Map(); // chat id → its "!" command that runs now: { command, output (its end), started, stop }
+  const SHOWN_MAX = 4000; // what of a running command's output the page sees while it runs
   const routes = [
     ['GET', new RegExp(`^/api/chats/${ID}/history$`), async (req, m) => {
       const c = chatOr404(m[1]);
       toolStillOn(c);
       // The coding tool's own store: a conversation stays in the tool it was started with.
       const list = await c.engine.history(folderOf(c), c.o.engineOpts);
+      const runs = listRuns().filter((r) => r.status !== 'ended'); // terminal: a terminal session runs it now
       return {
         tool: c.engine.id,
-        conversations: list.slice(0, 50).map((x) => ({ ...x, current: x.id === c.conversationId, chat: openChatOf(x.id) })),
+        conversations: list.slice(0, 50).map((x) => ({ ...x, current: x.id === c.conversationId, chat: openChatOf(x.id), terminal: runs.some((r) => runsConversation(r, x.id, c.engine.id)) })),
       };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/mode$`), async (req, m) => {
@@ -244,11 +283,34 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
       const c = chatOr404(m[1]);
       const b = await ctx.readJson(req);
       if (b.ultracode !== undefined && typeof b.ultracode !== 'boolean') throw bad('ultracode is true or false');
+      if (b.lead !== undefined && typeof b.lead !== 'boolean') throw bad('lead is true or false');
+      if (b.lead === true && c.engine.id !== 'claude') throw bad(LEAD_ONLY_CLAUDE);
+      let others;
+      try {
+        if (b.others !== undefined) others = cleanOthers(b.others, c.profile);
+      } catch (e) {
+        throw bad(e.message);
+      }
       const ch = choices(c);
-      const r = await c.setSettings({ model: pickModel(b.model, c.engine.id, ch), effort: pick(b.effort, ch.efforts, 'effort'), ultracode: b.ultracode });
+      const r = await c.setSettings({ model: pickModel(b.model, c.engine.id, ch), effort: pick(b.effort, ch.efforts, 'effort'), ultracode: b.ultracode, lead: b.lead, others });
       save();
       remember(c, req);
-      return { model: c.model, effort: c.effort, ultracode: c.ultracode, restart: r.restart };
+      // lead only where it was asked for or is on: with the switch off the answer is the one of before.
+      return { model: c.model, effort: c.effort, ultracode: c.ultracode, ...(b.lead !== undefined || c.lead ? { lead: c.lead } : {}), ...(b.others !== undefined || c.others.length ? { others: c.others } : {}), restart: r.restart };
+    }],
+    // Who did what (Lead model): per helper its kind, model and tokens, from Claude Code's own records.
+    ['GET', new RegExp(`^/api/chats/${ID}/parts$`), async (req, m) => {
+      const c = chatOr404(m[1]);
+      if (c.engine.id !== 'claude') return { lead: null, parts: [], tiers: [], others: [] };
+      const out = partsOf(c.cwd, c.conversationId);
+      // Parts handed to another provider ("Use other providers"): each its own session, its model and tokens read from
+      // Claude Code's records of that session, never from what a model says.
+      const others = handed(c).map((p) => {
+        const got = p.cwd && p.conversationId ? partsOf(p.cwd, p.conversationId) : null;
+        const lead = got && got.lead;
+        return { provider: p.provider, kind: p.kind, model: lead ? lead.model : null, tokens: lead ? lead.tokens : 0, use: lead ? lead.use : null, open: p.open };
+      });
+      return { ...out, others };
     }],
     ['POST', new RegExp(`^/api/chats/${ID}/title$`), async (req, m) => {
       const c = chatOr404(m[1]);
@@ -312,6 +374,39 @@ export function liveRoutes(ctx, { chatOr404, toolStillOn = () => {}, save, remem
     ['GET', new RegExp(`^/api/chats/${ID}/changes$`), async (req, m) => {
       const c = chatOr404(m[1]);
       return folderChanges(folderOf(c)); // the chat's own folder, inside the allowed roots (feature.mjs)
+    }],
+    ['POST', new RegExp(`^/api/chats/${ID}/shell$`), async (req, m) => {
+      const c = chatOr404(m[1]);
+      const b = await ctx.readJson(req);
+      const command = bangCommand(b.command);
+      if (!command) throw bad('write a command of 1 to 4000 characters');
+      // One at a time in a session: a second one waits for the owner to see the first one's output.
+      if (shells.has(c.id)) throw new HttpError(409, 'a command runs in this session already; wait for its output');
+      const ctl = new AbortController();
+      const run = { command, output: '', started: Date.now(), stop: () => ctl.abort() };
+      shells.set(c.id, run);
+      try {
+        return await runBang(folderOf(c), command, { signal: ctl.signal, onOutput: (t) => (run.output = (run.output + t).slice(-SHOWN_MAX)) });
+      } finally {
+        shells.delete(c.id);
+      }
+    }],
+    ['GET', new RegExp(`^/api/chats/${ID}/shell$`), async (req, m) => {
+      const run = shells.get(chatOr404(m[1]).id);
+      return run ? { running: true, command: run.command, output: run.output, ms: Date.now() - run.started } : { running: false };
+    }],
+    ['POST', new RegExp(`^/api/chats/${ID}/shell/stop$`), async (req, m) => {
+      const c = chatOr404(m[1]);
+      await ctx.readJson(req);
+      const run = shells.get(c.id);
+      if (run) run.stop();
+      return { stopped: !!run };
+    }],
+    ['GET', new RegExp(`^/api/chats/${ID}/diff$`), async (req, m, q) => {
+      const c = chatOr404(m[1]);
+      const d = await fileDiff(folderOf(c), q.get('path'));
+      if (!d) throw new HttpError(404, 'that file has no change in this folder');
+      return d;
     }],
   ];
   return { routes, handle };

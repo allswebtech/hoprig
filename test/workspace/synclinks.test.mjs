@@ -108,7 +108,7 @@ test('status calls them not followed, restore leaves them and get clones nothing
   const { restoreWorkspace } = await import('../../src/workspace/restore.mjs');
   const q = await quietUi();
   q.ui.yes = true;
-  const r = await restoreWorkspace(w.url('brain'), { ui: q.ui, dir: C.ws, projects: C.projects, dryRun: true });
+  const r = await restoreWorkspace(w.url('brain'), { withProjects: true, ui: q.ui, dir: C.ws, projects: C.projects, dryRun: true });
   assert.equal(r.plan.find((e) => e.label === 'kits/builds/acme').action, 'link');
   assert.ok(!r.plan.some((e) => 'base' in e || 'root' in e), 'restore\'s own field never reaches the output');
   const { getProject } = await import('../../src/pcsetup/getproject.mjs');

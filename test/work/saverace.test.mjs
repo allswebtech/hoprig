@@ -306,7 +306,7 @@ test('a branch git sends to another place than it follows: the save is the commi
     const r = await saveWork(c.place, { subject: SUBJECT });
     assert.equal(r.ok, true, `${name}: ${r.message}`);
     assert.equal(r.sent, false, name);
-    assert.equal(r.message, 'Committed work/tasks.json (2 changes); this branch is sent to another place than it follows, so Work did not send it.', name);
+    assert.equal(r.message, 'Kept a copy of your list (2 changes); this branch is sent to another place than it follows, so Work did not send it.', name);
     assert.equal(t.git(c.here, 'log', '-1', '--format=%s'), SUBJECT, name);
     assert.deepEqual(t.git(c.bare, 'for-each-ref', '--format=%(refname) %(subject)').split('\n'), ['refs/heads/main Start'], `${name}: nothing on the server it follows`);
     assert.deepEqual(t.git(fork, 'for-each-ref', '--format=%(refname) %(subject)').split('\n'), ['refs/heads/main Start'], `${name}: nothing on the other place`);

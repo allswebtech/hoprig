@@ -134,7 +134,8 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   const pages = [...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)', title: [^,]+, icon: '[a-z]+'(?:, group: '(main|more)', order: (\d+))?/g)];
   const group = (g) => pages.filter((m) => m[2] === g).sort((a, b) => a[3] - b[3]).map((m) => m[1]);
   assert.deepEqual(group('main'), ['work', 'workspace', 'providers', 'computers'], 'Home is the router\'s own, then Work · Workspace · Providers · Computers');
-  assert.deepEqual(group('more'), ['automations', 'skills', 'brain', 'tia', 'settings']);
+  // Automations has no page of its own any more: Work → Schedules, Settings → Automations, Work → Activity.
+  assert.deepEqual(group('more'), ['operator', 'skills', 'brain', 'tia', 'settings']);
   // Every address in PAGE_ADDRESSES (what Tia's open_screen may open) leads to a page that exists.
   const ids = new Set([...pages.map((m) => m[1]), ...[...pageFiles().map(src).join('\n').matchAll(/registerPage\(\{\s*id: '([a-z-]+)'/g)].map((m) => m[1])]);
   const list = /export const PAGE_ADDRESSES = \[([\s\S]*?)\];/.exec(src('app.js'))[1];
@@ -146,7 +147,7 @@ test('structure: the main pages, the second group, the Settings pages, and old a
   }
   const settingsPages = [...pageFiles().map(src).join('\n').matchAll(/registerSettingsPage\(\{\s*id: '([a-z-]+)', title: ([^,]+), icon: '[a-z]+', order: (\d+)/g)]
     .sort((a, b) => a[3] - b[3]).map((m) => m[1]);
-  assert.deepEqual(settingsPages, ['new-sessions', 'workspace', 'work', 'notifications', 'appearance', 'security', 'public-link', 'tia', 'editor', 'addons', 'codingtools', 'updates', 'about']);
+  assert.deepEqual(settingsPages, ['new-sessions', 'root', 'workspace', 'work', 'automations', 'golive', 'notifications', 'handsoff', 'appearance', 'security', 'public-link', 'tia', 'editor', 'learn', 'addons', 'codingtools', 'updates', 'field', 'about']);
   const app = src('app.js');
   for (const [from, to] of [['/pc', '/computer'], ['/pc/projects', '/workspace'], ['/settings/accounts', '/providers'], ['/settings/computers', '/computers'], ['/settings/skills', '/skills'], ['/settings/signin', '/settings/security'], ['/settings/auto', '/providers'], ['/tia-settings', '/settings/tia'], ['/settings/claude', '/settings/updates']]) {
     assert.ok(app.includes(`'${from}': '${to}'`), `${from} → ${to}`);
@@ -174,6 +175,15 @@ test('one kit: tabs, results, steps and loading rows come from shell.js; no page
   assert.equal(bar.children[1].attrs['aria-current'], 'page');
   assert.deepEqual(texts(bar), ['One', 'Two', '3']);
   assert.ok(texts(errorBox('No', () => {})).includes('Try again'));
+  // the system's own error is folded under Details, not the line a person reads
+  const raw = "EACCES: permission denied, open '/x/tasks.json'";
+  const box = errorBox('Hoprig could not read your task list.', () => {}, raw);
+  const banner = box.children.find((c) => c && /error-box/.test(c.className));
+  assert.ok(!texts(banner).join(' ').includes('EACCES'), 'the raw error is not in the line');
+  const folded = box.children.find((c) => c && c.tag === 'details');
+  assert.ok(folded && texts(folded).join(' ').includes(raw), 'it is under Details');
+  assert.equal(errorBox('No').children.filter((c) => c && c.tag === 'details').length, 0, 'no Details without details');
+  assert.doesNotMatch(src('work.js'), /errorBox\(`Could not load Work: \$\{e\.message\}`/, 'Work shows a plain line, the error folded');
   assert.deepEqual(texts(okBox('Done')), ['Done']);
   assert.equal(stepHeader(['A', 'B', 'C'], 1).children.filter((li) => /on/.test(li.className)).length, 2);
   assert.equal(skeletonRows(2).children.length, 2);
@@ -338,11 +348,12 @@ test('Home: groups by what the session needs, plain terminals last, and one plai
   const acct = (label, pct, extra = {}) => ({ name: label.toLowerCase(), label, kind: 'subscription', usage: pct === null ? null : { fiveHour: { pct } }, ...extra });
   const one = (profiles) => [{ machine: null, machineLabel: 'Desk', profiles, autoSwitch: { order: [] } }];
   assert.deepEqual(accountsLine(one([acct('Max', 40), acct('Team', 10), { name: 'api', label: 'API', kind: 'api' }]), false), { text: '3 providers · all available', warn: false, lines: [] });
-  assert.deepEqual(accountsLine(one([acct('Max', 96), acct('Team', 10)]), false), { text: 'Max is at 96% of its 5-hour limit', warn: true, lines: ['Max is at 96% of its 5-hour limit'] });
-  assert.match(accountsLine(one([acct('Max', 20, { limited: {} })]), false).text, /^Max is at its limit$/);
+  const nearMax = 'Max is almost used up (96% of its 5-hour limit). When it runs out, sessions can go on with Team.';
+  assert.deepEqual(accountsLine(one([acct('Max', 96), acct('Team', 10)]), false), { text: nearMax, warn: true, lines: [nearMax] });
+  assert.match(accountsLine(one([acct('Max', 20, { limited: {} })]), false).text, /^Max is at its limit\.$/);
   assert.deepEqual(accountsLine(one([]), false).warn, true);
   const two = [{ machine: null, machineLabel: 'Desk', profiles: [acct('Max', 96)] }, { machine: 'lap', machineLabel: 'Lap', profiles: [acct('Team', 5)] }];
-  assert.equal(accountsLine(two, true).text, 'Desk: Max is at 96% of its 5-hour limit', 'the computer named once, only where something is near a limit');
+  assert.equal(accountsLine(two, true).text, 'Max is almost used up (96% of its 5-hour limit), on Desk. When it runs out, sessions can go on with Team.', 'the computer named once, only where something is near a limit');
   assert.equal(accountsLine([two[1]], true).text, '1 provider · all available');
 });
 
@@ -376,6 +387,7 @@ test('Get started: the next step, the count, collapse when done, hidden when clo
   assert.equal(actionLabel({ kind: 'terminal', run: 'setup', label: 'Set up Claude Code' }), 'Set up Claude Code');
   assert.equal(actionLabel({ kind: 'page', target: 'pc/setup' }), 'Open');
   assert.equal(actionLabel({ kind: 'request', method: 'POST', path: '/api/x' }), 'Do it');
+  assert.equal(actionLabel({ kind: 'request', method: 'POST', path: '/api/x', label: 'Add the rules' }), 'Add the rules', 'the server\'s label for what one press does');
   for (const t of ['pc/setup', 'pc/projects', 'settings/skills', 'settings/signin-device', 'settings/accounts', 'settings/computers']) assert.ok(TARGETS[t], t);
   assert.deepEqual([TARGETS['pc/projects'], TARGETS['settings/accounts'], TARGETS['settings/signin-device']], ['#/workspace', '#/providers', '#/settings/security']);
   // the card: one prominent button (the next step's), a one-line summary once done, nothing once closed
@@ -393,6 +405,10 @@ test('Get started: the next step, the count, collapse when done, hidden when clo
   assert.ok(texts(open).join(' ').includes('Tools for coding'));
   assert.ok(texts(open).join(' ').includes('sets everything up'), 'the pitch on the first screen');
   assert.equal(buttons(open).filter((b) => /primary/.test(b.className)).length, 1, 'one prominent button: the next step');
+  // every open step with an action can be done from here, not only the next one (the phone step after Skills)
+  const stepButtons = buttons(open).filter((b) => /btn small/.test(b.className) && !/ghost/.test(b.className));
+  assert.equal(stepButtons.length, STEPS.filter((s) => !s.done && s.action).length, 'a button for each open step');
+  assert.ok(texts(open).join(' ').includes('Sign in to Claude'), 'the phone step, after the next one, has its button');
   assert.ok(texts(getStartedCard({ steps: STEPS.map((x) => ({ ...x, done: false })), done: 0, total: 6 }, { firstRun: true })).join(' ').includes('Tools for coding'), 'nothing done yet: every step shows');
   const line = getStartedCard(allDone, {});
   assert.ok(/collapsed/.test(line.className));
@@ -404,12 +420,12 @@ test('Get started: the next step, the count, collapse when done, hidden when clo
 const webSrc = (f) => fs.readFileSync(path.join(WEB, f), 'utf8');
 test('add-ons: no "Set up as a provider" for an add-on that is no gateway, notes before Start; the public link is not listed', async () => {
   const { addonView, shownAddons } = await import('../../web/addons.js');
-  const gateway = addonView({ id: 'trouteai', installed: true, running: true, url: 'http://localhost:20017' });
+  const gateway = addonView({ id: 'bridgebox', installed: true, running: true, url: 'http://localhost:20017' });
   assert.deepEqual([gateway.showAccount, gateway.confirmStart], [true, false]);
   const other = addonView({ id: 'x', installed: true, running: false, account: false, notes: ['Read this first.'] });
   assert.deepEqual([other.showAccount, other.confirmStart], [false, true]);
   // The public link has its own page; its entry in /api/addons is only for older hubs.
-  assert.deepEqual(shownAddons([{ id: 'trouteai' }, { id: 'public-link' }, null]).map((a) => a.id), ['trouteai']);
+  assert.deepEqual(shownAddons([{ id: 'bridgebox' }, { id: 'public-link' }, null]).map((a) => a.id), ['bridgebox']);
   assert.doesNotMatch(webSrc('addons.js'), /publiclink\.js|fixed\./, 'Add-ons knows nothing of the public link');
 });
 
@@ -446,9 +462,9 @@ test('public link: the state in one pill and one line, Off by default; it looks 
 
 test('public link: its own Settings page; refusals are asked for in place; the address with Copy, Open and a QR', async () => {
   const { forgetText } = await import('../../web/publiclink.js');
-  const named = forgetText({ mode: 'named', url: 'https://office.example.com', hostname: 'office.example.com', extra: [{ hostname: 'trouteai-office.example.com' }] });
+  const named = forgetText({ mode: 'named', url: 'https://office.example.com', hostname: 'office.example.com', extra: [{ hostname: 'bridgebox-office.example.com' }] });
   assert.match(named, /deletes its tunnel in your Cloudflare account/);
-  assert.match(named, /DNS records for office\.example\.com, trouteai-office\.example\.com stay in Cloudflare/);
+  assert.match(named, /DNS records for office\.example\.com, bridgebox-office\.example\.com stay in Cloudflare/);
   assert.match(forgetText({ mode: 'token', url: 'https://office.example.com' }), /stay in your Cloudflare dashboard/);
   assert.match(forgetText({ mode: null }), /Nothing was made in your Cloudflare account/);
   const page = webSrc('publiclink.js');
@@ -533,19 +549,19 @@ test('limit card: the main button is the first free provider of the order, never
     { name: 'auto', label: 'Auto', kind: 'auto', virtual: true },
     { name: 'key', label: 'Claude API', kind: 'api', paid: true, autoPlace: 1 },
     { name: 'max', label: 'Claude Max', kind: 'subscription', autoPlace: 0, limited: { until: 1 } },
-    { name: 'tr', label: 'API via TRouteAI', kind: 'api', paid: false, autoPlace: 2 },
+    { name: 'tr', label: 'API via Example relay', kind: 'api', paid: false, autoPlace: 2 },
     { name: 'team', label: 'Team plan', kind: 'subscription', autoPlace: null },
   ];
   const card = (ps) => buttons(limitBox(s, ps)).map((b) => [/primary/.test(b.className), texts(b).join('')]);
   assert.deepEqual(card(profiles), [
-    [true, 'Continue on API via TRouteAI'],
-    [false, 'Continue on Auto (next: Claude API)'],
+    [true, 'Continue on API via Example relay'],
+    [false, 'Go on with the next provider that has room each time (next: Claude API · costs money per use)'],
     [false, 'Continue on Team plan'],
-    [false, 'Continue on Claude API (paid per use)'],
+    [false, 'Continue on Claude API · costs money per use'],
   ], 'Auto with the paid key allowed goes to it; the main button does not');
   // The paid key is the only free one: no main button at all.
   const onlyPaid = card([profiles[1], profiles[2]]);
-  assert.deepEqual(onlyPaid, [[false, 'Continue on Claude API (paid per use)']]);
+  assert.deepEqual(onlyPaid, [[false, 'Continue on Claude API · costs money per use']]);
 });
 
 test('limit card on Claude Code\'s stored sign-in: another Claude account next to another provider; "Continue" once one signed in', async () => {
@@ -556,20 +572,20 @@ test('limit card on Claude Code\'s stored sign-in: another Claude account next t
   const card = (s, ps) => buttons(limitBox(s, ps)).map((b) => [/primary/.test(b.className), texts(b).join('')]);
   const profiles = [
     { name: 'sub', label: 'Claude Max', kind: 'login', signedIn: true, limited: { until: 1 }, accountAt: null },
-    { name: 'tr', label: 'API via TRouteAI', kind: 'api', paid: false },
+    { name: 'tr', label: 'API via Example relay', kind: 'api', paid: false },
   ];
   const s = { name: 'w', machine: null, canSwitch: true, limit: { text: "You've hit your 5-hour limit" }, limitAt: 2000, profile: { name: 'sub', kind: 'login' } };
-  assert.deepEqual(card(s, profiles), [[true, 'Continue on API via TRouteAI'], [false, 'Sign in with another Claude account']]);
+  assert.deepEqual(card(s, profiles), [[true, 'Continue on API via Example relay'], [false, 'Sign in with another Claude account']]);
   // another account signed in after the limit was seen: going on here leads, the move is second
   const since = [{ ...profiles[0], accountAt: 3000 }, profiles[1]];
-  assert.deepEqual(card(s, since), [[true, 'Continue with the new account'], [false, 'Continue on API via TRouteAI'], [false, 'Sign in with another Claude account']]);
-  assert.deepEqual(card({ ...s, limitAt: 4000 }, since), [[true, 'Continue on API via TRouteAI'], [false, 'Sign in with another Claude account']], 'a limit of the new account itself');
+  assert.deepEqual(card(s, since), [[true, 'Continue with the new account'], [false, 'Continue on API via Example relay'], [false, 'Sign in with another Claude account']]);
+  assert.deepEqual(card({ ...s, limitAt: 4000 }, since), [[true, 'Continue on API via Example relay'], [false, 'Sign in with another Claude account']], 'a limit of the new account itself');
   assert.equal(card({ ...s, limitAt: null }, [{ ...profiles[0], accountAt: Date.now() - 60_000 }, profiles[1]])[0][1], 'Continue with the new account', 'since when is not known: a sign-in of the last hours counts');
   // a chat (it cannot be moved from its card) gets the same
   assert.deepEqual(card({ ...s, kind: 'chat', chatId: 'c1', canSwitch: false }, profiles), [[false, 'Sign in with another Claude account']]);
   // not for a provider with its own account token or an API key, and not through another computer's page
-  assert.deepEqual(card({ ...s, profile: { name: 'own', kind: 'subscription' } }, [{ name: 'own', label: 'Second', kind: 'subscription' }, profiles[1]]), [[true, 'Continue on API via TRouteAI']]);
-  assert.deepEqual(card({ ...s, machine: 'laptop' }, profiles), [[true, 'Continue on API via TRouteAI']], 'a sign-in never goes through another computer\'s page');
+  assert.deepEqual(card({ ...s, profile: { name: 'own', kind: 'subscription' } }, [{ name: 'own', label: 'Second', kind: 'subscription' }, profiles[1]]), [[true, 'Continue on API via Example relay']]);
+  assert.deepEqual(card({ ...s, machine: 'laptop' }, profiles), [[true, 'Continue on API via Example relay']], 'a sign-in never goes through another computer\'s page');
   // Home's line about the providers: the button only while this computer's stored sign-in is at its limit
   assert.deepEqual(buttons(limitStripAction([{ machine: null, profiles }])).map((b) => texts(b).join('')), ['Sign in with another Claude account']);
   assert.equal(limitStripAction([{ machine: null, profiles: [{ ...profiles[0], limited: null }] }]), null);
@@ -580,10 +596,17 @@ test('limit card on Claude Code\'s stored sign-in: another Claude account next t
   // what runs on the stored sign-in: its own sessions and chats, and an Auto session while that provider serves it
   const sessions = [{ name: 'a', profile: { name: 'sub' } }, { name: 'b', profile: { name: 'tr' } }, { name: 'c', profile: { name: 'auto' }, autoOn: { name: 'sub' } }, { name: 'd' }];
   assert.deepEqual(onStoredLogin(sessions, profiles).map((x) => x.name), ['a', 'c']);
+  // a sign-in provider with a Claude folder of its own: this page's sign-in, sign-out and other account are the
+  // default folder's, so none of them is offered for it, and its sessions are not on the stored sign-in
+  const ownP = [{ name: 'own', label: 'Own folder', kind: 'login', ownFolder: true, signedIn: true, limited: { until: 1 }, accountAt: null }, profiles[1]];
+  assert.deepEqual(card({ ...s, profile: { name: 'own', kind: 'login' } }, ownP), [[true, 'Continue on API via Example relay']]);
+  assert.equal(limitStripAction([{ machine: null, profiles: ownP }]), null);
+  assert.deepEqual(onStoredLogin([{ name: 'e', profile: { name: 'own' } }], ownP), []);
   // Providers: the two actions on the provider's own page, said plainly before anything happens
   const acc = fs.readFileSync(path.join(WEB, 'accounts.js'), 'utf8');
   assert.match(acc, /'Sign in with another account'/);
   assert.match(acc, /'Sign out'/);
+  assert.match(acc, /a\.kind === 'login' && a\.ownFolder \? h\('p\.hint\.acct-own-folder', '[^']*start a terminal session on this provider and type \/login there\./, 'how a folder of its own is signed in');
   const src = fs.readFileSync(path.join(WEB, 'claudeaccount.js'), 'utf8');
   assert.match(src, /No restart is needed/, 'what happens to running sessions is said before the owner confirms');
   assert.match(src, /Until that is complete nothing changes/);
@@ -657,15 +680,23 @@ test('a computer runs sessions only when online, not a hub, with Claude Code and
   const p = [{ name: 'max' }];
   assert.deepEqual(runsSessions({ status: 'online', profiles: p }), { ok: true, why: '' });
   assert.equal(runsSessions({ status: 'online', profiles: p }, undefined).ok, true, 'Claude Code not asked yet counts as there');
-  assert.match(runsSessions({ status: 'offline', profiles: p }).why, /Not reachable/);
-  assert.match(runsSessions({ status: 'online', hub: true, profiles: p }).why, /hub/);
+  assert.match(runsSessions({ status: 'offline', profiles: p }).why, /Did not answer when asked/);
+  // A computer that answered but would not take this dashboard is never told as one that did not answer.
+  const words = { unauthorised: /no longer lets this dashboard in\. Add it again here: Computers → Add a computer/, 'too-old': /too old.*update it there/, hostkey: /host key changed.*under Computers/, connecting: /Still connecting/ };
+  for (const [status, re] of Object.entries(words)) {
+    const w = runsSessions({ status, profiles: p });
+    assert.equal(w.ok, false, status);
+    assert.match(w.why, re, status);
+    assert.doesNotMatch(w.why, /did not answer/i, status);
+  }
+  assert.match(runsSessions({ status: 'online', hub: true, profiles: p }).why, /main computer/);
   assert.match(runsSessions({ status: 'online', profiles: p }, null).why, /Claude Code is not installed/);
   assert.match(runsSessions({ status: 'online', profiles: [{ name: 'auto', virtual: true }] }).why, /No provider/);
   const src = fs.readFileSync(path.join(WEB, 'newsession-popup.js'), 'utf8');
   assert.match(src, /groupHead\('Computer'\)/, 'the computer is the first choice');
   assert.match(src, /prefs\.set\('new\.machine'/, 'the choice is kept for the next time');
   assert.doesNotMatch(src, /select\('Computer'/, 'not hidden under Options any more');
-  assert.match(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /select\('Model'/, 'a model for this one session');
+  assert.match(fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8'), /modelPicker\(\{\n\s*provider: st\.profile \|\| \(m && m\.recommended\)/, 'a model for this one session, from the provider\'s own list');
   assert.match(fs.readFileSync(path.join(WEB, 'newsession-start.js'), 'utf8'), /model: st\.model \|\| null/);
   const app = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
   assert.match(app, /CODING_PAGES\.includes\(page\.id\) && onHub\(hash\)/, 'a hub opens the coding pages on a computer that codes');
@@ -688,9 +719,9 @@ test('providers: "Not signed in" with a Sign in button; usage with its age; a pl
   const line = accountsLine([{ machineLabel: 'A', profiles: [{ label: 'Pro', signedIn: false }, { label: 'Max', signedIn: true }] }], false);
   assert.deepEqual(line, { text: '2 providers · 1 not signed in', warn: false, lines: [] }, 'never "all available" while one is not signed in, but no warning either');
   const both = accountsLine([{ machineLabel: 'A', profiles: [{ label: 'Pro', signedIn: false }, { label: 'Max', signedIn: true, usage: { fiveHour: { pct: 96 } } }] }], false);
-  assert.deepEqual([both.text, both.warn], ['Max is at 96% of its 5-hour limit', true], 'the warning is about the limit only');
+  assert.deepEqual([both.text, both.warn], ['Max is almost used up (96% of its 5-hour limit).', true], 'the warning is about the limit only');
   const many = accountsLine([{ machineLabel: 'A', profiles: [{ label: 'Max', limited: {} }] }, { machineLabel: 'B', profiles: [{ label: 'Team', limited: {} }] }], true);
-  assert.deepEqual(many.lines, ['A: Max is at its limit', 'B: Team is at its limit'], 'one line per computer');
+  assert.deepEqual(many.lines, ['Max is at its limit, on A.', 'Team is at its limit, on B.'], 'one line per provider');
   assert.equal(accountsLine([{ profiles: [{ label: 'Max', signedIn: null }] }], false).text, '1 provider · all available', 'not checked yet claims nothing');
   const { profileState } = await import('../../web/lib.js');
   assert.deepEqual(profileState({ signedIn: false, kind: 'login' }), { key: 'signin', text: 'Not signed in' });
@@ -718,7 +749,7 @@ test('joining: the one line to paste on the main computer, the terminal line too
   // Once linked, the other computer says to which main one, whether it is connected, and Leave.
   assert.match(src, /title: `Linked to your main \$\{APP_NAME\}`/);
   assert.match(src, /lineIn\.form\.requestSubmit\(\)/, 'Enter in the one-line paste field links');
-  assert.match(src, /c\.note \? h\('span\.hint', c\.note\)/);
+  assert.match(src, /h\('details\.adv\.cp-fold', h\('summary', 'For the terminal'\),\n\s+c\.note \? h\('p\.hint', c\.note\) : null,/, 'the note, under For the terminal');
   assert.match(src, /cmdLine\(c\.line\)/);
   assert.match(src, /c\.via === 'temporary'/, 'a Temporary address: the other computer must be linked again after a restart');
   assert.match(src, /api\('~\/api\/joins', \{ line: lineIn\.value\.trim\(\), insecure: insecure\.checked \}\)/);
@@ -763,14 +794,17 @@ test('workspace: one line about it, the map in groups, commands that still work 
     { kind: 'project', label: 'invoices', state: 'missing' },
     { kind: 'other', label: 'git/tool', state: 'here' }, { kind: 'other', label: 'development/flutter', state: 'here', tool: true },
   ], map: { others: [] } };
-  assert.equal(workspaceLine(map, null).text, '1 project in your map is not on this computer');
+  // A project only in the map is the normal state: said after the line, never a warning.
+  assert.equal(workspaceLine(map, null).text, 'Not synced from here yet · 1 more project in your map, not on this computer');
+  assert.equal(workspaceLine(map, null).warn, false);
+  assert.equal(workspaceLine({ ...map, entries: map.entries.map((e) => (e.state === 'missing' ? { ...e, state: 'notHere' } : e)) }, null).missing.length, 1, 'notHere and an older computer\'s missing alike');
   const job = { kind: 'sync', result: { data: { todo: 2, repos: [{ label: 'a', todo: [{ kind: 'diverged' }] }, { label: 'b', todo: [{ kind: 'to-push' }] }, { label: 'invoices', todo: [{ kind: 'missing' }] }] } } };
   assert.equal(workspaceLine({ ...map, entries: map.entries.filter((e) => e.state !== 'missing') }, job).text, '2 repositories have changes to look at', '"not here" is not a change to look at');
   assert.equal(workspaceLine({ exists: true, entries: [] }, { kind: 'sync', result: { data: { todo: 0, repos: [] } } }).text, 'In step with git');
   assert.equal(workspaceLine({ exists: true, entries: [] }, null).text, 'Not synced from here yet', 'never "in step" without a sync');
   assert.equal(workspaceLine({ exists: false, entries: [] }, null).noMap, true);
   assert.equal(workspaceLine({ exists: true, entries: [], saved: { unsaved: true } }, null).text, 'The map changed and is not saved in the AI brain\'s history yet', 'said when nothing more important is there');
-  assert.equal(workspaceLine({ ...map, saved: { unsaved: true } }, null).text, '1 project in your map is not on this computer');
+  assert.equal(workspaceLine({ ...map, saved: { unsaved: true } }, null).text, 'The map changed and is not saved in the AI brain\'s history yet · 1 more project in your map, not on this computer');
   const whole = fs.readFileSync(path.join(WEB, 'workspace.js'), 'utf8');
   const auto = whole.slice(whole.indexOf('function autoPanel('));
   const drawn = auto.slice(auto.indexOf('fill(box,'));
@@ -805,8 +839,8 @@ test('Git and GitHub: three rows, done only when all are; a step of Get started'
   const good = { git: true, identity: { set: true, name: 'A', email: 'a@example.invalid' }, gh: { installed: true, signedIn: true, account: 'a' }, brain: { exists: true, git: true, remote: 'https://git.example.com/a/b.git', upstream: 'origin/main', ahead: 0, behind: 0, changes: 0 } };
   assert.equal(gitDone(good), true);
   const out = { ...good, gh: { installed: true, signedIn: false, account: null }, brain: { exists: true, git: true, remote: null } };
-  assert.deepEqual(gitRows(out).map((r) => [r.ok, r.text]), [[true, 'A · a@example.invalid'], [false, 'Not signed in'], [false, 'Not on a git server yet']]);
-  assert.match(gitRows({ ...good, brain: { ...good.brain, ahead: 2 } })[2].text, /2 to upload/);
+  assert.deepEqual(gitRows(out).map((r) => [r.ok, r.text]), [[true, 'A · a@example.invalid'], [false, 'Not signed in'], [false, 'Not on a git server yet: sign in to GitHub first']]);
+  assert.match(gitRows({ ...good, brain: { ...good.brain, ahead: 2 } })[2].text, /2 saved changes are not uploaded to your git server yet/);
   const { withGitStep, actionLabel } = await import('../../web/getstarted.js');
   const onb = { steps: [{ id: 'claude', done: true }], done: 1, total: 1 };
   const w = withGitStep(onb, out);
@@ -822,11 +856,11 @@ test('Get started: the brain\'s unlinked skills reopen the skills step with the 
   assert.equal(withBrainSkills(null, 3), null);
   const w = withBrainSkills(onb, 2);
   assert.deepEqual([w.done, w.total], [1, 2]);
-  assert.equal(w.steps[1].detail, '1 that Claude Code uses; 2 more in the AI brain are not used yet');
+  assert.equal(w.steps[1].detail, 'Claude Code knows 1 extra skill (a ready-made way of working). 2 more are stored but not switched on.');
   assert.deepEqual(w.steps[1].action, { kind: 'link-brain' });
-  assert.equal(actionLabel(w.steps[1].action), 'Link now');
+  assert.equal(actionLabel(w.steps[1].action), 'Switch on');
   const none = withBrainSkills({ steps: [{ id: 'skills', done: false, detail: 'none yet', action: { kind: 'page', target: 'settings/skills' } }], done: 0, total: 1 }, 1);
-  assert.equal(none.steps[0].detail, '1 more in the AI brain is not used yet');
+  assert.equal(none.steps[0].detail, '1 skill (a ready-made way of working) is stored but not switched on.');
   assert.equal(none.done, 0);
   // No page tells the owner to type the link command any more.
   for (const f of pageFiles().filter((x) => x !== 'brainlink.js')) assert.ok(!/workspace link/.test(fs.readFileSync(path.join(WEB, f), 'utf8')), f);
@@ -861,7 +895,7 @@ test('a question waiting for an OK: the same answers on the card and the banner;
   const ask = { name: 'mobile-app', kind: 'claude', status: 'attention', machine: null, ask: { type: 'permission', what: 'npm install', waiting: 1 } };
   assert.deepEqual(texts(permissionActions(ask)), ['Allow', 'Do not allow'], 'no third button without one on the screen');
   const always = { key: '2', text: "Yes, and don't ask again for npm install commands", label: "Don't ask again for npm install commands" };
-  assert.deepEqual(texts(permissionActions({ ...ask, always })), ['Allow', "Allow, and don't ask again for npm install commands", 'Do not allow']);
+  assert.deepEqual(texts(permissionActions({ ...ask, always })), ['Allow', "Allow, and don't ask again for this kind of command", 'Do not allow', 'This kind of command: npm install']);
   const edits = { key: '2', text: 'Yes, allow all edits during this session (shift+tab)', label: 'Allow all edits during this session' };
   assert.deepEqual(texts(permissionActions({ ...ask, always: edits })), ['Allow', 'Allow all edits during this session', 'Do not allow']);
   // Claude Code 2.1.326's own words (server/prompts.mjs alwaysOption).
@@ -872,12 +906,14 @@ test('a question waiting for an OK: the same answers on the card and the banner;
   assert.equal(permissionActions({ ...ask, kind: 'chat' }), null, 'a chat answers on its own cards');
   // The card and the row use it; the session page's banner too (one code path).
   for (const f of ['sessionitem.js', 'session.js']) assert.match(fs.readFileSync(path.join(WEB, f), 'utf8'), /permissionActions\(/, f);
-  // "Needs you" means what Home's group means: an OK or a limit, never "waiting for your next message".
+  // "Needs you" means what Home's group means: an OK, a limit or a start that failed, never "waiting for your next message".
   assert.equal(needsYou(ask), true);
   assert.equal(needsYou({ ...ask, status: 'waiting', limit: { text: 'x' } }), true);
   assert.equal(needsYou({ ...ask, status: 'waiting' }), false);
   const { GROUPS } = await import('../../web/home.js');
-  assert.deepEqual(GROUPS.find(([id]) => id === 'needs')[2], ['attention', 'limit'], 'the same two states as Home');
+  // A tool that ended at its start (src/startfail.mjs) needs him too: it does nothing until he acts.
+  assert.equal(needsYou({ name: 'x', kind: 'shell', startFailed: { code: 1, tool: 'claude' } }), true);
+  assert.deepEqual(GROUPS.find(([id]) => id === 'needs')[2], ['attention', 'limit', 'failed'], 'the same three states as Home');
   assert.doesNotMatch(fs.readFileSync(path.join(WEB, 'session.js'), 'utf8'), /rank <= 2/);
 });
 
@@ -938,7 +974,7 @@ test('a terminal session\'s answers: an answer that was sent is not offered agai
   // The owner's own answer, meant for a permission question: the server types it only while one is on the screen that
   // shows the card's command. Allow is the number of "Yes", which takes it wherever the arrow is.
   assert.deepEqual(sent, [['/api/sessions/web%20ui/key', { key: '1', owner: true, question: true, about: 'touch b.txt' }]]);
-  assert.deepEqual(texts(box), ['Your answer was sent.'], 'the buttons are gone at once, not with the next look seconds later');
+  assert.deepEqual(texts(box), ['Allowed'], 'the buttons are gone at once, not with the next look seconds later');
   assert.equal(looks, 1, 'and the page looks at once');
   t.mock.timers.tick(2000);
   assert.equal(looks, 3, 'and again soon: the coding tool has gone on by then');
@@ -974,7 +1010,8 @@ test('the mode that asks nothing says what it means, in the same sentences where
   // Settings → New-session defaults (the banner under the choice) and New session → Options (the line under it).
   assert.match(fs.readFileSync(path.join(WEB, 'sessiondefaults.js'), 'utf8'), /h\('p\.banner\.muted', BYPASS_MEANS\)/);
   const options = fs.readFileSync(path.join(WEB, 'newsession-options.js'), 'utf8');
-  assert.match(options, /select\('What Claude Code may do without asking'[^\n]*\n\s*\(v\) => \(v === 'bypassPermissions' \? BYPASS_MEANS : null\)\)/);
+  // As root the line under the choice is the root line instead (settings.rootBypass); otherwise nothing.
+  assert.match(options, /select\('What Claude Code may do without asking'[^\n]*\n\s*\(v\) => \(v === 'bypassPermissions' \? BYPASS_MEANS : st\.rootBypass \|\| null\)\)/);
   assert.doesNotMatch(options, /can run any command and change any file/, 'the sentence of before is gone');
   // The text itself is written once: every other page takes it from sessiondefaults.js.
   const holders = fs.readdirSync(WEB, { recursive: true }).filter((f) => f.endsWith('.js') && fs.readFileSync(path.join(WEB, f), 'utf8').includes('Hoprig allows it by itself only when the delete'));
@@ -990,7 +1027,7 @@ test('Home keeps "Your answer was sent." only as long as the session page: the a
 test('the session page says what Hoprig allowed by itself in bypass mode', () => {
   const src = fs.readFileSync(path.join(WEB, 'session.js'), 'utf8');
   assert.match(src, /'Allowed by Hoprig in bypass mode: '/);
-  assert.match(src, /fill\(needSlot, [^\n]*allowedNote\(s\)\)/);
+  assert.match(src, /fill\(needSlot, [^\n]*allowedNote\(s\)/);
   // In the same words as the App's: the command itself for the shell, where it ran when not in the session's folder,
   // and read out to a screen reader.
   for (const file of ['session.js', 'chat/timeline.js']) {
@@ -1085,7 +1122,9 @@ test('a chat that is not open any more is never a dead end, and its head never s
   assert.match(gone, /was && was\.terminal \? h\('a\.btn\.primary', \{ href: link\(`#\/s\/\$\{encodeURIComponent\(was\.terminal\)\}`\) \}/, 'the terminal it went to');
   assert.match(gone, /'Continue in the App'/);
   assert.match(gone, /again\(true\)\ }, icon\('plus', \{ size: 18 \}\), h\('span', 'New session in this folder'\)/, 'nothing was said in it: a new session in its folder');
-  assert.match(gone, /const lead = term \|\| go;/, 'one primary button');
+  assert.match(gone, /const lead = bin \|\| term \|\| go;/, 'one primary button');
+  assert.match(gone, /was && was\.deleted \? h\('button\.btn\.primary'.*'Open the trash'/, 'a deleted one: the trash, where it is put back');
+  assert.match(gone, /if \(bin && go\) go\.className = go\.className\.replace\('primary', 'secondary'\);/, 'and then only that one is primary');
   assert.match(fs.readFileSync(path.join(WEB, 'chat', 'header.js'), 'utf8'), /fill\(titleText, title \|\| 'Archived session'\);/);
 });
 
@@ -1093,11 +1132,11 @@ test('Add provider → Other providers: as today with one gateway (its title and
   const { otherProvidersChoice } = await import('../../web/accounts.js');
   const g = (id, title) => ({ id, title, words: { choice: `${title}: its own sentence` } });
   assert.equal(otherProvidersChoice([]), null, 'no gateway: no choice');
-  assert.deepEqual(otherProvidersChoice([g('trouteai', 'TRouteAI')]), { pick: false, id: 'trouteai', title: 'Other providers through TRouteAI (for Claude Code)', sub: 'TRouteAI: its own sentence' });
-  const two = otherProvidersChoice([g('trouteai', 'TRouteAI'), g('relay', 'Relay')]);
+  assert.deepEqual(otherProvidersChoice([g('bridgebox', 'Bridgebox')]), { pick: false, id: 'bridgebox', title: 'Other providers through Bridgebox (for Claude Code)', sub: 'Bridgebox: its own sentence' });
+  const two = otherProvidersChoice([g('bridgebox', 'Bridgebox'), g('relay', 'Relay')]);
   assert.equal(two.pick, true);
   assert.equal(two.title, 'Other providers through a gateway (for Claude Code)');
-  assert.match(two.sub, /a gateway on this computer: TRouteAI, Relay\.$/);
+  assert.match(two.sub, /a gateway on this computer: Bridgebox, Relay\.$/);
 });
 
 test('Add a gateway: the program and its arguments are shown as code, the sentences around them as text', async () => {
@@ -1117,7 +1156,7 @@ test('Add a gateway: the program and its arguments are shown as code, the senten
 
 test('a gateway that is not running: the shipped package reads as before; a program of the owner\'s own is not "installed"', async () => {
   const { notRunningText } = await import('../../web/accounts.js');
-  assert.equal(notRunningText({ title: 'TRouteAI', installable: true, page: 'http://localhost:20017/' }), 'TRouteAI is installed but not running. Start it, then add your provider in its page and come back with a key.');
+  assert.equal(notRunningText({ title: 'Bridgebox', installable: true, page: 'http://localhost:20017/' }), 'Bridgebox is installed but not running. Start it, then add your provider in its page and come back with a key.');
   assert.equal(notRunningText({ title: 'Relay', installable: false, page: null }), 'Relay is on this computer but not running. Start it, then add your provider in it and come back with a key.');
 });
 
@@ -1131,15 +1170,15 @@ test('Add a gateway: the short name made from the name keeps its letters and sta
 
 test('Add a gateway: every part the server names in an error has its label on the form', async () => {
   const { FIELD_LABELS } = await import('../../web/gatewaydefine.js');
-  assert.deepEqual(Object.keys(FIELD_LABELS).sort(), ['args', 'bin', 'dashboard', 'id', 'npm', 'port', 'title']);
+  assert.deepEqual(Object.keys(FIELD_LABELS).sort(), ['args', 'bin', 'dashboard', 'firstPassword', 'id', 'npm', 'port', 'title']);
   const src = fs.readFileSync(path.join(WEB, 'gatewaydefine.js'), 'utf8');
   for (const k of Object.keys(FIELD_LABELS)) assert.match(src, new RegExp(`row\\('${k}'`), `${k} is a row of the form, with its error under it`);
 });
 
 test('Add-ons: a gateway definition that was not loaded is said, with its reason', async () => {
   const { skippedLines } = await import('../../web/addons.js');
-  assert.deepEqual(skippedLines({ skipped: [{ id: 'relay', error: 'port 20017 is TRouteAI\'s' }, { id: null, error: 'a gateway is an object' }] }), [
-    'A gateway in config.json (relay) was not loaded: port 20017 is TRouteAI\'s.',
+  assert.deepEqual(skippedLines({ skipped: [{ id: 'relay', error: 'port 20017 is Bridgebox\'s' }, { id: null, error: 'a gateway is an object' }] }), [
+    'A gateway in config.json (relay) was not loaded: port 20017 is Bridgebox\'s.',
     'A gateway in config.json was not loaded: a gateway is an object.',
   ]);
   assert.deepEqual(skippedLines({}), [], 'an older computer sends none');
@@ -1168,7 +1207,7 @@ test('Add-ons: "Open its dashboard" only for a gateway that has a page; the ship
 test('Providers: one whose gateway was removed is muted, listed last, and its page says why and offers Remove', async () => {
   const { profileState } = await import('../../web/lib.js');
   assert.deepEqual(profileState({ kind: 'api', gatewayGone: { id: 'relay' } }), { key: 'unusable', text: 'Its gateway relay was removed' });
-  assert.deepEqual(profileState({ kind: 'api', gatewayGone: { id: 'relay', notLoaded: 'port 20017 is TRouteAI\'s' } }), { key: 'unusable', text: 'Its gateway relay was not loaded' });
+  assert.deepEqual(profileState({ kind: 'api', gatewayGone: { id: 'relay', notLoaded: 'port 20017 is Bridgebox\'s' } }), { key: 'unusable', text: 'Its gateway relay was not loaded' });
   assert.deepEqual(profileState({ kind: 'api' }), { key: 'free', text: 'Available' });
   const src = fs.readFileSync(path.join(WEB, 'accounts.js'), 'utf8');
   assert.match(src, /a\.unusable \|\| a\.gatewayGone \? unusableBox\(a, d\)/, 'its page: the box with Remove');
@@ -1181,5 +1220,220 @@ test('Other providers: a gateway whose program is missing says so without saying
   const src = fs.readFileSync(path.join(WEB, 'accounts.js'), 'utf8');
   const missing = src.slice(src.indexOf('if (!g.installed) {'), src.indexOf('if (!g.running) {'));
   assert.match(missing, /g\.installable \? h\('p\.sheet-text', g\.words\.what\) : null,/, 'its "is a gateway on this computer" only when it can be installed');
-  assert.match(missing, /errorBox\(`\$\{g\.title\} is defined on this computer, but its program was not found\. In a terminal there, \$\{COMMAND\} gateways shows what it runs\.`, again\)/, 'with Try again');
+  assert.match(missing, /: missing\(g\),/, 'its own words in place of Install');
+  const box = src.slice(src.indexOf('const missing = (gw) => {'), src.indexOf('const job = '));
+  assert.match(box, /programFacts\(gw\.title, view\)/, 'the words say its program was not found (web/gateways.js)');
+  assert.match(box, /fill\(box, errorBox\(text, again\)/, 'with Try again');
+});
+
+test('the trust notice: its status names it, its card is the tool\'s own lines (folder, question, both answers)', async () => {
+  const { stateOf } = await import('../../web/lib.js');
+  const { exactCard } = await import('../../web/handsoff.js');
+  const notice = { kind: 'notice', source: 'screen', notice: { type: 'trust', folder: '/w/shop', text: 'Quick safety check: Is this a project you created or one you trust?', detail: 'Claude Code\'ll be able to read, edit, and execute files here.', answers: ['No, exit', 'Yes, I trust this folder'] } };
+  assert.equal(stateOf({ kind: 'claude', status: 'attention', askCard: notice }).text, 'Trust this folder?');
+  assert.equal(stateOf({ kind: 'claude', status: 'attention' }).text, 'Needs your OK');
+  const words = texts(exactCard(notice));
+  for (const w of ['/w/shop', 'Quick safety check: Is this a project you created or one you trust?', 'No, exit', 'Yes, I trust this folder', 'Read from the screen']) assert.ok(words.includes(w), w);
+  assert.ok(words.indexOf('No, exit') < words.indexOf('Yes, I trust this folder'), 'the answers in the tool\'s order');
+});
+
+test('the session page says when more than one question waits, above the exact card', () => {
+  const src = fs.readFileSync(path.join(WEB, 'session.js'), 'utf8');
+  assert.match(src, /s\.ask\.type !== 'permission' && s\.ask\.waiting > 1/);
+  assert.match(src, /More than one question waits \(\$\{s\.ask\.waiting\}\): this is one of them/);
+});
+
+test('the App\'s question card marks the option the tool marked, says where it came from and what the tool does not tell', async () => {
+  const { askCard } = await import('../../web/chat/asks.js');
+  const { cardOf } = await import('../../src/askcard.mjs');
+  const input = { questions: [{ question: 'Which test runner?', header: 'Runner', multiSelect: false, options: [{ label: 'node:test (Recommended)', description: 'Built in.' }, { label: 'vitest', description: 'Fast.' }] }] };
+  const ev = { type: 'question', tool: 'AskUserQuestion', request: 'r1', input, card: cardOf({ tool: 'AskUserQuestion', input, engine: 'claude', source: 'channel' }) };
+  const words = texts(askCard(ev, { A: '/api/chats/x' }));
+  assert.equal(words.filter((w) => w === 'Marked by the tool').length, 1);
+  assert.ok(words.indexOf('Marked by the tool') > words.indexOf('node:test (Recommended)') && words.indexOf('Marked by the tool') < words.indexOf('vitest'), 'on the marked option');
+  assert.ok(words.includes('As the coding tool asked it'));
+  // OpenCode: no mark, and the card says so.
+  const oc = { ...ev, card: cardOf({ tool: 'AskUserQuestion', input, engine: 'opencode', source: 'channel' }) };
+  const ocWords = texts(askCard(oc, { A: '/api/chats/x', who: 'OpenCode' }));
+  assert.ok(ocWords.includes('OpenCode marks no option as recommended.'));
+  assert.ok(!ocWords.includes('Marked by the tool'));
+});
+
+test('a plan\'s answer line on the page says the mode once, in words', async () => {
+  const { answerLine } = await import('../../web/handsoff.js');
+  assert.equal(answerLine({ text: 'approved the plan; it goes on in Accept edits, the mode it had', because: 'plan' }), 'approved the plan; it goes on in Accept edits, the mode it had');
+  assert.equal(answerLine({ question: 'Which?', text: 'npm (Recommended)', because: 'recommended' }), 'Which? → npm (Recommended), because the tool recommended it');
+});
+
+test('what Hands-off answered: the newest with its time, the earlier ones when opened, dimmed under a newer question', async () => {
+  const { answeredLines } = await import('../../web/handsoff.js');
+  const now = Date.now();
+  const done = [
+    { at: now - 7_200_000, question: 'Which linter?', text: 'eslint (Recommended)', because: 'recommended' },
+    { at: now - 720_000, question: 'Which package manager?', text: 'npm (Recommended)', because: 'recommended' },
+  ];
+  const el = answeredLines(done);
+  assert.equal(el.tag, 'details', 'it opens to the earlier answers');
+  const words = texts(el).join('');
+  assert.match(words, /Answered by Hoprig 12 min ago: Which package manager\? → npm \(Recommended\), because the tool recommended it/);
+  assert.match(words, /Which linter\? → eslint \(Recommended\), because the tool recommended it · 2 h ago/);
+  assert.doesNotMatch(el.className, /ho-older/);
+  // A question that came after the newest answer waits: the line is dimmed and says it was before that question.
+  const under = answeredLines(done, { askAt: now - 1000 });
+  assert.match(under.className, /ho-older/);
+  assert.match(texts(under).join(''), /before the question above, which waits for you/);
+  assert.equal(answeredLines([done[1]]).tag, 'p', 'one answer: one line');
+});
+
+test('after a press on the Hands-off bar the focus goes to the new bar\'s button, not to the page\'s body', async () => {
+  const { handsOffBar } = await import('../../web/handsoff.js');
+  document.body = new FakeElement('body');
+  const focused = [];
+  FakeElement.prototype.focus = function () { focused.push(this); };
+  try {
+    const button = (bar) => bar.children.find((c) => c.tag === 'button');
+    const first = handsOffBar({ on: true }, async () => {});
+    await button(first).listeners.click();
+    const next = handsOffBar({ on: false, own: true }, async () => {});
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual(focused, [button(next)]);
+    // A bar drawn later for another reason takes no focus.
+    handsOffBar({ on: false, own: true }, async () => {});
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(focused.length, 1);
+  } finally {
+    delete FakeElement.prototype.focus;
+    delete document.body;
+  }
+});
+
+test('the exact card above a terminal has a height limit and scrolls inside itself', () => {
+  const css = fs.readFileSync(path.join(WEB, 'page-session.css'), 'utf8');
+  assert.match(css, /\.sess-need \.ho-card \{[^}]*max-height: 40dvh;[^}]*overflow: auto;/);
+  assert.match(css, /@media \(max-width: 480px\) \{ \.sess-need \.ho-card \{ max-height: 24dvh; \} \}/, 'less on a phone');
+});
+
+test('Settings → Hands-off: a note typed and not saved stays over a switch change; a row is titled by its folder\'s name', async () => {
+  const { registeredSettingsPages } = await import('../../web/registry.js');
+  await import('../../web/handsoffsettings.js');
+  const page = registeredSettingsPages().find((p) => p.id === 'handsoff');
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u, o = {}) => {
+    if (o.method === 'POST') sent.push(JSON.parse(o.body));
+    return { ok: true, status: 200, json: async () => (o.method === 'POST' ? {} : { projects: [{ dir: '/w/projects/shop', on: true, stale: false, note: 'Old note.' }] }) };
+  };
+  const walk = (n, f) => (n instanceof FakeElement ? [...(f(n) ? [n] : []), ...n.children.flatMap((c) => walk(c, f))] : []);
+  FakeElement.prototype.querySelectorAll = function (sel) {
+    assert.equal(sel, 'textarea[data-dir]');
+    return walk(this, (n) => n.tag === 'textarea' && n.dataset.dir);
+  };
+  try {
+    const root = new FakeElement('div');
+    root.append(...page.render());
+    const tick = () => new Promise((r) => setTimeout(r, 5));
+    await tick();
+    const list = walk(root, (n) => /ho-projects/.test(n.className))[0];
+    assert.ok(texts(list).includes('shop'), 'the folder\'s name titles the row');
+    assert.ok(texts(list).includes('/w/projects/shop'), 'its path under it');
+    walk(list, (n) => n.tag === 'textarea')[0].value = 'Prefer the smallest change.';
+    await walk(list, (n) => n.tag === 'input')[0].listeners.change({ target: { checked: false } });
+    await tick();
+    assert.deepEqual(sent, [{ dir: '/w/projects/shop', on: false }]);
+    assert.equal(walk(list, (n) => n.tag === 'textarea')[0].value, 'Prefer the smallest change.', 'the typed note is kept');
+  } finally {
+    globalThis.fetch = realFetch;
+    delete FakeElement.prototype.querySelectorAll;
+  }
+});
+
+test('the Hands-off bar: in the App it says plans are approved too; the loop is said once, by the bar', async () => {
+  const { handsOffBar } = await import('../../web/handsoff.js');
+  const words = (el) => texts(el).join(' ');
+  assert.match(words(handsOffBar({ on: true }, async () => {}, null, { app: true })), /and approves plans, keeping the mode/);
+  assert.doesNotMatch(words(handsOffBar({ on: true }, async () => {})), /plans/, 'a terminal\'s plan waits for the owner');
+  const src = fs.readFileSync(path.join(WEB, 'session.js'), 'utf8');
+  assert.match(src, /\(s\.handsWait === 'loop' \|\| s\.handsWait === 'hour'\) && s\.handsOff && s\.handsOff\.loop \? '' : waitWords\(s\.handsWait\)/);
+});
+
+test('a coding tool that ended at its start reads "Did not start" under Needs you, with its reason, never as a terminal', async () => {
+  const { stateOf, needsYou } = await import('../../web/lib.js');
+  const { groupOf } = await import('../../web/home.js');
+  const card = { name: 'shop', kind: 'shell', status: 'failed', command: 'bash', note: '--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons', startFailed: { code: 1, tool: 'claude' } };
+  assert.deepEqual(stateOf(card), { key: 'failed', text: 'Did not start', rank: 0 });
+  assert.equal(needsYou(card), true);
+  assert.equal(groupOf(card), 'needs');
+  assert.equal(stateOf({ name: 't', kind: 'shell', command: 'bash' }).text, 'Terminal', 'a plain terminal stays one');
+  const src = fs.readFileSync(path.join(WEB, 'sessionitem.js'), 'utf8');
+  assert.match(src, /st\.key === 'failed' && s\.note \? h\('p\.card-note', s\.note\)/, 'the card shows the reason');
+  assert.match(src, /st\.key === 'failed' && s\.note \? h\('span\.si-note', s\.note\)/, 'and the Workspace row');
+  assert.match(fs.readFileSync(path.join(WEB, 'session.js'), 'utf8'), /stateOf\(s\)\.key === 'failed' \? didNotStart\(s\)/, 'the session page says it above the terminal');
+});
+
+test('a start Claude Code refused as root says what to do next: a mode that asks, or the move', async () => {
+  const { rootRefusedNext } = await import('../../web/sessionitem.js');
+  const { CLAUDE_ROOT_REFUSAL } = await import('../../src/setup/rootfacts.mjs');
+  assert.match(rootRefusedNext(CLAUDE_ROOT_REFUSAL), /mode that asks \(Manual or Accept edits\).*Settings → Runs as root/);
+  assert.equal(rootRefusedNext('npm error network'), null, 'another reason gets no root advice');
+  assert.equal(rootRefusedNext(''), null);
+  const src = fs.readFileSync(path.join(WEB, 'sessionitem.js'), 'utf8');
+  assert.match(src, /st\.key === 'failed' && rootRefusedNext\(s\.note\) \? h\('p\.card-note\.card-next', rootRefusedNext\(s\.note\)\)/, 'the card on Home says it');
+  assert.match(fs.readFileSync(path.join(WEB, 'session.js'), 'utf8'), /rootRefusedNext\(s\.note\) \? h\('p\.sess-ok-text', h\('a', \{ href: '#\/settings\/root' \}/, 'and the session page, with the way to Settings');
+});
+
+test('New project: a name as he types it becomes a folder name; only nothing usable is refused', async () => {
+  const { toFolderName } = await import('../../web/projects.js');
+  assert.equal(toFolderName('Bakery Website'), 'bakery-website');
+  assert.equal(toFolderName('  Café & Bar!  '), 'cafe-bar');
+  assert.equal(toFolderName('shop-v2'), 'shop-v2', 'a name that is fine stays as it is');
+  assert.equal(toFolderName('My.Shop'), 'My.Shop');
+  assert.equal(toFolderName('!!!'), '', 'nothing usable: the rule is said');
+  assert.equal(toFolderName(''), '');
+  assert.match(fs.readFileSync(path.join(WEB, 'projects.js'), 'utf8'), /const v = toFolderName\(input\.value\)/, 'the form uses it');
+});
+
+test('Home: a computer that does not answer is said in plain words; the system error is not the line', async () => {
+  const { offlineWords } = await import('../../web/home.js');
+  const texts = (n) => (n instanceof FakeText ? [n.text] : typeof n === 'string' ? [n] : n.children.flatMap(texts));
+  const line = offlineWords({ machine: 'laptop', machineLabel: 'Laptop', status: 'offline', error: 'connect ECONNREFUSED 127.0.0.1:43171' }).flatMap(texts).join('');
+  assert.match(line, /^Laptop cannot be reached\. Is it switched on and online\?/);
+  assert.match(fs.readFileSync(path.join(WEB, 'pc.js'), 'utf8'), /`\$\{ctx\.label\(\)\} cannot be reached`/, 'the same words as the computer\'s own page');
+  assert.doesNotMatch(line, /ECONNREFUSED|127\.0\.0\.1/, 'the raw error stays out of the line');
+  assert.match(offlineWords({ machineLabel: 'NAS', status: 'too-old' }).flatMap(texts).join(''), /^NAS: Needs a .+ update\. Open it/);
+  assert.match(fs.readFileSync(path.join(WEB, 'home.js'), 'utf8'), /href: link\('#\/computer', m\.machine\), title: m\.error/, 'it leads to that computer\'s page, the error as its tooltip');
+});
+
+test('a sentence that sends him to a switch in Settings opens the page at that switch, with the focus on it', async () => {
+  const { partOf, showPart } = await import('../../web/showpart.js');
+  const q = (s) => new URLSearchParams(s);
+  assert.equal(partOf(q('show=bypass')), 'bypass');
+  for (const bad of ['', 'show=', 'show=../x', 'show=Bypass', 'show=a%20b', `show=${'a'.repeat(41)}`]) assert.equal(partOf(q(bad)), null, bad);
+  assert.equal(partOf(null), null);
+  // Found once drawn: brought to the middle of the window, its switch focused, nothing pressed.
+  const seen = [];
+  const control = { focus: () => seen.push('focus'), click: () => seen.push('click') };
+  const el = { querySelector: () => control, scrollIntoView: (o) => seen.push(`scroll ${o.block}`), focus: () => seen.push('panel') };
+  let n = 0;
+  assert.equal(await showPart('bypass', { find: (id) => (id === 'bypass' && ++n > 2 ? el : null), every: 1 }), el);
+  assert.deepEqual(seen, ['focus', 'scroll center']);
+  assert.equal(await showPart('gone', { find: () => null, tries: 3, every: 1 }), null);
+  // The bypass switch is that place, and Home's note about it leads there.
+  const sd = await import('../../web/sessiondefaults.js');
+  assert.equal(sd.bypassPanel({ allow: false }, () => {}).attrs.id, 'bypass');
+  const { BYPASS_SWITCH } = await import('../../web/home.js');
+  assert.equal(BYPASS_SWITCH, '#/settings/new-sessions?show=bypass');
+  assert.match(fs.readFileSync(path.join(WEB, 'home.js'), 'utf8'), /href: BYPASS_SWITCH, onclick: \(\) => seen\(\) \}, 'Open the switch'/);
+  assert.match(fs.readFileSync(path.join(WEB, 'settings.js'), 'utf8'), /const part = partOf\(query\);\n\s*if \(part\) showPart\(part, \{ alive: isAlive \}\);/);
+});
+
+test('the queue\'s banner and the sign-in code\'s banner open the switch they name', async () => {
+  const { QUEUE_SWITCH } = await import('../../web/automation.js');
+  const { PUBLIC_LINK_SWITCH } = await import('../../web/computers.js');
+  assert.equal(QUEUE_SWITCH, '#/settings/automations?show=queue');
+  assert.equal(PUBLIC_LINK_SWITCH, '#/settings/public-link?show=public-link-switch');
+  const src = (f) => fs.readFileSync(path.join(WEB, f), 'utf8');
+  assert.match(src('automation.js'), /so queued messages wait\. ', h\('a', \{ href: link\(QUEUE_SWITCH\) \}, 'Open the switch'\)\)/);
+  assert.match(src('automation.js'), /rule\('Send the next queued message'[^\n]*\n[^\n]*\), \{ id: 'queue' \}\)/);
+  assert.match(src('computers.js'), /by its network address\. ', h\('a', \{ href: link\(PUBLIC_LINK_SWITCH\) \}, 'Open the switch'\)/);
+  assert.match(src('publiclink.js'), /return panel\(\{ id: 'public-link-switch' \},\n\s*h\('label\.switchrow\.pl-switch'/);
 });

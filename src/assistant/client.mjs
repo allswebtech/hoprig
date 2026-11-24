@@ -5,7 +5,6 @@
 //   localClient  an in-process core (tests, and a dashboard that hosts the assistant itself).
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig } from '../config.mjs';
 import { stateDir } from '../paths.mjs';
 
 export const CONVERSATION_HEADER = 'X-Hoprig-Conversation';
@@ -14,6 +13,9 @@ const CONV_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** Where the dashboard keeps the token it made for the assistant (phase 2 writes it, mode 600). */
 export const tokenFile = () => path.join(stateDir(), 'assistant-token');
 
+/** What every tool call answers when the server was not told its dashboard's address; nothing is sent anywhere. */
+export const NO_ADDRESS = 'Error: this MCP server was not told the address of its dashboard (HOPRIG_DASHBOARD_URL), so nothing was sent. Next: tell the owner to add it again with the command from Settings → Tia.';
+
 /**
  * The dashboard address and token for `hoprig mcp`. The token: HOPRIG_ASSISTANT_TOKEN (the owner's own MCP
  * client, made in Settings → Tia), else the file HOPRIG_ASSISTANT_TOKEN_FILE or <stateDir>/assistant-token
@@ -21,16 +23,9 @@ export const tokenFile = () => path.join(stateDir(), 'assistant-token');
  * picked up.
  */
 export function clientSettings(env = process.env) {
-  let url = env.HOPRIG_DASHBOARD_URL || '';
-  if (!url) {
-    let port = 7433;
-    try {
-      port = Number(loadConfig().server.port) || 7433;
-    } catch {
-      /* default port */
-    }
-    url = `http://127.0.0.1:${port}`;
-  }
+  // Only the address it was given (HOPRIG_DASHBOARD_URL): never a default port or the config's. A server started
+  // without it would otherwise reach whatever dashboard listens there, which may be another one than its own.
+  const url = env.HOPRIG_DASHBOARD_URL || '';
   const fixed = env.HOPRIG_ASSISTANT_TOKEN || '';
   const file = env.HOPRIG_ASSISTANT_TOKEN_FILE || tokenFile();
   const token = fixed ? () => fixed : () => {
@@ -47,6 +42,7 @@ export function clientSettings(env = process.env) {
 export function httpClient({ url, token, conversation = 'direct', fetchImpl = fetch, timeoutMs = 120_000 }) {
   return {
     async call(tool, args) {
+      if (!url) return { isError: true, text: NO_ADDRESS };
       const bearer = typeof token === 'function' ? token() : token;
       if (!bearer) return { isError: true, text: 'Error: this MCP server has no token for the dashboard. Next: tell the owner to open the dashboard once (it creates the assistant token) and try again.' };
       let res;

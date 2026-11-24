@@ -11,7 +11,8 @@ import { sandbox } from '../server/helpers.mjs';
 const box = sandbox('editor-search');
 test.after(() => box.cleanup());
 
-const { FILES_MAX, LIMITS, globRe, listFiles, runLines, search } = await import('../../src/editor/search.mjs');
+const { FILES_MAX, LIMITS, listFiles, runLines, search } = await import('../../src/editor/search.mjs');
+const { globRe } = await import('../../src/editor/walk.mjs');
 const { which } = await import('../../src/setup/system.mjs');
 
 const projects = path.join(box.root, 'projects');
@@ -62,6 +63,119 @@ for (const [engine, dir] of engines) {
     assert.deepEqual(found(await search(dir, { q: 'need.e' }, roots, { engine })), [], 'a plain search takes the dot literally');
   });
 }
+
+test('each engine answers with the version of every file it found something in (Replace All saves over it)', async () => {
+  const { versionOf } = await import('../../src/editor/files.mjs');
+  for (const [engine, dir] of engines) {
+    const r = await search(dir, { q: 'needle' }, roots, { engine });
+    const paths = [...new Set(r.matches.map((m) => m.path))].sort();
+    assert.deepEqual(Object.keys(r.versions).sort(), paths, engine);
+    for (const p of paths) assert.equal(r.versions[p], versionOf(fs.readFileSync(path.join(dir, p))), `${engine}: ${p}`);
+  }
+});
+
+test('the versions are read without holding the server: no matched file is read whole on the main thread', async () => {
+  const many = path.join(plain, 'many-files');
+  fs.mkdirSync(many);
+  for (let i = 0; i < 20; i++) fs.writeFileSync(path.join(many, `f${i}.txt`), `${'x'.repeat(4096)}\nneedle\n`);
+  // A whole file read and hashed in one go held the server (finding: 300 files of 1 MB, 500 ms); the small checks of
+  // a hit's folder (paths.mjs showable) stay as they were.
+  const sync = [];
+  const keep = { readFileSync: fs.readFileSync };
+  fs.readFileSync = (f, ...a) => (String(f).includes('many-files') && sync.push(String(f)), keep.readFileSync(f, ...a));
+  try {
+    // ripgrep runs as its own program and the walk in a worker: only the versions are read on the main thread.
+    for (const engine of [...(which('rg') ? ['rg'] : []), 'walk']) {
+      const r = await search(plain, { q: 'needle', include: 'many-files/**' }, roots, { engine });
+      assert.equal(Object.keys(r.versions).length, 20, engine);
+    }
+    assert.deepEqual(sync, []);
+  } finally {
+    Object.assign(fs, keep);
+    fs.rmSync(many, { recursive: true, force: true });
+  }
+});
+
+test('a line longer than its excerpt says how many matches it has: Replace All writes them all', async () => {
+  const text = `price ${'x'.repeat(600)} price end, price\n`;
+  for (const [engine, dir] of engines) fs.writeFileSync(path.join(dir, 'long.txt'), text);
+  try {
+    for (const [engine, dir] of engines) {
+      const r = await search(dir, { q: 'price', include: 'long.txt' }, roots, { engine });
+      assert.equal(r.matches.length, 1, engine);
+      assert.ok(r.matches[0].text.length <= LIMITS.text, engine);
+      assert.equal(r.matches[0].count, 3, `${engine}: the whole line's matches, not the excerpt's`);
+      const short = await search(dir, { q: 'needle', include: 'docs/**' }, roots, { engine });
+      assert.equal(short.matches[0].count, undefined, `${engine}: a whole line needs no count`);
+    }
+  } finally {
+    for (const [, dir] of engines) fs.rmSync(path.join(dir, 'long.txt'), { force: true });
+  }
+});
+
+test('the walk: Match Whole Word finds a word with a non-ASCII letter, as ripgrep and git grep do', async () => {
+  fs.writeFileSync(path.join(plain, 'cafe.txt'), 'café au lait, cafés\n');
+  try {
+    assert.deepEqual(found(await search(plain, { q: 'café', word: true }, roots, { engine: 'walk' })), ['cafe.txt:1:1']);
+  } finally {
+    fs.rmSync(path.join(plain, 'cafe.txt'), { force: true });
+  }
+});
+
+test('Match Whole Word: a word that goes on with a combining mark is another word, in the walk as in ripgrep', async () => {
+  fs.writeFileSync(path.join(plain, 'hindi.txt'), 'कम है\nकमी है\n');
+  fs.writeFileSync(path.join(plain, 'nfd.txt'), 'cafe au lait\ncafe\u0301 noir\n');
+  try {
+    for (const engine of ['walk', ...(which('rg') ? ['rg'] : [])]) {
+      assert.deepEqual(found(await search(plain, { q: 'कम', word: true }, roots, { engine })), ['hindi.txt:1:1'], engine);
+      assert.deepEqual(found(await search(plain, { q: 'cafe', word: true }, roots, { engine })), ['nfd.txt:1:1'], engine);
+    }
+  } finally {
+    for (const f of ['hindi.txt', 'nfd.txt']) fs.rmSync(path.join(plain, f), { force: true });
+  }
+});
+
+test('Match Whole Word is ripgrep\'s word in every engine, and the page replaces exactly the lines it lists', async () => {
+  const page = await import('../../web/editor/search.js');
+  const cases = [
+    ['fa.txt', 'می گویم\nمی‌خواهم\n', 'می', ['fa.txt:1:1']], // a Persian word joined by U+200C is one word
+    ['hi.txt', 'क्‍ष है\nक् है\n', 'क्', ['hi.txt:2:1']], // a Hindi word with a joiner (U+200D)
+    ['sup.txt', '10 m² floor\n10 m floor\n', 'm', ['sup.txt:1:4', 'sup.txt:2:4']], // "²" is not a decimal digit
+    ['us.txt', 'price_list price\n', 'price', ['us.txt:1:12']], // "_" belongs to the word
+    ['ascii.txt', 'needle needles\n', 'needle', ['ascii.txt:1:1']], // plain ASCII as before
+  ];
+  for (const [, dir] of engines) for (const [f, text] of cases) fs.writeFileSync(path.join(dir, f), text);
+  try {
+    for (const [engine, dir] of engines) {
+      for (const [f, text, q, want] of cases) {
+        const o = { q, word: true, regex: false, caseSensitive: false };
+        assert.deepEqual(found(await search(dir, { q, word: true, include: f }, roots, { engine })), want, `${engine}: ${f}`);
+        // Listed and replaced, or neither: the page's replace changes exactly the listed lines.
+        const changed = text.split('\n').map((l, i) => (page.hitsIn(l, o).length ? `${f}:${i + 1}` : null)).filter(Boolean);
+        assert.deepEqual(changed, want.map((w) => w.split(':').slice(0, 2).join(':')), `page: ${f}`);
+      }
+    }
+  } finally {
+    for (const [, dir] of engines) for (const [f] of cases) fs.rmSync(path.join(dir, f), { force: true });
+  }
+});
+
+test('Match Whole Word is ripgrep\'s \\w, the same in the page and the server; the server loads nothing of web/', async () => {
+  const page = await import('../../web/editor/words.js');
+  const server = await import('../../src/editor/words.mjs');
+  assert.equal(page.WORD_CHAR, '[\\p{Alphabetic}\\p{M}\\p{Nd}\\p{Pc}\\p{Join_Control}]');
+  assert.equal(server.WORD_CHAR, page.WORD_CHAR);
+  for (const o of [{ q: 'a.b(c', regex: false, word: true }, { q: 'x+', regex: true, word: true }, { q: 'm²', regex: false, word: false }, { q: '$1\\', regex: true, word: false }]) {
+    assert.equal(server.patternSource(o), page.patternSource(o), JSON.stringify(o));
+  }
+  assert.equal(server.patternSource.toString(), page.patternSource.toString());
+  assert.equal(server.escapeRe.toString(), page.escapeRe.toString());
+  const src = (f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
+  assert.match(src('../../web/editor/search.js'), /from '\.\/words\.js'/);
+  assert.match(src('../../src/editor/search.mjs'), /from '\.\/words\.mjs'/);
+  for (const f of ['../../web/editor/search.js', '../../src/editor/search.mjs']) assert.doesNotMatch(src(f), /\\\\p\{/, `${f} has no word class of its own`);
+  for (const f of fs.readdirSync(new URL('../../src/editor/', import.meta.url))) assert.doesNotMatch(src(`../../src/editor/${f}`), /from '[./]*web\//, `${f} imports a file of the page`);
+});
 
 test('the engine is picked by what is there: git grep in a repository without ripgrep, else the walk', async () => {
   assert.equal(which('rg', noRg), null);

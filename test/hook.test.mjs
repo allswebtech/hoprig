@@ -110,6 +110,43 @@ test('bypass mode: the hook allows a plain delete inside the folder the command 
   for (const ev of [null, undefined, 'x', 7]) assert.equal(hookAnswer(ev, FACTS), null);
 });
 
+test('bypass mode, fail closed: the allow re-checks the wall and never allows what it holds', () => {
+  // The real wall does not hold a plain in-folder delete, so it is allowed as before (bypassAllows and the wall are
+  // disjoint today). But the two hook paths are decided independently, so the allow must re-check the wall: were it
+  // ever to hold the same command (a new kind, or a places mismatch between the paths), the allow is withheld.
+  assert.deepEqual(answer(stopped), ALLOW);
+  const holds = () => ({ kind: 'settings', reason: 'the owner\'s' });
+  const never = () => null;
+  assert.equal(hookAnswer(e('PermissionRequest', stopped), FACTS, holds), null, 'held by the wall: no allow');
+  assert.deepEqual(hookAnswer(e('PermissionRequest', stopped), FACTS, never), ALLOW, 'held by nothing: allowed');
+});
+
+test('bypass mode: a delete in Hoprig\'s own config or state folder is never allowed, so a session cannot remove its run record, the hook settings or the config', () => {
+  fs.mkdirSync(path.join(tmp, 'config'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, 'state', 'runs'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, 'state', 'hook-settings'), { recursive: true });
+  // The real sessionFacts (not the mocked FACTS): places().hoprig is this session's config and state folders.
+  const at = (cwd, command) => hookAnswer(e('PermissionRequest', { ...bypass, tool_name: 'Bash', tool_input: { command }, cwd }), sessionFacts({ cwd }, { ...process.env, CLAUDE_PROJECT_DIR: cwd }));
+  for (const [cwd, command] of [
+    [path.join(tmp, 'config'), 'rm config.json'],
+    [path.join(tmp, 'state', 'runs'), 'rm -f run-abc.json'],
+    [path.join(tmp, 'state', 'hook-settings'), 'rm -f run-abc.json'],
+    [path.join(tmp, 'state'), 'rm -rf runs hook-settings'],
+    // From the folder that holds them a target names them.
+    [tmp, 'rm -rf config'],
+    [tmp, 'rm config/config.json'],
+    [tmp, `rm ${path.join(tmp, 'config', 'config.json')}`],
+    [tmp, 'rm -rf state'],
+    [tmp, 'rm -rf state/runs'],
+    [tmp, 'rm -f state/hook-settings/run-abc.json'],
+  ]) {
+    assert.equal(at(cwd, command), null, `${command} in ${cwd}`);
+  }
+  // A folder beside them still holds a plain delete (the rule is about Hoprig's folders, not the one above).
+  fs.mkdirSync(path.join(tmp, 'work', 'dist'), { recursive: true });
+  assert.notEqual(at(path.join(tmp, 'work'), 'rm -rf dist'), null);
+});
+
 test('bypass mode: every other command keeps Claude Code\'s question, and so does a delete that is not plainly inside the folder', () => {
   for (const command of ['npm test', 'rm -rf ~', 'rm -rf .', 'rm -rf ..', 'cd .. && rm -rf *', 'rm -rf *', 'rm -rf "$DIR"/*', "r''m -rf ~", 'timeout 5 rm -rf ~', 'git rm -r x']) {
     assert.equal(answer({ ...stopped, tool_input: { command } }), null, command);
@@ -208,7 +245,7 @@ test('the ask rules are read from every settings file Claude Code reads for the 
     // The hook answers nothing for a delete run in one, and as before inside a project.
     for (const [cwd, yes] of [['/srv/code', false], ['/srv/ws/projects', false], ['/srv/code/shop', true]]) {
       const ev = e('PermissionRequest', { ...stopped, cwd, tool_input: { command: 'rm -rf shop/*/*' } });
-      assert.equal(!!hookAnswer(ev, { rules: () => [], places: sessionFacts(ev, { HOPRIG_WORKSPACE_DIR: '/srv/ws' }).places }), yes, cwd);
+      assert.equal(!!hookAnswer(ev, { rules: () => [], places: sessionFacts(ev, { HOPRIG_WORKSPACE_DIR: '/srv/ws', CLAUDE_PROJECT_DIR: cwd }).places }), yes, cwd);
     }
   } finally {
     fs.rmSync(configFile(), { force: true });
@@ -329,6 +366,33 @@ test('the reply ended but subagents or a workflow go on: working, until the repl
   assert.deepEqual(later.run.background, []);
   // Only a shell command or a monitor in the background: Claude waits for the owner like after any reply.
   assert.equal(play([e('Stop', { background_tasks: [{ id: 'b1', type: 'shell' }, { id: 'm1', type: 'monitor' }] })]).run.status, 'waiting');
+});
+
+test('a background command that does not wake Claude keeps the status waiting and is counted on its own (bgCommands)', () => {
+  // A background shell command (npm run build &): the reply is over and the command runs, but it never makes Claude
+  // continue, so the session still WAITS for the owner — the status stays 'waiting'. It is counted in bgCommands,
+  // never in `background` (which stays agents and workflows, so every status reader is unchanged).
+  const shell = play([e('Stop', { background_tasks: [{ id: 'b1', type: 'shell', status: 'running', command: 'npm run build' }] })]);
+  assert.equal(shell.run.status, 'waiting');
+  assert.equal(shell.run.bgCommands, 1);
+  assert.deepEqual(shell.run.background, []);
+  // A monitor the session left watching: the same.
+  const mon = play([e('Stop', { background_tasks: [{ id: 'm1', type: 'monitor', status: 'running' }] })]);
+  assert.equal(mon.run.status, 'waiting');
+  assert.equal(mon.run.bgCommands, 1);
+  // A shell beside an agent: the agent makes it working (background), the shell is still counted on its own.
+  const both = play([e('Stop', { background_tasks: [{ id: SUB, type: 'subagent', status: 'running' }, { id: 'b1', type: 'shell', status: 'running' }] })]);
+  assert.equal(both.run.status, 'working');
+  assert.deepEqual(both.run.background, [SUB]);
+  assert.equal(both.run.bgCommands, 1);
+  // A later Stop without them clears the count.
+  const cleared = play([e('Stop', { background_tasks: [] })], shell.run);
+  assert.equal(cleared.run.bgCommands, 0);
+  assert.equal(cleared.run.status, 'waiting');
+  // A task whose status this version does not know counts as running, so a real command is never dropped.
+  const unknown = play([e('Stop', { background_tasks: [{ id: 'x1', type: 'shell', status: 'whirring' }] })]);
+  assert.equal(unknown.run.bgCommands, 1);
+  assert.equal(unknown.run.status, 'waiting');
 });
 
 test('a subagent asks while the main reply is over: needs your OK, then working again; another agent\'s tools change nothing', () => {
@@ -584,6 +648,33 @@ test('hook settings: the exact events only for a Claude Code that surely knows t
   }
 });
 
+test('bypass mode: the hook allows a plain delete only while the shell stands in the folder the session was started in', () => {
+  const root = fs.mkdtempSync(path.join(tmp, 'ownfolder-'));
+  const own = path.join(root, 'shop');
+  const other = path.join(root, 'blog');
+  for (const d of [path.join(own, 'web'), other]) fs.mkdirSync(d, { recursive: true });
+  const ask = (cwd, env) => {
+    const ev = e('PermissionRequest', { ...bypass, tool_name: 'Bash', tool_input: { command: 'rm -rf build' }, cwd });
+    return hookAnswer(ev, sessionFacts(ev, env));
+  };
+  // The coding tool names the folder it was started in for every hook.
+  assert.deepEqual(ask(own, { CLAUDE_PROJECT_DIR: own }), ALLOW);
+  assert.deepEqual(ask(path.join(own, 'web'), { CLAUDE_PROJECT_DIR: own }), ALLOW);
+  assert.equal(ask(other, { CLAUDE_PROJECT_DIR: own }), null, 'the shell stands in another folder the session was given');
+  assert.equal(ask(root, { CLAUDE_PROJECT_DIR: own }), null, 'above its own folder');
+  // Without that name, the run record's folder; with neither, nothing is allowed by itself.
+  const { file } = R.createRun({ profile: 'sub', cwd: own });
+  try {
+    assert.deepEqual(ask(own, { HOPRIG_RUN_FILE: file }), ALLOW);
+    assert.equal(ask(other, { HOPRIG_RUN_FILE: file }), null);
+  } finally {
+    R.removeRun(file);
+  }
+  assert.equal(ask(own, {}), null, 'where the session was started is not known');
+  assert.equal(sessionFacts({ cwd: own }, { CLAUDE_PROJECT_DIR: own }).places().own, own);
+  assert.equal(sessionFacts({ cwd: own }, {}).places().own, null);
+});
+
 test('a coding chat\'s hook: only PermissionRequest, for the same versions, the same program as a terminal\'s', () => {
   for (const version of [null, '', '2.1.318']) assert.equal(L.permissionHook(version), null, String(version));
   for (const version of [L.EXACT_SINCE, '2.1.326']) {
@@ -592,21 +683,28 @@ test('a coding chat\'s hook: only PermissionRequest, for the same versions, the 
 });
 
 test('a coding chat\'s record keeps only what the hook allowed: the chat follows the rest, the cards included, through its own channel', () => {
-  const { file } = R.createChatRun({ chat: 'c1', conversation: ID, cwd: '/w/p', profile: 'sub' });
-  const before = readRun(file);
+  // The chat is started in `project`: the hook answers a plain delete only while the shell stands in that folder.
   const project = fs.mkdtempSync(path.join(tmp, 'chatproject-'));
+  const { file } = R.createChatRun({ chat: 'c1', conversation: ID, cwd: project, profile: 'sub' });
+  const before = readRun(file);
   // What the hook does not answer (the home folder, a question) changes nothing in the record.
   for (const ev of [e('PermissionRequest', { ...stopped, cwd: project, tool_input: { command: 'rm -rf ~' } }), e('PermissionRequest', { ...bypass, tool_name: 'AskUserQuestion', tool_input: {} }), e('Stop', {}), e('SessionEnd', {}), e('UserPromptSubmit', {})]) {
     applyHook(file, { session_id: ID, ...ev }, 5, hookAnswer(ev, sessionFacts(ev, { HOPRIG_RUN_FILE: file })));
   }
   assert.deepEqual(readRun(file), before);
   assert.deepEqual(hookPatch(before, e('PermissionRequest', stopped), 5), {});
-  // A plain delete in the shell's folder: allowed, and written down for the chat to show.
-  const ev = { session_id: ID, ...e('PermissionRequest', { ...stopped, cwd: project }) };
+  // The shell stands in another folder than the chat was started in: the hook answers nothing, the record stays.
+  const outside = fs.mkdtempSync(path.join(tmp, 'chatother-'));
+  const far = { session_id: ID, ...e('PermissionRequest', { ...stopped, cwd: outside }) };
+  assert.equal(hookAnswer(far, sessionFacts(far, { HOPRIG_RUN_FILE: file })), null);
+  // A plain delete while the shell stands inside the chat's own folder: allowed, and written down for the chat to show.
+  const web = path.join(project, 'web');
+  fs.mkdirSync(web);
+  const ev = { session_id: ID, ...e('PermissionRequest', { ...stopped, cwd: web }) };
   const answer = hookAnswer(ev, sessionFacts(ev, { HOPRIG_RUN_FILE: file }));
   assert.deepEqual(answer, ALLOW);
   applyHook(file, ev, 7, answer);
-  assert.deepEqual(readRun(file), { ...before, allowed: [{ n: 1, at: 7, tool: 'Bash', what: 'rm -rf build/*/*', folder: project }] });
+  assert.deepEqual(readRun(file), { ...before, allowed: [{ n: 1, at: 7, tool: 'Bash', what: 'rm -rf build/*/*', folder: 'web' }] });
   // Two allows of the same moment are told apart by their number, given under the record's lock.
   applyHook(file, ev, 7, answer);
   assert.deepEqual(readRun(file).allowed.map((a) => [a.n, a.at]), [[1, 7], [2, 7]]);
@@ -642,5 +740,106 @@ test('the installed version is read from where Claude Code lives, without starti
   assert.equal(C.versionFromPath('/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js', () => { throw new Error('gone'); }), null);
   assert.equal(C.versionFromPath('/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js', () => '{"version":7}'), null);
   for (const p of ['/usr/local/bin/claude', '', null]) assert.equal(C.versionFromPath(p), null);
-  assert.equal(C.claudeVersionQuick({ bin: path.join(tmp, 'no-such-claude'), env: { PATH: tmp } }), null);
+  assert.equal(C.claudeVersionQuick({ bin: path.join(tmp, 'no-such-claude'), env: { PATH: tmp } }), null); // seal: only the test's own folder, and a program that is not there
+});
+
+test('SessionEnd keeps Claude Code\'s reason on the record; the next SessionStart (after /clear) clears it', () => {
+  assert.equal(play([e('SessionStart', { source: 'startup' }), e('SessionEnd', { reason: 'prompt_input_exit' })]).run.endReason, 'prompt_input_exit');
+  assert.equal(play([e('SessionEnd', { reason: 'logout' })]).run.endReason, 'logout');
+  assert.equal(play([e('SessionEnd', { reason: 'clear' }), e('SessionStart', { source: 'clear' })]).run.endReason, null);
+  assert.equal(play([e('SessionEnd', { reason: 7 })]).run.endReason, null, 'not text: no reason');
+  assert.equal(play([e('SessionEnd', {})]).run.endReason, null);
+});
+
+test("an agent's API error (StopFailure with its agent_id) is written down for that agent; the session and its other agents go on", () => {
+  // The order Claude Code 2.1.328 sent: the main reply ends with two agents in the background, then one of them stops.
+  const OTHER = 'a0000000000000002';
+  const { run } = play([
+    e('UserPromptSubmit', { prompt: 'Start two agents' }),
+    e('PermissionRequest', { ...bash, agent_id: OTHER }),
+    e('Stop', { last_assistant_message: 'Started two agents.', background_tasks: [
+      { id: SUB, type: 'subagent', status: 'running', description: 'Check the shop page', agent_type: 'general-purpose' },
+      { id: OTHER, type: 'subagent', status: 'running', description: 'Review the cart', agent_type: 'general-purpose' },
+    ] }),
+    e('StopFailure', { agent_id: SUB, agent_type: 'general-purpose', error: 'unknown', last_assistant_message: "API Error: 400 Ambiguous model 'relay-large': it matches more than one model of this gateway (key sk-ant-api03-MADEUPMADEUP0000, account alex.relay@example.com)" }),
+  ]);
+  assert.equal(run.status, 'attention', 'the other agent still waits for its OK');
+  assert.deepEqual(run.asks, [OTHER]);
+  assert.deepEqual(run.background, [OTHER], 'only the stopped agent left the background');
+  assert.equal(run.failure ?? null, null, 'the session itself did not fail');
+  assert.equal(run.agentStops.length, 1);
+  const [stop] = run.agentStops;
+  assert.deepEqual([stop.id, stop.label, stop.error, stop.at], [SUB, 'Check the shop page', 'unknown', 1000]);
+  assert.match(stop.text, /^API Error: 400 Ambiguous model 'relay-large'/);
+  for (const secret of ['sk-ant-api03', 'MADEUPMADEUP', 'alex.relay', 'example.com']) assert.ok(!stop.text.includes(secret), stop.text);
+  // A session that is only working stays working when its agent stops.
+  const quiet = play([e('UserPromptSubmit'), e('StopFailure', { agent_id: SUB, error: 'rate_limit', last_assistant_message: 'API Error: Request rejected (429)' })]).run;
+  assert.equal(quiet.status, 'working');
+  assert.equal(quiet.limit ?? null, null);
+  assert.deepEqual(quiet.agentStops.map((a) => [a.id, a.label, a.error]), [[SUB, '', 'rate_limit']]);
+  // A new session (or /clear) starts with no lost steps.
+  assert.deepEqual(play([e('SessionStart', { source: 'clear' })], run).run.agentStops, []);
+});
+
+test("the session's own API error keeps the tool's line cleaned: no key, token or account address", () => {
+  const { run } = play([e('UserPromptSubmit'), e('StopFailure', { error: 'rate_limit', last_assistant_message: 'API Error: Request rejected (429) (key sk-ant-api03-MADEUPMADEUP0000, account alex.relay@example.com, Authorization: Bearer tok-MADEUP-123456)' })]);
+  assert.equal(run.status, 'attention');
+  for (const field of [run.note, run.failure.text, run.limit.text]) {
+    for (const secret of ['sk-ant-api03', 'alex.relay', 'tok-MADEUP']) assert.ok(!field.includes(secret), field);
+  }
+});
+
+test("an agent that stops before any Stop event listed it is named by the label Claude Code keeps beside its record", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-agent-label-'));
+  try {
+    const sid = '58b21b8b-db3f-4f75-81e3-7b214bec723a';
+    fs.mkdirSync(path.join(dir, sid, 'subagents'), { recursive: true });
+    fs.writeFileSync(path.join(dir, sid, 'subagents', 'agent-a66afc7c2d490909c.meta.json'), JSON.stringify({ agentType: 'general-purpose', description: 'Check the shop page' }));
+    const ev = (id) => ({ hook_event_name: 'StopFailure', session_id: sid, transcript_path: path.join(dir, `${sid}.jsonl`), agent_id: id, agent_type: 'general-purpose', error: 'rate_limit', last_assistant_message: 'API Error: 429' });
+    assert.equal(hookPatch({ status: 'working' }, ev('a66afc7c2d490909c'), 1000).agentStops[0].label, 'Check the shop page');
+    // An id that is no plain name reaches no other file: the agent's type names it.
+    assert.equal(hookPatch({ status: 'working' }, ev('../../x'), 1000).agentStops[0].label, 'general-purpose');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a chat's record keeps a provider stop, its agents' stops and what clears them, and nothing of its status", () => {
+  const chat = { runId: 'c1', kind: 'chat', chat: 'c-1', status: 'working', allowed: [{ at: 1, what: 'rm x' }] };
+  const fail = hookPatch(chat, { hook_event_name: 'StopFailure', error: 'unknown', last_assistant_message: "API Error: 400 Ambiguous model 'relay-large' (key sk-ant-api03-MADEUPMADEUP0000)" }, 1000);
+  assert.deepEqual(Object.keys(fail).sort(), ['failure']);
+  assert.equal(fail.failure.error, 'unknown');
+  assert.doesNotMatch(fail.failure.text, /MADEUP/);
+  const agent = hookPatch(chat, { hook_event_name: 'StopFailure', agent_id: 'a1', agent_type: 'general-purpose', error: 'rate_limit', last_assistant_message: 'API Error: 429' }, 1000);
+  assert.deepEqual(Object.keys(agent), ['agentStops']);
+  assert.equal(agent.agentStops[0].id, 'a1');
+  // The next prompt clears the stop; the chat's own status, asks and notes are never written.
+  assert.deepEqual(hookPatch({ ...chat, failure: fail.failure }, { hook_event_name: 'UserPromptSubmit' }, 2000), { limit: null, failure: null });
+  for (const e of ['Notification', 'SubagentStop', 'PostToolBatch', 'SessionEnd']) assert.deepEqual(hookPatch(chat, { hook_event_name: e, message: 'x' }, 3000), {}, e);
+  assert.deepEqual(hookPatch(chat, { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } }, 3000), {}, 'an ask is the chat\'s own');
+});
+
+test('a record written by the hook as it was before (no agentStops, no agentWhat) is read without an error and makes no untrue item', async () => {
+  const { sessionStop, agentsOf } = await import('../src/operator/sources.mjs');
+  const { attention } = await import('../src/operator/attention.mjs');
+  // As the integration head's hook left them: a session that works, one that waits, one whose reply failed, one ended.
+  const old = [
+    { runId: 'o1', status: 'working', background: ['a9'], asks: [] },
+    { runId: 'o2', status: 'waiting', stopAt: 900, failure: null },
+    { runId: 'o3', status: 'attention', note: 'API Error: 500 Internal server error', failure: { at: 1000, error: 'server_error', text: 'API Error: 500 Internal server error' } },
+    { runId: 'o4', status: 'ended', endReason: 'other' },
+  ];
+  for (const r of old) {
+    // The new hook on an old record: an agent's stop and the next prompt patch it as on a new one.
+    const p = hookPatch(r, { hook_event_name: 'StopFailure', agent_id: 'a9', error: 'server_error', last_assistant_message: 'API Error: 529 Overloaded' }, 2000);
+    assert.equal(p.agentStops.length, 1, r.runId);
+    assert.deepEqual(hookPatch(r, { hook_event_name: 'UserPromptSubmit' }, 2000).failure, null);
+  }
+  const sessions = old.map((r) => ({ name: r.runId, tool: 'claude', provider: 'plan-a', state: r.status, stop: sessionStop(r.failure), agents: agentsOf(r.agentStops, 2000), limit: null, asks: [], canSwitch: false, nextProvider: null }));
+  const items = attention({ sessions }, { now: 2000 }).items.filter((i) => ['limit', 'providerstop'].includes(i.kind));
+  // Only o3's failed reply, which the old hook had written too, is an item. The old hook wrote an agent's stop there
+  // as well, so the item does not guess whose it was, and says no step was lost.
+  assert.deepEqual(items.map((i) => [i.kind, i.subject]), [['providerstop', 'session o3']]);
+  assert.ok(items[0].facts[0].startsWith('the session, or an agent in it, stopped: the provider failed past its retries'), items[0].facts.join('|'));
+  assert.ok(!items[0].facts.some((f) => /lost/.test(f)), items[0].facts.join('|'));
 });

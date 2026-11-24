@@ -18,6 +18,7 @@
 import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
+import { startInTurn } from './oneturn.mjs';
 
 export const SAME_WITHIN = 3000;
 const STARTED_LATE = 60_000;
@@ -77,11 +78,12 @@ function runProgram(cmd, args, timeout) {
 
 /** runProgram without waiting: a promise of the same. */
 function runProgramLater(cmd, args, timeout) {
-  return new Promise((resolve) => {
+  // One program start per turn of the server's thread (oneturn.mjs startInTurn): it is asked in the background.
+  return new Promise((resolve) => startInTurn(() => {
     execFile(cmd, args, { encoding: 'utf8', timeout, windowsHide: true, env: { ...process.env, LC_ALL: 'C', TZ: 'UTC0' } }, (err, stdout) => {
       resolve(err && (typeof err.code !== 'number' || err.killed) ? null : stdout || '');
     });
-  });
+  }).catch(() => resolve(null)));
 }
 
 /**

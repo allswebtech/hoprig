@@ -16,13 +16,16 @@
 //   accounts     null (default) or a list of account names Tia may use (may include "auto")
 //                default: "auto" when Auto mode is on, then every subscription/login account; never an API
 //                account unless the owner lists it; only providers that serve a coding tool of this version
-//   runsOn       null (default) or the profile Tia's own engine runs on (one that serves Claude Code); default
-//                "auto" when on, else the first allowed account that serves Claude Code
+//   runsOn       null (default: Automatic) or the profile Tia's own engine runs on (one that serves Claude Code);
+//                Automatic: the first ticked subscription that is signed in and not at its limit; with no such
+//                subscription at all, "auto" when on, else the first allowed account that serves Claude Code
 //   maxSteps     answers Tia may give per job                                default 20
 //   maxMinutes   how long one job may run                                    default 240
 //   model        null (default: the account's own) or the model her engine uses, e.g. "haiku"
 
 import path from 'node:path';
+import { leftOutOfOrder } from '../autoswitch.mjs';
+import { nothingUsable } from '../router.mjs';
 import { ACCOUNT, toolName } from './toolkit.mjs';
 
 /** One constant for the name, so a fork can rename her. */
@@ -31,21 +34,29 @@ export const ASSISTANT_NAME = 'Tia';
 export const LEVELS = ['ask', 'work', 'handsoff'];
 // Off until the owner turns her on: an assistant that drives sessions is the most powerful part of Hoprig, and
 // still experimental.
-export const DEFAULTS = Object.freeze({ enabled: false, level: 'work', accounts: null, runsOn: null, maxSteps: 20, maxMinutes: 240, model: null });
-const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,63}$/;
+export const DEFAULTS = Object.freeze({ enabled: false, level: 'work', accounts: null, runsOn: null, maxSteps: 20, maxMinutes: 240, model: null, dailyCapUsd: null });
+const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/; // as src/server/endpoint.mjs
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
 /** Plain sentences shown under every option in Settings → Tia. */
 export const HELP = {
   enabled: `Turn ${ASSISTANT_NAME} on or off (off at first; she is experimental). Off hides her tab and stops everything she watches.`,
-  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself; in a Claude Code chat she started she allows by herself only looking and running the project's own tests (a short list); changing files, everything else and every OK of another coding tool come to you; in a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones; "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking.`,
+  level: `How far ${ASSISTANT_NAME} may go on her own: "Ask me" — you tap OK for everything she types into a session; "Do the work" — she runs the job herself; in a Claude Code chat she started she allows by herself only looking and running the project's own tests (a short list); changing files, everything else and every OK of another coding tool come to you; in a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones; "Hands off" — as "Do the work", and she may also use the paid API providers you allowed without asking, within the daily limit for paid use (none at first, so each of those still asks you); only at this level, and within the same limit, do the Operator's limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task.`,
+  // One short line per level, shown above the full texts (those stay under "More").
+  levelShort: {
+    ask: 'She asks you before everything she types into a session.',
+    work: 'She does the job herself and asks you before anything risky.',
+    handsoff: 'As "Do the work", and she may also use the paid providers you allowed, within your daily limit.',
+  },
   levelAsk: 'You tap OK for everything she types into a session.',
-  levelWork: 'She runs the job herself: starts the session, picks the provider, answers its questions, checks the result. In a Claude Code chat she started she allows by herself only looking and running the project\'s own tests (a short list); changing files, everything else and every OK of another coding tool come to you. In a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones.',
-  levelHandsoff: 'As "Do the work", and she may also start or move sessions on the paid API providers you allowed, without asking.',
+  levelWork: 'She runs the job herself: starts the session, picks the provider, answers its questions, checks the result. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task. In a Claude Code chat she started she allows by herself only looking and running the project\'s own tests (a short list); changing files, everything else and every OK of another coding tool come to you. In a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things (best effort), and sends you the risky ones.',
+  levelHandsoff: 'As "Do the work", and she may also start or move sessions on the paid API providers you allowed, without asking, within the daily limit for paid use (none at first: then each of those asks you). Only at this level, and within the same limit, do the Operator\'s limit rule and "Tia decides" move a session onto such a provider, type into a session on one, or think on one; each counts against the limit. On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task.',
   accounts: `The providers ${ASSISTANT_NAME} may start or move sessions on. She never uses one that is not ticked.`,
+  computers: `The computers ${ASSISTANT_NAME} may start new work on. When you do not name one, she starts it on this computer, and on a ticked one only while this computer is full and that one has room; she says where and why. None ticked: only where you name it, else on this computer.`,
   runsOn: `The provider ${ASSISTANT_NAME} herself thinks on (her own chat).`,
   maxSteps: `How many times ${ASSISTANT_NAME} may answer a session in one job before she asks you.`,
   maxMinutes: `How long one job may run before ${ASSISTANT_NAME} stops and tells you.`,
+  dailyCapUsd: `What ${ASSISTANT_NAME} may use a day on providers billed by use (an API key) without asking you. Her own thinking counts what it really cost, and a turn stops at what is left. Starting, moving or writing to a session or chat on such a provider counts $0.50 each until its real cost is known: for a chat she started on this computer, what it reported it cost takes that place; a terminal session's cost is not measured. What you confirm on a card counts too. The Operator counts here too: a move of a session or a mission's task onto such a provider by the limit rule or "Tia decides", and a nudge or an answer typed into a session on one, count $0.50 each; a call of "Tia decides" or a look there holds $0.50 and then counts what it reported (a look that reported nothing counts its whole budget). Your own tap on "Continue on the next provider" is not counted. Empty: no limit, so each of those asks you first or is left to you, and neither she nor the Operator thinks on such a provider at all. Once it is reached, she asks again until midnight.`,
   model: `The model ${ASSISTANT_NAME} herself thinks with. Empty: the provider's own default. A small model ("haiku") is cheaper and enough for most jobs.`,
   usage: `What ${ASSISTANT_NAME}'s own thinking used (not the sessions she runs). Cost is as Claude Code reports it; on a subscription it is an estimate, not a bill.`,
   client: `Lets your own Claude Code (or another MCP client) use ${ASSISTANT_NAME}'s tools, with the same checks and cards. The token is shown once.`,
@@ -56,7 +67,7 @@ export const HELP = {
  * providers she may be allowed (those that serve a coding tool of this version: tiaChoices); `runsOnAccounts`: the
  * ones she can think on (Claude Code's).
  */
-export function cleanTiaPatch(p, knownAccounts = [], runsOnAccounts = knownAccounts) {
+export function cleanTiaPatch(p, knownAccounts = [], runsOnAccounts = knownAccounts, knownComputers = []) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) throw new Error('send an object');
   const out = {};
   for (const [k, v] of Object.entries(p)) {
@@ -82,6 +93,26 @@ export function cleanTiaPatch(p, knownAccounts = [], runsOnAccounts = knownAccou
     } else if (k === 'model') {
       if (v !== null && v !== '' && (typeof v !== 'string' || !MODEL_RE.test(v))) throw new Error('model must be a model name like haiku, or empty');
       out.model = v || null;
+    } else if (k === 'dailyCapUsd') {
+      // What she may spend a day on providers billed by use without his tap (spend.mjs); null: none, every paid act asks.
+      if (v !== null && (typeof v !== 'number' || !Number.isFinite(v) || v < 0.5 || v > 10_000)) throw new Error('dailyCapUsd must be an amount from 0.5 to 10000 US dollars, or null for none');
+      out.dailyCapUsd = v === null ? null : Math.round(v * 100) / 100;
+    } else if (k === 'others') {
+      // "Use other providers" for her Lead chats: only providers she may be allowed (knownAccounts).
+      if (!Array.isArray(v) || v.length > 10 || v.some((n) => typeof n !== 'string' || !NAME_RE.test(n) || !knownAccounts.includes(n))) throw new Error('others must be a list of providers she can use');
+      out.others = [...new Set(v)];
+    } else if (k === 'lead') {
+      // "Lead model" for the chats she starts (src/models/lead.mjs): off unless the owner turns it on.
+      if (typeof v !== 'boolean') throw new Error('lead must be true or false');
+      out.lead = v;
+    } else if (k === 'computers') {
+      // The computers she may start work on (src/operator/where.mjs): this one ("this") and the hub's, by name. Null or
+      // an empty list: none chosen, she starts where she does without it (where he names, else here).
+      if (v === null) out.computers = null;
+      else {
+        if (!Array.isArray(v) || v.length > 40 || v.some((n) => typeof n !== 'string' || (n !== 'this' && !knownComputers.includes(n)))) throw new Error('computers must be a list of your computers by name');
+        out.computers = v.length ? [...new Set(['this', ...v])] : null;
+      }
     } else if (k === 'maxMinutes') {
       if (!Number.isInteger(v) || v < 5 || v > 7 * 24 * 60) throw new Error('maxMinutes must be a whole number from 5 to 10080');
       out.maxMinutes = v;
@@ -93,8 +124,25 @@ export function cleanTiaPatch(p, knownAccounts = [], runsOnAccounts = knownAccou
 const isSub = (p) => p.kind === 'subscription' || p.kind === 'login';
 
 /**
+ * A provider at its limit, as Auto mode passes one over: marked limited (until a time still ahead, or with none known),
+ * or a plan window of its usage full and not reset yet.
+ */
+function atLimit(p, now = Date.now()) {
+  if (p.limited && !(Number.isFinite(p.limited.until) && p.limited.until <= now)) return true;
+  return fullWindows(p, now).length > 0;
+}
+const fullWindows = (p, now) => (p.usage ? [p.usage.fiveHour, p.usage.week] : []).filter((w) => w && w.pct >= 100 && !(Number.isFinite(w.resetsAt) && w.resetsAt <= now));
+/** When a provider at its limit is usable again, as far as Hoprig knows: the latest of its known times, or null. */
+function usableAt(p, now) {
+  const times = [p.limited && p.limited.until, ...fullWindows(p, now).map((w) => w.resetsAt)];
+  if ((p.limited && !Number.isFinite(p.limited.until)) || fullWindows(p, now).some((w) => !Number.isFinite(w.resetsAt))) return null;
+  const known = times.filter((t) => Number.isFinite(t) && t > now);
+  return known.length ? Math.max(...known) : null;
+}
+
+/**
  * The settings with defaults filled in, against the accounts that exist now.
- * accounts: { profiles: [{ name, kind, ... }], autoSwitch: { enabled, order } } (get_accounts' source).
+ * accounts: { profiles: [{ name, kind, ... }], autoSwitch: { enabled, order } } (get_computer_status providers' source).
  */
 export function resolveTia(raw, accounts) {
   const r = { ...DEFAULTS, ...(raw && typeof raw === 'object' ? raw : {}) };
@@ -106,10 +154,42 @@ export function resolveTia(raw, accounts) {
   else allowed = [...(autoOn ? ['auto'] : []), ...real.filter(isSub).map((p) => p.name)];
   // She thinks through Claude Code: only a provider that serves it can be the one she runs on.
   const thinks = real.filter((p) => servesTool(p, 'claude')).map((p) => p.name);
-  const runsOn = r.runsOn && (r.runsOn === 'auto' ? autoOn : thinks.includes(r.runsOn)) ? r.runsOn
-    : autoOn ? 'auto' : allowed.find((n) => thinks.includes(n)) || thinks[0] || null;
+  // Automatic (the saved value null): the first subscription that can answer now, in the order of his providers; one at
+  // its limit is passed over. Auto mode's rule only when he has no subscription she can think on: what costs money
+  // stays behind the daily limit for paid use. Every subscription at its limit: none (readiness says so and when the first is back), never
+  // a provider billed by use by herself. His own choice (a provider, or "auto") is kept as it is.
+  // A subscription here is one she may use (his ticks under "Providers she may use": she never thinks on one he left
+  // out), whose sign-in is not known to be gone (she would answer nothing on it), and that is not billed by use (a
+  // stored sign-in the facts mark as paid stays behind that limit like any key).
+  const subs = real.filter((p) => isSub(p) && p.paid !== true && p.signedIn !== false && servesTool(p, 'claude') && allowed.includes(p.name));
+  const now = Date.now();
+  const firstFree = subs.find((p) => !atLimit(p, now));
+  const chosen = r.runsOn && (r.runsOn === 'auto' ? autoOn : thinks.includes(r.runsOn)) ? r.runsOn : null;
+  // With no subscription: Auto mode or another provider, but only one she may use (his ticks); none of them: none
+  // (readiness says so), never a provider he left out.
+  const runsOn = chosen || (firstFree ? firstFree.name : subs.length ? null
+    : autoOn && allowed.includes('auto') ? 'auto' : allowed.find((n) => thinks.includes(n)) || null);
+  // No provider she may use can run her, while one he left out could: readiness names the place to tick one.
+  const noneAllowed = !runsOn && !subs.length && thinks.length > 0;
+  // When every subscription is at its limit: the one usable again first and when, as far as Hoprig knows (null: none
+  // known).
+  let subsLimited = null;
+  if (!chosen && subs.length && !firstFree) {
+    const back = subs.map((p) => ({ name: p.name, at: usableAt(p, now) })).filter((x) => Number.isFinite(x.at)).sort((a, b) => a.at - b.at);
+    // other: he allowed a provider she can think on that is not one of these subscriptions (Auto mode, a key): the line
+    // ends with the way to "Tia runs on", his own choice; she never takes it herself.
+    const other = allowed.some((n) => (n === 'auto' ? autoOn : thinks.includes(n) && !subs.some((p) => p.name === n)));
+    subsLimited = { names: subs.map((p) => p.name), first: back.length ? back[0].name : null, until: back.length ? back[0].at : null, other };
+  }
+  // His own choice is a subscription at its limit (also one set by "Use …" on a notice): she stays on his choice, and
+  // readiness says so with the time it is usable again; nothing moves to a provider billed by use.
+  const mine = chosen && chosen !== 'auto' ? real.find((p) => p.name === chosen) : null;
+  const chosenLimited = mine && isSub(mine) && atLimit(mine, now) ? { name: mine.name, until: usableAt(mine, now) } : null;
   const model = typeof r.model === 'string' && MODEL_RE.test(r.model) ? r.model : null;
-  return { enabled: r.enabled !== false, level: r.level, allowed, accountsDefault: !Array.isArray(r.accounts), runsOn, maxSteps: r.maxSteps, maxMinutes: r.maxMinutes, model };
+  // null: he chose no computers (as before this setting: where he names, else here); else the list, this one always in it.
+  const computers = Array.isArray(r.computers) && r.computers.length ? [...new Set(['this', ...r.computers.filter((n) => typeof n === 'string')])] : null;
+  const dailyCapUsd = typeof r.dailyCapUsd === 'number' && Number.isFinite(r.dailyCapUsd) && r.dailyCapUsd > 0 ? r.dailyCapUsd : null;
+  return { enabled: r.enabled !== false, level: r.level, allowed, computers, accountsDefault: !Array.isArray(r.accounts), runsOn, maxSteps: r.maxSteps, maxMinutes: r.maxMinutes, model, lead: r.lead === true, others: Array.isArray(r.others) ? r.others.filter((n) => allowed.includes(n)) : [], dailyCapUsd, subscription: firstFree ? firstFree.name : null, subsLimited, chosenLimited, noneAllowed };
 }
 
 /**
@@ -148,7 +228,7 @@ export const tiaChoices = (accounts) => ((accounts && accounts.profiles) || [])
   .filter((p) => p && ACCOUNT.test(String(p.name)) && !p.virtual && p.name !== 'auto' && !p.unusable && (!Array.isArray(p.tools) || p.tools.length > 0));
 
 /**
- * Whether a provider (as get_accounts lists it: `tools` = the coding tools it serves; absent on older computers, which
+ * Whether a provider (as get_computer_status providers lists it: `tools` = the coding tools it serves; absent on older computers, which
  * know Claude Code only) serves coding tool `tool`. Auto mode serves Claude Code only.
  */
 export const servesTool = (p, tool = 'claude') => Boolean(p) && (p.name === 'auto' || p.virtual ? tool === 'claude' : !Array.isArray(p.tools) ? tool === 'claude' : p.tools.includes(tool));
@@ -162,18 +242,23 @@ export const servesTool = (p, tool = 'claude') => Boolean(p) && (p.name === 'aut
  */
 export function chooseAccount(tia, accounts, tool = 'claude') {
   const profiles = accounts.profiles || [];
-  if (tool === 'claude' && tia.allowed.includes('auto')) return { account: 'auto', kind: 'auto', why: 'Auto mode is on and allowed: the router moves the session to the next provider at a limit' };
-  const order = [...((accounts.autoSwitch && accounts.autoSwitch.order) || []), ...tia.allowed];
+  // Auto mode only while its order holds a provider it may use (autoLeftOut, the rule pickProvider asks too): else the
+  // next provider she may use, and with none the reason Auto mode can serve nothing.
+  const autoOut = tool === 'claude' && tia.allowed.includes('auto') ? autoLeftOut(accounts) : null;
+  if (tool === 'claude' && tia.allowed.includes('auto') && !autoOut) return { account: 'auto', kind: 'auto', why: 'Auto mode is on and allowed: the router moves the session to the next provider at a limit' };
+  const allowed = autoOut ? tia.allowed.filter((n) => n !== 'auto') : tia.allowed;
+  const order = [...((accounts.autoSwitch && accounts.autoSwitch.order) || []), ...allowed];
   const rank = (n) => {
     const i = order.indexOf(n);
     return i < 0 ? 999 : i;
   };
-  const candidates = tia.allowed.map((n) => profiles.find((p) => p.name === n)).filter((p) => servesTool(p, tool));
+  const candidates = allowed.map((n) => profiles.find((p) => p.name === n)).filter((p) => servesTool(p, tool));
   const free = candidates.filter((p) => !p.limited);
-  if (!candidates.length) return { error: tool === 'claude' ? `no provider is allowed for ${ASSISTANT_NAME}` : `no provider ${ASSISTANT_NAME} may use serves ${toolName(tool)}` };
+  const autoToo = autoOut ? `; ${autoOut}` : '';
+  if (!candidates.length) return { error: autoOut || (tool === 'claude' ? `no provider is allowed for ${ASSISTANT_NAME}` : `no provider ${ASSISTANT_NAME} may use serves ${toolName(tool)}`) };
   if (!free.length) {
     const soonest = candidates.map((p) => p.limited && p.limited.until).filter(Boolean).sort((a, b) => a - b)[0];
-    return { error: `every provider ${ASSISTANT_NAME} may use is at its limit${soonest ? ` (the first frees up at ${new Date(soonest).toISOString()})` : ''}` };
+    return { error: `every provider ${ASSISTANT_NAME} may use is at its limit${soonest ? ` (the first frees up at ${new Date(soonest).toISOString()})` : ''}${autoToo}` };
   }
   const score = (p) => (freePct(p) ?? 50);
   free.sort((a, b) => score(b) - score(a) || rank(a.name) - rank(b.name));
@@ -184,10 +269,22 @@ export function chooseAccount(tia, accounts, tool = 'claude') {
   return {
     account: best.name,
     kind: best.kind,
-    why: candidates.length === 1
+    why: (candidates.length === 1
       ? `the only provider ${ASSISTANT_NAME} may use; ${usage}`
-      : `${pct === null ? 'its usage is not reported (counted as half used)' : `${pct}% of its quota free`}, the best of the allowed providers${limitedNames.length ? `; ${limitedNames.join(', ')} at a limit` : ''}`,
+      : `${pct === null ? 'its usage is not reported (counted as half used)' : `${pct}% of its quota free`}, the best of the allowed providers${limitedNames.length ? `; ${limitedNames.join(', ')} at a limit` : ''}`) + autoToo,
   };
+}
+
+/**
+ * Why Auto mode can serve nothing, by the accounts list (autoswitch.mjs leftOutOfOrder: each provider of its order gone,
+ * not serving Claude Code, or billed by use while "Also use pay-per-use providers" is off), or null while one is left.
+ * The one rule of her own starts (chooseAccount) and of her own calls (decider.mjs pickProvider).
+ */
+export function autoLeftOut(acc) {
+  const order = new Set(Array.isArray(acc.autoSwitch?.order) ? acc.autoSwitch.order : []);
+  const left = leftOutOfOrder(acc);
+  if (order.size > left.length) return null;
+  return nothingUsable(left) || 'Auto mode has no providers in its order';
 }
 
 // Permission prompts Tia never answers by herself, whatever the level: what the session wants to run looks like

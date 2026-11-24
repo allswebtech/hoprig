@@ -34,7 +34,8 @@ export const terminalMode = (v) => (v === 'own' ? null : v === 'bypassPermission
  */
 export function otherToolOptions({ st, info, name, profiles, chat, same, byDefault = null }) {
   const words = info.modeWords || {};
-  const modes = chat ? info.modes.map((x) => [x, words[x] ? words[x].chip : x]) : [['ask', 'Ask first'], ['own', `${name}'s own defaults: edits and runs commands without asking`], ['bypassPermissions', 'Bypass']];
+  // A terminal's Bypass only where the owner allowed it (st.modes: the computer's list, src/bypassgate.mjs).
+  const modes = chat ? info.modes.map((x) => [x, words[x] ? words[x].chip : x]) : [['ask', 'Ask first'], ['own', `${name}'s own defaults: edits and runs commands without asking`], ...(!st.modes || st.modes.includes('bypassPermissions') ? [['bypassPermissions', 'Bypass']] : [])];
   const mode = modes.some(([x]) => x === st.permissionMode) ? st.permissionMode : chat ? '' : 'ask';
   // In a chat the bypass is Hoprig's own (src/chat/asks.mjs openCodeAllows): every command is put to Hoprig, which
   // answers it at once, except a delete written in plain sight (src/asking.mjs mayDelete) that is no plain delete. A

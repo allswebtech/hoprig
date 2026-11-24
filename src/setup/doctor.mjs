@@ -6,6 +6,7 @@ import { loadConfig } from '../config.mjs';
 import { exitCodeFor, sysInfo } from './checks.mjs';
 import { grouped, overview } from './overview.mjs';
 import { bold, dim, mark } from './ui.mjs';
+import { reportDoctor } from '../field/wire.mjs';
 
 export function formatResults(results) {
   const w = Math.max(...results.map((r) => r.label.length));
@@ -13,6 +14,8 @@ export function formatResults(results) {
   for (const r of results) {
     lines.push(`  ${mark(r.status)} ${r.label.padEnd(w)}  ${r.detail}`);
     if (r.fix && r.status !== 'ok') lines.push(`    ${' '.repeat(w)}  ${dim('fix:')} ${r.fix}`);
+    // The dashboard signs in to Claude itself: named too, so a person who never typed in a terminal has a way.
+    if (r.action === 'claude-login' && r.status !== 'ok') lines.push(`    ${' '.repeat(w)}  ${dim('or:')} on the dashboard, Home → Get started → Sign in to Claude`);
   }
   return lines.join('\n');
 }
@@ -25,7 +28,9 @@ const isHub = (sys) => {
   }
 };
 
-export async function doctor(args = [], { write = (s) => process.stdout.write(s), sys = sysInfo(), parts } = {}) {
+// `box`: the box's line (src/box/doctorline.mjs), given only by `hoprig doctor` as a person runs it (cli.mjs): its
+// self-test runs there and never when something else asks for the checks.
+export async function doctor(args = [], { write = (s) => process.stdout.write(s), sys = sysInfo(), parts, box } = {}) {
   const json = args.includes('--json');
   const offline = args.includes('--offline');
   const unknown = args.filter((a) => a !== '--json' && a !== '--offline');
@@ -33,7 +38,10 @@ export async function doctor(args = [], { write = (s) => process.stdout.write(s)
     write('usage: hoprig doctor [--offline] [--json]\n');
     return 2;
   }
+  const startedAt = Date.now();
   const results = await overview({ sys, offline, hub: isHub(sys), parts });
+  if (box) results.push({ ...(await box()), group: 'This computer' });
+  reportDoctor(results, startedAt); // a field report, only when a check failed (src/field)
   const code = exitCodeFor(results);
   const groups = grouped(results);
   if (json) {

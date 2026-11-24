@@ -91,7 +91,8 @@ test('an entry whose folder here is a worktree is kept and listed as not on this
   }
   const st = await M.mapStatus({ dir: C.ws, projects: C.projects });
   const state = (l) => st.entries.find((e) => e.label === l).state;
-  for (const l of [...linked, 'two/code/two-web-wt']) assert.equal(state(l), 'missing', `${l}: a worktree here is not this entry`);
+  // A project's entry (or its code repository's) not here is notHere; another repository's is missing.
+  for (const l of [...linked, 'two/code/two-web-wt']) assert.equal(state(l), l.startsWith('git/') ? 'missing' : 'notHere', `${l}: a worktree here is not this entry`);
   assert.deepEqual([state('app/code/app-web'), state('app/code/lib'), state('git/tool')], ['here', 'here', 'here']);
 });
 

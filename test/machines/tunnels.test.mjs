@@ -136,6 +136,25 @@ test('Tunnels: one per machine; a changed port replaces it', () => {
   assert.equal(b.state, 'closed');
 });
 
+test('Tunnels: a computer\'s own ssh options (a kept key) go into its tunnel, and a change of them starts a new one', async () => {
+  const { children, spawnImpl } = fakeSpawner();
+  let extra = ['-i', '/k/box2', '-o', 'IdentitiesOnly=yes'];
+  const ts = new Tunnels({ spawnImpl, extraOf: (m) => (m.name === 'box2' ? extra : []), freePort: async () => 40123, probe: async () => false, startTimeoutMs: 60_000 });
+  const a = ts.get({ name: 'box2', ...machine });
+  a.ensure(50).catch(() => {});
+  await tick();
+  const args = children.at(-1).args;
+  assert.ok(args.indexOf('-i') >= 0 && args.indexOf('-i') < args.indexOf('--'), 'the key comes before --');
+  assert.equal(args[args.indexOf('-i') + 1], '/k/box2');
+  assert.ok(args.includes('IdentitiesOnly=yes'));
+  assert.equal(ts.get({ name: 'box2', ...machine }), a, 'the same options: the same tunnel');
+  extra = [];
+  const b = ts.get({ name: 'box2', ...machine });
+  assert.notEqual(a, b, 'the key taken away: a new tunnel');
+  assert.equal(a.state, 'closed');
+  ts.closeAll();
+});
+
 test('end to end with the fake ssh binary: a real TCP forward, and a new one after it dies', { skip: process.platform === 'win32' && 'POSIX scripts' }, async () => {
   // The service on the other computer. A connection through the tunnel can be cut at any moment (the tunnel's probe
   // closes its own at once, and the stand-in ssh dies on purpose): the reset arrives here, and without a listener

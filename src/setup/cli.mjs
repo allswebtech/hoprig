@@ -2,10 +2,10 @@
 import { claudeInfo, claudeInstallVersion, claudeLoginStatus, claudeUpdate } from '../claudecode.mjs';
 import { APP } from './checks.mjs';
 import { doctor } from './doctor.mjs';
-import { selfUpdate } from './selfupdate.mjs';
-import { setup } from './setup.mjs';
+import { isUpdateDryRun, selfUpdate } from './selfupdate.mjs';
+import { parseSetupArgs, setup } from './setup.mjs';
 
-const USAGE = `usage:
+export const USAGE = `usage:
   ${APP} setup [--yes] [--dry-run] [--password-file FILE]   set everything up, step by step (safe to re-run)
   ${APP} doctor [--offline] [--json]                       check everything, change nothing
   ${APP} claude status | update | install <version|stable|latest>
@@ -16,6 +16,12 @@ const USAGE = `usage:
 async function claude(args) {
   const [sub, ...rest] = args;
   const print = (l) => process.stdout.write(`  ${l}\n`);
+  // A stray word is refused, not ignored: "claude update <anything>" updated Claude Code all the same.
+  const stray = sub === 'install' ? rest.slice(1) : sub === 'update' ? rest : rest.filter((a) => a !== '--json');
+  if (stray.length) {
+    process.stderr.write(USAGE);
+    return 2;
+  }
   if (sub === 'status' || sub === undefined) {
     const json = rest.includes('--json');
     const [info, login] = await Promise.all([claudeInfo(), claudeLoginStatus()]);
@@ -58,17 +64,45 @@ async function claude(args) {
   return 2;
 }
 
+/**
+ * A field report of a setup or an update (src/field), by its exit code alone; a dry run or a usage error makes none.
+ * The restart of the service after an update is reported by "hoprig service install" (src/server/cli.mjs).
+ */
+/**
+ * Whether the run is a dry run, read by the command's own parse (so "-n" counts as "--dry-run" does). A parse that
+ * fails is a usage error: no report either.
+ */
+export function isDryRun(kind, args) {
+  try {
+    return kind === 'go-live' ? isUpdateDryRun(args) : parseSetupArgs(args).dryRun;
+  } catch {
+    return true;
+  }
+}
+
+async function withReport(kind, args, run) {
+  const startedAt = Date.now();
+  const summary = {}; // set-up fills it: a server's set-up is its own kind, with its steps and class
+  const code = await run(summary);
+  if (!isDryRun(kind, args) && code !== 2) {
+    const w = await import('../field/wire.mjs');
+    if (kind === 'setup') w.reportSetup(summary, code, startedAt);
+    else w.reportByCode(kind, code, startedAt, kind === 'go-live' ? 'install-failed' : 'other');
+  }
+  return code;
+}
+
 /** Entry point from the bin script: `command` is setup | doctor | claude | update. */
 export async function main(command, args = []) {
   switch (command) {
     case 'setup':
-      return setup(args);
+      return withReport('setup', args, (summary) => setup(args, { summary }));
     case 'doctor':
-      return doctor(args);
+      return doctor(args, { box: async () => (await import('../box/doctorline.mjs')).boxLine() });
     case 'claude':
       return claude(args);
     case 'update':
-      return selfUpdate(args);
+      return withReport('go-live', args, () => selfUpdate(args));
     default:
       process.stderr.write(USAGE);
       return 2;

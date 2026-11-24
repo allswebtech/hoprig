@@ -35,7 +35,7 @@ import path from 'node:path';
 import { loadConfig } from './config.mjs';
 import { claudeDir } from './paths.mjs';
 import { clearLimited, limitedProfiles } from './autoswitch.mjs';
-import { listProfiles } from './profiles.mjs';
+import { listProfiles, ownFolder } from './profiles.mjs';
 import { forInstalls, withoutSecrets } from './secretenv.mjs';
 import { forgetUsage, rememberLogin } from './routerstate.mjs';
 import { capture, compareVersions, npmArgv, stream, which } from './setup/system.mjs';
@@ -93,6 +93,8 @@ export function resolveClaude({ bin = configuredBin(), env = process.env, platfo
 export function methodOf(realPath) {
   const p = String(realPath || '').replace(/\\/g, '/');
   if (/\/\.local\/share\/claude\/versions\//.test(p)) return 'native';
+  // Windows: the native installer puts the program itself (a copy, not a link) at %USERPROFILE%\.local\bin\claude.exe.
+  if (/\/\.local\/bin\/claude\.exe$/i.test(p)) return 'native';
   if (/\/node_modules\/@anthropic-ai\/claude-code(\/|$)/.test(p)) return 'npm';
   return 'unknown';
 }
@@ -125,6 +127,27 @@ export function claudeVersionQuick({ bin = configuredBin(), env = process.env } 
     return null;
   }
 }
+
+// Whether the installed Claude Code knows its restricted mode (`--restricted`: no tool that runs a command or reaches
+// the network, the file tools kept to the working folder). Asked of its own help, once per installed program; a help
+// that could not be read is asked again the next time, and counts as "does not know" until then.
+const restrictedSeen = new Map();
+export async function restrictedKnown({ bin = configuredBin(), env = process.env, run = capture } = {}) {
+  let key = bin || 'claude';
+  try {
+    const found = resolveClaude({ bin, env });
+    if (found) key = fs.realpathSync(found.path);
+  } catch {
+    /* asked by its name */
+  }
+  if (restrictedSeen.has(key)) return restrictedSeen.get(key);
+  const r = await run([bin || 'claude', '--help'], { env, timeout: 20_000 });
+  const known = !!r.ok && /^\s+--restricted\b/m.test(r.stdout || '');
+  if (r.ok) restrictedSeen.set(key, known);
+  return known;
+}
+/** For tests: forget what was asked. */
+export const forgetRestricted = () => restrictedSeen.clear();
 
 /** "2.1.325 (Claude Code)" -> "2.1.325"; null when the text has no version. */
 export function parseClaudeVersion(text) {
@@ -414,7 +437,7 @@ export function parseAuthAccount(stdout) {
  */
 function accountChanged() {
   for (const p of listProfiles()) {
-    if (p.kind !== 'login') continue;
+    if (p.kind !== 'login' || ownFolder(p)) continue; // a folder of its own keeps its own account
     try {
       clearLimited(p.name);
       forgetUsage(p.name);
@@ -510,7 +533,7 @@ export function signInWatch({
 /** A provider that uses the stored sign-in has a limit mark. */
 function storedSignInMarked() {
   const marks = limitedProfiles();
-  return listProfiles().some((p) => p.kind === 'login' && marks[p.name]);
+  return listProfiles().some((p) => p.kind === 'login' && !ownFolder(p) && marks[p.name]);
 }
 
 /**

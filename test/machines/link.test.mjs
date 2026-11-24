@@ -187,11 +187,40 @@ test('Remove on the hub: the link is dropped and the computer stops connecting',
   // The join returns when the link is up on the computer's side; the hub's own end of it (the local port its calls
   // go through) may open a moment later. A Remove in that moment cannot reach the computer and says so (revoked:
   // false, with the note to remove it there): true, and not what this test is about. So wait until the hub reaches it.
+  // (This wait covers only that. A revoked: false seen on macOS after it came from the computer's keeper cutting the
+  // link while the answer was on its way: the next test.)
   await until('online on the hub', async () => (await stateOnHub()) === 'online');
-  const rm = await browser(`/api/machines/${linked().name}/remove`, { body: {} });
+  const rm = await browser(`/api/machines/${linked().name}/remove`, { body: { confirm: linked().name } });
   assert.equal(rm.json.revoked, true);
   assert.equal(hub.machines.links.sessions.size, 0);
   await until('forgotten here', async () => join.loadJoined().length === 0 && !keeper.map.has(h.id));
+});
+
+test('Remove on the hub, with the computer\'s keeper forgetting the hub between the revoke and its answer: the answer still arrives', async () => {
+  // The computer's keeper forgets a hub whose token is gone, every few seconds. Here its tick comes exactly when the
+  // token was revoked and the answer saying so is about to go back over the link (on a slow runner it did by itself).
+  const c = await code();
+  const h = await join.joinByAddress(hub.base, c.code, { keeper });
+  await until('online on the hub', async () => (await stateOnHub()) === 'online');
+  const end = http.ServerResponse.prototype.end;
+  let ticked = false;
+  http.ServerResponse.prototype.end = function (chunk, ...rest) {
+    if (!ticked && typeof chunk === 'string' && chunk.startsWith('{"revoked":')) {
+      ticked = true;
+      keeper.sync();
+    }
+    return end.call(this, chunk, ...rest);
+  };
+  let rm;
+  try {
+    rm = await browser(`/api/machines/${linked().name}/remove`, { body: { confirm: linked().name } });
+  } finally {
+    http.ServerResponse.prototype.end = end;
+  }
+  assert.ok(ticked, 'the keeper ran between the revoke and the answer');
+  assert.equal(rm.json.revoked, true, JSON.stringify(rm.json));
+  await until('forgotten here', async () => join.loadJoined().length === 0 && !keeper.map.has(h.id));
+  await until('the link is closed here', async () => !keeper.map.has(h.id) && hub.machines.links.sessions.size === 0);
 });
 
 test('"Link to my main": the one pasted line (address#join=CODE) links this computer; a line of another shape is refused', async () => {

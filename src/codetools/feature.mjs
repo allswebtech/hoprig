@@ -66,7 +66,7 @@ export function codetoolsFeature(ctx, { stop = stopIfUnused, now = Date.now, pro
       const codex = offeredCodex();
       const b = await ctx.readJson(req);
       if (b && Object.keys(b).length) throw fail(400, 'send {}');
-      if (!codex.installedVersion()) throw fail(409, 'Codex is not installed: Settings → Coding tools installs it');
+      if (!codex.installedVersion()) throw Object.assign(fail(409, 'Codex is not installed: Settings → Coding tools installs it'), { details: { code: 'tool-not-installed' } });
       forgetSignin();
       // The launcher's own words (src/codetools/terminal.mjs): Hoprig's copy, never one on PATH.
       return { name: await ctx.deck.runLauncher('codex-signin', os.homedir(), ['codex', 'login', '--device-auth']) };

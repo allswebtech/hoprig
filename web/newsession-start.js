@@ -7,6 +7,9 @@ import { markStarting } from './newsession.js';
 import { terminalMode } from './newsession-tools.js';
 import { store } from './store.js';
 
+// "Also open" (newsession-also.js): sent only where something is ticked; the server checks every name again.
+const alsoOf = (st) => (Array.isArray(st.also) ? st.also : []);
+
 /** The popup's own address (#/new, #/m/<computer>/new). */
 export const atNewAddress = () => /^#(\/m\/[a-z0-9][a-z0-9_-]{0,31})?\/new(\/here)?(\?|$)/.test(location.hash || '');
 
@@ -53,8 +56,9 @@ export async function startSession(f, { st, pc, way, info, toolName, busy, faile
     busy(`Opening the App in ${f.name}…`);
     try {
       // What is not chosen here is left out: the server takes what the last session in the App had in this folder.
+      // Lead and its ticks too, unless the owner changed them here (st.leadTouched).
       const permissionMode = own && !((info && info.modes) || []).includes(st.permissionMode) ? '' : st.permissionMode;
-      await startChat(f.path, { tool, sessionId, profile: st.profile, permissionMode, effort: st.effort, model: own ? '' : st.model }, st.m);
+      await startChat(f.path, { tool, sessionId, profile: st.profile, permissionMode, effort: st.effort, model: own ? '' : st.model, ...(!own && st.leadTouched && typeof st.lead === 'boolean' ? { lead: st.lead, ...(st.lead && Array.isArray(st.others) ? { others: st.others } : {}) } : {}), with: own ? [] : alsoOf(st) }, st.m);
     } catch (e) {
       failed(e);
     }
@@ -65,7 +69,7 @@ export async function startSession(f, { st, pc, way, info, toolName, busy, faile
     // Another coding tool asks first unless the owner chose otherwise; Claude Code takes Settings for what is left out.
     const body = own
       ? { tool, dir: f.path, profile: st.profile || (pc && !pc.toolDefaults ? firstServing : undefined), mode: sessionId ? 'resume' : mode === 'continue' ? 'continue' : 'new', sessionId, permissionMode: terminalMode(st.permissionMode), effort: st.effort || null }
-      : { dir: f.path, profile: st.profile || (pc && !pc.recommendedIn ? pc.recommended : undefined), mode, sessionId, permissionMode: st.permissionMode || null, effort: st.effort || null, model: st.model || null };
+      : { dir: f.path, profile: st.profile || (pc && !pc.recommendedIn ? pc.recommended : undefined), mode, sessionId, permissionMode: st.permissionMode || null, effort: st.effort || null, model: st.model || null, ...(alsoOf(st).length ? { with: alsoOf(st) } : {}) };
     const { name, chat, existing } = await api(at(st.m, '/api/sessions'), body);
     store.refresh();
     // The conversation runs in the App already (one conversation, one process): it goes on there.

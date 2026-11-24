@@ -1,2 +1,9 @@
 dist/
 node_modules/
+.next/
+out/
+.measure/
+next-env.d.ts
+*.tsbuildinfo
+.test-out-*/
+public/

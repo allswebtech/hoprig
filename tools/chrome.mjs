@@ -16,33 +16,92 @@ const CANDIDATES = [
 
 export const findChrome = () => CANDIDATES.find((p) => fs.existsSync(p)) || null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** How long a start may take while the browser lives. */
+const START_MS = 30_000;
 
-/** Start headless Chrome on a free debugging port; returns { page(), close() }. */
-export async function launchChrome({ port = 9300 + Math.floor(Math.random() * 500) } = {}) {
+/**
+ * Start headless Chrome on a debugging port the system picks; returns { port, send, evaluate(), goto(), close(), … },
+ * with `port` the debugging port Chrome picked (a caller that asks Chrome's own HTTP list uses it). Its home folder is one of
+ * its own, in its temporary profile folder (removed by close()), so a browser a test starts never writes into the
+ * person's real home. `realHome` hands it the person's real home folder instead; a caller that asks for it says why on
+ * that line.
+ *
+ * It drives only the browser it started: Chrome writes its port and its own browser id into the profile
+ * (DevToolsActivePort), which must be the id that answers on 127.0.0.1. (A Chrome that finds 127.0.0.1:port taken
+ * binds [::1] alone, and a run once drove another run's browser on that port for 45 s.) Chrome writes that file only
+ * for a port it picks itself (--remote-debugging-port=0), so a port named by the caller is refused: with one, every
+ * start waited 12 s for the file and failed.
+ */
+export async function launchChrome({ port, realHome = false } = {}) {
+  if (port !== undefined) throw new Error('launchChrome picks its own debugging port; leave out the port option');
   const bin = findChrome();
   if (!bin) throw new Error('no Chrome found; set CHROME=/path/to/chrome');
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'shots-chrome-'));
-  // The real home folder: the demo points HOME at its temp folder, and Chrome started with that home folder cannot
-  // reach the network.
-  const env = { ...process.env, HOME: os.userInfo().homedir };
-  const proc = spawn(bin, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--hide-scrollbars', '--force-color-profile=srgb', 'about:blank'], { stdio: 'ignore', env });
-  let target = null;
-  for (let i = 0; i < 80 && !target; i++) {
+  const home = path.join(profile, 'home');
+  fs.mkdirSync(home);
+  const env = { ...process.env, HOME: realHome ? os.userInfo().homedir : home };
+  const proc = spawn(bin, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--hide-scrollbars', '--force-color-profile=srgb', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'], env });
+  // Its last error lines and how it ended, for the error when it does not start (a busy runner, or a browser that exits).
+  let tail = '';
+  proc.stderr.on('data', (d) => { tail = (tail + d).slice(-4000); });
+  proc.stderr.on('error', () => {});
+  // `gone`: it failed (a code other than 0, a signal, no start at all), so waiting longer cannot help. A launcher that
+  // hands the browser on and exits with 0 is waited for as before.
+  let ended = null;
+  let gone = false;
+  proc.once('exit', (code, signal) => { ended = signal ? `it ended by signal ${signal}` : `it exited with code ${code}`; gone = code !== 0; });
+  proc.once('error', (e) => { ended = `it could not be started (${e.code || e.message})`; gone = true; });
+  const why = (waited) => {
+    const lines = tail.split('\n').map((l) => l.trim()).filter(Boolean).slice(-5).join(' | ');
+    return [ended || waited, lines && `its last error lines: ${lines}`].filter(Boolean).join('; ');
+  };
+  const fail = async (message, waited = null) => {
+    proc.kill();
+    await sleep(300);
+    try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* Chrome still closing */ }
+    const detail = waited === null ? '' : why(waited);
+    return new Error(detail ? `${message}: ${detail}` : message);
+  };
+  // Chrome writes its port into DevToolsActivePort once it is up: waited for while it lives, up to START_MS (a busy
+  // runner took more than 12 s).
+  let active = null;
+  for (const until = Date.now() + START_MS; !active && !gone && Date.now() < until;) {
     await sleep(150);
     try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
+      const [p, id] = fs.readFileSync(path.join(profile, 'DevToolsActivePort'), 'utf8').split('\n');
+      if (Number(p) && id?.startsWith('/devtools/browser/')) active = { port: Number(p), id: id.trim() };
+    } catch {
+      /* not written yet */
+    }
+  }
+  if (!active) throw await fail('Chrome did not start', `no DevToolsActivePort within ${START_MS / 1000} s`);
+  let target = null;
+  for (const until = Date.now() + START_MS; !target && !gone && Date.now() < until;) {
+    let version = null;
+    try {
+      version = await (await fetch(`http://127.0.0.1:${active.port}/json/version`)).json();
+    } catch {
+      await sleep(150); // not up yet
+      continue;
+    }
+    if (!String(version.webSocketDebuggerUrl || '').endsWith(active.id)) throw await fail(`port ${active.port}: another browser answers there, not the one this run started`);
+    try {
+      target = (await (await fetch(`http://127.0.0.1:${active.port}/json/list`)).json()).find((t) => t.type === 'page');
     } catch {
       /* not up yet */
     }
+    if (!target) await sleep(150);
   }
-  if (!target) throw new Error('Chrome did not start');
+  if (!target) throw await fail('Chrome did not start', `no page on its port ${active.port} within ${START_MS / 1000} s`);
   const ws = new WebSocket(target.webSocketDebuggerUrl, { perMessageDeflate: false, maxPayload: 256 << 20 });
   await new Promise((r, j) => { ws.once('open', r); ws.once('error', j); });
   let id = 0;
   const pending = new Map();
   const errors = []; // the page's uncaught errors and console.error lines, for a run to report
+  const listeners = []; // on(fn): every event Chrome sends (a check that answers a dialog, watches the network)
   ws.on('message', (m) => {
     const j = JSON.parse(m);
+    if (j.method) for (const f of listeners) f(j);
     if (j.method === 'Runtime.exceptionThrown') errors.push(j.params.exceptionDetails.exception?.description || j.params.exceptionDetails.text);
     if (j.method === 'Runtime.consoleAPICalled' && j.params.type === 'error') errors.push(j.params.args.map((a) => a.value ?? a.description ?? '').join(' '));
     if (j.id && pending.has(j.id)) {
@@ -55,7 +114,7 @@ export async function launchChrome({ port = 9300 + Math.floor(Math.random() * 50
     const i = ++id;
     const t = setTimeout(() => {
       pending.delete(i);
-      reject(new Error(`${method}: no answer from Chrome within ${timeoutMs / 1000} s`));
+      reject(new Error(`${method}${params.url ? ` ${params.url}` : ''}: no answer from Chrome within ${timeoutMs / 1000} s`));
     }, timeoutMs);
     pending.set(i, (j) => {
       clearTimeout(t);
@@ -68,8 +127,10 @@ export async function launchChrome({ port = 9300 + Math.floor(Math.random() * 50
   await send('Runtime.enable');
   await send('Network.enable');
   const api = {
+    port: active.port,
     send,
     errors,
+    on: (fn) => listeners.push(fn),
     async evaluate(expr) {
       const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true });
       if (r.exceptionDetails) throw new Error(`evaluate: ${r.exceptionDetails.exception?.description || r.exceptionDetails.text}`);

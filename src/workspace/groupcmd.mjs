@@ -14,7 +14,7 @@ import { capture } from '../setup/system.mjs';
 import { bold, dim } from '../setup/ui.mjs';
 import { appendIgnore, ignoreFileOf, linkGroupMemories, missingIgnoreLines } from './groups.mjs';
 import { isDir, isGitRepo, projectsIn, workspaceDir } from './layout.mjs';
-import { mapUrl, readMap, refOf, sameUrl, updateMap, validateMap, writeMap } from './map.mjs';
+import { mapUrl, normalizeMap, readMap, refOf, sameUrl, updateMap, validateMap, writeMap } from './map.mjs';
 import { tidyFolder } from './mapcheck.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -38,11 +38,29 @@ export function parseHolds(text) {
   });
 }
 
+/**
+ * The scan's new entries (`added`: diffMap labels) sorted by where they are: in the group's folder `gdir`, or elsewhere
+ * in the workspace (the scan looks at the whole workspace, so a new clone in the projects folder enters the map too).
+ * `map`: the map the scan made, whose entries say their folder. → { here: [label], elsewhere: [label] }
+ */
+function byFolder(added, map, gdir) {
+  const under = (d) => d === gdir || String(d || '').startsWith(`${gdir}/`);
+  const inside = new Set(under(gdir) ? [gdir] : []);
+  for (const p of map.projects || []) {
+    if (!p.in || !under(p.in)) continue;
+    inside.add(refOf(p));
+    for (const r of p.repos || []) inside.add(`${refOf(p)}/${r.dir}`);
+  }
+  for (const o of map.others || []) if (under(o.dir)) inside.add(o.dir);
+  return { here: added.filter((l) => inside.has(l)), elsewhere: added.filter((l) => !inside.has(l)) };
+}
+
 const sameGroup = (a, b) => JSON.stringify({ ...a, memories: undefined }) === JSON.stringify({ ...b, memories: undefined });
 
 /**
  * Add a group. → { group, added: bool (false: it was there already, the same), ignore: { file, lines, written } | null,
- * notes, mapAdded: [what the scan then put into the map] }. `writeIgnore`: write the missing ignore lines.
+ * notes, mapAdded: [what the scan then put into the map], mapAddedHere / mapAddedElsewhere: the same, in the group's
+ * folder and elsewhere in the workspace }. `writeIgnore`: write the missing ignore lines.
  */
 export async function groupAdd(gdir, { repo, holds, dryRun = false, writeIgnore = false, dir = workspaceDir(), projects = projectsIn(), run = capture } = {}) {
   const map = mapToChange(dir);
@@ -76,7 +94,13 @@ export async function groupAdd(gdir, { repo, holds, dryRun = false, writeIgnore 
     const f = ignoreFileOf(abs);
     if (lines.length) ignore = { file: f.file, lines, written: false, ...(f.ok ? {} : { refused: f.why }) };
   }
-  if (dryRun) return { group, added: !old, ignore, notes, moved, mapAdded: [], dryRun };
+  if (dryRun) {
+    // What the scan would put into the map after the add, from what is in the group's folder now: named before the yes.
+    const scan = !old && isDir(abs) ? await updateMap({ dir, projects, run, manifests: false, dryRun: true, as: normalizeMap(v.map) }) : null;
+    const mapAdded = scan ? scan.diff.added : [];
+    const where = scan ? byFolder(mapAdded, scan.map, group.dir) : { here: [], elsewhere: [] };
+    return { group, added: !old, ignore, notes, moved, mapAdded, mapAddedHere: where.here, mapAddedElsewhere: where.elsewhere, dryRun };
+  }
   if (!old || moved.some((x) => x.changed)) {
     writeMap(next, dir);
   }
@@ -85,14 +109,16 @@ export async function groupAdd(gdir, { repo, holds, dryRun = false, writeIgnore 
     ignore.written = true;
   }
   let mapAdded = [];
+  let where = { here: [], elsewhere: [] };
   if (!old && isDir(abs)) {
     // What is in the group's folder already enters the map now (project.json files are left alone).
     const r = await updateMap({ dir, projects, run, manifests: false });
     mapAdded = r.diff.added;
+    where = byFolder(mapAdded, r.map, group.dir);
     const links = await linkGroupMemories(r.map, { dir, projects }, { run, only: group.dir });
     for (const l of links.filter((x) => x.done === 'conflict')) notes.push(`memory for ${l.launch}: ${l.detail}; ${l.fix}`);
   }
-  return { group, added: !old, ignore, notes, moved, mapAdded };
+  return { group, added: !old, ignore, notes, moved, mapAdded, mapAddedHere: where.here, mapAddedElsewhere: where.elsewhere };
 }
 
 /**
@@ -169,7 +195,7 @@ export function groupRemove(gdir, { dryRun = false, dir = workspaceDir() } = {})
   if (!dryRun) {
     writeMap(next, dir);
   }
-  return { removed: g, dryRun, note: `nothing on this computer was deleted; ${g.dir} stays where it is` };
+  return { removed: g, dryRun, note: `nothing on this computer ${dryRun ? 'is' : 'was'} deleted; ${g.dir} stays where it is` };
 }
 
 export const GROUP_USAGE = `  hoprig workspace group add <dir> [--repo <address>] [--holds name:group,name] [--yes] [--dry-run] [--json]

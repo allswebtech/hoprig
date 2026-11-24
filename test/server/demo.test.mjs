@@ -38,6 +38,12 @@ test('demo: free port, own temp folder, one-time sign-in link, sample data, clea
     assert.equal(state.autoSwitch.enabled, true);
     assert.deepEqual(state.autoSwitch.order, ['max', 'api'], 'one subscription, then the API account');
     assert.ok(state.profiles.some((p) => p.name === 'team'), 'the second subscription is an account of its own');
+    // Tia answers in the demo: she thinks on a provider that is not billed by use (no daily cap is set there)
+    const { resolveTia } = await import('../../src/assistant/tia.mjs');
+    const { paidName } = await import('../../src/assistant/spend.mjs');
+    const demoConfig = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
+    const tia = resolveTia(demoConfig.assistant, state);
+    assert.equal(paidName(tia.runsOn, state), false, `Tia runs on ${tia.runsOn}, which is billed by use`);
     const by = Object.fromEntries(state.sessions.map((s) => [s.name, s]));
     assert.equal(by['shop-frontend'].status, 'working');
     assert.equal(by['api-server'].status, 'waiting');
@@ -77,6 +83,17 @@ test('demo: free port, own temp folder, one-time sign-in link, sample data, clea
     assert.equal(off.status, 409);
     const pj = await (await fetch(`${url}/api/pcsetup/projects`, { headers: auth })).json();
     assert.ok(pj.repos.some((r) => r.rel === 'shop-frontend' && r.ok && r.branch === 'main'), 'the sample projects are real git repositories');
+    // The brain's row on the Setup tab and its save sheet read the same folder: they say the same.
+    // The demo's own upkeep may save between the two reads: they are read until the folder stands still.
+    let gitNow = null;
+    let brainNow = null;
+    for (let i = 0; i < 40; i++) {
+      gitNow = await (await fetch(`${url}/api/workspace/git`, { headers: auth })).json();
+      brainNow = await (await fetch(`${url}/api/workspace/git/brain`, { headers: auth })).json();
+      if (gitNow.brain.changes === brainNow.count && gitNow.brain.ahead === brainNow.ahead) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    assert.deepEqual([gitNow.brain.changes, gitNow.brain.ahead, gitNow.brain.behind, gitNow.brain.upstream], [brainNow.count, brainNow.ahead, brainNow.behind, brainNow.upstream], JSON.stringify([gitNow.brain, brainNow]));
     // The join line as a hub with its own certificate gives it: a documentation address and a made-up fingerprint.
     const code = await (await fetch(`${url}/api/links/code`, { method: 'POST', headers: auth, body: '{}' })).json();
     assert.equal(code.certificate, 'own');
@@ -127,6 +144,35 @@ test('demo: free port, own temp folder, one-time sign-in link, sample data, clea
     assert.ok(!evs.some((e) => e.error), `no error: ${JSON.stringify(evs.filter((e) => e.error))}`);
     assert.equal(fs.existsSync(path.join(root, 'state', 'router.log')), false, 'no router was started');
 
+    // Tia's git sign-in check talks to the demo's stand-in git server, never a real one (no network, no real token).
+    // Choose the demo's token file, then each state's plain words; a missing file is refused with a plain message.
+    const pickFile = (f) => fetch(`${url}/api/hersignin`, { method: 'POST', headers: auth, body: JSON.stringify({ file: f }) });
+    const chk = async () => { const r = await fetch(`${url}/api/hersignin/check`, { method: 'POST', headers: auth, body: '{}' }); return { status: r.status, data: await r.json() }; };
+    assert.equal((await (await pickFile('git-token.txt')).json()).file, 'git-token.txt');
+    try {
+      process.env.HOPRIG_TEST_GITCHECK = 'delete';
+      let c = (await chk()).data;
+      assert.match(c.lines[0], /can delete a repository/);
+      const joined = c.lines.join('\n');
+      assert.match(joined, /shop — default branch "main": a rule blocks a forced push; a rule blocks deleting the branch\./);
+      assert.match(joined, /alpha — default branch "main": a forced push is allowed \(no rule blocks it\); deleting the branch is allowed/);
+      assert.match(joined, /docs-site: not known \(it is not a github\.com repository/);
+      assert.ok(!joined.includes('demo-not-a-real-token'), 'the token is in no line the check returns');
+      process.env.HOPRIG_TEST_GITCHECK = 'nodelete';
+      assert.match((await chk()).data.lines[0], /cannot delete a repository/);
+      process.env.HOPRIG_TEST_GITCHECK = 'unknown';
+      assert.match((await chk()).data.lines[0], /not known/);
+      process.env.HOPRIG_TEST_GITCHECK = 'fail';
+      assert.match((await chk()).data.lines[0], /did not accept this token/);
+    } finally {
+      delete process.env.HOPRIG_TEST_GITCHECK;
+    }
+    await pickFile('not-there.token');
+    const miss = await chk();
+    assert.equal(miss.status, 400);
+    assert.match(miss.data.error, /not in the credentials folder/);
+    await pickFile(''); // leave the demo as it was: no sign-in file chosen
+
     await hooks.stop();
     assert.equal(fs.existsSync(root), false, 'its folder is removed');
     await assert.rejects(fetch(`${url}/api/me`), 'the server is gone');
@@ -162,7 +208,7 @@ test('demo: every coding tool\'s own folder is inside the demo, so its brain lin
   const { toolHomes } = await import('../../src/workspace/link.mjs');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-iso-'));
   try {
-    const env = { HOME: '/real/home', XDG_CONFIG_HOME: '/real/home/.config', OPENCODE_CONFIG_DIR: '/real/oc', CODEX_HOME: '/real/codex', PATH: '/usr/bin', HOPRIG_RUN_FILE: '/real/run', GH_TOKEN: 'x', GITHUB_TOKEN: 'x' };
+    const env = { HOME: '/real/home', XDG_CONFIG_HOME: '/real/home/.config', OPENCODE_CONFIG_DIR: '/real/oc', CODEX_HOME: '/real/codex', PATH: '/usr/bin', HOPRIG_RUN_FILE: '/real/run', GH_TOKEN: 'x', GITHUB_TOKEN: 'x' }; // seal: a value no program is started with
     const home = isolate(root, env);
     const homes = toolHomes(env.HOME, env);
     for (const dir of Object.values(homes)) assert.ok(dir.startsWith(home + path.sep), dir);
@@ -183,7 +229,7 @@ test('demo: its environment keeps only what it needs; no secret, nothing else of
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-env-'));
   try {
     const env = {
-      PATH: '/usr/bin', LANG: 'en_US.UTF-8', LC_ALL: 'C.UTF-8', TERM: 'xterm-256color', TMPDIR: '/tmp/x',
+      PATH: '/usr/bin', LANG: 'en_US.UTF-8', LC_ALL: 'C.UTF-8', TERM: 'xterm-256color', TMPDIR: '/tmp/x', // seal: a value no program is started with
       OPENAI_API_KEY: 'k', CODEX_API_KEY: 'k', OPENCODE_PASSWORD: 'k', HOPRIG_OPENCODE_KEY_WORK: 'k', HOPRIG_CODEX_KEY_WORK: 'k',
       HOPRIG_ASSISTANT_TOKEN: 'k', ANTHROPIC_CUSTOM_HEADERS: 'k', CLAUDE_CODE_OAUTH_TOKEN: 'k', AWS_SECRET_ACCESS_KEY: 'k',
       SSH_AUTH_SOCK: '/run/agent', DISPLAY: ':0', USER: 'someone', HOSTNAME: 'real-host', HISTFILE: '/real/history',

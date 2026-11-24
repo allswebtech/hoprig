@@ -84,6 +84,8 @@
 .chat-ask-scope { margin: 0; overflow-wrap: anywhere; }
 .chat-ask.chat-is-decided .chat-ask-scope { display: none; }
 .chat-ask-status { margin: 0; display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--muted); }
+/* A part's card: the line takes the focus after a press; room for its ring, the text where it was. */
+.chat-ask-part .chat-ask-status { padding: 2px 6px; margin: 0 -6px; border-radius: 6px; }
 .chat-ask.chat-is-decided { border-color: var(--border); background: var(--surface); }
 .chat-ask.chat-is-decided .chat-ask-head { color: var(--muted); }
 .chat-ask-notebox { display: grid; gap: 6px; }

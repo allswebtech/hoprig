@@ -6,7 +6,8 @@ import { icon } from '../icons.js';
 import { api, fill, h, toast } from '../lib.js';
 import { mdView } from '../mdtext.js';
 import { inputView } from './tools.js';
-import { alwaysWords, askTitle, failText, planAnswers, ruleWords } from './words.js';
+import { heldActCard } from '../handsoff.js';
+import { alwaysWords, askTitle, failText, grantItems, planAnswers, ruleWords } from './words.js';
 
 const FILE_TOOLS = ['Bash', 'Edit', 'MultiEdit', 'Write', 'Read', 'NotebookEdit'];
 
@@ -41,13 +42,13 @@ export function askCard(ev, o) {
     busy = true;
     for (const b of el.querySelectorAll('button')) b.disabled = true;
     try {
-      await api(`${o.A}/answer`, { request: ev.request, allow, ...more });
+      await api(`${o.A}/answer`, { request: ev.request, allow, ...(ev.card && ev.card.key ? { key: ev.card.key } : {}), ...more });
       o.after?.();
     } catch (e) {
       busy = false;
       if (e.status === 409) return; // answered meanwhile (another tab, or the turn ended): the next news closes it
       for (const b of el.querySelectorAll('button')) b.disabled = false;
-      toast(failText(e), { kind: 'error' });
+      toast(failText(e), { from: e, kind: 'error' });
     }
   };
 
@@ -71,12 +72,15 @@ export function askCard(ev, o) {
     const chosen = new Map();
     const others = new Map();
     const qs = ev.input.questions.slice(0, 10);
-    const rows = qs.map((q) => {
+    // The exact card (src/askcard.mjs, ev.card): the one option the tool marked, per question in the tool's order.
+    const exact = ev.card && ev.card.kind === 'question' && Array.isArray(ev.card.questions) ? ev.card.questions : [];
+    const rows = qs.map((q, qi) => {
+      const rec = exact[qi] && exact[qi].question === String(q.question).slice(0, 1000) ? exact[qi].recommended : null;
       const opts = Array.isArray(q.options) ? q.options.slice(0, 12) : [];
       const set = new Set();
       chosen.set(q.question, set);
-      const btns = opts.map((op, n) => h('button.chat-choice', { type: 'button', role: q.multiSelect ? 'checkbox' : 'radio', 'aria-checked': 'false', onclick: () => pick(q, op.label) },
-        h('span.chat-choice-label', op.label), op.description ? h('span.chat-choice-sub', op.description) : null, h('span.chat-choice-n', { 'aria-hidden': 'true' }, String(n + 1))));
+      const btns = opts.map((op, n) => h(`button.chat-choice${rec === n ? '.ho-rec' : ''}`, { type: 'button', role: q.multiSelect ? 'checkbox' : 'radio', 'aria-checked': 'false', onclick: () => pick(q, op.label) },
+        h('span.chat-choice-label', op.label), rec === n ? h('span.badge.soft', 'Marked by the tool') : null, op.description ? h('span.chat-choice-sub', op.description) : null, h('span.chat-choice-n', { 'aria-hidden': 'true' }, String(n + 1))));
       const other = h('input.field.chat-q-other', { type: 'text', placeholder: 'Or write your own answer', 'aria-label': `Your own answer to: ${q.question}` });
       other.addEventListener('input', () => others.set(q.question, other.value.trim()));
       const row = h('div.chat-q', h('p.chat-q-text', q.header ? h('span.badge', q.header) : null, ' ', q.question, q.multiSelect ? h('span.chat-hint', ' (choose any)') : null),
@@ -96,7 +100,8 @@ export function askCard(ev, o) {
       const row = rows.find((r) => r.q === q);
       for (const b of row.btns) b.setAttribute('aria-checked', String(set.has(b.querySelector('.chat-choice-label').textContent)));
     };
-    fill(body, rows);
+    // Where the card came from, and what this coding tool does not tell (OpenCode marks no option as recommended).
+    fill(body, rows, ev.card && ev.card.less ? h('p.ho-from', ev.card.less) : null, ev.card ? h('p.ho-from', 'As the coding tool asked it') : null);
     const send = () => {
       const answers = {};
       for (const q of qs) {
@@ -132,16 +137,29 @@ export function askCard(ev, o) {
       h('button.btn.primary', { type: 'button', onclick: keys[0] }, keyed(1, h('span', go.label))),
       h('button.btn.secondary', { type: 'button', onclick: keys[1] }, keyed(2, h('span', review.label))),
       h('button.btn.secondary', { type: 'button', onclick: keys[2] }, keyed(3, h('span', 'No, keep planning'))));
+  } else if (ev.card && ev.card.held) {
+    // A held act (the wall): the same card a terminal shows — what the session wanted, why it is his, Allow once / No.
+    // No "always" on it (the owner approves this one act), as on a terminal.
+    fill(body, heldActCard(ev.card.held));
+    const deny = () => note(`Why not? ${who} reads this (optional)`, 'Do not allow', (msg) => answer(false, msg ? { message: msg } : {}));
+    keys = [() => answer(true), deny];
+    fill(actions,
+      h('button.btn.primary', { type: 'button', onclick: () => answer(true) }, keyed(1, icon('check', { size: 16 }), h('span', 'Allow'))),
+      h('button.btn.secondary.danger-text', { type: 'button', onclick: deny }, keyed(2, icon('x', { size: 16 }), h('span', 'Do not allow'))));
   } else {
     fill(body, inputView({ ...ev, name: ev.tool, toolKind: kindOf(ev.tool), asking: true }, o.cwd));
     const deny = () => note(`Why not? ${who} reads this (optional)`, 'Do not allow', (msg) => answer(false, msg ? { message: msg } : {}));
-    keys = [() => answer(true), ev.canAlways ? () => answer(true, { always: true }) : null, deny].filter(Boolean);
+    keys = [() => answer(true), ev.canAlways ? () => answer(true, { always: true }) : null, ev.canProject ? () => answer(true, { always: 'project' }) : null, deny].filter(Boolean);
     let n = 0;
     fill(actions,
       h('button.btn.primary', { type: 'button', onclick: () => answer(true) }, keyed(++n, icon('check', { size: 16 }), h('span', 'Allow'))),
       ev.canAlways ? h('button.btn.secondary', { type: 'button',
         title: ev.always === 'edits' ? `${who} changes files without asking for the rest of this session` : `${who} does not ask again in this session for: ${ruleWords(ev.alwaysText) || 'this'}`,
         onclick: () => answer(true, { always: true }) }, keyed(++n, h('span', ev.always === 'edits' ? 'Allow all edits in this session' : 'Allow in this session'))) : null,
+      // Claude Code keeps it in the project's local settings (.claude/settings.local.json), for every session there.
+      ev.canProject ? h('button.btn.secondary', { type: 'button',
+        title: `${who} does not ask again in this project for: ${ruleWords(ev.projectText || ev.alwaysText) || 'this'} (kept in the project's local settings)${grantItems(ev.alwaysText).includes('all edits') ? '; and changes files without asking for the rest of this session' : ''}`,
+        onclick: () => answer(true, { always: 'project' }) }, keyed(++n, h('span', 'Always allow in this project'))) : null,
       h('button.btn.secondary.danger-text', { type: 'button', onclick: deny }, keyed(++n, icon('x', { size: 16 }), h('span', 'Do not allow'))));
   }
   if (!el.keys) el.keys = (n) => (keys[n - 1] ? (keys[n - 1](), true) : false);
@@ -170,7 +188,9 @@ const kindOf = (tool) => KINDS[tool] || 'other';
 export const OUTCOME = {
   allowed: ['You allowed this', true],
   'allowed-always': ['You allowed this for the rest of the session', true],
+  'allowed-project': ['You allowed this in this project from now on', true],
   denied: ['You said no', false],
   cancelled: ['No longer waiting', false],
   hoprig: ['Allowed by Hoprig in bypass mode', true], // the hook allowed it after the card showed (src/chat/asks.mjs)
+  handsoff: ['Answered by Hoprig (Hands-off)', true], // src/chat/handsoff.mjs: the line under it says what and why
 };

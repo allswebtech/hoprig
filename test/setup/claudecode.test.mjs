@@ -110,11 +110,11 @@ test('auth status: exit code and JSON, and nothing personal kept', () => {
 test('resolveClaude: configured name on PATH, else the native location, else null', () => {
   const bin = fakeBin(path.join(s.tmp, 'bin-a'), { claude: fakeClaude() });
   const home = path.join(s.tmp, 'home-native');
-  assert.deepEqual(C.resolveClaude({ bin: 'claude', env: { PATH: bin }, platform: 'linux', home }), { path: path.join(bin, 'claude'), onPath: true });
-  assert.equal(C.resolveClaude({ bin: 'claude', env: { PATH: '' }, platform: 'linux', home }), null);
+  assert.deepEqual(C.resolveClaude({ bin: 'claude', env: { PATH: bin }, platform: 'linux', home }), { path: path.join(bin, 'claude'), onPath: true }); // seal: a value no program is started with
+  assert.equal(C.resolveClaude({ bin: 'claude', env: { PATH: '' }, platform: 'linux', home }), null); // seal: a value no program is started with
   fakeBin(path.join(home, '.local', 'bin'), { claude: fakeClaude() });
-  assert.deepEqual(C.resolveClaude({ bin: 'claude', env: { PATH: '' }, platform: 'linux', home }), { path: path.join(home, '.local', 'bin', 'claude'), onPath: false });
-  assert.equal(C.resolveClaude({ bin: 'my-claude', env: { PATH: '' }, platform: 'linux', home }), null, 'a custom name is not guessed');
+  assert.deepEqual(C.resolveClaude({ bin: 'claude', env: { PATH: '' }, platform: 'linux', home }), { path: path.join(home, '.local', 'bin', 'claude'), onPath: false }); // seal: a value no program is started with
+  assert.equal(C.resolveClaude({ bin: 'my-claude', env: { PATH: '' }, platform: 'linux', home }), null, 'a custom name is not guessed'); // seal: a value no program is started with
   assert.equal(C.nativeBinPath('win32', 'C:\\Users\\u').endsWith('claude.exe'), true);
 });
 

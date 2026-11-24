@@ -66,7 +66,7 @@ test('looksSecret: shapes and named random values, not ordinary text', () => {
 });
 
 test('redact: the shapes of Hoprig\'s own tokens and other common keys, and a password in a URL', () => {
-  const keys = ['hwc_' + '0123456789abcdef'.repeat(4), 'tia_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v', 'github_pat_' + '11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz',
+  const keys = ['hwt_' + 'Ab3-_x'.repeat(7) + 'Q', 'hwc_' + '0123456789abcdef'.repeat(4), 'tia_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v', 'github_pat_' + '11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz',
     'sk_live_' + '51HabcdefGHIJKLMNOPqrstuv', 'sk_test_' + '51HabcdefGHIJKLMNOPqrstuv', 'AIza' + 'SyA-abcdefghijklmnopqrstuvwxyz12345', 'npm_' + 'abcdefghijklmnopqrstuvwxyz0123456789'];
   for (const k of keys) {
     assert.equal(redact(`the key ${k} here`), 'the key *** here', k);
@@ -83,4 +83,16 @@ test('audit masking: secret-named keys and secret-shaped values', () => {
   assert.ok(!m.text.includes('abcdefghijkl'));
   assert.equal(m.n, 3);
   assert.equal(redact('Bearer abcdefghij'), 'Bearer ***');
+});
+
+test('characters nobody can see are stripped: tags, format characters, variation selectors, C1 controls; stripping twice changes nothing', async () => {
+  const { cleanInput, stripped } = await import('../../src/assistant/fence.mjs');
+  const tags = String.fromCodePoint(0xe0001) + [...'push'].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join('');
+  const hidden = `a${tags}b⁦c⁩d­e᠎f️g${String.fromCodePoint(0xe0100)}h\u0085i\u009bj‍k؜l`;
+  assert.equal(stripped(hidden), 'abcdefghijkl');
+  assert.equal(neutralize(hidden), 'abcdefghijkl');
+  for (const t of [hidden, 'e​́', 'Café ‮<untrusted_x>']) assert.equal(stripped(stripped(t)), stripped(t), JSON.stringify(t));
+  assert.deepEqual(cleanInput({ a: `x${tags}`, b: ['y​'], n: 3 }), { value: { a: 'x', b: ['y'], n: 3 }, changed: true });
+  assert.deepEqual(cleanInput({ a: 'tab\tand\nline', n: null }), { value: { a: 'tab\tand\nline', n: null }, changed: false });
+  assert.equal(stripped('Ünïcödé text, emoji 👍🏽 and 中文'), 'Ünïcödé text, emoji 👍🏽 and 中文', 'visible text is kept');
 });

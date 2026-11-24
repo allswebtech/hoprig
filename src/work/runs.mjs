@@ -11,7 +11,12 @@
 //   project, folder (inside the project: "." or "code/web"), tool, provider, model, effort, session (the chat's id),
 //   conversation, message (the first message's id), brief, state, reason, answer, commits: [{ repo, short, subject }],
 //   changed: [{ repo, path, kind }], more (files changed and not listed: past the list's limit, or of a name a run
-//   does not hold), was (the task's status when it started: open or waiting), statusError }
+//   does not hold), was (the task's status when it started: open or waiting), statusError, branch, schedule, used }
+// used: what the coding tool's own result line reported it used, { input, output, cacheRead, cacheWrite, costUsd }
+// (each a whole number of tokens, costUsd a number or null), for a run that ends by itself; absent or null where the
+// tool reported nothing (an older run file, a Do it run): "not reported", never 0.
+// branch and schedule belong to a run that ends by itself (alone.mjs): the branch it worked on (`work/<id>`) and the
+// schedule that started it (by: "schedule"), else null; a run file of an earlier version has neither (read as null).
 // state: running | done | failed | limit | stopped. A run file is at most RUN_FILE_MAX: writeRun shortens the lists to
 // fit (and counts what it left out in `more`).
 //
@@ -47,7 +52,26 @@ const CONVERSATION_RE = /^[A-Za-z0-9_-]{1,200}$/;
 const EFFORT_RE = /^[a-z]{1,20}$/;
 const SHORT_RE = /^[0-9a-f]{4,64}$/;
 const DAY_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
-const KEYS = ['v', 'id', 'item', 'title', 'writer', 'by', 'startedAt', 'endedAt', 'project', 'folder', 'tool', 'provider', 'model', 'effort', 'session', 'conversation', 'message', 'brief', 'state', 'reason', 'answer', 'commits', 'changed', 'more', 'was', 'statusError'];
+const KEYS = ['v', 'id', 'item', 'title', 'writer', 'by', 'startedAt', 'endedAt', 'project', 'folder', 'tool', 'provider', 'model', 'effort', 'session', 'conversation', 'message', 'brief', 'state', 'reason', 'answer', 'commits', 'changed', 'more', 'was', 'statusError', 'branch', 'schedule', 'used'];
+const LATER_KEYS = ['branch', 'schedule', 'used']; // not in a run file of an earlier version
+export const BRANCH_RE = /^work\/[a-z0-9][a-z0-9-]{0,79}$/;
+const SCHEDULE_RE = /^[a-z0-9]{4,32}$/;
+const TOKENS_MAX = 1e12;
+const tokOk = (n) => Number.isInteger(n) && n >= 0 && n <= TOKENS_MAX;
+/** What a run used, as a run file holds it (see the top). */
+const usedOk = (u) => isObj(u) && Object.keys(u).length === 5 && ['input', 'output', 'cacheRead', 'cacheWrite'].every((k) => tokOk(u[k]))
+  && (u.costUsd === null || (Number.isFinite(u.costUsd) && u.costUsd >= 0 && u.costUsd < 1e6));
+/** The `used` of a run from a result line's usage and cost, or null when it reported none. */
+export function usedOf(usage, cost) {
+  if (!isObj(usage)) return null;
+  // A usage with none of the four token counts reported nothing: "not reported", never a reported 0.
+  if (![usage.input_tokens, usage.output_tokens, usage.cache_read_input_tokens, usage.cache_creation_input_tokens].some((v) => Number.isFinite(v) && v >= 0)) return null;
+  const n = (v) => (Number.isFinite(v) && v >= 0 ? Math.min(Math.round(v), TOKENS_MAX) : 0);
+  const u = { input: n(usage.input_tokens), output: n(usage.output_tokens), cacheRead: n(usage.cache_read_input_tokens), cacheWrite: n(usage.cache_creation_input_tokens), costUsd: Number.isFinite(cost) && cost >= 0 && cost < 1e6 ? cost : null };
+  return u;
+}
+/** All tokens of a `used`, or null when not reported. */
+export const tokensOf = (u) => (usedOk(u) ? u.input + u.output + u.cacheRead + u.cacheWrite : null);
 
 // (refused: the record's content was refused, not its file: doit.mjs settle writes a leaner one then.)
 const bad = (message) => Object.assign(new Error(`a run record ${message}`), { status: 500, refused: true });
@@ -59,8 +83,11 @@ export function newRunId(now = new Date()) {
   return `${s.slice(0, 8)}-${s.slice(9, 15)}-${crypto.randomBytes(4).toString('hex')}`;
 }
 
-/** This dashboard's writer id: random, made once and kept in its state folder (never a host or user name). */
-export function writerId() {
+/**
+ * This dashboard's writer id: random, made once and kept in its state folder (never a host or user name). `make`
+ * false: only read it (null when it is not made yet), for what writes nothing (a dry run, a list).
+ */
+export function writerId({ make = true } = {}) {
   const file = path.join(stateDir(), 'work-writer');
   try {
     const v = fs.readFileSync(file, 'utf8').trim();
@@ -68,6 +95,7 @@ export function writerId() {
   } catch {
     /* made below */
   }
+  if (!make) return null;
   const id = crypto.randomBytes(8).toString('hex');
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, `${id}\n`, { mode: 0o600 });
@@ -241,7 +269,7 @@ export const relOk = (s) => typeof s === 'string' && s.length > 0 && s.length <=
 export function checkRun(r) {
   if (!isObj(r)) throw bad('is not an object');
   for (const k of Object.keys(r)) if (!KEYS.includes(k)) throw bad(`has an unknown key "${String(k).slice(0, 30)}"`);
-  for (const k of KEYS) if (!(k in r)) throw bad(`has no "${k}"`);
+  for (const k of KEYS) if (!(k in r) && !LATER_KEYS.includes(k)) throw bad(`has no "${k}"`);
   const str = (k, max, re = null, { nul = false, lines = false } = {}) => {
     const v = r[k];
     if (v === null && nul) return;
@@ -255,7 +283,10 @@ export function checkRun(r) {
   str('item', 80, ID_RE);
   str('title', 200);
   str('writer', 16, /^[0-9a-f]{16}$/);
-  if (r.by !== 'owner') throw bad('has a bad "by"');
+  if (r.by !== 'owner' && r.by !== 'schedule' && r.by !== 'mission' && r.by !== 'look') throw bad('has a bad "by"');
+  if (r.branch !== undefined && r.branch !== null && (typeof r.branch !== 'string' || !BRANCH_RE.test(r.branch))) throw bad('has a bad "branch"');
+  if (r.schedule !== undefined && r.schedule !== null && (typeof r.schedule !== 'string' || !SCHEDULE_RE.test(r.schedule))) throw bad('has a bad "schedule"');
+  if (r.used !== undefined && r.used !== null && !usedOk(r.used)) throw bad('has a bad "used"');
   str('startedAt', 30, DAY_TIME_RE);
   str('endedAt', 30, DAY_TIME_RE, { nul: true });
   str('project', 100, PROJECT_RE);
@@ -411,7 +442,7 @@ export function listRuns(place, { item = null, max = LIST_MAX } = {}) {
 /** A run as the page and the command get it: everything but the writer's id. */
 export function viewRun(r, me = null) {
   const { writer, ...rest } = r;
-  return { ...rest, here: me !== null && writer === me };
+  return { branch: null, schedule: null, used: null, ...rest, here: me !== null && writer === me };
 }
 
 // ---------- what the writer keeps of a run's start ----------
@@ -419,15 +450,16 @@ export function viewRun(r, me = null) {
 const startFile = (id) => path.join(stateDir(), 'work-runs', `${id}.json`);
 
 /**
- * Keep what run `id` started from: { start: [{ repo, head }], before: [{ repo, path, sig }], beforeCut } (folders.mjs
- * headsOf and dirtyOf). In this dashboard's state folder, mode 600: only the writer reads it, when it settles the run.
+ * Keep what run `id` started from: { start: [{ repo, head }], before: [{ repo, path, sig }], beforeCut, proc? } (folders.mjs
+ * headsOf and dirtyOf; proc: { pid, ident } of a run's coding tool, procid.mjs, for a run that ends by itself). In this dashboard's state folder, mode 600: only the writer reads it, when it settles the run.
  */
 export function keepStart(id, data) {
   if (!RUN_ID_RE.test(id)) throw bad('has a bad "id"');
   const file = startFile(id);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ start: data.start, before: data.before, beforeCut: !!data.beforeCut }), { mode: 0o600 });
+  const proc = isObj(data.proc) && Number.isInteger(data.proc.pid) && data.proc.pid > 0 && typeof data.proc.ident === 'string' ? { pid: data.proc.pid, ident: data.proc.ident.slice(0, 200) } : undefined;
+  fs.writeFileSync(tmp, JSON.stringify({ start: data.start, before: data.before, beforeCut: !!data.beforeCut, ...(proc ? { proc } : {}) }), { mode: 0o600 });
   fs.renameSync(tmp, file);
 }
 
@@ -439,7 +471,8 @@ export function readStart(id) {
     const ok = isObj(d) && Array.isArray(d.start) && Array.isArray(d.before)
       && d.start.every((x) => isObj(x) && typeof x.repo === 'string' && (x.head === null || SHA_RE.test(x.head)))
       && d.before.every((x) => isObj(x) && typeof x.repo === 'string' && typeof x.path === 'string' && typeof x.sig === 'string');
-    return ok ? { start: d.start, before: d.before, beforeCut: d.beforeCut === true } : null;
+    const proc = isObj(d.proc) && Number.isInteger(d.proc.pid) && d.proc.pid > 0 && typeof d.proc.ident === 'string' ? { pid: d.proc.pid, ident: d.proc.ident } : null;
+    return ok ? { start: d.start, before: d.before, beforeCut: d.beforeCut === true, ...(proc ? { proc } : {}) } : null;
   } catch {
     return null;
   }

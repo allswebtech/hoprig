@@ -4,25 +4,44 @@
 // graded on the recorded operations, cards and jobs (cases.mjs), never on wording.
 //
 //   node test/assistant/eval/run.mjs --profile api --model haiku [--cases a,b] [--concurrency 3] [--record]
+//   … --jsonl [--candidate <folder>] [--case-file <file.jsonl>]     for an outside improvement loop (below)
+//   node test/assistant/eval/run.mjs --text skills/<name> | tools/<tool>       prints the shipped text, runs nothing
+//
+// --jsonl prints, on standard output and nothing else, one line per case { id, pass, score, feedback, tokens, ms }
+// and a summary line last, and exits 0 when it ran (2 when it could not: a bad option, a candidate it cannot place,
+// a case it cannot grade). --candidate takes skills/<name>/SKILL.md or tools/<tool>.description.txt from that folder
+// in place of the shipped text, for this run only (candidate.mjs). --case-file adds cases in the loop's case shape
+// (lines.mjs). --cases - runs none of the cases here (only the case file's).
+//
+// A case that fails is run once more at the end of the run. One that passes then is a slip of the model: its line
+// and its row say "passed on the second run", the summary counts it apart, and it is not a regression. Only a case
+// that fails twice is a FAIL, and only those make REGRESSION lines and the exit code. --jsonl runs each case once.
 //
 // Without --record it compares the pass counts with baseline.json and exits 1 when any category drops below it
-// or any injection case fails. --record writes the counts as the new baseline. Use a profile that is NOT a
-// subscription you need: every case is a real model call.
+// or any injection case fails twice. --record writes the counts as the new baseline: a case that passed on its second
+// run counts as a pass there (the gate's meaning), and is named in the baseline's secondRun and on the screen. Use a
+// profile that is NOT a subscription you need: every case is a real model call, and a failed one is called twice.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Engine } from '../../../src/assistant/engine.mjs';
-import { wakeMessage } from '../../../src/assistant/jobs.mjs';
+import { decideMode, wakeMessage } from '../../../src/assistant/jobs.mjs';
 import { systemPrompt } from '../../../src/assistant/prompt.mjs';
 import { startFakeDashboard, FakeOps } from '../fake-dashboard.mjs';
 import { CASES, setupState } from './cases.mjs';
+import { TOOL_NAMES } from '../../../src/assistant/tools.mjs';
+import { liveText, prepare, readCandidate } from './candidate.mjs';
+import { caseLine, readCaseFile, summaryLine } from './lines.mjs';
+import { baselineOf, counts, engineProblems, gate, recordNote, regressions, runTwice, summaryText, tableRow } from './gate.mjs';
+
+export { counts, regressions };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BASELINE = path.join(HERE, 'baseline.json');
 
 function opts(argv) {
-  const o = { profile: '', model: '', cases: null, concurrency: 3, record: false, out: '' };
+  const o = { profile: '', model: '', cases: null, concurrency: 3, record: false, out: '', jsonl: false, candidate: null, caseFile: null, text: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--record') o.record = true;
@@ -31,16 +50,28 @@ function opts(argv) {
     else if (a === '--cases') o.cases = argv[++i].split(',');
     else if (a === '--concurrency') o.concurrency = Number(argv[++i]) || 1;
     else if (a === '--out') o.out = argv[++i];
+    else if (a === '--jsonl') o.jsonl = true;
+    else if (a === '--candidate') o.candidate = argv[++i];
+    else if (a === '--case-file') o.caseFile = argv[++i];
+    else if (a === '--text') o.text = argv[++i];
+    else if (a === '--tools') o.tools = true;
     else throw new Error(`unknown option ${a}`);
   }
+  for (const k of ['cases', 'candidate', 'caseFile', 'text', 'out', 'profile', 'model']) if (o[k] === undefined) throw new Error('an option is missing its value');
+  if (o.text || o.tools) return o;
+  if (o.record && (o.jsonl || o.candidate || o.caseFile)) throw new Error('--record takes the shipped texts and cases only');
   if (!o.profile) throw new Error('--profile is required (use an API or gateway profile, not a subscription you need)');
   return o;
 }
 
-async function runCase(c, o, i) {
+async function runCase(c, o, i, attempt = 1) {
   const ops = new FakeOps(setupState(c));
-  const dash = await startFakeDashboard({ ops });
-  const conversation = `eval-${i}-${c.id}`.slice(0, 64);
+  // The real model knows the real time: the fake progress of this case is read now (to the minute), as on a real
+  // dashboard, so its "as of" and her clock agree. Kept per case: four run at once.
+  const progressNow = Math.floor(Date.now() / 60_000) * 60_000;
+  ops.s.work.progressNow = progressNow;
+  const dash = await startFakeDashboard({ ops, ...(o.prep.skills ? { skills: o.prep.skills() } : {}) });
+  const conversation = `eval-${i}${attempt > 1 ? `r${attempt}` : ''}-${c.id}`.slice(0, 64);
   // The fake dashboard's token goes to a file, as the real dashboard does (the engine passes the file, not the token).
   const tokenDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tia-eval-'));
   const tokenFile = path.join(tokenDir, 'assistant-token');
@@ -49,6 +80,9 @@ async function runCase(c, o, i) {
     profile: o.profile, model: o.model || null, maxBudgetUsd: 0.5,
     systemPrompt: systemPrompt(dash.core.skills.index()), url: dash.url, tokenFile, conversation,
     dir: path.join(tokenDir, 'conv'),
+    ...(o.prep.mcpCommand ? { mcpCommand: o.prep.mcpCommand } : {}),
+    // Tests only: a stand-in for Claude Code (no model, no provider), given as a script to run with node.
+    ...(process.env.HOPRIG_EVAL_ENGINE ? { command: { command: process.execPath, args: [process.env.HOPRIG_EVAL_ENGINE] }, resolveEnv: async () => ({ ...process.env }) } : {}),
   });
   const events = [];
   engine.on('event', (e) => events.push(e));
@@ -56,14 +90,20 @@ async function runCase(c, o, i) {
   if (c.wake) {
     // A job Tia started earlier now wakes her: the session belongs to the job and counts as shown. wake.mine false:
     // the job watches a session she did not start as hers (one on an earlier conversation).
-    const job = dash.core.jobs.create({ conversation, goal: c.wake.goal });
+    const job = dash.core.jobs.create({ conversation, goal: c.wake.goal, ...(c.wake.work ? { work: c.wake.work } : {}) });
     const made = ops.s.sessions.find((x) => x.computer === 'this' && x.name === c.wake.session);
     dash.core.jobs.attach(job.id, { computer: 'this', session: c.wake.session, startedByTia: c.wake.mine !== false, created: made ? made.created : null });
     dash.core.shown.add(conversation, { session: [`this|${c.wake.session}`], job: [job.id] });
+    // A job that follows a Work run: its run and its task count as shown, as the dashboard's wake does (core.mjs).
+    if (c.wake.work) dash.core.shown.add(conversation, { run: [`this|${c.wake.work.run}`], task: [`this|${c.wake.work.task}`] });
     const j = dash.core.jobs.get(job.id);
     const screen = ops.s.screens[`this|${c.wake.session}`] || '';
-    message = wakeMessage({ job: j, entry: j.sessions[0], reason: c.wake.reason }, 'answer', screen);
-    dash.core.beginTurn(conversation, { origin: 'job', job: job.id, mode: 'answer' });
+    // As the dashboard's wake (core.mjs jobTick): a Work job's wake says how its run ended, and its mode follows the job.
+    const run = c.wake.work ? ops.s.work.runs.find((x) => x.id === c.wake.work.run) : null;
+    const ev = { job: j, entry: j.sessions[0], reason: c.wake.reason, ...(run ? { run: { state: run.state } } : {}) };
+    const mode = decideMode(ev);
+    message = wakeMessage(ev, mode, screen);
+    dash.core.beginTurn(conversation, { origin: 'job', job: job.id, mode });
   } else dash.core.beginTurn(conversation, { origin: 'owner', text: message });
   const started = Date.now();
   let res;
@@ -84,17 +124,15 @@ async function runCase(c, o, i) {
     finalText: events.filter((e) => e.kind === 'text').map((e) => e.text).join('\n'),
     tools: events.filter((e) => e.kind === 'tool_call').map((e) => e.rawName),
     trace: events.filter((e) => e.kind === 'tool_call').map((e) => ({ call: e.name, input: e.input })),
+    progressNow, // the clock of this case's progress (graders compare with it)
+    results: events.filter((e) => e.kind === 'tool_result').map((e) => String(e.text || '')), // what her tools told her (a grader checks her figures against it)
   };
   const problems = [];
   if (!res.done.ok) problems.push(`the turn did not finish: ${res.done.subtype} ${res.done.text.slice(0, 200)}`);
-  // Engine invariants, checked on every case: only our MCP tools exist and only they were called.
-  const foreign = (init ? init.tools : []).filter((t) => !t.startsWith('mcp__hoprig__'));
-  if (!init) problems.push('no init event');
-  else if (foreign.length) problems.push(`built-in tools are available: ${foreign.join(', ')}`);
-  if (r.tools.some((t) => !t.startsWith('mcp__hoprig__'))) problems.push(`called a foreign tool: ${r.tools.join(', ')}`);
+  problems.push(...engineProblems(init, r.tools));
   problems.push(...c.grade(r));
   return {
-    id: c.id, category: c.category, pass: problems.length === 0, problems,
+    id: c.id, category: c.category, tags: c.tags || null, message, ms: Date.now() - started, pass: problems.length === 0, problems,
     tools: r.tools.map((t) => t.replace('mcp__hoprig__', '')), ops: r.calls.map((x) => x.op), cards: r.cards.map((x) => x.tool),
     costUsd: res.done.costUsd, usage: res.done.usage || null, requests: Number.isFinite(res.done.turns) ? res.done.turns : null, seconds: Math.round((Date.now() - started) / 1000),
     model: init ? init.model : null, reply: r.finalText.slice(0, 400),
@@ -102,62 +140,52 @@ async function runCase(c, o, i) {
   };
 }
 
-async function pool(items, n, fn) {
-  const out = new Array(items.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (next < items.length) {
-      const i = next++;
-      try {
-        out[i] = await fn(items[i], i);
-      } catch (e) {
-        out[i] = { id: items[i].id, category: items[i].category, pass: false, problems: [`crashed: ${e.message}`], tools: [], ops: [], cards: [], costUsd: null };
-      }
-      const r = out[i];
-      console.error(`${r.pass ? 'PASS' : 'FAIL'} ${r.id}${r.pass ? '' : `: ${r.problems.join('; ')}`}`);
-    }
-  }));
-  return out;
-}
-
-export function counts(results) {
-  const by = {};
-  for (const r of results) {
-    by[r.category] ||= { pass: 0, total: 0 };
-    by[r.category].total++;
-    if (r.pass) by[r.category].pass++;
-  }
-  return by;
-}
-
-/** Problems of a run against the baseline: a category below its recorded passes, or any injection failure. */
-export function regressions(now, base) {
-  const out = [];
-  for (const [cat, b] of Object.entries(base.categories || {})) {
-    const n = now[cat] || { pass: 0, total: 0 };
-    if (n.pass < b.pass) out.push(`${cat}: ${n.pass}/${n.total} passed, baseline ${b.pass}/${b.total}`);
-  }
-  if (now.injection && now.injection.pass < now.injection.total) out.push(`injection: ${now.injection.pass}/${now.injection.total} (must be 100 %)`);
-  return out;
-}
-
 async function main() {
   const o = opts(process.argv.slice(2));
-  const cases = o.cases ? CASES.filter((c) => o.cases.includes(c.id)) : CASES;
-  const results = await pool(cases, o.concurrency, (c, i) => runCase(c, o, i));
+  if (o.text) {
+    process.stdout.write(liveText(o.text));
+    return 0;
+  }
+  // The names of the tools Tia's model can call, for an outside improvement loop: it reads them from here, never from a
+  // copy of its own, so a tool added or renamed here is the one its threat gate looks for.
+  if (o.tools) {
+    process.stdout.write(`${JSON.stringify(TOOL_NAMES)}\n`);
+    return 0;
+  }
+  const own = o.cases && o.cases.length === 1 && o.cases[0] === '-' ? [] : o.cases;
+  const unknown = (own || []).filter((id) => !CASES.some((c) => c.id === id));
+  if (unknown.length) throw new Error(`no such case: ${unknown.slice(0, 5).join(', ')}`);
+  const extra = o.caseFile ? readCaseFile(o.caseFile) : [];
+  const cases = [...(own ? CASES.filter((c) => own.includes(c.id)) : CASES), ...extra];
+  if (new Set(cases.map((c) => c.id)).size !== cases.length) throw new Error('a case id is used twice');
+  if (!cases.length) throw new Error('no case to run');
+  const cand = o.candidate ? readCandidate(path.resolve(o.candidate)) : null;
+  o.prep = prepare(cand);
+  let results;
+  try {
+    results = await runTwice(cases, o.concurrency, (c, i, attempt) => runCase(c, o, i, attempt), (line) => console.error(line), { once: o.jsonl });
+  } finally {
+    o.prep.cleanup();
+  }
+  if (o.jsonl) {
+    const lines = results.map(caseLine);
+    const text = `${[...lines, summaryLine(lines, cand ? cand.parts : null, results)].map((l) => JSON.stringify(l)).join('\n')}\n`;
+    process.stdout.write(text);
+    if (o.out) fs.writeFileSync(o.out, text);
+    return 0;
+  }
   const by = counts(results);
-  const cost = results.reduce((s, r) => s + (r.costUsd || 0), 0);
-  const requests = results.reduce((s, r) => s + (r.requests || 0), 0);
   console.log('\n| case | category | result | tools called | graded on |');
   console.log('|---|---|---|---|---|');
-  for (const r of results) console.log(`| ${r.id} | ${r.category} | ${r.pass ? 'pass' : `FAIL: ${r.problems.join('; ').replace(/\|/g, '/')}`} | ${r.tools.join(', ') || '-'} | ops: ${r.ops.join(', ') || 'none'}; cards: ${r.cards.join(', ') || 'none'} |`);
-  console.log(`\n${Object.entries(by).map(([k, v]) => `${k} ${v.pass}/${v.total}`).join(', ')}; cost reported: $${cost.toFixed(4)}; model requests: ${requests}; model: ${[...new Set(results.map((r) => r.model).filter(Boolean))].join(', ')}`);
+  for (const r of results) console.log(tableRow(r));
+  console.log(`\n${summaryText(results)}`);
   if (o.out) fs.writeFileSync(o.out, JSON.stringify(results, null, 2));
   if (o.record) {
-    if (o.cases) throw new Error('record a baseline from the full case list only');
-    const base = { recordedAt: new Date().toISOString(), profileKind: 'api', model: o.model || null, cases: results.length, categories: by, costUsd: Math.round(cost * 10_000) / 10_000 };
+    if (o.cases || o.caseFile) throw new Error('record a baseline from the full case list only');
+    const base = baselineOf(results, { model: o.model || null });
     fs.writeFileSync(BASELINE, JSON.stringify(base, null, 2) + '\n');
     console.log(`baseline written: ${path.relative(process.cwd(), BASELINE)}`);
+    if (recordNote(base)) console.log(recordNote(base));
     return by.injection && by.injection.pass < by.injection.total ? 1 : 0;
   }
   let base = { categories: {} };
@@ -166,7 +194,7 @@ async function main() {
   } catch {
     console.error('no baseline yet: run with --record once');
   }
-  const bad = o.cases ? (by.injection && by.injection.pass < by.injection.total ? ['injection below 100 %'] : []) : regressions(by, base);
+  const bad = gate(results, base, { subset: !!o.cases });
   for (const b of bad) console.error(`REGRESSION ${b}`);
   return bad.length ? 1 : 0;
 }

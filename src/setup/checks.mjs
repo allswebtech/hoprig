@@ -8,18 +8,23 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { claudeInfo, claudeLoginStatus } from '../claudecode.mjs';
+import { ownEndpoint, ownEndpointWords, unreadSettings } from '../codetools/ownsettings.mjs';
 import { loadConfig } from '../config.mjs';
 import { binFile, configDir, configFile, profilesDir, stateDir, tilde } from '../paths.mjs';
 import { anyTool, enabledToolIds } from '../codetools/index.mjs';
 import { hiddenProfiles, listProfiles } from '../profiles.mjs';
 import { ensureSpawnHelper } from '../server/backends/pty-helper.mjs';
 import { tmuxNewEnough } from '../server/backends/tmuxversion.mjs';
-import { MIN_NODE_MAJOR } from '../nodeguard.mjs';
+import { MIN_NODE, MIN_NODE_TEXT } from '../nodefloor.mjs';
 import { brainDir } from '../workspace/layout.mjs';
+import { dormantReason, dormantWords, notOnServer, openHost, serverReason } from './server.mjs';
+import { listensOtherwise, runningFacts, whereWords } from './running.mjs';
+import { resolveListen } from '../server/serveopts.mjs';
 import { capture, compareVersions, detectPackageManager, installCommands, isRoot, npmArgv, npmMajor, showCommand, showCommands, which } from './system.mjs';
+import { rootCheck, rootFacts } from './rootfacts.mjs';
 
 export const APP = 'hoprig';
-export const MIN_NODE = `${MIN_NODE_MAJOR}.0.0`; // src/nodeguard.mjs
+export { MIN_NODE }; // src/nodefloor.mjs
 export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 7433; // the same default as src/server/server.mjs
 export const UNIT = `${APP}.service`;
@@ -63,8 +68,8 @@ export const BUILD_TOOLS = {
 
 export function nodeCheck(version = process.versions.node) {
   const ok = compareVersions(version, MIN_NODE) >= 0;
-  return result('node', 'Node.js', ok ? 'ok' : 'fail', `${version}${ok ? '' : ` (Hoprig needs ${MIN_NODE.split('.')[0]} or newer)`}`,
-    ok ? '' : `Install Node.js ${MIN_NODE_MAJOR} or newer (https://nodejs.org), then run the Hoprig installer again.`);
+  return result('node', 'Node.js', ok ? 'ok' : 'fail', `${version}${ok ? '' : ` (Hoprig needs ${MIN_NODE_TEXT} or newer)`}`,
+    ok ? '' : `Install Node.js ${MIN_NODE_TEXT} or newer (https://nodejs.org), then run the Hoprig installer again.`);
 }
 
 export function appCheck() {
@@ -249,8 +254,8 @@ export function ptyCause(state, major = null) {
  * install script of exactly the node-pty version it pins, which is what npm 12 asks for. A module that is not
  * there at all has to be installed (`npm rebuild` only builds what is there).
  */
-export function ptyRepairArgv(state, platform = process.platform) {
-  return npmArgv(state === 'absent' ? ['install', '--omit=dev', '--no-audit', '--no-fund'] : ['rebuild', 'node-pty'], platform);
+export function ptyRepairArgv(state, platform = process.platform, env = process.env) {
+  return npmArgv(state === 'absent' ? ['install', '--omit=dev', '--no-audit', '--no-fund'] : ['rebuild', 'node-pty'], platform, env);
 }
 
 /** Are the tools there that node-pty compiles with on Linux? */
@@ -367,13 +372,31 @@ export function parseTailscaleStatus(text) {
   }
 }
 
-export function accessCheck(cfg, ts) {
-  const host = cfg.server.host || DEFAULT_HOST;
-  const port = cfg.server.port || DEFAULT_PORT;
+/**
+ * `running`: what the dashboard running now says (running.mjs runningFacts), or null: it decides over the settings.
+ * `listenPort`: the port doctor's port check asked (allChecks), so the two lines name the same port.
+ */
+export function accessCheck(cfg, ts, server = null, sys = {}, running = null, listenPort = null) {
+  const want = cfg.server.host || DEFAULT_HOST;
+  const port = listenPort || cfg.server.port || DEFAULT_PORT;
+  // A dashboard reads its settings when it starts: where it listens now is what can reach it (set-up says the same).
+  const differs = running && running.host && listensOtherwise(running.host, want);
+  const now = differs && `the dashboard running now listens ${whereWords(running.host)}; its settings say ${whereWords(want)}: that changes when it restarts`;
+  // On a server (server.mjs) a dashboard open to the network is open to the internet on plain http. Settings that say
+  // so fail whatever runs now: a restart with them (the fix below for a different place) would open it.
+  if (server && openHost(want)) return result('access', 'Who can reach it', 'fail', `${now || `open to the network (http, port ${port})`}. ${notOnServer(server, port, sys)}`, `${APP} setup --access local`);
+  if (differs) {
+    if (server && openHost(running.host)) return result('access', 'Who can reach it', 'fail', `${now}. ${notOnServer(server, port, sys)}`, `${APP} service install   (restarts it with its settings)`);
+    return result('access', 'Who can reach it', 'warn', now, `${APP} service install   (restarts it with its settings)`);
+  }
+  const host = want;
   const parts = [host === '0.0.0.0' || host === '::' ? `local network (http, port ${port})` : `this computer only (${host}:${port})`];
   const tsOrigin = (cfg.server.allowedOrigins || []).find((o) => /^https:\/\/[^/]+\.ts\.net$/.test(o));
   if (tsOrigin) parts.push(`Tailscale ${tsOrigin}/`);
   else if (ts.running) parts.push('Tailscale is on but not set up for the dashboard');
+  // A reason an earlier set-up saved, unused only while this user is at the desktop: named, with the way out.
+  const dormant = server ? null : dormantReason(sys);
+  if (dormant) return result('access', 'Who can reach it', 'warn', `${parts.join('; ')}. ${dormantWords(dormant)}`, `${APP} setup --access network   (only if this is not a server)`);
   return result('access', 'Who can reach it', 'info', parts.join('; '), ts.running && !tsOrigin ? `${APP} setup` : '');
 }
 
@@ -386,12 +409,16 @@ export async function allChecks({ sys = sysInfo(), offline = false } = {}) {
   } catch {
     cfg = { claudeBin: 'claude', server: {} };
   }
+  // Root: one line, said here and so on Health too (rootfacts.mjs). `sys.root` decides, so a test plays root by facts;
+  // `sys.exists` answers the container files.
+  const root = rootCheck({ ...rootFacts({ env: sys.env, exists: sys.exists, cfg }), root: sys.root === true && sys.platform !== 'win32' });
+  if (root) list.push(root);
   const info = await claudeInfo({ env: sys.env, fetchImpl: offline ? async () => ({ ok: false }) : undefined });
   const onPath = !info.path || !!which(cfg.claudeBin, sys.env, sys.platform);
   // On a hub (it only shows and relays other computers) Claude Code, an account and a terminal are not needed:
   // whatever those checks find is information there, never a problem.
   const hub = cfg.hubOnly === true || sys.env.HOPRIG_HUB === '1';
-  const forHub = (r) => (hub && r.status !== 'ok' ? { ...r, status: 'info', detail: `${r.detail} (not needed on a hub)`, fix: undefined, action: undefined } : r);
+  const forHub = (r) => (hub && r.status !== 'ok' ? { ...r, status: 'info', detail: `${r.detail} (not needed on a main computer)`, fix: undefined, action: undefined } : r);
   list.push(forHub(claudeCheck(info, { onPath })));
   let profiles = [];
   try {
@@ -400,16 +427,96 @@ export async function allChecks({ sys = sysInfo(), offline = false } = {}) {
     /* reported by the folder check */
   }
   list.push(forHub(loginCheck(await claudeLoginStatus({ env: sys.env }), profiles)), forHub(profilesCheck(profiles, hiddenProfiles())));
+  const own = ownEndpointCheck();
+  if (own) list.push(forHub(own));
   const term = await terminalCheck(sys);
   list.push(term, forHub(await ptyCheck(sys, { tmux: !term.detail.startsWith('built-in') })), await passwordCheck(), await serviceCheck(sys));
-  list.push(await portCheck(cfg.server.host || DEFAULT_HOST, cfg.server.port || DEFAULT_PORT));
-  list.push(accessCheck(cfg, await tailscaleState(sys)), ...dirsCheck(sys.platform));
+  // The port the dashboard would really listen on, by the same resolution the server uses (serveopts.mjs
+  // resolveListen: the environment's PORT, then the settings', then the default). A test that sets a port of its own
+  // then never probes 7433, where a contributor's own dashboard listens. A PORT the server would itself refuse is
+  // said, not probed. sys.probe lets a test answer the probe without a real connection (sysInfo sets none in use).
+  // A dashboard that runs now says where it listens (its dashboard.json): that is asked first, whatever this shell's
+  // PORT or the settings say (the service does not carry PORT, and a dashboard started with --port or under another
+  // PORT listens elsewhere). Only when none runs is the port resolved. The access line names the same port.
+  const running = await (sys.running || runningFacts)();
+  let listen = running && Number.isInteger(running.port) ? { host: running.host || DEFAULT_HOST, port: running.port } : null;
+  if (!listen) {
+    try {
+      listen = resolveListen({ env: sys.env, server: cfg.server, defaults: { host: DEFAULT_HOST, port: DEFAULT_PORT } });
+    } catch {
+      list.push(result('port', 'Dashboard', 'warn', `PORT=${sys.env.PORT} is not a port number (1-65535); the dashboard would refuse it`, 'Unset PORT, or set it to a port number.'));
+    }
+  }
+  if (listen) list.push(await portCheck(listen.host, listen.port, sys.probe));
+  list.push(accessCheck(cfg, await tailscaleState(sys), serverReason(sys), sys, running, listen?.port), ...dirsCheck(sys.platform), ...(await longPathsChecks(sys)));
+  // On a server: a gateway Hoprig started that listens beyond this computer (gatewaycheck.mjs).
+  try {
+    const [{ gatewayChecks }, { gatewayAddons }] = await Promise.all([import('./gatewaycheck.mjs'), import('../addons/gateways.mjs')]);
+    list.push(...gatewayChecks(gatewayAddons(), { reason: serverReason(sys), platform: sys.platform, net: sys.net ?? null }));
+  } catch {
+    /* the add-ons could not load: doctor's own add-on line says so */
+  }
   const rules = sharedRulesCheck({ tools: enabledToolIds(cfg) });
   if (rules) list.push(rules);
   // The command in every shell, also `ssh <computer> hoprig …` (localbin.mjs).
   const cmd = (await import('./localbin.mjs')).commandCheck({ home: sys.env.HOME || undefined, platform: sys.platform });
   list.push(result('command', 'The hoprig command', cmd.status, cmd.detail, cmd.fix || undefined));
   return list;
+}
+
+/**
+ * An address in Claude Code's own settings file wins over every profile, silently: named, with where to change it.
+ * Host and port only, never a key. null when the file names none.
+ */
+export function ownEndpointCheck(dir) {
+  const o = ownEndpoint(dir);
+  if (!o) {
+    const u = unreadSettings(dir);
+    return u ? result('ownendpoint', "Claude Code's own settings", 'warn', `${u.file} names ANTHROPIC_BASE_URL but could not be read as JSON (a comment or a trailing comma?)`,
+      `Look for ANTHROPIC_BASE_URL in that file yourself: if it is set there, every session goes to that address, whichever provider you pick`) : null;
+  }
+  return result('ownendpoint', "Claude Code's own settings", 'warn', ownEndpointWords(o),
+    `On the dashboard's Providers page, press "Take the address out" (a copy of the file is kept). Or by hand: remove ANTHROPIC_BASE_URL from "env" in ${shownPath(o.file)}`);
+}
+
+/** A path as a person opens it: on Windows %USERPROFILE%\… (Explorer and PowerShell's cmd open that, not ~\…). */
+export function shownPath(p, platform = process.platform, homeDir = os.homedir()) {
+  if (platform !== 'win32') return tilde(p);
+  const lower = p.toLowerCase();
+  const h = homeDir.replace(/[\\/]+$/, '');
+  return lower === h.toLowerCase() || lower.startsWith(h.toLowerCase() + '\\') ? `%USERPROFILE%${p.slice(h.length)}` : p;
+}
+
+export const LONGPATHS_KEY = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem';
+
+/** `reg query … /v LongPathsEnabled` output → true, false, or null when it does not say. */
+export function parseLongPaths(out) {
+  const m = /^[ \t]+LongPathsEnabled[ \t]+REG_DWORD[ \t]+0x([0-9a-f]+)/im.exec(String(out || ''));
+  return m ? parseInt(m[1], 16) !== 0 : null;
+}
+
+/**
+ * Windows only: paths longer than 260 characters (a deep build cache in a project) fail in many programs unless
+ * Windows allows them, and git needs its own setting too. One line each, with the one command that turns it on;
+ * nothing is changed by doctor. `run(argv)` → { ok, stdout } (tests hand in made-up answers).
+ */
+export async function longPathsChecks(sys, run = (argv) => capture(argv, { env: sys.env, timeout: 10_000 })) {
+  if (sys.platform !== 'win32') return [];
+  const out = [];
+  const r = await run(['reg', 'query', LONGPATHS_KEY, '/v', 'LongPathsEnabled']);
+  const on = r.ok ? parseLongPaths(r.stdout) : false; // no value: Windows' default, off
+  if (on === true) out.push(result('longpaths', 'Long paths in Windows', 'ok', 'allowed'));
+  // Off is Windows' and git's default, and nothing is broken until a project has such a deep path: so a line for
+  // information (·), with the command, not a warning on every first run.
+  else if (on === false) out.push(result('longpaths', 'Long paths in Windows', 'info', 'off (the default): a file path longer than 260 characters (a deep folder in a project) fails in many programs. Turned on, it helps Node, git and newer programs; Windows PowerShell 5.1 and File Explorer still cannot use such a path (use a shorter folder, or PowerShell 7)',
+    'In PowerShell opened with "Run as administrator": New-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem" -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force'));
+  if (sys.has('git')) {
+    const g = await run(['git', 'config', '--get', 'core.longpaths']);
+    const gOn = g.ok && /^(true|yes|on|1)$/i.test(g.stdout.trim());
+    out.push(gOn ? result('gitlongpaths', 'Long paths in git', 'ok', 'on')
+      : result('gitlongpaths', 'Long paths in git', 'info', 'off (the default): git cannot check out or list a file whose path is longer than 260 characters', 'git config --global core.longpaths true'));
+  }
+  return out;
 }
 
 /** doctor's exit code: 0 only when nothing needed is broken. */

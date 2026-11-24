@@ -2,6 +2,7 @@
 // coding tool. Nothing here is downloaded and no model is asked.
 import fs from 'node:fs';
 import path from 'node:path';
+import { TOOLS } from './versions.mjs';
 
 // shop-frontend's cart: rounded per line before the discount (the bug the demo's chat fixes).
 const CART = `// The cart: what the checkout page shows and charges.
@@ -40,7 +41,7 @@ export function demoOpenCode(root) {
   const mods = path.join(root, 'state', 'tools', 'opencode', 'node_modules');
   fs.mkdirSync(path.join(mods, '@opencode', 'cli'), { recursive: true });
   fs.mkdirSync(path.join(mods, '.bin'), { recursive: true });
-  fs.writeFileSync(path.join(mods, '@opencode', 'cli', 'package.json'), JSON.stringify({ name: '@opencode/cli', version: '2.3.0' }));
+  fs.writeFileSync(path.join(mods, '@opencode', 'cli', 'package.json'), JSON.stringify({ name: '@opencode/cli', version: TOOLS.opencode.installed }));
   const bin = path.join(mods, '.bin', 'opencode');
   fs.writeFileSync(bin, '#!/bin/sh\necho "(demo) OpenCode does not run in the demo: nothing is installed." >&2\nexit 1\n', { mode: 0o755 });
 }

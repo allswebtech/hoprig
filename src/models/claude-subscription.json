@@ -1,0 +1,21 @@
+{
+  "about": "What Claude Code offers a Claude subscription, read from the installed tool: the models of its model menu (shown), its alias table and the exact ids it knows (accepted by the check, not shown, also with a date or [1m] after them, which the tool cuts itself). Read again when Claude Code changes them; the family names always work. The tool's own default is the picker's empty choice: no model is sent.",
+  "tool": "Claude Code",
+  "version": "2.1.328",
+  "models": [
+    { "id": "fable", "label": "Fable: the most capable, for the hardest tasks" },
+    { "id": "opus", "label": "Opus: for complex tasks" },
+    { "id": "opus[1m]", "label": "Opus, for long sessions (1M window)", "window1m": true },
+    { "id": "sonnet", "label": "Sonnet: fast, for most coding" },
+    { "id": "sonnet[1m]", "label": "Sonnet, for long sessions (1M window)", "window1m": true },
+    { "id": "haiku", "label": "Haiku: the fastest" },
+    { "id": "opusplan", "label": "Opus to plan, Sonnet to do the work" }
+  ],
+  "aliases": ["sonnet", "opus", "haiku", "fable", "best", "sonnet[1m]", "opus[1m]", "fable[1m]", "opusplan"],
+  "exact": [
+    "claude-3-5-haiku", "claude-3-5-sonnet", "claude-3-7-sonnet", "claude-fable-5", "claude-fable-5-1", "claude-fable-5-2",
+    "claude-haiku-4-5", "claude-haiku-5-5", "claude-opus-4-0", "claude-opus-4-1", "claude-opus-4-5", "claude-opus-4-6",
+    "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5", "claude-sonnet-4-0", "claude-sonnet-4-5",
+    "claude-sonnet-4-6", "claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-4-20250514", "claude-sonnet-4-20250514"
+  ]
+}

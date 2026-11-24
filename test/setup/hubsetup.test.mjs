@@ -203,10 +203,16 @@ test('setup: "from anywhere" explains the three ways', async () => {
   const rec = recorder();
   const u = makeUi({ interactive: true, write: rec.write, askLine: async () => answers.shift() });
   const S = sys('anywhere');
+  // A desktop at home: no public address, no ssh session, no cloud hardware (the computer running the tests may be a
+  // server reached by ssh, where "devices on my network" is not offered and the numbers differ).
   S.publicIps = [];
+  S.dmi = {};
+  S.localDisplay = false;
+  S.savedServer = null; // the earlier tests' public address was saved by their set-up (setup/server.mjs)
+  for (const k of ['SSH_CONNECTION', 'SSH_TTY', 'SSH_CLIENT']) delete S.env[k];
   await SU.stepAccess(u, S, {}, {});
   assert.match(rec.text, /3 {2}from anywhere/);
-  assert.match(rec.text, /a {2}I have a server: make it the hub/);
+  assert.match(rec.text, /a {2}I have a server: make it the main computer/);
   assert.match(rec.text, /b {2}a public link \(free, through Cloudflare, no server: a new address at each start, or your own domain\)/);
   assert.match(rec.text, /hoprig public on/);
   assert.equal(loadConfig().server.host, '127.0.0.1', 'this computer only, until the link is started');

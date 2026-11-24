@@ -106,7 +106,8 @@ test('several rounds of the upkeep and of `workspace map` on A and B: the map an
   }
   assert.deepEqual([head(path.join(B.projects, 'br', 'code', 'app-dev')), head(path.join(A.projects, 'br', 'code', 'app-dev'))], ['dev', 'dev']);
   const st = await M.mapStatus({ dir: A.ws, projects: A.projects });
-  for (const l of WT) assert.equal(st.entries.find((e) => e.label === l).state, 'missing', `${l}: listed as not on A`);
+  // A code repository of a project is "in the map, not on this computer" (notHere); another repository is missing.
+  for (const l of WT) assert.equal(st.entries.find((e) => e.label === l).state, l.startsWith('git/') ? 'missing' : 'notHere', `${l}: listed as not on A`);
 });
 
 test('restore and sync on A leave each worktree alone and say so in one line; the map stays', async () => {
@@ -114,7 +115,7 @@ test('restore and sync on A leave each worktree alone and say so in one line; th
   const map0 = mapText(A);
   const gitFiles = WT.map((l) => fs.readFileSync(path.join(l.startsWith('git/') ? A.ws : A.projects, l, '.git'), 'utf8'));
   const { ui, text } = await quietUi();
-  const r = await restoreWorkspace(urls.brain, { ui, dir: A.ws, projects: A.projects });
+  const r = await restoreWorkspace(urls.brain, { withProjects: true, ui, dir: A.ws, projects: A.projects });
   assert.equal(r.ok, true);
   for (const l of WT) {
     const e = r.plan.find((x) => x.label === l);
@@ -134,7 +135,7 @@ test('a fresh computer clones every entry, the one on "dev" on its branch', asyn
   const C = w.computer('c');
   C.use();
   const { ui } = await quietUi();
-  const r = await restoreWorkspace(urls.brain, { ui, dir: C.ws, projects: C.projects });
+  const r = await restoreWorkspace(urls.brain, { withProjects: true, ui, dir: C.ws, projects: C.projects });
   assert.equal(r.ok, true);
   for (const l of WT) assert.equal(r.plan.find((x) => x.label === l).result, 'cloned', l);
   assert.deepEqual([head(path.join(C.projects, 'br', 'code', 'app-dev')), head(path.join(C.ws, 'git', 'tool-dev'))], ['dev', 'dev']);
@@ -186,7 +187,7 @@ test('a project.json that does not name the folder, a worktree on D and a full c
   D.use();
   const look = await M.updateMap({ dir: D.ws, projects: D.projects, dryRun: true, manifests: false });
   assert.deepEqual([look.takenOut, look.notHere, look.diff.same], [[], ['pt/code/x'], true], 'D: in the map, not on this computer');
-  assert.equal((await M.mapStatus({ dir: D.ws, projects: D.projects })).entries.find((e) => e.label === 'pt/code/x').state, 'missing');
+  assert.equal((await M.mapStatus({ dir: D.ws, projects: D.projects })).entries.find((e) => e.label === 'pt/code/x').state, 'notHere');
   // The rule from before stays: with the folder absent on D, project.json takes the entry out there.
   w.sh(path.join(D.projects, 'pt', 'code', 'app'), 'worktree', 'remove', path.join(D.projects, 'pt', 'code', 'x'));
   const gone = await M.updateMap({ dir: D.ws, projects: D.projects, dryRun: true, manifests: false });

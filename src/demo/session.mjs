@@ -10,10 +10,16 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { createRun, removeRun, updateRun } from '../runs.mjs';
 import { applyLaunch } from '../launchfile.mjs';
+import { readProfile } from '../profiles.mjs';
 
 applyLaunch(); // started by the demo dashboard as the real launcher is: `--launch <file>` (../launchfile.mjs)
 
-const [account = 'max', ...args] = process.argv.slice(2);
+const [account = 'max', ...argv] = process.argv.slice(2);
+// A first message comes last, after "--" (server/deck.mjs promptArgs), as Claude Code takes it: the session works on it
+// at once. The flags are only what stands before it, so a message never reads as one.
+const dash = argv.indexOf('--');
+const args = dash < 0 ? argv : argv.slice(0, dash);
+const firstMessage = dash < 0 ? '' : argv.slice(dash + 1).join(' ').trim();
 // A session that moved to another provider comes with its id: --resume, or --session-id from a dashboard that
 // finds no conversation on disk (this stand-in keeps none). Either way the demo's story goes on, it does not restart.
 const idFlag = ['--resume', '--session-id'].find((f) => args.includes(f));
@@ -178,6 +184,24 @@ const STORIES = {
     say(msg);
     set({ status: 'waiting', lastMessage: msg });
   },
+  // A project whose CLAUDE.md brings in files from outside its folder: Claude Code asks first, before the session has
+  // started, so the run stays "starting" (the dashboard reads the question from the screen, askcard.mjs). It is
+  // answered in the terminal, with its number or Enter; the page never answers it.
+  bookshop: async () => {
+    w(` ${c.bold('Allow external CLAUDE.md file imports?')}`);
+    w(` ${c.dim('This project\'s CLAUDE.md brings in files')}`);
+    w(` ${c.dim('from outside its folder. Only use Claude')}`);
+    w(` ${c.dim('Code with files you trust.')}`);
+    w();
+    w(` ${c.blue('❯')} 1. No, disable external imports`);
+    w('   2. Yes, allow external imports');
+    w();
+    w(` ${c.dim('Enter to confirm · Esc to cancel')}`);
+    const k = await keyFor(['1', '2', '\r', '\n', '\x1b']);
+    w();
+    say(k === '2' ? 'External imports are allowed for this project.' : 'External imports stay off for this project.');
+    set({ status: 'waiting' });
+  },
 };
 // Any other folder: a fresh session that waits for its first message.
 const story = STORIES[folder] || (async () => set({ status: 'waiting' }));
@@ -199,7 +223,7 @@ const keyFor = (keys) => new Promise((resolve) => {
 async function answer(text) {
   busyMessage = true;
   w();
-  user(text.trim() || 'continue');
+  user(text.trim());
   set({ status: 'working', limit: null, note: '' });
   await sleep(900);
   tool('Read', 'README.md', 'Read 64 lines');
@@ -221,15 +245,24 @@ process.stdin.on('data', (d) => {
   typed += s;
   const lines = typed.split(/\r\n|[\r\n]/);
   typed = lines.pop();
-  for (const l of lines) if (!busyMessage) answer(l);
+  // An empty line does nothing, as in Claude Code: the Enter the page sends after a number that answered a question
+  // must not start work nobody asked for.
+  for (const l of lines) if (!busyMessage && l.trim()) answer(l);
 }).on('end', bye);
 
 header();
 if (resumed) {
   user('(the same conversation, now on another provider)');
-  say(`Picked up the conversation on the "${account}" provider; nothing was lost.`);
-  set({ status: 'waiting', lastMessage: `Picked up the conversation on the "${account}" provider.` });
+  // The account by the label the page shows ("Team plan"), never its inner name.
+  let label = account;
+  try {
+    label = (readProfile(account) || {}).label || account;
+  } catch {}
+  say(`Picked up the conversation on ${label}; nothing was lost.`);
+  set({ status: 'waiting', lastMessage: `Picked up the conversation on ${label}.` });
   promptBox();
+} else if (firstMessage) {
+  answer(firstMessage);
 } else {
   story().then(() => {
     if (!busyMessage) promptBox();

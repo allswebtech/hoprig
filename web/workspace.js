@@ -8,6 +8,7 @@ import { workspaceFolders } from './brain.js';
 import { syncRows } from './projects.js';
 import { registerSettingsPage } from './registry.js';
 import { errorBox, fold, groupHead, okBox, panel, toggle } from './shell.js';
+import { computerPanel, githubPath } from './wscomputer.js';
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -46,22 +47,21 @@ async function followJob(out, isAlive = () => true) {
 
 /**
  * The one line under the Workspace page's head, from the map (GET /api/workspace/map) and the last job: { text, warn,
- * missing, todo }. A project of the map that is not here counts as missing; the last sync's open points (not the
- * ones that are only "not here") as todo.
+ * missing, todo }. A project of the map that is not here (notHere; `missing` from an older computer) is the normal
+ * state, never a warning: a project comes to a computer when its owner gets it. The last sync's open points (not the
+ * ones that are only "not here") are todo.
  */
 export function workspaceLine(map, job) {
   const entries = (map && map.entries) || [];
-  const missing = entries.filter((e) => e.kind === 'project' && e.state === 'missing');
+  const missing = entries.filter((e) => e.kind === 'project' && (e.state === 'notHere' || e.state === 'missing'));
   const sync = job && job.kind === 'sync' && job.result && job.result.data && Array.isArray(job.result.data.repos) ? job.result.data : null;
   const todo = sync ? sync.repos.filter((r) => r.todo.some((t) => t.kind !== 'missing')).length : 0;
-  const parts = [];
-  if (todo) parts.push(`${plural(todo, 'repository', 'repositories')} ${todo === 1 ? 'has' : 'have'} changes to look at`);
-  if (missing.length) parts.push(`${plural(missing.length, 'project')} in your map ${missing.length === 1 ? 'is' : 'are'} not on this computer`);
-  if (parts.length) return { text: parts.join(' · '), warn: true, missing, todo };
+  const away = missing.length ? ` · ${plural(missing.length, 'more project')} in your map, not on this computer` : '';
+  if (todo) return { text: `${plural(todo, 'repository', 'repositories')} ${todo === 1 ? 'has' : 'have'} changes to look at${away}`, warn: true, missing, todo };
   if (!map || !map.exists) return { text: 'No workspace map yet: Settings → Workspace makes one', warn: false, missing, todo, noMap: true };
-  if (map.saved && map.saved.unsaved) return { text: UNSAVED, warn: false, missing, todo, unsaved: true };
-  if (sync && !sync.todo) return { text: 'In step with git', warn: false, missing, todo };
-  return { text: 'Not synced from here yet', warn: false, missing, todo };
+  if (map.saved && map.saved.unsaved) return { text: `${UNSAVED}${away}`, warn: false, missing, todo, unsaved: true };
+  if (sync && !sync.todo) return { text: `In step with git${away}`, warn: false, missing, todo };
+  return { text: `Not synced from here yet${away}`, warn: false, missing, todo };
 }
 
 const UNSAVED = 'The map changed and is not saved in the AI brain\'s history yet';
@@ -86,7 +86,7 @@ export function syncSheet(map, after = () => {}) {
         await api('/api/workspace/sync', { memory: memory.checked, push: push.checked });
       } catch (e) {
         go.disabled = false;
-        return fill(result, errorBox(e.message));
+        return fill(result, errorBox(e));
       }
       const j = await followJob(out, () => alive);
       if (!alive) return;
@@ -163,15 +163,19 @@ export function stripActions(map, s, load = () => {}) {
   return h('span.ws-strip-actions', get, sync);
 }
 
-/** A project of the map that is not on this computer: a quiet card with "Get it". */
-export function missingCard(e) {
-  return h('section.card.ws-project.ws-missing', { 'aria-label': `${e.label}: not on this computer yet` },
+/**
+ * A project of the map that is not on this computer: a quiet card with "Get it". `on`: the computers whose own file
+ * says they have it (GET /api/workspace/computers).
+ */
+export function missingCard(e, on = [], { lastHere = '', unknown = [] } = {}) {
+  return h('section.card.ws-project.ws-missing', { 'aria-label': `${e.label}: not on this computer` },
     h('div.ws-head',
       h('span.ws-name', h('span.row-icon', icon('download')),
         h('span.row-main',
           h('span.ws-title', e.label),
           h('span.row-sub', e.url || 'No address in the map: it is not on a git server yet'),
-          h('span.row-sub', 'Not on this computer yet'))),
+          h('span.row-sub', on.length ? `On ${on.join(', ')}; not on this computer` : unknown.length ? `On none of the computers that wrote their file; ${unknown.join(', ')} ${unknown.length === 1 ? 'has' : 'have'} written no file, so ${unknown.length === 1 ? 'it' : 'they'} may have it` : 'In your map, not on this computer'),
+          lastHere ? h('span.row-sub', lastHere) : null)),
       e.url ? h('span.ws-tools', h('a.btn.small.secondary', { href: link(`#/get-project/${encodeURIComponent(e.url)}`) }, icon('download', { size: 16 }), h('span', 'Get it'))) : null));
 }
 
@@ -180,6 +184,7 @@ export function missingCard(e) {
 const ACTION = {
   clone: () => 'will be cloned',
   here: () => 'already here',
+  notHere: () => 'stays in the map: get it when you need it',
   different: (e) => `left alone: ${e.why || 'something else is in that folder'}`,
   'no-address': (e) => `skipped: ${e.why || 'no address in the map'}`,
   misnamed: (e) => `left alone: ${e.why || 'it is here under another name'}`,
@@ -188,7 +193,8 @@ const ACTION = {
 /** "Bring my workspace from git": the brain's address → the plan → the job → what came and what did not. */
 export function restoreSheet(git, after = () => {}) {
   let alive = true;
-  openSheet({ title: 'Bring my workspace from git', subtitle: 'Your AI brain, then every project its map names', wide: true }, (close) => {
+  openSheet({ title: 'Bring my workspace from git', subtitle: 'Your AI brain with its map, your credentials and groups; projects when you get one', wide: true }, (close) => {
+    let withProjects = false;
     const panelBox = h('div');
     const signed = git && git.gh && git.gh.signedIn;
     function stepAddress(value = '', error = '') {
@@ -200,7 +206,7 @@ export function restoreSheet(git, after = () => {}) {
         look.disabled = true;
         fill(err, busyLine('Reading its map…'));
         try {
-          const plan = await api('/api/workspace/restore', { url, dryRun: true });
+          const plan = await api('/api/workspace/restore', { url, dryRun: true, ...(withProjects ? { withProjects } : {}) });
           if (alive) stepPlan(url, plan);
         } catch (e) {
           look.disabled = false;
@@ -215,23 +221,37 @@ export function restoreSheet(git, after = () => {}) {
     }
     function stepPlan(url, r) {
       const get = r.plan.filter((e) => e.action === 'clone').length;
+      const away = r.notHere || [];
+      // Every project too: the one choice for an owner who wants them on every computer (asked again with it).
+      const all = h('input', { type: 'checkbox', checked: withProjects, onchange: async () => {
+        withProjects = all.checked;
+        all.disabled = true;
+        try {
+          stepPlan(url, await api('/api/workspace/restore', { url, dryRun: true, ...(withProjects ? { withProjects } : {}) }));
+        } catch (e) {
+          toast(e, { kind: 'error' });
+          all.disabled = false;
+        }
+      } });
       fill(panelBox,
         h('p.sheet-text', get ? `${plural(get, 'repository', 'repositories')} will be cloned. What is here already is left as it is; nothing is overwritten.` : 'Everything is here already.'),
-        h('div.rows', r.plan.map((e) => h('div.row.static',
+        away.length ? h('p.hint', `${plural(away.length, 'project')} of your map stay${away.length === 1 ? 's' : ''} there until you get ${away.length === 1 ? 'it' : 'one'}: ${away.join(', ')}.`) : null,
+        h('label.toggle-line', all, h('span', 'Also get every project of the map on this computer')),
+        h('div.rows', r.plan.filter((e) => e.action !== 'notHere').map((e) => h('div.row.static',
           h(`span.row-icon.pj-mark${e.action === 'clone' || e.action === 'here' ? '.ok' : '.warn'}`, icon(e.action === 'clone' ? 'download' : e.action === 'here' ? 'check' : 'alert')),
           h('span.row-main', h('span.row-title', e.label), h('span.row-sub', `${tildePath(e.dest)} · ${(ACTION[e.action] || ((x) => x.action))(e)}`))))),
         r.notes && r.notes.length ? h('ul.hint', r.notes.map((n) => h('li', n))) : null,
         h('div.sheet-actions', btn('secondary', { icon: 'back', label: 'Back', onclick: () => stepAddress(url) }),
-          get ? btn('primary', { icon: 'download', label: 'Get everything', onclick: () => run(url) }) : null));
+          get ? btn('primary', { icon: 'download', label: `Get ${get === 1 ? 'it' : `these ${get}`}`, onclick: () => run(url) }) : null));
     }
     async function run(url) {
       const out = h('pre.output');
       const result = h('div', { 'aria-live': 'polite' }, busyLine('Cloning…'));
       fill(panelBox, out, result);
       try {
-        await api('/api/workspace/restore', { url });
+        await api('/api/workspace/restore', { url, ...(withProjects ? { withProjects } : {}) });
       } catch (e) {
-        return fill(result, errorBox(e.message), h('div.sheet-actions', btn('secondary', { icon: 'back', label: 'Back', onclick: () => stepAddress(url) })));
+        return fill(result, errorBox(e), h('div.sheet-actions', btn('secondary', { icon: 'back', label: 'Back', onclick: () => stepAddress(url) })));
       }
       const j = await followJob(out, () => alive);
       if (!alive) return;
@@ -242,6 +262,7 @@ export function restoreSheet(git, after = () => {}) {
       fill(result,
         bad.length ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', `${plural(got, 'repository', 'repositories')} cloned; ${bad.length === 1 ? 'one' : bad.length} could not be:`)) : okBox(`Done: ${plural(got, 'repository', 'repositories')} cloned.`),
         bad.length ? h('div.rows', bad.map((e) => h('div.row.static', h('span.row-icon.pj-mark.warn', icon('alert')), h('span.row-main', h('span.row-title', e.label), h('span.row-sub.pj-wrap', e.result))))) : null,
+        r.data.notHere && r.data.notHere.length ? h('p.hint', `In your map, not on this computer: ${r.data.notHere.join(', ')}. Get one on `, h('a', { href: link('#/workspace'), onclick: () => close() }, 'the Workspace page'), ' when you need it.') : null,
         r.data.projectsDir ? h('p.hint', `Projects are in ${tildePath(r.data.projectsDir)}.`) : null,
         h('div.sheet-actions', btn('primary', { label: 'To the workspace', onclick: () => close() })));
     }
@@ -260,8 +281,9 @@ export function freshFork(after) {
     h('span.choice-icon', icon(ic)), h('span.choice-main', h('span.choice-label', title), h('span.choice-sub', sub)), h('span.choice-end', icon('chevronRight')));
   return h('div.ws-fresh',
     h('p.ws-fresh-lead', 'No projects on this computer yet.'),
+    githubPath(after),
     h('div.choice-list',
-      card('git', 'Bring my workspace from git', 'Your AI brain and every project its map names, cloned in their places. For a new computer of yours.', async () => restoreSheet(await git, after)),
+      card('git', 'Bring my workspace from git', 'Your AI brain with its map, your credentials and groups. Projects stay in the map until you get one. For a new computer of yours.', async () => restoreSheet(await git, after)),
       card('plus', 'Start a new project', 'An empty project folder, ready for coding.', () => (location.hash = link('#/new-project')))),
     h('p.hint', 'Already have one project on GitHub? ', h('a', { href: link('#/get-project') }, 'Get an existing project'), '.'));
 }
@@ -276,6 +298,7 @@ const GROUPS = [
 ];
 const STATE = {
   here: ['here', 'On this computer'],
+  notHere: ['nothere', 'In the map, not on this computer: get it when you need it'],
   missing: ['missing', 'Not on this computer yet'],
   notFollowed: ['notfollowed', 'Not followed: it is behind a link that leads out'],
   different: ['different', 'Something else is in its folder'],
@@ -361,7 +384,7 @@ function updateMapSheet(refresh) {
         r.notes && r.notes.length ? h('ul.hint', r.notes.map((n) => h('li', n))) : null,
         h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, nothing ? 'Close' : 'Cancel'),
           nothing ? null : btn('primary', { icon: 'check', label: 'Write the map', onclick: write })));
-    }, (e) => fill(box, errorBox(e.message)));
+    }, (e) => fill(box, errorBox(e)));
     async function write() {
       fill(box, busyLine('Writing the map…'));
       try {
@@ -375,7 +398,7 @@ function updateMapSheet(refresh) {
           h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Done')));
         refresh();
       } catch (e) {
-        fill(box, errorBox(e.message));
+        fill(box, errorBox(e));
       }
     }
     return [box];
@@ -387,7 +410,7 @@ function peerPanel() {
   const box = h('div', busyLine('Looking for computers added by SSH…'));
   api('/api/machines').then((d) => {
     const ssh = (d.machines || []).filter((m) => m.via === 'ssh');
-    if (!ssh.length) return fill(box, h('p.hint', 'Only a computer added by SSH can be used (Computers → Add a computer → "I can reach it by SSH").'));
+    if (!ssh.length) return fill(box, h('p.hint', 'Only a computer added by SSH can be used (', h('a', { href: link('#/computers/add') }, 'Computers → Add a computer'), ' → "I can reach it by SSH").'));
     fill(box, h('div.rows', ssh.map((m) => {
       const out = h('pre.output.hidden');
       const res = h('div');
@@ -411,7 +434,7 @@ function peerPanel() {
         } })),
         out, res);
     })));
-  }, (e) => fill(box, errorBox(e.message)));
+  }, (e) => fill(box, errorBox(e)));
   return panel({ icon: 'swap', title: 'Sync with another computer', desc: 'For a repository without a git server, or one this computer cannot reach. Pull only: this computer gets the other one\'s commits; nothing is written there.' }, box);
 }
 
@@ -438,7 +461,7 @@ function autoPanel(onMap = () => {}) {
   const paint = () => {
     const hours = h('input.field', { type: 'number', min: 1, max: 168, value: String(w.everyHours || 6), style: { maxWidth: '110px' } });
     const commit = toggle('Save a change of the map in the AI brain\'s history', !!w.commitMap, (v) => save({ commitMap: v }),
-      !w.map ? 'Needs the map kept up to date (above).' : why ? commitMapWhy(why) : 'Commits that one file, workspace.json, when the map changed; nothing else in the brain.');
+      !w.map ? 'Needs the map kept up to date (above).' : why ? commitMapWhy(why) : 'Commits the map and this computer\'s own file when they changed; nothing else in the brain.');
     commit.querySelector('input').disabled = !w.map;
     commit.classList.toggle('is-off', !w.map);
     fill(box,
@@ -452,28 +475,42 @@ function autoPanel(onMap = () => {}) {
       },
         'Adds what is new on this computer to the map; written only when something changed, and only where a map exists.'),
       commit,
+      toggle('Save the AI memory by itself', !!w.memory, (v) => save({ memory: v }),
+        'Commits the memory folders of the AI brain and of your groups\' own repositories, and only them, when they changed.'),
       toggle('Keep the workspace in step', !!w.sync, (v) => save({ sync: v }),
-        'Gets what is new for every repository of the map and moves one forward only when nothing is in the way; what needs a decision is told once.'),
+        ['Gets what is new for the AI brain, your groups\' own repositories and the other repositories, and moves one forward only when nothing is in the way. A project is never moved by itself: Sync on ', h('a', { href: link('#/workspace') }, 'the Workspace page'), ' does that when you ask.']),
       toggle('Also upload', !!w.push, (v) => save({ push: v }),
-        'Uploads what is only ahead here: the map\'s commit and, with keeping in step, every repository. Off: nothing leaves this computer by itself.'),
+        'Uploads what is only ahead here: the map\'s commit and, with keeping in step, those repositories. With the map saved too, a map another computer changed is brought in step by itself. Off: nothing leaves this computer by itself.'),
+      branchToggles(w, save),
       h('label.fieldrow', h('span.field-label', 'Every how many hours'), h('div.inlineform', hours, btn('small secondary', { label: 'Save', onclick: async () => {
         const n = Number(hours.value);
         if (!Number.isInteger(n) || n < 1 || n > 168) return toast('A whole number of hours, 1 to 168.', { kind: 'error' });
         if (await save({ everyHours: n })) toast('Saved');
       } }))));
   };
-  api('/api/automation').then((st) => {
-    w = { map: true, commitMap: false, sync: false, push: false, everyHours: 6, ...((st.settings && st.settings.workspace) || {}) };
+  api('/api/automation').then(async (st) => {
+    w = { map: true, commitMap: false, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, ...((st.settings && st.settings.workspace) || {}) };
+    w.places = await api('/api/pcsetup/projects').then((d) => (Array.isArray(d.places) && d.places.length ? d.places : [{ id: '' }]).filter((p) => p.members !== 'group'), () => [{ id: '' }]);
     why = st.commitMap && st.commitMap.chosen === false ? st.commitMap : null;
     paint();
-  }, (e) => fill(box, errorBox(e.message)));
+  }, (e) => fill(box, errorBox(e)));
   return panel({ icon: 'clock', title: 'By itself', desc: 'What the computer does with the workspace on its own.' }, box);
+}
+
+/**
+ * One switch per place that holds projects: push committed work on branches that are not the default branch (the
+ * default branch never). The setting's key for the projects folder is "projects".
+ */
+function branchToggles(w, save) {
+  const key = (id) => id || 'projects';
+  return (w.places || [{ id: '' }]).map((pl) => toggle(`Push my other branches in ${pl.id || 'Projects'}`, !!(w.pushBranches || {})[key(pl.id)], (v) => save({ pushBranches: { ...(w.pushBranches || {}), [key(pl.id)]: v } }),
+    'Committed work on a branch that is not the default branch goes to the git server by itself, so a lost computer costs nothing of it. The default branch is never pushed by itself (a push there can be a release).'));
 }
 
 /** Why "save a change of the map" is on or off when the owner never chose: the brain's git server address. */
 export const commitMapWhy = (c) => (c.on
-  ? `On: the AI brain has a ${c.github ? 'GitHub' : 'git server'} address. It commits only workspace.json when the map changed.`
-  : 'Off: the AI brain has no git server address yet. Turn it on to commit workspace.json when the map changed.');
+  ? `On: the AI brain has a ${c.github ? 'GitHub' : 'git server'} address. It commits the map and this computer's own file when they changed.`
+  : 'Off: the AI brain has no git server address yet. Turn it on to commit the map and this computer\'s own file when they changed.');
 
 /** Where the workspace and the projects folder are; changing it moves nothing. */
 function placesPanel(st, refresh) {
@@ -489,7 +526,7 @@ function placesPanel(st, refresh) {
         r.notes && r.notes.length ? h('ul.hint', r.notes.map((n) => h('li', n))) : null);
       refresh();
     } catch (e) {
-      fill(res, errorBox(e.message));
+      fill(res, errorBox(e));
     }
   } });
   return panel({ icon: 'folder', title: 'Where things are', desc: 'The workspace holds the AI brain, your projects and your tools; the same tree on every computer.' },
@@ -546,11 +583,14 @@ function mapPanel(m, refresh, kept = false) {
   const groups = mapGroups(m);
   const counts = m.counts || {};
   const rare = kept && m.exists; // the upkeep adds what is new: writing it by hand is the rare case
-  const update = () => btn(rare ? 'secondary' : 'primary', { icon: 'refresh', label: 'Update the map', onclick: () => updateMapSheet(refresh) });
-  const said = [counts.here ? `${counts.here} here` : '', counts.missing ? `${counts.missing} not on this computer` : '', counts.notFollowed ? `${counts.notFollowed} behind a link, not followed` : '', counts.different ? `${counts.different} with something else in the folder` : '', counts.unmapped ? `${counts.unmapped} not in the map yet` : ''].filter(Boolean).join(' · ');
+  let firstUpdate = null; // demoted when the page offers the workspace from GitHub instead
+  const update = () => (firstUpdate = btn(rare ? 'secondary' : 'primary', { icon: 'refresh', label: 'Update the map', onclick: () => updateMapSheet(refresh) }));
+  const said = [counts.here ? `${counts.here} here` : '', counts.notHere ? `${counts.notHere} only in the map (not on this computer)` : '', counts.missing ? `${counts.missing} not on this computer` : '', counts.notFollowed ? `${counts.notFollowed} behind a link, not followed` : '', counts.different ? `${counts.different} with something else in the folder` : '', counts.unmapped ? `${counts.unmapped} not in the map yet` : ''].filter(Boolean).join(' · ');
   return panel({ icon: 'git', title: 'The map', desc: 'Every repository of your workspace by its address, kept in the AI brain. A new computer gets everything it names.' },
     m.errors ? errorBox(`The map cannot be used: ${m.errors.join('; ')}`) : null,
     !m.exists ? h('p.hint', 'No map yet. Update the map writes the first one from what is on this computer.') : said ? h('p.hint', said) : null,
+    // No map here: set-up's one path, when GitHub is signed in (your workspace found there, or a new one kept there).
+    !m.exists && !m.errors ? githubPath(refresh, { onOffer: () => firstUpdate && firstUpdate.classList.replace('primary', 'secondary') }) : null,
     unsavedBox(m, refresh),
     h('div.savebar.start', rare ? null : update(),
       m.exists ? btn(rare ? 'primary' : 'secondary', { icon: 'refresh', label: 'Sync', onclick: () => syncSheet(m, refresh) }) : null),
@@ -579,7 +619,7 @@ function settingsRender() {
       const mapSlot = h('div');
       const paintMap = (map) => fill(mapSlot, mapPanel(m, draw, mapKept(auto, map)));
       paintMap();
-      fill(box, placesPanel(st, draw), workspaceFolders(), mapSlot, peerPanel(), autoPanel(paintMap));
+      fill(box, placesPanel(st, draw), computerPanel(), workspaceFolders(), mapSlot, peerPanel(), autoPanel(paintMap));
     } catch (e) {
       fill(box, errorBox(`The workspace could not be read: ${e.message}`, draw));
     }

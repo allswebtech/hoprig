@@ -52,12 +52,16 @@ async function look(deck, name) {
   return { term, run, file, front: g ? { group: g.pgrp, pid: run.pid } : { pid: run.pid } };
 }
 
-/** `act` under the run's typing lock, with its record read once more inside it. */
-async function locked(l, name, act) {
+/**
+ * `act` under the run's typing lock, with its record read once more inside it. `guard(record, term)`: the caller's own
+ * check of that record and the screen, as the last step before the bytes; it throws to type nothing.
+ */
+async function locked(l, name, act, guard = null) {
   try {
     await whileTyping(l.file, async () => {
       const now = readRun(l.file);
       if (!now || now.pid !== l.run.pid) throw notInFront(noTool(name));
+      if (guard) await guard(now, l.term);
       noteTyped(l.file); // the launcher settles its terminal's input at its end
       await act();
     });
@@ -69,18 +73,21 @@ async function locked(l, name, act) {
 
 /**
  * Type `text` for the coding tool of session `name` and press Enter (unless `enter` is false). Throws 409 with code
- * "not_in_front" when nothing was typed, and typedNotSent() when the text went but its Enter did not.
+ * "not_in_front" when nothing was typed, and typedNotSent() when the text went but its Enter did not. `guard`: see
+ * locked(); asked once, before the text (after it, the screen holds the typed text in the message box, which can read
+ * as a menu: "❯ 1. yes"). `enterGuard(record)`: the caller's check of the record alone, asked again under the lock
+ * right before the Enter: in the pause the record may have turned to a question, which the Enter would answer.
  */
-export async function sendToTool(deck, name, text, { enter = true } = {}) {
+export async function sendToTool(deck, name, text, { enter = true, guard = null, enterGuard = null } = {}) {
   const clean = toolText(text);
   const first = await look(deck, name);
-  await locked(first, name, () => deck.backend.sendText(first.term.id, clean, { front: first.front }));
+  await locked(first, name, () => deck.backend.sendText(first.term.id, clean, { front: first.front }), guard);
   if (!enter) return;
   await new Promise((r) => setTimeout(r, ENTER_PAUSE_MS));
   try {
     const again = await look(deck, name);
     if (again.term.id !== first.term.id || again.run.runId !== first.run.runId) throw notInFront(FRONT_GONE);
-    await locked(again, name, () => deck.backend.sendKey(again.term.id, 'Enter', { front: again.front }));
+    await locked(again, name, () => deck.backend.sendKey(again.term.id, 'Enter', { front: again.front }), enterGuard && ((run) => enterGuard(run)));
   } catch {
     throw typedNotSent(name); // whatever stopped the Enter: the text is out there
   }

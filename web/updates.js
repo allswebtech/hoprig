@@ -4,7 +4,7 @@
 //
 //   Manual (the default)  Hoprig looks when this page opens or Check now is pressed, and never installs by itself
 //   Automatic             it also looks every 6 hours and installs each update at a safe moment (said per card)
-import { api, ago, btn, fill, h, toast } from './lib.js';
+import { api, ago, btn, fill, h, link, toast } from './lib.js';
 import { icon } from './icons.js';
 import { registerSettingsPage } from './registry.js';
 import { fold, panel, radioCards, savedMark, toggle } from './shell.js';
@@ -83,7 +83,8 @@ function itemCard(it, act, own) {
       it.why ? h('p.hint', it.why) : null,
       it.note ? h('p.hint', it.note) : null,
       it.error ? h('p.form-error', it.error) : null,
-      it.last ? h(`p.banner.${it.last.ok ? 'ok-box' : 'error-box'}`, icon(it.last.ok ? 'check' : 'alert', { size: 18 }), h('span', lastLine(it.last))) : null,
+      it.last ? h(`p.banner.${it.last.ok ? 'ok-box' : 'error-box'}`, icon(it.last.ok ? 'check' : 'alert', { size: 18 }), h('span', lastLine(it.last)),
+        it.last.ok && it.last.restart ? btn('small primary', { label: 'Restart now', onclick: () => act.restart() }) : null) : null,
       out,
       h('div.savebar', looks && it.checkedAt ? h('span.hint', `Looked ${ago(it.checkedAt)}`) : null, mark, check, doIt)),
   };
@@ -104,7 +105,7 @@ function updatesPage({ isAlive }) {
       try {
         draw(await api('/api/updates/check', id ? { id } : {}));
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(e, { kind: 'error' });
       }
     },
     async follow(id) {
@@ -112,7 +113,7 @@ function updatesPage({ isAlive }) {
         await api('/api/updates/settings', { itemModes: { [id]: null } });
         await load();
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(e, { kind: 'error' });
       }
     },
     async run(id) {
@@ -125,7 +126,16 @@ function updatesPage({ isAlive }) {
         if (r.skipped && r.skipped.length) toast(`Waits: ${r.skipped.map((s) => s.why).join('; ')}`, { ms: 7000 });
         await load(); // draws the running item and follows its output
       } catch (e) {
-        toast(e.message, { kind: 'error', ms: 6000 });
+        toast(e, { kind: 'error', ms: 6000 });
+      }
+    },
+    async restart() {
+      try {
+        const r = await api('/api/updates/restart', {});
+        if (r && r.restarting) toast('The dashboard is restarting to use the new version. Reload this page in a few seconds.', { ms: 8000 });
+        else toast((r && r.why) || 'The dashboard could not restart itself.', { kind: 'error', ms: 8000 });
+      } catch (e) {
+        toast(e, { kind: 'error', ms: 6000 });
       }
     },
   };
@@ -153,7 +163,7 @@ function updatesPage({ isAlive }) {
       for (const [k, text] of keep) if (text && outs.get(k)) { outs.get(k).textContent = text; outs.get(k).classList.remove('hidden'); }
     } catch (e) {
       following = false;
-      toast(e.message, { kind: 'error' });
+      toast(e, { kind: 'error' });
     }
   }
 
@@ -168,7 +178,7 @@ function updatesPage({ isAlive }) {
         keepFocus(top, drawTop);
         return true;
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(e, { kind: 'error' });
         return false;
       }
     };
@@ -184,7 +194,8 @@ function updatesPage({ isAlive }) {
         panel({ icon: 'download', title: 'How updates happen', desc: 'One choice for everything below.' },
           radioCards('upd-mode', MODES, view.mode, (m) => set({ mode: m })),
           toggle('Tell me about new versions', view.notify, (on) => set({ notify: on }),
-            'A notification once per new version (Settings → Notifications says where). Hoprig then looks every 6 hours.'),
+            ['A notification once per new version (Settings → Notifications says where). Hoprig then looks every 6 hours. ',
+              h('a', { href: link('#/settings/notifications') }, 'Open Notifications')]),
           h('div.savebar', mark,
             checkAll,
             btn(waiting ? 'primary' : 'secondary', { icon: 'download', label: 'Update all', disabled: !waiting || act.busy(), title: waiting ? '' : 'Nothing to update', onclick: () => act.run('all') }))));
@@ -212,7 +223,7 @@ function updatesPage({ isAlive }) {
 
 registerSettingsPage({
   id: 'updates', title: 'Updates', icon: 'download', order: 65,
-  desc: 'New versions of Hoprig, the coding tools and the tunnel helper: when they are installed, and what that does to running sessions.',
+  desc: 'New versions of Hoprig, the coding tools and the helper for the public link (cloudflared): when they are installed, and what that does to running sessions.',
   summary: async () => summaryOf(await api('/api/updates')),
   render: updatesPage,
 });
