@@ -18,7 +18,7 @@ import { pcSetup, projectsStep } from './setup.mjs';
 import { GROUPS, exitCode, pcStatus } from './status.mjs';
 import { listWorkspaces } from './workspace.mjs';
 
-const USAGE = `usage:
+export const USAGE = `usage:
   hoprig pc status [--json] [--offline]       what this computer has, what is missing, what needs attention
   hoprig pc setup [--yes] [--dry-run] [--kits ${KITS.map((k) => k.id).join(',')}] [--recipe <file|https address>]
   hoprig pc recipe save [file] [--with-email]  write a recipe to set up another computer like this one
@@ -51,11 +51,20 @@ export async function status(args, { write = (s) => process.stdout.write(s), sys
   return code;
 }
 
+/**
+ * The kits a recipe of this computer names: a default kit with anything of it here, an optional kit only when it is
+ * complete here (a MySQL server alone is no reason to put PHP on the next computer).
+ */
+export function recipeKits(found) {
+  const here = (k) => (found[k.id] || []).filter((i) => i.state !== 'na' && !['identity', 'signin'].includes(i.id));
+  return KITS.filter((k) => (k.defaultOn ? here(k).some((i) => i.state === 'ok') : here(k).length > 0 && here(k).every((i) => i.state === 'ok'))).map((k) => k.id);
+}
+
 /** The recipe of this computer (kits that are complete here, versions as information, the projects). */
 export async function currentRecipe({ withEmail = false, sys } = {}) {
   const s = sys || (await sysFacts());
   const found = await detectKits(s);
-  const kits = KITS.filter((k) => (found[k.id] || []).some((i) => i.state === 'ok' && !['identity', 'signin'].includes(i.id))).map((k) => k.id);
+  const kits = recipeKits(found);
   const tools = {};
   for (const k of KITS) for (const i of found[k.id] || []) if (i.version) tools[i.id] = i.version;
   const dir = projectsDir();

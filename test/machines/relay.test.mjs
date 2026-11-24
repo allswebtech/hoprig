@@ -29,12 +29,10 @@ const old = await miniDashboard({ createMachines: () => ({ handle: async () => f
 // A machine that accepts connections and never answers.
 const hanging = net.createServer(() => {});
 await new Promise((r) => hanging.listen(0, '127.0.0.1', r));
-const deadPort = await new Promise((r) => {
-  const s = net.createServer().listen(0, '127.0.0.1', () => {
-    const p = s.address().port;
-    s.close(() => r(p));
-  });
-});
+// A machine nobody answers for: port 1, which no program of an ordinary user can listen on, so the connection is
+// refused at once on every run. (A port that was free a moment ago is not that: on a computer that runs several
+// test runs side by side another run's server got it within the second, and the "dead" machine answered.)
+const deadPort = 1;
 
 let sshRemote = null;
 const hubOpts = () => ({ ...fast, hub: { ...fast.hub, ...(sshRemote ? { ssh: { env: sshRemote.sshEnv } } : {}) } });
@@ -194,8 +192,8 @@ test('a revoked token: "not authorised" in the list and on every relayed call', 
   revokeToken(extra.id);
   const r = await browser('/m/rev/api/state');
   assert.equal(r.status, 403);
-  assert.equal(r.json.code, 'not-authorised');
-  assert.match(r.json.error, /revoked/);
+  assert.equal(r.json.code, 'computer-not-allowed');
+  assert.equal(r.json.error, 'rev no longer lets this dashboard in. Add it again here: Computers → Add a computer.');
   const t = (await browser('/api/machines/rev/test', { body: {} })).json.machine;
   assert.equal(t.state, 'unauthorised');
 });
@@ -203,11 +201,11 @@ test('a revoked token: "not authorised" in the list and on every relayed call', 
 test('rename and remove', async () => {
   assert.equal((await browser('/api/machines/rev/rename', { body: { name: 'rev2', label: 'Revoked one' } })).json.name, 'rev2');
   assert.equal((await browser('/api/machines/rev2/rename', { body: { name: 'rem' } })).status, 409);
-  const rm = await browser('/api/machines/rev2/remove', { body: {} });
+  const rm = await browser('/api/machines/rev2/remove', { body: { confirm: 'rev2' } });
   assert.equal(rm.json.removed, true);
   assert.equal(rm.json.revoked, false);
   assert.match(rm.json.note, /Who may control this computer/);
-  assert.equal((await browser('/api/machines/rev2/remove', { body: {} })).status, 404);
+  assert.equal((await browser('/api/machines/rev2/remove', { body: { confirm: 'rev2' } })).status, 404);
 });
 
 test('add by address and code, through the hub API', async () => {
@@ -238,8 +236,8 @@ test('add by SSH in one step: hoprig only in the login shell, a real tunnel, the
   assert.equal(m.via, 'ssh');
   assert.equal(r.json.hint, null);
   const calls = sshRemote.calls();
-  assert.equal(calls[0].at(-1), 'hoprig pair --json --name test-hub');
-  assert.equal(calls[1].at(-1), `$SHELL -lic 'hoprig pair --json --name test-hub'`);
+  assert.equal(calls[0].at(-1), 'hoprig pair --json --name test-hub --hub');
+  assert.equal(calls[1].at(-1), `$SHELL -lic 'hoprig pair --json --name test-hub --hub'`);
   assert.ok(calls.some((c) => c.includes('-N') && c.includes('ExitOnForwardFailure=yes')), 'a tunnel was started');
   const stored = loadMachines().find((x) => x.name === m.name);
   assert.equal(stored.remotePort, remote.port);
@@ -261,7 +259,7 @@ test('add by SSH in one step: hoprig only in the login shell, a real tunnel, the
   assert.notEqual(loadMachines().find((x) => x.name === m.name).tokenId, stored.tokenId);
   assert.ok(!listTokens().some((x) => x.id === stored.tokenId), 'the old token is revoked there');
   // Remove: the token there is revoked over SSH too.
-  const rm = await browser(`/api/machines/${m.name}/remove`, { body: {} });
+  const rm = await browser(`/api/machines/${m.name}/remove`, { body: { confirm: m.name } });
   assert.equal(rm.json.revoked, true);
 });
 
@@ -272,14 +270,14 @@ test('add by SSH where hoprig is missing: the install command, and the install r
   (await import('node:fs')).writeFileSync(script, 'echo "Installing hoprig $1"\necho done\n');
   hub = await miniDashboard({ createMachines, opts: { ...hubOpts(), hub: { ...hubOpts().hub, installer: () => ({ kind: 'file', value: script }) } } }).listen();
   browser = asBrowser(hub.base);
-  const r = await browser('/api/machines/ssh', { body: { target: 'pc3' } });
+  const r = await browser('/api/machines/ssh', { body: { target: 'box3' } });
   assert.equal(r.status, 422);
   assert.equal(r.json.code, 'not-installed');
   assert.equal(r.json.canInstall, true);
   assert.ok(r.json.installCommand);
   assert.equal((await browser('/api/machines/ssh', { body: { target: '-oProxyCommand=x' } })).status, 400);
 
-  assert.equal((await browser('/api/machines/install', { body: { target: 'pc3' } })).json.started, true);
+  assert.equal((await browser('/api/machines/install', { body: { target: 'box3', confirm: 'box3' } })).json.started, true);
   let st;
   for (let i = 0; i < 100; i++) {
     st = (await browser('/api/machines/install?from=0')).json;

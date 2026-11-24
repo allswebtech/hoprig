@@ -239,3 +239,44 @@ test('an ignore file that is a link the group\'s repository tracks is never read
   assert.match(add.text, /the ignore lines were not added: .*is a link/);
   assert.equal(fs.readFileSync(outsideFile, 'utf8'), 'theirs\n');
 });
+
+test('add a group whose folder holds a project already: the dry run names what the add puts into the map', async () => {
+  w.bare('lab-tool');
+  const tool = w.clone(w.url('lab-tool'), path.join(C.ws, 'labs', 'tool'));
+  w.commit(tool, 'project.json', JSON.stringify({ name: 'tool', repos: [], memories: {} }, null, 2) + '\n');
+  w.sh(tool, 'push', '-q');
+  const before = fs.readFileSync(file, 'utf8');
+  const dry = await run(['add', 'labs', '--dry-run', '--json']);
+  assert.equal(dry.code, 0, dry.text);
+  assert.equal(fs.readFileSync(file, 'utf8'), before, 'a dry run writes nothing');
+  assert.ok(dry.json.mapAdded.length > 0, JSON.stringify(dry.json));
+  const real = await run(['add', 'labs', '--yes', '--json']);
+  assert.equal(real.code, 0, real.text);
+  assert.deepEqual(real.json.mapAdded, dry.json.mapAdded, 'exactly what the confirmation named');
+});
+
+test('the confirmation before Take it out says "is deleted", never the past tense', async () => {
+  const { groupRemove } = await import('../../src/workspace/groupcmd.mjs');
+  assert.equal((await run(['add', 'empty-group', '--yes'])).code, 0); // no project in it: remove may go
+  const dry = groupRemove('empty-group', { dryRun: true, dir: C.ws });
+  assert.match(dry.note, /nothing on this computer is deleted/);
+});
+
+test('add a group while a new project is outside its folder: the dry run names each part where it is', async () => {
+  w.bare('lab2-tool');
+  w.bare('notes-app');
+  const tool = w.clone(w.url('lab2-tool'), path.join(C.ws, 'labs2', 'tool2'));
+  w.commit(tool, 'project.json', JSON.stringify({ name: 'tool2', repos: [], memories: {} }, null, 2) + '\n');
+  w.sh(tool, 'push', '-q');
+  w.clone(w.url('notes-app'), path.join(C.projects, 'notes-app')); // a new clone in the projects folder, not in labs2
+  const dry = await run(['add', 'labs2', '--dry-run', '--json']);
+  assert.equal(dry.code, 0, dry.text);
+  assert.ok(dry.json.mapAddedHere.includes('labs2/tool2'), JSON.stringify(dry.json));
+  assert.ok(!dry.json.mapAddedHere.includes('notes-app'), 'a project outside the folder is not named as the folder\'s');
+  assert.ok(dry.json.mapAddedElsewhere.includes('notes-app'), JSON.stringify(dry.json));
+  assert.deepEqual([...dry.json.mapAddedHere, ...dry.json.mapAddedElsewhere].sort(), [...dry.json.mapAdded].sort(), 'the two parts are the whole list');
+  const real = await run(['add', 'labs2', '--yes', '--json']);
+  assert.equal(real.code, 0, real.text);
+  assert.deepEqual(real.json.mapAddedHere, dry.json.mapAddedHere);
+  assert.deepEqual(real.json.mapAddedElsewhere, dry.json.mapAddedElsewhere);
+});

@@ -12,14 +12,13 @@ const S = await import('../../src/setup/system.mjs');
 
 const info = (o) => ({ installed: '2.1.300', path: '/x/claude', latest: '2.1.300', method: 'native', updateAvailable: false, ...o });
 
-test('node version check: 22 is the lowest (src/nodeguard.mjs)', () => {
-  assert.equal(K.nodeCheck('22.0.0').status, 'ok');
-  assert.equal(K.nodeCheck('26.13.0').status, 'ok');
-  for (const v of ['20.20.2', '18.19.1']) {
+test('node version check: 22.11 is the lowest (src/nodefloor.mjs)', () => {
+  for (const v of ['22.11.0', '23.0.0', '24.1.0', '26.13.0']) assert.equal(K.nodeCheck(v).status, 'ok', v);
+  for (const v of ['22.0.0', '22.10.9', '20.20.2', '18.19.1']) {
     const old = K.nodeCheck(v);
     assert.equal(old.status, 'fail', v);
-    assert.match(old.detail, /needs 22 or newer/);
-    assert.match(old.fix, /^Install Node\.js 22 or newer \(https:\/\/nodejs\.org\)/);
+    assert.match(old.detail, /needs 22\.11 or newer/);
+    assert.match(old.fix, /^Install Node\.js 22\.11 or newer \(https:\/\/nodejs\.org\)/);
   }
 });
 
@@ -137,15 +136,15 @@ test('the real terminal module works on this machine', async () => {
 });
 
 test('terminal: tmux or built-in, information only', async () => {
-  const none = await K.terminalCheck({ platform: 'linux', env: { PATH: pathWith(s.tmp) } });
+  const none = await K.terminalCheck({ platform: 'linux', env: { PATH: pathWith(s.tmp) } }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   assert.deepEqual([none.status, none.detail], ['info', 'built-in']);
   const bin = fakeBin(path.join(s.tmp, 'bin-tmux'), { tmux: 'echo "tmux 3.4"' });
-  const tm = await K.terminalCheck({ platform: 'linux', env: { PATH: bin } });
+  const tm = await K.terminalCheck({ platform: 'linux', env: { PATH: bin } }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   assert.deepEqual([tm.status, tm.detail], ['info', 'tmux 3.4']);
   const oldBin = fakeBin(path.join(s.tmp, 'bin-old-tmux'), { tmux: 'echo "tmux 3.1c"' });
-  const old = await K.terminalCheck({ platform: 'linux', env: { PATH: oldBin } });
+  const old = await K.terminalCheck({ platform: 'linux', env: { PATH: oldBin } }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   assert.deepEqual([old.status, old.detail], ['info', 'built-in (tmux 3.1c is too old: tmux sessions need 3.2 or newer)']);
-  assert.equal((await K.terminalCheck({ platform: 'win32', env: { PATH: bin } })).detail, 'built-in');
+  assert.equal((await K.terminalCheck({ platform: 'win32', env: { PATH: bin } })).detail, 'built-in'); // seal: only the test's own folders, in an environment that keeps the runner's variables
 });
 
 test('service: installed or not, per OS', async () => {

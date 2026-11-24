@@ -15,19 +15,23 @@ import { tokenName } from './names.mjs';
 import { CODE_TTL_MS, cancelCode, codeStatus, createCode, dashboardAddress, listening, pairInfo, rawDashboardAddress as dashboardAddressRaw } from './pairing.mjs';
 import { loadMachines, publicMachine } from './store.mjs';
 import { createToken, listTokens, revokeToken } from './tokens.mjs';
+import { needsYes } from '../yes.mjs';
 
-const USAGE = `usage:
+export const USAGE = `usage:
   hoprig link [--minutes N] [--url ADDRESS]
                                          a one-time sign-in link and its QR code: scan it with a phone and that
                                          phone is signed in, no password to type (works once, 15 minutes)
 
   hoprig pair                         show a one-time code (10 min) that lets another computer's dashboard
                                          control this one: there, Settings → Computers → Add by address
-  hoprig pair --json [--name NAME]    for another dashboard that logs in here by SSH: make a token for NAME
+  hoprig pair --json [--name NAME] [--hub]
+                                      for another dashboard that logs in here by SSH: make a token for NAME
+                                      (--hub: that dashboard is your main computer, which adds this one)
                                          and print it, with this dashboard's port, as one line of JSON
 
   hoprig tokens [--json]              who may control this computer
-  hoprig tokens revoke <id | name>    take that right away
+  hoprig tokens revoke <id | name> [--yes]
+                                         take that right away (asks first; --yes: without asking)
 
   hoprig machines [--json]            the other computers this dashboard shows
   hoprig machines add <user@host>     add one by SSH (key login; nothing to open in a firewall)
@@ -36,26 +40,33 @@ const USAGE = `usage:
                                          add one by its address and the code "hoprig pair" shows there
   hoprig machines test <name>         check that it answers
   hoprig machines rename <name> <new-name>
-  hoprig machines rm <name>           remove it (by SSH its token there is revoked too)
+  hoprig machines rm <name> [--yes]   remove it (by SSH its token there is revoked too; asks first)
 
-  hoprig join <https://hub#join=CODE> for a computer the hub cannot reach (a computer at home behind a router):
-  hoprig join <https://hub> <CODE>       it connects OUT to the hub's dashboard and stays connected, also after a
-                                         restart. The line comes from the hub: hoprig machines invite there, or
-                                         Computers → Add a computer → "It is at home or behind a router".
-          [--fingerprint sha256:…]       for a hub with its own HTTPS certificate (no public authority signed
-                                         it, as with an IP address and --tls-internal): the hub shows the whole
-                                         line with it. Checked on every connection; never turns checking off.
+  hoprig join <https://ADDRESS#join=CODE>
+  hoprig join <https://ADDRESS> <CODE>   for a computer the main computer cannot reach (a computer at home behind
+                                         a router): it connects OUT to the main computer's dashboard and stays
+                                         connected, also after a restart. The line comes from the main computer
+                                         ("hoprig machines invite" there, or Computers → Add a computer → "It is
+                                         at home or behind a router").
+          [--fingerprint sha256:…]       for a main computer with its own HTTPS certificate (no public authority
+                                         signed it, as with an IP address and --tls-internal): the main computer
+                                         shows the whole line with it. Checked on every connection; never turns
+                                         checking off.
           [--insecure]                   plain http:// to another computer, NOT encrypted: only on a network
                                          you trust. Not a fix for a certificate problem (use --fingerprint)
-  hoprig join <user@hub-host>         the same over SSH instead (needs an SSH login to the hub's computer)
+  hoprig join <user@host>             the same over SSH instead (needs an SSH login to the main computer)
   hoprig join                         the dashboards this computer has joined
-  hoprig join --leave <hub>           stop: the hub forgets this computer
-  hoprig machines invite              on the hub: a one-time code for a computer that connects by itself,
+  hoprig join --leave <ADDRESS>       stop: that main computer forgets this computer (its address, or
+                                         user@host for one joined over SSH)
+  hoprig machines invite              on the main computer: a one-time code for a computer that connects by itself,
                                          and the whole line to type there
   hoprig machines fingerprint [FILE|-]
-                                         on the hub: the fingerprint of its own certificate authority (from a
-                                         certificate file, or - for one on stdin)
-  (also: hoprig machines join … / machines leave …)
+                                         on the main computer: the fingerprint of its own certificate authority
+                                         (from a certificate file, or - for one on stdin)
+  hoprig machines join …              the same as hoprig join …
+  hoprig machines leave <ADDRESS>     the same as hoprig join --leave <ADDRESS>
+  hoprig machines accept              the main computer's side of hoprig join over SSH: the joining computer runs it
+                                         there (it reads one request on its input); not typed by hand
 `;
 
 /** --flag value / --flag=value options, the rest positional. Unknown flags are an error. */
@@ -79,14 +90,21 @@ function parse(args, known) {
   return out;
 }
 
+/** A command that takes only options: a word on its own is a mistake (a typo, "help"), not an argument. */
+function noWords(o, command) {
+  if (o._.length) throw new Error(`takes no word such as "${String(o._[0]).slice(0, 40)}" (its options: hoprig ${command} --help)`);
+}
+
 const when = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'never');
 
 async function pair(args) {
-  const o = parse(args, { json: 'bool', name: 'value' });
+  const o = parse(args, { json: 'bool', name: 'value', hub: 'bool' });
+  // A stray word is refused, never taken as "go ahead": the code this makes gives another dashboard this computer.
+  noWords(o, 'pair');
   if (o.json) {
     const name = o.name === undefined ? 'another computer' : tokenName(o.name);
     if (!name) throw new Error('--name: 1 to 60 letters, digits, spaces or ._@()-');
-    console.log(JSON.stringify(await pairInfo(name, { createToken })));
+    console.log(JSON.stringify(await pairInfo(name, { createToken, hub: o.hub === true })));
     return 0;
   }
   const addr = dashboardAddress();
@@ -123,11 +141,19 @@ async function pair(args) {
   });
 }
 
-function tokens(args) {
-  const o = parse(args, { json: 'bool' });
+async function tokens(args) {
+  const o = parse(args, { json: 'bool', yes: 'bool' });
   const [sub, arg] = o._;
   if (sub === 'revoke') {
-    if (!arg) throw new Error('usage: hoprig tokens revoke <id | name>');
+    if (!arg || o._.length > 2) throw new Error('usage: hoprig tokens revoke <id | name> [--yes]');
+    const which = listTokens().filter((t) => t.id === arg || t.name === arg);
+    if (!which.length) {
+      console.error(`No token with the id or name "${arg}". See: hoprig tokens`);
+      return 1;
+    }
+    const names = which.map((t) => `${t.name} (${t.id})`).join(', ');
+    const no = await needsYes({ yes: o.yes, command: 'hoprig tokens revoke', act: `Revoking ${names}`, question: `Revoke ${names}? That dashboard can no longer control this computer.`, done: 'revoked' });
+    if (no !== null) return no;
     const gone = revokeToken(arg);
     if (!gone.length) {
       console.error(`No token with the id or name "${arg}". See: hoprig tokens`);
@@ -176,7 +202,7 @@ async function join(args) {
   if (!target) {
     const hubs = loadJoined().map((h) => publicJoined(h));
     if (o.json) console.log(JSON.stringify(hubs));
-    else if (!hubs.length) console.log('This computer has not joined another dashboard. To show it on one: hoprig join https://hub-address CODE (the code comes from that dashboard)');
+    else if (!hubs.length) console.log('This computer has not joined another dashboard. To show it on one: hoprig join https://<its address> CODE (the code comes from that dashboard)');
     else {
       console.log('This computer connects by itself to:');
       for (const h of hubs) console.log(`  ${h.hub.padEnd(20)} ${h.via === 'link' ? `${h.url} (direct link)` : `ssh ${h.target} (port ${h.port} on that computer)`}  shown there as "${h.name}"`);
@@ -192,7 +218,7 @@ async function join(args) {
       return 0;
     }
     if (/^https?:\/\//i.test(target)) {
-      if (!code) throw new Error('add the code the other dashboard shows: hoprig join https://hub CODE');
+      if (!code) throw new Error('add the code the other dashboard shows: hoprig join https://<its address> CODE');
       console.log(`Connecting to ${target}…`);
       const h = await joinByAddress(target, code, { keeper, insecure: o.insecure, fingerprint: o.fingerprint === undefined ? null : o.fingerprint });
       if (o.json) console.log(JSON.stringify({ hoprig: 'join', ...publicJoined(h) }));
@@ -282,7 +308,7 @@ async function machines(args) {
     console.log(JSON.stringify(await accept(await readStdin())));
     return 0;
   }
-  const o = parse(args, { json: 'bool', name: 'value', label: 'value', code: 'value' });
+  const o = parse(args, { json: 'bool', name: 'value', label: 'value', code: 'value', yes: 'bool' });
   const [sub, a, b] = o._;
   if (sub === undefined || sub === 'list') {
     const list = loadMachines().map(publicMachine);
@@ -327,7 +353,10 @@ async function machines(args) {
       }
       case 'rm':
       case 'remove': {
-        if (!a) throw new Error('usage: hoprig machines rm <name>');
+        if (!a || b) throw new Error('usage: hoprig machines rm <name> [--yes]');
+        if (!loadMachines().some((m) => m.name === a)) throw new Error(`no computer named "${a}". See: hoprig machines`);
+        const no = await needsYes({ yes: o.yes, command: 'hoprig machines rm', act: `Removing the computer "${a}"`, question: `Remove the computer "${a}"? This dashboard no longer shows or controls it.`, done: 'removed' });
+        if (no !== null) return no;
         const r = await h.remove(a);
         console.log(`Removed "${a}".${r.revoked ? ' Its token there was revoked too.' : ''}`);
         if (r.note) console.log(r.note);
@@ -367,6 +396,7 @@ export function linkBase(cfg = loadConfig(), interfaces = os.networkInterfaces()
 
 async function link(args) {
   const o = parse(args, { minutes: 'value', url: 'value', json: 'bool' });
+  noWords(o, 'link'); // the link signs a browser in: only on a command line that asked for exactly that
   const minutes = o.minutes === undefined ? 15 : Number(o.minutes);
   const base = o.url ? { url: o.url, local: false } : linkBase();
   const r = createLoginLink({ baseUrl: base.url, minutes });
@@ -401,7 +431,7 @@ export async function main(command, args = []) {
     }
     if (command === 'link') return await link(args);
     if (command === 'pair') return await pair(args);
-    if (command === 'tokens') return tokens(args);
+    if (command === 'tokens') return await tokens(args);
     if (command === 'machines') return await machines(args);
     if (command === 'join') return await join(args);
   } catch (e) {

@@ -141,7 +141,7 @@ test('the servers\' providers: every provider that serves the tool, keys only in
   assert.deepEqual(args.slice(-6), ['--listen', 'ws://127.0.0.1:5', '--ws-auth', 'capability-token', '--ws-token-file', '/t']);
   for (const a of ['check_for_update_on_startup=false', 'features.daemon_auto_start=false', 'features.in_app_updates=false']) assert.ok(args.includes(a), `the server never updates itself either: ${a}`);
   assert.ok(args.includes('shell_environment_policy.exclude=["HOPRIG_CODEX_KEY*", "HOPRIG_CODEX_WS*"]'), 'commands the server runs for a model never see the keys');
-  const env = S.serverEnv('codex', provs, { PATH: '/bin', ANTHROPIC_AUTH_TOKEN: 'shell-secret', OPENAI_API_KEY: 'shell-openai', HOPRIG_CODEX_KEY: 'old', OPENCODE_PASSWORD: 'pw' });
+  const env = S.serverEnv('codex', provs, { PATH: '/bin', ANTHROPIC_AUTH_TOKEN: 'shell-secret', OPENAI_API_KEY: 'shell-openai', HOPRIG_CODEX_KEY: 'old', OPENCODE_PASSWORD: 'pw' }); // seal: a value no program is started with
   assert.equal(env[S.keyVarOf('codex', 'gw')], KEY);
   assert.equal(env[S.keyVarOf('codex', 'my-gw')], `${KEY}-2`);
   for (const k of ['ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'HOPRIG_CODEX_KEY', 'OPENCODE_PASSWORD']) assert.equal(k in env, false, k);
@@ -229,7 +229,9 @@ test('a server that does not start says what to look at next, in words a chat ca
   installFake('opencode', 'process.stderr.write("cannot open the database\\n"); process.exit(3);');
   const r = await S.ensureServer('opencode', {});
   assert.equal(r.ok, false);
-  assert.match(r.why, /^OpenCode's server did not start\. Check under Settings → Coding tools that it is installed and up to date; what it said is in \S+opencode-server\.log$/);
+  // The page's sentence names no file (a person who never opened a terminal cannot open one); the log is named apart.
+  assert.equal(r.why, 'OpenCode\'s server did not start. Check under Settings → Coding tools that it is installed and up to date.');
+  assert.match(r.log, /\S+opencode-server\.log$/);
   assert.doesNotMatch(r.why, /\(start\)|cannot be used/);
   assert.match(fs.readFileSync(path.join(S.serverDir(), 'opencode-server.log'), 'utf8'), /cannot open the database/, 'its own words are in that log');
   // A chat shows it as the engine's start that failed, without a code word.

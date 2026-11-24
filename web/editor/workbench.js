@@ -2,16 +2,19 @@
 // an activity bar (Explorer, Search, Source Control), the side panel, the tabs with the editor, and a status bar
 // (branch, line and column, tab size, line ends, language). On a phone one pane at a time, switched from a bar at the
 // bottom. The address follows what is open, so a reload or a shared link lands in the same place.
-import { BARE, api, btn, chooseSheet, fill, h, link, machine, prefs, promptSheet, tildePath, toast } from '../lib.js';
+import { BARE, api, btn, chooseSheet, copyText, fill, h, link, machine, openSheet, prefs, promptSheet, tildePath, toast } from '../lib.js';
 import { icon } from '../icons.js';
 import { pageNotify, store } from '../store.js';
 import { named, wayBack } from '../trail.js';
 import { createExplorer } from './explorer.js';
 import { PREFS_EVENT, editorPrefs, followTheme, setEditorPref } from './monaco.js';
-import { createScm, marksOf } from './scm.js';
+import { changeCount, createScm, inside, marksOf } from './scm.js';
+import { BROWSER_LINE, COMMANDS, createKeyReader, strokeOf } from './commands.js';
+import { createTerminal } from './terminal.js';
 import { createQuickOpen, createSearch } from './search.js';
 import { folderName, forget, refused, remember } from './places.js';
 import { createTabs } from './tabs.js';
+import { focusLost } from './tabops.js';
 
 const VIEWS = [
   { id: 'explorer', label: 'Explorer', short: 'Files', icon: 'folder', keys: 'Ctrl+Shift+E' },
@@ -20,6 +23,27 @@ const VIEWS = [
 ];
 // A phone: one pane at a time. (Read lazily where a test loads the module without a browser.)
 const phoneQuery = typeof matchMedia === 'function' ? matchMedia('(max-width: 699px)') : { matches: false, addEventListener() {}, removeEventListener() {} };
+
+/**
+ * The status bar's indentation, as VS Code words it: "Tab Size: 4" for a file indented with tabs (Monaco found
+ * them, insertSpaces false: the Tab key types a tab), "Spaces: 2" otherwise.
+ */
+export const indentText = ({ insertSpaces = true, tabSize = 2 } = {}) => (insertSpaces ? `Spaces: ${tabSize}` : `Tab Size: ${tabSize}`);
+
+/**
+ * The number on a view's icon, or 0: Source Control counts its changes, the Explorer the files with unsaved changes
+ * ("the Explorer view shows a badge indicating the number of unsaved files", VS Code's Basic Editing page).
+ */
+export const badgeOf = (id, { changes = 0, dirty = 0 } = {}) => (id === 'changes' ? changes : id === 'explorer' ? dirty : 0);
+
+/**
+ * The status bar's place, in VS Code's words (editorStatus.ts): "Ln 2, Col 10", "Ln 1, Col 7 (6 selected)", and with
+ * several cursors "2 selections (6 characters selected)" or "2 selections", without a line and column.
+ */
+export function cursorText({ line = 1, col = 1, selected = 0, cursors = 1 } = {}) {
+  if (cursors > 1) return `${cursors} selections${selected ? ` (${selected} characters selected)` : ''}`;
+  return `Ln ${line}, Col ${col}${selected ? ` (${selected} selected)` : ''}`;
+}
 
 /** The address of the editor on `dir` (of the computer whose screen is open). */
 export function codeHash(dir, { file = '', line = 0, view = '' } = {}, m = machine.current) {
@@ -52,7 +76,7 @@ export function viewCode({ query }, onCurrent) {
   let failed = false; // the folder cannot be opened: one message for the whole page
   let status = null;
   let marksKey = '';
-  const cursor = { line: 1, col: 1 };
+  const cursor = { line: 1, col: 1, selected: 0, cursors: 1 };
 
   const wb = {
     root, label,
@@ -81,6 +105,7 @@ export function viewCode({ query }, onCurrent) {
       quick.stale();
     },
     onStatus: (st) => {
+      if (!alive) return; // an answer that came after the page went: its tabs are gone
       status = st;
       // Drawn again only when git's marks changed: a redraw under a finger or a pointer would swallow its press.
       const key = JSON.stringify([...marksOf(st)]);
@@ -108,6 +133,7 @@ export function viewCode({ query }, onCurrent) {
   const search = createSearch(wb);
   const scm = createScm(wb);
   const quick = createQuickOpen(wb);
+  const terminal = createTerminal({ root, machine: here, onHide: () => tabs.focus(), run: (id) => run(id) });
   const panels = { explorer: explorer.el, search: search.el, changes: scm.el };
 
   // ---------- layout ----------
@@ -137,20 +163,22 @@ export function viewCode({ query }, onCurrent) {
   const resize = h('div.ed-resize', { role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to change the width' });
   const phonebar = h('nav.ed-phonebar', { 'aria-label': 'Panes' });
   const statusEl = h('footer.ed-status');
-  const main = h('div.ed-main', activity, side, resize, tabs.el);
+  const main = h('div.ed-main', activity, side, resize, h('div.ed-center', tabs.el, terminal.el));
   const wrap = h('div.ed-wrap', bar, main, statusEl, phonebar, quick.el);
   wrap.style.setProperty('--ed-side', `${prefs.get('editor.side', 300)}px`);
   fill(app, wrap);
 
   let activityKey = '';
   function paintActivity() {
-    // One per file, as Workspace's "N changes" counts: a file staged and changed again is one change, not two.
-    const n = marksOf(status).size;
+    const counts = { changes: changeCount(status), dirty: tabs.dirty().length };
     // As the Explorer: drawn again only when something on it changed.
-    const key = `${view}|${pane}|${n}|${wrap.classList.contains('ed-noside')}`;
+    const key = `${view}|${pane}|${counts.changes}|${counts.dirty}|${wrap.classList.contains('ed-noside')}`;
     if (key === activityKey) return;
     activityKey = key;
-    const badge = (v) => (v.id === 'changes' && n ? h('span.ed-badge', n > 99 ? '99+' : String(n)) : null);
+    const badge = (v) => {
+      const n = badgeOf(v.id, counts);
+      return n ? h('span.ed-badge', { title: v.id === 'explorer' ? `${n} unsaved` : null }, n > 99 ? '99+' : String(n)) : null;
+    };
     fill(activity, VIEWS.map((v) => h(`button.ed-act${v.id === view ? '.on' : ''}`, { type: 'button', title: `${v.label} (${v.keys})`, 'aria-label': v.label, 'aria-pressed': String(v.id === view), onclick: () => showView(v.id, { toggle: true }) },
       icon(v.icon, { size: 22 }), badge(v))));
     fill(phonebar, [...VIEWS.map((v) => h(`button.ed-pb${pane === 'side' && v.id === view ? '.on' : ''}`, { type: 'button', onclick: () => {
@@ -160,13 +188,33 @@ export function viewCode({ query }, onCurrent) {
     h(`button.ed-pb${pane === 'editor' ? '.on' : ''}`, { type: 'button', onclick: () => setPane('editor') }, icon('text', { size: 20 }), h('span', 'Editor'))]);
   }
 
+  /**
+   * Show or hide the side bar. When it hides with the keyboard in it, the keyboard goes to the editor (VS Code does
+   * the same), not to the page's body where no key reaches anything.
+   */
+  function toggleSide() {
+    const hiding = !wrap.classList.contains('ed-noside');
+    wrap.classList.toggle('ed-noside');
+    paintActivity();
+    if (hiding && focusLost(document.activeElement, document.body, side)) keyboardHome();
+  }
+
+  /** The keyboard somewhere useful: the open tab's editor, else the side bar's view, else the activity bar. */
+  function keyboardHome() {
+    tabs.focus();
+    const hidden = wrap.classList.contains('ed-noside') ? side : null;
+    if (!focusLost(document.activeElement, document.body, hidden)) return;
+    if (!hidden && view === 'explorer') explorer.focus();
+    else if (!hidden && side.querySelector('input')) side.querySelector('input').focus();
+    if (focusLost(document.activeElement, document.body, hidden)) {
+      const b = activity.querySelector('.ed-act.on') || activity.querySelector('.ed-act');
+      if (b) b.focus();
+    }
+  }
+
   function showView(id, { toggle = false } = {}) {
     // A second press on the open view closes the side panel (VS Code does the same).
-    if (toggle && id === view && !phoneQuery.matches) {
-      wrap.classList.toggle('ed-noside');
-      paintActivity();
-      return;
-    }
+    if (toggle && id === view && !phoneQuery.matches) return toggleSide();
     view = id;
     wrap.classList.remove('ed-noside');
     fill(side, panels[id]);
@@ -193,17 +241,25 @@ export function viewCode({ query }, onCurrent) {
       h('span.ed-st-gap'),
       // On a phone with the side pane up, the file is not on screen: its line and language would say nothing.
       t && t.kind === 'file' && !t.note && !(phoneQuery.matches && pane === 'side') ? [
-        h('button.ed-st', { type: 'button', title: 'Go to line (Ctrl+G)', onclick: () => goToLine() }, `Ln ${cursor.line}, Col ${cursor.col}`),
-        h('span.ed-st.ed-st-wide', `Spaces: ${p.tabSize}`),
-        h('span.ed-st.ed-st-wide', tabs.eol(t)),
-        h('span.ed-st', tabs.language(t)),
+        h('button.ed-st', { type: 'button', title: 'Go to Line/Column (Ctrl+G)', onclick: () => goToLine() }, cursorText(t.model ? cursor : { line: cursor.line, col: cursor.col })),
+        h('button.ed-st.ed-st-wide', { type: 'button', title: 'Select Indentation: Tab Size', onclick: () => pickTabSize() }, indentText(t.model ? t.model.getOptions() : { tabSize: p.tabSize })),
+        h('span.ed-st.ed-st-wide', { title: 'Encoding: the editor reads and saves UTF-8 (another encoding opens as a binary file)' }, 'UTF-8'),
+        h('span.ed-st.ed-st-wide', { title: 'End of Line: kept as the file has it' }, tabs.eol(t)),
+        h('span.ed-st', { title: 'Language Mode: from the file\'s name' }, tabs.language(t)),
       ] : null);
+  }
+
+  async function pickTabSize() {
+    const now = editorPrefs().tabSize;
+    const v = await chooseSheet({ title: 'Tab Size', subtitle: 'Spaces for the Tab key and for an indent, in this browser', items: [2, 4, 8].map((n) => ({ value: n, label: `Spaces: ${n}`, current: n === now })) });
+    if (v) setEditorPref('tab', v);
   }
 
   function paintDirty() {
     const n = tabs.dirty().length;
     saveBtn.disabled = !(tabs.active && tabs.dirty().includes(tabs.active.kind === 'compare' ? tabs.active.file : tabs.active));
     wrap.classList.toggle('ed-has-dirty', n > 0);
+    paintActivity(); // the Explorer's badge
   }
 
   // The address says what is open: the folder, the file, the view (not a new place in the trail: replaced).
@@ -267,13 +323,16 @@ export function viewCode({ query }, onCurrent) {
         { value: 'find', label: 'Find in files', sub: 'Ctrl+Shift+F', icon: 'search' },
         { value: 'line', label: 'Go to line', sub: 'Ctrl+G', icon: 'chevronRight' },
         { value: 'plain', label: plain ? 'Use the code editor' : 'Plain text editing', sub: plain ? 'Colours, find and the rest of VS Code\'s editor' : 'A plain text box, for a phone where the code editor cannot be typed into', icon: 'text' },
-        { value: 'settings', label: 'Editor settings', sub: 'Text size, tab size, word wrap', icon: 'settings' },
+        { value: 'terminal', label: 'Terminal', sub: 'Ctrl+`', icon: 'terminal' },
+        { value: 'shortcuts', label: 'Keyboard shortcuts', sub: 'Ctrl+K Ctrl+S', icon: 'info' },
+        { value: 'settings', label: 'Editor settings', sub: 'Font Size, Tab Size, Word Wrap', icon: 'settings' },
       ],
     });
     if (what === 'quick') quick.open();
     else if (what === 'find') findInFiles();
     else if (what === 'line') goToLine();
     else if (what === 'settings') location.hash = link('#/settings/editor', null);
+    else if (what === 'terminal' || what === 'shortcuts') run(what);
     else if (what === 'plain') {
       setEditorPref('plain', !plain);
       const kept = await tabs.remode();
@@ -281,30 +340,116 @@ export function viewCode({ query }, onCurrent) {
     }
   }
 
-  const onKey = (e) => {
-    if (failed || !(e.ctrlKey || e.metaKey) || e.altKey || document.querySelector('dialog.sheet[open]')) return;
-    const k = e.key.toLowerCase();
-    const take = (fn) => {
-      e.preventDefault();
-      e.stopPropagation();
-      fn();
-    };
-    if (k === 's' && !e.shiftKey) take(() => tabs.save());
-    else if (k === 'p' && !e.shiftKey) take(() => quick.open());
-    else if (k === 'p' && e.shiftKey && tabs.editor && tabs.active.kind === 'file') take(() => {
-      tabs.editor.focus();
-      tabs.editor.trigger('keyboard', 'editor.action.quickCommand', null);
-    });
-    else if (k === 'f' && e.shiftKey) take(findInFiles);
-    else if (k === 'e' && e.shiftKey) take(() => {
+  // ---------- the commands of commands.js ----------
+  const active = () => (tabs.active && tabs.active.kind !== 'file' && tabs.active.file ? tabs.active.file : tabs.active);
+  const copyPath = async (full, rel = active() && active().path) => {
+    if (!rel) return;
+    const p = full ? inside(root, rel) : rel;
+    toast((await copyText(p)) ? `Copied ${p}` : 'The browser did not allow the copy: select the path in the tab\'s title and copy it.', { kind: 'info' });
+  };
+  function shortcuts() {
+    const keys = (c) => c.keys.map((k) => ((c.notTyping || []).includes(k) ? `${k} (outside the code and text boxes)` : k));
+    const row = (c) => h('div.ed-keyrow', h('span.ed-keyrow-label', c.label), h('span.ed-keyrow-keys', [...keys(c), ...(c.browser ? [`${c.browser} (an installed app)`] : [])].join(' · ')));
+    openSheet({ title: 'Keyboard shortcuts', tall: true }, () => [
+      h('p.sheet-text', BROWSER_LINE),
+      h('p.sheet-text.muted', 'The code editor\'s own keys (find and replace, multi-cursor, move, copy and delete a line, comment, format, fold) are VS Code\'s: the command palette (Ctrl+Shift+P or F1) lists them with their keys.'),
+      h('div.ed-keys', COMMANDS.map(row)),
+    ]);
+  }
+  const CMDS = {
+    save: () => tabs.save(),
+    saveAll: () => tabs.saveAll(),
+    newFile: () => explorer.make('file'),
+    quickOpen: () => quick.open(),
+    palette: () => {
+      if (tabs.editor && tabs.active.kind === 'file') {
+        tabs.editor.focus();
+        tabs.editor.trigger('keyboard', 'editor.action.quickCommand', null);
+      } else quick.open('>');
+    },
+    goToLine,
+    findInFiles,
+    replaceInFiles: () => {
+      findInFiles();
+      search.showReplace();
+    },
+    searchDetails: () => {
+      showView('search');
+      setPane('side');
+      search.toggleDetails();
+    },
+    focusEditor: () => {
+      setPane('editor');
+      tabs.focus();
+    },
+    explorer: () => {
       showView('explorer');
       setPane('side');
-    });
-    else if (k === 'g' && e.shiftKey) take(() => {
+    },
+    scm: () => {
       showView('changes');
       setPane('side');
-    });
-    else if (k === 'g' && e.ctrlKey && !e.metaKey) take(goToLine);
+    },
+    sidebar: () => {
+      if (phoneQuery.matches) return setPane(pane === 'side' ? 'editor' : 'side');
+      toggleSide();
+      requestAnimationFrame(() => tabs.layout());
+    },
+    panel: () => terminal.toggle(),
+    terminal: () => terminal.toggle(),
+    closeEditor: () => tabs.close(),
+    closeAll: () => tabs.closeMany('all'),
+    closeSaved: () => tabs.closeMany('saved'),
+    reopen: () => tabs.reopen(),
+    nextEditor: () => tabs.step(1),
+    prevEditor: () => tabs.step(-1),
+    keepOpen: () => tabs.keep(),
+    pin: () => tabs.togglePin(),
+    copyPath: () => copyPath(true),
+    copyRelativePath: () => copyPath(false),
+    reveal: () => active() && wb.revealPath(active().path),
+    wordWrap: () => tabs.toggleWrap(),
+    settings: () => (location.hash = link('#/settings/editor', null)),
+    shortcuts,
+  };
+  function run(id) {
+    if (CMDS[id]) CMDS[id]();
+  }
+  wb.run = run;
+  wb.keyboardHome = keyboardHome;
+  wb.copyPath = copyPath;
+  wb.revealPath = (p) => {
+    showView('explorer');
+    setPane('side');
+    explorer.reveal(p, { focus: true });
+  };
+  // Shown in Monaco's own command palette with their keys (tabs.js adds them to the code editor).
+  wb.commands = COMMANDS.filter((c) => c.palette !== false).map((c) => ({ ...c, run: () => run(c.id) }));
+  quick.commands(wb.commands);
+
+  // The keys: one listener before everything else on the page. Inside the code editor its own chords (Ctrl+K ...)
+  // stay its own: this table's chords are added to it (tabs.js), so they work there too.
+  const reader = createKeyReader();
+  const onKey = (e) => {
+    if (failed || document.querySelector('dialog.sheet[open]')) return reader.reset();
+    const inEditor = !!(e.target && e.target.closest && e.target.closest('.monaco-editor'));
+    const inText = !inEditor && !!(e.target && (e.target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)));
+    // Typing in a field of the page (search, commit message): only the keys with Ctrl.
+    if (!(e.ctrlKey || e.metaKey) && !e.altKey && !reader.pending && e.key !== 'F1') return;
+    const stroke = strokeOf(e);
+    if (e.metaKey && stroke === 'Ctrl+G') return; // a Mac's Cmd+G is find next, as in VS Code there
+    if ((stroke === 'Ctrl+Shift+I' || (reader.pending === 'Ctrl+K' && stroke === 'Ctrl+F')) && inEditor && tabs.active && !tabs.canFormat()) {
+      reader.reset();
+      e.preventDefault();
+      e.stopPropagation();
+      return toast('No formatter for this language in the browser editor (it formats JSON, CSS, HTML, JavaScript and TypeScript).', { kind: 'info' });
+    }
+    const r = reader.read(stroke, { inEditor, inText });
+    if (!r) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (r.id) run(r.id);
+    else if (r.miss) toast(`${r.miss} is not a command here (Ctrl+K Ctrl+S lists them).`, { kind: 'info' });
   };
   window.addEventListener('keydown', onKey, true);
 

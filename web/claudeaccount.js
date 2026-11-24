@@ -16,8 +16,9 @@ const R = (p = '') => `~/api/accounts/claude-login${p}`; // always this dashboar
 const PLAN = (p) => p.charAt(0).toUpperCase() + p.slice(1);
 const RECENT_MS = 6 * 3600 * 1000;
 
-/** A provider that uses Claude Code's stored sign-in (not an account token of its own, not an API key). */
-export const usesStoredLogin = (p) => !!p && p.kind === 'login';
+/** A provider that uses Claude Code's stored sign-in of this computer's default folder (not an account token of its
+ * own, not an API key, not a sign-in folder of its own: `ownFolder`, which this page can neither see nor change). */
+export const usesStoredLogin = (p) => !!p && p.kind === 'login' && !p.ownFolder;
 /** A session, chat or provider of this dashboard's own computer. */
 const onThisComputer = (x) => ('machine' in x ? x.machine : machine.current) === null;
 const own = () => store.all.find((m) => m.machine === null) || { sessions: [], profiles: [], autoSwitch: {} };
@@ -144,7 +145,7 @@ export function signOut({ done = () => {} } = {}) {
         close(true);
       } catch (e) {
         go.disabled = false;
-        fill(out, errorBox(e.message));
+        fill(out, errorBox(e));
       }
     } }, 'Sign out');
     return [
@@ -186,7 +187,7 @@ export function accountLimitActions(s, profiles, after) {
     try {
       await fn();
     } catch (err) {
-      toast(err.message, { kind: 'error' });
+      toast(err, { kind: 'error' });
     } finally {
       b.disabled = false;
     }
@@ -203,7 +204,7 @@ export function accountLimitActions(s, profiles, after) {
       h('p.sheet-text', 'A menu is open in this session, so nothing was typed into it. Restarting starts the same conversation again in place, on the same provider, and then continues it.'),
       h('div.sheet-actions',
         h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'),
-        h('button.btn.primary', { type: 'button', onclick: () => { close(); goOn(true).catch((err) => toast(err.message, { kind: 'error' })); } }, 'Restart and continue')),
+        h('button.btn.primary', { type: 'button', onclick: () => { close(); goOn(true).catch((err) => toast(err, { kind: 'error' })); } }, 'Restart and continue')),
     ]);
   };
   return [

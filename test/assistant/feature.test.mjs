@@ -10,7 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { tmuxUsable } from '../../src/server/backends/index.mjs';
-import { sandbox } from '../server/helpers.mjs';
+import { boxProcesses, sandbox } from '../server/helpers.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_SESSION = path.join(HERE, 'fixtures', 'fake-session.mjs');
@@ -79,6 +79,10 @@ for (const kind of kinds) {
     const emptyConf = path.join(box.root, 'empty.conf');
     fs.writeFileSync(emptyConf, '');
     const socket = `tia-t-${process.pid}`;
+    // On tmux the launcher ends 7 s after its terminal closes, longer than the box's own wait (helpers.mjs): the test
+    // passes only when it waits for the launcher itself, as a slow computer needs.
+    if (kind === 'tmux') process.env.FAKE_SESSION_BYE_MS = '7000';
+    t.after(() => delete process.env.FAKE_SESSION_BYE_MS);
     // A stand-in for src/claudecode.mjs, given to the server and to Tia's tools (each takes its own): what she
     // reports must not depend on a Claude Code installed on this computer, nor on a version lookup on the network.
     const claudecode = { claudeInfo: async () => ({ installed: '2.1.325', latest: '2.1.330', updateAvailable: true }) };
@@ -98,9 +102,14 @@ for (const kind of kinds) {
       // tmux sessions outlive the dashboard on purpose; the test's own tmux server must not.
       if (kind === 'tmux') {
         spawnSync('tmux', ['-L', socket, 'kill-server']);
+        // Until every process of the box has ended: the server, the pane shells AND the launcher under each shell,
+        // which writes state/runs-ended.jsonl as it ends (waiting on the server and panes only removed the box while
+        // that write went on: ENOTEMPTY under load). Read from the box itself, never by a name.
+        for (const stop = Date.now() + 30_000; boxProcesses(box.root).length && Date.now() < stop;) await new Promise((r) => setTimeout(r, 50));
         // tmux leaves the socket file behind: one more in the shared tmux folder at every run.
         fs.rmSync(path.join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${process.getuid()}`, socket), { force: true });
       }
+      // A process of this test that outlives it fails the test, named (helpers.mjs).
       box.cleanup();
     });
 
@@ -162,7 +171,7 @@ for (const kind of kinds) {
     assert.equal(r.isError, false, r.text);
     await until('the echo', async () => /GOT: hello there/.test((await call('read_session', { session: name })).text));
     assert.equal((await call('send_to_session', { session: name, key: 'Escape' })).isError, false);
-    assert.match((await call('get_accounts', {})).text, /5 provider\(s\) on this/);
+    assert.match((await call('get_computer_status', { providers: true })).text, /5 provider\(s\) on this/);
     assert.match((await call('get_computer_status', { computer: 'this' })).text, /Claude Code 2\.1\.325/);
     assert.match((await call('list_projects', { folder: work })).text, /subfolder/);
     assert.equal((await call('list_projects', {})).isError, false);
@@ -175,7 +184,8 @@ for (const kind of kinds) {
     assert.match(r.text, /^Stopped/);
     await until('the session gone', async () => !(await call('list_sessions', {})).text.includes(name));
 
-    // ---- her first message (model output) is never typed into a shell: Ctrl-U, Tab and line breaks arrive whole ----
+    // ---- her first message (model output) is never typed into a shell: Tab and line breaks arrive whole; Ctrl-U, a
+    // control character, is taken out at her door (what the card shows is what the session gets), and nothing runs ----
     const proj2 = path.join(work, 'proj2');
     fs.mkdirSync(proj2);
     const hostile = 'hello \u0015touch PWNED; # rest\n\tpackage.j\tab; touch PWNED2; #\nline "three" \'s $(touch PWNED3)';
@@ -183,7 +193,9 @@ for (const kind of kinds) {
     assert.equal(r.isError, false, r.text);
     const name2 = /Started session (\S+)/.exec(r.text)[1];
     await until('the second task done', () => fs.existsSync(path.join(proj2, 'TASK.txt')));
-    assert.equal(fs.readFileSync(path.join(proj2, 'TASK.txt'), 'utf8'), hostile, 'whole, byte for byte');
+    const got = fs.readFileSync(path.join(proj2, 'TASK.txt'), 'utf8');
+    assert.equal(got, hostile.replace('\u0015', ''), 'whole, byte for byte, without the Ctrl-U');
+    assert.ok(!got.includes('\u0015'), 'no control character reaches the session');
     for (const d of [proj2, work, box.root]) assert.deepEqual(fs.readdirSync(d).filter((f) => f.startsWith('PWNED')), [], `nothing ran in ${d}`);
     assert.equal((await call('stop_session', { session: name2 })).isError, false);
     await until('the second session gone', async () => !(await call('list_sessions', {})).text.includes(name2));
@@ -279,7 +291,11 @@ for (const kind of kinds) {
     const card = await until('her card', async () => (await owner('GET', '/api/assistant/cards')).json.cards[0]);
     assert.equal(card.tool, 'set_auto_mode');
     assert.ok(card.lines.some((l) => /Turn it ON/.test(l)));
+    // He declines her card: one correction of that kind of decision (her tool's name), kept while its switch is on.
+    saveConfig({ ...loadConfig(), operator: { corrections: { on: true } } });
     assert.equal((await owner('POST', `/api/assistant/cards/${card.id}/reject`, {})).status, 200);
+    const { listCorrections } = await import('../../src/operator/corrections.mjs');
+    assert.deepEqual(listCorrections().map((c) => [c.kind, c.about]), [['declined', { decision: 'set_auto_mode' }]]);
 
     // ---- settings: validated; off → 403 for her token and the tab says what to do ----
     assert.equal((await owner('POST', '/api/assistant/settings', { level: 'max' })).status, 400);
@@ -306,6 +322,16 @@ for (const kind of kinds) {
     r = await owner('POST', '/api/assistant/settings', { level: 'handsoff', accounts: ['api'], runsOn: 'api', model: 'haiku' });
     assert.equal(r.status, 200, JSON.stringify(r.json));
     assert.deepEqual(r.json.settings.allowed, ['api']);
+    // Her ticks ("Use other providers") only among the providers she may use: one outside is refused, never kept hidden;
+    // one left on a provider unticked from her list goes, and does not come back when he allows it again.
+    assert.match((await owner('POST', '/api/assistant/settings', { lead: true, others: ['sub'] })).json.error, /not a provider she may use/);
+    assert.equal((await owner('POST', '/api/assistant/settings', { accounts: ['api', 'sub'], lead: true, others: ['sub'] })).status, 200);
+    assert.deepEqual(loadConfig().assistant.others, ['sub']);
+    assert.equal((await owner('POST', '/api/assistant/settings', { accounts: ['api'] })).status, 200);
+    assert.deepEqual(loadConfig().assistant.others, [], 'dropped with her allowed provider');
+    assert.equal((await owner('POST', '/api/assistant/settings', { accounts: ['api', 'sub'] })).status, 200);
+    assert.deepEqual(loadConfig().assistant.others, [], 'not back by itself');
+    await owner('POST', '/api/assistant/settings', { accounts: ['api'], lead: false });
     // Activity lists what the owner changed: Save sends every value again, and the ones that stayed are left out.
     r = await owner('POST', '/api/assistant/settings', { level: 'handsoff', accounts: ['api'], runsOn: 'api', model: 'haiku', maxSteps: 20, maxMinutes: 30 });
     assert.equal(r.status, 200, JSON.stringify(r.json));

@@ -1,6 +1,8 @@
 // Helpers shared by the per-OS platform modules. Every external command runs through execFile (or spawn) with an argument
 // array, never through a shell.
 import { execFile, execFileSync, spawn } from 'node:child_process';
+import path from 'node:path';
+import { startInTurn } from '../../oneturn.mjs';
 
 const MAX_OUTPUT = 8 << 20;
 
@@ -12,10 +14,11 @@ const MAX_OUTPUT = 8 << 20;
 export const run = (cmd, args, { timeout = 5000, env, noTerminal = false } = {}) => {
   const e = env || { ...process.env, LC_ALL: 'C' };
   if (noTerminal && process.platform !== 'win32') return runAlone(cmd, args, { timeout, env: e });
-  return new Promise((resolve) => {
-    execFile(cmd, args, { timeout, maxBuffer: MAX_OUTPUT, windowsHide: true, env: e }, (err, stdout, stderr) =>
+  return new Promise((resolve, reject) => {
+    // One start per turn of the server's thread (oneturn.mjs startInTurn): the snapshot's df, ps and ss started together.
+    startInTurn(() => execFile(cmd, args, { timeout, maxBuffer: MAX_OUTPUT, windowsHide: true, env: e }, (err, stdout, stderr) =>
       resolve({ ok: !err, stdout: stdout || '', stderr: (stderr || (err && err.message) || '').trim() }),
-    );
+    )).catch(reject);
   });
 };
 
@@ -24,7 +27,8 @@ export const run = (cmd, args, { timeout = 5000, env, noTerminal = false } = {})
  * whole group ends, the programs it started too (tar's gzip). Same answer as run().
  */
 function runAlone(cmd, args, { timeout, env }) {
-  return new Promise((resolve) => {
+  // Only the start is in the turn (startInTurn): the program's run and its answer are awaited outside it.
+  return new Promise((resolve) => startInTurn(() => {
     let child;
     try {
       child = spawn(cmd, args, { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -62,7 +66,7 @@ function runAlone(cmd, args, { timeout, env }) {
     };
     child.on('error', (err) => finish(false, err.message)); // ENOENT: not installed
     child.on('close', (code, signal) => finish(code === 0, signal ? `ended by ${signal}` : `exit code ${code}`));
-  });
+  }).catch((err) => resolve({ ok: false, stdout: '', stderr: err.message })));
 }
 
 /** The synchronous twin, for the few callers that must answer at once. Returns stdout, or null on failure. */
@@ -81,7 +85,7 @@ export function runSync(cmd, args, { timeout = 5000 } = {}) {
 //   a value after a secret's name    --token=…, PASSWORD=…, api_key: …, Bearer …, Basic …
 //   passwords given as options       mysql -pSECRET, curl -u user:SECRET, sshpass -p SECRET
 const URL_PASSWORD = /\b([a-z][a-z0-9+.-]{1,20}:\/\/[^\s:@/'"]*:)[^\s@/'"]+@/gi;
-const SHAPES = /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abposr]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})|\bsk-[A-Za-z0-9_-]{8,}/g;
+const SHAPES = /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abposr]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})|\bsk-[A-Za-z0-9_-]{8,}|\bhbt_[A-Za-z0-9_-]{20,}/g;
 const SECRET_RE = /(\b[\w-]*(?:token|api[-_]?key|secret|passw(?:or)?d)[\w-]*(?:=|:\s*|\s+)|\bBearer\s+)\S+|\b(Basic\s+)[A-Za-z0-9+/]{8,}={0,2}/gi;
 const OPTION_PASSWORDS = [
   // mysql, mariadb and their tools take the password glued to -p
@@ -147,4 +151,36 @@ export function parseParents(text) {
     if (m) map.set(Number(m[1]), Number(m[2]));
   }
   return map;
+}
+
+/**
+ * How paths compare on `platform`: Windows and macOS disks ignore letter case by default, Windows takes "\" and "/"
+ * and names drives (D:\work). → { fold, same(a, b), within(p, top), forms(p) }: `forms` are the spellings a file may
+ * hold of one folder (on Windows with either slash and the drive letter in either case), for a search of old paths.
+ */
+export function pathRules(platform = process.platform) {
+  const win = platform === 'win32';
+  const p = win ? path.win32 : path.posix;
+  const fold = win || platform === 'darwin';
+  const norm = (s) => {
+    const r = p.resolve(String(s)).replace(/[\\/]+$/, '') || p.sep;
+    return fold ? r.toLowerCase() : r;
+  };
+  const same = (a, b) => norm(a) === norm(b);
+  const within = (x, top) => {
+    const a = norm(x);
+    const b = norm(top);
+    return a === b || a.startsWith(b.endsWith(p.sep) ? b : b + p.sep);
+  };
+  const forms = (s) => {
+    const r = p.resolve(String(s));
+    const out = new Set([r]);
+    if (win) {
+      out.add(r.replace(/\\/g, '/'));
+      out.add(r.replace(/\\/g, '\\\\')); // as JSON and many config files write it
+      for (const f of [...out]) if (/^[A-Za-z]:/.test(f)) out.add((f[0] === f[0].toUpperCase() ? f[0].toLowerCase() : f[0].toUpperCase()) + f.slice(1));
+    }
+    return [...out];
+  };
+  return { win, fold, path: p, same, within, forms };
 }

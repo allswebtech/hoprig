@@ -20,6 +20,9 @@ const S = await import('../src/sessions.mjs');
 const L = await import('../src/launch.mjs');
 const M = await import('../src/menu.mjs');
 
+const A = await import('../src/autoswitch.mjs');
+const W = await import('../src/winspawn.mjs');
+
 test('parseEnv reads plain, quoted, exported and commented lines', () => {
   const env = P.parseEnv(['# note', 'A=1', 'export B="two words"', "C='x$y'", 'D="q\\"uote"', 'bad line', '1X=no', 'E=', ''].join('\n'));
   assert.deepEqual(env, { A: '1', B: 'two words', C: 'x$y', D: 'q"uote', E: '' });
@@ -62,7 +65,7 @@ test('names: command words and odd characters are refused', () => {
 });
 
 test('profileEnv clears every auth variable of the surrounding shell, then applies the profile', () => {
-  const base = { PATH: '/bin', ANTHROPIC_API_KEY: 'old', ANTHROPIC_AUTH_TOKEN: 'old', ANTHROPIC_BASE_URL: 'old', CLAUDE_CODE_OAUTH_TOKEN: 'old' };
+  const base = { PATH: '/bin', ANTHROPIC_API_KEY: 'old', ANTHROPIC_AUTH_TOKEN: 'old', ANTHROPIC_BASE_URL: 'old', CLAUDE_CODE_OAUTH_TOKEN: 'old' }; // seal: a value no program is started with
   const login = P.profileEnv(P.readProfile('sub'), base);
   for (const k of P.AUTH_VARS) assert.equal(k in login, false, k);
   assert.equal(login.PATH, '/bin');
@@ -263,7 +266,7 @@ process.exit(7);
   fs.rmSync(outFile, { force: true });
   const oai = spawnSync(process.execPath, [binFile(), 'oai'], { env: { ...process.env, FAKE_OUT: outFile }, encoding: 'utf8' });
   assert.equal(oai.status, 2);
-  assert.equal(oai.stderr, 'hoprig: The provider "OpenAI API" cannot be used for Claude Code: it does not answer the API that tool speaks (Test it on the Providers page, or choose another provider).\nIt works with OpenCode: hoprig opencode oai\n', 'why, and the one thing to do instead');
+  assert.equal(oai.stderr, 'hoprig: The provider "OpenAI API" cannot be used for Claude Code: it does not work with that coding tool (test it on the Providers page, or choose another provider).\nIt works with OpenCode: hoprig opencode oai\n', 'why, and the one thing to do instead');
   // Another coding tool's sign-in: the reason the page gives, and no tool of this version to start on it.
   P.writeProfile('cx', { label: 'Codex sign-in', signin: 'codex' });
   const cx = spawnSync(process.execPath, [binFile(), 'cx'], { env: { ...process.env, FAKE_OUT: outFile }, encoding: 'utf8' });
@@ -339,8 +342,6 @@ test('the start menu with no provider for Claude Code: it adds the stored sign-i
   assert.match(r.stdout, /CHOICE null/);
   assert.ok(!r.stdout.includes('sk-menu-sub'));
 });
-
-const A = await import('../src/autoswitch.mjs');
 
 test('auto-switch: off and empty by default; settings are validated', () => {
   assert.deepEqual(A.getAutoSwitch(), { enabled: false, order: [], payPerUse: false, returnToPreferred: false, prompt: 'Continue from where you stopped.', cooldownMinutes: 300 });
@@ -519,14 +520,53 @@ test('auto command: shows and changes the settings; "auto" is offered as a profi
   assert.match(bare.stderr, /needs the order of providers/);
 });
 
-const W = await import('../src/winspawn.mjs');
+test('a start under Auto mode whose order holds only a key billed by use, while pay-per-use is off, says why it cannot start', async () => {
+  const { saveConfig } = await import('../src/config.mjs');
+  P.writeProfile('key', { label: 'Key', env: { ANTHROPIC_API_KEY: 'demo-not-a-key' } });
+  try {
+    saveConfig({ autoSwitch: { enabled: true, order: ['key'], payPerUse: false } });
+    const r = spawnSync(process.execPath, [binFile(), 'auto'], { env: process.env, encoding: 'utf8' });
+    assert.equal(r.status, 2);
+    assert.equal(r.stderr.trim(), 'hoprig: Auto mode has nothing it may use, because Key in its order is billed by use and "Also use pay-per-use providers" is off: turn that switch on on the Providers page, or put a subscription into the order.');
+    // No order at all: the sentence of before.
+    saveConfig({ autoSwitch: { enabled: true, order: [] } });
+    const bare = spawnSync(process.execPath, [binFile(), 'auto'], { env: process.env, encoding: 'utf8' });
+    assert.equal(bare.status, 2);
+    assert.equal(bare.stderr.trim(), 'hoprig: Auto mode needs the order of providers first, for example: hoprig auto order sub api');
+  } finally {
+    P.deleteProfile('key');
+    saveConfig({ autoSwitch: {} });
+  }
+});
+
+test('a start under Auto mode whose order holds only providers left out for another reason says each reason', async () => {
+  const { saveConfig } = await import('../src/config.mjs');
+  P.writeProfile('oai', { label: 'Example OpenAI', env: { OPENAI_API_KEY: 'demo-not-a-key' } });
+  P.writeProfile('key', { label: 'Key', env: { ANTHROPIC_API_KEY: 'demo-not-a-key' } });
+  const start = () => spawnSync(process.execPath, [binFile(), 'auto'], { env: process.env, encoding: 'utf8' });
+  try {
+    saveConfig({ autoSwitch: { enabled: true, order: ['ghost', 'oai'], payPerUse: true } });
+    const r = start();
+    assert.equal(r.status, 2);
+    assert.equal(r.stderr.trim(), 'hoprig: Auto mode has nothing it may use, because ghost in its order does not exist any more, and Example OpenAI does not serve Claude Code: put a provider that serves Claude Code into the order on the Providers page, or run: hoprig auto order <provider> <provider>.');
+    saveConfig({ autoSwitch: { enabled: true, order: ['oai', 'key'], payPerUse: false } });
+    const mixed = start();
+    assert.equal(mixed.status, 2);
+    assert.equal(mixed.stderr.trim(), 'hoprig: Auto mode has nothing it may use, because Example OpenAI in its order does not serve Claude Code, and Key is billed by use and "Also use pay-per-use providers" is off: turn that switch on on the Providers page, or put a subscription into the order.');
+    assert.doesNotMatch(mixed.stderr, /needs the order of providers/);
+  } finally {
+    P.deleteProfile('oai');
+    P.deleteProfile('key');
+    saveConfig({ autoSwitch: {} });
+  }
+});
 
 test('Windows: a bare command name is found like Windows finds it, .exe before .cmd', () => {
   const files = new Set(['C:\\Users\\me\\.local\\bin\\claude.exe', 'C:\\npm\\claude.cmd', 'C:\\npm\\other.cmd']);
   const exists = (p) => files.has(p);
-  const env = { Path: 'C:\\npm;C:\\Users\\me\\.local\\bin', PATHEXT: '.COM;.EXE;.BAT;.CMD' };
+  const env = { Path: 'C:\\npm;C:\\Users\\me\\.local\\bin', PATHEXT: '.COM;.EXE;.BAT;.CMD' }; // seal: a value no program is started with
   assert.equal(W.resolveWindowsBin('claude', env, exists), 'C:\\npm\\claude.cmd', 'the first PATH folder that has it wins');
-  assert.equal(W.resolveWindowsBin('claude', { ...env, Path: 'C:\\Users\\me\\.local\\bin;C:\\npm' }, exists), 'C:\\Users\\me\\.local\\bin\\claude.exe');
+  assert.equal(W.resolveWindowsBin('claude', { ...env, Path: 'C:\\Users\\me\\.local\\bin;C:\\npm' }, exists), 'C:\\Users\\me\\.local\\bin\\claude.exe'); // seal: a value no program is started with
   assert.equal(W.resolveWindowsBin('other', env, exists), 'C:\\npm\\other.cmd');
   assert.equal(W.resolveWindowsBin('C:\\npm\\claude.cmd', env, exists), 'C:\\npm\\claude.cmd');
   assert.equal(W.resolveWindowsBin('nothing', env, exists), null);
@@ -573,7 +613,11 @@ test('Auto mode runs as the first subscription that is free; an expired login or
     const no = async () => ({ loggedIn: false });
     const logged = await L.autoProfile({ loginStatus: yes });
     assert.deepEqual([logged.name, logged.identity, logged.env.ANTHROPIC_BASE_URL, 'CLAUDE_CODE_OAUTH_TOKEN' in logged.env], ['auto', 'sub', `${url}/as/sub`, false]);
-    const out = await L.autoProfile({ loginStatus: no });
+    const said = [];
+    const err = console.error;
+    console.error = (l) => said.push(String(l));
+    const out = await L.autoProfile({ loginStatus: no }).finally(() => { console.error = err; });
+    assert.ok(said.some((l) => l.endsWith('Auto mode runs as "Claude subscription" meanwhile.')), said.join('|')); // sub2 by its label
     assert.deepEqual([out.identity, out.env.ANTHROPIC_BASE_URL, out.env.CLAUDE_CODE_OAUTH_TOKEN], ['sub2', `${url}/as/sub2`, 'sk-ant-oat01-x']);
     // sub at its limit: Claude Code itself runs as sub2 (its own token, used by Claude Code and by nothing else).
     A.markLimited('sub', { until: Date.now() + 3600_000 });
@@ -694,4 +738,204 @@ test('the conversation a launch names goes into its run record before Claude Cod
   const again = createRun({ profile: 'q', cwd: os.tmpdir(), conversation: id, file });
   assert.deepEqual([again.file, again.run.runId, again.run.profile], [file, run.runId, 'q']);
   removeRun(file);
+});
+
+test('a session the person ended (/exit, the exit keys) just ends; a limit, a sign-out or an error code gets the menu', { skip: process.platform === 'win32' }, async () => {
+  // The stand-in Claude Code runs Hoprig's real hook program for each event, as Claude Code does, then exits.
+  const fake = path.join(tmp, 'fake-claude-end.mjs');
+  fs.writeFileSync(fake, `#!/usr/bin/env node
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+const s = JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('--settings') + 1], 'utf8'));
+const fire = (ev) => execSync(s.hooks[ev.hook_event_name][0].hooks[0].command, { input: JSON.stringify({ session_id: process.env.FAKE_ID, ...ev }) });
+fire({ hook_event_name: 'SessionStart', source: 'startup' });
+for (const ev of JSON.parse(process.env.FAKE_EVENTS)) fire(ev);
+process.exit(Number(process.env.FAKE_CODE));
+`, { mode: 0o755 });
+  fs.mkdirSync(process.env.HOPRIG_CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(path.join(process.env.HOPRIG_CONFIG_DIR, 'config.json'), JSON.stringify({ claudeBin: fake, usage: false }));
+  P.writeProfile('alpha', {});
+  const id = '7e570000-0000-4000-8000-00000000e001';
+  // Something was said in it: the session is saved and can be resumed.
+  const transcript = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', S.projectSlug(process.cwd()), `${id}.jsonl`);
+  fs.mkdirSync(path.dirname(transcript), { recursive: true });
+  fs.writeFileSync(transcript, '{}\n');
+  const tty = { in: process.stdin.isTTY, out: process.stdout.isTTY, err: process.stderr.isTTY };
+  const write = process.stderr.write;
+  const run = async ({ events = [], code = 0, args = [], terminal = true, errTerminal = false }) => {
+    Object.assign(process.env, { FAKE_ID: id, FAKE_EVENTS: JSON.stringify(events), FAKE_CODE: String(code) });
+    process.stdin.isTTY = terminal;
+    process.stdout.isTTY = terminal;
+    process.stderr.isTTY = errTerminal;
+    let err = '';
+    process.stderr.write = (chunk, ...rest) => { err += String(chunk); return true; };
+    const asked = [];
+    try {
+      const got = await L.launch('alpha', args, { askNext: async (ask) => { asked.push(ask); return null; } });
+      return { got, asked, err };
+    } finally {
+      process.stderr.write = write;
+      process.stdin.isTTY = tty.in;
+      process.stdout.isTTY = tty.out;
+      process.stderr.isTTY = tty.err;
+    }
+  };
+  const end = (reason) => ({ hook_event_name: 'SessionEnd', reason });
+  const limit = { hook_event_name: 'StopFailure', error: 'rate_limit', last_assistant_message: "You've hit your limit" };
+  const hint = `To continue it later: hoprig -c, or on another profile: hoprig <profile> --resume ${id}`;
+  try {
+    let r = await run({ events: [end('prompt_input_exit')] });
+    assert.deepEqual([r.got, r.asked], [0, []], 'a typed /exit: no menu, Claude Code\'s exit code');
+    assert.ok(r.err.endsWith(`${hint}\n`), r.err);
+    assert.equal(r.err.split('\n').filter(Boolean).length, 2, 'the profile line before, the hint after, nothing else');
+    r = await run({ events: [end('prompt_input_exit')], errTerminal: true });
+    assert.ok(r.err.endsWith(`\x1b[2m${hint}\x1b[0m\n`), 'dim where stderr is a terminal');
+    r = await run({ events: [] });
+    assert.deepEqual([r.got, r.asked], [0, []], 'no reason recorded (an older Claude Code) and code 0: ended by the person');
+    assert.ok(r.err.includes(hint));
+    const menu = [{ current: 'alpha', sessionId: id, saved: true }];
+    r = await run({ events: [limit, end('prompt_input_exit')] });
+    assert.deepEqual([r.got, r.asked], [0, menu], 'stopped at a limit: the menu, even after /exit');
+    assert.ok(!r.err.includes('To continue it later'));
+    r = await run({ events: [{ hook_event_name: 'StopFailure', error: 'server_error', last_assistant_message: 'API Error: 500' }, end('prompt_input_exit')] });
+    assert.deepEqual([r.got, r.asked], [0, menu], 'a provider\'s error: the menu');
+    r = await run({ events: [end('logout')] });
+    assert.deepEqual([r.got, r.asked], [0, menu], 'a sign-out: the menu');
+    r = await run({ events: [end('other')], code: 1 });
+    assert.deepEqual([r.got, r.asked], [1, menu], 'an error code: the menu');
+    r = await run({ events: [end('prompt_input_exit')], code: 3 });
+    assert.deepEqual([r.got, r.asked], [3, menu], 'an error code wins over the reason');
+    // As before: print mode and a launch without a terminal neither ask nor print the hint.
+    r = await run({ events: [limit], args: ['-p', 'hi'] });
+    assert.deepEqual([r.got, r.asked], [0, []]);
+    assert.ok(!r.err.includes('To continue it later'));
+    r = await run({ events: [limit], code: 1, terminal: false });
+    assert.deepEqual([r.got, r.asked], [1, []]);
+    assert.equal(r.err, '');
+    assert.deepEqual(R.listRuns(), [], 'no record is left');
+  } finally {
+    for (const k of ['FAKE_ID', 'FAKE_EVENTS', 'FAKE_CODE']) delete process.env[k];
+    P.deleteProfile('alpha');
+    fs.rmSync(transcript, { force: true });
+    fs.rmSync(path.join(process.env.HOPRIG_CONFIG_DIR, 'config.json'), { force: true });
+  }
+});
+
+test('endedBySelf: Claude Code\'s reason decides; a limit, a failure or an error code never counts', () => {
+  assert.equal(L.endedBySelf({ endReason: 'prompt_input_exit' }, 0), true);
+  assert.equal(L.endedBySelf({}, 0), true, 'no reason recorded');
+  assert.equal(L.endedBySelf(null, 0), true, 'no record at all');
+  for (const reason of ['logout', 'other', 'clear', 'resume']) assert.equal(L.endedBySelf({ endReason: reason }, 0), false, reason);
+  assert.equal(L.endedBySelf({ endReason: 'prompt_input_exit', limit: { at: 1 } }, 0), false);
+  assert.equal(L.endedBySelf({ endReason: 'prompt_input_exit', failure: { at: 1 } }, 0), false);
+  assert.equal(L.endedBySelf({ endReason: 'prompt_input_exit' }, 130), false);
+});
+
+test('the launcher\'s own menu move carries Hands-off\'s stops and reuses the run id', { skip: process.platform === 'win32' }, async () => {
+  // When Claude Code exits and the owner picks another profile at the menu, the fresh run must keep the hour and loop
+  // stops and the hour's answers, under the same run id (so the owner's own switch, kept under that id, stays). The
+  // stand-in seeds the stops on the first provider only; the second run gets them only via the hand-over in launch().
+  const fake = path.join(tmp, 'fake-claude-carry.mjs');
+  fs.writeFileSync(fake, `#!/usr/bin/env node
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+const s = JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('--settings') + 1], 'utf8'));
+const fire = (ev) => { try { execSync(s.hooks[ev.hook_event_name][0].hooks[0].command, { input: JSON.stringify({ session_id: process.env.FAKE_ID, ...ev }) }); } catch {} };
+fire({ hook_event_name: 'SessionStart', source: 'startup' });
+const file = process.env.HOPRIG_RUN_FILE;
+const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+if (rec.profile === 'alpha') {
+  fs.writeFileSync(file, JSON.stringify({ ...rec, handsOffStop: 'hour', handsOffRow: 2, handsOffDone: [{ at: 1, kind: 'question', text: 'x', because: 'recommended' }] }));
+  fs.writeFileSync(process.env.FAKE_ALPHA, rec.runId);
+} else if (rec.profile === 'beta') {
+  fs.writeFileSync(process.env.FAKE_BETA, JSON.stringify({ runId: rec.runId, stop: rec.handsOffStop ?? null, row: rec.handsOffRow ?? null, done: rec.handsOffDone ?? null }));
+}
+fire({ hook_event_name: 'SessionEnd', reason: 'logout' });
+process.exit(0);
+`, { mode: 0o755 });
+  fs.mkdirSync(process.env.HOPRIG_CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(path.join(process.env.HOPRIG_CONFIG_DIR, 'config.json'), JSON.stringify({ claudeBin: fake, usage: false }));
+  P.writeProfile('alpha', {});
+  P.writeProfile('beta', {});
+  const id = '7e570000-0000-4000-8000-00000000c004';
+  const transcript = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', S.projectSlug(process.cwd()), `${id}.jsonl`);
+  fs.mkdirSync(path.dirname(transcript), { recursive: true });
+  fs.writeFileSync(transcript, '{}\n');
+  const alphaFile = path.join(tmp, 'alpha-runid.txt');
+  const betaFile = path.join(tmp, 'beta-seen.json');
+  const tty = { in: process.stdin.isTTY, out: process.stdout.isTTY, err: process.stderr.isTTY };
+  const write = process.stderr.write;
+  Object.assign(process.env, { FAKE_ID: id, FAKE_ALPHA: alphaFile, FAKE_BETA: betaFile });
+  process.stdin.isTTY = true;
+  process.stdout.isTTY = true;
+  process.stderr.write = () => true;
+  let picks = ['beta'];
+  try {
+    await L.launch('alpha', [], { askNext: async () => picks.shift() || null });
+  } finally {
+    process.stderr.write = write;
+    process.stdin.isTTY = tty.in;
+    process.stdout.isTTY = tty.out;
+    process.stderr.isTTY = tty.err;
+  }
+  const alphaRunId = fs.readFileSync(alphaFile, 'utf8');
+  const beta = JSON.parse(fs.readFileSync(betaFile, 'utf8'));
+  assert.equal(beta.runId, alphaRunId, 'the fresh run reuses the old run id, so the owner\'s switch under it stays valid');
+  assert.equal(beta.stop, 'hour', 'the hour stop is carried');
+  assert.equal(beta.row, 2, 'the loop count is carried');
+  assert.deepEqual(beta.done, [{ at: 1, kind: 'question', text: 'x', because: 'recommended' }], 'the hour\'s answers are carried');
+});
+
+test('the launcher\'s own menu move keeps the run id of a run with no stops while Hands-off is offered', { skip: process.platform === 'win32' }, async () => {
+  // The owner's own Off for the session sits under its run id. A run that never had a stop or an answer has nothing
+  // to carry, but a new id would leave the session on the project's switch, which may be On.
+  const fake = path.join(tmp, 'fake-claude-nostops.mjs');
+  fs.writeFileSync(fake, `#!/usr/bin/env node
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+const s = JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('--settings') + 1], 'utf8'));
+const fire = (ev) => { try { execSync(s.hooks[ev.hook_event_name][0].hooks[0].command, { input: JSON.stringify({ session_id: process.env.FAKE_ID, ...ev }) }); } catch {} };
+fire({ hook_event_name: 'SessionStart', source: 'startup' });
+const rec = JSON.parse(fs.readFileSync(process.env.HOPRIG_RUN_FILE, 'utf8'));
+fs.appendFileSync(process.env.FAKE_SEEN, JSON.stringify({ profile: rec.profile, runId: rec.runId, stop: rec.handsOffStop ?? null, row: rec.handsOffRow ?? null }) + '\\n');
+fire({ hook_event_name: 'SessionEnd', reason: 'logout' });
+process.exit(0);
+`, { mode: 0o755 });
+  fs.mkdirSync(process.env.HOPRIG_CONFIG_DIR, { recursive: true });
+  const cfgFile = path.join(process.env.HOPRIG_CONFIG_DIR, 'config.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ claudeBin: fake, usage: false, handsOff: { offered: true } }));
+  P.writeProfile('alpha', {});
+  P.writeProfile('beta', {});
+  const id = '7e570000-0000-4000-8000-00000000c006';
+  const transcript = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', S.projectSlug(process.cwd()), `${id}.jsonl`);
+  fs.mkdirSync(path.dirname(transcript), { recursive: true });
+  fs.writeFileSync(transcript, '{}\n');
+  const seen = path.join(tmp, 'nostops-seen.jsonl');
+  const tty = { in: process.stdin.isTTY, out: process.stdout.isTTY, err: process.stderr.isTTY };
+  const write = process.stderr.write;
+  Object.assign(process.env, { FAKE_ID: id, FAKE_SEEN: seen });
+  process.stdin.isTTY = true;
+  process.stdout.isTTY = true;
+  process.stderr.write = () => true;
+  // The owner turns the session Off on the dashboard while the first run is open: under that run's id.
+  const askNext = async () => {
+    const first = JSON.parse(fs.readFileSync(seen, 'utf8').trim().split('\n')[0]);
+    const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
+    fs.writeFileSync(cfgFile, JSON.stringify({ ...cfg, handsOff: { ...cfg.handsOff, sessions: { [first.runId]: { on: false, version: '0', at: 1 } } } }));
+    askNext.n = (askNext.n || 0) + 1;
+    return askNext.n === 1 ? 'beta' : null;
+  };
+  try {
+    await L.launch('alpha', [], { askNext });
+  } finally {
+    process.stderr.write = write;
+    process.stdin.isTTY = tty.in;
+    process.stdout.isTTY = tty.out;
+    process.stderr.isTTY = tty.err;
+  }
+  const rows = fs.readFileSync(seen, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((r) => r.profile), ['alpha', 'beta']);
+  assert.equal(rows[1].runId, rows[0].runId, 'the move keeps the run id the owner\'s Off sits under');
+  assert.equal(rows[1].stop, null, 'no stop is made up');
+  assert.equal(rows[1].row, null, 'no count is made up');
 });

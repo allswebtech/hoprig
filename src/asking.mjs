@@ -142,8 +142,8 @@ function repoRoot(dir) {
  * folder is followed by the shell and by rm as usual. Only Bash's language is read (PowerShell's differs: a comma
  * makes a list, @x reads a variable, C: names a drive), and only folders written as /a/b (not C:\a\b).
  */
-export function plainDelete(command, { cwd = null, home = null, workspace = null, projects = [], relative = true } = {}) {
-  if (typeof command !== 'string' || command.length > PLAIN_MAX || !plainFolder(cwd, home, [workspace, ...(Array.isArray(projects) ? projects : [])])) return false;
+export function plainDelete(command, { cwd = null, home = null, workspace = null, projects = [], hoprig = [], own, relative = true } = {}) {
+  if (typeof command !== 'string' || command.length > PLAIN_MAX || !plainFolder(cwd, home, [workspace, ...(Array.isArray(projects) ? projects : [])], Array.isArray(hoprig) ? hoprig : [], own)) return false;
   const list = commands(tokens(command));
   const targets = [];
   if (!list || !list.every((cmd) => plainRm(cmd, cwd, relative, targets))) return false;
@@ -273,8 +273,10 @@ function inside(target, cwd, relative) {
 }
 
 // The folder a command runs in may hold plain deletes: known, written plainly, and none of the folders above
-// (`others`: the workspace and the folders that hold projects).
-function plainFolder(cwd, home, others) {
+// (`others`: the workspace and the folders that hold projects). `hoprig`: Hoprig's own config and state folders — a
+// delete at or below one of those could remove the run record, the hook settings or the config and so lift a stop or
+// take a safety rule away, so no delete there is plain, wherever the shell stands (in it, below it or above it).
+function plainFolder(cwd, home, others, hoprig = [], own = undefined) {
   if (typeof cwd !== 'string' || typeof home !== 'string' || !home) return false;
   if (!cwd.startsWith('/') || cwd.endsWith('/') || path.posix.normalize(cwd) !== cwd || cwd.split('/').length < 3) return false;
   // A folder whose name differs only in case, or only in its Unicode normal form (é as one sign or as e and an accent),
@@ -283,8 +285,21 @@ function plainFolder(cwd, home, others) {
   const here = [cwd, real(cwd)].filter(Boolean).map(low);
   const kept = [home, ...others].flatMap((p) => [p, real(p)]).filter((p) => typeof p === 'string' && p.startsWith('/')).map((p) => low(path.posix.normalize(p).replace(/(.)\/+$/, '$1')));
   const homes = [home, real(home)].filter((p) => typeof p === 'string' && p.startsWith('/')).map((p) => low(path.posix.dirname(path.posix.normalize(p))));
+  const mine = hoprig.flatMap((p) => [p, real(p)]).filter((p) => typeof p === 'string' && p.startsWith('/')).map((p) => low(path.posix.normalize(p).replace(/(.)\/+$/, '$1')));
   // A repository's own history: from inside it (`cd .git`, then `rm -rf objects/*/*`) a target's text names no .git.
   if (here.some((h) => h.split('/').includes('.git')) || insideGitFolder(cwd)) return false;
+  // Hoprig's own config or state: at or below it, and from any folder above it too, since a target there can name it
+  // (`rm -rf hoprig` from ~/.config, `rm -rf state` from /data). Unlike the folders above, none may hold a plain delete
+  // one level in.
+  if (here.some((h) => mine.some((k) => k === h || h.startsWith(`${k}/`) || k.startsWith(`${h}/`)))) return false;
+  // The session's own folder (`own`: where it was started; undefined where the caller does not say): the shell must
+  // stand in it or below it. A session may move into another folder it was given (a project's need, "Also open", a
+  // folder added by hand): a delete there is outside the session's own folder, so it is the owner's to answer. null:
+  // the caller should know the folder and does not, so nothing is plain.
+  if (own !== undefined) {
+    const owns = [own, real(own)].filter((p) => typeof p === 'string' && p.startsWith('/')).map((p) => low(path.posix.normalize(p).replace(/(.)\/+$/, '$1')));
+    if (!owns.length || !here.every((h) => owns.some((o) => h === o || h.startsWith(`${o}/`)))) return false;
+  }
   return here.every((h) => h.split('/').length >= 3 && !kept.some((k) => k === h || k.startsWith(`${h}/`)) && !homes.includes(path.posix.dirname(h)));
 }
 
@@ -364,7 +379,8 @@ const real = (p) => {
  *   rules    no "ask" rule of the owner's settings names the tool (askRules; the pattern in it is not matched against
  *            the call: an ask rule for a tool means the owner is asked for that tool)
  *   input    its command is plainly a delete inside the folder it runs in (plainDelete)
- * `places`: { cwd, home, workspace, projects, relative } for plainDelete.
+ * `places`: { cwd, home, workspace, projects, hoprig, own, relative } for plainDelete (`own`: the folder the session was
+ * started in; the shell must stand in it or below it).
  */
 export function bypassAllows({ mode, tool, input = null, why = null, rules = [], places = {} }) {
   if (mode !== BYPASS || why || tool !== SHELL_TOOL) return false;
@@ -396,16 +412,50 @@ const HEAD_PASSERS = new Set(['sudo', 'doas', 'env', 'time', 'nice', 'nohup', 't
 const GIT_VALUE_OPTIONS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
 
 const isNumber = (w) => w.length > 0 && [...w].every((c) => c >= '0' && c <= '9');
-const isAssignment = (w) => {
-  const eq = w.indexOf('=');
-  return eq > 0 && [...w.slice(0, eq)].every((c, k) => c === '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (k > 0 && c >= '0' && c <= '9'));
-};
+// A leading assignment, read as the wall reads one (src/wall.mjs ASSIGNMENT, the same expression): `NAME=value`,
+// `NAME+=value`, `NAME[subscript]=value` and `NAME[subscript]+=value`. It sets a variable and is not the program.
+// The expression cannot hang: each part after the name has one way to match.
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=/;
+const isAssignment = (w) => ASSIGNMENT.test(w);
 const isBlank = (c) => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\v' || c === '\f';
 // Signs that end a word (and a command, for the word before a deleter's name).
 const isSeparator = (c) => isBlank(c) || c === ';' || c === '|' || c === '&' || c === '(' || c === ')' || c === '<' || c === '>' || c === '{' || c === '}';
 const ENDS_COMMAND = new Set([';', '|', '&', '(', ')', '{', '}', '\n']);
-// What makes a word: letters (any script), digits and _ - . / + : @ % = , . Anything else ends it.
+// What makes a word: letters (any script), digits and _ - . / + : @ % = , . Anything else ends it (mayDelete reads
+// NAME[subscript]= and NAME[subscript]+= as one word, with its subscript read by readSubscript, an assignment).
 const isWordChar = (c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c > '\x7f' || '_-./+:@%=,'.includes(c);
+// A shell variable's name: a letter or _, then letters, digits and _.
+const isName = (w) => w !== '' && !(w[0] >= '0' && w[0] <= '9') && [...w].every((c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_');
+// The subscript of NAME[subscript]= or NAME[subscript]+= whose [ stands at line[i], read as bash reads one: up to the ]
+// that closes it, with quotes ('…', "…", $'…', $"…"), backslashes, $ and brackets inside, but no blank, ; | & ( ) < >,
+// newline or backtick outside quotes and no backtick or $( inside double quotes (there a command would run: the [ then
+// ends the word as before, so that command is read). A quoted text in a subscript is only a key: bash runs nothing of
+// it. Returns { end: the closing ] where = or += follows it, else -1; stop: where the reading stopped }. Each character
+// is looked at once.
+function readSubscript(line, i) {
+  const no = (stop) => ({ end: -1, stop });
+  let depth = 0;
+  let j = i;
+  for (; j < line.length; j++) {
+    const c = line[j];
+    if (c === '[') depth++;
+    else if (c === ']') {
+      if (--depth === 0) return line[j + 1] === '=' || (line[j + 1] === '+' && line[j + 2] === '=') ? { end: j, stop: j } : no(j);
+    } else if (c === '\\') j++;
+    else if (c === "'" || c === '"' || (c === '$' && (line[j + 1] === "'" || line[j + 1] === '"'))) {
+      const close = c === '$' ? line[j + 1] : c;
+      const escapes = close === '"' || c === '$';
+      let k = j + (c === '$' ? 2 : 1);
+      for (; k < line.length && line[k] !== close; k++) {
+        if (close === '"' && (line[k] === '`' || (line[k] === '$' && line[k + 1] === '('))) return no(k);
+        if (escapes && line[k] === '\\') k++;
+      }
+      if (k >= line.length) return no(k); // a quote that never closes
+      j = k;
+    } else if (c === '`' || isBlank(c) || ';|&()<>'.includes(c)) break;
+  }
+  return no(j);
+}
 const baseName = (w) => {
   const b = w.slice(w.lastIndexOf('/') + 1);
   return CASE_BLIND ? b.toLowerCase() : b;
@@ -427,7 +477,8 @@ const splitWords = (text) => {
  * May shell line `line` delete something, as a coding agent writes it in plain sight? The aim, said honestly: HOPRIG
  * STOPS THE DELETES A CODING AGENT WRITES IN PLAIN SIGHT; it is not a wall against a line written to get around it (a
  * script or a program may delete without a question anyway). So this is the simplest thing that cannot hang: one pass
- * over the line whose index only moves forward, no regular expression, a line over 4,000 characters is true.
+ * over the line whose index only moves forward, no regular expression that can backtrack (the one expression, a word
+ * read as an assignment, is anchored and has one way to match), a line over 4,000 characters is true.
  *
  * It keeps the quote state as bash does in plain cases (single quotes: nothing special inside; double quotes: a
  * backslash before " \ $ and a backtick, and $( … ) or a backtick inside them is a command of its own; $'…' and $"…"
@@ -435,7 +486,8 @@ const splitWords = (text) => {
  * words written outside quotes and every quoted text, each with the number of the COMMAND it stands in (a command ends
  * at ; | & && || a newline ( ) { }). A word ends at white space, at ; | & ( ) < > { } and at a quote's edge where the
  * neighbour is one of those (r''m is one word "rm" outside quotes; 'rm x' is quoted text; one word quoted whole where a
- * command starts is that command's word). A here-document's body (after << or <<- and its delimiter, up to the line
+ * command starts is that command's word; NAME[subscript]= and NAME[subscript]+= are one word, an assignment, also
+ * where the subscript holds a $, a quote or brackets, so A[0]=1 eval '…' and A[$i]=1 eval '…' are eval's command). A here-document's body (after << or <<- and its delimiter, up to the line
  * that is exactly the delimiter, or the end) is quoted text of the command it stands in, with no quote state kept in
  * it, except that where the delimiter is not quoted a $( … ) or a backtick in it is a command; <<< is none, and there
  * is none inside an arithmetic (( … )). A # outside quotes starts a comment where bash begins one: at the start of the
@@ -464,15 +516,185 @@ const splitWords = (text) => {
  * text), git -c alias…, a language's own delete (os.remove, shutil.rmtree, fs.rmSync, perl's unlink), a deleter's name
  * in quotes after a program that is in none of the lists (eatmydata 'rm' -rf x; without the quotes it is caught), mv,
  * dd, a redirect, rmdir, a script or a program, OpenCode's own file tools.
- * Known and not yet caught (found by the last review, to be closed): a word that holds ${…}, {} or an unquoted $( )
- * or backtick ends the command here although bash keeps it inside the word, so a quoted text after it is judged
- * without its program (ssh to a host written as ${HOST}, su or sudo to a user written as a variable, tmux send-keys
- * to a session written as one, xargs -I{} ssh {}); and a here-document's body is judged line by line for the
- * language case, so a body that names the delete on one line and starts it on another is not caught. A pipe into a
- * shell named after ssh, docker exec -i or kubectl exec -i is not read as a shell either.
+ * A SECOND READING keeps a word whole where bash does. What bash keeps inside one word ends a word or a command in
+ * the reading above: $NAME, ${…}, an unquoted $( … ) or backtick, ~ * ? ! { } [ ] inside a word, and a subscript
+ * NAME[…]= that holds a blank, a sign, a command or arithmetic. So the line is read once more with each of those
+ * written as one plain character (wholeWords), and with each command that stood inside a $( … ) or a backtick as a
+ * line of its own. A delete seen in either reading is a delete: the first reading alone decides nothing less than
+ * it did. So X=$HOME/out eval '…', A[i + 1]=1 eval '…', A[$(id)]=1 eval '…', ssh ${HOST} '…' and
+ * xargs -I{} ssh {} '…' are each their program's command.
+ * Known and not yet caught: a here-document's body is judged line by line for the language case, so a body that
+ * names the delete on one line and starts it on another is not caught. A pipe into a shell named after ssh, docker
+ * exec -i or kubectl exec -i is not read as a shell either.
  */
 export function mayDelete(line) {
   if (typeof line !== 'string' || line.length > LINE_MAX) return true;
+  if (seesDelete(line)) return true;
+  const whole = wholeWords(line);
+  return whole !== null && whole.some((l) => l !== line && seesDelete(l));
+}
+
+// Where what opens at line[i] closes: line[i] is the ( of a $( … ), the { of a ${ … }, a ", a backtick or the [ of a
+// subscript. Paired as bash pairs them: a backslash takes the next character; a $( … ), a ${ … } and a backtick may
+// stand inside any of them; outside double quotes a '…' or "…" is skipped, a ( inside parentheses and a [ inside
+// brackets are counted. Returns the index of the closing character, or -1 when it never comes. One pass, nothing
+// read twice.
+function closes(line, i) {
+  const open = [];
+  const push = (c) => open.push(c === '(' ? ')' : c === '{' ? '}' : c === '[' ? ']' : c);
+  push(line[i]);
+  for (let j = i + 1; j < line.length; j++) {
+    const c = line[j];
+    const want = open[open.length - 1];
+    if (c === '\\') j++;
+    else if (c === want) {
+      open.pop();
+      if (!open.length) return j;
+    } else if (c === '$' && (line[j + 1] === '(' || line[j + 1] === '{')) push(line[++j]);
+    else if (c === '`') open.push('`');
+    else if (want === '"') continue; // inside double quotes nothing else pairs
+    else if (c === '"') open.push('"');
+    else if (c === "'") {
+      j = line.indexOf("'", j + 1);
+      if (j < 0) return -1;
+    } else if ((c === '(' && want === ')') || (c === '[' && want === ']')) open.push(want);
+  }
+  return -1;
+}
+
+// How deep a $( … ) may stand inside another for the second reading: a line nested deeper is not read a second time.
+const WHOLE_DEPTH = 40;
+
+// The line as bash keeps its words, for mayDelete's second reading: a list of lines, the first the line itself and
+// then each command that stood inside a $( … ) or a backtick (also inside double quotes or a subscript), each
+// written so that the first reading keeps its words whole:
+//   - a $( … ), a backtick pair or a ${ … } outside quotes is one _ ;
+//   - NAME[subscript]= and NAME[subscript]+= are NAME[]= and NAME[]+=, whatever the subscript holds;
+//   - any other character that is no letter of a word, no blank, none of ; | & ( ) < >, no quote and no backslash
+//     ($ ~ * ? ! ^ { } [ ] and the like) is a _ where it stands inside a word, and stays where it stands alone
+//     ({ and } of a group, [ and ] of a test, !);
+//   - quoted text, a comment and everything after the line of a here-document's start are copied as they are.
+// null where a quote, a $( … ), a ${ … } or a backtick never closes, or the nesting is deeper than WHOLE_DEPTH: the
+// first reading alone decides then. Each call reads its text once; a nested command is read once per level.
+function wholeWords(line, depth = 0, lines = []) {
+  if (depth > WHOLE_DEPTH) return null;
+  const sep = (c) => c === undefined || isBlank(c) || ';|&()<>'.includes(c);
+  const inner = (from, to) => wholeWords(line.slice(from, to), depth + 1, lines) !== null;
+  // The commands inside line[from..to) (a double quote's text, or a subscript): each a line of its own.
+  const commandsIn = (from, to, quoted) => {
+    for (let k = from; k < to; k++) {
+      const d = line[k];
+      if (d === '\\') k++;
+      else if (!quoted && d === "'") {
+        k = line.indexOf("'", k + 1);
+        if (k < 0 || k >= to) return false;
+      } else if (d === '`' || (d === '$' && line[k + 1] === '(')) {
+        const o = d === '`' ? k : k + 1;
+        const e = closes(line, o);
+        if (e < 0 || e >= to || !inner(o + 1, e)) return false;
+        k = e;
+      }
+    }
+    return true;
+  };
+  const at = lines.length;
+  lines.push('');
+  let out = '';
+  let name = true; // the word being written is a shell variable's name so far
+  let empty = true; // … and nothing of it is written yet
+  let readTo = 0; // where the last subscript that was no assignment stopped being read
+  let hereDoc = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    const next = line[i + 1];
+    if (c === '\n' && hereDoc) {
+      out += line.slice(i);
+      break;
+    }
+    if (c === '\\') {
+      out += line.slice(i, i + 2);
+      i++;
+      name = false;
+      empty = false;
+      continue;
+    }
+    if (c === "'" || c === '"' || (c === '$' && (next === "'" || next === '"'))) {
+      const q = c === '$' ? i + 1 : i;
+      let e;
+      if (line[q] === '"') e = closes(line, q);
+      else if (c === '$') {
+        e = q + 1;
+        while (e < line.length && line[e] !== "'") e += line[e] === '\\' ? 2 : 1;
+        if (e >= line.length) e = -1;
+      } else e = line.indexOf("'", q + 1);
+      if (e < 0) return null;
+      if (line[q] === '"' && !commandsIn(q + 1, e, true)) return null;
+      out += line.slice(i, e + 1);
+      i = e;
+      name = false;
+      empty = false;
+      continue;
+    }
+    if (c === '#' && empty && sep(line[i - 1])) {
+      let e = line.indexOf('\n', i);
+      if (e < 0) e = line.length;
+      out += line.slice(i, e);
+      i = e - 1;
+      continue;
+    }
+    if (c === '<' && next === '<') {
+      const three = line[i + 2] === '<';
+      out += three ? '<<<' : '<<';
+      i += three ? 2 : 1;
+      if (!three) hereDoc = true;
+      name = true;
+      empty = true;
+      continue;
+    }
+    if (c === '`' || (c === '$' && (next === '(' || next === '{'))) {
+      const o = c === '`' ? i : i + 1;
+      const e = closes(line, o);
+      if (e < 0) return null;
+      if (line[o] !== '{' && !inner(o + 1, e)) return null;
+      out += '_';
+      i = e;
+      name = false;
+      empty = false;
+      continue;
+    }
+    if (c === '[' && name && !empty && i >= readTo) {
+      const e = closes(line, i);
+      if (e >= 0 && (line[e + 1] === '=' || (line[e + 1] === '+' && line[e + 2] === '='))) {
+        if (!commandsIn(i + 1, e, false)) return null;
+        out += '[]';
+        i = e;
+        name = false;
+        continue;
+      }
+      readTo = e < 0 ? line.length : e;
+    }
+    if (sep(c)) {
+      out += c;
+      name = true;
+      empty = true;
+      continue;
+    }
+    if (isWordChar(c)) {
+      if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '_' || (!empty && c >= '0' && c <= '9'))) name = false;
+      out += c;
+      empty = false;
+      continue;
+    }
+    out += empty && sep(next) ? c : '_';
+    name = false;
+    empty = false;
+  }
+  lines[at] = out;
+  return lines;
+}
+
+// The first reading (the whole rule above), of one line.
+function seesDelete(line) {
   const outside = []; // { word, after, after2, cmd } (after: the word before it in the same command, or null)
   const texts = []; // { cmd, pos (outside words of its command before it), words, raw } of every quoted text
   const cmds = [{ words: [], texts: 0, pipeNext: false }]; // each command's outside words, its texts, and whether a pipe follows it
@@ -489,6 +711,8 @@ export function mayDelete(line) {
   let wordParenAt = -1; // where a ) closed a $( … ) inside a word
   let arith = 0; // (( … )) open outside quotes: no here-document in arithmetic
   let redirect = false; // the next word is a redirection's target (no argument of its command)
+  let subLooked = false; // the outside word was looked at for NAME[subscript]= already (once per word)
+  let readTo = 0; // where the last subscript that was no assignment stopped being read: none is read twice
   const pushWord = (w, notArgument = false) => {
     outside.push({ word: w, after: last, after2: last2, cmd });
     if (!notArgument && !redirect) cmds[cmd].words.push(w);
@@ -500,6 +724,7 @@ export function mayDelete(line) {
   const endWord = (c = '') => {
     if (word) pushWord(word, (c === '<' || c === '>') && isNumber(word));
     word = '';
+    subLooked = false;
   };
   const endCommand = (pipe = false) => {
     if (cmds[cmd].words.length || cmds[cmd].texts) {
@@ -713,6 +938,19 @@ export function mayDelete(line) {
     if (top === 'out') {
       if (c === '(') parens.push(prev === '$');
       else if (c === ')' && parens.pop()) wordParenAt = i;
+    }
+    if (c === '[' && !subLooked) {
+      subLooked = true;
+      if (i >= readTo && isName(word)) {
+        // NAME[subscript]= or NAME[subscript]+=: one word, an assignment (A[$i]=1 eval '…' is eval's command).
+        const s = readSubscript(line, i);
+        if (s.end >= 0) {
+          word += '[]'; // the key itself names no program: NAME[]= reads as an assignment
+          i = s.end;
+          continue;
+        }
+        readTo = s.stop; // no assignment: the [ ends the word, as any other
+      }
     }
     if (isWordChar(c)) {
       word += c;

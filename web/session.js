@@ -13,15 +13,21 @@ import { Terminal } from './vendor/xterm/lib/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit/lib/addon-fit.mjs';
 import { Unicode11Addon } from './vendor/addon-unicode11/lib/addon-unicode11.mjs';
 import { icon } from './icons.js';
+import { chrome } from './sessionchrome.js';
 import {
-  TOOL_NAMES, api, btn, bytes, cardTool, chooseSheet, closeWindow, confirmSheet, fill, h, isClaudeCard, isCodingCard, limitBox, liveBasic,
+  TOOL_NAMES, ago, api, btn, bytes, cardTool, chooseSheet, closeWindow, confirmSheet, fill, h, isClaudeCard, isCodingCard, limitBox, liveBasic,
   answeredNow, kindLabel, needsYou, needsYouFirst, openSheet, permissionActions, link, machine, prefs, profileIcon, profileState, profileText, promptSheet, servesTool,
-  stateOf, statusPill, switchProfile, toast, toolChip, url, wsUrl,
+  at, bgCommandNote, stateOf, statusPill, switchProfile, toast, toolChip, url, wsUrl,
 } from './lib.js';
 import { pageNotify, store } from './store.js';
+import { canDeleteConversation, deleteConversation } from './chat/deletes.js';
 import { registeredSessionActions } from './registry.js';
+import { answeredLines, exactCard, handsOffBar, heldActCard, openConsentSheet, uncoveredLine, waitWords } from './handsoff.js';
 import { isStarting, markStarting, startingPill } from './newsession.js';
 import { forgetHere, named, wayBack, windowWay } from './trail.js';
+import { extrasLine, rootRefusedNext } from './sessionitem.js';
+import { CTRL_V, KEY_BAR, KEY_HELP, backToLive, inOrder, inputMessages, keyBarTarget, mayConnect, pageTitle, pasteKey, reconnectWait, stickyCtrl, termKey } from './termkeys.js';
+import { clipboardPictures, dragHasFiles, failWords, filesOf, pastedFiles, typedPaths } from './termdrop.js';
 
 // Claude Code draws for a dark terminal by default, so the terminal is dark unless the user picks otherwise.
 export const TERM_THEMES = {
@@ -44,12 +50,6 @@ export const termTheme = () => {
 export const termFont = () => prefs.get('term.font', innerWidth < 600 ? 13 : 14);
 const finePointer = matchMedia('(pointer: fine)').matches; // desktop: Enter sends; phone: Enter is a new line
 const onMac = /Mac/.test(navigator.userAgent);
-
-const KEYS = [
-  ['Esc', '\x1b', 'Escape'], ['Tab', '\t', 'Tab'], ['⇧Tab', '\x1b[Z', 'Shift+Tab: switch mode'], ['Ctrl C', '\x03', 'Ctrl+C'],
-  ['/', '/', 'Slash'], ['Enter', '\r', 'Enter'],
-  ['←', 'left', 'Left'], ['↑', 'up', 'Up'], ['↓', 'down', 'Down'], ['→', 'right', 'Right'],
-];
 
 /** Copy text; works without HTTPS too (the Clipboard API needs a secure context, execCommand does not). */
 async function copyText(text, fallbackEl) {
@@ -98,14 +98,18 @@ export function openSession(app, name) {
   // The key bar folds away; the choice is kept on this device. Without one: shown on a phone (no Esc, Tab or
   // arrows there), hidden where there is a mouse and a keyboard (the real keys do it).
   let keysOn = prefs.get('session.keys', !finePointer);
-  const keysBtn = h('button.chip.keys-toggle', { type: 'button', 'aria-pressed': String(keysOn), title: 'Show or hide the key bar', onpointerdown: (e) => e.preventDefault(), onclick: () => {
+  const keysBtn = h('button.chip.keys-toggle', { type: 'button', 'aria-pressed': String(keysOn), title: 'Show or hide the key bar: Esc, Tab, Ctrl and the keys a browser keeps for itself (Ctrl, then T, W or N)', onpointerdown: (e) => e.preventDefault(), onclick: () => {
     keysOn = !keysOn;
     prefs.set('session.keys', keysOn);
     paintKeys();
   } }, icon('grid', { size: 14 }), h('span', 'Keys'));
-  const keybar = h('div.keybar', { role: 'toolbar', 'aria-label': 'Keys' },
-    KEYS.map(([label, seq, title]) => h('button.key', { type: 'button', dataset: { seq }, title, 'aria-label': title }, label)),
-    h('button.key', { type: 'button', dataset: { act: 'paste' }, title: 'Paste into the terminal' }, icon('clipboard', { size: 16 }), h('span', 'Paste')));
+  const keybar = h('div.keybar', { role: 'toolbar', 'aria-label': 'Keys', ...chrome('keys') },
+    KEY_BAR.map(([label, seq, title]) => h('button.key', { type: 'button', dataset: seq === null ? { act: 'ctrl' } : { seq }, ...(seq === null && { 'aria-pressed': 'false' }), title, 'aria-label': title }, label)),
+    h('button.key', { type: 'button', dataset: { act: 'paste' }, title: 'Paste into the terminal' }, icon('clipboard', { size: 16 }), h('span', 'Paste')),
+    // A touch screen has no drop and no file in its clipboard: File opens the device's own picker (photos, camera, files).
+    finePointer ? null : h('button.key', { type: 'button', dataset: { act: 'file' }, title: 'Send a file: it goes to the session\'s computer and its path is typed', 'aria-label': 'Send a file' }, icon('upload', { size: 16 }), h('span', 'File')));
+  keybar.classList.toggle('has-file', !finePointer);
+  const dropInput = h('input.hidden', { type: 'file', multiple: true });
   const textarea = h('textarea.msg', {
     rows: 1,
     'aria-label': 'Message', autocapitalize: 'sentences', enterkeyhint: finePointer ? 'send' : 'enter',
@@ -124,17 +128,17 @@ export function openSession(app, name) {
   narrow.addEventListener('change', placeholder);
   const fileInput = h('input.hidden', { type: 'file', multiple: true });
   const sendBtn = h('button.btn.primary.icon.send', { type: 'button', 'aria-label': 'Send', title: 'Send', onclick: () => sendMessage() }, icon('send', { size: 20 }));
-  const attachBtn = h('button.btn.icon.ghost', { type: 'button', 'aria-label': 'Attach a file', title: 'Attach a file (it goes into the session folder)', onclick: () => fileInput.click() }, icon('paperclip'));
+  const attachBtn = h('button.btn.icon.ghost', { type: 'button', 'aria-label': 'Attach a file', title: 'Attach a file or an image: it goes into the session folder and its path into your message', onclick: () => fileInput.click() }, icon('paperclip'));
   const status = h('div.upload-status.hidden', { role: 'status' });
 
-  const quickRow = h('div.quick-row', quick, keysBtn);
+  const quickRow = h('div.quick-row', chrome(), quick, keysBtn);
   const paintKeys = () => {
     keybar.classList.toggle('hidden', !keysOn);
     keysBtn.setAttribute('aria-pressed', String(keysOn));
   };
   paintKeys();
   const wrap = h('div.term-wrap',
-    h('header.sessbar',
+    h('header.sessbar', chrome(),
       inWindow === null ? null : h('a.btn.ghost.sessback', { href: way.hash, 'aria-label': `Back to ${way.label}`, title: `Back to ${way.label}` }, icon('back'), h('span.sessback-label', way.label)),
       h('div.sess-title', h('div.sess-name-row', titleBtn, toolSlot), h('div.sess-sub', statusSlot)),
       h('div.sessbar-end', profileBtn, btn('icon ghost', { icon: 'more', title: 'More for this session', onclick: () => menu() }))),
@@ -143,7 +147,7 @@ export function openSession(app, name) {
     quickRow,
     keybar,
     status,
-    h('div.composer', attachBtn, textarea, sendBtn, fileInput),
+    h('div.composer', chrome(), attachBtn, textarea, sendBtn, fileInput, dropInput),
   );
   fill(app, wrap);
 
@@ -162,7 +166,9 @@ export function openSession(app, name) {
   // ---------- terminal ----------
   const term = new Terminal({
     allowProposedApi: true, // needed by the Unicode 11 addon
-    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+    // Noto Sans Mono and FreeMono after Liberation Mono: they hold the rounded corners of a coding tool's frames and
+    // its marks ⎿ ⇧, which Liberation Mono lacks; without them Linux took a wide CJK font for those (the test says).
+    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", "Noto Sans Mono", FreeMono, monospace',
     fontSize: termFont(),
     lineHeight: 1.1,
     scrollback: 0, // set to 5000 below when the backend has no history of its own
@@ -176,6 +182,14 @@ export function openSession(app, name) {
   term.loadAddon(new Unicode11Addon());
   term.unicode.activeVersion = '11';
   term.open(termEl);
+  // What a plain terminal shows of the program: its title in the tab, and its bell as a short flash of the frame.
+  term.onTitleChange((t) => pageNotify.setTitleBase(pageTitle(name, t)));
+  let bellTimer = null;
+  term.onBell(() => {
+    box.classList.add('bell');
+    clearTimeout(bellTimer);
+    bellTimer = setTimeout(() => box.classList.remove('bell'), 300);
+  });
   const applyTerm = () => {
     term.options.theme = termTheme();
     term.options.fontSize = termFont();
@@ -192,8 +206,15 @@ export function openSession(app, name) {
   for (const ev of ['pointerdown', 'pointerup']) box.addEventListener(ev, () => (lastPointer = Date.now()), { capture: true });
   wrap.addEventListener('keydown', () => (lastKey = Date.now()), { capture: true });
   const mayCopy = () => Date.now() - lastPointer < 5000 || (appScrolls() && Date.now() - lastKey < 5000);
-  // Desktop: Ctrl/Cmd+C copies when text is selected (instead of sending ^C).
+  // Keys the page answers itself (termkeys.js) are stopped: nothing follows them. Ctrl/Cmd+C copies a selection.
+  let ctrlV = -Infinity; // when Ctrl+V was last pressed (onPaste: an empty paste then sends its byte)
   term.attachCustomKeyEventHandler((e) => {
+    const own = termKey(e);
+    if (own !== null) { e.preventDefault(); if (own) input(own); return false; }
+    // A Mac's browser pastes on Cmd+V only, and Ctrl+V is Claude Code's key for a picture in the clipboard: the page
+    // reads the clipboard itself; without a picture (or a yes from the person) the program gets the key as before.
+    if (onMac && pasteKey(e)) { e.preventDefault(); macCtrlV(); return false; }
+    if (pasteKey(e)) { ctrlV = performance.now(); return false; } // not stopped: the browser pastes, and onPaste takes it
     if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && e.key === 'c' && term.hasSelection()) {
       copyText(term.getSelection());
       term.clearSelection();
@@ -232,21 +253,23 @@ export function openSession(app, name) {
 
   // ---------- WebSocket ----------
   let ws = null;
-  let retry = 0;
+  const again = { retry: 0, quick: 0 }; // reconnectWait's count
   let retryTimer = null;
   const sendWs = (obj) => {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
   };
+  const ctrl = stickyCtrl(); // the key bar's Ctrl, for the next key
+  // Typing goes to the program, not to the history view: it is closed first, also when an open or a close is under way.
+  const ordered = inOrder(() => backToLive(scroller));
   async function input(d) {
-    if (scroller.offset > 0) await scroller.exit(); // typing goes to the program, not to the history view
-    sendWs({ t: 'in', d });
+    d = ctrl.apply(d);
+    return ordered(() => {
+      for (const m of inputMessages(d)) sendWs(m); // a long paste in frames the server takes
+    });
   }
   term.onData((d) => input(d));
   // Mouse reports in the oldest encoding are bytes (a column past 95 is above 127): sent as such, not as UTF-8.
-  term.onBinary((d) => {
-    if (scroller.offset > 0) scroller.exit();
-    sendWs({ t: 'bin', d });
-  });
+  term.onBinary((d) => ordered(() => sendWs({ t: 'bin', d })));
 
   const showOverlay = (...kids) => {
     fill(overlay, kids);
@@ -254,13 +277,13 @@ export function openSession(app, name) {
   };
 
   function connect() {
-    if (disposed) return;
+    if (disposed || !mayConnect(ws)) return;
+    clearTimeout(retryTimer);
     fit.fit();
     ws = new WebSocket(wsUrl(`/ws/term?${new URLSearchParams({ name, cols: term.cols, rows: term.rows })}`));
-    let opened = false;
+    let opened = 0; // when it opened
     ws.onopen = () => {
-      opened = true;
-      retry = 0;
+      opened = Date.now();
       term.reset(); // the server redraws the whole screen on attach
       overlay.classList.add('hidden');
       sendWs({ t: 'resize', cols: term.cols, rows: term.rows });
@@ -277,7 +300,13 @@ export function openSession(app, name) {
           : h('a.btn.primary', { href: way.hash }, way.hash === '#/' ? 'Back to sessions' : `Back to ${way.label}`));
         return;
       }
-      const wait = Math.min(10_000, 500 * 2 ** retry++);
+      const wait = reconnectWait(again, { code: e.code, lived: opened ? Date.now() - opened : 0 });
+      if (wait === null) {
+        // tmux ends every attach at once (a hook or a setting of its config) while the session runs on
+        showOverlay(h('p', 'tmux closes this view as soon as it opens. The session is still running.'),
+          h('button.btn.primary', { type: 'button', onclick: () => { Object.assign(again, { retry: 0, quick: 0 }); connect(); } }, 'Try again'));
+        return;
+      }
       showOverlay(h('div.spinner', { 'aria-hidden': 'true' }), h('span', opened ? 'Connection lost — reconnecting…' : 'Reconnecting…'));
       retryTimer = setTimeout(connect, wait);
     };
@@ -301,6 +330,8 @@ export function openSession(app, name) {
     offset: 0,
     pending: 0,
     busy: false,
+    flushing: null, // the scroll requests, while they run: keys wait for them
+    exiting: null, // the request that closes the view, while it runs: keys wait for it
     gen: 0, // one more each time the view goes back to live: an answer from before that changes nothing
     queue(lines) {
       if (!lines) return;
@@ -308,29 +339,37 @@ export function openSession(app, name) {
       this.pending += lines;
       this.flush();
     },
-    async flush() {
+    flush() {
       if (this.busy || !this.pending) return;
       this.busy = true;
-      const n = this.pending;
-      const g = this.gen;
-      this.pending = 0;
-      try {
-        await api(`${base}/scroll`, { action: n > 0 ? 'up' : 'down', lines: Math.abs(n) });
-        if (g === this.gen) this.offset = Math.max(0, this.offset + n);
-        else if (n > 0) await api(`${base}/scroll`, { action: 'exit' }).catch(() => {}); // back to live meanwhile: tmux too
-      } catch {
-        /* the next gesture tries again */
-      }
-      liveBtn.classList.toggle('hidden', this.offset <= 0);
-      this.busy = false;
-      if (this.pending) this.flush();
+      const run = (async () => {
+        while (this.pending) {
+          const n = this.pending;
+          const g = this.gen;
+          this.pending = 0;
+          try {
+            await api(`${base}/scroll`, { action: n > 0 ? 'up' : 'down', lines: Math.abs(n) });
+            if (g === this.gen) this.offset = Math.max(0, this.offset + n);
+            else if (n > 0) await api(`${base}/scroll`, { action: 'exit' }).catch(() => {}); // back to live meanwhile: tmux too
+          } catch {
+            /* the next gesture tries again */
+          }
+          liveBtn.classList.toggle('hidden', this.offset <= 0);
+        }
+        this.busy = false;
+      })();
+      this.flushing = run;
+      run.then(() => this.flushing === run && (this.flushing = null));
     },
-    async exit() {
+    exit() {
       this.gen++;
       this.pending = 0;
       this.offset = 0;
       liveBtn.classList.add('hidden');
-      await api(`${base}/scroll`, { action: 'exit' }).catch(() => {});
+      const p = api(`${base}/scroll`, { action: 'exit' }).catch(() => {});
+      this.exiting = p;
+      p.then(() => this.exiting === p && (this.exiting = null));
+      return p;
     },
   };
   const cellHeight = () => Math.max(8, box.clientHeight / Math.max(1, term.rows));
@@ -407,7 +446,14 @@ export function openSession(app, name) {
     const b = e.target.closest('button');
     if (!b) return;
     if (b.dataset.act === 'paste') return pasteIntoTerminal();
+    if (b.dataset.act === 'ctrl') return ctrl.toggle(b);
+    if (b.dataset.act === 'file') return dropInput.click();
     let seq = b.dataset.seq;
+    if (keyBarTarget(seq, document.activeElement === textarea) === 'box') {
+      textarea.setRangeText(seq, textarea.selectionStart, textarea.selectionEnd, 'end');
+      prefs.set(draftKey, textarea.value);
+      return grow();
+    }
     const arrows = { up: 'A', down: 'B', right: 'C', left: 'D' };
     if (arrows[seq]) seq = (term.modes.applicationCursorKeysMode ? '\x1bO' : '\x1b[') + arrows[seq];
     input(seq);
@@ -420,10 +466,7 @@ export function openSession(app, name) {
     } catch {
       text = await promptSheet({ title: 'Paste', text: 'Long-press in the box, choose Paste, then send it to the terminal.', ok: 'Send to terminal', multiline: true });
     }
-    if (text) {
-      if (scroller.offset > 0) await scroller.exit();
-      term.paste(text); // bracketed paste when the program asked for it
-    }
+    if (text) term.paste(text); // bracketed paste when the program asked for it; input() closes the history view first
   }
 
   async function stop() {
@@ -431,7 +474,7 @@ export function openSession(app, name) {
       await api(`${base}/key`, { key: 'Escape', owner: true }); // the owner's own stop button (server.mjs)
       toast(`Asked ${toolName()} to stop`);
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(e, { kind: 'error' });
     }
   }
 
@@ -441,7 +484,7 @@ export function openSession(app, name) {
     try {
       ({ text } = await api(`${base}/history?lines=2000`));
     } catch (e) {
-      return toast(e.message, { kind: 'error' });
+      return toast(e, { kind: 'error' });
     }
     await openSheet({ title: 'Text of this session', subtitle: 'Select what you need, or copy everything.', wide: true }, (close) => {
       const area = h('textarea.history', { readOnly: true, value: `${text.replace(/\s+$/, '')}\n`, spellcheck: 'false' });
@@ -469,6 +512,10 @@ export function openSession(app, name) {
     prefs.set(draftKey, textarea.value);
     grow();
   });
+  // The key bar's Ctrl is for the terminal's next key: held while the person writes here, it turned a key typed in
+  // the terminal minutes later into a chord (u became Ctrl+U, which clears the prompt).
+  textarea.addEventListener('focus', () => ctrl.release());
+  textarea.addEventListener('input', () => ctrl.release());
   textarea.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.isComposing && ((finePointer && !e.shiftKey) || e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -517,7 +564,7 @@ export function openSession(app, name) {
             await sendText(a.text);
             toast(`Sent “${a.label}”`);
           } catch (e) {
-            toast(e.message, { kind: 'error' });
+            toast(e, { kind: 'error' });
           }
         },
       }, a.label)),
@@ -534,10 +581,10 @@ export function openSession(app, name) {
     prefs.set(draftKey, textarea.value);
     grow();
   };
-  function upload(file) {
+  function upload(file, to = `${base}/upload`) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest(); // XHR, not fetch: it reports upload progress
-      xhr.open('POST', url(`${base}/upload`));
+      xhr.open('POST', url(to));
       xhr.setRequestHeader('Content-Type', 'application/octet-stream');
       xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name || 'upload'));
       xhr.upload.onprogress = (e) => {
@@ -551,15 +598,18 @@ export function openSession(app, name) {
           /* not JSON */
         }
         if (xhr.status === 200) resolve(body);
-        else reject(new Error(body.error || `Upload failed (${xhr.status})`));
+        else reject(Object.assign(new Error(body.error || `Upload failed (${xhr.status})`), { status: xhr.status }));
       };
-      xhr.onerror = () => reject(new Error('Upload failed: connection lost'));
+      xhr.onerror = () => reject(Object.assign(new Error('Upload failed: connection lost'), { status: 0 }));
       xhr.send(file);
     });
   }
-  fileInput.addEventListener('change', async () => {
+  fileInput.addEventListener('change', () => {
     const files = [...fileInput.files];
     fileInput.value = '';
+    attachFiles(files);
+  });
+  async function attachFiles(files) {
     status.classList.remove('hidden');
     for (const f of files) {
       try {
@@ -567,12 +617,98 @@ export function openSession(app, name) {
         insertText(r.path);
         toast(`${f.name} is in the session folder; its path is in your message`);
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(e, { kind: 'error' });
       }
     }
     status.classList.add('hidden');
     textarea.focus();
+  }
+
+  // ---------- a file dropped or pasted on the terminal ----------
+  // As a terminal does on a drop: the path is typed at the prompt (no Enter), and the coding tool reads the file from
+  // there. The file is on the computer with the browser, so it goes to the session's computer first (server.mjs
+  // /drop/upload); one line says how far it is, one sentence why it failed. Several files: one after another.
+  let statusTimer = null;
+  const say = (text, error = false) => {
+    clearTimeout(statusTimer);
+    status.textContent = text;
+    status.classList.toggle('error', error);
+    status.classList.remove('hidden');
+    if (error) statusTimer = setTimeout(() => status.classList.add('hidden'), 10_000);
+  };
+  async function typeIntoTerminal(text) {
+    // As a terminal's drop: a bracketed paste when the program asked for it. term.paste ends in input(), so the path
+    // waits for the keys typed before it and for the history view to close, in the same line as every key.
+    term.paste(text);
+    if (finePointer) term.focus();
+  }
+  let sending = Promise.resolve();
+  async function macCtrlV() {
+    const files = await clipboardPictures(navigator.clipboard);
+    if (disposed) return;
+    if (files.length) sendFiles(files);
+    else input(CTRL_V);
+  }
+  const sendFiles = (files) => (sending = sending.then(async () => {
+    const paths = [];
+    const failed = [];
+    for (const f of files) {
+      say(`Uploading ${f.name || 'a file'}…`);
+      try {
+        paths.push((await upload(f, `${base}/drop/upload`)).path);
+      } catch (e) {
+        failed.push(failWords(f.name || 'The file', e.status ?? 0, e.message));
+      }
+    }
+    if (disposed) return;
+    const text = typedPaths(paths);
+    if (text) await typeIntoTerminal(text);
+    if (failed.length) say(failed.join(' '), true);
+    else status.classList.add('hidden');
+  }));
+  dropInput.addEventListener('change', () => {
+    const files = [...dropInput.files];
+    dropInput.value = '';
+    if (files.length) sendFiles(files);
   });
+  // The whole page: a file dropped anywhere is sent, never opened by the browser in its place. Text dragged into
+  // the message box lands there as always; text dropped anywhere else is typed into the terminal.
+  const onDragOver = (e) => {
+    if (e.target === textarea && !dragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  };
+  const onDrop = (e) => {
+    const files = filesOf(e.dataTransfer);
+    if (!files.length && e.target === textarea) return;
+    e.preventDefault();
+    if (files.length) return sendFiles(files);
+    const text = e.dataTransfer && e.dataTransfer.getData('text/plain');
+    if (text) typeIntoTerminal(text);
+  };
+  // A paste whose clipboard holds files or a picture: in the message box as the paperclip does, else into the
+  // terminal as a drop. Text stays with the terminal library (or the box). Before the terminal library's own
+  // handler (capture), which pastes text only.
+  const onPaste = (e) => {
+    const files = pastedFiles(e.clipboardData);
+    if (!files.length) {
+      const empty = !e.clipboardData || ![...(e.clipboardData.types || [])].length;
+      if (empty && performance.now() - ctrlV < 1000 && e.target !== textarea && box.contains(e.target)) {
+        e.preventDefault();
+        e.stopPropagation();
+        input(CTRL_V); // the paste key with nothing to paste: the program gets Ctrl+V, as before
+      }
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.target === textarea) return attachFiles(files);
+    sendFiles(files);
+  };
+  window.addEventListener('dragenter', onDragOver);
+  window.addEventListener('dragover', onDragOver);
+  window.addEventListener('drop', onDrop);
+  wrap.addEventListener('paste', onPaste, { capture: true });
 
   // ---------- state from the shared poller ----------
   let infoKey = '';
@@ -612,10 +748,10 @@ export function openSession(app, name) {
       quick.classList.toggle('hidden', plain);
     }
     fill(profileBtn, icon(profileIcon(s.profile), { size: 16 }), h('span.profilebtn-label', profileText(s)), icon('chevronDown', { size: 14 }));
-    fill(statusSlot, starting ? startingPill(s) : statusPill(s, { time: false }), liveBasic(s));
+    fill(statusSlot, starting ? startingPill(s) : statusPill(s, { time: false }), liveBasic(s), extrasLine(s, 'span.card-extras.sess-extras'));
     fill(toolSlot, toolChip(s));
     const before = needSlot.offsetHeight;
-    fill(needSlot, limitBox(s, profiles, moved) || (stateOf(s).key === 'attention' ? needsOk(s) : null), allowedNote(s));
+    fill(needSlot, limitBox(s, profiles, moved) || (stateOf(s).key === 'attention' ? needsOk(s) : stateOf(s).key === 'failed' ? didNotStart(s) : null), answeredLines(s.handsOffDone, { askAt: stateOf(s).key === 'attention' ? s.askAt : 0, onToggle: () => refit() }), handsBar(s), s.handsOff && s.handsOff.uncovered ? uncoveredLine([name], { linked: false }) : null, allowedNote(s), bgCommandNote(s) ? h('p.sess-ok-text.sess-bg-note', bgCommandNote(s)) : null);
     if (needSlot.offsetHeight !== before) refit();
   });
 
@@ -666,10 +802,43 @@ export function openSession(app, name) {
 
   // ---------- a question waiting for your OK: its answers above the terminal (lib.js permissionActions) ----------
   function needsOk(s) {
+    // A question or a plan: the exact card from the tool's own data (src/askcard.mjs) instead of the one-line note.
+    const exact = s.askCard && s.askCard.kind !== 'permission' ? exactCard(s.askCard) : null;
+    // An act the wall held (a push, a release, administrator rights…): what, why it is his, what each answer does.
+    const held = !exact && s.ask && s.ask.type === 'permission' ? heldActCard(s.held) : null;
+    // A loop's or an hour's stop is said once, by the bar below with its button (handsBar).
+    const wait = (s.handsWait === 'loop' || s.handsWait === 'hour') && s.handsOff && s.handsOff.loop ? '' : waitWords(s.handsWait);
+    // More than one question or plan waits: this card is one of them, the terminal shows its own first.
+    const more = exact && s.ask && s.ask.type !== 'permission' && s.ask.waiting > 1
+      ? h('p.sess-ok-text.ho-more', `More than one question waits (${s.ask.waiting}): this is one of them. Answer them in the terminal below, in the order it shows.`) : null;
     return h('div.sess-ok', { role: 'alert' },
       h('div.sess-ok-head', icon('alert', { size: 18 }), h('strong', stateOf(s).text)),
-      s.note ? h('p.sess-ok-text', s.note) : null,
+      more,
+      exact || held || (s.note ? h('p.sess-ok-text', s.note) : null),
+      wait ? h('p.sess-ok-text.ho-wait', wait) : null,
       permissionActions({ ...s, machine: machine.current }, () => store.refresh(), { here: true }));
+  }
+
+  // The coding tool ended at its start (src/startfail.mjs): what it printed last, and where the rest is.
+  function didNotStart(s) {
+    return h('div.sess-ok.sess-failed', { role: 'alert' },
+      h('div.sess-ok-head', icon('alert', { size: 18 }), h('strong', stateOf(s).text)),
+      s.note ? h('p.sess-ok-text', s.note) : null,
+      rootRefusedNext(s.note) ? h('p.sess-ok-text', h('a', { href: '#/settings/root' }, rootRefusedNext(s.note))) : null,
+      h('p.sess-ok-text.hint', 'The terminal below shows all it printed. Start the session again once the cause is fixed.'));
+  }
+
+  // ---------- Hands-off for this session (web/handsoff.js): its state and the one press that stops it ----------
+  function handsBar(s) {
+    if (!s || !isClaudeCard(s) || !s.handsOff) return null;
+    // Shown while it is on, after the session's own switch was used (so it can be turned on again), after a loop's
+    // stop or an update; off and never set: in the menu only.
+    if (!s.handsOff.on && !s.handsOff.loop && !s.handsOff.stale && !s.handsOff.own && !s.handsOff.stopped) return null;
+    return handsOffBar(s.handsOff, async (on) => {
+      const r = await api(at(machine.current, '/api/handsoff/session'), { name, on });
+      if (on === true) openConsentSheet(); // the first time any switch is turned on, this browser sees the sheet once
+      return r;
+    }, () => store.refresh());
   }
 
   // ---------- what Hoprig allowed by itself in bypass mode (the run record's `allowed`, src/hook.mjs) ----------
@@ -700,7 +869,7 @@ export function openSession(app, name) {
       store.refresh();
       location.hash = link(`#/s/${encodeURIComponent(next)}`);
     } catch (e) {
-      toast(e.message, { kind: 'error', ms: 7000 });
+      toast(e, { kind: 'error', ms: 7000 });
     }
   }
 
@@ -735,6 +904,39 @@ export function openSession(app, name) {
     if (p && (await switchProfile(s, p))) moved();
   }
 
+  // ---------- the folder's ended conversations: Delete as the App's (deletes.js deleteConversation) ----------
+  /** The conversation this terminal runs is not listed (it is not ended); the server refuses one a terminal runs too. */
+  let earlierShown = null; // the Earlier conversations sheet open now (a token), so an Undo draws it again
+  async function earlierSheet(s) {
+    let list;
+    try {
+      list = ((await api(`/api/folders/sessions?${new URLSearchParams({ path: s.cwd })}`)).sessions || []).filter((c) => c.id !== s.sessionId);
+    } catch (e) {
+      return toast(e, { kind: 'error' });
+    }
+    const name = (c) => (c.title && c.title !== '(untitled)' ? c.title : 'Untitled conversation');
+    const mine = {};
+    earlierShown = mine;
+    const sheet = openSheet({ title: 'Earlier conversations', subtitle: `In ${s.short || s.cwd}. Deleted ones go to the trash for 30 days.` }, (close) => [
+      list.length ? h('div.choice-list', list.map((c) => h('div.choice.static.del-row',
+        h('span.choice-main', h('span.choice-label', name(c)), h('span.choice-sub', ago(c.at))),
+        // Open in an App session or run by another terminal: not an ended conversation (deletes.js canDeleteConversation).
+        canDeleteConversation(c) ? h('button.btn.icon.ghost.small.ses-pastdel', { type: 'button', title: `Delete "${name(c)}"`, 'aria-label': `Delete ${name(c)}`, onclick: () => close(c) }, icon('trash', { size: 16 }))
+          : h('span.badge', c.chat ? 'Open in the App' : 'Runs in a terminal'))))
+        : h('p.sheet-text', 'No other conversation in this folder.'),
+    ]);
+    const picked = await sheet;
+    if (earlierShown === mine) earlierShown = null;
+    if (!picked) return;
+    // After the Delete the list again, without it; after its Undo, with it again where the list is open still.
+    let deleting = true;
+    await deleteConversation(s.cwd, picked.id, name(picked), { after: () => {
+      store.refresh();
+      if (deleting || earlierShown) earlierSheet(s);
+    } });
+    deleting = false;
+  }
+
   // ---------- more: everything else, each with a word; ending the session last ----------
   async function menu() {
     const s = session;
@@ -754,9 +956,12 @@ export function openSession(app, name) {
         pref ? { value: 'back', label: `Move back to ${pref.label}`, sub: 'It is free again', icon: 'swap' } : null,
         s && isClaudeCard(s) && s.cwd ? { value: 'another', label: 'Start another session here', sub: `A new Claude Code session in ${s.short || s.cwd}`, icon: 'plus' } : null,
         ...extra,
+        s && isClaudeCard(s) && s.cwd ? { value: 'earlier', label: 'Earlier conversations', sub: 'Ended ones in this folder: delete one you do not need', icon: 'text' } : null,
+        s && isClaudeCard(s) && s.handsOff ? { value: 'handsoff', label: s.handsOff.on ? 'Stop Hands-off' : 'Turn on Hands-off', sub: s.handsOff.on ? 'Hoprig stops answering for you in this session' : 'Hoprig answers what the tool marks as recommended, or with your note', icon: 'sparkle' } : null,
         { value: 'attach', label: 'Attach a file', sub: 'Upload into this folder; its path goes into your message', icon: 'paperclip' },
         { value: 'text', label: 'Text of this session', sub: 'Select and copy', icon: 'copy' },
         { value: 'look', label: 'Terminal look', sub: 'Colours and text size', icon: 'sun' },
+        { value: 'keys', label: 'Keys and images', sub: 'Ctrl+T, Ctrl+W, Ctrl+N and pasting an image', icon: 'grid' },
         { value: 'rename', label: 'Rename', sub: 'The name shown everywhere', icon: 'pencil' },
         { value: 'kill', label: 'End session', sub: 'Stops everything running in it', icon: 'trash', danger: true },
       ].filter(Boolean),
@@ -766,9 +971,21 @@ export function openSession(app, name) {
     if (what === 'stop') stop();
     else if (what === 'back') (await switchProfile(s, pref)) && moved();
     else if (what === 'another') startAnother(s);
-    else if (what === 'attach') fileInput.click();
+    else if (what === 'earlier') earlierSheet(s);
+    else if (what === 'handsoff') {
+      const turningOn = !s.handsOff.on;
+      try {
+        await api(at(machine.current, '/api/handsoff/session'), { name, on: turningOn });
+        if (turningOn) openConsentSheet(); // shown once per browser, the first time a switch is turned on
+        toast(turningOn ? 'Hands-off is on for this session' : 'Hands-off stopped for this session');
+        store.refresh();
+      } catch (e) {
+        toast(e, { kind: 'error' });
+      }
+    } else if (what === 'attach') fileInput.click();
     else if (what === 'text') showText();
     else if (what === 'look') terminalLook();
+    else if (what === 'keys') openSheet({ title: 'Keys and images' }, () => KEY_HELP.map((line) => h('p', line)));
     else if (what === 'rename') {
       const next = await promptSheet({
         title: 'Rename session', value: name, ok: 'Rename',
@@ -781,13 +998,13 @@ export function openSession(app, name) {
           store.refresh();
           location.replace(link(`#/s/${encodeURIComponent(next)}`));
         } catch (e) {
-          toast(e.message, { kind: 'error' });
+          toast(e, { kind: 'error' });
         }
       }
     } else if (what === 'kill') {
       const ok = await confirmSheet({
         title: `End "${name}"?`,
-        text: 'Everything running in this session stops. A coding tool\'s conversation can be continued later from its folder.',
+        text: 'Everything running in this session stops. A coding tool\'s conversation can be continued later from the project\'s page.',
         ok: 'End session',
         danger: true,
       });
@@ -801,7 +1018,7 @@ export function openSession(app, name) {
           if (inWindow !== null) location.hash = way.hash;
           else closeWindow();
         } catch (e) {
-          toast(e.message, { kind: 'error' });
+          toast(e, { kind: 'error' });
         }
       }
     }
@@ -819,6 +1036,10 @@ export function openSession(app, name) {
     clearTimeout(fitTimer);
     ro.disconnect();
     narrow.removeEventListener('change', placeholder);
+    window.removeEventListener('dragenter', onDragOver);
+    window.removeEventListener('dragover', onDragOver);
+    window.removeEventListener('drop', onDrop);
+    clearTimeout(statusTimer);
     vv?.removeEventListener('resize', onViewport);
     vv?.removeEventListener('scroll', onViewport);
     darkQuery.removeEventListener('change', applyTerm);

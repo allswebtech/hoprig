@@ -14,35 +14,35 @@ const { createToken, onRevoke, revokeToken } = await import('../../src/machines/
 
 test('each change a token may make has its plain words; anything else is not logged', () => {
   const said = (m, p) => changeOf(m, p, 'office-pc')?.did ?? null;
-  assert.equal(said('POST', '/api/addons/public-link/start'), 'The hub office-pc started the public link');
-  assert.equal(said('POST', '/api/addons/public-link/stop'), 'The hub office-pc stopped the public link');
-  assert.equal(said('POST', '/api/addons/trouteai/install'), 'The hub office-pc installed TRouteAI');
-  assert.equal(said('POST', '/api/addons/public-link/do/fixed-on'), 'The hub office-pc turned on the Custom public link');
-  assert.equal(said('POST', '/api/addons/public-link/do/fixed-add-service'), 'The hub office-pc added a service to the Custom public link');
+  assert.equal(said('POST', '/api/addons/public-link/start'), 'The main computer office-pc started the public link');
+  assert.equal(said('POST', '/api/addons/public-link/stop'), 'The main computer office-pc stopped the public link');
+  assert.equal(said('POST', '/api/addons/trouteai/install'), 'The main computer office-pc installed TRouteAI');
+  assert.equal(said('POST', '/api/addons/public-link/do/fixed-on'), 'The main computer office-pc turned on the Custom public link');
+  assert.equal(said('POST', '/api/addons/public-link/do/fixed-add-service'), 'The main computer office-pc added a service to the Custom public link');
   // The page's own routes since the public link has one (the body, on or off, is never read here).
-  assert.equal(said('POST', '/api/public-link'), 'The hub office-pc switched the public link on or off');
-  assert.equal(said('POST', '/api/public-link/custom/create'), 'The hub office-pc set up the Custom public link');
-  assert.equal(said('POST', '/api/public-link/custom/forget'), 'The hub office-pc stopped using the Custom public link');
-  assert.equal(said('POST', '/api/public-link/temporary/add-service'), 'The hub office-pc gave a service on this computer a temporary address');
-  assert.equal(said('POST', '/api/addons/public-link/do/quick-service-start'), 'The hub office-pc gave a service on this computer a temporary address');
-  assert.equal(said('POST', '/api/addons/other/do/some-thing'), 'The hub office-pc ran "some-thing" of the add-on other');
+  assert.equal(said('POST', '/api/public-link'), 'The main computer office-pc switched the public link on or off');
+  assert.equal(said('POST', '/api/public-link/custom/create'), 'The main computer office-pc set up the Custom public link');
+  assert.equal(said('POST', '/api/public-link/custom/forget'), 'The main computer office-pc stopped using the Custom public link');
+  assert.equal(said('POST', '/api/public-link/temporary/add-service'), 'The main computer office-pc gave a service on this computer a temporary address');
+  assert.equal(said('POST', '/api/addons/public-link/do/quick-service-start'), 'The main computer office-pc gave a service on this computer a temporary address');
+  assert.equal(said('POST', '/api/addons/other/do/some-thing'), 'The main computer office-pc ran "some-thing" of the add-on other');
   // A gateway goes by its title in every line, as in "installed TRouteAI" above; one not known here by its id.
-  assert.equal(said('POST', '/api/gateways/trouteai/share'), 'The hub office-pc changed the sharing of TRouteAI');
-  assert.equal(said('POST', '/api/gateways/trouteai/keys'), 'The hub office-pc made a key for TRouteAI');
-  assert.equal(said('POST', '/api/gateways/other/share'), 'The hub office-pc changed the sharing of the gateway other');
-  assert.equal(said('POST', '/api/gateways/keys/0123456789ab/remove'), 'The hub office-pc removed the gateway key 0123456789ab');
-  assert.equal(said('POST', '/api/pcsetup/setup'), 'The hub office-pc ran Set up this computer');
-  assert.equal(said('POST', '/api/pcsetup/fix'), 'The hub office-pc ran a fix from PC → Setup');
-  assert.equal(said('POST', '/api/pcsetup/recipe'), 'The hub office-pc ran a setup recipe');
-  assert.equal(said('POST', '/api/workspace/link'), "The hub office-pc linked Claude Code's own folder into the AI brain");
-  assert.equal(said('POST', '/api/workspace/git/identity'), "The hub office-pc changed git's name and e-mail");
-  assert.equal(said('POST', '/api/workspace/git/signin'), 'The hub office-pc started the GitHub sign-in');
-  assert.equal(said('POST', '/api/workspace/git/brain'), "The hub office-pc created the AI brain's repository");
-  assert.equal(said('POST', '/api/workspace/map/commit'), "The hub office-pc saved the workspace map in the AI brain's history");
-  assert.equal(said('POST', '/api/code/file'), 'The hub office-pc saved a file in the code editor');
-  assert.equal(said('POST', '/api/code/delete'), 'The hub office-pc deleted a file or folder in the code editor');
-  assert.equal(said('POST', '/api/code/git/discard'), 'The hub office-pc discarded changes in the code editor');
-  assert.equal(said('POST', '/api/code/git/commit'), 'The hub office-pc made a git commit in the code editor');
+  assert.equal(said('POST', '/api/gateways/trouteai/share'), 'The main computer office-pc changed the sharing of TRouteAI');
+  assert.equal(said('POST', '/api/gateways/trouteai/keys'), 'The main computer office-pc made a key for TRouteAI');
+  assert.equal(said('POST', '/api/gateways/other/share'), 'The main computer office-pc changed the sharing of the gateway other');
+  assert.equal(said('POST', '/api/gateways/keys/0123456789ab/remove'), 'The main computer office-pc removed the gateway key 0123456789ab');
+  assert.equal(said('POST', '/api/pcsetup/setup'), 'The main computer office-pc ran Set up this computer');
+  assert.equal(said('POST', '/api/pcsetup/fix'), 'The main computer office-pc ran a fix from PC → Setup');
+  assert.equal(said('POST', '/api/pcsetup/recipe'), 'The main computer office-pc ran a setup recipe');
+  assert.equal(said('POST', '/api/workspace/link'), "The main computer office-pc linked Claude Code's own folder into the AI brain");
+  assert.equal(said('POST', '/api/workspace/git/identity'), "The main computer office-pc changed git's name and e-mail");
+  assert.equal(said('POST', '/api/workspace/git/signin'), 'The main computer office-pc started the GitHub sign-in');
+  assert.equal(said('POST', '/api/workspace/git/brain'), "The main computer office-pc created the AI brain's repository or saved the AI brain to it");
+  assert.equal(said('POST', '/api/workspace/map/commit'), "The main computer office-pc saved the workspace map in the AI brain's history");
+  assert.equal(said('POST', '/api/code/file'), 'The main computer office-pc saved a file in the code editor');
+  assert.equal(said('POST', '/api/code/delete'), 'The main computer office-pc deleted a file or folder in the code editor');
+  assert.equal(said('POST', '/api/code/git/discard'), 'The main computer office-pc discarded changes in the code editor');
+  assert.equal(said('POST', '/api/code/git/commit'), 'The main computer office-pc made a git commit in the code editor');
   for (const p of ['/api/code/create', '/api/code/rename']) assert.match(said('POST', p), /in the code editor$/);
   // Reads, other routes and odd paths: nothing.
   for (const [m, p] of [['GET', '/api/addons'], ['GET', '/api/addons/public-link/job'], ['GET', '/api/public-link'], ['GET', '/api/public-link/job'], ['POST', '/api/public-link/temporary/x'], ['GET', '/api/pcsetup/recipe'], ['POST', '/api/workspace/git/signin/cancel'],
@@ -83,7 +83,7 @@ test('recorded when the answer is finished and below 400; never the body; a Setu
     await post('/api/services/action', { 'x-answer': JSON.stringify({ needsConfirm: true, why: 'x' }) });
     await post('/api/state');
     await new Promise((r) => setImmediate(r));
-    assert.deepEqual(lines, ["The hub office-pc linked Claude Code's own folder into the AI brain", 'The hub office-pc ran Set up this computer']);
+    assert.deepEqual(lines, ["The main computer office-pc linked Claude Code's own folder into the AI brain", 'The main computer office-pc ran Set up this computer']);
     assert.equal(lines.join('\n').includes(SECRET), false);
   } finally {
     await s.close();
@@ -120,9 +120,9 @@ test('a revoke is a line in the Activity log with the token\'s name; taking back
   const hub = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.automation === 'hub').map((e) => e.did) : []);
   const before = hub().length;
   revokeToken(createToken('laptop').id);
-  assert.deepEqual(hub().slice(before), ['The token of the hub laptop was revoked']);
+  assert.deepEqual(hub().slice(before), ['The token of the main computer laptop was revoked']);
   revokeToken(createToken('a failed link').id, { log: false });
   assert.equal(hub().length, before + 1, 'a token taken back at once is not news');
-  assert.equal(revokedWords('office-pc', 2), 'The token of the hub office-pc was revoked; the 2 gateway keys it made ended with it, and the sharing of the gateways stays as it is');
+  assert.equal(revokedWords('office-pc', 2), 'The token of the main computer office-pc was revoked; the 2 gateway keys it made ended with it, and the sharing of the gateways stays as it is');
   assert.equal(revokedWords('office-pc', 1).includes('the gateway key it made'), true);
 });

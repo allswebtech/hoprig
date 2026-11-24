@@ -216,8 +216,9 @@ export function leaveOutNew(cur, map) {
  * → { file, dryRun, diff, map, notHere, notFollowed, takenOut, left, notes, tools, otherChanges, manifests, commit }
  * (`left`: leaveOutNew's; `notFollowed`: entries kept that are here behind a link that leads out)
  */
-export async function updateMap({ dir = workspaceDir(), projects = projectsIn(), dryRun = false, run = capture, manifests: touchManifests = true } = {}) {
-  const cur = readMap(dir);
+export async function updateMap({ dir = workspaceDir(), projects = projectsIn(), dryRun = false, run = capture, manifests: touchManifests = true, as = null } = {}) {
+  // `as` (a dry run only): the map as a change not written yet would leave it (a group add's confirmation).
+  const cur = as && dryRun ? { exists: true, map: as } : readMap(dir);
   if (cur.errors) throw Object.assign(new Error(`${MAP_FILE} was not changed: ${cur.errors.join('; ')}`), { status: 409 });
   const scan = await scanWorkspace({ dir, projects, run, previous: cur.map });
   const merged = mergeMap(cur.exists ? cur.map : null, scan);
@@ -308,7 +309,9 @@ export function forget(name, dir = workspaceDir()) {
 /**
  * The map against this computer, one entry per repository:
  *   here      in the map and here
- *   missing   in the map, not on this computer ("get it": workspace restore)
+ *   notHere   a project or a code repository of one that is in the map, not on this computer: the normal state
+ *             (a project lies on a computer only while its owner works on it there); `fix` is  hoprig get <project>
+ *   missing   the brain, a group's own repository or another repository of the map that is not here (restore gets it)
  *   notFollowed  in the map and here, but behind a link that leads out (inside.mjs): never followed, `fix` names the
  *             link as the owner's own (hoprig workspace mylink add)
  *   different in the map, but the folder here is another repository or none
@@ -361,6 +364,16 @@ export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(),
     if (e.kind !== 'project' || e.state !== 'missing' || !e.url) continue;
     const twin = entries.find((x) => x.kind === 'project' && x.state === 'unmapped' && sameUrl(x.url, e.url));
     if (twin) e.fix = `it is here as ${twin.label}: ${showCommand(['mv', twin.path, e.path])}`;
+  }
+  // A project (or a code repository of one) that is only in the map is the normal state: a project lies on a computer
+  // only while its owner works on it there. Its own state, with the one command that gets it; never a warning.
+  const projectOf = new Map(cur.exists ? cur.map.projects.flatMap((p) => [[`project:${refOf(p)}`, refOf(p)], ...p.repos.map((r) => [`repo:${refOf(p)}/${r.dir}`, refOf(p)])]) : []);
+  for (const e of entries) {
+    const ref = projectOf.get(`${e.kind}:${e.label}`);
+    if (e.state !== 'missing' || !ref || e.fix) continue;
+    e.state = 'notHere';
+    e.project = ref;
+    e.fix = `hoprig get ${ref}`;
   }
   const counts = {};
   for (const e of entries) counts[e.state] = (counts[e.state] || 0) + 1;

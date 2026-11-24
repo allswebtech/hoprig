@@ -1,13 +1,30 @@
 {
   "name": "hoprig-site",
   "private": true,
-  "description": "hoprig.com: built from site/content, the product's docs/*.md, README sections and the code itself. Plain Node, no dependencies.",
+  "description": "hoprig.com: a Next.js app exported to plain files, built from site/content, the product's docs/*.md, README sections and the code itself.",
   "type": "module",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "node build.mjs",
-    "test": "node --test ../test/site/site.test.mjs"
+    "build": "node scripts/build.mjs",
+    "licences": "node scripts/licences.mjs",
+    "test": "node ../tools/test.mjs ../test/site/site.test.mjs"
+  },
+  "dependencies": {
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "sharp": "file:./stubs/no-sharp",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "sharp": "$sharp"
   }
 }

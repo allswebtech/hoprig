@@ -71,6 +71,24 @@ test('hoprig project new --dry-run: no folder, no template clone, no settings; w
   assert.ok(exists(path.join(w.projects, 'fresh', '.git')));
 });
 
+test('hoprig project new --brief --kind --scope --start --dry-run: no folder, no skill, no brief, no session; without --dry-run all of it', async (tc) => {
+  const w = await world(tc, 'newbrief');
+  const brief = path.join(w.home, 'brief.txt'); // in the world before the snapshot: it is read, never written
+  fs.writeFileSync(brief, 'A small shop for shoes.\n');
+  const r = await w.unchanged('project new fresh --brief --kind --scope --start --dry-run', () => project(['new', 'fresh', '--brief', brief, '--kind', 'web-app', '--scope', 'setup', '--start', '--dry-run']));
+  assert.equal(r.code, 0, r.text);
+  assert.match(r.text, /would add the new-project skill/);
+  assert.match(r.text, /would add the brief, unchanged, as docs\/brief\.md/);
+  assert.match(r.text, /would add the part "Every session" to AGENTS\.md, unless it has it \(the memory, the brief, the applies table and the skill every later session reads\)/);
+  assert.match(r.text, /would add your hint for the kind \(web-app\) and the scope \(setup\) to decisions\.md, as the entry "how the project starts"/);
+  assert.match(r.text, /\(dry run\) would then start a session in the App/);
+  assert.doesNotMatch(r.text, /would add then/);
+  const real = await w.changed('project new fresh --brief --kind', () => project(['new', 'fresh', '--brief', brief, '--kind', 'web-app']));
+  assert.equal(real.r.code, 0, real.r.text);
+  assert.equal(fs.readFileSync(path.join(w.projects, 'fresh', 'docs', 'brief.md'), 'utf8'), 'A small shop for shoes.\n');
+  assert.ok(exists(path.join(w.projects, 'fresh', '.claude', 'skills', 'new-project', 'SKILL.md')));
+});
+
 test('hoprig project add --dry-run: no code repository made; without it there is one', async (tc) => {
   const w = await world(tc, 'add');
   for (const args of [['add', 'shop', 'admin', '--dry-run'], ['add', 'shop', 'admin', '--github', '--dry-run']]) {
@@ -156,7 +174,7 @@ test('hoprig workspace map --dry-run: the map is not written; without it it is',
 
 test('hoprig workspace restore --dry-run: nothing cloned into the workspace, the temporary clone of a brain removed; without it the missing project comes and the one here is left alone', async (tc) => {
   const w = await world(tc, 'restore');
-  const r = await w.unchanged('workspace restore --dry-run', () => workspace(['restore', gh('brain'), '--dry-run']));
+  const r = await w.unchanged('workspace restore --dry-run', () => workspace(['restore', gh('brain'), '--with-projects', '--dry-run']));
   assert.equal(r.code, 0, r.text);
   assert.match(r.text, /blog .*clone/);
   // A brain that is not here yet: read from a temporary clone in the system's temporary folder, which is removed.
@@ -164,14 +182,14 @@ test('hoprig workspace restore --dry-run: nothing cloned into the workspace, the
   const away = await w.unchanged('workspace restore --dry-run (no brain here)', async () => {
     process.env.HOPRIG_WORKSPACE_DIR = fresh;
     try {
-      return await workspace(['restore', gh('brain'), '--dry-run', '--json']);
+      return await workspace(['restore', gh('brain'), '--with-projects', '--dry-run', '--json']);
     } finally {
       process.env.HOPRIG_WORKSPACE_DIR = w.ws;
     }
   });
   assert.equal(away.code, 0, away.text);
   const shopEnv = path.join(w.shop, 'code', 'shop-api', '.env');
-  const real = await w.changed('workspace restore --yes', () => workspace(['restore', gh('brain'), '--yes']));
+  const real = await w.changed('workspace restore --yes', () => workspace(['restore', gh('brain'), '--with-projects', '--yes']));
   assert.equal(real.r.code, 0, real.r.text);
   assert.ok(exists(path.join(w.projects, 'blog', 'code', 'blog-app', '.env')), 'what restore cloned is set up');
   assert.ok(!exists(shopEnv), 'a project that was here is not changed');
@@ -211,6 +229,6 @@ test('hoprig workspace forget|set|auto|git do not take --dry-run: refused, nothi
     const r = await w.unchanged(`workspace ${args.join(' ')}`, () => workspace(args));
     assert.equal(r.code, 2, `${args.join(' ')}: ${r.text}`);
   }
-  const real = await w.changed('workspace forget blog', () => workspace(['forget', 'blog']));
+  const real = await w.changed('workspace forget blog', () => workspace(['forget', 'blog', '--yes']));
   assert.match(real.diff, /workspace\.json/);
 });

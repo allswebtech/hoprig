@@ -11,7 +11,13 @@ const slow = Number(process.env.HOPRIG_TEST_SLOW_READER) || 0;
 
 export default async function* count(source) {
   const files = {};
-  const of = (file) => (files[file] ??= { results: 0, suites: 0, asFile: null, summary: null });
+  // from, to: when the first and the last event of a file arrived (the home guard names the files that ran when a
+  // path of the real home was written).
+  const of = (file) => {
+    const f = (files[file] ??= { results: 0, suites: 0, asFile: null, summary: null, from: Date.now(), to: 0 });
+    f.to = Date.now();
+    return f;
+  };
   for await (const event of source) {
     if (slow) {
       const until = performance.now() + slow;

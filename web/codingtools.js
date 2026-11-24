@@ -40,7 +40,7 @@ function toolPanel(t, redraw) {
         redraw(await api(`/api/codetools/${t.id}`, { on }));
         return true;
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(e, { kind: 'error' });
         redraw(null);
         return false;
       }
@@ -52,7 +52,7 @@ function toolPanel(t, redraw) {
             await api('/api/updates/run', { id: t.id });
             location.hash = link('#/settings/updates'); // its output follows there
           } catch (e) {
-            toast(e.message, { kind: 'error', ms: 7000 });
+            toast(e, { kind: 'error', ms: 7000 });
           }
         } }))
       : providers,

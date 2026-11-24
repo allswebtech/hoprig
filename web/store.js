@@ -6,7 +6,7 @@
 // It also raises the in-page notifications: a count in the tab title, an optional sound and vibration, and
 // browser notifications where the browser allows them.
 import { APP_NAME } from './brand.js';
-import { BARE, api, desktopParent, link, machine, prefs, stateOf } from './lib.js';
+import { BARE, NOT_ONLINE, api, desktopParent, link, machine, prefs, stateOf } from './lib.js';
 
 const listeners = new Set();
 let all = null;
@@ -16,6 +16,7 @@ let inflight = null;
 let again = false; // refresh() was asked for while a look was under way: what that look read may already be old
 let lastKeys = null; // session name → state key, for spotting changes
 let unread = 0;
+let readAt = null; // when the last poll that answered was asked (Date.now()): a card counts only a poll after it
 
 // What an unreachable computer looks like to a view that expects /api/state.
 const EMPTY = { sessions: [], profiles: [], autoSwitch: { enabled: false, order: [] }, quickActions: [], recommended: null, backend: null };
@@ -66,6 +67,10 @@ export const store = {
   get error() {
     return host ? host.error : error;
   },
+  /** When the newest list was asked for (ms), or null before the first answer. */
+  get readAt() {
+    return host ? host.readAt : readAt;
+  },
   /** fn(data, error) is called now (if there is data) and after every poll. Returns an unsubscribe function. */
   subscribe(fn) {
     if (host) {
@@ -99,7 +104,9 @@ async function refresh() {
   }
   inflight = (async () => {
     try {
+      const asked = Date.now();
       const next = (await api('~/api/machines/sessions')).machines.map(tag);
+      readAt = asked;
       error = null;
       notice(next.flatMap((m) => m.sessions));
       all = next;
@@ -241,8 +248,8 @@ function notice(sessions) {
  */
 export function runsSessions(m, claude) {
   if (!m) return { ok: false, why: 'Not in the list' };
-  if (m.status && m.status !== 'online') return { ok: false, why: 'Not reachable now' };
-  if (m.hub) return { ok: false, why: 'The hub: it links your computers and runs no sessions' };
+  if (m.status && m.status !== 'online') return { ok: false, why: NOT_ONLINE[m.status] || 'Not reachable now' };
+  if (m.hub) return { ok: false, why: 'The main computer: it links your computers and runs no sessions' };
   if (claude === null) return { ok: false, why: 'Claude Code is not installed there' };
   if (!(m.profiles || []).some((p) => !p.virtual)) return { ok: false, why: 'No provider there yet' };
   return { ok: true, why: '' };

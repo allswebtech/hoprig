@@ -34,7 +34,7 @@ test('a file where a plain group goes: said, left alone, its projects wait', asy
   fs.mkdirSync(B.ws, { recursive: true });
   fs.writeFileSync(path.join(B.ws, 'client-work'), 'a file\n');
   const q = await quietUi();
-  const r = await restoreWorkspace(brain, { ui: q.ui, dir: B.ws, projects: B.projects });
+  const r = await restoreWorkspace(brain, { withProjects: true, ui: q.ui, dir: B.ws, projects: B.projects });
   const by = Object.fromEntries(r.plan.map((e) => [e.label, e.result]));
   assert.match(q.text(), /client-work: a file is where the group's folder goes: left alone/);
   assert.equal(fs.readFileSync(path.join(B.ws, 'client-work'), 'utf8'), 'a file\n');

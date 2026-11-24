@@ -156,6 +156,7 @@ export class PtyBackend {
     return [...this.terms.values()].map((t) => ({
       session: t.name,
       id: t.id,
+      sid: t.id, // the terminal's own id: a rename keeps it
       pid: t.proc ? t.proc.pid : 0,
       cwd: t.dir,
       command: t.proc ? this.#processName(t) : '',

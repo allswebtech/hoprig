@@ -69,7 +69,7 @@ test('a link the group\'s repository brings into a member of its own: sync, the 
   const { restoreWorkspace } = await import('../../src/workspace/restore.mjs');
   const q = await quietUi();
   q.ui.yes = true;
-  const r = await restoreWorkspace(w.url('brain'), { ui: q.ui, dir: C.ws, projects: C.projects });
+  const r = await restoreWorkspace(w.url('brain'), { withProjects: true, ui: q.ui, dir: C.ws, projects: C.projects });
   assert.match(r.plan.find((e) => e.label === 'kits/builds/acme/code/x').result, /leaves its folder through a link/);
   assert.ok(!fs.existsSync(path.join(outside, 'x')), 'nothing cloned outside');
 });
@@ -204,12 +204,12 @@ test('a project folder the owner keeps elsewhere through a link: not followed an
   const { restoreWorkspace } = await import('../../src/workspace/restore.mjs');
   let q = await quietUi();
   q.ui.yes = true;
-  let r = await restoreWorkspace(w.url('brain'), { ui: q.ui, dir: C.ws, projects: C.projects });
+  let r = await restoreWorkspace(w.url('brain'), { withProjects: true, ui: q.ui, dir: C.ws, projects: C.projects });
   assert.match(r.plan.find((e) => e.label === 'handbook').result, /skipped: .*handbook leaves its folder through a link/);
   // The command: the plan says it with the line that names the link, the summary once more, the run not a third time.
   const { main } = await import('../../src/workspace/cli.mjs');
   q = await quietUi();
-  assert.equal(await main(['restore', w.url('brain'), '--yes'], { ui: q.ui, write: () => {} }), 0);
+  assert.equal(await main(['restore', w.url('brain'), '--with-projects', '--yes'], { ui: q.ui, write: () => {} }), 0);
   const said = q.text().split('\n').filter((l) => /handbook.*leaves its folder/.test(l));
   assert.equal(said.length, 2, `the plan and the summary:\n${q.text()}`);
   assert.match(said[0], /not followed.*if that link is yours: {2}hoprig workspace mylink add .*handbook\)/);
@@ -220,7 +220,7 @@ test('a project folder the owner keeps elsewhere through a link: not followed an
   addMyLink(link);
   q = await quietUi();
   q.ui.yes = true;
-  r = await restoreWorkspace(w.url('brain'), { ui: q.ui, dir: C.ws, projects: C.projects });
+  r = await restoreWorkspace(w.url('brain'), { withProjects: true, ui: q.ui, dir: C.ws, projects: C.projects });
   assert.equal(r.plan.find((e) => e.label === 'handbook').result, 'here');
   assert.ok(!(await syncAll(ctx)).repos.find((x) => x.label === 'handbook').todo.some((t) => t.kind === 'link'));
 });

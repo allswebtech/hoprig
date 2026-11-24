@@ -2,21 +2,20 @@
 // runs it. A computer whose Hoprig knows only version 1 refuses a version-2 map and changes nothing in it (its strict
 // check stops before any write), but its map then stands still until Hoprig is updated there. So the upgrade first
 // says which computers are behind, from each computer's own file in the brain (ai_brain/computers/<label>.json,
-// { "hoprig": "<version>" }, written by each computer for itself), and always that a computer that never reported
+// { "hoprig": "<version>" }, written by each computer for itself, computer.mjs), and always that a computer that never reported
 // cannot be seen from here; it asks once, with no as the default. The upkeep never upgrades a map.
 //
 // The content stays the same, with one exception: an entry whose folder here is a linked worktree (a second checkout
 // of another repository that an older map took for a repository) is dropped.
-import fs from 'node:fs';
 import path from 'node:path';
 import { isLinkedWorktree, projectsIn, workspaceDir } from './layout.mjs';
 import { refOf } from './mapcheck.mjs';
 import { readMap, writeMap } from './map.mjs';
+import { computersHere } from './computer.mjs';
 
 /** The first Hoprig release that reads a map of version 2. */
 export const READS_V2 = '0.3.0';
 const fail = (status, message) => Object.assign(new Error(message), { status });
-const LABEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}\.json$/;
 
 /** a < b for versions like 1.2.3 (anything after the numbers is left out). */
 export function olderThan(a, b) {
@@ -26,26 +25,14 @@ export function olderThan(a, b) {
   return false;
 }
 
-/** What each computer's file in the brain says: { known, computers: [{ label, hoprig }], behind: [{ label, hoprig }] }. */
+/**
+ * What each computer's file in the brain says (computer.mjs computersHere, read strictly): { known, computers: [{
+ * label, hoprig }], behind: [{ label, hoprig }] }. A file the strict check refuses counts with the version it names, else as unknown.
+ */
 export function computersBehind(dir = workspaceDir(), need = READS_V2) {
-  const folder = path.join(dir, 'ai_brain', 'computers');
-  let files = [];
-  try {
-    files = fs.readdirSync(folder).filter((f) => LABEL_RE.test(f)).sort();
-  } catch {
-    /* none yet */
-  }
-  const computers = files.map((f) => {
-    let v = null;
-    try {
-      const j = JSON.parse(fs.readFileSync(path.join(folder, f), 'utf8'));
-      v = j && typeof j.hoprig === 'string' && /^\d{1,4}\.\d{1,5}\.\d{1,6}/.test(j.hoprig) ? j.hoprig : null;
-    } catch {
-      /* unreadable: counted as unknown */
-    }
-    return { label: f.replace(/\.json$/, ''), hoprig: v };
-  });
-  return { known: computers.length > 0, need, computers, behind: computers.filter((c) => !c.hoprig || olderThan(c.hoprig, need)) };
+  const c = computersHere(dir);
+  const computers = [...c.files.map((f) => ({ label: f.label, hoprig: f.hoprig })), ...c.refused.map((r) => ({ label: r.name.replace(/\.json$/, ''), hoprig: r.hoprig || null }))].sort((a, b) => a.label.localeCompare(b.label));
+  return { known: computers.length > 0, need, computers, behind: computers.filter((x) => !x.hoprig || olderThan(x.hoprig, need)) };
 }
 
 /**

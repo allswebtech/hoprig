@@ -144,3 +144,28 @@ export function procParent(pid) {
 
 /** /proc answers one pid at a time, cheaply, so no snapshot is needed. */
 export const parentLookup = async () => procParent;
+
+/**
+ * How many processes have their working folder in one of `dirs` (a copy of a folder someone works in is not safe
+ * now), from each process's cwd link under `procRoot`. Only the user's own processes can be read; others count not.
+ */
+export function workingIn(dirs, procRoot = '/proc') {
+  let names = [];
+  try {
+    names = fs.readdirSync(procRoot).filter((n) => /^\d+$/.test(n));
+  } catch {
+    return null;
+  }
+  const tops = dirs.map((d) => d.replace(/\/+$/, ''));
+  let n = 0;
+  for (const pid of names) {
+    let cwd;
+    try {
+      cwd = fs.readlinkSync(`${procRoot}/${pid}/cwd`);
+    } catch {
+      continue;
+    }
+    if (tops.some((t) => cwd === t || cwd.startsWith(`${t}/`))) n++;
+  }
+  return n;
+}

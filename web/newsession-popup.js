@@ -1,13 +1,17 @@
 // New session: one popup over the page it was opened on (the kit's sheet: a dialog on a wide screen, a full-height
-// sheet on a phone). First HOW to work, App or Terminal, then WITH WHAT, one tile per coding tool with its state on
-// the computer, then the project: a tap on one starts a new session (the recent ones first; where something runs, its
+// sheet on a phone). The project is the question: one line over it says what a start uses (the computer, App or
+// Terminal, the coding tool), and those choices are folded under it, opened on a press or when nothing can start as
+// chosen. Inside: first HOW to work, App or Terminal, then WITH WHAT, one tile per coding tool with its state on
+// the computer. Then the project: a tap on one starts a new session (the recent ones first; where something runs, its
 // own button beside the row opens that). Opened from a project, the project is set and "Start" starts it. Everything else waits under a
 // closed "Options": the provider, what it may do without asking, how hard it thinks, the model, the conversation, a
 // plain terminal. Where several computers are linked, the computer comes first. `#/new` shows it over Home (app.js).
 import { chatTools, knownChatTools, startChat } from './chat/start.js';
 import { icon } from './icons.js';
-import { TOOL_NAMES, api, at, cardTool, chooseSheet, confirmSheet, fill, h, isCodingCard, link, machine, openSheet, prefs, tildePath, toast } from './lib.js';
-import { chooseTool, computerTiles, openAsDefault, openAsTiles, toolState, toolTiles, wayState } from './newsession-choice.js';
+import { TOOL_NAMES, api, at, cardTool, chooseSheet, confirmSheet, fill, h, isCodingCard, link, machine, openSheet, prefs, tildePath, toast, wayLink } from './lib.js';
+import { choiceLine, chooseTool, computerTiles, openAsDefault, openAsTiles, providerState, toolState, toolTiles, wayState } from './newsession-choice.js';
+import { roomHint, roomsById, tileLine, useHint } from './newsession-room.js';
+import { alsoChoices, alsoOpen } from './newsession-also.js';
 import { optionsFor } from './newsession-options.js';
 import { folderSub, outsideProjects, repoWords, runningIn } from './newsession-words.js';
 import { atNewAddress, startSession } from './newsession-start.js';
@@ -42,10 +46,16 @@ export function openNewSession({ m, project = null, address = false } = {}) {
     unreachable: null, // why nothing can start on the computer (it cannot be reached), or null
     plain: false, // Options → a plain terminal, without a coding tool
     profile: '', permissionMode: '', effort: '', model: '', models: null, conversation: 'new',
+    // "Lead model" and its ticks as drawn: what a start in the folder takes (GET /api/chats/lead) once the folder is
+    // known (leadDir), else Settings'. Sent only once the owner changed them here (leadTouched): left as they are, the
+    // server takes the folder's last chat, else Settings, filtered against the provider it picks.
+    // leadProfile: the provider such a start runs on (the folder's own), so the ticks are drawn for it and never offer it.
+    lead: undefined, others: undefined, leadDir: null, leadProfile: null, leadTouched: false,
     dir: null, // the folder open under "Another folder" (its real path), for the Provider list's words
     hidden: false,
     preset: project,
     query: '',
+    also: [], // "Also open": map names of extra folders for this session (newsession-also.js)
   };
   let alive = true;
   let picking = false; // a conversation is being picked in the sheet that took the popup's place
@@ -66,6 +76,21 @@ export function openNewSession({ m, project = null, address = false } = {}) {
   const opts = h('div.newopts', { tabindex: '-1' });
   const actions = h('div.ns-actions', { tabindex: '-1' }); // Start / Start here, kept in view at the bottom while the popup scrolls
   const openAsSlot = h('div', { tabindex: '-1' });
+  // The computer, App or Terminal and the coding tool: folded under the line that says what is chosen.
+  const lineText = h('span.ns-choices-what');
+  const choices = h('details.ns-choices',
+    h('summary.ns-choices-line', { 'data-key': 'choices' }, lineText, h('span.ns-choices-change', 'Change'), icon('chevronDown', { size: 18 })),
+    h('div.ns-choices-body', pcSlot, openAsSlot, toolSlot));
+  function paintLine() {
+    lineText.textContent = choiceLine({
+      computer: store.multi && !st.preset ? (where() || {}).machineLabel || null : null,
+      openAs: st.openAs, tool: st.tool ? toolName(st.tool) : null, plain: st.plain,
+      known: !!st.tools && st.lastKnown, unreachable: !!st.unreachable,
+    });
+  }
+  const alsoSlot = h('div.ns-also', { tabindex: '-1' }); // "Also open", before the project choice
+  let alsoData = null;
+  let alsoFor = undefined; // the folder alsoData was asked for (null: before a project is chosen)
   const status = h('p.hint.ns-status', { role: 'status', 'aria-live': 'polite' }); // what a start is doing, or why it failed
   // Parts are drawn again as answers arrive. The control that has the focus keeps it: found again in the new drawing by
   // its key (a tile's choice, a project's name, a field's key), else the part's first control, else the part itself,
@@ -89,30 +114,38 @@ export function openNewSession({ m, project = null, address = false } = {}) {
 
   // ---------- the computer: the first choice when there are several (not while a project is set) ----------
   let painted = '';
+  let rooms = new Map(); // each computer's room for new work (newsession-room.js), once read
   function paintComputers() {
-    const key = store.multi && !st.preset ? JSON.stringify([st.m, store.all.map((x) => [x.machine, x.machineLabel, can(x)])]) : '';
+    paintLine();
+    const key = store.multi && !st.preset ? JSON.stringify([st.m, store.all.map((x) => [x.machine, x.machineLabel, can(x)]), [...rooms]]) : '';
     if (key === painted) return;
     painted = key;
     if (!key) return paint(pcSlot);
     const id = (x) => x.machine || '~';
+    const chosen = id(where() || { machine: st.m });
+    const list = store.all.map((x) => ({ id: id(x), name: x.machineLabel, ok: can(x).ok }));
+    const hint = roomHint({ computers: list, rooms, chosen });
+    let choose = null;
     paint(pcSlot, groupHead('Computer'), computerTiles({
-      chosen: id(where() || { machine: st.m }),
+      chosen,
       computers: store.all.map((x) => {
         const c = can(x);
         const providers = (x.profiles || []).filter((p) => !p.virtual).length;
-        return { id: id(x), name: x.machineLabel, line: c.ok ? `${providers} provider${providers === 1 ? '' : 's'}` : c.why, disabled: !c.ok };
+        return { id: id(x), name: x.machineLabel, line: c.ok ? tileLine(`${providers} provider${providers === 1 ? '' : 's'}`, rooms.get(id(x))) : c.why, disabled: !c.ok };
       }),
-      choose: (to) => {
-        const x = store.all.find((y) => id(y) === to);
-        if (!x || x.machine === st.m) return;
-        prefs.set('new.machine', to);
-        st.m = x.machine;
-        Object.assign(st, { picked: null, tools: null, profile: '', permissionMode: '', effort: '', model: '', models: null });
-        paintComputers();
-        loadTools();
-        projects();
-      },
-    }));
+      choose: (to) => choose(to),
+    }), hint ? h('p.ns-room', { role: 'status' }, h('span', hint.text), ' ', h('button.btn.small.secondary', { type: 'button', onclick: () => useHint(pcSlot, hint.to, choose) }, hint.label)) : null);
+    choose = (to) => {
+      const x = store.all.find((y) => id(y) === to);
+      if (!x || x.machine === st.m) return;
+      prefs.set('new.machine', to);
+      st.m = x.machine;
+      // Lead and its ticks are that computer's too: its Settings seed them again (its providers are not these).
+      Object.assign(st, { picked: null, tools: null, profile: '', permissionMode: '', effort: '', model: '', models: null, lead: undefined, others: undefined, leadDir: null, leadProfile: null, leadTouched: false });
+      paintComputers();
+      loadTools();
+      projects();
+    };
   }
   // No computer given: the one used last, else this one, else the first that can run a session.
   let chose = m !== undefined || !!st.preset;
@@ -153,6 +186,10 @@ export function openNewSession({ m, project = null, address = false } = {}) {
 
   // ---------- the coding tool ----------
   function paintTools() {
+    drawTools();
+    paintLine();
+  }
+  function drawTools() {
     // Until the preset project's last tool is known the row says so, so that the choice cannot change after a tap.
     if (!st.tools || !st.lastKnown) {
       st.tool = null;
@@ -163,7 +200,8 @@ export function openNewSession({ m, project = null, address = false } = {}) {
       return paint(toolSlot, groupHead('Coding tool'), h('p.hint.ns-unreachable', st.unreachable));
     }
     const appTools = knownChatTools(st.m).map((t) => t.id);
-    const tiles = st.tools.map((t) => ({ ...t, state: wayState(t, st.openAs, appTools, (w) => chooseWay(w)) }));
+    const profiles = (where() || {}).profiles || null; // the chosen computer's providers: none serving a tool, it needs one
+    const tiles = st.tools.map((t) => ({ ...t, state: wayState({ ...t, state: providerState(t, profiles, st.m) }, st.openAs, appTools, (w) => chooseWay(w)) }));
     st.tool = chooseTool(tiles, { picked: st.picked, last: st.preset ? st.last : null, saved: st.saved });
     paint(toolSlot, groupHead('Coding tool'), toolTiles({
       tools: tiles, chosen: st.tool, onleave: () => close(),
@@ -175,6 +213,7 @@ export function openNewSession({ m, project = null, address = false } = {}) {
         Object.assign(st, { profile: '', permissionMode: '', effort: '' });
         paintTools();
         paintOptions();
+        paintAlso();
       },
     }));
   }
@@ -222,11 +261,46 @@ export function openNewSession({ m, project = null, address = false } = {}) {
       st, where: where(), run: run(), info: toolInfo(), toolName: toolName(st.tool || 'claude'),
       onplain: (on) => {
         st.plain = on;
+        paintLine();
         paintOptions();
         paintProjectsGate();
         if (st.preset) paintPreset();
+        paintAlso();
       },
     }));
+  }
+
+  // ---------- Also open ----------
+  function paintAlso() {
+    if (st.plain) return paint(alsoSlot);
+    paint(alsoSlot, alsoOpen({ data: alsoData, chosen: st.also, tool: st.tool, toolName: toolName(), onchange: () => paintAlso(), onallow: st.preset ? allowNeed : null }));
+  }
+  // The owner's yes (or its taking back) for a need of the chosen project, on that computer; then the list again.
+  async function allowNeed(name, yes) {
+    const m = st.m;
+    const folder = st.preset ? st.preset.path : null;
+    if (!folder) return;
+    try {
+      await api(at(m, '/api/folders/extras/accept'), { path: folder, need: name, allow: yes });
+    } catch (e) {
+      toast(e, { kind: 'error', ms: 7000 });
+      return;
+    }
+    if (!alive || m !== st.m) return;
+    alsoData = null;
+    alsoFor = undefined;
+    loadAlso();
+  }
+  async function loadAlso() {
+    const folder = st.preset ? st.preset.path : null;
+    if (alsoFor === folder && alsoData) return paintAlso();
+    alsoFor = folder;
+    const m = st.m;
+    const d = await alsoChoices(m, folder);
+    if (!alive || m !== st.m || alsoFor !== folder) return;
+    alsoData = d;
+    if (d) st.also = st.also.filter((x) => d.choices.includes(x));
+    paintAlso();
   }
 
   // ---------- the project ----------
@@ -234,11 +308,13 @@ export function openNewSession({ m, project = null, address = false } = {}) {
   // While the popup is open, the error shows in it; after it closed (a conversation was picked), as a toast.
   const failed = (e, retry) => (alive
     ? paint(projSlot, h('div.empty', icon('alert', { size: 32 }), h('p', e.message), h('button.btn.secondary', { type: 'button', onclick: retry }, 'Try again')))
-    : toast(e.message, { kind: 'error', ms: 7000 }));
+    : toast(e, { kind: 'error', ms: 7000 }));
   // A start control (a project's row, Start, Start here, the plain terminal's switch): `data-startctl`, so that one
   // start at a time can turn them all off while it is on its way.
-  const say = (text, error = false) => {
-    status.textContent = text || '';
+  // `err`: the error itself, so its code's place (errorways.js) gets its button beside the words.
+  const say = (text, error = false, err = null) => {
+    const way = err ? wayLink(err) : null;
+    fill(status, text || '', way ? [' ', way] : null);
     status.classList.toggle('ns-is-error', error);
     status.setAttribute('role', error ? 'alert' : 'status');
   };
@@ -247,7 +323,7 @@ export function openNewSession({ m, project = null, address = false } = {}) {
     h('button.row', { type: 'button', onclick, 'data-name': f.name, 'data-startctl': '', title: `A new session in ${f.name}` },
       h('span.row-icon', icon('folder')),
       h('span.row-main', h('span.row-title', f.name), sub ? h('span.row-sub', sub) : null),
-      h('span.row-end', icon('play', { size: 18 })));
+      h('span.row-end.ns-startword', icon('play', { size: 16 }), h('span', 'Start'))); // the word says what a press does
   // What runs in a folder stays one tap away, as its own button beside the row (a divider between the two, so a
   // thumb on a phone cannot take one for the other): the session runningIn() names, or the list where several run.
   const runningHere = (f) => ((where() || {}).sessions || []).filter((s) => s.cwd === f.path);
@@ -258,9 +334,9 @@ export function openNewSession({ m, project = null, address = false } = {}) {
     const several = list.length > 1;
     return h('span.ns-openslot', h('button.btn.small.secondary.ns-open', {
       type: 'button', 'data-open': f.name,
-      'aria-label': several ? `Choose one of the ${list.length} sessions running in ${f.name}` : `Open the session running in ${f.name}`,
+      'aria-label': several ? `Continue one of the ${list.length} sessions running in ${f.name}` : `Continue the session running in ${f.name}`,
       onclick: () => (several ? pickRunning(f, list) : leave(one ? link(one, st.m) : sessionHref(list[0]))),
-    }, icon(several ? 'sessions' : 'chevronRight', { size: 16 }), h('span', 'Open', h('span.ns-open-what', several ? ' running' : ' running session'), several ? ` (${list.length})` : '')));
+    }, icon(several ? 'sessions' : 'chevronRight', { size: 16 }), h('span', 'Continue', several ? h('span.ns-count', ` (${list.length})`) : null))); // the count goes under the word on a phone (style.css)
   }
   async function pickRunning(f, list) {
     // The kit's list takes the popup's place (one sheet at a time).
@@ -294,6 +370,7 @@ export function openNewSession({ m, project = null, address = false } = {}) {
     if (now === gateWas) return;
     gateWas = now;
     if (now) {
+      choices.open = true; // why nothing can start is said in the choices: they open
       const pc = where();
       paint(projSlot, groupHead('Project'), h('div.empty.compact', icon(st.unreachable ? 'cpu' : 'code', { size: 28 }),
         h('p', st.unreachable || `No coding tool is ready${pc ? ` on ${pc.machineLabel}` : ''} for this way yet: see above what each one needs. A plain terminal is under Options.`)));
@@ -301,15 +378,29 @@ export function openNewSession({ m, project = null, address = false } = {}) {
     } else projects();
   }
 
+  // What a start in folder `dir` takes for Lead and its ticks, left as they are: drawn so (an older computer: Settings').
+  function leadFor(dir) {
+    if (st.leadTouched || !dir) return;
+    const asked = st.m;
+    api(at(asked, `/api/chats/lead?${new URLSearchParams({ dir, ...(st.profile ? { profile: st.profile } : {}) })}`)).then((r) => {
+      const here = st.preset ? st.preset.path : st.dir;
+      if (!alive || st.leadTouched || asked !== st.m || here !== dir || typeof r.lead !== 'boolean') return;
+      Object.assign(st, { lead: r.lead, others: Array.isArray(r.others) ? r.others : [], leadDir: dir, leadProfile: typeof r.profile === 'string' && r.profile ? r.profile : null });
+      paintOptions();
+    }, () => {});
+  }
+
   function paintPreset() {
     const f = st.preset;
+    leadFor(f.path);
+    loadAlso();
     paint(projSlot, groupHead('Project'),
       h('div.row.static.ns-preset',
         h('span.row-icon', icon('folder')),
         h('span.row-main', h('span.row-title', f.name), f.short ? h('span.row-sub', f.short) : null),
         h('button.btn.small.secondary', { type: 'button', onclick: () => {
           // Another project: the preset project's own tool goes, back to this browser's last choice.
-          Object.assign(st, { preset: null, last: null, lastKnown: true });
+          Object.assign(st, { preset: null, last: null, lastKnown: true, also: [] });
           paintTools();
           paintOptions();
           painted = '';
@@ -349,6 +440,22 @@ export function openNewSession({ m, project = null, address = false } = {}) {
         api(at(asked, '/api/pcsetup/projects')).catch(() => null), // an older computer, or no projects folder
         api(at(asked, '/api/settings')).catch(() => null), // the models it offers (an older computer: the usual three)
       ]);
+      // The permission modes it offers: Bypass permissions only where its owner allowed it (src/bypassgate.mjs).
+      const modes = settings && settings.sessionChoices && settings.sessionChoices.permissionModes;
+      if (Array.isArray(modes)) st.modes = modes;
+      // As root (src/bypassgate.mjs): the line that says why Bypass is not offered, and whether his default names it.
+      st.rootBypass = (settings && settings.rootBypass) || null;
+      st.rootDefaultBypass = !!(st.rootBypass && settings.sessionDefaults && settings.sessionDefaults.permissionMode === 'bypassPermissions');
+      // "Lead model" as Settings has it for new sessions, while no folder is chosen and the owner did not change it here
+      // (a folder's last chat may differ: the line under the switch says so). An older computer: left out, as before.
+      const d = settings && settings.sessionDefaults;
+      if (d && !st.leadTouched) {
+        st.lead = d.lead === true;
+        st.others = Array.isArray(d.others) ? [...d.others] : [];
+        st.leadDir = null;
+        st.leadProfile = null;
+        paintOptions();
+      }
       const models = settings && settings.sessionChoices && settings.sessionChoices.models;
       if (Array.isArray(models) && JSON.stringify(models) !== JSON.stringify(st.models)) {
         st.models = models;
@@ -384,6 +491,7 @@ export function openNewSession({ m, project = null, address = false } = {}) {
         draw();
       } })
       : null;
+    loadAlso();
     paint(projSlot, groupHead('Project'), search, lists,
       h('div.rows.ns-elsewhere', recent.roots.map((r) => h('button.row', { type: 'button', onclick: () => browse(r.path) },
         h('span.row-icon', icon('folderUp')), h('span.row-main', h('span.row-title', 'Another folder…'), h('span.row-sub', `Browse ${r.short}`)), h('span.row-end', icon('chevronRight', { size: 18 }))))));
@@ -400,6 +508,7 @@ export function openNewSession({ m, project = null, address = false } = {}) {
     if (!alive) return;
     st.dir = d.path;
     paintOptions();
+    leadFor(d.path);
     const folder = (x) => h('button.row', { type: 'button', onclick: () => browse(x.path) }, h('span.row-icon', icon('folder')), h('span.row-main', h('span.row-title', x.name)), h('span.row-end', icon('chevronRight', { size: 18 })));
     paint(projSlot, groupHead('Project'),
       h('div.crumbbar',
@@ -446,8 +555,8 @@ export function openNewSession({ m, project = null, address = false } = {}) {
         st, pc: where(), way: run(), info: toolInfo(), toolName: toolName(), busy: (text) => say(text), leave,
         failed: (e) => {
           ok = false;
-          if (alive) say(e.message, true);
-          else toast(e.message, { kind: 'error', ms: 7000 });
+          if (alive) say(e.message, true, e);
+          else toast(e, { kind: 'error', ms: 7000 });
         },
         // The list of conversations takes the popup's place; nothing more to show in it after a choice.
         picking: () => {
@@ -466,17 +575,26 @@ export function openNewSession({ m, project = null, address = false } = {}) {
   }
 
   // ---------- the popup ----------
-  const root = h('div.ns-root', pcSlot, openAsSlot, toolSlot, status, projSlot, fold('new-options', 'Options', opts), actions);
+  // "Also open" comes before the project: a tap on a project row starts the session, so what it opens beside it is set
+  // first (also in the order of the Tab key).
+  const root = h('div.ns-root', choices, status, alsoSlot, projSlot, fold('new-options', 'Options', opts), actions);
   const done = openSheet({ title: 'New session', tall: true }, (c) => {
     close = c;
     return root;
   });
   paintComputers();
-  paintOpenAs(true); // the focus starts on the first choice
+  paintOpenAs();
   preselect();
   loadTools();
   paintOptions();
   projects();
+  choices.querySelector('summary').focus(); // the focus starts on the line of the choices, the first control
+  // His look: the sheet opened (where several computers are linked). An older dashboard has no rooms: no words.
+  if (store.multi) api('~/api/operator/rooms?look=1').then((v) => {
+    if (!alive) return;
+    rooms = roomsById(v);
+    paintComputers();
+  }).catch(() => {});
   api('~/api/machines').then((d) => {
     if (!alive) return;
     claudeOf.set('~', d.self ? d.self.claude || null : undefined);
@@ -498,6 +616,8 @@ export function openNewSession({ m, project = null, address = false } = {}) {
     const before = seen;
     seen = now;
     paintOptions();
+    paintTools(); // its providers came or went: a tool may need one now, or not any more
+    paintProjectsGate();
     if (before && JSON.parse(before)[3] !== (pc && can(pc).ok) && !st.preset) projects();
   });
   // Another address (Back, a link in the popup, a start): the popup closes.
@@ -527,6 +647,6 @@ export function newFromAddress({ query = new URLSearchParams() } = {}) {
   const with_ = tool && tool !== 'claude' ? ` with ${TOOL_NAMES[tool] || tool}` : '';
   return confirmSheet({ title: 'Open the App here?', text: `A session in the App${with_} in ${tildePath(asked)}, set up as the last one in that folder. Nothing is sent until you write.`, ok: 'Open the App' }).then((yes) => {
     if (!yes) return;
-    startChat(asked, tool ? { tool } : {}, m).catch((e) => toast(e.message, { kind: 'error', ms: 7000 }));
+    startChat(asked, tool ? { tool } : {}, m).catch((e) => toast(e, { kind: 'error', ms: 7000 }));
   });
 }

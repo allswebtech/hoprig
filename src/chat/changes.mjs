@@ -6,6 +6,7 @@
 // here, from the file itself, never through a filter.
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { isGitName, isPrivateName } from '../editor/paths.mjs';
 import { gitRead } from '../gitread.mjs';
 
 const FILES_MAX = 20; // the card names a few files; the editor's Changes view has them all
@@ -59,12 +60,15 @@ export async function folderChanges(dir, o = {}) {
   const head = await read(['rev-parse', '--verify', '--quiet', 'HEAD']);
   // --relative: the folder's own changes, named from it (as ls-files names the new files).
   const [diff, others] = await Promise.all([
-    read(['-c', 'core.quotepath=false', 'diff', '--numstat', '--relative', ...(head.ok ? ['HEAD'] : ['--cached'])]),
+    // --no-renames: a moved file is its old name removed and its new name added, each a real path the pane can open
+    // (with rename detection git names it "old.js => new.js", which is no file).
+    read(['-c', 'core.quotepath=false', 'diff', '--numstat', '--no-renames', '--relative', ...(head.ok ? ['HEAD'] : ['--cached'])]),
     read(['-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard']),
   ]);
   if (!diff.ok) return { git: false };
-  const changed = diff.stdout.split('\n').map(numstatLine).filter(Boolean);
-  const fresh = others.ok ? others.stdout.split('\n').filter(Boolean) : [];
+  // A private folder (and git's own) is never shown, as in the editor: it is left out of the list and its lines.
+  const changed = diff.stdout.split('\n').map(numstatLine).filter((x) => x && shownPath(x.path));
+  const fresh = others.ok ? others.stdout.split('\n').filter((p) => p && shownPath(p)) : [];
   // One file at a time: at most one new file's bytes are in memory, and the budget is spent in the list's order.
   const counts = [];
   const budget = { left: COUNT_TOTAL };
@@ -76,4 +80,74 @@ export async function folderChanges(dir, o = {}) {
     added: list.reduce((n, x) => n + x.added, 0), removed: changed.reduce((n, x) => n + x.removed, 0),
     list: list.slice(0, FILES_MAX),
   };
+}
+
+const DIFF_LINES = 5000; // lines of one file's diff the pane gets; past it, the editor's Changes view has the rest
+
+/** Not in a private folder or git's own at any depth: the editor never opens those (editor/paths.mjs segments). */
+const shownPath = (p) => !p.split('/').some((x) => isPrivateName(x) || isGitName(x));
+
+/**
+ * A file name from the page, as git names it from the folder: relative, no "..", no control character, not in a
+ * private folder or .git; else null.
+ */
+export function changedPath(p) {
+  if (typeof p !== 'string' || !p || p.length > 1000 || /[\x00-\x1f\x7f]/.test(p) || p.includes('\\')) return null;
+  if (path.posix.isAbsolute(p) || p.split('/').some((x) => x === '..' || x === '.' || x === '')) return null;
+  return shownPath(p) ? p : null;
+}
+
+/** Hunks of git's unified diff text: [{ oldStart, newStart, lines: [" a", "-b", "+c"] }]; `cut` past `max` lines. */
+export function parseUnified(text, max = DIFF_LINES) {
+  const hunks = [];
+  let cur = null;
+  let n = 0;
+  let cut = false;
+  for (const l of String(text).split('\n')) {
+    const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l);
+    if (m) {
+      cur = { oldStart: Number(m[1]), newStart: Number(m[2]), lines: [] };
+      hunks.push(cur);
+    } else if (cur && (l[0] === ' ' || l[0] === '-' || l[0] === '+')) {
+      if (n >= max) {
+        cut = true;
+        break;
+      }
+      cur.lines.push(l);
+      n++;
+    }
+  }
+  return { hunks, cut };
+}
+
+/**
+ * One changed file's diff in folder `dir`, for the App's diff pane: { path, new, binary, hunks, cut } (a new file
+ * that git does not track yet: all its lines added), or null when the file has no change (or is not the folder's).
+ * Through gitread.mjs as every read of the folder; a new file is read here, without following a link out of it.
+ */
+export async function fileDiff(dir, p, o = {}) {
+  const rel = changedPath(p);
+  if (!rel) return null;
+  const read = (args) => gitRead(dir, args, o.run ? { run: o.run } : {});
+  const head = await read(['rev-parse', '--verify', '--quiet', 'HEAD']);
+  const d = await read(['--literal-pathspecs', '-c', 'core.quotepath=false', 'diff', '--no-color', '--no-renames', '--unified=3', '--relative', ...(head.ok ? ['HEAD'] : ['--cached']), '--', rel]);
+  if (!d.ok) return null;
+  if (d.stdout.trim()) {
+    if (/^Binary files /m.test(d.stdout) && !/^@@/m.test(d.stdout)) return { path: rel, new: false, binary: true, hunks: [], cut: false };
+    return { path: rel, new: false, binary: false, ...parseUnified(d.stdout) };
+  }
+  const others = await read(['--literal-pathspecs', '-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard', '--', rel]);
+  if (!others.ok || !others.stdout.split('\n').includes(rel)) return null;
+  try {
+    const full = path.join(dir, rel);
+    const st = await fs.lstat(full);
+    if (!st.isFile() || st.size > COUNT_BYTES) return { path: rel, new: true, binary: true, hunks: [], cut: false };
+    const buf = await fs.readFile(full);
+    if (buf.includes(0)) return { path: rel, new: true, binary: true, hunks: [], cut: false };
+    const lines = buf.toString('utf8').replace(/\n$/, '').split('\n');
+    const shown = lines.slice(0, DIFF_LINES);
+    return { path: rel, new: true, binary: false, hunks: buf.length ? [{ oldStart: 0, newStart: 1, lines: shown.map((l) => `+${l}`) }] : [], cut: lines.length > shown.length };
+  } catch {
+    return null;
+  }
 }

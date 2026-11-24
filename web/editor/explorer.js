@@ -7,6 +7,7 @@ import { filesHash } from '../desktop/apps.js';
 import { icon } from '../icons.js';
 import { holdWhilePressed } from './press.js';
 import { markClass } from './scm.js';
+import { dragPath } from './tabops.js';
 
 const NAME_RE = /^[^/\\\0]+$/;
 const checkName = (v) => {
@@ -17,6 +18,15 @@ const checkName = (v) => {
   return '';
 };
 const join = (dir, name) => (dir ? `${dir}/${name}` : name);
+const parentOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+/** May `from` go into folder `dir`: not where it is, not into itself or a folder inside it. */
+/** What F2 selects of a name, as VS Code's Explorer: a file's name up to its last dot (typing keeps the extension). */
+export const renameSelection = (name, isDir) => {
+  const dot = name.lastIndexOf('.');
+  return [0, dot > 0 && !isDir ? dot : name.length];
+};
+
+export const mayDrop = (from, dir) => parentOf(from) !== dir && dir !== from && !dir.startsWith(`${from}/`);
 
 /** wb: { get, post, tabs, root, label, gitMarks() → Map(path → letter), onChanged(), onRootError(error) }. */
 export function createExplorer(wb) {
@@ -27,14 +37,26 @@ export function createExplorer(wb) {
   let selected = null; // the row pressed last (a file or a folder): where "New file" goes
   let cur = null; // the row that holds the tree's one Tab stop
   let order = []; // the rows as drawn: [{ p, isDir, parent }]
-  const list = h('div.ed-tree', { role: 'tree', 'aria-label': 'Files', onkeydown: (e) => keys(e) });
+  let dragging = null; // the path being dragged in the tree
+  let cut = null; // the path cut (Ctrl+X) to be moved by the next paste
+  const list = h('div.ed-tree', { role: 'tree', 'aria-label': 'Files', onkeydown: (e) => keys(e),
+    // The tree's empty end: the opened folder itself.
+    ondragover: (e) => {
+      if (dragging !== null && mayDrop(dragging, '')) e.preventDefault();
+    },
+    ondrop: (e) => {
+      e.preventDefault();
+      const from = dragging;
+      dragging = null;
+      if (from !== null && mayDrop(from, '')) moveInto(from, '');
+    } });
   const head = h('div.ed-panelhead',
     h('h2.ed-paneltitle', wb.label),
     h('div.ed-paneltools',
       btn('icon ghost small', { icon: 'plus', title: 'New file', onclick: () => make('file') }),
       btn('icon ghost small', { icon: 'folder', title: 'New folder', onclick: () => make('dir') }),
       btn('icon ghost small', { icon: 'refresh', title: 'Read the folder again', onclick: () => refresh() }),
-      btn('icon ghost small', { icon: 'up', title: 'Close every folder', onclick: () => {
+      btn('icon ghost small', { icon: 'up', title: 'Collapse Folders in Explorer', onclick: () => {
         open.clear();
         open.add('');
         paint();
@@ -92,6 +114,27 @@ export function createExplorer(wb) {
           ev.preventDefault();
           menu(p, isDir);
         },
+        // Drag a file or folder onto a folder (or the tree's empty end: the opened folder) to move it there.
+        draggable: 'true',
+        ondragstart: (ev) => {
+          dragging = p;
+          dragPath(ev.dataTransfer, p);
+        },
+        ondragover: (ev) => {
+          if (dragging === null || !mayDrop(dragging, isDir ? p : parentOf(p))) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          ev.currentTarget.classList.add('drop');
+        },
+        ondragleave: (ev) => ev.currentTarget.classList.remove('drop'),
+        ondrop: (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const from = dragging;
+          dragging = null;
+          if (from !== null) moveInto(from, isDir ? p : parentOf(p));
+        },
+        ondragend: () => (dragging = null),
       },
       isDir ? icon(isOpen ? 'chevronDown' : 'chevronRight', { size: 14 }) : h('span.ed-row-gap'),
       icon(isDir ? 'folder' : 'text', { size: 15 }),
@@ -160,6 +203,8 @@ export function createExplorer(wb) {
     else if (e.key === 'F2') take(() => renameIt(r.p));
     else if (e.key === 'Delete') take(() => removeIt(r.p, r.isDir));
     else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) take(() => menu(r.p, r.isDir));
+    else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'KeyX') take(() => cutIt(r.p));
+    else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'KeyV' && cut !== null) take(() => moveInto(cut, r.isDir ? r.p : r.parent));
   }
 
   async function press(p, isDir, keep) {
@@ -173,7 +218,7 @@ export function createExplorer(wb) {
       open.add(p);
       if (!kids.has(p)) {
         paint();
-        await read(p).catch((e) => toast(e.message, { kind: 'error' }));
+        await read(p).catch((e) => toast(e, { kind: 'error' }));
       }
     }
     paint();
@@ -214,7 +259,7 @@ export function createExplorer(wb) {
   async function renameIt(p) {
     const old = p.split('/').pop();
     const dir = p.slice(0, Math.max(0, p.length - old.length - 1));
-    const name = await promptSheet({ title: `Rename ${old}`, value: old, ok: 'Rename', check: (v) => checkName(v) || (v.trim() === old ? 'Type a new name.' : '') });
+    const name = await promptSheet({ title: `Rename ${old}`, value: old, select: renameSelection(old, kidsKind(p) === 'dir'), ok: 'Rename', check: (v) => checkName(v) || (v.trim() === old ? 'Type a new name.' : '') });
     if (name === null) return;
     const to = join(dir, name.trim());
     try {
@@ -245,7 +290,7 @@ export function createExplorer(wb) {
     try {
       await wb.post('delete', { path: p, confirm: true });
     } catch (e) {
-      return toast(e.message, { kind: 'error' });
+      return toast(e, { kind: 'error' });
     }
     wb.tabs.removed(p);
     for (const x of [...kids.keys()]) if (x === p || x.startsWith(`${p}/`)) kids.delete(x);
@@ -261,6 +306,36 @@ export function createExplorer(wb) {
     wb.onChanged();
   }
 
+  function cutIt(p) {
+    cut = p;
+    toast(`Cut ${p.split('/').pop()}: Paste (Ctrl+V) on a folder moves it there.`, { kind: 'info' });
+  }
+
+  /** Move `from` into folder `dir` (a rename to the same name there): its tabs follow, never over something there. */
+  async function moveInto(from, dir) {
+    if (!mayDrop(from, dir)) return toast(dir === from || dir.startsWith(`${from}/`) ? 'A folder cannot be moved into itself.' : 'It is in that folder already.', { kind: 'info' });
+    const name = from.split('/').pop();
+    const to = join(dir, name);
+    try {
+      await wb.post('rename', { from, to });
+    } catch (e) {
+      return toast(e.code === 'exists' ? `${name} is already in ${dir || wb.label}.` : e.message, { kind: 'error' });
+    }
+    if (cut === from) cut = null;
+    for (const x of [...open]) if (x === from || x.startsWith(`${from}/`)) {
+      open.delete(x);
+      open.add(to + x.slice(from.length));
+    }
+    for (const x of [...kids.keys()]) if (x === from || x.startsWith(`${from}/`)) kids.delete(x);
+    wb.tabs.renamed(from, to);
+    if (dir) open.add(dir);
+    selected = to;
+    cur = to;
+    await Promise.all([refreshDir(parentOf(from)), refreshDir(dir)]);
+    toast(`Moved ${name} to ${dir || wb.label}`);
+    wb.onChanged();
+  }
+
   async function menu(p, isDir) {
     selected = p;
     paint();
@@ -271,8 +346,11 @@ export function createExplorer(wb) {
         isDir ? null : { value: 'open', label: 'Open', icon: 'text' },
         isDir ? { value: 'file', label: 'New file here', icon: 'plus' } : null,
         isDir ? { value: 'dir', label: 'New folder here', icon: 'folder' } : null,
-        { value: 'rename', label: 'Rename', sub: 'F2', icon: 'pencil' },
-        { value: 'copy', label: 'Copy the path', sub: 'Relative to the opened folder', icon: 'copy' },
+        { value: 'rename', label: 'Rename...', sub: 'F2', icon: 'pencil' },
+        { value: 'cut', label: 'Cut', sub: 'Ctrl+X, then Paste (Ctrl+V) on a folder moves it; dragging it there does the same', icon: 'swap' },
+        cut !== null && isDir && mayDrop(cut, p) ? { value: 'paste', label: `Paste ${cut.split('/').pop()}`, sub: 'Ctrl+V: moves it into this folder', icon: 'clipboard' } : null,
+        { value: 'fullpath', label: 'Copy Path', sub: 'Ctrl+K P for the open file', icon: 'copy' },
+        { value: 'copy', label: 'Copy Relative Path', sub: 'Relative to the opened folder', icon: 'copy' },
         { value: 'files', label: 'Show in Files', sub: 'The desktop\'s file manager', icon: 'folder' },
         { value: 'delete', label: 'Delete', sub: isDir ? 'The folder and everything in it' : 'From the disk', icon: 'trash', danger: true },
       ].filter(Boolean),
@@ -282,6 +360,9 @@ export function createExplorer(wb) {
     else if (what === 'rename') renameIt(p);
     else if (what === 'delete') removeIt(p, isDir);
     else if (what === 'copy') toast((await copyText(p)) ? 'Path copied' : 'Could not copy', { kind: 'info' });
+    else if (what === 'fullpath' && wb.copyPath) wb.copyPath(true, p);
+    else if (what === 'cut') cutIt(p);
+    else if (what === 'paste' && cut !== null) moveInto(cut, p);
     else if (what === 'files') openApp('files', filesHash(`${wb.root}/${isDir ? p : p.split('/').slice(0, -1).join('/')}`.replace(/\/$/, ''), null, isDir ? null : p.split('/').pop()));
   }
 
@@ -299,7 +380,7 @@ export function createExplorer(wb) {
   }
 
   /** Show `p` in the tree: open the folders on the way to it. */
-  async function reveal(p) {
+  async function reveal(p, { focus = false } = {}) {
     const parts = p.split('/');
     for (let i = 1; i < parts.length; i++) {
       const d = parts.slice(0, i).join('/');
@@ -307,6 +388,13 @@ export function createExplorer(wb) {
       if (!kids.has(d)) await read(d).catch(() => {});
     }
     paint();
+    if (focus) {
+      selected = p;
+      moveTo(p);
+    } else {
+      const row = rowOf(p);
+      if (row) row.scrollIntoView({ block: 'nearest' });
+    }
   }
 
   return {
@@ -317,5 +405,12 @@ export function createExplorer(wb) {
       return true;
     }, () => false),
     paint, refresh, reveal, make,
+    /** The keyboard on the tree's one Tab stop. */
+    focus() {
+      const row = rowOf(cur) || list.querySelector('.ed-row[data-path]');
+      if (!row) return;
+      row.tabIndex = 0;
+      row.focus();
+    },
   };
 }

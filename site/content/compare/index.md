@@ -19,5 +19,5 @@ Searching the tools people use for AI coding, we found none that does all three 
 
 - There is no phone app: the dashboard is a web page.
 - Nothing runs with your computer switched off: there is no cloud.
-- Windows is not ready, and an install on a real Mac has not been run yet.
+- It runs on Linux. On a Mac the tests pass, but the install and the newer parts (the chat, the editor, Work) were not tried on a real Mac. Windows is not ready.
 - It is new: few people use it yet, and the last checks of this version ran on stand-ins for the coding tools.

@@ -12,9 +12,9 @@ import fs from 'node:fs';
 export const SSH_OPTS = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3'];
 
 /** ssh arguments for the tunnel: local 127.0.0.1:localPort -> remoteHost:remotePort as seen from the target. */
-export function tunnelArgs({ target, localPort, remoteHost, remotePort }) {
+export function tunnelArgs({ target, localPort, remoteHost, remotePort, extra = [] }) {
   const rh = remoteHost.includes(':') ? `[${remoteHost}]` : remoteHost;
-  return [...SSH_OPTS, '-o', 'ExitOnForwardFailure=yes', '-N', '-L', `127.0.0.1:${localPort}:${rh}:${remotePort}`, '--', target];
+  return [...SSH_OPTS, ...extra, '-o', 'ExitOnForwardFailure=yes', '-N', '-L', `127.0.0.1:${localPort}:${rh}:${remotePort}`, '--', target];
 }
 
 /**
@@ -27,8 +27,11 @@ export function reverseArgs({ target, hubPort, localHost = '127.0.0.1', localPor
   return [...SSH_OPTS, '-o', 'ExitOnForwardFailure=yes', '-N', '-R', `127.0.0.1:${hubPort}:${lh}:${localPort}`, '--', target];
 }
 
-/** ssh arguments to run one command on the target. `--` ends ssh's options; the target never starts with "-". */
-export const commandArgs = (target, command) => [...SSH_OPTS, '-T', '--', target, command];
+/**
+ * ssh arguments to run one command on the target. `--` ends ssh's options; the target never starts with "-". `extra`:
+ * the options of a computer added with a kept key (hostkeys.mjs keyedOptions), else none.
+ */
+export const commandArgs = (target, command, extra = []) => [...SSH_OPTS, ...extra, '-T', '--', target, command];
 
 /** Single-quote for a POSIX shell (and fish). Only used on values that were validated already. */
 export const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
@@ -109,7 +112,10 @@ export function runSsh(args, { sshBin = 'ssh', spawnImpl = spawn, timeoutMs = 30
 export function sshFailure(target, stderr) {
   const s = String(stderr || '');
   if (/Permission denied/i.test(s)) return { code: 'ssh-auth', message: `SSH could not log in to ${target} without a password. Set up a key once: ssh-copy-id ${target}` };
-  if (/Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED/i.test(s)) {
+  if (/REMOTE HOST IDENTIFICATION HAS CHANGED/i.test(s)) {
+    return { code: 'ssh-hostkey-changed', message: `${target} shows another host key than the one kept for it. Nothing is sent to it until you compare the two prints and choose.` };
+  }
+  if (/Host key verification failed/i.test(s)) {
     return { code: 'ssh-hostkey', message: `${target}'s host key is not known yet (or changed). Connect once by hand to check and accept it: ssh ${target}` };
   }
   if (/remote port forwarding failed|administratively prohibited/i.test(s)) {
@@ -151,7 +157,7 @@ export function findJson(stdout, kind) {
 export async function runHoprig(target, args, opts = {}) {
   const tried = [];
   for (const cmd of remoteVariants(args)) {
-    const r = await runSsh(commandArgs(target, cmd), opts);
+    const r = await runSsh(commandArgs(target, cmd, opts.sshExtra), opts);
     tried.push(cmd);
     if (r.timedOut) return { ok: false, code: 'timeout', message: `${target} did not answer in time.`, tried };
     if (r.code === 255) return { ok: false, ...sshFailure(target, r.stderr), tried };
@@ -165,7 +171,10 @@ export async function runHoprig(target, args, opts = {}) {
 
 /** Pair over SSH: `hoprig pair --json --name <hub>` there. Resolves { ok, info } or the failure. */
 export async function pairOverSsh(target, hubName, opts = {}) {
-  const r = await runHoprig(target, ['pair', '--json', '--name', hubName], opts);
+  // --hub: the token is a hub's (the owner adds that computer here), so its Workspace page may drop through it. A
+  // Hoprig there from before --hub refuses the word, and is asked again without it.
+  let r = await runHoprig(target, ['pair', '--json', '--name', hubName, '--hub'], opts);
+  if (!r.ok && r.code === 'failed' && /unknown option --hub/.test(r.message)) r = await runHoprig(target, ['pair', '--json', '--name', hubName], opts);
   if (!r.ok) return r;
   const info = findJson(r.result.stdout, 'pair');
   if (!info || typeof info.token !== 'string' || !Number.isInteger(info.port)) {
@@ -174,10 +183,17 @@ export async function pairOverSsh(target, hubName, opts = {}) {
   return { ok: true, info };
 }
 
-/** Best effort, when a machine is removed: revoke this dashboard's token there. */
+/**
+ * Best effort, when a machine is removed: revoke this dashboard's token there. Over SSH there is no terminal to say yes
+ * in, and removing the computer here was the owner's yes, so --yes goes with it; a Hoprig there from before --yes
+ * refuses that word, and is asked again without it.
+ */
 export async function revokeOverSsh(target, tokenId, opts = {}) {
   if (!/^[0-9a-f]{12}$/.test(String(tokenId))) return { ok: false, code: 'failed', message: 'no token id' };
-  return runHoprig(target, ['tokens', 'revoke', tokenId], { timeoutMs: 20_000, ...opts });
+  const o = { timeoutMs: 20_000, ...opts };
+  const r = await runHoprig(target, ['tokens', 'revoke', tokenId, '--yes'], o);
+  if (r.ok || r.code !== 'failed' || !/unknown option --yes/.test(r.message)) return r;
+  return runHoprig(target, ['tokens', 'revoke', tokenId], o);
 }
 
 /** https URL without characters a shell would act on inside double quotes. */
@@ -202,7 +218,25 @@ export const installHint = (src) =>
  * Run the installer there, through the user's login shell so it sees their usual PATH (an nvm Node included).
  * `--yes` because there is no terminal to answer questions in. Output lines go to onLine as they come.
  */
-export function installOverSsh(target, src, { onLine, timeoutMs = 20 * 60_000, ...opts } = {}) {
-  const inner = src.kind === 'url' ? `curl -fsSL --proto =https ${src.value} | sh -s -- --yes` : 'sh -s -- --yes';
-  return runSsh(commandArgs(target, `$SHELL -lic "${inner}"`),{ ...opts, onLine, timeoutMs, input: src.kind === 'file' ? src.value : undefined });
+export function installOverSsh(target, src, { onLine, timeoutMs = 20 * 60_000, stayRoot = false, workUser = false, ...opts } = {}) {
+  // --stay-root: the owner typed the sentence that keeps Hoprig on root there. `workUser`: he confirmed that a root
+  // login makes the work user there (install.sh's --yes as root). Otherwise --no-work-user: as root nothing is made.
+  // workUser may name the user and say no administrator rights ({ name, noAdmin }); the name is checked here, it goes
+  // into a shell line.
+  const w = workUser && typeof workUser === 'object' ? workUser : {};
+  if (w.name !== undefined && !/^[a-z_][a-z0-9_-]{0,31}$/.test(String(w.name))) throw new Error(`"${w.name}" is not a user name`);
+  const more = `${w.name ? ` --user ${w.name}` : ''}${w.noAdmin === true ? ' --no-admin' : ''}`;
+  const flags = stayRoot ? '--yes --stay-root' : workUser ? `--yes${more}` : '--yes --no-work-user';
+  const inner = src.kind === 'url' ? `curl -fsSL --proto =https ${src.value} | sh -s -- ${flags}` : `sh -s -- ${flags}`;
+  return runSsh(commandArgs(target, `$SHELL -lic "${inner}"`, opts.sshExtra), { ...opts, onLine, timeoutMs, input: src.kind === 'file' ? src.value : undefined });
+}
+
+/**
+ * The user id of the SSH login there (`id -u`, run plainly: no login shell), or null when it cannot be told (no
+ * answer, not a number). Changes nothing there.
+ */
+export async function remoteUid(target, opts = {}) {
+  const r = await runSsh(commandArgs(target, 'id -u', opts.sshExtra), { ...opts, timeoutMs: opts.timeoutMs || 20_000 });
+  const v = r.code === 0 ? r.stdout.trim() : '';
+  return /^\d+$/.test(v) ? Number(v) : null;
 }

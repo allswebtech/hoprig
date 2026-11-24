@@ -92,7 +92,7 @@ test('own authority: no fingerprint is refused with where to read the line; noth
   const s = await server();
   try {
     await assert.rejects(hc.establishTrust(s.ep, null, { joinHint: 'the hub (hoprig machines invite)' }), (e) =>
-      e.code === 'untrusted' && /made by the hub itself/.test(e.message) && /--fingerprint sha256:/.test(e.message) && /hoprig machines invite/.test(e.message) && /does not turn the check off/.test(e.message));
+      e.code === 'untrusted' && /made by the main computer itself/.test(e.message) && /--fingerprint sha256:/.test(e.message) && /hoprig machines invite/.test(e.message) && /does not turn the check off/.test(e.message));
     assert.deepEqual(s.seen, [], 'no HTTP request at all');
   } finally {
     await s.close();

@@ -86,11 +86,11 @@ export function createBackend({ kind = 'auto', ...opts } = {}) {
   if (kind === 'missing') return new NoBackend({ reason: 'missing', detail: ptyError });
   if (kind === 'tmux') {
     if (process.platform === 'win32') throw new Error('the tmux session backend does not run on Windows; use "pty" or "auto"');
-    if (!TmuxBackend) throw new Error('this dashboard runs as a hub: it has no terminals of its own');
+    if (!TmuxBackend) throw new Error('this dashboard only shows your other computers: it has no terminals of its own');
     return new TmuxBackend(opts);
   }
   if (kind === 'pty') {
-    if (!PtyBackend) throw new Error(`the built-in terminal is not available here: ${ptyError || 'this dashboard runs as a hub'}`);
+    if (!PtyBackend) throw new Error(`the built-in terminal is not available here: ${ptyError || 'this dashboard only shows your other computers'}`);
     return new PtyBackend(opts);
   }
   throw new Error(`unknown session backend "${kind}" (use "auto", "tmux", "pty" or "none")`);

@@ -18,17 +18,19 @@
 // A profile may map model names for its endpoint: MODELS="claude-fable-*=claude-opus-5-5" (first match wins).
 //
 // It listens on 127.0.0.1 only, under a secret path (routerstate.mjs), keeps no request or answer text, and logs
-// one line per request: which account, which status.
+// one line per request: which account, which status. Per account it keeps how soon answers start and its refusals
+// (routerstate.mjs noteSpeed), from the requests it passes on.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 import { gatewayOfPrerun } from './addons/gateways.mjs';
-import { limitedProfiles, markLimited, usableOrder } from './autoswitch.mjs';
+import { billedOutOfOrder, leftOutOfOrder, limitedProfiles, markLimited, usableOrder } from './autoswitch.mjs';
 import { binFile, stateDir } from './paths.mjs';
 import { listProfiles } from './profiles.mjs';
-import { routerAddress, routerSessions, saveProfileUsage, saveRouterSessions, usageFromHeaders } from './routerstate.mjs';
+import { providerName } from './operator/detect/util.mjs';
+import { noteSpeed, routerAddress, routerSessions, routerSpeed, saveProfileUsage, saveRouterSessions, saveRouterSpeed, usageFromHeaders } from './routerstate.mjs';
 
 export const AUTO = 'auto';
 const BODY_MAX = 128 * 1024 * 1024; // requests carry whole conversations, images included
@@ -40,6 +42,39 @@ const HOP = new Set(['host', 'connection', 'keep-alive', 'proxy-connection', 'pr
 const anthropicBase = () => (process.env.HOPRIG_ANTHROPIC_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
 
 const isSubscription = (p) => p.kind === 'login' || p.kind === 'subscription';
+
+const WHY_LEFT = { missing: ['does not exist any more', 'do not exist any more'], tools: ['does not serve Claude Code', 'do not serve Claude Code'], billed: ['is billed by use', 'are billed by use'] };
+const listed = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : xs[0]);
+
+/**
+ * Why Auto mode has nothing it may use, from the providers its order leaves out (autoswitch.mjs leftOutOfOrder, or the
+ * same reasons read from the accounts list): "Auto mode has nothing it may use, because …", each provider named with
+ * its own reason. null when nothing is left out (an empty order has its own sentences).
+ */
+export function nothingUsable(left) {
+  if (!Array.isArray(left) || !left.length) return null;
+  const clauses = Object.keys(WHY_LEFT).filter((k) => left.some((x) => x.why === k)).map((k, i) => {
+    const names = left.filter((x) => x.why === k).map((x) => providerName(x.name, x.label));
+    return `${listed(names)}${i ? '' : ' in its order'} ${WHY_LEFT[k][names.length > 1 ? 1 : 0]}${k === 'billed' ? ' and "Also use pay-per-use providers" is off' : ''}`;
+  });
+  return `Auto mode has nothing it may use, because ${clauses.length > 1 ? `${clauses.slice(0, -1).join(', ')}, and ${clauses.at(-1)}` : clauses[0]}`;
+}
+
+/** The reason and what to do (Tia's chat and a Work run say it after their own start). null when nothing is left out. */
+export function nothingUsableWhy(left) {
+  const why = nothingUsable(left);
+  if (!why) return null;
+  const todo = left.some((x) => x.why === 'billed')
+    ? 'turn that switch on on the Providers page, or put a subscription into the order'
+    : 'put a provider that serves Claude Code into the order on the Providers page, or run: hoprig auto order <provider> <provider>';
+  return `${why}: ${todo}`;
+}
+
+/** The router's 503 and the start's line for it. null when nothing is left out. */
+export function nothingUsableLine(left) {
+  const why = nothingUsableWhy(left);
+  return why ? `hoprig: ${why}.` : null;
+}
 
 /**
  * The account Claude Code should run as in an Auto session: the first subscription of the order that is not at
@@ -165,11 +200,12 @@ function readBody(req, max) {
   });
 }
 
-// Send one request upstream; resolves when the answer's headers are in: { status, headers, res } or { error }.
+// Send one request upstream; resolves when the answer's headers are in: { status, headers, res, sentAt } or { error }.
 function send({ url, headers, body }, method, signal) {
   return new Promise((resolve) => {
     const lib = url.protocol === 'https:' ? https : http;
-    const up = lib.request(url, { method, headers, signal }, (res) => resolve({ status: res.statusCode, headers: res.headers, res }));
+    const sentAt = Date.now();
+    const up = lib.request(url, { method, headers, signal }, (res) => resolve({ status: res.statusCode, headers: res.headers, res, sentAt }));
     up.on('error', (error) => resolve({ error }));
     up.end(body);
   });
@@ -193,6 +229,12 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
   let sessionsDirty = false;
   let inflight = 0;
   const usageSeen = new Map();
+  const speed = routerSpeed();
+  let speedDirty = false;
+  const noteAnswer = (profile, sample) => {
+    speed[profile.name] = noteSpeed(speed[profile.name], sample);
+    speedDirty = true;
+  };
 
   // A profile's PRERUN (for example "start my proxy") runs once per router life, before its first use.
   async function prerun(profile, force = false) {
@@ -235,6 +277,10 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
     sessions[id] = { profile: profile.name, at: Date.now() };
   }
   const flush = setInterval(() => {
+    if (speedDirty) {
+      speedDirty = false;
+      try { saveRouterSpeed(speed); } catch { /* next time */ }
+    }
     if (!sessionsDirty) return;
     sessionsDirty = false;
     const now = Date.now();
@@ -261,11 +307,24 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
     const order = usableOrder(); // pay-per-use keys only when the owner allows them
     const identity = (as && profiles.find((p) => p.name === as[1])) || autoIdentity(order, profiles, limitedProfiles());
     if (!identity) {
+      // An order whose every provider is left out (gone, not serving Claude Code, billed by use) is there, it may not
+      // be used: say why, each provider with its own reason.
+      const message = nothingUsableLine(order.length ? [] : leftOutOfOrder())
+        || 'hoprig: Auto mode has no providers in its order. Run: hoprig auto order <provider> <provider>';
       res.writeHead(503, { 'content-type': 'application/json' });
-      return res.end('{"type":"error","error":{"type":"api_error","message":"hoprig: Auto mode has no providers in its order. Run: hoprig auto order <provider> <provider>"}}');
+      return res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message } }));
     }
     // Only model requests are spread over the accounts; everything else belongs to the account Claude Code runs as.
     const routed = req.method === 'POST' && /^\/v1\/messages(\/count_tokens)?(\?|$)/.test(rest);
+    const timed = routed && /^\/v1\/messages(\?|$)/.test(rest); // a model's answer; counting tokens says nothing of its speed
+    // A running session whose identity is billed by use while "Also use pay-per-use providers" is off (started before
+    // the switch went off, or before its sign-in became a Console account's): its model requests are not passed on,
+    // as Auto mode passes nothing through such a provider. Its identity cannot be moved from here (the launcher moves a
+    // session only at a limit), so the answer says so and nothing is spent.
+    if (routed && as && billedOutOfOrder([identity.name]).length) {
+      res.writeHead(503, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `hoprig: this session runs as ${providerName(identity.name, identity.label)}, which is billed by use, and "Also use pay-per-use providers" is off, so Auto mode does not use it: turn that switch on on the Providers page, or start the session again under Auto mode.` } }));
+    }
     const abort = new AbortController();
     res.on('close', () => { if (!res.writableEnded) abort.abort(); });
     const tried = [];
@@ -301,18 +360,19 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
       if (abort.signal.aborted) return;
       if (foreign) {
         tried.push(`${profile.name}:another program`);
-        held = held || { status: 502, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `hoprig router: ${profile.name}: ${foreign}` } })) };
+        held = held || { status: 502, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `hoprig router: ${providerName(profile.name, profile.label)}: ${foreign}` } })) };
         continue;
       }
       if (answer.error) {
         tried.push(`${profile.name}:${answer.error.code || 'error'}`);
-        held = held || { status: 502, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `hoprig router: ${profile.name} cannot be reached (${answer.error.code || answer.error.message})` } })) };
+        held = held || { status: 502, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `hoprig router: ${providerName(profile.name, profile.label)} cannot be reached (${answer.error.code || answer.error.message})` } })) };
         continue;
       }
       const verdict = routed ? judge(answer.status, answer.headers) : { next: false, mark: null };
       if (routed) noteUsage(profile, answer.headers);
       tried.push(`${profile.name}:${answer.status}`);
       if (verdict.mark) markLimited(profile.name, verdict.mark);
+      if (timed && (answer.status === 429 || answer.status === 529)) noteAnswer(profile, { refused: true });
       if (verdict.next) {
         // Keep the refusal: if nobody else can answer, Claude Code gets the first one (the preferred account's).
         const refused = { status: answer.status, headers: answer.headers, body: await collect(answer.res, ERROR_BODY_MAX) };
@@ -326,13 +386,17 @@ export function createRouter({ key = routerAddress().key, log = () => {}, versio
       delete headers['keep-alive'];
       res.writeHead(answer.status, headers);
       answer.res.pipe(res);
+      // Only a streamed answer (the session's own turns) is timed: one that is not (a title, a suggestion) sends its
+      // first byte only when the whole answer is made, which says nothing of how soon work starts.
+      const streamed = /event-stream/i.test(String(answer.headers['content-type'] || ''));
+      if (timed && streamed && answer.status < 400) answer.res.once('data', () => noteAnswer(profile, { ms: Date.now() - answer.sentAt }));
       return;
     }
     if (routed) log(`${new Date().toISOString()} ${String(req.headers['x-claude-code-session-id'] || '-').slice(0, 8)} ${tried.join(' > ') || '-'} (${handoff ? `continue as ${handoff}` : 'no account could answer'})`);
     if (!held && handoff) {
       // The identity was already known to be at its limit, so it was not even asked. Claude Code must still hear
       // "limit reached": that is what makes the launcher restart it as the next subscription. Not to be retried.
-      const text = JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: `This provider is at its usage limit. Hoprig continues the session on ${handoff}.` } });
+      const text = JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: `This provider is at its usage limit. Hoprig continues the session on ${providerName(handoff, profiles.find((p) => p.name === handoff)?.label)}.` } });
       res.writeHead(429, { 'content-type': 'application/json', 'x-should-retry': 'false', 'content-length': String(Buffer.byteLength(text)) });
       return res.end(text);
     }

@@ -22,6 +22,7 @@ export function tempWork(name = 'work') {
   fs.writeFileSync(gitcfg, '[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n');
   Object.assign(process.env, {
     HOME: home,
+    USERPROFILE: home, // Windows takes the home from here
     HOPRIG_CONFIG_DIR: path.join(root, 'config'),
     HOPRIG_STATE_DIR: path.join(root, 'state'),
     HOPRIG_PROFILES_DIR: path.join(root, 'profiles'),
@@ -65,4 +66,23 @@ export function write(dir, files) {
     fs.writeFileSync(p, content);
   }
   return dir;
+}
+
+/**
+ * Everything of the repository at `dir`, to compare before and after: HEAD and every ref, the index (each entry's mode,
+ * blob and stage), and every file below the folder but .git, also the ignored and untracked ones, with its bytes.
+ */
+export function repoTree(dir) {
+  const git = (...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const files = {};
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (d === dir && e.name === '.git') continue;
+      if (e.isDirectory()) walk(p);
+      else files[path.relative(dir, p).split(path.sep).join('/')] = e.isSymbolicLink() ? `-> ${fs.readlinkSync(p)}` : fs.readFileSync(p).toString('base64');
+    }
+  };
+  walk(dir);
+  return { head: git('rev-parse', 'HEAD').trim(), refs: git('for-each-ref', '--format=%(refname) %(objectname)'), index: git('ls-files', '-s'), files };
 }

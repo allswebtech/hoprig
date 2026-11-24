@@ -22,9 +22,12 @@ const PATH = pathWith(s.tmp, bin);
 /** A system with only the fake programs: no package manager, no service manager, so nothing real is touched. */
 function sys(over = {}) {
   const env = { ...process.env, PATH: over.PATH || PATH };
+  // A desktop at home unless a test says otherwise: the computer running the tests may be a server reached by ssh.
+  for (const k of ['SSH_CONNECTION', 'SSH_TTY', 'SSH_CLIENT', 'DISPLAY', 'WAYLAND_DISPLAY']) delete env[k];
+  Object.assign(env, over.env || {});
   const has = (c) => c !== 'systemctl' && !!which(c, env, process.platform);
-  const { PATH: _p, ...rest } = over;
-  const made = K.sysInfo({ env, has, pm: null, root: false, serviceSupported: false, publicIps: [], ...rest });
+  const { PATH: _p, env: _e, ...rest } = over; // seal: a value no program is started with
+  const made = K.sysInfo({ env, has, pm: null, root: false, serviceSupported: false, publicIps: [], dmi: {}, localDisplay: false, savedServer: null, ...rest });
   // Nothing listens for these tests, whatever really runs on this machine's dashboard port.
   made.probe = over.probe || (async () => 0);
   return made;
@@ -49,9 +52,10 @@ const ui = (o = {}) => {
 const stateDirs = () => ({ ...snapshot(process.env.HOPRIG_CONFIG_DIR), ...snapshot(process.env.HOPRIG_STATE_DIR) });
 
 test('setup arguments', () => {
-  assert.deepEqual(SU.parseSetupArgs([]), { yes: false, dryRun: false, passwordFile: null, access: null, service: true, hub: false, domain: null, ip: null, tlsInternal: false, only: null });
+  assert.deepEqual(SU.parseSetupArgs([]), { yes: false, dryRun: false, passwordFile: null, access: null, service: true, hub: false, domain: null, ip: null, tlsInternal: false, only: null, stayRoot: false, noDashboard: false });
   assert.deepEqual(SU.parseSetupArgs(['--yes', '--dry-run', '--password-file', 'p.txt', '--access', 'local', '--no-service']),
-    { yes: true, dryRun: true, passwordFile: 'p.txt', access: 'local', service: false, hub: false, domain: null, ip: null, tlsInternal: false, only: null });
+    { yes: true, dryRun: true, passwordFile: 'p.txt', access: 'local', service: false, hub: false, domain: null, ip: null, tlsInternal: false, only: null, stayRoot: false, noDashboard: false });
+  assert.equal(SU.parseSetupArgs(['--stay-root']).stayRoot, true);
   assert.deepEqual(SU.parseSetupArgs(['--hub', '--domain', 'hub.example.com', '--tls-internal']).domain, 'hub.example.com');
   assert.equal(SU.parseSetupArgs(['--hub', '--ip=1.1.1.1']).ip, '1.1.1.1');
   assert.deepEqual(SU.parseSetupArgs(['-y', '--access=tailscale']).access, 'tailscale');
@@ -77,6 +81,8 @@ test('access: tailscale command, URLs, and what counts as already decided', () =
   assert.equal(SU.currentAccess({}, null), null, 'never chosen');
   assert.equal(SU.currentAccess({ server: { host: '127.0.0.1' } }, null), 'local');
   assert.equal(SU.currentAccess({ server: { host: '0.0.0.0' } }, null), 'network');
+  for (const host of ['10.0.0.5', '100.101.102.103', '203.0.114.7', 'fd7a:115c::1']) assert.equal(SU.currentAccess({ server: { host } }, null), 'network', host);
+  for (const host of ['localhost', '::1', '127.0.0.2']) assert.equal(SU.currentAccess({ server: { host } }, null), 'local', host);
   assert.equal(SU.currentAccess({ server: { host: '127.0.0.1', allowedOrigins: ['https://pc.ts.net'] } }, 'https://pc.ts.net'), 'tailscale');
 });
 
@@ -104,12 +110,13 @@ test('setup --dry-run changes nothing and says what it would do', async () => {
   assert.match(rec.text, /Who should be able to open the dashboard\?/);
   assert.match(rec.text, /Would install and start the background service/);
   assert.match(rec.text, /Dry run: nothing was changed/);
+  assert.doesNotMatch(rec.text, /A new terminal|open a new terminal/, 'nothing was added to PATH, so no new terminal is needed');
 });
 
 test('setup --dry-run with Claude Code missing: one install question, nothing installed', async () => {
   const empty = fakeBin(path.join(s.tmp, 'bin-empty'), {});
   const { ui: u, rec } = ui({ dryRun: true });
-  await SU.setup(['--dry-run'], { ui: u, sys: sys({ PATH: pathWith(s.tmp, empty), platform: 'linux' }), parts: NOPARTS });
+  await SU.setup(['--dry-run'], { ui: u, sys: sys({ PATH: pathWith(s.tmp, empty), platform: 'linux' }), parts: NOPARTS }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   assert.match(rec.text, /Claude Code is not installed\./);
   assert.match(rec.text, /would ask: Install it now\?/);
   assert.equal(fs.existsSync(path.join(process.env.HOME, '.local')), false);
@@ -143,7 +150,7 @@ test('--access changes the choice without a question; Tailscale uses tailscale s
   const tsBin = fakeBin(path.join(s.tmp, 'bin-ts'), {
     tailscale: 'case "$1" in status) echo \'{"BackendState":"Running","Self":{"DNSName":"pc.tail1.ts.net."}}\' ;; serve) echo "serving $3" ;; esac',
   });
-  const S2 = sys({ PATH: pathWith(s.tmp, bin, tsBin) });
+  const S2 = sys({ PATH: pathWith(s.tmp, bin, tsBin) }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   const run = async (access) => {
     const state = { changed: false };
     const { ui: u, rec } = ui();
@@ -179,8 +186,46 @@ test('the question offers Tailscale only when it is logged in; the default is th
 test('not logged in: one line, and setup goes on', async () => {
   const nl = fakeBin(path.join(s.tmp, 'bin-nologin'), { claude: fakeClaude({ loggedIn: false }) });
   const { ui: u, rec } = ui({ yes: true });
-  assert.equal(await SU.setup(['--yes'], { ui: u, sys: sys({ PATH: pathWith(s.tmp, nl) }), parts: NOPARTS }), 0);
-  assert.match(rec.text, /No Claude account logged in: run "claude" once, type \/login, then run setup again\./);
+  assert.equal(await SU.setup(['--yes'], { ui: u, sys: sys({ PATH: pathWith(s.tmp, nl) }), parts: NOPARTS }), 0); // seal: only the test's own folders, in an environment that keeps the runner's variables
+  // The line keeps only its mark; its next step is in the one closing list, at the very end (G11).
+  assert.match(rec.text, /^ {2}! No Claude account logged in$/m);
+  const end = rec.text.slice(rec.text.indexOf('Still yours to do:'));
+  assert.ok(rec.text.indexOf('Still yours to do:') > rec.text.indexOf('is ready'), 'after everything else');
+  // (A first run in this home also lists the new terminal: set-up just put ~/.local/bin on PATH in its start files.)
+  assert.deepEqual(end.trim().split('\n').slice(1).map((l) => l.trim()).filter((l) => !l.startsWith('· A new terminal')), ['· Sign in to Claude Code: run claude, then type /login']);
+  assert.equal(rec.text.split('type /login').length - 1, 1, `said once:\n${rec.text}`); // (the dashboard's own link has /login too)
+});
+
+test('one closing list "Still yours to do": every step that leaves something adds it once, and nothing of it comes earlier', async () => {
+  const nl = fakeBin(path.join(s.tmp, 'bin-nologin-g11'), { claude: fakeClaude({ loggedIn: false }) });
+  const { ui: u, rec } = ui({ yes: true });
+  // The Git and computer steps as set-up runs them, each leaving something (they say it twice, as two runs could).
+  const { yours } = await import('../../src/setup/ui.mjs');
+  const parts = {
+    ...NOPARTS,
+    git: async ({ ui: g }) => { yours(g, 'warn', 'commit name and e-mail not set', 'identity'); yours(g, 'info', 'GitHub: not signed in', 'github'); yours(g, 'warn', 'the GitHub sign-in did not finish', 'github'); return { ok: true, changed: false }; },
+    pc: async ({ ui: g }) => { yours(g, 'warn', 'commit name and e-mail not set', 'identity'); g.todo('terminal'); return { ok: true, changed: false, missing: [], code: 0 }; },
+  };
+  assert.equal(await SU.setup(['--yes'], { ui: u, sys: sys({ PATH: pathWith(s.tmp, nl) }), parts }), 0); // seal: only the test's own folders, in an environment that keeps the runner's variables
+  const at = rec.text.indexOf('Still yours to do:');
+  assert.ok(at > 0, rec.text);
+  assert.equal(rec.text.split('Still yours to do:').length, 2, 'one list');
+  const list = rec.text.slice(at).trim().split('\n').slice(1).map((l) => l.trim());
+  assert.deepEqual(list, [
+    '· Your name and e-mail for commits: git config --global user.name "Your Name" && git config --global user.email you@example.com',
+    '· Sign in to GitHub: gh auth login',
+    '· Sign in to Claude Code: run claude, then type /login',
+    '· A new terminal, so every new program and the hoprig command are found: open a new terminal (or log in again)',
+  ]);
+  const before = rec.text.slice(0, at);
+  for (const step of ['git config --global', 'gh auth login', 'type /login', 'open a new terminal']) assert.ok(!before.includes(step), `nothing of the list earlier: ${step}\n${before}`);
+});
+
+test('outside set-up a step still says its next step on its own line', async () => {
+  const { yours } = await import('../../src/setup/ui.mjs');
+  const { ui: u, rec } = ui();
+  yours(u, 'warn', 'commit name and e-mail not set', 'identity');
+  assert.match(rec.text, /! commit name and e-mail not set: git config --global user\.name "Your Name"/);
 });
 
 test('summary: a QR code that signs the phone in (a one-time link), the address, and where the password is', async () => {
@@ -206,31 +251,86 @@ test('--no-service and machines without a service manager never install one', as
 test('--hub: a computer that only shows the others needs no Claude Code, account or terminal', async () => {
   const { saveConfig } = await import('../../src/config.mjs');
   const empty = fakeBin(path.join(s.tmp, 'bin-hub'), {});
-  const S3 = sys({ PATH: empty });
+  const S3 = sys({ PATH: empty }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   const { ui: u, rec } = ui({ yes: true });
   const code = await SU.setup(['--hub', '--yes', '--no-service', '--access', 'local'], { ui: u, sys: S3 });
   assert.equal(code, 0, rec.text);
-  assert.match(rec.text, /Hub only: this computer shows your other computers/);
+  assert.match(rec.text, /Main computer only: this computer shows your other computers/);
   assert.doesNotMatch(rec.text, /Claude Code is not installed|Install it now/);
   assert.equal(loadConfig().hubOnly, true);
   // The line to type on the other computers comes from machines/hubcert.mjs (it carries --fingerprint when the
   // hub's certificate is its own). A hub on this computer's own plain address needs neither that nor --insecure.
-  assert.match(rec.text, /Connect each PC to it \(the code works once, for 10 minutes\): hoprig join http:\/\/127\.0\.0\.1:\d+ [A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}\n/);
+  assert.match(rec.text, /Connect each of your computers to it \(the code works once, for 10 minutes\): hoprig join http:\/\/127\.0\.0\.1:\d+ [A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}\n/);
   // The doctor agrees: nothing about Claude Code counts as a problem here.
   // (Its port check asks a free port, never the default one, where the computer running the tests may have its own.)
   saveConfig({ server: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() } });
   const results = await K.allChecks({ sys: S3, offline: true });
   const claude = results.find((r) => r.id === 'claude');
-  assert.deepEqual([claude.status, /not needed on a hub/.test(claude.detail)], ['info', true]);
+  assert.deepEqual([claude.status, /not needed on a main computer/.test(claude.detail)], ['info', true]);
   saveConfig({ hubOnly: false });
+});
+
+test('doctor\'s port check uses the port the dashboard would really listen on, never the default where a real one may run', async () => {
+  const { saveConfig } = await import('../../src/config.mjs');
+  const { configFile } = await import('../../src/paths.mjs');
+  const asked = [];
+  const probe = async (host, port) => (asked.push(port), 'ECONNREFUSED'); // no real connection
+  const none = async () => null; // no dashboard runs now
+  // saveConfig merges `server`, so it cannot take a port away: the file is written without one.
+  const noPort = () => {
+    const cfg = JSON.parse(fs.readFileSync(configFile(), 'utf8'));
+    cfg.server = { ...(cfg.server || {}) };
+    delete cfg.server.port;
+    fs.writeFileSync(configFile(), JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
+  };
+  saveConfig({ server: { port: 8601 } });
+  // PORT in the environment wins over the settings (as it does for the server).
+  await K.allChecks({ sys: sys({ env: { PORT: '8599' }, probe, running: none }), offline: true });
+  assert.deepEqual(asked, [8599], 'by PORT');
+  // Then the settings' port.
+  asked.length = 0;
+  await K.allChecks({ sys: sys({ env: { PORT: undefined }, probe, running: none }), offline: true });
+  assert.deepEqual(asked, [8601], 'by settings');
+  // Neither: the default would be asked (only the fake probe hears it).
+  asked.length = 0;
+  noPort();
+  assert.equal(loadConfig().server.port, undefined, 'no port in the settings now');
+  await K.allChecks({ sys: sys({ env: { PORT: undefined }, probe, running: none }), offline: true });
+  assert.deepEqual(asked, [K.DEFAULT_PORT], 'neither: the default');
+  // A PORT the server would itself refuse (0) is said, not probed: nothing is asked of 7433 or anything else.
+  asked.length = 0;
+  const r = await K.allChecks({ sys: sys({ env: { PORT: '0' }, probe, running: none }), offline: true });
+  assert.equal(asked.length, 0, `invalid PORT probed: ${asked.join()}`);
+  assert.equal(r.find((x) => x.id === 'port').status, 'warn');
+  saveConfig({ server: { port: 8601 } });
+});
+
+test('doctor asks the port a running dashboard listens on, and its access line names the same port, whatever this shell\'s PORT says', async () => {
+  const { saveConfig } = await import('../../src/config.mjs');
+  const asked = [];
+  const probe = async (host, port) => (asked.push(port), 200);
+  // The service runs on the settings' port; this shell set PORT for another program (the service does not carry it).
+  saveConfig({ server: { port: 8302 } });
+  const running = async () => ({ version: null, unknown: true, pid: 1, host: '127.0.0.1', port: 8302, backend: null, terminals: null });
+  const r = await K.allChecks({ sys: sys({ env: { PORT: '8303' }, probe, running }), offline: true });
+  assert.deepEqual(asked, [8302]);
+  assert.equal(r.find((x) => x.id === 'port').detail, 'answers on 127.0.0.1:8302');
+  assert.match(r.find((x) => x.id === 'access').detail, /127\.0\.0\.1:8302/);
+  // The other way: it runs under a PORT of its own (a panel, a container), the settings say another, this shell none.
+  asked.length = 0;
+  const elsewhere = async () => ({ version: null, unknown: true, pid: 1, host: '127.0.0.1', port: 8304, backend: null, terminals: null });
+  const r2 = await K.allChecks({ sys: sys({ env: { PORT: undefined }, probe, running: elsewhere }), offline: true });
+  assert.deepEqual(asked, [8304]);
+  assert.match(r2.find((x) => x.id === 'access').detail, /127\.0\.0\.1:8304/);
 });
 
 test('terminal step: the module is built when it does not work; tmux alone is said plainly; nothing is built without the tools or in a dry run', async () => {
   const good = async () => ({ ok: true });
   const bad = async () => ({ ok: false, why: 'it does not load' });
   const tmuxBin = fakeBin(path.join(s.tmp, 'bin-tmux-step'), { tmux: 'echo "tmux 3.4"' });
-  const toolsBin = fakeBin(path.join(s.tmp, 'bin-tools-step'), { make: 'exit 0', 'g++': 'exit 0', python3: 'exit 0' });
-  const linux = (PATH) => sys({ PATH, platform: 'linux' });
+  // npm is on this PATH too: without it set-up would name the npm of its own Node (system.mjs: npmArgv).
+  const toolsBin = fakeBin(path.join(s.tmp, 'bin-tools-step'), { make: 'exit 0', 'g++': 'exit 0', python3: 'exit 0', npm: 'exit 0' });
+  const linux = (PATH) => sys({ PATH, platform: 'linux' }); // seal: only the test's own folders, in an environment that keeps the runner's variables
   // works at once: nothing is built
   let u = ui();
   let builds = 0;
@@ -259,4 +359,24 @@ test('terminal step: the module is built when it does not work; tmux alone is sa
   assert.equal(await SU.stepTerminal(u.ui, linux(pathWith(s.tmp, tmuxBin)), bad, never), true);
   assert.match(u.rec.text, /! Terminal: sessions run in tmux and take messages, but no terminal can open in the browser: the terminal module does not work \(.*\)\. Fix: /);
   assert.doesNotMatch(u.rec.text, /✓ Terminal/);
+});
+
+test('the first profile is said through set-up\'s own lines, without claiming a Claude login', async () => {
+  const dir = path.join(process.env.HOPRIG_CONFIG_DIR, 'profiles');
+  const keep = path.join(s.tmp, 'profiles-kept');
+  if (fs.existsSync(dir)) fs.renameSync(dir, keep);
+  const { ui: u, rec } = ui({ yes: true });
+  const direct = [];
+  const write = process.stdout.write;
+  // Passed on: the test runner reports through stdout too.
+  process.stdout.write = (c, ...a) => (direct.push(String(c)), write.call(process.stdout, c, ...a));
+  try {
+    assert.equal(await SU.stepProfile(u), true);
+  } finally {
+    process.stdout.write = write;
+    fs.rmSync(dir, { recursive: true, force: true });
+    if (fs.existsSync(keep)) fs.renameSync(keep, dir);
+  }
+  assert.equal(direct.filter((c) => c.includes('Created the profile')).length, 0, 'nothing past set-up\'s ui');
+  assert.equal(rec.text, '  ✓ Created the profile "sub" (this computer\'s Claude login)\n');
 });

@@ -5,6 +5,7 @@ import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { startInTurn } from '../oneturn.mjs';
 
 /** Linux package managers, in the order we look for them. The first one found is the system's own. */
 export const LINUX_MANAGERS = ['apt-get', 'dnf', 'yum', 'pacman', 'zypper', 'apk'];
@@ -129,36 +130,65 @@ export function installCommands(pm, packages, { root = false } = {}) {
 
 /** One argv as a line the user could type (for showing, never for running). */
 export function showCommand(argv) {
+  // nodeNpm's start is shown as the user would type it: that Node, then npm's own file.
+  if (argv[1] === '-e' && String(argv[2]).startsWith(NODE_NPM_MARK)) argv = [argv[0], ...argv.slice(3)];
   return argv.map((a) => (/^[A-Za-z0-9_@%+=:,./~-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ');
 }
 
 /** Several argv arrays as one line joined with &&. */
 export const showCommands = (list) => list.map(showCommand).join(' && ');
 
-/** The full path of `cmd` on PATH, or null. An absolute or relative path is checked as it is. */
+/**
+ * Windows: an App Execution Alias, as the Store's python, py and winget are in %LOCALAPPDATA%\Microsoft\WindowsApps.
+ * Node cannot stat such a file (EACCES) and lstat calls it a link; it is started by its name, never opened as a file,
+ * so it counts as found. Whether it is a program that works (the Store's stand-in python only opens the Store) is
+ * decided by running it, never by the file.
+ */
+function isAlias(f) {
+  if (!/[\\/]Microsoft[\\/]WindowsApps[\\/][^\\/]+$/i.test(f)) return false;
+  try {
+    return fs.lstatSync(f).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The full path of `cmd` on PATH, or null. An absolute or relative path is checked as it is.
+ * Windows starts a program by its extension, so there a name with one of PATHEXT's extensions wins: npm puts three
+ * files side by side (`tool`, a shell script for Git Bash that Windows cannot start, `tool.cmd` and `tool.ps1`),
+ * and the bare `tool` is taken only when no folder has a startable one. A name given with its extension
+ * (`tool.cmd`) is looked for as it is first.
+ */
 export function which(cmd, env = process.env, platform = process.platform) {
   if (!cmd) return null;
-  const exts = platform === 'win32' ? (env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean) : [''];
+  const win = platform === 'win32';
+  const exts = win ? (env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean) : [''];
   const isFile = (f) => {
     try {
       const st = fs.statSync(f);
       if (!st.isFile()) return false;
-      if (platform !== 'win32') fs.accessSync(f, fs.constants.X_OK);
+      if (!win) fs.accessSync(f, fs.constants.X_OK);
       return true;
     } catch {
-      return false;
+      return win && isAlias(f);
     }
   };
-  const tryAll = (base) => {
-    for (const e of ['', ...exts]) if (isFile(base + e)) return base + e;
+  const asIs = (base) => (isFile(base) ? base : null);
+  const withExt = (base) => {
+    for (const e of exts) if (isFile(base + e)) return base + e;
     return null;
   };
-  if (cmd.includes('/') || (platform === 'win32' && cmd.includes('\\'))) return tryAll(path.resolve(cmd));
-  const sep = platform === 'win32' ? ';' : ':';
-  for (const dir of (env.PATH || env.Path || '').split(sep)) {
-    if (!dir) continue;
-    const found = tryAll(path.join(dir, cmd));
-    if (found) return found;
+  const named = win && exts.some((e) => cmd.toLowerCase().endsWith(e.toLowerCase()));
+  const tryAll = (base) => (!win ? withExt(base) : named ? asIs(base) || withExt(base) : withExt(base) || asIs(base));
+  if (cmd.includes('/') || (win && cmd.includes('\\'))) return tryAll(path.resolve(cmd));
+  const dirs = (env.PATH || env.Path || '').split(win ? ';' : ':').filter(Boolean);
+  // Without an extension on Windows: every folder for a startable file first, then every folder for the bare name.
+  for (const look of win && !named ? [withExt, asIs] : [tryAll]) {
+    for (const dir of dirs) {
+      const found = look(path.join(dir, cmd));
+      if (found) return found;
+    }
   }
   return null;
 }
@@ -170,18 +200,27 @@ export const isRoot = () => typeof process.getuid === 'function' && process.getu
  * Run a command and collect its output. Never throws: { ok, code, stdout, stderr, error }.
  * `error` is set when the program could not start at all (for example it is not installed).
  */
-export function capture(argv, { env = process.env, timeout = 20_000, cwd } = {}) {
-  return new Promise((resolve) => {
-    execFile(argv[0], argv.slice(1), { env, timeout, cwd, windowsHide: true, maxBuffer: 8 << 20 }, (err, stdout, stderr) => {
-      const code = err ? (typeof err.code === 'number' ? err.code : null) : 0;
-      resolve({
-        ok: !err,
-        code,
-        stdout: String(stdout || ''),
-        stderr: String(stderr || ''),
-        error: err && typeof err.code === 'string' ? err.code : null,
+// `input` (a Buffer or text): written to the command's input, which is then closed (git hash-object --stdin).
+export function capture(argv, { env = process.env, timeout = 20_000, cwd, input = null } = {}) {
+  return new Promise((resolve, reject) => {
+    // One start per turn of the server's thread (oneturn.mjs startInTurn): set-up's look at the tools, started side by
+    // side at Home's first open with fifty open sessions, was 132 ms of a 157 ms stretch.
+    startInTurn(() => {
+      const child = execFile(argv[0], argv.slice(1), { env, timeout, cwd, windowsHide: true, maxBuffer: 8 << 20 }, (err, stdout, stderr) => {
+        const code = err ? (typeof err.code === 'number' ? err.code : null) : 0;
+        resolve({
+          ok: !err,
+          code,
+          stdout: String(stdout || ''),
+          stderr: err && missingNpm(argv, err.code) ? NPM_MISSING : String(stderr || ''),
+          error: err && typeof err.code === 'string' ? err.code : null,
+        });
       });
-    });
+      if (input !== null && child.stdin) {
+        child.stdin.on('error', () => {}); // a command that exits without reading its input
+        child.stdin.end(input);
+      }
+    }).catch(reject);
   });
 }
 
@@ -218,7 +257,7 @@ export function stream(argv, { env = process.env, cwd, onLine = () => {}, intera
     try {
       child = spawn(argv[0], argv.slice(1), { env, cwd, stdio: interactive ? 'inherit' : [input === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], windowsHide: true });
     } catch (e) {
-      resolve({ ok: false, code: null, output: e.message });
+      resolve({ ok: false, code: null, output: missingNpm(argv, e.code) ? NPM_MISSING : e.message });
       return;
     }
     if (!interactive && input !== null) {
@@ -250,8 +289,9 @@ export function stream(argv, { env = process.env, cwd, onLine = () => {}, intera
       feed(child.stderr);
     }
     child.on('error', (e) => {
-      lines.push(e.message);
-      onLine(e.message);
+      const text = missingNpm(argv, e.code) ? NPM_MISSING : e.message;
+      lines.push(text);
+      onLine(text);
     });
     child.on('close', (code) => resolve({ ok: code === 0, code, output: lines.join('\n') }));
   });
@@ -272,8 +312,8 @@ export function osRelease(file = '/etc/os-release') {
 }
 
 /** A short human name for this OS, e.g. "macOS 15.1", "Ubuntu 24.04 LTS", "Windows 10.0.22631". */
-export function osName(platform = process.platform) {
-  if (platform === 'linux') return osRelease().PRETTY_NAME || `Linux ${os.release()}`;
+export function osName(platform = process.platform, release = null) {
+  if (platform === 'linux') return (release || osRelease()).PRETTY_NAME || `Linux ${os.release()}`;
   if (platform === 'darwin') return `macOS (Darwin ${os.release()})`;
   if (platform === 'win32') return `Windows ${os.release()}`;
   return `${platform} ${os.release()}`;
@@ -294,17 +334,51 @@ export function compareVersions(a, b) {
   return 0;
 }
 
+/** Marks the start of nodeNpm's argv, so showCommand shows it as the user would type it. */
+const NODE_NPM_MARK = '/* the npm of this Node */';
+
 /**
- * argv that runs npm. On Windows npm is a .cmd script, and Node refuses to start .cmd files without a shell
- * (since the 2024 security fix), so it goes through cmd.exe there.
+ * The npm that belongs to the Node Hoprig runs on, as the start of an argv, or null when that Node has none. Its
+ * npm-cli.js (…/lib/node_modules/npm on macOS and Linux, …\node_modules\npm beside node.exe on Windows) is run
+ * with that Node, which first puts its own folder at the front of PATH: npm does not, and a package's install script
+ * that runs `node` must find this one. The ONE place of Hoprig that finds a program beside process.execPath instead
+ * of on PATH: HOPRIG_NODE_NPM (of this process) names a program to use instead, and the test runner sets it to its
+ * npm trap, so no test reaches this computer's real npm this way.
  */
-export function npmArgv(args, platform = process.platform) {
+export function nodeNpm(platform = process.platform, { node = process.execPath, instead = process.env.HOPRIG_NODE_NPM } = {}) {
+  if (instead) return platform === 'win32' && /\.(cmd|bat)$/i.test(instead) ? ['cmd.exe', '/d', '/s', '/c', instead] : [instead];
+  const dir = path.dirname(node);
+  const cli = platform === 'win32'
+    ? path.join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+    : path.join(dir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (!fs.existsSync(cli)) return null;
+  const first = `${NODE_NPM_MARK} const k = Object.keys(process.env).find((n) => n.toUpperCase() === 'PATH') || 'PATH';`
+    + ` process.env[k] = ${JSON.stringify(dir)} + require('node:path').delimiter + (process.env[k] || ''); require(process.argv[1]);`;
+  return [node, '-e', first, path.resolve(cli)];
+}
+
+/**
+ * argv that runs npm with `args`: the npm on PATH when there is one (`env`'s PATH); else the npm of the Node Hoprig
+ * runs on (nodeNpm: a service or an ssh login whose PATH lacks the folder of an nvm Node), only for the system this
+ * runs on; else plain `npm`, which
+ * then fails with the sentence NPM_MISSING. On Windows npm is a .cmd script, and Node refuses to start .cmd files
+ * without a shell (since the 2024 security fix), so it goes through cmd.exe there.
+ */
+export function npmArgv(args, platform = process.platform, env = process.env, own = undefined) {
+  // A command for another system (a plan shown for Windows on a Mac) cannot be judged by this computer's PATH.
+  if (platform !== process.platform || which('npm', env, platform)) return platform === 'win32' ? ['cmd.exe', '/d', '/s', '/c', 'npm', ...args] : ['npm', ...args];
+  const local = own === undefined ? nodeNpm(platform) : own;
+  if (local) return [...local, ...args];
   return platform === 'win32' ? ['cmd.exe', '/d', '/s', '/c', 'npm', ...args] : ['npm', ...args];
 }
 
+/** What a run of npm says when there is no npm at all (instead of "spawn npm ENOENT"). */
+export const NPM_MISSING = 'npm was not found on this computer: install Node.js with its npm (https://nodejs.org), then run this again.';
+const missingNpm = (argv, code) => code === 'ENOENT' && argv[0] === 'npm';
+
 /** The major version of the npm on PATH (12 for "12.2.2"), or null when npm does not answer. */
 export async function npmMajor({ env = process.env, platform = process.platform } = {}) {
-  const r = await capture(npmArgv(['--version'], platform), { env, timeout: 20_000 });
+  const r = await capture(npmArgv(['--version'], platform, env), { env, timeout: 20_000 });
   const m = r.ok ? /^(\d+)\./.exec(r.stdout.trim()) : null;
   return m ? Number(m[1]) : null;
 }

@@ -10,6 +10,7 @@ import { AuditLog } from '../../src/assistant/audit.mjs';
 import { CardStore } from '../../src/assistant/cards.mjs';
 import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { ALLOW, NEVER, checkRoute, gatedDispatch } from '../../src/assistant/door.mjs';
+import { runConfirmed } from '../../src/assistant/confirmed.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { createOps } from '../../src/assistant/ops.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
@@ -178,11 +179,12 @@ test('every route her tools use is in the table, and nothing else', async () => 
     ops.browse({ computer: c, path: '/p' }), ops.conversations({ computer: c, folder: '/p' }), ops.projects({ computer: c }), ops.projectPreview({ computer: c, name: 'n' }),
     ops.projectNew({ computer: c, name: 'n' }), ops.projectGet({ computer: c, spec: 'a/b' }), ops.projectAdd({ computer: c, name: 'n', repo: 'r' }),
     ops.projectSync({ computer: c, name: 'n' }), ops.projectInstall({ computer: c, dir: 'n' }), ops.workspace({ computer: c }), ops.workspaceSetup({ computer: c, dryRun: true }),
-    ops.brainIndex({ computer: c }), ops.brainItem({ computer: c, id: 'i' }), ops.accounts({ computer: c }), ops.setAutoSwitch({ computer: c, patch: { enabled: true } }),
-    ops.computers(), ops.computerStatus({ computer: c }), ops.setupStatus({ computer: c }), ops.setupKits({ computer: c }), ops.setupFix({ computer: c, id: 'i' }),
+    ops.attention({ computer: c }), ops.rooms(), ops.brainIndex({ computer: c }), ops.brainItem({ computer: c, id: 'i' }), ops.accounts({ computer: c }), ops.setAutoSwitch({ computer: c, patch: { enabled: true } }),
+    ops.computers(), ops.computerStatus({ computer: c }), ops.setupStatus({ computer: c }), ops.setupKits({ computer: c }), runConfirmed({ id: 'c_fix', tool: 'manage_computer', input: { action: 'setup_fix', check: 'i' } }, () => ops.setupFix({ computer: c, id: 'i', confirm: 'box2' })),
+    runConfirmed({ id: 'c_inst', tool: 'manage_computer', input: { action: 'addon', addon: 'a', addon_action: 'install' } }, () => ops.addon({ computer: c, id: 'a', action: 'install', confirm: 'box2' })),
     ops.setUp({ computer: c, kits: ['k'] }), ops.updateClaude({ computer: c }), ops.killProcess({ computer: c, pid: 9 }), ops.power({ computer: c, action: 'reboot' }),
-    ops.addComputer({ sshTarget: 'a@b' }), ops.renameComputer({ computer: c, label: 'l' }), ops.renameComputer({ computer: 'box2', label: 'l' }), ops.addons({ computer: c }),
-    ops.addon({ computer: c, id: 'a', action: 'stop' }), ops.publicLink({ computer: c }), ops.setPublicLink({ computer: c, on: true, kind: 'temporary' }), ops.automation({ computer: c }), ops.automationSettings({ computer: c, patch: { paused: true } }),
+    ops.renameComputer({ computer: c, label: 'l' }), ops.renameComputer({ computer: 'box2', label: 'l' }), ops.addons({ computer: c }),
+    ops.addon({ computer: c, id: 'a', action: 'stop' }), ops.publicLink({ computer: c }), ops.setPublicLink({ computer: c, on: false }), ops.automation({ computer: c }), ops.automationSettings({ computer: c, patch: { paused: true } }),
     ops.schedules({ computer: c, body: { op: 'delete', id: 'x' } }), ops.queue({ computer: c, session: 's', body: { op: 'clear' } }), ops.skillsInstalled({ computer: c }),
     ops.skillsSuggested({ computer: c }), ops.skillsFind({ computer: c, query: 'q' }), ops.skillReview({ computer: c, spec: 's' }), ops.skillUpdateReview({ computer: c, name: 'n' }),
     ops.skillApprove({ computer: c, id: 'i' }), ops.skillRemove({ computer: c, name: 'n' }), ops.skillsCheck({ computer: c }), ops.projectsFolder({ computer: c, dir: '/p' }),
@@ -192,12 +194,23 @@ test('every route her tools use is in the table, and nothing else', async () => 
     ops.workspaceRestore({ computer: c, url: 'https://git.example.com/o/b.git', dryRun: true }), ops.workspaceRestore({ computer: c, url: 'https://git.example.com/o/b.git' }),
     ops.workspaceSync({ computer: c, dryRun: true }), ops.workspaceSync({ computer: c, with: 'box2' }), ops.workspacePlaces({ computer: c, projects: '/p' }),
     ops.workspaceForget({ computer: c, name: 'blog' }),
+    ops.workspaceWhoHas({ computer: c }), ops.workspaceFind({ computer: c, place: 'kits' }), ops.dropCheck({ computer: c, name: 'shop' }), ops.groupDryRun({ computer: c, dir: 'kits' }),
     ops.startChat({ computer: c, folder: '/p', profile: 'sub', text: 't' }), ops.sendToChat({ computer: c, id: '44444444-4444-4444-8444-444444444444', text: 't' }),
     ops.answerChat({ computer: c, id: '44444444-4444-4444-8444-444444444444', request: 'r', allow: true, always: false }), ops.stopChat({ computer: c, id: '44444444-4444-4444-8444-444444444444' }),
     ops.startChat({ computer: c, folder: '/p', profile: 'sub', tool: 'opencode' }), ops.startSession({ computer: c, folder: '/p', profile: 'sub', mode: 'new', tool: 'opencode' }),
     ops.codingTools({ computer: c }), ops.setCodingTool({ computer: c, id: 'opencode', on: true }), ops.updates({ computer: c }),
     ops.checkUpdates({ computer: c }), ops.runUpdate({ computer: c, id: 'claude' }),
     ops.moveChat({ computer: c, id: '44444444-4444-4444-8444-444444444444', profile: 'sub2' }),
+    ops.renameChat({ computer: c, id: '44444444-4444-4444-8444-444444444444', title: 'n' }), ops.closeChat({ computer: c, id: '44444444-4444-4444-8444-444444444444' }),
+    ops.chatToTerminal({ computer: c, id: '44444444-4444-4444-8444-444444444444' }), ops.chatFromSession({ computer: c, session: 's' }), ops.continueSession({ computer: c, session: 's' }),
+    ops.work({ computer: c }), ops.workAdd({ computer: c, item: { title: 'Write the notes' } }), ops.workEdit({ computer: c, id: 'write-the-notes', at: 0, changes: { date: null } }),
+    ops.workStatus({ computer: c, id: 'write-the-notes', at: 0, status: 'done' }), ops.workRemove({ computer: c, id: 'write-the-notes', at: 0 }),
+    ops.workPlan({ computer: c, id: 'write-the-notes', at: 0, project: 'shop', folder: 'code/web' }),
+    ops.workStart({ computer: c, id: 'write-the-notes', at: 0, choices: { brief: 'Write the notes.', project: 'shop', folder: '.', tool: 'claude', provider: 'sub' } }),
+    ops.workAccept({ computer: c, id: 'write-the-notes', at: 0 }), ops.workSendBack({ computer: c, id: 'write-the-notes', at: 0, text: 'Shorter.' }),
+    ops.workRuns({ computer: c }), ops.workRuns({ computer: c, item: 'write-the-notes' }), ops.workProgress({ computer: c, since: '12h' }),
+    ops.workMissions({ computer: c }), ops.workMission({ computer: c, id: 'm-20261118-abcdef' }),
+    ops.workGoal({ computer: c, goal: 'Make the shop load fast on a phone', project: 'shop', dryRun: true }), ops.workGoal({ computer: c, goal: 'Make the shop load fast on a phone', project: 'shop' }),
   ];
   const results = await Promise.allSettled(runs);
   const errors = results.filter((x) => x.status === 'rejected').map((x) => x.reason.message);
@@ -293,13 +306,17 @@ test('her keys: only the key, never the owner\'s own; refused or half-sent typin
 test('setup and fix: Tia sends the kits or the check, never a password and never the terminal fallback', () => {
   assert.equal(checkRoute('POST', '/api/pcsetup/setup', { kits: ['basics'] }, stubCtx()).tool, 'manage_computer set_up');
   // The public link: only through its own route, with on/kind and nothing else; never its old add-on routes or its set-up.
-  assert.equal(checkRoute('POST', '/api/public-link', { on: true, kind: 'custom' }, stubCtx()).tool, 'manage_computer public_link');
-  assert.throws(() => checkRoute('POST', '/api/public-link', { on: true, password: 'x' }, stubCtx()), /"password" is the owner's to send/);
+  assert.match(checkRoute('POST', '/api/public-link', { on: false }, stubCtx()).tool, /^manage_computer public_link/);
+  // On opens the computer to the internet: his own press, never through her door; nor adding a computer by SSH.
+  assert.throws(() => checkRoute('POST', '/api/public-link', { on: true }, stubCtx()), /turning the public link on is the owner's own press/);
+  assert.throws(() => checkRoute('POST', '/api/public-link', { on: true, kind: 'custom' }, stubCtx()), /"kind" is the owner's to send/);
+  assert.throws(() => checkRoute('POST', '/api/public-link', { on: false, password: 'x' }, stubCtx()), /"password" is the owner's to send/);
+  assert.throws(() => checkRoute('POST', '/api/machines/ssh', { target: 'a@b' }, stubCtx()), /not a route Tia's tools use/);
   for (const p of ['/api/addons/public-link/start', '/api/addons/public-link/do/fixed-on', '/api/public-link/custom/sign-in', '/api/public-link/temporary/add-service']) {
     assert.throws(() => checkRoute('POST', p, {}, stubCtx()), `${p} is refused`);
   }
   assert.equal(checkRoute('POST', '/api/addons/trouteai/start', {}, stubCtx()).tool, 'manage_computer addon');
-  assert.equal(checkRoute('POST', '/m/box2/api/pcsetup/fix', { id: 'extras.tmux' }, stubCtx()).computer, 'box2');
+  assert.equal(runConfirmed({ id: 'c_fix', tool: 'manage_computer', input: { action: 'setup_fix', check: 'extras.tmux', computer: 'box2' } }, () => checkRoute('POST', '/m/box2/api/pcsetup/fix', { id: 'extras.tmux' }, stubCtx())).computer, 'box2');
   for (const [p, b] of [['/api/pcsetup/setup', { kits: ['basics'], password: 'x' }], ['/api/pcsetup/setup', { kits: ['basics'], terminal: true }], ['/api/pcsetup/fix', { id: 'x', password: 'x' }], ['/api/pcsetup/fix', 'x']]) {
     refused(() => checkRoute('POST', p, b, stubCtx()));
   }
@@ -317,4 +334,76 @@ test('an encoded spelling is read as the route reads it: the public link\'s old 
   assert.equal(checkRoute('POST', '/api/addons/trouteai/start', {}, stubCtx()).tool, 'manage_computer addon');
   assert.equal(checkRoute('POST', '/api/addons/%74routeai/start', {}, stubCtx()).route, '/api/addons/trouteai/start');
   assert.equal(checkRoute('POST', '/api/sessions/my%20work/send', {}, stubCtx()).route, '/api/sessions/my work/send');
+});
+
+test('a chat she starts with "Lead model" on (Settings → Tia) passes her door with its ticks; a bad value does not', async () => {
+  const ctx = stubCtx(() => ({ id: '44444444-4444-4444-8444-444444444444', sent: true }));
+  const ops = createOps({ ctx, runShell: async () => ({}), jobWaitMs: 0 });
+  // What src/assistant/chats.mjs sends when her switch is on, with and without ticks.
+  await ops.startChat({ computer: 'this', folder: '/home/owner/projects/api', profile: 'sub', text: 'fix it', lead: true, others: ['alpha'] });
+  await ops.startChat({ computer: 'this', folder: '/home/owner/projects/api', profile: 'sub', text: 'fix it', lead: true, others: [] });
+  const sent = ctx.seen.filter((s) => s.path === '/api/chats').map((s) => s.body);
+  assert.equal(sent.length, 2, 'both reached the route');
+  assert.deepEqual([sent[0].lead, sent[0].others, sent[0].byTia, sent[0].defaults], [true, ['alpha'], true, true]);
+  for (const bad of [{ lead: 'yes' }, { others: 'alpha' }, { others: ['../x'] }, { others: Array.from({ length: 11 }, (_, i) => `p${i}`) }]) {
+    refused(() => checkRoute('POST', '/api/chats', { dir: '/home/owner/projects/api', profile: 'sub', defaults: true, byTia: true, ...bad }, ctx));
+  }
+});
+
+test('a session default she changes carries Lead and its ticks along unchanged; she never changes them', () => {
+  const cur = { model: 'sonnet', lead: true, others: ['alpha'] };
+  const ctx = { ...stubCtx(), config: () => ({ sessionDefaults: cur }) };
+  // What change_setting sends for effort: the whole set it read, with the one key changed.
+  assert.ok(checkRoute('POST', '/api/settings', { sessionDefaults: { ...cur, effort: 'high' } }, ctx));
+  refused(() => checkRoute('POST', '/api/settings', { sessionDefaults: { ...cur, lead: false } }, ctx));
+  refused(() => checkRoute('POST', '/api/settings', { sessionDefaults: { ...cur, others: ['alpha', 'paid'] } }, ctx));
+  refused(() => checkRoute('POST', '/api/settings', { sessionDefaults: { model: 'sonnet', lead: true } }, stubCtx()), 'not on where the owner has it off');
+});
+
+test('another computer\'s session defaults are checked against that computer\'s settings, not this one\'s', async () => {
+  // This computer never set Lead; box2 has it on with a tick. change_setting read box2's set and changes the effort.
+  const there = { model: 'sonnet', lead: true, others: ['alpha'], permissionMode: 'default' };
+  const ctx = stubCtx((method, p) => (method === 'GET' && p === '/m/box2/api/settings' ? { sessionDefaults: there } : {}));
+  ctx.config = () => ({ sessionDefaults: { model: 'sonnet' } });
+  await gatedDispatch(ctx, 'POST', '/m/box2/api/settings', { sessionDefaults: { ...there, effort: 'high' } });
+  const posted = ctx.seen.filter((s) => s.method === 'POST');
+  assert.deepEqual(posted.map((s) => [s.path, s.body.sessionDefaults.effort]), [['/m/box2/api/settings', 'high']], 'her change reaches box2');
+  // Changing box2's Lead or ticks, or copying this computer's onto it, is refused there as here.
+  for (const changed of [{ ...there, lead: false }, { ...there, others: ['alpha', 'paid'] }, { model: 'sonnet', lead: null, others: null }, { ...there, permissionMode: 'acceptEdits' }]) {
+    await assert.rejects(gatedDispatch(ctx, 'POST', '/m/box2/api/settings', { sessionDefaults: changed }), (e) => e.status === 403 && e.code === 'tia-route', JSON.stringify(changed));
+  }
+  assert.equal(ctx.seen.filter((s) => s.method === 'POST').length, 1, 'nothing refused reached box2');
+  // A computer whose settings cannot be read: refused, never checked against this one's.
+  const blind = stubCtx(() => ({}));
+  blind.dispatch = async (method, url) => ({ status: method === 'GET' ? 502 : 200, json: {} });
+  await assert.rejects(gatedDispatch(blind, 'POST', '/m/box2/api/settings', { sessionDefaults: { model: 'sonnet', lead: true, effort: 'high' } }), (e) => e.status === 403);
+  refused(() => checkRoute('POST', '/m/box2/api/settings', { sessionDefaults: { model: 'sonnet', lead: true } }, ctx));
+  // A body that carries none of the owner's keys needs no read of the other computer.
+  assert.ok(checkRoute('POST', '/m/box2/api/settings', { sessionDefaults: { model: 'sonnet', effort: 'high' } }, ctx));
+  // This computer's own settings are still this computer's config.
+  refused(() => checkRoute('POST', '/api/settings', { sessionDefaults: { ...there, effort: 'high' } }, ctx));
+  assert.ok(checkRoute('POST', '/api/settings', { sessionDefaults: { model: 'sonnet', effort: 'high' } }, ctx));
+});
+
+test('a Fix, and an add-on\'s install or update, pass the door only as the act of a card he confirmed for exactly that', () => {
+  const card = (input) => ({ id: 'c_x', tool: 'manage_computer', input });
+  const fix = card({ action: 'setup_fix', check: 'extras.tmux' });
+  // Her own act, outside a confirmed card: refused, whatever the body.
+  for (const [p, b] of [['/api/pcsetup/fix', { id: 'extras.tmux' }], ['/api/addons/trouteai/install', {}], ['/api/addons/trouteai/update', { confirm: 'box2' }], ['/m/box2/api/pcsetup/fix', { id: 'extras.tmux' }]]) {
+    assert.throws(() => checkRoute('POST', p, b, stubCtx()), /the owner's own: it runs only when he confirms her card/, p);
+  }
+  assert.equal(runConfirmed(fix, () => checkRoute('POST', '/api/pcsetup/fix', { id: 'extras.tmux', confirm: 'box2' }, stubCtx())).tool, 'manage_computer setup_fix');
+  // A card for another check, another computer, another add-on or another act is not his yes for this one.
+  assert.throws(() => runConfirmed(fix, () => checkRoute('POST', '/api/pcsetup/fix', { id: 'git.git' }, stubCtx())), /owner's own/);
+  assert.throws(() => runConfirmed(fix, () => checkRoute('POST', '/m/box2/api/pcsetup/fix', { id: 'extras.tmux' }, stubCtx())), /owner's own/);
+  const inst = card({ action: 'addon', addon: 'trouteai', addon_action: 'install' });
+  assert.equal(runConfirmed(inst, () => checkRoute('POST', '/api/addons/trouteai/install', { confirm: 'box2' }, stubCtx())).tool, 'manage_computer addon');
+  for (const p of ['/api/addons/trouteai/update', '/api/addons/relay/install', '/m/box2/api/addons/trouteai/install']) {
+    assert.throws(() => runConfirmed(inst, () => checkRoute('POST', p, {}, stubCtx())), /owner's own/, p);
+  }
+  assert.throws(() => runConfirmed(card({ action: 'addon', addon: 'trouteai', addon_action: 'install' }), () => checkRoute('POST', '/api/pcsetup/fix', { id: 'extras.tmux' }, stubCtx())), /owner's own/, 'an install card is not a Fix');
+  assert.throws(() => runConfirmed(inst, () => checkRoute('POST', '/api/addons/trouteai/install', { confirm: 'box2', password: 'x' }, stubCtx())), /"password" is the owner's to send/);
+  // Start and stop stay hers at their level: no card needed.
+  assert.equal(checkRoute('POST', '/api/addons/trouteai/start', {}, stubCtx()).tool, 'manage_computer addon');
+  assert.equal(checkRoute('POST', '/api/addons/trouteai/stop', {}, stubCtx()).tool, 'manage_computer addon');
 });

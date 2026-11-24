@@ -18,11 +18,11 @@ When the limit comes, the session stops. Signing in to another account by hand w
 
 ## What Hoprig does
 
-1. `hop add` adds a provider: another Claude subscription, an API key or a gateway. A provider is a small file of settings, readable by you only.
-2. At a limit, the chat or the session says so and shows your other providers as buttons. One tap and the same conversation goes on there. A chat's provider chip, or **Move to another provider** in a session's menu, does the same at any time.
+1. `hop add` adds a provider: another Claude subscription, an API key or a gateway (a service that passes your requests on to an AI and bills you for each use). Hoprig keeps each one in a small settings file that only you can read.
+2. At a limit, the chat or the session says so and offers one main button: in a session, **Continue on** the first provider of yours that has room and costs nothing extra; in a chat, **Move to another provider**. A session's other providers are under **Other ways**, and a provider paid per use says "costs money per use". One tap and the same conversation goes on there. A chat's provider chip, or **Move to another provider** in a session's menu, does the same at any time.
 3. A provider that uses Claude Code's own sign-in can also go on with another Claude account of yours: **Sign in with another Claude account**, on the limit card. Until that sign-in is complete, the account of now stays.
-4. In a terminal, `hop work -c` continues this folder's last session on the provider named "work". When Claude Code exits, Hoprig asks whether to continue on another provider.
-5. Auto mode (Claude Code only) does it without a tap: `hop auto order sub api`, then `hop auto on`. A small router on your own computer sends each request to your subscription while it can, and to the next provider the moment it reaches its limit. When the next provider in the order is another subscription, Claude Code is started again as that account instead (a few seconds). When the subscription is free again, requests go back to it.
+4. In a terminal, `hop work -c` continues this folder's last session on the provider named "work". When a session stops at a limit or an error, Hoprig asks whether to continue on another provider; one you end yourself with `/exit` just ends.
+5. Auto mode (Claude Code only) does it without a tap: `hop auto order sub api` (sub is your Claude login; put the name you gave your API key in `hop add` in place of api), then `hop auto on`. A small router on your own computer sends each request to your subscription while it can, and to the next provider the moment it reaches its limit. When the next provider in the order is another subscription, Claude Code is started again as that account instead (a few seconds). When the subscription is free again, requests go back to it.
 
 ```sh nocopy
 hop add                    # add a provider: a Claude subscription, an API key, or a gateway

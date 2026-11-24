@@ -32,12 +32,12 @@ globalThis.document ??= {
   visibilityState: 'visible',
 };
 
-const { codeHash } = await import('../../web/editor/workbench.js');
+const { badgeOf, codeHash, cursorText, indentText } = await import('../../web/editor/workbench.js');
 const { folderName } = await import('../../web/editor/places.js');
 const { _codeTarget, editorButton } = await import('../../web/editor/index.js');
 const { fuzzy, matchSpan } = await import('../../web/editor/search.js');
 const { workerFor } = await import('../../web/editor/monaco.js');
-const { inside, markClass, marksOf } = await import('../../web/editor/scm.js');
+const { changeCount, inside, markClass, marksOf } = await import('../../web/editor/scm.js');
 const { pageById, registeredSessionActions, registeredSettingsPages } = await import('../../web/registry.js');
 
 test('addresses: #/code?dir=…&file=…&line=…&view=…, for this computer or another', () => {
@@ -118,4 +118,82 @@ test('folder names and folders inside one, on POSIX and Windows alike', () => {
   assert.equal(folderName('/'), '/');
   assert.equal(inside('/home/a/shop', 'code/web'), '/home/a/shop/code/web');
   assert.equal(inside('C:\\work\\shop\\', 'code/web'), 'C:\\work\\shop\\code\\web');
+});
+
+test('the status bar says "Tab Size" for a file indented with tabs and "Spaces" otherwise, as VS Code does', () => {
+  assert.equal(indentText({ insertSpaces: false, tabSize: 2 }), 'Tab Size: 2');
+  assert.equal(indentText({ insertSpaces: true, tabSize: 4 }), 'Spaces: 4');
+});
+
+test('the Explorer\'s icon counts the files with unsaved changes, Source Control\'s its changes, Search nothing', () => {
+  const counts = { changes: 4, dirty: 2 };
+  assert.deepEqual(['explorer', 'search', 'changes'].map((id) => badgeOf(id, counts)), [2, 0, 4]);
+  assert.equal(badgeOf('explorer', { changes: 4, dirty: 0 }), 0, 'no badge without an unsaved file');
+});
+
+test('the status bar names the place and the selection as VS Code does, several cursors without a line', () => {
+  assert.equal(cursorText({ line: 2, col: 10 }), 'Ln 2, Col 10');
+  assert.equal(cursorText({ line: 1, col: 7, selected: 6 }), 'Ln 1, Col 7 (6 selected)');
+  assert.equal(cursorText({ line: 2, col: 10, selected: 6, cursors: 2 }), '2 selections (6 characters selected)');
+  assert.equal(cursorText({ line: 2, col: 10, cursors: 3 }), '3 selections');
+});
+
+test('the terminal panel hides the session page\'s controls by their one marker, never by their class names', async () => {
+  const { CHROME, chrome } = await import('../../web/sessionchrome.js');
+  assert.deepEqual(chrome(), { [CHROME]: 'bar' });
+  assert.deepEqual(chrome('keys'), { [CHROME]: 'keys' });
+  const css = fs.readFileSync(path.join(WEB, 'editor', 'editor.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const panel = css.split('\n').filter((l) => l.includes('ed-term-panel')).join('\n');
+  // Nothing of the session page's own class names: they change with that page (some were renamed before).
+  assert.doesNotMatch(panel, /\.(sessbar|quick-row|keybar|composer|limitbox)\b/);
+  const always = css.split(/@media[^{]*\{[^{}]*(\{[^{}]*\}[^{}]*)*\}/).join('');
+  assert.match(always, /html\.ed-term-panel \[data-chrome="bar"\] \{ display: none/, 'the bar, quick keys, message box and limit box go');
+  assert.doesNotMatch(always, /data-chrome="keys"/, 'the key bar is not hidden for every pointer');
+  assert.match(css, /@media \(pointer: fine\) \{ html\.ed-term-panel \[data-chrome="keys"\] \{ display: none/, 'a touch screen keeps Esc, Tab, Ctrl and arrows');
+  // The session page marks its controls where it makes them.
+  const session = fs.readFileSync(path.join(WEB, 'session.js'), 'utf8');
+  for (const spec of ["h('header.sessbar', chrome()", "h('div.quick-row', chrome()", "h('div.composer', chrome()", "'aria-label': 'Keys', ...chrome('keys')"]) assert.ok(session.includes(spec), spec);
+  assert.ok(fs.readFileSync(path.join(WEB, 'lib.js'), 'utf8').includes("h('div.limitbox', { role: 'alert', ...chrome() }"), 'the limit box');
+});
+
+test('on a touch screen Search\'s Replace All, the Replace toggle and the three switches have the kit\'s tap size', () => {
+  const css = fs.readFileSync(path.join(WEB, 'editor', 'editor.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const coarse = [...css.matchAll(/@media \(pointer: coarse\) \{([\s\S]*?)\n?\}\n/g)].map((m) => m[1]).join('\n');
+  for (const sel of ['.ed-replace-toggle', '.ed-search-replace .btn.icon', '.ed-flags .ed-flag']) {
+    const rule = coarse.split('\n').find((l) => l.includes(sel) && l.includes('{'));
+    assert.ok(rule && /min-width: var\(--tap\)/.test(rule) && /min-height: var\(--tap\)/.test(rule), sel);
+  }
+});
+
+test('Source Control\'s badge counts as VS Code\'s git: a file staged and changed again counts twice', () => {
+  const e = (path) => ({ path });
+  const st = { repo: true, staged: [e('a.js'), e('b.js')], changes: [e('a.js')], untracked: [e('new.txt')], conflicts: [e('c.js')] };
+  assert.equal(changeCount(st), 5);
+  assert.equal(marksOf(st).size, 4, 'the Explorer still marks each file once');
+  assert.equal(changeCount(null), 0);
+  assert.equal(changeCount({ repo: false }), 0);
+});
+
+test('a theme change before the code editor has loaded throws nothing (it only tells the page)', async () => {
+  const { followTheme } = await import('../../web/editor/monaco.js');
+  let changed = null;
+  const keep = { mo: globalThis.MutationObserver, root: document.documentElement };
+  globalThis.MutationObserver = class {
+    constructor(cb) {
+      changed = cb;
+    }
+    observe() {}
+    disconnect() {}
+  };
+  document.documentElement = { dataset: { theme: 'dark' } };
+  const seen = [];
+  try {
+    const stop = followTheme((dark) => seen.push(dark));
+    changed();
+    stop();
+  } finally {
+    globalThis.MutationObserver = keep.mo;
+    document.documentElement = keep.root;
+  }
+  assert.deepEqual(seen, [true]);
 });

@@ -35,6 +35,6 @@ export function refused(e, root) {
   return h('div.ed-fail', icon('folder', { size: 34 }), h('h2.ed-fail-title', title), h('p.ed-fail-text', text), h('p.ed-fail-text.muted', tildePath(root)),
     h('div.ed-fail-tools',
       h('a.btn.primary', { href: link('#/workspace') }, 'Go to Workspace'),
-      outside ? h('a.btn.secondary', { href: link('#/settings/new-sessions', null) }, 'Open the folder list') : null,
+      outside ? h('a.btn.secondary', { href: link('#/settings/new-sessions?show=folders', null) }, 'Open the folder list') : null,
       e.status >= 500 || !e.status ? btn('secondary', { icon: 'refresh', label: 'Try again', onclick: () => location.reload() }) : null));
 }

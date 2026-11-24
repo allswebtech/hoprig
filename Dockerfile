@@ -1,4 +1,4 @@
-# hoprig as a hub: it shows and relays your other computers. No Claude Code and no terminal run in it, so the
+# hoprig as a main computer: it shows and relays your other computers. No Claude Code and no terminal run in it, so the
 # image needs no build tools (the terminal module, node-pty, is optional and left out). See docs/HUB.md.
 FROM node:24.22.0-bookworm-slim
 WORKDIR /app

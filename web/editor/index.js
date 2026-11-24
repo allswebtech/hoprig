@@ -78,7 +78,7 @@ function viewLanding({ frame }) {
     page: 'code',
     intro: WINDOW
       ? 'Open a folder from Files: Open in Editor in a folder\'s menu (⋯), or open a text file there.'
-      : 'Open a project\'s code from Workspace: the code button (</>) on its row, or Open code on its page.',
+      : ['Open a project\'s code from ', h('a', { href: link('#/workspace') }, 'Workspace'), ': the code button (</>) on its row, or Open code on its page.'],
     ...(WINDOW && recent.length ? { primary: { label: 'Open Files', icon: 'folder', onclick: () => openApp('files', '#/desktop/files') } } : {}),
     body: [
       recent.length
@@ -158,11 +158,11 @@ function settingsBody() {
   } }, h('span', String(n)))));
   paintTabs();
   return [
-    panel({ icon: 'code', title: 'The code editor', desc: 'Saved in this browser only. The colours follow the page\'s light or dark theme (Settings → Appearance).' },
-      h('div.fieldrow', h('span.field-label', 'Text size', marks.font),
+    panel({ icon: 'code', title: 'The code editor', desc: ['Saved in this browser only. The colours follow the page\'s light or dark theme (', h('a', { href: link('#/settings/appearance?show=page-theme') }, 'Settings → Appearance'), ').'] },
+      h('div.fieldrow', h('span.field-label', 'Font Size', marks.font),
         h('div.stepper-inline', btn('icon secondary', { icon: 'minus', title: 'Smaller', onclick: () => step(-1) }), size, btn('icon secondary', { icon: 'plus', title: 'Larger', onclick: () => step(1) }))),
-      h('div.fieldrow', h('span.field-label', 'Tab size', marks.tab), tabs, h('span.hint', 'Spaces for the Tab key and for an indent. A project\'s own .editorconfig is not read.')),
-      toggle('Word wrap', p.wordWrap, (v) => setEditorPref('wrap', v), 'Long lines wrap at the edge instead of scrolling sideways.'),
+      h('div.fieldrow', h('span.field-label', 'Tab Size', marks.tab), tabs, h('span.hint', 'Spaces for the Tab key and for an indent. A project\'s own .editorconfig is not read.')),
+      toggle('Word Wrap', p.wordWrap, (v) => setEditorPref('wrap', v), 'Long lines wrap at the edge instead of scrolling sideways.'),
       // Plain text editing (for a phone where Monaco cannot be typed into) is switched in the editor's own menu.
       h('p.hint', 'Plain text editing, for a phone where the code editor cannot be typed into, is in the editor\'s menu (…).')),
   ];
@@ -170,7 +170,7 @@ function settingsBody() {
 
 registerSettingsPage({
   id: 'editor', title: 'Editor', icon: 'code', order: 55,
-  desc: 'The code editor: text size, tab size and word wrap, in this browser.',
+  desc: 'The code editor: Font Size, Tab Size and Word Wrap (VS Code\'s names), in this browser.',
   summary: () => {
     const p = editorPrefs();
     return `${p.fontSize} px · tab ${p.tabSize}${p.wordWrap ? ' · wrap' : ''}`;

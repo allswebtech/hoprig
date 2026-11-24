@@ -50,4 +50,4 @@ Hoprig needs none: on the same Wi-Fi the phone reaches the computer directly, an
 
 ### Is Hoprig's connection encrypted?
 
-Through the public link and through a hub, yes: HTTPS. On your own Wi-Fi the page uses plain http, so use it only on a network you trust. It is not end-to-end encrypted the way Happy describes its connection.
+Through the public link and through a main computer on a server, yes: HTTPS. On your own Wi-Fi the page uses plain http, so use it only on a network you trust. It is not end-to-end encrypted the way Happy describes its connection.

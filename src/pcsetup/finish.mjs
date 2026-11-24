@@ -3,9 +3,13 @@
 //   hooks      git's hooks path set to the repository's .githooks
 //   env        .env made from .env.example (the owner fills in its values)
 //   install    the dependency install of each repository, always asked
+//   credentials  the credential links project.json names (workspace/credlinks.mjs): made only where it is safe, the rest
+//              said (waiting for the credentials, refused, in the way)
 // A fresh clone (`hoprig get`, `workspace restore`, `project setup`) does them. A dry run only says each one. A project
 // that was already on this computer is not changed by a get or a restore: what is missing is said with the one
-// command that does it (`hoprig project setup <name>`), or asked item by item when a person is at a terminal.
+// command that does it (`hoprig project setup <name>`), or asked item by item when a person is at a terminal. One
+// exception: a credential link that waited for the credentials is made by the next get or restore all the same (it is
+// made only where it is safe, never over anything, and a link that is right already is left: credlinks.mjs).
 import fs from 'node:fs';
 import path from 'node:path';
 import { stream } from '../setup/system.mjs';
@@ -65,6 +69,20 @@ export async function setupItems(root, manifest, { ui, dir, runner = stream, sys
     // linkMemory checks once more right before the link is made (inside.mjs): the plan may be a moment old.
     else items.push({ kind: 'memory', dir: p.launchAbs || root, what: memoryWords(p, root), do: async () => report(ui, [named(linkMemory(p, { at }), root)]) });
   }
+  // Credential links: an item for each one to make (it belongs to the repository that holds its place, so a code
+  // repository cloned now into a project that was here gets its links like a fresh clone); the rest is said.
+  if (manifest.credentials || manifest.credentialsRefused) {
+    const { planCredLinks, makeOne, linkLine, linkMark } = await import('../workspace/credlinks.mjs');
+    for (const e of await planCredLinks(root, manifest, { at })) {
+      if (e.state === 'ok') continue;
+      if (e.state !== 'make') {
+        notes.push(linkLine(e, name));
+        continue;
+      }
+      const holder = manifest.repos.find((r) => e.place.startsWith(`${r.dir}/`));
+      items.push({ kind: 'credentials', dir: holder ? path.join(root, holder.dir) : root, what: `link ${name}/${e.place} to credentials/${e.target}`, do: async () => ui.line(linkMark(makeOne(root, e, at)), linkLine(e, name)) });
+    }
+  }
   // Only folders really inside the project (inside.mjs): a code folder that leads out (project.json names code/web
   // where code is a link to elsewhere) gets no hooks setting, no .env and no install; it is said instead.
   const dirs = [];
@@ -104,7 +122,7 @@ export async function finishProject(root, manifest, { ui, dir, runner = stream, 
   for (const n of notes) ui.line('warn', n);
   const left = [];
   for (const it of items) {
-    if (fresh === true || fresh.has(it.dir)) {
+    if (fresh === true || fresh.has(it.dir) || it.kind === 'credentials') {
       if (it.kind === 'install') {
         if (await ui.confirm(it.question, true)) await it.do(); // a dry run: "would ask"
       } else if (ui.dryRun) ui.note(`(dry run) would ${it.what}`);

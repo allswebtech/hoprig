@@ -29,8 +29,9 @@ export function lineDiff(a, b, context = 2) {
       ops.push([' ', xs[i]]);
       i++;
       j++;
-    } else if (j < m && (i >= n || t[i][j + 1] >= t[i + 1][j])) ops.push(['+', ys[j++]]);
-    else ops.push(['-', xs[i++]]);
+    // On a tie the old line comes first, so a changed line reads as removed, then added.
+    } else if (i < n && (j >= m || t[i + 1][j] >= t[i][j + 1])) ops.push(['-', xs[i++]]);
+    else ops.push(['+', ys[j++]]);
   }
   for (let k = x.length - post; k < x.length; k++) ops.push([' ', x[k]]);
   // Group into hunks.
@@ -73,23 +74,27 @@ export function folderDiff(before, after) {
   return { added, removed, changed };
 }
 
-/** A diff as text lines for the terminal (unified style). */
-export function diffText(d, { maxLines = 400 } = {}) {
+/**
+ * A diff as text lines for the terminal (unified style). Removed files first, then changed ones, then added ones: a
+ * change to a file that is there (an edit of the owner's that the update would take away) must not sink below a long
+ * new file. Every file's header line is shown, whatever the length; a new file shows its first `maxAdded` lines, and
+ * past `maxLines` lines in all the rest of each file is counted instead of shown.
+ */
+export function diffText(d, { maxLines = 400, maxAdded = 60 } = {}) {
+  const body = (f) => (f.hunks ? f.hunks.flatMap((h) => [`@@ -${h.oldStart} +${h.newStart} @@`, ...h.lines.map(([op, text]) => `${op}${text}`)]) : ['    (binary or too large to show line by line)']);
+  const files = [
+    ...d.removed.map((f) => ({ path: f.path, head: `--- removed: ${f.path}`, lines: [] })),
+    ...d.changed.map((f) => ({ path: f.path, head: `*** changed: ${f.path}`, lines: body(f) })),
+    ...d.added.map((f) => ({ path: f.path, head: `+++ added: ${f.path}`, lines: body(f), cap: maxAdded })),
+  ];
   const out = [];
-  for (const f of d.removed) out.push(`--- removed: ${f.path}`);
-  for (const [label, list] of [['added', d.added], ['changed', d.changed]]) {
-    for (const f of list) {
-      out.push(`${label === 'added' ? '+++ added' : '*** changed'}: ${f.path}`);
-      if (!f.hunks) {
-        out.push('    (binary or too large to show line by line)');
-        continue;
-      }
-      for (const h of f.hunks) {
-        out.push(`@@ -${h.oldStart} +${h.newStart} @@`);
-        for (const [op, text] of h.lines) out.push(`${op}${text}`);
-      }
-    }
+  let room = maxLines;
+  for (const f of files) {
+    out.push(f.head);
+    const shown = f.lines.slice(0, Math.max(0, Math.min(room, f.cap ?? Infinity)));
+    room -= shown.length;
+    out.push(...shown);
+    if (shown.length < f.lines.length) out.push(`    … ${f.lines.length - shown.length} more lines of ${f.path}`);
   }
-  if (out.length > maxLines) return [...out.slice(0, maxLines), `… ${out.length - maxLines} more lines`];
   return out;
 }

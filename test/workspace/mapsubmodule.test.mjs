@@ -47,7 +47,7 @@ test('restore on a fresh computer: a submodule code repository is cloned into it
   const C = w.computer('c');
   C.use();
   const { ui } = await quietUi();
-  const r = await restoreWorkspace(u.brain, { ui, dir: C.ws, projects: C.projects });
+  const r = await restoreWorkspace(u.brain, { withProjects: true, ui, dir: C.ws, projects: C.projects });
   const lib = path.join(C.projects, 'p3', 'code', 'lib');
   assert.equal(r.plan.find((x) => x.label === 'p3/code/lib').result, 'cloned');
   assert.ok(fs.existsSync(path.join(lib, 'README.md')), 'the files are there');

@@ -14,15 +14,51 @@ const TAG_START = /[<\uFF1C\uFE64\u2039\u3008]\s*\/?\s*untrusted/gi;
 // ANSI escapes and other control characters (tab and newline kept): a screen dump must not carry terminal codes.
 // eslint-disable-next-line no-control-regex
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]/g;
+// Control characters (C0 and C1; tab and newline kept) and the characters nobody can see that can hide words in a text:
+// every format character (Cf: zero-width and joiners, direction marks, embeddings and isolates, the soft hyphen, U+180E,
+// the byte-order mark, the tag characters), the whole tag block U+E0000-U+E007F and the variation selectors.
 // eslint-disable-next-line no-control-regex
-const CONTROL = /[\x00-\x08\x0b-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g;
+const CONTROL = /[\x00-\x08\x0b-\x1f\x7f-\x9f\p{Cf}\u{e0000}-\u{e007f}\ufe00-\ufe0f\u{e0100}-\u{e01ef}]/gu;
 
 export const FENCE_KINDS = ['terminal_output', 'data', 'command_output', 'file', 'review'];
 
+const hiddenOut = (text) => text.replace(ANSI, '').replace(CONTROL, '');
+/** The two patterns hiddenOut takes out, in its order (web/redact.js runs the same ones; a test keeps them equal). */
+export const HIDDEN_PATTERNS = Object.freeze([ANSI, CONTROL]);
+
+/**
+ * Text without control codes, direction marks, hidden characters or forged fence tags; its words as they are. Once is
+ * enough: stripped(stripped(t)) is stripped(t) (NFC comes after the removal, which can bring a letter and its accent
+ * together).
+ */
+export function stripped(text) {
+  return hiddenOut(String(text ?? '')).normalize('NFC').replace(TAG_START, (m) => '‹' + m.slice(1));
+}
+
+/** What a card says when her text had characters nobody can see (web/tia.js shows it in the card's words). */
+export const HIDDEN_REMOVED = 'Hidden characters were removed from this text.';
+
+/**
+ * A tool call's input as it comes in, cleaned once at the door: every string as stripped() makes it, so what a card
+ * shows and what the run sends are one value. → { value, changed (characters nobody can see were taken out) }
+ */
+export function cleanInput(value) {
+  let changed = false;
+  const each = (v) => {
+    if (typeof v === 'string') {
+      if (hiddenOut(v) !== v) changed = true;
+      return stripped(v);
+    }
+    if (Array.isArray(v)) return v.map(each);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, each(x)]));
+    return v;
+  };
+  return { value: each(value), changed };
+}
+
 /** Text made safe to sit inside a fence: no control codes, no forged fence tags, secrets masked, clipped. */
 export function neutralize(text, max = 20_000) {
-  let s = String(text ?? '').normalize('NFC').replace(ANSI, '').replace(CONTROL, '').replace(TAG_START, (m) => '‹' + m.slice(1));
-  s = redact(s);
+  let s = redact(stripped(text));
   if (s.length > max) s = '…' + s.slice(s.length - max + 1); // a screen's newest lines matter most
   return s;
 }

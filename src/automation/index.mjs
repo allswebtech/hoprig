@@ -29,7 +29,9 @@
 //   saveConfig(patch), stateDir (hoprig's state folder), now(), updateItems (./updateitems.mjs), addons [{ id, title,
 //   profile, status(), stop() }], autoOrder() → profile names, conversationExists(cwd, id), checks { dirOk(dir),
 //   profileOk(name) } for schedules, workspaceSync({ push }) and workspaceMap({ commit, push }) (the workspace rule's engines),
-//   label(profile) → the provider's name as the owner reads it.
+//   label(profile) → the provider's name as the owner reads it, alone(schedule, action) → a run that ends by itself
+//   (src/work/schedfeature.mjs), work { itemRuns() → { me, items }, startItem(id), drain() } (./itemruns.mjs; drain:
+//   start Work's runs that wait for a place, as far as the switches let them).
 import path from 'node:path';
 import { saveConfig as realSaveConfig } from '../config.mjs';
 import { stateDir as realStateDir } from '../paths.mjs';
@@ -39,11 +41,15 @@ import * as queue from './queue.mjs';
 import * as restore from './restore.mjs';
 import * as retry from './retry.mjs';
 import * as schedules from './schedules.mjs';
+import * as itemRuns from './itemruns.mjs';
 import { brainDir, remoteOf } from '../workspace/layout.mjs';
 import { SCHEDULES_MAX, cleanSchedule, cleanSettingsPatch, commitMapState, effectiveSettings, newId, readSettings, restoreOn } from './settings.mjs';
 import { createActivityLog, createStore } from './store.mjs';
+import { readTaken, takenFile, writeTaken } from './taken.mjs';
 import { realItems } from './updateitems.mjs';
 import { createUpdater } from './updater.mjs';
+import { serviceInstalled } from '../server/service/index.mjs';
+import { spawnServiceRestart } from '../server/selfrestart.mjs';
 import * as updates from './updates.mjs';
 import * as workspaceRule from './workspacesync.mjs';
 
@@ -100,7 +106,23 @@ export function createAutomation(ctx) {
     }
   };
 
-  const updater = createUpdater({ items: ctx.updateItems || realItems(), cards: () => ctx.deck.list(), config: () => ctx.config() || {}, saveConfig, record, now });
+    // How a restart asked for on the Updates page is carried out (selfrestart.mjs): a detached helper runs once this
+  // dashboard has stopped. ctx.restarter lets a test stand in for both.
+  const restarter = ctx.restarter || {
+    installed: () => serviceInstalled(),
+    run: () => {
+      spawnServiceRestart();
+      // Stop this dashboard a moment later, so the page's answer is sent first; the helper then starts it fresh.
+      setTimeout(() => {
+        try {
+          process.kill(process.pid, 'SIGTERM');
+        } catch {
+          /* already stopping */
+        }
+      }, 300).unref();
+    },
+  };
+  const updater = createUpdater({ items: ctx.updateItems || realItems(), cards: () => ctx.deck.list(), config: () => ctx.config() || {}, saveConfig, record, now, restarter });
 
   /** Add a message to a session's queue (schedules and the page use this). */
   const enqueue = (session, text, opts = {}) =>
@@ -162,8 +184,11 @@ export function createAutomation(ctx) {
       const plan = [];
 
       const restoreEnabled = restoreOn(s, ctx.backend);
-      const r = restore.decide({ cards, data: store.read('restore', null), now: t, boot, enabled: restoreEnabled });
+      // The terminals "Continue here" took a conversation from (./taken.mjs): read fresh, written by the chat's take().
+      const takenNow = readTaken(takenFile(base));
+      const r = restore.decide({ cards, data: store.read('restore', null), now: t, boot, enabled: restoreEnabled, taken: takenNow });
       store.write('restore', r.data);
+      if (r.taken.length !== takenNow.length) writeTaken(r.taken, takenFile(base));
       plan.push(['restore', r.actions]);
 
       if (s.queue.enabled) {
@@ -181,6 +206,21 @@ export function createAutomation(ctx) {
         store.write('schedules', d.data);
         plan.push(['schedules', d.actions]);
       }
+      // Items of Work with a run time ("run by AI at 07:30") that name THIS computer (./itemruns.mjs); the repeating
+      // items whose day came round move on first. Under the schedules switch, the master switch of what starts by itself.
+      if (s.schedules.enabled && ctx.work) {
+        let w = null;
+        try {
+          w = await ctx.work.itemRuns();
+        } catch (e) {
+          log(`automation: Work's items could not be read: ${e.message}`);
+        }
+        if (w) {
+          const d = itemRuns.decide({ items: w.items, me: w.me, lateHours: s.schedules.lateHours, data: store.read('items', {}), now: t });
+          store.write('items', d.data);
+          plan.push(['items', d.actions]);
+        }
+      }
       if (s.idle.shells || s.idle.gateway) {
         const d = idleCare.decide({ cards, data: store.read('idle', {}), now: t, settings: s.idle, addons, autoOrder });
         store.write('idle', d.data);
@@ -194,12 +234,21 @@ export function createAutomation(ctx) {
         store.write('updates', u.data);
         plan.push(['updates', u.actions]);
       }
-      if (s.workspace.sync || s.workspace.map) {
+      if (s.workspace.sync || s.workspace.map || Object.values(s.workspace.pushBranches || {}).some(Boolean)) {
         const d = workspaceRule.decide({ data: store.read('workspace', {}), now: t, boot, settings: effectiveSettings(s, brainRemote).workspace });
         store.write('workspace', d.data);
         plan.push(['workspace', d.actions]);
       }
 
+      // Work's runs that wait for a place start first, oldest first: after a pause or with schedules switched back
+      // on, nothing else starts them until another run ends (src/work/alone.mjs drain checks the switches itself).
+      if (ctx.work && ctx.work.drain && !closed) {
+        try {
+          await ctx.work.drain();
+        } catch (e) {
+          log(`automation: the runs that wait could not start: ${e.message}`);
+        }
+      }
       const common = { deck, record, notify };
       for (const [name, actions] of plan) {
         if (!actions.length || closed) continue;
@@ -207,10 +256,11 @@ export function createAutomation(ctx) {
           if (name === 'restore') await restore.apply(actions, { ...common, conversationExists, label: ctx.label, later, closed: () => closed });
           else if (name === 'queue') await queue.apply(actions, { ...common, putBack, sent });
           else if (name === 'retry') await retry.apply(actions, { ...common, prompt: s.retry.prompt, max: s.retry.max });
-          else if (name === 'schedules') await schedules.apply(actions, { ...common, enqueue, label: ctx.label });
+          else if (name === 'schedules') await schedules.apply(actions, { ...common, enqueue, label: ctx.label, alone: ctx.alone });
+          else if (name === 'items') await itemRuns.apply(actions, { ...common, startItem: ctx.work.startItem });
           else if (name === 'idle') await idleCare.apply(actions, { ...common, addons });
           else if (name === 'workspace') {
-            await workspaceRule.apply(actions, { ...common, workspaceSync: ctx.workspaceSync || workspaceRule.realWorkspaceSync, workspaceMap: ctx.workspaceMap || workspaceRule.realWorkspaceMap, data: store.read('workspace', {}), save: (d) => store.write('workspace', d) });
+            await workspaceRule.apply(actions, { ...common, workspaceSync: ctx.workspaceSync || workspaceRule.realWorkspaceSync, workspaceMap: ctx.workspaceMap || workspaceRule.realWorkspaceMap, workspaceBranches: ctx.workspaceBranches || workspaceRule.realWorkspaceBranches, workspaceCredentials: ctx.workspaceCredentials || workspaceRule.realWorkspaceCredentials, data: store.read('workspace', {}), save: (d) => store.write('workspace', d) });
           } else if (name === 'updates') {
             await updates.apply(actions, { ...common, updater, settings: us, now, data: store.read('updates', {}), save: (d) => store.write('updates', d) });
           }
@@ -305,13 +355,14 @@ export function createAutomation(ctx) {
       const old = patch && typeof patch === 'object' ? patch.updates : undefined;
       let up = null;
       if (old !== undefined) {
-        if (!old || typeof old !== 'object' || Object.keys(old).some((k) => k !== 'claude')) throw new Error('updates are set in Settings → Updates');
+        if (!old || typeof old !== 'object' || Object.keys(old).some((k) => k !== 'claude')) throw Object.assign(new Error('updates are set in Settings → Updates'), { status: 400, details: { code: 'updates-moved' } }); // the code of that place (web/errorways.js): the page draws its button
         if ('claude' in old) up = updates.fromLegacy(old.claude, updater.settings());
       }
       const rest = old === undefined ? patch : Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'updates'));
       const next = cleanSettingsPatch(rest, settings());
       if (up) updater.changeSettings(up);
       saveSettings(next);
+      soon(); // switched back on: what waits starts now, not at the next slow tick
       return { ...effectiveSettings(next, brainRemote), updates: { claude: updates.legacyValue(updater.settings()) } };
     },
     log: (limit) => activity.recent(limit),
@@ -339,7 +390,9 @@ export function createAutomation(ctx) {
       }
       return api.queueOf(session);
     },
-    changeSchedules(op, b) {
+    // `hers`: the request came through Tia's door (feature.mjs). The body's own word is dropped: a schedule is hers
+    // when she added or changed it, and stays hers once it is.
+    changeSchedules(op, b, { hers = false } = {}) {
       const s = settings();
       const list = [...s.schedules.list];
       const at = () => {
@@ -349,10 +402,13 @@ export function createAutomation(ctx) {
       };
       if (op === 'add') {
         if (list.length >= SCHEDULES_MAX) throw new Error(`at most ${SCHEDULES_MAX} schedules`);
-        list.push({ ...cleanSchedule(b.schedule, ctx.checks), id: newId(), since: now() });
+        const { hers: _said, ...given } = cleanSchedule(b.schedule, ctx.checks);
+        list.push({ ...given, ...(hers ? { hers: true } : {}), id: newId(), since: now() });
       } else if (op === 'change') {
         // `since` moves to now: a schedule changed at 10:05 to run at 10:00 starts tomorrow, not right away.
-        list[at()] = { ...cleanSchedule(b.schedule, ctx.checks), id: b.id, since: now() };
+        const i = at();
+        const { hers: _said, ...given } = cleanSchedule(b.schedule, ctx.checks);
+        list[i] = { ...given, ...(hers || list[i].hers === true ? { hers: true } : {}), id: b.id, since: now() };
       } else if (op === 'delete') {
         list.splice(at(), 1);
       } else {

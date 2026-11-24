@@ -149,7 +149,19 @@ export function projectNeeds(dir, { has = (c) => !!which(c), nodeVersion = proce
       return false;
     }
   };
-  return { installs, node, envExample: exists('.env.example') && regular('.env.example') && !exists('.env') };
+  return { installs, node, envExample: exists('.env.example') && regular('.env.example') && !exists('.env') && !otherEnvFiles(dir).length };
+}
+
+/**
+ * The .env* files of a folder other than .env.example (.env.local, .env.production …). A project that has one was set
+ * up before, by its own rules: a new .env beside it can change what the app loads, so none is made there.
+ */
+export function otherEnvFiles(dir) {
+  try {
+    return fs.readdirSync(dir).filter((n) => /^\.env(\.|$)/.test(n) && n !== '.env.example').sort();
+  } catch {
+    return [];
+  }
 }
 
 /** A rough check of "18", "v20.1", ">=18", "^20", "20.x", "lts/*": the common forms; anything else counts as fine. */
@@ -201,7 +213,21 @@ export function parseStatus(text) {
 export async function repoState(dir, run = capture) {
   const r = await gitRead(dir, STATUS_ARGS, { run, timeout: 15_000 });
   if (!r.ok) return { dir, ok: false, error: (r.stderr || 'not a git repository').trim().split('\n')[0] };
-  return { dir, ok: true, ...parseStatus(r.stdout) };
+  const st = parseStatus(r.stdout);
+  // git status can list a tracked file that differs only in its line endings (core.autocrlf on Windows) while git
+  // diff shows nothing for it. Such a file is not a change of the person's: it is counted apart, as "line endings
+  // only". Asked only when status lists a tracked file; the same on every system.
+  const tracked = String(r.stdout || '').split('\n').filter((l) => l && !l.startsWith('## ') && !l.startsWith('??')).length;
+  if (!tracked) return { dir, ok: true, ...st, lineEndings: 0 };
+  const names = async (extra) => {
+    const d = await gitRead(dir, ['diff', ...extra, '--name-only', '-z', '--', '.', ...STATUS_EXCLUDES], { run, timeout: 15_000 });
+    return d.ok ? d.stdout.split('\0').filter(Boolean) : null;
+  };
+  const [work, staged] = await Promise.all([names([]), names(['--cached'])]);
+  if (!work || !staged) return { dir, ok: true, ...st, lineEndings: 0 }; // not known: counted as status says
+  const real = new Set([...work, ...staged]).size;
+  const lineEndings = Math.max(0, tracked - real);
+  return { dir, ok: true, ...st, changes: st.changes - lineEndings, lineEndings };
 }
 
 /** Folders in the projects folder that are git repositories (one level). */
@@ -222,10 +248,10 @@ export function listRepos(dir) {
  * stay inside (default: the clone's own folder), `at`: { dir, projects } of the workspace (inside.mjs cloneInto).
  * Resolves { ok, dest, skipped?, output, leaves? }.
  */
-export async function cloneRepo(repo, dir, { onLine = () => {}, quiet = false, run = stream, name, env = {}, root, at = {}, scratch = false } = {}) {
+export async function cloneRepo(repo, dir, { onLine = () => {}, quiet = false, run = stream, name, env = {}, root, at = {}, scratch = false, mode } = {}) {
   const dest = path.join(dir, name || repo.name);
   const { cloneInto } = await import('../workspace/inside.mjs');
-  return cloneInto({ ...at, root: root || dest }, dest, repo.url, { run, env, onLine, quiet, scratch });
+  return cloneInto({ ...at, root: root || dest }, dest, repo.url, { run, env, onLine, quiet, scratch, mode });
 }
 
 /**
@@ -238,6 +264,11 @@ export async function prepareEnv(dest, onLine = () => {}, root = dest, at = {}) 
   const ex = path.join(dest, '.env.example');
   const env = path.join(dest, '.env');
   if (kindAt(env) !== 'none') return false;
+  const others = otherEnvFiles(dest);
+  if (others.length) {
+    onLine(`No .env made in ${path.basename(dest)}: it has ${others.join(', ')} already, and a new .env could change what the app loads.`);
+    return false;
+  }
   const out = leaves(root, dest, at);
   if (out) {
     onLine(`No .env made in ${path.basename(dest)}: ${leavesWords(out)}.`);

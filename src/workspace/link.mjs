@@ -27,6 +27,7 @@ import { MEMORY_INDEX } from '../codetools/opencode.mjs';
 import { loadConfig } from '../config.mjs';
 import { claudeDir, tilde } from '../paths.mjs';
 import { linkMemories, mergeInto, safeReal, stamp } from '../pcsetup/workspace.mjs';
+import { MANIFEST as SKILLS_RECORD, foldUserRecord } from '../skillhub/store.mjs';
 import { brainDir } from './layout.mjs';
 import { copyIn, kindAt, leaves, leavesWords, mkdirIn, readIn, writeIn } from './inside.mjs';
 
@@ -232,7 +233,11 @@ export function applyLink({ platform = process.platform, now = new Date(), home 
       let said = 'linked';
       if (p.action === 'merge') {
         fs.renameSync(p.link, backup);
-        const n = mergeInto(backup, p.target, stamp(now), inBrain);
+        // Hoprig's record of the skills it installed is its own, not a skill: it goes to Hoprig's state folder
+        // (store.mjs), never into the brain as a loose file or a dated copy. The backup keeps it as it was.
+        const record = p.id === 'skills' ? path.join(backup, SKILLS_RECORD) : null;
+        if (record && path.resolve(p.link) === path.join(opts.base || claudeDir(), 'skills')) foldUserRecord(record);
+        const n = mergeInto(backup, p.target, stamp(now), inBrain, record ? [SKILLS_RECORD] : []);
         said = `moved ${n} file${n === 1 ? '' : 's'} in, then linked (old folder kept: ${path.basename(backup)})`;
       } else if (p.action === 'adopt' || p.action === 'backup') {
         mkdirIn(inBrain, path.dirname(p.target)); // inside the brain, never through a link (inside.mjs)

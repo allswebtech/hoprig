@@ -32,8 +32,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { BYPASS, SHELL_TOOL, bypassAllows, mayDelete, plainDelete, projectFolders } from '../asking.mjs';
+import { configDir, hookFile, stateDir } from '../paths.mjs';
 import { askedWhat } from '../hook.mjs';
 import { readRun } from '../runs.mjs';
+import { chatCard, handsOffAsk } from './handsoff.mjs';
 
 import { rememberAllowed } from './turns.mjs';
 import { projectsIn, workspaceDir } from '../workspace/layout.mjs';
@@ -47,7 +49,7 @@ const isClaude = (chat) => !chat.engine || !chat.engine.id || chat.engine.id ===
 function places(chat, relative) {
   const home = os.homedir();
   const workspace = workspaceDir();
-  return { home, workspace, projects: projectFolders({ workspace, home, chosen: projectsIn() }), cwd: chat.cwd || null, relative };
+  return { home, workspace, projects: projectFolders({ workspace, home, chosen: projectsIn() }), hoprig: [configDir(), stateDir(), path.dirname(path.dirname(hookFile()))], own: chat.cwd || null, cwd: chat.cwd || null, relative };
 }
 
 /**
@@ -61,7 +63,7 @@ function places(chat, relative) {
  * ShellTool.prepare), so a call is answered by itself only without a workdir or with a plain one (relative, or absolute)
  * inside the chat's folder (shellFolder); any other workdir is a card, whatever the command.
  */
-export function openCodeAllows(chat, ev, mode) {
+export function openCodeAllows(chat, ev, mode, { scan = mayDelete } = {}) {
   if (mode !== BYPASS || ev.type !== 'permission' || ev.owner) return false;
   const input = ev.full && typeof ev.full === 'object' ? ev.full : {};
   if (!ev.shell && ev.tool !== SHELL_TOOL) return true;
@@ -70,8 +72,14 @@ export function openCodeAllows(chat, ev, mode) {
   if (typeof command !== 'string') return false;
   const cwd = shellFolder(chat.cwd, input.workdir);
   if (!cwd) return false;
-  if (!mayDelete(command)) return true;
-  return plainDelete(command, { ...places(chat, true), cwd });
+  // A scan or a look that throws must never leave the question unanswered (the event's reader would drop it as a
+  // broken line, and the session would wait for ever): what cannot be judged is the owner's to answer, as a card.
+  try {
+    if (!scan(command)) return true;
+    return plainDelete(command, { ...places(chat, true), cwd });
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -140,27 +148,39 @@ export function askArrived(chat, ev) {
 // The card for an ask: it waits for the owner.
 function show(chat, ev) {
   const grant = ev.grant;
+  // The exact card (askcard.mjs): what the tool's channel gave, its key checked again at the answer.
+  ev.card = chatCard(chat, ev);
   chat.pending.set(ev.request, ev);
   // The page gets the input to show and what "allow in this chat" covers; the rest stays here.
   const { full, interactive, reasonType, reason, ruleForced, manualOnly, noAlways, settled, owner, subjectCut, judged, shell, grant: g, ...shown } = ev;
-  chat.push({ ...shown, canAlways: !!grant, always: grant ? (grant.edits ? 'edits' : 'rule') : null, alwaysText: grant && !grant.edits ? grant.text : '' });
+  chat.push({ ...shown, canAlways: !!grant, always: grant ? (grant.edits ? 'edits' : 'rule') : null, alwaysText: grant && !grant.edits ? grant.text : '', canProject: !!(grant && grant.project), projectText: grant && grant.project ? grant.projectText : '' });
   chat.changed();
+  // Hands-off (chat/handsoff.mjs): where it is on and has an answer, it answers now, through answerAsk.
+  try {
+    handsOffAsk(chat, ev, answerAsk);
+  } catch {
+    /* the card stays for the owner */
+  }
 }
 
 /**
- * The owner's answer to an ask. a: { allow, always (only for this chat: the coding tool's own session suggestions,
- * never a settings file), answers (a question: question → chosen label), mode (a plan approved: the permission mode
+ * The owner's answer to an ask. a: { allow, always (true: only for this chat, the coding tool's own session
+ * suggestions; 'project': "Always allow in this project", the same rules sent with Claude Code's localSettings
+ * destination, which Claude Code itself keeps in the project's local settings file), answers (a question: question → chosen label), mode (a plan approved: the permission mode
  * to go on in), message }.
  */
 export function answerAsk(chat, request, a) {
   const ask = chat.pending.get(request);
   if (!ask) throw fail(409, 'that question was already answered');
   if (!chat.session) throw fail(409, `${chat.engine.label} is not running in this chat`);
+  // The answer goes only to the very ask its card showed: `key` (askcard.mjs askKey) is checked again now.
+  if (a.key !== undefined && a.key !== null && (!ask.card || a.key !== ask.card.key)) throw fail(409, 'the question changed. Look at it again');
   let outcome = 'denied';
   if (a.allow) {
     const input = ask.tool === 'AskUserQuestion' && a.answers ? { ...ask.full, answers: a.answers } : ask.full;
-    const grant = a.always ? ask.grant : null;
-    let permissions = grant ? grant.updates : null;
+    const project = a.always === 'project' && ask.grant && ask.grant.project ? ask.grant.project : null;
+    const grant = a.always && !project ? ask.grant : null;
+    let permissions = project || (grant ? grant.updates : null);
     if (ask.type === 'plan' && a.mode) {
       permissions = [{ type: 'setMode', mode: a.mode === 'manual' ? 'default' : a.mode, destination: 'session' }];
       chat.permissionMode = a.mode;
@@ -168,9 +188,10 @@ export function answerAsk(chat, request, a) {
       chat.emit('record');
     }
     chat.session.answer(request, { allow: true, input, permissions });
-    outcome = grant ? 'allowed-always' : 'allowed';
-    if (grant) {
-      for (const x of grant.atoms) chat.grants.add(x);
+    outcome = a.by === 'handsoff' ? 'handsoff' : project ? 'allowed-project' : grant ? 'allowed-always' : 'allowed';
+    const remember = grant ? grant.atoms : project ? ask.grant.projectAtoms || [] : [];
+    if (remember.length) {
+      for (const x of remember) chat.grants.add(x);
       for (const x of [...chat.grants].slice(0, Math.max(0, chat.grants.size - GRANTS_MAX))) chat.grants.delete(x);
       chat.emit('record'); // kept with the chat (feature.mjs saves the open chats)
     }

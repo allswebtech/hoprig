@@ -1,7 +1,7 @@
 ---
 title: Use cases
 kind: list
-description: Who Hoprig is for, in thirteen cases, each with the problem, what Hoprig does step by step, what you need and what it does not do.
+description: Who Hoprig is for, in nineteen cases, each with the problem, what Hoprig does step by step, what you need and what it does not do.
 ---
 
 # Use cases

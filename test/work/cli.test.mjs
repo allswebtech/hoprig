@@ -140,7 +140,7 @@ test('save from the terminal: --dry-run names the file and the changes; then it 
   assert.equal(t.git(t.brain, 'log', '-1', '--format=%s'), 'Start');
   r = await work('save');
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /^Committed work\/tasks\.json \(1 change\) and sent it to origin\/main\.\n {2}work\/tasks\.json \(new\)\n {2}added: Write the release notes/);
+  assert.match(r.out, /^Kept a copy of your list \(1 change\) and uploaded it to your git server\.\n {2}work\/tasks\.json \(new\)\n {2}added: Write the release notes/);
   assert.equal(t.git(t.brain, 'log', '-1', '--format=%s'), 'Update work items');
 });
 
@@ -178,7 +178,7 @@ test('save from the terminal with another computer\'s change of the same task: s
   assert.equal(t.git(t.brain, 'rev-parse', 'HEAD'), head, 'nothing committed');
   r = await work('save', '--seen', r.json.seen, '--decide', 'write-the-release-notes=mine');
   assert.equal(r.code, 0, r.out + r.err);
-  assert.match(r.out, /^Merged 1 change of yours with 1 change from another computer, 1 task decided by you and sent it to origin\/main\./);
+  assert.match(r.out, /^Merged 1 change of yours with 1 change from another computer, 1 task decided by you and uploaded it to your git server\./);
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).items[0].title, 'Release notes, written here');
   t.git(t.brain, 'pull', '-q', '--ff-only');
 });
@@ -194,4 +194,20 @@ test('through the hoprig command, as a person types it', async () => {
   const { validName } = await import('../../src/profiles.mjs');
   assert.equal(validName('work'), true);
   assert.equal(validName('tasks'), false);
+});
+
+test('list and today name the program that added a task, in the text too', async () => {
+  const { loadConfig } = await import('../../src/config.mjs');
+  const { resolvePlace, projectNames } = await import('../../src/work/place.mjs');
+  const { workStore } = await import('../../src/work/store.mjs');
+  const store = workStore(resolvePlace(loadConfig()), { projects: projectNames() });
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const it = (await store.addFrom({ title: 'Third task', date: ymd }, { token: 'a1b2c3d4e5f6', name: 'Docs script' })).item;
+  const list = await work('list');
+  assert.match(list.out.split('\n').find((l) => l.includes(it.id)), /Third task {2}\(from Docs script\)$/);
+  assert.doesNotMatch(list.out.split('\n').find((l) => l.includes('write-the-release-notes')), /from /, 'the owner\'s own task says nothing');
+  const day = await work('today');
+  assert.ok(day.out.split('\n').filter((l) => l.includes('Third task')).every((l) => l.includes('(from Docs script)')), day.out);
+  await work('remove', it.id);
 });

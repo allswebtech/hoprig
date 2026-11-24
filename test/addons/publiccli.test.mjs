@@ -124,6 +124,10 @@ test('a start that failed is tried again by the next `hoprig public on`, and its
   // cloudflared cannot be found or installed (the network is down at boot): the start fails, the switch stays on.
   const hidden = path.join(box.root, 'hidden');
   fs.renameSync(bin, hidden);
+  // Not installed: no cloudflared on PATH at all. The runner's trap comes first on the PATH, and the product would
+  // take it for an installed cloudflared and start it; a PATH of the test's own empty folder is a computer without one.
+  const was = process.env.PATH;
+  process.env.PATH = fs.mkdtempSync(path.join(box.root, 'nobin-'));
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new Error('getaddrinfo ENOTFOUND github.com'); };
   try {
@@ -133,6 +137,7 @@ test('a start that failed is tried again by the next `hoprig public on`, and its
     assert.equal(S.status().on, true, 'a start that failed by itself keeps the switch on');
     assert.match(S.readRecord().error, /could not be installed/);
   } finally {
+    process.env.PATH = was;
     globalThis.fetch = realFetch;
     fs.renameSync(hidden, bin);
   }

@@ -2,7 +2,7 @@
 // everything is there).
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { KITS, KIT_IDS, NVM_INSTALL, buildPlan, debArch, pastEol, pmInstall } from '../../src/pcsetup/kits.mjs';
+import { KITS, KIT_IDS, NVM_INSTALL, PY_PATH_SCRIPT, buildPlan, debArch, pastEol, pmInstall } from '../../src/pcsetup/kits.mjs';
 
 const allMissing = (sys, ids = KIT_IDS) => Object.fromEntries(ids.map((id) => [id, KITS.find((k) => k.id === id).items.filter((i) => !i.platforms || i.platforms.includes(sys.platform)).map((i) => ({ id: i.id, state: 'missing' }))]));
 const allOk = (ids = KIT_IDS) => Object.fromEntries(ids.map((id) => [id, KITS.find((k) => k.id === id).items.map((i) => ({ id: i.id, state: 'ok' }))]));
@@ -125,6 +125,8 @@ test('Windows: winget ids (each once), the Python install manager, the VS C++ wo
     ['winget', 'install', '-e', '--id', 'Microsoft.VisualStudio.BuildTools', '--accept-package-agreements', '--accept-source-agreements', '--override', '--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended'],
     W('OpenJS.NodeJS.LTS'),
     ['winget', 'install', '9NQ7512CXL7T', '-e', '--accept-package-agreements', '--disable-interactivity'],
+    ['pymanager', 'install', 'default'],
+    ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(PY_PATH_SCRIPT, 'utf16le').toString('base64')],
     W('GitHub.cli'),
     W('BurntSushi.ripgrep.MSVC'),
     W('jqlang.jq'),

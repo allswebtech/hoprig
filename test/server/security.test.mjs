@@ -67,3 +67,11 @@ test('Host header validation and headers', () => {
   assert.equal(isLoopback('127.0.0.1'), true);
   assert.equal(isLoopback('0.0.0.0'), false);
 });
+
+test('the microphone is allowed for this dashboard\'s own pages only (voice typing); the camera and the location never', () => {
+  const p = securityHeaders('pc:7433')['Permissions-Policy'];
+  assert.match(p, /(^|, )microphone=\(self\)(,|$)/);
+  assert.match(p, /(^|, )camera=\(\)(,|$)/);
+  assert.match(p, /(^|, )geolocation=\(\)(,|$)/);
+  assert.doesNotMatch(p, /microphone=\*|microphone=\([^)]*https?:/, 'no other origin');
+});

@@ -1,12 +1,13 @@
 // What the owner changes in a running chat without a restart (model, effort, ultracode, permission mode) and what
 // the chat asks of the running coding tool (context and plan usage). Where the engine cannot change a setting live
 // (its capabilities, or the request fails), the coding tool starts again with the conversation resumed once idle.
+import { setOwnName } from '../titles.mjs';
 
 /**
  * Change `chat`'s settings: in the running process where its engine can, else at its next start. → { restart }
  * An effort change always carries the ultracode value (without it Claude Code turns ultracode off).
  */
-export async function applySettings(chat, { model, effort, ultracode, mode }) {
+export async function applySettings(chat, { model, effort, ultracode, mode, lead, others }) {
   const caps = chat.engine.capabilities;
   const live = () => !!(chat.session && chat.session.alive);
   const tryLive = async (can, fn) => {
@@ -14,6 +15,7 @@ export async function applySettings(chat, { model, effort, ultracode, mode }) {
     if (!can) return false;
     try {
       await fn(chat.session);
+      chat.knowSize(); // what it wrote for it (a mode line) is the session's own, not someone else's (growth.mjs)
       return true;
     } catch {
       return false;
@@ -34,12 +36,27 @@ export async function applySettings(chat, { model, effort, ultracode, mode }) {
   }
   if (mode !== undefined && mode !== chat.permissionMode) {
     chat.permissionMode = mode;
-    if (!(await tryLive(caps.liveMode, (s) => s.setMode(mode)))) restart = true;
-    else if (live()) {
+    if (!(await tryLive(caps.liveMode, (s) => s.setMode(mode)))) {
+      restart = true;
+      // The process keeps its mode until it ends (a process started before Settings allowed bypass refuses it): the
+      // page shows the mode chosen, with its note, and Shift+Tab goes on from it.
+      if (live()) chat.modeLater = mode;
+    } else if (live()) {
+      chat.modeLater = null;
       chat.bypass = mode === 'bypassPermissions';
       chat.liveMode = mode === 'manual' ? 'default' : mode;
       if (chat.bypass) chat.allowPending();
     }
+  }
+  // Lead's helpers are given at the start only: a change takes effect when the process starts again.
+  if (typeof lead === 'boolean' && lead !== chat.lead) {
+    chat.lead = lead;
+    if (chat.session) restart = true;
+  }
+  // The ticks are named to the lead at its start: a change is told with the next start.
+  if (Array.isArray(others) && JSON.stringify(others) !== JSON.stringify(chat.others)) {
+    chat.others = others;
+    if (chat.session && chat.lead) restart = true;
   }
   if (restart && chat.session) {
     if (chat.busy()) chat.restart = true;
@@ -89,7 +106,12 @@ export async function usageNow(chat) {
 export async function renameChat(chat, title) {
   chat.title = title;
   chat.named = true;
+  // Kept per conversation in the state folder (titles.mjs), before the coding tool is told: the person's newest rename
+  // wins, wherever it was typed; a generated title never wins over it, also after a restart, in every list.
+  setOwnName(chat.conversationId, title, chat.file());
   chat.emit('record');
   chat.emit('state');
-  if (chat.session && chat.session.alive && chat.engine.capabilities.rename) await chat.session.rename(title).catch(() => {});
+  if (chat.session && chat.session.alive && chat.engine.capabilities.rename) {
+    await chat.session.rename(title).then(() => chat.knowSize(), () => {}); // its custom-title line is the session's own
+  }
 }

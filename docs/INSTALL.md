@@ -10,7 +10,13 @@ macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh | sh
 ```
 
-Windows (PowerShell). Not ready yet: the tests do not pass on Windows, see "What it needs, and what was run" below:
+Windows (PowerShell):
+
+On Windows (natively, without WSL) the main paths were used by hand on one Windows 11 computer: setup, doctor, the
+computer setup with winget, projects, the background service and the dashboard with sessions and a chat. That first
+run needed ways round (a new project needed a global git identity, programs winget installed stayed "missing", the
+Python kit gave no Python, installing the service again left the old dashboard serving); this version has fixes for
+them that were not yet tried there. The tests do not pass on Windows yet, and `install.ps1` itself was not tried.
 
 ```powershell
 irm https://raw.githubusercontent.com/allswebtech/hoprig/main/install.ps1 | iex
@@ -61,10 +67,15 @@ One part that fails does not stop the next ones: at the end, setup names it with
 **Who should be able to open the dashboard?**
 
 - `1` only this computer
-- `2` devices on my network, e.g. your phone on the same Wi-Fi *(default; not offered on a server with a public
-  address, where it would be the whole internet over plain http)*
-- `3` from anywhere: then *I have a server* (make it the hub: [HUB.md](HUB.md)), *a public link* (free,
+- `2` devices on my network, e.g. your phone on the same Wi-Fi *(default; not offered on a server)*
+- `3` from anywhere: then *I have a server* (make it the main computer: [HUB.md](HUB.md)), *a public link* (free,
   through Cloudflare, no server: a new address at each start, or your own domain; `hoprig public on`), or *Tailscale* (shown when it is installed and signed in; see Other ways below)
+
+On a server, choice 2 is not offered and `hoprig setup --access network` is refused, because there it would open the
+dashboard to the whole internet over plain http. Hoprig treats a computer as a server when it has a public address,
+and on Linux also when you reach it over SSH (remote login) and it has no desktop of its own, or when its hardware
+names a cloud. A Mac or a Windows computer counts as a server only by its public address. There `hoprig doctor`
+fails a dashboard that is open to the network.
 
 To take the safe defaults and not be asked at all (it installs the default tools, adds no project, and adds only
 skills that come with Hoprig or are pinned in its catalog):
@@ -85,14 +96,13 @@ hoprig setup --only skills     # skills
 hoprig setup --dry-run         # the whole plan, nothing changed
 ```
 
-A server that only shows your other computers (a hub) stops after the first part: `hoprig setup --hub`, see
+A server that only shows your other computers (a main computer) stops after the first part: `hoprig setup --hub`, see
 [HUB.md](HUB.md).
 
 ### What it needs, and what was run
 
-- **Node.js 22 or newer.** The tests run on Linux and macOS with Node 22, 24 and 26 on every change (and natively
-  on macOS with Node 26). On Windows they have been run and do not pass yet: Windows is not supported yet, and
-  `install.ps1` has never been run.
+- **Node.js 22.11 or newer.** The tests run on Linux and macOS with Node 22, 24 and 26 on every change (and natively
+  on macOS with Node 26). On Windows they run as a job that is allowed to fail and do not pass yet (see above).
 - **tmux 3.2 or newer**, when you want sessions that outlive the dashboard. An older tmux is not used: the
   built-in terminals are taken instead.
 - **npm 12** needs nothing from you: setup builds the one module that needs a build (`node-pty`, the only install
@@ -102,7 +112,7 @@ A server that only shows your other computers (a hub) stops after the first part
 
 | What | How | Where |
 |---|---|---|
-| Node.js (when missing or older than 20) | macOS / Linux: [nvm](https://github.com/nvm-sh/nvm), for you only, no administrator rights. Alpine: `apk add nodejs npm`. Windows: WinGet, the official `OpenJS.NodeJS.LTS` package | `~/.nvm` (macOS / Linux) |
+| Node.js (when missing or older than 22.11) | macOS / Linux: [nvm](https://github.com/nvm-sh/nvm), for you only, no administrator rights. Alpine: `apk add nodejs npm`. Windows: WinGet, the official `OpenJS.NodeJS.LTS` package | `~/.nvm` (macOS / Linux) |
 | Build tools (Linux only) | your package manager (`apt`, `dnf`, `yum`, `pacman`, `zypper`, `apk`) with `sudo`; needed once to compile the terminal module | system |
 | Hoprig | `npm install -g` | npm's global folder, or `~/.local` when that folder belongs to the system |
 | The terminal module (`node-pty`) | built when Hoprig is installed; npm 12 and newer do not run that build in `npm install -g`, so `hoprig setup` runs it (`npm rebuild node-pty` in Hoprig's own folder, whose `package.json` allows the install script of exactly that module and no other) | inside Hoprig's folder |
@@ -120,7 +130,7 @@ Setup says so in one line and carries on. Run `claude`, type `/login`, sign in i
 
 - **Same Wi-Fi:** choose `2` in setup, scan the QR code. Plain http is not encrypted: use it only on a network you
   trust (your home), never on public Wi-Fi.
-- **Anywhere:** **Settings → Public link → On** (`hoprig public on`), or a hub on a server; see
+- **Anywhere:** **Settings → Public link → On** (`hoprig public on`), or a main computer on a server; see
   [Which setup is mine?](COMPUTERS.md#which-setup-is-mine).
 - **Other ways:** `hoprig setup --access tailscale` serves the page at an https address that only your own
   [Tailscale](https://tailscale.com/download) devices can open, for when you want no public sign-in page.
@@ -176,7 +186,7 @@ be better) or `✗` (needs fixing), and under each problem is the one command th
 exit code non-zero; missing coding tools are suggestions (`!`). `hoprig pc status` is the detailed view of
 the computer alone. Common ones:
 
-| doctor says | do this |
+| Doctor says | Do this |
 |---|---|
 | `✗ Claude Code  not installed` | `hoprig setup` (or `hoprig claude install latest`) |
 | `! Claude Code ... its folder is not on PATH` | open a new terminal, or run `hoprig setup` (it remembers the full path) |
@@ -193,3 +203,89 @@ On Linux, to keep the dashboard running while you are logged out: `sudo loginctl
 
 `hoprig doctor --json` gives the same as JSON (`{ ok, groups: [{ title, checks }] }`); `--offline` skips every
 network lookup.
+
+## A server with only a root login
+
+Some servers hand out only a root login (root is the one account that can change everything on the computer).
+Hoprig does not work as root: Claude Code refuses bypass permissions mode (the mode that asks nothing) for root, so
+every session there would ask about each command. Under root the dashboard does not offer bypass permissions mode
+at all.
+
+So when you run the installer as root, it first lists every step it would take as root, then asks one question:
+
+```
+Make the user hoprig and set Hoprig up there? [Y/n]
+```
+
+The steps: make the user `hoprig` (no password), give it the keys that let you in as root, give it sudo (the
+command that runs another command as administrator) without a password through one file
+`/etc/sudoers.d/90-hoprig-hoprig` checked by `visudo` (sudo's own checker of such files), keep its services running
+when nobody is logged in (lingering), then install Hoprig for that user and start its dashboard there. Sudo without a
+password means that a command run as that user, a session's too, can act as administrator without asking. Run the
+installer with `--no-admin` to give the user no administrator rights: such steps then stay yours, as root. Root's
+own login, password and SSH (remote login) settings are not changed. With no terminal to ask in, nothing is made and the installer says the
+two commands: `--yes` to make the user, `--stay-root` to keep Hoprig on root instead. `HOPRIG_YES` in the
+environment is not a yes here: only `--yes` on the command line is. Inside a container (a closed-off
+system of its own, such as Docker's) root is on purpose, and Hoprig stays on root without asking.
+
+## Moving Hoprig off root
+
+On a server that hands out only a root login, an older Hoprig installed itself under root. Claude Code refuses
+bypass permissions mode for root, so every session there asks about each command. `hoprig doctor`, Health and
+**Settings → Runs as root** say so in one line, with one step: move Hoprig to an ordinary user.
+
+**The move needs the network.** It keeps root's build of Hoprig, but the user's own install fetches nvm, Node.js,
+Hoprig's packages and Claude Code (from the npm registry, nodejs.org, raw.githubusercontent.com, github.com,
+claude.ai and downloads.claude.ai). The move asks each of them first, before it makes or copies anything, and stops
+with one line naming what it could not reach. Behind a proxy it cannot ask them itself, and says so.
+
+```sh
+hoprig move-to-user --dry-run      # what it would do; changes nothing
+hoprig move-to-user                # asks once, then moves
+hoprig move-to-user --back         # the step back: root's dashboard again
+```
+
+Its options (`hoprig move-to-user --help` lists them):
+
+- `--user NAME`: move to this user instead of the one Hoprig made.
+- `--new` (with `--user`): only a user that is not there yet, or one Hoprig made; a user of that name that Hoprig
+  did not make is then refused. The main computer passes it when its look said the move makes the user.
+- `--no-admin`: a user the move makes gets no administrator rights.
+- `--dry-run`: only shows what it would do.
+- `--yes`: the yes to the one question, given on the command line (in a terminal the question's default is no).
+- `--json`: the look as one line of JSON (the main computer reads it); it changes nothing.
+- `--back`: the user's dashboard stopped, root's started again.
+
+The same runs from **Settings → Runs as root → Show what the move does** on that server's own page, after you type
+the server's name. A computer token or Tia never starts it. The same page has **Keep Hoprig on root on purpose**:
+you type `keep Hoprig on root`, the choice is kept in this computer's settings and can be taken back there; bypass
+permissions mode stays unavailable, and doctor and Health then show root as information only.
+
+- **The user.** The move uses the user Hoprig made (the file `.hoprig-made-by-move` in its home, owned by root,
+  which only Hoprig's installer writes; the comment field alone is not trusted), or the one you name with `--user NAME` (a user id of 1000 or more and a home
+  of its own). When there is none, the move makes `hoprig` first, after the same yes, the way the installer does:
+  login keys copied from root, sudo without a password through one file `/etc/sudoers.d/90-hoprig-<user>` checked
+  by `visudo` (`--no-admin` for none), lingering. A user named `hoprig` that Hoprig did not make is never used on
+  its own: the move says so and offers another name, or `--user hoprig` to move to it all the same.
+- **It stops first** when a session, a Work task or a Tia job is working, when the user's disk lacks the copy's
+  size plus a tenth, or when a part to copy is already in the user's home and the move did not put it there. Idle
+  terminals do not stop it. A copy the move made itself (it keeps a mark of it in root's state folder) is gone on
+  from: run the same command again after a stop. Every stop says what it left and the command that takes it away.
+- **It copies, never moves:** Hoprig's settings and state (not what belongs to the running dashboard), the
+  workspace (every repository with its branches, stashes, untracked and ignored files), `~/.claude` and
+  `~/.claude.json`, the gh, git, OpenCode and Codex settings, `~/.gitconfig`, `~/.npmrc`, and the keys git uses
+  (`~/.ssh/id_*`, `config`, `known_hosts`; never `authorized_keys`). Everything copied belongs to the user. In the
+  copy only, settings, links and git's records of linked work trees name the new home; each project folder of
+  Claude Code is also placed under its new path's name, so history and "continue" find it. Conversations are never
+  rewritten.
+- **It checks the copy:** per repository and linked work tree the same head, status, branches, stashes and file
+  count; per part the same entry count; no entry of another owner; the same conversations by content. It says how
+  far it is while it runs.
+- **Then it switches:** lingering for the user (its exact command is listed first), the same build of Hoprig that
+  root runs installed for the user (Hoprig itself from root's installed copy; Node.js, its packages and Claude Code
+  from the network, as above),
+  a trial of the user's dashboard on a free port, root's service stopped, the user's service started on the usual
+  port and checked to run as the user. On any failure after root's stopped, root's starts again. A gateway that ran
+  as root moves with its data folder and then listens on this computer only. The same password signs in.
+- **Root's copy is kept.** `~/HOPRIG-MOVED.txt` in root's home says where Hoprig runs now and how to become that
+  user. Removing root's copy is a later step of its own.

@@ -144,3 +144,45 @@ test('add-ons: an add-on is named by its own plain spelling only (an encoded one
   await settle();
   assert.equal(addon.state.running, false, 'nothing was started');
 });
+
+test('add-ons: one whose parts build a helper carries that line and its install command to the page (its Install confirmation)', async () => {
+  const { addon, call } = harness();
+  addon.builds = 'Two of its parts (alpha, beta) build a helper program each on this computer while it installs.';
+  addon.installHint = () => 'npm install -g --allow-scripts=alpha,beta --loglevel=error example-gw';
+  const [a] = (await call('GET', '/api/addons')).addons;
+  assert.equal(a.builds, addon.builds);
+  assert.equal(a.installCommand, 'npm install -g --allow-scripts=alpha,beta --loglevel=error example-gw');
+  // One that builds nothing carries neither: the page installs it without a question, as before.
+  delete addon.builds;
+  const [b] = (await call('GET', '/api/addons')).addons;
+  assert.equal('builds' in b, false);
+  assert.equal('installCommand' in b, false);
+});
+
+test('a gateway\'s install and update are the owner\'s press, checked on the server; start and stop are as before', async () => {
+  const done = [];
+  const gw = { id: 'relay', title: 'Relay', gateway: { port: () => 9 }, status: async () => ({ installed: true, running: false }),
+    install: async () => (done.push('install'), { ok: true }), update: async () => (done.push('update'), { ok: true }), start: async () => (done.push('start'), { ok: true }), stop: async () => (done.push('stop'), { ok: true }) };
+  const make = (caller, card = null) => addonsFeature({ readJson: async (req) => req.body || {}, caller: () => caller, ownerCard: () => card, config: () => ({ server: { roots: [os.tmpdir()] } }) }, { addons: [gw], computer: () => 'box2' });
+  const post = (f, action, body) => {
+    const [, re, fn] = f.routes.find(([m, r]) => m === 'POST' && r.test(`/api/addons/relay/${action}`));
+    return fn({ body, headers: {} }, re.exec(`/api/addons/relay/${action}`));
+  };
+  assert.equal((await make('page').routes.find(([m, r]) => m === 'GET' && r.test('/api/addons'))[2]({})).computer, 'box2', 'the page learns the name it sends');
+  for (const action of ['install', 'update']) {
+    for (const body of [{}, { confirm: 'box3' }]) await assert.rejects(post(make('page'), action, body), (e) => e.status === 400 && e.details.code === 'confirm', `${action} ${JSON.stringify(body)}`);
+    await assert.rejects(post(make('self'), action, { confirm: 'box2' }), (e) => e.status === 403, `${action}: Tia on her own`);
+    await assert.rejects(post(make('self', { tool: 'manage_computer', input: { action: 'addon', addon: 'relay', addon_action: action === 'install' ? 'update' : 'install' } }), action, { confirm: 'box2' }), (e) => e.status === 403, `${action}: a card for the other act`);
+  }
+  await settle();
+  assert.deepEqual(done, [], 'nothing ran');
+  const { gatewayBusy } = await import('../../src/addons/gatewayhost.mjs');
+  const idle = async () => { for (let i = 0; i < 50 && gatewayBusy('relay'); i++) await settle(); };
+  assert.deepEqual(await post(make('page'), 'install', { confirm: 'box2' }), { started: true });
+  await idle();
+  assert.deepEqual(await post(make('self', { tool: 'manage_computer', input: { action: 'addon', addon: 'relay', addon_action: 'update' } }), 'update', { confirm: 'box2' }), { started: true }, 'his confirmed card');
+  await idle();
+  assert.deepEqual(await post(make('self'), 'start', {}), { started: true }, 'start stays hers at its level');
+  for (let i = 0; i < 20 && done.length < 3; i++) await settle();
+  assert.deepEqual(done, ['install', 'update', 'start']);
+});

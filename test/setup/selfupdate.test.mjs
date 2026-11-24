@@ -9,6 +9,9 @@ test.after(s.cleanup);
 const U = await import('../../src/setup/selfupdate.mjs');
 const { appRoot } = await import('../../src/setup/checks.mjs');
 
+const { hoprigSource } = await import('../../src/paths.mjs');
+const { appVersion } = await import('../../src/setup/checks.mjs');
+
 test('how hoprig was installed, from its folder', () => {
   const git = path.join(s.tmp, 'checkout');
   fs.mkdirSync(path.join(git, '.git'), { recursive: true });
@@ -65,8 +68,6 @@ test('update --dry-run reports and runs nothing', async () => {
 
 // ---- the newest version, from where the install and the update come from ----
 
-const { hoprigSource } = await import('../../src/paths.mjs');
-const { appVersion } = await import('../../src/setup/checks.mjs');
 const answer = (status, body) => async () => ({ ok: status >= 200 && status < 300, status, text: async () => body });
 
 test('the newest version is read from the package.json the update would install, and nothing else is sent', async () => {

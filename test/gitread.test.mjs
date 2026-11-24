@@ -124,8 +124,8 @@ test('the caller\'s GIT_* never reach git: another repository, an external diff,
   assert.match(d.stdout, /^\+two$/m, 'the folder named, not the caller\'s GIT_DIR');
   assert.equal((await read(['symbolic-ref', '--short', 'HEAD'], { env: loud })).stdout.trim(), 'main');
   // A PATH the caller hands in is the one git is found on.
-  assert.equal(readEnv({ PATH: '/nowhere', GIT_DIR: '/x', LC_ALL: 'C', SECRET_TOKEN: 'x' }).PATH, '/nowhere');
-  assert.deepEqual(Object.keys(readEnv({ PATH: '/p', GIT_DIR: '/x', LC_ALL: 'C', SECRET_TOKEN: 'x' })).filter((k) => !k.startsWith('GIT_')).sort(), ['LC_ALL', 'PATH']);
+  assert.equal(readEnv({ PATH: '/nowhere', GIT_DIR: '/x', LC_ALL: 'C', SECRET_TOKEN: 'x' }).PATH, '/nowhere'); // seal: a value no program is started with
+  assert.deepEqual(Object.keys(readEnv({ PATH: '/p', GIT_DIR: '/x', LC_ALL: 'C', SECRET_TOKEN: 'x' })).filter((k) => !k.startsWith('GIT_')).sort(), ['LC_ALL', 'PATH']); // seal: a value no program is started with
 });
 
 test('the fixed settings come on the command line, the drivers from the folder\'s own list', async () => {
@@ -157,17 +157,17 @@ test('git older than 2.31 ignores GIT_CONFIG_COUNT: a driver it cannot switch of
     return { calls, run: async (argv) => (calls.push(argv), argv[1] === '--version' ? { ok: true, stdout: `git version ${version}\n` } : { ok: true, stdout: listing }) };
   };
   const old = runAs('2.30.2');
-  const r = await gitRead(root, ['status'], { env: { ...env, PATH: '/old-git' }, run: old.run });
+  const r = await gitRead(root, ['status'], { env: { ...env, PATH: '/old-git' }, run: old.run }); // seal: its runner is a stand-in
   assert.deepEqual([r.ok, r.refused, r.stderr], [false, true, REFUSED_OLD]);
   assert.equal(old.calls.filter((a) => a.includes('status')).length, 0, 'the read itself did not run');
   // A plain driver name alone needs no version: the -c override works on every git.
   const plain = runAs('2.30.2');
-  const p = await readCommand(root, ['status'], { env: { ...env, PATH: '/old-git-2' }, run: async (argv) => (plain.calls.push(argv), { ok: true, stdout: 'local\0filter.plain.clean\0' }) });
+  const p = await readCommand(root, ['status'], { env: { ...env, PATH: '/old-git-2' }, run: async (argv) => (plain.calls.push(argv), { ok: true, stdout: 'local\0filter.plain.clean\0' }) }); // seal: its runner is a stand-in
   assert.ok(p.argv.join(' ').includes('-c filter.plain.clean= '));
   assert.equal(plain.calls.length, 1, 'only the listing');
   // A newer git: the version is read once per PATH.
   const neu = runAs('2.53.0');
-  for (let i = 0; i < 2; i++) assert.equal((await readCommand(root, ['diff'], { env: { ...env, PATH: '/new-git' }, run: neu.run })).refused, undefined);
+  for (let i = 0; i < 2; i++) assert.equal((await readCommand(root, ['diff'], { env: { ...env, PATH: '/new-git' }, run: neu.run })).refused, undefined); // seal: its runner is a stand-in
   assert.equal(neu.calls.filter((a) => a[1] === '--version').length, 1);
   // A folder that names hundreds of drivers is no project.
   const many = Array.from({ length: 300 }, (_, i) => `local\0diff.d${i}.textconv\0`).join('');

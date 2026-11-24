@@ -19,7 +19,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configDir } from '../paths.mjs';
-import { TOOL_NAMES } from './tools.mjs';
+import { OLD_NAMES, TOOL_NAMES } from './tools.mjs';
+import { loadCatalog } from '../skillhub/catalog.mjs';
 
 export const BUILTIN_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'skills');
 export const ownerSkillsDir = () => path.join(configDir(), 'assistant', 'skills');
@@ -69,6 +70,10 @@ export function formatSkill({ name, description, allowedTools, body }) {
   return `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\nallowed-tools: ${allowedTools.join(' ')}\n---\n\n${body.trim()}\n`;
 }
 
+// The built-in folder also holds skills for the coding tools that ship with Hoprig (bundled entries of the skill
+// catalog, such as plan-work): those are not the assistant's, and are passed over here.
+const forCodingTools = () => new Set(loadCatalog().entries.filter((e) => e.bundled && e.bundled.startsWith('skills/')).map((e) => e.bundled.slice('skills/'.length)));
+
 function readDir(dir, source, problems) {
   const out = [];
   let names = [];
@@ -77,13 +82,17 @@ function readDir(dir, source, problems) {
   } catch {
     return out;
   }
+  const skip = source === 'built-in' && path.resolve(dir) === BUILTIN_DIR ? forCodingTools() : new Set();
   for (const folder of names) {
+    if (skip.has(folder)) continue;
     const file = path.join(dir, folder, 'SKILL.md');
     try {
       const st = fs.statSync(file);
       if (st.size > MAX_FILE) throw new Error('SKILL.md is larger than 64 KiB');
       const s = parseSkill(fs.readFileSync(file, 'utf8'));
       if (s.name !== folder) throw new Error(`name "${s.name}" differs from the folder name`);
+      // A tool that got a new name is read as the tool it became: a skill written before the change still loads.
+      s.allowedTools = [...new Set(s.allowedTools.map((t) => OLD_NAMES.get(t)?.tool ?? t))];
       const unknown = s.allowedTools.filter((t) => !TOOL_NAMES.includes(t));
       if (unknown.length) throw new Error(`allowed-tools names unknown tools: ${unknown.join(', ')}`);
       if (!s.allowedTools.length) throw new Error('allowed-tools is empty');

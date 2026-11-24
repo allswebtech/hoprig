@@ -10,6 +10,8 @@ import { BARE, api, chooseSheet, fill, h, kindLabel, link, openApp, profileIcon,
 import { closeMenuOf, openMenu } from '../desktop/menu.js'; // the drop-down menu with submenus (also the desktop's)
 import { store } from '../store.js';
 import { copyBranch, railFits } from './rail.js';
+import { notPickable } from './deletes.js';
+import { sideFits } from './sidebar.js';
 import { VIEWS, canCompact, caps, failText, toolWord, touchScreen, turnRuns, viewChoices } from './words.js';
 
 const phone = () => typeof matchMedia !== 'undefined' && matchMedia('(max-width: 599px)').matches;
@@ -36,7 +38,8 @@ export const terminalItem = (v) => (v && v.terminal
 export const openInItems = (v) => [
   v && v.terminal ? terminalItem(v) : { ...terminalItem(v), label: 'Terminal' },
   { value: 'files', label: 'Files', sub: 'The folder in the editor', icon: 'code' },
-  { value: 'changes', label: 'Changes', sub: 'What changed in the folder (git), in the editor', icon: 'git' },
+  // Not "Changes": that is the diff pane (the title bar's Changes), as the desktop app has one Changes.
+  { value: 'changes', label: 'Source control', sub: 'What changed in the folder (git), in the editor\'s Source Control', icon: 'git' },
 ];
 
 /**
@@ -52,7 +55,9 @@ export function moreItems(v, { rail = null, wide = false, touch = false } = {}) 
     canCompact(v) ? { value: 'compact', label: 'Compact', sub: `${toolWord(v)} goes on from a summary of the conversation, which frees context`, icon: 'minus' } : null,
     { value: 'clear', label: 'Clear', sub: 'A new session in this folder with the same settings; this one is kept', icon: 'plus' },
     // Not while a terminal runs the conversation: a rewind runs Claude Code on it (one place at a time).
-    (can.rewind || can.fork) && v && !v.terminal ? { value: 'rewind', label: 'Rewind…', sub: 'Go back to before one of your messages: the files, the conversation or both', icon: 'undo' } : null,
+    (can.rewind || can.fork) && v && !v.terminal ? { value: 'rewind', label: 'Rewind…', sub: 'Go back to before one of your messages: the code, the conversation or both', icon: 'undo' } : null,
+    // Lead model: which model did which part, in a sheet (the rail's card is not drawn below its width).
+    v && v.lead ? { value: 'parts', label: 'Who did what', sub: 'Which model did each part, with its tokens', icon: 'stack' } : null,
     v && Array.isArray(v.tasks) && v.tasks.length ? { value: 'tasks', label: 'Background tasks', sub: 'Agents, shells and workflows of this session, each with its Stop', icon: 'grid' } : null,
     touch ? null : { value: 'shortcuts', label: 'Keyboard shortcuts', sub: 'Enter, Esc, Shift+Tab, ↑, / and @', icon: 'info' },
     rail && wide ? { value: 'rail', label: rail.hidden() ? 'Show session rail' : 'Hide session rail', sub: 'The session\'s details beside the chat', icon: 'rail' } : null,
@@ -68,19 +73,34 @@ export const openEditor = (dir, view = null) => openApp('editor', editorLink(dir
 /**
  * The session menu, as the desktop app's on the caret beside the title (Transcript view, Open in, Archive, Copy
  * branch name), then Hoprig's own; on a phone Open in's targets at its first level and the provider (its chip does not
- * fit there). o: { view (the transcript view now; null: none to choose), phone }
+ * fit there). o: { view (the transcript view now; null: none to choose), phone, list (the session list is drawn
+ * beside the chat: not on a phone, below SIDE_MIN_PX or in a window of the desktop) }
  */
-export function sessionItems(v, { view = null, phone: onPhone = false } = {}) {
+export function sessionItems(v, { view = null, phone: onPhone = false, list = !onPhone } = {}) {
   const viewName = view ? (VIEWS.find((x) => x.id === view) || VIEWS[0]).label : '';
   return [
     view ? { value: 'view', label: 'Transcript view', sub: `${viewName}: how much of each step shows`, icon: 'text' } : null,
     // A phone: Open in's targets at the first level (two taps to the terminal, not three).
-    ...(onPhone ? [terminalItem(v), ...openInItems(v).slice(1)]
-      : [{ value: 'openin', label: 'Open in', sub: `Terminal, Files or Changes${v && v.terminal ? ' (a terminal runs it now)' : ''}`, icon: 'terminal' }]),
+    // Changes is the diff pane there, as the title bar's Changes (which a phone does not show); its editor button has
+    // the editor's Changes.
+    ...(onPhone ? [terminalItem(v), ...openInItems(v).slice(1).map((x) => (x.value === 'changes' ? { ...x, value: 'diff', label: 'Changes', sub: 'What changed in the folder: review it, comment on lines' } : x))]
+      : [{ value: 'openin', label: 'Open in', sub: `Terminal, Files or Source control${v && v.terminal ? ' (a terminal runs it now)' : ''}`, icon: 'terminal' }]),
     { value: 'archive', label: 'Archive', sub: 'It leaves Home; the conversation is kept and can be continued', icon: 'archive' },
     v && v.branch ? { value: 'branch', label: 'Copy branch name', sub: v.branch, icon: 'git' } : null,
+    // Branch: Claude Code's /branch (switches into the copy; /fork, which stays here, is in the / menu), where the
+    // coding tool can (OpenCode cannot).
+    caps(v).fork ? { value: 'fork', label: 'Branch', sub: 'A copy of this chat you switch into; this one stays', icon: 'swap' } : null,
     { value: 'history', label: 'Earlier conversations', sub: 'Of this folder: continue one in the App', icon: 'clock' },
     { value: 'rename', label: 'Rename', sub: 'Give this session a name', icon: 'pencil' },
+    // Hands-off for this session (web/handsoff.js), as on a terminal's page: on here, or one press stops it.
+    v && v.handsOff ? { value: 'handsoff', label: v.handsOff.on ? 'Stop Hands-off' : 'Turn on Hands-off', sub: v.handsOff.on ? 'Hoprig stops answering for you in this session' : 'Hoprig answers what the tool marks as recommended, or with your note', icon: 'sparkle' } : null,
+    // Where the note is written: one press opens Settings → Hands-off, not a place named in words only.
+    v && v.handsOff ? { value: 'handsoffsettings', label: 'Hands-off settings', sub: 'Your note for this project, and what Hands-off never answers', icon: 'settings' } : null,
+    // Not while it works or waits for an OK: the server would refuse it (the reason is the entry's sub line).
+    v && v.engine && v.engine.id === 'claude' ? { value: 'delete', label: 'Delete', sub: notPickable(v) || 'To the trash; removed for good after 30 days', icon: 'trash', danger: true, ...(notPickable(v) ? { disabled: true } : {}) } : null,
+    // Where the session list is not drawn (its menu has them), the trash and the pick of several are here.
+    !list ? { value: 'pick', label: 'Select to delete', sub: 'Several App sessions of this computer at once', icon: 'checkAll' } : null,
+    !list ? { value: 'trash', label: 'Trash', sub: 'Deleted sessions: put one back within 30 days', icon: 'trashBack' } : null,
     onPhone ? { value: 'provider', label: 'Provider', sub: `Now ${v && v.profile ? v.profile.label : '…'}: move to another`, icon: 'user' } : null,
   ].filter(Boolean);
 }
@@ -91,10 +111,11 @@ export const menuTitle = (v) => (v && v.title) || 'New session';
 /**
  * The session menu as it drops down from the caret on a wider screen, as the desktop app's: Transcript view (the
  * views, the one now marked) and Open in are submenus. o: { view (now; null: none to choose), thought (there is
- * thinking: the Thinking view is offered), who (the coding tool's word) } → [{ value, label, icon, checked?, items? }]
+ * thinking: the Thinking view is offered), who (the coding tool's word), list (the session list is drawn: sessionItems) }
+ * → [{ value, label, icon, checked?, items? }]
  */
-export function sessionTree(v, { view = null, thought = false, who = 'Claude' } = {}) {
-  return sessionItems(v, { view }).map((x) => (x.value === 'view'
+export function sessionTree(v, { view = null, thought = false, who = 'Claude', list = true } = {}) {
+  return sessionItems(v, { view, list }).map((x) => (x.value === 'view'
     ? { ...x, items: viewChoices(view, thought, who).map((c) => ({ value: `view:${c.id}`, label: c.label, checked: c.id === view })) }
     : x.value === 'openin' ? { ...x, items: openInItems(v) } : x));
 }
@@ -127,7 +148,7 @@ export function createHeader(o) {
   if (railBtn) railBtn.classList.add('chat-railbtn');
   const tbtns = h('div.chat-tbtns',
     termBtn,
-    barBtn('Changes', 'git', 'Changes: what changed in the folder (git), in the editor', () => openEditor(v.cwd, 'changes')),
+    barBtn('Changes', 'git', 'Changes: the diff of the folder (git), to review and comment on', () => (o.act.diff ? o.act.diff() : openEditor(v.cwd, 'changes'))),
     barBtn('Files', 'code', 'Files: the folder in the editor', () => openEditor(v.cwd)),
     railBtn);
   const el = h('header.chat-bar',
@@ -145,7 +166,7 @@ export function createHeader(o) {
     try {
       await api(`${o.A}/title`, { title: title.trim() });
     } catch (e) {
-      toast(failText(e), { kind: 'error' });
+      toast(failText(e), { from: e, kind: 'error' });
     }
   }
 
@@ -156,9 +177,9 @@ export function createHeader(o) {
     const view = o.view ? o.view.now() : null;
     if (!phone()) {
       const r = caretBtn.getBoundingClientRect();
-      const item = (x) => ({ label: x.label, icon: x.icon, ...(typeof x.checked === 'boolean' ? { checked: x.checked } : {}),
+      const item = (x) => ({ label: x.disabled && x.sub ? `${x.label} (${x.sub.charAt(0).toLowerCase()}${x.sub.slice(1)})` : x.label, icon: x.icon, ...(x.danger ? { danger: true } : {}), ...(x.disabled ? { disabled: true } : {}), ...(typeof x.checked === 'boolean' ? { checked: x.checked } : {}),
         ...(x.items ? { items: x.items.map(item) } : { run: () => sessionPick(x.value) }) });
-      menu = openMenu(r.left, r.bottom + 4, sessionTree(v, { view, thought: o.view ? o.view.thought() : false, who: toolWord(v) }).map(item), `Session menu of ${menuTitle(v)}`, { from: caretBtn });
+      menu = openMenu(r.left, r.bottom + 4, sessionTree(v, { view, thought: o.view ? o.view.thought() : false, who: toolWord(v), list: !BARE && sideFits() }).map(item), `Session menu of ${menuTitle(v)}`, { from: caretBtn });
       return;
     }
     sessionPick(await chooseSheet({
@@ -173,11 +194,18 @@ export function createHeader(o) {
     } else if (pick === 'view') viewMenu();
     else if (pick === 'files') openEditor(v.cwd);
     else if (pick === 'changes') openEditor(v.cwd, 'changes');
+    else if (pick === 'diff') o.act.diff();
     else if (pick === 'terminal') o.act.terminal();
     else if (pick === 'archive') o.act.close();
     else if (pick === 'branch') copyBranch(v.branch);
     else if (pick === 'history') o.act.history();
+    else if (pick === 'fork') o.act.fork();
     else if (pick === 'rename') rename();
+    else if (pick === 'handsoff') o.act.handsOff?.();
+    else if (pick === 'handsoffsettings') location.hash = link('#/settings/handsoff');
+    else if (pick === 'delete') o.act.remove();
+    else if (pick === 'pick') o.act.pickDelete();
+    else if (pick === 'trash') o.act.trash();
     else if (pick === 'provider') providerMenu();
   }
 

@@ -62,7 +62,8 @@ async function serve(name, env, args = []) {
   const root = path.join(s.tmp, name);
   const child = spawn(process.execPath, [BIN, 'serve', ...args], {
     env: {
-      ...process.env, HOME: path.join(root, 'home'), HOPRIG_CONFIG_DIR: path.join(root, 'config'), HOPRIG_STATE_DIR: path.join(root, 'state'),
+      ...process.env, HOME: path.join(root, 'home'), USERPROFILE: path.join(root, 'home'), APPDATA: path.join(root, 'home', 'AppData', 'Roaming'),
+      LOCALAPPDATA: path.join(root, 'home', 'AppData', 'Local'), HOPRIG_CONFIG_DIR: path.join(root, 'config'), HOPRIG_STATE_DIR: path.join(root, 'state'),
       CLAUDE_CONFIG_DIR: path.join(root, 'claude'), HOPRIG_HUB: '1', ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -102,7 +103,7 @@ test('unattended first start: PORT from the environment, a password generated in
     const cfg = JSON.parse(fs.readFileSync(path.join(sv.root, 'config', 'config.json'), 'utf8'));
     assert.match(cfg.server.passwordHash, /^scrypt\$/);
     assert.doesNotMatch(sv.output(), new RegExp(fs.readFileSync(pwFile, 'utf8').trim()), 'the password is never printed');
-    assert.match(sv.output(), /This computer is a hub/);
+    assert.match(sv.output(), /This computer is a main computer/);
   } finally {
     await sv.stop();
   }

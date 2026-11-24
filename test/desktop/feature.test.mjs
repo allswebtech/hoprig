@@ -163,6 +163,8 @@ test('processes: the dashboard, the processes above it and the sessions\' tmux s
     const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' });
     c.once('spawn', () => resolve(c));
   });
+  // The processes ABOVE this test (the runner's) are in no table of the test's own: only the computer's ps shows them.
+  process.env.HOPRIG_SEAL_REAL = 'ps'; // seal: it proves the processes above the dashboard are guarded, which only the real process table holds (read only; signals go to a stand-in)
   try {
     // This system's own part with its real programs (ps, and /proc where there is one): read only.
     const { call } = harness({ platform: process.platform, run: undefined, readFile: undefined, kill, sessionHosts: async () => [host.pid] });
@@ -186,6 +188,7 @@ test('processes: the dashboard, the processes above it and the sessions\' tmux s
     assert.equal(await gone, 'SIGTERM');
     assert.deepEqual(signalled, [child.pid]);
   } finally {
+    delete process.env.HOPRIG_SEAL_REAL; // seal: the stand-in again for the rest of the file
     host.kill('SIGKILL');
     child.kill('SIGKILL');
   }

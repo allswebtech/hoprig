@@ -9,7 +9,7 @@ test('the head as the desktop app\'s title bar: a session menu on the caret, the
   const { createHeader, sessionItems } = await import('../../web/chat/header.js');
   const v = { title: 'Fix the cart', cwd: '/w/shop', short: '~/w/shop', branch: 'fix/cart-total', profile: { name: 'sub', label: 'Max' }, engine: { id: 'claude' } };
   // The desktop app's items first, in its order, then Hoprig's own.
-  assert.deepEqual(sessionItems(v, { view: 'verbose' }).map((x) => x.label), ['Transcript view', 'Open in', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename']);
+  assert.deepEqual(sessionItems(v, { view: 'verbose' }).map((x) => x.label), ['Transcript view', 'Open in', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename', 'Delete']);
   assert.match(sessionItems(v, { view: 'verbose' })[0].sub, /^Verbose/);
   assert.ok(!sessionItems({ ...v, branch: null }).some((x) => x.label === 'Copy branch name'), 'no branch, nothing to copy');
   assert.ok(sessionItems(v, { phone: true }).some((x) => x.label === 'Provider'), 'a phone has no provider chip: the menu has it');
@@ -31,7 +31,7 @@ test('Open in names its targets as the desktop app does; the more menu has Backg
   const { openInItems, moreItems } = await import('../../web/chat/header.js');
   const v = { title: 'Fix the cart', cwd: '/w/shop', short: '~/w/shop', branch: 'main', engine: { id: 'claude' }, caps: {}, tasks: [] };
   // Inside "Open in" the terminal is "Terminal", not "Open in Terminal" a second time.
-  assert.deepEqual(openInItems(v).map((x) => x.label), ['Terminal', 'Files', 'Changes']);
+  assert.deepEqual(openInItems(v).map((x) => x.label), ['Terminal', 'Files', 'Source control'], '"Changes" is only the diff pane');
   assert.equal(openInItems({ ...v, terminal: { name: 'w1' } })[0].label, 'Open the terminal', 'while a terminal runs it, the entry goes there');
   const labels = (x, o) => moreItems(x, o).map((i) => i.label);
   assert.ok(!labels(v).includes('Background tasks'), 'no background work: no entry that opens an empty pane');
@@ -66,7 +66,7 @@ test('on a phone the session menu lists Terminal, Files and Changes at its first
   globalThis.location ||= { hash: '', search: '', pathname: '/' };
   const { sessionItems } = await import('../../web/chat/header.js');
   const phone = sessionItems(V, { view: 'normal', phone: true }).map((x) => x.label);
-  assert.deepEqual(phone, ['Transcript view', 'Open in Terminal', 'Files', 'Changes', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename', 'Provider']);
+  assert.deepEqual(phone, ['Transcript view', 'Open in Terminal', 'Files', 'Changes', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename', 'Delete', 'Select to delete', 'Trash', 'Provider'], 'a phone has no session list: its trash and Select to delete are here');
   assert.ok(!sessionItems(V, { view: 'normal' }).some((x) => x.label === 'Open in Terminal'), 'a wide screen: under Open in');
 });
 
@@ -74,9 +74,9 @@ test('the session menu at the caret: Transcript view and Open in are submenus of
   globalThis.location ||= { hash: '', search: '', pathname: '/' };
   const { sessionTree } = await import('../../web/chat/header.js');
   const tree = sessionTree(V, { view: 'thinking', thought: true, who: 'Claude' });
-  assert.deepEqual(tree.map((x) => x.label), ['Transcript view', 'Open in', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename']);
+  assert.deepEqual(tree.map((x) => x.label), ['Transcript view', 'Open in', 'Archive', 'Copy branch name', 'Earlier conversations', 'Rename', 'Delete']);
   assert.deepEqual(tree[0].items.map((x) => [x.label, x.checked]), [['Normal', false], ['Thinking', true], ['Verbose', false]]);
-  assert.deepEqual(tree[1].items.map((x) => x.label), ['Terminal', 'Files', 'Changes']);
+  assert.deepEqual(tree[1].items.map((x) => x.label), ['Terminal', 'Files', 'Source control']);
   assert.deepEqual(sessionTree(V, { view: null }).map((x) => x.label)[0], 'Open in', 'no view to choose: no entry');
 });
 
@@ -206,4 +206,45 @@ test('a second press of the caret closes the session menu, as a drop-down button
   } finally {
     t.done();
   }
+});
+
+test('the session menu has Hands-off, as a terminal\'s page has: turn it on here, or stop it', async () => {
+  globalThis.window = globalThis.window || { addEventListener() {} };
+  globalThis.location ||= { hash: '', search: '', pathname: '/' };
+  const { sessionItems, sessionTree } = await import('../../web/chat/header.js');
+  const v = { title: 'Fix the cart', cwd: '/w/shop', engine: { id: 'claude' } };
+  const off = sessionItems({ ...v, handsOff: { on: false, stale: false, loop: false, own: false } }).find((x) => x.value === 'handsoff');
+  assert.equal(off.label, 'Turn on Hands-off');
+  // The terminal's session menu says the same line, short enough for two lines of a phone's sheet.
+  assert.equal(off.sub, 'Hoprig answers what the tool marks as recommended, or with your note');
+  const termMenu = (await import('node:fs')).readFileSync(new URL('../../web/session.js', import.meta.url), 'utf8');
+  assert.ok(termMenu.includes(`'Turn on Hands-off', sub: s.handsOff.on ? 'Hoprig stops answering for you in this session' : '${off.sub}', icon`), 'web/session.js says the same line');
+  assert.equal(sessionItems({ ...v, handsOff: { on: true, stale: false, loop: false, own: true } }).find((x) => x.value === 'handsoff').label, 'Stop Hands-off');
+  assert.ok(sessionTree({ ...v, handsOff: { on: false } }).some((x) => x.value === 'handsoff'), 'in the drop-down menu too');
+  const fs = await import('node:fs');
+  assert.match(fs.readFileSync(new URL('../../web/chat/page.js', import.meta.url), 'utf8'), /async handsOff\(\) \{[\s\S]{0,200}api\(`\$\{A\}\/handsoff`, \{ on \}\)/);
+});
+
+test('where the session list is not drawn (600-899 px, a tablet held upright) the caret\'s menu has Select to delete and Trash', async (t) => {
+  const had = globalThis.matchMedia;
+  t.after(() => (globalThis.matchMedia = had));
+  // A screen `w` px wide answers the page's media queries ("(max-width: 599px)", "(min-width: 900px)").
+  const at = (w) => (globalThis.matchMedia = (q) => {
+    const m = /\((min|max)-width:\s*(\d+)px\)/.exec(q);
+    return { matches: !!m && (m[1] === 'min' ? w >= Number(m[2]) : w <= Number(m[2])), addEventListener() {}, removeEventListener() {} };
+  });
+  const labels = async (w) => {
+    at(w);
+    const c = await caretMenu();
+    try {
+      await c.caret.listeners.click();
+      return byClass(document.body, 'desk-menu-item').map((b) => texts(b).join(''));
+    } finally {
+      c.done();
+    }
+  };
+  const tablet = await labels(768);
+  assert.ok(tablet.includes('Select to delete') && tablet.includes('Trash'), `768 px: ${tablet.join(', ')}`);
+  const wide = await labels(1440);
+  assert.ok(!wide.includes('Select to delete') && !wide.includes('Trash'), 'with the list beside the chat they are in its menu');
 });

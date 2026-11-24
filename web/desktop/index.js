@@ -11,7 +11,7 @@
 //   files.js (with files-parts.js, files-ops.js), tasks.js, services.js, logs.js  the native apps
 //   desktop.css its look
 import { icon } from '../icons.js';
-import { BARE, WINDOW, api, at, confirmSheet, fill, h, link, machine, openSheet, prefs, toast } from '../lib.js';
+import { BARE, WINDOW, api, at, confirmSheet, fill, h, link, machine, openSheet, prefs, tildePath, toast } from '../lib.js';
 import { registerHeadTool, registerPage } from '../registry.js';
 import { panel, savedMark } from '../shell.js';
 import { pageNotify, store } from '../store.js';
@@ -19,6 +19,7 @@ import { named } from '../trail.js';
 import { APPS, appById, appHash, cardHash, onComputer, queryOf, sessionHash } from './apps.js';
 import { drawBars } from './bar.js';
 import { withMenu } from './menu.js';
+import { keysRow } from './keyset.js';
 import { nativeBody } from './native.js';
 import { windowManager } from './wm.js';
 
@@ -164,7 +165,7 @@ function mountDesktop() {
     },
   };
   let bars = null;
-  desk.wm = windowManager({ root, area, machineName, onChange: () => bars && bars.paint(), askClose: (v) => askCloseShell(v, machineName), launch: (id, hash) => desk.launch(id, hash) });
+  desk.wm = windowManager({ root, area, machineName, onChange: () => bars && bars.paint(), askClose: (v) => askCloseShell(v, machineName), launch: (id, hash) => desk.launch(id, hash), onMinimised: (id) => bars && bars.focusWindow(id) });
   // Leaving the desktop with unsaved changes in an Editor window asks first, as the editor's own page does.
   leaveGuard = (e) => {
     const n = desk.wm.unsaved();
@@ -375,7 +376,7 @@ export function reachSettings(settings) {
   paint(s.reach === 'everything' ? 'everything' : 'home');
   return panel({ id: 'reach', icon: 'folder', title: 'Files reach', desc: 'What Files and the editor can open on this computer.' },
     h('div.fieldrow', h('span.field-label', 'Reach', mark), seg,
-      h('span.hint', `Allowed folders: ${tops.join(', ') || 'your home folder'} (the home folder unless changed in New-session defaults). Everything: every folder your user can open on this computer, as a terminal can. New sessions, Tia and automations stay inside the allowed folders either way, and Hoprig's own folders and sign-in files stay locked.`)),
+      h('span.hint', `Allowed folders: ${tops.map((t) => tildePath(t)).join(', ') || 'your home folder'} (the home folder unless changed in `, h('a', { href: link('#/settings/new-sessions?show=folders') }, 'New-session defaults'), `). Everything: every folder your user can open on this computer, as a terminal can. New sessions, Tia and automations stay inside the allowed folders either way, and Hoprig's own folders and sign-in files stay locked.`)),
     err);
 }
 
@@ -399,7 +400,8 @@ export function desktopSettings() {
     return h('div.fieldrow', h('span.field-label', label, mark), seg(key, options, current, mark), h('span.hint', hint));
   };
   const el = panel({ id: 'desktop', icon: 'monitor', title: 'Desktop', desc: 'The apps of a computer as windows, on a screen at least 1024 × 600: Desktop mode at the top right of a page. Saved on this device only.' },
-    group('Desktop style', 'desktop.style', [['taskbar', 'Taskbar'], ['dock', 'Dock']], deskStyle(), 'Where the apps and open windows are: a bar at the bottom, or a dock with a bar at the top.'));
+    group('Desktop style', 'desktop.style', [['taskbar', 'Taskbar'], ['dock', 'Dock']], deskStyle(), 'Where the apps and open windows are: a bar at the bottom, or a dock with a bar at the top.'),
+    keysRow(savedMark()));
   // "Desktop settings" from the desktop lands on this card, not on the top of Appearance.
   if (/[?&]show=desktop\b/.test(location.hash)) setTimeout(() => el.isConnected && el.scrollIntoView({ block: 'start' }), 60);
   return el;

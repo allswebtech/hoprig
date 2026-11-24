@@ -6,11 +6,15 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 import { hostileRepo } from '../fixtures/hostile-repo.mjs';
+import { fakeTools } from '../setup/helpers.mjs';
 import { tempHome } from './helpers.mjs';
 
 const posix = process.platform !== 'win32';
 const t = tempHome('ws-hostile');
 test.after(() => t.cleanup());
+// The workspace read checks the GitHub sign-in with gh; a stand-in (installed, not signed in) first on PATH keeps it
+// off the owner's real gh. This is the dashboard's own check, not one of the hostile folders' programs.
+process.env.PATH = `${fakeTools(path.join(t.root, 'tools'))}${path.delimiter}${process.env.PATH}`;
 const { saveConfig } = await import('../../src/config.mjs');
 const { hashPassword } = await import('../../src/server/auth.mjs');
 const { createServer } = await import('../../src/server/server.mjs');

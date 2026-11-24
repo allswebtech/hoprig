@@ -8,7 +8,8 @@
 //   OpenCode     its database, read through its server (GET /api/session for one folder): Node 20 has no SQLite.
 import fs from 'node:fs';
 import path from 'node:path';
-import { sessionTitle, sessionsIn } from '../sessions.mjs';
+import { sessionsIn } from '../sessions.mjs';
+import { readTitles, sessionName } from '../titles.mjs';
 import { opencodeClient } from './clients.mjs';
 import { codex } from './codex.mjs';
 import { ensureServer } from './servers.mjs';
@@ -173,7 +174,7 @@ export async function codexSessions(cwd, { home = codex.home() } = {}) {
 /** OpenCode conversations of `cwd`, newest first, through its server (started when it does not run). */
 export async function opencodeSessions(cwd, { ensure = ensureServer, fetchImpl } = {}) {
   const r = await ensure('opencode');
-  if (!r.ok) throw Object.assign(new Error(r.why), { status: 409 });
+  if (!r.ok) throw Object.assign(new Error(r.why), { status: 409, ...(r.code ? { details: { code: r.code } } : {}) });
   const oc = opencodeClient({ ...r.server, fetchImpl });
   // The folder by its own filter (OpenCode 2.3: "directory"), and checked here too: a server that ignores the filter
   // lists every folder's conversations.
@@ -190,5 +191,7 @@ export async function opencodeSessions(cwd, { ensure = ensureServer, fetchImpl }
 export async function toolSessions(tool, cwd, opts = {}) {
   if (tool === 'codex') return codexSessions(cwd, opts);
   if (tool === 'opencode') return opencodeSessions(cwd, opts);
-  return sessionsIn(cwd).map((s) => ({ id: s.id, at: s.mtimeMs, title: sessionTitle(s.file) }));
+  const list = sessionsIn(cwd);
+  await readTitles(list.map((s) => s.file));
+  return list.map((s) => ({ id: s.id, at: s.mtimeMs, title: sessionName(s.file, s.id).slice(0, 120) }));
 }

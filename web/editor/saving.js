@@ -93,7 +93,7 @@ export function createSaving(x) {
     try {
       r = await wb.get('file', { path: t.path });
     } catch (e) {
-      if (!quiet) toast(e.message, { kind: 'error' });
+      if (!quiet) toast(e, { kind: 'error' });
       return false;
     }
     if (r.binary) return false;
@@ -116,7 +116,7 @@ export function createSaving(x) {
       monaco = await x.needMonaco();
       r = await wb.get('file', { path: t.path });
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(e, { kind: 'error' });
       return false;
     }
     const key = `compare:${t.path}`;

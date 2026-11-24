@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from './config.mjs';
+import { ownFolder } from './profiles.mjs';
 import { stateDir } from './paths.mjs';
 
 export const DEFAULT_ROUTER_PORT = 7434;
@@ -180,8 +181,23 @@ export function loginSeen() {
   if (!l || !Number.isFinite(l.at)) return null;
   return {
     loggedIn: typeof l.loggedIn === 'boolean' ? l.loggedIn : null, plan: typeof l.plan === 'string' ? l.plan : null, at: l.at,
-    accountAt: Number.isFinite(l.accountAt) ? l.accountAt : null,
+    accountAt: Number.isFinite(l.accountAt) ? l.accountAt : null, paid: l.loggedIn === true && l.paid === true,
   };
+}
+
+/**
+ * A sign-in that spends money by use: Claude Code answers `claude auth status` with authMethod "api_key" for a key
+ * the stored sign-in holds (a Console account's "/login managed key", or a key in its settings; a key in the
+ * environment is taken out before the check). It is billed by use as an API key straight to the vendor is
+ * (profiles.mjs isPayPerUse), though its profile file holds no key.
+ */
+export const paidMethod = (method) => method === 'api_key';
+
+/** True when provider `profile` uses the stored sign-in and that sign-in, as last checked, is billed by use. */
+export function billedLogin(profile) {
+  if (!profile || profile.kind !== 'login' || ownFolder(profile)) return false;
+  const l = loginSeen();
+  return !!(l && l.paid);
 }
 
 /**
@@ -190,20 +206,24 @@ export function loginSeen() {
  * fingerprint made with a random value of this computer, which says nothing about the account to anyone else. The
  * last one known stays, also while nobody is signed in, so it shows when ANOTHER account signs in, by the page or
  * by /login in a terminal. Returns { changed }: true when the account is another one than the last one known.
+ * `method`: the check's authMethod; a sign-in billed by use (paidMethod) is kept as `paid`. A caller without one (a
+ * run that ended well says only "signed in") keeps what the last check said, for the same account.
  */
-export function rememberLogin({ loggedIn = null, plan = null, account = null } = {}, now = Date.now()) {
+export function rememberLogin({ loggedIn = null, plan = null, account = null, method } = {}, now = Date.now()) {
   const raw = readJson('claude-login.json', null) || {};
   const salt = typeof raw.salt === 'string' && raw.salt.length >= 16 ? raw.salt : crypto.randomBytes(12).toString('hex');
   const before = typeof raw.account === 'string' && raw.account ? raw.account : null;
   const key = loggedIn === true && typeof account === 'string' && account ? crypto.createHash('sha256').update(`${salt}\n${account}`).digest('hex').slice(0, 16) : null;
   const changed = Boolean(before && key && before !== key);
+  const paid = loggedIn === true && (method === undefined ? !changed && raw.paid === true : paidMethod(method));
   const next = {
     loggedIn: typeof loggedIn === 'boolean' ? loggedIn : null, plan: loggedIn === true && typeof plan === 'string' && plan ? plan : null, at: now,
     salt, account: key || before,
     accountAt: changed ? now : Number.isFinite(raw.accountAt) ? raw.accountAt : null,
+    ...(paid ? { paid: true } : {}),
   };
   const prev = loginSeen();
-  if (prev && prev.loggedIn === next.loggedIn && prev.plan === next.plan && next.account === before && now - prev.at < 60_000) return { changed };
+  if (prev && prev.loggedIn === next.loggedIn && prev.plan === next.plan && prev.paid === paid && next.account === before && now - prev.at < 60_000) return { changed };
   try {
     writeJson('claude-login.json', next);
   } catch {
@@ -231,13 +251,69 @@ export function providerFacts(profile) {
   const kept = usageStore()[profile.name];
   const seen = Boolean(kept && (kept.fiveHour || kept.week)); // not what forgetUsage left
   if (profile.kind === 'subscription') return { signedIn: true, plan: null, usageReported: seen ? true : null };
+  // A folder of its own: the check that is kept is the default folder's, which says nothing about this one.
+  if (ownFolder(profile)) return { signedIn: null, plan: null, usageReported: seen ? true : null, accountAt: null };
   const login = loginSeen();
   const plan = login && login.loggedIn ? login.plan : null;
   return {
     signedIn: login ? login.loggedIn : null, plan, usageReported: seen ? true : plan ? PLANS_WITH_USAGE.has(plan.toLowerCase()) : null,
     // when another account was last signed in here: a limit seen before that moment was the earlier account's
     accountAt: login ? login.accountAt : null,
+    // a sign-in on a key billed by use (billedLogin): `paid` as every provider billed by use has it
+    ...(login && login.paid ? { paid: true } : {}),
   };
+}
+
+// ---- speed: what the router saw of each provider's answers ------------------------------------------------------
+// Per provider, from the model requests it passed on (no request of its own): the time from sending to the answer's
+// first byte, and every refusal ("too many requests" 429, "overloaded" 529), the short ones too. The last SPEED_KEEP
+// of each within SPEED_WINDOW_MS: { [name]: { answers: [{ at, ms }], refusals: [{ at }] } } in router-speed.json.
+// The window is short on purpose: once a provider is slow, new sessions start elsewhere and few answers of it come
+// in, so a long window would keep a burst of slow answers standing long after the provider recovered.
+const SPEED_KEEP = 20;
+const SPEED_WINDOW_MS = 5 * 60_000;
+const REFUSING_MS = 5 * 60_000; // 3 refusals within it: "refusing"
+const SLOW_MS = 5000; // a median first byte over it: "slow"
+
+const within = (xs, ms, now) => (Array.isArray(xs) ? xs : []).filter((x) => x && Number.isFinite(x.at) && now - x.at < ms);
+
+/** A provider's record with one more answer (`ms` to its first byte) or one more refusal (`refused`). */
+export function noteSpeed(rec, { ms = null, refused = false } = {}, now = Date.now()) {
+  const r = { answers: within(rec?.answers, SPEED_WINDOW_MS, now), refusals: within(rec?.refusals, SPEED_WINDOW_MS, now) };
+  if (refused) r.refusals.push({ at: now });
+  else if (Number.isFinite(ms)) r.answers.push({ at: now, ms: Math.round(ms) });
+  return { answers: r.answers.slice(-SPEED_KEEP), refusals: r.refusals.slice(-SPEED_KEEP) };
+}
+
+/**
+ * What a provider's record says now: { verdict: 'refusing' } (3 or more refusals in the last 5 minutes), { verdict:
+ * 'slow' | 'fast', seconds } (the median time to the first byte, slow over 5 s), or null (fewer than 3 answers in the
+ * last 5 minutes).
+ */
+export function speedVerdict(rec, now = Date.now()) {
+  if (!rec || typeof rec !== 'object') return null;
+  if (within(rec.refusals, REFUSING_MS, now).length >= 3) return { verdict: 'refusing' };
+  const ms = within(rec.answers, SPEED_WINDOW_MS, now).map((x) => x.ms).filter(Number.isFinite).sort((a, b) => a - b);
+  if (ms.length < 3) return null;
+  const n = ms.length;
+  const mid = n % 2 ? ms[(n - 1) / 2] : (ms[n / 2 - 1] + ms[n / 2]) / 2;
+  return { verdict: mid > SLOW_MS ? 'slow' : 'fast', seconds: Math.round(mid / 100) / 10 };
+}
+
+export const routerSpeed = () => readJson('router-speed.json', {});
+
+export function saveRouterSpeed(map) {
+  writeJson('router-speed.json', map);
+}
+
+/** { [name]: verdict } of every provider with one (speedVerdict). */
+export function speedVerdicts(now = Date.now()) {
+  const out = {};
+  for (const [name, rec] of Object.entries(routerSpeed())) {
+    const v = speedVerdict(rec, now);
+    if (v) out[name] = v;
+  }
+  return out;
 }
 
 // Anthropic's plan-limit headers → our usage entry (null when the answer carries none).

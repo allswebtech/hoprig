@@ -41,6 +41,23 @@ const done = (text = '', code = 0) => {
 if (!root || !user) done('', 4); // "not signed in"
 if (a[0] === 'api' && a[1] === 'user') done(user);
 if (a[0] === 'api' && a[1] === 'user/orgs') done(orgs.join('\n'));
+// Visibility: FAKE_GH_ROOT/<owner>/visibility.json { "<name>": "PUBLIC" | "PRIVATE" | ... } (default PRIVATE);
+// FAKE_GH_VIEW=garbage answers something unexpected, FAKE_GH_VIEW=slow waits a minute.
+const visOf = (full) => {
+  const [o, n] = real(full).split('/');
+  try {
+    return JSON.parse(fs.readFileSync(path.join(root, o, 'visibility.json'), 'utf8'))[n] || 'PRIVATE';
+  } catch {
+    return 'PRIVATE';
+  }
+};
+if (a[0] === 'repo' && a[1] === 'view' && (a[4] || '').includes('visibility')) {
+  if (process.env.FAKE_GH_VIEW === 'slow') await new Promise((r) => setTimeout(r, 60_000));
+  if (process.env.FAKE_GH_VIEW === 'garbage') done('<html>gateway</html>');
+  if (!fs.existsSync(bare(a[2]))) done(`GraphQL: Could not resolve to a Repository with the name '${a[2]}'. (repository)`, 1);
+  const v = visOf(a[2]);
+  done(JSON.stringify({ isPrivate: v === 'PRIVATE', visibility: v }));
+}
 if (a[0] === 'repo' && a[1] === 'view') done(fs.existsSync(bare(a[2])) ? JSON.stringify({ name: real(a[2]).split('/')[1] }) : '', fs.existsSync(bare(a[2])) ? 0 : 1);
 let m = /^repos\/([^/]+\/[^/]+)\/contents\/(.+)$/.exec(a[1] || '');
 if (a[0] === 'api' && m) {
@@ -62,9 +79,23 @@ if (a[0] === 'repo' && a[1] === 'create') {
   // gh repo create <owner>/<name> --private --source <dir> --remote origin --push
   const full = a[2];
   if (fs.existsSync(bare(full))) done(`GraphQL: Name already exists on this account (createRepository)`, 1);
-  const src = a[a.indexOf('--source') + 1];
   fs.mkdirSync(bare(full), { recursive: true });
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', bare(full)]);
+  // Who asked for what: FAKE_GH_ROOT/created.log, one line per create with its flags.
+  fs.appendFileSync(path.join(root, 'created.log'), `${a.slice(2).join(' ')}\n`);
+  if (!a.includes('--private')) {
+    const [o, n] = full.split('/');
+    const f = path.join(root, o, 'visibility.json');
+    let cur = {};
+    try {
+      cur = JSON.parse(fs.readFileSync(f, 'utf8'));
+    } catch {
+      /* none */
+    }
+    fs.writeFileSync(f, JSON.stringify({ ...cur, [n]: 'PUBLIC' }));
+  }
+  if (!a.includes('--source')) done(`https://github.com/${full}`);
+  const src = a[a.indexOf('--source') + 1];
   execFileSync('git', ['-C', src, 'remote', 'add', 'origin', `https://github.com/${full}.git`]);
   execFileSync('git', ['-C', src, 'push', '-q', '-u', 'origin', 'HEAD'], { stdio: 'ignore' });
   done(`https://github.com/${full}`);

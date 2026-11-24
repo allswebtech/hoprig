@@ -1,0 +1,180 @@
+/* The pages made from content (docs with their side menu, use cases, comparisons, the skill, the tools, the
+   changelog, the 404 page): reading type, code, tables, the docs menu, the pager. Every colour is a token of
+   design/tokens.css. Phone first. */
+.page { padding-top: var(--s6); padding-bottom: var(--s8); }
+.page-read > * { max-width: 760px; margin-left: auto; margin-right: auto; }
+.page-read > .prose-wide { max-width: 1000px; }
+/* A reading line of about 68 characters on the content pages (760 px at 16.5 px held 82 to 95); tables and code keep
+   the column's width, and the landing page's bands (.prose too) keep their own centred measure. */
+.page .prose > p, .page .prose > ul, .page .prose > ol, .page .prose > blockquote { max-width: 68ch; }
+.crumbs { font-size: var(--fs-sm); color: var(--muted); margin-top: calc(-1 * var(--s3)); margin-bottom: var(--s2); }
+.crumbs a { color: var(--muted); display: inline-flex; align-items: center; min-height: var(--tap); min-width: var(--tap); padding-right: 8px; }
+.badge-coming { background: var(--warn-soft); color: var(--warn); }
+
+/* ---------- reading ---------- */
+.prose { font-size: 16.5px; line-height: 1.7; color: var(--text); min-width: 0; overflow-wrap: break-word; }
+.prose > * + * { margin-top: 1em; }
+.prose > :first-child { margin-top: 0; }
+.prose h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.12; letter-spacing: -.03em; font-weight: 750; margin: 0 0 .5em; }
+.prose h2 { font-size: clamp(23px, 3.4vw, 30px); line-height: 1.22; letter-spacing: -.02em; margin-top: 2em; }
+.prose h3 { font-size: 19px; line-height: 1.35; letter-spacing: -.01em; margin-top: 1.7em; }
+.prose h4 { font-size: 16.5px; margin-top: 1.5em; }
+.prose h1 + p { font-size: 18.5px; color: var(--text-2); }
+.prose p, .prose li { color: var(--text); }
+.prose ul, .prose ol { padding-left: 1.3em; }
+.prose li + li { margin-top: .35em; }
+.prose li > ul, .prose li > ol { margin-top: .35em; }
+.prose blockquote { margin: 1em 0; padding: 12px 16px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 var(--r) var(--r) 0; color: var(--text-2); }
+.prose blockquote > * { margin: 0; }
+.prose blockquote > * + * { margin-top: .6em; }
+.prose hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+.prose img { border-radius: var(--r-lg); border: 1px solid var(--border); box-shadow: var(--shadow-1); margin: 1.4em auto; filter: var(--shot-filter); }
+.prose p[align='center'] { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; }
+.prose p[align='center'] img { margin: .6em 0; }
+.prose :not(pre) > code { background: var(--surface-3); border: 1px solid var(--border); border-radius: 6px; padding: .08em .35em; font-size: .86em; }
+/* A long command in a sentence breaks where it must ("a|b|c" has no space), so a phone never scrolls sideways. */
+.prose :not(pre) > code { overflow-wrap: anywhere; }
+.prose pre { position: relative; margin: 1.2em 0; padding: 14px 16px; background: var(--console-bg); color: var(--console-text); border: 1px solid var(--border); border-radius: var(--r-lg); overflow-x: auto; line-height: 1.55; font-size: 14px; }
+.prose pre code { font-size: inherit; color: inherit; }
+/* A block wider than its box shows it: a light fade at each edge that has more, gone at the end. The fades stay at the
+   box's edges (scroll); a cover of the block's own colour moves with the code (local) and hides a fade once that edge
+   is reached. The console is dark in both themes, so one fade serves both. */
+.prose pre {
+  --code-fade: color-mix(in srgb, var(--console-text) 26%, transparent);
+  background:
+    linear-gradient(to right, var(--console-bg) 45%, transparent) left center / 36px 100% no-repeat local,
+    linear-gradient(to left, var(--console-bg) 45%, transparent) right center / 36px 100% no-repeat local,
+    linear-gradient(to right, var(--code-fade), transparent) left center / 20px 100% no-repeat scroll,
+    linear-gradient(to left, var(--code-fade), transparent) right center / 20px 100% no-repeat scroll,
+    var(--console-bg);
+}
+/* The code takes the focus (to scroll it by keyboard); the ring is drawn on the box, where the scroll cannot clip it. */
+.prose pre > code:focus-visible { outline: none; }
+.prose pre:has(> code:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.prose pre code.language-markdown { white-space: pre-wrap; }
+/* The border is the block's edge in dark, where the console's colour is nearly the page's (1.02:1). */
+/* The Copy button is added by a script; its room is kept from the first paint on a page that runs scripts (data-js,
+   set in the head), so nothing moves when it comes. The room is on the right, beside the first line, so a block of
+   one line stays one line tall (60 px above it read as an empty band). */
+.prose pre.has-copy, :root[data-js] .prose pre[data-copyable] { padding-right: 96px; min-height: 60px; }
+/* The Copy button covers the block's right edge, so there the right fade (and the cover that hides it at the end) sits
+   ending under the button's left edge (9 px in from the block's edge, 64 px wide: measured at 390 px), so its strong end never shows. */
+.prose pre.has-copy, :root[data-js] .prose pre[data-copyable] { background-position: left center, right 70px center, left center, right 70px center, 0 0; }
+/* The kit's Copy button (btn btn-primary btn-small copy), placed on the block's wrapper so it stays when the code
+   scrolls. A strip in the console's colour covers the code between the button and the block's right border, so no
+   text shows beside the button; the fade stays left of it. */
+.prose .pre-wrap { position: relative; margin: 1.2em 0; }
+.prose .pre-wrap > pre { margin: 0; }
+/* The strip spans the whole block inside its border and paints only its right 9 px: a box 9 px wide cannot hold the
+   block's 13 px inner curve (Chrome shrinks the radius to fit), and its tighter corner showed over the border. */
+.pre-wrap::after { content: ''; position: absolute; inset: 1px; background: linear-gradient(to left, var(--console-bg) 9px, transparent 9px); border-radius: calc(var(--r-lg) - 1px); pointer-events: none; }
+.pre-copy { position: absolute; top: 8px; right: 8px; min-height: var(--tap); z-index: 1; }
+.prose .install { margin: 1.2em 0; }
+.prose .install code { background: none; border: 0; padding: 8px 0; }
+.prose .install code::before { content: '$ '; color: var(--console-muted); }
+
+/* tables: a wide one scrolls in its own box, never the page */
+.prose .table { overflow-x: auto; margin: 1.2em 0; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.prose table { border-collapse: collapse; width: 100%; font-size: 15px; line-height: 1.55; }
+.prose th, .prose td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.prose th { background: var(--surface-2); font-weight: 650; color: var(--text-2); }
+.prose tr:last-child td, .prose tr:last-child th { border-bottom: 0; }
+.prose tbody th { background: none; color: var(--text); }
+.prose td code { white-space: nowrap; }
+.kind-tools .prose td code { white-space: normal; }
+/* A word with a hyphen in a cell's code is one piece (markdown.mjs wraps it): an option never splits as "[--" / "json]". */
+.prose td code .tok { white-space: nowrap; }
+/* The same for an option or a path in a cell's plain words (markdown.mjs wraps it): never "--" / "with-projects". */
+.prose td .tok { white-space: nowrap; }
+.al-center { text-align: center !important; }
+.al-right { text-align: right !important; }
+@media (max-width: 720px) {
+  .prose .table-wide { overflow: visible; border: 0; background: none; }
+  .prose .table-wide table, .prose .table-wide tbody, .prose .table-wide tr, .prose .table-wide td, .prose .table-wide tbody th { display: block; width: 100%; }
+  .prose .table-wide thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .prose .table-wide tr { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); margin-bottom: 12px; padding: 4px 0; }
+  .prose .table-wide td, .prose .table-wide tbody th { border: 0; padding: 6px 14px; }
+  .prose .table-wide tbody th { font-weight: 650; font-size: 16px; padding-top: 10px; }
+  .prose .table-wide td[data-label]::before { content: attr(data-label); display: block; font-size: 12.5px; font-weight: 650; color: var(--muted); }
+  .prose .table-wide td code { white-space: normal; }
+}
+/* Below 480 px every table is cards: a column in a sideways scroll is a column nobody sees on a phone. The HTML stays
+   a table (thead, th scope) for a screen reader. */
+@media (max-width: 479.98px) {
+  .prose .table { overflow: visible; border: 0; background: none; }
+  .prose .table table, .prose .table tbody, .prose .table tr, .prose .table td, .prose .table tbody th { display: block; width: 100%; }
+  .prose .table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .prose .table tr { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); margin-bottom: 12px; padding: 4px 0; }
+  .prose .table td, .prose .table tbody th { border: 0; padding: 6px 14px; }
+  .prose .table tbody th { font-weight: 650; font-size: 16px; padding-top: 10px; }
+  .prose .table td[data-label]::before { content: attr(data-label); display: block; font-size: 12.5px; font-weight: 650; color: var(--muted); }
+  .prose .table td code { white-space: normal; overflow-wrap: anywhere; }
+}
+
+/* A list item that is only a link (a list of places to go) is a target to tap: as tall as a finger. A link inside
+   a sentence keeps the sentence's own line. */
+.prose li.link-item > a { display: inline-flex; align-items: center; min-height: var(--tap); }
+.prose li.link-item + li.link-item { margin-top: 0; }
+
+/* cards the content asks for (the use cases list, a page's :::card) */
+.prose .cards { display: grid; gap: var(--s4); grid-template-columns: 1fr; margin-top: 1.4em; }
+@media (min-width: 720px) { .prose .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1000px) { .prose-wide .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.prose .card { text-decoration: none; }
+/* Block cards on the content pages only: the landing page's bands are .prose too, and their cards keep the kit's flex
+   column, which puts each card's last link at its foot. */
+.page .prose .card { display: block; }
+.prose .card > * + * { margin-top: .5em; }
+/* The use-case list's cards come straight under the page's h1, so their titles are h2 (no level skipped). */
+.prose .card h2, .prose .card h3 { margin: 0; font-size: 17.5px; line-height: 1.35; letter-spacing: -.01em; color: var(--text); }
+.prose .card p { color: var(--text-2); font-size: 15.5px; }
+.prose .card .who { margin: 0 0 6px; font-size: 13px; font-weight: 650; color: var(--accent-soft-text); display: flex; gap: var(--s2); align-items: center; }
+.prose .card .badge { background: var(--warn-soft); color: var(--warn); }
+
+/* a screenshot leads to its full-size file, with a hint under it */
+a.shot-link { display: block; color: var(--text-2); text-decoration: none; }
+p[align='center'] > a.shot-link { display: inline-block; }
+.prose a.shot-link img { margin-bottom: .4em; }
+.enlarge { display: flex; align-items: center; justify-content: center; min-height: 40px; font-size: 13.5px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+a.shot-link:hover .enlarge { color: var(--text); }
+.on-wide { display: none; }
+@media (min-width: 720px) { .on-narrow { display: none; } .on-wide { display: inline; } }
+
+/* ---------- a use case: the direct answer, Try it, the pager ---------- */
+.answer { font-size: 18px; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--r-lg); padding: 16px 18px; box-shadow: var(--shadow-1); }
+.page-cta { margin-top: var(--s7); padding: var(--s5); border-radius: var(--r-xl); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-1); }
+.page-cta h2 { margin: 0 0 var(--s3); font-size: 21px; letter-spacing: -.01em; }
+.page-cta .install { margin: 0; max-width: none; }
+.cta-note { margin: var(--s3) 0 0; color: var(--text-2); font-size: 15px; }
+.cta-note code { background: var(--surface-3); border: 1px solid var(--border); border-radius: 6px; padding: .08em .35em; font-size: .88em; }
+.pager { display: grid; gap: var(--s3); grid-template-columns: 1fr; margin-top: var(--s7); }
+@media (min-width: 720px) { .pager { grid-template-columns: 1fr 1fr; } }
+.pager a { display: block; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); text-decoration: none; color: var(--text); font-weight: 600; }
+.pager a:hover { border-color: var(--border-strong); box-shadow: var(--shadow-1); color: var(--text); }
+.pager a span { display: block; font-size: 13px; font-weight: 500; color: var(--muted); }
+.pager a.next { text-align: right; }
+
+/* ---------- docs: the menu beside the text ---------- */
+.docs-layout { display: grid; gap: var(--s5); grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1000px) { .docs-layout { grid-template-columns: 240px minmax(0, 760px); gap: var(--s7); justify-content: center; } }
+.side { font-size: 15px; }
+.side details { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.side summary { cursor: pointer; padding: 12px 14px; min-height: var(--tap); font-weight: 650; }
+.side nav { display: grid; }
+.side details nav { padding: 0 8px 10px; }
+.side nav a { display: flex; align-items: center; min-height: var(--tap); padding: 4px 10px; border-radius: var(--r-sm); color: var(--text-2); text-decoration: none; line-height: 1.35; }
+.side nav a:hover { background: var(--surface-3); color: var(--text); }
+.side nav a[aria-current='page'] { background: var(--accent-soft); color: var(--accent-soft-text); font-weight: 650; }
+.side .group { font-size: 12.5px; font-weight: 700; color: var(--muted); padding: 14px 10px 4px; }
+.side-wide { display: none !important; }
+@media (min-width: 1000px) {
+  .side-wide { display: grid !important; position: sticky; top: 84px; max-height: calc(100vh - 100px); overflow-y: auto; padding-right: 4px; }
+  .side-narrow { display: none; }
+}
+.doclist { display: grid; gap: var(--s3); grid-template-columns: 1fr; padding: 0 !important; list-style: none; }
+@media (min-width: 720px) { .doclist { grid-template-columns: 1fr 1fr; } }
+.doclist li { margin: 0 !important; }
+.doclist a { display: block; height: 100%; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); text-decoration: none; color: var(--text); }
+.doclist a:hover { border-color: var(--border-strong); box-shadow: var(--shadow-1); color: var(--text); }
+.doclist a strong { display: block; }
+.doclist a span { display: block; margin-top: 4px; color: var(--text-2); font-size: 14.5px; line-height: 1.5; }

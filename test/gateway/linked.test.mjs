@@ -12,6 +12,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { REPO } from '../machines/harness.mjs';
 import { GW_KEY, fakeGateway, stream } from './fakegateway.mjs';
+import { sealedPath } from '../seal.mjs';
 
 const BIN = path.join(REPO, 'bin', 'hoprig.mjs');
 const PASSWORD = 'test-password-1';
@@ -45,7 +46,7 @@ async function machine(root, name, setupMore = '', gwPort = 1) {
   for (const x of Object.values(d)) fs.mkdirSync(x, { recursive: true });
   const port = await freePort();
   // No `trouteai` on this PATH: the add-on must never start or ask the real one.
-  const env = { ...process.env, PATH: '/usr/bin:/bin', HOPRIG_CONFIG_DIR: d.config, HOPRIG_STATE_DIR: d.state, HOPRIG_PROFILES_DIR: d.profiles, CLAUDE_CONFIG_DIR: d.claude, HOPRIG_WORKSPACE_DIR: d.workspace };
+  const env = { ...process.env, PATH: sealedPath('/usr/bin:/bin'), HOPRIG_CONFIG_DIR: d.config, HOPRIG_STATE_DIR: d.state, HOPRIG_PROFILES_DIR: d.profiles, CLAUDE_CONFIG_DIR: d.claude, HOPRIG_WORKSPACE_DIR: d.workspace };
   const setup = `
     const { saveConfig } = await import(${JSON.stringify(path.join(REPO, 'src', 'config.mjs'))});
     const { writeProfile } = await import(${JSON.stringify(path.join(REPO, 'src', 'profiles.mjs'))});
@@ -123,7 +124,10 @@ test('a linked computer\'s gateway: listed, used with one click, streamed throug
   assert.equal(all.json.computers[1].gateways[0].shared, true);
   assert.equal(all.json.computers[1].gateways[0].usedAs.name, used.json.name);
 
-  // Claude Code on A: its provider's address and key.
+  // Claude Code on A: its provider's address and key. The new provider's first check (one round by itself, sent from
+  // A through B to the gateway) has ended first: its requests are not the one counted here.
+  const checks = path.join(a.state, 'providers', 'checks.json');
+  await until('the first check of the new provider', () => !!JSON.parse(fs.readFileSync(checks, 'utf8'))[used.json.name]);
   const before = gw.seen.length;
   const r = await stream(`http://127.0.0.1:${a.port}/gateway/m/b/trouteai/v1/messages`, {
     headers: { authorization: `Bearer ${key}`, 'anthropic-version': '2023-06-01' },

@@ -1,7 +1,7 @@
 ---
 name: morning-status
 description: "A morning status of all computers: online or not, load, memory and disk, Claude Code versions, providers and limits, sessions and what needs the owner. Use for 'morning status', 'how are my machines', 'status of everything'."
-allowed-tools: get_computer_status list_sessions get_accounts
+allowed-tools: get_computer_status list_sessions
 ---
 
 ## When to use
@@ -10,7 +10,7 @@ The owner asks for an overview of everything, typically at the start of the day.
 ## Procedure
 1. get_computer_status without a computer: every computer, online state, load, memory, disks, Claude Code version.
 2. list_sessions (all computers).
-3. get_accounts: limits and usage, Auto mode.
+3. get_computer_status with providers: true: limits and usage, Auto mode.
 4. Report in at most eight lines:
    - Computers: one line each — name, online, load, memory used, the fullest disk if above 80 %, Claude Code version (flag one behind the others).
    - Providers: which are at a limit and until when; Auto mode on/off.

@@ -1,0 +1,188 @@
+# The forms this round mends, one row each, read by test/wall-prefixes.test.mjs. Each is asked of wallHeld (the
+# function the hook asks); nothing here is ever run, and git is a stand-in function that answers the wall's questions.
+#
+# A row is:  verdict | family | text
+#   verdict  held <why>  wallHeld holds the line, and its first act's reason id is <why>
+#            not held    wallHeld answers null (an everyday line that must still go through)
+#   family   A leading redirects and assignments in any order; B a variable as the program; C gh/glab api graphql;
+#            D a deploy script behind interpreter options; E an interpreter's release-notes script
+#   text     the command line; a line break inside it is written as the two characters \n
+# The session stands in its own folder /w/shop on the work branch feature of a repository whose default branch is main.
+# Lines that begin with # and empty lines are not rows.
+
+# ---- A: leading redirection targets and assignments, in any order and number, do not hide the program ----
+held admin | A | x=1 2> err.txt sudo su
+held admin | A | 2> err.txt x=1 sudo su
+held admin | A | x=1 > a 2> b y=2 sudo su
+held admin | A | FOO=a >e.txt sudo su
+held admin | A | FOO=a > e.txt sudo su
+held admin | A | > e.txt FOO=a sudo su
+held admin | A | 2> e.txt FOO=a sudo su
+held admin | A | x=1 2>e.txt > out.txt sudo su
+not held | A | npm test 2> err.txt
+not held | A | 2> err.txt npm test
+not held | A | x=1 2> err.txt npm test
+not held | A | FOO=a npm test
+not held | A | npm test > "$LOG"
+not held | A | df -h > "$OUT"
+# an append (NAME+=…) or array-element (NAME[i]=…) assignment before the program is a leading assignment too
+held admin | A | x+=1 sudo su
+held admin | A | a[0]=1 sudo su
+held admin | A | x+=1 2> e.txt sudo su
+held admin | A | a[0]=1 2> e.txt sudo su
+held admin | A | x+=1 > e.txt sudo su
+held release | A | FOO+=bar npm publish
+not held | A | CI+=1 npm test
+
+# ---- B: a variable standing as the program is held, bare or quoted, alone or with words, in any position ----
+held unreadable | B | $PROG
+held unreadable | B | ${CMD}
+held unreadable | B | $PROG args
+held unreadable | B | "$EDITOR" notes.txt
+held unreadable | B | "$PROG"
+held unreadable | B | x="sudo su"; $x
+held unreadable | B | CMD="npm publish"; $CMD
+held unreadable | B | npm test && $PROG
+held unreadable | B | npm test || $CMD
+held unreadable | B | npm test; $PROG
+held unreadable | B | npm test | $PROG
+held unreadable | B | npm test; "$PROG"
+held unreadable | B | > err.txt "$EDITOR" notes.txt
+held unreadable | B | 2> err.txt $EDITOR notes.txt
+held unreadable | B | > err.txt "$EDITOR"
+held unreadable | B | 2> e.txt $EDITOR x
+held unreadable | B | npm test > $LOG; $PROG
+not held | B | echo "$HOME"
+not held | B | x=1; echo $x
+not held | B | cat "$A" > "$B"
+not held | B | echo $x
+not held | B | "$VENV/bin/python" -m pytest -q
+not held | B | npm test > $LOG 2>&1
+# a variable as the program is held after any passer, env, command, a package runner or a shell keyword too
+held unreadable | B | nohup $PROG
+held unreadable | B | time "$PROG" x
+held unreadable | B | env $PROG
+held unreadable | B | env FOO=1 $PROG
+held unreadable | B | command $PROG
+held unreadable | B | xargs $PROG
+held unreadable | B | nice $PROG
+held unreadable | B | timeout 5 $PROG
+held unreadable | B | stdbuf -oL "$PROG" x
+held unreadable | B | exec "$PROG"
+held unreadable | B | npx $PROG
+held unreadable | B | nohup "$EDITOR" notes.txt
+held unreadable | B | if true; then $PROG; fi
+held unreadable | B | while true; do $PROG; done
+held unreadable | B | for f in a b; do $PROG "$f"; done
+# a bare variable glued to quotes or to text, where the text after the last variable has no path separator
+held unreadable | B | ''$PROG
+held unreadable | B | $PROG''
+held unreadable | B | ${PROG}x
+held unreadable | B | $PROG.sh
+held unreadable | B | ${PROG}.sh run
+held unreadable | B | ""$PROG x
+# a bare variable glued BEHIND text: the program's name ends in the variable's value, so it cannot be read either
+held unreadable | B | x$PROG
+held unreadable | B | x$PROG arg
+held unreadable | B | pre${CMD} arg
+held unreadable | B | ./run-$TARGET.sh
+held unreadable | B | bin/tool-$NAME --help
+held unreadable | B | nohup x$PROG
+held unreadable | B | npm test && x$PROG
+held unreadable | B | $DIR/bin/run$SUFFIX
+held unreadable | B | x$A$B arg
+# a real program behind the same passers and keywords still goes through, and a written-out path name reads
+not held | B | nohup npm start
+not held | B | time npm test
+not held | B | env CI=1 npm test
+not held | B | $VENV/bin/pytest
+not held | B | "${DIR}/bin/tool" x
+# text with a path separator after the last variable writes the name out; an argument, an assignment and a
+# redirection's target with a variable behind text are no program
+not held | B | x$DIR/bin/tool arg
+not held | B | bin/$TOOL/run --help
+not held | B | echo foo$BAR
+not held | B | npm run build:$ENV
+not held | B | ls src/$DIR
+not held | B | git log --format=$FMT
+not held | B | FOO=bar$X npm test
+not held | B | npm test > out$N.txt
+not held | B | FOO=$A$B npm test
+not held | B | FOO=a$B.x BAR=$C$D npm test
+not held | B | npm test > out$A$B.txt
+# and the program behind such a value or target is still the one that is read
+held release | B | FOO=$A$B npm publish
+held release | B | > out$A$B npm publish
+held unreadable | B | FOO=$A$B x$PROG
+
+# ---- C: a gh or glab api call is held when any word of it is exactly graphql, whatever method, wherever it stands ----
+held api-write | C | gh api -X GET graphql -f query='mutation { x }'
+held api-write | C | gh api --method GET graphql -f query='mutation { x }'
+held api-write | C | glab api -X GET graphql -f query='mutation { x }'
+held api-write | C | gh api -X GET -H 'Accept: application/json' graphql -f query='mutation { x }'
+held api-write | C | gh api graphql
+held api-write | C | gh api -XGET graphql -f query='{ x }'
+held api-write | C | gh api --method=GET graphql -f query='{ x }'
+not held | C | gh api repos/o/r/pulls
+not held | C | gh api -X GET search/issues -f q=bug
+not held | C | gh api --method GET repos/o/r/issues -F per_page=100
+not held | C | gh pr list
+not held | C | glab api projects/1/issues
+# the GraphQL endpoint reached as a path or a full URL, whatever method is named; glab's api/graphql counts too
+held api-write | C | gh api -X GET /graphql -f query='mutation { x }'
+held api-write | C | gh api -X GET https://api.github.com/graphql -f query='{ x }'
+held api-write | C | glab api -X GET api/graphql -f query='{ x }'
+# a plain read whose path merely contains the word graphql is not the endpoint, so it still goes through
+not held | C | gh api repos/o/r/contents/graphql.md
+# the address written with a variable whose value may be that endpoint, in a call that sends a field: held,
+# whatever method is named
+held api-write | C | gh api -X GET "$EP" -f query=x
+held api-write | C | gh api -X GET $EP -f query=x
+held api-write | C | gh api -X GET ${EP} -f query=x
+held api-write | C | gh api --method GET "$BASE/graphql" -f query='{ x }'
+held api-write | C | gh api -X GET "https://$HOST/graphql" -f query=x
+held api-write | C | gh api -X GET api$REST -f query=x
+held api-write | C | gh api -X GET -f query=x "$EP"
+held api-write | C | glab api -X GET "$EP" -F query=x
+# a plain read of such an address, a path whose written text names something else, and a variable that is a
+# field's or a header's value still go through
+not held | C | gh api "$EP"
+not held | C | gh api "repos/$OWNER/$REPO/pulls"
+not held | C | gh api -X GET "repos/$OWNER/$REPO/issues" -f state=open
+not held | C | gh api -X GET repos/$OWNER/$REPO/issues -f state=open
+not held | C | gh api -X GET "search/$KIND" -f q=x
+not held | C | gh api -X GET search/issues -f q="$QUERY"
+not held | C | gh api -X GET search/issues -f q=$A$B
+not held | C | gh api -X GET -f q=$A$B search/issues
+not held | C | gh api -H "Accept: $TYPE" -X GET repos/o/r/issues -f state=open
+not held | C | glab api -X GET "projects/$ID/issues" -F state=opened
+
+# ---- D: a deploy script run by an interpreter is held however many unknown options stand before it ----
+held deploy | D | node --inspect-port 9229 --trace-warnings scripts/release.mjs
+held deploy | D | node --inspect-port 9229 --diagnostic-dir out scripts/release.mjs
+held deploy | D | node --diagnostic-dir out --trace-warnings scripts/release.mjs
+held deploy | D | node --report-dir out --enable-source-maps scripts/deploy.mjs
+held deploy | D | node --inspect-port 9229 scripts/release.mjs
+not held | D | node --max-old-space-size=4096 node_modules/.bin/vite build --mode release
+not held | D | node --enable-source-maps dist/server.js --env publish
+not held | D | node --watch --trace-warnings server.js
+not held | D | node --inspect-port 9229 scripts/build.mjs
+# an everyday run whose script an unknown option precedes, with a trailing release/deploy argument, is not a deploy
+not held | D | node --inspect dist/server.js release
+not held | D | node --trace-warnings bin/www release
+not held | D | tsx --inspect src/index.ts deploy
+not held | D | node --trace-warnings src/cli.mjs release --dry-run
+not held | D | node --trace-warnings dist/app.js deploy
+not held | D | node --trace-warnings scripts/build.mjs scripts/release.mjs
+
+# ---- E: an interpreter's release-notes/note script writes text and goes through; a deploy script stays held ----
+not held | E | node scripts/release-notes.mjs
+not held | E | python3 scripts/release_notes.py
+not held | E | node release-notes.mjs
+not held | E | node scripts/release-note.mjs
+not held | E | tsx scripts/release-notes.ts
+held deploy | E | node scripts/deploy-site.mjs
+held deploy | E | bash deploy-site.sh
+held deploy | E | node scripts/release.mjs
+held deploy | E | python3 deploy.py
+held deploy | E | node scripts/release-notesworthy.mjs

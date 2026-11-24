@@ -1,4 +1,4 @@
-// Two words of the page said once and one way: a limit box never reads "API (pay as you go) (paid per use)", and a
+// Two words of the page said once and one way: a limit box says a paid way costs money in one way for all, and a
 // schedule's next run is always a day and the 24-hour clock, never "in 7 h 1 min" in one row and "Tue 08:30" in the
 // next.
 import assert from 'node:assert/strict';
@@ -44,7 +44,7 @@ const buttons = (n) => (n instanceof FakeText ? [] : [...(n.tag === 'button' ? [
 const { limitBox } = await import('../../web/lib.js');
 const { nextRunText } = await import('../../web/automation.js');
 
-test('limit box: "(paid per use)" once, not after a name that says it already', () => {
+test('limit box: every paid way ends in the same words, whatever its name says', () => {
   const s = { name: 'w', canSwitch: true, limit: { text: 'limit reached' }, profile: { name: 'max' } };
   const words = buttons(limitBox(s, [
     { name: 'max', label: 'Claude Max', kind: 'subscription', limited: { until: 1 } },
@@ -52,7 +52,7 @@ test('limit box: "(paid per use)" once, not after a name that says it already', 
     { name: 'key', label: 'Claude API', kind: 'api', paid: true },
     { name: 'tr', label: 'Paid gateway', kind: 'api', paid: false },
   ])).map((b) => texts(b).join(''));
-  assert.deepEqual(words.sort(), ['Continue on API (pay as you go)', 'Continue on Claude API (paid per use)', 'Continue on Paid gateway']);
+  assert.deepEqual(words.sort(), ['Continue on API (pay as you go) · costs money per use', 'Continue on Claude API · costs money per use', 'Continue on Paid gateway']);
 });
 
 test('a schedule\'s next run: a day and the 24-hour clock, near or far', () => {

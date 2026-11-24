@@ -124,7 +124,7 @@ test('restore --dry-run on a fresh computer: the whole plan, nothing written', a
   const C = w.computer('fresh');
   C.use();
   const { ui } = await quietUi();
-  const p = await restoreWorkspace(urls.brain, { ui, dryRun: true, dir: C.ws, projects: C.projects });
+  const p = await restoreWorkspace(urls.brain, { withProjects: true, ui, dryRun: true, dir: C.ws, projects: C.projects });
   assert.deepEqual(p.plan.map((e) => [e.label, e.action]), [
     ['ai_brain', 'clone'], ['shop', 'clone'], ['shop/code/local-only', 'no-address'], ['shop/code/shop-api', 'clone'], ['shop/code/shop-docs', 'clone'], ['shop/code/shop-web', 'clone'], ['development/sdk/kit', 'clone'], ['git/gone', 'clone'], ['git/tool', 'clone'],
   ]);
@@ -138,7 +138,7 @@ test('restore into an empty home: the tree, every repository with its commits, t
   fs.mkdirSync(path.join(B.ws, 'git', 'tool'), { recursive: true });
   fs.writeFileSync(path.join(B.ws, 'git', 'tool', 'mine.txt'), 'mine');
   const { ui } = await quietUi();
-  const r = await restoreWorkspace(urls.brain, { ui, dir: B.ws, projects: B.projects });
+  const r = await restoreWorkspace(urls.brain, { withProjects: true, ui, dir: B.ws, projects: B.projects });
   const result = Object.fromEntries(r.plan.map((e) => [e.label, e.result]));
   assert.equal(result.ai_brain, 'cloned');
   for (const k of ['shop', 'shop/code/shop-web', 'shop/code/shop-api', 'shop/code/shop-docs']) assert.equal(result[k], 'cloned', k);
@@ -157,7 +157,7 @@ test('restore into an empty home: the tree, every repository with its commits, t
   assert.equal(w.sh(path.join(B.ws, 'development', 'sdk', 'kit'), 'branch', '--show-current'), 'stable', 'on its mapped branch');
 
   const before = listing(B.ws);
-  const again = await restoreWorkspace(urls.brain, { ui, dir: B.ws, projects: B.projects });
+  const again = await restoreWorkspace(urls.brain, { withProjects: true, ui, dir: B.ws, projects: B.projects });
   assert.deepEqual(again.plan.filter((e) => e.result === 'cloned'), [], 'nothing is cloned twice');
   assert.equal(Object.fromEntries(again.plan.map((e) => [e.label, e.result])).ai_brain, 'here');
   assert.deepEqual(listing(B.ws), before);
@@ -169,9 +169,9 @@ test('restore refuses a brain folder that is another repository, and changes not
   fs.mkdirSync(path.join(C.ws, 'ai_brain'), { recursive: true });
   w.sh(path.join(C.ws, 'ai_brain'), 'init', '-q');
   const { ui } = await quietUi();
-  await assert.rejects(restoreWorkspace(urls.brain, { ui, dir: C.ws, projects: C.projects }), (e) => e.status === 409 && /is not the brain/.test(e.message));
+  await assert.rejects(restoreWorkspace(urls.brain, { withProjects: true, ui, dir: C.ws, projects: C.projects }), (e) => e.status === 409 && /is not the brain/.test(e.message));
   assert.deepEqual(fs.readdirSync(C.ws), ['ai_brain']);
-  await assert.rejects(restoreWorkspace('not an address', { ui, dir: C.ws }), (e) => e.status === 400);
+  await assert.rejects(restoreWorkspace('not an address', { withProjects: true, ui, dir: C.ws }), (e) => e.status === 400);
 });
 
 test('sync: behind → fast-forward, unsaved work stays; ahead → listed, pushed only with --push; diverged, or unsaved work in the same file → listed with the command, nothing changed', async () => {
@@ -297,7 +297,7 @@ test('restore after setup: the untouched starting brain is kept aside, an edited
   E.use();
   await workspaceSetup({ cfg: { workspaceDir: E.ws } });
   const { ui } = await quietUi();
-  const r = await restoreWorkspace(urls.brain, { ui, dir: E.ws, projects: E.projects });
+  const r = await restoreWorkspace(urls.brain, { withProjects: true, ui, dir: E.ws, projects: E.projects });
   assert.equal(r.plan[0].result, 'cloned');
   assert.match(r.notes[0], /unused starting brain was kept as/);
   const aside = fs.readdirSync(E.ws).find((n) => n.startsWith('ai_brain.unused-'));
@@ -310,7 +310,7 @@ test('restore after setup: the untouched starting brain is kept aside, an edited
   F.use();
   await workspaceSetup({ cfg: { workspaceDir: F.ws } });
   fs.appendFileSync(path.join(F.ws, 'ai_brain', 'learnings.md'), '- my own line\n');
-  await assert.rejects(restoreWorkspace(urls.brain, { ui, dir: F.ws, projects: F.projects }), (e) => e.status === 409);
+  await assert.rejects(restoreWorkspace(urls.brain, { withProjects: true, ui, dir: F.ws, projects: F.projects }), (e) => e.status === 409);
   assert.match(fs.readFileSync(path.join(F.ws, 'ai_brain', 'learnings.md'), 'utf8'), /my own line/);
 });
 
@@ -354,7 +354,7 @@ test('the workspace config in the map: the projects folder relative to the works
   const H = w.computer('hal');
   H.use();
   const { ui } = await quietUi();
-  const r = await restoreWorkspace(brainUrl, { ui, dir: H.ws });
+  const r = await restoreWorkspace(brainUrl, { withProjects: true, ui, dir: H.ws });
   assert.equal(r.projectsDir, path.join(H.ws, 'code'));
   assert.ok(fs.existsSync(path.join(H.ws, 'code', 'plain', '.git')));
   const link = path.join(H.claude, 'projects', path.join(H.ws, 'code', 'plain').replace(/[^A-Za-z0-9]/g, '-'), 'memory');

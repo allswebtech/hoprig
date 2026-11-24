@@ -1,0 +1,8 @@
+{
+  "name": "sharp",
+  "version": "0.0.0-not-used",
+  "private": true,
+  "description": "Stands in for sharp, which Next lists as optional for its image server. The site exports plain files with images unoptimised, so sharp is never loaded; its libvips binaries are LGPL and are kept out of the lock.",
+  "license": "Apache-2.0",
+  "main": "index.js"
+}

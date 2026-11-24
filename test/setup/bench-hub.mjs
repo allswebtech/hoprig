@@ -23,6 +23,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
+import { sealed } from '../seal.mjs';
 
 const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BIN = path.join(APP, 'bin', 'hoprig.mjs');
@@ -55,7 +56,7 @@ function dirsFor(name, server, extra = {}) {
 
 function start(name, { port, hub = false, heapMb = 0, server = {}, extra = {} }) {
   const d = fs.existsSync(path.join(ROOT, name)) ? path.join(ROOT, name) : dirsFor(name, { port, ...server }, extra);
-  const env = {
+  const env = sealed({
     PATH: process.env.PATH,
     HOME: process.env.HOME,
     LANG: 'C.UTF-8',
@@ -67,7 +68,7 @@ function start(name, { port, hub = false, heapMb = 0, server = {}, extra = {} })
     HOPRIG_PASSWORD_FILE: path.join(d, 'pw.txt'),
     PORT: String(port),
     ...(hub ? { HOPRIG_HUB: '1' } : {}),
-  };
+  });
   const node = heapMb ? [`--max-old-space-size=${heapMb}`] : [];
   const out = fs.openSync(path.join(d, 'serve.log'), 'a');
   const child = spawn(process.execPath, [...node, BIN, 'serve'], { env, cwd: d, stdio: ['ignore', out, out] });

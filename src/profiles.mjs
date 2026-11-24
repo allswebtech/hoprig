@@ -3,6 +3,7 @@
 //   LABEL=Work subscription            shown in menus (optional)
 //   PRERUN=my-proxy start              shell command run before the coding tool starts (optional)
 //   MODELS=claude-fable-*=claude-opus-5-5   model names this endpoint needs instead, for Auto mode's router
+//   MAPSESSIONS=on                          the owner turned MODELS on for every session and chat too (off when absent)
 //                                      (optional; "from=to" pairs separated by commas, * matches anything)
 //   API=messages,responses,chat,models the API shapes the endpoint answers, saved by "Test" (optional, see below)
 //   TOOLS=claude,opencode              narrows the coding tools that may use it (optional)
@@ -33,10 +34,10 @@ import { profilesDir } from './paths.mjs';
 export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 // Words that are commands (hoprig's own, and common wrapper commands), so they cannot name a profile.
 export const RESERVED = new Set([
-  'run', 'add', 'rm', 'profiles', 'serve', 'hook', 'help', 'passwd', 'service', 'doctor', 'version', 'setup', 'claude', 'auto', 'pair', 'tokens', 'machines', 'mcp', 'addons', 'router', 'router-url', 'assistant', 'link', 'join', 'public', 'pc', 'demo', 'project', 'skills', 'workspace', 'tools', 'codex', 'opencode', 'chat', 'tasks', 'gateways',
+  'run', 'add', 'rm', 'profiles', 'serve', 'hook', 'help', 'passwd', 'service', 'doctor', 'version', 'setup', 'claude', 'auto', 'pair', 'tokens', 'machines', 'mcp', 'addons', 'router', 'router-url', 'assistant', 'link', 'join', 'public', 'pc', 'demo', 'project', 'skills', 'workspace', 'tools', 'codex', 'opencode', 'chat', 'tasks', 'gateways', 'get', 'sync', 'drop', 'field', 'ship', 'adopt', 'sessions', 'box', 'move-to-user',
   'x', 'start', 'stop', 'restart', 'update', 'log', 'logs', 'open', 'status',
 ]);
-const META = new Set(['LABEL', 'PRERUN', 'MODELS', 'API', 'TOOLS', 'SIGNIN']);
+const META = new Set(['LABEL', 'PRERUN', 'MODELS', 'MAPSESSIONS', 'API', 'TOOLS', 'SIGNIN']);
 const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /**
  * Auth variables a profile decides, for every coding tool. They are cleared before a profile is applied, so one
@@ -135,13 +136,13 @@ export function readProfile(name) {
   for (const [k, v] of Object.entries(all)) if (!META.has(k)) env[k] = v;
   const kind = kindOf(env, all);
   return {
-    name, label: all.LABEL || DEFAULT_LABEL[kind], prerun: all.PRERUN || '', models: all.MODELS || '', kind, paid: isPayPerUse(env), env,
+    name, label: all.LABEL || DEFAULT_LABEL[kind], prerun: all.PRERUN || '', models: all.MODELS || '', mapSessions: all.MAPSESSIONS === 'on', kind, paid: isPayPerUse(env), env,
     api: listOf(all.API, API_SHAPES), tools: listOf(all.TOOLS, TOOL_IDS), signin: all.SIGNIN === 'codex' ? 'codex' : '',
   };
 }
 
 /** The lines of a profile that are not its environment, to write it again unchanged (rename, new model, sign-in). */
-export const metaOf = (p) => ({ label: p.label, prerun: p.prerun, models: p.models, api: p.api || [], tools: p.tools || [], signin: p.signin || '' });
+export const metaOf = (p) => ({ label: p.label, prerun: p.prerun, models: p.models, mapSessions: p.mapSessions === true, api: p.api || [], tools: p.tools || [], signin: p.signin || '' });
 
 /**
  * The API shapes a key provider is known to answer: its API= line, else what its kind implies (a Claude key:
@@ -177,14 +178,14 @@ export function whyNotServed(p, tool) {
   const kind = p ? p.kind || kindOf(p.env || {}, { SIGNIN: p.signin }) : '';
   const why = kind === 'login' || kind === 'subscription' || kind === 'auto' ? 'a Claude subscription is for Claude Code only'
     : kind === 'chatgpt' ? 'it is the sign-in of another coding tool'
-      : 'it does not answer the API that tool speaks (Test it on the Providers page, or choose another provider)';
+      : 'it does not work with that coding tool (test it on the Providers page, or choose another provider)';
   return `The provider "${p ? p.label || p.name : '?'}" cannot be used for ${name}: ${why}.`;
 }
 
 /** Throws the sentence of whyNotServed (status 400) when `p` may not be used for coding tool `tool`. */
 export function assertServes(p, tool) {
   const why = whyNotServed(p, tool);
-  if (why) throw Object.assign(new Error(why), { status: 400 });
+  if (why) throw Object.assign(new Error(why), { status: 400, details: { code: 'provider-not-served' } });
 }
 
 /**
@@ -234,13 +235,20 @@ export function listProfiles() {
  * The only view of a profile that may be shown outside this machine: no values, and only the coding tools this
  * version offers (a provider that serves none of them is `unusable`: kept, nothing uses it).
  */
+/**
+ * The provider keeps Claude Code's folder (its sign-in among it) in a folder of its own (CLAUDE_CONFIG_DIR): what this
+ * computer knows and does about the default folder's sign-in (who, signed in or not, Sign in, Sign out) is not its.
+ */
+export const ownFolder = (p) => !!(p && p.env && p.env.CLAUDE_CONFIG_DIR);
+
 export function publicProfile(p) {
   const tools = offeredOnly(servesTools(p));
-  return { name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, tools, ...(tools.length ? {} : { unusable: true }) };
+  // ownFolder: a fact, never the folder.
+  return { name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, tools, ...(tools.length ? {} : { unusable: true }), ...(ownFolder(p) ? { ownFolder: true } : {}) };
 }
 
 /** Create or replace a profile. The folder is 700 and the file 600. */
-export function writeProfile(name, { label = '', prerun = '', models = '', api = [], tools = [], signin = '', env = {} } = {}) {
+export function writeProfile(name, { label = '', prerun = '', models = '', mapSessions = false, api = [], tools = [], signin = '', env = {} } = {}) {
   if (!validName(name)) throw new Error(`"${name}" is not a usable profile name (a-z, 0-9, - and _, not a command word)`);
   for (const k of Object.keys(env)) {
     if (!KEY_RE.test(k) || META.has(k)) throw new Error(`"${k}" is not a usable variable name`);
@@ -251,6 +259,8 @@ export function writeProfile(name, { label = '', prerun = '', models = '', api =
   if (label) lines.push(`LABEL=${quote(label)}`);
   if (prerun) lines.push(`PRERUN=${quote(prerun)}`);
   if (models) lines.push(`MODELS=${quote(models)}`);
+  // Only the owner turns it on (his page or his command): what an update changes in what runs stays off until then.
+  if (mapSessions === true) lines.push('MAPSESSIONS=on');
   const apiList = listOf((api || []).join(','), API_SHAPES);
   if (apiList.length) lines.push(`API=${apiList.join(',')}`);
   const toolList = listOf((tools || []).join(','), TOOL_IDS);

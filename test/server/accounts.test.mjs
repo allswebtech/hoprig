@@ -57,7 +57,7 @@ test('token, errors and scrubbing', () => {
 });
 
 test('the sign-in runs without any account credential and without opening a browser on the PC', () => {
-  const env = signinEnv({ PATH: '/bin', HOME: '/h', ANTHROPIC_API_KEY: 'x', ANTHROPIC_AUTH_TOKEN: 'y', ANTHROPIC_BASE_URL: 'z', CLAUDE_CODE_OAUTH_TOKEN: 'w', ANTHROPIC_MODEL: 'm', HOPRIG_PROFILE: 'p' });
+  const env = signinEnv({ PATH: '/bin', HOME: '/h', ANTHROPIC_API_KEY: 'x', ANTHROPIC_AUTH_TOKEN: 'y', ANTHROPIC_BASE_URL: 'z', CLAUDE_CODE_OAUTH_TOKEN: 'w', ANTHROPIC_MODEL: 'm', HOPRIG_PROFILE: 'p' }); // seal: a value no program is started with
   assert.deepEqual(Object.keys(env).filter((k) => /ANTHROPIC|OAUTH|HOPRIG_PROFILE/.test(k)), []);
   assert.ok(env.BROWSER);
   assert.equal(env.PATH, '/bin');

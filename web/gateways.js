@@ -15,9 +15,28 @@ const NAME_OK = (v) => (v.trim() && v.trim().length <= 60 && /^[A-Za-z0-9 ._@()-
 // A computer whose gateways cannot be seen right now, in plain words.
 const AWAY = {
   offline: 'Offline right now: its gateways show once it is on.',
-  unauthorised: 'It does not let this dashboard in any more. Link it again on the Computers page.',
+  // unauthorised: drawn with its link where the row is made (it names the Computers page).
   'too-old': `It needs a ${APP_NAME} update to show its gateways.`,
 };
+
+// Why a program of the owner's own waits for his yes (GET /api/gateways needsConfirm), as `hoprig gateways` says it.
+const WAITS = {
+  changed: 'Its program changed since you confirmed it, so Hoprig does not start it until you confirm it again.',
+  'no-fingerprint': 'Hoprig keeps no fingerprint of its program yet, so it does not start it until you confirm it.',
+  gone: 'Its program is not where you confirmed it any more (an update may have moved it), so Hoprig does not start it.',
+  'gone-old': 'Its program is not where you confirmed it any more, so Hoprig does not start it.',
+};
+
+/**
+ * A gateway whose program was not found, in the page's words: what Hoprig starts it with and why it waits, from this
+ * computer's GET /api/gateways (`view`: its entry, or null when the route did not answer). → [sentence, command | null].
+ */
+export function programFacts(title, view) {
+  const runs = view && Array.isArray(view.runs) && view.runs.length ? view.runs.join(' ') : null;
+  const why = view && WAITS[view.needsConfirm];
+  const first = why || `${title} is defined on this computer, but its program was not found.`;
+  return [runs ? `${first} Hoprig starts it with:` : `${first} Install its program on this computer, then try again.`, runs];
+}
 
 /** The one line under a gateway: whether it runs, its version, and whether it is shared or used here. */
 export function gatewayLine(c, g) {
@@ -53,7 +72,7 @@ async function useRemote(c, g, done) {
     toast(`${r.label} added`);
     done();
   } catch (e) {
-    toast(e.message, { kind: 'error', ms: 9000 });
+    toast(e, { kind: 'error', ms: 9000 });
   }
 }
 
@@ -80,7 +99,7 @@ async function keySheet(g, done) {
   try {
     r = await api(G(`/${g.id}/keys`), { name: name.trim() });
   } catch (e) {
-    return toast(e.message, { kind: 'error', ms: 8000 });
+    return toast(e, { kind: 'error', ms: 8000 });
   }
   done();
   const address = `${r.publicUrl || location.origin}${r.path}`;
@@ -105,7 +124,7 @@ function sharing(g, reload) {
         await api(G(`/${g.id}/share`), { on });
         toast(on ? `${g.title} is shared` : `${g.title} is no longer shared`);
       } catch (e) {
-        toast(e.message, { kind: 'error', ms: 8000 });
+        toast(e, { kind: 'error', ms: 8000 });
         throw e;
       } finally {
         reload();
@@ -124,7 +143,7 @@ function sharing(g, reload) {
               await api(G(`/keys/${k.id}/remove`), {});
               toast('Key removed');
             } catch (e) {
-              toast(e.message, { kind: 'error' });
+              toast(e, { kind: 'error' });
             }
             reload();
           } }))))
@@ -149,7 +168,7 @@ function addSheet(done) {
         close(true);
         done();
       } catch (e) {
-        fill(out, errorBox(e.message));
+        fill(out, errorBox(e));
         go.disabled = false;
       }
     });
@@ -158,6 +177,8 @@ function addSheet(done) {
       field('Address', url, 'It ends in /gateway/ and the gateway\'s name.'),
       insecure() ? h('div.banner.warn', icon('lock', { size: 18 }), h('span', 'This page is not encrypted: the key would travel over the network in plain text. Use it only on a network you trust.')) : null,
       field('Gateway key', key, 'Checked once, then kept only in this computer\'s provider file.'),
+      // The OpenCode condition lives here, on the gateway's own sheet, not in the panel's first sentence.
+      h('p.hint', 'OpenCode can use it too, when Test on its provider finds what OpenCode needs.'),
       out,
       h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close() }, 'Cancel'), go));
   });
@@ -178,13 +199,13 @@ export function gatewaysPanel({ useLocal, changed }) {
     try {
       d = await api(G('/all'));
     } catch (e) {
-      return fill(box, errorBox(e.message, load));
+      return fill(box, errorBox(e, load));
     }
     const rows = [];
     for (const c of d.computers) {
       if (c.state !== 'online' && !c.gateways.length) {
         rows.push(h('div.row.static.gw-row', h('span.row-icon', icon('cpu')),
-          h('span.row-main', h('span.row-title', machinePill(c.label, { state: 'offline' })), h('span.row-sub', AWAY[c.state] || AWAY.offline))));
+          h('span.row-main', h('span.row-title', machinePill(c.label, { state: 'offline' })), h('span.row-sub', c.state === 'unauthorised' ? ['It does not let this dashboard in any more. ', h('a', { href: link('#/computers') }, 'Link it again on the Computers page'), '.'] : AWAY[c.state] || AWAY.offline))));
       }
       for (const g of c.gateways) rows.push(row(c, g, { useLocal, done }));
     }
@@ -195,5 +216,5 @@ export function gatewaysPanel({ useLocal, changed }) {
       h('div.savebar.start', btn('secondary', { icon: 'plus', label: 'Add a shared gateway', onclick: () => addSheet(done) })));
   }
   load();
-  return panel({ icon: 'swap', title: 'Gateways on your computers', desc: 'A gateway lets Claude Code use other AI providers (and OpenCode, when Test on its provider finds the APIs it needs). Use one from this computer or from another one.' }, box);
+  return panel({ id: 'gateways', icon: 'swap', title: 'Gateways on your computers', desc: 'A gateway lets Claude Code use AI accounts of other companies. Use one on this computer or on another of yours.' }, box);
 }

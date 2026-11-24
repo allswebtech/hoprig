@@ -21,12 +21,18 @@ import { listProfiles, notServedLines, readProfile, servesTools, validName } fro
 import { rememberFolderProvider } from '../defaultprovider.mjs';
 import { refuseIfHeld } from '../held.mjs';
 import { createRun, updateRun } from '../runs.mjs';
+import { endedAtStart, endedLine, noteStartFailure } from '../startfail.mjs';
+import { readRun } from '../runfile.mjs';
 import { endRun } from '../typinglock.mjs';
 import { codexPlan, opencodePlan, standalonePlan } from './attach.mjs';
 import { anyTool, findTool, notOffered } from './index.mjs';
 import { providerModels } from './providers.mjs';
 import { cleanEnv, ensureServer, serverProviders, stopIfUnused } from './servers.mjs';
 import { isToolSessionId } from './stores.mjs';
+import { startAsHers } from '../assistant/hersignin.mjs';
+import { loadConfig } from '../config.mjs';
+import { takeHers } from '../launchfile.mjs';
+import { credsDir } from '../workspace/credlinks.mjs';
 
 export { codexItem, codexStatus, codexTuiArgs, opencodeStatus, opencodeTuiArgs } from './attach.mjs';
 
@@ -84,6 +90,8 @@ async function modelFor(o, profile) {
  */
 export async function launchTool(toolId, profileName, args, { cwd = process.cwd(), base = process.env } = {}) {
   const tool = anyTool(toolId); // toolCommand and the dashboard let only an offered tool through
+  // The dashboard started this terminal for Tia (its launch file said so, launchfile.mjs): see toolEnv.
+  const hers = takeHers();
   let o;
   try {
     o = parseToolArgs(args);
@@ -114,6 +122,11 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
     return refuse(2, [`hoprig: ${e.message}`]);
   }
   if (o.resume && !conversation) return refuse(2, [`hoprig: "${o.resume}" is not a ${tool.name} conversation id.`]);
+  // Extra folders (workspace/needs.mjs): Hoprig cannot keep them read-only in this coding tool, so none is opened. A
+  // --with is refused; the project's needs are named once, so the owner knows the session does not have them.
+  if (o.extra.some((a) => a === '--with' || a.startsWith('--with='))) return refuse(2, [`hoprig: --with works with Claude Code only: ${tool.name} gets no extra folders, because Hoprig cannot keep them read-only there`]);
+  const ex = await (await import('../workspace/needs.mjs')).sessionExtras(cwd, { walk: false }).catch(() => null);
+  if (ex && (ex.refs.length || ex.missing.length)) console.error(`hoprig: ${ex.project} needs ${[...ex.refs, ...ex.missing.map((m) => m.ref)].join(', ')}: ${tool.name} gets no extra folders (Hoprig cannot keep them read-only there); start the session with Claude Code to read them`);
   // A new conversation started here makes this the folder's provider for this coding tool, as Claude Code's launcher
   // does for its own (defaultprovider.mjs). A resume or a continue (a move too: it resumes) carries a conversation on
   // and says nothing about where the next one should start.
@@ -129,7 +142,7 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
       plan = toolId === 'codex' ? await codexPlan(r.server, { profile, model, cwd, o, base, report }) : await opencodePlan(r.server, { profile, model, cwd, o, base, report });
       follow = plan.follow;
     } else {
-      console.error(`hoprig: ${r.why}. ${tool.name} runs on its own; its live status is basic.`);
+      console.error(`hoprig: ${r.why}${r.log ? ` What it said is in ${r.log}.` : ''} ${tool.name} runs on its own; its live status is basic.`);
       plan = await standalonePlan(toolId, { profile, model, cwd, o, base });
       updateRun(file, { server: false, statusSource: 'basic' });
     }
@@ -141,7 +154,10 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
   }
   if (plan.sessionId) updateRun(file, { sessionId: plan.sessionId });
   console.error(`hoprig: ${tool.name} · provider ${profile.name} · ${profile.label}`);
-  const { code, signalled } = await runChild(tool.argv(plan.args), { ...plan.env, HOPRIG_RUN_FILE: file }, follow, { report });
+  const spawnedAt = Date.now();
+  const { code, signalled } = await runChild(tool.argv(plan.args), toolEnv(plan.env, file, { hers }), follow, { report });
+  // Ended at its start: noted for the dashboard's card before the record goes, and said under the tool's words.
+  if (endedAtStart({ code, ms: Date.now() - spawnedAt, signalled }) && noteStartFailure(readRun(file), { code, tool: toolId })) console.error(endedLine(toolId, code));
   await endRun(file);
   if (plan.cleanup) plan.cleanup();
   // The last session of the tool stops its server. Not when the terminal itself is closing or being restarted
@@ -149,6 +165,18 @@ export async function launchTool(toolId, profileName, args, { cwd = process.cwd(
   // to finish. The dashboard stops a server that nobody uses after a while (./feature.mjs).
   if (!signalled) await stopIfUnused(toolId, { except: run.runId }).catch(() => {});
   return code;
+}
+
+/**
+ * The environment the coding tool of run `file` starts with. A session of Tia's goes through the one startAsHers, as
+ * Claude Code's does (launch.mjs): its run is marked hers, so a move keeps it hers, and git and gh sign in with the
+ * file the owner chose in place of his own. These tools get no hook from Hoprig that could hold a command, so for
+ * them the mark holds nothing yet: the sign-in is what protects. A session of his own is as before.
+ */
+export function toolEnv(planEnv, file, { hers = false } = {}) {
+  const env = { ...planEnv, HOPRIG_RUN_FILE: file };
+  if (!hers) return env;
+  return startAsHers(file, env, { cfg: loadConfig(), credsDir: credsDir(), onProblem: (why) => console.error(`hoprig: Tia's git sign-in could not be used (${why}); this session signs in to git with no token until the file is fixed`) });
 }
 
 const clip = (s, n) => String(s).replace(/\s+/g, ' ').trim().slice(0, n);
@@ -221,17 +249,28 @@ export async function toolCommand(toolId, args) {
   const [first, ...rest] = args;
   if (toolId === 'codex' && (first === 'login' || first === 'logout')) return codexAccount(first, rest);
   if (first === '--help' || first === '-h' || first === 'help') {
-    console.log(`hoprig ${toolId} [provider] [-c | --resume <id>] [--permission-mode ${tool.options.permissionModes.join('|')}]
+    console.log(toolUsage(toolId));
+    return 0;
+  }
+  if (first && !first.startsWith('-') && validName(first) && readProfile(first)) return launchTool(toolId, first, rest);
+  return chooseAndLaunch(toolId, tool, first, args);
+}
+
+/** The help of `hoprig opencode` (or codex): how to start it, and Codex's own sign-in. */
+export function toolUsage(toolId) {
+  const tool = anyTool(toolId);
+  return `hoprig ${toolId} [provider] [-c | --resume <id>] [--permission-mode ${tool.options.permissionModes.join('|')}]
                  [--effort ${tool.options.efforts.join('|')}] [--model <id>] [-- <first message>]
 
   Starts ${tool.name} in this terminal on a provider that serves it. Hoprig keeps the session's status for the
   dashboard and stops its own ${tool.name} server when the last session ends.${toolId === 'codex' ? `
 
 hoprig codex login [--device-auth] | login status | logout
-  Codex's own sign-in (for a "Codex sign-in" provider), with Hoprig's copy of Codex.` : ''}`);
-    return 0;
-  }
-  if (first && !first.startsWith('-') && validName(first) && readProfile(first)) return launchTool(toolId, first, rest);
+  Codex's own sign-in (for a "Codex sign-in" provider), with Hoprig's copy of Codex.` : ''}`;
+}
+
+/** No provider named, or one that does not exist: the one that serves the tool, else a plain sentence. */
+function chooseAndLaunch(toolId, tool, first, args) {
   const fit = listProfiles().filter((p) => servesTools(p).includes(toolId));
   if (first && !first.startsWith('-')) {
     console.error(`hoprig: no provider "${first}". Providers for ${tool.name}: ${fit.map((p) => p.name).join(', ') || 'none yet'}.`);

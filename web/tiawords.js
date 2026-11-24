@@ -7,7 +7,7 @@ import { h, link } from './lib.js';
 // What she did, in plain words (the chips under her answer and the Activity list).
 export const TOOL_WORDS = {
   list_sessions: 'looked at the sessions', read_session: 'read a session', list_projects: 'looked at the projects', list_conversations: 'looked at earlier conversations',
-  get_accounts: 'looked at the providers', get_computer_status: 'looked at the computers', get_settings: 'read the settings', find_skill: 'looked up how to do it',
+  get_accounts: 'looked at the providers', get_computer_status: 'looked at the computers', get_settings: 'read the settings', read_attention: 'looked at what needs you', find_skill: 'looked up how to do it',
   start_session: 'start a session', send_to_session: 'type into a session', press_key: 'press a key in a session', rename_session: 'rename a session',
   start_chat: 'start a session in the App', send_to_chat: 'act in a session in the App',
   watch_session: 'watch a session', finish_job: 'finish the job', notify_owner: 'notify you', open_screen: 'open a screen',
@@ -15,11 +15,12 @@ export const TOOL_WORDS = {
   kill_process: 'end a process', change_setting: 'change a setting', run_command: 'run a command',
   manage_computer: 'change a computer', draft_skill: 'add a skill', read_brain: 'read the AI brain',
   manage_project: 'work on a project', manage_automation: 'change the automations', manage_skills: 'look after the skills', manage_procedures: 'look up how to do it',
+  manage_work: 'look after your tasks',
 };
 // What she is doing right now (the line while she works).
 export const DOING = {
   list_sessions: 'looking at the sessions', read_session: 'reading a session', list_projects: 'looking at your projects', list_conversations: 'looking at earlier conversations',
-  get_accounts: 'checking the providers', get_computer_status: 'checking the computers', get_settings: 'reading the settings', find_skill: 'looking up how to do it',
+  get_accounts: 'checking the providers', get_computer_status: 'checking the computers', get_settings: 'reading the settings', read_attention: 'looking at what needs you', find_skill: 'looking up how to do it',
   start_session: 'starting a session', send_to_session: 'typing into a session', press_key: 'pressing a key in a session', rename_session: 'renaming a session',
   start_chat: 'starting a session in the App', send_to_chat: 'writing to a session in the App',
   watch_session: 'watching a session', finish_job: 'finishing the job', notify_owner: 'writing to you', open_screen: 'opening a screen',
@@ -27,6 +28,7 @@ export const DOING = {
   kill_process: 'ending a process', change_setting: 'changing a setting', run_command: 'running a command',
   manage_computer: 'changing a computer', draft_skill: 'writing a skill', read_brain: 'reading the AI brain',
   manage_project: 'working on a project', manage_automation: 'changing the automations', manage_skills: 'looking after the skills', manage_procedures: 'looking up how to do it',
+  manage_work: 'looking at your tasks',
 };
 // The chip once a call has an answer.
 export const DID = {
@@ -37,6 +39,7 @@ export const DID = {
   stop_session: 'stopped a session', switch_account: 'moved a session', set_auto_mode: 'changed Auto mode',
   kill_process: 'ended a process', change_setting: 'changed a setting', run_command: 'ran a command', manage_computer: 'changed a computer', draft_skill: 'added a skill',
   manage_project: 'worked on a project', manage_automation: 'changed the automations', manage_skills: 'looked after the skills', manage_procedures: 'looked up how to do it',
+  manage_work: 'looked after your tasks',
 };
 
 /**
@@ -64,7 +67,13 @@ const COMPUTER = {
 };
 /** The words of `tool` (with its `action`, for manage_computer) from one of the maps above. */
 export function wordFor(map, tool, action) {
+  // A question with answers to tap is asked in the chat: no push went out.
+  if (tool === 'notify_owner' && action === 'ask') return map === DOING ? 'asking you' : map === DID ? 'asked you' : 'ask you';
   const per = tool === 'manage_computer' && COMPUTER[action];
   if (per) return per[map === DOING ? 1 : map === DID ? 2 : 0];
   return map[tool];
 }
+
+/** What she is doing, for the line while she works: plain words, and for a tool this page has no words for, never its
+ * inside name. */
+export const doingLine = (tool, action) => wordFor(DOING, tool, action) || 'working on it';

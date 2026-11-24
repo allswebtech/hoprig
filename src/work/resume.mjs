@@ -26,16 +26,26 @@ import { blobOnDisk as idOnDisk, gitWrite, indexEntry, isAncestor, repoInfo, set
 import { dropJournal, keptAt, readJournal } from './journal.mjs';
 import { dropKept, keptId, keptOf, keptShow } from './kept.mjs';
 import { tryRepoLock, withLock } from './lock.mjs';
+import { dropAccept, finishAccept } from './planstore.mjs';
 import { writeText } from './store.mjs';
 
-const DROP = 'Drop it on the Work page, or hoprig tasks save --drop-interrupted';
+const DROP = 'press "Drop the record" on the Work page, or run hoprig tasks save --drop-interrupted';
 
 /**
  * Finish or show an interrupted save of `place`'s Work file. → {} (none), { sentence } (finished: one sentence for the
  * owner), or { problem, code, kept? } (shown: nothing touched; a save waits until the owner drops the journal).
  * `repoHeld`: the caller holds the repository's lock. `dryRun`: say it, change nothing.
  */
-export async function finishInterrupted(place, { run = capture, repoHeld = false, dryRun = false } = {}) {
+export async function finishInterrupted(place, opts = {}) {
+  // An Accept of a plan that was interrupted (planstore.mjs) is finished first: a save never commits half of one.
+  const acc = await finishAccept(place, { dryRun: !!opts.dryRun });
+  if (acc.problem) return acc;
+  const r = await finishSave(place, opts);
+  if (!acc.sentence || r.problem) return r;
+  return { ...r, sentence: r.sentence ? `${acc.sentence} ${r.sentence}` : acc.sentence };
+}
+
+async function finishSave(place, { run = capture, repoHeld = false, dryRun = false } = {}) {
   const j = readJournal(place.file);
   if (!j) {
     // No record here, but his list kept in the repository: a save was interrupted whose record is elsewhere or gone.
@@ -63,7 +73,8 @@ export async function finishInterrupted(place, { run = capture, repoHeld = false
 export async function dropInterrupted(place, { run = capture } = {}) {
   const k = await keptOf(place, run);
   if (k) await dropKept(k.top, k.rel, run, k.id);
-  return dropJournal(place.file) || !!k;
+  const accept = dropAccept(place);
+  return dropJournal(place.file) || !!k || accept;
 }
 
 async function finish(place, j, run, kept) {
@@ -93,10 +104,32 @@ async function finish(place, j, run, kept) {
   if (g.branch !== j.branch) return shown(`it is on ${g.branch || 'no branch'}, the save was on ${j.branch}`);
   if (!H) return shown('git could not say which commit it is on');
   const onDisk = idOnDisk(place.file, H.length);
+  // A merge's plans' files changed on both computers (save.mjs `both`): { path, mine, target, ids }.
+  const files = Array.isArray(j.files) ? j.files.filter((f) => f && typeof f.path === 'string' && !f.path.split('/').includes('..') && f.ids && typeof f.ids === 'object') : [];
+  const absOf = (f) => path.join(j.top, ...f.path.split('/'));
   const done = async (sentence) => {
     if (ours) await dropKept(keptIn.top, keptIn.rel, run, keptIn.id);
+    for (const f of files) await dropKept(j.top, f.path, run, f.ids.mine);
     dropJournal(place.file);
     return { sentence };
+  };
+  /**
+   * Each of those files where `from` left it gets `to` (before the fast-forward: back to his own; after it: what he
+   * chose). → null, or the path of one that holds anything else (then nothing more is touched).
+   */
+  const settleFiles = (fromKey, toKey, toText) => {
+    for (const f of files) {
+      const now = idOnDisk(absOf(f), H.length);
+      if (now === f.ids[toKey]) continue;
+      if (now !== f.ids[fromKey]) return f.path;
+    }
+    for (const f of files) {
+      if (idOnDisk(absOf(f), H.length) === f.ids[toKey]) continue;
+      const text = toText(f);
+      if (text === null) fs.rmSync(absOf(f), { force: true });
+      else writeText(absOf(f), text);
+    }
+    return null;
   };
   const untouched = 'A save of the Work list was interrupted before it changed anything in git: your list is as it was.';
   // The run files the save committed with the list (runs.mjs), and their index entries before it added them.
@@ -115,6 +148,9 @@ async function finish(place, j, run, kept) {
     // Its list is kept before the file is put back: without it, the save changed nothing, whatever the file holds now
     // (he may have changed or discarded it since; nothing is written over it).
     if (j.v >= 2 && !ours) return done(untouched);
+    // His plans' files are put back after the list: each that is as its last commit has it gets his own again.
+    const off = settleFiles('head', 'mine', (f) => f.mine);
+    if (off) return shown(`${off} holds a version that save did not write`);
     if (onDisk === ids.mine) return done(untouched);
     if (onDisk !== ids.head) return shown('the Work file holds a version that save did not write');
     writeText(place.file, j.mine);
@@ -124,8 +160,12 @@ async function finish(place, j, run, kept) {
   }
   if (j.kind === 'merge' && H === j.base) {
     if (onDisk !== ids.theirs && onDisk !== ids.target) return shown('the Work file holds a version that save did not write');
+    const off = files.find((f) => ![f.ids.theirs, f.ids.target].includes(idOnDisk(absOf(f), H.length)));
+    if (off) return shown(`${off.path} holds a version that save did not write`);
     if (onDisk !== ids.target) writeText(place.file, j.merged);
+    settleFiles('theirs', 'target', (f) => f.target);
     await git(['reset', '--quiet', j.base, '--', j.rel]); // the file's index entry as the fast-forward left it
+    for (const f of files) await git(['reset', '--quiet', j.base, '--', f.path]);
     await unstageRuns();
     return done('A save of the Work list was interrupted after it brought in the server\'s commits: your changes, merged with the other computer\'s, are in the Work file now; Save sends them.');
   }
@@ -144,18 +184,20 @@ async function finish(place, j, run, kept) {
   // After the commit: the branch is on the save's own commit, with nothing else in it, and the file as it has it.
   const parent = await read(['rev-parse', '--verify', '--quiet', `${H}^`]);
   if (!parent.ok || parent.stdout.trim() !== j.base) return shown('its branch has commits that save did not make');
-  const files = await read(['diff-tree', '-r', '--name-only', '--no-renames', '-z', j.base, H]);
+  const changed = await read(['diff-tree', '-r', '--name-only', '--no-renames', '-z', j.base, H]);
   const at = await read(['rev-parse', '--verify', '--quiet', `${H}:${j.rel}`]);
-  const inCommit = files.ok ? files.stdout.split('\0').filter(Boolean) : [];
-  if (!files.ok || !inCommit.length || inCommit.some((f) => f !== j.rel && !runs.includes(f)) || !at.ok || at.stdout.trim() !== ids.target) return shown('its last commit is not the one that save made');
+  const inCommit = changed.ok ? changed.stdout.split('\0').filter(Boolean) : [];
+  if (!changed.ok || !inCommit.length || inCommit.some((f) => f !== j.rel && !runs.includes(f) && !files.some((x) => x.path === f)) || !at.ok || at.stdout.trim() !== ids.target) return shown('its last commit is not the one that save made');
   if (onDisk !== ids.target) return shown('the Work file changed after that save\'s commit');
   if (!j.remote) return done('A save of the Work list was interrupted after its commit: that save was the commit alone, with nothing to send, so it is done.');
   if ((await isAncestor(j.top, H, '@{u}', run)) === true) return done('A save of the Work list was interrupted after it was sent: it is on the server, nothing more to do.');
   // Committed and not sent: taken back, so the change is in the file and the next Save sends it with the server's news.
   const back = await git(['update-ref', '-m', 'Work save: taken back, it was not sent', `refs/heads/${j.branch}`, j.base, H]);
   if (!back.ok) return shown('git could not take its commit back');
-  if (j.kind === 'merge') await git(['reset', '--quiet', j.base, '--', j.rel]);
-  else await setIndexEntry(j.top, j.rel, j.index, run);
+  if (j.kind === 'merge') {
+    await git(['reset', '--quiet', j.base, '--', j.rel]);
+    for (const f of files) await git(['reset', '--quiet', j.base, '--', f.path]);
+  } else await setIndexEntry(j.top, j.rel, j.index, run);
   for (const f of runs) await setIndexEntry(j.top, f, runsIndex[f] || null, run);
   return done('A save of the Work list was interrupted after its commit and before it was sent: the commit is taken back, and your changes are kept in the Work file; Save sends them.');
 }

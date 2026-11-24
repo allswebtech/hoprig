@@ -36,11 +36,12 @@ export function navChanged() {
  *   render(ctx)    the page's content (an array of nodes; panel() and fold() from shell.js are the usual parts)
  *   onlyHere       shown on this dashboard's own settings only, not on another computer's
  *   tag            a small word next to the title, e.g. "experimental"
+ *   when(ctx)      optional: show this page only when it returns true (e.g. a feature not offered yet); absent = always
  * ctx: { settings (GET /api/settings), state (GET /api/state), here, isAlive }
  */
-export function registerSettingsPage({ id, title, icon, desc, order = 100, onlyHere = false, tag = null, summary = () => '', render }) {
+export function registerSettingsPage({ id, title, icon, desc, order = 100, onlyHere = false, tag = null, when = null, summary = () => '', render }) {
   if (!/^[a-z][a-z0-9-]{0,30}$/.test(id) || settingsPages.some((p) => p.id === id)) throw new Error(`bad settings page id "${id}"`);
-  settingsPages.push({ id, title, icon, desc, order, onlyHere, tag, summary, render });
+  settingsPages.push({ id, title, icon, desc, order, onlyHere, tag, when, summary, render });
 }
 
 const safe = (fn, dflt) => {

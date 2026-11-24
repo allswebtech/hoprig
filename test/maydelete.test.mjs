@@ -110,6 +110,65 @@ test('the neighbours of another reviewer: each line as it is meant', () => {
   assert.deepEqual(wrong, []);
 });
 
+// A leading assignment in the four forms the wall reads (src/wall.mjs ASSIGNMENT): NAME=, NAME+=, NAME[sub]= and
+// NAME[sub]+=. A deleter's name written out, a command that takes a command with the deleter outside quotes, and an
+// everyday line answer the same in all four. A quoted delete after a program that takes a command (or a shell, a
+// language, npx -c, a pipe into at) counts after NAME+= as after NAME=; before, NAME+= hid it; and after NAME[sub]= and NAME[sub]+= too, whose [ and ]
+// stay in the word, so the program after them is the head of its command (A[0]=1 eval 'rm -rf x'); also where the
+// subscript holds a $ or a quote (A[$i]=1, A["k"]=1), read up to the ] that closes it.
+test('a leading assignment in each form the wall reads answers as the plain one', () => {
+  const FORMS = ['X=1', 'X+=1', 'A[0]=1', 'A[0]+=1', 'A[$i]=1', 'A[$i]+=1', 'A["k"]=1', 'A["k"]+=1'];
+  for (const form of FORMS) {
+    for (const rest of ['rm -rf build', 'xargs rm', 'sudo rm -rf x', 'Y+=2 rm -rf x', "xargs sh -c 'rm -rf x'"]) assert.equal(mayDelete(`${form} ${rest}`), true, `${form} ${rest}`);
+    for (const rest of ['ls', 'npm test', 'bash build.sh', "echo 'rm -rf x'", 'git commit -m "rm old files"']) assert.equal(mayDelete(`${form} ${rest}`), false, `${form} ${rest}`);
+  }
+  const QUOTED = ["eval 'rm -rf x'", "ssh h 'rm -rf x'", "bash <<< 'rm -rf x'", "timeout 5 eval 'rm -rf x'", 'python3 -c "import os; os.system(\'rm -rf x\')"', "npx -c 'rm -rf x'", "nodemon --exec 'rm -rf x'", "Y+=2 eval 'rm -rf x'"];
+  // Every row is judged before the one comparison, so a wrong answer names each row that has one.
+  const missed = [];
+  for (const form of ['X=1', 'X+=1', 'A[0]=1', 'A[0]+=1', 'A[i]=1', 'A[i]+=1', 'A[$i]=1', 'A[$i]+=1', 'A["k"]=1', 'A["k"]+=1']) {
+    for (const line of [...QUOTED.map((rest) => `${form} ${rest}`), `echo 'rm -rf x' | ${form} at now`]) if (!mayDelete(line)) missed.push(line);
+  }
+  assert.deepEqual(missed, []);
+});
+
+// An assignment with brackets before a program that takes a command: the quoted delete is that program's text and
+// asks; before a plain program it is no card. Everyday lines with brackets answer as they did before.
+test('an array element assigned before a command: the program after it is read, everyday brackets are unchanged', () => {
+  const missed = [];
+  const cards = [];
+  for (const line of ["A[0]=1 eval 'rm -rf x'", "echo 'rm -rf x' | A[0]=1 at now", "A[i]=1 eval 'rm -rf x'", "A[0]+=1 eval 'rm -rf x'", "A[i+1]=1 eval 'rm -rf x'",
+    "echo 'rm -rf x' | A[i]+=1 batch", "A[0]=1 B[1]=2 eval 'rm -rf x'", "X=1 A[0]=1 ssh h 'rm -rf x'", "A[0]=1 sudo bash -c 'rm -rf x'", "A[k_1]=1 nohup sh -c 'rm -rf x'",
+    "f(){ :; }; A[0]=1 eval 'rm -rf x'", "echo \"$(A[0]=1 eval 'rm -rf x')\"", "true && A[0]=1 eval 'rm -rf x'", "A[0]=1 rm -rf x", "[ -d y ] && rm -rf y", "ls [a-c]* && rm x",
+    // A subscript with a $, a quote or brackets: read up to its ], the program after it is read.
+    "A[$i]=1 eval 'rm -rf x'", "A[\"k\"]=1 eval 'rm -rf x'", "A['k']=1 eval 'rm -rf x'", "A[$'k']=1 eval 'rm -rf x'", "A[${k}]=1 eval 'rm -rf x'", "A[\"$k\"]+=1 ssh h 'rm -rf x'",
+    "A[$i+1]=1 sudo bash -c 'rm -rf x'", "A[\"a b\"]=1 eval 'rm -rf x'", "A[B[0]]=1 eval 'rm -rf x'", "echo 'rm -rf x' | A[$i]=1 at now", "echo 'rm -rf x' | A[\"k\"]+=1 batch", "true && A[$i]=1 eval 'rm -rf x'",
+    // A command in a subscript ends the reading there, so that command is read as before.
+    'A[$(rm -rf x)]=1 ls', 'A[`rm -rf x`]=1 ls', 'A["$(rm -rf x)"]=1 ls', 'A["`rm -rf x`"]=1 ls', 'A[$i]=$(rm -rf x) ls',
+    // A subscript that holds a command ($( ), $(( )), a backtick): that command is read, and so is the program after it.
+    "A[$(id -u)]=1 eval 'rm -rf x'", "A[$((i+1))]=1 eval 'rm -rf x'", "A[`id -u`]=1 eval 'rm -rf x'", "A[\"$(id -u)\"]=1 eval 'rm -rf x'", "A[\"`id -u`\"]+=1 ssh h 'rm -rf x'",
+    "A[i+$(id -u)]=1 sudo bash -c 'rm -rf x'", "A[$(echo ']')]=1 eval 'rm -rf x'", "A[$(id)]=1 B[`id`]=2 eval 'rm -rf x'", "true && A[$((1))]=1 eval 'rm -rf x'",
+    "echo 'rm -rf x' | A[$(id -u)]=1 at now", "A[$(id -u)]=1 echo 'rm -rf x' | at now", "echo \"$(A[$(id -u)]=1 eval 'rm -rf x')\"", "A[$(B[$(id)]=1 ls)]=1 eval 'rm -rf x'",
+    'A[$(id)]=1 rm -rf x', 'A[$(id; rm -rf x)]=1 ls', 'A[$(id)]=`rm -rf x` ls', 'A[$(id) ; rm -rf x]=1 ls']) {
+    if (!mayDelete(line)) missed.push(line);
+  }
+  for (const line of ['A[0]=1 ls', 'A[i]=1 npm test', 'A[0]+=1 git status', "A[0]=1 echo 'rm -rf x'", 'A[i]=1 git commit -m "rm old files"', 'A[0]=1 B[1]=2 make',
+    "A[0]=1 grep -rn 'rm -rf' .", 'ls [a-c]*', 'echo ${A[0]}', 'test -f x && [ -d y ]', '[[ -n $x ]] && ls', 'echo "${A[@]}"', 'arr[0]=1; echo ${arr[0]}', 'ls x[0]', "grep -E '[a-z]+' f",
+    'echo ${#A[@]}', 'A[0]', 'A[', 'A[0', 'A[0]x=1 ls', "echo a[0] 'rm -rf x'", 'printf "%s\\n" "${files[@]}" | sort', 'x=${A[0]:-rm}', 'git rm x[0]',
+    // The same with a $ or a quote in the brackets: an assignment before a plain program, or no assignment at all.
+    'echo "${A[$i]}"', 'echo ${A[$i]}', '[[ $a == "b" ]]', '[[ $a == "b" ]] && ls', 'A[$i', 'A[$i]', 'A[$i]x=1 ls', 'A["k"] ls', "A[$i]=1 echo 'rm -rf x'", 'A["k"]=1 git commit -m "rm old files"',
+    'A["rm -rf x"]=1 ls', "A['rm -rf x']+=1 make", 'arr[$i]=1; echo "${arr[$i]}"', 'declare -A m; m["a b"]=1; echo "${m["a b"]}"', 'A[$i]=1 B["k"]=2 make', "echo A[$i] 'rm -rf x'",
+    // The same with a command in the brackets.
+    'A[$(id -u)]=1 ls', "A[$(id -u)]=1 echo 'rm -rf x'", 'A[`id -u`]=1 git commit -m "rm old files"', 'echo "${A[$(id -u)]}"', 'echo ${A[$((i+1))]}', "A[$(id -u)] 'rm -rf x'",
+    "echo A[$(id)] 'rm -rf x'", 'A[$(id) x]=1 ls', 'A[$(id)', 'A[`id`', 'n=${#A[$(id)]}; echo $n']) {
+    if (mayDelete(line)) cards.push(line);
+  }
+  // An unclosed quote in a subscript is an unclosed quote, as before: a card.
+  if (!mayDelete('A["k')) missed.push('A["k');
+  if (!mayDelete("A['k]=1 eval x")) missed.push("A['k]=1 eval x");
+  // Every row is judged before the one comparison, so a wrong answer names each row that has one.
+  assert.deepEqual({ missed, cards }, { missed: [], cards: [] });
+});
+
 // ---------- (c) ----------
 
 // mulberry32: a seeded source whose state runs through all 2^32 values before it repeats.
@@ -119,6 +178,34 @@ const source = (seed) => () => {
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
+
+// bash keeps more inside one word than a reader that ends a word at every sign: a value with $ ~ * ? ! { } [ ], a
+// subscript with a blank, a sign, a command or arithmetic, a host or a user written as ${NAME} or $( … ). Each of
+// these lines was run through bash 5.3 with a harmless program in the place of the delete: the program ran.
+test('a word bash keeps whole is read whole: the program behind it is the head of its command', () => {
+  for (const line of ["X=$HOME/out eval 'rm -rf x'", "X=~/out eval 'rm -rf x'", "X=* eval 'rm -rf x'", "X=${HOME}/out eval 'rm -rf x'", "X=$(id -u) eval 'rm -rf x'", "X=`id -u` eval 'rm -rf x'",
+    "X=a{b,c}d eval 'rm -rf x'", "X=a[bc]d eval 'rm -rf x'", "X=a?b eval 'rm -rf x'", "X=a!b eval 'rm -rf x'", "X=a^b eval 'rm -rf x'", "X+=$i eval 'rm -rf x'", "A[0]+=$i eval 'rm -rf x'", "T=${HOME} eval 'rm -rf x'",
+    "X=$HOME/out Y=~ eval 'rm -rf x'", "true && X=$HOME eval 'rm -rf x'", "echo 'rm -rf x' | X=$HOME at now", "X=$HOME/out ssh h 'rm -rf x'", "X=$HOME sudo bash -c 'rm -rf x'", "X=$1 nohup sh -c 'rm -rf x'",
+    // A subscript with a blank or a sign, as bash reads one: up to the ] that closes it.
+    "A[i + 1]=1 eval 'rm -rf x'", "A[ 2 ]=1 eval 'rm -rf x'", "A[1<2]=1 eval 'rm -rf x'", "A[1>0]=1 eval 'rm -rf x'", "A[1&1]=1 eval 'rm -rf x'", "A[1|1]=1 eval 'rm -rf x'", "A[(1)]=1 eval 'rm -rf x'",
+    "H[a;b]=1 eval 'rm -rf x'", "H[a b]=1 ssh h 'rm -rf x'", "A[${i}]=1 eval 'rm -rf x'", "A[i + 1]+=1 eval 'rm -rf x'", "A[i + 1]=$HOME eval 'rm -rf x'", "echo 'rm -rf x' | A[i + 1]=1 batch",
+    // A host, a user or a session written with a variable or a command: the quoted text is still its program's.
+    "ssh ${HOST} 'rm -rf x'", "ssh $(cat host) 'rm -rf x'", "ssh `cat host` 'rm -rf x'", "ssh ${U}@${HOST} 'rm -rf x'", "su ${U} -c 'rm -rf x'", "tmux send-keys -t ${S} 'rm -rf x' Enter",
+    "printf x | xargs -I{} ssh {} 'rm -rf x'", "timeout ${T} ssh h 'rm -rf x'", "env X=${Y} eval 'rm -rf x'",
+    // The same inside a command that stands in a $( … ) or a backtick, bare, in double quotes or in a subscript.
+    "echo $(A[$(id)]=1 eval 'rm -rf x')", "echo \"$(X=$HOME eval 'rm -rf x')\"", "echo `X=$HOME eval 'rm -rf x'`", "A[$(B[i + 1]=1 eval 'rm -rf x')]=1 ls", "echo \"`A[i + 1]=1 eval 'rm -rf x'`\"",
+    "X=$(Y=$HOME eval 'rm -rf x') ls"]) {
+    assert.equal(mayDelete(line), true, line);
+  }
+  // Ordinary: the same words in front of a program that runs no text, or the text of a message.
+  for (const line of ['X=$HOME/out ls', "X=$HOME/out echo 'rm -rf x'", "X=~/out git commit -m 'rm old files'", 'A[i + 1]=1 ls', "A[ 2 ]=1 echo 'rm -rf x'", "echo ${HOST} 'rm -rf x'", "echo $(date) 'rm -rf x'",
+    'git commit -m "$(cat msg) rm old"', "grep -rn 'rm -rf' ${DIR}", 'for f in *.log; do echo "rm $f"; done', "ls ${DIR}/*.txt | grep 'rm '", "echo \"${A[i + 1]}\" 'rm -rf x'",
+    "X=$(git log --grep 'rm -rf' | wc -l); echo $X", "if [[ $x == *.log ]]; then echo 'rm -rf x'; fi", "make ${TARGET} MSG='rm -rf x'", "find ${DIR} -name '*.rm'", "echo {a,b} 'rm -rf x'", "ls ~/x 'rm'",
+    "git log --format='%h rm' ${A}..${B}", 'echo "$(git log -1 --format=%s) rm"', "A[i + 1] 'rm -rf x'", "echo A[i + 1]=1 'rm -rf x'", 'N=${#A[@]}; echo "rm $N"', "test -n \"${X:-}\" && echo 'rm -rf x'",
+    'curl -s "https://example.com/?q=rm" | jq .', "node -e 'console.log(\"rm\")' ${ARGS}", 'npm test -- --grep "rm $(date +%s)"']) {
+    assert.equal(mayDelete(line), false, line);
+  }
+});
 
 test('every call ends, fast: 200,000 random strings of up to 4,000 characters and the worst lines known', () => {
   const rand = source(20261118);
@@ -140,7 +227,18 @@ test('every call ends, fast: 200,000 random strings of up to 4,000 characters an
   // The worst lines known, warmed up first; the slowest of all measured again (a pause of the collector is no call).
   for (const line of ['`(`', 'git ' + '-C '.repeat(1330) + 'status', '"'.repeat(4000), '\\'.repeat(4000), "'".repeat(4000), 'find '.repeat(800), '$('.repeat(2000), "$'".repeat(2000),
     // Many commands, texts and runners: every rule-2 fact is found in one pass per command.
-    'npx '.repeat(999) + '"rm"', 'sh '.repeat(1300) + '-c', '"rm";'.repeat(800), '("rm")'.repeat(666), 'nodemon '.repeat(500), 'a|'.repeat(1999), '$("rm")'.repeat(500), 'x<<E\n'.repeat(700)]) {
+    'npx '.repeat(999) + '"rm"', 'sh '.repeat(1300) + '-c', '"rm";'.repeat(800), '("rm")'.repeat(666), 'nodemon '.repeat(500), 'a|'.repeat(1999), '$("rm")'.repeat(500), 'x<<E\n'.repeat(700),
+    // Brackets that may open an array element's subscript: each word is looked at for one once.
+    'A['.repeat(2000), 'A[0'.repeat(1333), 'A[0]=1 '.repeat(571) + 'eval', 'A' + '[0'.repeat(1999), 'A[' + 'x'.repeat(3998),
+    // Subscripts with a $ or a quote: read once each, also where one never closes.
+    'A[$i]=1 '.repeat(499) + 'eval', 'A["k"]+=1 '.repeat(399) + 'eval', 'A[$i'.repeat(1000), 'A["'.repeat(1333), 'A[\'k\'x'.repeat(666), 'A[[[' + '"'.repeat(3996),
+    // Subscripts that hold a command: each read once, also nested deep and never closed.
+    'A[$(id)]=1 '.repeat(363) + 'eval', 'A[`x`]=1 '.repeat(444) + 'eval', 'A[$('.repeat(1000), 'A[`'.repeat(1333), 'A["$('.repeat(800), 'A[$(('.repeat(800), 'A[$(B['.repeat(571),
+    '"$(A[$('.repeat(571), 'A[$(id)'.repeat(571),
+    // The second reading: words kept whole, each nested command a line of its own, each read once per level.
+    'X=$a '.repeat(666) + 'eval', 'A[i + 1]=1 '.repeat(363) + 'eval', '${'.repeat(2000), '${x}'.repeat(1000), '$(${'.repeat(800), '"$(`'.repeat(1000), 'A[ $( '.repeat(500) + ')]=1 '.repeat(500),
+    '$('.repeat(1333) + ')'.repeat(1333), '"$('.repeat(800) + ')"'.repeat(800), '$(x)'.repeat(1000), '"$(x)"'.repeat(666), 'A[$(x)]=1 '.repeat(363) + "eval 'rm'", '{}'.repeat(2000), 'a[1]'.repeat(1000),
+    '`x`'.repeat(1333), 'ssh ${H} '.repeat(444) + "'rm'"]) {
     for (let i = 0; i < 20; i++) mayDelete(line);
     const ms = Math.min(time(line), time(line), time(line));
     if (ms > slowest.ms) slowest = { ms, line };
@@ -295,7 +393,7 @@ test('bash with the real programs is the judge: of the plain-sight generator\'s 
       fs.cpSync(tpl, path.join(run, 'w'), { recursive: true });
       fs.writeFileSync(path.join(run, 'log', 'log'), '');
       const args = [...binds, '--bind', path.join(run, 'w'), '/mnt/w', '--bind', path.join(run, 'log'), '/mnt/log', '--chdir', '/mnt/w', '/usr/bin/bash', '-c', line];
-      const p = spawn('timeout', ['-k', '1', '4', bwrap, ...args], { stdio: ['ignore', 'ignore', process.env.HARNESS_DEBUG ? 'inherit' : 'ignore'], env: { PATH: '/mnt/extra:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', HOME: '/mnt/w/home', SHELL: '/usr/bin/bash', GIT_CONFIG_NOSYSTEM: '1', TERM: 'dumb', LANG: 'C.UTF-8' } });
+      const p = spawn('timeout', ['-k', '1', '4', bwrap, ...args], { stdio: ['ignore', 'ignore', process.env.HARNESS_DEBUG ? 'inherit' : 'ignore'], env: { PATH: '/mnt/extra:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', HOME: '/mnt/w/home', SHELL: '/usr/bin/bash', GIT_CONFIG_NOSYSTEM: '1', TERM: 'dumb', LANG: 'C.UTF-8' } }); // seal: a sandbox with a root of its own, its sudo and su bound to stand-ins
       p.on('close', () => resolve(fs.readFileSync(path.join(run, 'log', 'log'), 'utf8')));
     });
     let next = 0;

@@ -7,12 +7,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { claudeCommand } from '../../assistant/engine.mjs';
 import { claudeVersionQuick } from '../../claudecode.mjs';
-import { modelArgs, permissionHook } from '../../launch.mjs';
+import { chatHooks, leadHook, modelArgs } from '../../launch.mjs';
+import { loadConfig } from '../../config.mjs';
+import { handsOffOffered } from '../../handsoff.mjs';
+import { leadArgs } from '../../models/lead.mjs';
 import { hookSettingsDir } from '../../paths.mjs';
+import { readProfile } from '../../profiles.mjs';
+import { mapEnv, mapSettings, sessionMap } from '../../providers/sessionmap.mjs';
+import { withExtras } from '../../workspace/needs.mjs';
 import { projectDir, sessionsIn } from '../../sessions.mjs';
 import { CHAT_ENV, allowLine, chatArgs, controlLine, denyLine, grantSettings, interruptLine, sdkMode, userLine } from './claude-lines.mjs';
 import { ClaudeParser } from './claude-parse.mjs';
-import { forkPoint, readTranscript } from './claude-transcript.mjs';
+import { endPoint, forkPoint, readTranscript } from './claude-transcript.mjs';
+import { WHOLE_MAX, readEarlier, readTail, todosBefore } from './claude-pieces.mjs';
 import { folderHistory } from '../history.mjs';
 
 const TERM_MS = 3000; // after its input ends, how long a process gets to exit before SIGTERM
@@ -29,6 +36,7 @@ const CAN = {
   set_model: 'change the model while it runs', apply_flag_settings: 'change the effort while it runs',
   stop_task: 'stop one task', rename_session: 'rename the conversation', cancel_async_message: 'take back a queued message',
   get_context_usage: 'say how full the context is', get_usage: 'say how much of the plan is used',
+  generate_session_title: 'name the conversation',
 };
 /** A refusal of control request `subtype` in plain words. */
 export function refusalWords(subtype, error, code) {
@@ -52,7 +60,10 @@ class ClaudeSession {
     const own = !!(o.env && o.env.ANTHROPIC_MODEL);
     let model = own ? null : o.model;
     if (!model && !own && (o.resume || o.fork)) model = modelArgs({ env: {} }, ['--resume', o.fork ? o.fork.from : o.sessionId])[1] || null;
-    const env = { ...o.env, ...CHAT_ENV };
+    // The chat's provider's model map (providers/sessionmap.mjs), as a terminal session of it gets: its small model
+    // in the environment, the rest in the settings below. Auto mode's router maps by itself.
+    const map = typeof o.profile === 'string' && o.profile !== 'auto' ? sessionMap(readProfile(o.profile)) : null;
+    const env = mapEnv({ ...o.env, ...CHAT_ENV }, map);
     let settings = grantSettings(o.grants || [], { ultracode: !!o.ultracode });
     // The PermissionRequest hook of a terminal session (launch.mjs permissionHook), for a Claude Code that knows the
     // event, on the chat's run record (`runFile`). Seen on 2.1.326 in this headless mode: Claude Code sends its
@@ -63,17 +74,36 @@ class ClaudeSession {
     // The settings go in a file, as a terminal's: the hook's command needs other quoting on every platform, and the
     // hook reads the "ask" rules of this file (hook.mjs sessionFacts).
     const version = o.version !== undefined ? o.version : o.command ? null : claudeVersionQuick({ env });
-    const hooks = o.runFile ? permissionHook(version) : null;
-    this.hooked = !!hooks;
+    const chatOwnHooks = o.runFile ? chatHooks(version, handsOffOffered(loadConfig()), o.hers === true) : null;
+    // The map rides on the chat's settings whichever way they reach Claude Code: in the file below (hooks or extra
+    // folders), or as the settings argument when there is no file (a record but a Claude Code too old for the hook).
+    const mapped = mapSettings(map, version);
+    if (Object.keys(mapped).length) settings = JSON.stringify({ ...(settings ? JSON.parse(settings) : {}), ...mapped });
+    this.hooked = !!(chatOwnHooks && chatOwnHooks.PermissionRequest); // the PermissionRequest hook answers (asks.mjs); the stop events only write the record
+    // "Lead model": a helper call's model and effort are taken out before it runs (launch.mjs leadHook), so each helper
+    // runs on its kind's own model; a session that does not lead gets nothing of it.
+    const leads = !!(o.runFile && o.lead && o.lead.can);
+    // Both may name the same event (the wall's hold and the lead's hook are both before a tool runs): the lists are
+    // joined, never one put in the other's place.
+    const joined = (x, y) => Object.fromEntries([...new Set([...Object.keys(x || {}), ...Object.keys(y || {})])].map((k) => [k, [...((x || {})[k] || []), ...((y || {})[k] || [])]]));
+    const hooks = chatOwnHooks || leads ? joined(chatOwnHooks, leads ? leadHook() : null) : null;
     this.settingsFile = null;
-    if (hooks) {
+    // The chat's extra folders (workspace/needs.mjs: its project's needs, "Also open"): additional directories with
+    // their deny rules, in the same file, so the hook finds them too (hook.mjs extraDirs).
+    const extra = o.extras && o.extras.settings ? o.extras.settings : null;
+    if (hooks || (extra && o.runFile)) {
       this.settingsFile = path.join(hookSettingsDir(), path.basename(o.runFile));
       fs.mkdirSync(hookSettingsDir(), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(this.settingsFile, `${JSON.stringify({ ...(settings ? JSON.parse(settings) : {}), hooks })}\n`, { mode: 0o600 });
+      fs.writeFileSync(this.settingsFile, `${JSON.stringify(withExtras({ ...(settings ? JSON.parse(settings) : {}), ...(hooks ? { hooks } : {}) }, extra))}\n`, { mode: 0o600 });
       settings = this.settingsFile;
       env.HOPRIG_RUN_FILE = o.runFile;
     }
-    const args = chatArgs({ sessionId: o.sessionId, resume: o.resume, fork: o.fork || null, permissionMode: o.mode, effort: o.effort, model, settings });
+    // A budget (a part Tia's Lead session started by itself inside her daily limit for paid use, partdoor.mjs): Claude
+    // Code's own --max-budget-usd, so its turn stops near what was left of that limit. It checks between steps, so one
+    // step may go a little past it. A function is asked at this start, so each new process gets what is left now.
+    const usd = typeof o.maxBudgetUsd === 'function' ? o.maxBudgetUsd() : o.maxBudgetUsd;
+    const budget = Number.isFinite(usd) && usd > 0 ? ['--max-budget-usd', String(usd)] : [];
+    const args = [...chatArgs({ sessionId: o.sessionId, resume: o.resume, fork: o.fork || null, permissionMode: o.mode, effort: o.effort, model, settings, allowBypass: o.allowBypass !== false, lead: leadArgs(o.lead) }), ...budget];
     const plan = o.command ? { command: o.command.command, args: [...o.command.args, ...args], options: {} } : claudeCommand(args, env);
     const child = (o.spawnImpl || spawn)(plan.command, plan.args, { cwd: o.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...plan.options });
     this.child = child;
@@ -202,6 +232,13 @@ class ClaudeSession {
   rename(title) {
     return this.#control({ subtype: 'rename_session', title, source: 'host' });
   }
+  /**
+   * Claude Code's small model names the conversation from `description` (its first prompt), as its terminal does by
+   * itself; persist: the title goes into the transcript (an ai-title line). → { title }
+   */
+  generateTitle(description) {
+    return this.#control({ subtype: 'generate_session_title', description, persist: true });
+  }
   /** Undo the file changes made since message `messageId`; dryRun: only say what would change. */
   rewind(messageId, { dryRun = false } = {}) {
     return this.#control({ subtype: 'rewind_files', user_message_id: messageId, dry_run: dryRun });
@@ -221,6 +258,11 @@ class ClaudeSession {
   async commands() {
     await this.ready;
     return Array.isArray(this.info.commands) ? this.info.commands : [];
+  }
+
+  /** The process's id (Delete leaves its own record of the conversation out, deletes.mjs). */
+  get pid() {
+    return this.child ? this.child.pid : null;
   }
 
   /** End the process: its input first (Claude Code cancels a waiting permission prompt then), SIGTERM, then SIGKILL. */
@@ -263,7 +305,7 @@ export const claude = {
   id: 'claude',
   label: 'Claude Code',
   // What it changes in a running process (else the chat starts it again with --resume).
-  capabilities: { liveMode: true, liveModel: true, liveEffort: true, ultracode: true, queue: true, stopTask: true, rewind: true, fork: true, commands: true, compact: true, usage: true, rename: true, ownIds: false },
+  capabilities: { liveMode: true, liveModel: true, liveEffort: true, ultracode: true, queue: true, stopTask: true, rewind: true, fork: true, commands: true, compact: true, usage: true, rename: true, titles: true, ownIds: false },
   /** Where conversation `id` of folder `cwd` is kept: it exists once a first message was sent. */
   file: (cwd, id) => path.join(projectDir(cwd), `${id}.jsonl`),
   exists: (cwd, id) => fs.existsSync(claude.file(cwd, id)),
@@ -276,8 +318,26 @@ export const claude = {
   open: (o) => new ClaudeSession(o),
   /** The conversation from its files: { events, tasks, todos, title, size }. */
   transcript: ({ cwd, id }) => readTranscript(claude.file(cwd, id)),
+  /**
+   * A long conversation's last part, read in pieces (claude-pieces.mjs: the start's read), or null for one short enough
+   * to read at once; earlier(): the part before byte `start`, when the page asks for it.
+   */
+  tail: ({ cwd, id }) => {
+    const f = claude.file(cwd, id);
+    let size = 0;
+    try {
+      size = fs.statSync(f).size;
+    } catch {
+      return null;
+    }
+    return size > WHOLE_MAX ? readTail(f) : null;
+  },
+  earlier: ({ cwd, id }, start) => readEarlier(claude.file(cwd, id), start),
+  /** The to-do list of the whole conversation, after a read of its last part only (`tail`: that part's events). */
+  todosBefore: ({ cwd, id }, start, tail) => todosBefore(claude.file(cwd, id), start, tail),
   /** Where conversation `id` goes on from when it is rewound to before the owner's message `messageId`. */
   forkPoint: (cwd, id, messageId) => forkPoint(claude.file(cwd, id), messageId),
+  endPoint: (cwd, id) => endPoint(claude.file(cwd, id)),
   /** The conversations kept for a folder. */
   sessions: (cwd) => sessionsIn(cwd),
   /** The folder's conversations for the history list: [{ id, at, title }]. */

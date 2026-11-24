@@ -41,7 +41,7 @@ test('another program on a defined gateway\'s port gets nothing through sharing 
   assert.equal(r.ok, true, r.error);
   const { findAddon } = await import('../../src/addons/index.mjs');
   const profile = findAddon('relay').profile();
-  writeProfile('relay', { label: profile.label, prerun: profile.prerun, env: { ...profile.env, ANTHROPIC_AUTH_TOKEN: PROVIDER_KEY } });
+  writeProfile('relay', { label: 'Example relay', prerun: profile.prerun, env: { ...profile.env, ANTHROPIC_AUTH_TOKEN: PROVIDER_KEY } });
   K.setShared('relay', 'relay');
   const key = K.createKey('relay', 'laptop').key;
   await new Promise((res) => other.listen(PORT, '127.0.0.1', res));
@@ -70,7 +70,8 @@ test('another program on a defined gateway\'s port gets nothing through sharing 
     const sent = await fetch(`http://127.0.0.1:${rPort}/${'k'.repeat(48)}/as/relay/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"model":"x","max_tokens":1,"messages":[]}' });
     const text = await sent.text();
     assert.equal(sent.status, 502, text);
-    assert.match(text, /another program answers on the port of Relay: Hoprig did not start it/);
+    // The provider by its label, as the pages name it (not its file name "relay").
+    assert.match(text, /hoprig router: Example relay: another program answers on the port of Relay: Hoprig did not start it/);
   } finally {
     router.close();
   }

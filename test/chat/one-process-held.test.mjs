@@ -52,25 +52,29 @@ test('a chat\'s record sits with the launchers\' records, but only the readers o
   // Who was first keeps it: the later one sees the earlier, the earlier sees nobody before it.
   assert.equal(R.heldBefore(chat.run, ID).runId, term.run.runId);
   assert.equal(R.heldBefore(term.run, ID), null);
-  // The same millisecond: the run ids decide, the same way for both.
+  // The same millisecond: the run ids decide, the same way for both. A record's id is its file's name (listRuns).
+  R.removeRun(term.file);
+  R.removeRun(chat.file);
+  const aFile = path.join(path.dirname(term.file), 'a.json');
+  const bFile = path.join(path.dirname(chat.file), 'b.json');
   const a = { ...term.run, startedAt: 5, runId: 'a' };
   const b = { ...chat.run, startedAt: 5, runId: 'b' };
-  fs.writeFileSync(term.file, JSON.stringify(a));
-  fs.writeFileSync(chat.file, JSON.stringify(b));
+  fs.writeFileSync(aFile, JSON.stringify(a));
+  fs.writeFileSync(bFile, JSON.stringify(b));
   assert.equal(R.heldBefore(b, ID).runId, 'a');
   assert.equal(R.heldBefore(a, ID), null);
   // A record that has ended never counts, nor one whose process is dead.
-  fs.writeFileSync(term.file, JSON.stringify({ ...a, status: 'ended' }));
+  fs.writeFileSync(aFile, JSON.stringify({ ...a, status: 'ended' }));
   assert.equal(R.heldBefore(b, ID), null, 'ended');
-  fs.writeFileSync(term.file, JSON.stringify({ ...a, pid: 2 ** 22 + 7 }));
+  fs.writeFileSync(aFile, JSON.stringify({ ...a, pid: 2 ** 22 + 7 }));
   assert.equal(R.heldBefore(b, ID), null, 'dead');
   // Who runs it reads no plan usage (each launcher and chat start would write the provider's store).
-  fs.writeFileSync(term.file, JSON.stringify(a));
-  fs.writeFileSync(R.usageFile(term.file), JSON.stringify({ rate_limits: { five_hour: { used_percentage: 40 } } }));
+  fs.writeFileSync(aFile, JSON.stringify(a));
+  fs.writeFileSync(R.usageFile(aFile), JSON.stringify({ rate_limits: { five_hour: { used_percentage: 40 } } }));
   assert.equal(R.heldBefore(b, ID).usage, undefined);
   assert.equal(R.listRuns()[0].usage.fiveHour.pct, 40, 'the cards still read it');
-  R.removeRun(term.file);
-  R.removeRun(chat.file);
+  R.removeRun(aFile);
+  R.removeRun(bFile);
   // The launcher's own move writes its record anew and keeps when it first held the conversation.
   const first = R.createRun({ profile: 'work', cwd: box.root, conversation: ID });
   const again = R.createRun({ profile: 'backup', cwd: box.root, conversation: ID, file: first.file });

@@ -63,7 +63,8 @@ function fakeGh() {
 const ui = (answers, o = {}) => {
   let text = '';
   const q = [...answers];
-  const u = makeUi({ interactive: true, write: (s) => (text += s), askLine: async (question) => { if (!q.length) throw new Error(`unexpected question: ${question}`); return q.shift(); }, ...o });
+  // The questions are kept with what is said, so a test reads both.
+  const u = makeUi({ interactive: true, write: (s) => (text += s), askLine: async (question) => { text += question; if (!q.length) throw new Error(`unexpected question: ${question}`); return q.shift(); }, ...o });
   return { ui: u, text: () => text, left: () => q };
 };
 const has = (c) => c === 'git' || c === 'gh';
@@ -84,8 +85,8 @@ test('in a terminal: sign in, gh auth setup-git, the no-reply address offered; o
   A.use();
   fs.writeFileSync(process.env.GIT_CONFIG_GLOBAL, fs.readFileSync(process.env.GIT_CONFIG_GLOBAL, 'utf8').replace(/\[user\][^[]*/, ''));
   const gh = fakeGh();
-  // confirm the sign-in, Enter for the name, Enter for the e-mail, "later" for the workspace.
-  const { ui: u, text, left } = ui(['y', '', '', 'l']);
+  // confirm the sign-in, Enter for the name, Enter for the e-mail, no to starting a workspace now.
+  const { ui: u, text, left } = ui(['y', '', '', 'n']);
   const r = await runGitStep({ ui: u, run: gh.run, term: gh.term, has, dir: A.ws });
   assert.equal(r.ok, true);
   assert.deepEqual(left(), []);
@@ -94,7 +95,9 @@ test('in a terminal: sign in, gh auth setup-git, the no-reply address offered; o
   assert.equal(w.sh(w.root, 'config', '--global', 'user.name'), 'Alex Example');
   assert.equal(w.sh(w.root, 'config', '--global', 'user.email'), '12345+alex@users.noreply.github.com');
   assert.match(text(), /signed in to GitHub/);
-  assert.match(text(), /No AI brain of yours on GitHub yet/);
+  assert.match(text(), /No workspace of yours on GitHub yet\. Start it here/);
+  assert.match(text(), /Later: hoprig workspace git/);
+  assert.equal(fs.existsSync(path.join(A.ws, 'ai_brain')), false, 'a no makes nothing');
   assert.ok(!text().includes('gho_') && !JSON.stringify(r.state).includes('gho_'), 'no token is ever shown');
   assert.equal(r.state.gh.account, 'alex');
   assert.equal(r.state.helper, true);
@@ -105,8 +108,8 @@ test('start new: the brain made, a PRIVATE repository created, the map committed
   A.use();
   const gh = fakeGh();
   gh.st.signedIn = true;
-  // "n" (start new), the first account, Enter for the name (ai_brain), yes to create.
-  const { ui: u, text, left } = ui(['n', '1', '', 'y']);
+  // One question: yes, start it here; the first account; then this computer's label and the map kept by itself.
+  const { ui: u, text, left } = ui(['y', '1', 'box1', 'y']);
   const r = await runGitStep({ ui: u, run: gh.run, term: gh.term, has, dir: A.ws });
   assert.equal(r.ok, true, text());
   assert.deepEqual(left(), []);
@@ -116,10 +119,39 @@ test('start new: the brain made, a PRIVATE repository created, the map committed
   assert.equal(map.brain.url, 'https://github.com/alex/ai_brain.git');
   assert.equal(r.state.brain.remote, 'https://github.com/alex/ai_brain.git');
   assert.match(text(), /hoprig workspace restore alex\/ai_brain/);
+  // The label, asked once, and the one choice "keep the map on your git server by itself".
+  const cfg = JSON.parse(fs.readFileSync(path.join(A.env.HOPRIG_CONFIG_DIR, 'config.json'), 'utf8'));
+  assert.equal(cfg.computer.label, 'box1');
+  assert.deepEqual([cfg.automation.workspace.commitMap, cfg.automation.workspace.push], [true, true]);
+  const file = JSON.parse(fs.readFileSync(path.join(A.ws, 'ai_brain', 'computers', 'box1.json'), 'utf8'));
+  assert.equal(file.id, cfg.computer.id);
   // Run again: the brain is on GitHub, nothing is asked.
   const again = ui([]);
   await runGitStep({ ui: again.ui, run: gh.run, term: gh.term, has, dir: A.ws });
   assert.match(again.text(), /your AI brain is on https:\/\/github\.com\/alex\/ai_brain\.git/);
+});
+
+test('Keep on GitHub for a brain not in git yet: its private folder is in no commit and not on GitHub', async () => {
+  const { startNew } = await import('../../src/workspace/gitstep.mjs');
+  const A = w.computer('private-first');
+  A.use();
+  const brain = path.join(A.ws, 'ai_brain');
+  fs.mkdirSync(path.join(brain, 'no-ai', 'deep'), { recursive: true });
+  fs.writeFileSync(path.join(brain, 'learnings.md'), '# learnings\n');
+  fs.writeFileSync(path.join(brain, 'no-ai', 'plans.md'), 'mine\n');
+  fs.writeFileSync(path.join(brain, 'no-ai', 'deep', 'more.md'), 'mine too\n');
+  const gh = fakeGh();
+  gh.st.signedIn = true;
+  const { ui: u, text } = ui([]);
+  const ok = await startNew(u, { st: { brain: { exists: true } }, run: gh.run, term: gh.term, dir: A.ws, owner: 'alex', name: 'private_brain', ask: false });
+  assert.equal(ok, true, text());
+  const first = w.sh(brain, 'show', '--name-only', '--format=', 'HEAD~1').split('\n');
+  assert.ok(first.includes('learnings.md'), first.join(' '));
+  assert.ok(!first.some((f) => f.startsWith('no-ai/')), `the first commit: ${first.join(' ')}`);
+  const tree = w.sh(path.join(w.server, 'alex', 'private_brain.git'), 'ls-tree', '-r', '--name-only', 'main').split('\n');
+  assert.ok(tree.includes('learnings.md'), tree.join(' '));
+  assert.ok(!tree.some((f) => f.startsWith('no-ai/')), `on GitHub: ${tree.join(' ')}`);
+  assert.ok(fs.existsSync(path.join(brain, 'no-ai', 'plans.md')), 'still here, untouched');
 });
 
 test('a fresh computer: the brain on GitHub is offered and restored', async () => {
@@ -128,10 +160,70 @@ test('a fresh computer: the brain on GitHub is offered and restored', async () =
   const gh = fakeGh();
   gh.st.signedIn = true;
   gh.st.created = 'ai_brain';
-  const { ui: u, text } = ui(['1']);
+  // The other computer's file is on the git server (its upkeep committed and pushed it).
+  const A = w.computer('alex');
+  w.sh(path.join(A.ws, 'ai_brain'), 'add', 'computers');
+  w.sh(path.join(A.ws, 'ai_brain'), 'commit', '-q', '-m', 'box1');
+  w.sh(path.join(A.ws, 'ai_brain'), 'push', '-q');
+  B.use();
+  // Found: one question, yes; then the label (box1 is taken by the other computer: not that one, then box2).
+  const { ui: u, text, left } = ui(['y', 'box1', 'n', 'box2', 'n']);
   const r = await runGitStep({ ui: u, run: gh.run, term: gh.term, has, dir: B.ws });
-  assert.match(text(), /1 {2}restore alex\/ai_brain/);
+  assert.match(text(), /Your workspace is on GitHub \(alex\/ai_brain\)\. Get it on this computer now\?/);
   assert.equal(r.ok, true, text());
+  assert.deepEqual(left(), []);
+  assert.match(text(), /box1 is the name of another computer of yours/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(B.env.HOPRIG_CONFIG_DIR, 'config.json'), 'utf8')).computer.label, 'box2');
+  assert.match(text(), /the map is not saved by itself/);
   assert.ok(fs.existsSync(path.join(B.ws, 'ai_brain', 'workspace.json')));
   assert.equal((await gitState({ run: gh.run, has, dir: B.ws })).brain.remote, 'https://github.com/alex/ai_brain.git');
+});
+
+test('without a terminal no label is stored and nothing is made on GitHub: the commands are said', async () => {
+  const C = w.computer('box3');
+  C.use();
+  const gh = fakeGh();
+  gh.st.signedIn = true;
+  gh.st.created = 'ai_brain';
+  const { ui: u, text } = ui([], { interactive: false });
+  const r = await runGitStep({ ui: u, run: gh.run, term: gh.term, has, dir: C.ws });
+  assert.equal(r.ok, true);
+  assert.match(text(), /hoprig workspace restore alex\/ai_brain/);
+  assert.equal(fs.existsSync(path.join(C.ws, 'ai_brain')), false, 'nothing restored');
+  const cfg = path.join(C.env.HOPRIG_CONFIG_DIR, 'config.json');
+  assert.equal(fs.existsSync(cfg) ? JSON.parse(fs.readFileSync(cfg, 'utf8')).computer : undefined, undefined, 'no label is guessed');
+});
+
+test('set-up again with keeping in step on: the question says that uploading covers the other repositories, and Enter keeps it off', async () => {
+  const A = w.computer('again-sync');
+  A.use();
+  const { saveConfig, loadConfig } = await import('../../src/config.mjs');
+  saveConfig({ automation: { workspace: { map: true, commitMap: null, memory: false, sync: true, push: false, pushBranches: {}, everyHours: 6 } } });
+  const { afterBrain } = await import('../../src/workspace/gitstep.mjs');
+  // Enter for the computer's name (later), Enter for the question.
+  const { ui: u, text, left } = ui(['', '']);
+  await afterBrain(u, { live: true, dir: A.ws });
+  assert.deepEqual(left(), []);
+  assert.match(text(), /this also uploads your groups' own repositories and the other repositories when they are only ahead\) \(y\/N\)/);
+  const wsCfg = loadConfig().automation.workspace;
+  assert.equal(wsCfg.push, false, 'Enter turned no upload on');
+  assert.equal(wsCfg.commitMap, false);
+});
+
+test('GitHub cannot be asked (rate limit, no network): set-up never says there is no workspace and never offers a new one', async () => {
+  const A = w.computer('offline');
+  A.use();
+  const gh = fakeGh();
+  gh.st.signedIn = true;
+  const inner = gh.run;
+  // The list of the account's repositories fails as a rate limit does; the brain is there, only GitHub cannot be asked.
+  gh.run = async (argv, o) => (argv[0] === 'gh' && argv.slice(1, 4).join(' ') === 'repo list alex' ? { ok: false, code: 1, stdout: '', stderr: 'HTTP 403: API rate limit exceeded' } : inner(argv, o));
+  const { ui: u, text, left } = ui([]);
+  const r = await runGitStep({ ui: u, run: gh.run, term: gh.term, has, dir: A.ws });
+  assert.equal(r.ok, true);
+  assert.deepEqual(left(), []);
+  assert.match(text(), /GitHub could not be asked about your workspace: the repositories of alex could not be listed \(HTTP 403: API rate limit exceeded\)\. Nothing was started\./);
+  assert.doesNotMatch(text(), /No workspace of yours on GitHub yet/);
+  assert.ok(!gh.st.calls.some((c) => c.includes('repo create')), 'nothing was created');
+  assert.equal(fs.existsSync(path.join(A.ws, 'ai_brain')), false);
 });

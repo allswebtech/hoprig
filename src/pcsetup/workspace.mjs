@@ -23,7 +23,7 @@ import { claudeDir } from '../paths.mjs';
 import { withoutSecrets } from '../secretenv.mjs';
 import { projectSlug } from '../sessions.mjs';
 import { capture, showCommand, showCommands, stream } from '../setup/system.mjs';
-import { PRIVATE_DIRS, STATUS_ARGS, cleanRemote, parseRepo, parseStatus } from './projects.mjs';
+import { FOLD, PRIVATE_DIRS, STATUS_ARGS, STATUS_EXCLUDES, cleanRemote, parseRepo, parseStatus } from './projects.mjs';
 import { WORKTREE_LEFT, isLinkedWorktree } from '../workspace/layout.mjs';
 import { inTheWay, inTheWayWords } from './intheway.mjs';
 import { copyIn, gitIn, kindAt, leaves, leavesThrough, leavesWords, linkIn, mkdirIn, myLinkCommand, readIn, removeIn, startIn, writeIn } from '../workspace/inside.mjs';
@@ -38,7 +38,84 @@ const REL_RE = /^(?!\/)(?!.*(^|\/)\.\.?(\/|$))[A-Za-z0-9._\/-]{1,200}$/;
 /** A relative folder inside the project ("." allowed for memories' launch folder). */
 export const relOk = (p, { dot = false } = {}) => typeof p === 'string' && ((dot && p === '.') || (REL_RE.test(p) && !p.split('/').some((s) => PRIVATE_DIRS.includes(s))));
 
-const KNOWN = ['name', 'repos', 'memories'];
+const KNOWN = ['name', 'repos', 'memories', 'credentials', 'needs'];
+// What writeManifest writes itself; every other key of the file (credentials among them) is kept as the file has it.
+const WRITTEN = ['name', 'repos', 'memories'];
+export const CRED_LINKS_MAX = 200;
+// "needs": other entries of the workspace map this project reads (src/workspace/needs.mjs decides what each may be).
+// Here only the shape: a name as the map writes it (<name> or <place>/<name>), never a path; at most NEEDS_MAX.
+export const NEEDS_MAX = 50;
+export const NEED_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){0,4}$/;
+/**
+ * The "needs" of a project.json, checked name by name: a refused one is named and left out, never a refusal of the
+ * whole file (as the credential links). → { needs: [name], refused: [why] }
+ */
+export function checkNeeds(v) {
+  if (v === undefined) return { needs: [], refused: [] };
+  if (!Array.isArray(v)) return { needs: [], refused: ['"needs" must be a list of names of the workspace map (such as "kits/parts")'] };
+  const needs = [];
+  const refused = [];
+  for (const [i, n] of v.entries()) {
+    if (i >= NEEDS_MAX) {
+      refused.push(`${v.length - NEEDS_MAX} more needs than the ${NEEDS_MAX} one project may have: left out`);
+      break;
+    }
+    const shown = typeof n === 'string' ? n.slice(0, 80).replace(/[\u0000-\u001f\u007f-\u009f]/g, '?') : '?';
+    if (typeof n !== 'string' || !NEED_RE.test(n)) refused.push(`"${shown}" is not a name of the workspace map (a need is named <name> or <place>/<name>, never a path)`);
+    else if (!needs.includes(n)) needs.push(n);
+  }
+  return { needs, refused };
+}
+
+/**
+ * Why a path of a credential link is refused, or '' when it is fine. `rel`: where the link is (relative to the
+ * project) or what it points at (relative to the credentials folder). Plain parts only (letters, digits, . _ -), no
+ * absolute path, no "..", no "." and no empty part, nothing in a .git folder (any letter case: a file system that
+ * ignores case has one .git for ".GIT"), never a folder Hoprig never looks into; the place is never project.json.
+ */
+export function credPathWhy(rel, { place = false } = {}) {
+  if (typeof rel !== 'string' || !rel) return 'is empty';
+  if (rel.length > 200) return 'is longer than 200 characters';
+  if (rel.startsWith('/') || /^[A-Za-z]:/.test(rel) || rel.includes('\\')) return 'is not a relative path with / between its parts';
+  const parts = rel.split('/');
+  if (parts.some((x) => x === '')) return 'has an empty part';
+  if (parts.some((x) => x === '.' || x === '..')) return 'has a "." or ".." part';
+  if (parts.some((x) => !/^[A-Za-z0-9._-]+$/.test(x))) return 'has a character other than letters, digits, ".", "_" and "-"';
+  if (parts.some((x) => x.toLowerCase() === '.git')) return 'is inside a .git folder';
+  if (parts.some((x) => PRIVATE_DIRS.includes(x.toLowerCase()))) return 'is inside a folder Hoprig never looks into';
+  if (place && rel.toLowerCase() === MANIFEST) return 'is project.json itself';
+  return '';
+}
+
+/**
+ * The "credentials" of a project.json, checked entry by entry. `repos`: the project's code repositories, whose own
+ * folder (or one above it) is never a link's place: the link would take the folder the clone goes into.
+ * → { links: { place: target }, refused: [{ place, target, why }] }
+ */
+export function checkCredLinks(v, repos = []) {
+  const links = {};
+  const refused = [];
+  if (v === undefined) return { links, refused };
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return { links, refused: [{ place: '', target: '', why: '"credentials" must be an object of { "<where the link is>": "<file in the credentials folder>" }' }] };
+  const entries = Object.entries(v);
+  for (const [i, [k, t]] of entries.entries()) {
+    const place = String(k).slice(0, 80).replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
+    const target = typeof t === 'string' ? t.slice(0, 80).replace(/[\u0000-\u001f\u007f-\u009f]/g, '?') : '';
+    if (i >= CRED_LINKS_MAX) {
+      // One refusal for all the rest: a huge project.json gives one line, never one per entry.
+      refused.push({ place: '', target: '', why: `${entries.length - CRED_LINKS_MAX} more links than the ${CRED_LINKS_MAX} one project may have: left out` });
+      break;
+    }
+    const pw = credPathWhy(k, { place: true });
+    const tw = typeof t === 'string' ? credPathWhy(t) : 'is not a text';
+    if (pw) refused.push({ place, target, why: `its place ${pw}` });
+    else if (tw) refused.push({ place, target, why: `its target ${tw}` });
+    else if (repos.some((r) => typeof r.dir === 'string' && (r.dir.toLowerCase() === k.toLowerCase() || r.dir.toLowerCase().startsWith(`${k.toLowerCase()}/`)))) refused.push({ place, target, why: 'its place is the folder of a code repository, or holds one' });
+    else if (Object.keys(links).some((x) => x.toLowerCase() === k.toLowerCase() || k.toLowerCase().startsWith(`${x.toLowerCase()}/`) || x.toLowerCase().startsWith(`${k.toLowerCase()}/`))) refused.push({ place, target, why: 'its place is the place of another link, or inside it' });
+    else links[k] = t;
+  }
+  return { links, refused };
+}
 const REPO_KNOWN = ['dir', 'url', 'branch'];
 // A key name this reader does not know yet (a newer Hoprig may write one): kept as it is, whatever its spelling, never
 // interpreted. Only the three names that would reach an object's prototype are never kept.
@@ -85,8 +162,17 @@ export function validateManifest(m) {
     else memories[k] = v;
   }
   if (errors.length) return { ok: false, errors };
+  // Credential links: a refused entry is named and left out, never a refusal of the whole file (the project still
+  // clones and links its memory; the one link is not made).
+  const creds = checkCredLinks(m.credentials, repos);
+  for (const r of creds.refused) warnings.push(`credentials: ${r.place ? `"${r.place}" ` : ''}refused: ${r.why}`);
+  const cred = m.credentials !== undefined ? { credentials: creds.links, ...(creds.refused.length ? { credentialsRefused: creds.refused } : {}) } : {};
+  // Needs: the same, a refused name is named and left out.
+  const nd = checkNeeds(m.needs);
+  for (const r of nd.refused) warnings.push(`needs: ${r}`);
+  const needs = m.needs !== undefined ? { needs: nd.needs } : {};
   // (Unknown top-level keys stay in the file: writeManifest puts them back from it.)
-  return { ok: true, manifest: { name: m.name, repos, memories }, warnings, unknown: top.map(([k]) => k) };
+  return { ok: true, manifest: { name: m.name, repos, memories, ...cred, ...needs }, warnings, unknown: top.map(([k]) => k) };
 }
 
 // A file of the project is read only as a regular file whose folder stays inside the project (inside.mjs): a
@@ -155,10 +241,10 @@ export async function readManifest(root, run = capture) {
 export function writeManifest(root, manifest, at = {}) {
   const { name, repos, memories } = manifest;
   const cur = readJson(root, path.join(root, MANIFEST));
-  const kept = cur && typeof cur === 'object' && !Array.isArray(cur) ? Object.entries(cur).filter(([k]) => !KNOWN.includes(k) && keep(k)) : [];
+  const kept = cur && typeof cur === 'object' && !Array.isArray(cur) ? Object.entries(cur).filter(([k]) => !WRITTEN.includes(k) && keep(k)) : [];
   // The file's own order of keys stays (a diff shows only what changed); a new file is name, repos, memories.
-  const order = cur && kept.length ? Object.keys(cur).filter((k) => KNOWN.includes(k) || kept.some(([x]) => x === k)) : [];
-  for (const k of KNOWN) if (!order.includes(k)) order.push(k);
+  const order = cur && kept.length ? Object.keys(cur).filter((k) => WRITTEN.includes(k) || kept.some(([x]) => x === k)) : [];
+  for (const k of WRITTEN) if (!order.includes(k)) order.push(k);
   const all = { ...Object.fromEntries(kept), name, repos, memories };
   writeIn({ ...at, root }, path.join(root, MANIFEST), JSON.stringify(Object.fromEntries(order.map((k) => [k, all[k]])), null, 2) + '\n');
   const memFile = path.join(root, MEMORY_FILE);
@@ -208,7 +294,7 @@ repositories under \`code/\` (listed in \`project.json\`).
   '.copilotignore': 'test-data/\n.env\n.env.*\n',
   '.geminiignore': 'test-data/\n.env\n.env.*\n',
   '.claude/settings.json': `${JSON.stringify({ permissions: { deny: ['Read(./test-data/**)', 'Read(./.env)', 'Read(./.env.*)'] } }, null, 2)}\n`,
-  '.gitignore': '/code/*\n!/code/.gitignore\n/test-data/\n.env\n.env.*\n.claude/settings.local.json\n',
+  '.gitignore': '/code/*\n!/code/.gitignore\n/test-data/\n.env\n.env.*\n.claude/settings.local.json\n.DS_Store\n',
   'code/.gitignore': '*\n!.gitignore\n',
   'ai_brain/learnings.md': '# Learnings\n\nWhat we learned the hard way, one line each.\n',
   'ai_brain/active_context.md': '# Active context\n\nWhat is being worked on now.\n',
@@ -247,9 +333,12 @@ export function readTemplate(dir) {
   return out;
 }
 
-/** Write template files into `dest` (which must not exist yet). Names and text get the project's name. */
-export function writeTemplate(dest, files, name, at = {}) {
-  if (fs.existsSync(dest)) throw new Error(`${dest} already exists: choose another name`);
+/**
+ * Write template files into `dest` (which must not exist yet). Names and text get the project's name. `into`: `dest`
+ * is a folder the caller has just made for this, exclusively (adopt apply).
+ */
+export function writeTemplate(dest, files, name, at = {}, { into = false } = {}) {
+  if (!into && fs.existsSync(dest)) throw new Error(`${dest} already exists: choose another name`);
   const a = { ...at, root: dest };
   mkdirIn(a, dest);
   const root = path.resolve(dest);
@@ -281,11 +370,13 @@ export const stamp = (d = new Date()) => d.toISOString().replace(/[-:]/g, '').re
 /**
  * Copy every file of `from` (Claude Code's own folder, outside the workspace) into `to` (inside `at`'s root), never
  * overwriting: a name that is taken gets ".from-<stamp>" added. Only regular files and folders: a link is not copied.
+ * `skip`: names at the top of `from` that are not copied.
  */
-export function mergeInto(from, to, tag, at = { root: to }) {
+export function mergeInto(from, to, tag, at = { root: to }, skip = []) {
   let moved = 0;
   mkdirIn(at, to);
   for (const d of fs.readdirSync(from, { withFileTypes: true })) {
+    if (skip.includes(d.name)) continue; // `skip`: names at the top of `from` that stay in the backup only
     const src = path.join(from, d.name);
     let dst = path.join(to, d.name);
     if (d.isDirectory()) {
@@ -418,6 +509,23 @@ export const safeReal = (p) => {
 // ---------- git helpers ----------
 
 
+/** The line of git's error output that says why: its first "fatal:" or "error:" line, else its first line. */
+export function gitCause(stderr) {
+  const lines = String(stderr || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  return (lines.find((l) => /^(?:fatal|error):/.test(l)) || lines[0] || 'git gave no reason').replace(/^(?:fatal|error):\s*/, '');
+}
+
+/**
+ * Why a push failed, in git's words: what the server said (its "remote:" lines) and the refused branch with its
+ * reason ("main -> main (fetch first)"), else gitCause. Its last line is the end of a hint.
+ */
+export function pushCause(stderr) {
+  const lines = String(stderr || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const remote = lines.filter((l) => /^remote:/.test(l)).map((l) => l.replace(/^remote:\s*/, '')).filter(Boolean).slice(-2);
+  const refused = lines.find((l) => /^!\s*\[(?:remote )?rejected\]/.test(l));
+  return [...remote, ...(refused ? [refused.replace(/^!\s*/, '').replace(/\s+/g, ' ')] : [])].join('; ') || gitCause(stderr);
+}
+
 /** Branch, changes, ahead/behind of one repository (counts only). */
 export async function repoInfo(dir, run = capture, { exclude = [] } = {}) {
   if (!isRepo(dir)) return { dir, ok: false, error: 'not cloned' };
@@ -488,6 +596,34 @@ function listedUnder(r, header) {
 }
 
 /**
+ * Paths git listed, as words that never name a file inside a private folder (PRIVATE_DIRS: Hoprig never looks into
+ * those, and what it says here is read by an assistant too): such files are counted per folder, the others named.
+ * → { words: 'README.md, 2 files in your private folder notes/no-ai/', shown: ['README.md'], hidden: 2 }
+ */
+export function namedOutsidePrivate(list) {
+  const shown = [];
+  const folders = new Map();
+  for (const p of list) {
+    const parts = String(p).split('/');
+    const i = parts.findIndex((x) => PRIVATE_DIRS.includes(x));
+    if (i < 0 || i === parts.length - 1) shown.push(p);
+    else folders.set(`${parts.slice(0, i + 1).join('/')}/`, (folders.get(`${parts.slice(0, i + 1).join('/')}/`) || 0) + 1);
+  }
+  const counted = [...folders].map(([f, n]) => `${n} file${n > 1 ? 's' : ''} in your private folder ${f}`);
+  return { words: [...shown, ...counted].join(', '), shown, hidden: [...folders.values()].reduce((a, b) => a + b, 0) };
+}
+
+const PRIVATE_PATH = new RegExp(`'?(?:[^\\s'/]+/)*(${PRIVATE_DIRS.map((d) => d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})/[^\\s']+'?`, 'g');
+/** A sentence of git's with every path that lies inside a private folder said as that folder only. */
+export const withoutPrivateNames = (text) => String(text || '').replace(PRIVATE_PATH, (m) => {
+  const parts = m.replace(/^'|'$/g, '').split('/');
+  const i = parts.findIndex((x) => PRIVATE_DIRS.includes(x));
+  return `a file in your private folder ${parts.slice(0, i + 1).join('/')}/`;
+});
+
+const CHANGED_HERE = /Your local changes to the following files would be overwritten/i;
+
+/**
  * The folders or files a refused fast-forward would have removed or overwritten that this repository does not track
  * (git's own list under its headers for untracked files), or ''. Never the tracked files git lists in the same refusal
  * as changed here (changedToo): those hold the owner's work and are not moved away.
@@ -497,12 +633,34 @@ export function keptBack(r) {
   const header = /would lose untracked files in them|untracked working tree files would be (overwritten|removed)/i;
   if (!header.test(`${r.stderr || ''}\n${r.stdout || ''}`)) return '';
   const list = listedUnder(r, header);
-  return list.length ? list.join(', ') : 'a folder';
+  return list.length ? namedOutsidePrivate(list).words : 'a folder';
 }
 
 /** The tracked files a refused fast-forward names as changed here and by the incoming commits ('README.md, …'), or ''. */
 export function changedToo(r) {
-  return r.ok ? '' : listedUnder(r, /Your local changes to the following files would be overwritten/i).join(', ');
+  return r.ok ? '' : namedOutsidePrivate(listedUnder(r, CHANGED_HERE)).words;
+}
+
+/**
+ * A fast-forward refused over tracked files changed here that `git status` does not count (it said no change): git
+ * names them all the same. They are most likely marked "assume unchanged" or "skip worktree". → { why, command }, or
+ * null when git named no such file. A file inside a private folder is never named: the owner sees the names by running
+ * the fast-forward himself, which changes nothing while it is refused.
+ */
+export function hiddenChange(r, dir, behind) {
+  const list = r.ok ? [] : listedUnder(r, CHANGED_HERE);
+  if (!list.length) return null;
+  const n = namedOutsidePrivate(list);
+  const many = list.length > 1;
+  const it = many ? 'them' : 'it';
+  const see = n.hidden ? ` Run the command in your own terminal to see the name${n.hidden > 1 ? 's' : ''}: git lists ${it} and changes nothing while it refuses.` : '';
+  return {
+    why: `${behind} to pull, but ${n.words} ${many ? 'are' : 'is'} changed here and by the incoming commits. git status does not show ${it}: most likely marked "assume unchanged" or "skip worktree" (git ls-files -v shows such marks). Nothing was changed; take the mark off, then commit ${it} or put ${it} aside.${see}`,
+    command: n.hidden
+      ? showCommand(['git', '-C', dir, ...FAST_FORWARD('@{u}')])
+      // One command per mark: git takes off only the first of the two when both are given at once.
+      : showCommands([['git', '-C', dir, 'update-index', '--no-assume-unchanged', '--', ...n.shown], ['git', '-C', dir, 'update-index', '--no-skip-worktree', '--', ...n.shown], ['git', '-C', dir, 'status']]),
+  };
 }
 
 /**
@@ -552,7 +710,8 @@ export async function syncRepo(dir, rel, run = capture, { push = true, dryRun = 
     }
   } else {
     const f = await g(['fetch', '--prune', '--quiet'], { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
-    if (!f.ok) todo.push({ why: `fetch failed: ${(f.stderr || '').trim().split('\n').pop()}`, command: showCommand(['git', '-C', dir, 'fetch']) });
+    // git's first "fatal:" line says why; its last line is the end of a hint ("and the repository exists.").
+    if (!f.ok) todo.push({ why: `fetch failed: ${gitCause(f.stderr)}`, command: showCommand(['git', '-C', dir, 'fetch']) });
     s = await repoInfo(dir, run, { exclude });
     if (!s.ok) return { rel, did, todo: [...todo, { why: s.error, command: '' }] };
   }
@@ -575,12 +734,16 @@ export async function syncRepo(dir, rel, run = capture, { push = true, dryRun = 
     else {
       const p = await g(FAST_FORWARD('@{u}'));
       const kept = keptBack(p);
+      const hidden = p.ok || kept || s.changes ? null : hiddenChange(p, dir, s.behind);
       if (p.ok) did.push(`pulled ${s.behind}${dirty}`);
       // What git ignores is in the way: said before the uncommitted changes, which may lie elsewhere (a stash would
       // only hide them, the fast-forward is refused all the same).
       else if (kept) todo.push({ why: `${s.behind} to pull, but the incoming commits ${keptWords(kept, changedToo(p), s.changes)}`, command: showCommand(['git', '-C', dir, ...FAST_FORWARD('@{u}')]) });
       else if (s.changes) todo.push({ why: `${s.behind} to pull, but there are ${s.changes} uncommitted changes in the same files`, command: showCommands([['git', '-C', dir, 'stash'], ['git', '-C', dir, ...FAST_FORWARD('@{u}')], ['git', '-C', dir, 'stash', 'pop']]) });
-      else todo.push({ why: 'fast-forward failed', command: showCommand(['git', '-C', dir, ...FAST_FORWARD('@{u}')]) });
+      // git status counted no change, yet git names files changed here: said with what git itself said, never as a
+      // bare "failed" (the owner and the assistant must both be able to see why).
+      else if (hidden) todo.push(hidden);
+      else todo.push({ why: `fast-forward failed: ${withoutPrivateNames(gitCause(`${p.stderr || ''}\n${p.stdout || ''}`))}`, command: showCommand(['git', '-C', dir, ...FAST_FORWARD('@{u}')]) });
     }
   } else if (s.ahead && !push) {
     todo.push({ why: `${s.ahead} commit${s.ahead > 1 ? 's' : ''} to push`, command: showCommand(['git', '-C', dir, 'push']) });
@@ -589,7 +752,7 @@ export async function syncRepo(dir, rel, run = capture, { push = true, dryRun = 
   } else if (s.ahead) {
     const p = await g(['push', '--quiet'], { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
     if (p.ok) did.push(`pushed ${s.ahead}`);
-    else todo.push({ why: `push failed: ${(p.stderr || '').trim().split('\n').pop()}`, command: showCommand(['git', '-C', dir, 'push']) });
+    else todo.push({ why: `push failed: ${pushCause(p.stderr)}`, command: showCommand(['git', '-C', dir, 'push']) });
   }
   if (s.changes) todo.push({ why: `${s.changes} uncommitted change${s.changes > 1 ? 's' : ''}`, command: showCommand(['git', '-C', dir, 'status']) });
   return { rel, did, todo, state: dryRun ? s : await repoInfo(dir, run, { exclude }) };
@@ -598,13 +761,16 @@ export async function syncRepo(dir, rel, run = capture, { push = true, dryRun = 
 /**
  * The commit a branch has on a server, without a fetch: `git ls-remote <url> <ref>`, run outside any repository so that
  * none of a repository's own settings start a program (only git's own transport and the owner's global settings).
- * `url` may be a path relative to `from`. → { sha } (null: no such branch there) | { error }
+ * `url` may be a path relative to `from`. → { sha } (null: no such branch there) | { error }; without `ref`: { shas } of
+ * every branch
  */
 export async function lsRemote(url, ref, { from, run = capture, env = {} } = {}) {
   const local = !/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(url) && !/^[^/:]+@[^/:]+:/.test(url);
   const where = local && from && !path.isAbsolute(url) ? path.resolve(from, url) : url;
-  const r = await run(['git', '-c', 'protocol.ext.allow=never', 'ls-remote', '--', where, ref], { cwd: path.parse(process.cwd()).root, timeout: 60_000, env: { ...withoutSecrets(process.env), GIT_TERMINAL_PROMPT: '0', ...env } });
+  const r = await run(['git', '-c', 'protocol.ext.allow=never', 'ls-remote', ...(ref ? [] : ['--heads']), '--', where, ...(ref ? [ref] : [])], { cwd: path.parse(process.cwd()).root, timeout: 60_000, env: { ...withoutSecrets(process.env), GIT_TERMINAL_PROMPT: '0', ...env } });
   if (!r.ok) return { error: (r.stderr || r.stdout || 'git failed').trim().split('\n').pop() };
+  // No ref: every branch's commit on the server ([] for an empty repository).
+  if (!ref) return { shas: String(r.stdout).split('\n').filter(Boolean).map((l) => l.split('\t')[0]) };
   const line = String(r.stdout).split('\n').find((l) => l.endsWith(`\t${ref}`));
   return { sha: line ? line.split('\t')[0] : null };
 }
@@ -635,6 +801,9 @@ export async function peekServer(dir, branch, run = capture) {
 /** A repository that is not acted on: it leads out of its folder (inside.mjs). Said with the command to name the link as the owner's own. */
 export const notFollowed = (rel, b) => ({ rel, did: [], todo: [{ why: `not followed: ${leavesWords(b)}`, command: b.what === 'leaves its folder through a link' ? myLinkCommand(b.path) : '', kind: 'link' }] });
 
+/** The message of Hoprig's own commit of the memory folders (the map's rule knows such a commit by it, mapkeep.mjs). */
+export const MEMORY_MESSAGE = 'Update AI memory';
+
 /** Commit the memory folders of the parent when they changed (only those paths, each inside the parent). */
 export async function commitMemory(root, memories, run = capture, at = {}) {
   const paths = [...new Set(Object.values(memories))].filter((p) => fs.existsSync(path.join(root, p)) && !leaves(root, path.join(root, p), at));
@@ -643,7 +812,7 @@ export async function commitMemory(root, memories, run = capture, at = {}) {
   if (a.leaves) return { committed: false, why: a.stderr };
   const d = await gitRead(root, ['diff', '--cached', '--quiet', '--', ...paths], { run });
   if (d.ok) return { committed: false, why: 'the memory did not change' };
-  const c = await gitIn({ ...at, root }, root, ['commit', '--quiet', '-m', 'Update AI memory', '--', ...paths], run);
+  const c = await gitIn({ ...at, root }, root, ['commit', '--quiet', '-m', MEMORY_MESSAGE, '--', ...paths], run);
   return c.ok ? { committed: true } : { committed: false, why: (c.stderr || c.stdout).trim().split('\n').pop() };
 }
 
@@ -685,12 +854,34 @@ export async function hooksToUse(dir, run = capture) {
   return !cur.stdout.trim();
 }
 
+// The private folders (no-ai, …) and installed packages at any depth, as paths to name (STATUS_EXCLUDES leaves them out).
+const PRIVATE_SPECS = [...PRIVATE_DIRS, 'node_modules'].map((d) => `:(glob${FOLD ? ',icase' : ''})**/${d}/**`);
+
+/**
+ * Stage every change of the repository at `dir` for a commit Hoprig makes itself (the AI brain's save, a first
+ * commit), never a private folder or installed packages: they are left out of the add, and one staged by hand before
+ * is unstaged again. The commit after it names no paths: a commit with paths takes the files on disk of every path it
+ * matches, so a file taken out of git by hand (git rm --cached) would go back in, and up to the server.
+ */
+export async function stageMine(at, dir, run = capture) {
+  const a = await gitIn(at, dir, ['add', '-A', '--', '.', ...STATUS_EXCLUDES], run);
+  if (!a.ok) return a;
+  return gitIn(at, dir, ['reset', '-q', '--', ...PRIVATE_SPECS], run);
+}
+
 /** git init -b main + first commit. Needs a commit name and e-mail. */
-export async function initRepo(dir, message, run = capture, at = { root: dir }) {
+/**
+ * git's -c options that give one command a name and an e-mail (`who`: { name, email }, or null: git's own). Nothing is
+ * written to any git config: the identity is for that command only.
+ */
+export const identityArgs = (who) => (who && who.name && who.email ? ['-c', `user.name=${who.name}`, '-c', `user.email=${who.email}`] : []);
+
+export async function initRepo(dir, message, run = capture, at = { root: dir }, who = null) {
   const i = await gitIn(at, dir, ['init', '-q', '-b', 'main'], run);
   if (!i.ok) return { ok: false, error: i.stderr.trim() };
-  await gitIn(at, dir, ['add', '-A'], run);
-  const c = await gitIn(at, dir, ['commit', '-q', '-m', message], run);
+  // A private folder (no-ai, …) never goes into the first commit: that commit is what Keep on GitHub uploads.
+  await stageMine(at, dir, run);
+  const c = await gitIn(at, dir, [...identityArgs(who), 'commit', '-q', '-m', message], run);
   return c.ok ? { ok: true } : { ok: false, error: (c.stderr || c.stdout).trim().split('\n').pop() };
 }
 

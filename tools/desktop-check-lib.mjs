@@ -29,7 +29,7 @@ export async function startCheck(outName) {
     console.log(`${ok ? 'ok  ' : 'FAIL'} [${part}] ${what}${detail ? ` (${detail})` : ''}`);
   }
 
-  const chrome = await launchChrome({ port: PORT + 1 });
+  const chrome = await launchChrome({ realHome: true }); // as tools/screenshots.mjs: the demo's temp HOME cuts Chrome off the network
   const { main } = await import(path.join(ROOT, 'src/demo/index.mjs'));
   const hooks = { onReady: (i) => (hooks.info = i) };
   if ((await main(['--no-open', '--quiet', '--port', String(PORT)], hooks)) !== null) throw new Error('the demo did not start');
@@ -98,7 +98,7 @@ export async function startCheck(outName) {
   const toFront = (app) => ev(`(() => { const w = document.querySelector('.dwin[data-app="${app}"]'); if (w.getAttribute('aria-current') !== 'true' || w.classList.contains('hidden')) document.querySelector('.desk-task[data-id="' + w.dataset.id + '"]').click(); return true; })()`).then(() => sleep(150));
   /** What the document in a frame target (Chrome's own list) shows: { url, ok: the dashboard's page is in it }. */
   async function frameTarget(re) {
-    const list = await (await fetch(`http://127.0.0.1:${PORT + 1}/json/list`)).json();
+    const list = await (await fetch(`http://127.0.0.1:${chrome.port}/json/list`)).json();
     const t = list.find((x) => x.type === 'iframe' && re.test(x.url));
     if (!t) return null;
     const ws = new WebSocket(t.webSocketDebuggerUrl);

@@ -1,9 +1,12 @@
 // Which provider a new session starts on when nobody chooses one.
 //
-// Auto mode on: "auto". Off: what a person expects is the provider used last in that folder (a project worked on a
+// Auto mode on: "auto", unless the provider Auto would run on is slow or refusing now, as the router measured it
+// (routerstate.mjs speedVerdict, each provider state's `speed`), and another provider that is free of charge, signed
+// in, not at its limit and not slow or refusing itself serves Claude Code: then that one, so work he waits on starts
+// on the fastest provider that costs nothing more. Off: what a person expects is the provider used last in that folder (a project worked on a
 // team plan stays on it), else the first one not at its limit in the order the Providers page shows them: the Auto
 // order, then the rest, subscriptions and gateways before API keys (web/accounts.js inOrder). Pay-per-use keys are
-// passed over there unless the owner allows them ("Also use pay-per-use API keys"), as Auto does: a default never
+// passed over there unless the owner allows them ("Also use pay-per-use providers"), as Auto does: a default never
 // spends money by itself while another provider can work. Only when nothing else can work is a limited one or a
 // paid key the default.
 //
@@ -75,7 +78,7 @@ export function rememberFolderProvider(cwd, profile, tool = 'claude') {
  * a state without it is an older one of Claude Code's).
  */
 export function chooseDefault({ profiles = [], auto = {}, autoName = 'auto', last = null, tool = 'claude' }) {
-  if (auto.enabled && tool === 'claude') return autoName;
+  if (auto.enabled && tool === 'claude') return fasterThanAuto(profiles, auto)?.name || autoName;
   const serves = (p) => (Array.isArray(p.tools) ? p.tools.includes(tool) : tool === 'claude');
   // `unusable`: no coding tool of this version can use it (profiles.mjs publicProfile); never a default.
   const real = profiles.filter((p) => p && !p.virtual && !p.unusable && serves(p));
@@ -87,4 +90,28 @@ export function chooseDefault({ profiles = [], auto = {}, autoName = 'auto', las
   const shown = real.map((p, i) => [p, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([p]) => p);
   const pick = shown.find((p) => free(p) && (auto.payPerUse || !p.paid)) || shown.find(free) || shown[0];
   return pick ? pick.name : null;
+}
+
+const isSub = (p) => p.kind === 'login' || p.kind === 'subscription';
+const stuck = (p) => p.speed && (p.speed.verdict === 'slow' || p.speed.verdict === 'refusing');
+
+/**
+ * The provider an Auto session runs on (router.mjs autoIdentity, over the order Auto may use), when it is slow or
+ * refusing now: the first other provider of Claude Code that is free of charge, signed in, not at its limit and not
+ * slow or refusing; else null. It may be outside Auto's order (the owner's case: an order of one gateway, his own
+ * sign-in beside it), and the Providers page says so. A sign-in counts only when checked as signed in (providerFacts:
+ * null is not known). Never one billed by use, "Also use pay-per-use providers" on or not: that switch lets
+ * Auto spend money at a limit, and no money limit is read here, so speed alone never starts spending.
+ */
+export function fasterThanAuto(profiles = [], auto = {}) {
+  const serves = (p) => p && !p.virtual && !p.unusable && (Array.isArray(p.tools) ? p.tools.includes('claude') : true);
+  const ok = (p) => serves(p) && (auto.payPerUse || !p.paid);
+  const inOrder = (auto.order || []).map((n) => profiles.find((p) => p && p.name === n)).filter(ok);
+  const subs = inOrder.filter(isSub);
+  const runsOn = subs.find((p) => !p.limited) || subs[0] || inOrder[0];
+  if (!runsOn || !stuck(runsOn)) return null;
+  const can = profiles.filter((p) => serves(p) && !p.paid && p.name !== runsOn.name && (!isSub(p) || p.signedIn === true) && !p.limited && !stuck(p));
+  // Measured fast first, the fastest of them first; then the rest as listed.
+  const secs = (p) => (p.speed && p.speed.verdict === 'fast' ? p.speed.seconds : Infinity);
+  return can.map((p, i) => [p, i]).sort((x, y) => secs(x[0]) - secs(y[0]) || x[1] - y[1])[0]?.[0] || null;
 }

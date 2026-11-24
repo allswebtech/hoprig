@@ -71,7 +71,7 @@ test('which coding tools each provider serves; a Claude sign-in serves Claude Co
 });
 
 test('refused where a tool starts: Claude Code on an OpenAI key or a Codex sign-in; Codex and OpenCode on a subscription', () => {
-  assert.throws(() => P.profileEnv(P.readProfile('oai')), /cannot be used for Claude Code: it does not answer/);
+  assert.throws(() => P.profileEnv(P.readProfile('oai')), /cannot be used for Claude Code: it does not work with that coding tool/);
   assert.throws(() => P.profileEnv(P.readProfile('codexin')), /it is the sign-in of another coding tool/);
   assert.throws(() => P.profileEnv(P.readProfile('narrow')), /cannot be used for Claude Code/);
   for (const tool of ['codex', 'opencode']) {
@@ -87,7 +87,7 @@ test('refused where a tool starts: Claude Code on an OpenAI key or a Codex sign-
 });
 
 test('no provider variable of the shell or of another tool reaches a tool', () => {
-  const shell = { PATH: '/bin', ANTHROPIC_API_KEY: 'shell', ANTHROPIC_AUTH_TOKEN: 'shell', ANTHROPIC_BASE_URL: 'shell', ANTHROPIC_MODEL: 'shell', CLAUDE_CODE_OAUTH_TOKEN: 'shell', OPENAI_API_KEY: 'shell', OPENAI_BASE_URL: 'shell', CODEX_API_KEY: 'shell', HOPRIG_OPENCODE_KEY: 'shell' };
+  const shell = { PATH: '/bin', ANTHROPIC_API_KEY: 'shell', ANTHROPIC_AUTH_TOKEN: 'shell', ANTHROPIC_BASE_URL: 'shell', ANTHROPIC_MODEL: 'shell', CLAUDE_CODE_OAUTH_TOKEN: 'shell', OPENAI_API_KEY: 'shell', OPENAI_BASE_URL: 'shell', CODEX_API_KEY: 'shell', HOPRIG_OPENCODE_KEY: 'shell' }; // seal: a value no program is started with
   const cx = T.toolEnv('codex', P.readProfile('gw'), shell);
   assert.deepEqual(Object.keys(cx).filter((k) => cx[k] !== undefined && k !== 'PATH').sort(), ['HOPRIG_CODEX_KEY', 'HOPRIG_PROFILE']);
   assert.equal(cx.HOPRIG_CODEX_KEY, KEY);
@@ -190,7 +190,7 @@ test('OpenCode: a provider block in a file of Hoprig\'s own, with no secret in i
   try {
     const prof = { ...P.readProfile('gw'), env: { ...P.readProfile('gw').env, ANTHROPIC_BASE_URL: `http://127.0.0.1:${srv.address().port}` } };
     assert.deepEqual(await T.providerModels(prof), ['m-big', 'm-other']);
-    const { args, env } = await T.startSettings('opencode', prof, { base: { PATH: '/bin' } });
+    const { args, env } = await T.startSettings('opencode', prof, { base: { PATH: '/bin' } }); // seal: a value no program is started with
     assert.deepEqual(args, []);
     assert.equal(env.OPENCODE_CONFIG, path.join(process.env.HOPRIG_STATE_DIR, 'codetools', 'opencode', 'gw.json'));
     const text = fs.readFileSync(env.OPENCODE_CONFIG, 'utf8');
@@ -200,7 +200,7 @@ test('OpenCode: a provider block in a file of Hoprig\'s own, with no secret in i
     assert.equal(env.HOPRIG_OPENCODE_KEY, KEY);
     assert.equal(JSON.parse(text).agents, undefined, 'OpenCode\'s own rules unless "ask" was chosen');
     // "ask" without Hoprig's server: the working agents get the rules (a global rule would lose to "build"'s own).
-    const ask = await T.startSettings('opencode', prof, { base: { PATH: '/bin' }, permissionMode: 'ask' });
+    const ask = await T.startSettings('opencode', prof, { base: { PATH: '/bin' }, permissionMode: 'ask' }); // seal: a value no program is started with
     assert.equal(ask.env.OPENCODE_CONFIG, path.join(process.env.HOPRIG_STATE_DIR, 'codetools', 'opencode', 'gw.ask.json'), 'a file of its own: sessions in other modes keep theirs');
     const agents = JSON.parse(fs.readFileSync(ask.env.OPENCODE_CONFIG, 'utf8')).agents;
     assert.deepEqual(Object.keys(agents), ['build', 'general']);

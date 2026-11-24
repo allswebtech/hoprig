@@ -1,0 +1,127 @@
+/* The story's still form: three screens per step on a floor in perspective (side panes turned and pushed back, the
+   middle one in front). A phone shows one upright screen at a time in a row that scrolls sideways, each with its label
+   inside the screen. The moving form (story-motion) draws over this and hides it only while it runs. */
+
+.section-head { text-align: center; max-width: 40em; margin: 0 auto; }
+.section-head .t-kicker { margin: 0 0 var(--s3); }
+.section-head .sub { color: var(--text-2); font-size: 17px; margin: var(--s3) 0 0; }
+.story { padding: var(--s8) 0; position: relative; }
+@media (min-width: 1000px) { .story { padding: var(--s9) 0; } }
+.story-steps { list-style: none; padding: 0; margin: 0; }
+.step { display: grid; gap: var(--s5); margin-top: var(--s7); }
+@media (min-width: 1000px) { .step { grid-template-columns: 320px minmax(0, 1fr); gap: 56px; align-items: center; margin-top: 88px; } }
+.step-tag { margin: 0; font: 650 13px var(--font); color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.step h3 { margin: var(--s2) 0 var(--s3); }
+.step .t-body { margin: 0; }
+
+.floor { list-style: none; margin: 0; padding: 0; position: relative; perspective: 1500px; perspective-origin: 50% -20%; aspect-ratio: 16 / 10; }
+.floor:focus-visible { outline-offset: 8px; border-radius: var(--r-lg); }
+.floor::before { content: ''; position: absolute; left: -10%; right: -10%; bottom: 0; height: 70%; transform: rotateX(70deg); transform-origin: 50% 100%;
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(closest-side, #000 40%, transparent); mask-image: radial-gradient(closest-side, #000 40%, transparent); }
+.pane { position: absolute; bottom: 14%; transform-origin: 50% 100%; }
+.pane figure { margin: 0; position: relative; border-radius: 12px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-pane); }
+.pane .pic { width: 100%; }
+.pane-a { left: 0; width: 44%; transform: rotateY(28deg) translateZ(-120px); }
+.pane-b { left: 50%; width: 54%; transform: translateX(-50%) translateZ(40px); z-index: 2; }
+.pane-c { right: 0; width: 44%; transform: rotateY(-28deg) translateZ(-120px); }
+/* A caption, not a button: plain small text on a strip of the screen's own surface, no pill, no shadow. */
+.pane-label { display: block; padding: 6px 10px; font: 500 12px/1.4 var(--font); color: var(--muted); background: var(--surface); border-top: 1px solid var(--border); }
+/* The still floor is as tall as its screens: at 16 / 10 with the screens 14 % up, each desktop floor had 156 px of
+   empty top and the gaps between the steps ran from 188 to 287 px. The moving form keeps 16 / 10: its camera is
+   placed by the floor's box. Not on a phone: these selectors outweigh the phone's own rules below, and at 390 px they
+   cut the bottom of the screens and their captions off the floor. */
+/* The still floor from 700 px: the screen in front at the floor's full width, the two others side by side under it.
+   Seen 20 Nov 2026 at 1440x900 with three screens on a floor in perspective beside a column of words: the front one was
+   415 px wide and its words about 5 px tall, far weaker than the moving form at rest, which a slow window, reduced
+   motion or no WebGL falls back to. A grid has no empty room above its screens. Not on a phone: these selectors
+   outweigh the phone's own rules below. */
+@media (min-width: 700px) {
+  .story:not([data-motion='on']) .floor:not(.floor-tall) { aspect-ratio: auto; perspective: none; display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); }
+  .story:not([data-motion='on']) .floor:not(.floor-tall)::before { display: none; }
+  .story:not([data-motion='on']) .floor:not(.floor-tall) .pane { position: relative; inset: auto; width: auto; transform: none; }
+  .story:not([data-motion='on']) .floor:not(.floor-tall) .pane-b { grid-column: 1 / -1; order: -1; }
+  /* The phone floor keeps its grid in perspective, which runs 10 % past both sides: seen 21 Nov 2026, the page 24 to
+     94 px wider than the window from 700 to 1300 px (1065 at 999). Clipped sideways only, so the screens' shadows
+     under them stay. */
+  .story:not([data-motion='on']) .floor-tall { overflow-x: clip; }
+}
+/* On a wide window the step's words stand over its screens, as the moving form's band: tag and heading at the left,
+   the sentence beside them; a column of words beside the floor left the screens 750 px for all three. */
+@media (min-width: 1000px) {
+  .story:not([data-motion='on']) .step { grid-template-columns: minmax(0, 1fr); gap: var(--s5); }
+  .story:not([data-motion='on']) .step-words { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); column-gap: var(--s7); align-items: end; }
+  .story:not([data-motion='on']) .step-words > * { grid-column: 1; }
+  .story:not([data-motion='on']) .step-words > .t-body { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+}
+/* Phone screens are tall: narrower panes on a deeper floor. */
+.floor-tall { aspect-ratio: 16 / 12; }
+.floor-tall .pane { bottom: 6%; }
+.floor-tall .pane-a, .floor-tall .pane-c { width: 25%; }
+.floor-tall .pane-a { left: 8%; }
+.floor-tall .pane-c { right: 8%; }
+.floor-tall .pane-b { width: 30%; }
+
+@media (max-width: 699px) {
+  /* One upright screen at a time, swiped or scrolled sideways; nothing runs past the screen's edge. */
+  .floor, .floor-tall { aspect-ratio: auto; perspective: none; display: flex; gap: var(--s3); overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 calc(-1 * var(--gutter)); padding: 4px var(--gutter) var(--s3); scrollbar-width: none; }
+  .floor::-webkit-scrollbar { display: none; }
+  .floor::before { display: none; }
+  .pane, .pane-a, .pane-b, .pane-c, .floor-tall .pane { position: relative; inset: auto; transform: none; flex: 0 0 86%; width: auto; scroll-snap-align: center; }
+  .floor-tall .pane { flex-basis: 64%; }
+  /* The step's phone order (data-phone-at, Story.tsx), else the front screen first: an inline order would be refused by
+     the page's style policy. Seen 20 Nov 2026: '.pane-b { order: -1 }' put step 2's half-empty Computers first. */
+  .pane[data-phone-at='1'] { order: 1; }
+  .pane[data-phone-at='2'] { order: 2; }
+  .pane figure { box-shadow: var(--shadow-1); }
+  /* A desktop screen shows its phone-width picture here (Pic.tsx), from its top: the part a step is about. */
+  .floor:not(.floor-tall) .pic { aspect-ratio: 3 / 4; object-fit: cover; object-position: top; }
+}
+
+/* The still form lays the stage's two parts out as before; the screen names are the moving form's alone. */
+.step-stage, .step-floor { display: contents; }
+.step-screens { display: none; }
+
+/* ---------- the moving form (StoryMotion): a canvas in each step's floor draws its screens; the still ones turn
+   see-through but stay in the page for a screen reader. Each step is one stage pinned under the bar (61 px: 60 and its
+   border) for the length of its three screens: the step's words as a band at the top, the ring of screens under it
+   to the window's bottom. The words are in the band, above the floor's box, at every width. ---------- */
+/* The floor's box runs under the words to the window's bottom and from edge to edge of the window; its canvas fills
+   it and scrolls with its stage. Being after the words in the stage's column, it never lies under them. */
+.story[data-motion='on'] .step-floor { display: block; position: relative; flex: 1 1 auto; min-height: 0; margin: 0 calc(50% - 50vw); }
+/* will-change: filter gives the canvas a surface of its own. Without it Chrome culled a let-go stage's canvas under the
+   solid top bar by a line that rose twice as fast as the stage (measured 20 Nov 2026 at 1440x900, 180 px past the pin's
+   end: the canvas ran to 720 px, its screens were cut at 657; at 360 px past, to 540 and cut at 297), and the window
+   showed a sliced screen over a third of empty grid between two steps. */
+.story-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; will-change: filter; }
+.story[data-motion='on'] .pane { opacity: 0; }
+.story[data-motion='on'] .story-steps > .step { display: block; margin: 0; height: calc(100vh - 61px + 260vh); height: calc(100svh - 61px + 260svh); }
+.story[data-motion='on'] .step-stage { display: flex; flex-direction: column; position: sticky; top: 61px; height: calc(100vh - 61px); height: calc(100svh - 61px); }
+.story[data-motion='on'] .step-words { flex: none; padding: var(--s5) 0 var(--s1); }
+.story[data-motion='on'] .step h3 { margin: var(--s1) 0 0; }
+.story[data-motion='on'] .floor { position: absolute; inset: 0; aspect-ratio: auto; perspective: none; display: block; overflow: hidden; margin: 0; padding: 0; }
+/* The floor's grid is the page's (CSS behind the canvas): drawn by a shader it cost each moving frame. */
+.story[data-motion='on'] .floor::before { display: block; left: 0; right: 0; height: 46%; transform: none; }
+.story[data-motion='on'] .floor-tall .pane, .story[data-motion='on'] .pane { position: absolute; inset: 0; transform: none; width: auto; }
+/* The step's screen names under its heading, the one in front marked: captions, not buttons (plain text, no pill).
+   With an accent bar under the front one they looked like tabs, and a click on one did nothing: the front one is
+   marked by a dot before it and the text's own colour. */
+.story[data-motion='on'] .step-screens { display: flex; flex-wrap: wrap; gap: 0 var(--s4); list-style: none; margin: var(--s3) 0 0; padding: 0; cursor: default; }
+.step-screens li { padding: 3px 0; font: 500 14px/1.4 var(--font); color: var(--muted); }
+.step-screens li::before { content: ''; display: inline-block; width: 6px; height: 6px; margin: 0 7px 2px 0; border-radius: 50%; background: var(--border-strong); vertical-align: middle; }
+.step-screens li[data-now] { color: var(--text); }
+.step-screens li[data-now]::before { background: var(--accent); }
+@media (min-width: 900px) {
+  /* A thin band: tag, heading and screen names at the left, the sentence beside them. */
+  .story[data-motion='on'] .step-words { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); column-gap: var(--s7); align-items: end; }
+  .story[data-motion='on'] .step-words > * { grid-column: 1; }
+  .story[data-motion='on'] .step-words > .t-body { grid-column: 2; grid-row: 1 / 4; align-self: center; }
+}
+@media (max-width: 699px) {
+  .story[data-motion='on'] .step-words { padding: var(--s3) 0 0; }
+  .story[data-motion='on'] .step-tag { font-size: 12px; }
+  .story[data-motion='on'] .step h3 { font-size: 20px; margin: 2px 0 var(--s1); }
+  .story[data-motion='on'] .step .t-body { font-size: 15px; line-height: 1.45; }
+  .story[data-motion='on'] .step-screens { gap: 0 var(--s4); margin-top: var(--s1); }
+  .step-screens li { font-size: 13px; }
+}

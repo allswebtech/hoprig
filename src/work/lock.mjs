@@ -175,19 +175,36 @@ export function withLock(file, fn, { wait = LOCK_WAIT_MS } = {}) {
 
 /**
  * Take the lock of the git repository at `top` (no queue: a second taker in this process waits like another
- * process). `who`: "save" or "upkeep", for the words of the one that finds it held. → release(); throws 409 with
+ * process). `who`: "save", "upkeep", "workspace" or "learn", for the words of the one that finds it held. → release(); throws 409 with
  * code "syncing" (the upkeep holds it) or "busy" (another save) after `wait` ms.
  */
 export function takeRepoLock(top, { wait = REPO_WAIT_MS, who = 'save' } = {}) {
   return takeLock(repoLockFile(top), wait, {
     who,
-    busy: (rec) => (rec && rec.who === 'upkeep'
-      ? Object.assign(new Error('the workspace is being synced: Save again in a moment'), { status: 409, code: 'syncing' })
+    // An Install or Undo of a learned skill is a press of its own: "Save again" would send him to the wrong button.
+    busy: (rec) => (who === 'learn'
+      ? Object.assign(new Error('the AI brain is busy (a save of Work, the workspace sync or a workspace command): press it again in a moment'), { status: 409, code: 'busy', details: { code: 'busy' } })
+      : rec && (rec.who === 'upkeep' || rec.who === 'workspace')
+      ? Object.assign(new Error(rec.who === 'upkeep' ? 'the workspace is being synced: Save again in a moment' : 'a workspace command is writing the AI brain: try again in a moment'), { status: 409, code: 'syncing' })
       : Object.assign(new Error('another save of the Work list is running: Save again in a moment'), { status: 409, code: 'busy' })),
   });
 }
 
 /** The repository's lock without waiting: release(), or null while another holds it. */
+/**
+ * Run `fn` holding the lock of the git repository at `top` (a workspace command that writes the brain: the page's Save
+ * it now, a label, a sync), so it never runs between the steps of the upkeep or of a save of the Work list. Throws 409
+ * when another holder keeps it longer than `wait`.
+ */
+export async function withRepoLock(top, fn, { who = 'workspace', wait = REPO_WAIT_MS } = {}) {
+  const release = await takeRepoLock(top, { wait, who });
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
 export async function tryRepoLock(top, { who = 'upkeep' } = {}) {
   try {
     return await takeRepoLock(top, { wait: 0, who });

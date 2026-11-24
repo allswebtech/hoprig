@@ -45,9 +45,10 @@ import { runningDashboard } from '../server/dashboardfile.mjs';
 import { cleanLabel, cleanModel, freeName } from '../server/accounts.mjs';
 import { RateLimiter } from '../server/auth.mjs';
 import { apiError, forward, unreachable } from './forward.mjs';
+import { firstCheck } from '../providers/check.mjs';
 import { GATEWAY_ID_RE, createKey, listKeys, looksLikeKey, removeKey, setShared, sharedProvider, verifyKey } from './keys.mjs';
 
-const fail = (status, message) => Object.assign(new Error(message), { status });
+const fail = (status, message, code = null) => Object.assign(new Error(message), { status, ...(code ? { details: { code } } : {}) });
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest();
 const sameSecret = (a, b) => crypto.timingSafeEqual(sha256(a), sha256(b));
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
@@ -197,8 +198,24 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
   }
   const foreignText = (g) => `Another program answers on ${g.title}'s port on ${label()}: Hoprig did not start it, so nothing is passed on to it.`;
 
-  async function localView(g, owner) {
-    const [st, { mine: running }] = await Promise.all([addonStatus(g), answering(g)]);
+  /**
+   * What `hoprig gateways` says of a gateway, for its owner's page: the program and words Hoprig starts it with (runs)
+   * and why a program of his own waits for his confirmation (needsConfirm), so the page needs no terminal for them.
+   */
+  function ownerFacts(g, st) {
+    let runs = null;
+    try {
+      const c = typeof g.addon.command === 'function' ? g.addon.command() : null;
+      runs = Array.isArray(c) && c.length ? c.map(String) : null;
+    } catch {
+      /* an add-on that cannot say */
+    }
+    return { runs, needsConfirm: typeof st.needsConfirm === 'string' ? st.needsConfirm : null };
+  }
+
+  /** `known`: a status already asked for this answer, so one answer runs the gateway's program once. */
+  async function localView(g, owner, known = null) {
+    const [st, { mine: running }] = await Promise.all([known || addonStatus(g), answering(g)]);
     const p = localProvider(g);
     const shared = Boolean(p && sharedProvider(g.id) === p.name);
     return {
@@ -415,7 +432,8 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
     if (model) env.ANTHROPIC_MODEL = model;
     if (smallModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = smallModel;
     // No PRERUN: the gateway runs on the other computer, so nothing is started here.
-    writeProfile(name, { label: lbl, models: models || (model ? `*=${model}` : ''), env });
+    const made = writeProfile(name, { label: lbl, models: models || (model ? `*=${model}` : ''), env });
+    firstCheck(made); // one round by itself, as a gateway profile made on Providers gets (providers/check.mjs)
     changed();
     return { ok: true, name, label: lbl };
   }
@@ -425,7 +443,11 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
   const routes = [
     ['GET', /^\/api\/gateways$/, async (req) => {
       const owner = ctx.authed(req);
-      return { computer: label(), gateways: await Promise.all(gateways().map((g) => localView(g, owner))) };
+      // The owner's own page also reads what `hoprig gateways` says (ownerFacts); another computer's token does not.
+      return { computer: label(), gateways: await Promise.all(gateways().map(async (g) => {
+        const st = await addonStatus(g);
+        return { ...(await localView(g, owner, st)), ...(owner ? ownerFacts(g, st) : {}) };
+      })) };
     }],
     ['GET', /^\/api\/gateways\/all$/, async (req) => {
       ownerOnly(req);
@@ -448,7 +470,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
           }));
           return { ...out, state: 'online', gateways: list };
         } catch (e) {
-          return { ...out, state: e.code === 'not-authorised' ? 'unauthorised' : 'offline' };
+          return { ...out, state: e.code === 'computer-not-allowed' ? 'unauthorised' : 'offline' };
         }
       })) : [];
       for (const g of here.gateways) g.usedAs = g.provider;
@@ -460,7 +482,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       const g = gatewayOr404(m[1]);
       if (b.on === true) {
         const p = localProvider(g);
-        if (!p) throw fail(409, `First add ${g.title} as a provider on ${label()} (Providers → Gateways on your computers → Use here): sharing passes on the key of that provider.`);
+        if (!p) throw fail(409, `First add ${g.title} as a provider on ${label()} (Providers → Gateways on your computers → Use here): sharing passes on the key of that provider.`, 'gateway-no-provider');
         setShared(g.id, p.name);
       } else setShared(g.id, null);
       return localView(g, true);
@@ -470,7 +492,7 @@ export function gatewayFeature(ctx, { hub = null, addons = null, now = Date.now,
       const g = gatewayOr404(m[1]);
       const provider = sharedProvider(g.id);
       const p = provider ? readProfile(provider) : null;
-      if (!p || !upstreamAuth(p, g.port)) throw fail(409, `Sharing of ${g.title} is turned off on ${label()}. Turn it on there first: Providers → Gateways on your computers.`);
+      if (!p || !upstreamAuth(p, g.port)) throw fail(409, `Sharing of ${g.title} is turned off on ${label()}. Turn it on there first: Providers → Gateways on your computers.`, 'gateway-not-shared');
       // Asked by a linked hub with its machine token: the key ends when that token is revoked. The owner's login: never.
       const { id, key } = createKey(g.id, typeof b.name === 'string' ? b.name : '', { token: tokenIdOf(req) });
       const cfg = loadConfig().server;

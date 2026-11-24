@@ -112,3 +112,19 @@ test('cookies', () => {
   assert.match(sessionCookie('tok', { secure: true }), /; Secure$/);
   assert.match(clearCookie(false), /Max-Age=0/);
 });
+
+test('session store: the host names a session is used on are kept (no port), for a plain link that avoids them', () => {
+  const file = path.join(box.state, 'sessions-hosts.json');
+  const s = new SessionStore(file);
+  const t = s.create('tag');
+  assert.deepEqual(s.hosts('tag'), [], 'none until it is used');
+  assert.equal(s.valid(t, 'tag', '127.0.0.1:7433'), true);
+  assert.equal(s.valid(t, 'tag', '127.0.0.1:8190'), true);
+  assert.equal(s.valid(t, 'tag', 'LOCALHOST:7433'), true);
+  assert.deepEqual(s.hosts('tag'), ['127.0.0.1', 'localhost']);
+  assert.deepEqual(s.hosts('other'), [], 'only sessions of the current password');
+  assert.deepEqual(new SessionStore(file).hosts('tag'), ['127.0.0.1', 'localhost'], 'kept across a restart');
+  assert.equal(fs.readFileSync(file, 'utf8').includes(t), false, 'still only hashes in the file');
+  assert.equal(s.valid('x'.repeat(43), 'tag', 'evil.example'), false);
+  assert.ok(!s.hosts('tag').includes('evil.example'), 'a wrong token adds nothing');
+});

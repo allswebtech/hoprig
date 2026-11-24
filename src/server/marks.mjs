@@ -33,7 +33,7 @@ export function sweepMarks(now = Date.now()) {
     return;
   }
   for (const f of names) {
-    // And typing locks and notes (src/typinglock.mjs) left by a dashboard that stopped in the middle of a message, or
+    // Typing locks and notes (src/typinglock.mjs) left by a dashboard that stopped in the middle of a message, or
     // by a launcher that ended without its own end.
     if (!f.startsWith(PREFIX) && !f.endsWith('.typing') && !f.endsWith('.typed')) continue;
     const file = path.join(runsDir(), f);

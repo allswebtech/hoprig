@@ -9,11 +9,10 @@ import { uploadsDirName } from './uploads.mjs';
 /** The virtual profile of Auto mode: the router inside the launcher picks the account per request. */
 export const AUTO = Object.freeze({ name: 'auto', label: 'Auto' });
 
+// A first look keeps to what a newcomer needs; /compact and /model stay one line away in Settings → Quick messages.
 export const DEFAULT_QUICK_ACTIONS = [
   { label: 'continue', text: 'continue' },
-  { label: '/compact', text: '/compact' },
   { label: '/clear', text: '/clear' },
-  { label: '/model', text: '/model' },
 ];
 
 /** server.quickActions: up to 20 chips, each { label ≤ 24, text ≤ 500 }, one line each for the label. */

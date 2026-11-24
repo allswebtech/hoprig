@@ -1,4 +1,5 @@
-// Markdown from a file shown as plain, safe formatting: headings, lists, quotes, code blocks, `code` and **bold**.
+// Markdown from a file shown as plain, safe formatting: headings, lists, quotes, code blocks, small tables, `code` and
+// **bold**.
 // Every piece of the file is set as text through h(); nothing in it is ever read as HTML, a link or an image.
 import { add, h } from './lib.js';
 
@@ -16,14 +17,17 @@ export function inline(line) {
   return out;
 }
 
-/** The nodes of a Markdown text, in a div.md. */
-export function mdView(text) {
+/**
+ * The nodes of a Markdown text, in a div.md. `code(text)`: how a code block is drawn (default: a pre of its text).
+ * `breaks`: a single line break inside a paragraph stays a line break (a chat message), not a space (a file).
+ */
+export function mdView(text, { code: block = null, breaks = false } = {}) {
   const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
   const out = [];
   let list = null; // { el, ordered }
   let para = [];
   const endPara = () => {
-    if (para.length) out.push(h('p', inline(para.join(' '))));
+    if (para.length) out.push(h('p', breaks ? para.flatMap((l, k) => (k ? [h('br'), ...inline(l)] : inline(l))) : inline(para.join(' '))));
     para = [];
   };
   const endList = () => {
@@ -37,12 +41,25 @@ export function mdView(text) {
       endList();
       const code = [];
       for (i++; i < lines.length && !lines[i].trim().startsWith(fence[1]); i++) code.push(lines[i]);
-      out.push(h('pre.md-code', code.join('\n')));
+      out.push(block ? block(code.join('\n')) : h('pre.md-code', code.join('\n')));
       continue;
     }
     // A line that is only an HTML comment (a marker such as Hoprig's around the Memory section) is not shown, as in
     // any rendered Markdown. Nothing else in the file is treated as markup.
     if (/^\s*<!--.*-->\s*$/.test(line)) continue;
+    // A small table ("| a | b |" over "|---|---|"): every cell is text. Its header row is the first.
+    if (/^\s*\|.*\|\s*$/.test(line) && /^\s*\|(\s*:?-{3,}:?\s*\|)+\s*$/.test(lines[i + 1] || '')) {
+      endPara();
+      endList();
+      const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+      const head = cells(line);
+      const rows = [];
+      for (i += 2; i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i]) && rows.length < 50; i++) rows.push(cells(lines[i]));
+      i--;
+      out.push(h('div.md-tablewrap', h('table.md-table', h('thead', h('tr', head.map((c) => h('th', { scope: 'col' }, inline(c))))),
+        h('tbody', rows.map((r) => h('tr', head.map((_, k) => h('td', inline(r[k] || '')))))))));
+      continue;
+    }
     const head = /^(#{1,6})\s+(.*)$/.exec(line);
     if (head) {
       endPara();

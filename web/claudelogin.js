@@ -22,7 +22,7 @@ async function terminalWay(close) {
     close();
     location.hash = `#/s/${encodeURIComponent(r.session)}`;
   } catch (e) {
-    toast(e.message, { kind: 'error' });
+    toast(e, { kind: 'error' });
   }
 }
 
@@ -119,7 +119,7 @@ export function claudeSignIn({ done = () => {}, another = false, email = '', aft
           go.disabled = false;
           // Not even the shape of a code: Claude Code still waits, so the same link stays. Anything else: start again.
           const now = await api(R()).catch(() => null);
-          if (now && now.state === 'link') fill(out, errorBox(err.message));
+          if (now && now.state === 'link') fill(out, errorBox(err));
           else failed(err.message);
         }
       } },
@@ -161,7 +161,7 @@ export function claudeSignIn({ done = () => {}, another = false, email = '', aft
         tab = null;
         // One left open (another tab, another device): end it here, then this one starts.
         const open = e.status === 409 && /in progress/i.test(e.message);
-        return fill(body, errorBox(e.message),
+        return fill(body, errorBox(e),
           open ? h('div.savebar', btn('secondary', { icon: 'x', label: 'Cancel that sign-in and start again', onclick: async () => { await api(R('/cancel'), {}).catch(() => {}); tab = blankTab(); start(); } })) : null,
           terminal());
       }

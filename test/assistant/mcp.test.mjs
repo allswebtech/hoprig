@@ -3,11 +3,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { httpClient } from '../../src/assistant/client.mjs';
+import { NO_ADDRESS, httpClient } from '../../src/assistant/client.mjs';
 import { PROTOCOL_VERSIONS, handleMessage } from '../../src/assistant/mcp.mjs';
 import { MCP_TOOLS_JSON } from '../../src/assistant/tools.mjs';
 import { startFakeDashboard } from './fake-dashboard.mjs';
@@ -53,6 +54,11 @@ function mcpProcess(env) {
         waiting.set(id, resolve);
         child.stdin.write(text + '\n');
       }),
+    // After a failed assertion: the process is ended, so the run does not wait for it.
+    end: () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      fs.rmSync(tmp, { recursive: true, force: true });
+    },
     close: () =>
       new Promise((resolve) => {
         child.on('exit', (code) => {
@@ -67,7 +73,7 @@ function mcpProcess(env) {
 test('MCP over stdio: initialize, byte-stable tools/list, calls, validation errors, L2 staging', async (t) => {
   const dash = await startFakeDashboard();
   const mcp = mcpProcess({ HOPRIG_DASHBOARD_URL: dash.url, HOPRIG_ASSISTANT_TOKEN: dash.token, HOPRIG_ASSISTANT_CONVERSATION: 'conv-1' });
-  t.after(() => dash.close());
+  t.after(() => { mcp.end(); return dash.close(); });
 
   const init = (await mcp.send('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } })).msg;
   assert.equal(init.result.protocolVersion, '2025-06-18');
@@ -87,6 +93,12 @@ test('MCP over stdio: initialize, byte-stable tools/list, calls, validation erro
   assert.equal(list.isError, false);
   assert.match(list.content[0].text, /^3 session\(s\) on all computers/);
   assert.match(list.content[0].text, /<untrusted_data tool="list_sessions">/);
+
+  // A program outside that still calls the old name gets the providers, and is told the new name.
+  assert.ok(!l1.msg.result.tools.some((t) => t.name === 'get_accounts'));
+  const old = (await mcp.send('tools/call', { name: 'get_accounts', arguments: {} })).msg.result;
+  assert.equal(old.isError, false, old.content[0].text);
+  assert.match(old.content[0].text, /get_accounts is an old name: call get_computer_status \{"providers":true\}/);
 
   const bad = (await mcp.send('tools/call', { name: 'read_session', arguments: { session: 'api-fix', extra: 1 } })).msg.result;
   assert.equal(bad.isError, true);
@@ -126,4 +138,33 @@ test('httpClient: no token, wrong token and an unreachable dashboard are plain e
   assert.equal(down.isError, true);
   assert.match(down.text, /not reachable.*hoprig serve/);
   assert.equal((await httpClient({ url: dash.url, token: dash.token }).call('list_sessions', {})).isError, false);
+});
+
+test('without its dashboard\'s address the MCP server answers every call with one plain error and connects nowhere', async (t) => {
+  // A server on the port the config names, counting every connection: the old code fell back to that port (and else
+  // to the default one), where another dashboard than its own may listen.
+  let connections = 0;
+  const srv = http.createServer((req, res) => res.end('{}'));
+  srv.on('connection', () => connections++);
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hop-mcp-noaddr-'));
+  fs.mkdirSync(path.join(home, 'c'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'c', 'config.json'), JSON.stringify({ server: { port } }));
+  const env = { ...process.env, HOPRIG_ASSISTANT_TOKEN: 'tia_' + 'x'.repeat(40), HOPRIG_CONFIG_DIR: path.join(home, 'c'), HOPRIG_DASHBOARD_URL: '' };
+  const mcp = mcpProcess(env);
+  t.after(() => { mcp.end(); srv.close(); fs.rmSync(home, { recursive: true, force: true }); });
+  await mcp.send('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } });
+  mcp.notify('notifications/initialized');
+  for (const name of ['list_sessions', 'read_attention']) {
+    const r = (await mcp.send('tools/call', { name, arguments: {} })).msg.result;
+    assert.equal(r.isError, true, name);
+    assert.equal(r.content[0].text, NO_ADDRESS, name);
+  }
+  assert.equal(connections, 0, 'no connection to the config\'s port');
+  // The client itself: no address, no request at all.
+  let asked = 0;
+  const c = httpClient({ url: '', token: 'tia_x', fetchImpl: async () => { asked++; return new Response('{}'); } });
+  assert.deepEqual(await c.call('list_sessions', {}), { isError: true, text: NO_ADDRESS });
+  assert.equal(asked, 0);
 });

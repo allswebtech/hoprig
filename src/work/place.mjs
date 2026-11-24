@@ -25,7 +25,7 @@ export const PLANNER_FILE = 'deadlines.json';
 const NEVER = new Set([...PRIVATE_DIRS, 'credentials', 'test-data', 'node_modules']);
 const SEG_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/;
 
-const bad = (message, status = 400) => Object.assign(new Error(message), { status });
+const bad = (message, status = 400, code = null) => Object.assign(new Error(message), { status, ...(code ? { details: { code } } : {}) });
 
 /** A relative folder path as the setting keeps it ("docs/plans"), or throws. */
 export function cleanRel(p) {
@@ -116,7 +116,7 @@ export function resolvePlace(cfg = {}, places = {}) {
   if (s.place === 'project') {
     const pdir = places.projects || projectsIn(cfg);
     const p = listProjects(pdir).find((x) => x.name === s.project);
-    if (!p) throw bad(`Work data lives in the project "${s.project}", which is not in the workspace's projects folder: choose another place in Settings → Work`, 409);
+    if (!p) throw bad(`Work data lives in the project "${s.project}", which is not in the workspace's projects folder: choose another place in Settings → Work`, 409, 'work-place-gone');
     base = p.dir;
     rel = s.path;
     label = `${s.project}/${s.path}`;
@@ -127,7 +127,7 @@ export function resolvePlace(cfg = {}, places = {}) {
     base = brainDir(ws);
     rel = BRAIN_FOLDER;
     label = `ai_brain/${BRAIN_FOLDER}`;
-    if (!real(base)) throw bad('there is no AI brain in the workspace yet: set up the workspace first (Workspace → Set up), or keep Work in a project', 409);
+    if (!real(base)) throw bad('there is no AI brain in the workspace yet, so Work cannot keep its list there. Set one up on the AI brain page, or choose "A project" under Settings → Work.', 409, 'no-workspace');
   }
   const realBase = real(base);
   if (!realBase) throw bad(`${label}: its folder is not there`, 409);

@@ -118,7 +118,7 @@ test('leave from this computer: the hub forgets it, the token is revoked, the tu
 test('Remove on the hub: this computer notices its token is gone and stops connecting', { skip }, async () => {
   const h = await join.joinHub('alex@server', { keeper, ssh: { env: ssh.sshEnv } });
   const name = joinedOnHub().name;
-  const rm = await browser(`/api/machines/${name}/remove`, { body: {} });
+  const rm = await browser(`/api/machines/${name}/remove`, { body: { confirm: name } });
   assert.equal(rm.json.revoked, true);
   assert.match(rm.json.note, /stops connecting by itself/);
   await until('forgotten here', async () => join.loadJoined().length === 0 && !keeper.map.has(h.id));

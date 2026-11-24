@@ -9,6 +9,8 @@ document.getElementById('name').textContent = APP_NAME;
   Object.assign(mark, { src: 'icon.svg', alt: '', className: 'brandmark', width: 52, height: 52 });
   document.getElementById('mark').replaceWith(mark);
 }
+/** Said under a wrong password: a device that is signed in already lets this one in by a code. */
+export const NO_PASSWORD_WAY = 'Signed in on another device, such as your computer? There, open Settings → Security and sign-in and press Show a sign-in code: then no password is needed here.';
 const form = document.getElementById('form');
 const input = document.getElementById('password');
 const error = document.getElementById('error');
@@ -59,7 +61,8 @@ form.addEventListener('submit', async (e) => {
       return;
     }
     const body = await r.json().catch(() => ({}));
-    error.textContent = body.error || `Login failed (${r.status})`;
+    // A wrong password: say where the way in without one is (the password itself stays his; it is never shown).
+    error.textContent = (body.error || `Login failed (${r.status})`) + (r.status === 401 ? ` ${NO_PASSWORD_WAY}` : '');
     input.select();
   } catch {
     error.textContent = 'Cannot reach the computer. Check the connection.';

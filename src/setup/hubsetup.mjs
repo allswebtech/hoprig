@@ -90,7 +90,7 @@ export async function stepHttps(ui, sys, opts, state, { detect = detectWebServer
   const port = cfg.server.port || DEFAULT_PORT;
   const publicIps = sys.publicIps ?? publicAddresses();
   if (opts.domain && !cleanDomain(opts.domain)) {
-    ui.line('fail', `"${opts.domain}" is not a domain name (like hub.example.com).`);
+    ui.line('fail', `"${opts.domain}" is not a domain name (like dashboard.example.com).`);
     return false;
   }
   if (opts.ip && !isPublicIp(opts.ip) && !opts.tlsInternal) {
@@ -132,7 +132,7 @@ export async function stepHttps(ui, sys, opts, state, { detect = detectWebServer
   };
 
   if (plan.action === 'blocked') {
-    ui.line('fail', `${plan.reason}: ${APP} cannot put HTTPS in front of the hub by itself here. Free them, or use a domain with your web server.`);
+    ui.line('fail', `${plan.reason}: ${APP} cannot put HTTPS in front of this main computer by itself here. Free them, or use a domain with your web server.`);
     return false;
   }
   if (plan.action === 'print' || plan.action === 'panel') {
@@ -141,7 +141,7 @@ export async function stepHttps(ui, sys, opts, state, { detect = detectWebServer
       : `${plan.server === 'nginx' ? 'nginx' : 'Apache'} already serves ports 80/443; ${APP} does not change it. Add this site to it:`);
     ui.out(plan.block.split('\n').map((l) => `    ${l}`).join('\n'));
     applySettings();
-    ui.line(ui.dryRun ? 'info' : 'ok', `${ui.dryRun ? 'Would set' : 'Set'} the hub's own settings: host 127.0.0.1, trustProxy, allowedOrigins ${origin}`);
+    ui.line(ui.dryRun ? 'info' : 'ok', `${ui.dryRun ? 'Would set' : 'Set'} the main computer's own settings: host 127.0.0.1, trustProxy, allowedOrigins ${origin}`);
     state.phoneUrl = `${origin}/`;
     state.httpsOrigin = origin;
     return true;

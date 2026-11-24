@@ -12,6 +12,9 @@ import { profileUsage, routerAddress } from '../src/routerstate.mjs';
 import { addProfile, ago, askNext, chooseProfile, clock, menuProfiles } from '../src/menu.mjs';
 import { profilesDir } from '../src/paths.mjs';
 import { deleteProfile, publicProfile, readProfile, validName } from '../src/profiles.mjs';
+import { mapCommand } from '../src/providers/mapcli.mjs';
+import { helpRequest } from '../src/helpwords.mjs';
+import { needsYes } from '../src/yes.mjs';
 
 const HELP = `Hoprig — Claude Code and OpenCode under several providers, and a dashboard for every computer
 
@@ -22,7 +25,12 @@ const HELP = `Hoprig — Claude Code and OpenCode under several providers, and a
   hoprig <profile> [args]     start under that profile; args go to Claude Code
                                 hoprig api -c            continue the last session of this folder
                                 hoprig sub2 --resume ID  continue one session
+                                hoprig api -- "fix the tests"  start, and send this as the
+                                                         session's first message
   hoprig -c | --resume ...    choose a profile, then continue as asked
+  hoprig <profile> --with <name>  also let this session read another project of the workspace
+                                 (to read; its file tools cannot write there; this session only;
+                                 a project's own "needs" come by themselves)
 
   hoprig opencode [provider] [args]  start OpenCode instead; -c, --resume ID and -- "first message"
                                  as above. Auto mode, plan usage and Tia's engine are Claude
@@ -31,11 +39,14 @@ const HELP = `Hoprig — Claude Code and OpenCode under several providers, and a
   hoprig auto [args]          start in Auto mode: when a provider reaches its limit, work goes on
                                  under the next one without stopping, and comes back by itself
 
-  When Claude Code exits, Hoprig offers to continue the same session on another profile.
+  When a session stops at a limit or an error, Hoprig offers to continue it on another profile.
 
   hoprig add [name]           add a profile (a provider: another Claude account, an API key, a proxy)
   hoprig profiles [--json]    list profiles
-  hoprig rm <name>            delete a profile
+  hoprig profiles map <name> [on|off] [--yes]
+                              a provider's model map (MODELS) for every session and chat on it:
+                                 what it would rename, and whether it is on (off at first)
+  hoprig rm <name> [--yes]    delete a profile (asks first; --yes: without asking)
 
   hoprig auto status          Auto mode's settings, each provider's usage and limits
   hoprig auto on | off        make Auto the default way to start (off at first)
@@ -47,18 +58,33 @@ const HELP = `Hoprig — Claude Code and OpenCode under several providers, and a
   hoprig project new <name>   a new project: one folder for rules, AI memory and docs, with its code
                                  repositories under code/, all in git
   hoprig project clone <name> get an existing project with all its code repositories and its AI memory
-  hoprig get <name>…          the same, short (the folder is the project's name; --dry-run shows it first)
+  hoprig get <name>…          the same, short (the folder is the project's name; --dry-run shows it first);
+                                 hoprig get --list: every project of your workspace and which computer has it
+  hoprig drop <name>…         take a project off THIS computer safely: it pushes first, then checks, then removes
+                                 (--check only says what exists only here; --dry-run shows every step)
+  hoprig adopt scan|plan|apply  a computer that already has projects: look in the folders you name, a plan per
+                                 project, then a proved copy into the workspace (adopt verify | retire)
+  hoprig sessions move <old> <new>  the coding tool's conversations of a folder, copied under its new place
+  hoprig sync [<name>]        bring the repositories on this computer (or one project) in step with git
   hoprig project status|sync  the state of a project's repositories; pull and push what is safe
   hoprig project setup <name> what a fresh clone sets up (.env, git hooks, memory link, installs)
   hoprig workspace            the one folder tree for your coding: AI brain, projects, credentials
                                  (workspace status | setup | link | map | restore | sync | set | forget | git |
-                                 group | find | tool | mylink | rules)
+                                 group | find | tool | mylink | rules | label)
   hoprig tasks                Work: your tasks and what needs you today, kept in a file of the workspace
-                                 (tasks today | list | add | edit | done | open | drop | remove | do | runs | save;
+                                 (tasks today | list | add | edit | done | open | drop | remove | do | runs | plans |
+                                 plan | save;
                                  "hoprig tasks help" has the rest)
+  hoprig ship status <project>  Go live: put finished task branches together, check them, go live on your yes
+                                 (status | together | check | allow | live | back | auto; docs/GO-LIVE.md)
 
   hoprig setup                install what is missing and set everything up, step by step
   hoprig doctor               check that everything works
+  hoprig move-to-user         move Hoprig from root to an ordinary user of this server (--dry-run shows it first)
+  hoprig box check | run      a box for commands: no network, not your home, only the folders named
+                                 (box run --write DIR -- <command>; docs/BOX.md)
+  hoprig field                field reports: what Hoprig's own work showed, kept on this computer
+                                 (field show <id> | inbox <folder> | way-round; docs/FIELD-REPORTS.md)
   hoprig claude status        Claude Code's version (also: claude update, claude install <version>)
   hoprig tools                the coding tools: Claude Code, OpenCode (tools install <tool>,
                                  tools update <tool | all>, tools on | off <tool>)
@@ -83,6 +109,7 @@ const HELP = `Hoprig — Claude Code and OpenCode under several providers, and a
   hoprig serve                start the web dashboard
   hoprig passwd               set the dashboard password
   hoprig service install      run the dashboard in the background
+  hoprig service restart      start the background dashboard again (after an update)
 
   Profiles are files in ${profilesDir()}
 `;
@@ -153,12 +180,24 @@ async function main() {
     return 0;
   }
   if (cmd.startsWith('-')) return startFromMenu([cmd, ...rest]);
+  // "hoprig <command> [<subcommand>] help" (or --help, -h) only prints help: the command's own code does not run at
+  // all, whatever it would make of the word (src/helpwords.mjs says where a word is not Hoprig's to read).
+  const asked = helpRequest(cmd, rest);
+  if (asked) {
+    const { helpText } = await import('../src/helptext.mjs');
+    const text = await helpText(cmd, asked.sub, HELP);
+    if (text !== null) {
+      process.stdout.write(`${text.replace(/\n+$/, '')}\n`);
+      return 0;
+    }
+  }
 
   switch (cmd) {
     case 'hook':
       await hookMain();
       return 0;
     case 'profiles': {
+      if (rest[0] === 'map') return mapCommand(rest.slice(1));
       // Every provider ("auto" too when it can be used, so wrapper scripts accept it as a profile name); its `tools`
       // name only the offered coding tools (publicProfile).
       const list = menuProfiles({ all: true }).map(publicProfile);
@@ -169,12 +208,21 @@ async function main() {
     case 'add':
       return (await addProfile(rest[0])) ? 0 : 1;
     case 'rm': {
-      if (!rest[0]) {
-        console.error('usage: hoprig rm <name>');
+      const yes = rest.includes('--yes') || rest.includes('-y');
+      const [name, ...extra] = rest.filter((a) => a !== '--yes' && a !== '-y');
+      if (!name || extra.length || name.startsWith('-')) {
+        console.error('usage: hoprig rm <name> [--yes]');
         return 2;
       }
-      const ok = deleteProfile(rest[0]);
-      console.log(ok ? `Deleted the profile "${rest[0]}".` : `There is no profile "${rest[0]}".`);
+      if (!validName(name) || !readProfile(name)) {
+        console.log(`There is no profile "${name}".`);
+        return 1;
+      }
+      // A person says yes to a delete (src/yes.mjs): the profile's sign-in or key would be gone.
+      const no = await needsYes({ yes, command: 'hoprig rm', act: `Deleting the profile "${name}"`, question: `Delete the profile "${name}"? Its sign-in or key goes with it.`, done: 'deleted' });
+      if (no !== null) return no;
+      const ok = deleteProfile(name);
+      console.log(ok ? `Deleted the profile "${name}".` : `There is no profile "${name}".`);
       return ok ? 0 : 1;
     }
     case 'run': {
@@ -206,6 +254,10 @@ async function main() {
       const setup = await import('../src/setup/cli.mjs');
       return (await setup.main(cmd, rest)) ?? 0;
     }
+    case 'move-to-user': {
+      const move = await import('../src/setup/movecli.mjs');
+      return move.main(rest);
+    }
     case 'codex':
     case 'opencode': {
       const terminal = await import('../src/codetools/terminal.mjs');
@@ -221,18 +273,46 @@ async function main() {
       const pc = await import('../src/pcsetup/cli.mjs');
       return (await pc.main(cmd, rest)) ?? 0;
     }
+    case 'drop': {
+      const drop = await import('../src/workspace/dropcli.mjs');
+      return drop.main(rest);
+    }
+    case 'adopt': {
+      const adopt = await import('../src/adopt/cli.mjs');
+      return adopt.main(rest);
+    }
+    case 'sessions': {
+      const adopt = await import('../src/adopt/cli.mjs');
+      return adopt.sessionsMain(rest);
+    }
     case 'workspace': {
       const ws = await import('../src/workspace/cli.mjs');
       return ws.main(rest);
+    }
+    case 'sync': {
+      const ws = await import('../src/workspace/cli.mjs');
+      return ws.main(['sync', ...rest]);
     }
     case 'tasks': {
       const work = await import('../src/work/cli.mjs');
       return work.main(rest);
     }
+    case 'ship': {
+      const ship = await import('../src/ship/cli.mjs');
+      return ship.main(rest);
+    }
     case 'demo': {
       const demo = await import('../src/demo/cli.mjs');
       const code = await demo.main(cmd, rest);
       return Number.isInteger(code) ? code : null; // the demo dashboard keeps running until Ctrl+C
+    }
+    case 'box': {
+      const box = await import('../src/box/cli.mjs');
+      return box.main(rest);
+    }
+    case 'field': {
+      const field = await import('../src/field/cli.mjs');
+      return field.main(rest);
     }
     case 'skills': {
       const hub = await import('../src/skillhub/cli.mjs');
@@ -265,6 +345,7 @@ async function main() {
     }
     case 'serve':
     case 'passwd':
+    case '__service-restart': // the helper of a restart asked for on the dashboard's own page (src/server/selfrestart.mjs)
     case 'service': {
       let server;
       try {

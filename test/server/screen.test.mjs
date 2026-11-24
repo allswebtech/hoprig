@@ -402,7 +402,7 @@ test('a card carries what Hoprig allowed by itself in bypass mode, the newest fi
   hook({ hook_event_name: 'PermissionRequest', tool_name: 'ExitPlanMode', tool_input: { plan: 'x' } });
   hook({ hook_event_name: 'PermissionRequest', agent_id: 'a1', tool_name: 'WebFetch', tool_input: { url: 'https://example.com' } });
   c = await card(real('plan-80'), 100);
-  assert.deepEqual([c.status, c.ask, c.always], ['attention', { type: 'plan' }, null]);
+  assert.deepEqual([c.status, c.ask, c.always], ['attention', { type: 'plan', waiting: 2 }, null], 'the plan and the subagent\'s permission both wait');
   hook({ hook_event_name: 'PostToolBatch', agent_id: 'a1' });
   c = await card(real('plan-80'), 100);
   assert.deepEqual([c.status, c.ask, c.note], ['attention', { type: 'plan' }, 'Claude needs your approval for the plan']);

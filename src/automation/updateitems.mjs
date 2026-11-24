@@ -111,7 +111,7 @@ export function hoprigItem(deps = {}) {
         if (!r.ok && step.ifFails) onLine(step.ifFails);
         else if (!r.ok) return { ok: false, version: appVersion(), output: `exit code ${r.code}` };
       }
-      onLine('Done. Restart the dashboard to use the new version (hoprig service install restarts the background one). Until then it runs the version it started with.');
+      onLine('Done. Restart the dashboard to use the new version (hoprig service restart starts the background one again; on Windows type it in PowerShell, not in the dashboard\'s own terminal). Until then it runs the version it started with.');
       return { ok: true, version: appVersion(), output: '', restart: true };
     },
     blocked: () => null,
@@ -189,7 +189,7 @@ export function tunnelItem(deps = {}) {
   }
   return {
     id: 'cloudflared',
-    title: 'Tunnel helper (cloudflared)',
+    title: 'The helper for the public link (cloudflared)',
     whenRunning: 'Turn the public link off first: a Temporary link comes back with a new address. Automatic updates wait until the public link is off.',
     installable: false,
     async info() {

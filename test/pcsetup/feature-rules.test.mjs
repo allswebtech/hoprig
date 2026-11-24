@@ -8,7 +8,7 @@ import { Readable } from 'node:stream';
 import test from 'node:test';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pcsetup-feat-'));
-Object.assign(process.env, { HOME: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state'), CLAUDE_CONFIG_DIR: path.join(tmp, 'claude') });
+Object.assign(process.env, { HOME: path.join(tmp, 'home'), USERPROFILE: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state'), CLAUDE_CONFIG_DIR: path.join(tmp, 'claude') });
 fs.mkdirSync(process.env.HOME, { recursive: true });
 const { pcsetupFeature } = await import('../../src/pcsetup/feature.mjs');
 const R = await import('../../src/pcsetup/rules.mjs');
@@ -38,7 +38,7 @@ function harness(over = {}) {
     o.onStep(0, { why: 'refresh the package lists', argv: ['sudo', 'apt-get', 'update'] }, 'ok');
     return { ok: true, missing: [], changed: true };
   };
-  const f = pcsetupFeature(sctx, { sys, status: async () => checks, projectsDir: () => path.join(tmp, 'projects'), run: sys.run, rules: () => ({ ok: true, said: ['x'] }), runPcSetup, sudoNeedsPassword: async () => false, ...over });
+  const f = pcsetupFeature(sctx, { computer: () => 'box2', sys, status: async () => checks, projectsDir: () => path.join(tmp, 'projects'), run: sys.run, rules: () => ({ ok: true, said: ['x'] }), runPcSetup, sudoNeedsPassword: async () => false, ...over });
   const call = async (method, p, body) => {
     const u = new URL(p, 'http://x');
     for (const [m, re, fn] of f.routes) {
@@ -67,14 +67,14 @@ test('setup and fix run as a job in the page; the terminal only when asked for, 
   assert.equal(created.length, 0, 'no terminal');
   await assert.rejects(call('POST', '/api/pcsetup/setup', { kits: ['basics', '; rm -rf ~'] }), /kits must be/);
   await assert.rejects(call('POST', '/api/pcsetup/setup', { kits: 'basics' }), /kits must be/);
-  assert.deepEqual(await call('POST', '/api/pcsetup/fix', { id: 'extras.tmux' }), { started: true });
+  assert.deepEqual(await call('POST', '/api/pcsetup/fix', { id: 'extras.tmux', confirm: 'box2' }), { started: true });
   await settle(call);
   assert.deepEqual(runs[1].kits, ['extras']);
   await assert.rejects(call('POST', '/api/pcsetup/fix', { id: 'clock' }), /no fix/);
   // The fallback: the same in a terminal session.
   assert.deepEqual(await call('POST', '/api/pcsetup/setup', { kits: ['basics', 'extras'], terminal: true }), { session: 'setup' });
   assert.deepEqual(created[0].argv, ['node', '/app/bin/hoprig.mjs', 'pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', 'basics,extras']);
-  await call('POST', '/api/pcsetup/fix', { id: 'extras.tmux', terminal: true });
+  await call('POST', '/api/pcsetup/fix', { id: 'extras.tmux', terminal: true, confirm: 'box2' });
   assert.deepEqual(created[1].argv.slice(2), ['pc', 'setup', '--yes', '--hold', '--no-projects', '--kits', 'extras']);
 });
 
@@ -209,4 +209,21 @@ test('runPcSetup: shows what is there, ONE confirmation, runs the plan, says wha
   assert.deepEqual(again, { ok: true, changed: false, missing: [], code: 0 });
   assert.match(out.join(''), /Everything is here\. Nothing to do\./);
   assert.equal(ran.length, 3); // nothing ran again
+});
+
+test('a Fix is the owner\'s press: without the confirmation that names this computer, or from Tia on her own, nothing runs', async () => {
+  const { pcsetupFeature: feature } = await import('../../src/pcsetup/feature.mjs');
+  const checks = [{ group: 'kit:extras', id: 'extras.tmux', label: 'tmux', status: 'fail', detail: 'missing', fix: 'sudo apt-get install -y tmux', fixKit: 'extras' }];
+  const runs = [];
+  const make = (caller, card = null) => feature({ readJson: async (req) => req.body || {}, caller: () => caller, ownerCard: () => card, backend: { list: async () => [] }, deck: { launcher: () => ['node', 'hoprig'] } },
+    { computer: () => 'box2', sys: { platform: 'linux', pm: 'apt', root: false, user: 'dev', arch: 'x64', tmp: '/tmp', home: process.env.HOME, env: {}, has: () => false, exists: () => false, clt: true, run: async () => ({ ok: false, code: 1, stdout: '', stderr: '' }) }, status: async () => checks, projectsDir: () => '/nowhere', runPcSetup: async (o) => (runs.push(o.kits), { ok: true, missing: [] }), sudoNeedsPassword: async () => false });
+  const fix = (f, body) => {
+    const [, re, fn] = f.routes.find(([m, r]) => m === 'POST' && r.test('/api/pcsetup/fix'));
+    return fn(Object.assign(Readable.from([]), { body }), re.exec('/api/pcsetup/fix'));
+  };
+  for (const body of [{ id: 'extras.tmux' }, { id: 'extras.tmux', confirm: 'box3' }]) await assert.rejects(fix(make('page'), body), (e) => e.status === 400 && e.details.code === 'confirm', JSON.stringify(body));
+  await assert.rejects(fix(make('self'), { id: 'extras.tmux', confirm: 'box2' }), (e) => e.status === 403 && e.details.code === 'owner-only', 'Tia on her own');
+  await assert.rejects(fix(make('self', { tool: 'manage_computer', input: { action: 'setup_fix', check: 'git.git' } }), { id: 'extras.tmux', confirm: 'box2' }), (e) => e.status === 403, 'a card for another check');
+  assert.deepEqual(runs, [], 'nothing ran');
+  assert.deepEqual(await fix(make('self', { tool: 'manage_computer', input: { action: 'setup_fix', check: 'extras.tmux' } }), { id: 'extras.tmux', confirm: 'box2' }), { started: true }, 'his confirmed card for it');
 });

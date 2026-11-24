@@ -30,13 +30,13 @@ function fakeGh() {
 test('the code from gh\'s own words; gh opens no browser and gets no token variable', () => {
   assert.equal(parseDeviceCode(GH_SAYS), 'AB12-CD34');
   assert.equal(parseDeviceCode('nothing here'), null);
-  const e = signinEnv({ PATH: '/bin', GH_TOKEN: 'x', GITHUB_TOKEN: 'y' }, 'linux');
+  const e = signinEnv({ PATH: '/bin', GH_TOKEN: 'x', GITHUB_TOKEN: 'y' }, 'linux'); // seal: a value no program is started with
   assert.deepEqual([e.GH_BROWSER, 'GH_TOKEN' in e, 'GITHUB_TOKEN' in e, e.PATH], ['true', false, false, '/bin']);
 });
 
 test('sign in: the code at once, then gh finishes by itself; git is told to use it; only the account name kept', async () => {
   const g = fakeGh();
-  const s = githubSignin({ spawnImpl: g.spawnImpl, run: g.run, env: { PATH: '/bin', GH_TOKEN: 'old' } });
+  const s = githubSignin({ spawnImpl: g.spawnImpl, run: g.run, env: { PATH: '/bin', GH_TOKEN: 'old' } }); // seal: its runner is a stand-in
   assert.equal(s.state().state, 'idle');
   const p = s.start();
   g.child().stderr.write(GH_SAYS);

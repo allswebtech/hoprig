@@ -8,6 +8,11 @@ import { loadConfig } from '../config.mjs';
 import { claudeDir } from '../paths.mjs';
 import { projectSlug } from '../sessions.mjs';
 
+// `hoprig demo` lives in a temporary folder (<tmp>/hoprig-demo-<random>/home): the memory folder's name is made from
+// the home's path, so the demo names it after a made-up home and no temporary path shows on a page or a screenshot.
+const DEMO_HOME = /[\\/]hoprig-demo-[^\\/]+[\\/]home[\\/]?$/;
+export const slugHome = (home) => (DEMO_HOME.test(String(home)) ? '/home/alex' : home);
+
 export const claude = {
   id: 'claude',
   name: 'Claude Code',
@@ -28,6 +33,6 @@ export const claude = {
   brainLinks: ({ base = claudeDir(), brain, home }) => [
     { id: 'rules', short: 'rules', what: 'the rules Claude gets everywhere', link: path.join(base, 'CLAUDE.md'), target: path.join(brain, 'claude', 'CLAUDE.md'), kind: 'file' },
     { id: 'skills', short: 'skills', what: 'your skills', link: path.join(base, 'skills'), target: path.join(brain, 'skills'), kind: 'dir' },
-    { id: 'memory', short: 'home memory', what: 'the memory for work started in your home folder', link: path.join(base, 'projects', projectSlug(home), 'memory'), target: path.join(brain, 'claude-memory', 'home'), kind: 'dir' },
+    { id: 'memory', short: 'home memory', what: 'the memory for work started in your home folder', link: path.join(base, 'projects', projectSlug(slugHome(home)), 'memory'), target: path.join(brain, 'claude-memory', 'home'), kind: 'dir' },
   ],
 };

@@ -5,6 +5,7 @@
 //
 // A definition: { id, title, summary, homepage,
 //   npm        the npm package that installs and updates it, or null: then `bin` is a program already on the computer
+//   allowScripts  (a shipped one only) the packages of it whose install scripts npm may run, as its README names them
 //   bin        the program: a plain name found on PATH, or an absolute path
 //   port       the default port (config.json addons.<id>.port changes it)
 //   args       how the port is passed: a list of words in which PORT stands for the port
@@ -13,20 +14,61 @@
 //   profile    { name, label, token }: the provider `addons setup` and the page write (token: the variable of its key)
 //   words      { what, choice, add, key }: the sentences of the page's steps (what it is, the line under "Other
 //              providers", what to do in its page, how to get a key there) }
-// shipped: a gateway Hoprig itself ships. Only such a one may be started through a shell (an npm .cmd shim on
-// Windows); one the owner defined never is.
+// shipped: a gateway Hoprig itself ships. Only such a one may be started through cmd.exe (an npm .cmd shim on
+// Windows, every argument escaped: startPlan); one the owner defined never is. Nothing starts through shell: true.
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config.mjs';
 import { knock } from '../knock.mjs';
 import { binFile, stateDir } from '../paths.mjs';
 import { filedProcess, system } from '../procid.mjs';
 import { workspaceDir } from '../workspace/layout.mjs';
 import { belongsTo, groupOf, parentOf } from './proctree.mjs';
-import { capture, npmArgv, stream, which } from '../setup/system.mjs';
+import { capture, npmArgv, showCommand, stream, which } from '../setup/system.mjs';
+import { windowsSpawnPlan } from '../winspawn.mjs';
 import { forGateway, forInstalls } from '../secretenv.mjs';
+import { servicePid } from './gatewayservice.mjs';
+import { FirstLines } from './firstlines.mjs';
+
+// The filter a gateway's output goes through when its definition names its first password's line (firstlines.mjs).
+const FILTER = fileURLToPath(new URL('./firstlines.mjs', import.meta.url));
+import { openHost, serverReason } from '../setup/server.mjs';
+import { runningDashboard } from '../server/dashboardfile.mjs';
+import { resolveListen } from '../server/serveopts.mjs';
+
+// A package name as npm takes it, stricter: no flag, no path, no version (allowScripts holds names only).
+const PACKAGE_RE = /^(?:@[a-z0-9][a-z0-9._-]{0,99}\/)?[a-z0-9][a-z0-9._-]{0,99}$/;
+
+/**
+ * npm's flags for installing `def.npm`: --allow-scripts=<allowScripts> and --loglevel=error when the definition names
+ * parts whose install scripts may run (npm 11 prints four warning lines about them without the log level; an npm
+ * that does not know --allow-scripts takes it as an unknown setting and says nothing at that level). [] when it names
+ * none, null when a name is not a package name: then nothing is installed.
+ */
+export function installFlags(def) {
+  const names = def.allowScripts ?? [];
+  if (!Array.isArray(names) || !names.every((n) => typeof n === 'string' && PACKAGE_RE.test(n))) return null;
+  return names.length ? [`--allow-scripts=${names.join(',')}`, '--loglevel=error'] : [];
+}
+
+const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five'];
+
+/** The one line the Install confirmation says about the parts that build a helper, or null when none does. */
+export function buildsLine(def) {
+  const names = installFlags(def) ? def.allowScripts || [] : [];
+  if (!names.length) return null;
+  const n = names.length;
+  return `${COUNT[n] || n} of its parts (${names.join(', ')}) ${n === 1 ? 'builds a helper program' : 'build a helper program each'} on this computer while it installs.`;
+}
+
+/** The npm command that installs (or, with `spec`, updates) `def.npm`, with its flags. */
+export function installArgv(def, spec = def.npm) {
+  const flags = installFlags(def);
+  return flags ? npmArgv(['install', '-g', ...flags, spec]) : null;
+}
 
 /** Does something answer on the port? */
 export async function listening(p, host = '127.0.0.1', timeoutMs = 3000) {
@@ -117,6 +159,15 @@ export function packageProgram(def, envPath = process.env.PATH || '') {
 }
 
 /**
+ * How a gateway's program is started: { command, args, options } for spawn. Never through a shell (shell: true joins
+ * the arguments unescaped, which Node warns about as DEP0190): on Windows an npm .cmd shim goes to cmd.exe with every
+ * argument escaped (winspawn.mjs), an .exe starts directly; elsewhere the program itself.
+ */
+export function startPlan(bin, args, platform = process.platform, env = process.env) {
+  return platform === 'win32' ? windowsSpawnPlan(bin, args, env) : { command: bin, args, options: {} };
+}
+
+/**
  * The file a program as the owner named it leads to now: an absolute path as it is, a plain name looked up on PATH; or
  * null when there is no such file.
  */
@@ -142,11 +193,79 @@ export function wordsOf(def) {
   };
 }
 
-/** The argument list a start passes: `args` with PORT replaced by the port. */
-export const startArgs = (def, port) => (def.args || ['--port', 'PORT']).map((a) => a.replaceAll('PORT', String(port)));
+/** The argument list a start passes: `args` with PORT replaced by the port, then `extra` (hostArgs). */
+export const startArgs = (def, port, extra = []) => [...(def.args || ['--port', 'PORT']).map((a) => a.replaceAll('PORT', String(port))), ...extra];
+
+/**
+ * Where the dashboard of this computer listens: the running one's own address (dashboard.json, written when it listens:
+ * `serve --host`, HOST or the settings, whichever it started with); with none running, what a start would take
+ * (serveopts.mjs resolveListen: HOST, then the settings). '' is every address, as for the server.
+ */
+export function dashboardHost({ env = process.env, cfg = loadConfig() } = {}) {
+  const d = runningDashboard();
+  const host = d ? d.host : resolveListen({ env, server: cfg.server || {}, defaults: { host: '127.0.0.1', port: 7433 } }).host;
+  return host === '' ? '0.0.0.0' : host;
+}
+
+/** Is the dashboard reached over Tailscale (set-up's choice: a ts.net origin; it keeps listening on this computer)? */
+const viaTailscale = (cfg = loadConfig()) => (cfg.server?.allowedOrigins || []).some((o) => /^https:\/\/[^/]+\.ts\.net$/.test(o));
+
+/**
+ * The arguments that keep a gateway Hoprig starts no wider than the dashboard of this computer: its definition's
+ * `localOnly` (a shipped one's, or the owner's own words) on a server (`reason`, server.mjs serverReason) and wherever the dashboard listens on
+ * this computer only; none where the owner opened the dashboard to his network or reaches it over Tailscale from his
+ * other devices (as before, so a page he opens from another device at home stays open).
+ */
+export function hostArgs(def, { host = dashboardHost(), reason = null, tailscale = viaTailscale() } = {}) {
+  const local = Array.isArray(def.localOnly) && def.localOnly.every((a) => typeof a === 'string' && ARG_SAFE.test(a)) ? def.localOnly : [];
+  return local.length && keepsLocal({ host, reason, tailscale }) ? local : [];
+}
+
+/** Does the rule above keep a gateway Hoprig starts on this computer (a server, or a dashboard on this computer only)? */
+export function keepsLocal({ host = dashboardHost(), reason = null, tailscale = viaTailscale() } = {}) {
+  return Boolean(reason || (!openHost(host || '127.0.0.1') && !tailscale));
+}
+
+/**
+ * How a start listens, the same for every start (Health, Settings → Add-ons, Tia, a session's PRERUN, the start after
+ * an update, its service): where the rule keeps it on this computer, its definition's localOnly words and HOST=127.0.0.1
+ * (which most servers read); elsewhere nothing is added, as before. → { args, env }.
+ */
+export function listenRule(def, opts = {}) {
+  const o = { host: opts.host ?? dashboardHost(), reason: opts.reason ?? null, tailscale: opts.tailscale ?? viaTailscale() };
+  return keepsLocal(o) ? { args: hostArgs(def, o), env: { HOST: '127.0.0.1' } } : { args: [], env: {} };
+}
+const ARG_SAFE = /^[A-Za-z0-9._=:,@/+-]{1,200}$/;
+
+// A line of a gateway's output that may hold its first password, a token or a key: never part of an answer.
+const SECRETISH = /pass(word|phrase)?|token|secret|\bkey\b|api[-_ ]?key|credential/i;
+
+/**
+ * "It said: …" with the last lines a start added to the gateway's output (from byte `from`), in an answer the page
+ * shows: a person cannot open a file on a server. A line that may hold a password is left out.
+ */
+export function saidLines(file, from = 0) {
+  let text = '';
+  try {
+    const fd = fs.openSync(file, 'r');
+    try {
+      const size = fs.fstatSync(fd).size;
+      const start = Math.max(from, size - 4096);
+      const buf = Buffer.alloc(Math.max(0, size - start));
+      fs.readSync(fd, buf, 0, buf.length, start);
+      text = buf.toString('utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    /* nothing written */
+  }
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-3).map((l) => (SECRETISH.test(l) ? '(a line that may hold a password, left out)' : l.slice(0, 200)));
+  return lines.length ? `It said: ${lines.join(' · ')}` : 'It said nothing.';
+}
 
 /** A gateway add-on (see index.mjs for the shape of an add-on) for `def`. */
-export function localGateway(def, { shipped = false } = {}) {
+export function localGateway(def, { shipped = false, reason = () => serverReason() } = {}) {
   const { id, title } = def;
   const port = () => Number(loadConfig().addons?.[id]?.port) || def.port;
   const url = () => `http://localhost:${port()}`;
@@ -160,6 +279,8 @@ export function localGateway(def, { shipped = false } = {}) {
   // earlier on PATH (a project's node_modules/.bin, where a session starts it) is not it. The shipped gateway's is
   // found on PATH, as it always was.
   const pinned = !shipped && !def.npm;
+  // What its last start printed first, for its page once (firstlines.mjs): only where its definition names that line.
+  const firstLines = new FirstLines();
   const program = () => {
     if (shipped) return which(def.bin);
     if (def.npm) return packageProgram(def);
@@ -192,7 +313,7 @@ export function localGateway(def, { shipped = false } = {}) {
   function notAsConfirmed(bin) {
     const st = confirmState(bin);
     if (st === 'no-fingerprint') return `config.json keeps no fingerprint (sha256) of the program ${def.bin} for ${title}, so Hoprig does not start it: if it is yours, ${confirmStep('Confirm the program')}`;
-    return st ? `the program ${def.bin} is not the one you confirmed for ${title} any more (it changed since you confirmed it): if you changed it, ${confirmStep('Confirm the new program')}` : null;
+    return st ? `the program ${def.bin} for ${title} changed after you confirmed it. If you changed it, ${confirmStep('Confirm the new program')}. If you did not, do not confirm it` : null;
   }
 
   /** What the gateway's port says: "open", "closed" or "silent" (no answer in time), as knock.mjs tells them. */
@@ -212,6 +333,7 @@ export function localGateway(def, { shipped = false } = {}) {
    */
   async function ours(rec = readPidFile()) {
     const onPort = await pidOnPort();
+    if (await byService(onPort)) return { onPort, leader: null, listener: onPort, service: true };
     if (!rec) return { onPort, leader: null, listener: null };
     const leader = await startedByUs(rec, onPort);
     let listener = null;
@@ -221,6 +343,25 @@ export function localGateway(def, { shipped = false } = {}) {
     }
     return { onPort, leader, listener };
   }
+  /**
+   * Does its service (Health → Gateways → Run as a service) run what listens on the port? Then it is the gateway, as
+   * one start() spawned is: the service runs the program Hoprig wrote into its file on the owner's press. A pinned
+   * program only while it is the one he confirmed, as start() requires.
+   */
+  async function byService(onPort) {
+    if (shipped || onPort === null) return false;
+    const main = await servicePid(id);
+    if (main === null || (await belongsTo(onPort, main)) !== true) return false;
+    const bin = program();
+    return !pinned || (bin !== null && confirmState(bin, cachedSha256) === null);
+  }
+  /** Does the service of this gateway run what listens on its port (the shipped one's too)? Only asked where its file is. */
+  async function serviceRunsIt() {
+    const main = await servicePid(id);
+    if (main === null) return false;
+    const onPort = await pidOnPort();
+    return onPort !== null && (await belongsTo(onPort, main)) === true;
+  }
   /** It is the gateway: what listens on its port is ours, or (where that cannot be found) the process start() spawned runs. */
   const isOurs = (o) => o.listener !== null || (o.onPort === null && o.leader !== null);
   /** Does the gateway run: its port answers and, for one the owner defined, it is the process this add-on started. */
@@ -229,10 +370,11 @@ export function localGateway(def, { shipped = false } = {}) {
     return { up, mine: up && (shipped || isOurs(await ours())) };
   }
 
-  async function status() {
+  /** `version: false`: only whether it is installed and runs (the Operator's minute check starts no program for it). */
+  async function status({ version: withVersion = true } = {}) {
     const bin = program();
     let version = null;
-    if (bin && def.version) {
+    if (bin && def.version && withVersion) {
       try {
         const m = /(\d+\.\d+\.\d+[\w.-]*)/.exec((await capture([bin, ...def.version], { timeout: 10_000 })).stdout || '');
         version = m ? m[1] : null;
@@ -243,7 +385,9 @@ export function localGateway(def, { shipped = false } = {}) {
     const { up, mine } = await runs();
     // needsConfirm: a program of the owner's own that is not started until he confirms it again (confirmState).
     const unconfirmed = !pinned ? null : bin ? confirmState(bin, cachedSha256) : goneState();
-    return { installed: Boolean(bin), version, running: mine, url: url(), ...(up && !mine ? { foreign: true } : {}), ...(unconfirmed ? { needsConfirm: unconfirmed } : {}) };
+    // byService: the copy that runs is its service's (Health → Gateways → Run as a service), not one Hoprig started.
+    const byService = mine && (await serviceRunsIt());
+    return { installed: Boolean(bin), version, running: mine, url: url(), ...(byService ? { byService: true } : {}), ...(up && !mine ? { foreign: true } : {}), ...(unconfirmed ? { needsConfirm: unconfirmed } : {}) };
   }
 
   // A program, not a package: nothing to install or update; it is there or it is not.
@@ -253,23 +397,33 @@ export function localGateway(def, { shipped = false } = {}) {
     return ok ? { ok } : { ok, error: `the program ${def.bin} was not found` };
   }
 
+  const badFlags = () => ({ ok: false, error: `the definition of ${title} names a part that is not a package name, so it is not installed` });
+
   async function install({ onLine = () => {} } = {}) {
     if (!def.npm) return there(onLine);
-    const r = await stream(npmArgv(['install', '-g', def.npm]), { env: forInstalls(process.env), onLine });
+    const argv = installArgv(def);
+    if (!argv) return badFlags();
+    const r = await stream(argv, { env: forInstalls(process.env), onLine });
     return { ok: r.ok && Boolean(program()) };
   }
 
   async function update({ onLine = () => {} } = {}) {
     if (!def.npm) return there(onLine);
+    const argv = installArgv(def, `${def.npm}@latest`);
+    if (!argv) return badFlags();
     const was = (await runs()).mine;
     if (was) await stop();
-    const r = await stream(npmArgv(['install', '-g', `${def.npm}@latest`]), { env: forInstalls(process.env), onLine });
+    const r = await stream(argv, { env: forInstalls(process.env), onLine });
     if (was) await start();
     return { ok: r.ok };
   }
 
-  /** Start it in the background unless it already answers. It keeps running after this process ends. */
+  /**
+   * Start it in the background unless it already answers. It keeps running after this process ends. Where it
+   * listens is the rule of listenRule, for every caller.
+   */
   async function start() {
+    const listen = listenRule(def, { reason: reason() });
     const now = await runs();
     if (now.mine) return { ok: true, url: url(), already: true };
     if (now.up) return { ok: false, url: url(), error: `${foreignText()} Stop that program, or give ${title} another port.` };
@@ -282,21 +436,54 @@ export function localGateway(def, { shipped = false } = {}) {
         : `${title} is not on this computer: ${def.bin} was not found`;
       return { ok: false, url: url(), error };
     }
-    // A .cmd shim (npm on Windows) only starts through a shell: only for a gateway Hoprig ships, never for one defined
+    // A .cmd shim (npm on Windows) only starts through cmd.exe: only for a gateway Hoprig ships, never for one defined
     // in the configuration, which runs exactly the program and arguments its owner confirmed.
     const viaShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(bin);
     if (viaShell && !shipped) return { ok: false, url: url(), error: `the program ${bin} would need a shell to start: name the program itself (an .exe, or node with its script)` };
     const changed = pinned ? notAsConfirmed(bin) : null;
-    if (changed) return { ok: false, url: url(), error: changed };
+    if (changed) return { ok: false, url: url(), error: changed, code: 'gateway-not-confirmed' };
     if (pinned && process.platform !== 'win32' && !executable(bin)) return { ok: false, url: url(), error: notExecutable(bin) };
     fs.mkdirSync(path.dirname(logFile()), { recursive: true, mode: 0o700 });
     const log = fs.openSync(logFile(), 'a', 0o600);
+    fs.chmodSync(logFile(), 0o600); // also a log an older version left wider: only this user reads what a gateway prints
+    const from = fs.fstatSync(log).size; // what this start adds to its output, for the answer when it fails
     // A gateway of the owner's own gets only what a server needs of the starting process's environment (forGateway):
     // a session's PRERUN runs in that session's, with other providers' keys, cloud credentials and the session's
     // marks. Its own key arrives with each request. The shipped gateway starts as it always did.
-    const env = shipped ? process.env : forGateway(process.env);
-    const child = spawn(viaShell ? `"${bin}"` : bin, startArgs(def, port()), { detached: true, stdio: ['ignore', log, log], windowsHide: true, shell: viaShell, env });
+    const env = { ...(shipped ? process.env : forGateway(process.env)), ...(listen.env || {}) };
+    // Its definition names the line of its first password: its output goes through the filter, which keeps that line
+    // out of the log and hands the first lines here, kept in memory for its page only. Else the log is as it prints.
+    const marker = typeof def.firstPassword === 'string' && def.firstPassword && !viaShell ? def.firstPassword : null;
+    const said = [];
+    const child = marker
+      ? spawn(process.execPath, [FILTER, logFile(), marker, bin, ...startArgs(def, port(), listen.args)], { detached: true, stdio: ['ignore', 'pipe', log], windowsHide: true, env })
+      : (() => {
+        // No shell (startPlan): on Windows an npm .cmd shim goes to cmd.exe with every argument escaped.
+        const plan = startPlan(bin, startArgs(def, port(), listen.args), process.platform, env);
+        return spawn(plan.command, plan.args, { ...plan.options, detached: true, stdio: ['ignore', log, log], windowsHide: true, env });
+      })();
+    if (marker) {
+      let rest = '';
+      child.stdout.on('data', (c) => {
+        const parts = (rest + c.toString('utf8')).split(/\r?\n/);
+        rest = parts.pop();
+        for (const l of parts) if (l.trim() && said.length < 20) said.push(l);
+      });
+      child.stdout.on('error', () => {});
+    }
+    // When this start has answered: what it said first is kept for its page, and Hoprig stops listening to it.
+    const handOver = (r) => {
+      if (marker) {
+        firstLines.keep(said);
+        child.stdout.destroy();
+      }
+      return r;
+    };
     child.on('error', () => {}); // reported below: it never answers on its port
+    let failed = null; // it ended with an error before it answered: no need to wait the 30 seconds
+    child.on('exit', (code, signal) => {
+      if (code !== 0) failed = { code, signal };
+    });
     child.unref();
     fs.closeSync(log);
     if (child.pid) {
@@ -305,18 +492,21 @@ export function localGateway(def, { shipped = false } = {}) {
     }
     for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 500));
+      if (failed && !(await answers())) return handOver({ ok: false, url: url(), error: `${title} stopped at once${failed.code !== null ? ` (exit code ${failed.code})` : ''}. ${saidLines(logFile(), from)}` });
       if (await answers()) {
         if (child.pid) await noteListener(child.pid);
         // One the owner defined that answers but is not shown to be ours detached itself from what Hoprig started
         // (setsid, a daemon mode): it would be called another program right after and could never be stopped.
         if (!shipped && !isOurs(await ours())) {
           await endStarted(child);
-          return { ok: false, url: url(), error: `${title} answered on port ${port()}, but its program detached itself from Hoprig (setsid, a daemon mode), so Hoprig could not stop it: run it in the foreground (without its daemon option) so that Hoprig can stop it. What Hoprig started of it was ended; the program now on port ${port()} is not Hoprig's and is left alone: stop it yourself.` };
+          return handOver({ ok: false, url: url(), error: `${title} answered on port ${port()}, but its program detached itself from Hoprig (setsid, a daemon mode), so Hoprig could not stop it: run it in the foreground (without its daemon option) so that Hoprig can stop it. What Hoprig started of it was ended; the program now on port ${port()} is not Hoprig's and is left alone: stop it yourself.` });
         }
-        return { ok: true, url: url(), already: false };
+        // Its first lines arrive with its page's answer: a moment for what it prints right after it listens.
+        if (marker) await new Promise((r) => setTimeout(r, 300));
+        return handOver({ ok: true, url: url(), already: false });
       }
     }
-    return { ok: false, url: url(), error: `${title} did not answer on port ${port()} within 30 seconds (see ${logFile()})` };
+    return handOver({ ok: false, url: url(), error: `${title} did not answer on port ${port()} within 30 seconds. ${saidLines(logFile(), from)}` });
   }
 
   /**
@@ -404,6 +594,8 @@ export function localGateway(def, { shipped = false } = {}) {
     if (first === 'closed') return { ok: true, already: true };
     const rec = readPidFile();
     const was = await ours(rec);
+    // Run by its service: stopped through it (Health → Gateways), never by a signal here, which its service may undo.
+    if (was.service || (shipped && (await serviceRunsIt()))) return { ok: false, error: `${title} runs as a service on this computer: stop it under Health → Gateways, which stops its service`, code: 'gateway-service' };
     // The group the spawned process leads, once that process is shown to be ours. POSIX hands a group's id out again
     // only when no process is left in it, so it stays ours for the SIGKILL below, also after its leader has ended.
     let group = null;
@@ -454,16 +646,28 @@ export function localGateway(def, { shipped = false } = {}) {
     homepage: def.homepage || null,
     // An AI gateway with Claude's API on this port: src/gateway finds it on every computer and can share it.
     gateway: { port },
+    /** Where it keeps its own data under the home of the user it runs as (gateways.mjs dataDir), or null. */
+    dataDir: def.dataDir || null,
     // A program already on the computer: the page offers no Install or Update for it.
     ...(def.npm ? {} : { installable: false }),
     defined: !shipped, // the owner defined it (gateways.mjs): it can be removed
+    /** Its definition names the line of its first password: the start keeps that line out of the log, for its page once. */
+    marksFirst: Boolean(def.firstPassword),
+    /** What its last start printed first: given out once (take), for ten minutes at most; nothing is written. */
+    firstLines,
     oldNames: (shipped && def.oldNames) || null, // the names an older page reads for it (gateways.mjs SHIPPED)
     words,
     /** Its own page as this computer reaches it, or null when it has none. */
     page,
     /** What `hoprig gateways` shows and the page's confirmation names: the exact program and arguments it runs. */
-    command: () => [def.bin, ...startArgs(def, port())],
-    installHint: () => (def.npm ? `npm install -g ${def.npm}` : `${def.bin} was not found on this computer`),
+    command: () => [def.bin, ...startArgs(def, port(), listenRule(def, { reason: reason() }).args)],
+    /** How a start listens now (listenRule): its service is written with the same. */
+    listen: () => listenRule(def, { reason: reason() }),
+    /** On a server: true when Hoprig keeps it on this computer (its localOnly words), false when it cannot; null elsewhere. */
+    keptLocal: () => (reason() ? hostArgs(def, { reason: reason() }).length > 0 : null),
+    installHint: () => (def.npm ? showCommand(['npm', 'install', '-g', ...(installFlags(def) || []), def.npm]) : `${def.bin} was not found on this computer`),
+    /** The line of the Install confirmation about parts that build a helper (null: none). */
+    builds: buildsLine(def),
     status,
     /** { up, mine }: does its port answer, and is what answers the gateway (for one the owner defined: ours()). */
     answering: runs,

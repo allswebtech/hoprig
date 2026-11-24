@@ -1,0 +1,40 @@
+ ▐▛███▛█   Claude Code v2.1.327
+▝▜██████▀  Haiku 5.5 · API Usage Billing
+ ▝▝   ▝▝   ~/work/shop
+
+
+❯ Use the AskUserQuestion tool once to ask me which test runner this project should use, with three
+  options (node:test, vitest, jest), each with a short description; mark node:test as the one you
+  recommend the way the tool tells you to. Do nothing else.
+
+  Thought for 5s (ctrl+o to expand)
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Test runner
+
+Which test runner should this project use?
+
+❯ 1. node:test (Recommended)
+     Built into Node.js. No dependencies to install, and it runs on the Node version you already
+     have.
+  2. vitest
+     Fast, Vite-based runner with a Jest-compatible API. Good fit if the project uses Vite or
+     ESM-heavy code.
+  3. jest
+     Mature, widely used runner with a large plugin ecosystem. Adds a sizable dependency tree.
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+

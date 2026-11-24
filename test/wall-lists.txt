@@ -1,0 +1,299 @@
+# The neighbours of the wall's lists (programs that run their words, ways to publish or release, a deploy script run
+# by an interpreter), one row each, read by test/wall-lists.test.mjs. Nothing here is ever run: each row is asked of
+# wallHeld, the function the hook asks.
+#
+# A row is:  verdict | gap | text
+#   verdict  held <why>  wallHeld holds the line, and its first act's reason id is <why>
+#            not held    wallHeld answers null (an everyday line that must still go through)
+#   gap      C7 runners, C8 releases, C9 interpreters
+#   text     the command line; a line break inside it is written as the two characters \n
+# The session stands in its own folder /w/shop on the work branch feature of a repository whose default branch is main.
+# Lines that begin with # and empty lines are not rows.
+
+# ---- C7: a package runner, an environment loader, a version manager's runner, python -m ----
+held release | C7 | npx npm publish
+held release | C7 | npx npm@10 publish
+held release | C7 | npx --yes npm publish
+held release | C7 | npx -y npm publish --access public
+held release | C7 | npx -p npm npm publish
+held release | C7 | npx --package=npm npm publish
+held release | C7 | npx -c 'npm publish'
+held release | C7 | npx --call="npm publish"
+held release | C7 | cross-env A=1 npm publish
+held release | C7 | cross-env NODE_ENV=production pnpm publish
+held release | C7 | cross-env-shell A=1 npm publish
+held release | C7 | dotenv -e .env -- npm publish
+held release | C7 | dotenv -f .env run npm publish
+held release | C7 | dotenv -- yarn publish
+held release | C7 | env-cmd -f .env npm publish
+held release | C7 | bunx npm publish
+held release | C7 | pnpx npm publish
+held release | C7 | uvx twine upload dist/*
+held release | C7 | uvx --from twine twine upload dist/*
+held release | C7 | pnpm dlx npm publish
+held release | C7 | yarn dlx npm publish
+held release | C7 | npm exec -- npm publish
+held release | C7 | npm exec --package=npm -- npm publish
+held release | C7 | npm x npm publish
+held release | C7 | npm exec -c 'npm publish'
+held release | C7 | pnpm exec npm publish
+held release | C7 | pnpm --filter web exec npm publish
+held release | C7 | yarn exec npm publish
+held release | C7 | bun x npm publish
+held release | C7 | uv run twine upload dist/*
+held release | C7 | uv run -- twine upload dist/*
+held release | C7 | uv run --with twine twine upload dist/*
+held release | C7 | uv run -m twine upload dist/*
+held release | C7 | uv tool run twine upload dist/*
+held release | C7 | pipx run twine upload dist/*
+held release | C7 | poetry run twine upload dist/*
+held release | C7 | bundle exec gem push shop-1.0.gem
+held release | C7 | mise exec -- npm publish
+held release | C7 | mise exec node@20 -- npm publish
+held release | C7 | mise x node@20 npm publish
+held release | C7 | direnv exec . npm publish
+held release | C7 | corepack pnpm publish
+held release | C7 | corepack yarn@4 npm publish
+held release | C7 | python -m twine upload dist/*
+held release | C7 | python3 -m twine upload dist/*
+held release | C7 | python3.12 -m twine upload dist/*
+held release | C7 | python3 -B -m twine upload dist/*
+held release | C7 | python3 -mtwine upload dist/*
+held release | C7 | python3 -um twine upload dist/*
+held release | C7 | python3 -W ignore -m twine upload dist/*
+held release | C7 | timeout 600 npx npm publish
+held release | C7 | NODE_ENV=production npx npm publish
+held admin | C7 | npx sudo su
+held admin | C7 | uv run sudo apt-get install -y nginx
+held admin | C7 | cross-env A=1 sudo su
+held push | C7 | npx git push origin main
+held push | C7 | poetry run git push origin main
+held push-elsewhere | C7 | pnpm -C ../blog exec git push origin feature
+held push-elsewhere | C7 | direnv exec ../blog git push origin feature
+held push-elsewhere | C7 | uv run --directory ../blog git push origin feature
+held pr | C7 | uv run gh pr create --fill
+held deploy | C7 | poetry run make release
+held deploy | C7 | npx npm run deploy
+held release | C7 | concurrently "npm run build" "npm publish"
+held release | C7 | nodemon --exec "npm publish"
+not held | C7 | npx vitest run
+not held | C7 | npx tsc --noEmit
+not held | C7 | npx prettier --check .
+not held | C7 | npx playwright test
+not held | C7 | npx create-vite@latest app
+not held | C7 | npx -y prettier --write src
+not held | C7 | npx @scope/tool@2 build
+not held | C7 | npx npm test
+not held | C7 | cross-env NODE_ENV=test jest
+not held | C7 | cross-env NODE_ENV=production npm run build
+not held | C7 | dotenv -e .env.test -- jest
+not held | C7 | dotenv -- npm test
+not held | C7 | env-cmd -f .env npm test
+not held | C7 | bunx vitest
+not held | C7 | pnpm dlx create-vite app
+not held | C7 | yarn dlx eslint .
+not held | C7 | npm exec -- eslint .
+not held | C7 | npm exec --package=typescript -- tsc --noEmit
+not held | C7 | npm exec -- npm test
+not held | C7 | pnpm exec vitest run
+not held | C7 | bun x vitest
+not held | C7 | uv run pytest
+not held | C7 | uv run -- pytest -q
+not held | C7 | uv run --with pytest pytest
+not held | C7 | uv run python manage.py test
+not held | C7 | uv run -m pytest
+not held | C7 | uvx ruff check .
+not held | C7 | uvx black --check .
+not held | C7 | pipx run black --check .
+not held | C7 | poetry run pytest
+not held | C7 | poetry run python -m pytest
+not held | C7 | bundle exec rspec
+not held | C7 | bundle exec rake test
+not held | C7 | mise exec -- node --test
+not held | C7 | direnv exec . npm test
+not held | C7 | corepack enable
+not held | C7 | corepack pnpm install
+not held | C7 | python3 -m pytest -q
+not held | C7 | python3 -m venv .venv
+not held | C7 | python3 -m pip install -r requirements.txt
+not held | C7 | python3 -m pip install twine
+not held | C7 | python -m http.server 8000
+not held | C7 | python3 -m json.tool package.json
+not held | C7 | python3 -m build
+not held | C7 | python3 manage.py test
+not held | C7 | python3 -c "print(1)"
+not held | C7 | concurrently "npm run dev" "npm run api"
+not held | C7 | nodemon --exec "npm test"
+
+# ---- C8: more ways to publish or release, and a call of GitHub's or GitLab's API that is not a plain read ----
+held release | C8 | gh release upload v1 x.tgz
+held release | C8 | gh release upload v1 x.tgz --clobber
+held release | C8 | gh release edit v1 --draft=false
+held release | C8 | gh release delete v1 --yes
+held release | C8 | glab release create v1
+held release | C8 | glab release upload v1 x.tgz
+held release | C8 | poetry publish
+held release | C8 | poetry publish --build
+held release | C8 | uv publish
+held release | C8 | bun publish
+held release | C8 | flit publish
+held release | C8 | hatch publish
+held release | C8 | pdm publish
+held release | C8 | deno publish
+held release | C8 | npx jsr publish
+held release | C8 | dotnet nuget push shop.1.0.0.nupkg
+held release | C8 | helm push shop-1.0.0.tgz oci://example.com/charts
+held release | C8 | vsce publish
+held release | C8 | npx @vscode/vsce publish
+held release | C8 | ovsx publish
+held release | C8 | npm unpublish shop@1.0.0
+held release | C8 | npm deprecate shop@1 "use 2"
+held release | C8 | npm dist-tag add shop@1.0.1 latest
+held release | C8 | pod trunk push Shop.podspec
+held release | C8 | dart pub publish
+held release | C8 | flutter pub publish
+held release | C8 | mix hex.publish
+held release | C8 | mvn deploy
+held release | C8 | mvn -B clean deploy
+held release | C8 | ./mvnw deploy -DskipTests
+held release | C8 | gradle publish
+held release | C8 | ./gradlew publish
+held release | C8 | ./gradlew :lib:publishToSonatype
+held release | C8 | cargo yank --version 1.0.0
+held release | C8 | docker buildx build --push -t example/shop .
+held release | C8 | npx semantic-release
+held release | C8 | timeout 600 poetry publish
+held api-write | C8 | gh api -X POST repos/o/r/pulls
+held api-write | C8 | gh api -XPOST repos/o/r/pulls
+held api-write | C8 | gh api --method POST repos/o/r/issues
+held api-write | C8 | gh api --method=DELETE repos/o/r/git/refs/heads/x
+held api-write | C8 | gh api -X patch repos/o/r
+held api-write | C8 | gh api repos/o/r/issues -f title=x
+held api-write | C8 | gh api repos/o/r/issues -F title=x
+held api-write | C8 | gh api repos/o/r/issues --raw-field title=x
+held api-write | C8 | gh api repos/o/r/issues --field=title=x
+held api-write | C8 | gh api repos/o/r/contents/a --input body.json
+held api-write | C8 | gh api graphql -f query='mutation { x }'
+held api-write | C8 | gh api graphql -X GET -f query='mutation { x }'
+held api-write | C8 | gh api graphql -X GET -f query='{ viewer { login } }'
+held api-write | C8 | glab api graphql -X GET -f query='mutation { x }'
+held api-write | C8 | glab api -X POST projects/1/merge_requests
+held api-write | C8 | glab api projects/1/issues --field title=x
+held api-write | C8 | npx gh api -X POST repos/o/r/pulls
+not held | C8 | gh api repos/o/r/pulls
+not held | C8 | gh api -X GET repos/o/r/pulls
+not held | C8 | gh api --method GET repos/o/r
+not held | C8 | gh api repos/o/r/pulls --paginate --jq '.[].title'
+not held | C8 | gh api -H "Accept: application/vnd.github+json" repos/o/r
+not held | C8 | glab api projects/1/merge_requests
+not held | C8 | gh release view v1
+not held | C8 | gh release list
+not held | C8 | gh release download v1
+not held | C8 | gh pr view 12
+not held | C8 | gh pr list --state open
+not held | C8 | gh pr checks
+not held | C8 | glab release list
+not held | C8 | npm dist-tag ls shop
+not held | C8 | npm view shop versions
+not held | C8 | poetry build
+not held | C8 | uv build
+not held | C8 | bun test
+not held | C8 | hatch build
+not held | C8 | flit build
+not held | C8 | mvn test
+not held | C8 | mvn package
+not held | C8 | ./gradlew test
+not held | C8 | ./gradlew build
+not held | C8 | ./gradlew publishToMavenLocal
+not held | C8 | gradle build -x publish
+not held | C8 | dotnet test
+not held | C8 | dotnet build
+not held | C8 | helm lint
+not held | C8 | helm template .
+not held | C8 | docker build -t shop .
+not held | C8 | cargo build
+not held | C8 | dart pub get
+not held | C8 | flutter pub get
+not held | C8 | mix test
+not held | C8 | pod install
+not held | C8 | vsce package
+not held | C8 | deno test
+
+# ---- C9: a deploy script run by an interpreter, as when a shell runs it ----
+held deploy | C9 | python3 deploy.py
+held deploy | C9 | python deploy.py --prod
+held deploy | C9 | python3 -u scripts/release.py
+held deploy | C9 | python3 -W ignore deploy.py
+held deploy | C9 | node scripts/release.mjs
+held deploy | C9 | node --env-file .env deploy.js
+held deploy | C9 | node --run deploy
+held deploy | C9 | nodejs deploy.js
+held deploy | C9 | ruby release.rb
+held deploy | C9 | perl publish.pl
+held deploy | C9 | php deploy.php
+held deploy | C9 | php -f deploy.php
+held deploy | C9 | deno run -A deploy.ts
+held deploy | C9 | deno task deploy
+held deploy | C9 | bun run deploy
+held deploy | C9 | bun deploy.ts
+held deploy | C9 | bun run scripts/release.ts
+held deploy | C9 | tsx scripts/release.ts
+held deploy | C9 | ts-node deploy.ts
+held deploy | C9 | uv run python deploy.py
+held deploy | C9 | poetry run python scripts/release.py
+held deploy | C9 | npx tsx scripts/deploy.ts
+held deploy | C9 | rake release
+held deploy | C9 | just deploy
+held deploy | C9 | timeout 600 node scripts/deploy.mjs
+# An option that takes a value, or one the wall does not know, before the deploy script does not hide it
+held deploy | C9 | perl -I lib publish.pl
+held deploy | C9 | perl -w -I lib publish.pl
+held deploy | C9 | perl -x publish.pl
+held deploy | C9 | perl -x -w publish.pl
+held deploy | C9 | node --inspect-port 9229 scripts/release.mjs
+held deploy | C9 | node --diagnostic-dir out scripts/release.mjs
+held deploy | C9 | node --report-dir out scripts/release.mjs
+not held | C9 | node scripts/build.mjs
+not held | C9 | node --test
+not held | C9 | node tools/test.mjs test/a.test.mjs
+not held | C9 | node test/release.test.mjs
+not held | C9 | node -e "console.log(1)"
+not held | C9 | node --run build
+not held | C9 | node --require ./setup.js app.js
+not held | C9 | python3 -c "import deploy"
+not held | C9 | python3 -m pytest tests/test_deploy.py
+not held | C9 | python3 manage.py migrate
+not held | C9 | ruby -e "puts 1"
+not held | C9 | perl -e 'print 1'
+not held | C9 | php -r 'echo 1;'
+not held | C9 | deno run main.ts
+not held | C9 | deno task dev
+not held | C9 | bun run build
+not held | C9 | bun run dev
+not held | C9 | bun index.ts
+not held | C9 | tsx src/index.ts
+not held | C9 | ts-node src/index.ts
+not held | C9 | rake test
+not held | C9 | just test
+not held | C9 | perl -I lib app.pl
+not held | C9 | perl -w build.pl
+not held | C9 | node --inspect-port 9229 scripts/build.mjs
+not held | C9 | node --diagnostic-dir out scripts/build.mjs
+not held | C9 | node --max-old-space-size=4096 node_modules/.bin/vite build --mode release
+not held | C9 | node --enable-source-maps dist/server.js --env publish
+# A pytest-named test file (deploy_test.py, test_deploy.py) run by an interpreter runs the tests, not a deploy
+not held | C9 | python3 deploy_test.py
+not held | C9 | python3 scripts/deploy_test.py
+not held | C9 | node scripts/release.test.mjs
+
+# C8: a gh or glab api call is held whenever a word of it is exactly graphql, even when the method is named first
+held api-write | C8 | gh api -X GET graphql -f query='mutation { x }'
+held api-write | C8 | gh api --method GET graphql -f query='mutation { x }'
+held api-write | C8 | glab api -X GET graphql -f query='mutation { x }'
+held api-write | C8 | gh api -X GET -H 'Accept: application/json' graphql -f query='mutation { x }'
+
+# C9: a deploy script run by an interpreter is held however many unfamiliar options stand before the script
+held deploy | C9 | node --inspect-port 9229 --trace-warnings scripts/release.mjs
+held deploy | C9 | node --inspect-port 9229 --diagnostic-dir out scripts/release.mjs
+held deploy | C9 | node --diagnostic-dir out --trace-warnings scripts/release.mjs
+held deploy | C9 | node --report-dir out --enable-source-maps scripts/deploy.mjs

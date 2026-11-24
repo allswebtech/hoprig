@@ -1,18 +1,29 @@
 // The dashboard's model: sessions of the backend joined with the launcher's run records, plus the actions on
 // them (start, send, switch profile). The HTTP layer validates input and calls these.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { moveArgs } from '../launch.mjs';
-import { binFile, tilde } from '../paths.mjs';
+import { bypassInArgs, gateCarry, ROOT_BYPASS_LINE, runsAsRoot } from '../bypassgate.mjs';
+import { dedupeFlags, moveArgs } from '../launch.mjs';
+import { binFile, runsDir, tilde } from '../paths.mjs';
+import { isMarkedHers } from '../hermark.mjs';
+import { saveConfig as saveConfigFile, sessionArgs } from '../config.mjs';
+import { readRun } from '../runfile.mjs';
 import { dropMark, newMark, sweepMarks } from './marks.mjs';
-import { dropLaunch } from '../launchfile.mjs';
+import { dropStartFailure, keepReason, noReasonWords, noteOfTerminal, reasonFrom, startFailures, sweepStartFailures } from '../startfail.mjs';
+import { RUN_ID_RE, carryOf, dropLaunch } from '../launchfile.mjs';
 import { assertFolder, startCommand } from './startline.mjs';
 import { ENTER_PAUSE_MS, keyToTool, sendToTool } from './typing.mjs';
 import { assertServes, publicProfile, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
+import { handsOffOffered, hoprigVersion, projectEntry, sessionEntry, switchState } from '../handsoff.mjs';
+import { heldCard, noticeOnScreen } from '../askcard.mjs';
+import { sessionHasHold } from './handsoff.mjs';
+import { noteMove } from '../movelog.mjs';
 import { codexScreenQuestion } from '../codetools/codex.mjs';
 import { codexHas } from '../codetools/stores.mjs';
-import { hasConversation, sessionTitle, sessionsIn } from '../sessions.mjs';
+import { hasConversation, isSessionId, sessionsIn } from '../sessions.mjs';
+import { readTitles, sessionName } from '../titles.mjs';
 import { isOwnFolder } from './folders.mjs';
 import { detectLimit } from './limits.mjs';
 import { alwaysOption } from './prompts.mjs';
@@ -117,18 +128,11 @@ export function queue() {
   };
 }
 
-// sessionTitle reads a file; remember results by file and mtime so polling stays cheap.
-const titleCache = new Map();
-function titleOf(cwd, id) {
+// A terminal session's name is its conversation's (titles.mjs: read by file and mtime, only what was added since).
+function titleOf(cwd, id, files = null) {
   if (!id) return '';
-  const s = sessionsIn(cwd).find((x) => x.id === id);
-  if (!s) return '';
-  const key = `${s.file}|${s.mtimeMs}`;
-  if (!titleCache.has(key)) {
-    if (titleCache.size > 500) titleCache.clear();
-    titleCache.set(key, sessionTitle(s.file));
-  }
-  return titleCache.get(key);
+  const file = files && files.has(id) ? files.get(id) : (sessionsIn(cwd).find((x) => x.id === id) || {}).file;
+  return sessionName(file || null, id).slice(0, 120);
 }
 
 // Two looks at a screen further apart than this are not "idle all the time between them" (the watcher looks every
@@ -155,8 +159,11 @@ export class Deck {
    * @param {() => object} o.config     returns the current config (loadConfig)
    * @param {() => object[]} o.profiles returns the full profiles (server side only)
    */
-  constructor({ backend, config, profiles, now = Date.now }) {
-    Object.assign(this, { backend, config, profiles, now });
+  constructor({ backend, config, profiles, now = Date.now, saveConfig = saveConfigFile, root = runsAsRoot() }) {
+    // `root`: Hoprig runs as root here (tests hand it in). Claude Code refuses bypass permissions mode for root, so no
+    // start of it in that mode goes ahead (#refuseAsRoot).
+    Object.assign(this, { backend, config, profiles, now, saveConfig, root: root === true });
+    this.version = hoprigVersion(); // a Hands-off switch turned on under another version reads as off
     this.idle = new Map(); // session name → { key, since, last }: how long its screen has looked idle (see #shown)
     this.shown = new Map(); // session name → { key, status, at }: a card that differs from its run record, and since when
     this.refused = new Map(); // session name → the key of the run state whose question the owner refused from the page
@@ -164,7 +171,29 @@ export class Deck {
     // The conversation's own queue (handoff.mjs claim, move): one start, take-over or move at a time.
     this.serial = queue();
     this.movedFrom = new Map(); // terminal id → the run record it was last moved away from: a move of that record is late
+    this.handed = new Map(); // run id a move chose for its new record → when (#handOver): its switch entry waits for it
+    this.forwards = new Map(); // old run id → { to, at }: a move was made while the old record was still there (#handOver)
     sweepMarks();
+    sweepStartFailures();
+    this.#clearStaleMoving();
+  }
+
+  /**
+   * At start, drop every handsOff.moving mark. A mark silences the moving session (handsoff.mjs movingAway) and is
+   * cleared by the move's own end; `handed` lives in memory, so no move is in flight across a restart. A mark left by
+   * a dashboard that died mid-move (before the respawn) would otherwise silence a session that never moved, for good.
+   */
+  #clearStaleMoving() {
+    try {
+      const cfg = this.config();
+      const moving = cfg && cfg.handsOff && cfg.handsOff.moving;
+      if (!moving || !Object.keys(moving).length) return;
+      const next = { ...cfg.handsOff };
+      delete next.moving;
+      this.saveConfig({ handsOff: next });
+    } catch {
+      /* best effort at start: the hook reads the switch itself, a stray mark only affects the moving session */
+    }
   }
 
   /**
@@ -268,6 +297,15 @@ export class Deck {
     const { runs, parentOf } = await runsAndParents();
     const byId = matchRuns(terms, runs, parentOf);
     this.#settleLaunches(notes, terms, runs, parentOf);
+    const failed = this.#startFailures(terms, byId);
+    // The terminal sessions' names (titleOf below): their conversations read in pieces first, only the ones listed.
+    // Each conversation's file is looked up once per look (a folder of hundreds of conversations is listed once).
+    const files = new Map();
+    for (const r of byId.values()) {
+      if (!r || (r.tool || 'claude') !== 'claude' || !r.sessionId || files.has(r.sessionId)) continue;
+      files.set(r.sessionId, (sessionsIn(r.cwd).find((x) => x.id === r.sessionId) || {}).file || null);
+    }
+    await readTitles([...files.values()]);
     const profiles = new Map(this.profiles().map((p) => [p.name, p]));
     const groups = new Map();
     for (const t of terms) groups.set(t.session, [...(groups.get(t.session) || []), t]);
@@ -283,11 +321,19 @@ export class Deck {
         short: tilde(cwd),
         attached: t.attached,
         created: t.created,
+        // The terminal's own id, which a rename keeps: Tia's status card follows the session by it (web/tiacards.js).
+        ...(t.sid ? { termId: String(t.sid).slice(0, 40) } : {}),
         activity: t.activity,
         kind: run ? 'claude' : 'shell', // every coding session; `tool` says which coding tool
         command: t.command,
       };
       if (run) card.tool = run.tool || 'claude';
+      // The coding tool ended at its start and the terminal is back at its shell (../startfail.mjs): the card says so,
+      // with what the tool printed last, and never reads as a quiet terminal.
+      const fail = run ? null : failed.find((n) => noteOfTerminal(n, t));
+      if (fail) await this.#failedCard(card, fail, t, profiles);
+      // Its extra folders, by map name (launch.mjs: a need, --with, "Also open"), for its card and page.
+      if (run && Array.isArray(run.extras) && run.extras.length) card.extras = run.extras.filter((x) => typeof x === 'string').slice(0, 10);
       if (isOwnFolder(cwd)) card.own = true; // Tia's working folder: shown on Home, not as a folder of the owner's
       if (run) {
         const p = profiles.get(run.profile);
@@ -297,9 +343,11 @@ export class Deck {
           statusAt: run.statusAt,
           sessionId: run.sessionId || null,
           canSwitch: !!run.sessionId,
-          title: card.tool === 'claude' ? titleOf(run.cwd, run.sessionId) : String(run.title || '').slice(0, 120),
+          title: card.tool === 'claude' ? titleOf(run.cwd, run.sessionId, files) : String(run.title || '').slice(0, 120),
           limit: null,
         });
+        // The session is named as Claude Code names its conversation (the terminal's own name until it has one).
+        if (card.title) card.display = card.title;
         if (card.tool !== 'claude') {
           // Codex and OpenCode: the run record is kept from the tool's server (src/codetools/terminal.mjs). Without it
           // ("basic") only the screen's activity is known: busy while it changes, else waiting for a message. Their
@@ -332,23 +380,60 @@ export class Deck {
         // Subagents or a workflow go on after the reply ended: Claude continues by itself when they finish.
         const background = Array.isArray(run.background) ? run.background.length : 0;
         if (card.status === 'working' && background) card.background = background;
+        // A command the session started still runs in the background while it waits for the owner (hook.mjs
+        // bgCommands): the status stays 'waiting' — he must still message it — and the card says so in one line.
+        const bgCommands = Number.isInteger(run.bgCommands) ? run.bgCommands : 0;
+        if (card.status === 'waiting' && bgCommands) card.bgCommands = bgCommands;
         // What Hoprig allowed by itself in bypass mode (hook.mjs), the newest last: the session page lists it.
         if (Array.isArray(run.allowed) && run.allowed.length) {
           card.allowed = run.allowed.slice(-5).map((a) => ({ at: Number(a.at) || 0, tool: String(a.tool || '').slice(0, 80), what: String(a.what || '').slice(0, 200), ...(typeof a.folder === 'string' && a.folder ? { folder: a.folder.slice(0, 200) } : {}) }));
         }
+        // A notice of Claude Code itself that no hook tells (trust this folder), read from the screen only with every
+        // fixed part there (askcard.mjs): named as what it is; it is answered in the terminal, never from the page.
+        const notice = card.status !== 'attention' ? noticeOnScreen(screen, { starting: card.status === 'starting' }) : null;
+        // Its note is the tool's own question; where to answer is said once, by the card's answer hint.
+        if (notice) Object.assign(card, { status: 'attention', askCard: notice, note: notice.notice.text.slice(0, 300) });
+        // Hands-off (src/handsoff.mjs): its switch for this session, what it answered, and why it left a card to the
+        // owner. Only where it is offered on this computer; otherwise the card carries nothing of it (whatever a stale
+        // run record from when it was offered still holds) and the page shows nothing of it.
+        const hoOffered = handsOffOffered(this.config());
+        if (hoOffered) {
+          const own = sessionEntry(this.config(), run.runId);
+          const project = projectEntry(this.config(), run.cwd);
+          const hands = switchState({ session: own, project, version: this.version, stopped: run.handsOffStop });
+          // The wall holds by the switch alone, never the stop (hook.mjs preToolHold): while it holds, what is his
+          // still waits for him even after a stop that only ended the answers. The bar says so (web/handsoff.js).
+          const holding = switchState({ session: own, project, version: this.version }).on;
+          // On, but started before Hands-off could hold its commands (no wall hold in its handed settings): the page
+          // tells the owner its questions are answered while a push or a release is not held, and to start it again.
+          const uncovered = hands.on && !sessionHasHold(run.runId);
+          card.handsOff = { on: hands.on, stale: hands.stale, loop: hands.loop, ...(hands.stopped ? { stopped: hands.stopped } : {}), own: !!own, ...(holding ? { holding: true } : {}), ...(uncovered ? { uncovered: true } : {}) };
+          if (Array.isArray(run.handsOffDone) && run.handsOffDone.length) card.handsOffDone = run.handsOffDone.slice(-5);
+        }
         if (card.status === 'attention') {
+          // The exact card of what waits (hook.mjs cardFor) is always shown; why Hands-off left it is shown only where
+          // Hands-off is offered.
+          if (run.askCard && typeof run.askCard === 'object') card.askCard = run.askCard;
+          if (hoOffered && typeof run.handsWait === 'string') card.handsWait = run.handsWait;
+          // An act the wall held (hook.mjs: the record's `held`): what it was, why it is his, what Yes and No do.
+          if (hoOffered && run.held && typeof run.held === 'object') card.held = heldCard(run.held);
           // What is asked, in a chat card's words (ask.type): only a permission has "Allow" for an answer; a question
           // or a plan is answered in the terminal. `askAt` tells a second question from the one just answered. For a
           // permission also its command or file (`what`, which the page sends back with its answer) and how many
           // askers wait (`waiting`: with more than one the page offers no answer, the terminal shows its own queue).
           if (ASK_TYPES.includes(run.askType)) card.ask = { type: run.askType };
+          // A question or a plan with more askers waiting: the card shows one of them, the terminal its own queue.
+          const askers = Array.isArray(run.asks) ? run.asks.length : 0;
+          if (card.ask && card.ask.type !== 'permission' && askers > 1) card.ask.waiting = askers;
           if (card.ask && card.ask.type === 'permission') {
             card.ask.what = String(run.askWhat || '').slice(0, 200);
             card.ask.waiting = Array.isArray(run.asks) ? run.asks.length : 0;
           }
           if (Number.isFinite(run.askAt)) card.askAt = run.askAt;
           // A permission: the "Yes, and don't ask again …" answer when Claude's question has one (prompts.mjs).
-          card.always = card.ask && card.ask.type !== 'permission' ? null : alwaysOption(screen);
+          // A held act is the owner's own, answered once only (the card says "Allow runs it this once"): never offer
+          // "Allow, and don't ask again" beside it, which would write a lasting rule for his own act.
+          card.always = (card.ask && card.ask.type !== 'permission') || card.held ? null : alwaysOption(screen);
         }
       }
       out.push(card);
@@ -356,6 +441,43 @@ export class Deck {
     for (const m of [this.idle, this.shown, this.refused]) for (const k of m.keys()) if (!groups.has(k)) m.delete(k);
     for (const k of this.movedFrom.keys()) if (!terms.some((t) => t.id === k)) this.movedFrom.delete(k);
     return out.sort((a, b) => (b.statusAt || b.activity || 0) - (a.statusAt || a.activity || 0));
+  }
+
+  /**
+   * The start-failure notes that still stand: a note goes once its terminal is gone or runs a record written since
+   * (the session was started again there, or moved).
+   */
+  #startFailures(terms, byId) {
+    const out = [];
+    for (const n of startFailures()) {
+      const t = terms.find((x) => noteOfTerminal(n, x));
+      const again = t && byId.get(t.id);
+      if (!t || (again && again.startedAt >= n.at)) dropStartFailure(n);
+      else out.push(n);
+    }
+    return out;
+  }
+
+  /** Card `card` of terminal `t` as a start that failed (note `n`): status "failed", the reason from the screen. */
+  async #failedCard(card, n, t, profiles) {
+    // Read once and kept in the note: a browser that attaches later makes the pane taller (the words move up out of
+    // a short capture) and the owner may clear the screen. 200 lines: the blank rows under the prompt count too.
+    let text = typeof n.reason === 'string' && n.reason ? n.reason : '';
+    if (!text) {
+      text = reasonFrom(await this.backend.capture(t.id, 200).catch(() => ''));
+      if (text) keepReason(n, text);
+    }
+    text ||= noReasonWords(n.tool, n.code);
+    const p = n.profile ? profiles.get(n.profile) : null;
+    Object.assign(card, {
+      tool: n.tool || 'claude',
+      status: 'failed',
+      statusAt: n.at,
+      note: text,
+      failure: { at: n.at, error: 'ended at its start', text },
+      startFailed: { code: n.code, tool: n.tool || 'claude' },
+      ...(p ? { profile: publicProfile(p) } : {}),
+    });
   }
 
   /** { term, run, taken } for one session, or null. */
@@ -375,21 +497,26 @@ export class Deck {
   }
 
   /** Start a coding tool (Claude Code unless `tool` says another) under `profile` (full profile object) in `dir`. Returns the session name. */
-  async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, prompt = null, flags = [] }) {
+  // `hers`: the session is Tia's (her door asked for it, or it carries on one of hers): the launch file says so, and
+  // the launcher marks it and gives it her git sign-in (launch.mjs). Only the dashboard decides it, never the request.
+  async start({ tool = 'claude', dir, profile, mode = 'new', sessionId = null, prompt = null, flags = [], resetHandsOff = false, hers = false }) {
     const argv = launchArgv(this.launcher(), { tool, profile, mode, sessionId, prompt, flags });
-    return this.create({ base: path.basename(dir), dir, argv, conversation: mode === 'resume' ? sessionId : null, tool });
+    // A resumed conversation the dashboard cannot carry Hands-off for (a chat opened in a terminal) starts the new
+    // run with its answers stopped (launchfile.mjs reset hand): it is the owner's until he turns it on.
+    return this.create({ base: path.basename(dir), dir, argv, conversation: mode === 'resume' ? sessionId : null, tool, hand: resetHandsOff && handsOffOffered(this.config()) ? { reset: true } : null, hers });
   }
 
   /**
    * A new terminal named after `base` that runs the launcher's `argv` in `dir`. `conversation`: the one it starts the
    * coding tool on, noted for the moment before its launcher's record (noteLaunch). Returns the session name.
    */
-  async create({ base, dir, argv, conversation = null, tool = 'claude' }) {
+  async create({ base, dir, argv, conversation = null, tool = 'claude', hand = null, hers = false }) {
+    this.#refuseAsRoot(argv, tool);
     const at = Date.now(); // the clock of the launcher's record (startedAt)
     const mark = conversation ? newMark() : null;
     let name;
     try {
-      ({ name } = await this.terminal({ name: await this.#newName(base), dir, argv, mark }));
+      ({ name } = await this.terminal({ name: await this.#newName(base), dir, argv, mark, hand, hers }));
     } catch (e) {
       dropMark(mark);
       throw e;
@@ -398,18 +525,37 @@ export class Deck {
     return name;
   }
 
+  /**
+   * As root, a start of Claude Code that would run in bypass permissions mode does not go ahead: the tool refuses it
+   * and would end at once. Every start meets here (a page, the API and Tia through it, a schedule, a restore, a
+   * hand-off, a move), so nobody gets a session that cannot run. The mode is read as the launcher reads it: the session
+   * defaults, then the config's arguments for every launch, then this start's own, the last one winning
+   * (launch.mjs dedupeFlags); a first message after "--" is not read. The owner's default is left as he set it.
+   */
+  #refuseAsRoot(argv, tool = 'claude') {
+    if (!this.root || tool !== 'claude' || !Array.isArray(argv)) return;
+    const own = argv.slice(this.launcher().length + 1); // after the launcher and the provider's name
+    const cut = own.indexOf('--');
+    const cfg = this.config() || {};
+    const every = Array.isArray(cfg.claudeArgs) ? cfg.claudeArgs.filter((a) => typeof a === 'string') : [];
+    if (bypassInArgs(dedupeFlags([...sessionArgs(cfg), ...every, ...(cut < 0 ? own : own.slice(0, cut))]))) {
+      // `details`: what the page gets beside the sentence (server.mjs errorBody), so it draws the button to Runs as root.
+      throw Object.assign(new Error(ROOT_BYPASS_LINE), { status: 409, code: 'root-bypass', details: { code: 'root-bypass' } });
+    }
+  }
+
   /** What a terminal runs for `argv` in `dir` (./startline.mjs): a folder of one line, the launcher's words in a launch file. */
-  #command(dir, argv, mark = null) {
+  #command(dir, argv, mark = null, hand = null, hers = false) {
     assertFolder(dir);
-    return startCommand({ launcher: this.launcher(), dir, argv, mark, platform: this.backend.platform || process.platform });
+    return startCommand({ launcher: this.launcher(), dir, argv, mark, hand, hers, platform: this.backend.platform || process.platform });
   }
 
   /**
    * A new terminal `name` in `dir` running `argv` (null: a plain shell) through #command: every terminal the dashboard
    * starts with a command goes through here. Returns the backend's { name, id }.
    */
-  async terminal({ name, dir, argv = null, mark = null }) {
-    const cmd = this.#command(dir, argv, mark);
+  async terminal({ name, dir, argv = null, mark = null, hand = null, hers = false }) {
+    const cmd = this.#command(dir, argv, mark, hand, hers);
     try {
       return await this.backend.create({ name, dir, argv: cmd.argv, ...(mark ? { mark } : {}) });
     } catch (e) {
@@ -421,10 +567,11 @@ export class Deck {
   /**
    * Stop what runs in terminal `id` and start `argv` there (#command), keeping its name and id. The line is built and
    * checked before anything is touched; the backend then ends the old programs (and `hold`, the pid that holds the
-   * conversation, given longer) before the terminal starts anew and the line is typed.
+   * conversation, given longer) before the terminal starts anew and the line is typed. `hand`: a move's hand-over of
+   * Hands-off's stops, into the launch file only (#handOver).
    */
-  async respawn(id, dir, argv, { mark = null, hold = null } = {}) {
-    const cmd = this.#command(dir, argv, mark);
+  async respawn(id, dir, argv, { mark = null, hold = null, hand = null, hers = false } = {}) {
+    const cmd = this.#command(dir, argv, mark, hand, hers);
     try {
       await this.backend.respawn(id, dir, cmd.argv, { mark, hold });
     } catch (e) {
@@ -495,6 +642,10 @@ export class Deck {
     // A conversation stays in the coding tool it was started in: only a provider that serves that tool takes it.
     if (!profile) assertServes(target, tool);
     const argv = this.moveArgv(target, run);
+    // A session of Tia's stays hers when it moves (a switch of provider, a restart in place, Auto mode's move): read
+    // from the mark the dashboard wrote for the run it moves from (hermark.mjs), never from what the record says. The
+    // owner's own press on switch or restart does not make it his: it is hers until it ends.
+    const hers = isMarkedHers(path.join(runsDir(), `${path.basename(String(run.runId || ''))}.json`));
     // One move at a time, in the conversation's own queue (with its starts and take-overs), on every kind of terminal.
     // `run` is the record the caller saw (two pages, a page and the watcher, however late each one asks): once the
     // terminal was moved away from it, a move of it again is late (409), and starts no second launcher. A move of the
@@ -504,16 +655,140 @@ export class Deck {
       this.movedFrom.set(term.id, run.runId || null);
       const mark = newMark();
       this.noteLaunch(term.session, run.sessionId, tool, Date.now(), mark);
+      let over = null;
       try {
+        over = this.#handOver(run);
         // The old launcher holds the conversation until its coding tool has saved and ended: the new one would refuse it.
-        await this.respawn(term.id, run.cwd, argv, { mark, hold: Number.isInteger(run.pid) ? run.pid : null });
+        await this.respawn(term.id, run.cwd, argv, { mark, hold: Number.isInteger(run.pid) ? run.pid : null, hand: over && over.hand, hers });
+        // Every move, whoever asked for it: the Operator's limit rule never moves a session back within the hour.
+        noteMove({ session: term.session, from: run.profile || null, to: target.name });
       } catch (e) {
+        if (over) over.undo();
         if (this.launchOf(run.sessionId, tool)?.mark === mark) this.launchOf(run.sessionId, tool, { drop: true });
         if (this.movedFrom.get(term.id) === (run.runId || null)) this.movedFrom.delete(term.id); // not moved: it may be asked again
         throw e;
       }
+      if (over) over.done();
     });
   }
+
+  /**
+   * Was `runId` chosen by a move for a record its launcher has not written yet (within the ten minutes a launch file
+   * lives)? Then the owner's switch entry under it is kept, though no record of that id is there yet.
+   */
+  // A move was started for terminal `id` (movedFrom is set for the length of the move and until the terminal is
+  // gone): the session's switch route waits for the new run rather than answer 404 while the old record is gone and
+  // the new one is not yet written.
+  movingTerm(id) {
+    return this.movedFrom.has(id);
+  }
+
+  handedOver(runId) {
+    const at = this.handed.get(runId);
+    if (at === undefined) return false;
+    if (Date.now() - at < 10 * 60_000) return true;
+    this.handed.delete(runId);
+    return false;
+  }
+
+  /**
+   * The run id a finished move handed `runId`'s session to, while `runId`'s own record is still there (its coding tool
+   * outlived the move), else null. The page still finds the old record then, so a press on the session's switch is
+   * written under the new id too (server/handsoff.mjs): the move's own carry has already run and would not see it.
+   */
+  forwardOf(runId) {
+    const f = this.forwards.get(runId);
+    if (!f) return null;
+    if (Date.now() - f.at < 10 * 60_000 && fs.existsSync(path.join(runsDir(), `${path.basename(runId)}.json`))) return f.to;
+    this.forwards.delete(runId);
+    return null;
+  }
+
+  /**
+   * What a move carries of Hands-off, where it is offered (src/handsoff.mjs): the session's loop or hour stop, its count
+   * and the hour's answers, read from the ONE record of `run` (never a look through every record), and the owner's own
+   * switch for the session, kept in the config under the run id. The new launcher writes a new record and cannot read
+   * the old one (it starts only once the old launcher has ended and removed it), so the dashboard hands them over: it
+   * chooses the new run's id, puts the owner's entry under it exactly as it was (never made, never turned on) and the
+   * stops into the launch file (launchfile.mjs HAND). Before the count is read the old run is marked as moving
+   * (handsoff.mjs movingAway): its coding tool, which still runs for a few seconds, gets no more answers, while the wall
+   * goes on holding its acts (its own switch is not touched). → { hand, undo, done }, or null when there is nothing to
+   * carry (the launch file and the config stay exactly as they were).
+   *   undo  the move failed: the mark and the new entry go, the old entry is as it was
+   *   done  the move was made (the old programs have ended): the old id's entry and the mark go
+   */
+  #handOver(run) {
+    const cfg = this.config();
+    if (!handsOffOffered(cfg) || (run.tool || 'claude') !== 'claude') return null;
+    const from = typeof run.runId === 'string' && RUN_ID_RE.test(run.runId) ? run.runId : null;
+    if (!from || !isSessionId(run.sessionId)) return null;
+    const file = path.join(runsDir(), `${from}.json`);
+    const own = sessionEntry(cfg, from);
+    if (!own && !carryOf(readRun(file))) return null; // a session whose owner never turned its switch: nothing new
+    const part = (c, k) => (c && c.handsOff && c.handsOff[k] && typeof c.handsOff[k] === 'object' ? c.handsOff[k] : {});
+    const had = own ? part(cfg, 'sessions')[from] : undefined;
+    const runId = `${Date.now().toString(36)}-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+    const write = (change) => {
+      const c = this.config();
+      const sessions = { ...part(c, 'sessions') };
+      const moving = { ...part(c, 'moving') };
+      change(sessions, moving);
+      // A key that was not there and is empty again is left out, so a failed move leaves the config as it was.
+      const next = { ...(c.handsOff || {}), sessions, moving };
+      for (const k of ['sessions', 'moving']) if (!Object.keys(next[k]).length && !(c.handsOff && k in c.handsOff)) delete next[k];
+      if (!Object.keys(moving).length) delete next.moving;
+      this.saveConfig({ handsOff: next });
+    };
+    this.handed.set(runId, Date.now());
+    write((s, m) => {
+      m[from] = Date.now();
+      if (own) s[runId] = had;
+    });
+    const carry = carryOf(readRun(file)) || {}; // read after the mark: no answer of the old tool starts after this
+    return {
+      hand: { from, runId, conversation: run.sessionId, carry },
+      undo: () => {
+        this.handed.delete(runId);
+        write((s, m) => {
+          delete m[from];
+          delete s[runId];
+        });
+      },
+      done: () => {
+        // The old launcher's record is still there (its coding tool outlives the move): a later press on the page
+        // finds that record, so it is forwarded to the new run id (forwardOf).
+        if (fs.existsSync(file)) this.forwards.set(from, { to: runId, at: Date.now() });
+        write((s, m) => {
+          // A press on the session's switch during the move: before the new record it lands on the OLD run id (the page
+          // still found the old record); in the window and after, it lands on the NEW run id (the page found the new
+          // record through the switch route's wait, server/handsoff.mjs). The new run's entry must be whatever he last
+          // pressed, else the one the move carried. The OLD id's entry merely vanishing (its record ended, so the
+          // switch route dropped it) is NOT a press — only a value that differs from the carried one is a choice.
+          // The owner's choice is his LAST press during the move — the entry written latest, on whichever id it
+          // landed (before the new record a press lands on the old id, in the window and after on the new id). Each
+          // entry carries `at`, when the switch route wrote it (server/handsoff.mjs); the carried value's `at` is from
+          // before the move. A press during the move is an entry whose `at` is newer than the carried one, and between
+          // two presses the newer `at` wins. This is the write time the route keeps, read directly — not a guess from
+          // whether the value differs from what the move carried.
+          const at = (v) => (v && typeof v === 'object' && Number.isFinite(Number(v.at)) ? Number(v.at) : -1);
+          const base = at(had);
+          const pressed = at(s[runId]) > base || at(s[from]) > base;
+          const intent = pressed ? (at(s[runId]) >= at(s[from]) ? s[runId] : s[from]) : had;
+          if (intent === undefined) delete s[runId];
+          else s[runId] = intent;
+          // Clear the old id's entry and the moving mark only once the old launcher's record is gone (its coding tool
+          // has ended). While it may still run, keep both: a dying tool with the owner's Off must not start following
+          // the project's On, and the mark keeps its questions unanswered. A mark whose record has gone is dropped by the
+          // next press on a session's switch (server/handsoff.mjs) and at the Deck's start.
+          if (!fs.existsSync(path.join(runsDir(), `${from}.json`))) {
+            delete s[from];
+            delete m[from];
+          }
+        });
+      },
+    };
+  }
+
 
   /**
    * The command that carries `run`'s session on under `profile` (a full profile object, or "auto" as the server
@@ -521,9 +796,11 @@ export class Deck {
    */
   moveArgv(profile, run) {
     if (!run.sessionId) throw Object.assign(new Error('this session has no id yet; wait until it has started'), { status: 409 });
-    const carry = Array.isArray(run.carryArgs) ? run.carryArgs.filter((a) => typeof a === 'string') : [];
+    const carry = gateCarry(Array.isArray(run.carryArgs) ? run.carryArgs.filter((a) => typeof a === 'string') : [], this.config(), this.root);
     const tool = run.tool || 'claude';
     const fresh = tool === 'claude' ? !hasConversation(run.cwd, run.sessionId) : tool === 'codex' ? !codexHas(run.sessionId) : false;
-    return launchArgv(this.launcher(), { tool, profile, mode: 'move', sessionId: run.sessionId, carryArgs: carry, fresh });
+    const argv = launchArgv(this.launcher(), { tool, profile, mode: 'move', sessionId: run.sessionId, carryArgs: carry, fresh });
+    this.#refuseAsRoot(argv, tool);
+    return argv;
   }
 }

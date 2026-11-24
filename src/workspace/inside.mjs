@@ -18,9 +18,13 @@
 // The acts below check at the moment of the act, so a caller cannot forget it: clone into (cloneInto), run git in
 // (gitIn), start a program in (startIn), write a file (writeIn: never THROUGH a link, the target is a regular file or
 // does not exist), read a file to act on it (readIn), copy a file (copyIn: the source is read the same way), make a
-// folder (mkdirIn), rename (renameIn), remove (removeIn). What remains is the moment between the look and the
+// folder (mkdirIn), rename (renameIn), remove (removeIn), make a credential link (credLinkIn: from a project into the
+// credentials folder, the one link that points out of its root, checked against both). A clone into a folder that holds a cut-off clone of the
+// same address moves that aside under a dated name first (brokenClone), never deletes it. What remains is the moment between the look and the
 // system's own write: only a person or a program writing on this computer can turn a folder into a link then.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, saveConfig } from '../config.mjs';
 import { withoutSecrets } from '../secretenv.mjs';
@@ -118,9 +122,15 @@ const ctxOf = (at = {}) => ({
 /**
  * Add a link of the workspace to the owner's own list, with where it points now. It must be a link (lstat) inside the
  * workspace or the projects folder. Named again after it was pointed elsewhere, the new place is kept.
- * → { path, to, added: boolean, moved?: the place it pointed to before }. Throws { status } with why.
+ * → { path, to, added: boolean, moved?: the place it pointed to before }. Throws { status } with why. `dryRun`: every
+ * check, nothing saved (the page's sheet says where the link leads before the owner's yes). `expect`: the real place
+ * that sheet showed; when the link leads elsewhere now, nothing is saved (409).
  */
-export function addMyLink(p, at = {}) {
+/** The place a link leads (its real path) as an exact value the page carries from its sheet to the yes: never the
+ * page's text of it, which writes the home folder as ~ and can read the same for two places. */
+export const placeSeen = (to) => crypto.createHash('sha256').update(fold(String(to))).digest('hex');
+
+export function addMyLink(p, at = {}, { dryRun = false, expect, seen } = {}) {
   const c = ctxOf(at);
   const abs = path.resolve(p);
   if (!within(abs, c.dir) && !within(abs, c.projects)) throw Object.assign(new Error(`${abs} ${NOT_IN}`), { status: 400 });
@@ -128,9 +138,17 @@ export function addMyLink(p, at = {}) {
   if (!st || !st.isSymbolicLink()) throw Object.assign(new Error(`${abs} is not a link`), { status: 400 });
   const to = realOf(abs);
   if (!to) throw Object.assign(new Error(`${abs} is a link that cannot be followed (a loop, or it cannot be read)`), { status: 400 });
+  // Never the whole home, the workspace or a folder above it: following such a link would take in everything there.
+  const top = [os.homedir(), c.dir, c.projects, realOf(c.dir), realOf(c.projects)].filter(Boolean);
+  if (top.some((x) => within(x, to))) throw Object.assign(new Error(`${abs} leads to ${to}, which holds your home folder or the workspace itself: Hoprig does not follow it as part of a project`), { status: 400 });
+  // The place the owner's sheet showed (the page's yes sends it): a link pointed elsewhere since is not the one he agreed to.
+  if ((expect !== undefined && fold(path.resolve(String(expect))) !== fold(to)) || (seen !== undefined && seen !== placeSeen(to))) {
+    throw Object.assign(new Error('the link points elsewhere now: open it again to see where'), { status: 409 });
+  }
   const cur = myLinkEntries();
   const was = cur.find((x) => fold(x.path) === fold(abs));
-  if (was && was.to === to) return { path: abs, to, added: false };
+  if (was && was.to === to) return { path: abs, to, added: false, ...(dryRun ? { seen: placeSeen(to) } : {}) };
+  if (dryRun) return { path: abs, to, added: false, dryRun: true, seen: placeSeen(to), ...(was ? { moved: was.to } : {}) };
   saveConfig({ workspaceLinks: [...cur.filter((x) => x !== was), { path: abs, to }] });
   return { path: abs, to, added: true, ...(was ? { moved: was.to } : {}) };
 }
@@ -231,9 +249,10 @@ export async function startIn(at, dir, argv, run, opts = {}) {
 /**
  * Clone `url` into `dest` (inside `at`'s root; `dest` may be the root). Never into a folder that has something in it
  * (an empty one is cloned into). `scratch`: `dest` is in a temporary folder Hoprig just made, outside the workspace.
+ * `mode`: the clone's folder gets this mode before git writes into it (the credentials: owner-only).
  * → { ok, dest, skipped?, output, leaves? }
  */
-export async function cloneInto(at, destGiven, url, { run, env = {}, onLine = () => {}, quiet = false, scratch = false } = {}) {
+export async function cloneInto(at, destGiven, url, { run, env = {}, onLine = () => {}, quiet = false, scratch = false, mode } = {}) {
   const a = rootOf(at);
   const dest = path.resolve(destGiven); // what is checked is what is acted on (a "<link>/.." is resolved first)
   if (!scratch) {
@@ -244,15 +263,63 @@ export async function cloneInto(at, destGiven, url, { run, env = {}, onLine = ()
     }
   }
   const st = lst(dest);
+  let aside = null;
   if (st && !(st.isDirectory() && fs.readdirSync(dest).length === 0)) {
-    onLine(`${dest} is already there: left as it is.`);
-    return { ok: true, dest, skipped: true };
+    // A clone of this address that was cut off (a closed lid, a killed run) never finished checking its first commit
+    // out: it is moved aside under a dated name, never deleted, and cloned again. Anything else there is left as it is.
+    if (!(st.isDirectory() && (await brokenClone(dest, url)))) {
+      onLine(`${dest} is already there: left as it is.`);
+      return { ok: true, dest, skipped: true };
+    }
+    // A dot-name, so no project list and no scan of the map takes it for a repository; status names it.
+    aside = path.join(path.dirname(dest), `.${path.basename(dest)}.broken-${new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-')}`);
+    renameIn({ ...a, root: path.dirname(dest) }, dest, aside);
+    onLine(`${dest} held a broken clone of ${url} (its first commit was never checked out in full): it was moved aside as ${aside} and is cloned again`);
   }
   fs.mkdirSync(path.dirname(dest), { recursive: true });
+  // `mode`: the folder git clones into is made with it first (git keeps an empty folder's mode), so the clone never
+  // has a moment with the umask's mode: also after a cut-off clone was moved aside from under the caller's folder.
+  if (mode !== undefined && !lst(dest)) mkdirIn({ ...a, root: dest }, dest, { mode });
   // A clone needs no provider key; it keeps GitHub's token, which a private repository may need.
   const e = { ...withoutSecrets(process.env), ...(quiet ? { GIT_TERMINAL_PROMPT: '0' } : {}), ...env };
   const r = await run(['git', 'clone', '--', url, dest], { env: e, onLine, interactive: false });
-  return { ok: r.ok, dest, output: r.output };
+  return { ok: r.ok, dest, output: r.output, ...(aside ? { aside } : {}) };
+}
+
+/**
+ * A clone of `url` in `dir` that was cut off: a repository of its own whose remote is exactly that address, with no
+ * index, and either a commit (killed while the files were written) or nothing in the folder but .git (killed while it
+ * fetched), while the server has commits (a clone of an empty repository is complete as it is). Anything else there is
+ * the owner's (a branch with no commit yet and staged files, or files beside .git): never taken for a cut-off clone. Read only; the server is asked only when the folder looks cut off.
+ */
+export async function brokenClone(dir, url) {
+  const g = path.join(dir, '.git');
+  const gs = lst(g);
+  if (!gs || !gs.isDirectory()) return false;
+  let config = '';
+  try {
+    config = fs.readFileSync(path.join(g, 'config'), 'utf8');
+  } catch {
+    return false;
+  }
+  const remote = (/\[remote "origin"\][^[]*?\n\s*url\s*=\s*(\S+)/.exec(config) || [])[1];
+  if (!remote || remote !== url) return false;
+  // What a killed clone leaves: no index, because git writes it only once the first commit is checked out. Killed
+  // while it fetched: nothing beside .git and no commit. Killed while it wrote the files: a commit, some of the files
+  // and still no index (git's own words then: "You can inspect what was checked out with git status"). An index (work
+  // staged on a branch with no commit yet), or files beside .git on a branch with no commit, is the owner's own work.
+  if (lst(path.join(g, 'index'))) return false;
+  const { gitRead } = await import('../gitread.mjs');
+  const head = await gitRead(dir, ['rev-parse', '--verify', '-q', 'HEAD^{commit}'], { timeout: 20_000 });
+  if (!head.ok) {
+    try {
+      if (fs.readdirSync(dir).some((n) => n !== '.git')) return false;
+    } catch {
+      return false;
+    }
+  }
+  const there = await capture(['git', 'ls-remote', '--heads', '--', url], { cwd: path.parse(process.cwd()).root, timeout: 60_000, env: { ...withoutSecrets(process.env), GIT_TERMINAL_PROMPT: '0' } });
+  return there.ok && there.stdout.trim() !== '';
 }
 
 /**
@@ -377,6 +444,45 @@ export function linkIn(at, linkGiven, target, type) {
   return link;
 }
 
+/**
+ * Does the place `link` lie in a .git folder once every link on the way is followed (`cfg -> .git` in the project,
+ * then cfg/hooks/pre-commit)? Any part of its real path below the real `root` named .git, in any letter case.
+ */
+export function inGitFolder(root, link) {
+  const top = realOf(root);
+  const real = realOf(path.join(realOf(path.dirname(link)) || path.dirname(link), path.basename(link)));
+  if (!top || !real) return true;
+  return path.relative(top, real).split(path.sep).some((x) => x.toLowerCase() === '.git');
+}
+
+/**
+ * Make a credential link (credlinks.mjs): `link` (a place in a project, inside `at`'s root) → `target`, a file or a
+ * folder really inside the credentials folder `creds` (no link on the way to it from the workspace, none inside it
+ * that leads out). Nothing may be at `link` yet, and the target must be there: no link to nothing is made, and
+ * nothing is ever written into `creds`. The link is relative, so it holds no machine path and survives the
+ * workspace being moved. It is followed once made, as the system follows it, and taken away again when it leads
+ * out of `creds`. Throws when either leaves or something is in the way.
+ */
+export function credLinkIn(at, linkGiven, targetGiven, creds) {
+  const a = rootOf(at);
+  const link = path.resolve(linkGiven);
+  const target = path.resolve(targetGiven);
+  insideOr(a.root, path.dirname(link), a);
+  insideOr(creds, target, a);
+  if (inGitFolder(a.root, link)) throw Object.assign(new Error(`${link} is inside a git folder: nothing was made`), { status: 409, code: 'EGITDIR' });
+  if (kindAt(link) !== 'none') throw Object.assign(new Error(`${link} is there already: nothing was replaced`), { status: 409, code: 'EEXIST' });
+  const st = fs.statSync(target); // through the links inside creds, which insideOr found inside it
+  // Relative from the folder's REAL place: the system resolves a relative link from there, so a project kept on
+  // another disk (the owner's own link) gets a link that leads where the plan said.
+  const from = realOf(path.dirname(link)) || path.dirname(link);
+  fs.symlinkSync(path.relative(from, realOf(target) || target), link, st.isDirectory() ? 'dir' : 'file');
+  if (leavesThrough(creds, link)) {
+    fs.unlinkSync(link);
+    throw refusal({ path: link, what: LEAVES });
+  }
+  return link;
+}
+
 /** Does the link `link` (made in `root`) lead out of the real `root` when followed as the system follows it? */
 export const leavesThrough = (root, link) => {
   const to = realOf(link);
@@ -395,10 +501,59 @@ export function renameIn(at, fromGiven, toGiven) {
   return to;
 }
 
-/** Remove inside `at`'s root (a link is removed itself, never what it points to). */
-export function removeIn(at, pGiven, { recursive = false } = {}) {
+/**
+ * Move the regular file `from` (inside `fromAt`'s root) to `to` (inside `toAt`'s root) without ever replacing what is
+ * at `to`: a hard link first (it fails when something is there), else an exclusive copy (another disk), then the
+ * original goes. Both folders are checked at the moment of the act; a link at `from` is refused, never followed.
+ * Throws { code: 'EEXIST' } when `to` is taken, a refusal when either folder leaves.
+ */
+export function moveNoReplaceIn(fromAt, fromGiven, toAt, toGiven) {
+  const fa = rootOf(fromAt);
+  const ta = rootOf(toAt);
+  const from = path.resolve(fromGiven);
+  const to = path.resolve(toGiven);
+  insideOr(fa.root, path.dirname(from), fa);
+  insideOr(ta.root, path.dirname(to), ta);
+  const st = lst(from);
+  if (!st || !st.isFile()) throw Object.assign(new Error(`${from} is not a file: nothing was moved`), { status: 409 });
+  try {
+    fs.linkSync(from, to);
+  } catch (e) {
+    if (e.code === 'EEXIST') throw e;
+    fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
+  }
+  fs.unlinkSync(from);
+  return to;
+}
+
+/**
+ * Remove inside `at`'s root (a link is removed itself, never what it points to). `writable`: every folder in it is
+ * first made enterable and writable for its owner (a tool's read-only cache, such as Go's module cache, cannot be
+ * emptied otherwise); a link is never followed for that.
+ */
+export function removeIn(at, pGiven, { recursive = false, writable = false } = {}) {
   const a = rootOf(at);
   const p = path.resolve(pGiven);
   insideOr(a.root, path.dirname(p), a);
+  if (writable) ownerWritable(p);
   fs.rmSync(p, { recursive, force: true });
+}
+
+function ownerWritable(p) {
+  const st = lst(p);
+  if (!st || !st.isDirectory()) return; // a link or a file: its folder is what counts
+  if ((st.mode & 0o700) !== 0o700) {
+    try {
+      fs.chmodSync(p, (st.mode & 0o7777) | 0o700);
+    } catch {
+      /* not the owner's: the remove says so */
+    }
+  }
+  let names = [];
+  try {
+    names = fs.readdirSync(p);
+  } catch {
+    return;
+  }
+  for (const n of names) ownerWritable(path.join(p, n));
 }

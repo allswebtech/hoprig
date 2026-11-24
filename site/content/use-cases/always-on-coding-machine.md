@@ -6,7 +6,7 @@ short: Your always-on coding machine: sessions keep running, and you reach them 
 
 # How do I turn a spare PC or a small server into an always-on coding machine?
 
-Install Hoprig on it and let the dashboard run in the background: terminal sessions keep running in tmux when you close the page, and you reach them from any browser. Use the public link for a PC at home, or make a server the hub behind HTTPS.
+Install Hoprig on it and let the dashboard run in the background: terminal sessions keep running in tmux when you close the page, and you reach them from any browser. Use the public link for a PC at home, or make a server the main computer behind HTTPS.
 
 ## Who this is for
 
@@ -21,7 +21,7 @@ The do-it-yourself way works: a VPN, SSH, tmux and a terminal app on the phone. 
 1. Install Hoprig on the machine. Its setup puts the dashboard in the background so it starts with the computer (a systemd service on Linux). To keep it running while you are logged out: `sudo loginctl enable-linger $USER`.
 2. With tmux 3.2 or newer installed, terminal sessions run in tmux: they survive a restart of the dashboard, and `tmux attach` over SSH still works.
 3. Reach it from anywhere: the public link for a PC at home (`hop public on`), or on a server `hoprig setup --hub`, which puts the dashboard behind HTTPS and refuses plain HTTP. With Tailscale, `hoprig setup --access tailscale` serves it only to your own Tailscale devices.
-4. After a restart, **Restore** brings Claude Code's terminal sessions back where they were.
+4. After a restart, **Reopen sessions after a restart** (Settings → Automations) brings Claude Code's and OpenCode's terminal sessions back where they were, each on its own conversation. It is on at first with the built-in terminals (the dashboard's own). With tmux it is off at first: tmux sessions live through a restart of the dashboard, but not a restart of the computer; switch it on to have them back after one.
 5. A computer's page shows its load, memory, disks and the sessions on it. On a wide screen, **Open desktop** gives windows for its terminal, files, editor, processes, services and logs.
 6. **Settings → Updates** shows the new versions of Hoprig, the coding tools and the tunnel helper; Manual is the default. Automatic installs the coding tools and the tunnel helper at a safe moment; Hoprig itself tells you and waits for you.
 
@@ -30,10 +30,10 @@ The do-it-yourself way works: a VPN, SSH, tmux and a terminal app on the phone. 
 ## What you need
 
 - A machine with Linux (the background service is run and tested there). On macOS the background service is written but not yet installed for real.
-- For a hub on the internet: a server with a domain or an IP address. A hub is small: about 80 MB of memory, measured with 20 computers and 20 open terminals.
+- For a main computer on the internet: a server with a domain or an IP address. A main computer is small: about 80 MB of memory, measured with 20 computers and 20 open terminals.
 
 ## What it does not do
 
 - When the machine is off, there is nothing to reach. There is no cloud.
-- Shared web hosting usually does not work as a hub.
-- Restore brings back Claude Code's terminal sessions only, not OpenCode's.
+- Shared web hosting usually does not work as a main computer.
+- **Reopen sessions after a restart** does not reopen an OpenCode session whose conversation has no id yet: Work → Activity names it.

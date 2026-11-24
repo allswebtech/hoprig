@@ -8,6 +8,11 @@ import path from 'node:path';
 import { gitRead } from '../gitread.mjs';
 import { capture } from '../setup/system.mjs';
 import { RUN_FILE_RE } from './runs.mjs';
+import { NOTE_FILE_RE, PLAN_FILE_RE } from './plans.mjs';
+
+// A mission's file (src/mission/file.mjs: missions/<id>.json). Named here, not imported, so work/ keeps no
+// dependency on mission/ (which imports work/).
+export const MISSION_FILE_RE = /^m-\d{8}-[0-9a-f]{6}\.json$/;
 
 // The most commits not yet sent that a save looks at one by one; more than this are never sent by a save.
 export const UNSENT_MAX = 50;
@@ -62,8 +67,14 @@ export async function unsentCommits(top, run = capture, range = '@{u}..HEAD') {
   return rows;
 }
 
-/** Whether `f` (a path in the repository) is one of Work's files: the list `rel`, or a run file right in `runsRel`. */
-export const isWorkFile = (f, { rel, runsRel = null }) => f === rel || (runsRel !== null && f.startsWith(`${runsRel}/`) && RUN_FILE_RE.test(f.slice(runsRel.length + 1)));
+/**
+ * Whether `f` (a path in the repository) is one of Work's files: the list `rel`, a run file right in `runsRel`, or a
+ * plan's file or note right in `plansRel` (a commit's file of such a name that is not Work's there is marked first:
+ * plans.mjs checkPlanCommits).
+ */
+export const isWorkFile = (f, { rel, runsRel = null, plansRel = null, missionsRel = null }) => f === rel || (runsRel !== null && f.startsWith(`${runsRel}/`) && RUN_FILE_RE.test(f.slice(runsRel.length + 1)))
+  || (plansRel !== null && f.startsWith(`${plansRel}/`) && (PLAN_FILE_RE.test(f.slice(plansRel.length + 1)) || NOTE_FILE_RE.test(f.slice(plansRel.length + 1))))
+  || (missionsRel !== null && f.startsWith(`${missionsRel}/`) && MISSION_FILE_RE.test(f.slice(missionsRel.length + 1)));
 
 /**
  * Which unsent commits a save may send: those that change nothing but Work's files (the list `rel` and the run files
@@ -72,12 +83,12 @@ export const isWorkFile = (f, { rel, runsRel = null }) => f === rel || (runsRel 
  * save, and neither is anything while one of those waits. The subject plays no part (a hook may rewrite it; the
  * owner may write the same words). → { ours: [commit], theirs: [commit] } (theirs: the owner's own, not sent by a save).
  */
-export function sortUnsent(commits, { rel, mapRel = null, runsRel = null }) {
+export function sortUnsent(commits, { rel, mapRel = null, runsRel = null, plansRel = null, missionsRel = null }) {
   const ours = [];
   const theirs = [];
   for (const c of commits) {
     const all = (test) => Array.isArray(c.files) && c.files.length > 0 && c.files.every(test);
-    const fits = c.parents.length <= 1 && (all((f) => isWorkFile(f, { rel, runsRel })) || (mapRel !== null && all((f) => f === mapRel)));
+    const fits = c.parents.length <= 1 && (all((f) => isWorkFile(f, { rel, runsRel, plansRel, missionsRel })) || (mapRel !== null && all((f) => f === mapRel)));
     (fits ? ours : theirs).push(c);
   }
   return { ours, theirs };

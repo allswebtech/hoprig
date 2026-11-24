@@ -10,6 +10,8 @@
 import { loadConfig } from '../config.mjs';
 import { ask as askLine, askHidden } from '../menu.mjs';
 import { verifyPassword } from '../server/auth.mjs';
+import { showCommand } from '../setup/system.mjs';
+import { buildsLine, installFlags } from './localgateway.mjs';
 import { SHIPPED, addDefinition, checkNew, confirmProgram, definedGateways, gatewayAddons, notLoadedReason, portOf, providersOf, removeDefinition, repinned } from './gateways.mjs';
 
 export const USAGE = `usage: hoprig gateways                  the gateways Hoprig knows, and yours
@@ -25,8 +27,8 @@ export const USAGE = `usage: hoprig gateways                  the gateways Hopri
 // A shell a coding tool or Hoprig started says so in its environment: Claude Code sets CLAUDECODE, OpenCode OPENCODE,
 // Codex CODEX_SANDBOX or CODEX_SANDBOX_NETWORK_DISABLED in its sandbox, and Hoprig sets HOPRIG_RUN_FILE for every
 // coding tool it starts and HOPRIG_TERM_ID in each of its terminals.
-const CODING_TOOL_VARS = ['CLAUDECODE', 'OPENCODE', 'CODEX_SANDBOX', 'CODEX_SANDBOX_NETWORK_DISABLED', 'HOPRIG_RUN_FILE', 'HOPRIG_TERM_ID'];
-const FLAGS = { '--title': 'title', '--port': 'port', '--bin': 'bin', '--npm': 'npm', '--args': 'args', '--dashboard': 'dashboard' };
+export const CODING_TOOL_VARS = ['CLAUDECODE', 'OPENCODE', 'CODEX_SANDBOX', 'CODEX_SANDBOX_NETWORK_DISABLED', 'HOPRIG_RUN_FILE', 'HOPRIG_TERM_ID'];
+const FLAGS = { '--title': 'title', '--port': 'port', '--bin': 'bin', '--npm': 'npm', '--args': 'args', '--dashboard': 'dashboard', '--first-password': 'firstPassword' };
 
 // Why a program of the owner's own is not started until he confirms it (status needsConfirm), as `hoprig gateways` says.
 const NEEDS_CONFIRM = {
@@ -70,7 +72,7 @@ export function parseAdd(args) {
 export function runsLines(def, { typed = null, cfg = undefined, fingerprint = false } = {}) {
   const words = [def.bin, ...def.args.map((a) => a.replaceAll('PORT', String(portOf(def, cfg))))].join(' ');
   return [
-    ...(def.npm ? [`Hoprig installs and updates it with: npm install -g ${def.npm}`] : []),
+    ...(def.npm ? [`Hoprig installs and updates it with: ${showCommand(['npm', 'install', '-g', ...(installFlags(def) || []), def.npm])}`, ...(buildsLine(def) ? [buildsLine(def)] : [])] : []),
     'When it starts (by you, on the page, or for a session on a provider that uses it), Hoprig runs:',
     `  ${words}`,
     ...(typed && typed !== def.bin ? [`(${typed} is that file on this computer now.)`] : []),
@@ -97,6 +99,9 @@ export async function main(args, io = {}) {
       out(`${g.id}  ${g.title}${g.defined ? ' (yours)' : ''} · ${!st.installed ? (st.needsConfirm ? 'its program is not where you confirmed it' : 'not installed') : st.running ? `running at ${st.url}` : st.foreign ? `not running: another program answers on port ${g.gateway.port()}` : 'installed, not running'}`);
       out(`  runs: ${g.command().join(' ')}`);
       if (st.needsConfirm) out(`  ${NEEDS_CONFIRM[st.needsConfirm]}, so Hoprig does not start it: ${st.needsConfirm === 'gone-old' ? `name the program it is now with hoprig gateways confirm ${g.id} --program <path>` : `if that is yours, hoprig gateways confirm ${g.id}`}`);
+      // On a server Hoprig keeps a gateway to this computer only with its definition's localOnly words (after why it
+      // does not start, which comes first).
+      if (g.keptLocal && g.keptLocal() === false) out('  this computer is a server: Hoprig cannot keep this gateway to this computer (its definition has no "localOnly"), so it listens where its own settings say; add "localOnly": ["--host", "127.0.0.1"] (the words its program takes) to its definition in config.json');
     }
     for (const s of skipped) out(`skipped${s.id ? ` ${s.id}` : ''} (gateway number ${s.at + 1} in config.json): ${s.error}`);
     return 0;
@@ -136,8 +141,9 @@ export async function main(args, io = {}) {
     const name = g ? g.title : id;
     const users = providersOf(id);
     if (users.length) out(`The ${users.length === 1 ? 'provider' : 'providers'} ${users.join(', ')} start${users.length === 1 ? 's' : ''} ${name}: ${users.length === 1 ? 'its' : 'their'} sessions will not start until you change or remove ${users.length === 1 ? 'it' : 'them'}.`);
-    const a = await ask(g ? `Remove the gateway ${g.title} (${id})? It is stopped first if it runs. (y/N) ` : `Remove the gateway ${id} from config.json? It was not loaded (${notLoaded}), so Hoprig does not stop it. (y/N) `);
+    const a = await ask(g ? `Remove the gateway ${g.title} (${id})? It is stopped first if it runs, and its service is removed if it has one. (y/N) ` : `Remove the gateway ${id} from config.json? It was not loaded (${notLoaded}), so Hoprig does not stop it. (y/N) `);
     if (!a || !/^y/i.test(a)) return 1;
+    if (g) for (const l of await (await import('./gatewayroutes.mjs')).serviceGone(g)) out(l);
     const stopped = g ? await g.stop() : { ok: true };
     if (!stopped.ok) {
       err(stopped.error || `${g.title} did not stop.`);

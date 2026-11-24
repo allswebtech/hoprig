@@ -50,10 +50,27 @@ function setup({ level = 'work', cards = [chatCard()] } = {}) {
 const staged = (r) => /Waiting for the owner's OK \(card c_/.test(r.text);
 const writes = (ops) => ops.calls.map((c) => c.op);
 
-test('the catalog keeps 25 tools: start_chat and send_to_chat came in, press_key and get_settings went into others', () => {
+test('the catalog keeps 25 tools: start_chat and send_to_chat came in, press_key, get_settings and rename_session went into others', () => {
   assert.equal(TOOLS.length, 25);
   for (const n of ['start_chat', 'send_to_chat', 'start_session', 'send_to_session']) assert.ok(byName.has(n), n);
-  for (const n of ['press_key', 'get_settings']) assert.ok(!byName.has(n), n);
+  for (const n of ['press_key', 'get_settings', 'rename_session']) assert.ok(!byName.has(n), n);
+});
+
+test('a new name for a terminal session (send_to_session name) types nothing: no card in Ask me, nor while it asks for an OK', async () => {
+  const s = baseState();
+  s.sessions.find((x) => x.name === 'api-fix').status = 'attention';
+  const { call, ops, core } = setup({ level: 'ask', cards: [] });
+  ops.s.sessions = s.sessions;
+  await call('list_sessions', {});
+  for (const session of ['web-ui', 'api-fix']) {
+    const r = await call('send_to_session', { session, name: `${session}-2` });
+    assert.equal(r.isError, false, r.text);
+    assert.ok(!staged(r), `${session}: a rename is not typing`);
+  }
+  assert.deepEqual(ops.calls.map((c) => c.op), ['renameSession', 'renameSession']);
+  assert.match((await call('send_to_session', { session: 'web-ui-2', name: 'x', text: 'hi' })).text, /give one of text, key, name, continue: true or to_chat: true/);
+  assert.ok(staged(await call('send_to_session', { session: 'web-ui-2', text: 'yes' })), 'typing still asks in Ask me');
+  assert.equal(core.cards.pending().length, 1);
 });
 
 test('send_to_chat on a chat Tia did not start: an OK is a card, saying no and stopping run at once', async () => {
@@ -96,7 +113,7 @@ test('send_to_chat answers only the OK that was judged: a card goes stale, and a
 test('send_to_chat refuses what does not fit: two things at once, a terminal session, an OK that is not open, a question', async () => {
   const { call, ops } = setup({ cards: [chatCard(), chatCard({ name: 'chat:55555555-5555-4555-8555-555555555555', chatId: '55555555-5555-4555-8555-555555555555', status: 'waiting', note: '', ask: null }), chatCard({ name: 'chat:66666666-6666-4666-8666-666666666666', chatId: '66666666-6666-4666-8666-666666666666', note: 'Claude asks you a question', ask: { request: 'q', type: 'question' } })] });
   await call('list_sessions', {});
-  assert.match((await call('send_to_chat', { session: `chat:${ID}`, text: 'x', stop: true })).text, /exactly one of text, answer or stop/);
+  assert.match((await call('send_to_chat', { session: `chat:${ID}`, text: 'x', stop: true })).text, /exactly one of text, answer, stop: true, name, close: true or terminal: true/);
   assert.match((await call('send_to_chat', { session: 'web-ui', text: 'x' })).text, /is not a chat.*send_to_session/s);
   assert.match((await call('send_to_session', { session: `chat:${ID}`, text: 'x' })).text, /is a chat.*send_to_chat/s);
   assert.match((await call('send_to_chat', { session: 'chat:55555555-5555-4555-8555-555555555555', answer: 'deny' })).text, /does not wait for an OK now/);
@@ -417,8 +434,10 @@ test('the door: a chat\'s start, message, answer and stop with only her fields; 
     [`/api/chats/${ID}/mode`, { mode: 'bypassPermissions' }],
     [`/api/chats/${ID}/profile`, { profile: 'api' }],
     [`/api/chats/${ID}/rewind`, { messageId: 'x' }],
-    [`/api/chats/${ID}/close`, {}],
-  ]) assert.throws(() => checkRoute('POST', p, b, ctx), /owner|not a route Tia/, p);
+    // Closing a chat is hers now (send_to_chat close, a card unless she started it), with no field of the owner's.
+    [`/api/chats/${ID}/close`, { archive: false }],
+  ]) assert.throws(() => checkRoute('POST', p, b, ctx), /owner|not a route Tia|is the owner's to send/, p);
+  assert.equal(checkRoute('POST', `/api/chats/${ID}/close`, {}, ctx).tool, 'send_to_chat (close)');
 });
 
 // ---------- the whole way, in the real dashboard ----------
@@ -781,4 +800,37 @@ test('in the real dashboard: in her own chat, every call her rules cannot judge 
   assert.equal(r.isError, false, r.text);
   assert.doesNotMatch(r.text, /Waiting for the owner's OK/);
   assert.equal((await cardOf(id)).byTia, true, 'her own messages keep the chat hers');
+});
+
+test('start_chat takes "Lead model" from Settings → Tia: off unless the owner turned it on', async () => {
+  const off = setup({ cards: [] });
+  await off.call('list_projects', {});
+  assert.equal((await off.call('start_chat', { folder: '/home/owner/projects/api', message: 'fix it' })).isError, false);
+  assert.equal(off.ops.calls.find((c) => c.op === 'startChat').args.lead, undefined, 'off: nothing new is sent');
+  const on = setup({ cards: [] });
+  on.ops.s.assistant.lead = true;
+  await on.call('list_projects', {});
+  const r = await on.call('start_chat', { folder: '/home/owner/projects/api', message: 'fix it' });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(on.ops.calls.find((c) => c.op === 'startChat').args.lead, true);
+  // Her ticks: only providers she is allowed, never the chat's own.
+  const ticks = setup({ cards: [] });
+  Object.assign(ticks.ops.s.assistant, { lead: true, accounts: ['sub', 'sub2'], others: ['sub', 'sub2'] });
+  await ticks.call('list_projects', {});
+  await ticks.call('start_chat', { folder: '/home/owner/projects/api', message: 'fix it', account: 'sub' });
+  assert.deepEqual(ticks.ops.calls.find((c) => c.op === 'startChat').args.others, ['sub2']);
+});
+
+test('list_sessions: a terminal whose conversation the App reads along is one session, and its line says so', async () => {
+  const { byName } = await import('../../src/assistant/tools.mjs');
+  const { JobStore } = await import('../../src/assistant/jobs.mjs');
+  const now = Date.now();
+  const ops = { listSessions: async () => [
+    { name: 'shop-fix', kind: 'claude', sessionId: 'c0ffee00-0000-4000-8000-000000000001', readAlong: true, status: 'working', cwd: '/w/shop', statusAt: now, computer: 'this' },
+    { name: 'blog', kind: 'claude', sessionId: 'c0ffee00-0000-4000-8000-000000000002', status: 'waiting', cwd: '/w/blog', statusAt: now, computer: 'this' },
+  ] };
+  const r = await byName.get('list_sessions').run(ops, {}, { now: () => now, jobs: new JobStore({ dir: null }) });
+  assert.match(r.summary, /^2 session\(s\)/);
+  assert.deepEqual(r.data.sessions.map((s) => [s.session, s.app_reads_along === true]), [['shop-fix', true], ['blog', false]]);
+  assert.match(byName.get('list_sessions').description, /app_reads_along/);
 });

@@ -6,7 +6,7 @@
 // page outside it; `hash` without the computer), `place(query, title)` keeps where it is now (the window's layout and
 // title, or the page's address).
 import { icon } from '../icons.js';
-import { ApiError, fill, h } from '../lib.js';
+import { ApiError, fill, h, span } from '../lib.js';
 import { queryOf } from './apps.js';
 
 /**
@@ -238,13 +238,13 @@ export function sortBy(list, key, desc) {
 
 /** 12.3 → "12.3 %"; null → "–". */
 export const pct = (n) => (Number.isFinite(n) ? `${n >= 10 ? Math.round(n) : n.toFixed(1)} %` : '–');
-/** Seconds → "3 d 4 h", "5 h 12 min", "8 min", "40 s". */
+/** Seconds → "3 days 4 h", "5 h 12 min", "8 min", "40 s". */
 export function duration(s) {
   if (!Number.isFinite(s) || s < 0) return '–';
   const d = Math.floor(s / 86400);
   const hr = Math.floor((s % 86400) / 3600);
   const m = Math.floor((s % 3600) / 60);
-  if (d) return `${d} d ${hr} h`;
+  if (d) return `${span(d * 86400_000)} ${hr} h`;
   if (hr) return `${hr} h ${m} min`;
   return m ? `${m} min` : `${Math.floor(s)} s`;
 }

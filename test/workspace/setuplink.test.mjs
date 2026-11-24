@@ -40,7 +40,7 @@ test('restore into such a workspace clones every project', async () => {
   const { restoreWorkspace } = await import('../../src/workspace/restore.mjs');
   const q = await quietUi();
   q.ui.yes = true;
-  await restoreWorkspace(w.url('brain'), { ui: q.ui, dir: B.ws, projects: B.projects });
+  await restoreWorkspace(w.url('brain'), { withProjects: true, ui: q.ui, dir: B.ws, projects: B.projects });
   assert.ok(fs.existsSync(path.join(B.projects, 'shop', '.git')), q.text());
   assert.deepEqual(fs.readdirSync(disk), []);
 });

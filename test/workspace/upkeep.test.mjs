@@ -84,12 +84,15 @@ test('push: uploads only when the brain is purely ahead', async () => {
   w.sh(other, 'push', '-q');
   w.sh(brain, 'fetch', '-q');
   newProject('notes');
+  // Only the map differs here: the map's own rule brings it in step (mapkeep.mjs), no merge commit, nobody told.
   const r2 = await upkeepMap({ ...o, commit: true, push: true });
   assert.deepEqual(r2.commit, { done: true });
-  assert.equal(r2.pushed.done, false);
-  assert.match(r2.pushed.why, /behind/);
-  assert.ok(r2.needs.some((n) => /both moved/.test(n)), 'the owner is told');
-  assert.notEqual(w.sh(path.join(w.server, 'team', 'brain.git'), 'rev-parse', 'main'), head(brain));
+  assert.deepEqual(r2.pushed, { done: true });
+  assert.deepEqual(r2.needs, [], 'nothing needs the owner');
+  assert.equal(w.sh(path.join(w.server, 'team', 'brain.git'), 'rev-parse', 'main'), head(brain));
+  assert.equal(w.sh(brain, 'rev-list', '--merges', 'HEAD'), '', 'no merge commit');
+  assert.equal(fs.readFileSync(path.join(brain, 'learnings.md'), 'utf8'), 'from the other computer', 'the other computer\'s change is here');
+  assert.ok(M.readMap(A.ws).map.projects.some((p) => p.name === 'notes'));
 });
 
 test('staged changes in the brain: the map is written, not committed, and it says why; a repository with no address needs the owner', async () => {
@@ -113,7 +116,7 @@ test('commitMap by itself (the page\'s "Save it now"): refused over staged chang
   const refused = await commitMap({ dir: A.ws });
   assert.deepEqual([refused.done, refused.staged], [false, true]);
   w.sh(brain, 'reset', '-q', 'draft.md');
-  assert.deepEqual(await commitMap({ dir: A.ws }), { done: true });
+  assert.deepEqual(await commitMap({ dir: A.ws }), { done: true, files: ['workspace.json'] }, 'no label here: the map alone');
   assert.equal(w.sh(brain, 'show', '--name-only', '--format=', 'HEAD'), 'workspace.json');
   assert.equal((await M.mapStatus(o)).saved.unsaved, false);
 });
@@ -122,10 +125,10 @@ test('the automation: right after start, then on its schedule; one line per chan
   const H = 3600_000;
   const s = { map: true, commitMap: false, sync: false, push: false, everyHours: 6 };
   const d = rule.decide({ data: {}, now: 100 * H, boot: true, settings: s });
-  assert.deepEqual(d.actions, [{ type: 'map', commit: false, push: false }]);
+  assert.deepEqual(d.actions, [{ type: 'map', commit: false, push: false, memory: false }]);
   assert.deepEqual(rule.decide({ data: d.data, now: 101 * H, settings: s }).actions, []);
   assert.deepEqual(rule.decide({ data: d.data, now: 101 * H, boot: true, settings: s }).actions.map((a) => a.type), ['map'], 'a restart looks again');
-  assert.deepEqual(rule.decide({ data: d.data, now: 106 * H, settings: { ...s, sync: true, commitMap: true } }).actions, [{ type: 'sync', push: false }, { type: 'map', commit: true, push: false }], 'sync first, then the map');
+  assert.deepEqual(rule.decide({ data: d.data, now: 106 * H, settings: { ...s, sync: true, commitMap: true } }).actions, [{ type: 'sync', push: false }, { type: 'map', commit: true, push: false, memory: false }], 'sync first, then the map');
   const records = [];
   const told = [];
   let saved = {};
@@ -143,9 +146,9 @@ test('`hoprig workspace auto`: shows and sets the switches (the dashboard\'s set
   let out = '';
   const { ui } = await quietUi();
   assert.equal(await main(['auto', '--map', 'on', '--commit', 'on', '--push', 'on', '--every', '3', '--json'], { ui, write: (x) => (out += x) }), 0);
-  assert.deepEqual(JSON.parse(out), { map: true, commitMap: true, sync: false, push: true, everyHours: 3 });
+  assert.deepEqual(JSON.parse(out), { map: true, commitMap: true, memory: false, sync: false, push: true, pushBranches: {}, everyHours: 3, credentials: false });
   const cfg = JSON.parse(fs.readFileSync(path.join(A.env.HOPRIG_CONFIG_DIR, 'config.json'), 'utf8'));
-  assert.deepEqual(cfg.automation.workspace, { map: true, commitMap: true, sync: false, push: true, everyHours: 3 });
+  assert.deepEqual(cfg.automation.workspace, { map: true, commitMap: true, memory: false, sync: false, push: true, pushBranches: {}, everyHours: 3, credentials: false });
   const bad = await quietUi();
   assert.equal(await main(['auto', '--map', 'maybe'], { ui: bad.ui, write: () => {} }), 1);
   assert.equal(await main(['auto', '--every', '0'], { ui: bad.ui, write: () => {} }), 1);

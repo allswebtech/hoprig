@@ -20,7 +20,7 @@ const ITEM = /^[a-z][a-z0-9-]{0,30}$/;
 // The rows of Settings → Updates this version has (src/automation/updateitems.mjs): Hoprig, the offered coding tools,
 // the tunnel helper. A summary or an error names only these, by their fixed names; any other id a computer reports
 // (and every name, title, why and version text it gives) stays in the fenced data (the checklist in tools.mjs).
-const ITEM_NAMES = Object.freeze({ hoprig: 'Hoprig', ...Object.fromEntries(OFFERED.map((id) => [id, toolName(id)])), cloudflared: 'the tunnel helper' });
+const ITEM_NAMES = Object.freeze({ hoprig: 'Hoprig', ...Object.fromEntries(OFFERED.map((id) => [id, toolName(id)])), cloudflared: 'the helper for the public link (cloudflared)' });
 const sumItem = (id) => (typeof id === 'string' && Object.hasOwn(ITEM_NAMES, id) ? ITEM_NAMES[id] : 'another item');
 const sumVersion = (v) => (typeof v === 'string' && VERSION.test(v) ? v : v ? 'a version' : 'not installed');
 /** Items for a summary: the known ones by name, the rest counted. */

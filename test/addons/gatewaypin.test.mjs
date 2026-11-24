@@ -81,7 +81,7 @@ test('a file rewritten after the yes, or a link pointed elsewhere, does not run'
     standIn(file, 'REPLACED-AFTER-CONFIRM');
     const s = await findAddon('relay').start();
     assert.equal(s.ok, false);
-    assert.match(s.error, /the program .* is not the one you confirmed for Relay any more \(it changed since you confirmed it\): if you changed it, confirm it with hoprig gateways confirm relay, or with Confirm the new program in Settings → Add-ons/);
+    assert.match(s.error, /^the program .* for Relay changed after you confirmed it\. If you changed it, confirm it with hoprig gateways confirm relay, or with Confirm the new program in Settings → Add-ons\. If you did not, do not confirm it$/);
     assert.deepEqual(ran(), ['CONFIRMED'], 'the rewritten file never ran');
   } finally {
     G.removeDefinition('relay');

@@ -66,7 +66,6 @@ test('a definition is checked strictly: each rule refuses what breaks it', () =>
     [{ ...RELAY, port: 70000 }, /1024 to 65535/],
     [{ ...RELAY, port: '20100' }, /1024 to 65535/],
     [{ ...RELAY, port: 7433 }, /this dashboard's/],
-    [{ ...RELAY, port: 20017 }, /TRouteAI's/],
     [{ ...RELAY, extra: 1 }, /"extra" is not part of a gateway/],
     [{ id: 'relay', title: 'Relay', port: RELAY_PORT }, /say the package \(npm\) or the program/],
     [{ ...RELAY, bin: path.join(box.root, 'missing') }, /^there is no file .* on this computer$/],
@@ -88,6 +87,9 @@ test('a definition is checked strictly: each rule refuses what breaks it', () =>
     [{ ...RELAY, words: { other: 'x' } }, /words is/],
   ];
   for (const [raw, why] of bad) assert.match(check(raw).error || '', why, JSON.stringify(raw));
+  // The shipped gateway's own default port, under settings that do not move it (sandbox() gives the test's gateway a
+  // port of its own, so the default settings are named here).
+  assert.match(check({ ...RELAY, port: 20017 }, { cfg: { server: {} } }).error || '', /TRouteAI's/);
   // Another definition's id and port are taken.
   assert.match(check({ ...RELAY, port: RELAY_PORT + 1 }, { others: [RELAY] }).error, /a gateway "relay" already/);
   assert.match(check({ ...RELAY, id: 'relay-two', title: 'Relay Two' }, { others: [{ ...RELAY, args: ['PORT'] }] }).error, /is Relay's/);

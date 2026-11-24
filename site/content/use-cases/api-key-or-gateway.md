@@ -25,12 +25,12 @@ The official phone and remote features are built for subscriptions. [Claude Code
 5. `hop addons` installs an optional add-on gateway that lets Claude Code use other AI providers, and `hop gateways add` (or **Settings → Add-ons → Add a gateway**) defines another gateway program of your own, which Hoprig runs only after you confirm it.
 6. OpenCode, the second coding tool, runs on API keys and gateways that speak its API, with the same rules, skills and memory as Claude Code.
 
-![The Providers page: each subscription, API key and gateway with its usage and limits](/screenshots/accounts-desktop-light.webp)
+![The Providers page: four providers, the first two numbered in Auto mode's order, Claude Max with its 5-hour and weekly limits, and a Sign in button for one that is not signed in](/screenshots/accounts-desktop-light.webp)
 
 ## What you need
 
 - An API key, or a gateway's address and key.
-- A computer with Linux that stays on while you work. On macOS its tests run on every change, but the setup's installs and what is new in 0.2 (the chat, the editor, the desktop) have not been run on a real Mac yet.
+- A computer with Linux that stays on while you work. On macOS its tests run on every change, but the install and the newer parts (the chat, the editor, the desktop) have not been run on a real Mac yet.
 
 ## What it does not do
 

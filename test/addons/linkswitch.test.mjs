@@ -248,6 +248,10 @@ test('turning off while cloudflared installs answers at once, and nothing starts
   strong();
   const hidden = `${bin}-hidden`;
   fs.renameSync(bin, hidden);
+  // Not installed: no cloudflared on PATH at all. The runner's trap comes first on the PATH, and the product would
+  // take it for an installed cloudflared and start it; a PATH of the test's own empty folder is a computer without one.
+  const was = process.env.PATH;
+  process.env.PATH = fs.mkdtempSync(path.join(tmp, 'nobin-'));
   const realFetch = globalThis.fetch;
   let release;
   globalThis.fetch = () => new Promise((resolve, reject) => { release = () => reject(new Error('the download stopped')); });
@@ -260,6 +264,7 @@ test('turning off while cloudflared installs answers at once, and nothing starts
     assert.ok(Date.now() - t0 < 1000, `answered in ${Date.now() - t0} ms`);
     assert.equal(off.state, 'off');
   } finally {
+    process.env.PATH = was;
     fs.renameSync(hidden, bin);
     release?.();
     globalThis.fetch = realFetch;

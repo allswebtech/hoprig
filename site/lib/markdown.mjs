@@ -58,7 +58,12 @@ function inline(src, opts) {
       } else {
         let code = src.slice(i + run.length, close).replace(/\n/g, ' ');
         if (/^ .*[^ ].* $/.test(code)) code = code.slice(1, -1);
-        s += hold(`<code>${esc(code)}</code>`);
+        // In a table cell (a card on a phone) a word with a hyphen ("[--dry-run]", "move-to-user") is kept whole: Chrome
+        // breaks after any hyphen, and "[--" at a line's end reads as broken. A word too long for a card may still break.
+        // A longer word (an address such as "/api/addons/<id>/(install|update|start|stop)") may break after a "/" or "|",
+        // so a card cuts it between its parts and not inside "stop".
+        const body = opts.cell ? code.split(/(\s+)/).map((w) => (w.includes('-') && w.length <= 28 ? `<span class="tok">${esc(w)}</span>` : w.length > 28 ? esc(w).replace(/([/|])(?=.)/g, '$1<wbr>') : esc(w))).join('') : esc(code);
+        s += hold(`<code>${body}</code>`);
         i = close + run.length;
       }
     } else if (c === '<' && /^<(https?:\/\/[^\s>]+)>/.test(src.slice(i))) {
@@ -84,6 +89,13 @@ function inline(src, opts) {
     .replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^\w*])\*(?=[^\s*])([\s\S]*?[^\s*])\*(?![\w*])/g, '$1<em>$2</em>')
     .replace(/(^|[^\w])_(?=\S)([^_]*?\S)_(?!\w)/g, '$1<em>$2</em>');
+  // In a cell's plain words too an option ("--with-projects", "--dry-run") or a path with a hyphen
+  // ("docs/FIELD-REPORTS.md") is one piece, as in its code, and a lone "--" stays with the word after it: Chrome
+  // breaks after a hyphen, and a card then ends a line on "--". Ordinary words ("fast-forward") break as before.
+  if (opts.cell) {
+    s = s.replace(/(^|[ \n])--[ \n]+(?=[^ \n])/g, '$1-- ')
+      .replace(/(^|[ \n])([^ \n<>\u0000]*-[^ \n<>\u0000]*)(?=[ \n]|$)/g, (m, sp, w) => ((w.includes('--') || w.includes('/')) && w.length <= 28 ? `${sp}<span class="tok">${w}</span>` : m));
+  }
   return s.replace(/\u0000(\d+)\u0000/g, (_, n) => keep[Number(n)]);
 }
 
@@ -135,12 +147,13 @@ const TABLE_RULE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const CONTAINER = /^:::\s*([\w-]+(?:\s+[\w-]+)*)\s*$/;
 
 /**
- * Whether a fenced block gets a copy button: a shell block only, never one with a <placeholder> line or one marked
+ * Whether a fenced block gets a copy button: a shell block (sh, bash, PowerShell) only, never one with a <placeholder> line or one marked
  * `nocopy` (a list of alternatives). For the product's docs ('one') only a single command: their blocks of several
  * lines are lists of choices more often than scripts, and they are not edited for the site.
  */
 function copyable(lang, info, body, mode) {
-  if (!/^(sh|bash|shell)$/.test(lang) || /\bnocopy\b/.test(info)) return false;
+  // PowerShell too: the Windows install line stands beside the curl one, and the two must behave alike.
+  if (!/^(sh|bash|shell|powershell|pwsh|ps1)$/.test(lang) || /\bnocopy\b/.test(info)) return false;
   const lines = body.map((l) => l.replace(/(^|\s+)#(\s.*)?$/, '')).filter((l) => l.trim());
   // A stand-in is a placeholder too: <name>, a value cut short with …, an example.com address.
   if (!lines.length || lines.some((l) => /<[^<>\s][^<>]*>|…|\bexample\.(com|org|net)\b/.test(l))) return false;
@@ -196,7 +209,9 @@ function blocks(lines, opts, out) {
       i++;
       const lang = m[2] ? ` class="language-${esc(m[2])}"` : '';
       const copy = copyable(m[2], m[3], body, opts.copy) ? ' data-copyable' : '';
-      out.push(`<pre${copy}><code${lang}>${esc(body.join('\n'))}</code></pre>`);
+      // A block wider than its box scrolls in it: the code can take the keyboard's focus (the arrows scroll it) and has a
+      // name. They sit on <code>, so <pre data-copyable> stays as the Copy button's script and its tests find it.
+      out.push(`<pre${copy}><code${lang} tabindex="0" role="group" aria-label="Code">${esc(body.join('\n'))}</code></pre>`);
     } else if ((m = HEADING.exec(line))) {
       const depth = m[1].length;
       const text = plainText(m[2]);
@@ -238,11 +253,18 @@ function blocks(lines, opts, out) {
       i += 2;
       const rows = [];
       while (i < lines.length && !blank(lines[i]) && lines[i].includes('|')) rows.push(splitRow(lines[i++]));
-      // data-label: on a phone a wide table shows as one card per row, each answer under its column's name.
-      const label = (n) => (n && plainText(head[n]) ? ` data-label="${esc(plainText(head[n]))}"` : '');
+      // data-label: on a phone every table shows as one card per row, each value under its column's name (the first
+      // column's too: a card has no head row to say what it is).
+      const label = (n) => (plainText(head[n] || '') ? ` data-label="${esc(plainText(head[n]))}"` : '');
       const wide = head.length >= 4 ? ' table-wide' : '';
-      out.push(`<div class="table${wide}"><table><thead><tr>${head.map((c, n) => `<th${al(n)}>${inline(c, opts)}</th>`).join('')}</tr></thead><tbody>`
-        + rows.map((r) => `<tr>${head.map((_, n) => `<td${al(n)}${label(n)}>${inline(r[n] || '', opts)}</td>`).join('')}</tr>`).join('')
+      // A table whose first heading is empty names each row in its first column: those cells are the rows' headers,
+      // so a screen reader says the row's name with every answer in it (and no data cell is without a header).
+      const rowNames = !plainText(head[0] || '');
+      const cell = (r, n) => (rowNames && n === 0
+        ? `<th scope="row"${al(n)}>${inline(r[n] || '', opts)}</th>`
+        : `<td${al(n)}${label(n)}>${inline(r[n] || '', { ...opts, cell: true })}</td>`);
+      out.push(`<div class="table${wide}"><table><thead><tr>${head.map((c, n) => (rowNames && n === 0 ? `<td${al(n)}></td>` : `<th scope="col"${al(n)}>${inline(c, opts)}</th>`)).join('')}</tr></thead><tbody>`
+        + rows.map((r) => `<tr>${head.map((_, n) => cell(r, n)).join('')}</tr>`).join('')
         + '</tbody></table></div>');
     } else if (LIST.test(line)) {
       i = list(lines, i, opts, out);

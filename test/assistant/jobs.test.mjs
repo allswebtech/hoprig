@@ -127,3 +127,28 @@ test('JobStore: create, attach, step cap, finish, persistence, tick', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a question of the coding tool itself before it starts (Bypass, imports) wakes her only to tell the owner', async () => {
+  const { noticeOnScreen } = await import('../../src/askcard.mjs');
+  const bypass = [' WARNING: Claude Code running in Bypass Permissions mode', ' In Bypass Permissions mode, Claude Code will not ask for your approval before running potentially dangerous commands.',
+    ' ❯ 1. No, exit', '   2. Yes, I accept', ' Enter to confirm · Esc to cancel'].join('\n');
+  const imports = [' Allow external CLAUDE.md file imports?', ' Only use Claude Code with files you trust.', ' ❯ 1. No, disable external imports',
+    '   2. Yes, allow external imports', ' Enter to confirm · Esc to cancel'].join('\n');
+  for (const screen of [bypass, imports]) {
+    const notice = noticeOnScreen(screen, { starting: true });
+    assert.equal(notice.kind, 'notice');
+    const armed = job({ sessions: [{ computer: 'this', session: 's', since: 0, last: 'starting', armed: true }] });
+    const { events } = planWakes([armed], [card({ status: 'attention', askCard: notice, note: notice.notice.text })], 10);
+    assert.deepEqual(events.map((e) => e.reason), ['notice']);
+    const ev = { ...events[0], job: armed };
+    assert.equal(decideMode(ev), 'notify', 'never "answer", also with steps left');
+    assert.equal(stateAfter(armed, ev, 'notify').state, 'waiting');
+    const said = wakeMessage(ev, 'notify', screen);
+    assert.match(said, /only the owner answers it\. Do not type into the session/);
+    assert.doesNotMatch(said, /answer its question/);
+  }
+  // A permission prompt of a call is still hers to judge in her own job.
+  const armed = job({ sessions: [{ computer: 'this', session: 's', since: 0, last: 'working', armed: true }] });
+  const { events } = planWakes([armed], [card({ status: 'attention', note: 'Claude needs your permission to use Bash' })], 10);
+  assert.deepEqual([events[0].reason, decideMode({ ...events[0], job: armed })], ['needs_ok', 'answer']);
+});

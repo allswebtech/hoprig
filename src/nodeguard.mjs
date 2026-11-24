@@ -1,18 +1,14 @@
-// The lowest Node.js that Hoprig runs on, and the check every start of the command makes first (bin/hoprig.mjs
-// imports this file before anything else, so the check runs before any other module of Hoprig does).
-//
-// Why 22: Node 20 (past its end of life since April 2026) aborts with a crash report when the terminal it runs in is
-// closed under it (it cannot set back a terminal that is gone). Hoprig ends its own programs before it closes a
-// terminal, but a terminal window or an SSH connection closed by hand still took a Node 20 launcher down that way.
-// No imports: nothing else is loaded before the check.
+// The check every start of the command makes first (bin/hoprig.mjs imports this file before anything else, so the
+// check runs before any other module of Hoprig does). The floor and why it is that version: src/nodefloor.mjs, the
+// only module loaded before the check (it imports nothing).
+import { MIN_NODE, MIN_NODE_MAJOR, MIN_NODE_TEXT, belowFloor } from './nodefloor.mjs';
 
-export const MIN_NODE_MAJOR = 22;
+export { MIN_NODE, MIN_NODE_MAJOR, MIN_NODE_TEXT };
 
-/** null when `version` ("22.1.0" or "v22.1.0") is new enough, else the plain sentence that says what to do. */
+/** null when `version` ("22.11.0" or "v22.11.0") is new enough, else the plain sentence that says what to do. */
 export function tooOld(version = process.versions.node) {
-  const major = Number(String(version).replace(/^v/, '').split('.')[0]);
-  if (Number.isInteger(major) && major >= MIN_NODE_MAJOR) return null;
-  return `Hoprig needs Node.js ${MIN_NODE_MAJOR} or newer; this is Node.js ${String(version).replace(/^v/, '')}. Install Node.js ${MIN_NODE_MAJOR} or newer (https://nodejs.org), then run hoprig again.`;
+  if (!belowFloor(version)) return null;
+  return `Hoprig needs Node.js ${MIN_NODE_TEXT} or newer; this is Node.js ${String(version).replace(/^v/, '')}. Install Node.js ${MIN_NODE_TEXT} or newer (https://nodejs.org), then run hoprig again.`;
 }
 
 /** On a Node.js that is too old: the sentence on stderr and exit code 1. */

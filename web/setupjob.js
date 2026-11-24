@@ -97,7 +97,7 @@ export async function startSetup(path, body, { started = () => {} } = {}) {
         await plainLegSheet({ label: c ? c.label : undefined, page: e.data.page || (c && c.url) });
         return false;
       }
-      toast(e.message, { kind: 'error', ms: 7000 });
+      toast(e, { kind: 'error', ms: 7000 });
       return false;
     }
     if (r.started) {

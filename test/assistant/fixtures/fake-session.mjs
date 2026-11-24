@@ -26,11 +26,17 @@ if (prompt) {
     fs.renameSync('TASK.txt.part', 'TASK.txt');
     process.stdout.write(`Done: ${prompt}\n`);
     updateRun(file, { status: 'waiting', lastMessage: `Done: ${prompt}` });
-  }, 2500);
+  }, Number(process.env.FAKE_SESSION_MS) || 2500); // a browser try sets it longer, to watch a card change
 }
+// FAKE_SESSION_BYE_MS: it ends that much later, as a launcher does on a slow computer (a test proves its wait with it).
+let ending = false;
 const bye = () => {
-  removeRun(file);
-  process.exit(0);
+  if (ending) return;
+  ending = true;
+  setTimeout(() => {
+    removeRun(file);
+    process.exit(0);
+  }, Number(process.env.FAKE_SESSION_BYE_MS) || 0);
 };
 process.on('SIGHUP', bye);
 process.on('SIGTERM', bye);

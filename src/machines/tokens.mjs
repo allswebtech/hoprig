@@ -25,13 +25,17 @@ export function storedTokens(cfg = loadConfig()) {
   return list.filter((t) => t && ID_RE.test(t.id) && /^[0-9a-f]{64}$/.test(t.hash) && typeof t.name === 'string');
 }
 
-/** Make a token for the computer called `name`. Returns { id, token }; the token is shown once and never stored. */
-export function createToken(name, { now = Date.now() } = {}) {
+/**
+ * Make a token for the computer called `name`. Returns { id, token }; the token is shown once and never stored.
+ * `hub`: it is for a hub the owner added this computer to (by SSH, or with a pairing code he made): the Workspace
+ * page's own acts relayed from that hub's page count as his (src/workspace/whomay.mjs).
+ */
+export function createToken(name, { now = Date.now(), hub = false } = {}) {
   const clean = tokenName(name);
   if (!clean) throw new Error('the name must be 1 to 60 letters, digits, spaces or ._@()-');
   const token = TOKEN_PREFIX + crypto.randomBytes(32).toString('base64url');
   const id = crypto.randomBytes(6).toString('hex');
-  saveConfig({ server: { tokens: [...storedTokens(), { id, name: clean, hash: sha256(token), created: now }] } });
+  saveConfig({ server: { tokens: [...storedTokens(), { id, name: clean, hash: sha256(token), created: now, ...(hub ? { hub: true } : {}) }] } });
   return { id, token };
 }
 
@@ -47,6 +51,25 @@ export function verifyToken(token, list = storedTokens()) {
     if (crypto.timingSafeEqual(got, Buffer.from(t.hash, 'hex')) && !found) found = t;
   }
   return found;
+}
+
+/**
+ * Mark the token `id` as a hub's of the owner's, or take the mark away (`hub`: true or false). A token made before the
+ * mark existed (an older `hoprig pair --json`, or a hub that runs an older Hoprig) is plain: the owner marks it here,
+ * on this computer's own page. → the public entry, or null when there is no such token.
+ */
+export function markHub(id, hub) {
+  const list = storedTokens();
+  const t = list.find((x) => x.id === id);
+  if (!t) return null;
+  const next = list.map((x) => {
+    if (x !== t) return x;
+    const { hub: _, ...rest } = x;
+    return hub ? { ...rest, hub: true } : rest;
+  });
+  saveConfig({ server: { tokens: next } });
+  recordHubActivity(hub ? `The token of ${t.name} was marked as your main computer` : `The token of ${t.name} is no longer marked as your main computer`);
+  return publicToken(next.find((x) => x.id === id), readUse());
 }
 
 const revokeListeners = new Set();
@@ -127,7 +150,7 @@ export function touchToken(id, { now = Date.now() } = {}) {
   }
 }
 
-const publicToken = (t, use = {}) => ({ id: t.id, name: t.name, created: t.created || null, lastUsed: use[t.id] || null });
+const publicToken = (t, use = {}) => ({ id: t.id, name: t.name, created: t.created || null, lastUsed: use[t.id] || null, hub: t.hub === true });
 
 /** What the CLI and the page show: never the hash. */
 export const listTokens = () => {

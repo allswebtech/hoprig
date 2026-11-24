@@ -27,7 +27,7 @@ function joinRows(joined, changed) {
         toast(`Left ${j.hub}`);
         changed();
       } catch (e) {
-        toast(e.message, { kind: 'error' });
+        toast(e, { kind: 'error' });
       }
     } }))));
 }
@@ -46,6 +46,26 @@ export function mainLinkCard(joined, changed) {
     } })));
 }
 
+// Where Hoprig is installed from (the site's install page): the other computer needs Hoprig before it can link.
+export const INSTALL_PAGE = 'https://hoprig.com/docs/install/';
+
+/**
+ * The steps beside the line to paste: Hoprig on the other computer first (with the install page), then its page way
+ * and the line, then wait. The fingerprint's note and the terminal command are under a closed "For the terminal":
+ * the page way is the one a person follows. `c`: the code's answer (line, note), `cmd` the whole command, `until` the time.
+ */
+export function pasteSteps(c, cmd, until) {
+  return [
+    [h('strong', `Install ${APP_NAME} on the other computer first, if it is not there yet.`),
+      h('span.hint', 'It takes one line: ', h('a', { href: INSTALL_PAGE, target: '_blank', rel: 'noopener noreferrer' }, `how to install ${APP_NAME}`), '.')],
+    [h('strong', `On the other computer, open its ${APP_NAME}: Computers → Link to my main ${APP_NAME}, and paste this line:`), cmdLine(c.line),
+      h('details.adv.cp-fold', h('summary', 'For the terminal'),
+        c.note ? h('p.hint', c.note) : null,
+        h('p.hint', 'Or type this in a terminal there:'), cmdLine(cmd))],
+    [h('strong', 'Wait here.'), h('span.hint', `This page shows when it is connected. The line works once, until ${until}.`)],
+  ];
+}
+
 // ---- (b) it connects by itself: a one-time code to type there (link.mjs) ----
 export function byCode(isAlive) {
   const box = h('div', { role: 'status' });
@@ -59,7 +79,7 @@ export function byCode(isAlive) {
     try {
       c = await api('~/api/links/code', {});
     } catch (e) {
-      return fill(box, errorBox(e.message), h('p.hint', 'Try again in a moment.'));
+      return fill(box, errorBox(e), h('p.hint', 'Try again in a moment.'));
     }
     // The server makes the line from how this computer is reached from anywhere (reach.mjs): the address with the
     // code (and a fingerprint for a hub with its own certificate). With none, the public link is the way to get one.
@@ -69,9 +89,7 @@ export function byCode(isAlive) {
     fill(box,
       c.line
         ? steps(
-          [h('strong', `On the other computer, open its ${APP_NAME}: Computers → Link to my main ${APP_NAME}, and paste this line:`), cmdLine(c.line), c.note ? h('span.hint', c.note) : null,
-            h('span.hint', 'Or there in a terminal:'), cmdLine(cmd)],
-          [h('strong', 'Wait here.'), h('span.hint', `This page shows when it is connected. The line works once, until ${until}.`)])
+          ...pasteSteps(c, cmd, until))
         // No address from anywhere. This page's own address helps only when another computer can reach it: never a
         // loopback one (127.0.0.1 is the other computer itself there).
         : loopback()

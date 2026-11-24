@@ -53,9 +53,25 @@ body.desk-mode { overflow: hidden; }
 .dwin-grip[data-dir='se'] { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
 .dwin[data-snap='max'] .dwin-grip { display: none; }
 @media (pointer: coarse) {
-  .dwin-grip { --g: 14px; }
-  .dwin-grip[data-dir$='e'][data-dir^='n'], .dwin-grip[data-dir$='w'][data-dir^='n'], .dwin-grip[data-dir$='e'][data-dir^='s'], .dwin-grip[data-dir$='w'][data-dir^='s'] { width: 22px; height: 22px; }
+  /* A finger: every grip at least 24 px to hit, half of it outside the window so the title bar keeps its own height
+     for moving (the mouse look is unchanged). The window no longer clips, so its bar and body keep its corners. */
+  .dwin { overflow: visible; }
+  .dwin-bar { border-top-left-radius: inherit; border-top-right-radius: inherit; }
+  .dwin-body { overflow: hidden; border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
+  .dwin-grip { --g: 24px; }
+  .dwin-grip[data-dir='n'] { top: -12px; left: 16px; right: 16px; }
+  .dwin-grip[data-dir='s'] { bottom: -12px; left: 16px; right: 16px; }
+  .dwin-grip[data-dir='e'] { right: -12px; top: 16px; bottom: 16px; }
+  .dwin-grip[data-dir='w'] { left: -12px; top: 16px; bottom: 16px; }
+  .dwin-grip[data-dir$='e'][data-dir^='n'], .dwin-grip[data-dir$='w'][data-dir^='n'], .dwin-grip[data-dir$='e'][data-dir^='s'], .dwin-grip[data-dir$='w'][data-dir^='s'] { width: 28px; height: 28px; }
+  .dwin-grip[data-dir^='n'][data-dir$='e'], .dwin-grip[data-dir^='n'][data-dir$='w'] { top: -12px; }
+  .dwin-grip[data-dir^='s'][data-dir$='e'], .dwin-grip[data-dir^='s'][data-dir$='w'] { bottom: -12px; }
+  .dwin-grip[data-dir$='e'][data-dir^='n'], .dwin-grip[data-dir$='e'][data-dir^='s'] { right: -12px; }
+  .dwin-grip[data-dir$='w'][data-dir^='n'], .dwin-grip[data-dir$='w'][data-dir^='s'] { left: -12px; }
   .dwin-bar { height: 42px; }
+  /* Above the grips, which reach into the window here: a tap on a title-bar button is always that button. (A mouse's
+     grips stay above: they reach in only 6 to 12 px, and its corner grip keeps its whole size.) */
+  .dwin-ctl { position: relative; z-index: 3; }
 }
 .desk-preview { position: absolute; z-index: 900; border-radius: var(--r); background: color-mix(in srgb, var(--accent) 14%, transparent); border: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); pointer-events: none; }
 
@@ -73,6 +89,12 @@ body.desk-mode { overflow: hidden; }
 .desk-task[aria-pressed='true']::after { width: 22px; margin-left: -11px; background: var(--accent); opacity: 1; }
 .desk-task[data-min='1'] { color: var(--muted); }
 .desk-task-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A window whose session needs you: the tray's bell on its button; one whose session ended says so. */
+.desk-task-mark { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 99px; background: var(--warn-soft, var(--accent-soft)); color: var(--warn); }
+.desk-dock-item .desk-task-mark { position: absolute; top: -4px; right: -4px; }
+.desk-task[data-needs='1'] { color: var(--text); }
+.desk-task-ended { flex: none; padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); font-size: var(--fs-xs); line-height: 16px; }
+.desk-task[data-ended='1'] .desk-task-name { color: var(--muted); }
 .desk-tray { flex: none; display: flex; align-items: center; gap: 2px; margin-left: auto; }
 .desk-tray-btn { height: 34px; min-width: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
 .desk-tray-btn:hover { background: var(--surface-2); color: var(--text); }
@@ -113,7 +135,7 @@ body.desk-mode { overflow: hidden; }
 .desk[data-desk-style='dock'] .dwin-ctl:hover .dwin-btn[data-act='square'] { background: var(--ok-solid, var(--ok)); }
 .desk[data-desk-style='dock'] .dwin-title { text-align: center; }
 @media (pointer: coarse) {
-  .desk[data-desk-style='dock'] .dwin-btn { width: 20px; height: 20px; }
+  .desk[data-desk-style='dock'] .dwin-btn { width: 24px; height: 24px; }
 }
 
 /* ---------- start menu and launcher ---------- */
@@ -146,6 +168,14 @@ body.desk-mode { overflow: hidden; }
 .desk-menu-item:disabled { opacity: .5; cursor: default; }
 .desk-menu-item.desk-menu-danger { color: var(--danger); }
 .desk-menu-gap { width: 16px; flex: none; }
+.desk-menu-key { margin-left: auto; padding-left: 16px; color: var(--muted); font: inherit; font-size: var(--fs-xs); white-space: nowrap; }
+.desk-menu-item:hover .desk-menu-key, .desk-menu-item:focus .desk-menu-key { color: inherit; }
+.desk-keys-text p { margin: 4px 0 0; }
+.desk-keylist { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 10px 0 0; padding: 0; list-style: none; font-size: var(--fs-sm); }
+.desk-keylist li { display: contents; }
+.desk-keylist .desk-menu-key { margin: 0; padding: 0; color: var(--text); font-family: var(--mono); }
+/* An arrow in a key's name: in the body font and larger, so ← and → are told apart at a glance. */
+.desk-key-arrow { font-family: var(--font); font-size: 1.3em; line-height: 1; vertical-align: -0.05em; }
 .desk-menu-more { margin-left: auto; display: inline-flex; color: var(--muted); }
 @media (pointer: coarse) { .desk-menu-item { min-height: 44px; } } /* a finger: the menu's entries, also the chat's session menu */
 .desk-menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }

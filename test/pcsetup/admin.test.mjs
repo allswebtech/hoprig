@@ -30,7 +30,7 @@ if [ "$1" = "-S" ]; then
 fi
 exit 3
 `, { mode: 0o755 });
-Object.assign(process.env, { PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state'), CLAUDE_CONFIG_DIR: path.join(tmp, 'claude') });
+Object.assign(process.env, { PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: path.join(tmp, 'home'), USERPROFILE: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state'), CLAUDE_CONFIG_DIR: path.join(tmp, 'claude') });
 fs.mkdirSync(process.env.HOME, { recursive: true });
 const A = await import('../../src/pcsetup/admin.mjs');
 const { pcsetupFeature } = await import('../../src/pcsetup/feature.mjs');

@@ -1,5 +1,6 @@
 // The hook: Claude Code calls it with one event as JSON on stdin, and it keeps the run record's status true
-// (runs.mjs says what the record holds). It imports next to nothing, because Claude waits for it every time.
+// (runs.mjs says what the record holds). The record's part is hookrecord.mjs, the hook's hot path: a status event loads
+// only that. This module (the wall, the answers) is loaded only for PreToolUse and PermissionRequest.
 //
 // What Claude Code tells us and what it does not (seen on 2.1.325 and 2.1.326, with a hook that logged every event):
 //   UserPromptSubmit   a turn starts: the owner's message, a queued message, and also the notice that wakes Claude
@@ -39,65 +40,199 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { BYPASS, askRules, askType, bypassAllows, projectFolders } from './asking.mjs';
-import { redact } from './assistant/secrets.mjs';
-import { configFile, defaultWorkspaceDir } from './paths.mjs';
-import { changeRun, watchFile } from './runfile.mjs';
+import { cardOf, heldLine, heldRecord } from './askcard.mjs';
+import { adminRefusal } from './assistant/adminrefused.mjs';
+import { herRightsLevel } from './assistant/herrights.mjs';
+import { createActivityLog } from './automation/store.mjs';
+import { BECAUSE, HOUR_MAX, LOOP_MAX, answerText, decide, handsOffOffered, hoprigVersion, hourFull, movingAway, projectEntry, sessionEntry, settingsHoldWall, switchState } from './handsoff.mjs';
+import { configDir, defaultWorkspaceDir, hookFile, hoprigOwnDirs, stateDir } from './paths.mjs';
+import { applyRecord, askedWhat, readHoprigSettings, recordPatch } from './hookrecord.mjs';
+import { readRun } from './runfile.mjs';
+import { wallHeld } from './wall.mjs';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/; // a session id, as in sessions.mjs
+// The record's part of the hook (hookrecord.mjs), named here as well, for the files and tests that import it from here.
+export { askedWhat, hookMain, wantsToolNews } from './hookrecord.mjs';
 
-// Who waits for the owner: the main agent, a subagent (by its id), or a notification that does not say who.
-const MAIN = 'main';
-const SOMEONE = '?';
+// What a PermissionRequest's record needs from the modules the hot path does not load: the card and what is asked.
+const CARD_PARTS = Object.freeze({ askType, cardFor, hourMax: HOUR_MAX });
 
-// Background work that ends by itself and then wakes Claude. A shell command may be a server that never ends and
-// a monitor is meant to stay, so with only those the session waits for the owner like any other.
-const WAKES = new Set(['subagent', 'workflow']);
+/** What `ev` changes in `run` (hookrecord.mjs recordPatch), with the card a PermissionRequest needs. Pure. */
+export const hookPatch = (run, ev, now = Date.now(), o = {}) => recordPatch(run, ev, now, { ...o, cardParts: CARD_PARTS });
 
-// Notifications that only tell something: nobody has to answer them.
-const TELLS = new Set([
-  'idle_prompt', 'auth_success', 'auth_storage_failure', 'agent_completed', 'push_notification', 'plugin_notification',
-  'computer_use_enter', 'computer_use_exit', 'quota_auto_resume_fired', 'quota_auto_resume_stale', 'quota_auto_resume_disabled',
-]);
-// An MCP server's form was answered or went away.
-const ANSWERED = new Set(['elicitation_complete', 'elicitation_response']);
-// These follow a PermissionRequest that already said who asks and for what.
-const REMINDS = new Set(['permission_prompt', 'worker_permission_prompt']);
-
-// Reasons to carry a session on elsewhere: the profile is out of quota or out of credit. Other failures (a
-// server error, a bad request) would fail the same way on any profile.
-const LIMIT_ERRORS = new Set(['rate_limit', 'billing_error']);
-
-// A background task that Stop lists but that is already over (finished, failed, stopped by the owner): it neither
-// wakes Claude nor can it still ask anything. Only these words count as over; a status this version does not
-// know counts as running, so that a real question is never dropped.
-const OVER = new Set(['completed', 'failed', 'killed', 'stopped', 'cancelled', 'canceled', 'error', 'done']);
-const running = (t) => Boolean(t) && typeof t === 'object' && !OVER.has(t.status);
-
-const oneLine = (s, max = 300) => String(s).replace(/\s+/g, ' ').trim().slice(0, max);
-const names = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x) : []);
+/** Apply `ev` to the run file under its lock (hookrecord.mjs applyRecord), with the card a PermissionRequest needs. */
+export const applyHook = (file, ev, now = Date.now(), answer = null, hands = null, held = null, continuePrompt = null) => applyRecord(file, ev, now, answer, hands, held, continuePrompt, CARD_PARTS);
 
 /**
- * What is asked, for the card and for the record of what Hoprig allowed: the command, the file or the address, on one
- * line, shortened, with anything that looks like a secret masked (a command line can hold a token).
+ * The exact card of what `ev` asks (askcard.mjs): from the hook's own data, the tool's input as it came. A plan's text
+ * and a question's words are masked for secrets there (askcard.mjs), as a command is.
  */
-export function askedWhat(ev) {
-  const i = ev && ev.tool_input && typeof ev.tool_input === 'object' ? ev.tool_input : {};
-  const v = [i.command, i.file_path, i.notebook_path, i.path, i.url, i.pattern].find((x) => typeof x === 'string' && x.trim());
-  if (!v) return '';
-  const s = oneLine(redact(v), 4000);
-  return s.length > 120 ? `${s.slice(0, 119)}…` : s;
+export function cardFor(ev) {
+  const input = ev && ev.tool_input && typeof ev.tool_input === 'object' ? ev.tool_input : {};
+  return cardOf({ tool: ev.tool_name, input, engine: 'claude', source: 'hook', what: askedWhat(ev) });
 }
 
-/** What the card says while Claude waits for an answer. */
-function question(ev) {
-  const tool = typeof ev.tool_name === 'string' ? oneLine(ev.tool_name, 80) : '';
-  if (tool === 'AskUserQuestion') {
-    const q = ev.tool_input && Array.isArray(ev.tool_input.questions) && ev.tool_input.questions[0] && ev.tool_input.questions[0].question;
-    return typeof q === 'string' && q.trim() ? `Claude asks: ${oneLine(redact(q), 240)}` : 'Claude has a question for you';
+const ASKING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
+
+/**
+ * What Hands-off does for a PermissionRequest of a terminal session (handsoff.mjs), or null where it is off (then it
+ * does nothing at all). `run`: the session's record; `cfg`: Hoprig's settings; `runId` and `project`: whose switches
+ * count (handsOffKeys), never read from the record, which the session's own commands can write. → { output (the hook's
+ * answer), line (what the owner is shown) } or { wait (why it waits for him), loop }.
+ * A question is answered through the hook itself, the way Claude Code takes an answer from it (2.1.327: the input with
+ * `answers`, question → label, shows "Answered Claude's questions" and no dialog). A plan is not: Claude Code 2.1.327
+ * draws its plan dialog although the hook allowed it (with and without a mode), so a plan in a terminal waits. A
+ * coding chat's record is the chat's: the chat answers through its own channel (chat/handsoff.mjs).
+ */
+export function handsOffFor(ev, run, { cfg = {}, version = hoprigVersion(), now = Date.now(), runId = null, project = null, hasHold = true } = {}) {
+  if (!ev || ev.hook_event_name !== 'PermissionRequest' || !run || typeof run !== 'object' || run.kind === 'chat') return null;
+  if (!ASKING_TOOLS.has(ev.tool_name)) return null; // a permission: the mode's own rules, as without Hands-off
+  if (!handsOffOffered(cfg)) return null; // Hands-off is not offered on this computer: never an answer (the card is still exact)
+  // No wall hold in the session's handed settings (started before Hands-off, or on a tool with no such hook): it
+  // could answer a question but never hold an act, so Hands-off answers nothing for it and the question is left to
+  // the owner. The project's switch names such a session back in `uncovered` (server/handsoff.mjs) so he is told.
+  if (!hasHold) return null;
+  // The dashboard is moving this session (deck.mjs): its count went to the new run already, so no answer is given now.
+  if (movingAway(cfg, runId)) return null;
+  const st = switchState({ session: sessionEntry(cfg, runId), project: projectEntry(cfg, project), version, stopped: run.handsOffStop });
+  if (!st.on) return null;
+  if (ev.tool_name === 'ExitPlanMode') return { wait: 'plan-terminal' };
+  if ((Number(run.handsOffRow) || 0) >= LOOP_MAX) return { wait: 'loop', loop: true };
+  if (hourFull((Array.isArray(run.handsOffDone) ? run.handsOffDone : []).map((d) => d && d.at), now, st.since)) return { wait: 'hour', loop: 'hour' };
+  const card = cardFor(ev);
+  const d = decide(card, { note: st.note });
+  if (!d.answer) return { wait: d.wait };
+  const input = ev.tool_input && typeof ev.tool_input === 'object' ? ev.tool_input : {};
+  return {
+    output: { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow', updatedInput: { ...input, answers: d.answer.answers } } } },
+    line: { at: now, kind: card.kind, question: card.questions.map((q) => q.question).join(' · ').slice(0, 300), text: answerText(card, d), because: d.because },
+  };
+}
+
+/**
+ * The wall's hold for a PreToolUse event (wall.mjs): while Hands-off is on for the session, a tool call that is the
+ * owner's alone (administrator rights, publishing or releasing, a pull request, and the kinds their slice adds) is
+ * answered "ask", so the coding tool draws his card in every permission mode, bypass included. Null where Hands-off
+ * is not offered, or is off for the session, or the call is an ordinary one that goes through. Read like handsOffFor:
+ * the switch comes from the config, never from the record the session can write. This is a HOLD, not an answer: it
+ * never carries the loop or the hour's stop (those count answers Hoprig gave, and a hold is the owner answering).
+ * The same wall reads the PermissionRequest side (hookAnswer), so what the hold held is never allowed by the hook.
+ */
+export function preToolHold(ev, run, { cfg = {}, version = hoprigVersion(), runId = null, project = null, places = null, cfgReadFailed = false, handed = false, byTia = false } = {}) {
+  if (!ev || ev.hook_event_name !== 'PreToolUse') return null;
+  const ask = () => {
+    const held = wallHeld({ tool: ev.tool_name, input: ev.tool_input, cwd: typeof ev.cwd === 'string' ? ev.cwd : null, places });
+    // The reason in the tool's dialog says the card in one line: what is held, why it is his, what Yes and No do.
+    return held ? { output: { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: heldLine(held) } }, held } : null;
+  };
+  // Hands-off's hold (the wall, whatever kind it reads), or null where Hands-off is off or not offered for the session.
+  const handsOff = () => {
+    // The config could not be READ at all (gone or unparseable). Offered now defaults true, so the wall must not take
+    // its answer from an empty config: do not lose the wall with the file. A session started with the hold (its handed
+    // settings carry the PreToolUse entry, so Hands-off was offered when it started) keeps holding the kinds it reads;
+    // a session without the hold has nothing to hold.
+    if (cfgReadFailed) return handed ? ask() : null;
+    // The config reads cleanly. Offered is the shipped default; only `handsOff.offered: false`, the owner's own choice
+    // to hide the feature, reads as not offered and is honoured (nothing held).
+    if (!handsOffOffered(cfg)) return null;
+    // The switch is read from the config (whose switch counts is handsOffKeys, from Claude Code, not the record): so a
+    // missing run record cannot switch the wall off. A session that moves or deletes its own record ($HOPRIG_RUN_FILE)
+    // would leave `run` null; the kinds the wall holds stay held all the same (a hold never carries a loop/hour stop,
+    // so a null record only means that stop is unknown, which is no reason to let a held act through).
+    // A stop Hoprig made itself (a loop, an hour, or the reset of a resumed run) ends the ANSWERS (handsOffFor), never
+    // the hold: the owner left with Hands-off on, so what is his keeps waiting for him until HE turns the switch off.
+    // The hold reads only his switch — the session's own entry, else the project's — and ignores the stop.
+    const st = switchState({ session: sessionEntry(cfg, runId), project: projectEntry(cfg, project), version });
+    if (!st.on) return null;
+    return ask();
+  };
+  // A session Tia started is no way round her administrator-rights level: below Full,
+  // an act of hers that is the owner's alone is held as the owner's card even with Hands-off off or not offered. One
+  // more reason to hold, over the same wall reader; whose session it is is what the dashboard wrote at the start, not the record.
+  return handsOff() || sessionHold(ev, { cfg, byTia, places, version });
+}
+
+/**
+ * A session Tia started is no way round her administrator-rights level (src/assistant/
+ * herrights.mjs). Below Full, an act of hers that is the owner's alone is held as the owner's card — the coding
+ * tool's own "ask" dialog, the way the wall of Hands-off holds it — whatever Hands-off's switch says and whether or
+ * not it is offered. The wall (wall.mjs) is the one reader of what is the owner's; this takes its hold as it is and
+ * makes no narrower judgement of its own, so there is no gap to slip through: a line the wall cannot read with
+ * certainty (an administrator command hidden in $(…) or a backtick) is held like any uncertain line, and a delete or
+ * a touch of Hoprig's own state — the mark that makes this session hers included — is held, so a session cannot
+ * quietly unmark itself to lift this hold. At Full her administrator commands run without a card. `byTia` is what the
+ * dashboard wrote at the start (sessionByTia), never the run record a command of the session can write.
+ */
+function sessionHold(ev, { cfg = {}, byTia = false, places = null, version = hoprigVersion() } = {}) {
+  if (!byTia) return null;
+  const held = wallHeld({ tool: ev.tool_name, input: ev.tool_input, cwd: typeof ev.cwd === 'string' ? ev.cwd : null, places });
+  // Full runs her administrator commands without a card — except the floor no level lifts: a command that
+  // would change who may be administrator or switch a safety rule off is still held, so a bypass session cannot
+  // quietly keep root after the level goes back to Off.
+  const shown = herHeld(held, ev, { cfg, places, version });
+  if (!shown) return null;
+  return { output: { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: heldLine(shown) } }, held: shown };
+}
+
+/**
+ * What of the wall's hold `held` (wallHeld) is left to hold in a session of hers at her level: below Full all of it;
+ * at Full what is not an administrator act, or null when nothing is left. The one place of that rule, so a chat's card
+ * (chat/handsoff.mjs chatCard) names the act the hook held, not the wall's first.
+ */
+export function herHeld(held, ev, { cfg = {}, places = null, version = hoprigVersion() } = {}) {
+  if (!held) return null;
+  // Full is about administrator rights alone: it lifts the administrator acts of the line and nothing else, so a push
+  // to the main branch or a release in her session stays his card at Full as below it.
+  // An administrator act the wall marked `unsure` (a word whose value cannot be told from the line, or an administrator
+  // command inside another command's text) is not lifted: Hoprig cannot say what it would change, so it stays his card.
+  if (herRightsLevel(cfg, version) !== 'full' || everyLevelFloor(ev, places)) return held;
+  const acts = (held.acts || [held]).filter((a) => a.kind !== 'admin' || a.unsure);
+  return acts.length ? { ...acts[0], acts } : null;
+}
+
+/**
+ * Is this call one of the administrator forms refused at EVERY level (src/assistant/adminrefused.mjs)?
+ * `sudo su` and the other escalators, a sudoers/PAM edit, a login or shell as administrator, a setuid bit — the forms
+ * that would change who may be administrator or switch a safety rule off. These stay held even at Full, so a session
+ * cannot auto-run one and leave permanent root behind. A line the reader cannot break down (an administrator command
+ * hidden in $(…) or a backtick) is this floor too: the floor is fail-closed — "what it cannot read is refused, not
+ * run" at EVERY level, Full included — so an unreadable administrator line is held as his card at Full, not run.
+ */
+function everyLevelFloor(ev, places = null) {
+  const command = ev && ev.tool_name === 'Bash' && ev.tool_input && typeof ev.tool_input.command === 'string' ? ev.tool_input.command : null;
+  if (!command) return false;
+  // A `~` or relative word is read as the shell expands it, from the session's home and the folder the shell is in.
+  const p = places ? (typeof places === 'function' ? places() : places) : null;
+  const home = p && typeof p.home === 'string' && p.home ? p.home : os.homedir();
+  return !!adminRefusal(command, { hoprigDirs: hoprigOwnDirs(), home, cwd: typeof ev.cwd === 'string' ? ev.cwd : null });
+}
+
+/**
+ * Whose Hands-off switches count for the hook of run file `file`: the run id is the file's own name and the project is
+ * the folder Claude Code says it runs for (CLAUDE_PROJECT_DIR, which it sets for every hook), both from what Claude Code
+ * hands the hook. Not the record's runId or cwd: a command of the session can write its record ($HOPRIG_RUN_FILE), and
+ * would then borrow another session's or another project's switch. Without CLAUDE_PROJECT_DIR only the session's own
+ * switch counts.
+ */
+export function handsOffKeys(file, env = process.env) {
+  const dir = env.CLAUDE_PROJECT_DIR;
+  // The switch is stored under the folder's real path (server/handsoff.mjs insideRoots → realpathSync). Claude Code may
+  // hand the hook a path reached through a symlink, so resolve it the same way; if it cannot be resolved, normalise it.
+  let project = null;
+  if (typeof dir === 'string' && path.isAbsolute(dir)) {
+    try {
+      project = fs.realpathSync(dir);
+    } catch {
+      project = path.normalize(dir);
+    }
   }
-  if (tool === 'ExitPlanMode') return 'Claude needs your approval for the plan';
-  const what = askedWhat(ev);
-  return tool ? `Claude needs your permission to use ${tool}${what ? `: ${what}` : ''}` : 'Claude needs your permission';
+  return { runId: path.basename(String(file), '.json'), project };
+}
+
+// Is Hands-off still on for the session of `file`, read again now: no answer starts after the owner's stop.
+function stillOn(file, version, keys) {
+  const run = readRun(file);
+  const cfg = hoprigSettings();
+  return !!run && !movingAway(cfg, keys.runId) && switchState({ session: sessionEntry(cfg, keys.runId), project: projectEntry(cfg, keys.project), version, stopped: run.handsOffStop }).on;
 }
 
 const ALLOW = Object.freeze({ hookSpecificOutput: Object.freeze({ hookEventName: 'PermissionRequest', decision: Object.freeze({ behavior: 'allow' }) }) });
@@ -109,9 +244,22 @@ const ALLOW = Object.freeze({ hookSpecificOutput: Object.freeze({ hookEventName:
  * may not be that folder (the home, the workspace, the folders that hold projects).
  * The settings file Hoprig handed to the session lies next to the run records (launch.mjs: hookSettingsDir).
  */
+// The folder a session was started in, from its run record (null when there is none or it names none).
+function startedIn(file) {
+  try {
+    const r = file ? readRun(file) : null;
+    return r && typeof r.cwd === 'string' && r.cwd ? r.cwd : null;
+  } catch {
+    return null;
+  }
+}
+
 export function sessionFacts(ev, env = process.env) {
   const file = env.HOPRIG_RUN_FILE;
+  const handed = file ? path.join(path.dirname(path.dirname(file)), 'hook-settings', path.basename(file)) : null;
   return {
+    // The session's extra folders (workspace/needs.mjs: a need, --with, "Also open"), from the settings Hoprig handed it.
+    extras: () => extraDirs(handed),
     rules: () => askRules({
       project: env.CLAUDE_PROJECT_DIR || (ev && typeof ev.cwd === 'string' ? ev.cwd : null),
       configDir: env.CLAUDE_CONFIG_DIR || null,
@@ -121,20 +269,73 @@ export function sessionFacts(ev, env = process.env) {
       const cfg = hoprigSettings();
       const workspace = workspaceDir(env, cfg);
       const home = os.homedir();
-      return { home, workspace, projects: projectFolders({ workspace, home, chosen: cfg.projectsDir }), cwd: ev && typeof ev.cwd === 'string' ? ev.cwd : null, relative: true };
+      // `own`: the folder the session was started in (the coding tool names it for every hook; else the run record's).
+      // The event's cwd is where the shell stands NOW, which may be another folder the session was given.
+      const own = (typeof env.CLAUDE_PROJECT_DIR === 'string' && env.CLAUDE_PROJECT_DIR) || startedIn(file) || null;
+      return { home, workspace, projects: projectFolders({ workspace, home, chosen: cfg.projectsDir }), hoprig: [configDir(), stateDir(), path.dirname(path.dirname(hookFile()))], own, cwd: ev && typeof ev.cwd === 'string' ? ev.cwd : null, relative: true };
     },
   };
 }
 
-// Hoprig's settings file, read without loading the rest of Hoprig ({} when there is none or it cannot be read).
-function hoprigSettings() {
+// Can the hook hold this session's acts? Only when the settings Hoprig handed it at its start carry the wall's
+// PreToolUse hold (launch.mjs hookSettings). A session started before the hold existed, or on a coding tool with no
+// such hook, cannot: Hands-off must not answer its questions either (handsOffFor hasHold). The handed settings live
+// beside the run records. Read here, not imported from server/handsoff.mjs, so the hook stays small.
+function sessionCanHold(file) {
   try {
-    const c = JSON.parse(fs.readFileSync(configFile(), 'utf8'));
-    return c && typeof c === 'object' ? c : {};
+    const handed = path.join(path.dirname(path.dirname(file)), 'hook-settings', path.basename(file));
+    return settingsHoldWall(JSON.parse(fs.readFileSync(handed, 'utf8')));
   } catch {
-    return {};
+    return false;
   }
 }
+
+// Did the dashboard start this session as Tia's? Read from the mark it wrote beside the handed hook settings at the
+// start — a sibling of them in the state folder, which the wall protects — never from the run record, which a command
+// of the session can write ($HOPRIG_RUN_FILE). Marking a session hers only ADDS the owner's card (sessionAdminHold),
+// so it could never lift a hold; the mark is still the dashboard's alone, so a session cannot even pretend to be his.
+function sessionByTia(file) {
+  try {
+    const mark = path.join(path.dirname(path.dirname(file)), 'hook-settings', `${path.basename(file)}.tia`);
+    return JSON.parse(fs.readFileSync(mark, 'utf8')).byTia === true;
+  } catch {
+    return false;
+  }
+}
+
+/** The additional directories of the settings file Hoprig handed the session; a file that cannot be read: none. */
+export function extraDirs(file) {
+  if (!file) return [];
+  try {
+    const d = JSON.parse(fs.readFileSync(file, 'utf8'))?.permissions?.additionalDirectories;
+    return Array.isArray(d) ? d.filter((x) => typeof x === 'string' && path.isAbsolute(x)) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Is `cwd` an extra folder, inside one, or around one (by text and by real place; one case where the disk folds it)?
+function inExtra(cwd, extras) {
+  if (!extras.length) return false;
+  if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) return true; // not known where it runs: never answered
+  const fold = process.platform === 'darwin' || process.platform === 'win32' ? (x) => x.toLowerCase() : (x) => x;
+  const real = (p) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  const under = (a, b) => a === b || a.startsWith(b.endsWith(path.sep) ? b : b + path.sep);
+  const here = [cwd, real(cwd)].map(fold);
+  return extras.flatMap((x) => [x, real(x)]).map(fold).some((x) => here.some((h) => under(h, x) || under(x, h)));
+}
+
+// Hoprig's settings file, read without loading the rest of Hoprig ({} when there is none or it cannot be read).
+function hoprigSettings() {
+  return readHoprigSettings().cfg;
+}
+
 
 // The workspace folder as Hoprig finds it (workspace/layout.mjs), without loading the rest of Hoprig.
 function workspaceDir(env, cfg) {
@@ -149,219 +350,84 @@ function workspaceDir(env, cfg) {
  * what that rule needs to know about the session (sessionFacts). This is the output a PermissionRequest hook allows
  * with, checked on Claude Code 2.1.326: its question is not drawn and the tool runs ("Allowed by PermissionRequest hook").
  */
-export function hookAnswer(ev, facts = sessionFacts(ev)) {
+/**
+ * "Lead model": a helper's model and effort are its kind's (src/models/kinds.json, given at the start with --agents),
+ * never the lead's choice. In a Lead session (launch.mjs leadHook) every call of Claude Code's agent tool comes here
+ * first; one that names a model or an effort is answered with the same call without them, so the helper's own
+ * definition decides. No permission decision is given: what asks still asks. → the answer, or null (nothing to change).
+ */
+export const LEAD_TOOLS = new Set(['Agent', 'Task']);
+export function leadAnswer(ev) {
+  if (!ev || typeof ev !== 'object' || ev.hook_event_name !== 'PreToolUse' || !LEAD_TOOLS.has(ev.tool_name)) return null;
+  const input = ev.tool_input;
+  if (!input || typeof input !== 'object' || Array.isArray(input) || !('model' in input || 'effort' in input)) return null;
+  const { model, effort, ...rest } = input;
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: rest } };
+}
+
+export function hookAnswer(ev, facts = sessionFacts(ev), wall = wallHeld) {
   if (!ev || typeof ev !== 'object' || ev.hook_event_name !== 'PermissionRequest' || ev.permission_mode !== BYPASS) return null;
-  const allows = bypassAllows({ mode: ev.permission_mode, tool: ev.tool_name, input: ev.tool_input, rules: facts.rules(), places: facts.places() });
-  return allows ? ALLOW : null;
+  // Never for an act in or around an extra folder: it is read-only for this session, and only its owner answers there.
+  if (inExtra(ev.cwd, facts.extras ? facts.extras() : [])) return null;
+  const places = facts.places();
+  if (!bypassAllows({ mode: ev.permission_mode, tool: ev.tool_name, input: ev.tool_input, rules: facts.rules(), places })) return null;
+  // Fail closed: the PreToolUse "ask" and this PermissionRequest "allow" are decided independently, so the one rule
+  // that allows here re-checks the wall and never allows what the wall holds — whatever its kind. Without this, a
+  // kind that ever overlapped the bypass allow-set (a new kind, or a places mismatch between the two paths) would run
+  // with no key pressed, the failure the reviewer saw before. Re-reading the wall needs no record, so it cannot fail open.
+  if (wall({ tool: ev.tool_name, input: ev.tool_input, cwd: typeof ev.cwd === 'string' ? ev.cwd : null, places })) return null;
+  return ALLOW;
 }
 
-// What is asked, per asker (`askers`: key → { type, note, kind, at, what }): the card shows what still waits. Where a
-// question or a plan waits it is that (its answer is the owner's own word, in the terminal), else the newest ask.
-// `askWhat`: the command or file of that ask (askedWhat), which the server finds again in the dialog on the screen
-// before it types the page's answer (server/prompts.mjs dialogShows).
-function waiting(left, askers) {
-  const all = left.map((k) => askers[k]).filter((a) => a && typeof a === 'object');
-  if (!all.length) return {};
-  const own = all.filter((a) => a.type === 'question' || a.type === 'plan');
-  const shown = (own.length ? own : all).reduce((a, b) => ((b.at || 0) >= (a.at || 0) ? b : a));
-  return { note: shown.note || '', attentionKind: shown.kind || null, askType: shown.type || null, askWhat: shown.what || '' };
-}
 
 /**
- * What `ev` changes in `run`: the fields to set, possibly none. Pure, so every case can be tested without Claude.
- * The rule behind it: "attention" holds exactly while `asks` names someone (or the reply ended in an error);
- * otherwise the status is what the last turn event said.
+ * The answer and the record for an event that can be answered (PreToolUse, PermissionRequest), after hookrecord.mjs
+ * hookMain read it from stdin. Prints the hook's answer where it has one (hookAnswer, the wall's hold, the Lead's
+ * helper rule, Hands-off), on one line, then updates the run file `file`. Otherwise it stays silent, and it never
+ * fails: any other output would land in the conversation.
  */
-export function hookPatch(run, ev, now = Date.now(), { allowed = false } = {}) {
-  // A coding chat's record (runs.mjs createChatRun) gets only PermissionRequest (claude.mjs) and keeps only what the
-  // hook allowed: the chat follows its process through its own channel, the cards included.
-  if (run.kind === 'chat') return ev.hook_event_name === 'PermissionRequest' && allowed ? { allowed: allowedList(run, ev, now) } : {};
-  const patch = {};
-  if (typeof ev.session_id === 'string' && UUID_RE.test(ev.session_id)) patch.sessionId = ev.session_id;
-  const asks = names(run.asks);
-  const who = typeof ev.agent_id === 'string' && ev.agent_id ? ev.agent_id.slice(0, 80) : MAIN;
-  const without = (...gone) => asks.filter((k) => !gone.includes(k));
-  // Who asks what. A record written by an older hook has only the one kind, note and time: they stand for its askers.
-  const was = run.askers && typeof run.askers === 'object' ? run.askers : {};
-  const askers = {};
-  for (const k of asks) askers[k] = was[k] || { type: run.askType || null, note: run.note || '', kind: run.attentionKind || null, at: run.askAt || 0 };
-  const only = (left) => Object.fromEntries(left.map((k) => [k, askers[k]]));
-  // With somebody still waiting it stays "attention" and shows what still waits (waiting); else `status`, and the
-  // words go. `askAt` moves whenever who waits changes, so the page offers its answers again for what is left.
-  const settle = (left, status) => {
-    patch.asks = left;
-    patch.askers = only(left);
-    if (left.length) {
-      Object.assign(patch, { status: 'attention' }, waiting(left, patch.askers));
-      if (left.length !== asks.length) patch.askAt = now;
-    } else Object.assign(patch, { status, note: '', attentionKind: null, askType: null, askWhat: '', askers: {} });
-  };
-  // `type`: what is asked (asking.mjs askType), so the page offers "Allow" for a permission only. `askAt`: every ask
-  // has its own time, so the page tells a second question from the one the owner just answered.
-  const ask = (key, note, kind, type = null, what = '') => {
-    const left = [...without(key), key].slice(-20);
-    const next = { ...only(left.filter((k) => k !== key)), [key]: { type, note, kind, at: now, what } };
-    Object.assign(patch, { asks: left, askers: next, status: 'attention', askAt: now }, waiting(left, next));
-  };
-
-  switch (ev.hook_event_name) {
-    case 'SessionStart':
-      if (ev.source === 'compact') break; // Claude Code compacted, often in the middle of a turn: nothing ended
-      settle([], 'waiting');
-      patch.background = [];
-      break;
-    case 'UserPromptSubmit':
-      // The main agent's own question is gone by now: no prompt gets in while it is on the screen.
-      settle(without(MAIN, SOMEONE), 'working');
-      Object.assign(patch, { limit: null, failure: null, background: [] });
-      break;
-    case 'Stop': {
-      const tasks = (Array.isArray(ev.background_tasks) ? ev.background_tasks : []).filter(running);
-      const background = tasks.filter((t) => WAKES.has(t.type) && typeof t.id === 'string').map((t) => t.id.slice(0, 80)).slice(0, 50);
-      // The main reply is over, so its own question is gone; a subagent's question can only still wait while that
-      // subagent runs. One the owner stopped (ctrl+x ctrl+k while it asked) never sends PostToolBatch or
-      // SubagentStop, and without this its question would hold the session on "needs your OK" for good. A
-      // workflow's agents are not listed by id, so while a workflow runs their questions stay.
-      const workflow = tasks.some((t) => t.type === 'workflow');
-      const live = asks.filter((k) => k !== MAIN && k !== SOMEONE && (workflow || background.includes(k)));
-      settle(live, background.length ? 'working' : 'waiting');
-      Object.assign(patch, { background, stopAt: now, failure: null });
-      if (typeof ev.last_assistant_message === 'string') patch.lastMessage = oneLine(ev.last_assistant_message);
-      break;
-    }
-    case 'StopFailure': {
-      // The reply ended in an API error. Claude sits idle now; the text says why.
-      const text = typeof ev.last_assistant_message === 'string' ? oneLine(ev.last_assistant_message) : '';
-      Object.assign(patch, { status: 'attention', note: text || String(ev.error || 'error'), attentionKind: null, askType: null, asks: [], askers: {}, background: [] });
-      // Which kind of error (overloaded, server_error, authentication_failed…): the retry automation acts on it.
-      patch.failure = { at: now, error: String(ev.error || 'unknown').slice(0, 60), text };
-      if (LIMIT_ERRORS.has(ev.error)) patch.limit = { at: now, error: ev.error, text };
-      break;
-    }
-    case 'PermissionRequest':
-      // Allowed by the hook itself (bypass mode: `allowed` is its answer, hookAnswer): Claude Code shows no question,
-      // so nobody is asked. What was allowed is written down for the owner, the newest 20.
-      if (allowed) {
-        patch.allowed = allowedList(run, ev, now);
-        break;
-      }
-      ask(who, question(ev), 'permission_prompt', askType(ev.tool_name), askedWhat(ev));
-      break;
-    case 'Notification': {
-      const kind = typeof ev.notification_type === 'string' ? ev.notification_type.slice(0, 60) : null;
-      // "Claude is waiting for your input" comes after a minute of quiet: that is still plain waiting.
-      if (TELLS.has(kind)) break;
-      if (ANSWERED.has(kind)) {
-        if (asks.includes(SOMEONE)) settle(without(SOMEONE), 'working');
-        break;
-      }
-      if (REMINDS.has(kind) && asks.length) break;
-      ask(SOMEONE, typeof ev.message === 'string' ? ev.message.slice(0, 300) : '', kind);
-      break;
-    }
-    case 'PostToolBatch': {
-      if (run.status === 'ended') break;
-      if (who !== MAIN) {
-        // A subagent got its answer (or was refused) and goes on. Another one's question stays.
-        if (asks.includes(who)) settle(without(who), 'working');
-        break;
-      }
-      // The main agent finished tool calls, so a turn is running, however it started. Only an API error
-      // (attention with nobody asking) waits for a prompt or the reply's end.
-      if (run.status === 'attention' && !asks.length) break;
-      settle(without(MAIN, SOMEONE), 'working');
-      break;
-    }
-    case 'SubagentStop': {
-      const background = names(run.background);
-      if (background.includes(who)) patch.background = background.filter((id) => id !== who);
-      if (asks.includes(who)) settle(without(who), 'working');
-      break;
-    }
-    case 'SessionEnd':
-      Object.assign(patch, { status: 'ended', asks: [], askers: {}, background: [] });
-      break;
-    default:
-      break;
-  }
-  return patch;
-}
-
-// The record's list of what the hook allowed, with `ev` added: the newest 20. Each has its number `n`, one more than the
-// last, given under the record's lock (applyHook), so a chat tells two allows of the same moment apart.
-function allowedList(run, ev, now) {
-  const tool = typeof ev.tool_name === 'string' ? oneLine(ev.tool_name, 80) : '';
-  const was = Array.isArray(run.allowed) ? run.allowed : [];
-  const n = was.reduce((m, a) => (a && Number.isInteger(a.n) && a.n > m ? a.n : m), 0) + 1;
-  const folder = folderOf(run, ev);
-  return [...was, { n, at: now, tool, what: askedWhat(ev), ...(folder ? { folder } : {}) }].slice(-20);
-}
-
-// Where the command ran, when that is not the session's own folder: relative to it where it is inside it.
-function folderOf(run, ev) {
-  const cwd = typeof ev.cwd === 'string' ? ev.cwd : '';
-  const home = typeof run.cwd === 'string' ? run.cwd : '';
-  if (!cwd || cwd === home) return '';
-  const rel = home && cwd.startsWith(`${home}/`) ? cwd.slice(home.length + 1) : cwd;
-  return oneLine(rel, 200);
-}
-
-/**
- * Should Claude Code start the hook after tool calls? Only while that could change something: someone waits for
- * an answer, or the record does not say "working". A session that is plainly working starts nothing per tool call.
- */
-export const wantsToolNews = (run) => Boolean(run) && run.status !== 'ended' && (run.status !== 'working' || names(run.asks).length > 0);
-
-// Nothing, an empty text and an empty list are the same "nothing" here, so a record written before these fields
-// existed is not rewritten for their sake. The same for an empty object.
-const plain = (v) => (v == null || v === '' || (Array.isArray(v) && !v.length) || (v.constructor === Object && !Object.keys(v).length) ? null : v);
-const same = (a, b) => JSON.stringify(plain(a)) === JSON.stringify(plain(b));
-
-/**
- * Apply `ev` to the run file, under its lock (runfile.mjs changeRun: two hooks of one session may run at once). The
- * file is written only when the event changes something; returns the record as it stands (null when the file is
- * gone: the launcher already cleaned up). `answer`: what the hook answered Claude Code for it (hookAnswer).
- */
-export function applyHook(file, ev, now = Date.now(), answer = null) {
-  const next = changeRun(file, (run) => {
-    const patch = hookPatch(run, ev, now, { allowed: !!answer });
-    if (!Object.keys(patch).some((k) => !same(run[k], patch[k]))) return run;
-    const out = { ...run, ...patch };
-    if (patch.status && patch.status !== run.status) out.statusAt = now;
-    return out;
-  });
-  if (!next) return null;
-  const mark = watchFile(file);
-  if (wantsToolNews(next) !== fs.existsSync(mark)) {
-    if (wantsToolNews(next)) fs.writeFileSync(mark, '', { mode: 0o600 });
-    else fs.rmSync(mark, { force: true });
-  }
-  return next;
-}
-
-/**
- * `hoprig hook`: called by Claude Code with the event as JSON on stdin. Prints the hook's answer where it has one
- * (hookAnswer), on one line, then updates the run file named by $HOPRIG_RUN_FILE. Otherwise it must stay silent, and
- * it never fails: any other output would land in the conversation.
- */
-export async function hookMain() {
-  const file = process.env.HOPRIG_RUN_FILE;
-  if (!file) return; // not a session Hoprig started: nothing to keep, nothing to answer
-  let ev = null;
+export function answerEvent(file, ev) {
   let answer = null;
+  let hands = null;
+  let held = null; // what the wall held, as the run record keeps it (askcard.mjs heldRecord)
   try {
-    let raw = '';
-    for await (const chunk of process.stdin) raw += chunk;
-    ev = JSON.parse(raw);
     // The answer does not wait on the record: a run file that could not be written must not leave a question open.
     answer = hookAnswer(ev);
+    if (!answer && ev.hook_event_name === 'PreToolUse') {
+      // The wall holds a command that is the owner's alone (preToolHold): "ask", so the tool draws his card. The
+      // config is read with its failure flag, and whether this session carries the hold, so the wall holds on even if
+      // its settings file has gone (it is not lost with a file the session might take away).
+      const { cfg, readFailed } = readHoprigSettings();
+      const hold = preToolHold(ev, readRun(file), { cfg, cfgReadFailed: readFailed, handed: sessionCanHold(file), byTia: sessionByTia(file), places: () => sessionFacts(ev).places(), ...handsOffKeys(file) });
+      if (hold) {
+        answer = hold.output;
+        held = heldRecord(hold.held, ev.tool_name);
+      }
+    }
+    // A Lead session's helper call: its model and effort are its kind's (leadAnswer); the wall comes first.
+    if (!answer) answer = leadAnswer(ev);
+    if (!answer && ev.hook_event_name === 'PermissionRequest') {
+      const version = hoprigVersion();
+      const keys = handsOffKeys(file);
+      hands = handsOffFor(ev, readRun(file), { cfg: hoprigSettings(), version, ...keys, hasHold: sessionCanHold(file) });
+      // The owner's stop is read again right before the answer goes: none starts after his press.
+      if (hands && hands.output && !stillOn(file, version, keys)) hands = null;
+      if (hands && hands.output) answer = hands.output;
+    }
     if (answer) process.stdout.write(`${JSON.stringify(answer)}\n`);
   } catch {
     /* an event of a shape we do not know: no answer, Claude Code asks as usual */
   }
   try {
-    if (ev && typeof ev === 'object') applyHook(file, ev, Date.now(), answer);
+    const run = applyHook(file, ev, Date.now(), answer, hands, held);
+    if (hands && hands.output) handsOffActivity(run, hands.line);
   } catch {
     /* never disturb the session */
   }
+}
+
+/** One line in Activity for an answer Hands-off gave (Work → Activity, automation "handsoff"). */
+export function handsOffActivity(run, line, file = path.join(stateDir(), 'automation.log')) {
+  const what = line.kind === 'plan' ? 'approved the plan' : `answered "${line.question}" with "${line.text}"`;
+  createActivityLog(file).add({ automation: 'handsoff', session: (run && (run.termName || run.cwd)) || '', did: `${what} for you, ${BECAUSE[line.because] || ''}`.trim() });
 }

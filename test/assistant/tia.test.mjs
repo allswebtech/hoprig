@@ -24,6 +24,9 @@ test('the name lives in one constant; every option has a plain sentence', () => 
     assert.match(s, /in a Claude Code chat she started she allows by herself only looking and running the project's own tests \(a short list\); changing files, everything else and every OK of another coding tool come to you/i);
     assert.match(s, /in a terminal session she started she still answers its ordinary permission prompts, judged only by the text on its screen against a list of risky things \(best effort\), and sends you the risky ones/i);
   }
+  // A Work start, accept, send back, drop and remove are cards at every level (worktool.mjs): the settings say so where
+  // the owner chooses how far she may go, also under "Hands off".
+  for (const s of [HELP.level, HELP.levelWork, HELP.levelHandsoff]) assert.match(s, /On the Work page she always asks you first, at every level: starting a session on a task, accepting or sending back its result, dropping and removing a task\./);
 });
 
 test('defaults: level "work"; Auto off → every subscription/login account, never API; runs on the first', () => {
@@ -35,7 +38,8 @@ test('defaults: level "work"; Auto off → every subscription/login account, nev
   assert.equal(t.runsOn, 'sub');
   const auto = resolveTia({}, accounts({ autoSwitch: { enabled: true, order: ['sub', 'api'] } }));
   assert.deepEqual(auto.allowed, ['auto', 'sub', 'sub2', 'me']);
-  assert.equal(auto.runsOn, 'auto');
+  // Automatic thinks on the first subscription, also while Auto mode is on: Auto's order may hold a paid key.
+  assert.equal(auto.runsOn, 'sub');
 });
 
 test('an owner list is used as given (API only when listed); unknown names and auto-while-off drop out', () => {
@@ -65,7 +69,11 @@ test('a provider no coding tool of this version can use is never hers; she runs 
   const t = resolveTia({ accounts: ['aa-cx', 'ab-resp', 'ac-oai', 'sub'], runsOn: 'aa-cx' }, more);
   assert.deepEqual(t.allowed, ['ac-oai', 'sub'], 'the unusable ones drop out of a saved list');
   assert.equal(t.runsOn, 'sub', 'she thinks through Claude Code: not on another tool\'s sign-in, nor on an OpenCode-only key');
-  assert.equal(resolveTia({ accounts: ['ac-oai'], runsOn: 'ac-oai' }, more).runsOn, 'sub', 'the first one that serves Claude Code');
+  // Only an OpenCode key ticked: none of hers serves Claude Code, and a subscription he left out is never taken in its
+  // place; readiness names where to tick one.
+  const opencodeOnly = resolveTia({ accounts: ['ac-oai'], runsOn: 'ac-oai' }, more);
+  assert.equal(opencodeOnly.runsOn, null, 'never a provider he did not allow');
+  assert.equal(opencodeOnly.noneAllowed, true);
   const only = accounts({ profiles: more.profiles.slice(0, 3) });
   assert.equal(resolveTia({ accounts: ['ac-oai'] }, only).runsOn, null, 'none at all: the Tia tab says so in one line');
   // The server refuses them too (feature.mjs passes tiaChoices and the Claude Code ones).
@@ -83,7 +91,11 @@ test('a provider no coding tool of this version can use is never hers; she runs 
 });
 
 test('chooseAccount: auto first; else most free quota; never limited; unknown counts as half', () => {
-  assert.equal(chooseAccount(resolveTia({}, accounts({ autoSwitch: { enabled: true } })), accounts()).account, 'auto');
+  const autoOn = accounts({ autoSwitch: { enabled: true, order: ['sub'] } });
+  assert.equal(chooseAccount(resolveTia({}, autoOn), autoOn).account, 'auto');
+  // Auto mode with an empty order has nothing it may use (tia.mjs autoLeftOut): the next provider she may use.
+  const autoEmpty = accounts({ autoSwitch: { enabled: true, order: [] } });
+  assert.equal(chooseAccount(resolveTia({}, autoEmpty), autoEmpty).account, 'sub2');
   const pick = chooseAccount(resolveTia({}, accounts()), accounts());
   assert.equal(pick.account, 'sub2'); // 70 % free beats 50 (unknown) and 30
   assert.match(pick.why, /70% of its quota free/);
@@ -115,6 +127,20 @@ test('riskyPermission: fetch-and-run, wide deletes, secrets, system, network, pu
 const tia = (level, allowed = ['sub', 'sub2']) => ({ level, allowed });
 const f = (o = {}) => ({ session: null, mine: false, account: null, ...o });
 const lv = (tool, a, facts, t) => decideLevel(byName.get(tool), a, facts, t);
+
+test('policy: a question of the coding tool itself is the owner\'s: every key or text waits for his tap, in her own session too', () => {
+  const screen = ' ❯ 1. No, exit\n   2. Yes, I accept\n Enter to confirm · Esc to cancel';
+  const at = (notice) => f({ mine: true, session: { status: 'needs_ok', note: 'Claude Code asks you something before it starts', screen, cwd: '/tmp/x/shop', codingTool: 'claude', ...(notice ? { notice: true } : {}) } });
+  for (const level of ['ask', 'work', 'handsoff']) {
+    for (const a of [{ key: '1' }, { key: '2' }, { key: 'Enter' }, { text: '2' }]) {
+      assert.equal(lv('send_to_session', { session: 's', ...a }, at(true), tia(level)).level, 'L2', `${level} ${JSON.stringify(a)}`);
+    }
+    // Interrupting only holds it back: as before.
+    assert.equal(lv('send_to_session', { session: 's', key: 'Escape' }, at(true), tia(level)).level, 'L1');
+  }
+  // Without the mark (a call's prompt in her own session) a key is hers as before.
+  assert.equal(lv('send_to_session', { session: 's', key: '2' }, at(false), tia('work')).level, 'L1');
+});
 
 test('policy: the three levels for typing into a session', () => {
   const a = { session: 's', text: 'yes' };
@@ -166,4 +192,18 @@ test('policy: destructive and system tools stay cards at every level', () => {
   assert.equal(lv('stop_session', { session: 's' }, f({ mine: false }), tia('handsoff')).level, 'L2');
   assert.equal(lv('stop_session', { session: 's' }, f({ mine: true }), tia('work')).level, 'L1');
   assert.equal(lv('stop_session', { session: 's' }, f({ mine: true }), tia('ask')).level, 'L2');
+});
+
+test('Settings → Tia keeps "Lead model": true or false only, off when never set', async () => {
+  const { cleanTiaPatch: clean, resolveTia: resolve } = await import('../../src/assistant/tia.mjs');
+  assert.deepEqual(clean({ lead: true }), { lead: true });
+  assert.deepEqual(clean({ lead: false }), { lead: false });
+  assert.throws(() => clean({ lead: 'yes' }), /lead must be true or false/);
+  const accounts = { profiles: [{ name: 'sub', kind: 'subscription' }], autoSwitch: { enabled: false } };
+  assert.equal(resolve({}, accounts).lead, false, 'an old record without it reads as off');
+  assert.equal(resolve({ lead: true }, accounts).lead, true);
+  assert.deepEqual(clean({ others: ['sub'] }, ['sub']), { others: ['sub'] });
+  assert.throws(() => clean({ others: ['elsewhere'] }, ['sub']), /providers she can use/);
+  assert.deepEqual(resolve({}, accounts).others, [], 'none in an old record');
+  assert.deepEqual(resolve({ accounts: ['sub'], others: ['sub', 'gone'] }, accounts).others, ['sub'], 'only providers she is allowed');
 });

@@ -159,7 +159,7 @@ export function npmTool(spec) {
     try {
       const own = installEnv(env, isolate(scratch));
       for (const k of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'TMPDIR']) if (own[k]) fs.mkdirSync(own[k], { recursive: true, mode: 0o700 });
-      const argv = npmArgv(['install', '--prefix', dir(), '--save-exact', '--no-audit', '--no-fund', '--update-notifier=false', ...npmFlags, `${pkg}@${version}`]);
+      const argv = npmArgv(['install', '--prefix', dir(), '--save-exact', '--no-audit', '--no-fund', '--update-notifier=false', ...npmFlags, `${pkg}@${version}`], process.platform, own);
       say(`$ ${showCommand(argv)}`);
       const r = await run(argv, { env: own, cwd: dir(), onLine: say });
       clearLookups();

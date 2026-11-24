@@ -1,34 +1,41 @@
-// `hoprig workspace restore <brain address>`: a fresh computer gets the whole workspace from git. The AI brain is
-// cloned into <workspace>/ai_brain, its map (map.mjs) says what else belongs to the workspace, and every project
-// parent, its code repositories and the other repositories are cloned where the map puts them. Then the missing
-// folders of the tree are made and each project it cloned is finished like `project clone` does (memory links, git
-// hooks, .env.example, the dependency installs offered); a project that was here already is not changed (what it
-// misses is said, with `hoprig project setup <name>`).
+// `hoprig workspace restore <brain address>`: a fresh computer gets its workspace from git. The AI brain is cloned
+// into <workspace>/ai_brain and its map (map.mjs) says what else belongs to the workspace: the credentials repository
+// when the map names one, every group's own repository and the other repositories are cloned where the map puts
+// them, and the missing folders of the tree are made. NO project is cloned: a project comes to a computer only when
+// its owner asks for it (`hoprig get <name>`), and restore lists each one as "in the map, not on this computer".
+// `withProjects` (`restore --with-projects`) is the one option for an owner who wants every project everywhere:
+// then each project's parent and code repositories are cloned too, and each project it cloned is finished like
+// `project clone` does (memory links, git hooks, .env.example, the dependency installs offered); a project that was
+// here already is not changed (what it misses is said, with `hoprig project setup <name>`).
 //
 // Safe to run again: what is there is never overwritten or moved (one exception: the starting brain that
-// `workspace setup` made and nobody changed is kept aside as ai_brain.unused-<time>, so restore can follow setup). A folder that is there is left alone: when it is
-// the same repository it counts as done, when it is something else it is reported. A repository that cannot be
-// cloned (no access, wrong address) is listed with git's reason and the rest goes on.
+// `workspace setup` made and nobody changed is kept aside as ai_brain.unused-<time>, so restore can follow setup; and
+// a broken clone of the same address, one without a first commit checked out, is moved aside under a dated name by
+// the clone, inside.mjs cloneInto). A folder that is there is left alone: when it is the same repository it counts as
+// done, when it is something else it is reported. A repository that cannot be cloned (no access, wrong address) is
+// listed with git's reason and the rest goes on.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { gitRead } from '../gitread.mjs';
 import { tilde } from '../paths.mjs';
 import { finishProject } from '../pcsetup/project.mjs';
-import { findByAddress, mvCommand } from '../pcsetup/getproject.mjs';
+import { findByAddress, gitReason, mvCommand } from '../pcsetup/getproject.mjs';
 import { cloneRepo, parseRepo, rememberDir } from '../pcsetup/projects.mjs';
 import { MANIFEST, readManifest, stamp } from '../pcsetup/workspace.mjs';
 import { capture, showCommand, stream } from '../setup/system.mjs';
 import { loadConfig } from '../config.mjs';
 import { WORKTREE_WHY, isDir, isGitRepo, isLinkedWorktree, projectsIn, workspaceDir } from './layout.mjs';
 import { mapTargets, placeDir, placesOf, planGroupMemories } from './groups.mjs';
-import { LEAVES, gitIn, leaves, leavesWords, mkdirIn, myLinkCommand, renameIn, rmdirIn } from './inside.mjs';
+import { LEAVES, brokenClone, gitIn, leaves, leavesWords, mkdirIn, myLinkCommand, renameIn, rmdirIn } from './inside.mjs';
 import { MAP_FILE, readMap, refOf, sameUrl } from './map.mjs';
 import { placeOf } from './mapcheck.mjs';
 import { toolsState, waitingLine } from './grouptool.mjs';
 import { ruleOf } from './findrule.mjs';
 import { makeFolders } from '../pcsetup/getbyrule.mjs';
 import { brainScaffold, workspaceSetup } from './setup.mjs';
+import { untouchedCredentials } from './credlinks.mjs';
+import { writeOwnFile } from './computer.mjs';
 
 /** The projects folder this computer chose before (config "projectsDir"), or null. */
 function chosenProjectsDir() {
@@ -41,7 +48,6 @@ function chosenProjectsDir() {
 }
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
-const lastLine = (text) => String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).pop() || '';
 const emptyDir = (d) => {
   try {
     return fs.readdirSync(d).length === 0;
@@ -57,6 +63,8 @@ export async function placeState(dest, url, run = capture) {
   if (isLinkedWorktree(dest)) return { action: 'different', why: WORKTREE_WHY }; // never cloned over, never counted as this one
   const r = await gitRead(dest, ['config', '--get', 'remote.origin.url'], { run, timeout: 10_000 });
   const have = r.ok ? r.stdout.trim() : '';
+  // A clone of this address that was cut off: the clone moves it aside under a dated name and clones again.
+  if (url && have === url && (await brokenClone(dest, url))) return { action: 'clone', why: 'a clone that was cut off is there: it is moved aside under a dated name and cloned again' };
   if (!url || sameUrl(have, url)) return { action: 'here' };
   return { action: 'different', why: `another repository is there (${have ? 'its address differs' : 'it has no remote'})` };
 }
@@ -98,9 +106,19 @@ export async function untouchedScaffold(dir, run = capture) {
 /** The plan as a person or a program reads it: `root` (the folder each clone must stay inside) stays inside. */
 const shown = (plan) => plan.map(({ root, ...e }) => e);
 
-async function planFrom(map, { dir, projects, brainUrl, run }) {
+async function planFrom(map, { dir, projects, brainUrl, run, withProjects = false }) {
   const plan = [{ kind: 'brain', label: 'ai_brain', url: brainUrl, dest: path.join(dir, 'ai_brain'), root: path.join(dir, 'ai_brain'), ...(await placeState(path.join(dir, 'ai_brain'), brainUrl, run)) }];
+  // The credentials repository the map names comes right after the brain (before the tree's own credentials folder).
+  if (map.credentials && map.credentials.url) {
+    const cdir = path.join(dir, 'credentials');
+    let state = await placeState(cdir, map.credentials.url, run);
+    // The starting folder `workspace setup` makes (its README only, nothing of the owner's): kept aside, then cloned.
+    if (state.action === 'different' && untouchedCredentials(cdir)) state = { action: 'clone', aside: true, why: 'the starting credentials folder of workspace setup (its README only) is kept aside as credentials.unused-<time> first' };
+    plan.push({ kind: 'credentials', label: 'credentials', url: map.credentials.url, dest: cdir, root: cdir, ...state });
+  }
   const ctx = { dir, projects };
+  // Without --with-projects a project is never cloned: what a clone would get is "in the map, not on this computer".
+  const onDemand = (e, ref) => (!withProjects && e.action === 'clone' ? { ...e, action: 'notHere', why: `in the map, not on this computer: hoprig get ${ref}` } : e);
   // Every folder comes from mapTargets (groups.mjs); one behind a link that is not followed is never looked into.
   const all = await mapTargets(map, ctx, run);
   // The plan's word for it is "not followed"; why says the link and the command that names it as the owner's own.
@@ -115,7 +133,7 @@ async function planFrom(map, { dir, projects, brainUrl, run }) {
     const place = places.find((x) => x.id === (p.in || '')) || places[0];
     // `root`: the folder each clone must stay inside (inside.mjs), checked again by the clone itself.
     const gbase = place.group ? path.join(dir, ...place.group.split('/')) : null;
-    const repoEntry = async (r) => ({ kind: 'repo', project: ref, root: r.root, ...(gbase ? { ingroup: place.group } : {}), label: r.label, url: r.entry.url, branch: r.entry.branch, dest: r.dir, ...(await stateOf(r, r.entry.url)) });
+    const repoEntry = async (r) => onDemand({ kind: 'repo', project: ref, root: r.root, ...(gbase ? { ingroup: place.group } : {}), label: r.label, url: r.entry.url, branch: r.entry.branch, dest: r.dir, ...(await stateOf(r, r.entry.url)) }, ref);
     if (place.members === 'group') {
       for (const r of repos) plan.push({ ...(await repoEntry(r)), group: place.group });
       continue;
@@ -128,11 +146,51 @@ async function planFrom(map, { dir, projects, brainUrl, run }) {
     // someone keeps) is in its own place, never the misnamed copy of this one.
     const other = state.action === 'clone' ? (await findByAddress(pdir, p.url, run)).filter((f) => !map.projects.some((x) => (x.in || '') === place.id && x.name === f))[0] : null;
     if (other) state = { action: 'misnamed', why: `it is here as ${other}: to give it the map's name run  ${mvCommand(pdir, other, p.name)}`, mv: mvCommand(pdir, other, p.name) };
-    plan.push({ kind: 'project', label: ref, url: p.url, dest: root, root: t.root, ...(gbase ? { ingroup: place.group } : {}), ...state });
+    plan.push(onDemand({ kind: 'project', label: ref, url: p.url, dest: root, root: t.root, ...(gbase ? { ingroup: place.group } : {}), ...state }, ref));
     for (const r of repos) plan.push(await repoEntry(r));
   }
   for (const t of all.filter((x) => x.kind === 'other')) plan.push({ kind: 'other', label: t.label, url: t.entry.url, branch: t.entry.branch, dest: t.dir, root: t.root, ...(await stateOf(t, t.entry.url)) });
   return plan;
+}
+
+/** The projects restore did not get, by their names, with the command that gets one: { notHere: [ref] } (or nothing). */
+function onDemandOf(plan) {
+  const refs = [...new Set(plan.filter((e) => e.action === 'notHere').map((e) => e.project || e.label))];
+  return refs.length ? { notHere: refs } : {};
+}
+
+/** Clone the credentials repository into the workspace's credentials folder, owner-only. Its result goes into `e`. */
+async function cloneCredentials(e, { ui, quiet, runner, env, at }) {
+  // Here already: made owner-only again (a folder a killed clone left with another mode is repaired, never left).
+  if (e.action === 'here') {
+    if (isDir(e.dest) && !leaves(e.dest, e.dest, at)) mkdirIn({ ...at, root: e.dest }, e.dest, { mode: 0o700 });
+    return (e.result = 'here');
+  }
+  if (e.action !== 'clone') return (e.result = e.action === 'link' ? `skipped: ${e.why}` : `left alone: ${e.why}`);
+  if (e.aside) {
+    // Kept next to it under a dated name, never deleted.
+    const aside = `${e.dest}.unused-${stamp()}`;
+    renameIn({ ...at, root: path.dirname(e.dest) }, e.dest, aside);
+    ui.note(`the starting credentials folder was kept as ${tilde(aside)}`);
+  }
+  ui.out(`  git clone ${e.url} ${tilde(e.dest)}`);
+  // Only its owner may open it, from the first file on: the empty folder is made owner-only first and git clones into
+  // it (never a moment with the umask's mode). A failed clone leaves it empty and owner-only: the next restore clones
+  // into it, and set-up's starting folder is not made in its place.
+  const own = { ...at, root: e.dest };
+  mkdirIn(own, e.dest, { mode: 0o700 });
+  const lines = [];
+  const c = await cloneRepo({ url: e.url, name: 'credentials' }, path.dirname(e.dest), { quiet, run: runner, env, onLine: (l) => lines.push(l), root: e.dest, at, mode: 0o700 });
+  // A cut-off clone moved aside holds the server's objects, so the keys: said, for the owner to look at and remove.
+  if (c.aside) ui.line('warn', `credentials: a clone that was cut off was moved aside as ${tilde(c.aside)} (it holds the keys too): look at it, then remove it yourself`);
+  if (isDir(e.dest)) mkdirIn(own, e.dest, { mode: 0o700 });
+  if (!c.ok) {
+    e.result = `failed: ${gitReason(lines) || 'git failed'}`;
+    ui.line('fail', `credentials: ${e.result}`);
+    return e.result;
+  }
+  ui.line('ok', 'credentials: cloned');
+  return (e.result = c.skipped ? 'left alone: something came into its folder before the clone' : 'cloned');
 }
 
 /**
@@ -140,7 +198,7 @@ async function planFrom(map, { dir, projects, brainUrl, run }) {
  * url, dest, action, why?, result? }], folders: [what the tree step made], notes }. `result` (after a real run):
  * cloned | here | failed: <git's reason> | skipped: <why> | left alone: <why>.
  */
-export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspaceDir(), projects: given = null, runner = stream, run = capture } = {}) {
+export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspaceDir(), projects: given = null, runner = stream, run = capture, withProjects = false } = {}) {
   const repo = parseRepo(spec);
   if (!repo) throw fail(400, `"${String(spec).slice(0, 80)}" is not a git address of a brain (https or SSH, or owner/name on GitHub)`);
   const brainDir = path.join(dir, 'ai_brain');
@@ -172,7 +230,7 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
     const c = await cloneRepo(repo, into, { name: 'ai_brain', quiet, run: runner, env, onLine: (l) => lines.push(l), at: { dir }, scratch: dryRun });
     if (!c.ok) {
       if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
-      throw fail(502, `the brain could not be cloned: ${lastLine(lines.join('\n')) || 'git failed'}`);
+      throw fail(502, `the brain could not be cloned: ${gitReason(lines) || 'git failed'}`);
     }
     if (dryRun) mapDir = tmp;
   }
@@ -185,7 +243,7 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
     // The projects folder: one chosen on this computer before wins; else where the map says (relative to the
     // workspace); else <workspace>/projects.
     const projects = given || chosenProjectsDir() || (m.map.config && m.map.config.projectsDir ? path.join(dir, ...m.map.config.projectsDir.split('/')) : projectsIn({ workspaceDir: dir }));
-    const plan = await planFrom(m.map, { dir, projects, brainUrl: repo.url, run });
+    const plan = await planFrom(m.map, { dir, projects, brainUrl: repo.url, run, withProjects });
     plan[0] = { ...plan[0], action: brainHere.action, why: setAside ? `the unused starting brain is kept as ${tilde(setAside)} first` : plan[0].why };
     if (!plan[0].why) delete plan[0].why;
     // The brain comes from git, never from the scaffold: only the other folders of the tree are listed.
@@ -196,10 +254,13 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
     if (dryRun) {
       const waiting = await toolNote();
       if (waiting) notes.push(waiting);
-      return { ok: true, dryRun, brain: repo.url, projectsDir: projects, plan: shown(plan), folders, notes };
+      return { ok: true, dryRun, brain: repo.url, projectsDir: projects, plan: shown(plan), folders, notes, ...onDemandOf(plan) };
     }
 
     // ---- the real run ----
+    // The credentials repository first: the tree's own credentials folder (made just below) would be in its way.
+    const at0 = { dir, projects };
+    for (const e of plan.filter((x) => x.kind === 'credentials')) await cloneCredentials(e, { ui, quiet, runner, env, at: at0 });
     const made = await workspaceSetup({ cfg: { workspaceDir: dir, projectsDir: projects } });
     plan[0].result = brainHere.action === 'clone' ? 'cloned' : 'here';
     // Nothing is cloned where it would lead out of its folder (a group's `builds -> /elsewhere`, a parent's
@@ -213,14 +274,17 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
       return true;
     };
     const cloneOne = async (e) => {
+      if (e.result) return e.result; // done before (the credentials repository)
       if (e.action === 'here') return (e.result = 'here');
+      if (e.action === 'notHere') return (e.result = e.why);
       if (await throughLink(e)) return e.result;
       if (e.action !== 'clone') return (e.result = e.action === 'no-address' ? `skipped: ${e.why}` : `left alone: ${e.why}`);
       ui.out(`  git clone ${e.url} ${tilde(e.dest)}`);
       const lines = [];
       const c = await cloneRepo({ url: e.url, name: path.basename(e.dest) }, path.dirname(e.dest), { quiet, run: runner, env, onLine: (l) => lines.push(l), root: e.root || e.dest, at });
+      if (c.aside) ui.line('warn', `${e.label}: a clone that was cut off was moved aside as ${tilde(c.aside)}: look at it, then remove it yourself`);
       if (!c.ok) {
-        e.result = `failed: ${lastLine(lines.join('\n')) || 'git failed'}`;
+        e.result = `failed: ${gitReason(lines) || 'git failed'}`;
         ui.line('fail', `${e.label}: ${e.result}`);
         return e.result;
       }
@@ -241,6 +305,10 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
       }
     }
     for (const e of plan.slice(1)) {
+      if (e.action === 'notHere') {
+        e.result = e.why;
+        continue;
+      }
       if (e.ingroup && notFolder.has(e.ingroup)) {
         e.result = `skipped: the group's folder ${e.ingroup} is not a folder here`;
         continue;
@@ -331,9 +399,12 @@ export async function restoreWorkspace(spec, { ui, dryRun = false, dir = workspa
     rememberDir(projects);
     const waiting = await toolNote(); // after the clones: the truth about each tool now
     if (waiting) notes.push(waiting);
+    // This computer's own file in the brain, when it has a label (restore never asks for one: set-up does).
+    const own = await writeOwnFile({ dir, projects });
+    if (own.why && own.file) notes.push(own.why);
     const ok = plan.every((e) => !String(e.result).startsWith('failed'));
     for (const e of plan) if (e.why && ['different', 'misnamed'].includes(e.action)) said(`${e.label}: ${e.why}: left alone`);
-    return { ok, dryRun, brain: repo.url, projectsDir: projects, plan: shown(plan), folders: made.did, notes };
+    return { ok, dryRun, brain: repo.url, projectsDir: projects, plan: shown(plan), folders: made.did, notes, ...onDemandOf(plan) };
   } finally {
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   }

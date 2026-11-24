@@ -5,30 +5,53 @@
 // computer are kept while the page is open, so switching between the parts draws at once, without a jump.
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
-import { MACHINE_STATE, add, api, at, btn, bytes, confirmSheet, fill, h, link, machine, openSheet, prefs, promptSheet, stateOf, toast } from './lib.js';
+import { MACHINE_STATE, add, api, at, btn, bytes, confirmSheet, fill, h, link, machine, openSheet, prefs, promptSheet, span, stateOf, toast, wayLink } from './lib.js';
 import { registerPage } from './registry.js';
 import { errorBox, groupHead, okBox, tabBar } from './shell.js';
 import { store } from './store.js';
 import { setupSection } from './pcsetup.js';
+import { healthSection } from './health.js';
+import { hubMoveBox } from './moveuser.js';
+import { partOf, showPart } from './showpart.js';
+
+// The Public link's switch, opened at itself (the same address as computers.js PUBLIC_LINK_SWITCH, which imports this file).
+const LINK_SWITCH = '#/settings/public-link?show=public-link-switch';
 
 export const PARTS = [
   { id: '', title: 'Overview', text: 'How it is doing now: load, memory, disks, Claude Code and the sessions on it.' },
   { id: 'setup', title: 'Setup', text: 'What it has for coding, what is missing, and one button to install it.' },
+  { id: 'health', title: 'Health', text: 'Its checks (with a Fix where one can run), its versions, its service, and its gateways.' },
   { id: 'advanced', title: 'Advanced', text: 'The programs running on it, its open ports, its name, and power.' },
 ];
+
+// A computer that no longer lets this dashboard in (state unauthorised): nothing of it can be read, so each part says
+// so instead of promising load, checks or programs. Advanced stays: Rename and Remove from this list are this
+// dashboard's own and still work there, and Remove is found nowhere else.
+const NOT_ALLOWED_TEXT = {
+  '': 'How it is doing cannot be read now. To rename it or take it off this list, open Advanced.',
+  setup: 'What it has for coding cannot be checked while it does not let this dashboard in.',
+  health: 'Its checks cannot be read while it does not let this dashboard in.',
+  advanced: 'Its name, and taking it off this list. Its programs, ports and power can be used again once it lets this dashboard in.',
+};
+/** Whether `m` (an entry of store.all) no longer lets this dashboard in. */
+export const notAllowed = (m) => Boolean(m) && m.status === 'unauthorised';
+/** The line under the tabs for `part` of computer `m`. */
+export const partText = (part, m) => (notAllowed(m) && NOT_ALLOWED_TEXT[part.id]) || part.text;
+/** What a list of Advanced says when the computer's figures could not be read. */
+export const unreadWords = (label, m) => (notAllowed(m) ? `Cannot be read: ${label} no longer lets this dashboard in.` : `Cannot be read while ${label} does not answer.`);
 
 const OS = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
 export const osName = (p) => OS[p] || p || '';
 const cache = new Map(); // computer ('~' for this one) → the last answers: { pc, info, claude, reach }
 const keyOf = () => machine.current || '~';
 
-/** "3 d 5 h" from seconds. */
+/** "3 days 5 h" from seconds. */
 export function upFor(s) {
   if (!Number.isFinite(s)) return '';
   const d = Math.floor(s / 86400);
   const hr = Math.floor((s % 86400) / 3600);
   const min = Math.floor((s % 3600) / 60);
-  return d ? `${d} d ${hr} h` : hr ? `${hr} h ${min} min` : `${min} min`;
+  return d ? `${span(d * 86400_000)} ${hr} h` : hr ? `${hr} h ${min} min` : `${min} min`;
 }
 
 /** The busiest and the largest programs as one list (each once), sorted by 'cpu' or 'mem'. */
@@ -51,14 +74,16 @@ export function reachOf(settings, link = null) {
     if (link.state === 'on' && link.url) return { level: 'anywhere', text: `Through its public link ${link.url} (${kind}${link.kind === 'custom' ? '' : ': the address changes whenever Hoprig or the computer restarts'}).` };
     if (link.state === 'starting' || link.state === 'installing') return { level: 'anywhere', text: `Through its public link (${kind}), once it is connected (it is starting now).` };
     broken = link.state === 'blocked'
-      ? `Its public link (${kind}) is on but held back: its password must be made strong first (Settings → Public link).`
-      : `Its public link (${kind}) is on but not working now${link.state === 'retrying' ? '; it keeps trying' : ''} (Settings → Public link says why).`;
+      ? `Its public link (${kind}) is on but held back: its password must be made strong first. Its switch is one press away.`
+      : `Its public link (${kind}) is on but not working now${link.state === 'retrying' ? '; it keeps trying' : ''}. Its switch says why.`;
   }
   const s = (settings && settings.server) || {};
   if (s.publicUrl) return { level: 'anywhere', text: `At ${s.publicUrl}.` };
   const n = (settings && settings.network) || {};
-  if (n.host && !['127.0.0.1', '::1', 'localhost'].includes(n.host)) return { level: 'network', text: `From other devices on the same network, on port ${n.port}. ${broken || 'Turn on the public link to open it from anywhere.'}` };
-  return { level: 'local', text: broken || 'Turn on the public link to open it from anywhere.' };
+  // A broken link: the row opens the switch itself, where the reason is shown.
+  const href = broken ? LINK_SWITCH : undefined;
+  if (n.host && !['127.0.0.1', '::1', 'localhost'].includes(n.host)) return { level: 'network', text: `From other devices on the same network, on port ${n.port}. ${broken || 'Turn on the public link to open it from anywhere.'}`, ...(href ? { href } : {}) };
+  return { level: 'local', text: broken || 'Turn on the public link to open it from anywhere.', ...(href ? { href } : {}) };
 }
 
 /** The open computer as the list of computers knows it (state, system, versions). */
@@ -102,7 +127,7 @@ async function updateClaude(m, label, done) {
     const r = await follow(at(m, '/api/claude/update'), out, () => open);
     if (r) fill(status, r.ok ? okBox(`Done: Claude Code ${r.version || ''} is installed.`) : errorBox('The update did not finish: see the output, then try again or install it under Setup.'));
   } catch (e) {
-    fill(status, errorBox(e.message));
+    fill(status, errorBox(e));
   }
 }
 
@@ -189,7 +214,7 @@ function claudeRow(ctx, c) {
   if (!cl) return h('div.row.static', h('span.row-icon', icon('sparkle')), h('span.row-main', h('span.row-title', 'Claude Code'), h('span.row-sub', 'Looking…')));
   if (!cl.installed) {
     return h('a.row', { href: link('#/computer/setup') }, h('span.row-icon', icon('sparkle')),
-      h('span.row-main', h('span.row-title', 'Claude Code not installed'), h('span.row-sub', 'Install it under Setup.')),
+      h('span.row-main', h('span.row-title', 'Claude Code not installed'), h('span.row-sub', 'Setup shows the command that installs it, to type in a terminal on that computer.')),
       h('span.row-end', icon('chevronRight', { size: 18 })));
   }
   return h('div.row.static', h('span.row-icon', icon('sparkle')),
@@ -201,15 +226,31 @@ function claudeRow(ctx, c) {
 function reachRow(reach) {
   if (!reach) return h('div.row.static', h('span.row-icon', icon('lock')), h('span.row-main', h('span.row-title', 'Checking…'), h('span.row-sub', ' ')));
   const title = { anywhere: 'Yes, from anywhere', network: 'From the network', local: 'No: only on the computer itself', unknown: 'Could not tell' }[reach.level];
-  return h('a.row', { href: link('#/settings/public-link') },
+  return h('a.row', { href: link(reach.href || '#/settings/public-link') },
     h('span.row-icon', icon(reach.level === 'anywhere' ? 'check' : 'lock')),
     h('span.row-main.cp-wrap', h('span.row-title', title), h('span.row-sub', reach.text)),
     h('span.row-end', icon('chevronRight', { size: 18 })));
 }
 
+/** The error of a computer that does not answer, under a closed Details; nothing when there is none. */
+export const rawError = (text) => (text ? h('details.adv.cp-fold.cp-rawerror', h('summary', 'Details'), h('p.hint.mono', text)) : null);
+
+/**
+ * Another computer that answered but no longer lets this dashboard in (state unauthorised): what the Computers list
+ * says for it, the computer's own sentence, and the one way back: add it again here. The offline steps would be untrue
+ * here. Its Advanced part still has Rename and Remove from this list; the line under the tabs names it (partText).
+ */
+export function notAllowedCard(label, error) {
+  return h('section.card.panel.cp-offline', { dataset: { label } },
+    h('div.panel-head', h('span.panel-icon.cp-warn', icon('alert')),
+      h('div', h('h2.panel-title', `${label}: ${MACHINE_STATE.unauthorised}`), h('p.panel-desc', error || `${label} no longer lets this dashboard in. Add it again here: Computers → Add a computer.`))),
+    h('div.savebar.start', wayLink({ code: 'computer-not-allowed' })));
+}
+
 /** Another computer that does not answer: what is known, and what to do. */
 function offline(ctx, err) {
   const m = store.all.find((x) => x.machine === machine.current) || {};
+  if (m.status === 'unauthorised') return notAllowedCard(ctx.label(), m.error);
   const msg = h('div', { role: 'status' });
   const again = btn('primary', { icon: 'refresh', label: 'Try again', onclick: async () => {
     again.disabled = true;
@@ -229,7 +270,9 @@ function offline(ctx, err) {
   } });
   return h('section.card.panel.cp-offline', { dataset: { label: ctx.label() } },
     h('div.panel-head', h('span.panel-icon.cp-warn', icon('alert')),
-      h('div', h('h2.panel-title', `${ctx.label()} cannot be reached`), h('p.panel-desc', m.error || err.message || 'It does not answer.'))),
+      h('div', h('h2.panel-title', `${ctx.label()} cannot be reached`), h('p.panel-desc', 'It does not answer.'))),
+    // The raw error ("connect ECONNREFUSED …") is for someone who helps him: closed, under Details.
+    rawError(m.error || (err && err.message)),
     h('ol.cp-next',
       h('li', 'Check that the computer is switched on and connected to the network.'),
       h('li', `Check that ${APP_NAME} runs on it (it starts by itself after a restart when it runs as a service).`),
@@ -269,7 +312,7 @@ function advanced(ctx) {
         toast(`Stopped ${p.name}`);
         ctx.reload();
       } catch (e) {
-        toast(e.message, { kind: 'error', ms: 6000 });
+        toast(e, { kind: 'error', ms: 6000 });
       }
     } })
     : h('span.cp-stop-none.muted', { title: 'Started by another user: it cannot be stopped from here' }, 'not yours'));
@@ -277,7 +320,7 @@ function advanced(ctx) {
   function paint() {
     const c = cache.get(keyOf()) || {};
     if (!c.pc) {
-      const text = c.failed ? `Cannot be read while ${ctx.label()} does not answer.` : 'Reading…';
+      const text = c.failed ? unreadWords(ctx.label(), ctx.entry()) : 'Reading…';
       fill(procs, h('div.rows', h('div.row.static', h('span.row-main', h('span.row-sub', text)))));
       fill(ports, h('div.rows', h('div.row.static', h('span.row-main', h('span.row-sub', text)))));
       return;
@@ -312,7 +355,7 @@ function advanced(ctx) {
       fill(manageMsg, okBox(`Renamed to ${label.trim()}.`));
       store.refresh();
     } catch (e) {
-      fill(manageMsg, errorBox(e.message));
+      fill(manageMsg, errorBox(e));
     }
   });
   const test = act('refresh', 'Test the connection', 'Ask it now whether it answers', async () => {
@@ -323,20 +366,24 @@ function advanced(ctx) {
       store.refresh();
       ctx.reload();
     } catch (e) {
-      fill(manageMsg, errorBox(e.message));
+      fill(manageMsg, errorBox(e));
     }
   });
   const remove = act('trash', 'Remove from this list', 'Its sessions are no longer shown here; nothing on it is stopped', async () => {
     if (!(await confirmSheet({ title: `Remove ${ctx.label()}?`, text: `${ctx.label()} and its sessions are no longer shown here. Nothing on that computer is stopped or deleted; this page only gives up its right to control it.`, ok: `Remove ${ctx.label()}`, danger: true }))) return;
     try {
-      const r = await api(`~/api/machines/${name}/remove`, {});
+      const r = await api(`~/api/machines/${name}/remove`, { confirm: name });
       toast(r.revoked ? `${ctx.label()} removed` : `${ctx.label()} removed. ${r.note || ''}`, { ms: r.revoked ? 3500 : 8000 });
       store.refresh();
       location.hash = '#/computers';
     } catch (e) {
-      fill(manageMsg, errorBox(e.message));
+      fill(manageMsg, errorBox(e));
     }
   }, true);
+
+  // ---- its host key (a computer added with a key file): the kept print and the one it shows now ----
+  const hostMsg = h('div', { role: 'status' });
+  const hostKey = act('lock', 'Its host key', 'Compare the host key it shows now with the one kept for it', () => compareHostKey(ctx, name, hostMsg));
 
   // ---- power: a confirmation that names the computer, then the answer on the page ----
   const powerBtn = (action, label) => btn('danger', { icon: 'power', label, onclick: async () => {
@@ -354,32 +401,93 @@ function advanced(ctx) {
     }
   } });
 
+  // The move and power act on the computer itself: while it no longer lets this dashboard in, neither is offered (the
+  // line under the tabs says they come back once it does). Drawn again only when that state or the name changes, so a
+  // move being followed is not thrown away by the next poll.
+  const acts = h('div');
+  let actsKey = null;
+  const paintActs = () => {
+    const k = `${notAllowed(ctx.entry())}\n${ctx.label()}`;
+    if (k === actsKey) return;
+    actsKey = k;
+    fill(acts, advancedActs(ctx, name, { powerBtn, powerMsg }));
+  };
+
   ctx.onData(paint);
+  ctx.onData(paintActs);
   paintSort();
   paint();
+  paintActs();
   return h('div.cp-part',
     section('Programs running', undefined, h('div.cp-bar', h('p.hint', 'The busiest and the largest. Only programs of your own user can be stopped.'), sortBar), procs),
     section('Listening ports', undefined, ports),
-    section('This computer', undefined, h('div.rows', rename, name ? test : null, name ? remove : null), manageMsg),
-    section('Power', undefined, h('p.hint', 'Restart or shut down the computer. Every session on it stops; you are asked first.'), h('div.savebar.start', powerBtn('reboot', 'Restart'), powerBtn('poweroff', 'Shut down')), powerMsg));
+    section('This computer', undefined, h('div.rows.cp-acts', rename, name ? test : null, name ? hostKey : null, name ? remove : null), manageMsg, hostMsg),
+    acts);
+}
+
+/**
+ * The sections of Advanced that act on the computer itself: its move to an ordinary user (another computer only) and
+ * its power. None while it no longer lets this dashboard in: nothing could reach it.
+ */
+export function advancedActs(ctx, name, { powerBtn, powerMsg }) {
+  if (notAllowed(ctx.entry())) return [];
+  const who = ctx.label();
+  return [
+    // Another computer: its move to an ordinary user over this hub's SSH login (web/moveuser.js; one added otherwise is told so).
+    name ? section('Move Hoprig to an ordinary user', undefined, h('p.hint', `Where Hoprig works as root on ${who} (added by SSH): it moves to an ordinary user that exists there, and this main computer then signs in as that user.`), hubMoveBox(name, who)) : null,
+    section('Power', undefined, h('p.hint', 'Restart or shut down the computer. Every session on it stops; you are asked first.'), h('div.savebar.start', powerBtn('reboot', 'Restart'), powerBtn('poweroff', 'Shut down')), powerMsg),
+  ];
+}
+
+/**
+ * Its host key: both prints, and "Use the new host key" behind a confirmation that names the computer and both prints.
+ * The server keeps the new one only when the print sent is the one it reads there now.
+ */
+export async function compareHostKey(ctx, name, msg) {
+  fill(msg, h('div.inline-busy', h('div.spinner.small', { 'aria-hidden': 'true' }), h('span', `Reading the host key of ${ctx.label()}…`)));
+  let k;
+  try {
+    k = await api(`~/api/machines/${name}/hostkey`);
+  } catch (e) {
+    return fill(msg, errorBox(e));
+  }
+  if (k.same) return fill(msg, okBox(`${ctx.label()} shows the host key kept for it: ${k.now}`));
+  fill(msg,
+    h('div.cp-print',
+      h('p', h('strong', `${ctx.label()} shows another host key than the one kept for it.`)),
+      h('p.hint', 'Kept:'), h('code.cp-printcode', k.kept || 'none'),
+      h('p.hint', 'Now:'), h('code.cp-printcode', k.now),
+      h('p.hint', 'A server that was set up again (a new system on it) gets a new host key. Compare the new print with the one its provider shows. If they differ, someone may stand between this computer and that one: keep the old key and nothing is sent to it.')),
+    h('div.savebar.start', btn('primary', { icon: 'check', label: `Use the new host key for ${ctx.label()}`, onclick: async () => {
+      if (!(await confirmSheet({ title: `Use the new host key for ${ctx.label()}?`, text: `The kept print ${k.kept || '(none)'} is replaced by ${k.now}. From then on only the new one is accepted.`, ok: `Use it for ${ctx.label()}` }))) return;
+      try {
+        const r = await api(`~/api/machines/${name}/hostkey`, { print: k.now, confirm: name });
+        fill(msg, r.machine.state === 'online' ? okBox(`The new host key is kept, and ${ctx.label()} answers.`) : okBox(`The new host key is kept. ${r.machine.error || ''}`));
+        store.refresh();
+      } catch (e) {
+        fill(msg, errorBox(e));
+      }
+    } })));
 }
 
 // ======================= the page =======================
 
-function viewPc({ frame, connectionBanner, sub }) {
+function viewPc({ frame, connectionBanner, sub, query }) {
   store.viewing = null;
   const part = PARTS.find((p) => p.id === sub);
   if (!part) {
     location.replace(link('#/computer'));
     return () => {};
   }
-  const label = () => ((store.all.find((m) => m.machine === machine.current) || {}).machineLabel) || machine.current || 'This computer';
+  const entry = () => store.all.find((m) => m.machine === machine.current) || null;
+  const label = () => (entry() || {}).machineLabel || machine.current || 'This computer';
   let alive = true;
   let timer = null;
   const listeners = [];
   const key = keyOf();
   const ctx = {
     label,
+    entry,
     connectionBanner,
     onData: (fn) => listeners.push(fn),
     reload: () => {
@@ -388,19 +496,25 @@ function viewPc({ frame, connectionBanner, sub }) {
     },
   };
   const tabs = tabBar('Parts of this page', PARTS.map((p) => ({ id: p.id, label: p.title, href: link(p.id ? `#/computer/${p.id}` : '#/computer') })), part.id);
-  const content = part.id === 'setup' ? setupSection() : part.id === 'advanced' ? advanced(ctx) : overview(ctx);
+  const content = part.id === 'setup' ? setupSection() : part.id === 'health' ? healthSection(ctx) : part.id === 'advanced' ? advanced(ctx) : overview(ctx);
   // A link back here names the part ("Setup"), and the computer once there are several.
   const place = () => (part.id ? (store.multi ? `${part.title} · ${label()}` : part.title) : label());
   // Its desktop: the apps of this computer as windows (web/desktop/; a grid of the apps on a small screen).
   const desktop = h('a.btn.secondary.small', { href: link('#/desktop') }, icon('monitor', { size: 16 }), h('span', 'Open desktop'));
-  const draw = () => frame({ title: label(), place: place(), page: 'computer', back: '#/computers', backLabel: 'Computers', intro: 'One computer: how it is doing, what is set up on it, and its controls.', actions: [desktop], body: [tabs, h('p.cp-parttext', part.text), content] });
+  // "?show=<part>" (e.g. #/computer/setup?show=git): the part a sentence elsewhere names is brought into view.
+  const shown = partOf(query);
+  const draw = () => frame({ title: label(), place: place(), page: 'computer', back: '#/computers', backLabel: 'Computers', intro: 'One computer: how it is doing, what is set up on it, and its controls.', actions: notAllowed(entry()) ? [] : [desktop], body: [tabs, h('p.cp-parttext', partText(part, entry())), content] });
   draw();
+  if (shown) showPart(shown, { alive: () => alive });
   const tell = () => listeners.forEach((fn) => fn());
-  // The name may arrive after the first paint (and changes after Rename).
+  // The name may arrive after the first paint (and changes after Rename), and so may the state the line under the
+  // tabs depends on (a computer that no longer lets this dashboard in).
   let named = label();
+  let refused = notAllowed(entry());
   const unsubscribe = store.subscribe(() => {
-    if (label() !== named) {
+    if (label() !== named || notAllowed(entry()) !== refused) {
       named = label();
+      refused = notAllowed(entry());
       draw();
     }
     if (alive) tell(); // the sessions' states come from the session poll
@@ -428,7 +542,7 @@ function viewPc({ frame, connectionBanner, sub }) {
       .then(([s, l]) => set({ reach: reachOf(s, l) }))
       .catch(() => set({ reach: { level: 'unknown', text: 'Its settings could not be read.' } }));
   }
-  if (part.id !== 'setup') {
+  if (part.id !== 'setup' && part.id !== 'health') {
     refresh();
     if (part.id === '') facts();
   }

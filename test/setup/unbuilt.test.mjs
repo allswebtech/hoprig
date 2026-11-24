@@ -8,13 +8,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { scratch } from './helpers.mjs';
+import { fakeBin, fakeClaude, scratch } from './helpers.mjs';
 
 const s = scratch();
 test.after(s.cleanup);
 // The doctor asks the dashboard's port whether a dashboard answers: a free port, never the default one, where the
 // computer running the tests may have its own dashboard.
 (await import('../../src/config.mjs')).saveConfig({ server: { port: await (await import('../../src/machines/tunnels.mjs')).freePort() } });
+// doctor asks systemd whether user services run here: a stand-in says no, before the runner's traps.
+const standIns = fakeBin(path.join(s.tmp, 'stand-ins'), {
+  systemctl: 'exit 1', loginctl: 'exit 1',
+  // doctor also probes these on PATH; harmless stand-ins answer so the owner's real gh, docker, tailscale, tmux and
+  // Claude Code are never reached (this test is about node-pty, not any of them).
+  gh: 'case "$1" in --version) echo "gh version 2.0.0 (2024-01-01)";; *) exit 1;; esac',
+  docker: 'case "$1" in --version) echo "Docker version 24.0.0, build abc0123";; *) exit 1;; esac',
+  tailscale: 'exit 1',
+  tmux: '[ "$1" = "-V" ] && echo "tmux 3.4" || exit 1',
+  claude: fakeClaude({ loggedIn: false }),
+});
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /** A copy of hoprig whose node-pty is there but throws on load; every other dependency is the real one. */
@@ -36,7 +47,7 @@ function copyWithUnbuiltPty() {
 
 const run = (args) =>
   new Promise((resolve) => {
-    execFile(process.execPath, args, { env: { ...process.env, ...s.env }, timeout: 60_000, maxBuffer: 8 << 20 }, (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr }));
+    execFile(process.execPath, args, { env: { ...process.env, ...s.env, PATH: `${standIns}${path.delimiter}${process.env.PATH}` }, timeout: 60_000, maxBuffer: 8 << 20 }, (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr }));
   });
 
 test('a terminal module that was never built: doctor names the cause and the fix, the dashboard still loads', async () => {

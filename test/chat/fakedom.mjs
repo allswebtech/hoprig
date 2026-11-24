@@ -63,11 +63,57 @@ export class FakeElement extends FakeNode {
   getBoundingClientRect() {
     return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
   }
-  querySelector() {
+  // Simple selectors: "tag", ".class", "tag.class", an attribute ('[data-x="v"]', "[data-x]"), a list ("a, b") and
+  // a descendant ("a b"). Anything else finds nothing.
+  matches(sel) {
+    const parts = String(sel).split(',').map((x) => x.trim()).filter(Boolean);
+    if (parts.length > 1) return parts.some((p) => this.matches(p));
+    const steps = (parts[0] || '').split(/\s+(?![^[]*\])/).filter(Boolean);
+    if (!steps.length || !this.matchesOne(steps.at(-1))) return false;
+    let i = steps.length - 2;
+    for (let x = this.parentNode; i >= 0 && x instanceof FakeElement; x = x.parentNode) if (x.matchesOne(steps[i])) i--;
+    return i < 0;
+  }
+  matchesOne(sel) {
+    const m = /^([a-z0-9]*)((?:\.[\w-]+)*)((?:\[[^\]]+\])*)$/i.exec(String(sel));
+    if (!m) return false;
+    const cls = m[2].split('.').filter(Boolean);
+    const attrs = [...m[3].matchAll(/\[([\w-]+)(?:=("[^"]*"|[^\]]*))?\]/g)].map(([, k, v]) => [k, v === undefined ? null : v.startsWith('"') ? JSON.parse(v) : v]);
+    return (!m[1] || this.tag === m[1]) && cls.every((c) => this.className.split(' ').includes(c)) && attrs.every(([k, v]) => (v === null ? k in this.attrs : String(this.attrs[k]) === v));
+  }
+  querySelectorAll(sel) {
+    const out = [];
+    const walk = (n) => {
+      for (const c of n.children) {
+        if (!(c instanceof FakeElement)) continue;
+        if (c.matches(sel)) out.push(c);
+        walk(c);
+      }
+    };
+    walk(this);
+    return out;
+  }
+  querySelector(sel) {
+    return this.querySelectorAll(sel)[0] || null;
+  }
+  closest(sel) {
+    for (let x = this; x instanceof FakeElement; x = x.parentNode) if (x.matches(sel)) return x;
     return null;
   }
-  querySelectorAll() {
-    return [];
+  get firstChild() {
+    return this.children[0] || null;
+  }
+  get nextElementSibling() {
+    if (!this.parentNode) return null;
+    const sibs = this.parentNode.children;
+    for (let i = sibs.indexOf(this) + 1; i < sibs.length; i++) if (sibs[i] instanceof FakeElement) return sibs[i];
+    return null;
+  }
+  after(n) {
+    const p = this.parentNode;
+    if (!p) return;
+    const sibs = p.children;
+    p.insertBefore(n, sibs[sibs.indexOf(this) + 1] || null);
   }
 }
 let focused = null;

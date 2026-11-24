@@ -6,11 +6,43 @@
  * What a failed action says in a toast: the dashboard's own sentence (an ApiError has a status); a fault of the page
  * itself never shows its script message ("Cannot read properties of null").
  */
-export const failText = (e) => (e && Number.isInteger(e.status) && e.message ? e.message : 'That did not work. Reload the page and try again.');
+export const failText = (e) => (e && Number.isInteger(e.status) && e.message ? stop(e) : 'That did not work. Reload the page and try again.');
+// The tool-off words (src/chat/tools.mjs) are one sentence the banner ends with a full stop: the toast ends it too.
+const stop = (e) => (e.code === 'tool-off' && !/[.!?]$/.test(e.message) ? `${e.message}.` : e.message);
 
 const fileName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '');
 const firstLine = (s) => String(s || '').split('\n').find((l) => l.trim()) || '';
 /** Lines of a text as an editor counts them: a last newline ends the last line, it does not start one. */
+/**
+ * A turn that ended with the coding tool's own error text: the plain line for a kind a person can act on, or null
+ * (then the text is shown as it is). The tool's words ("Invalid API key · Please run /login") name a terminal step;
+ * the page has its own way, so they go under Details. A usage limit has its own card and never comes here.
+ */
+export function turnErrorWords(text) {
+  const t = String(text || '');
+  // A bare 401 is any number in any text (a line count, a port): only the HTTP status counts, in the ways a client
+  // prints it ("status 401", "status code 401", "statusCode: 401", "HTTP 401", "HTTP/1.1 401", "401 Unauthorized").
+  if (/invalid (x-)?api.?key|run \/login|authentication_error|oauth token|not (logged|signed) in|\b(?:status(?:\s*code)?|HTTP(?:\/[\d.]+)?)\W{0,3}401\b|\b401\W{0,3}unauthorized\b/i.test(t)) {
+    return { kind: 'auth', line: 'This provider did not accept the sign-in. Once it is signed in again, send your message once more.' };
+  }
+  if (/credit balance|insufficient (credit|funds)|billing/i.test(t)) {
+    return { kind: 'billing', line: 'This provider has no credit left. Add credit on its own site, or move this chat to another provider.' };
+  }
+  return null;
+}
+
+/**
+ * The way on from a refused sign-in, by the chat's provider (`p`: its { name, kind, ownFolder? }, `tool`: the coding
+ * tool's id, `remote`: the chat is on another computer): { kind: 'claude-signin' } where this computer's default Claude
+ * Code sign-in is the provider (the page's sign-in signs in that one only), else { kind: 'provider', hash } to that
+ * provider on Providers of the chat's own computer (an API key or a token is changed there; for a sign-in folder of its
+ * own the page says how a terminal session on that provider signs it in).
+ */
+export function signInWay(p, tool, { remote = false } = {}) {
+  if (p && p.kind === 'login' && (!tool || tool === 'claude') && !p.ownFolder && !remote) return { kind: 'claude-signin' };
+  return { kind: 'provider', hash: p && p.name && p.kind !== 'auto' ? `#/providers/${encodeURIComponent(p.name)}` : '#/providers' };
+}
+
 export const lineCount = (s) => (s ? String(s).replace(/\n$/, '').split('\n').length : 0);
 
 /** What an edit changes: { added, removed } lines, the way the diff below shows it. */
@@ -141,7 +173,7 @@ export function toolLine(name, input = {}, state = 'done') {
 
 // The items of a grant's text (src/chat/engines/claude-lines.mjs sessionGrant): "Tool", "Tool(rule)", "the folder
 // <path>" and "all edits", joined by ", ". A rule may hold ", " itself: a comma splits only where a next item starts.
-const grantItems = (text) => String(text || '').split(/,\s*(?=[A-Za-z_][\w-]*(?:\(|,|$)|the folder |all edits(?:,|$))/).map((x) => x.trim()).filter(Boolean);
+export const grantItems = (text) => String(text || '').split(/,\s*(?=[A-Za-z_][\w-]*(?:\(|,|$)|the folder |all edits(?:,|$))/).map((x) => x.trim()).filter(Boolean);
 
 /**
  * What "Allow in this chat" covers, in words: Claude Code's rules ("Bash(npm view *)", "WebFetch(domain:x.org)")
@@ -172,7 +204,9 @@ export function alwaysWords(ev, who = 'Claude') {
   if (!what) return '';
   const cmd = ev.tool === 'Bash' && ev.input && typeof ev.input.command === 'string' ? ev.input.command.trim() : '';
   const part = !!cmd && /[;&|\n]/.test(cmd) && !grantItems(ev.alwaysText).includes(`Bash(${cmd})`);
-  return `“Allow in this session” also lets Claude do this again in this session without asking: ${what}.${part ? ' That is only part of this command.' : ''}`;
+  // The third answer's reach, said here too: a phone never shows the button's title.
+  const project = ev.canProject ? ` “Always allow in this project” does it for every session in this folder${ev.projectText && ev.projectText !== ev.alwaysText ? ` (${ruleWords(ev.projectText)})` : ''}, and Claude Code keeps it in .claude/settings.local.json.` : '';
+  return `“Allow in this session” also lets Claude do this again in this session without asking: ${what}.${part ? ' That is only part of this command.' : ''}${project}`;
 }
 
 /** What the coding tool (`who`: "Claude", "OpenCode") asks to do, as the head of the OK card. */
@@ -253,6 +287,19 @@ function endNames(s) {
  * one from an older computer, names an upload only there: it becomes a chip by its name. An "@file" the owner wrote
  * at the end himself stays his words. → { text, files }
  */
+// A new project's first message (src/pcsetup/newprojectstart.mjs START_MARK): Hoprig wrote it for the AI, so the
+// chat folds it and shows his brief, the part after its brief line, as he wrote it. → { full, brief } or null.
+// The mark may carry the project's folder name ("<!-- hoprig:new-project shop -->"). → { full, brief, name } or null.
+const START_MARK = /^<!-- hoprig:new-project(?: ([\w.-]{1,80}))? -->\n/;
+export function startFold(text) {
+  const s = String(text || '');
+  const m = START_MARK.exec(s);
+  if (!m) return null;
+  const full = s.slice(m[0].length);
+  const at = full.indexOf('\n----- my brief -----\n');
+  return { full, brief: at >= 0 ? full.slice(at + '\n----- my brief -----\n'.length) : '', name: m[1] || '' };
+}
+
 export function ownMessageView(text, files = []) {
   const s = String(text || '');
   const m = endNames(s);
@@ -346,15 +393,18 @@ export function beforeState(v, r) {
   if (r.choices && !(w && w.choices)) w = { ...(w || {}), choices: r.choices, autoMode: r.autoMode };
   return w;
 }
-/** The order Shift+Tab goes through, as in Claude Code (don't ask is only in the menu). */
-export const MODE_CYCLE = ['manual', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'];
+/** The order Shift+Tab goes through, as in Claude Code: after plan bypass first, auto last (don't ask is only in the menu). */
+export const MODE_CYCLE = ['manual', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'];
 export function nextMode(now, modes = Object.keys(MODE)) {
   const ring = MODE_CYCLE.filter((m) => modes.includes(m));
   const i = ring.indexOf(now || 'manual');
   return ring[(i + 1) % ring.length];
 }
-/** The mode the chat runs in: what the running process says, else what is set (null: Claude Code's default, Manual). */
-export const modeOf = (v) => (v.liveMode ? (v.liveMode === 'default' ? 'manual' : v.liveMode) : v.permissionMode || 'manual');
+/**
+ * The mode the chat runs in: what the running process says, else what is set (null: Claude Code's default, Manual).
+ * A mode set that the process takes only at its next start (modeLater) is shown at once, so Shift+Tab goes on from it.
+ */
+export const modeOf = (v) => (v.modeLater ? v.modeLater : v.liveMode ? (v.liveMode === 'default' ? 'manual' : v.liveMode) : v.permissionMode || 'manual');
 export const modeChip = (m) => (MODE[m] ? MODE[m].chip : m ? m : MODE.manual.chip);
 /**
  * A mode as the chip and menu say it: Claude Code's name (one word for one mode, in every coding tool's chat), and
@@ -365,6 +415,18 @@ export const modeInfo = (v, m) => {
   if (!own) return MODE[m] || null;
   return MODE[m] ? { ...own, chip: MODE[m].chip } : own;
 };
+/** The message box's placeholder. o: { readOnly, fine (a mouse), width (of the box, px; 0 or unknown: wide) } */
+/**
+ * The box's placeholder: what to do, with nothing a person in a browser does not have (no key of a terminal: the keys
+ * are in the shortcut sheet). While Claude works a message is sent, as in the desktop app: read after the current step.
+ */
+export function boxWords(v, { readOnly = false } = {}) {
+  const who = toolWord(v);
+  if (v.toolOff) return `${who} is off on this computer`;
+  if (readOnly) return 'Read only while the terminal runs this conversation';
+  if (turnRuns(v)) return `Send ${who} a message: read after its current step`;
+  return `Message ${who} · / for commands · @ for files`;
+}
 /** How the page names the chat's coding tool in a sentence: "Claude" for Claude Code, else the tool's name. */
 export const toolWord = (v) => (v && v.engine && v.engine.id && v.engine.id !== 'claude' ? v.engine.label || v.engine.id : 'Claude');
 /** What the chat's coding tool can do (its engine's capabilities; before the first state: nothing extra). */
@@ -379,6 +441,8 @@ export const canCompact = (v) => caps(v).compact !== false && !(v && (v.terminal
 const MODEL_NAMES = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' };
 /** "Opus", or the model's own id for one the dashboard does not name. */
 export const modelName = (m) => MODEL_NAMES[m] || (m ? String(m).replace(/^claude-/, '') : 'Auto');
+/** The line under a model of the chat's menu: a saved model the provider's list leaves out says so (choices.notListed). */
+export const modelSub = (m, choices) => (choices && Array.isArray(choices.notListed) && choices.notListed.includes(m) ? 'Not in this provider\'s list' : '');
 export const EFFORT_NAMES = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
 export const effortName = (e) => EFFORT_NAMES[e] || (e ? e : 'Auto');
 
@@ -398,11 +462,54 @@ const WINDOWS = { five_hour: '5 h', seven_day: 'week', seven_day_opus: 'week Opu
 export const hasPlan = (v) => !(v && v.engine && v.engine.id && v.engine.id !== 'claude')
   && !(v && v.profile && v.profile.kind && v.profile.kind !== 'subscription' && v.profile.kind !== 'login');
 
-export function limitsLine(limits) {
+/**
+ * A window the plan still counts in: its percent known, and its reset time not passed (after it the window is back near
+ * 0 until the coding tool says more; an old percent would read as used). now: a clock, for a test.
+ */
+const current = (x, now) => x && Number.isFinite(x.percent) && !(Number.isFinite(x.resetsAt) && x.resetsAt <= now);
+
+export function limitsLine(limits, now = Date.now()) {
   return Object.entries(limits || {})
-    .filter(([, x]) => x && Number.isFinite(x.percent))
+    .filter(([, x]) => current(x, now))
     .map(([w, x]) => `${WINDOWS[w] || w.replace(/_/g, ' ')} ${Math.round(x.percent)}%`)
     .join(' · ');
+}
+
+/** The plan's windows as the ring's sheet names them, the fullest first: [{ window, name, percent, resetsAt }]. */
+const WINDOW_NAMES = { five_hour: '5-hour limit', seven_day: 'Weekly limit', seven_day_opus: 'Weekly limit, Opus', seven_day_sonnet: 'Weekly limit, Sonnet' };
+export function planWindows(limits, now = Date.now()) {
+  return Object.entries(limits || {}).filter(([, x]) => current(x, now))
+    .map(([w, x]) => ({ window: w, name: WINDOW_NAMES[w] || w.replace(/_/g, ' '), percent: Math.round(x.percent), resetsAt: x.resetsAt }))
+    .sort((a, b) => b.percent - a.percent);
+}
+
+/** "Context" in plain words: its tooltip and its accessible name, wherever the label stands. */
+export const CONTEXT_SAID = 'Context: how full the chat\'s memory is';
+
+/**
+ * What the usage ring shows, as the desktop app's: the plan's usage (its fullest window) where the session's provider
+ * reports it (a Claude subscription), else the context this conversation fills (a gateway, a key billed by use, another
+ * coding tool). The words always say which. → { kind: 'plan' | 'context', percent, text, said } or null (nothing known)
+ */
+export function ringOf(v) {
+  const plan = hasPlan(v) ? planWindows(v && v.limits)[0] : null;
+  if (plan) return { kind: 'plan', percent: plan.percent, text: `Plan ${plan.percent}%`, said: `Plan usage ${plan.percent}% (${plan.name})` };
+  const p = contextPercent(v && v.usage);
+  if (p === null) return null;
+  return { kind: 'context', percent: p, text: `Context ${p}%`, said: `${CONTEXT_SAID} (${p}%)` };
+}
+
+/**
+ * The model control's words, as the desktop app's model picker shows them: the model and its effort ("Sonnet · High";
+ * no effort chosen: the model alone). Another tool's ultracode is its model's highest effort: said so, not a choice it
+ * overrides. → { text, said (for a screen reader) }
+ */
+export function modelWords(v) {
+  const model = v && v.model ? modelName(v.model) : 'Auto';
+  const over = v && v.ultracode && toolWord(v) !== 'Claude';
+  // No effort chosen: the model alone ("Auto", "Sonnet"), short enough for a phone's row; its title and name say "effort: auto".
+  const effort = over ? 'Highest' : v && v.effort ? effortName(v.effort) : '';
+  return { text: effort ? `${model} · ${effort}` : model, said: `Model: ${model}, effort: ${over ? 'highest (ultracode)' : v && v.effort ? effortName(v.effort) : 'auto'}` };
 }
 
 /** Context used, in percent (null when not known). */
@@ -423,10 +530,14 @@ export const exitCode = (text) => {
  * What the page of a session that is not open any more says: moved to its terminal (`was.terminal`), else archived
  * (the session menu's Archive) or moved to the Terminal. One word for one act: Archive, not "closed".
  */
-export const goneWords = (was) => (was && was.terminal ? 'This session moved to the Terminal: the conversation goes on there.' : 'This session is not open in the App any more: it was archived, or moved to the Terminal.');
+export const goneWords = (was) => (was && was.deleted ? 'This session was deleted: it is in the trash. Put it back from there within 30 days.'
+  : was && was.terminal ? 'This session moved to the Terminal: the conversation goes on there.' : 'This session is not open in the App any more: it was archived, or moved to the Terminal.');
 
 /** A turn runs (Stop and Esc end it; a message is queued). A chat of an older computer says only "working". */
 export const turnRuns = (v) => !!(v && (v.turn !== undefined ? v.turn : v.working));
 
 /** A screen that is touched, not pointed at: no keyboard hints there (Enter makes a new line). Asked each time. */
 export const touchScreen = () => typeof matchMedia !== 'undefined' && (matchMedia('(pointer: coarse)').matches || matchMedia('(any-pointer: coarse)').matches);
+
+/** After Stop: the messages sent while Claude worked are back in the box; only files to attach again are said. */
+export const backWords = (n, files) => `${n === 1 ? 'The message you sent is' : 'The messages you sent are'} back in the box; attach ${files === 1 ? 'its file' : 'their files'} again`;

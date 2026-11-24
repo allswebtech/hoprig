@@ -60,7 +60,7 @@ let res;
 
 test('restore never clones through a link a repository tracks: nothing lands outside the workspace', async () => {
   const q = await quietUi();
-  res = await restoreWorkspace(brain, { ui: q.ui, dir: B.ws, projects: B.projects });
+  res = await restoreWorkspace(brain, { withProjects: true, ui: q.ui, dir: B.ws, projects: B.projects });
   assert.deepEqual(fs.readdirSync(outside), [], 'the folder outside stays empty');
   const by = Object.fromEntries(res.plan.map((e) => [e.label, e.result]));
   assert.equal(by.kits, 'cloned');

@@ -45,7 +45,7 @@ test('mv: workspace set, a brain in the way of restore, a provider file named li
   const ws = nasty();
   fs.mkdirSync(path.join(ws, 'ai_brain'), { recursive: true });
   fs.writeFileSync(path.join(ws, 'ai_brain', 'notes.md'), 'mine');
-  const e = await restoreWorkspace('https://github.com/alex/brain.git', { ui: makeUi({ interactive: false, write: () => {} }), dir: ws }).catch((x) => x);
+  const e = await restoreWorkspace('https://github.com/alex/brain.git', { withProjects: true, ui: makeUi({ interactive: false, write: () => {} }), dir: ws }).catch((x) => x);
   const mv = /Move it aside first \((.*)\) and run restore again/.exec(e.message);
   assert.ok(mv, e.message);
   paste(mv[1]);

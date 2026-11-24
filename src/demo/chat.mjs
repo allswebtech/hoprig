@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+import { TOOLS } from './versions.mjs';
 
 const argv = process.argv.slice(2);
 const val = (f) => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : null);
@@ -64,7 +65,7 @@ const result = () => {
   cost += 0.04;
   out({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: sessionId, total_cost_usd: cost, duration_ms: 9000, num_turns: 1, usage, modelUsage: { 'sample-model': { inputTokens: 1200, outputTokens: 140, costUSD: cost, contextWindow: 200000 } } });
 };
-const init = () => out({ type: 'system', subtype: 'init', session_id: sessionId, model, permissionMode: mode, tools: ['Read', 'Edit', 'Write', 'Bash', 'TodoWrite'], slash_commands: ['compact', 'review'], skills: ['commit-messages'], claude_code_version: '2.1.330' });
+const init = () => out({ type: 'system', subtype: 'init', session_id: sessionId, model, permissionMode: mode, tools: ['Read', 'Edit', 'Write', 'Bash', 'TodoWrite'], slash_commands: ['compact', 'review'], skills: ['commit-messages'], claude_code_version: TOOLS.claude.installed });
 
 const waiting = new Map();
 function ask(id, name, input, more = {}) {

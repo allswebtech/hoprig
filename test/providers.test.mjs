@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { sandbox } from './server/helpers.mjs';
+import { sealedPath } from './seal.mjs';
 
 const box = sandbox('providers');
 test.after(() => box.cleanup());
@@ -74,7 +75,7 @@ test('the sign-in check leaves its answer for the page: signedIn, plan, and whet
   const bin = path.join(box.root, 'bin');
   fs.mkdirSync(bin);
   const claude = (body) => fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-  const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin` };
+  const env = { ...process.env, PATH: sealedPath(`${bin}:/usr/bin:/bin`) };
   claude(`echo '{"loggedIn":false,"authMethod":"none"}'; exit 1`);
   await C.claudeLoginStatus({ env });
   assert.deepEqual(S.providerFacts(login), { signedIn: false, plan: null, usageReported: null, accountAt: null });
@@ -104,6 +105,13 @@ test('the sign-in check leaves its answer for the page: signedIn, plan, and whet
   // a provider with its own token is signed in by what it is; an API key has none of these fields
   assert.deepEqual(S.providerFacts({ name: 'second', kind: 'subscription' }), { signedIn: true, plan: null, usageReported: null });
   assert.deepEqual(S.providerFacts({ name: 'api', kind: 'api' }), {});
+  // a sign-in kept in a folder of its own: the default folder's check says nothing about it, signed in or not
+  const own = { name: 'second-folder', kind: 'login', env: { CLAUDE_CONFIG_DIR: path.join(box.root, 'another-claude-folder') } };
+  for (const loggedIn of [false, true]) {
+    S.rememberLogin({ loggedIn, plan: 'max' }, Date.now() + (loggedIn ? 360_000 : 480_000));
+    assert.equal(S.providerFacts(login).signedIn, loggedIn);
+    assert.deepEqual(S.providerFacts(own), { signedIn: null, plan: null, usageReported: null, accountAt: null }, `default signed ${loggedIn ? 'in' : 'out'}`);
+  }
 });
 
 test('another account signs in: the limit marks and figures of the providers on the stored sign-in go; nothing else does', async () => {
@@ -112,16 +120,18 @@ test('another account signs in: the limit marks and figures of the providers on 
   for (const p of P.listProfiles()) P.deleteProfile(p.name);
   P.writeProfile('sub', { label: 'Stored sign-in' });
   P.writeProfile('second', { label: 'Own token', env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-not-a-real-token-000000000000' } });
+  P.writeProfile('folder', { label: 'Own folder', env: { CLAUDE_CONFIG_DIR: path.join(box.root, 'another-claude-folder') } });
   const bin = path.join(box.root, 'bin2');
   fs.mkdirSync(bin);
   const signedInAs = (email, org) => fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\necho '${JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max', email, orgId: org, orgName: 'Org' })}'\n`, { mode: 0o755 });
   const signedOut = () => fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\necho '{"loggedIn":false,"authMethod":"none"}'; exit 1\n`, { mode: 0o755 });
-  const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin` };
+  const env = { ...process.env, PATH: sealedPath(`${bin}:/usr/bin:/bin`) };
   const atLimit = () => {
     const now = Date.now();
     A.markLimited('sub', { until: now + 2 * HOUR, text: "You've hit your 5-hour limit" });
     A.markLimited('second', { until: now + 2 * HOUR, text: "You've hit your 5-hour limit" });
-    for (const n of ['sub', 'second']) S.saveProfileUsage(n, { at: now - 1000, fiveHour: { pct: 100, resetsAt: now + 2 * HOUR }, week: { pct: 60, resetsAt: now + 50 * HOUR } });
+    A.markLimited('folder', { until: now + 2 * HOUR, text: "You've hit your 5-hour limit" });
+    for (const n of ['sub', 'second', 'folder']) S.saveProfileUsage(n, { at: now - 1000, fiveHour: { pct: 100, resetsAt: now + 2 * HOUR }, week: { pct: 60, resetsAt: now + 50 * HOUR } });
   };
   signedInAs('first@example.invalid', 'org-1');
   let a = await C.claudeAccount({ env });
@@ -131,21 +141,23 @@ test('another account signs in: the limit marks and figures of the providers on 
   // the same account again (a new sign-in of it, a refreshed token): nothing is forgotten
   a = await C.claudeAccount({ env });
   assert.equal(a.changed, false);
-  assert.deepEqual(Object.keys(A.limitedProfiles()).sort(), ['second', 'sub']);
+  assert.deepEqual(Object.keys(A.limitedProfiles()).sort(), ['folder', 'second', 'sub']);
   assert.equal(S.profileUsage().sub.fiveHour.pct, 100);
   // signed out, and the same account back: still the same account
   signedOut();
   assert.deepEqual([(a = await C.claudeAccount({ env })).loggedIn, a.email, a.changed], [false, null, false]);
   signedInAs('first@example.invalid', 'org-1');
   assert.equal((await C.claudeAccount({ env })).changed, false);
-  assert.deepEqual(Object.keys(A.limitedProfiles()).sort(), ['second', 'sub']);
-  // another account: the stored sign-in's provider starts fresh; the provider with its own token is not touched
+  assert.deepEqual(Object.keys(A.limitedProfiles()).sort(), ['folder', 'second', 'sub']);
+  // another account: the stored sign-in's provider starts fresh; the provider with its own token, and the one with a
+  // Claude folder of its own (its account is not the default folder's), are not touched
   signedInAs('second@example.invalid', 'org-1');
   a = await C.claudeAccount({ env });
   assert.deepEqual([a.email, a.changed], ['second@example.invalid', true]);
-  assert.deepEqual(Object.keys(A.limitedProfiles()), ['second']);
+  assert.deepEqual(Object.keys(A.limitedProfiles()).sort(), ['folder', 'second']);
   assert.equal(S.profileUsage().sub, undefined, 'the earlier account\'s figures are gone');
   assert.equal(S.profileUsage().second.fiveHour.pct, 100);
+  assert.equal(S.profileUsage().folder.fiveHour.pct, 100);
   const facts = S.providerFacts({ name: 'sub', kind: 'login' });
   assert.ok(facts.accountAt > Date.now() - 5000, 'when another account was last signed in');
   assert.equal(facts.usageReported, true, 'Max reports usage; the forgotten figures do not count as seen');

@@ -5,7 +5,7 @@ import { oneLine } from './frontmatter.mjs';
 import * as hub from './hub.mjs';
 import { catalogTools, checkTool, updateTool } from './tools.mjs';
 
-const HELP = `hoprig skills — Claude Code skills: see, find, suggest, review, add, update
+export const HELP = `hoprig skills — Claude Code skills: see, find, suggest, review, add, update
 
   hoprig skills list [--project <dir>] [--offline]   installed skills, their source and whether a newer one exists
   hoprig skills find <words>                      search the built-in catalog and skills.sh
@@ -21,7 +21,8 @@ const HELP = `hoprig skills — Claude Code skills: see, find, suggest, review, 
   hoprig skills tools [--update <id>]             command-line tools catalog skills need: installed, latest, update
 
   Skills are folders with a SKILL.md that Claude Code loads: yours from ~/.claude/skills, a project's from
-  <project>/.claude/skills. Hoprig records what it installs in .hoprig-skills.json next to them.
+  <project>/.claude/skills. Hoprig records what it installs: yours in its state folder, a project's in
+  .hoprig-skills.json next to them.
 `;
 
 function parseArgs(args) {
@@ -135,7 +136,7 @@ async function decide(review, flags, ui) {
   return 0;
 }
 
-async function update(name, flags, ui) {
+async function update(name, flags, ui, opts = {}) {
   const scope = flags.project ? { project: flags.project } : {};
   const checks = await hub.checkUpdates(scope, { only: name || null });
   if (!checks.length) ui.say('No skill here was installed by Hoprig, so there is nothing to check.');
@@ -143,7 +144,7 @@ async function update(name, flags, ui) {
     const state = c.state === 'update' ? `update available (${String(c.latest).slice(0, 12)})` : c.state === 'current' ? `up to date${c.moved ? ' (the repository moved; this skill did not change)' : ''}` : c.error || c.note || 'could not check';
     ui.say(`  ${c.name}: ${state}${c.edited.length ? `; EDITED HERE: ${c.edited.join(', ')}` : ''}`);
   }
-  if (!name || flags.check) await toolsReport(ui, { installedOnly: true });
+  if (!name || flags.check) await toolsReport(ui, { installedOnly: true, run: opts.toolRun });
   if (flags.check) return 0;
   let code = 0;
   for (const c of checks.filter((x) => x.state === 'update')) {
@@ -156,9 +157,10 @@ async function update(name, flags, ui) {
   return code;
 }
 
-async function toolsReport(ui, { installedOnly = false } = {}) {
+/** `run`: how a tool's version and the newest one are asked (the dashboard's feature takes the same, as toolRun). */
+async function toolsReport(ui, { installedOnly = false, run = undefined } = {}) {
   const tools = catalogTools();
-  const checked = await Promise.all(tools.map((t) => checkTool(t)));
+  const checked = await Promise.all(tools.map((t) => checkTool(t, run ? { run } : {})));
   const show = checked.filter((t) => !installedOnly || t.installed);
   if (!show.length) return checked;
   ui.say('', 'Tools:');
@@ -169,8 +171,8 @@ async function toolsReport(ui, { installedOnly = false } = {}) {
   return checked;
 }
 
-async function tools(flags, ui) {
-  const checked = await toolsReport(ui);
+async function tools(flags, ui, opts = {}) {
+  const checked = await toolsReport(ui, { run: opts.toolRun });
   if (!flags.update) return 0;
   const t = checked.find((x) => x.id === flags.update);
   if (!t) {
@@ -191,7 +193,8 @@ async function tools(flags, ui) {
 }
 
 /** Entry point for bin/hoprig.mjs: `hoprig skills <sub> …`. Resolves to an exit code. */
-export async function main(command, args = [], { ui = hub.consoleUi() } = {}) {
+export async function main(command, args = [], { ui = hub.consoleUi(), toolRun = undefined } = {}) {
+  const opts = { toolRun };
   const [sub, ...rest] = args;
   const { flags, pos } = parseArgs(rest);
   const out = (...l) => l.forEach((x) => ui.say(x));
@@ -224,7 +227,7 @@ export async function main(command, args = [], { ui = hub.consoleUi() } = {}) {
       }
       case 'update':
       case 'upgrade':
-        return await update(pos[0], flags, ui);
+        return await update(pos[0], flags, ui, opts);
       case 'undo': {
         if (!pos[0]) {
           ui.say('usage: hoprig skills undo <name> [--project <dir>]');
@@ -250,7 +253,7 @@ export async function main(command, args = [], { ui = hub.consoleUi() } = {}) {
         return 0;
       }
       case 'tools':
-        return await tools(flags, ui);
+        return await tools(flags, ui, opts);
       default:
         ui.say(`hoprig skills: unknown command "${sub}"\n`);
         ui.say(HELP);

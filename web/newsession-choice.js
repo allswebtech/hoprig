@@ -2,7 +2,7 @@
 // tool runs in it. Each coding tool shows its state on the chosen computer; one that is not ready says in plain words
 // what is missing and links to where it is fixed, and cannot be chosen.
 import { icon } from './icons.js';
-import { h, link } from './lib.js';
+import { h, link, servesTool } from './lib.js';
 
 /** The two ways to work in a session. The App is the chat page (web/chat/), the Terminal the tool's own screen. */
 export const OPEN_AS = [
@@ -21,8 +21,20 @@ export const openAsDefault = (saved) => (OPEN_AS.some((o) => o.id === saved) ? s
 export function toolState(t, m = null) {
   if (t.managed && !t.installed) return { ready: false, why: 'Not installed', fix: 'install it in Settings', href: link('#/settings/codingtools', m) };
   if (t.on === false) return { ready: false, why: 'Turned off', fix: 'turn it on in Settings', href: link('#/settings/codingtools', m) };
-  if (Array.isArray(t.providers) && !t.providers.length) return { ready: false, why: 'No provider serves it yet', fix: 'add one', href: link('#/providers', m) };
+  if (Array.isArray(t.providers) && !t.providers.length) return needsProvider(m);
   return { ready: true };
+}
+
+/** No provider can run the tool on computer `m`: it is no choice, and the button goes to Providers. */
+const needsProvider = (m) => ({ ready: false, why: 'Needs a provider first', fix: 'Add provider', href: link('#/providers', m), button: true });
+
+/**
+ * A ready tool's state against the chosen computer's own providers (`profiles`, from its state; null: not known): with
+ * none that serves it, a start would fail inside the coding tool, so it needs a provider first and never reads "Ready".
+ */
+export function providerState(t, profiles, m = null) {
+  if (!t.state.ready || !Array.isArray(profiles)) return t.state;
+  return profiles.some((p) => !p.virtual && servesTool(p, t.id)) ? t.state : needsProvider(m);
 }
 
 /**
@@ -46,6 +58,21 @@ export function chooseTool(tools, { picked = null, last = null, saved = null } =
   const ready = tools.filter((t) => t.state && t.state.ready).map((t) => t.id);
   for (const id of [picked, last, saved]) if (id && ready.includes(id)) return id;
   return ready[0] || null;
+}
+
+/**
+ * The one line that says what a start uses, over the project list ("On Workstation · in the App · with Claude Code"):
+ * the choices themselves are folded under it and open on a press. `computer` only where several are linked; `known`
+ * false while the coding tools are still being asked for.
+ */
+export function choiceLine({ computer = null, openAs = 'app', tool = null, plain = false, known = true, unreachable = false }) {
+  const parts = computer ? [`On ${computer}`] : [];
+  if (unreachable) parts.push('cannot be reached now');
+  else if (plain) parts.push('a plain terminal, without a coding tool');
+  // "the App" / "a terminal": the names of the tiles the fold opens to, as every Home card's pill says it.
+  else parts.push(openAs === 'terminal' ? 'in a terminal' : 'in the App', !known ? 'looking at the coding tools…' : tool ? `with ${tool}` : 'no coding tool is ready');
+  const line = parts.join(' · ');
+  return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
 /** Arrow keys move the choice inside a row of tiles, as in any group of radio buttons. */
@@ -98,7 +125,7 @@ export function toolTiles({ tools, chosen, choose, onleave = () => {} }) {
     // What fixes it: a page elsewhere (a link; the popup closes), or another choice here (`act`: a button).
     const fix = t.state.act
       ? h('button.ns-fix', { type: 'button', onclick: t.state.act }, t.state.fix)
-      : h('a', { href: t.state.href, onclick: onleave }, t.state.fix);
+      : h(t.state.button ? 'a.btn.small.secondary.ns-fixbtn' : 'a', { href: t.state.href, onclick: onleave }, t.state.fix);
     return h('div.ns-tile.ns-is-off', { 'data-choice': t.id },
       h('span.ns-tile-icon', icon(ic, { size: 20 })),
       h('span.ns-tile-text', h('span.ns-tile-name', t.name), h('span.ns-tile-line', `${t.state.why}: `, fix)));

@@ -82,3 +82,41 @@
 @media (max-width: 600px) {
   .cp-tap .btn { min-height: 44px; }
 }
+
+/* Add a computer → by SSH with a key file (web/sshkey.js) */
+.cp-keygrid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 7rem); gap: 12px; }
+@media (max-width: 640px) { .cp-keygrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .cp-keygrid > :first-child { grid-column: 1 / -1; } }
+.cp-keyfile { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+/* The hidden file input takes the focus: its label button shows it (keyboard). */
+.cp-keybtn:has(.cp-keyfile:focus-visible) { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.cp-print { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); }
+.cp-print p { margin: 0 0 6px; }
+.cp-printcode { display: block; font: 600 14px/1.5 var(--mono); overflow-wrap: anywhere; margin: 4px 0 8px; }
+
+/* A computer's Health part (web/health.js) */
+.cp-health .rows + .group-head, .cp-health .group-head { margin-top: 18px; }
+.cp-fixline { display: grid; gap: 4px; min-width: 0; max-width: 100%; }
+.cp-gwrow { flex-wrap: wrap; }
+.cp-gwacts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+@media (max-width: 640px) { .cp-gwacts { width: 100%; justify-content: flex-start; padding-left: 44px; } }
+.cp-unitpath { display: block; font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; margin: 4px 0 8px; }
+.cp-unit { max-height: 220px; }
+@media (max-width: 640px) { .cp-health .row:has(.cp-fixline) { flex-wrap: wrap; } .cp-fixline { width: 100%; padding-left: 44px; } }
+/* At a phone's width a check's name and reason wrap instead of being cut: nothing else opens the full text. */
+@media (max-width: 640px) { .cp-health .row-title, .cp-health .row-sub { white-space: normal; overflow-wrap: anywhere; } .cp-health .row { flex-wrap: wrap; } }
+/* A check's button ("Set it under Setup → Git and GitHub") goes under its name at phone width, never beside a name squeezed to one word a line. */
+@media (max-width: 640px) { .cp-health .row > .row-main { flex: 1 1 200px; } .cp-health .row > a.btn, .cp-health .row > button.btn { margin-left: 44px; } }
+
+/* Health's banners (services after a restart): the text takes the line, the button goes under it on a phone. */
+.cp-health .banner { flex-wrap: wrap; align-items: center; }
+.cp-health .banner > span { flex: 1 1 220px; min-width: 0; }
+
+/* A closed fold on these pages ("For the terminal", Advanced, Details) shows that it opens: a chevron before its
+   words (details.adv's summary is a flex row, so the browser draws no marker of its own). */
+.cp-fold > summary { gap: 8px; }
+.cp-fold > summary::-webkit-details-marker { display: none; }
+.cp-fold > summary::before { content: ''; flex: none; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform 0.15s; }
+.cp-fold[open] > summary::before { transform: rotate(45deg); }
+
+/* A computer that does not answer: its line says what to do, so it wraps on a phone instead of being cut. */
+.cp-row.cp-off .row-sub { white-space: normal; overflow-wrap: anywhere; }

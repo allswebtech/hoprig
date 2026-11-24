@@ -6,6 +6,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
+import { sealedPath } from '../seal.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const FAKE_SSH = path.join(here, 'fixtures', 'fake-ssh.mjs');
@@ -36,7 +37,7 @@ export function fakeRemote(root, { plain = false, installed = true, script = nul
     exe(path.join(shim, 'hoprig'), `#!/bin/sh\n${exports}${script || `exec "${process.execPath}" -e 'console.log(JSON.stringify({hoprig:"echo",args:process.argv.slice(1)}))' -- "$@"`}\n`);
   }
   const loginsh = exe(path.join(root, 'loginsh'), `#!/bin/sh\n# called as: loginsh -lic COMMAND\necho "Welcome to the fake remote"\nPATH="${shim}:$PATH" exec /bin/sh -c "$2"\n`);
-  const PATH = [bin, plain ? shim : null, '/usr/bin', '/bin'].filter(Boolean).join(':');
+  const PATH = sealedPath([bin, plain ? shim : null, '/usr/bin', '/bin'].filter(Boolean));
   return {
     bin,
     shim,
@@ -53,7 +54,7 @@ export const COOKIE = 'sid=good-cookie';
  * { path, method, headers, body (text), viaToken }. /api/state answers { sessions: [...] }. /ws/term echoes.
  * The wiring is the proposed server.mjs integration, line for line.
  */
-export function miniDashboard({ createMachines, opts = {}, sessions = [{ name: 'one' }], onRequest } = {}) {
+export function miniDashboard({ createMachines, opts = {}, sessions = [{ name: 'one' }], onRequest, answers = {} } = {}) {
   const originOk = (req) => {
     const o = req.headers.origin;
     return typeof o === 'string' && o === `http://${req.headers.host}`;
@@ -74,6 +75,7 @@ export function miniDashboard({ createMachines, opts = {}, sessions = [{ name: '
         if (!viaToken && !authed(req)) return send(401, { error: 'log in first' });
         onRequest?.(req);
         if (url.pathname === '/api/state') return send(200, { sessions });
+        if (Object.hasOwn(answers, url.pathname)) return send(200, answers[url.pathname]);
         if (url.pathname === '/api/slow') return; // never answers
         if (url.pathname === '/api/code/git/commit') { // a commit whose hooks take a while
           await new Promise((r) => setTimeout(r, 1500));

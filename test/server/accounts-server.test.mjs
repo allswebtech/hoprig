@@ -449,6 +449,23 @@ test('the kept Codex sign-in kind, as it works once Codex is offered (the regist
   }
 });
 
+test('a sign-in provider with a Claude folder of its own is listed as such, without the folder', async () => {
+  const { deleteProfile } = await import('../../src/profiles.mjs');
+  const folder = path.join(box.root, 'own-claude-folder');
+  writeProfile('own-folder', { label: 'Own folder', env: { CLAUDE_CONFIG_DIR: folder } });
+  try {
+    const r = await call('/api/accounts');
+    const a = r.json.accounts.find((x) => x.name === 'own-folder');
+    const w = r.json.accounts.find((x) => x.name === 'work');
+    assert.deepEqual([a.kind, a.ownFolder, w.kind, w.ownFolder], ['login', true, 'login', undefined]);
+    assert.ok(!JSON.stringify(r.json).includes(folder), 'the folder never reaches the page');
+    const st = await call('/api/state');
+    assert.equal(st.json.profiles.find((x) => x.name === 'own-folder').ownFolder, true, 'the state says the same');
+  } finally {
+    deleteProfile('own-folder');
+  }
+});
+
 test('rate limit on checks that reach out with a key', async () => {
   let last;
   for (let i = 0; i < 31; i++) last = await call('/api/accounts/probe', { baseUrl: 'http://127.0.0.1:9', key: KEY });

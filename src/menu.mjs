@@ -5,6 +5,7 @@ import { getAutoSwitch, limitedProfiles, usableOrder } from './autoswitch.mjs';
 import { isOffered } from './codetools/offered.mjs';
 import { loadConfig } from './config.mjs';
 import { chooseDefault, lastProviderIn } from './defaultprovider.mjs';
+import { providerFacts, speedVerdicts } from './routerstate.mjs';
 import { tilde } from './paths.mjs';
 import { withoutSecrets } from './secretenv.mjs';
 import { listProfiles, publicProfile, readProfile, servesTools, validName, writeProfile } from './profiles.mjs';
@@ -133,11 +134,13 @@ export function menuProfiles({ all = false } = {}) {
  * With no profile for Claude Code (none at all, or only providers of other coding tools), start with one for the
  * account Claude Code is already logged in with, unless its name is taken.
  */
-export function ensureFirstProfile() {
+export function ensureFirstProfile({ quiet = false } = {}) {
   const all = listProfiles();
-  if (all.some((p) => servesTools(p).includes('claude')) || all.some((p) => p.name === 'sub')) return;
+  if (all.some((p) => servesTools(p).includes('claude')) || all.some((p) => p.name === 'sub')) return false;
   writeProfile('sub', { label: 'Claude account (stored login)' });
-  out(dim('Created the profile "sub": the Claude account this machine is logged in with (claude /login).'));
+  // `quiet`: the caller says it in its own words (set-up, whose sign-in line comes before).
+  if (!quiet) out(dim('Created the profile "sub": the Claude account this machine is logged in with (claude /login).'));
+  return true;
 }
 
 /**
@@ -147,7 +150,8 @@ export function ensureFirstProfile() {
  * an order to run has no "auto" in the menu, so then the choice is made as with it off. null: none can start here.
  */
 export function enterDefault(profiles = menuProfiles(), limited = limitedProfiles(), cwd = process.cwd()) {
-  const states = profiles.map((p) => (p.kind === 'auto' ? { name: p.name, kind: 'auto', virtual: true } : { ...publicProfile(p), limited: p.name in limited }));
+  const speed = speedVerdicts();
+  const states = profiles.map((p) => (p.kind === 'auto' ? { name: p.name, kind: 'auto', virtual: true } : { ...publicProfile(p), ...providerFacts(p), limited: p.name in limited, speed: speed[p.name] || null }));
   const as = getAutoSwitch();
   const last = lastProviderIn(cwd);
   let pick = chooseDefault({ profiles: states, auto: as, last });

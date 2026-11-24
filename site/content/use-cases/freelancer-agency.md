@@ -22,7 +22,7 @@ People ask how to "manage multiple client projects with Claude Code" or want "se
 2. Each project's memory lives in that project's own repository, so nothing carries over from one client to another.
 3. **New session** in a project opens with the provider, mode, model and effort of the last chat there, so once you have used a client's own key in that project, it is picked again next time. It is a remembered choice, not a lock: you can still pick another provider.
 4. The **Workspace** page lists every project with its sessions under it; each project's own page shows its sessions, repositories and skills.
-5. When the work is done: `hop project status acme-shop` shows uncommitted changes and anything not pushed; `hop project sync acme-shop --memory` commits the memory and pushes what is only ahead. Then you can delete the folder. A workspace map that named the project keeps its address (`hop workspace map` writes it), so `hop workspace restore` gets it back the day the client returns, and `hop project clone` with its address does too.
+5. When the work is done: `hop project status acme-shop` shows uncommitted changes and anything not pushed; `hop project sync acme-shop --memory` commits the memory and pushes what is only ahead. Then you can delete the folder. A workspace map that named the project keeps its address (`hop workspace map` writes it), so `hop get acme-shop` gets it back the day the client returns, and `hop project clone` with its address does too.
 
 ![The Workspace page: every project, each with its sessions under it](/screenshots/projects-desktop-light.webp)
 

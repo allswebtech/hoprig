@@ -263,3 +263,12 @@ test('restore in the automations: the second try waits outside the tick, and a c
   // Closed before the second try: none, and no line.
   assert.deepEqual(await run(true), { tries: 1, log: [] });
 });
+
+test('retry: a refused model name, a refused input or a refusal is never sent again, whatever kind the tool says', () => {
+  const failing = (error, text) => claude('w', { failure: { at: 0, error, text } });
+  for (const [error, text] of [['unknown', "API Error: 400 Ambiguous model 'relay-large'"], ['unknown', 'API Error: 400 Image input is not supported for model relay-large'], ['unknown', "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup)"]]) {
+    assert.deepEqual(retry.decide({ cards: [failing(error, text)], data: {}, now: 10 * MIN, max: 3, firstMinutes: 1 }).actions, [], text);
+  }
+  // A dropped connection is still tried again.
+  assert.equal(retry.decide({ cards: [failing('unknown', 'API Error: socket hang up')], data: {}, now: 10 * MIN, max: 3, firstMinutes: 1 }).actions[0].type, 'retry');
+});

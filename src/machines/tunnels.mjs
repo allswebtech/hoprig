@@ -110,10 +110,10 @@ export class Tunnel extends EventEmitter {
       return this.#failed(`no free local port: ${e.message}`);
     }
     if (this.state === 'closed') return;
-    const { target, remoteHost, remotePort } = this.machine;
+    const { target, remoteHost, remotePort, extra } = this.machine;
     let child;
     try {
-      const args = this.buildArgs ? this.buildArgs(port) : tunnelArgs({ target, localPort: port, remoteHost, remotePort });
+      const args = this.buildArgs ? this.buildArgs(port) : tunnelArgs({ target, localPort: port, remoteHost, remotePort, extra });
       child = this.spawnImpl(this.sshBin, args, { stdio: ['ignore', 'ignore', 'pipe'], env: this.env });
     } catch (e) {
       return this.#failed(`cannot start ssh: ${e.message}`);
@@ -190,14 +190,18 @@ export class Tunnels {
     this.map = new Map();
   }
 
-  static key = (m) => `${m.target}|${m.remoteHost}|${m.remotePort}`;
+  // A computer with a kept key gets its options from `extraOf` (hub.mjs): they are part of the key, so a key given or
+  // taken away starts a new tunnel.
+  static key = (m, extra = []) => `${m.target}|${m.remoteHost}|${m.remotePort}|${extra.join(' ')}`;
 
   get(m) {
+    const extra = this.opts.extraOf ? this.opts.extraOf(m) : [];
     const cur = this.map.get(m.name);
-    if (cur && cur.key === Tunnels.key(m)) return cur.tunnel;
+    if (cur && cur.key === Tunnels.key(m, extra)) return cur.tunnel;
     if (cur) cur.tunnel.close();
-    const tunnel = new Tunnel({ ...this.opts, machine: { target: m.target, remoteHost: m.remoteHost, remotePort: m.remotePort } });
-    this.map.set(m.name, { key: Tunnels.key(m), tunnel });
+    const { extraOf, ...opts } = this.opts;
+    const tunnel = new Tunnel({ ...opts, machine: { target: m.target, remoteHost: m.remoteHost, remotePort: m.remotePort, extra } });
+    this.map.set(m.name, { key: Tunnels.key(m, extra), tunnel });
     return tunnel;
   }
 

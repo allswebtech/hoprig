@@ -10,7 +10,7 @@ import { Readable } from 'node:stream';
 import test from 'node:test';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pcsetup-tools-'));
-Object.assign(process.env, { HOME: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state'), CLAUDE_CONFIG_DIR: path.join(tmp, 'claude') });
+Object.assign(process.env, { HOME: path.join(tmp, 'home'), USERPROFILE: path.join(tmp, 'home'), HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state'), CLAUDE_CONFIG_DIR: path.join(tmp, 'claude') });
 fs.mkdirSync(process.env.HOME, { recursive: true });
 const { pcsetupFeature } = await import('../../src/pcsetup/feature.mjs');
 const { codingToolChecks, GROUPS } = await import('../../src/pcsetup/status.mjs');

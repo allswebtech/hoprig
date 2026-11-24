@@ -6,6 +6,8 @@
 //   format   "ntfy" | "json"   default: "ntfy" when the URL's host name contains "ntfy", else "json"
 //   headers  extra request headers, e.g. { "Authorization": "Bearer …" }      optional
 //   events   which events to send                     default: all of EVENTS
+//   work     what Work tells by itself (src/work/tellsettings.mjs): its own key, each item off until turned on, so
+//            a push address with no events list gets none of it after an update
 //
 // Events: "waiting" (Claude finished and waits for you), "attention" (Claude asks for your OK), "limit" (a usage
 // limit was reached), "ended" (Claude exited), "switched" (the server moved a session to another profile),
@@ -27,6 +29,10 @@
 // The message is at most one short line Claude wrote last (300 characters); terminal text is never sent. A send
 // times out after 5 s and never blocks or fails the server; errors are logged as one line.
 
+import { cleanTell } from '../work/tellsettings.mjs';
+
+// What a message keeps (Work's digest is made to fit in it whole: src/work/tellmsg.mjs).
+export const MESSAGE_MAX = 300;
 export const EVENTS = ['waiting', 'attention', 'limit', 'ended', 'switched', 'automation'];
 const TAGS = { waiting: 'hourglass', attention: 'raising_hand', limit: 'warning', ended: 'checkered_flag', switched: 'twisted_rightwards_arrows', automation: 'gear', link: 'link' };
 const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
@@ -67,25 +73,70 @@ export function cleanNotify(v) {
     if (!Array.isArray(v.events) || v.events.some((e) => !EVENTS.includes(e))) throw new Error(`events must be some of: ${EVENTS.join(', ')}`);
     out.events = [...new Set(v.events)];
   }
+  if (v.work !== undefined && v.work !== null) out.work = cleanTell(v.work);
   return out;
 }
 
+/**
+ * A notify setting about to be saved, with the stored headers kept when it leaves them out (the page has no field for
+ * them: a token set by hand must survive a save from Settings). Kept only for the same origin: a token never goes
+ * to an address it was not set for.
+ */
+export function keepHeaders(next, stored) {
+  if (!next || typeof next !== 'object' || Object.hasOwn(next, 'headers')) return next;
+  if (!stored || !stored.headers || !Object.keys(stored.headers).length) return next;
+  const origin = (u) => {
+    try {
+      return new URL(u).origin;
+    } catch {
+      return null;
+    }
+  };
+  if (!next.url || origin(next.url) !== origin(stored.url)) return next;
+  return { ...next, headers: stored.headers };
+}
+
 // HTTP header values must be Latin-1; keep them plain ASCII so every receiver reads them the same way.
-const ascii = (s, max = 200) => String(s).replace(/[^\x20-\x7e]/g, '?').slice(0, max);
+// A cut title ends in '…' (shortWords): as '...' it does not arrive as a question mark.
+const ascii = (s, max = 200) => String(s).replace(/…/g, '...').replace(/[^\x20-\x7e]/g, '?').slice(0, max);
+
+/**
+ * A header value in other than plain ASCII as RFC 2047 encoded words (=?UTF-8?B?…?=, each at most 75 characters, cut
+ * on a character, never inside one), which ntfy reads back; plain ASCII stays as it is.
+ */
+export function encodedWords(s, max = 200) {
+  // A cut title ends in '…' (shortWords): as '...' an English title stays plain ASCII, as it was before.
+  const t = String(s).replace(/[\r\n\0]/g, ' ').replace(/…/g, '...');
+  if (!/[^\x20-\x7e]/.test(t)) return t.slice(0, max);
+  const words = [];
+  let piece = '';
+  for (const ch of t.slice(0, max)) {
+    if (Buffer.byteLength(piece + ch) > 45) {
+      words.push(piece);
+      piece = '';
+    }
+    piece += ch;
+  }
+  if (piece) words.push(piece);
+  return words.map((w) => `=?UTF-8?B?${Buffer.from(w, 'utf8').toString('base64')}?=`).join(' ');
+}
+
+/** The format a push address gets: its own, else ntfy for an ntfy host, else JSON. */
+export function formatOf(cfg) {
+  if (cfg && cfg.format) return cfg.format;
+  try {
+    return new URL(cfg.url).hostname.includes('ntfy') ? 'ntfy' : 'json';
+  } catch {
+    return 'json';
+  }
+}
 
 /** The JSON payload and the headers for one event. Pure, so it can be tested. */
 export function buildRequest(cfg, ev) {
-  const host = (() => {
-    try {
-      return new URL(cfg.url).hostname;
-    } catch {
-      return '';
-    }
-  })();
-  const format = cfg.format || (host.includes('ntfy') ? 'ntfy' : 'json');
+  const format = formatOf(cfg);
   const payload = {
     title: String(ev.title || '').slice(0, 120),
-    message: String(ev.message || '').slice(0, 300),
+    message: String(ev.message || '').slice(0, MESSAGE_MAX),
     session: String(ev.session || ''),
     status: String(ev.status || ''),
     url: String(ev.url || ''),
@@ -93,6 +144,8 @@ export function buildRequest(cfg, ev) {
   const headers = { ...(cfg.headers || {}), Title: ascii(payload.title) };
   if (payload.url) headers.Click = ascii(payload.url, 500);
   if (format === 'ntfy') {
+    // ntfy shows the Title header: a title in another script (Hindi, an accent) goes encoded, not as question marks.
+    headers.Title = encodedWords(payload.title);
     if (TAGS[payload.status]) headers.Tags = TAGS[payload.status];
     headers['Content-Type'] = 'text/plain; charset=utf-8';
     return { format, headers, body: payload.message || payload.title, payload };

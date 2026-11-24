@@ -13,6 +13,7 @@ import { isToolSessionId } from '../codetools/stores.mjs';
 import { isSessionId } from '../sessions.mjs';
 import { engineIds } from './engines/index.mjs';
 import { EFFORTS as OC_EFFORTS, MODES as OC_MODES, MODE_WORDS as OC_MODE_WORDS, knownModels, modelsOf } from './engines/served.mjs';
+import { askDue, idsWith, knownModelsFor, modelProblem, modelsFor, notListedOf } from '../models/catalog.mjs';
 
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/;
 const bad = (message) => Object.assign(new Error(message), { status: 400 });
@@ -69,12 +70,23 @@ export const serves = (name, tool) => (name === 'auto' ? tool === 'claude' && au
 export const conversationIdOk = (tool, id) => (tool === 'claude' ? isSessionId(id) : isToolSessionId(tool, id));
 
 /**
- * The chips' choices of a chat of `tool` on provider `profile`: { models, efforts, modes, modeWords? }. Claude Code:
- * Settings' lists (claudeModels()). Another tool: its own modes and efforts, and the models the provider lists (from
- * a cache: `onModels` is called once a list that was not known yet arrives).
+ * The chips' choices of a chat of `tool` on provider `profile`: { models, efforts, modes, modeWords?, check }. Claude
+ * Code: the provider's own models as far as they are known now (src/models/catalog.mjs; a picker that opens asks for
+ * them), then the saved values `claudeModels()` names (a default set in Settings) that the list leaves out. Another
+ * tool: its own modes and efforts, and the models the provider lists (from a cache: `onModels` is called once a list
+ * that was not known yet arrives). `check(m)`: null when model `m` may start, else why not.
  */
 export function choicesOf(tool, profile, claudeModels, onModels) {
-  if (tool === 'claude') return { models: claudeModels(), efforts: EFFORTS, modes: PERMISSION_MODES };
+  if (tool === 'claude') {
+    const saved = (claudeModels ? claudeModels() : []).filter((m) => typeof m === 'string' && m);
+    const view = knownModelsFor(profile || '');
+    // An open chat page (onModels) is an open picker: its provider is asked at most once in ten minutes, whatever the
+    // last ask gave (askDue): a model the endpoint adds later reaches the menu, and a refused key is not asked again at
+    // every state the page is sent.
+    if (onModels && profile && askDue(profile)) modelsFor(profile).then((v) => v.source === 'endpoint' && onModels(), () => {});
+    // notListed: the saved values the provider's own list leaves out, shown marked (never replaced).
+    return { models: idsWith(view, saved), notListed: notListedOf(view, saved), efforts: EFFORTS, modes: PERMISSION_MODES, check: (m) => modelProblem(profile || '', m, { saved }) };
+  }
   const known = knownModels(profile);
   if (!known.length && onModels) {
     const p = readProfile(profile);
@@ -83,11 +95,18 @@ export function choicesOf(tool, profile, claudeModels, onModels) {
   return { models: known.map((m) => m.id), efforts: OC_EFFORTS, modes: OC_MODES, modeWords: OC_MODE_WORDS };
 }
 
-/** A model chosen for a chat of `tool`: one of the choices (another tool: also a model id while the list is not known). */
+/**
+ * A model chosen for a chat of `tool`: Claude Code, one of the provider's list, a family name, a saved value or (no
+ * list known) a checked exact name; another tool, one of the choices (also a model id while the list is not known).
+ */
 export function modelOk(tool, m, choices) {
   if (choices.models.includes(m)) return true;
+  if (choices.check) return choices.check(m) === null;
   return tool !== 'claude' && !choices.models.length && typeof m === 'string' && MODEL_RE.test(m);
 }
+
+/** Why `m` is refused, in plain words, for a 400 (see modelOk). */
+export const modelRefusal = (m, choices) => (choices.check && choices.check(m)) || (choices.models.length ? `the model must be one of: ${choices.models.slice(0, 20).join(', ')}${choices.models.length > 20 ? ', …' : ''}` : 'that is no model id');
 
 /** A permission mode kept for a chat of `tool`: Claude Code's modes are all its own; another tool's or null. */
 export const modeFor = (tool, mode) => (tool === 'claude' ? (PERMISSION_MODES.includes(mode) ? mode : null) : OC_MODES.includes(mode) ? mode : null);

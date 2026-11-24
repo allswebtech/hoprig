@@ -1,7 +1,7 @@
 // <configDir>/config.json. Every key is optional.
 //
 //   claudeBin   the Claude Code executable                      default "claude"
-//   sessionDefaults  how new sessions start, each optional:      default {}
+//   sessionDefaults  how new sessions start, each optional (lead: "Lead model" for chats and plans): default {}
 //                 permissionMode  one of PERMISSION_MODES (what Claude Code may do without asking)
 //                 effort          one of EFFORTS
 //                 model           an alias (opus, sonnet…) or a full model name
@@ -20,7 +20,7 @@ export const PERMISSION_MODES = ['manual', 'acceptEdits', 'auto', 'plan', 'dontA
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // The model aliases a session may start with from the page (Claude Code resolves each to its newest model).
 export const MODELS = ['opus', 'sonnet', 'haiku'];
-const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\/\[\]-]{0,99}$/;
+const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+\-[\]]{0,119}$/; // as src/server/endpoint.mjs
 
 /** A clean copy of session defaults: unknown keys and values that Claude Code would refuse are an error. */
 export function cleanSessionDefaults(input) {
@@ -34,6 +34,16 @@ export function cleanSessionDefaults(input) {
       if (!EFFORTS.includes(v)) throw new Error(`effort must be one of: ${EFFORTS.join(', ')}`);
     } else if (k === 'model') {
       if (typeof v !== 'string' || !MODEL_RE.test(v)) throw new Error('model must be a model name such as opus, sonnet or claude-opus-5-5');
+    } else if (k === 'others') {
+      // "Use other providers": the providers ticked for new chats and plans (src/models/others.mjs checks them at a start).
+      if (!Array.isArray(v) || v.length > 10 || v.some((n) => typeof n !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(n))) throw new Error('others must be a list of provider names');
+      if (!v.length) continue;
+      out[k] = [...new Set(v)];
+      continue;
+    } else if (k === 'lead') {
+      // "Lead model" for new chats and plans (src/models/lead.mjs): only on is kept; off is the default.
+      if (typeof v !== 'boolean') throw new Error('lead must be true or false');
+      if (!v) continue;
     } else throw new Error(`"${k}" is not a session default`);
     out[k] = v;
   }

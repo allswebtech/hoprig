@@ -77,7 +77,7 @@ test('words: what any coding tool does is said without "Claude"; Codex is named 
   assert.match(read('web/sessiondefaults.js'), /'Which Claude model answers in Claude Code\./, 'the model setting is Claude Code\'s only');
   assert.match(read('web/automation.js'), /'In a Claude Code session: when the provider\\'s servers are busy/, 'the retry reads Claude Code\'s own error kinds');
   assert.match(read('web/accounts.js'), /Claude Code restarts on that provider/, 'Auto mode is Claude Code\'s');
-  assert.match(read('web/automation.js'), /'Claude Code sessions lost when the computer or the dashboard restarts/, 'restore brings back Claude Code\'s only (src/automation/restore.mjs)');
+  assert.match(read('web/automation.js'), /'Claude Code and OpenCode sessions lost when the computer or the dashboard restarts/, 'restore brings back Claude Code\'s and OpenCode\'s, not Codex\'s (src/automation/restore.mjs)');
   // The command line and the package say both coding tools, and never Codex.
   const help = read('bin/hoprig.mjs');
   const helpText = help.slice(help.indexOf('const HELP = `'), help.indexOf('`;', help.indexOf('const HELP = `')));
@@ -90,6 +90,14 @@ test('words: what any coding tool does is said without "Claude"; Codex is named 
   const template = read('src/pcsetup/workspace.mjs');
   assert.doesNotMatch(template, /\(Claude Code, Codex, Gemini, Cursor, Copilot\)/);
   assert.match(template, /OpenCode and most others read it, Claude Code through\nCLAUDE\.md/);
+});
+
+test('New-session defaults and New session name the modes as the App does: the page with the bypass switch has Bypass permissions', async () => {
+  const { MODES, summary } = await import('../../web/sessiondefaults.js');
+  const { MODE } = await import('../../web/chat/words.js');
+  for (const m of ['manual', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']) assert.ok(MODES[m].startsWith(`${MODE[m].chip}: `), m);
+  assert.match(MODES.bypassPermissions, /^Bypass permissions: /);
+  assert.equal(summary({ settings: { sessionDefaults: { permissionMode: 'acceptEdits' } } }), 'Accept edits');
 });
 
 test('New-session defaults: the coding tool\'s own default, the model Claude Code\'s', async () => {
@@ -156,10 +164,11 @@ test('a schedule never says a provider\'s short name, also in the first moment a
 
 test('rare things under a closed Advanced: Pause all automations, the map\'s list; Link now only where it belongs', () => {
   const au = read('web/automation.js');
-  assert.match(au, /body: \[tabs, bannerSlot, content\]/, 'Pause all is not the first thing on every part any more');
-  assert.match(au, /fold\('automations-advanced', 'Advanced', panel\(\{\}, pauseRow\(st\)\)\)/, 'it is under Rules → Advanced, on a card as the rules above it');
+  assert.doesNotMatch(au, /registerPage\(/, 'the automations have no page of their own: Pause all is not on every part');
+  assert.match(au, /fold\('automations-advanced', 'Advanced', panel\(\{\}, pauseRow\(st, again\)\)\)/, 'it is under Settings → Automations → Advanced, on a card as the rules above it');
   assert.match(read('web/page-automations.css'), /@media \(pointer: coarse\) \{ \.au-inline \.btn \{ min-height: 44px;/, 'Resume is big enough for a finger');
-  assert.match(au, /label: 'Resume', onclick: \(\) => setPaused\(false\)/, 'while paused, the banner on every part resumes with one tap');
+  assert.match(au, /label: 'Resume', onclick: \(\) => saveSettings\(\{ paused: false \}\)/, 'while paused, the banner resumes with one tap');
+  assert.match(read('web/workschedules.js'), /pausedBanner\(st, reload\)/, 'the banner shows on Work → Schedules too');
   const ws = read('web/workspace.js');
   assert.match(ws, /fold\('settings-map-list', 'Advanced',/, 'every repository of the map, under Advanced');
   assert.match(ws, /h\('div\.savebar\.start', rare \? null : update\(\),/, '"Update the map" is not offered first while the map keeps itself up to date');
@@ -219,8 +228,8 @@ test('trust words: what Tia does with OpenCode, her client tools only while she 
   assert.match(read('web/tia.js'), /s\.enabled && btn\('secondary', \{ icon: 'key'/);
   const readme = read('README.md');
   assert.match(readme, /while she is on, your own Claude Code can use the same tools/);
-  // "Whatever costs money … is a card" holds except at Hands off, which the README says.
-  assert.match(readme, /is a card too, with one\nexception you choose: at the level \*\*Hands off\*\*/);
+  // "Whatever costs money … is a card" holds except where the owner chose otherwise, which the README says next.
+  assert.match(readme.replace(/\s+/g, ' '), /is a card too\. Money has exceptions you choose\. Within the \*\*Daily limit for paid use \(US \$\)\*\*/);
   // The AI brain page's button is "Link" (Link now is Get started's and Skills').
   assert.match(readme, /\(or \*\*Link\*\* on the AI brain page\)/);
 });
@@ -242,4 +251,60 @@ test('a phone with the floating button: a switch on a card stops left of it, bes
   const css = read('web/style.css');
   const phone = css.slice(css.indexOf('/* A phone with the floating button'));
   assert.match(phone, /body\.has-fab \.card \.switchrow \{ padding-right: max\(0px, calc\(var\(--fab-w, 150px\) - 10px\)\); align-items: flex-start; \}/);
+});
+
+test('Settings → Network on a server: an open dashboard is a warning with the fix, never "not opened here"', async () => {
+  const { networkWords } = await import('../../web/settings.js');
+  const server = { why: 'this is a server (reached over ssh, with no desktop of its own)', ways: [], forward: '' };
+  for (const host of ['0.0.0.0', '::', '10.0.0.5']) {
+    const w = networkWords({ network: { host, port: 7433, server } });
+    assert.match(w.warn, /^Open to the network on plain http: this is a server .* Close it on the computer: hoprig setup --access local$/, host);
+    assert.equal(w.address, 'Open to the internet on plain http.');
+    assert.doesNotMatch(`${w.address} ${w.lead}`, /Not opened to the network here|Other devices on the network/, host);
+  }
+  const closed = networkWords({ network: { host: '127.0.0.1', port: 7433, server } });
+  assert.equal(closed.warn, null);
+  assert.match(closed.lead, /^Not opened to the network here: this is a server/);
+  const home = networkWords({ network: { host: '0.0.0.0', port: 7433 } });
+  assert.equal(home.warn, null, 'a desktop at home: as before');
+  assert.equal(home.address, 'Other devices on the network can open the page.');
+});
+
+test('Work → Schedules: the queue heading has no count to show, and the bypass warning shows only while it is chosen', () => {
+  const ws = read('web/workschedules.js');
+  assert.doesNotMatch(ws, /groupHead\('Queued messages', null\)/, 'a heading with no count never says "null"');
+  const au = read('web/automation.js');
+  assert.match(au, /const bypass = a\.mode === 'bypassPermissions' \? h\('p\.banner\.warn/, 'the warning is made only when bypass is chosen');
+  assert.doesNotMatch(au, /bypass\.hidden/, 'a banner\'s display beats `hidden`: it was shown while unticked');
+});
+
+test('a schedule row says when and where it runs in full on a phone: its line under the sentence wraps', () => {
+  assert.match(read('web/page-automations.css'), /\.au-sched-main \.row-sub \{ white-space: normal; overflow-wrap: anywhere; \}/, 'not cut to "on this com…" at 390 px');
+});
+
+test('the sign-in page: a wrong password says where the way in without one is', () => {
+  const login = read('web/login.js');
+  assert.match(login, /r\.status === 401 \? ` \$\{NO_PASSWORD_WAY\}`/, 'said under a wrong password');
+  const way = /NO_PASSWORD_WAY = '([^']+)'/.exec(login);
+  assert.ok(way, 'the line is there');
+  assert.match(way[1], /Settings → Security and sign-in/);
+  assert.match(way[1], /Show a sign-in code/);
+  assert.ok(read('web/settings.js').includes("title: 'Security and sign-in'"), 'the page it names is called that');
+  assert.ok(read('web/computers.js').includes("label: 'Show a sign-in code'"), 'the button it names is called that');
+});
+
+test('words: the git step, its rows and its sheets never say commit, push or upstream', () => {
+  // Every string of the module (not its comments): what a person reads on the rows and in the sheets.
+  const src = read('web/gitsetup.js');
+  const strings = src.match(/'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g) || [];
+  assert.ok(strings.length > 50, 'the strings were found');
+  for (const s of strings) assert.doesNotMatch(s, /\bcommits?\b|\bpush|upstream/i, s);
+});
+
+test('words: "provider" is the AI account only; a server is rented from a company', () => {
+  for (const file of ['web/computers.js', 'web/sshkey.js', 'src/machines/keyadd.mjs']) {
+    assert.doesNotMatch(read(file), /server\\?'s provider|its provider gave|provider gives? you/, file);
+  }
+  // The first way to add a computer: its line says the same as its title (at home or behind a router).
+  assert.match(read('web/computers.js'), /value: 'join', title: 'It is at home or behind a router[^']*', sub: 'A laptop or another computer of yours, at home or anywhere else: /);
 });

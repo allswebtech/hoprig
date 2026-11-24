@@ -94,6 +94,13 @@ test('Debian without apt-check: `apt list --upgradable` is counted', async () =>
   assert.equal((await updatesCheck(none.sys)).status, 'ok');
 });
 
+test('offline skips the Linux package-manager probe (a real program), but still reads the restart file', async () => {
+  const { sys, calls } = await fake({ files: ['/usr/lib/update-notifier/apt-check', '/var/run/reboot-required'], out: { '/usr/lib/update-notifier/apt-check': { stderr: '12;3' } } });
+  const c = await updatesCheck(sys, { offline: true });
+  assert.match(c.detail, /updates not checked · a restart is pending/);
+  assert.ok(!calls.some((x) => x.includes('apt-check') || x.includes('apt list')), `offline must start no package manager; it ran: ${calls.join('; ')}`);
+});
+
 test('Fedora: dnf check-update exit 100 lists packages; needs-restarting -r exit 1 = restart', async () => {
   const txt = '\nkernel.x86_64                6.11.7-300.fc41      updates\nfirefox.x86_64               132.0.2-1.fc41       updates\n';
   assert.equal(countLines(txt), 2);
@@ -136,8 +143,11 @@ test('kit checks: missing items carry the exact install command and the kit that
   const tmux = checks.find((c) => c.id === 'extras.tmux');
   assert.equal(tmux.status, 'fail');
   assert.equal(tmux.fixKit, 'extras');
-  assert.equal(tmux.fix, 'sudo env DEBIAN_FRONTEND=noninteractive apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y tmux');
-  assert.equal(checks.find((c) => c.id === 'docker.docker').status, 'info');
+  // The fix runs the whole kit (every missing item of it), so the row shows the whole kit's plan.
+  assert.equal(tmux.fix, 'sudo env DEBIAN_FRONTEND=noninteractive apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y tmux ripgrep jq');
+  const docker = checks.find((c) => c.id === 'docker.docker');
+  assert.equal(docker.status, 'info');
+  assert.deepEqual([docker.fixKit, docker.setupKit, docker.fix], [undefined, 'docker', 'hoprig pc setup --kits docker'], 'an optional kit is chosen in the sheet, never run from its row');
 });
 
 test('Windows detection: python (not python3), npm through cmd.exe, the C++ tools through vswhere', async () => {
@@ -155,4 +165,26 @@ test('Windows detection: python (not python3), npm through cmd.exe, the C++ tool
   assert.ok(calls.some((c) => c.includes('vswhere.exe -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64')));
   assert.equal(f.basics.find((i) => i.id === 'build').state, 'missing'); // vswhere answered nothing
   assert.deepEqual(f.basics.filter((i) => i.state === 'na').map((i) => i.id), ['curl', 'unzip']);
+});
+
+test('a PATH without Node and npm (an ssh login that skips nvm\'s lines): the ones Hoprig runs on, never "missing", with the fix', { skip: process.platform === 'win32' }, async () => {
+  const calls = [];
+  // Only the npm beside Hoprig's Node answers (in tests HOPRIG_NODE_NPM points it at the runner's trap: never run here).
+  const run = async (argv) => {
+    calls.push(argv);
+    return argv[0] !== 'npm' && argv.at(-1) === '--version' ? { ok: true, code: 0, stdout: '10.9.0\n', stderr: '' } : { ok: false, code: 1, stdout: '', stderr: 'not found' };
+  };
+  const sys = await sysFacts({ platform: process.platform, pm: 'apt', env: { PATH: '/nowhere' }, has: () => false, run, // seal: a value no program is started with (run is the test's own)
+    exists: () => false, home: '/home/dev', root: false, user: 'dev', dnf5: false });
+  const node = await detectItem(KITS.find((k) => k.id === 'node').items.find((i) => i.id === 'node'), sys);
+  const npm = await detectItem(KITS.find((k) => k.id === 'node').items.find((i) => i.id === 'npm'), sys);
+  assert.deepEqual([node.state, node.version], ['offpath', process.versions.node]);
+  assert.deepEqual([npm.state, npm.version], ['offpath', '10.9.0']);
+  assert.ok(calls.some((a) => a[0] !== 'npm'), 'npm was asked the way set-up asks it (npmArgv), not by its name');
+  const lines = kitChecks({ node: [node, npm] }, sys).filter((c) => c.group === 'kit:node');
+  for (const c of lines) {
+    assert.equal(c.status, 'warn', c.detail);
+    assert.match(c.detail, /not on this shell's PATH; the one that comes with the Node Hoprig runs on \(/);
+    assert.match(c.fix, /^add the folder of .* to PATH in your shell's start file/);
+  }
 });

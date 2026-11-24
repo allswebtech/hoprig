@@ -22,15 +22,20 @@ import './sessiondefaults.js';
 import './skillhub.js';
 import './brain.js';
 import './workspace.js';
+import './adopt.js';
 import './tia.js';
 import './chat/page.js';
 import './addons.js';
 import './publiclink.js';
 import './editor/index.js';
 import './settings.js';
+import './handsoffsettings.js';
+import './rootsettings.js';
 import './updates.js';
+import './field.js';
 import './codingtools.js';
 import './desktop/index.js';
+import './operator.js';
 
 const app = document.getElementById('app');
 let stopView = () => {};
@@ -41,17 +46,17 @@ let stopView = () => {};
  */
 export const PAGE_ADDRESSES = [
   '#/', '#/new', '#/more',
-  '#/work', '#/work/tasks',
+  '#/work', '#/work/tasks', '#/work/plans', '#/work/schedules', '#/work/activity', '#/work/team',
   '#/workspace', '#/new-project', '#/get-project',
   '#/providers',
   '#/computers', '#/computers/add', '#/computer', '#/computer/setup', '#/computer/advanced',
-  '#/automations', '#/automations/queue', '#/automations/rules', '#/automations/activity',
-  '#/skills', '#/skills/installed', '#/skills/suggested', '#/skills/find',
+  '#/skills', '#/skills/installed', '#/skills/suggested', '#/skills/find', '#/skills/learned',
   '#/brain',
   '#/tia', '#/tia/jobs', '#/tia/activity',
+  '#/operator',
   '#/code',
   '#/desktop', '#/desktop/sessions', '#/desktop/terminal', '#/desktop/files', '#/desktop/editor', '#/desktop/tasks', '#/desktop/services', '#/desktop/logs',
-  '#/settings', '#/settings/new-sessions', '#/settings/work', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/public-link', '#/settings/tia', '#/settings/editor', '#/settings/addons', '#/settings/codingtools', '#/settings/updates', '#/settings/about',
+  '#/settings', '#/settings/new-sessions', '#/settings/root', '#/settings/work', '#/settings/automations', '#/settings/golive', '#/settings/workspace', '#/settings/notifications', '#/settings/appearance', '#/settings/security', '#/settings/public-link', '#/settings/tia', '#/settings/editor', '#/settings/addons', '#/settings/codingtools', '#/settings/updates', '#/settings/learn', '#/settings/about',
 ];
 
 /** Old addresses (and the screens Tia links to) → where that lives now. */
@@ -67,9 +72,14 @@ export const ALIASES = {
   '/settings/tokens': '/computers',
   '/settings/pair': '/computers',
   '/settings/skills': '/skills',
-  '/settings/automations': '/automations',
-  '/settings/schedules': '/automations',
-  '/settings/activity': '/automations',
+  // The Automations page was folded into Work (decided 17 Nov 2026: fewer pages): its schedules and queue are Work →
+  // Schedules, its switches Settings → Automations, its log part of Work → Activity.
+  '/automations': '/work/schedules',
+  '/automations/queue': '/work/schedules',
+  '/automations/rules': '/settings/automations',
+  '/automations/activity': '/work/activity',
+  '/settings/schedules': '/work/schedules',
+  '/settings/activity': '/work/activity',
   '/settings/signin': '/settings/security',
   '/settings/password': '/settings/security',
   '/settings/network': '/settings/security',
@@ -105,14 +115,14 @@ function viewMore() {
   frame({
     title: 'More',
     page: 'more',
-    intro: 'Everything else: automations, skills, the assistant and the settings.',
+    intro: 'Everything else: skills, the AI brain, the assistant and the settings.',
     body: [h('div.rows', navPages('more').map((p) => listRow({ href: p.perComputer ? link(`#/${p.id}`) : `#/${p.id}`, icon: p.icon, title: p.title, end: p.count ? h('span.badge', String(p.count)) : null })))],
   });
 }
 
 // The pages that belong to a computer that codes. On a hub (`setup --hub`: it only links the others) they open on
 // the first computer that runs sessions, not on the hub's empty one.
-export const CODING_PAGES = ['workspace', 'providers', 'brain', 'skills', 'automations', 'new-project', 'get-project'];
+export const CODING_PAGES = ['workspace', 'providers', 'brain', 'skills', 'new-project', 'get-project'];
 let hubWait = () => {};
 function onHub(hash) {
   const to = hubStandIn();

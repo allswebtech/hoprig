@@ -4,8 +4,9 @@
 #               repositories and one plain repository, against bare repositories in a shared folder that stands in
 #               for the git server; `workspace map`, then the brain committed and pushed. The command is checked in
 #               a login shell and over ssh (a non-interactive shell, where nvm is not loaded).
-#   computer B: Hoprig installed the same way, then `hoprig workspace restore <brain address>`: the tree, the
-#               repositories and the commits must be there. A then changes something and pushes; `sync` on B gets it.
+#   computer B: Hoprig installed the same way, then `hoprig workspace restore <brain address>`: the tree, the brain
+#               and the plain repository must be there and the project not (it comes on demand); then `hoprig get
+#               shop` brings the project with its commits. A then changes something and pushes; `sync` on B gets it.
 #
 #   tools/e2e-workspace.sh <empty work folder> [image]        needs docker and the network (apt, nvm, npm)
 #
@@ -54,6 +55,9 @@ INSTALL="set -e
 $IDENTITY
 HOPRIG_SOURCE=/hoprig/$TGZ sh /hoprig/install.sh --yes --only workspace"
 HEADS='W=$HOME/Workspace; for d in ai_brain projects/shop projects/shop/code/shop-web projects/shop/code/shop-api git/tool; do printf "%s %s\n" "$d" "$(git -C "$W/$d" rev-parse --short HEAD)"; done'
+# What restore alone brings (the brain and the other repositories); a project comes with hoprig get.
+HEADS_RESTORED='W=$HOME/Workspace; for d in ai_brain git/tool; do printf "%s %s\n" "$d" "$(git -C "$W/$d" rev-parse --short HEAD)"; done
+[ ! -e "$W/projects/shop" ] || { echo "restore brought a project without --with-projects"; exit 1; }'
 
 # ---- computer A ----
 docker run -d --name "$A" -v "$WORK/srv:/srv/git" -v "$WORK/pkg:/hoprig:ro" "$IMAGE" sleep infinity >/dev/null
@@ -84,10 +88,12 @@ docker stop "$A" >/dev/null
 docker run -d --name "$B" -v "$WORK/srv:/srv/git" -v "$WORK/pkg:/hoprig:ro" "$IMAGE" sleep infinity >/dev/null
 step "$B" root 600 'packages and a user' "$PREP"
 step "$B" alex 900 'install Hoprig from the tarball' "$INSTALL"
-step "$B" alex 300 'restore from the brain address alone' 'set -e
+step "$B" alex 300 'restore from the brain address alone, then the project on demand' 'set -e
 hoprig workspace restore https://git.example.test/team/brain.git --yes
-'"$HEADS"'
+'"$HEADS_RESTORED"'
 hoprig workspace restore https://git.example.test/team/brain.git --yes | tail -n 8
+hoprig get shop
+'"$HEADS"'
 hoprig workspace status
 ls -la $HOME/.claude/projects/*/ | grep -- "memory ->" || true'
 docker stop "$B" >/dev/null
@@ -98,6 +104,6 @@ step "$A" alex 120 'a change on A, pushed' 'set -e
 cd $HOME/Workspace/projects/shop/code/shop-web && echo "changed on A" >> README.md && git commit -qam "Change on A" && git push -q && git rev-parse --short HEAD'
 docker stop "$A" >/dev/null
 docker start "$B" >/dev/null
-step "$B" alex 120 'sync on B' 'hoprig workspace sync; git -C $HOME/Workspace/projects/shop/code/shop-web log --oneline -1'
+step "$B" alex 120 'sync on B: the change on A arrives' 'hoprig workspace sync; git -C $HOME/Workspace/projects/shop/code/shop-web log --oneline -1 | grep "Change on A"'
 echo
 echo '==== done'

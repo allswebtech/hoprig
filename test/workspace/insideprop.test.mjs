@@ -281,7 +281,7 @@ test(`restore, get, sync --push, the upkeep, project setup and its installs on $
     };
     const q = await quietUi();
     q.ui.yes = true;
-    await restoreWorkspace(brainUrl, { ui: q.ui, dir: B.ws, projects: B.projects, runner });
+    await restoreWorkspace(brainUrl, { withProjects: true, ui: q.ui, dir: B.ws, projects: B.projects, runner });
     // A link made by hand after the restore, in a code folder: the same as one a repository brought.
     const api = path.join(B.projects, 'shop', 'code', 'api');
     if (r.chance(0.5) && fs.existsSync(path.dirname(api)) && !fs.lstatSync(path.join(B.projects, 'shop', 'code')).isSymbolicLink()) {

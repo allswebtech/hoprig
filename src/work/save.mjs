@@ -36,8 +36,12 @@ import { blobId, blobOnDisk, branchesWith, gitWrite, indexEntry, isAncestor, las
 import { dropJournal, keptAt, writeJournal } from './journal.mjs';
 import { dropKept, keepList, keptShow } from './kept.mjs';
 import { takeRepoLock, withLock } from './lock.mjs';
-import { NOT_SAVED, cap, fileHash, publicPlan, s, savePlan } from './saveplan.mjs';
+import { NOT_SAVED, cap, fileHash, isMissionFile, publicPlan, s, savePlan } from './saveplan.mjs';
 import { isRunFile } from './runs.mjs';
+import { checkPlanCommits, planFileKind } from './plans.mjs';
+
+/** A file Work commits beside the list: a run record of its name, or a plan's file or note of Work's. */
+const isExtra = (file) => isRunFile(file) || ['plan', 'note'].includes(planFileKind(file)) || isMissionFile(file);
 import { writeText } from './store.mjs';
 
 export { fileHash, publicPlan, savePlan };
@@ -86,7 +90,7 @@ async function saveLocked(place, { subject, run, dryRun, expect, decisions }) {
   const movedMessage = 'The Work file or the server changed since you looked at what a save would do: nothing was committed. Look at the new plan and save again.';
   const r = plan.remote;
   if (expect && (!matches(plan.hash, expect.hash) || (expect.upstream && r && !matches(r.upstream, expect.upstream)))) return out(false, movedMessage, { code: 'moved' });
-  if (plan.nothing) return out(true, 'Nothing to save: the Work file is as it was last committed.');
+  if (plan.nothing) return out(true, 'Nothing to keep: the copy in the history has every change of your list already.');
   if (r && r.mode === 'blocked') return out(false, r.message, { code: r.code || 'blocked' });
   if (r && r.mode === 'merge' && r.undecided) {
     return out(false, `${s(r.undecided, 'task')} changed differently here and on another computer: choose which version to keep for each, then save.`, { code: 'decide' });
@@ -98,18 +102,25 @@ async function saveLocked(place, { subject, run, dryRun, expect, decisions }) {
   }
 
   const { git: g, rel } = plan;
-  // The run files the plan named (runs.mjs): committed with the list, by name. Their index entries as they were, for a
-  // commit that fails or is taken back.
-  const runs = plan.runs || [];
   const git = (args) => gitWrite(g.top, args, { run });
   const read = (args) => gitRead(g.top, args, { run });
   const kind = r && r.mode === 'merge' ? 'merge' : r && r.mode === 'ff' ? 'ff' : plan.files.length ? 'commit' : 'send';
+  // A merge's plans' files changed here and on the server (saveplan.mjs planConflict): kept, put back, brought in by the
+  // fast-forward, then written as the owner chose.
+  const both = kind === 'merge' ? plan.merge.files || [] : [];
+  // Work's files beside the list that the plan named, committed with it by name: the run files (runs.mjs) and the plans'
+  // files (plans.mjs) the fast-forward does not touch; a plan's file of `both` that he kept as this computer's joins
+  // them after the fast-forward. Their index entries as they were, for a commit that fails or is taken back.
+  const runs = [...(plan.runs || []), ...(plan.plans || []).filter((f) => !both.some((b) => b.path === f)), ...(plan.missions || []).filter((f) => !both.some((b) => b.path === f))];
+  const nRuns = (plan.runs || []).length;
   const behind = r ? r.behind : 0;
   const theirsHere = `the server's ${s(behind, 'new commit')} ${behind === 1 ? 'is' : 'are'} here now`;
   const notes = [];
   // Files of a run's name that are no run record (a link, other content): never committed, said once.
   const notRuns = plan.notRuns || [];
   if (notRuns.length) notes.push(`${notRuns.length === 1 ? `${notRuns[0]} is` : `${s(notRuns.length, 'file')} in ${plan.runsRel} are`} not a run Work wrote (a link, or something else): Work left ${notRuns.length === 1 ? 'it' : 'them'} alone`);
+  const notPlans = plan.notPlans || [];
+  if (notPlans.length) notes.push(`${notPlans.length === 1 ? `${notPlans[0]} is` : `${s(notPlans.length, 'file')} in ${plan.plansRel} are`} not a plan Work can read now (changed by hand?): Work left ${notPlans.length === 1 ? 'it' : 'them'} alone`);
   const short = (sha) => (sha ? sha.slice(0, 12) : 'no commit');
   const at = async (rev) => {
     const x = await read(['rev-parse', '--verify', '--quiet', `${rev}:${rel}`]);
@@ -118,7 +129,10 @@ async function saveLocked(place, { subject, run, dryRun, expect, decisions }) {
   // A merge keeps his list in the repository too (kept.mjs): said in every failure that leaves it, deleted at the end.
   const keptNote = ` Your own list as it was before the save is also kept in ${g.name}: ${keptShow(rel)} prints it.`;
   const end = async ({ keep = false } = {}) => {
-    if (kind === 'merge' && !keep) await dropKept(g.top, rel, run);
+    if (kind === 'merge' && !keep) {
+      await dropKept(g.top, rel, run);
+      for (const b of both) await dropKept(g.top, b.path, run);
+    }
     dropJournal(place.file);
   };
   /**
@@ -130,7 +144,8 @@ async function saveLocked(place, { subject, run, dryRun, expect, decisions }) {
     const tip = tipR.ok ? tipR.stdout.trim() : null;
     if (!tip || (tip !== sha && (await isAncestor(g.top, sha, tip, run)) !== true)) return '';
     const above = tip === sha ? [] : await unsentCommits(g.top, run, `${sha}..${tip}`);
-    if (above && !sortUnsent(above, { rel, mapRel: plan.mapRel, runsRel: plan.runsRel }).theirs.length) return 'Save again sends it';
+    if (above) await checkPlanCommits(g.top, above, plan.plansRel, run);
+    if (above && !sortUnsent(above, { rel, mapRel: plan.mapRel, runsRel: plan.runsRel, plansRel: plan.plansRel, missionsRel: plan.missionsRel }).theirs.length) return 'Save again sends it';
     return `it goes to the server with yours when you send them (git push in ${g.name})`;
   };
   /** Why the branch is not where the save found it or left it (`from`), in the true words. */
@@ -169,10 +184,17 @@ async function saveLocked(place, { subject, run, dryRun, expect, decisions }) {
       return { result: out(false, `${NOT_SAVED}: ${e.message}. Nothing was changed; your changes are kept in the file.`, { code: 'failed', detail: e.detail }) };
     }
     const ids = { mine: blobId(mineBytes, len), head: await at(head), theirs: kind === 'merge' ? await at(base) : null, target: merged === null ? blobId(mineBytes, len) : blobId(merged, len) };
+    const idOf = (text) => (text === null ? null : blobId(text, len));
+    const atPath = async (rev, p) => {
+      const x = await read(['rev-parse', '--verify', '--quiet', `${rev}:${p}`]);
+      return x.ok ? x.stdout.trim() : null;
+    };
+    const files = [];
+    for (const b of both) files.push({ path: b.path, mine: b.mineText, target: b.target, ids: { mine: idOf(b.mineText), head: await atPath(head, b.path), theirs: idOf(b.theirsText), target: idOf(b.target) } });
     try {
       writeJournal(place.file, {
         kind, top: fs.realpathSync(g.top), rel, branch: g.branch, remote: g.remote ? { name: g.remote, ref: g.merge } : null,
-        head, base, index, ids, subject, decisions, runs, runsIndex,
+        head, base, index, ids, subject, decisions, runs, runsIndex, files,
         mine: kind === 'merge' ? plan.merge.mineText : mineBytes.toString('utf8'), merged,
       });
     } catch (e) {
@@ -194,12 +216,23 @@ async function saveLocked(place, { subject, run, dryRun, expect, decisions }) {
         dropJournal(place.file);
         return { result: out(false, `${NOT_SAVED}: Hoprig could not keep a copy of your list in ${g.name} before the merge (${/changed/.test(k.detail) ? 'the Work file changed meanwhile' : 'git refused it'}), so nothing was changed. Your changes are kept in the file.`, { code: 'failed', detail: k.detail }) };
       }
+      // His plans' files of `both` too, each under its own ref (kept.mjs keys a ref by the file's path).
+      for (const f of files) {
+        const kf = await keepList(g.top, f.path, path.join(g.top, ...f.path.split('/')), f.ids.mine, run);
+        if (!kf.ok) {
+          for (const x of files) await dropKept(g.top, x.path, run);
+          await dropKept(g.top, rel, run);
+          dropJournal(place.file);
+          return { result: out(false, `${NOT_SAVED}: Hoprig could not keep a copy of ${f.path} in ${g.name} before the merge, so nothing was changed. Your changes are kept in the files.`, { code: 'failed', detail: kf.detail }) };
+        }
+      }
       stopAfter('kept');
       // A step before the branch moved failed: his file and its index entry as they were, or where they are kept.
       const undo = async (why, code, step) => {
         let back = true;
         try {
           if (fileHash(place.file) !== plan.hash) writeText(place.file, plan.merge.mineText);
+          for (const f of files) if (blobOnDisk(path.join(g.top, ...f.path.split('/')), len) !== f.ids.mine) writeText(path.join(g.top, ...f.path.split('/')), f.mine);
         } catch {
           back = false;
         }
@@ -214,6 +247,13 @@ async function saveLocked(place, { subject, run, dryRun, expect, decisions }) {
         const back = await git(['checkout', '--quiet', 'HEAD', '--', rel]);
         if (!back.ok) return undo('the Work file could not be put back to its last commit', 'failed', back);
       }
+      for (const f of files) {
+        if (!f.ids.head) fs.rmSync(path.join(g.top, ...f.path.split('/')), { force: true });
+        else {
+          const back = await git(['checkout', '--quiet', 'HEAD', '--', f.path]);
+          if (!back.ok) return undo(`${f.path} could not be put back to its last commit`, 'failed', back);
+        }
+      }
       stopAfter('putback');
       const ff = await git(['merge', '--ff-only', '--quiet', base]);
       if (!ff.ok) {
@@ -225,6 +265,19 @@ async function saveLocked(place, { subject, run, dryRun, expect, decisions }) {
         writeText(place.file, merged);
       } catch (e) {
         return { result: out(false, `${NOT_SAVED}: ${theirsHere} (the branch is on the server's commit), but the merged list could not be written to the Work file (${e.message.replace(/^the Work file could not be written \((.*)\)$/, '$1')}). It is kept in Hoprig's state folder, ${kept} (its "merged" value): the next look at the Work list writes it, once the file can be written.${keptNote}`, { code: 'failed', detail: e.detail }) };
+      }
+      // The plans' files as he chose: his own where he kept this computer's (then committed with the rest).
+      try {
+        for (const f of files) {
+          if (f.ids.target === f.ids.theirs) continue;
+          const abs = path.join(g.top, ...f.path.split('/'));
+          if (f.target === null) fs.rmSync(abs, { force: true });
+          else writeText(abs, f.target);
+          runsIndex[f.path] = await indexEntry(g.top, f.path, run);
+          runs.push(f.path);
+        }
+      } catch (e) {
+        return { result: out(false, `${NOT_SAVED}: ${theirsHere} (the branch is on the server's commit), but a plan's file could not be written (${e.message}). What it is to hold is kept in Hoprig's state folder, ${kept}: the next look at the Work list writes it.${keptNote}`, { code: 'failed', detail: e.detail }) };
       }
       stopAfter('write');
       if (merged === plan.merge.theirsText && !runs.length) {
@@ -253,7 +306,7 @@ async function saveLocked(place, { subject, run, dryRun, expect, decisions }) {
       for (const f of runs) await setIndexEntry(g.top, f, runsIndex[f], run);
     };
     // Once more right before they are added: each is still a run record of its name (not a link, nothing else).
-    if (runs.some((f) => !isRunFile(path.join(g.top, ...f.split('/'))))) return { result: await notCommitted('a run file changed while the save ran and is not a run record now', null, 'moved-here') };
+    if (runs.some((f) => !isExtra(path.join(g.top, ...f.split('/'))))) return { result: await notCommitted('a run file or a plan\'s file changed while the save ran and is not one of Work\'s now', null, 'moved-here') };
     if (isNew) {
       const a = await git(['add', '--', rel]);
       if (!a.ok) return { result: await notCommitted(`git could not add ${rel}`, a) };
@@ -323,9 +376,13 @@ async function saveLocked(place, { subject, run, dryRun, expect, decisions }) {
     return out(ok, `${text}${also}`, extra);
   };
   const decided = r && r.mode === 'merge' && r.conflicts.length ? `, ${s(r.conflicts.length, 'task')} decided by you` : '';
-  const withRuns = runs.length ? ` and ${s(runs.length, 'run')}` : '';
+  const nPlans = runs.length - nRuns;
+  const copies = (n) => `${n} earlier ${n === 1 ? 'copy' : 'copies'}`;
+  const withRuns = [nRuns ? s(nRuns, 'run') : null, nPlans ? s(nPlans, 'plan file') : null].filter(Boolean).map((x) => ` and ${x}`).join('');
   const what = kind === 'merge' ? `Merged ${s(r.mine.length, 'change')} of yours with ${s(r.theirs.length, 'change')} from another computer${decided}${withRuns}`
-    : kind === 'send' ? null : `Committed ${plan.state ? `${rel} (${s(plan.changes.length, 'change')})${withRuns}` : s(runs.length, 'run')}${earlier ? ` with ${s(earlier, 'earlier commit')} of the Work file` : ''}`;
+    // His words, not git's: a copy of his list kept in the history, and uploaded to his git server.
+    : kind === 'send' ? null : plan.state ? `Kept a copy of your list (${s(plan.changes.length, 'change')})${withRuns}${earlier ? ` with ${copies(earlier)} of it` : ''}`
+      : `Kept ${withRuns.slice(5)}${earlier ? ` with ${copies(earlier)} of your list` : ''}`;
   if (local.same) return said(true, `${what}: the server's version is the result, so there is nothing to send.`);
   if (!g.remote) {
     await end();
@@ -335,12 +392,13 @@ async function saveLocked(place, { subject, run, dryRun, expect, decisions }) {
   // exact id: what goes is the save's commit and earlier commits of the Work file alone (git.mjs sortUnsent).
   const sha = local.committed ? local.made : plan.head;
   const goes = await unsentCommits(g.top, run, `${r.upstream}..${sha}`);
-  const sorted = goes ? sortUnsent(goes, { rel, mapRel: plan.mapRel, runsRel: plan.runsRel }) : null;
+  if (goes) await checkPlanCommits(g.top, goes, plan.plansRel, run);
+  const sorted = goes ? sortUnsent(goes, { rel, mapRel: plan.mapRel, runsRel: plan.runsRel, plansRel: plan.plansRel, missionsRel: plan.missionsRel }) : null;
   const p = sorted && goes.length && !sorted.theirs.length ? await git(sendArgs(g.remote, sha, g.merge)) : null;
   stopAfter('push');
   if (p && p.ok) {
     await end();
-    return said(true, local.committed ? `${what} and sent it to ${plan.repo.upstream}.` : `Sent ${s(earlier, 'earlier commit')} of the Work file to ${plan.repo.upstream}.`, { saved: local.committed, sent: true });
+    return said(true, local.committed ? `${what} and uploaded it to your git server.` : `Uploaded ${copies(earlier)} of your list to your git server.`, { saved: local.committed, sent: true });
   }
   const why = p ? sendFailure(p) : 'it would have carried commits that are not saves of the Work file';
   const detail = p ? { detail: lastLine(p) } : {};

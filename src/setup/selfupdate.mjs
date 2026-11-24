@@ -84,8 +84,11 @@ export async function newestVersion({ fetchImpl = globalThis.fetch, source = hop
   return typeof version === 'string' && /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version) ? { version, note: null } : unknown('the package file names no version');
 }
 
+/** Whether `hoprig update <args>` is a dry run: the one reading of its flags (the field report asks it too). */
+export const isUpdateDryRun = (args = []) => args.includes('--dry-run') || args.includes('-n');
+
 export async function selfUpdate(args = [], { write = (s) => process.stdout.write(s), run = stream, root = appRoot(), lookup = newestVersion } = {}) {
-  const dryRun = args.includes('--dry-run') || args.includes('-n');
+  const dryRun = isUpdateDryRun(args);
   if (args.some((a) => !['--dry-run', '-n'].includes(a))) {
     write(`usage: ${APP} update [--dry-run]\n`);
     return 2;
@@ -128,6 +131,6 @@ export async function selfUpdate(args = [], { write = (s) => process.stdout.writ
     write('Dry run: nothing was changed.\n');
     return 0;
   }
-  write(`Updated. If the dashboard runs in the background, restart it: ${APP} service install\n`);
+  write(`Updated. If the dashboard runs in the background, restart it: ${APP} service restart\n`);
   return 0;
 }

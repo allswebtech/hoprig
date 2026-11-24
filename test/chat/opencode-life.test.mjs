@@ -20,6 +20,11 @@ const tempDir = () => {
 after(() => {
   for (const d of temps) fs.rmSync(d, { recursive: true, force: true, maxRetries: 3 });
 });
+// The record of who runs a conversation is kept in the state folder, and the test files beside this one use the same
+// recorded conversation. With the one state folder the test runner gives a whole run, two of them at the same moment
+// (a computer with many cores) found each other's record: "another chat runs this conversation right now". So this
+// file has a state folder of its own.
+process.env.HOPRIG_STATE_DIR = tempDir();
 const CHILD = 'ses_child0000000001';
 const CHILD2 = 'ses_child0000000002';
 const ev = (type, data) => ({ event: { type, data: { sessionID: SESSION_ID, ...data } } });

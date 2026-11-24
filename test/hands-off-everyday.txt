@@ -1,0 +1,119 @@
+# Command lines a coding tool runs in ordinary work, one per line, read by test/hands-off-everyday.test.mjs.
+#
+# Every line here must go through the wall (wallHeld answers null): a hold on one of them would cost the owner a tap
+# in every session. The session stands in its own folder /w/shop on the work branch feature of a repository whose
+# default branch is main. A line break inside a line is written as the two characters \n.
+# Lines that begin with # and empty lines are not rows.
+
+# Tests, builds and installs
+npm test
+npm run build
+npm run lint
+npm ci
+npm install
+npm install --save-dev vitest
+npx vitest run
+npx tsc --noEmit
+npx prettier --check .
+npx eslint .
+npx playwright test
+npx jest --coverage
+pnpm test
+pnpm install --frozen-lockfile
+pnpm run build
+yarn test
+yarn install
+bun test
+bun install
+node scripts/build.mjs
+node --test
+node tools/test.mjs test/a.test.mjs
+python3 -m pytest -q
+python3 -m venv .venv
+python3 -m pip install -r requirements.txt
+python3 manage.py test
+python3 manage.py migrate
+pytest -q
+uv run pytest
+uv sync
+poetry run pytest
+poetry install
+bundle exec rspec
+bundle install
+cross-env NODE_ENV=test jest
+go test ./...
+go build ./...
+cargo test
+cargo build --release
+cargo clippy
+make test
+make
+mvn test
+./gradlew test
+dotnet test
+deno test
+mix test
+systemd-run --user make test
+
+# git on the work branch
+git status
+git diff
+git log --oneline -10
+git add -A
+git commit -m "Fix the build"
+git checkout -b feature
+git switch feature
+git fetch origin
+git pull --rebase
+git push -u origin feature
+git push origin HEAD
+git push origin feature
+git push
+git push -u origin "$(git branch --show-current)"
+git push origin "$(git rev-parse --abbrev-ref HEAD)"
+git rebase main
+git merge main
+
+# Reads, writes and deletes inside the session's folder
+ls *.md
+cat src/*.json
+rm -rf node_modules/.cache/*
+rm -f dist/*.js
+rm -rf build
+cd src && cat index.mjs
+cd src && ls
+find . -name "*.test.mjs"
+grep -rn TODO src
+rg --files
+mkdir -p build
+cp .env.example .env
+mv old.txt new.txt
+jq . package.json
+
+# Plain reads of gh and glab
+gh pr view
+gh pr list
+gh pr checks
+gh pr status
+gh issue list
+gh run list
+gh run view
+gh repo view
+gh release view
+gh release list
+gh api repos/o/r/pulls
+glab mr list
+glab mr view
+glab ci status
+
+# A redirection's target and a here-string are never a program, so these go through (freed on purpose this round)
+npm test > $LOG 2>&1
+cat <<< "$X"
+# A command that begins with a redirection is read by the program behind the target, not by the target
+> $LOG npm test
+# A here-string feeds its word to the program; the program before it is read, whatever the word holds
+cat <<< $X
+grep a <<< "$X"
+wc -w <<< "$X"
+x=1 cat <<< "$X"
+x=1 <<< "$X" cat

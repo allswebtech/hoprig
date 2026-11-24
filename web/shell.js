@@ -11,7 +11,7 @@
 //   errorBox, okBox, steps, stepHeader, skeletonRows   a result, numbered steps, a step header, rows while loading
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
-import { BARE, MACHINE_STATE, applyPageTheme, fill, h, link, machine, prefs } from './lib.js';
+import { BARE, MACHINE_STATE, applyPageTheme, errorWords, fill, h, link, machine, prefs, wayLink } from './lib.js';
 import { navPages, pageById, registeredHeadTools } from './registry.js';
 import { store } from './store.js';
 import { cameFrom, named, startOver, wayBack, windowWay } from './trail.js';
@@ -26,11 +26,14 @@ const currentItem = (pageId) => (pageById(pageId) || {}).navAs || pageId;
 
 const hrefOf = (p) => (p.id === 'home' ? '#/' : p.perComputer ? link(`#/${p.id}`) : `#/${p.id}`);
 
+/** What a screen reader says for a page's number in the sidebar and the tab bar: the same words in both places. */
+export const badgeLabel = (n) => `${n} ${n === 1 ? 'thing needs' : 'things need'} you`;
+
 function navItem(p, current, cls) {
   return h(`a.${cls}`, { href: hrefOf(p), 'aria-current': current === p.id ? 'page' : null, onclick: startOver },
     icon(p.icon, { size: cls === 'side-item' ? 18 : 22 }),
     h('span', p.title),
-    p.count ? h('span.nav-badge', { 'aria-label': `${p.count} waiting for you` }, String(p.count)) : null);
+    p.count ? h('span.nav-badge', { 'aria-label': badgeLabel(p.count) }, String(p.count)) : null);
 }
 
 function paintNav(side, bottom, pageId) {
@@ -46,7 +49,7 @@ function paintNav(side, bottom, pageId) {
   fill(bottom,
     main.map((p) => navItem(p, current, 'tab')),
     h('a.tab', { href: '#/more', 'aria-current': inMore ? 'page' : null, onclick: startOver }, icon('grid', { size: 22 }), h('span', 'More'),
-      waiting ? h('span.nav-badge', { 'aria-label': `${waiting} waiting for you` }, String(waiting)) : null));
+      waiting ? h('span.nav-badge', { 'aria-label': badgeLabel(waiting) }, String(waiting)) : null));
 }
 
 /** The label of the open computer for titles ("Providers · laptop"), or null on this computer. */
@@ -119,10 +122,11 @@ export function endFrame() {
  * way back (sub-pages; `backOnPhoneOnly` when a desktop shows the way back on the page itself). `primary`: { label,
  * icon, href | onclick } — the page's one main action: a button in the page head on a desktop, the floating button
  * on a phone. `wide`: room for two columns (Settings). `fillWindow`: the page fills the window and its last part
- * stays at the bottom (Tia's chat). The page head holds, on the right, the page's tools, its main action, the
+ * stays at the bottom (Tia's chat). `primaryInHead`: a page of cards he reads and answers (Home, Work) keeps its main
+ * action in the page head on a phone too, never floating over the first card's text. The page head holds, on the right, the page's tools, its main action, the
  * computer pill (a page of one computer, with several) and the light/dark button.
  */
-export function frame({ title, place = null, intro = null, page = null, back: parent = null, backLabel: parentLabel = 'Back', backOnPhoneOnly: parentOnPhoneOnly = false, introOnPhone = true, actions = [], primary = null, body, extra = [], wide = false, fillWindow = false }) {
+export function frame({ title, place = null, intro = null, page = null, back: parent = null, backLabel: parentLabel = 'Back', backOnPhoneOnly: parentOnPhoneOnly = false, introOnPhone = true, actions = [], primary = null, body, extra = [], wide = false, fillWindow = false, primaryInHead = false }) {
   endFrame();
   // The way back is the page that sent you here (trail.js); without one, the page's own parent. `place` is what a
   // link back to this page says, when the title alone would not ("Setup" for a computer's Setup part).
@@ -185,7 +189,7 @@ export function frame({ title, place = null, intro = null, page = null, back: pa
         back ? null : h('img.pagehead-mark', { src: 'icon.svg', alt: '', width: 26, height: 26 }),
         h('h1.page-title', title)),
       intro ? h(`p.page-intro${introOnPhone ? '' : '.desktop-only'}`, intro) : null),
-    h('div.head-tools', actions.length ? h('div.pagehead-actions', actions) : null, go('pagehead-primary'), switcher,
+    h('div.head-tools', actions.length ? h('div.pagehead-actions', actions) : null, go(primaryInHead ? 'pagehead-primary.head-always' : 'pagehead-primary'), switcher,
       h('div.head-icons', registeredHeadTools().map((make) => {
         try {
           return make();
@@ -193,7 +197,7 @@ export function frame({ title, place = null, intro = null, page = null, back: pa
           return null;
         }
       }), themeButton())));
-  const fab = primary ? go('fab') : null;
+  const fab = primary && !primaryInHead ? go('fab') : null;
   fill(app, side, h('div.shell-main', h(`main.page${wide ? '.wide' : ''}${fillWindow ? '.fill' : ''}`, head, body)), extra, fab, bottom);
   document.body.classList.add('has-nav');
   // A phone: the floating button covers the right of the screen while the page scrolls under it. Its width goes to
@@ -220,10 +224,10 @@ export function fold(key, label, ...children) {
 }
 
 /** A question answered by one of a few cards: options [{ value, title, sub }]. */
-export function radioCards(name, options, value, onchange) {
-  return h('div.radiocards', { role: 'radiogroup' }, options.map((o) =>
+export function radioCards(name, options, value, onchange, { labelledBy = null } = {}) {
+  return h('div.radiocards', { role: 'radiogroup', 'aria-labelledby': labelledBy }, options.map((o) =>
     h(`label.radiocard${o.value === value ? '.on' : ''}`,
-      h('input', { type: 'radio', name, value: o.value, checked: o.value === value, onchange: () => onchange(o.value) }),
+      h('input', { type: 'radio', name, value: o.value, checked: o.value === value, dataset: { keep: `${name}-${o.value}` }, onchange: () => onchange(o.value) }),
       h('span.radiocard-text', h('span.radiocard-title', o.title), o.sub ? h('span.radiocard-sub', o.sub) : null))));
 }
 
@@ -267,11 +271,12 @@ export function savedMark() {
  * A switch with its label and one sentence. `onchange(value)` may return a Promise: "Saved" shows next to the switch
  * once it settles without an error. A switch kept only in this browser shows it at once.
  */
-export function toggle(label, checked, onchange, hint) {
+/** `data`: the switch's data attributes (data-key: a page that draws again finds it by that and keeps the focus on it). */
+export function toggle(label, checked, onchange, hint, data) {
   const mark = savedMark();
   return h('label.switchrow',
     h('span.switchrow-text', h('span.switchrow-label', label, mark), hint ? h('span.hint', hint) : null),
-    h('input.switch', { type: 'checkbox', role: 'switch', checked, onchange: async (e) => {
+    h('input.switch', { type: 'checkbox', role: 'switch', checked, dataset: data, onchange: async (e) => {
       try {
         const r = await onchange(e.target.checked);
         if (r !== false) mark.show();
@@ -309,10 +314,17 @@ export function saveBar(label, fn, done = 'Saved') {
 
 // ---------- results, steps, loading ----------
 
-/** What went wrong, in one sentence; with `retry`, a Try again button under it. */
-export const errorBox = (text, retry = null) => h('div.result',
-  h('div.banner.error-box', { role: 'alert' }, icon('alert', { size: 18 }), h('span', text)),
-  retry ? h('button.btn.secondary', { type: 'button', onclick: retry }, icon('refresh', { size: 18 }), h('span', 'Try again')) : null);
+/**
+ * What went wrong, in one sentence; with `retry`, a Try again button under it. `details`: the system's own error
+ * text, folded under "Details" (a person reads the plain line; a helper still finds the cause).
+ */
+// `text` may be the error itself: when its code names a place (errorways.js), a button opens that place.
+export const errorBox = (text, retry = null, details = '') => h('div.result',
+  h('div.banner.error-box', { role: 'alert' }, icon('alert', { size: 18 }), h('span', errorWords(text))),
+  details ? h('details.adv', h('summary', 'Details'), h('pre.output', String(details))) : null,
+  errorButtons(wayLink(text), retry ? h('button.btn.secondary', { type: 'button', onclick: retry }, icon('refresh', { size: 18 }), h('span', 'Try again')) : null));
+// The way and Try again side by side in one row; one of them alone stands as before.
+const errorButtons = (way, again) => (way && again ? h('div.savebar.start', way, again) : way || again);
 
 /** It worked: one sentence (text and nodes). */
 export const okBox = (...text) => h('div.banner.ok-box', { role: 'status' }, icon('check', { size: 18 }), h('span', ...text));

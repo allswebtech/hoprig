@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { tempHome } from './helpers.mjs';
+import { sealed } from '../seal.mjs';
 
 const t = tempHome('ws-care');
 test.after(() => t.cleanup());
@@ -15,8 +16,8 @@ const { ensureCommand, commandCheck, wrapperText, MARK } = await import('../../s
 const H = 3600_000;
 
 test('the rule: off by default; every few hours; pushes only when that is on too; tells a list once', async () => {
-  assert.deepEqual(DEFAULTS.workspace, { map: true, commitMap: null, sync: false, push: false, everyHours: 6 }, 'commitMap: never chosen, it follows the brain');
-  assert.deepEqual(rule.decide({ data: {}, now: 10 * H, settings: DEFAULTS.workspace }).actions, [{ type: 'map', commit: false, push: false }], 'only the map upkeep is on by default');
+  assert.deepEqual(DEFAULTS.workspace, { map: true, commitMap: null, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false }, 'commitMap: never chosen, it follows the brain; memory and pushing the other branches off');
+  assert.deepEqual(rule.decide({ data: {}, now: 10 * H, settings: DEFAULTS.workspace }).actions, [{ type: 'map', commit: false, push: false, memory: false }], 'only the map upkeep is on by default');
   const on = { sync: true, push: false, everyHours: 6 };
   const d = rule.decide({ data: {}, now: 10 * H, settings: on });
   assert.deepEqual(d.actions, [{ type: 'sync', push: false }]);
@@ -31,12 +32,33 @@ test('the rule: off by default; every few hours; pushes only when that is on too
   const result = { repos: [{ label: 'ai_brain', did: ['pulled 2'], todo: [] }, { label: 'shop', did: [], todo: [{ why: 'main and its upstream have both moved', command: 'git …' }] }] };
   const ctx = { record: (e) => records.push(e), notify: (e) => told.push(e), data: {}, save: (x) => (saved = x), workspaceSync: async ({ push }) => (assert.equal(push, false), result) };
   await rule.apply([{ type: 'sync', push: false }], ctx);
-  assert.equal(told.length, 1);
+  // Once: projects are no longer kept in step by it (an owner who had it on relied on that); then the list to decide.
+  assert.equal(told.length, 2);
+  assert.match(told[0].title, /a project is kept in step when you ask/);
   assert.match(records[0].did, /ai_brain: pulled 2/);
   await rule.apply([{ type: 'sync', push: false }], { ...ctx, data: saved });
-  assert.equal(told.length, 1, 'the same list is not told twice');
+  assert.equal(told.length, 2, 'the same list is not told twice, nor the note');
   await rule.apply([{ type: 'sync', push: false }], { ...ctx, workspaceSync: async () => { throw new Error('offline'); } });
   assert.match(records.at(-1).outcome, /failed: offline/);
+});
+
+test('npm\'s own link to this Hoprig in ~/.local/bin is left without a word; a link to another Hoprig is named', () => {
+  if (process.platform === 'win32') return;
+  const home = path.join(t.root, 'npm-link-home');
+  const bin = path.join(home, '.local', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const script = path.resolve('bin/hoprig.mjs');
+  // What `npm install -g --prefix ~/.local` leaves: links to the package's own bin file.
+  for (const n of ['hoprig', 'hop']) fs.symlinkSync(script, path.join(bin, n));
+  const r = ensureCommand({ home, shell: '/bin/bash', platform: 'linux', node: process.execPath, script });
+  assert.deepEqual(r.kept, [], 'no "is not ours" line for what npm itself just put there');
+  assert.equal(fs.lstatSync(path.join(bin, 'hoprig')).isSymbolicLink(), true, 'left as it is');
+  const other = path.join(home, 'other-hoprig.mjs');
+  fs.writeFileSync(other, '');
+  fs.rmSync(path.join(bin, 'hop'));
+  fs.symlinkSync(other, path.join(bin, 'hop'));
+  const o = ensureCommand({ home, shell: '/bin/bash', platform: 'linux', node: process.execPath, script });
+  assert.deepEqual(o.kept.map((l) => l.replace(home, '~')), ['~/.local/bin/hop is not ours: left as it is']);
 });
 
 test('the command in every shell: two small scripts and one PATH line per shell file, added once; a file not ours is left', () => {
@@ -61,7 +83,7 @@ test('the command in every shell: two small scripts and one PATH line per shell 
   assert.ok(z.did.some((l) => l.endsWith('.zshenv')));
   assert.ok(z.kept[0].endsWith('hop is not ours: left as it is'));
   // The written script really starts Hoprig without anything else on PATH.
-  const out = execFileSync(path.join(home, '.local', 'bin', 'hoprig'), ['version'], { env: { PATH: '/usr/bin:/bin', HOME: home }, encoding: 'utf8' });
+  const out = execFileSync(path.join(home, '.local', 'bin', 'hoprig'), ['version'], { env: sealed({ PATH: '/usr/bin:/bin', HOME: home }), encoding: 'utf8' });
   assert.match(out, /^\d+\.\d+\.\d+/);
   assert.equal(commandCheck({ home, platform: 'linux' }).status, 'ok');
   fs.writeFileSync(path.join(home, '.local', 'bin', 'hoprig'), wrapperText('/nowhere/node', script));

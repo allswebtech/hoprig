@@ -18,7 +18,7 @@ fs.mkdirSync(remotes);
 // "https://git.test/<owner>/<repo>.git" goes to a bare repository in the scratch folder, so the addresses look
 // like a real host's and pass the validators, but nothing leaves this computer.
 fs.writeFileSync(gitcfg, `[user]\n\tname = Test Dev\n\temail = dev@example.com\n[init]\n\tdefaultBranch = main\n[url "${remotes}/"]\n\tinsteadOf = https://git.test/\n[protocol "file"]\n\tallow = always\n`);
-Object.assign(process.env, { GIT_CONFIG_GLOBAL: gitcfg, GIT_CONFIG_NOSYSTEM: '1', HOME: home, HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state') });
+Object.assign(process.env, { GIT_CONFIG_GLOBAL: gitcfg, GIT_CONFIG_NOSYSTEM: '1', HOME: home, USERPROFILE: home, HOPRIG_CONFIG_DIR: path.join(tmp, 'cfg'), HOPRIG_STATE_DIR: path.join(tmp, 'state') });
 const W = await import('../../src/pcsetup/workspace.mjs');
 const { cloneRepo } = await import('../../src/pcsetup/projects.mjs');
 
@@ -44,10 +44,10 @@ test('manifest validator refuses paths out of the project and bad addresses', ()
 
 test('project.json: a key this Hoprig does not know is kept and reported, never a refusal; the known keys stay strict', async () => {
   const ok = { name: 'shop', repos: [{ dir: 'code/shop-web', url: 'https://github.com/o/shop-web.git' }], memories: {} };
-  const v = W.validateManifest({ needs: ['x'], ...ok, later: { a: 1 }, repos: [{ ...ok.repos[0], sync: false }] });
+  const v = W.validateManifest({ soon: ['x'], ...ok, later: { a: 1 }, repos: [{ ...ok.repos[0], sync: false }] });
   assert.equal(v.ok, true);
   assert.deepEqual(v.manifest.repos, [{ dir: 'code/shop-web', url: 'https://github.com/o/shop-web.git', sync: false }]);
-  assert.deepEqual(v.warnings.map((w) => /unknown key "(\w+)"/.exec(w)[1]), ['needs', 'later', 'sync']);
+  assert.deepEqual(v.warnings.map((w) => /unknown key "(\w+)"/.exec(w)[1]), ['soon', 'later', 'sync']);
   assert.equal(W.validateManifest({ ...ok, extra: 1, name: '../x' }).ok, false); // a known key is still checked
   assert.equal(W.validateManifest({ ...ok, extra: 1, repos: [{ dir: '../evil', url: ok.repos[0].url }] }).ok, false);
   // a weird key name is never copied anywhere
@@ -55,16 +55,18 @@ test('project.json: a key this Hoprig does not know is kept and reported, never 
 
   const root = path.join(tmp, 'tolerant');
   fs.mkdirSync(root, { recursive: true });
-  fs.writeFileSync(path.join(root, 'project.json'), JSON.stringify({ name: 'shop', needs: ['other/thing'], repos: [], memories: {}, credentials: { link: 'x' } }, null, 2));
+  fs.writeFileSync(path.join(root, 'project.json'), JSON.stringify({ name: 'shop', soon: ['other/thing'], repos: [], memories: {}, credentials: { link: 'x' } }, null, 2));
   const m = await W.readManifest(root);
   assert.equal(m.source, 'project.json');
   assert.equal(m.manifest.name, 'shop');
-  assert.equal(m.warnings.length, 2);
+  // "soon" is unknown to this Hoprig (kept, reported); "credentials" is known since credential links, and valid here.
+  assert.deepEqual(m.warnings.map((w) => /unknown key "(\w+)"/.exec(w)?.[1]), ['soon']);
+  assert.deepEqual(m.manifest.credentials, { link: 'x' });
   // a write keeps the unknown keys, in the file's own order
   W.writeManifest(root, { ...m.manifest, repos: ok.repos });
   const after = JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8'));
-  assert.deepEqual(Object.keys(after), ['name', 'needs', 'repos', 'memories', 'credentials']);
-  assert.deepEqual(after.needs, ['other/thing']);
+  assert.deepEqual(Object.keys(after), ['name', 'soon', 'repos', 'memories', 'credentials']);
+  assert.deepEqual(after.soon, ['other/thing']);
   assert.deepEqual(after.credentials, { link: 'x' });
   assert.deepEqual(after.repos, ok.repos);
   // a key with an odd name (a space, not ASCII, long) is kept as it is too; only __proto__, constructor and prototype never
@@ -83,8 +85,8 @@ test('project.json: a key this Hoprig does not know is kept and reported, never 
   fs.writeFileSync(path.join(root, 'project.json'), JSON.stringify(after, null, 2)); // as it was before the odd keys
   // and the status says so
   const st = await W.workspaceState(root);
-  assert.equal(st.warnings.length, 2);
-  assert.match(st.warnings[0], /unknown key "needs" \(kept/);
+  assert.equal(st.warnings.length, 1, 'credentials and needs are known keys now: only soon is unknown');
+  assert.match(st.warnings[0], /unknown key "soon" \(kept/);
 });
 
 test('templates: placeholders in names and text; nothing may land outside the project; no links out', () => {
@@ -254,7 +256,7 @@ test('project new without a git name and e-mail stops before anything is written
   const { spawnSync } = await import('node:child_process');
   const { binFile } = await import('../../src/paths.mjs');
   const home = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'hop-noid-'));
-  const env = { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: pathx.join(home, 'cfg'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: pathx.join(home, 'gitconfig'),
+  const env = { ...process.env, HOME: home, USERPROFILE: home, APPDATA: pathx.join(home, 'AppData', 'Roaming'), LOCALAPPDATA: pathx.join(home, 'AppData', 'Local'), XDG_CONFIG_HOME: pathx.join(home, 'cfg'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: pathx.join(home, 'gitconfig'),
     HOPRIG_CONFIG_DIR: pathx.join(home, 'c'), HOPRIG_STATE_DIR: pathx.join(home, 's'), CLAUDE_CONFIG_DIR: pathx.join(home, 'claude') };
   for (const k of ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'EMAIL']) delete env[k];
   const r = spawnSync(process.execPath, [binFile(), 'project', 'new', 'shop', '--no-github'], { env, encoding: 'utf8' });

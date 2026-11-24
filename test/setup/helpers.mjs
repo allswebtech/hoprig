@@ -9,6 +9,7 @@ export function scratch() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoprig-setup-test-'));
   const env = {
     HOME: path.join(tmp, 'home'),
+    USERPROFILE: path.join(tmp, 'home'), // Windows takes the home from here
     HOPRIG_CONFIG_DIR: path.join(tmp, 'config'),
     HOPRIG_STATE_DIR: path.join(tmp, 'state'),
     CLAUDE_CONFIG_DIR: path.join(tmp, 'claude'),
@@ -40,6 +41,19 @@ case "$1" in
   auth) ${loggedIn ? `echo '{"loggedIn":true,"authMethod":"claude.ai","email":"someone@example.com"}'` : `echo '{"loggedIn":false,"authMethod":"none"}'; exit 1`} ;;
   *) exit 0 ;;
 esac`;
+
+/**
+ * A folder of harmless stand-ins for the programs a doctor/workspace check probes on PATH — gh (installed, not signed
+ * in), docker (installed), tailscale (not running) — so a test that reads the computer's state never reaches the
+ * owner's own GitHub, container daemon or private network. Put it first on PATH. Returns the folder.
+ */
+export function fakeTools(dir) {
+  return fakeBin(dir, {
+    gh: 'case "$1" in --version) echo "gh version 2.0.0 (2024-01-01)";; *) exit 1;; esac',
+    docker: 'case "$1" in --version) echo "Docker version 24.0.0, build abc0123";; info|ps) exit 1;; *) exit 0;; esac',
+    tailscale: 'exit 1',
+  });
+}
 
 /**
  * PATH with only the fake programs and node (a link to the running node in a folder of its own: the real node's

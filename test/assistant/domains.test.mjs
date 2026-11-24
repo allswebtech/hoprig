@@ -116,7 +116,7 @@ test('manage_project: new and get are cards that show what will be made; sync is
   // api has 3 local commits → publishing them is the owner's call
   r = await call('manage_project', { action: 'sync', project: 'api' });
   assert.ok(staged(r), r.text);
-  assert.match(r.text, /would publish local commits \(api: 3 commit\(s\)\)/);
+  assert.match(r.text, /the project has local commits \(api: 3 commit\(s\)\): the sync leaves them, publishing is the owner's own press/);
   assert.ok(staged(await call('manage_project', { action: 'sync', project: 'shop', memory: true })));
   assert.deepEqual(writes(ops), ['projectSync']);
   // create_folders shows the dry-run list
@@ -152,7 +152,7 @@ test('manage_computer: rename is L1; setup fix and set up show what runs; add-on
   assert.deepEqual(writes(ops), ['renameComputer', 'addon']);
 });
 
-test('manage_computer public_link: on opens the computer to the internet, so it is a card; off runs; never as an add-on', async () => {
+test('manage_computer public_link: on is his own press, her card only opens Settings → Public link; off runs; never as an add-on', async () => {
   const { call, ops, core } = setup();
   // The old way around the card is closed: the public link is not started as an add-on.
   const old = await call('manage_computer', { action: 'addon', addon: 'public-link', addon_action: 'start' });
@@ -161,29 +161,30 @@ test('manage_computer public_link: on opens the computer to the internet, so it 
   assert.match((await call('manage_computer', { action: 'public_link', turn: 'off', link_kind: 'custom' })).text, /off needs no kind/);
   const r = await call('manage_computer', { action: 'public_link', turn: 'on', link_kind: 'temporary' });
   assert.ok(staged(r), r.text);
-  assert.match(r.text, /Turn ON the public link of this: Temporary, a new https address at each start/);
+  assert.match(r.text, /Open Settings → Public link of this, where you turn it ON yourself \(Temporary, a new https address at each start\); Tia turns nothing on/);
   assert.match(r.text, /Anyone who has the address reaches its sign-in page/);
   assert.deepEqual(writes(ops), [], 'nothing before the owner\'s OK');
   const id = /card (c_[0-9a-f]{12})/.exec(r.text)[1];
   const done = await core.confirm(id);
   assert.equal(done.ok, true, JSON.stringify(done));
-  assert.deepEqual(ops.calls.map((c) => c.args), [{ computer: 'this', on: true, kind: 'temporary' }]);
+  assert.equal(done.open, '#/settings/public-link');
+  assert.deepEqual(writes(ops), [], 'his tap opened the page and turned nothing on');
   // Off: no card.
   const off = await call('manage_computer', { action: 'public_link', turn: 'off' });
   assert.equal(off.isError, false, off.text);
   assert.match(off.text, /The public link of this is off/);
-  assert.deepEqual(ops.calls.map((c) => c.args).at(-1), { computer: 'this', on: false });
+  assert.deepEqual(ops.calls.map((c) => c.args), [{ computer: 'this', on: false }]);
 });
 
-test('manage_computer public_link: a refusal is told in fixed words, never the computer\'s own text', async () => {
-  const s = baseState();
-  s.publicLink.refuse = 'stronger-password';
-  const { call, core } = setup({ state: s });
-  const id = /card (c_[0-9a-f]{12})/.exec((await call('manage_computer', { action: 'public_link', turn: 'on' })).text)[1];
-  const r = await core.confirm(id);
-  const text = JSON.stringify(r);
-  assert.match(text, /did not turn on: its dashboard password is too weak for a public link/);
-  assert.ok(!text.includes('Some text from that computer'));
+test('manage_computer add: adding a computer by SSH is his, her card only opens Computers → Add a computer', async () => {
+  const { call, ops, core } = setup();
+  const r = await call('manage_computer', { action: 'add', ssh_target: 'me@box3' });
+  assert.ok(staged(r), r.text);
+  assert.match(r.text, /Open Computers → Add a computer, where you add me@box3 by SSH yourself; Tia adds nothing/);
+  const done = await core.confirm(/card (c_[0-9a-f]{12})/.exec(r.text)[1]);
+  assert.equal(done.ok, true, JSON.stringify(done));
+  assert.equal(done.open, '#/computers/add');
+  assert.deepEqual(writes(ops), [], 'no computer was added and no token made');
 });
 
 test('manage_automation: list shows the page\'s sentence; schedules and rules are cards; pause L1, resume L2', async () => {
@@ -326,8 +327,14 @@ test('workspace actions: dry runs read, map and plain sync act, push / pull-from
   assert.deepEqual(ops.calls.at(-1).args.push, false, 'a plain sync never uploads');
   r = await call('manage_project', { action: 'workspace_sync', push: true });
   assert.ok(staged(r), r.text);
-  assert.match(r.text, /UPLOAD \(push\) local commits/);
+  assert.match(r.text, /Open the Workspace page on this, where you upload \(push\) local commits yourself; Tia pushes nothing/);
   assert.match(r.text, /brain: nothing|shop\/code\/web: pulled 2/);
+  // His tap only opens his page: nothing is pushed by her.
+  const pushCard = /card (c_[0-9a-f]{12})/.exec(r.text)[1];
+  const done = await core.confirm(pushCard);
+  assert.equal(done.ok, true, JSON.stringify(done));
+  assert.equal(done.open, '#/workspace');
+  assert.ok(!ops.calls.some((c) => c.op === 'workspaceSync' && c.args.push && !c.args.dryRun), 'her card pushed');
   // pulling from another computer needs that computer to have been shown
   assert.match((await call('manage_project', { action: 'workspace_sync_from', from_computer: 'box2' })).text, /computer "box2" was not shown/);
   await call('get_computer_status', {});
@@ -338,6 +345,8 @@ test('workspace actions: dry runs read, map and plain sync act, push / pull-from
   r = await call('manage_project', { action: 'workspace_restore', address: 'https://git.example.com/owner/brain.git' });
   assert.ok(staged(r));
   assert.match(r.text, /clone ai_brain \(https:\/\/git.example.com\/owner\/brain.git\) → ~\/Workspace\/ai_brain/);
+  assert.match(r.text, /Not brought here, they stay in the map \(each comes with: hoprig get [^)]*\): blog"/);
+  assert.doesNotMatch(r.text, /notHere/, 'a project only in the map is no step of the plan');
   core.endTurn('c1');
   assert.match((await call('manage_project', { action: 'workspace_restore', address: 'https://u:pw@git.example.com/x.git' })).text, /address: has the wrong form/);
   r = await call('manage_project', { action: 'workspace_places', projects_folder: '/home/owner/code' });
@@ -357,4 +366,11 @@ test('workspace upkeep: switches are cards; push and commit map say what they wi
   assert.match(r.text, /COMMITTED to the brain's history by itself/);
   assert.ok(staged(await call('manage_automation', { action: 'set_upkeep_hours', hours: 12 })));
   assert.match((await call('manage_automation', { action: 'set_upkeep_hours', hours: 0 })).text, /hours: must be from 1 to 168/);
+});
+
+test('which computer has a project: list_projects and get_computer_status send her to manage_project where', async () => {
+  const { byName } = await import('../../src/assistant/tools.mjs');
+  for (const n of ['list_projects', 'get_computer_status']) assert.match(byName.get(n).description, /Which computer has a project: not this tool, call manage_project where\./, n);
+  const src = (await import('node:fs')).readFileSync(new URL('../../src/assistant/domains.mjs', import.meta.url), 'utf8');
+  assert.match(src, /workspace_missing: missing, next: 'this is one computer only; which computer has a project: manage_project where'/);
 });

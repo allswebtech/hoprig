@@ -13,6 +13,7 @@ export function tempHome(name = 'ws') {
   fs.writeFileSync(gitcfg, '[user]\n\tname = Test Dev\n\temail = dev@example.invalid\n[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n');
   Object.assign(process.env, {
     HOME: home,
+    USERPROFILE: home, // Windows takes the home from here
     HOPRIG_CONFIG_DIR: path.join(root, 'config'),
     HOPRIG_STATE_DIR: path.join(root, 'state'),
     HOPRIG_PROFILES_DIR: path.join(root, 'profiles'),

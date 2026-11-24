@@ -89,7 +89,7 @@ export class SessionStore {
     return token;
   }
 
-  valid(token, tag = '') {
+  valid(token, tag = '', host = null) {
     if (typeof token !== 'string' || token.length < 20 || token.length > 100) return false;
     const s = this.map.get(sha256(token));
     if (!s || (s.tag || '') !== tag) return false;
@@ -97,7 +97,19 @@ export class SessionStore {
       this.map.delete(sha256(token));
       return false;
     }
+    // The host name its cookie came to (a cookie is the browser's for that name, on every port): written once per name.
+    const h = hostName(host);
+    if (h && !(s.hosts || []).includes(h) && (s.hosts || []).length < 8) {
+      s.hosts = [...(s.hosts || []), h];
+      this.#save();
+    }
     return true;
+  }
+
+  /** The host names a live session of `tag` was used on (a session from before this version: once it is used again). */
+  hosts(tag = '') {
+    const t = this.now();
+    return [...new Set([...this.map.values()].filter((s) => s.expires > t && (s.tag || '') === tag).flatMap((s) => s.hosts || []))];
   }
 
   destroy(token) {
@@ -197,6 +209,12 @@ export function parseCookies(header) {
 }
 
 export const COOKIE = 'sid';
+
+/** A Host header's name without its port, lower case: 'localhost', '127.0.0.1', '[::1]', or null. */
+export const hostName = (host) => {
+  const m = /^(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::\d+)?$/i.exec(String(host || ''));
+  return m ? m[1].toLowerCase() : null;
+};
 
 export function sessionCookie(token, { secure, maxAgeSec = SESSION_DAYS * 24 * 3600 }) {
   return [`${COOKIE}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Strict', `Max-Age=${maxAgeSec}`, secure ? 'Secure' : '']

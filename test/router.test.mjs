@@ -147,7 +147,7 @@ test('another subscription is never used by the router: Claude Code hears "limit
   anthropic.seen.length = 0;
   r = await fetch(`${base}/as/sub/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer sk-ant-oat01-login' }, body: '{"model":"m","messages":[]}' });
   assert.deepEqual([r.status, r.headers.get('x-should-retry'), anthropic.seen.length], [429, 'false', 0]);
-  assert.match((await r.json()).error.message, /continues the session on sub2/);
+  assert.match((await r.json()).error.message, /continues the session on Claude subscription\./);
   // Restarted as sub2, Claude Code sends sub2's own token; it passes through untouched.
   anthropic.set(() => ({ status: 200, body: { id: 'as-sub2' } }));
   r = await fetch(`${base}/as/sub2/v1/messages`, {
@@ -226,6 +226,56 @@ test('a streamed answer arrives chunk by chunk; other paths pass through to the 
   assert.equal((await fetch(`${base}/__router`).then((x) => x.json())).version, 'test');
 });
 
+test('Auto mode with nothing it may use: no order at all, or an order of providers billed by use with pay-per-use off', async () => {
+  const { saveConfig } = await import('../src/config.mjs');
+  const said = async () => {
+    const r = await ask();
+    return [r.status, (await r.json()).error.message];
+  };
+  try {
+    saveConfig({ autoSwitch: { enabled: true, order: [] } });
+    assert.deepEqual(await said(), [503, 'hoprig: Auto mode has no providers in its order. Run: hoprig auto order <provider> <provider>']);
+    // The stored sign-in on a Console account's key, and a key paid by its own file.
+    S.rememberLogin({ loggedIn: true, method: 'api_key' });
+    saveConfig({ autoSwitch: { enabled: true, order: ['sub', 'key'], payPerUse: false } });
+    const before = anthropic.seen.length;
+    assert.deepEqual(await said(), [503, 'hoprig: Auto mode has nothing it may use, because Stored login and API in its order are billed by use and "Also use pay-per-use providers" is off: turn that switch on on the Providers page, or put a subscription into the order.']);
+    saveConfig({ autoSwitch: { enabled: true, order: ['key'], payPerUse: false } });
+    assert.match((await said())[1], /because API in its order is billed by use and "Also use pay-per-use providers" is off/);
+    assert.equal(anthropic.seen.length, before, 'nothing reached the API');
+  } finally {
+    fs.rmSync(path.join(process.env.HOPRIG_STATE_DIR, 'claude-login.json'), { force: true });
+    saveConfig({ autoSwitch: { enabled: true, order: ['sub', 'sub2', 'api'] } });
+  }
+});
+
+test('Auto mode whose order holds only providers left out for another reason: the 503 names each with its own reason', async () => {
+  const { saveConfig } = await import('../src/config.mjs');
+  const said = async () => {
+    const r = await ask();
+    return [r.status, (await r.json()).error.message];
+  };
+  P.writeProfile('oai', { label: 'Example OpenAI', env: { OPENAI_API_KEY: 'demo-not-a-key' } });
+  try {
+    const before = anthropic.seen.length;
+    saveConfig({ autoSwitch: { enabled: true, order: ['ghost'], payPerUse: false } });
+    assert.deepEqual(await said(), [503, 'hoprig: Auto mode has nothing it may use, because ghost in its order does not exist any more: put a provider that serves Claude Code into the order on the Providers page, or run: hoprig auto order <provider> <provider>.']);
+    saveConfig({ autoSwitch: { enabled: true, order: ['oai'], payPerUse: true } });
+    assert.deepEqual(await said(), [503, 'hoprig: Auto mode has nothing it may use, because Example OpenAI in its order does not serve Claude Code: put a provider that serves Claude Code into the order on the Providers page, or run: hoprig auto order <provider> <provider>.']);
+    // Mixed reasons: each provider with its own; a billed one keeps the switch's way out.
+    saveConfig({ autoSwitch: { enabled: true, order: ['ghost', 'key', 'oai', 'gone'], payPerUse: false } });
+    assert.deepEqual(await said(), [503, 'hoprig: Auto mode has nothing it may use, because ghost and gone in its order do not exist any more, Example OpenAI does not serve Claude Code, and API is billed by use and "Also use pay-per-use providers" is off: turn that switch on on the Providers page, or put a subscription into the order.']);
+    for (const order of [['ghost'], ['oai'], ['ghost', 'key', 'oai']]) {
+      saveConfig({ autoSwitch: { enabled: true, order, payPerUse: false } });
+      assert.doesNotMatch((await said())[1], /no providers in its order/, order.join(' '));
+    }
+    assert.equal(anthropic.seen.length, before, 'nothing reached the API');
+  } finally {
+    P.deleteProfile('oai');
+    saveConfig({ autoSwitch: { enabled: true, order: ['sub', 'sub2', 'api'] } });
+  }
+});
+
 test('pure parts: identity, what to do with a request, model map, the request built for each kind of account, the verdicts', () => {
   const profiles = P.listProfiles();
   const by = (n) => profiles.find((p) => p.name === n);
@@ -262,4 +312,33 @@ test('pure parts: identity, what to do with a request, model map, the request bu
   assert.deepEqual(R.judge(200, {}, now), { next: false, mark: null });
   assert.deepEqual(R.judge(400, {}, now), { next: false, mark: null });
   assert.equal(R.judge(402, {}, now).mark.reason, 'billing_error');
+});
+
+test('a provider that cannot be reached is named by its label in the answer, never by its file name', async () => {
+  const closed = http.createServer();
+  const port = await new Promise((r) => closed.listen(0, '127.0.0.1', () => r(closed.address().port)));
+  await new Promise((r) => closed.close(r));
+  P.writeProfile('unreach', { label: 'Example gateway', env: { ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/`, ANTHROPIC_AUTH_TOKEN: 'unreach-token' } });
+  try {
+    const r = await fetch(`${base}/as/unreach/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"model":"m","max_tokens":1,"messages":[]}' });
+    assert.equal(r.status, 502);
+    const message = (await r.json()).error.message;
+    assert.match(message, /^hoprig router: Example gateway cannot be reached \(ECONNREFUSED\)$/);
+    assert.doesNotMatch(message, /unreach/);
+  } finally {
+    P.deleteProfile('unreach');
+    A.clearLimited('unreach');
+  }
+});
+
+test('a session that runs as a provider billed by use, with pay-per-use off, is told the provider by its label', async () => {
+  const { saveConfig } = await import('../src/config.mjs');
+  try {
+    saveConfig({ autoSwitch: { enabled: true, order: ['sub', 'key'], payPerUse: false } });
+    const r = await fetch(`${base}/as/key/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"model":"m","messages":[]}' });
+    assert.equal(r.status, 503);
+    assert.match((await r.json()).error.message, /^hoprig: this session runs as API, which is billed by use/);
+  } finally {
+    saveConfig({ autoSwitch: { enabled: true, order: ['sub', 'sub2', 'api'] } });
+  }
 });

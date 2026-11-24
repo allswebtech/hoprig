@@ -32,7 +32,7 @@ const reposOf = (map, name) => map.projects.find((p) => p.name === name).repos.m
 const restoreOn = async (c) => {
   c.use();
   const { ui } = await quietUi();
-  return restoreWorkspace(urls.brain, { ui, dir: c.ws, projects: c.projects });
+  return restoreWorkspace(urls.brain, { withProjects: true, ui, dir: c.ws, projects: c.projects });
 };
 
 test('computer A keeps two full clones of one repository in a project, with and without a project.json', async () => {
@@ -105,8 +105,8 @@ test('an entry not on this computer stays, also with the address of one that is;
   assert.deepEqual(kept.notHere, ['dup/code/web-wt'], 'pj/code/web-wt is named by its project.json, so the scan has it');
 
   const cli = (...args) => execFileSync(process.execPath, [BIN, 'workspace', ...args], { env: { ...process.env, ...A.env, HOPRIG_WORKSPACE_DIR: A.ws, NO_COLOR: '1' }, encoding: 'utf8' });
-  assert.match(cli('forget', 'dup/code/web-wt'), /dup\/code\/web-wt is out of the map/);
-  assert.match(cli('forget', 'pj/code/web-wt'), /pj\/code\/web-wt is out of the map/);
+  assert.match(cli('forget', 'dup/code/web-wt', '--yes'), /dup\/code\/web-wt is out of the map/);
+  assert.match(cli('forget', 'pj/code/web-wt', '--yes'), /pj\/code\/web-wt is out of the map/);
   const after = await M.updateMap({ dir: A.ws, projects: A.projects });
   assert.deepEqual([reposOf(after.map, 'dup'), reposOf(after.map, 'pj')], [['code/web', 'code/web-2'], ['code/web', 'code/web-2']], 'not added back, also from project.json');
   assert.deepEqual(after.map.skip, ['dup/code/web-wt', 'pj/code/web-wt']);

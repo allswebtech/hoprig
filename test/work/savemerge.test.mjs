@@ -69,7 +69,7 @@ test('the server changed the list too: merged by item, shown first, committed an
 
   const r = await saveWork(c.place, { subject: SUBJECT, expect: { hash: plan.hash, upstream: plan.remote.upstream } });
   assert.equal(r.sent, true, r.message);
-  assert.match(r.message, /^Merged 2 changes of yours with 2 changes from another computer and sent it to origin\/main\./);
+  assert.match(r.message, /^Merged 2 changes of yours with 2 changes from another computer and uploaded it to your git server\./);
   assert.equal(t.git(c.here, 'rev-parse', 'HEAD'), t.git(c.bare, 'rev-parse', 'main'));
   assert.equal(t.git(c.here, 'rev-parse', 'HEAD~1'), plan.remote.upstream, 'one commit on top of the server\'s, no merge commit');
   assert.deepEqual(c.items().map((x) => [x.id, x.status]), [['a', 'done'], ['b', 'done'], ['c', 'open'], ['from-b', 'open'], ['added-on-this-computer', 'open']]);

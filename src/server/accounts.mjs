@@ -59,7 +59,10 @@ import { codexSignedIn } from '../codetools/codexsignin.mjs';
 import { findTool } from '../codetools/index.mjs';
 import { MODEL_RE, listModels, probeShapes, scrub, shapesAfterTest, testModel } from './endpoint.mjs';
 import { withoutSecrets } from '../secretenv.mjs';
-import { deleteProfile, knownShapes, listProfiles, metaOf, readProfile, servesTools, validName, writeProfile } from '../profiles.mjs';
+import { billedLogin } from '../routerstate.mjs';
+import { lastBackup, ownEndpoint, ownEndpointWords, ownGatewaySecret, removeOwnEndpoint, restoreBackup } from '../codetools/ownsettings.mjs';
+import { firstCheck } from '../providers/check.mjs';
+import { deleteProfile, knownShapes, listProfiles, metaOf, ownFolder, readProfile, servesTools, validName, writeProfile } from '../profiles.mjs';
 
 export const ANTHROPIC_URL = 'https://api.anthropic.com';
 export const OPENAI_URL = 'https://api.openai.com';
@@ -339,6 +342,16 @@ export function accountsFeature(ctx, opts = {}) {
     return env;
   }
 
+  function ownInfo() {
+    const o = ownEndpoint();
+    return o ? { words: ownEndpointWords(o), where: o.where, local: o.local, file: o.file, lines: o.lines, stamp: o.stamp, hasKey: o.hasKey } : null;
+  }
+
+  /** Only the owner, on this dashboard's own page, may change a file of the coding tool's. */
+  function ownerPress(req) {
+    if (ctx.caller && ctx.caller(req) !== 'page') throw fail(403, "Only you, on this computer's own dashboard page, may change the coding tool's settings file");
+  }
+
   const accountOr404 = (m) => {
     const name = decodeURIComponent(m[1]);
     const p = validName(name) ? readProfile(name) : null;
@@ -389,8 +402,8 @@ export function accountsFeature(ctx, opts = {}) {
         /* bad address in the file */
       }
       return {
-        name: p.name, label: p.label, kind: p.kind, paid: p.paid === true, host, model: KEYED.includes(p.kind) ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
-        tools, api: p.api || [], ...(tools.length ? {} : { unusable: true }),
+        name: p.name, label: p.label, kind: p.kind, paid: p.paid === true || billedLogin(p), host, model: KEYED.includes(p.kind) ? k.model : '', smallModel: p.kind === 'api' ? k.smallModel : '',
+        tools, api: p.api || [], ...(tools.length ? {} : { unusable: true }), ...(ownFolder(p) ? { ownFolder: true } : {}),
         viaGateway: ((g) => (g ? { id: g.id, title: g.title } : null))(gatewayOfPrerun(p.prerun, gws)),
         ...oldVia(gws, gatewayOfPrerun(p.prerun, gws)),
         // Its PRERUN starts a gateway that is not there any more: every session on it would end at the start.
@@ -430,6 +443,9 @@ export function accountsFeature(ctx, opts = {}) {
       }
       return {
         accounts: await list(),
+        // Auto mode's "Also use pay-per-use providers": a provider's page says before a press what "Use in Auto mode"
+        // turns on with it.
+        payPerUse: auto.getAutoSwitch().payPerUse === true,
         defaults: {
           subscription: { name: freeName('sub', { bare: false }), label: '' },
           api: { name: freeName('claude-api'), label: 'Claude API', baseUrl: ANTHROPIC_URL },
@@ -440,7 +456,55 @@ export function accountsFeature(ctx, opts = {}) {
         ...old,
         gateways: gws,
         signin: signinState(),
+        // An address in Claude Code's own settings file, which wins over every profile: what it is and the lines a
+        // press would take out (a key's value never: ownsettings.mjs).
+        ownEndpoint: ownInfo(),
+        // After a press: where the copy of the file as it was is kept, so the page can show it and put it back.
+        ownBackup: lastBackup(),
       };
+    }],
+    // The owner's press, on this dashboard's own page only (not another computer's token, not Tia): take the shown
+    // lines out of Claude Code's settings file, a backup beside it first.
+    ['POST', /^\/api\/accounts\/own-endpoint\/remove$/, async (req) => {
+      ownerPress(req);
+      const b = await ctx.readJson(req);
+      const r = removeOwnEndpoint({ stamp: typeof b.stamp === 'string' ? b.stamp : '' });
+      if (!r.ok) throw fail(409, r.why);
+      return { ok: true, backup: r.backup, removed: r.removed };
+    }],
+    // The way back after a press: the backup becomes the settings file again (the file as it is now kept beside it).
+    ['POST', /^\/api\/accounts\/own-endpoint\/restore$/, async (req) => {
+      ownerPress(req);
+      const b = await ctx.readJson(req);
+      const r = restoreBackup({ name: typeof b.name === 'string' ? b.name : '', stamp: typeof b.stamp === 'string' ? b.stamp : '' });
+      if (!r.ok) throw fail(409, r.why);
+      return { ok: true };
+    }],
+    // "Take it over": that gateway becomes a provider of its own (its key read here, from that file, into a profile
+    // file as every key is kept), then the lines go out of the file as above. The key is never in the answer.
+    ['POST', /^\/api\/accounts\/own-endpoint\/takeover$/, async (req) => {
+      ownerPress(req);
+      const b = await ctx.readJson(req);
+      const o = ownEndpoint();
+      if (!o || o.stamp !== b.stamp) throw fail(409, 'The settings file changed since it was shown. Look at it again, then press once more.');
+      const sec = ownGatewaySecret();
+      if (!sec) throw fail(400, 'The settings file has an address but no key for it: add that gateway with "Add provider" instead.');
+      let baseUrl;
+      try {
+        baseUrl = cleanBaseUrl(sec.baseUrl);
+      } catch {
+        throw fail(400, 'The address in the settings file is not one a provider can use.');
+      }
+      const name = cleanNewName(b.name, freeName('gateway'));
+      const label = cleanLabel(b.label, 'Gateway on this computer');
+      const model = (v) => (MODEL_RE.test(v) ? v : '');
+      writeProfile(name, { label, env: envFor({ baseUrl, key: sec.key, auth: sec.auth, model: model(sec.model), smallModel: model(sec.smallModel) }) });
+      const r = removeOwnEndpoint({ stamp: o.stamp });
+      if (!r.ok) {
+        deleteProfile(name); // all or nothing: the file still decides, so the new provider would only mislead
+        throw fail(409, r.why);
+      }
+      return { ok: true, name, backup: r.backup, removed: r.removed };
     }],
     ['POST', /^\/api\/accounts\/probe$/, async (req) => {
       const b = await ctx.readJson(req);
@@ -502,8 +566,11 @@ export function accountsFeature(ctx, opts = {}) {
       const label = cleanLabel(b.label, prof ? prof.label : 'Claude API');
       const smallModel = cleanModel(b.smallModel, { optional: true });
       const prerun = prof ? prof.prerun : '';
-      writeProfile(name, { label, prerun, models: model ? `*=${model}` : '', env: envFor({ ...p, auth: p.auth || 'x', model, smallModel }) });
+      const made = writeProfile(name, { label, prerun, models: model ? `*=${model}` : '', env: envFor({ ...p, auth: p.auth || 'x', model, smallModel }) });
       probes.delete(b.probe);
+      // A gateway profile made here gets one round of the provider check by itself, in the background; never again
+      // without the owner's press (providers/check.mjs).
+      firstCheck(made, { fetchImpl, now });
       return { ok: true, name };
     }],
     ['POST', /^\/api\/accounts\/([^/]+)\/model$/, async (req, m) => {
@@ -557,10 +624,13 @@ export function accountsFeature(ctx, opts = {}) {
     ['POST', /^\/api\/accounts\/([^/]+)\/auto$/, async (req, m) => {
       const prof = accountOr404(m);
       const b = await ctx.readJson(req);
-      const order = (auto.getAutoSwitch().order || []).filter((n) => n !== prof.name);
+      const before = auto.getAutoSwitch();
+      const order = (before.order || []).filter((n) => n !== prof.name);
       if (b.on === true) order.push(prof.name);
-      auto.setAutoSwitch({ order });
-      return { ok: true, order };
+      const after = auto.setAutoSwitch({ order });
+      // A provider billed by use new to the order turns "Also use pay-per-use providers" on (autoswitch.mjs): the page
+      // says so in its toast, as its switch's help said before the press.
+      return { ok: true, order, payPerUse: after.payPerUse === true, payPerUseTurnedOn: before.payPerUse !== true && after.payPerUse === true };
     }],
     ['POST', /^\/api\/accounts\/([^/]+)\/delete$/, async (req, m) => {
       const prof = accountOr404(m);

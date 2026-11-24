@@ -1,0 +1,88 @@
+/* Tia's missions on the Work page (web/mission.js, ms-): the Team tab, one mission, the goal sheet and the brief on
+   Today. Shared parts (rows, cards, banners, folds, switches) live in style.css. Every colour is a theme variable, so
+   dark mode follows. */
+
+.ms-offbar { align-items: center; flex-wrap: wrap; margin: 16px 0 0; }
+.ms-offbar > span { flex: 1 1 240px; }
+/* A goal, a task or a project of any length is read whole: the shared rows cut a line with an ellipsis. */
+.ms-goal, .ms-row .row-sub, .ms-row .row-sub > span, .ms-task .row-title { white-space: normal; overflow-wrap: anywhere; }
+.ms-why { color: var(--text-2); white-space: normal; overflow-wrap: anywhere; }
+.ms-hint { margin: 6px 2px 10px; }
+.ms-broken { margin: 8px 2px; color: var(--warn); }
+.ms-row .row-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+
+.ms-badge { display: inline-flex; align-items: center; gap: 4px; margin-left: 0; } /* the shared badge's margin follows a title */
+.ms-running, .ms-planning { background: var(--accent-soft); color: var(--accent-soft-text); }
+.ms-done { background: var(--ok-soft); color: var(--ok); }
+.ms-waits { background: var(--warn-soft); color: var(--warn); }
+.ms-failed { background: var(--danger-soft); color: var(--danger); }
+.ms-stopped { background: var(--surface-3); color: var(--muted); }
+.ms-waiting { background: var(--warn-soft); color: var(--warn); }
+.ms-paused { background: var(--surface-3); color: var(--muted); }
+
+/* ---------- the team ---------- */
+.ms-roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.ms-role { padding: 12px 14px; display: grid; gap: 6px; align-content: start; }
+.ms-role.ms-off { opacity: .7; }
+.ms-role-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ms-role-sub { margin: 0; }
+.ms-offtag { background: var(--surface-3); color: var(--muted); }
+.ms-nums { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 6px 10px; margin-top: 4px; }
+.ms-num { display: grid; gap: 1px; min-width: 0; }
+.ms-num-v { font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ms-num-l { font-size: 12px; color: var(--muted); }
+
+/* ---------- the switches and limits ---------- */
+.ms-settings { margin-top: 18px; }
+.ms-settings-body { display: grid; gap: 12px; }
+.ms-block { padding: 12px 14px; display: grid; gap: 8px; }
+.ms-h3 { margin: 0; font-size: var(--fs); font-weight: 650; }
+.ms-project { display: grid; gap: 6px; padding: 8px 0; border-top: 1px solid var(--border); }
+.ms-project:first-of-type { border-top: 0; }
+.ms-test-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.ms-test-row .fieldrow { flex: 1 1 240px; min-width: 0; }
+.ms-test { font-family: var(--mono, monospace); }
+.ms-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 16px; align-items: start; }
+.ms-numin { max-width: 160px; }
+.ms-hours { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
+.ms-provs { display: grid; gap: 4px; }
+.ms-prov { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; }
+.ms-prov-check { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; cursor: pointer; }
+
+/* ---------- one mission ---------- */
+.ms-back { margin: 14px 0 0; }
+.ms-sum { padding: 14px 16px; margin-top: 14px; display: grid; gap: 8px; }
+.ms-sum-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.ms-sum-head .btn { margin-left: auto; }
+.ms-sum-project { color: var(--muted); font-size: var(--fs-sm); }
+.ms-title { margin: 0; font-size: 1.15rem; line-height: 1.35; overflow-wrap: anywhere; }
+.ms-why-line { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
+.ms-lines { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+.ms-totals { padding: 8px 0 0; border-top: 1px solid var(--border); }
+.ms-next { margin: 0; }
+.ms-task .row-sub { white-space: normal; overflow-wrap: anywhere; }
+.ms-task-nums { font-variant-numeric: tabular-nums; }
+.ms-line { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.ms-line li { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 10px; padding: 7px 2px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.ms-line time { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* A task's tests: where they ran, what they printed (data, shown as plain text), and his press. */
+.ms-tests { display: grid; gap: 6px; margin: 6px 0 2px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); }
+.ms-tests-line, .ms-tests-hint, .ms-tests-status { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; white-space: normal; }
+/* Kept in the accessibility tree while empty, so its first words are announced: no height and no gap until then. */
+.ms-tests-status:empty { margin-top: -6px; min-height: 0; }
+.ms-tests .btn[aria-busy="true"], .ms-tests .btn[aria-disabled="true"] { opacity: 0.6; cursor: progress; }
+.ms-tests-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ms-printed summary { cursor: pointer; font-size: var(--fs-sm); color: var(--text-2); }
+.ms-printed-text { margin: 6px 0 0; padding: 8px 10px; max-height: 260px; overflow: auto; border-radius: var(--r-sm); background: var(--surface); border: 1px solid var(--border); font: 12px/1.5 var(--mono, monospace); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+
+/* ---------- the goal and the brief ---------- */
+.ms-goal-words { margin: 4px 0; }
+.ms-brief-card { padding: 12px 14px; display: grid; gap: 6px; margin-bottom: 8px; }
+.ms-more { justify-self: start; font-size: var(--fs-sm); }
+
+@media (max-width: 520px) {
+  .ms-line li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .ms-sum-head .btn { margin-left: 0; }
+  .ms-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

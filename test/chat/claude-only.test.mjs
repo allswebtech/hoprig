@@ -69,7 +69,7 @@ test('a chat, its provider chip and a chat schedule refuse a provider that does 
   for (const profile of ['oai', 'codexin']) {
     const r = await owner('POST', '/api/chats', { dir: proj, profile });
     assert.equal(r.status, 400, profile);
-    assert.match(r.json.error, /cannot be used for Claude Code: (it does not answer|it is the sign-in of another coding tool)/);
+    assert.match(r.json.error, /cannot be used for Claude Code: (it does not work with that coding tool|it is the sign-in of another coding tool)/);
   }
   const made = await owner('POST', '/api/chats', { dir: proj });
   assert.equal(made.status, 200, 'with nothing chosen: the recommended one');

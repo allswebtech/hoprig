@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { insideRoots, resolveRoots } from '../server/folders.mjs';
+import { runAdmin as runAdminCmd } from './adminrun.mjs';
 import { gatedDispatch } from './door.mjs';
 import * as v from '../server/validate.mjs';
 import { withoutSecrets } from '../secretenv.mjs';
@@ -89,6 +90,7 @@ export function createOps(o) {
   const isLocal = (c) => !c || c === LOCAL;
   const enc = encodeURIComponent;
   const sleep = o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  let adminPwKnown; // whether this computer's sudo asks a password: detected once per process (below)
 
   /** One request of the page's own, on computer `c`. Resolves the JSON; a refusal becomes an error with its status. */
   async function api(c, method, p, body) {
@@ -142,8 +144,8 @@ export function createOps(o) {
     // ---- chats (src/chat; a chat is "chat:<id>" among the sessions) ----
     // A chat on an earlier conversation is never hers (its history holds the owner's own words): she does not even ask
     // for the mark there, and the computer refuses it too (src/chat/feature.mjs openChat).
-    startChat: ({ computer, folder, profile, sessionId, text, tool }) =>
-      post(computer, '/api/chats', { dir: dir(computer, folder), ...(tool ? { tool } : {}), profile, ...(sessionId ? { sessionId } : {}), ...(text ? { text } : {}), defaults: true, ...(sessionId ? {} : { byTia: true }) }).then((r) => {
+    startChat: ({ computer, folder, profile, sessionId, text, tool, lead, others }) =>
+      post(computer, '/api/chats', { dir: dir(computer, folder), ...(tool ? { tool } : {}), profile, ...(sessionId ? { sessionId } : {}), ...(text ? { text } : {}), lead: lead === true, ...(lead && others && others.length ? { others } : {}), defaults: true, ...(sessionId ? {} : { byTia: true }) }).then((r) => {
         ctx.poke?.();
         return r;
       }),
@@ -154,6 +156,11 @@ export function createOps(o) {
     answerChat: ({ computer, id, request, allow, always }) => post(computer, `/api/chats/${enc(id)}/answer`, { request, allow, always }),
     stopChat: ({ computer, id }) => post(computer, `/api/chats/${enc(id)}/stop`, {}),
     moveChat: ({ computer, id, profile }) => post(computer, `/api/chats/${enc(id)}/provider`, { profile }),
+    renameChat: ({ computer, id, title }) => post(computer, `/api/chats/${enc(id)}/title`, { title }),
+    closeChat: ({ computer, id }) => post(computer, `/api/chats/${enc(id)}/close`, {}).then((r) => (ctx.poke?.(), r)),
+    chatToTerminal: ({ computer, id }) => post(computer, `/api/chats/${enc(id)}/terminal`, {}).then((r) => (ctx.poke?.(), r)),
+    chatFromSession: ({ computer, session }) => post(computer, '/api/chats/from-session', { session }).then((r) => (ctx.poke?.(), r)),
+    continueSession: ({ computer, session }) => post(computer, `/api/sessions/${enc(session)}/continue`, {}).then((r) => (ctx.poke?.(), r)),
 
     // ---- folders and projects ----
     async recentFolders({ computer }) {
@@ -188,10 +195,47 @@ export function createOps(o) {
       withJob(computer, await post(computer, '/api/workspace/sync', { ...(from ? { with: from } : { push: push === true, memory: memory === true }), dryRun: dryRun === true }), WS_JOB),
     workspacePlaces: ({ computer, dir: d, projects: pr }) => post(computer, '/api/workspace/settings', { ...(d ? { dir: dir(computer, d) } : {}), ...(pr ? { projects: dir(computer, pr) } : {}) }),
     workspaceForget: ({ computer, name }) => post(computer, '/api/workspace/forget', { name }),
+    // Which computer has what, the naming rule's look-up, a drop's check and a group's dry run: all read only. A drop and
+    // a group add are the owner's own presses on the Workspace page (whomay.mjs): her door never reaches them.
+    workspaceWhoHas: ({ computer }) => get(computer, '/api/workspace/whohas'),
+    workspaceFind: ({ computer, place }) => get(computer, `/api/workspace/find?in=${enc(place)}`),
+    dropCheck: ({ computer, name }) => post(computer, '/api/workspace/drop/check', { name }),
+    groupDryRun: ({ computer, dir: d, repo, holds }) => post(computer, '/api/workspace/group', { dir: d, ...(repo ? { repo } : {}), ...(holds ? { holds } : {}), dryRun: true }),
+
+    // ---- Work (src/work: the list, Today, "Do it" and the runs; manage_work) ----
+    // An item is named by its id and its place in the list (`at`), as the page names it.
+    work: ({ computer }) => get(computer, '/api/work'),
+    workAdd: ({ computer, item }) => post(computer, '/api/work/items', item),
+    workEdit: ({ computer, id, at, changes }) => post(computer, `/api/work/items/${enc(id)}`, { at, ...changes }),
+    workStatus: ({ computer, id, at, status }) => post(computer, `/api/work/items/${enc(id)}/status`, { at, status }),
+    workRemove: ({ computer, id, at }) => post(computer, `/api/work/items/${enc(id)}/remove`, { at }),
+    workPlan: ({ computer, id, at, project, folder }) => get(computer, `/api/work/items/${enc(id)}/do?at=${at}${project ? `&project=${enc(project)}` : ''}${folder ? `&folder=${enc(folder)}` : ''}`),
+    workStart: ({ computer, id, at, choices }) => post(computer, `/api/work/items/${enc(id)}/do`, { at, ...choices }).then((r) => {
+      ctx.poke?.(); // the watcher looks soon, so the job sees the run's session start working
+      return r;
+    }),
+    workAccept: ({ computer, id, at }) => post(computer, `/api/work/items/${enc(id)}/accept`, { at }),
+    workSendBack: ({ computer, id, at, text }) => post(computer, `/api/work/items/${enc(id)}/send-back`, { at, text }),
+    // id: that one run (a computer of an older version gives them all: the caller still picks it by its id).
+    workGoal: ({ computer, goal, project, dryRun }) => post(computer, '/api/work/missions', { goal, project, ...(dryRun ? { dryRun: true } : {}) }),
+    workMissions: ({ computer }) => get(computer, '/api/work/missions'),
+    workMission: ({ computer, id }) => get(computer, `/api/work/missions/${enc(id)}`),
+    workProgress: ({ computer, since, item, run }) => get(computer, `/api/work/progress${(() => {
+      const q = new URLSearchParams();
+      if (since) q.set('since', since);
+      if (item) q.set('item', item);
+      if (run) q.set('run', run);
+      const t = q.toString();
+      return t ? `?${t}` : '';
+    })()}`),
+    workRuns: ({ computer, item, id }) => get(computer, `/api/work/runs${item ? `?item=${enc(item)}` : id ? `?id=${enc(id)}` : ''}`),
 
     // ---- the AI brain (read-only) ----
     brainIndex: ({ computer }) => get(computer, '/api/brain'),
     brainItem: ({ computer, id }) => get(computer, `/api/brain/item?id=${enc(id)}`),
+
+    // ---- the operator's attention list (read-only) ----
+    attention: ({ computer, kind = null }) => get(computer, `/api/operator/attention${kind ? `?kind=${enc(kind)}` : ''}`),
 
     // ---- providers ----
     async accounts({ computer }) {
@@ -219,7 +263,7 @@ export function createOps(o) {
     },
     setupStatus: ({ computer }) => get(computer, '/api/pcsetup/status?offline=1'),
     setupKits: ({ computer }) => get(computer, '/api/pcsetup/kits'),
-    setupFix: ({ computer, id }) => post(computer, '/api/pcsetup/fix', { id }),
+    setupFix: ({ computer, id, confirm }) => post(computer, '/api/pcsetup/fix', { id, ...(typeof confirm === 'string' ? { confirm } : {}) }),
     setUp: ({ computer, kits }) => post(computer, '/api/pcsetup/setup', { kits }),
     updateClaude: ({ computer }) => post(computer, '/api/claude/update', {}),
     // The coding tools (src/codetools/feature.mjs) and Settings → Updates (src/automation/feature.mjs, updater.mjs).
@@ -230,12 +274,11 @@ export function createOps(o) {
     runUpdate: ({ computer, id }) => post(computer, '/api/updates/run', { id }),
     killProcess: ({ computer, pid, signal }) => post(computer, '/api/pc/kill', { pid, signal: signal === 'KILL' ? 'KILL' : 'TERM' }),
     power: ({ computer, action }) => post(computer, '/api/pc/power', { action, confirm: action }),
-    addComputer: async ({ sshTarget, name }) => ({ name: (await post(LOCAL, '/api/machines/ssh', { target: sshTarget, ...(name ? { name } : {}) })).machine.name }),
     renameComputer: ({ computer, label }) => (isLocal(computer) ? post(LOCAL, '/api/machine/label', { label }) : post(LOCAL, `/api/machines/${enc(computer)}/rename`, { label })),
     addons: ({ computer }) => get(computer, '/api/addons'),
-    addon: ({ computer, id, action }) => post(computer, `/api/addons/${enc(id)}/${action}`, {}),
+    addon: ({ computer, id, action, confirm }) => post(computer, `/api/addons/${enc(id)}/${action}`, typeof confirm === 'string' ? { confirm } : {}),
     publicLink: ({ computer }) => get(computer, '/api/public-link'),
-    setPublicLink: ({ computer, on, kind }) => post(computer, '/api/public-link', { on, ...(kind ? { kind } : {}) }),
+    setPublicLink: ({ computer, on }) => post(computer, '/api/public-link', { on }),
 
     // ---- automations ----
     automation: ({ computer }) => get(computer, '/api/automation'),
@@ -260,22 +303,28 @@ export function createOps(o) {
     // ---- settings ----
     settings: ({ computer }) => get(computer, '/api/settings'),
     changeSettings: ({ computer, patch }) => post(computer, '/api/settings', patch),
+    // Each computer's room (src/operator/rooms.mjs) for where a start of hers goes: always this dashboard's own view.
+    rooms: () => get(LOCAL, '/api/operator/rooms?start=1'),
     async assistantSettings() {
       const a = cfg().assistant;
       return a && typeof a === 'object' && !Array.isArray(a) ? a : {};
     },
 
     // ---- the owner ----
-    async notify({ title, message, session }) {
+    // own: an event of the product's own kind ("waiting"), sent only when the owner's notification switches choose it
+    // (Settings → Notifications); without it a note she writes on purpose always goes out.
+    async notify({ title, message, session, own = false }) {
       // Tia's notes always go out (force): the owner chose the channel, and she only writes when it matters.
-      const r = await ctx.notify({ force: true, status: 'waiting', session: session || 'tia', title, message }).catch(() => ({ sent: false }));
+      const r = await ctx.notify({ ...(own ? {} : { force: true }), status: 'waiting', session: session || 'tia', title, message }).catch(() => ({ sent: false }));
       return { sent: !!(r && r.sent) };
     },
 
     // ---- one shell command ----
     runCommand: ({ computer, command, cwd, timeoutMs }) => post(computer, '/api/assistant/run', { command, ...(cwd ? { cwd } : {}), timeoutMs }),
 
-    /** The implementation behind POST /api/assistant/run (this computer). */
+    /** The implementation behind POST /api/assistant/run (this computer). A plain shell command: never an administrator
+     * run (that is runAdmin, which is not an HTTP route), so a machine token — which reaches only this route — can never
+     * trigger an administrator run with the owner's password. */
     async runHere({ command, cwd, timeoutMs }) {
       if (typeof command !== 'string' || !command.trim() || command.length > 2000 || /[\0\r\n]/.test(command)) throw fail(400, 'one command line of at most 2000 characters');
       const r = roots();
@@ -283,6 +332,42 @@ export function createOps(o) {
       if (!d) throw fail(400, 'the folder must be inside the allowed roots');
       const ms = Number.isInteger(timeoutMs) ? Math.max(1000, Math.min(600_000, timeoutMs)) : 60_000;
       return o.runShell(command, { cwd: d, timeoutMs: ms });
+    },
+
+    /**
+     * Run ONE administrator command of Tia's (Ask each time and Full): `sudo -S -k -p '' -- <program>
+     * <args>` with the owner's one-shot password to sudo's input (where sudo needs one), or `sudo -n …` where it does
+     * not — the construction of src/pcsetup/admin.mjs, which keeps, logs, audits and returns nothing of the password.
+     * It is reached ONLY from run_command's run on the owner's own confirm (the password is his, typed on his page, for
+     * THIS computer): it is not an HTTP route, so the machines gate (which reaches only runHere) can never trigger an
+     * administrator run. The argv is the wall's one reader (sudoArgv), so nothing here reads a line for admin-ness, and
+     * it only runs on this computer.
+     */
+    async runAdmin({ computer, argv, password = '', cwd = null }) {
+      if (!isLocal(computer)) throw fail(400, 'an administrator command runs only on this computer: the password is the owner\'s own, for this computer');
+      if (!Array.isArray(argv) || argv[0] !== 'sudo') throw fail(400, 'an administrator run needs a sudo argv from the wall\'s reader');
+      const r = roots();
+      const d = cwd ? insideRoots(v.absPath(localPath(cwd)), r) : r[0];
+      if (!d) throw fail(400, 'the folder must be inside the allowed roots');
+      return (o.runAdmin || runAdminCmd)({ argv, password, cwd: d });
+    },
+
+    /**
+     * Whether this computer's sudo asks for a password (it drives the Ask card's password field, and
+     * Full is offered only where it does not). The same reader setup uses (sudoNeedsPassword over sysFacts): not root,
+     * sudo is there, and `sudo -n true` is refused. Detected once per process (sudo's configuration does not change
+     * under the dashboard, and the product never writes a sudoers rule). Only this computer's own sudo runs an
+     * administrator command (runAdmin above), so for any other computer a password is assumed (the card shows a field,
+     * fail safe). The modules are loaded lazily so the assistant's ops carries no setup code it rarely needs.
+     */
+    async adminNeedsPassword({ computer } = {}) {
+      if (!isLocal(computer)) return true;
+      if (adminPwKnown === undefined) {
+        const { sysFacts } = await import('../pcsetup/detect.mjs');
+        const { sudoNeedsPassword } = await import('../pcsetup/admin.mjs');
+        adminPwKnown = await sudoNeedsPassword(await sysFacts());
+      }
+      return adminPwKnown;
     },
   };
 }

@@ -18,10 +18,10 @@ Most guides start with "install Node.js, install git, sign in to GitHub, open a 
 
 ## What Hoprig does
 
-1. You open the Terminal app (on a Mac: Terminal; on Linux: any terminal) and paste one line. It installs what is missing, after asking you once: Node.js (the program that Hoprig and Claude Code run on) and Claude Code itself.
-2. `hoprig setup` runs by itself after the install. It shows what the computer already has, lists what it will add, and asks once. What is already there is left alone.
-3. It asks a few plain questions: who may open the dashboard (pressing Enter makes it reachable from devices on your network, such as your phone on the same Wi-Fi, over plain http, which is not encrypted, behind its password; choose 1 to keep it on this computer only), whether to sign in to GitHub, and the name of a first project. Each one can be skipped and done later.
-4. If you are not signed in to Claude yet, it says so in one line. Type `claude`, then `/login`, and sign in in the browser.
+1. You open the Terminal app (on a Mac: Terminal; on Linux: any terminal) and paste the line below (the one that starts with `curl`), then press Enter. It lists what is missing and asks you once: Node.js (the program that Hoprig and Claude Code run on), and on Linux a few system programs, for which the computer may ask for your password. Then it installs Hoprig.
+2. `hoprig setup` runs by itself after the install. It shows what the computer already has and asks before it adds anything. When Claude Code is missing, it asks whether to install it now. What is already there is left alone.
+3. It asks a few plain questions: who may open the dashboard (pressing Enter lets your phone on the same Wi-Fi open it; that link is not encrypted, so use it only on your own Wi-Fi; the QR code at the end signs your phone in, and the dashboard's password, if it is ever asked, is in the file named under the QR code; choose 1 to keep it on this computer only), whether to sign in to GitHub, and the name of a first project. Each one can be skipped and done later.
+4. If you are not signed in to Claude yet, it says so in one line. In the terminal, type `claude` and press Enter, type `/login` and sign in in the browser, then type `/exit` to come back to the terminal and run `hoprig setup` again.
 5. At the end you see a QR code, a square pattern that your phone's camera opens as a link. Scan it to sign your phone in, or open the dashboard on the computer. Until everything is set up, Home shows a Get started list of what is done and what comes next.
 6. Press **New session**, pick your project, and describe what you want in plain words. Every change shows the lines it removes and the lines it adds, with **Allow** and **Do not allow** buttons.
 
@@ -31,11 +31,11 @@ curl -fsSL https://raw.githubusercontent.com/allswebtech/hoprig/main/install.sh 
 
 ![Home with Get started: what is set up on this computer and what comes next, above the chats and sessions](/screenshots/get-started-desktop-light.webp)
 
-At any time, `hoprig doctor` checks everything and says, under each problem, the one command that fixes it. It changes nothing by itself.
+At any time, type `hoprig doctor` in the terminal: it checks everything and says, under each problem, the one command that fixes it. It changes nothing by itself.
 
 ## What you need
 
-- A computer with Linux, and an internet connection. On macOS its tests run on every change, but the setup's installs and what is new in 0.2 (the chat, the editor, the desktop) have not been run on a real Mac yet.
+- A computer with Linux, and an internet connection. On macOS its tests run on every change, but the install and the newer parts (the chat, the editor, the desktop) have not been run on a real Mac yet.
 - A Claude plan (or an API key) for Claude Code itself. Hoprig is free; the AI is not.
 - A GitHub account is useful (it is free) so that your project is kept safe in git. You can skip it at first.
 

@@ -48,6 +48,7 @@ function render({ isAlive, here = true }) {
     if (addButton && isAlive()) addButton.focus();
   };
   let painted = false;
+  let computer = 'this computer'; // the name this computer gives itself (GET /api/addons): an install's confirmation sends it
 
   async function paint() {
     let r;
@@ -58,6 +59,7 @@ function render({ isAlive, here = true }) {
       return;
     }
     if (!isAlive()) return;
+    computer = r.computer || 'this computer';
     const list = shownAddons(r.addons);
     fill(box, list.length ? list.map(row) : h('div.row.static', h('span.row-main', h('span.row-sub', 'No add-ons on this computer.'))),
       skipped(r).map((x, i) => h('div.banner.warn.mbanner', icon('alert', { size: 18 }), h('span', skippedLines(r)[i]),
@@ -70,10 +72,13 @@ function render({ isAlive, here = true }) {
 
   /** Run an action (install, start, stop, update) and show its output under the add-on until it ends. */
   async function act(a, action, out) {
+    // Installing or updating a gateway changes what is installed here: asked first, naming this computer.
+    const owners = a.gateway && (action === 'install' || action === 'update');
+    if (owners && action === 'update' && !(await confirmSheet({ title: `Update ${a.title} on ${computer}?`, text: `${a.title} is updated with npm on ${computer}. Its lines show here as they come.`, ok: `Update on ${computer}` }))) return;
     try {
-      await api(`/api/addons/${a.id}/${action}`, {});
+      await api(`/api/addons/${a.id}/${action}`, owners ? { confirm: computer } : {});
     } catch (e) {
-      toast(e.message, { kind: 'error' });
+      toast(e, { kind: 'error' });
       return;
     }
     out.hidden = false;
@@ -83,11 +88,13 @@ function render({ isAlive, here = true }) {
       const j = await api(`/api/addons/${a.id}/job?from=${from}`).catch(() => null);
       if (!j || !isAlive()) return;
       if (j.lines.length) add(out, `${j.lines.join('\n')}\n`);
+      // A start's first lines, once (a first password among them): shown under its output, never again.
+      if (j.first) add(out, `\nWhat it printed first, shown this once (Hoprig keeps none of it):\n${j.first.join('\n')}\n`);
       out.scrollTop = out.scrollHeight;
       from = j.next;
       if (!j.running) {
         const res = j.result || {};
-        toast(res.ok ? `${a.title}: done` : `${a.title}: ${res.error || 'that did not work'}`, { kind: res.ok ? 'info' : 'error' });
+        toast(res.ok ? `${a.title}: done` : `${a.title}: ${res.error || 'that did not work'}`, { kind: res.ok ? 'info' : 'error', from: res.ok ? null : res });
         paint();
         return;
       }
@@ -101,6 +108,15 @@ function render({ isAlive, here = true }) {
     const busy = a.job && a.job.running;
     const v = addonView(a);
     const b = (ic, label, action) => btn('small secondary', { icon: ic, label, disabled: busy, onclick: () => act(a, action, out) });
+    // Install, after one confirmation when some of its parts build a helper program while it installs.
+    const install = () => btn('small secondary', {
+      icon: 'download', label: 'Install', disabled: busy,
+      onclick: async () => {
+        if (a.gateway && !(await confirmSheet({ title: `Install ${a.title} on ${computer}?`, text: `${a.builds ? `${a.builds} ` : ''}${a.installCommand ? `This runs on ${computer}: ${a.installCommand}` : `It is installed with npm on ${computer}. Its lines show here as they come.`}`, ok: `Install on ${computer}` }))) return;
+        if (!a.gateway && a.builds && !(await confirmSheet({ title: `Install ${a.title}?`, text: `${a.builds} This runs: ${a.installCommand}`, ok: 'Install' }))) return;
+        act(a, 'install', out);
+      },
+    });
     // Start, after one confirmation when there is something to know first.
     const start = () => btn('small secondary', {
       icon: 'play', label: 'Start', disabled: busy,
@@ -117,7 +133,7 @@ function render({ isAlive, here = true }) {
           h('span', h(`span.pill.st-${key}`, h('span.dot'), text)))),
       h('p.hint', a.summary),
       h('div.mrow-actions',
-        !a.installed && a.installable !== false ? b('download', 'Install', 'install') : null,
+        !a.installed && a.installable !== false ? install() : null,
         a.installed && !a.running && !a.foreign && !a.needsConfirm ? start() : null,
         a.defined && here && a.needsConfirm && a.needsConfirm !== 'gone-old' && !a.running ? btn('small secondary', { icon: 'check', label: a.needsConfirm === 'changed' || a.needsConfirm === 'gone' ? 'Confirm the new program' : 'Confirm the program', disabled: busy, onclick: () => confirmGatewayProgram(a, again) }) : null,
         a.running ? b('stop', 'Stop', 'stop') : null,

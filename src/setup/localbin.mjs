@@ -5,8 +5,9 @@
 // and a non-interactive login shell said "command not found". Two parts fix that:
 //   1. ~/.local/bin/hoprig and ~/.local/bin/hop: tiny scripts that start Hoprig with the full path of the Node.js
 //      it runs on now, so they work without nvm loaded. `hoprig setup` writes them again (a new Node.js version
-//      moves that path; the doctor says when they point to one that is gone). A file there that is not ours (an npm
-//      install with --prefix ~/.local) is left alone.
+//      moves that path; the doctor says when they point to one that is gone). A file there that is not ours is left alone;
+//      it is named only when it would start another Hoprig or another program (npm's own link to this Hoprig, from an
+//      install with --prefix ~/.local, is left without a word).
 //   2. ~/.local/bin on PATH in the files each shell reads:
 //        ~/.profile (and ~/.bash_profile when there is one: bash reads that one instead)   login shells
 //        ~/.bashrc, at its TOP: before the "not interactive: stop here" line           bash started by sshd for a command
@@ -30,6 +31,15 @@ const read = (f) => {
     return fs.readFileSync(f, 'utf8');
   } catch {
     return null;
+  }
+};
+
+/** Do `a` and `b` lead to the same file (links followed)? */
+const sameFile = (a, b) => {
+  try {
+    return fs.realpathSync(a) === fs.realpathSync(b);
+  } catch {
+    return false;
   }
 };
 
@@ -59,13 +69,17 @@ export function ensureCommand({ home = os.homedir(), shell = process.env.SHELL |
     const f = path.join(bin, name);
     let cur = null;
     let mine = false;
+    let same = false;
     try {
       const st = fs.lstatSync(f);
       cur = st.isSymbolicLink() ? '' : read(f);
       mine = !st.isSymbolicLink() && cur !== null && cur.includes(WRAP_MARK);
+      // npm's own link to this very Hoprig (an install with --prefix ~/.local): it starts what the wrapper would.
+      same = st.isSymbolicLink() && sameFile(f, script);
     } catch {
       /* not there */
     }
+    if (same) continue; // nothing to say: it is this Hoprig, put there by npm
     if (cur !== null && !mine) {
       kept.push(`${f} is not ours: left as it is`);
       continue;

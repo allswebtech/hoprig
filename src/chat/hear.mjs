@@ -2,8 +2,10 @@
 // state the page reads (activity, mode, usage, limits, title, to-dos), the task table, the open questions, the queue
 // and the turn. The Chat class (chat.mjs) calls hear() for the events of its current process only.
 import { askArrived, askCancelled, cancelAsks } from './asks.mjs';
+import { workSeen } from './handsoff.mjs';
 import { mergeLimit } from './controls.mjs';
 import { rememberTurn } from './turns.mjs';
+import { ownEndpoint, retryCause } from '../codetools/ownsettings.mjs';
 
 // Errors that mean "this provider cannot serve now" (the coding tool's error categories).
 export const LIMIT_ERRORS = new Set(['rate_limit', 'billing_error']);
@@ -51,7 +53,14 @@ export function hear(chat, ev) {
         const e = ev.retry.error;
         // Claude Code's refusals only: another coding tool's "rate limit" while it tries again is a passing one.
         if (LIMIT_ERRORS.has(e) && chat.engine.id === 'claude') chat.limit = { at: Date.now(), error: e, text: `The provider refused (${e})` };
-        if (ev.retry.attempt === 1 || LIMIT_ERRORS.has(e)) chat.push({ kind: 'notice', level: 'warning', text: `The provider did not answer (${e.replace(/_/g, ' ')}); trying again…` });
+        const plain = `The provider did not answer (${e.replace(/_/g, ' ')}); trying again…`;
+        // Claude Code's own settings may send it to an address no profile chose (codetools/ownsettings.mjs): when
+        // nothing answers there, that is the cause, and the notice says it instead of "unknown".
+        if (ev.retry.attempt === 1 && !LIMIT_ERRORS.has(e) && chat.engine.id === 'claude' && ownEndpoint(chat.claudeDir)) {
+          (chat.retryCause || retryCause)(chat.claudeDir)
+            .catch(() => null)
+            .then((cause) => chat.push({ kind: 'notice', level: 'warning', text: cause ? `${cause} Trying again…` : plain }));
+        } else if (ev.retry.attempt === 1 || LIMIT_ERRORS.has(e)) chat.push({ kind: 'notice', level: 'warning', text: plain });
       }
       chat.emit('state');
       return;
@@ -73,10 +82,12 @@ export function hear(chat, ev) {
       chat.live.final(ev);
       if (ev.kind === 'text' && !ev.agent) chat.lastText = ev.text;
       if (ev.kind === 'tool' || ev.kind === 'tool-result') chat.emit('state'); // a tool runs now, or ran: the status line
+      if (ev.kind === 'tool' && !ev.agent) workSeen(chat, ev); // work between Hands-off's answers
       chat.push(strip(ev));
       return;
-    case 'todos':
+    case 'todos': // a TodoWrite or a task call of this turn: newer than anything read from the earlier part (reading.mjs)
       chat.todos = ev.list;
+      chat.todosGen++;
       chat.emit('state');
       return;
     case 'task':
@@ -100,13 +111,14 @@ export function hear(chat, ev) {
       return;
     case 'queue-state':
       if (ev.state === 'started') taken(chat, ev.messageId, null);
-      else if (ev.state === 'cancelled') chat.queue.take(ev.messageId);
+      else if (ev.state === 'cancelled' && chat.queue.take(ev.messageId)) chat.gaveBack(ev.messageId);
       return;
     case 'session-changed':
       if (ev.reason === 'clear' && ev.id && ev.id !== chat.conversationId) {
-        chat.conversationId = ev.id;
+        chat.cleared(ev.id);
         chat.fork = null;
         chat.emit('record');
+        chat.emit('state');
       }
       chat.push(ev);
       return;
@@ -126,7 +138,7 @@ export function hear(chat, ev) {
       chat.emit('state');
       return;
     case 'title':
-      if (ev.text) chat.title = ev.text;
+      if (ev.text) chat.heardTitle(ev.text); // a name given here still wins (titles.mjs)
       chat.emit('record');
       chat.emit('state');
       return;
@@ -161,6 +173,10 @@ function taken(chat, messageId, ev) {
     chat.changed();
   } else if (chat.turn && !chat.turn.auto && !chat.turn.messageId && messageId) {
     chat.turn.messageId = messageId; // the turn that started for a queued message: now it knows which (its end is kept)
+  } else if (chat.turn && messageId && messageId !== chat.turn.messageId) {
+    // Taken inside a turn that runs for another message (or for none): it has no turn of its own, so it ends with this one.
+    const took = chat.turn.took || (chat.turn.took = []);
+    if (!took.includes(messageId)) took.push(messageId);
   }
 }
 
@@ -184,6 +200,7 @@ function turnEnd(chat, ev) {
   chat.live.turnEnded();
   const end = chat.push({ kind: 'turn-end', ok: ev.ok, subtype: ev.subtype, error: ev.ok || stopped || limited ? null : ev.error, limited, turnCostUsd: turnCost, usage: ev.usage, durationMs: ev.durationMs, stopped });
   if (chat.turn && chat.turn.messageId) rememberTurn(chat.o.turnsDir, chat.conversationId, chat.turn.messageId, end); // read back on a reload
+  chat.endMessages(turnCost);
   chat.knowSize();
   // A rewound conversation now has its own file: it is read from there from now on.
   if (chat.fork && chat.engine.exists(chat.cwd, chat.conversationId)) {
@@ -195,6 +212,7 @@ function turnEnd(chat, ev) {
   chat.nextHeld();
   chat.settle();
   chat.emit('turn', ev);
+  if (ev.ok) chat.askTitle?.(); // a conversation without a name gets Claude Code's title (chat.mjs)
 }
 
 // What an engine's own end codes mean, in the owner's words (a process's exit code or signal is shown as it is).
@@ -202,6 +220,7 @@ const ENDS = { start: 'could not start', provider: 'cannot use this provider', s
 
 function exited(chat, { code, why }) {
   chat.session = null;
+  processGone(chat, !!chat.turn);
   clearTimeout(chat.stopTimer);
   if (chat.turn || chat.pending.size) {
     cancelAsks(chat);
@@ -209,6 +228,7 @@ function exited(chat, { code, why }) {
     chat.push({ kind: 'turn-end', ok: false, subtype: 'exit', error: `${head}${why ? `: ${why}` : ''}`, stopped: false });
     chat.lastError = head;
     chat.lastEnd = 'error';
+    chat.endMessages(null);
     chat.turn = null;
   }
   lostWork(chat);
@@ -216,11 +236,26 @@ function exited(chat, { code, why }) {
   chat.changed();
 }
 
+/**
+ * The chat's process ended (`cut`: inside a turn, whose cost it never reported): its own callback, when it has one (a
+ * part's chat settles its budget hold, feature.mjs make). A failure there never stops the chat from noting the end.
+ */
+export function processGone(chat, cut = false) {
+  if (typeof chat.o.processEnded !== 'function') return;
+  try {
+    chat.o.processEnded({ cut });
+  } catch {
+    /* the record could not be written: the hold counts for the day (the safe side) */
+  }
+}
+
 /** The process is gone: what it ran in the background and what was queued in it went with it. */
 export function lostWork(chat) {
   chat.tasks.lost();
+  const gone = chat.queue.items.filter((q) => q.state === 'sent').map((q) => q.id);
   const lost = chat.queue.lose();
-  if (lost) chat.push({ kind: 'notice', level: 'warning', text: `${lost === 1 ? 'A queued message was' : `${lost} queued messages were`} not sent.` });
+  for (const id of gone) chat.gaveBack(id); // they never ran
+  if (lost) chat.push({ kind: 'notice', level: 'warning', text: lost === 1 ? 'The message you sent was lost with the process: send it again.' : `The ${lost} messages you sent were lost with the process: send them again.` });
   chat.live.clear();
   chat.activity = null;
   chat.emit('state');

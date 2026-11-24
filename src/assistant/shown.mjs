@@ -19,6 +19,8 @@ export const FIRST_CALL = {
   skill: 'manage_skills action installed',
   mapped: 'list_projects with view "map"',
   address: 'list_projects with view "map" or "git" (or the owner writes the address himself)',
+  task: 'manage_work action today or list',
+  run: 'manage_work action task',
 };
 
 /** The local computer is always known: tools default to it. */

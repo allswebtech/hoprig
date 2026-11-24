@@ -24,7 +24,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { configDir, stateDir, hostName } from '../paths.mjs';
-import { defaultHubLabel } from './hub.mjs';
+import { defaultHubLabel, workspaceOf } from './hub.mjs';
 import { label as cleanLabel, dashboardUrl, slug, sshTarget, tokenName, uniqueSlug } from './names.mjs';
 import { dashboardAddress, answers, machineInfo, API_VERSION } from './pairing.mjs';
 import { callJson } from './relay.mjs';
@@ -139,7 +139,7 @@ export async function acceptConfirm(b, { now = Date.now, waitMs = 15_000, expose
       else last = `HTTP ${res.status}`;
     } catch (e) {
       last = e.message;
-      if (e.code === 'not-authorised' || e.code === 'too-old') break;
+      if (e.code === 'computer-not-allowed' || e.code === 'too-old') break;
     }
     if (!info) await new Promise((res) => setTimeout(res, 300));
   }
@@ -159,7 +159,7 @@ export async function acceptConfirm(b, { now = Date.now, waitMs = 15_000, expose
     token: b.token,
     tokenId: ID_RE.test(String(b.tokenId)) ? b.tokenId : null,
     added: before ? before.added : now(),
-    info: { hostname: info.hostname || null, platform: info.platform || null, version: info.version || null },
+    info: { hostname: info.hostname || null, platform: info.platform || null, version: info.version || null, ...workspaceOf(info) },
   };
   putMachine(m);
   saveReservations(list.filter((x) => x.id !== b.id));
@@ -270,7 +270,10 @@ export class JoinKeeper {
     }
     for (const [id, { tunnel }] of this.map) {
       if (!kept.some((h) => h.id === id) && !this.busy.has(id)) {
-        tunnel.close();
+        // A direct link is retired, not cut: the token may have been revoked by the hub's own request (Remove there),
+        // whose answer is still on its way over this link; cut, the hub would say it could not revoke it.
+        if (tunnel.retire) tunnel.retire();
+        else tunnel.close();
         this.map.delete(id);
       }
     }
@@ -339,7 +342,7 @@ async function onHub(target, body, ssh) {
  */
 export async function joinHub(rawTarget, { keeper, ssh = {}, now = Date.now } = {}) {
   const target = sshTarget(rawTarget);
-  if (!target) throw new JoinError('bad-target', 'type the hub\'s SSH address as user@host, a host name, or a name from ~/.ssh/config', 400);
+  if (!target) throw new JoinError('bad-target', 'type the main computer\'s SSH address as user@host, a host name, or a name from ~/.ssh/config', 400);
   const addr = dashboardAddress();
   const said = await answers(addr);
   if (said === 'closed') throw new JoinError('not-running', `This computer's dashboard is not running (nothing on ${addr.host}:${addr.port}). Start it first: hoprig service install`);

@@ -78,6 +78,11 @@ body.chat-mode .toasts { top: calc(var(--chat-toast-top, calc(58px + env(safe-ar
 .chat-item { content-visibility: auto; contain-intrinsic-size: auto 60px; min-width: 0; }
 .chat-item.chat-is-streaming { content-visibility: visible; }
 .chat-user { max-width: min(640px, 88%); padding: 10px 12px; border-radius: 14px; border-bottom-right-radius: 4px; background: var(--accent); color: var(--accent-text); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+.chat-startfold { white-space: normal; }
+.chat-startsaid { margin: 0 0 6px; font-weight: 600; }
+.chat-startfull summary { cursor: pointer; text-decoration: underline; }
+.chat-startfulltext { white-space: pre-wrap; margin: 6px 0; padding: 8px; border-radius: 8px; background: rgb(0 0 0 / 0.12); font-size: var(--fs-sm); }
+.chat-startbrief { white-space: pre-wrap; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgb(255 255 255 / 0.35); }
 .chat-files { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .chat-files .chip { min-height: 24px; padding: 0 8px; font-size: var(--fs-xs); }
 .chat-text { padding: 2px 2px; }
@@ -168,6 +173,10 @@ button.chat-st-part:hover { color: var(--text); text-decoration: underline; }
   .chat-strip-dot, .chat-status[data-status='working'] .chat-st-dot, .chat-think.chat-is-streaming .chat-think-head, .chat-text.chat-is-streaming .md > :last-child::after { animation: none; }
 }
 
+/* The composer's ring says the context: the status line does not say it a second time (a ring for the plan's usage
+   leaves the status line's context in place). */
+.chat-wrap:has(.chat-ring[data-kind='context']:not(.hidden)) .chat-st-part[data-k='Context'] { display: none; }
+
 /* ---------- phones ---------- */
 @media (max-width: 599px) {
   .chatback { width: 44px; min-height: 44px; padding: 0; }
@@ -181,7 +190,7 @@ button.chat-st-part:hover { color: var(--text); text-decoration: underline; }
   .chat-chips::-webkit-scrollbar { display: none; }
   .chat-chip, .chat-ring { min-height: 44px; }
   .chat-chips-gap { min-width: 4px; }
-  .chat-send, .chat-stop, .chat-attachbtn { width: 44px; min-height: 44px; }
+  .chat-send, .chat-stop, .chat-plus { width: 44px; min-height: 44px; }
   textarea.chat-input { min-height: 44px; }
   .chat-unqueue { width: 44px; min-height: 44px; }
   .chat-queued, .chat-strip, .chat-todos-head, .chat-think summary { min-height: 44px; }
@@ -202,3 +211,7 @@ button.chat-st-part:hover { color: var(--text); text-decoration: underline; }
 .ns-as .hint { margin: 0; }
 /* A closed chat's page (nothing drawn): its note in the middle. */
 .chat-mid > .empty { flex: 1; }
+
+/* A turn the AI account refused: the plain line, its button and the tool's own words, apart. */
+.chat-error { display: grid; gap: 8px; justify-items: start; }
+.chat-error > .banner, .chat-error > details { justify-self: stretch; }

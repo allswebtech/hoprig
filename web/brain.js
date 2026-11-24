@@ -23,7 +23,7 @@ export async function setUpWorkspace(after = () => {}) {
   try {
     plan = await api('/api/workspace/setup', { dryRun: true });
   } catch (e) {
-    return toast(e.message, { kind: 'error', ms: 7000 });
+    return toast(e, { kind: 'error', ms: 7000 });
   }
   if (!plan.did.length) return toast('Nothing is missing: the workspace is complete.');
   await openSheet({ title: 'Create what is missing', subtitle: `In ${plan.status ? plan.status.short : plan.dir}. Nothing that is there is moved, renamed or overwritten.` }, (close) => {
@@ -41,7 +41,7 @@ export async function setUpWorkspace(after = () => {}) {
         fill(go.parentElement, h('button.btn.primary', { type: 'button', onclick: () => close(true) }, 'Done'));
         after();
       } catch (e) {
-        fill(out, errorBox(e.message));
+        fill(out, errorBox(e));
         go.disabled = false;
         go.classList.remove('busy');
       }
@@ -65,7 +65,7 @@ export function workspaceFolders() {
     try {
       w = await api('/api/workspace');
     } catch (e) {
-      return fill(box, e.status === 404 ? h('p.hint', 'This computer runs an older version without a workspace.') : errorBox(e.message, load));
+      return fill(box, e.status === 404 ? h('p.hint', 'This computer runs an older version without a workspace.') : errorBox(e, load));
     }
     const missing = w.folders.filter((f) => !f.exists).length + (w.exists ? 0 : 1);
     const rows = (list) => h('div.rows.ws-folders', list.map((f) => h('div.row.static',
@@ -108,8 +108,8 @@ export function skillsPart(sk, after = () => {}, { linkHere = true } = {}) {
       h('span.row-end', icon('chevronRight', { size: 18 })))),
     only && !linkHere ? h('p.hint.brain-none', `${n(only)} in the AI brain ${only === 1 ? 'is' : 'are'} not used by Claude Code yet: Link under Coding tools connects the brain's skills folder.`) : null,
     only && linkHere ? h('div.bl-inline', h('p.hint.brain-none', `${n(only)} in the AI brain ${only === 1 ? 'is' : 'are'} not used by Claude Code yet. Link the brain's skills folder so Claude Code reads it.`),
-      btn('small secondary', { icon: 'check', label: 'Link now', onclick: async () => {
-        if (await linkBrainSheet()) after();
+      btn('small secondary', { icon: 'check', label: 'Switch on', onclick: async () => {
+        if (await linkBrainSheet(() => {}, { switchOn: true })) after();
       } })) : null,
   ];
 }
@@ -201,7 +201,7 @@ function viewBrain({ frame, sub }) {
     try {
       b = await api('/api/brain');
     } catch (e) {
-      return fill(list, e.status === 404 ? h('p.hint', 'This computer runs an older version without the AI brain.') : errorBox(e.message, load));
+      return fill(list, e.status === 404 ? h('p.hint', 'This computer runs an older version without the AI brain.') : errorBox(e, load));
     }
     if (!alive) return;
     split.classList.toggle('pane-only', !b.brain.exists); // nothing to list: the empty state alone, centred

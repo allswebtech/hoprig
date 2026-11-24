@@ -4,7 +4,9 @@
 //                                                    url,                                (via url)
 //                                                    port, joinId     (via join: it connects by itself, join.mjs)
 //                                                    port, linkId, linkHash   (via link: the direct link, link.mjs)
-//                      token, tokenId, added, info: { hostname, platform, version } } ] }
+//                      token, tokenId, added, info: { hostname, platform, version },
+//                      key: true   (via ssh, added with a key file: keys.mjs keeps it, never this file),
+//                      seenAt       (when its health was last read: hub.mjs health) } ] }
 //
 // Read fresh on every use (it is small), so the CLI and the running dashboard always agree.
 import fs from 'node:fs';
@@ -88,4 +90,5 @@ export const publicMachine = (m) => ({
   url: m.via === 'url' ? m.url : null,
   added: m.added || null,
   info: m.info || null,
+  key: m.key === true, // added with a key file this dashboard keeps (keys.mjs); never the key itself
 });

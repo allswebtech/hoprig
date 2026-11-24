@@ -5,21 +5,40 @@
 // view stays at the bottom unless the owner scrolled up. A screen reader hears only what is new and whole (a reply,
 // a card), never the list as it streams.
 import { icon } from '../icons.js';
-import { add, api, fill, h, toast } from '../lib.js';
+import { add, api, fill, h, link, toast } from '../lib.js';
 import { mdView } from '../mdtext.js';
 import { messageFiles } from './attach.js';
 import { OUTCOME, askCard } from './asks.js';
+import { answerLine, waitWords } from '../handsoff.js';
 import { outputView, rePaths, toolCard } from './tools.js';
 import { thinkingOpen, transcriptView } from './transcript.js';
-import { askTitle, failText, ownMessageView, took, turnParts } from './words.js';
+import { askTitle, failText, ownMessageView, signInWay, startFold, took, turnErrorWords, turnParts } from './words.js';
 
 const NEAR_PX = 120;
 
 /**
  * o: { scroll (the scrolling element), A (the chat's API path), cwd(), stopTask(id), after(), canRewind(), rewind({ messageId, text }),
  *      who() (the coding tool as a sentence names it: "Claude", "OpenCode"), canStopTask(), modes() (the chat's
- *      permission modes, or null) }
+ *      permission modes, or null), provider() (the chat's { profile: { name, kind, ownFolder? }, tool, remote }, or null) }
  */
+/**
+ * A turn that ended in an error: a plain line for a known kind (the tool's own text folded), else the text. `who`:
+ * the chat's provider and coding tool ({ profile, tool }), so a refused sign-in offers what fixes it for that provider.
+ */
+function errorView(error, who = {}) {
+  const known = turnErrorWords(error);
+  if (!known) return h('div.chat-item.banner.error-box', { role: 'alert' }, icon('alert', { size: 18 }), h('span', error || 'The reply ended with an error.'));
+  const way = known.kind === 'auth' ? signInWay(who.profile, who.tool, { remote: who.remote === true }) : null;
+  // The sign-in sheet loads on the press only: the timeline stays free of the settings parts.
+  const signIn = !way ? null : way.kind === 'claude-signin'
+    ? h('button.btn.small.secondary', { type: 'button', onclick: () => import('../claudelogin.js').then((m) => m.claudeSignIn()) }, 'Sign in again')
+    : h('a.btn.small.secondary', { href: link(way.hash) }, 'Open the provider');
+  return h('div.chat-item.chat-error',
+    h('div.banner.error-box', { role: 'alert' }, icon('alert', { size: 18 }), h('span', known.line)),
+    signIn,
+    h('details.adv', h('summary', 'Details'), h('pre.output', String(error))));
+}
+
 export function createTimeline(o) {
   const who = () => (o.who ? o.who() : 'Claude');
   // One task's Stop only where the coding tool can stop one task (else the turn's Stop is the way).
@@ -30,6 +49,7 @@ export function createTimeline(o) {
   const downBtn = h('button.btn.small.primary.chat-down.hidden', { type: 'button', onclick: () => toBottom(true) }, icon('down', { size: 16 }), h('span', 'New messages'));
   const tools = new Map(); // tool call id → its card
   const asks = new Map(); // request id → its card
+  const partAsks = new Map(); // a part's card for the owner, by part id (part-ask)
   const blocks = new Map(); // block id → its element (live while it streams, then final)
   const orphans = new Map(); // agent id → where its steps go when its call is not drawn (an earlier window)
   const said = h('div.chat-sr', { role: 'status', 'aria-live': 'polite' }); // what a screen reader hears
@@ -118,11 +138,19 @@ export function createTimeline(o) {
         const g = group(at);
         const { text, files } = ownMessageView(ev.text, Array.isArray(ev.attachments) ? ev.attachments : []);
         // Rewind (the files, the conversation or both, to before this message): beside the message.
-        const back = ev.messageId && o.canRewind() ? h('button.btn.icon.ghost.chat-rewindbtn', {
-          type: 'button', 'aria-label': 'Rewind to before this message', title: 'Rewind to before this message',
+        // "Rewind to here", in words, as Claude Code on the web names it: on every device (a phone too).
+        const back = ev.messageId && o.canRewind() ? h('button.btn.ghost.chat-rewindbtn', {
+          type: 'button', title: 'Go back to before this message: the code, the conversation or both',
           onclick: () => o.rewind({ messageId: ev.messageId, text: ev.text }),
-        }, icon('undo', { size: 15 })) : null;
-        const row = h('div.chat-item.chat-userrow', { dataset: { message: ev.messageId || '' } }, back, h('div.chat-user', text, messageFiles(files, o.A)));
+        }, icon('undo', { size: 13 }), h('span', 'Rewind to here')) : null;
+        const fold = startFold(text);
+        const name = (fold && fold.name) || String(o.cwd() || '').split('/').filter(Boolean).pop() || 'the project';
+        const bubble = fold
+          ? h('div.chat-user.chat-startfold', h('p.chat-startsaid', `Hoprig asked the AI to set up ${name} from your brief`),
+            h('details.chat-startfull', h('summary', 'Show the full message'), h('div.chat-startfulltext', fold.full)),
+            fold.brief ? h('div.chat-startbrief', fold.brief) : null, messageFiles(files, o.A))
+          : h('div.chat-user', text, messageFiles(files, o.A));
+        const row = h('div.chat-item.chat-userrow', { dataset: { message: ev.messageId || '' } }, back, bubble);
         row.said = text;
         return add(g, row);
       }
@@ -196,7 +224,7 @@ export function createTimeline(o) {
           return null;
         }
         if (ev.outcome === 'cancelled' && !plan && !question && foldCancelled(card)) return null;
-        card.closed(plan ? (ok ? 'You approved the plan' : ev.outcome === 'denied' ? `${who()} keeps planning` : text) : question && ok ? 'You answered' : text, ok);
+        card.closed(ev.outcome === 'handsoff' ? text : plan ? (ok ? 'You approved the plan' : ev.outcome === 'denied' ? `${who()} keeps planning` : text) : question && ok ? 'You answered' : text, ok);
         if (card.toolId && ev.outcome !== 'cancelled') tools.get(card.toolId)?.answered(ok); // "Wants to write" → "Writing"
         return null;
       }
@@ -212,9 +240,22 @@ export function createTimeline(o) {
         } else if (ev.stopped || ev.subtype === 'stopped' || ev.error === 'stopped') add(g, h('p.chat-item.chat-note', `You stopped ${who()}.`));
         // A usage limit is said once, by the limit card at the top with what to do next.
         else if (ev.limited) add(g, h('p.chat-item.chat-note', 'Stopped at the provider\'s usage limit (see above).'));
-        else add(g, h('div.chat-item.banner.error-box', { role: 'alert' }, icon('alert', { size: 18 }), h('span', ev.error || 'The reply ended with an error.')));
+        else add(g, errorView(ev.error, (o.provider && o.provider()) || {}));
         at.group = null;
         return null;
+      }
+      case 'handsoff': {
+        // Hands-off (src/chat/handsoff.mjs): what it answered for the owner and why, or why it left the ask to him.
+        if (ev.text) {
+          const line = [h('strong', 'Answered by Hoprig: '), answerLine({ text: ev.text, because: ev.because })];
+          // Said once, on the card it answered (closed just before by ask-closed); a line of its own only without one.
+          const card = asks.get(ev.request);
+          const st = card && card.done ? card.querySelector('.chat-ask-status') : null;
+          if (st) return (fill(st, icon('check', { size: 14 }), h('span', ...line)), null);
+          return add(groupOf(at), h('p.chat-item.chat-note.ho-done', { role: 'status' }, ev.question ? `${ev.question} → ` : '', ...line));
+        }
+        const words = ev.stopped ? waitWords(ev.stopped) : waitWords(ev.waits);
+        return words ? add(groupOf(at), h('p.chat-item.chat-note.ho-wait', { role: 'status' }, words)) : null;
       }
       case 'allowed':
         // Allowed by Hoprig itself in bypass mode (a plain delete: src/chat/asks.mjs), in the words of a terminal's page.
@@ -224,6 +265,63 @@ export function createTimeline(o) {
       case 'session-changed':
         at.group = null;
         return add(at.root, h('div.chat-item.chat-divider', h('span', ev.reason === 'compact' ? `Conversation compacted: ${who()} goes on from a summary` : ev.reason === 'clear' ? 'Conversation cleared' : ev.reason === 'fork' ? 'Rewound to here' : 'A new conversation')));
+      case 'part-ask': {
+        // "Use other providers": a part on a provider billed by use waits for the owner's yes (src/models/partdoor.mjs).
+        // The status line can take the focus: after a press its buttons go, and the focus goes there, not to the page.
+        const status = h('p.chat-ask-status', { role: 'status', tabindex: '-1' });
+        const say = async (allow) => {
+          // A browser drops the focus of a button it disables: the focus moves to the status line first, at the press.
+          // An empty status line is not shown (chat-cards.css), and what is not shown cannot take the focus: it says
+          // what is happening before it takes it.
+          const pressed = card.contains(document.activeElement) ? document.activeElement : null;
+          fill(status, allow ? 'Handing it over…' : 'Telling the lead…');
+          if (pressed) status.focus();
+          for (const b of card.querySelectorAll('button')) b.disabled = true;
+          try {
+            await api(`/api/parts/${ev.part}/answer`, { allow });
+          } catch (e) {
+            for (const b of card.querySelectorAll('button')) b.disabled = false;
+            fill(status);
+            if (pressed) pressed.focus();
+            toast(failText(e), { from: e, kind: 'error' });
+          }
+        };
+        const card = h('section.chat-item.chat-ask.chat-ask-part', { 'aria-label': `Hand a part to ${ev.label}?`, tabindex: '-1' },
+          h('div.chat-ask-head', icon('alert', { size: 18 }), h('strong', `Hand a part to ${ev.label}?`)),
+          h('p.chat-hint', `${ev.label} is billed by use: this part costs money there. The part: ${ev.partKind}.`),
+          ev.brief ? h('p.chat-hint', `What it would do: ${ev.brief}`) : null,
+          h('div.chat-ask-actions',
+            h('button.btn.small.primary', { type: 'button', onclick: () => say(true) }, 'Yes, hand it over'),
+            h('button.btn.small.secondary', { type: 'button', onclick: () => say(false) }, 'No, the lead does it')),
+          status);
+        partAsks.set(ev.part, card);
+        return add(groupOf(at), card);
+      }
+      case 'part-ask-kept': {
+        // His yes is kept: nothing starts until the lead asks for the part (src/models/partdoor.mjs).
+        const card = partAsks.get(ev.part);
+        const text = 'Your yes is kept: the part starts when the lead asks for it. If the lead goes on without it, nothing starts.';
+        if (!card) return add(groupOf(at), h('p.chat-item.chat-note', text));
+        const had = card.contains(document.activeElement);
+        for (const b of card.querySelectorAll('button')) b.remove();
+        const st = card.querySelector('.chat-ask-status');
+        fill(st, text);
+        if (had && st) st.focus();
+        return null;
+      }
+      case 'part-ask-closed': {
+        const card = partAsks.get(ev.part);
+        const text = ev.outcome === 'yes' ? 'You said yes: the part started there.' : ev.outcome === 'no' ? 'You said no: the lead does this part itself.' : ev.outcome === 'lead' ? 'No answer in time: the lead does this part itself. Nothing was started.' : ev.outcome === 'gone' ? 'The lead went on without it. Nothing was started.' : `It could not start: ${ev.why || 'refused'}. The lead does this part itself.`;
+        if (!card) return add(groupOf(at), h('p.chat-item.chat-note', text));
+        // Answered by keyboard: the focus was on one of its buttons, which go now; it moves to the line that says what
+        // happened, so the next Tab goes on from this card and a screen reader reads the answer.
+        const had = card.contains(document.activeElement);
+        for (const b of card.querySelectorAll('button')) b.remove();
+        const st = card.querySelector('.chat-ask-status');
+        fill(st, text);
+        if (had && st) st.focus();
+        return null;
+      }
       case 'notice':
         // "Compacted" after /compact: the divider says it already.
         if (ev.local && /^\s*Compacted\.?\s*$/i.test(ev.text)) return null;
@@ -305,15 +403,15 @@ export function createTimeline(o) {
         fill(olderBox, chunk, [...olderBox.children]);
         first = r.events[0].i;
       }
-      paintMore(r.events.length > 0 && first > r.base);
+      paintMore((r.events.length > 0 && first > r.base) || !!r.more);
       o.scroll.scrollTop += o.scroll.scrollHeight - h0; // what was on screen stays where it was
     } catch (e) {
       btn.disabled = false;
-      toast(failText(e), { kind: 'error' });
+      toast(failText(e), { from: e, kind: 'error' });
     }
   }
 
-  const empty = () => h('div.chat-empty', icon('text', { size: 26 }), h('p', `Write what ${who()} should do in this project. It works here as in the terminal: it reads, edits and runs commands, and asks you before anything that needs your OK.`));
+  const empty = () => h('div.chat-empty', icon('text', { size: 26 }), h('p', `Write what you want, in your own words. ${who()} reads and changes the files of this project, and asks you before anything that needs your OK.`));
 
   const root = h('div.chat-col.chat-timeline', moreSlot, olderBox, list, said);
   view = transcriptView(root, () => ({ cards: tools.values(), blocks: blocks.values() }));

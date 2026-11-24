@@ -6,7 +6,8 @@
 //   #/workspace/project/<folder>     one project: its sessions (running, past ones to continue), its repositories
 //                                    with Sync and "Add a repository", its skills (installed and suggested)
 // (#/projects… addresses from before land here: app.js.)
-//   #/new-project          name → what it creates (shown before anything is made) → done, "Start a session"
+//   #/new-project          name, brief, kind and scope → what it creates (shown before anything is made), "Start with AI"
+//                          → done, "Start a session", or the App session that sets it up from the brief (newproject.js)
 //   #/get-project          name or address → what happens → done, "Start a session"
 // With several computers the switcher picks whose projects these are (#/m/<computer>/workspace). A "project" is a
 // folder in the projects folder: a plain git repository, or a parent repository with its code repositories in
@@ -18,13 +19,29 @@ import { groupOf } from './home.js';
 import { sessionRow } from './sessionitem.js';
 import { projectBrain } from './brain.js';
 import { commandLine, freshFork, missingCard, workspaceStrip } from './workspace.js';
+import { asOfWords, computersPanel, dropSheet, groupSheet, lastHereWords, removeGroup } from './wsplaces.js';
 import { registerPage } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, listRow, okBox, radioCards, skeletonRows as skeleton, stepHeader } from './shell.js';
 import { store } from './store.js';
+import { canDeleteConversation, deleteConversation } from './chat/deletes.js';
 import { editorButton } from './editor/index.js';
 import { openNewSession } from './newsession-popup.js';
+import { needsBlock } from './projectneeds.js';
+import { aiReady, briefFields, markCards, startLater, startPart, startSession, willLines } from './newproject.js';
+import { projectOutSwitch } from './operator-tia.js';
+import { projectNoteBox } from './operator-decide.js';
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+/**
+ * A name as a person types it ("Bakery Website") made into a folder name ("bakery-website"): spaces and other signs
+ * become "-", the ends are trimmed. '' when nothing usable is left (then the rule is said).
+ */
+export function toFolderName(typed) {
+  const v = String(typed || '').trim();
+  if (NAME_RE.test(v)) return v;
+  const f = v.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/-{2,}/g, '-').replace(/^[^a-z0-9]+|[-._]+$/g, '').slice(0, 100);
+  return NAME_RE.test(f) ? f : '';
+}
 const enc = encodeURIComponent;
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const busy = (text) => h('div.empty.compact', h('div.spinner', { 'aria-hidden': 'true' }), h('p', text));
@@ -38,6 +55,125 @@ export function projectsOf(d) {
     ...d.workspaces.map((w) => ({ id: w.id || w.dir.split(/[\\/]/).pop(), name: w.name, place: w.place || '', dir: w.dir, workspace: true, memories: w.memories || {}, repos: w.repos.map((r) => ({ ...r, label: label(r.rel, w.name) })), notFollowed: w.notFollowed || [] })),
     ...d.repos.map((r) => ({ id: r.id || r.rel, name: r.rel, place: r.place || '', dir: r.dir, workspace: false, memories: {}, repos: [{ ...r, rel: '.', label: r.rel }] })),
   ].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The Check step's first line (the details are folded under "What exactly"): what is made, in one sentence a person
+ * who does not know the files can judge. `pv`: the preview (folder, template, files), `st`: the brief typed or not.
+ */
+export function checkLine(pv, st) {
+  const name = String(pv.dir || '').split(/[\\/]/).filter(Boolean).pop() || st.name;
+  const brief = st.brief && st.brief.trim() ? 'your brief and ' : '';
+  const files = pv.template === 'built-in' ? 'the starting files the AI needs' : 'the files of your own project template';
+  const count = Array.isArray(pv.files) && pv.files.length ? ` (${plural(pv.files.length, 'file')})` : '';
+  return `A folder ${name} with ${brief}${files}${count}.${st.github ? ' It is uploaded to a private GitHub repository too.' : ''} Nothing else on the computer changes.`;
+}
+
+/** "Sign in to GitHub": GitHub's sign-in sheet opens over the step he is on (the same sheet as Setup's Sign in), so
+ * what he typed stays; `after()` once he is signed in draws the step again. The address stays Setup's, for a new tab.
+ * `onPress(signing)`: told at the press, with the sign-in's promise (true when signed in). A link inside a sheet needs
+ * it: the sign-in sheet takes that sheet's place (one sheet at a time), so the sheet opens itself again once it ends. */
+export const signInLink = (after, { onPress = null } = {}) => h('a', { href: link('#/computer/setup?show=git'), onclick: async (e) => {
+  e.preventDefault();
+  const signing = import('./gitsetup.js').then(({ signinSheet }) => signinSheet());
+  onPress?.(signing);
+  if (await signing) after?.();
+} }, 'sign in to GitHub');
+
+/**
+ * "Add a repository" of project `p`: the name and where it goes. → { repo, github } or null. "sign in to GitHub" in it
+ * opens GitHub's sign-in in this sheet's place; once that ends (signed in or not) this sheet opens again with the name
+ * he typed and his choice, now with the GitHub choice when he signed in. `alive()`: the page is still open.
+ */
+export async function repoSheet(p, { alive = () => true } = {}) {
+  const keep = { name: '', github: false };
+  for (;;) {
+    let gh = { signedIn: false };
+    try {
+      gh = (await api(`/api/pcsetup/project/preview?name=${enc(p.id)}`)).github || gh;
+    } catch {
+      /* without GitHub */
+    }
+    let signing = null;
+    const choice = await openSheet({ title: 'Add a repository', subtitle: `A new code repository inside ${p.name}, in its code folder.` }, (close) => {
+      const input = h('input.field', { value: keep.name, placeholder: 'web', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', autofocus: true });
+      const err = h('p.form-error', { role: 'alert' });
+      const shown = h('p.hint');
+      const showName = () => {
+        keep.name = input.value;
+        const v = input.value.trim();
+        shown.textContent = v ? `It is called ${v.startsWith(`${p.id}-`) ? v : `${p.id}-${v}`}, in code/.` : 'For example "web", "api" or "app".';
+      };
+      input.addEventListener('input', showName);
+      showName();
+      const where = h('div');
+      const paintWhere = () => fill(where, gh.signedIn
+        ? radioCards('repo-where', [
+          { value: 'local', title: 'Only on this computer', sub: 'You can put it on GitHub later.' },
+          { value: 'github', title: 'Also on GitHub, private', sub: `A private repository under ${gh.account || 'your account'}, uploaded now.` },
+        ], keep.github ? 'github' : 'local', (v) => { keep.github = v === 'github'; paintWhere(); })
+        : h('p.hint', 'To also put it on GitHub, ', signInLink(null, { onPress: (x) => (signing = x) }),
+          ' first (it opens here, and you come back to this sheet with the name you typed).'));
+      paintWhere();
+      return h('form', { onsubmit: (e) => {
+        e.preventDefault();
+        const v = input.value.trim();
+        if (!NAME_RE.test(v)) err.textContent = 'Letters, digits, ".", "_" and "-"';
+        else close({ repo: v, github: gh.signedIn && keep.github });
+      } },
+      h('label.fieldrow', h('span.field-label', 'Name'), input, shown), err, where,
+      h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close(null) }, 'Cancel'), h('button.btn.primary', { type: 'submit' }, 'Add it')));
+    });
+    if (choice || !signing) return choice;
+    // The sign-in took this sheet's place: once it ends (signed in or not), the sheet opens again with what he typed.
+    const ran = await signing.then(() => true, () => false);
+    if (!ran || !alive()) return null;
+  }
+}
+
+/**
+ * The words of "This link is mine" (`link`, where it leads `to`, both as the page shows them): what changes on his yes.
+ * → { title, lines, ok }.
+ */
+export function myLinkWords(link, to) {
+  return {
+    title: 'Is this link yours?',
+    lines: [
+      `${link} is a link that leads out of the project, to ${to}.`,
+      'If you made it yourself (a folder of yours kept on another disk or in another place), Hoprig follows it from now on, on this computer only, as part of the project: it syncs it, installs in it and links memory into it.',
+      'If the link came with a repository from a git server and you do not know it, press Cancel: Hoprig keeps leaving it alone. If it is pointed elsewhere later, Hoprig stops following it and says so.',
+    ],
+    ok: 'Yes, it is mine',
+  };
+}
+
+/** "This link is mine": where it leads is asked first (nothing saved), then his yes names it as his (the same step as
+ * `hoprig workspace mylink add`, POST /api/workspace/mylink). Resolves true when it was named. */
+export async function myLinkSheet(linkPath, home) {
+  let look;
+  try {
+    look = await api('/api/workspace/mylink', { path: linkPath, dryRun: true });
+  } catch (e) {
+    toast(e, { kind: 'error', ms: 7000 });
+    return false;
+  }
+  const w = myLinkWords(tildePath(linkPath, home), look.to);
+  return openSheet({ title: w.title }, (close) => {
+    const state = h('div', { 'aria-live': 'polite' });
+    const yes = btn('primary', { icon: 'check', label: w.ok, onclick: async () => {
+      yes.disabled = true;
+      try {
+        await api('/api/workspace/mylink', { path: linkPath, seen: look.seen });
+        toast('Hoprig follows that link now.');
+        close(true);
+      } catch (e) {
+        yes.disabled = false;
+        fill(state, errorBox(e));
+      }
+    } });
+    return [...w.lines.map((t, i) => h(i ? 'p.hint' : 'p.sheet-text', t)), state,
+      h('div.sheet-actions', h('button.btn.secondary', { type: 'button', autofocus: true, onclick: () => close(false) }, 'Cancel'), yes)];
+  }).then((v) => v === true);
 }
 
 /** A repository's state as a person says it: "branch main · 2 changes not saved to git · not on GitHub yet". */
@@ -162,16 +298,40 @@ async function pastIn(dir) {
   return pastOf.get(key);
 }
 
+/**
+ * Delete beside an ended conversation of Claude Code's (deletes.js deleteConversation, the App's own Delete: the trash,
+ * its journal, a conversation someone else writes is never moved). Another coding tool's is not offered. done(): the
+ * list changed.
+ */
+function pastDelete(dir, c, done) {
+  if (!canDeleteConversation(c, c.tool)) return null; // another tool's, or open in an App session
+  const name = c.title && c.title !== '(untitled)' ? c.title : 'Untitled conversation';
+  return h('button.btn.icon.ghost.small.pj-pastdel', { type: 'button', title: `Delete "${name}"`, 'aria-label': `Delete ${name}`, onclick: async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // After the Delete and after its Undo: the list read again (it changed both times).
+    await deleteConversation(dir, c.id, name, { after: () => {
+      store.refresh();
+      done();
+    } });
+  } }, icon('trash', { size: 16 }));
+}
+
 /** "Earlier conversations (n)", folded, only when there are some. */
 function earlier(p) {
   const slot = h('div.ws-pastslot');
+  const again = () => {
+    pastOf.delete(`${machine.current || '~'}:${p.dir}`);
+    fill(slot, earlier(p));
+  };
   pastIn(p.dir).then((list) => {
-    if (!list.length) return;
+    if (!list.length) return fill(slot);
     fill(slot, fold(`ws-past-${p.id}`, `Earlier conversations (${list.length})`,
       h('div.rows.ws-pastrows', list.slice(0, 8).map((c) => h('div.row.static',
         h('span.row-icon', icon('text')),
         h('span.row-main', h('span.row-title', c.title, toolBadge(c.tool)), h('span.row-sub', ago(c.at))),
-        startButton(p.dir, { sessionId: c.id, tool: c.tool, label: 'Continue', title: 'Continue this conversation in the App' }))))));
+        startButton(p.dir, { sessionId: c.id, tool: c.tool, label: 'Continue', title: 'Continue this conversation in the App' }),
+        pastDelete(p.dir, c, again))))));
   });
   return slot;
 }
@@ -213,7 +373,7 @@ function otherFolders(sessions, profiles) {
     h('div.rows', [...sessions].sort(needsYouFirst).map((s) => sessionRow(s, profiles, () => store.refresh()))));
 }
 
-function viewList(frame) {
+function viewList(frame, query = new URLSearchParams()) {
   pastOf.clear();
   // The workspace's state through git (workspace.js): drawn again when its answer arrives.
   const strip = workspaceStrip(() => paint());
@@ -224,24 +384,35 @@ function viewList(frame) {
     page: 'workspace',
     intro: 'Your projects and the sessions in each. Open a session, or start a new one in a project.',
     primary: { label: 'New project', icon: 'plus', href: link('#/new-project') },
-    actions: [h('a.btn.secondary.pj-get', { href: link('#/get-project') }, icon('download', { size: 16 }), h('span', 'Get an existing project'))],
+    actions: [h('a.btn.secondary.pj-get', { href: link('#/get-project') }, icon('download', { size: 16 }), h('span', 'Get an existing project')),
+      h('a.btn.secondary.pj-adopt', { href: link('#/adopt') }, icon('search', { size: 16 }), h('span', 'Projects found on this computer'))],
     body: [strip.el, body, fold('projects', 'Advanced', advanced)],
   });
   let alive = true;
   let data = null;
+  let asked = false;
   const paint = () => {
     if (!data) return;
     const list = projectsOf(data);
     const map = strip.map();
-    // Projects of the workspace map that are not on this computer: quiet cards with "Get it".
-    const away = map ? map.entries.filter((e) => e.kind === 'project' && e.state === 'missing') : [];
+    // Projects of the workspace map that are not on this computer (the normal state; "missing" from an older
+    // computer): quiet cards with "Get it" and the computers whose own file says they have it.
+    const away = map ? map.entries.filter((e) => e.kind === 'project' && (e.state === 'notHere' || e.state === 'missing')) : [];
     const sessions = (store.data && store.data.sessions) || [];
     const profiles = (store.data && store.data.profiles) || [];
     const of = new Map(list.map((p) => [p, sessions.filter((s) => inside(p.dir, s.cwd))]));
     // Sessions in the product's own folders (Tia's working folders, `own`) are no folder of the owner's.
     const others = sessions.filter((s) => !s.own && !list.some((p) => inside(p.dir, s.cwd)));
     const ordered = [...list].sort((a, b) => projectRank(of.get(a)) - projectRank(of.get(b)) || lastUse(of.get(b)) - lastUse(of.get(a)) || a.name.localeCompare(b.name));
-    const cards = (ps, aw) => [...ps.map((p) => projectCard(p, of.get(p), profiles, data.home)), ...aw.map(missingCard)];
+    // Which other computer has an entry of the map: the one reader (whohas), else an older computer's own list.
+    const whoEntry = (label) => (data.who ? data.who.entries.find((x) => x.name === label) : null);
+    // An old file says so on the card too: "box2, as of 6 Nov 2026" (it may have changed since).
+    const said = (l) => {
+      const c = data.who.computers.find((x) => x.label === l);
+      return c && c.old ? `${l}, ${asOfWords(c).replace(/ \(old.*$/, '')}` : l;
+    };
+    const onOthers = (label) => (data.who ? (whoEntry(label) || { on: [] }).on.filter((l) => l !== data.who.label).map(said) : ((data.computers && data.computers.computers) || []).filter((c) => !c.mine && c.here.includes(label)).map((c) => c.label));
+    const cards = (ps, aw) => [...ps.map((p) => projectCard(p, of.get(p), profiles, data.home)), ...aw.map((e) => missingCard(e, onOthers(e.label), { lastHere: lastHereWords(whoEntry(e.label)), unknown: data.who ? data.who.unknown : [] }))];
     fill(body, list.length || away.length
       ? (placesOf(data).length > 1 ? byPlace(placesOf(data), ordered, away, cards) : h('div.ws-list', cards(ordered, away)))
       // A fresh computer (no projects, no map): bring the workspace from git, or start a new project.
@@ -250,12 +421,36 @@ function viewList(frame) {
         h('div.pj-empty-actions',
           h('a.btn.primary', { href: link('#/new-project') }, icon('plus', { size: 16 }), h('span', 'New project')),
           h('a.btn.secondary', { href: link('#/get-project') }, icon('download', { size: 16 }), h('span', 'Get an existing project')))),
-    others.length ? otherFolders(others, profiles) : null);
+    others.length ? otherFolders(others, profiles) : null,
+    map && map.exists ? groupsLine(data, map, () => { strip.load(); load(); }) : null,
+    computersPanel(data.who));
     fill(advanced, folderLine(data, load));
+    // Tia's card (or a link) opens a sheet filled in: the owner answers and presses there himself.
+    if (!asked && map) {
+      asked = true;
+      // Another computer's page: the sheet names it. Closed: the address loses its query (a reload or Back would open
+      // the sheet again) and focus goes to the page's heading, as there is no button that opened it.
+      const on = machine.current ? (store.data && store.data.machineLabel) || machine.current : null;
+      const closed = () => {
+        const [path] = location.hash.split('?');
+        // replaceState: no hashchange, so the page is not drawn again and its heading can take the focus.
+        if (path !== location.hash) history.replaceState(null, '', path);
+        const head = document.querySelector('h1.page-title');
+        if (head) {
+          head.setAttribute('tabindex', '-1');
+          head.focus();
+        }
+      };
+      if (query.get('drop')) dropSheet(query.get('drop'), () => { strip.load(); load(); }, { on }).then(closed);
+      else if (query.get('group')) groupSheet({ group: query.get('group'), repo: query.get('repo') || '', holds: query.get('holds') || '' }, () => { strip.load(); load(); }).then(closed);
+    }
   };
   async function load() {
     try {
       data = await api('/api/pcsetup/projects');
+      // Which other computer has a project of the map (each computer's own file); an older computer has no answer.
+      data.computers = await api('/api/workspace/computers').catch(() => null);
+      data.who = await api('/api/workspace/whohas').catch(() => null);
     } catch (e) {
       if (alive) fill(body, errorBox(`Could not read the projects: ${e.message}`, () => { fill(body, skeleton(4)); load(); }));
       return;
@@ -295,6 +490,43 @@ function byPlace(places, ordered, away, cards) {
   }));
 }
 
+/** The groups of the map: add one, or take one out of the map (never its folder). */
+function groupsLine(d, map, reload) {
+  const groups = [...new Set(((map.map && map.map.groups) || []).map((g) => g.dir))];
+  return h('section.ws-groups', { 'aria-label': 'Groups' },
+    groupHead('Groups', groups.length),
+    h('p.ws-place-sub', groups.length ? 'Folders of projects of your own beside the projects folder, kept in the map for every computer.' : 'A group is a folder of projects of your own beside the projects folder, for example one for client work.'),
+    groups.length ? h('div.rows', groups.map((g) => h('div.row.static', h('span.row-icon', icon('folder')),
+      h('span.row-main', h('span.row-title', g), h('span.row-sub', ((map.map.groups || []).find((x) => x.dir === g) || {}).url || 'a folder of projects')),
+      btn('small ghost', { icon: 'minus', label: 'Take out of the map', title: `Take ${g} out of the map; its folder stays`, onclick: () => removeGroup(g, reload) })))) : null,
+    h('div.btnrow', btn('small secondary', { icon: 'plus', label: 'Add a group', onclick: () => groupSheet({}, reload) }),
+      btn('small ghost', { icon: 'text', label: 'Text for coding sessions', title: 'The short text about this workspace that your coding tools read: shown first, written on your yes', onclick: () => rulesSheet() })));
+}
+
+/** "Your workspace" for coding sessions: the text first; written into Hoprig's own file only on his press. */
+async function rulesSheet() {
+  let r;
+  try {
+    r = await api('/api/workspace/rules');
+  } catch (e) {
+    return void toast(e, { kind: 'error', ms: 7000 });
+  }
+  const state = { current: 'It is written and up to date.', older: 'The file is older than this text.', 'not-written': 'It is not written yet.', 'not-ours': 'A file of that name is there that Hoprig did not make: it is left alone.', link: r.why || 'It is not written there.' }[r.state] || '';
+  const ok = await openSheet({ title: 'Text for coding sessions', subtitle: `${r.file}. ${state}`, wide: true }, (close) => [
+    h('pre.output', r.text),
+    (r.left || []).length ? h('ul.hint', r.left.map((x) => h('li', `${x.name}: ${x.why}`))) : null,
+    h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close(false) }, 'Close'),
+      ['older', 'not-written'].includes(r.state) ? h('button.btn.primary', { type: 'button', autofocus: true, onclick: () => close(true) }, 'Write it') : null),
+  ]);
+  if (ok !== true) return;
+  try {
+    await api('/api/workspace/rules', {});
+    toast('The text for coding sessions is written');
+  } catch (e) {
+    toast(e, { kind: 'error', ms: 7000 });
+  }
+}
+
 /** Advanced: where new projects go, and a way to change it. */
 function folderLine(d, reload) {
   const mark = h('span.saved-mark', { role: 'status' });
@@ -308,7 +540,7 @@ function folderLine(d, reload) {
         toast('Projects folder changed');
         reload();
       } catch (e) {
-        toast(e.message, { kind: 'error', ms: 6000 });
+        toast(e, { kind: 'error', ms: 6000 });
       }
     } }));
 }
@@ -321,7 +553,7 @@ function folderLine(d, reload) {
  */
 export const TODO = {
   'to-push': () => 'Changes saved here are not uploaded yet: Sync with "also upload my saved changes" does it.',
-  'not-online': () => 'Not on GitHub yet, so there is no online copy to sync with. Your coding tool can put it there for you: ask in a session.',
+  'not-online': () => 'Not linked to a copy on a git server yet, so there is nothing to sync with. Your coding tool can do it for you: ask in a session.',
   diverged: () => 'Changed here and online at the same time. This needs a decision: your coding tool can bring the two together.',
   'kept-back': () => 'The new changes put files where something git does not track is here (a file of your own, or a repository of its own). Nothing was changed: move it away first, then sync again.',
   'pull-blocked': () => 'There are new changes online in the same files you changed here. Save (commit) your changes first, then sync again.',
@@ -369,7 +601,10 @@ function viewProject(frame, id) {
   const resultBox = h('div', { 'aria-live': 'polite' });
   const skillsBox = h('div.pj-wrapsub', skeleton(1));
   const brainBox = h('div.pj-wrapsub', skeleton(1));
+  const needsBox = h('div.pj-wrapsub');
   const advanced = h('div');
+  const projectOutBox = h('div');
+  const noteBox = h('div.op-note-box');
   const log = logBox();
   let alive = true;
   let p = null;
@@ -387,6 +622,7 @@ function viewProject(frame, id) {
       groupHead('Sessions'), sessionsBox, pastBox,
       groupHead('Repositories'), h('p.hint.pj-lead', 'Where the code is kept with its history (git). Sync brings each one up to date with its online copy and never decides anything for you.'),
       reposBox, resultBox,
+      needsBox,
       groupHead('Skills'), skillsBox,
       groupHead('AI brain'), brainBox,
       fold('project', 'Advanced', advanced),
@@ -421,7 +657,8 @@ function viewProject(frame, id) {
       h('div.rows', (all ? r.sessions : r.sessions.slice(0, 4)).map((c) => h('div.row.static.pj-past',
         h('span.row-icon', icon('text')),
         h('span.row-main', h('span.row-title', c.title, toolBadge(c.tool)), h('span.row-sub', ago(c.at))),
-        startButton(p.dir, { label: 'Continue', title: 'Continue this conversation in the App', sessionId: c.id, tool: c.tool })))),
+        startButton(p.dir, { label: 'Continue', title: 'Continue this conversation in the App', sessionId: c.id, tool: c.tool }),
+        pastDelete(p.dir, c, () => loadPast())))),
       !all && r.sessions.length > 4 ? h('button.btn.ghost.small.pj-more', { type: 'button', onclick: () => { all = true; paint(); } }, `Show all ${r.sessions.length}`) : null);
     paint();
   }
@@ -447,7 +684,8 @@ function viewProject(frame, id) {
             h('span.row-main',
               h('span.row-title', x.rel, h('span.badge.soft', 'not followed')),
               h('span.row-sub.pj-wrap', 'It leads out of the project through a link, so Hoprig does not sync it, install in it or link memory into it.'),
-              x.link ? h('span.row-sub.pj-wrap', 'If that link is yours: ', h('code.pj-wrap', `hoprig workspace mylink add ${tildePath(x.link, data && data.home)}`)) : null))))),
+              x.link ? h('span.row-sub.pj-wrap', 'If you made that link yourself (a folder of yours kept elsewhere), say so and Hoprig follows it.') : null)),
+          x.link ? h('div.mrow-actions', btn('small secondary', { icon: 'check', label: 'This link is mine', onclick: () => myLinkSheet(x.link, data && data.home).then((ok) => ok && load(true)) })) : null))),
       h('div.pj-actions',
         btn('secondary', { icon: 'refresh', label: 'Sync', title: 'Download new changes and upload saved ones; never merges, rebases or overwrites', onclick: (e) => sync(e.currentTarget, false) }),
         p.workspace ? btn('ghost', { icon: 'plus', label: 'Add a repository', onclick: addRepo }) : null));
@@ -468,7 +706,7 @@ function viewProject(frame, id) {
       else if (!r.data) fill(resultBox, okBox('Done.'));
       return r;
     } catch (e) {
-      fill(resultBox, errorBox(e.message));
+      fill(resultBox, errorBox(e));
       return null;
     } finally {
       working = false;
@@ -491,37 +729,7 @@ function viewProject(frame, id) {
   }
 
   async function addRepo() {
-    let gh = { signedIn: false };
-    try {
-      gh = (await api(`/api/pcsetup/project/preview?name=${enc(p.id)}`)).github;
-    } catch {
-      /* without GitHub */
-    }
-    const choice = await openSheet({ title: 'Add a repository', subtitle: `A new code repository inside ${p.name}, in its code folder.` }, (close) => {
-      const input = h('input.field', { placeholder: 'web', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', autofocus: true });
-      const err = h('p.form-error', { role: 'alert' });
-      const shown = h('p.hint');
-      const showName = () => (shown.textContent = input.value.trim() ? `It is called ${input.value.trim().startsWith(`${p.id}-`) ? input.value.trim() : `${p.id}-${input.value.trim()}`}, in code/.` : 'For example "web", "api" or "app".');
-      input.addEventListener('input', showName);
-      showName();
-      let github = false;
-      const where = h('div');
-      const paintWhere = () => fill(where, gh.signedIn
-        ? radioCards('repo-where', [
-          { value: 'local', title: 'Only on this computer', sub: 'You can put it on GitHub later.' },
-          { value: 'github', title: 'Also on GitHub, private', sub: `A private repository under ${gh.account || 'your account'}, uploaded now.` },
-        ], github ? 'github' : 'local', (v) => { github = v === 'github'; paintWhere(); })
-        : h('p.hint', 'To also put it on GitHub, sign in to GitHub first (Computers → this computer → Setup).'));
-      paintWhere();
-      return h('form', { onsubmit: (e) => {
-        e.preventDefault();
-        const v = input.value.trim();
-        if (!NAME_RE.test(v)) err.textContent = 'Letters, digits, ".", "_" and "-"';
-        else close({ repo: v, github });
-      } },
-      h('label.fieldrow', h('span.field-label', 'Name'), input, shown), err, where,
-      h('div.sheet-actions', h('button.btn.secondary', { type: 'button', onclick: () => close(null) }, 'Cancel'), h('button.btn.primary', { type: 'submit' }, 'Add it')));
-    });
+    const choice = await repoSheet(p, { alive: () => alive });
     if (!choice) return;
     const b = reposBox.querySelector('.pj-actions .btn.ghost') || reposBox.querySelector('.pj-actions .btn');
     const r = await job(b, '/api/pcsetup/project/add', { name: p.id, ...choice }, 'Adding…');
@@ -560,17 +768,24 @@ function viewProject(frame, id) {
               const { name } = await api('/api/shells', { dir: p.dir });
               location.hash = link(`#/s/${enc(name)}`);
             } catch (e) {
-              toast(e.message, { kind: 'error' });
+              toast(e, { kind: 'error' });
             }
           } }),
+          btn('small secondary', { icon: 'trash', label: 'Take it off this computer', title: 'Drop: only when all of it is on its git server; Get brings it back', onclick: () => dropSheet(p.place ? `${p.place}/${p.dir.split(/[\\/]/).pop()}` : p.dir.split(/[\\/]/).pop(), () => (location.hash = link('#/workspace'))) }),
           p.workspace && Object.keys(p.memories).length ? btn('small secondary', { icon: 'refresh', label: 'Sync and save the AI memory', title: 'Also commits the AI memory folder before syncing', onclick: (e) => sync(e.currentTarget, true) }) : null),
+        projectOutBox,
+        noteBox,
         h('p.field-label', 'Details of the last action'),
         log));
+    projectNoteBox(noteBox, p.id); // his standing note for Tia's decisions here
+    projectOutSwitch(projectOutBox, p.id); // by its ref, as the server names it (a project in a group: <place>/<name>)
   }
 
   async function load(again = false) {
     try {
       data = await api('/api/pcsetup/projects');
+      // Which other computer has a project of the map (each computer's own file); an older computer has no answer.
+      data.computers = await api('/api/workspace/computers').catch(() => null);
     } catch (e) {
       if (alive) fill(reposBox, errorBox(`Could not read the project: ${e.message}`), btn('secondary', { icon: 'refresh', label: 'Try again', onclick: () => load() }));
       return;
@@ -590,6 +805,7 @@ function viewProject(frame, id) {
       if (p.name !== id) draw(p.name); // the frame keeps these boxes: drawing it again with the real name moves nothing
       loadPast();
       loadSkills();
+      needsBlock(needsBox, p.dir);
       projectBrain(brainBox, p.name);
     }
     paintSessions();
@@ -604,10 +820,10 @@ function viewProject(frame, id) {
   };
 }
 
-function viewProjects({ frame, sub }) {
+function viewProjects({ frame, sub, query }) {
   store.viewing = null;
   const one = /^project\/(.+)$/.exec(sub);
-  return one ? viewProject(frame, decodeURIComponent(one[1])) : viewList(frame);
+  return one ? viewProject(frame, decodeURIComponent(one[1])) : viewList(frame, query);
 }
 
 // ======================= New project / Get an existing project =======================
@@ -622,13 +838,14 @@ const stepper = (i, names = STEPS) => stepHeader(names, i);
 export const jobOutcome = (r) => (r && r.data && r.data.fix ? 'needs-you' : r && (r.ok || (r.data && r.data.made)) ? 'done' : 'failed');
 
 /** The step pages' last step: the job's output while it runs, then the result with what to do next. */
-async function finish(box, { path, body, doing, done, alive, back, plainError = (e) => e }) {
+async function finish(box, { path, body, doing, done, alive, back, plainError = (e) => e, refused = () => false, then = null }) {
   const log = logBox();
   fill(box, stepper(2), busy(doing), fold('project-steps', 'Details', log));
   let r;
   try {
     r = await runJob(path, body, log, alive);
   } catch (e) {
+    if (refused(e)) return; // the page asks again for what was refused (a brief with characters nobody can see)
     r = { ok: false, error: e.message };
   }
   if (!r || !alive()) return;
@@ -636,14 +853,22 @@ async function finish(box, { path, body, doing, done, alive, back, plainError = 
   const where = (r.data && r.data.dir) || (r.started && r.started.dir);
   const id = (r.data && r.data.name) || (r.started && r.started.name);
   const outcome = jobOutcome(r);
+  // What follows a project that was made (New project's "Start with AI"): when it goes elsewhere, nothing is drawn here.
+  let after = null;
+  if (outcome === 'done' && r.ok && then) {
+    fill(box, stepper(2), busy('Starting the session…'), fold('project-steps', 'Details', log));
+    after = await then(where, id); // true: it went to the session; else what to show under the result
+    if (after === true || !alive()) return;
+  }
   fill(box, stepper(2),
     outcome === 'needs-you'
       ? [h('div.banner.warn', { role: 'status' }, icon('alert', { size: 18 }), h('span', `Not done yet: this needs you. ${String(r.error || '').replace(/^./, (c) => c.toUpperCase())}`)),
         h('p.hint', 'Run this, then try again:'), commandLine(r.data.fix),
         h('div.pj-next', btn('secondary', { icon: 'back', label: 'Back', onclick: back }))]
       : outcome === 'done'
-      ? [okBox(done(where)), r.ok ? null : h('p.hint', `Some of it did not work: ${r.error || 'see the details below'}.`),
-        h('div.pj-next', newSessionButton(where, id || String(where).split(/[\\/]/).pop(), { cls: 'primary', label: 'Start a session' }), h('a.btn.secondary', { href: link(`#/workspace/project/${enc(id)}`) }, icon('folder', { size: 18 }), h('span', 'Open the project')))]
+      ? [okBox(done(where)), r.ok ? null : h('p.hint', `Some of it did not work: ${r.error || 'see the details below'}.`), after,
+        // One main button: what follows the project's start (after) has its own, then this one is a plain choice.
+        h('div.pj-next', newSessionButton(where, id || String(where).split(/[\\/]/).pop(), { cls: after ? 'secondary' : 'primary', label: 'Start a session' }), h('a.btn.secondary', { href: link(`#/workspace/project/${enc(id)}`) }, icon('folder', { size: 18 }), h('span', 'Open the project')))]
       : [errorBox(plainError(r.error || 'That did not work.')), h('div.pj-next', btn('secondary', { icon: 'back', label: 'Back', onclick: back }))],
     fold('project-steps', 'Details', log));
 }
@@ -658,24 +883,40 @@ function viewNewProject({ frame, sub }) {
     named = decodeURIComponent(sub || '');
   } catch {}
   if (!NAME_RE.test(named)) named = '';
-  frame({ title: 'New project', page: 'new-project', back: link('#/workspace'), backLabel: 'Workspace', intro: 'A new, empty project folder, ready for coding. You see everything it creates before anything is made.',
+  frame({ title: 'New project', page: 'new-project', back: link('#/workspace'), backLabel: 'Workspace', intro: 'A new project folder, ready for coding, and if you give a brief an AI session that sets it up from it. You see everything it creates before anything is made.',
     body: [named ? h('p.banner.info.pj-from', icon('folder', { size: 18 }), h('span', `Named after the folder you picked. The project is made new in your projects folder; that folder stays where it is: move its files into the project, or ask in a session there.`)) : null, box] });
   let alive = true;
-  const st = { name: named, github: false, preview: null };
+  // brief, kind: as typed (newproject.js); start: "Start with AI"; choices and v: the session's choices and his picks.
+  const st = { name: named, github: false, preview: null, brief: '', kind: '', scope: 'product', start: true, choices: null, v: {} };
+  let briefRefused = null; // the server's refusal of the brief, said under it when the first step is drawn again
 
   function stepName(error = '') {
+    const brief = briefFields(st);
+    const refused = briefRefused;
+    if (refused) brief.problem(refused.message, refused.clean);
+    briefRefused = null;
     const input = h('input.field', { value: st.name, placeholder: 'my-project', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', autofocus: true, maxlength: 100 });
     const err = h('p.form-error', { role: 'alert' }, error);
+    // What the folder will be called, said as he types: a name with spaces is turned, not refused.
+    const folderHint = h('span.hint', 'It becomes the folder name.');
+    const sayFolder = () => {
+      const f = toFolderName(input.value);
+      folderHint.textContent = f && f !== input.value.trim() ? `The folder will be called ${f}.` : 'It becomes the folder name.';
+    };
+    input.addEventListener('input', sayFolder);
+    sayFolder();
     const next = h('button.btn.primary', { type: 'submit' }, 'Next');
     fill(box, stepper(0), h('form.pj-form', { onsubmit: async (e) => {
       e.preventDefault();
-      const v = input.value.trim();
-      if (!NAME_RE.test(v)) return void (err.textContent = 'Use letters, digits, ".", "_" and "-", starting with a letter or a digit.');
+      const v = toFolderName(input.value);
+      if (!v) return void (err.textContent = 'Use letters, digits, ".", "_" and "-", starting with a letter or a digit.');
+      if (brief.tooBig()) return void brief.problem('The brief is at most 24 KiB: keep it to what the product is, who uses it and its main features; more can follow in the chat.');
       next.disabled = true;
       next.textContent = 'Checking…';
       try {
-        const pv = await api(`/api/pcsetup/project/preview?name=${enc(v)}`);
+        const pv = await api(`/api/pcsetup/project/preview?name=${enc(v)}${st.brief.trim() ? '&brief=1' : ''}`);
         if (pv.exists) throw new Error(`There is already a folder called ${v} in the projects folder: pick another name.`);
+        if (st.name !== v) Object.assign(st, { choices: null, v: {} }); // the provider is the new folder's own
         Object.assign(st, { name: v, preview: pv });
         if (alive) stepCheck();
       } catch (er) {
@@ -684,41 +925,97 @@ function viewNewProject({ frame, sub }) {
         next.textContent = 'Next';
       }
     } },
-    h('label.fieldrow', h('span.field-label', 'Project name'), input, h('span.hint', 'It becomes the folder name. Letters, digits, ".", "_" and "-".')),
+    h('label.fieldrow', h('span.field-label', 'Project name'), input, folderHint),
     err,
+    brief.el,
     h('div.pj-next', next)));
-    input.focus();
+    // After a refused brief the brief is what changes (its reason and "Take them out" stand under it), else the name.
+    if (refused) brief.focus();
+    else input.focus();
   }
 
   function stepCheck() {
     const pv = st.preview;
-    const where = h('div');
-    const paintWhere = () => fill(where, pv.github.signedIn
-      ? radioCards('new-where', [
-        { value: 'local', title: 'Only on this computer', sub: 'You can put it on GitHub later.' },
-        { value: 'github', title: 'Also on GitHub, private', sub: `Makes a private repository ${pv.github.account ? `under ${pv.github.account} ` : ''}and uploads the project to it.` },
-      ], st.github ? 'github' : 'local', (v) => { st.github = v === 'github'; paintWhere(); })
-      : h('p.hint', 'It stays on this computer. To also put it on GitHub, sign in to GitHub first (Computers → this computer → Setup); you can do it later.'));
-    paintWhere();
-    const create = btn('primary', { icon: 'check', label: 'Create project', onclick: () => finish(box, {
-      path: '/api/pcsetup/project/new', body: { name: st.name, github: st.github }, doing: `Creating ${st.name}…`, alive: () => alive,
+    const whereOpts = [
+      { value: 'local', title: 'Only on this computer', sub: 'You can put it on GitHub later.' },
+      { value: 'github', title: 'Also on GitHub, private', sub: `Makes a private repository ${pv.github.account ? `under ${pv.github.account} ` : ''}and uploads the project to it.` },
+    ];
+    // Marked in place (markCards): the radio keeps the keyboard's focus.
+    const where = pv.github.signedIn
+      ? radioCards('new-where', whereOpts, st.github ? 'github' : 'local', (v) => { st.github = v === 'github'; markCards(where, whereOpts, v); })
+      : h('p.hint', 'It stays on this computer. To also put it on GitHub, ', signInLink(async () => {
+        // Signed in: the step asks again (its GitHub part), keeping the name and the brief he typed.
+        try {
+          st.preview = await api(`/api/pcsetup/project/preview?name=${enc(st.name)}${st.brief.trim() ? '&brief=1' : ''}`);
+        } catch {
+          /* the step as it was */
+        }
+        if (alive) stepCheck();
+      }), ' first (it opens here, and you come back to this step); you can do it later.');
+    const hasBrief = Boolean(st.brief.trim());
+    // git knows no name and e-mail on this computer: the first save needs them. Asked here, used for this project's
+    // first save only (the server checks them).
+    const idName = pv.askIdentity ? h('input.field', { value: st.gitName || '', autocomplete: 'name', maxlength: 200, oninput: (e) => (st.gitName = e.target.value) }) : null;
+    const idEmail = pv.askIdentity ? h('input.field', { type: 'email', value: st.gitEmail || '', autocomplete: 'email', maxlength: 200, oninput: (e) => (st.gitEmail = e.target.value) }) : null;
+    const identity = pv.askIdentity ? h('div.pj-identity',
+      h('p.field-label', 'Your name and e-mail for git'),
+      h('p.hint', 'git saves every change with a name and an e-mail, and this computer has none yet. They are used for this project\'s first save.'),
+      h('label.fieldrow', h('span.field-label', 'Name'), idName),
+      h('label.fieldrow', h('span.field-label', 'E-mail'), idEmail)) : null;
+    const who = () => (pv.askIdentity ? { gitName: (st.gitName || '').trim(), gitEmail: (st.gitEmail || '').trim() } : {});
+    const starts = () => hasBrief && st.start && aiReady(st);
+    // "Start with AI": once the project is made, the session opens and the page goes to it; when it cannot start, the
+    // project is still made and the reason stands under it, with the button to try again. A project made with a brief
+    // but not started (switched off, no provider) gets that button too: its brief and skill wait for a session.
+    const then = async () => {
+      try {
+        await startSession(st, machine.current);
+        return true;
+      } catch (e) {
+        return startLater(st, machine.current, e);
+      }
+    };
+    const later = async () => startLater(st, machine.current);
+    // The button says what it will do; a choice of "Start with AI" changes it in place (the focus stays on the choice).
+    const createButton = () => btn('primary', { icon: starts() ? 'play' : 'check', label: starts() ? 'Create and start with AI' : 'Create project', onclick: () => finish(box, {
+      path: '/api/pcsetup/project/new', body: { name: st.name, github: st.github, ...who(), ...(hasBrief ? { brief: st.brief, scope: st.scope || 'product', ...(st.kind ? { kind: st.kind } : {}) } : {}) }, doing: `Creating ${st.name}…`, alive: () => alive,
       done: (dir) => `${st.name} is ready in ${tildePath(dir, pv.home)}.${st.github ? ' It is on GitHub too.' : ''}`,
       back: stepCheck,
-      plainError: (e) => (/git does not know your name/.test(e) ? 'git needs your name and e-mail once before it can save anything. Open a terminal (Computers → this computer → Setup), set them as the details below show, then try again.' : e),
+      plainError: (e) => (/git does not know your name/.test(e) ? 'git needs your name and e-mail before it can save anything: go Back, type them in the two fields, then create the project again.' : e),
+      refused: (e) => {
+        if (!/^brief-/.test(e.code || '') && !/brief/.test(e.message)) return false;
+        briefRefused = { message: e.message, clean: e.data && e.data.clean };
+        stepName();
+        return true;
+      },
+      then: starts() ? then : hasBrief ? later : null,
     }) });
+    let create = createButton();
+    const changed = () => {
+      const b = createButton();
+      create.replaceWith(b);
+      create = b;
+    };
+    // The step starts at its heading for the keyboard and a screen reader (the step before had the focus).
+    const heading = h('h2.panel-title', { tabindex: '-1' }, 'What it creates');
     fill(box, stepper(1),
       h('section.card.panel',
-        h('h2.panel-title', 'What it creates'),
-        h('ul.pj-will',
+        heading,
+        h('p.sheet-text', checkLine(pv, st)),
+        fold('new-what', 'What exactly', h('ul.pj-will',
           h('li', 'The folder ', h('strong.pj-wrap', tildePath(pv.dir, pv.home))),
           pv.template === 'built-in'
             ? h('li', 'A small set of starting files: the rules your coding tools read (AGENTS.md), a place for the AI memory and notes (ai_brain), docs and decisions, and a code folder for the project\'s code repositories.')
             : h('li', 'The files of your own project template.'),
+          ...willLines(st),
           h('li', 'A first save in git, so every later change can be seen and undone.'),
           st.github ? h('li', 'A private GitHub repository, with the project uploaded to it.') : null),
-        pv.files ? fold('new-files', `All ${pv.files.length} files`, h('ul.pj-files.mono', pv.files.map((f) => h('li', f)))) : null),
+        pv.files ? fold('new-files', `All ${pv.files.length} files`, h('ul.pj-files.mono', pv.files.map((f) => h('li', f)))) : null)),
+      identity,
       h('p.field-label', 'Where it is kept'), where,
+      hasBrief ? [h('p.field-label', 'After it is made'), startPart(st, changed)] : null,
       h('div.pj-next', btn('secondary', { icon: 'back', label: 'Back', onclick: () => stepName() }), create));
+    heading.focus();
   }
 
   stepName();

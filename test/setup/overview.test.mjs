@@ -68,3 +68,12 @@ test('doctor --json: { ok, groups: [{ title, checks }] }, the printed view group
   assert.match(text, /\nCoding tools\n.*Node\.js.*missing\n.*fix: nvm install --lts/);
   assert.match(text, /\nSkills\n/);
 });
+
+test('doctor: the Claude sign-in names the dashboard\'s own way beside the terminal line', async () => {
+  const K = await import('../../src/setup/checks.mjs');
+  const notIn = K.loginCheck({ loggedIn: false }, [{ name: 'login', kind: 'login' }]);
+  const text = D.formatResults([notIn]);
+  assert.match(text, /fix:.*claude auth login/, 'the terminal line stays');
+  assert.match(text, /or:.*Home → Get started → Sign in to Claude/, 'and the page way is named');
+  assert.doesNotMatch(D.formatResults([K.loginCheck({ loggedIn: true }, [])]), /Get started/, 'nothing when signed in');
+});

@@ -17,6 +17,7 @@ import { knock } from '../knock.mjs';
 import { runningDashboard } from '../server/dashboardfile.mjs';
 import { OneTimeStore } from './onetime.mjs';
 import { hostName } from '../paths.mjs';
+import { MACHINE_RE } from './names.mjs';
 
 export const API_VERSION = 1;
 export const CODE_TTL_MS = 10 * 60_000;
@@ -102,6 +103,19 @@ export async function listening(addr, timeoutMs) {
   return (await answers(addr, timeoutMs)) === 'open';
 }
 
+/**
+ * This computer's label in the workspace (config.json computer.label, workspace/computer.mjs), or null: what lets a hub
+ * join its Computers entry with this computer's own file in the brain when the two names differ.
+ */
+function workspaceLabel() {
+  try {
+    const l = loadConfig().computer && loadConfig().computer.label;
+    return typeof l === 'string' && MACHINE_RE.test(l) ? l : null;
+  } catch {
+    return null;
+  }
+}
+
 /** What this computer tells another dashboard about itself. Shared by `pair --json` and GET /api/machine. */
 export const machineInfo = () => ({
   api: API_VERSION,
@@ -110,11 +124,12 @@ export const machineInfo = () => ({
   platform: process.platform,
   arch: process.arch,
   release: os.release(),
+  workspace: workspaceLabel(),
 });
 
 /** `hoprig pair --json`: a fresh token for `name`, plus how to reach this dashboard. */
-export async function pairInfo(name, { createToken }) {
+export async function pairInfo(name, { createToken, hub = false }) {
   const addr = dashboardAddress();
-  const { id, token } = createToken(name);
+  const { id, token } = createToken(name, { hub });
   return { hoprig: 'pair', ...machineInfo(), host: addr.host, port: addr.port, running: await listening(addr), token, tokenId: id };
 }

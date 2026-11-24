@@ -17,6 +17,8 @@
 .au-sched.off .row-icon, .au-sched.off .au-sentence-line { opacity: 0.6; }
 .au-sched-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .au-sched-main .row-title { white-space: normal; overflow-wrap: anywhere; }
+/* When it runs next and on which computer: never cut on a phone. */
+.au-sched-main .row-sub { white-space: normal; overflow-wrap: anywhere; }
 .au-sentence-line { color: var(--text-2); font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .au-sched-actions { display: flex; gap: 4px; margin: 6px 0 0 -10px; flex-wrap: wrap; }
 .au-sched > .switch { margin-top: 4px; }
@@ -63,6 +65,12 @@
 /* Chat / Jobs / Activity: kept under the page head (its height in --tia-head, tia.js), on the page's colour edge to edge. */
 .tia-tabs { position: sticky; z-index: 15; top: var(--tia-head, 0px); margin: -18px -16px 14px; padding: 4px 16px 0; background: var(--bg); }
 @media (min-width: 900px) { .tia-tabs { margin: -26px -36px 14px; padding: 4px 36px 0; } }
+/* The tabs' negative top margin tucks them up under the page head when nothing sits above them. A banner in .tia-top
+   (the "Full administrator rights are on" head line) would otherwise be painted over by the tabs' opaque background,
+   so when .tia-top carries anything it reserves exactly that overlap below itself: the tabs then tuck up to the
+   banner's bottom, not over it. Empty (Off/Ask), it reserves nothing and the tabs tuck under the head as before. */
+.tia-top:not(:empty) { margin-bottom: 18px; }
+@media (min-width: 900px) { .tia-top:not(:empty) { margin-bottom: 26px; } }
 .tia-body { display: flex; flex-direction: column; min-width: 0; }
 .page.fill .tia-body { flex: 1; }
 .tia-chatwrap { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -86,6 +94,9 @@ textarea.field.tia-input { flex: 1; min-width: 0; min-height: 46px; max-height: 
 .tia-tool.ok { color: var(--ok); }
 .tia-tool.err { background: var(--danger-soft); color: var(--danger); }
 .tia-tool.card { background: var(--warn-soft); color: var(--warn); }
+.tia-progress { white-space: normal; }
+.tia-progress-head { margin: 0 0 6px; color: var(--muted); font-size: var(--fs-xs); }
+.tia-progress-lines { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .tia-note { justify-self: center; color: var(--muted); font-size: var(--fs-xs); text-align: center; overflow-wrap: anywhere; }
 .tia-stopped { margin: 0; }
 .tia-loading { display: grid; place-items: center; padding: 32px; }
@@ -172,13 +183,24 @@ textarea.field.tia-input { flex: 1; min-width: 0; min-height: 46px; max-height: 
 /* A desktop: the round button (52 px, 24 px from the right edge) must never cover a switch, a button or the end of a
    row, also on a short page and in Settings' split pane. So while it shows, the page's content stops 92 px from the
    window's right edge: a lane the button sits in. The page head keeps its full width (its tools stay at the edge,
-   above the button). From 1500 px the column (sidebar 232 + at most 1200) ends left of the button by itself. */
-@media (min-width: 900px) and (max-width: 1499px) {
+   above the button). The lane holds at every desktop width, and the button stays in it beside the cards' column:
+   from 1440 px the column (sidebar 232 + at most 1200) ends before the window does, and the button keeps 16 px
+   from the column's edge, never drifting to the window's edge. */
+@media (min-width: 900px) {
   body.tia-fab:not(.term-mode):not(.chat-mode) .page { padding-right: 92px; }
   body.tia-fab:not(.term-mode):not(.chat-mode) .pagehead { margin-right: -92px; }
+  body.tia-fab:not(.term-mode):not(.chat-mode) .tia-boxroot { right: max(24px, calc(100vw - 1416px)); }
 }
 @media (min-width: 900px) {
   .tia-headbtn { display: none; }
   .tia-boxroot { right: 24px; bottom: 24px; }
   .tia-box { width: 400px; height: min(620px, calc(100dvh - 120px)); border-radius: var(--r-modal); }
 }
+/* A notice of hers with buttons in place of a path in words (paid-no-cap, cap-reached). */
+.tia-notice { align-items: flex-start; }
+.tia-notice-body { display: grid; gap: 10px; min-width: 0; }
+.tia-notice-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.tia-notice-acts .btn { white-space: normal; text-align: left; }
+/* Settings → Tia: what each level means, one short line each (the full text under a closed More). */
+.tia-level-lines { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: var(--fs-sm); color: var(--text-2); }
+.tia-level-lines strong { color: var(--text); }

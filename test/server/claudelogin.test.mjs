@@ -72,6 +72,10 @@ const signOut = () => fs.rmSync(MARK, { force: true });
 
 // ---------- the parts ----------
 
+const { writeProfile } = await import('../../src/profiles.mjs');
+const { limitedProfiles, markLimited } = await import('../../src/autoswitch.mjs');
+const { profileUsage, saveProfileUsage } = await import('../../src/routerstate.mjs');
+
 test('same computer: loopback or an own address, and nothing forwarded it', () => {
   const own = new Set(['192.168.1.20', 'fe80::1']);
   const at = (ip, headers = {}) => L.sameComputer(fakeReq(headers, { remoteAddress: ip }), { addresses: own });
@@ -110,7 +114,7 @@ test('the two links: the one handed to BROWSER (localhost) and the printed one (
 });
 
 test('the environment: no provider, no session variables, the real Claude folder, BROWSER the helper', () => {
-  const env = L.loginEnv({ PATH: '/bin', CLAUDE_CONFIG_DIR: '/c', ANTHROPIC_API_KEY: 'k', ANTHROPIC_MODEL: 'm', CLAUDE_CODE_OAUTH_TOKEN: 't', CLAUDE_CODE_SSE_PORT: '1', CLAUDECODE: '1', HOPRIG_PROFILE: 'p', HOPRIG_RUN_FILE: 'f' }, '/tmp/x/browser');
+  const env = L.loginEnv({ PATH: '/bin', CLAUDE_CONFIG_DIR: '/c', ANTHROPIC_API_KEY: 'k', ANTHROPIC_MODEL: 'm', CLAUDE_CODE_OAUTH_TOKEN: 't', CLAUDE_CODE_SSE_PORT: '1', CLAUDECODE: '1', HOPRIG_PROFILE: 'p', HOPRIG_RUN_FILE: 'f' }, '/tmp/x/browser'); // seal: a value no program is started with
   assert.deepEqual(Object.keys(env).sort(), ['BROWSER', 'CLAUDE_CONFIG_DIR', 'PATH', 'TERM']);
   assert.equal(env.CLAUDE_CONFIG_DIR, '/c');
   assert.equal(env.BROWSER, '/tmp/x/browser');
@@ -283,9 +287,6 @@ test('no link, Claude Code ending at once, not installed, and the 10-minute limi
 
 // ---------- who is signed in, another account, sign out ----------
 
-const { writeProfile } = await import('../../src/profiles.mjs');
-const { limitedProfiles, markLimited } = await import('../../src/autoswitch.mjs');
-const { profileUsage, saveProfileUsage } = await import('../../src/routerstate.mjs');
 const HOUR = 3600 * 1000;
 // Sign in over the code way as the stand-in's first or second account; `email` goes to the sign-in page.
 async function signInAs(code, email) {

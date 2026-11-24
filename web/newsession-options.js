@@ -1,12 +1,15 @@
 // New session's closed "Options" (newsession-popup.js): the provider, what the coding tool may do without asking, how
 // hard it thinks, the model, which conversation, and a plain terminal without a coding tool. What is left as it is
 // takes what the last session in that project had (the App) or Settings (a terminal).
-import { h, kindLabel, profileState, servesTool } from './lib.js';
+import { at, fill, h, kindLabel, profileState, servesTool } from './lib.js';
+import { modelPicker } from './modelpicker.js';
+import { LEAD_TERMINAL, leadSwitch } from './leadswitch.js';
 import { otherToolOptions, select } from './newsession-tools.js';
-import { defaultWords } from './newsession-words.js';
+import { autoSlowLine, defaultWords } from './newsession-words.js';
 // The same plain words as Settings → New-session defaults (sessiondefaults.js).
-import { BYPASS_MEANS, EFFORT, MODELS, MODES } from './sessiondefaults.js';
+import { BYPASS_MEANS, EFFORT, MODES } from './sessiondefaults.js';
 
+export const LEAD_SAME = 'Left as it is: Lead on or off as your last session in the project, else as in Settings; the providers ticked as in Settings.';
 const CONVERSATION = [['new', 'A new conversation'], ['continue', 'Continue the last one in the folder'], ['pick', 'Pick an earlier one']];
 
 /**
@@ -26,16 +29,56 @@ export function optionsFor({ st, where: m, run, info, toolName, onplain }) {
   const conversation = select('Conversation', st.conversation, CONVERSATION, (v) => (st.conversation = v));
   if (tool !== 'claude') {
     // Another coding tool: its own modes; the model is chosen from the provider's list in the App itself.
-    return [otherToolOptions({ st, info: info || { modes: [] }, name: toolName, profiles, chat: app, same, byDefault: defaultWords(m, profiles, app ? same : null, tool, st.dir) }), conversation, plain];
+    // "Lead model" shown off with its one line why (only Claude Code can lead), as Plan with AI shows it.
+    return [otherToolOptions({ st, info: info || { modes: [] }, name: toolName, profiles, chat: app, same, byDefault: defaultWords(m, profiles, app ? same : null, tool, st.dir) }), app ? leadSwitch({ value: false, tool, onchange: () => {} }) : null, conversation, plain];
   }
+  // The model: the models of the provider chosen (else the one this computer recommends), asked of that computer.
+  const modelSlot = h('div');
+  const drawModel = () => fill(modelSlot, modelPicker({
+    provider: st.profile || (m && m.recommended) || null, tool: 'claude', value: st.model, key: 'Model', emptyLabel: same,
+    at: (p) => at(st.m || null, p), onchange: (v) => (st.model = v || ''),
+    hint: app ? 'The chips in the App change it at any time.' : 'Only this session. A provider that names its own model keeps it.',
+  }));
+  // "Lead model" for an App session only (a terminal session starts as it always did). A terminal session shows it off
+  // with its one line why (leadswitch.js LEAD_TERMINAL), as another coding tool does.
+  // Changed here, it is sent as shown; left as it is, a start takes the folder's last chat (else Settings), and while
+  // no folder is chosen yet one line says so.
+  const leadSlot = h('div');
+  const drawLead = () => {
+    const same = !st.leadTouched && !st.leadDir ? h('p.hint.ns-lead-same', LEAD_SAME) : null;
+    const touched = () => {
+      st.leadTouched = true;
+      if (same) same.textContent = '';
+    };
+    fill(leadSlot, app ? [leadSwitch({ value: st.lead === true, partMode: st.permissionMode || null, modes: st.modes || null, provider: st.profile || st.leadProfile || (m && m.recommended) || null, at: (p) => at(st.m || null, p), onchange: (on) => (st.lead = on, touched()), others: st.others || null,
+      onothers: (l, byOwner) => {
+        st.others = l;
+        if (byOwner) touched();
+      } }), same] : leadSwitch({ value: false, off: LEAD_TERMINAL, onchange: () => {} }));
+  };
+  drawModel();
+  drawLead();
+  // As root, a default in Bypass would be refused at the start: the mode that asks is preselected, and the line under
+  // the choice says why (st.rootBypass, from the computer's settings).
+  if (st.rootDefaultBypass && !st.permissionMode) st.permissionMode = 'manual';
+  // The line under "Use other providers" names the mode parts run in: drawn again when the mode changes.
+  const setMode = (v) => {
+    st.permissionMode = v;
+    drawLead();
+  };
   return [
-    select('Provider', st.profile, [['', defaultWords(m, profiles, app ? same : null, 'claude', st.dir)], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => (st.profile = v)),
-    select('What Claude Code may do without asking', st.permissionMode, [['', same], ...Object.entries(MODES)], (v) => (st.permissionMode = v),
-      (v) => (v === 'bypassPermissions' ? BYPASS_MEANS : null)),
+    select('Provider', st.profile, [['', defaultWords(m, profiles, app ? same : null, 'claude', st.dir)], ...profiles.map((p) => [p.name, p.virtual ? `${p.label} · uses your providers in order` : `${p.label} · ${kindLabel(p)} · ${profileState(p).text}`])], (v) => {
+      st.profile = v;
+      st.model = ''; // another provider has its own models
+      drawModel();
+      drawLead();
+    }, (v) => (v ? null : autoSlowLine(m, profiles))),
+    select('What Claude Code may do without asking', st.permissionMode, [['', same], ...Object.entries(MODES).filter(([k]) => !st.modes || st.modes.includes(k))], setMode,
+      (v) => (v === 'bypassPermissions' ? BYPASS_MEANS : st.rootBypass || null)),
     select('How hard it thinks', st.effort, [['', same], ...Object.entries(EFFORT)], (v) => (st.effort = v)),
     // A model for this one session: try something cheaper without changing the setting for every session.
-    select('Model', st.model, [['', same], ...(st.models || MODELS.map(([v]) => v)).map((v) => [v, (MODELS.find(([x]) => x === v) || [v, v])[1]])], (v) => (st.model = v),
-      app ? 'The chips in the App change it at any time.' : 'Only this session. A provider that names its own model keeps it.'),
+    modelSlot,
+    leadSlot,
     conversation,
     plain,
   ];

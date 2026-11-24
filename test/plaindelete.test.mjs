@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { sealed } from './seal.mjs';
 
 const { bypassAllows, plainDelete, projectFolders } = await import('../src/asking.mjs');
 const D = await import('./fixtures/deletes.mjs');
@@ -26,6 +27,32 @@ test('a delete in a repository\'s own .git folder is no plain delete, wherever i
     assert.equal(bypassAllows({ mode: 'bypassPermissions', tool: 'Bash', input: { command }, places: IN }), false, command);
   }
   for (const command of ['rm -rf .github/old', 'rm -rf git/tmp', 'rm -rf .gitignore.bak']) assert.equal(plainDelete(command, IN), true, command);
+});
+
+test('the shell must stand in the session\'s own folder: in another folder the session was given (a need, "Also open", an added folder) no delete is plain', () => {
+  const OWN = PROJECT;
+  const OTHER = '/home/alex/Workspace/blog';
+  const NEED = '/home/alex/Workspace/kits/parts';
+  for (const command of ['rm -rf build', 'rm -rf src', 'rm -f a.txt', 'rm -rf dist/*']) {
+    // In its own folder, and below it: as before.
+    for (const cwd of [OWN, `${OWN}/web`]) {
+      assert.equal(plainDelete(command, { ...IN, cwd, own: OWN }), true, `${command} in ${cwd}`);
+      assert.equal(bypassAllows({ mode: 'bypassPermissions', tool: 'Bash', input: { command }, places: { ...IN, cwd, own: OWN } }), true, `${command} in ${cwd}`);
+    }
+    // The shell stands in another project, in a need, beside or above the session's folder: the owner's to answer.
+    for (const cwd of [OTHER, NEED, `${OTHER}/web`, `${OWN}-old`, WS]) {
+      assert.equal(plainDelete(command, { ...IN, cwd, own: OWN }), false, `${command} in ${cwd}`);
+      assert.equal(bypassAllows({ mode: 'bypassPermissions', tool: 'Bash', input: { command }, places: { ...IN, cwd, own: OWN } }), false, `${command} in ${cwd}`);
+    }
+    // The caller should know where the session was started and does not: nothing is plain. A caller that does not say
+    // (undefined) is read as before.
+    assert.equal(plainDelete(command, { ...IN, own: null }), false, command);
+    assert.equal(plainDelete(command, { ...IN, own: '' }), false, command);
+    assert.equal(plainDelete(command, { ...IN, own: 'relative/p' }), false, command);
+    assert.equal(plainDelete(command, { ...IN }), true, command);
+  }
+  // A folder that only differs in case may be the same one: compared as the other folders are.
+  assert.equal(plainDelete('rm -rf build', { ...IN, cwd: PROJECT, own: PROJECT.toUpperCase() }), true);
 });
 
 test('every line of the review keeps Claude Code\'s question: the fourteen that delete the home or the disk, and the four of "the folder it runs in or above"', () => {
@@ -49,6 +76,43 @@ test('an ordinary delete inside a project is answered there, and nowhere else: n
   // Folders that hold the home or workspace folder count as those (a home of another user too), in any letter case.
   for (const cwd of ['/home/ALEX', '/home/alex/workspace', '/Users/alex']) assert.equal(plainDelete('rm -rf dist', { ...IN, cwd, ...(cwd.startsWith('/Users') ? { home: '/Users/bob' } : {}) }), false, cwd);
   assert.equal(plainDelete('rm -rf dist', { ...IN, home: null }), false, 'the home folder must be known');
+});
+
+test('Hoprig\'s own config and state folders are never a plain delete, wherever the shell stands: a bypass session cannot remove its run record, the hook settings or the config', () => {
+  const cfg = '/home/alex/.config/hoprig';
+  const state = '/home/alex/.local/state/hoprig';
+  const hoprig = [cfg, state];
+  for (const [cwd, command] of [
+    [cfg, 'rm config.json'],
+    [cfg, 'rm -rf profiles'],
+    [path.join(state, 'runs'), 'rm -f run-abc.json'],
+    [path.join(state, 'hook-settings'), 'rm -f run-abc.json'],
+    [state, 'rm -rf runs hook-settings'],
+    [path.join(state, 'runs', 'sub'), 'rm -rf x'],
+    // From a folder above one of them a target can name it.
+    ['/home/alex/.config', 'rm -rf hoprig'],
+    ['/home/alex/.config', 'rm hoprig/config.json'],
+    ['/home/alex/.config', `rm ${cfg}/config.json`],
+    ['/home/alex/.local/state', 'rm -rf hoprig'],
+    ['/home/alex/.local/state', 'rm -f hoprig/runs/run-abc.json'],
+    ['/home/alex/.local', 'rm -rf state/hoprig/hook-settings'],
+  ]) {
+    assert.equal(plainDelete(command, { ...IN, hoprig, cwd }), false, `${command} in ${cwd}`);
+    assert.equal(bypassAllows({ mode: 'bypassPermissions', tool: 'Bash', input: { command }, places: { ...IN, hoprig, cwd } }), false, `${command} in ${cwd}`);
+  }
+  // The rule is a path boundary, not a string prefix: a folder that merely begins with the same letters may hold one.
+  assert.equal(plainDelete('rm -rf dist', { ...IN, hoprig, cwd: '/home/alex/.config/hoprigx' }), true);
+  assert.equal(plainDelete('rm -rf dist', { ...IN, hoprig, cwd: '/home/alex/.conf' }), true);
+  // A folder beside them (not above, not below) is unchanged.
+  assert.equal(plainDelete('rm -rf dist', { ...IN, hoprig, cwd: '/home/alex/.config/other' }), true);
+  // Config and state in folders of their own (a container's HOPRIG_STATE_DIR=/srv/data/state): the folder that holds them.
+  const own = ['/srv/data/config', '/srv/data/state'];
+  for (const command of ['rm -rf state', 'rm -rf config/profiles', 'rm -f state/runs/run-abc.json']) {
+    assert.equal(plainDelete(command, { ...IN, hoprig: own, cwd: '/srv/data' }), false, command);
+  }
+  assert.equal(plainDelete('rm -rf dist', { ...IN, hoprig: own, cwd: '/srv/app' }), true);
+  // And an ordinary folder that is none of Hoprig's own is unchanged.
+  assert.equal(plainDelete('rm -rf dist', { ...IN, hoprig, cwd: '/srv/app' }), true);
 });
 
 test('from a folder that holds projects no delete is plain: `rm -rf shop/*/*` there empties a whole project', () => {
@@ -472,7 +536,7 @@ function runLines(lines, root, at) {
   ].join('\n');
   fs.mkdirSync(root, { recursive: true });
   return new Promise((resolve, reject) => {
-    const p = spawn('bash', ['--norc', '--noprofile', '-c', script], { env: { PATH: process.env.PATH, HOME: path.join(root, 'nohome'), LC_ALL: 'C.UTF-8' } });
+    const p = spawn('bash', ['--norc', '--noprofile', '-c', script], { env: sealed({ PATH: process.env.PATH, HOME: path.join(root, 'nohome'), LC_ALL: 'C.UTF-8' }) });
     let out = '';
     p.stdout.on('data', (d) => (out += d));
     p.on('error', reject);

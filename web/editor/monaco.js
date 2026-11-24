@@ -68,6 +68,8 @@ export const pageDark = () => (document.documentElement.dataset.theme || (darkQu
 
 // The page's own tokens (style.css) as the editor's background, so the editor sits in the page, not on it.
 const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+// Set once Monaco is loaded. (A property on defineThemes would not do: every function has .apply already.)
+let reapplyTheme = null;
 function defineThemes(monaco) {
   const colors = () => ({
     'editor.background': token('--surface') || (pageDark() ? '#151827' : '#ffffff'),
@@ -76,18 +78,18 @@ function defineThemes(monaco) {
     'editorLineNumber.foreground': token('--muted') || (pageDark() ? '#9aa0b5' : '#5b6172'),
   });
   // Defined again on every change: the page's tokens are what the page shows now.
-  defineThemes.apply = () => {
+  reapplyTheme = () => {
     const dark = pageDark();
     monaco.editor.defineTheme('page', { base: dark ? 'vs-dark' : 'vs', inherit: true, rules: [], colors: colors() });
     monaco.editor.setTheme('page');
   };
-  defineThemes.apply();
+  reapplyTheme();
 }
 
 /** Follow the page's theme (Settings, the light/dark button and the system all change it); returns the stop. */
 export function followTheme(onChange = () => {}) {
   const apply = () => {
-    if (defineThemes.apply) defineThemes.apply();
+    if (reapplyTheme) reapplyTheme();
     onChange(pageDark());
   };
   const obs = new MutationObserver(apply);

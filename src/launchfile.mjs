@@ -23,15 +23,95 @@ const NAME_RE = /^[0-9a-f]{32}\.json$/;
 const LEFT_MS = 10 * 60_000;
 const windows = process.platform === 'win32';
 
-/** Write the launch file for one start: { v: 1, cwd, argv, at }. Returns its path. */
-export function writeLaunch({ cwd, argv }, now = Date.now()) {
+/**
+ * Write the launch file for one start: { v: 1, cwd, argv, at }, and `hand` only when given (a move of the dashboard's
+ * that carries Hands-off's stops: see HAND below). `hers`: the dashboard starts this session for Tia (her door asked
+ * for it, or it carries on a session of hers): the launcher then marks the run hers and gives it her git sign-in
+ * (launch.mjs). Only the dashboard writes this file, in its own state folder, readable by this user alone, and the
+ * launcher takes it once; so nothing a session or a request can say decides it. Returns its path.
+ */
+export function writeLaunch({ cwd, argv, hand = null, hers = false }, now = Date.now()) {
   const dir = launchDir();
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   if (!windows) fs.chmodSync(dir, 0o700); // made earlier, or by an older version: owner only all the same
   sweepLaunches(now);
   const file = path.join(dir, `${crypto.randomBytes(16).toString('hex')}.json`);
-  fs.writeFileSync(file, JSON.stringify({ v: 1, cwd: String(cwd), argv: argv.map(String), at: now }), { mode: 0o600, flag: 'wx' });
+  const body = { v: 1, cwd: String(cwd), argv: argv.map(String), at: now };
+  if (hand) {
+    if (!handOk(hand)) throw new Error('a move\'s hand-over is not of its shape');
+    body.hand = hand;
+  }
+  if (hers) body.hers = true;
+  fs.writeFileSync(file, JSON.stringify(body), { mode: 0o600, flag: 'wx' });
   return file;
+}
+
+/**
+ * A move of the dashboard's (server/deck.mjs move) restarts the terminal with a NEW launcher, which writes a new run
+ * record; the old launcher removes its own when it ends, before the new one starts. So what Hands-off keeps in the old
+ * record goes along in the launch file, from that one record:
+ *   hand = { from, runId, conversation, carry: { stop?, row?, done? } }
+ *   from          the old run's id
+ *   runId         the new run's id, chosen by the dashboard, which keeps the owner's switch for the session under it
+ *   conversation  the conversation the move carries on; the carry counts only for a start on that conversation
+ *   carry         handsOffStop ('loop' | 'hour'), handsOffRow (a count above 0) and handsOffDone (the hour's answers),
+ *                 in exactly the shapes runs.mjs createRun copies on the launcher's own move
+ * Anything else in it refuses the start, as a bad file does.
+ */
+export const RUN_ID_RE = /^[0-9a-z]{1,12}-\d{1,10}(?:-[0-9a-f]{8})?$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HOUR_LINES = 10; // handsoff.mjs HOUR_MAX: the hour's answers kept (only node: imports here, so not imported)
+const plainObject = (o) => !!o && typeof o === 'object' && !Array.isArray(o) && Object.getPrototypeOf(o) === Object.prototype;
+const doneLine = (d) => plainObject(d) && Number.isFinite(d.at) && Object.values(d).every((v) => ['string', 'number', 'boolean'].includes(typeof v));
+export function handOk(h) {
+  if (!plainObject(h)) return false;
+  // A reset hand carries nothing: it tells the new run to start with its answers stopped ('reset'), for a resumed
+  // run whose Hands-off state the dashboard could not carry (a restore after a reboot, a chat/terminal hand-off).
+  if (h.reset === true && Object.keys(h).length === 1) return true;
+  if (Object.keys(h).some((k) => !['from', 'runId', 'conversation', 'carry'].includes(k))) return false;
+  if (typeof h.from !== 'string' || !RUN_ID_RE.test(h.from) || typeof h.runId !== 'string' || !RUN_ID_RE.test(h.runId) || h.from === h.runId) return false;
+  if (typeof h.conversation !== 'string' || !UUID_RE.test(h.conversation)) return false;
+  const c = h.carry;
+  if (!plainObject(c) || Object.keys(c).some((k) => !['stop', 'row', 'done'].includes(k))) return false;
+  if (c.stop !== undefined && c.stop !== 'loop' && c.stop !== 'hour') return false;
+  if (c.row !== undefined && !(Number.isInteger(c.row) && c.row > 0 && c.row <= 1000)) return false;
+  if (c.done !== undefined && !(Array.isArray(c.done) && c.done.length > 0 && c.done.length <= HOUR_LINES && c.done.every(doneLine))) return false;
+  return true;
+}
+
+/**
+ * The carry of run record `run` as handOk takes it: its loop or hour stop, its count above 0 and the hour's answers
+ * (the last ten that are lines of that shape). A record the session wrote itself in another shape gives what of it is
+ * of the shape, so a move is never refused for it. null when there is nothing to carry.
+ */
+export function carryOf(run) {
+  if (!plainObject(run)) return null;
+  const c = {};
+  if (run.handsOffStop === 'loop' || run.handsOffStop === 'hour') c.stop = run.handsOffStop;
+  if (Number.isInteger(run.handsOffRow) && run.handsOffRow > 0) c.row = Math.min(run.handsOffRow, 1000);
+  const done = Array.isArray(run.handsOffDone) ? run.handsOffDone.filter(doneLine).slice(-HOUR_LINES) : [];
+  if (done.length) c.done = done;
+  return Object.keys(c).length ? c : null;
+}
+
+// The hand-over of the launch file this launcher was started with (applyLaunch), held in its memory only: never in an
+// environment variable, which the coding tool and every command of the session would see. Taken once.
+let taken = null;
+/** The hand-over this launcher was started with, once (launch.mjs reads it for its first record), else null. */
+export function takeHand() {
+  const h = taken;
+  taken = null;
+  return h;
+}
+
+// Whether the launch file said the session is Tia's, held in memory only like the hand-over: an environment variable
+// would let a command of the session, or a person's own `hoprig`, say it. Taken once.
+let hersTaken = false;
+/** True once when this launcher was started by the dashboard for a session of Tia's (writeLaunch `hers`). */
+export function takeHers() {
+  const h = hersTaken;
+  hersTaken = false;
+  return h;
 }
 
 /** Remove a launch file that will not be used (the terminal could not be made). */
@@ -62,7 +142,8 @@ const USED = 'This start line was used already, or it is not a start line of thi
 /**
  * Take launch file `file`: only one that lies directly in the launch folder of this state folder, is a regular file
  * (not a link) of this user with no access for anyone else (on Windows: the first two). It is removed before it is
- * read further, so a start line works once. Returns { cwd, argv }; throws LaunchError with one plain sentence.
+ * read further, so a start line works once. Returns { cwd, argv } (and `hand` and `hers` when the file has them); throws
+ * LaunchError with one plain sentence.
  */
 export function takeLaunch(file) {
   const want = path.resolve(launchDir());
@@ -96,9 +177,11 @@ export function takeLaunch(file) {
     throw new LaunchError(USED);
   }
   const ok = o && o.v === 1 && typeof o.cwd === 'string' && o.cwd && path.isAbsolute(o.cwd)
-    && Array.isArray(o.argv) && o.argv.every((a) => typeof a === 'string');
+    && Array.isArray(o.argv) && o.argv.every((a) => typeof a === 'string')
+    && (o.hand === undefined || handOk(o.hand))
+    && (o.hers === undefined || o.hers === true);
   if (!ok) throw new LaunchError(USED);
-  return { cwd: o.cwd, argv: o.argv };
+  return { cwd: o.cwd, argv: o.argv, ...(o.hand === undefined ? {} : { hand: o.hand }), ...(o.hers === true ? { hers: true } : {}) };
 }
 
 /**
@@ -127,5 +210,7 @@ export function applyLaunch(argv = process.argv) {
   process.env.PWD = l.cwd; // as `cd` would have set it: what the coding tool and its shells read as the folder
   // The words of the start line that were named, not typed (server/backends/shell.mjs WORD): not the coding tool's.
   for (const k of Object.keys(process.env)) if (/^HOPRIG_WORD_\d+$/.test(k)) delete process.env[k];
+  taken = l.hand || null;
+  hersTaken = l.hers === true;
   argv.splice(2, argv.length - 2, ...l.argv);
 }

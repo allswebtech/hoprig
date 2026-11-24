@@ -6,13 +6,17 @@
 // Settings stored on the computer are saved with POST /api/settings (checked there); look and in-page alerts are per
 // device (localStorage). With several computers the switcher picks whose settings these are (#/m/<computer>/settings).
 import { APP_NAME, COMMAND } from './brand.js';
-import { signIn } from './computers.js';
+import { PUBLIC_LINK_SWITCH, signIn } from './computers.js';
+import { cmdLine } from './joinlink.js';
 import { icon } from './icons.js';
 import { api, applyPageTheme, btn, confirmSheet, fill, h, link, machine, prefs, toast, url } from './lib.js';
 import { registerPage, registerSettingsPage, registeredSettingsPages } from './registry.js';
 import { field, fold, info, openLabel, panel, saveBar, savedMark, toggle } from './shell.js';
 import { pageNotify, store } from './store.js';
 import { deskStyle, desktopSettings, reachSettings } from './desktop/index.js';
+import { voicePanel } from './voice.js';
+import { workTellPanel } from './worktell.js';
+import { partOf, showPart } from './showpart.js';
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -23,7 +27,7 @@ const EVENT_LABELS = { waiting: 'Waiting for your next message', attention: 'Nee
 
 function notifyPage({ settings: s }) {
   const n = s.server.notify || {};
-  const st = { url: n.url || '', format: n.format || 'auto', events: n.events || s.notifyEvents, publicUrl: s.server.publicUrl || '' };
+  const st = { url: n.url || '', savedUrl: n.url || '', format: n.format || 'auto', events: n.events || s.notifyEvents, publicUrl: s.server.publicUrl || '', work: n.work || {} };
   const browserLine = h('p.hint');
   const browserBtn = btn('secondary small', { icon: 'bell', label: 'Allow notifications in this browser' });
   const paintBrowser = () => {
@@ -54,9 +58,9 @@ function notifyPage({ settings: s }) {
         h('label.check', h('input', { type: 'checkbox', checked: st.events.includes(ev), onchange: (e) => { st.events = e.target.checked ? [...st.events, ev] : st.events.filter((x) => x !== ev); } }), h('span', EVENT_LABELS[ev] || ev)))),
       fold('settings-notify', 'Advanced',
         field('Format', h('select.field', { onchange: (e) => (st.format = e.target.value) },
-          [['auto', 'Automatic'], ['ntfy', 'ntfy'], ['json', 'JSON (your own webhook)']].map(([v, t]) => h('option', { value: v, selected: st.format === v }, t))),
+          [['auto', 'Automatic'], ['ntfy', 'ntfy'], ['json', 'For a program of your own (JSON)']].map(([v, t]) => h('option', { value: v, selected: st.format === v }, t))),
         'Automatic uses the ntfy format for ntfy addresses and JSON for everything else.'),
-        field('This page\'s address', h('input.field', { type: 'url', value: st.publicUrl, placeholder: 'https://pc.example.net', oninput: (e) => (st.publicUrl = e.target.value.trim()) }),
+        field('This page\'s address', h('input.field', { id: 'page-address', type: 'url', value: st.publicUrl, placeholder: 'https://pc.example.net', oninput: (e) => (st.publicUrl = e.target.value.trim()) }),
           'When set, tapping a push opens the session directly.')),
       h('div.savebar',
         btn('secondary', {
@@ -67,13 +71,18 @@ function notifyPage({ settings: s }) {
               await api('/api/notify/test', {});
               toast('Test sent — check your phone');
             } catch (e) {
-              toast(e.message, { kind: 'error' });
+              toast(e, { kind: 'error' });
             }
           },
         }),
-        saveBar('Save', () => api('/api/settings', {
-          server: { notify: st.url ? { url: st.url, events: st.events, ...(st.format !== 'auto' ? { format: st.format } : {}) } : null, publicUrl: st.publicUrl },
-        })))),
+        saveBar('Save', async () => {
+          await api('/api/settings', {
+            server: { notify: st.url ? { url: st.url, events: st.events, ...(st.format !== 'auto' ? { format: st.format } : {}), ...(Object.keys(st.work).length ? { work: st.work } : {}) } : null, publicUrl: st.publicUrl },
+          });
+          st.savedUrl = st.url;
+        }))),
+    // What Work tells by itself (worktell.js): saved with the push address above, kept when it is saved.
+    workTellPanel(st, () => api('/api/settings', { server: { notify: { url: st.savedUrl, events: st.events, ...(st.format !== 'auto' ? { format: st.format } : {}), work: st.work } } }), { status: () => api('/api/work/tell') }),
   ];
 }
 
@@ -107,7 +116,8 @@ function lookPanel() {
     marks['term.font'].show();
   };
   const keyOf = { 'Page colours': 'page.theme', 'Terminal colours': 'term.theme', 'Terminal text size': 'term.font' };
-  const group = (label, control, hint) => h('div.fieldrow', h('span.field-label', label, (marks[keyOf[label]] = savedMark())), control, hint ? h('span.hint', hint) : null);
+  const ids = { 'Page colours': 'page-theme' }; // a sentence elsewhere opens the page at it (?show=page-theme)
+  const group = (label, control, hint) => h('div.fieldrow', ids[label] ? { id: ids[label] } : {}, h('span.field-label', label, (marks[keyOf[label]] = savedMark())), control, hint ? h('span.hint', hint) : null);
   return panel({ icon: 'sun', title: 'Colours and text size', desc: 'Saved on this device only.' },
     group('Page colours', seg('page.theme', 'system', [['system', 'System', 'refresh'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']], applyPageTheme), 'System follows your phone or computer setting.'),
     group('Terminal colours', seg('term.theme', 'dark', [['dark', 'Dark', 'moon'], ['light', 'Light', 'sun'], ['system', 'System', 'refresh']]), 'Coding tools are drawn for a dark terminal, so dark reads best.'),
@@ -139,7 +149,7 @@ function terminalsPanel(b) {
     info('Kept by', tmux ? 'tmux' : 'the dashboard itself', tmux
       ? 'Sessions keep running when the dashboard restarts, and you can also open them with "tmux attach" on the computer.'
       : 'Sessions end when the dashboard stops or restarts. Install tmux on the computer to keep them running.'),
-    h('p.hint', 'Chosen automatically: tmux when it is installed. To force one, set server.backend to "tmux" or "pty" in the config and restart.'));
+    h('p.hint', 'Hoprig picks tmux when it is installed, else its own terminals.'));
 }
 
 const lookSummary = () => `${cap(prefs.get('page.theme', 'system'))} · terminal ${prefs.get('term.theme', 'dark')} · ${termFont()} px · desktop ${deskStyle() === 'dock' ? 'Dock' : 'Taskbar'}`;
@@ -165,24 +175,54 @@ function passwordPanel() {
     open.classList.add('hidden');
     cur.focus();
   } }));
-  return panel({ icon: 'key', title: 'Password', desc: 'Changing it logs out every other browser and phone; this one stays logged in.' }, open, form);
+  return panel({ id: 'password', icon: 'key', title: 'Password', desc: 'Changing it logs out every other browser and phone; this one stays logged in.' }, open, form);
 }
 
 function networkPanel(s) {
   const n = s.network;
   const st = { trustProxy: n.trustProxy, origins: n.allowedOrigins.join('\n') };
   return panel({ icon: 'lock', title: 'Network', desc: 'Where this page can be reached from.' },
-    info('Address', `${n.host}:${n.port}`, loopbackOnly(s)
-      ? 'Only this computer can open the page; turn on Settings → Public link to open it from anywhere.'
-      : 'Other devices on the network can open the page.'),
-    h('p.hint', `To change it, run on the computer: ${COMMAND} serve --host 0.0.0.0 --port ${n.port} (or set server.host and server.port in the config), then restart the dashboard.`),
+    info('Address', `${n.host}:${n.port}`, addressHint(s)),
+    networkWords(s).warn ? h('p.banner.warn', networkWords(s).warn) : null,
+    n.server
+      // A server: the network is the internet on plain http, so the page names the safe ways instead.
+      ? h('div.hint', h('p', networkWords(s).lead),
+        h('ul', n.server.ways.map((w, i, all) => h('li', w, i === all.length - 1 && n.server.forward ? cmdLine(n.server.forward) : null))))
+      : h('p.hint', `To change it, run on the computer: ${COMMAND} serve --host 0.0.0.0 --port ${n.port} (or set server.host and server.port in the config), then restart the dashboard.`),
     toggle('Behind an HTTPS proxy', st.trustProxy, (v) => { st.trustProxy = v; return false; }, // kept by Save below
       'Turn on only when a reverse proxy (Caddy, nginx) sits in front; the page then believes the address and protocol it reports.'),
     field('Other allowed addresses', h('textarea.field.mono', { rows: 2, value: st.origins, placeholder: 'https://pc.example.net', oninput: (e) => (st.origins = e.target.value) }), 'Only needed when the page is opened under a different address than it runs on. One per line.'),
     saveBar('Save', () => api('/api/settings', { server: { trustProxy: st.trustProxy, allowedOrigins: st.origins.split('\n').map((x) => x.trim()).filter(Boolean) } })));
 }
 
-const loopbackOnly = (s) => ['127.0.0.1', '::1', 'localhost'].includes(s.network.host);
+const loopbackOnly = (s) => ['127.0.0.1', '::1', 'localhost'].includes(s.network.host) || /^127\./.test(s.network.host);
+
+/**
+ * The words of Settings → Network: { address, warn, lead }. On a server (s.network.server) a dashboard open to the
+ * network is open to the internet on plain http: said as a warning with doctor's fix, never "not opened here".
+ */
+export function networkWords(s) {
+  const n = s.network;
+  const local = loopbackOnly(s);
+  if (n.server && !local) {
+    return {
+      address: 'Open to the internet on plain http.',
+      warn: `Open to the network on plain http: ${n.server.why}, so anyone could read the password on the way. Close it on the computer: ${COMMAND} setup --access local`,
+      lead: 'Then open it from elsewhere in one of these ways:',
+    };
+  }
+  return {
+    address: local ? 'Only this computer can open the page; turn on Settings → Public link to open it from anywhere.' : 'Other devices on the network can open the page.',
+    warn: null,
+    lead: n.server ? `Not opened to the network here: ${n.server.why}, so anyone could read the password on the way. To open it from elsewhere:` : '',
+  };
+}
+
+/** The network line under the address: where it names the public link, a link opens its switch. */
+export function addressHint(s) {
+  const w = networkWords(s).address;
+  return /Public link/.test(w) ? h('span', w, ' ', h('a', { href: link(PUBLIC_LINK_SWITCH) }, 'Open the switch')) : w;
+}
 
 function securityPage(ctx) {
   return [
@@ -193,7 +233,8 @@ function securityPage(ctx) {
   ];
 }
 
-const securitySummary = ({ settings: s, here }) => [here ? 'Password set' : null, loopbackOnly(s) ? 'this computer only' : 'open to the network'].filter(Boolean).join(' · ');
+// The list's line says what a person looks for here: the password and his phone (the sign-in code is on this page).
+export const securitySummary = ({ settings: s, here }) => (here ? 'Password · sign in your phone' : loopbackOnly(s) ? 'this computer only' : 'open to the network');
 
 // ---------- About ----------
 // Updates (Claude Code's among them) have their own page: Settings → Updates (updates.js).
@@ -202,13 +243,13 @@ function aboutPage({ settings: s, here }) {
     panel({ icon: 'info', title: APP_NAME, desc: 'Which version this is.' },
       info('Version', s.version || 'unknown'),
       info('Computer system', s.platform)),
-    here ? panel({ icon: 'logout', title: 'This device' },
+    here ? panel({ id: 'this-device', icon: 'logout', title: 'This device' },
       store.data && store.data.getStartedDismissed
         ? h('div.savebar.start', h('p.hint', '"Get started" on Home is closed.'), btn('secondary', {
           icon: 'check',
           label: 'Show it again',
           onclick: async () => {
-            await api('~/api/settings', { server: { getStartedDismissed: false } }).catch((e) => toast(e.message, { kind: 'error' }));
+            await api('~/api/settings', { server: { getStartedDismissed: false } }).catch((e) => toast(e, { kind: 'error' }));
             await store.refresh();
             toast('"Get started" is back on Home');
           },
@@ -230,14 +271,27 @@ function aboutPage({ settings: s, here }) {
 registerSettingsPage({ id: 'notifications', title: 'Notifications', icon: 'bell', order: 20, desc: 'Get told when a session needs you, so you do not have to keep looking.', summary: notifySummary, render: notifyPage });
 registerSettingsPage({
   id: 'appearance', title: 'Appearance and terminal', icon: 'sun', order: 30, desc: 'Colours, text size, and the buttons in a session.', summary: lookSummary,
-  render: ({ settings: s }) => [lookPanel(), desktopSettings(), quickPanel(s.server.quickActions), fold('settings-appearance', 'Advanced', terminalsPanel(s.backend))],
+  render: ({ settings: s }) => [lookPanel(), desktopSettings(), voicePanel(), quickPanel(s.server.quickActions), fold('settings-appearance', 'Advanced', terminalsPanel(s.backend))],
 });
 registerSettingsPage({ id: 'security', title: 'Security and sign-in', icon: 'lock', order: 40, desc: 'The password, signing in a phone, and where this page can be reached from.', summary: securitySummary, render: securityPage });
 registerSettingsPage({ id: 'about', title: 'About', icon: 'info', order: 70, desc: 'Which version this is, and leaving this device.', summary: ({ settings: s }) => `${APP_NAME} ${s.version || ''}`.trim(), render: aboutPage });
 
 // ======================= the Settings page =======================
 
-function viewSettings({ frame, sub }) {
+/** Other names of a settings page that an address may hold (a link in a message, Get started's steps). */
+export const SETTINGS_ALIASES = Object.freeze({ 'signin-device': 'security' });
+
+/**
+ * The page an address names: its own id or one of its other names, else the first page. `missing`: the address
+ * named a page that is not there, which the page says (never another page shown as if it were the one asked for).
+ */
+export function chooseSettingsPage(pages, sub) {
+  const id = Object.hasOwn(SETTINGS_ALIASES, sub) ? SETTINGS_ALIASES[sub] : sub;
+  const page = pages.find((p) => p.id === id) || null;
+  return { chosen: page || pages[0], missing: !!sub && !page };
+}
+
+function viewSettings({ frame, sub, query }) {
   store.viewing = null;
   const here = !machine.current; // this dashboard's own settings
   const list = h('nav.split-list', { 'aria-label': 'Settings pages' });
@@ -271,8 +325,9 @@ function viewSettings({ frame, sub }) {
     }
     if (!alive) return;
     const ctx = { settings, state, here, isAlive };
-    const pages = registeredSettingsPages().filter((p) => here || !p.onlyHere);
-    const chosen = pages.find((p) => p.id === sub) || pages[0];
+    const shownWhen = (p) => { if (!p.when) return true; try { return p.when(ctx) !== false; } catch { return false; } };
+    const pages = registeredSettingsPages().filter((p) => (here || !p.onlyHere) && shownWhen(p));
+    const { chosen, missing } = chooseSettingsPage(pages, sub);
     const lines = new Map();
     // The one-line states: now, and again after anything on the page is saved.
     summarize = async () => {
@@ -288,11 +343,15 @@ function viewSettings({ frame, sub }) {
       lines.set(p, line);
       Promise.resolve().then(() => p.summary(ctx)).then((t) => (line.textContent = t || ''), () => {});
       // Marked as open only when it is (a phone shows the list alone at #/settings).
-      return h(`a.row${p === chosen ? '.split-current' : ''}`, { href: link(`#/settings/${p.id}`), 'aria-current': sub && p === chosen ? 'page' : null },
+      return h(`a.row${p === chosen && !missing ? '.split-current' : ''}`, { href: link(`#/settings/${p.id}`), 'aria-current': sub && p === chosen && !missing ? 'page' : null },
         h('span.row-icon', icon(p.icon)),
         h('span.row-main', h('span.row-title', p.title, p.tag ? h('span.badge.soft.tag', p.tag) : null), line),
         h('span.row-end', icon('chevronRight', { size: 18 })));
     })));
+    if (missing) {
+      return fill(pane, h('div.empty', icon('alert', { size: 32 }), h('p', 'This settings page does not exist.'),
+        h('a.btn.secondary', { href: link('#/settings') }, 'See all settings')));
+    }
     let content;
     try {
       content = chosen.render(ctx);
@@ -302,6 +361,9 @@ function viewSettings({ frame, sub }) {
     fill(pane,
       h('header.split-head', h('h2.split-title', chosen.title, chosen.tag ? h('span.badge.soft.tag', chosen.tag) : null), chosen.desc ? h('p.page-intro', chosen.desc) : null),
       h('div.split-body', content));
+    // "?show=<part>": a sentence elsewhere that sends him here opens the page at the switch or field it names.
+    const part = partOf(query);
+    if (part) showPart(part, { alive: isAlive });
   }
   load();
   return () => {

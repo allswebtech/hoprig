@@ -1,7 +1,7 @@
 name: windows
 
-# Windows is written for but does not pass yet: this runs on demand (and on branches named windows/…) until it
-# does, then Windows joins the matrix in test.yml.
+# Windows on demand (and on branches named windows/…), with a choice of files. test.yml runs the whole suite on
+# Windows at every push as a job that is allowed to fail, until it passes and is made required.
 on:
   workflow_dispatch:
     inputs:
