@@ -1,9 +1,9 @@
 // `hoprig project …`: project workspaces (see workspace.mjs for the shape).
 //   project new <name> [--template <folder or git address>] [--github [--repo-name <n>] | --remote <git address>] [--owner <o>]
-//               [--brief <file> | --brief -] [--kind <kind>] [--scope product|setup]
+//               [--brief <file> | --brief -] [--kind <kind>] [--scope product|setup] [--no-skill]
 //               [--start [--tool T] [--provider P] [--model M] [--effort E]]
 //                                                                        a brief, a hint for its kind, the scope, the
-//                                                                        new-project skill (newproject.mjs)
+//                                                                        new-project skill, on by default (newproject.mjs)
 //   project start <name> [--kind <kind>] [--scope product|setup] [--tool T] [--provider P] [--model M] [--effort E]
 //                 [--again]                                              its session, later (--again: another one
 //                                                                        while one is open)
@@ -117,7 +117,7 @@ async function publish(ui, dir, projectName, o, run, { parent = false } = {}) {
 }
 
 const START_FLAGS = { kind: 'v', scope: 'v', tool: 'v', provider: 'v', model: 'v', effort: 'v' };
-export const NEW_USAGE = 'usage: hoprig project new <name> [--in <group>] [--template <folder|git address>] [--github [--repo-name <name>] | --remote <address>] [--brief <file> | --brief -] [--kind <kind>] [--scope product|setup] [--git-name <name> --git-email <e-mail>] [--start] [--dry-run]';
+export const NEW_USAGE = 'usage: hoprig project new <name> [--in <group>] [--template <folder|git address>] [--github [--repo-name <name>] | --remote <address>] [--brief <file> | --brief -] [--kind <kind>] [--scope product|setup] [--no-skill] [--git-name <name> --git-email <e-mail>] [--start] [--dry-run]';
 export const START_USAGE = 'usage: hoprig project start <name> [--kind <kind>] [--scope product|setup] [--tool <coding tool>] [--provider <name>] [--model <model>] [--effort <effort>] [--again]';
 export const ADD_USAGE = 'usage: hoprig project add <project> <name> [--github | --remote <address>] [--git-name <name> --git-email <e-mail>] [--dry-run]';
 export const STATUS_USAGE = 'usage: hoprig project status [name] [--dir <folder>] [--json]';
@@ -187,7 +187,7 @@ export function pageIdentity(name, email) {
 /** `brief`: the brief as typed in the dashboard (the command line gives --brief); `stdin`: where --brief - reads. */
 export async function projectNew(args, { ui, run = stream, brief = undefined, stdin = undefined }) {
   if (wantsHelp(args, ui, NEW_USAGE)) return 0;
-  const o = flags(args, { template: 'v', github: 'bool', remote: 'v', owner: 'v', 'no-github': 'bool', 'repo-name': 'v', in: 'v', 'dry-run': 'bool', brief: 'v', start: 'bool', 'git-name': 'v', 'git-email': 'v', ...START_FLAGS });
+  const o = flags(args, { template: 'v', github: 'bool', remote: 'v', owner: 'v', 'no-github': 'bool', 'repo-name': 'v', in: 'v', 'dry-run': 'bool', brief: 'v', start: 'bool', 'no-skill': 'bool', 'git-name': 'v', 'git-email': 'v', ...START_FLAGS });
   const name = o._[0];
   if (o.errors.length || !name) return fail(ui, `${o.errors.join('; ') || 'a name is needed'} — ${NEW_USAGE}`);
   const empty = (await import('./newproject.mjs')).emptyChoice(o, Object.keys(START_FLAGS));

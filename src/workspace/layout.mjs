@@ -1,7 +1,7 @@
 // The workspace: one tree, the same on every computer (docs/WORKSPACE.md). This module only says where it is and
 // what is there; setup.mjs creates what is missing and link.mjs links Claude Code's folder into the brain.
 //
-//   <workspace>/ai_brain/  projects/<project>/code/<repo>/  credentials/  development/  git/  database/postgresql/  backups/
+//   <workspace>/ai_brain/  projects/<project>/code/<repo>/  credentials/  development/  git/  database/postgresql/  database/mysql/  backups/
 //
 // An existing computer is adopted as it is: a projects folder chosen before stays where it is, and a folder that
 // exists is only reported, never moved, renamed or changed.
@@ -21,8 +21,27 @@ export const TREE = [
   { id: 'development', rel: 'development', purpose: 'Toolchains and SDKs installed for you (node, flutter, android, …).' },
   { id: 'git', rel: 'git', purpose: 'Your own git material (mirrors, shared hooks).' },
   { id: 'database', rel: 'database/postgresql', purpose: 'Local database data.' },
+  // MySQL and MariaDB keep a folder of their own beside PostgreSQL's. The id 'database' stays PostgreSQL's, so what
+  // an older Hoprig wrote or reads under that id still means the same folder.
+  { id: 'database-mysql', rel: 'database/mysql', purpose: 'Local MySQL or MariaDB data and dumps.', mode: 0o700 },
   { id: 'backups', rel: 'backups', purpose: 'Backups of your own files and local databases.' },
 ];
+
+/**
+ * The places in development/ for the toolchains a kit installs there or adopts (a link to where the tool already is),
+ * and what finds each one afterwards (the shell lines of the kits block, setup/localbin.mjs).
+ */
+export const DEV_PLACES = {
+  nvm: { rel: 'development/nodejs/nvm', name: 'nvm', foundBy: 'NVM_DIR' },
+  flutter: { rel: 'development/flutter/flutter', name: 'Flutter', foundBy: 'PATH' },
+  fvm: { rel: 'development/flutter/fvm', name: 'fvm\'s Flutter versions', foundBy: 'FVM_CACHE_PATH' },
+  androidSdk: { rel: 'development/sdk/android-sdk', name: 'the Android SDK', foundBy: 'ANDROID_HOME' },
+  androidStudio: { rel: 'development/android/android-studio', name: 'Android Studio', foundBy: 'PATH' },
+};
+/** The temporary folder of a download in development/ starts so (a leading dot: walkers of the workspace skip it). */
+export const DEV_TMP_PREFIX = '.hoprig-tmp-';
+/** A place's full path in the workspace `ws`. */
+export const devPlace = (ws, id) => path.join(ws, ...DEV_PLACES[id].rel.split('/'));
 
 const readCfg = (cfg) => {
   if (cfg) return cfg;

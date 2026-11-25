@@ -7,6 +7,19 @@ import path from 'node:path';
 import { capture, detectPackageManager, isRoot, npmArgv, showCommand, which } from '../setup/system.mjs';
 import { KITS, askingInstall, itemHere, kitById, kitCovered } from './kits.mjs';
 import { refreshPath } from '../setup/winpath.mjs';
+import { kitsBlockHas } from '../setup/localbin.mjs';
+import { isDir, workspaceDir } from '../workspace/layout.mjs';
+import { findNvm } from './devplaces.mjs';
+
+/** The workspace's folder when it is there (a kit installs into its development/ folder only then), else null. */
+const workspaceHere = () => {
+  try {
+    const d = workspaceDir();
+    return isDir(d) ? d : null;
+  } catch {
+    return null;
+  }
+};
 
 /**
  * The facts plans and checks need. Tests pass their own `has`, `run` (a capture() stand-in) and `exists`.
@@ -28,16 +41,24 @@ export async function sysFacts(over = {}) {
   if (dnf5 === undefined && pm === 'dnf') dnf5 = /dnf5|^5\./m.test((await run(['dnf', '--version'])).stdout);
   let clt = over.clt;
   if (clt === undefined && platform === 'darwin') clt = (await run(['xcode-select', '-p'])).ok;
+  const home = over.home || os.homedir();
+  // `ws`: the workspace when there is one; `nvm`: where nvm is, or where a new one goes (devplaces.mjs);
+  // `blockHas(line)`: the kits block of the shell start files has that line already (setup/localbin.mjs).
+  const ws = over.ws !== undefined ? over.ws : workspaceHere();
+  const exists = over.exists || ((f) => fs.existsSync(f));
   return {
+    ws,
+    nvm: over.nvm !== undefined ? over.nvm : platform === 'win32' ? null : findNvm({ env, home, ws, exists }),
+    blockHas: over.blockHas || ((line) => kitsBlockHas(line, { home, shell: env.SHELL || '', platform })),
     env, platform, has, run, pm, dnf5: Boolean(dnf5), clt: clt !== false,
     root: over.root ?? isRoot(),
     user: over.user ?? safeUser(),
     arch: over.arch || process.arch,
-    home: over.home || os.homedir(),
+    home,
     tmp: over.tmp || os.tmpdir(),
     // /etc/os-release as read already (set-up hands its own), else read where it is named.
     ...(over.release ? { release: over.release } : {}),
-    exists: over.exists || ((f) => fs.existsSync(f)),
+    exists,
     // Where a program on PATH is, and the names in a folder ([] when it cannot be read): tests pass their own.
     which: over.which || ((cmd) => which(cmd, env, platform)),
     // Read the system's Path again (after an install): the folders added, [] when none.

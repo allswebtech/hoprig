@@ -24,7 +24,7 @@ const { TOOL_ROUTE } = await import('../../src/mission/boxtool.mjs');
 const { sampleOf, handledRoutes } = await import('../../src/assistant/acts.mjs');
 
 const shop = path.join(t.projects, 'shop');
-t.repo(shop, { 'README.md': '# shop\n', 'docs/plans/tasks.json': '{\n  "items": []\n}\n', 'test/a.test.js': 'ok\n' });
+t.repo(shop, { 'README.md': '# shop\n', 'package.json': '{ "name": "shop", "scripts": { "test": "node --test" } }\n', 'docs/plans/tasks.json': '{\n  "items": []\n}\n', 'test/a.test.js': 'ok\n' });
 saveConfig({
   server: { passwordHash: await hashPassword('pw'), roots: [t.home] },
   work: { place: 'project', project: 'shop', path: 'docs/plans', ownerId: 'alex' },

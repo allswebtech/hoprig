@@ -13,8 +13,8 @@ export const CAP_SWITCH = `#/settings/tia?show=${CAP_PART}`;
 
 /**
  * The ledger of this state folder: one object for as long as the folder stays the same (a test's own state folder
- * gets its own). One object, because it remembers a lock left behind by a process that ended inside it: a new one
- * per call would wait its whole wait again at every write, a second each (spend.mjs #append).
+ * gets its own), so the Operator's writes all go through one ledger. A lock left behind by a process that ended
+ * inside it is waited for once, until it is stale, and taken over (spend.mjs #append).
  */
 let kept = null;
 export const ledger = () => {

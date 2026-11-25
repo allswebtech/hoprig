@@ -190,7 +190,7 @@ function networkPanel(s) {
         h('ul', n.server.ways.map((w, i, all) => h('li', w, i === all.length - 1 && n.server.forward ? cmdLine(n.server.forward) : null))))
       : h('p.hint', `To change it, run on the computer: ${COMMAND} serve --host 0.0.0.0 --port ${n.port} (or set server.host and server.port in the config), then restart the dashboard.`),
     toggle('Behind an HTTPS proxy', st.trustProxy, (v) => { st.trustProxy = v; return false; }, // kept by Save below
-      'Turn on only when a reverse proxy (Caddy, nginx) sits in front; the page then believes the address and protocol it reports.'),
+      { line: 'Turn on only when a reverse proxy (Caddy, nginx) sits in front of this page.', more: 'The page then believes the address and protocol it reports.' }),
     field('Other allowed addresses', h('textarea.field.mono', { rows: 2, value: st.origins, placeholder: 'https://pc.example.net', oninput: (e) => (st.origins = e.target.value) }), 'Only needed when the page is opened under a different address than it runs on. One per line.'),
     saveBar('Save', () => api('/api/settings', { server: { trustProxy: st.trustProxy, allowedOrigins: st.origins.split('\n').map((x) => x.trim()).filter(Boolean) } })));
 }

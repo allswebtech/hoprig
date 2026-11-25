@@ -9,6 +9,9 @@ import { syncRows } from './projects.js';
 import { registerSettingsPage } from './registry.js';
 import { errorBox, fold, groupHead, okBox, panel, toggle } from './shell.js';
 import { computerPanel, githubPath } from './wscomputer.js';
+import { mapExtras } from './workspacemap.js';
+import { findPlaces } from './workspacefind.js';
+import { credsIsRepo, credsToggle } from './wscredsauto.js';
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -190,6 +193,18 @@ const ACTION = {
   misnamed: (e) => `left alone: ${e.why || 'it is here under another name'}`,
 };
 
+/**
+ * After a restore, while this computer has no name in the workspace: one line to Settings → Workspace, where a name
+ * another computer's file holds asks whether this IS that computer, set up again (`hoprig workspace label --again`).
+ */
+export function nameLine(close = () => {}) {
+  const box = h('div');
+  api('/api/workspace/computers').then((d) => {
+    if (d && !d.label) fill(box, h('p.hint', 'This computer has no name in your workspace yet. Give it one, or the name it had before a format, in ', h('a', { href: link('#/settings/workspace'), onclick: () => close() }, 'Settings → Workspace'), '.'));
+  }, () => null);
+  return box;
+}
+
 /** "Bring my workspace from git": the brain's address → the plan → the job → what came and what did not. */
 export function restoreSheet(git, after = () => {}) {
   let alive = true;
@@ -264,6 +279,7 @@ export function restoreSheet(git, after = () => {}) {
         bad.length ? h('div.rows', bad.map((e) => h('div.row.static', h('span.row-icon.pj-mark.warn', icon('alert')), h('span.row-main', h('span.row-title', e.label), h('span.row-sub.pj-wrap', e.result))))) : null,
         r.data.notHere && r.data.notHere.length ? h('p.hint', `In your map, not on this computer: ${r.data.notHere.join(', ')}. Get one on `, h('a', { href: link('#/workspace'), onclick: () => close() }, 'the Workspace page'), ' when you need it.') : null,
         r.data.projectsDir ? h('p.hint', `Projects are in ${tildePath(r.data.projectsDir)}.`) : null,
+        nameLine(close),
         h('div.sheet-actions', btn('primary', { label: 'To the workspace', onclick: () => close() })));
     }
     stepAddress();
@@ -481,6 +497,7 @@ function autoPanel(onMap = () => {}) {
         ['Gets what is new for the AI brain, your groups\' own repositories and the other repositories, and moves one forward only when nothing is in the way. A project is never moved by itself: Sync on ', h('a', { href: link('#/workspace') }, 'the Workspace page'), ' does that when you ask.']),
       toggle('Also upload', !!w.push, (v) => save({ push: v }),
         'Uploads what is only ahead here: the map\'s commit and, with keeping in step, those repositories. With the map saved too, a map another computer changed is brought in step by itself. Off: nothing leaves this computer by itself.'),
+      credsToggle(w, save),
       branchToggles(w, save),
       h('label.fieldrow', h('span.field-label', 'Every how many hours'), h('div.inlineform', hours, btn('small secondary', { label: 'Save', onclick: async () => {
         const n = Number(hours.value);
@@ -489,7 +506,8 @@ function autoPanel(onMap = () => {}) {
       } }))));
   };
   api('/api/automation').then(async (st) => {
-    w = { map: true, commitMap: false, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, ...((st.settings && st.settings.workspace) || {}) };
+    w = { map: true, commitMap: false, memory: false, sync: false, push: false, pushBranches: {}, everyHours: 6, credentials: false, ...((st.settings && st.settings.workspace) || {}) };
+    w.credsRepo = await credsIsRepo(api);
     w.places = await api('/api/pcsetup/projects').then((d) => (Array.isArray(d.places) && d.places.length ? d.places : [{ id: '' }]).filter((p) => p.members !== 'group'), () => [{ id: '' }]);
     why = st.commitMap && st.commitMap.chosen === false ? st.commitMap : null;
     paint();
@@ -589,11 +607,13 @@ function mapPanel(m, refresh, kept = false) {
   return panel({ icon: 'git', title: 'The map', desc: 'Every repository of your workspace by its address, kept in the AI brain. A new computer gets everything it names.' },
     m.errors ? errorBox(`The map cannot be used: ${m.errors.join('; ')}`) : null,
     !m.exists ? h('p.hint', 'No map yet. Update the map writes the first one from what is on this computer.') : said ? h('p.hint', said) : null,
+    mapExtras(m, refresh),
     // No map here: set-up's one path, when GitHub is signed in (your workspace found there, or a new one kept there).
     !m.exists && !m.errors ? githubPath(refresh, { onOffer: () => firstUpdate && firstUpdate.classList.replace('primary', 'secondary') }) : null,
     unsavedBox(m, refresh),
     h('div.savebar.start', rare ? null : update(),
       m.exists ? btn(rare ? 'primary' : 'secondary', { icon: 'refresh', label: 'Sync', onclick: () => syncSheet(m, refresh) }) : null),
+    m.exists && !m.errors ? findPlaces(m, refresh) : null,
     groups.length || rare ? fold('settings-map-list', 'Advanced',
       groups.length ? h('p.hint', 'Every repository of the map. Forget takes one out of it; no file is deleted.') : null,
       groups.map((g) => [h('p.field-label.map-group', g.title), h('div.rows', g.rows.flatMap((e) => [mapRow(e, refresh), ...(e.repos || []).map((r) => mapRow(r, refresh, true))]))]),

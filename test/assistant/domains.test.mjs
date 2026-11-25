@@ -8,6 +8,7 @@ import { AuditLog } from '../../src/assistant/audit.mjs';
 import { CardStore } from '../../src/assistant/cards.mjs';
 import { createAssistantCore } from '../../src/assistant/core.mjs';
 import { scheduleSentence } from '../../src/assistant/domains.mjs';
+import { checkRoute } from '../../src/assistant/door.mjs';
 import { JobStore } from '../../src/assistant/jobs.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
 import { MCP_TOOLS_JSON, SCREENS, SETTINGS, TOOLS, byName } from '../../src/assistant/tools.mjs';
@@ -373,4 +374,142 @@ test('which computer has a project: list_projects and get_computer_status send h
   for (const n of ['list_projects', 'get_computer_status']) assert.match(byName.get(n).description, /Which computer has a project: not this tool, call manage_project where\./, n);
   const src = (await import('node:fs')).readFileSync(new URL('../../src/assistant/domains.mjs', import.meta.url), 'utf8');
   assert.match(src, /workspace_missing: missing, next: 'this is one computer only; which computer has a project: manage_project where'/);
+});
+
+// ---- Skills: a review cancelled, an update taken back, the "went wrong twice" lines; each change a card ----
+const cardText = (core, r) => core.cards.pending().find((c) => c.id === r.card.id).lines.join('\n');
+
+test('cancel_review: only a review shown here, by a card that says nothing is installed', async () => {
+  const { call, ops, core } = setup({ level: 'handsoff' });
+  assert.match((await call('manage_skills', { action: 'cancel_review', review: 'r1' })).text, /review "r1" was not shown/);
+  await call('manage_skills', { action: 'review', spec: 'pdf-tools' });
+  const r = await call('manage_skills', { action: 'cancel_review', review: 'r1' });
+  assert.ok(staged(r), r.text);
+  assert.deepEqual(writes(ops), [], 'nothing before his yes, at Hands off too');
+  const card = cardText(core, r);
+  assert.match(card, /Cancel the review of the skill pdf-tools from acme\/skills pdf abcdef1 on this: its 2 fetched file\(s\) are deleted from quarantine/);
+  assert.match(card, /Nothing is installed, removed or changed among your skills/);
+  assert.equal((await core.confirm(r.card.id)).ok, true);
+  assert.deepEqual(ops.calls.filter((c) => c.op === 'skillCancel').map((c) => c.args), [{ computer: 'this', id: 'r1' }]);
+  // Cancelled: the review is gone, so a second cancel or an install of it has nothing to show.
+  assert.match((await call('manage_skills', { action: 'cancel_review', review: 'r1' })).text, /that review is not known any more/);
+  assert.match((await call('manage_skills', { action: 'install', review: 'r1' })).text, /that review is not known any more/);
+});
+
+test('undo_update: only an installed skill with a kept version, never a learned one; a card at every level', async () => {
+  const st = baseState();
+  st.skills.user.skills = [
+    { name: 'tdd', source: 'catalog', canUndo: true, updatedAt: '2026-11-20T08:15:00.000Z', edited: [] },
+    { name: 'fresh', source: 'catalog', canUndo: false },
+    { name: 'mine', source: null, canUndo: true, learned: { from: 'a run', on: '2026-11-01' } },
+  ];
+  const { call, ops, core } = setup({ state: st, level: 'handsoff' });
+  assert.match((await call('manage_skills', { action: 'undo_update', skill: 'tdd' })).text, /skill "tdd" was not shown/);
+  await call('manage_skills', { action: 'installed' });
+  assert.match((await call('manage_skills', { action: 'undo_update', skill: 'fresh' })).text, /has no earlier version kept/);
+  assert.match((await call('manage_skills', { action: 'undo_update', skill: 'mine' })).text, /learned from the owner's work: it is taken back only by his press on Skills → Learned/);
+  const r = await call('manage_skills', { action: 'undo_update', skill: 'tdd' });
+  assert.ok(staged(r), r.text);
+  assert.deepEqual(writes(ops), []);
+  const card = cardText(core, r);
+  assert.match(card, /Put back the version of the skill tdd \(for every project\) on this that Hoprig kept for Undo: the one that was there before its last change \(2026-11-20 08:15 UTC\), an update, an install over it or a removal of a skill of this name/);
+  assert.match(card, /This is what Undo on the Skills page does\. The version there now is kept: Undo there brings it back/);
+  assert.equal((await core.confirm(r.card.id)).ok, true);
+  assert.deepEqual(ops.calls.filter((c) => c.op === 'skillUndo').map((c) => c.args), [{ computer: 'this', name: 'tdd' }]);
+});
+
+const twiceState = () => {
+  const st = baseState();
+  st.twice = [
+    { key: 'get:git-auth', kind: 'get', class: 'git-auth', count: 2, last: '2026-11-20T10:00:00.000Z', kindWords: 'hoprig get', words: 'git was not let into a repository', help: 'Sign in to the git server, then run it again.', command: 'hoprig pc setup', doc: null, draft: true },
+    { key: 'doctor:other', kind: 'doctor', class: 'other', count: 2, last: '2026-11-19T10:00:00.000Z', kindWords: 'hoprig doctor', words: 'something else went wrong', help: 'Run hoprig doctor.', command: 'hoprig doctor', doc: null, draft: false },
+  ];
+  return st;
+};
+
+test('twice: the lines are read; dismiss and draft are cards of one line shown here, on this computer only', async () => {
+  const { call, ops, core } = setup({ state: twiceState(), level: 'handsoff' });
+  assert.match((await call('manage_skills', { action: 'twice_dismiss', line: 'get:git-auth' })).text, /twice "get:git-auth" was not shown.*manage_skills action twice/);
+  const read = await call('manage_skills', { action: 'twice' });
+  assert.equal(read.isError, false, read.text);
+  assert.match(read.text, /2 "went wrong twice" line\(s\)/);
+  await call('get_computer_status', {});
+  assert.match((await call('manage_skills', { action: 'twice', computer: 'box2' })).text, /on this computer only/);
+  // A line with nothing to learn makes no draft card.
+  assert.match((await call('manage_skills', { action: 'twice_draft', line: 'doctor:other' })).text, /nothing to learn from this line yet/);
+  const d = await call('manage_skills', { action: 'twice_draft', line: 'get:git-auth' });
+  assert.ok(staged(d), d.text);
+  const card = cardText(core, d);
+  assert.match(card, /Make a skill draft from the line "This went wrong twice" for hoprig get on this computer: it waits in Skills → Learned, and nothing is installed until you install it there/);
+  assert.match(card, /What failed: hoprig get went wrong twice: git was not let into a repository\./);
+  assert.match(card, /What to do instead: Sign in to the git server, then run it again\./);
+  const x = await call('manage_skills', { action: 'twice_dismiss', line: 'get:git-auth' });
+  assert.ok(staged(x), x.text);
+  assert.match(cardText(core, x), /Hide the line "This went wrong twice" for hoprig get on Home of this computer, until it comes up again/);
+  assert.deepEqual(writes(ops), [], 'nothing before his yes, at Hands off too');
+  assert.equal((await core.confirm(d.card.id)).ok, true);
+  assert.equal((await core.confirm(x.card.id)).ok, true);
+  assert.deepEqual(ops.calls.filter((c) => c.op === 'fieldTwiceAct').map((c) => c.args), [{ computer: 'this', line: 'get:git-auth', act: 'draft' }, { computer: 'this', line: 'get:git-auth', act: 'dismiss' }]);
+  assert.equal(writes(ops).includes('skillApprove'), false, 'a draft installs nothing');
+});
+
+test('her door: cancel and undo with exactly their fields; the twice routes empty; learned skills stay his', () => {
+  const ctx = { caller: 'tia' };
+  const refused = (m, p, b) => assert.throws(() => checkRoute(m, p, b, ctx), (e) => e.status === 403, `${m} ${p} ${JSON.stringify(b)}`);
+  const id = 'a'.repeat(24);
+  assert.equal(checkRoute('POST', '/api/skillhub/cancel', { id }, ctx).tool, 'manage_skills cancel_review');
+  assert.equal(checkRoute('POST', '/api/skillhub/undo', { name: 'tdd' }, ctx).tool, 'manage_skills undo_update');
+  assert.equal(checkRoute('POST', '/api/skillhub/undo', { name: 'tdd', project: '/home/owner/projects/shop' }, ctx).tool, 'manage_skills undo_update');
+  assert.equal(checkRoute('GET', '/api/field/twice', undefined, ctx).tool.split(',')[0], 'manage_skills twice');
+  assert.equal(checkRoute('POST', '/api/field/twice/get:git-auth/dismiss', {}, ctx).tool, 'manage_skills twice_dismiss');
+  assert.equal(checkRoute('POST', '/api/field/twice/get:git-auth/draft', {}, ctx).tool, 'manage_skills twice_draft');
+  refused('POST', '/api/skillhub/cancel', {});
+  refused('POST', '/api/skillhub/cancel', { id: '../x' });
+  refused('POST', '/api/skillhub/cancel', { id, all: true });
+  refused('POST', '/api/skillhub/undo', { name: 'tdd', scope: 'user' });
+  refused('POST', '/api/skillhub/undo', { name: '../tdd' });
+  refused('POST', '/api/field/twice/get:git-auth/dismiss', { all: true });
+  refused('POST', '/api/field/twice/get:git-auth/draft', { words: 'x' });
+  refused('GET', '/api/field', undefined);
+  refused('POST', '/api/field/settings', {});
+  refused('POST', '/api/field/report/0123456789abcdef/send', {});
+  for (const a of ['install', 'discard', 'undo']) refused('POST', `/api/skills/learned/${id}/${a}`, {});
+  refused('GET', '/api/skills/learned', undefined);
+  refused('POST', '/api/skills/learned/look', { run: 'r' });
+});
+
+// The Updates page's "Restart now" as her card: only while an update of Hoprig waits for it.
+const restartWaits = (s, { builtIn = false, reopen = false } = {}) => {
+  s.updates.items.find((x) => x.id === 'hoprig').last = { ok: true, version: '0.9.1', at: 1, installed: false, restart: true, error: null };
+  s.settings.version = '0.9.0';
+  s.automation.restoreDefault = builtIn;
+  s.automation.restoreOn = reopen;
+  return s;
+};
+
+test('manage_computer restart_dashboard: a card with the versions, what happens to the sessions and her own turn; only his yes restarts', async () => {
+  const none = setup({ level: 'handsoff' });
+  const no = await none.call('manage_computer', { action: 'restart_dashboard' });
+  assert.equal(no.isError, true, 'no update waits: a plain refusal, no card');
+  assert.match(no.text, /no update of Hoprig waits for a restart on this computer/);
+  assert.ok(!none.core.cards.pending().length);
+  for (const [o, words] of [[{}, /Its sessions are kept by tmux: they go on through the restart/], [{ builtIn: true, reopen: true }, /built-in terminals, which end with the restart; "Reopen sessions after a restart" is on, so they come back/], [{ builtIn: true }, /is off, so they do not come back/]]) {
+    const { call, core, ops } = setup({ state: restartWaits(baseState(), o), level: 'handsoff' });
+    const r = await call('manage_computer', { action: 'restart_dashboard' });
+    assert.ok(staged(r), r.text);
+    assert.ok(!writes(ops).includes('restartDashboard'), 'nothing restarts before his yes, at Hands off too');
+    const card = core.cards.pending()[0].lines.join('\n');
+    assert.match(card, /Restart the dashboard of this computer to use the new version of Hoprig: it runs 0\.9\.0 now, and 0\.9\.1 is installed/);
+    assert.match(card, words);
+    assert.match(card, /own turn ends with the restart/);
+    assert.equal((await core.confirm(core.cards.pending()[0].id)).ok, true);
+    assert.deepEqual(ops.calls.filter((c) => c.op === 'restartDashboard').map((c) => c.args), [{ computer: 'this' }]);
+  }
+});
+
+test('her door: the restart takes no field; how updates run stays his', () => {
+  const ctx = { caller: 'tia' };
+  assert.equal(checkRoute('POST', '/api/updates/restart', {}, ctx).tool, 'manage_computer restart_dashboard');
+  assert.throws(() => checkRoute('POST', '/api/updates/restart', { force: true }, ctx), (e) => e.status === 403);
+  assert.throws(() => checkRoute('POST', '/api/updates/settings', { mode: 'auto' }, ctx), (e) => e.status === 403);
 });

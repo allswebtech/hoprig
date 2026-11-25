@@ -7,6 +7,8 @@
 //                                        brief written, or `seen`, the task's brief as shown (409 when it changed since)
 //   POST /api/work/items/<id>/accept { at }              a task in review is done
 //   POST /api/work/items/<id>/send-back { at, text }     open again; the text is added to the brief of the next run
+//   POST /api/work/items/<id>/remove-branch {}           the branch of its Do it runs and its worktree go, when no
+//                                        commit of it is only there and nothing is left uncommitted (else kept: why)
 //   GET  /api/work/runs?item=&project=&day=&id=          the runs, newest first (Activity, a task's runs; id: that one run)
 //   POST /api/work/command/do            `hoprig tasks do` on this computer: { id, brief? | seen?, project?, folder?,
 //                                        tool?, provider?, model?, effort?, dryRun? } with the command token (below)
@@ -24,6 +26,7 @@ import path from 'node:path';
 import { stateDir } from '../paths.mjs';
 import { ID_RE, PROJECT_RE, isYmd } from './model.mjs';
 import { RUN_ID_RE, cleanFolder } from './runs.mjs';
+import { runUse } from './runuse.mjs';
 
 export const COMMAND_PATH = '/api/work/command/do';
 // The token goes in a header of its own, not as a bearer: a bearer token is another computer's (src/machines).
@@ -66,10 +69,15 @@ export function cleanChoices(b) {
     out.seen = b.seen;
   }
   if (b.dryRun !== undefined && typeof b.dryRun !== 'boolean') throw fail(400, 'dryRun is true or false');
+  // In the project's folder itself, not on a branch of its own (the default for a git repository).
+  if (b.inFolder !== undefined && b.inFolder !== null) {
+    if (typeof b.inFolder !== 'boolean') throw fail(400, 'inFolder is true or false');
+    if (b.inFolder) out.inFolder = true;
+  }
   return out;
 }
 
-const CHOICES = ['brief', 'seen', 'project', 'folder', 'tool', 'provider', 'model', 'effort', 'dryRun'];
+const CHOICES = ['brief', 'seen', 'project', 'folder', 'tool', 'provider', 'model', 'effort', 'dryRun', 'inFolder'];
 
 /** A start names the brief its owner saw (seen) or wrote (brief): nothing starts on text nobody was shown. */
 function shownFirst(c, dryRun) {
@@ -117,6 +125,14 @@ export function doRoutes({ runs, readJson, refOf, ownerOnly, resume, learn = nul
       if (corrected) corrected('sent-back', out.item, b.text);
       return out;
     }],
+    ['POST', /^\/api\/work\/items\/([^/]+)\/remove-branch$/, async (req, m) => {
+      ownerOnly(req);
+      keys(await readJson(req), []);
+      if (!ID_RE.test(m[1])) throw fail(400, 'that is not an item id');
+      const out = await runs.removeBranch(m[1]);
+      if (!out) throw fail(404, 'this task has no branch of its own on this computer');
+      return out;
+    }],
     ['GET', /^\/api\/work\/runs$/, async (req, m, q) => {
       ownerOnly(req);
       const f = {};
@@ -139,7 +155,8 @@ export function doRoutes({ runs, readJson, refOf, ownerOnly, resume, learn = nul
       const list = runs.list(f);
       // Who did what (Lead model): read through workUnits (pulse.mjs), attached to the runs that had helpers.
       const parts = partsByRun && list.length ? await partsByRun().catch(() => new Map()) : new Map();
-      return { runs: list.map((r) => (parts.has(r.id) ? { ...r, parts: parts.get(r.id) } : r)) };
+      // What it used and what the cheaper way saved (runuse.mjs): from the run's record and that same card only.
+      return { runs: list.map((r) => ({ ...(parts.has(r.id) ? { ...r, parts: parts.get(r.id) } : r), use: runUse(r, parts.get(r.id) || null, r.billing || null) })) };
     }],
   ];
 }

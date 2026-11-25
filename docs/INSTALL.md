@@ -123,8 +123,9 @@ command.
 
 ### Not logged in to Claude yet?
 
-Setup says so in one line and carries on. Run `claude`, type `/login`, sign in in the browser, then run
-`hoprig setup` again.
+Setup says so in one line and carries on. Sign in on the dashboard: **Home → Get started → Sign in to Claude** (or
+**Computers → this computer → Setup**, the Claude login row's **Sign in**) opens Claude's sign-in page in your
+browser. In a terminal instead: run `claude`, type `/login`, sign in in the browser, then type `/exit`.
 
 ### Open it on your phone
 
@@ -174,7 +175,8 @@ to remove it too, see [its docs](https://code.claude.com/docs/en/setup).
 
 ### Troubleshooting
 
-Run:
+Open **Computers → this computer → Health** on the dashboard: the same checks as `hoprig doctor`, with a **Fix**
+button where one press can fix a problem (it shows what it runs and asks first). In a terminal:
 
 ```sh
 hoprig doctor
@@ -190,7 +192,7 @@ the computer alone. Common ones:
 |---|---|
 | `✗ Claude Code  not installed` | `hoprig setup` (or `hoprig claude install latest`) |
 | `! Claude Code ... its folder is not on PATH` | open a new terminal, or run `hoprig setup` (it remembers the full path) |
-| `✗ Claude login  not logged in` | `claude`, then type `/login` |
+| `✗ Claude login  not logged in` | **Home → Get started → Sign in to Claude** on the dashboard; in a terminal: `claude`, then type `/login` |
 | `✗ Dashboard password  not set` | `hoprig passwd` |
 | `✗ Terminal module (node-pty)` | the command shown: it builds the module, and on Linux installs the C++ build tools first when they are missing. The line says why it is not there (never built: npm 12; left out: no build tools when Hoprig was installed) |
 | `! Terminal module (node-pty)` with tmux | sessions run in tmux and take messages, but no terminal opens in the browser until the command shown has run |
@@ -199,7 +201,9 @@ the computer alone. Common ones:
 | `! ... can be read by other users` | the `chmod 700` command shown |
 | `✗ Settings file` | fix the JSON in the file shown, or move it away and run `hoprig setup` |
 
-On Linux, to keep the dashboard running while you are logged out: `sudo loginctl enable-linger $USER`.
+On Linux, to keep the dashboard running while you are logged out: open **Computers → this computer → Health** and
+press **Let them start after a restart** (it asks first; where sudo would ask for a password, the page shows the line
+to type). In a terminal: `sudo loginctl enable-linger $USER`.
 
 `hoprig doctor --json` gives the same as JSON (`{ ok, groups: [{ title, checks }] }`); `--offline` skips every
 network lookup.

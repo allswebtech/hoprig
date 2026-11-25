@@ -602,3 +602,40 @@ test('the routes answer the owner\'s page only, never Tia, a token or the server
   assert.equal(v.question, false, 'no address: nothing is asked');
   assert.deepEqual(await f.tick(), [], 'the tick sends nothing without "always"');
 });
+
+test('the "went wrong twice" lines: Tia\'s door reads them, and hides or drafts one only on his confirmed card for that line', async () => {
+  clearAll();
+  for (const d of listDrafts()) fs.rmSync(path.join(process.env.HOPRIG_STATE_DIR, 'skillhub', 'learned', 'drafts', d.id), { recursive: true, force: true });
+  for (let i = 0; i < 2; i++) report('get', 'git-auth', T0 + i * 1000);
+  for (let i = 0; i < 2; i++) report('drop', 'not-found', T0 + 2000 + i * 1000, [{ id: 'find', end: 'failed' }]);
+  const ctx = { caller: (req) => req.who, ownerCard: (req) => (req.who === 'self' && req.card) || null, readJson: async () => ({}) };
+  const f = fieldFeature(ctx);
+  const call = async (method, url, req) => {
+    const [, re, fn] = f.routes.find(([m, r]) => m === method && r.test(url));
+    return fn(req, url.match(re));
+  };
+  const card = (action, line, computer) => ({ id: 'c_1', tool: 'manage_skills', input: { action, line, ...(computer ? { computer } : {}) } });
+  const self = (c) => ({ who: 'self', headers: {}, ...(c ? { card: c } : {}) });
+  // The read: his page and her door; never a token or another computer.
+  assert.deepEqual((await call('GET', '/api/field/twice', self())).twice.map((l) => l.key).sort(), ['drop:not-found', 'get:git-auth']);
+  for (const req of [{ who: 'computer', headers: {} }, { who: 'page', headers: { authorization: 'Bearer tia_x' } }]) {
+    await assert.rejects(call('GET', '/api/field/twice', req), (e) => e.status === 403);
+  }
+  // A change through her door: refused without a card, with a card for another line, act or computer, or another tool.
+  const url = '/api/field/twice/get:git-auth/dismiss';
+  for (const c of [null, card('twice_dismiss', 'drop:not-found'), card('twice_draft', 'get:git-auth'), card('twice_dismiss', 'get:git-auth', 'box2'), { ...card('twice_dismiss', 'get:git-auth'), tool: 'manage_work' }]) {
+    await assert.rejects(call('POST', url, self(c)), (e) => e.status === 403, JSON.stringify(c));
+  }
+  await assert.rejects(call('POST', url, { who: 'computer', headers: {}, card: card('twice_dismiss', 'get:git-auth') }), (e) => e.status === 403);
+  assert.equal(twiceLines().length, 2, 'nothing was hidden');
+  // His confirmed card for exactly this line and act.
+  await call('POST', url, self(card('twice_dismiss', 'get:git-auth')));
+  assert.deepEqual(twiceLines().map((l) => l.key), ['drop:not-found']);
+  const d = await call('POST', '/api/field/twice/drop:not-found/draft', self(card('twice_draft', 'drop:not-found', 'this')));
+  assert.match(d.draft, /^[0-9a-f]{24}$/);
+  assert.equal(listDrafts().length, 1, 'one draft, and it is a draft only');
+  // His own page is as before.
+  await call('POST', '/api/field/twice/drop:not-found/dismiss', { who: 'page', headers: {} });
+  assert.deepEqual(twiceLines(), []);
+  for (const x of listDrafts()) await discard(x.id);
+});

@@ -1,0 +1,11 @@
+[
+  { "group": "system", "id": "made-up.admin", "label": "Made-up tool", "status": "fail", "detail": "not set up", "fix": "sudo made-up-admin-tool --fix" },
+  { "group": "system", "id": "made-up.plain", "label": "Made-up folder", "status": "warn", "detail": "open to others", "fix": "made-up-admin-tool --fix" },
+  { "group": "system", "id": "made-up.newline", "label": "Made-up two lines", "status": "fail", "detail": "two lines", "fix": "sudo made-up-admin-tool --fix\nmade-up-admin-tool --again" },
+  { "group": "system", "id": "made-up.return", "label": "Made-up return", "status": "fail", "detail": "a carriage return", "fix": "sudo made-up-admin-tool --fix\rmade-up-admin-tool --again" },
+  { "group": "system", "id": "made-up.escape", "label": "Made-up escape", "status": "fail", "detail": "an escape", "fix": "sudo made-up-admin-tool --fix\u001b[2J" },
+  { "group": "kit:made-up", "id": "made-up.kit", "label": "Made-up kit item", "status": "fail", "detail": "missing", "fix": "hoprig pc setup --kits made-up", "fixKit": "made-up" },
+  { "group": "system", "id": "made-up.fine", "label": "Made-up fine", "status": "ok", "detail": "fine", "fix": "" },
+  { "group": "system", "id": "identity", "label": "Commit name and e-mail", "status": "warn", "detail": "not set", "fix": "git config --global user.name made-up" },
+  { "group": "system", "id": "login", "label": "Claude login", "status": "fail", "detail": "not logged in", "fix": "claude   (then type /login; or: claude auth login)", "action": "claude-login" }
+]

@@ -352,16 +352,25 @@ export async function planCredentialsRepo({ dir = workspaceDir(), repo = null, g
   return { url, github: full, create, name: create ? full.split('/')[1] : typedName(url), steps, changes, head, repoHere, have: Boolean(have), recordOnly };
 }
 
+/** Said when the address is not GitHub's: the owner, not gh, says the repository is private. */
+export const NOT_GITHUB = 'This is not a GitHub address, so Hoprig cannot ask whether it is private: you confirm that it is.';
+
+/**
+ * The one comparison of what the owner typed with the repository's name (the command's typedYes and the Workspace
+ * page's route both call it): only the exact name, spaces around it aside. → true | false
+ */
+export const typedMatches = (said, name) => said !== null && said !== undefined && typeof name === 'string' && name !== '' && String(said).trim() === name;
+
 /** The typed confirmation: the cost said once, then the repository's name typed. → true only for the exact name. */
 export async function typedYes(ui, plan) {
   ui.out(`\n  ${COST}`);
-  if (!plan.github) ui.out('  This is not a GitHub address, so Hoprig cannot ask whether it is private: you confirm that it is.');
+  if (!plan.github) ui.out(`  ${NOT_GITHUB}`);
   if (!ui.interactive) {
     ui.line('info', 'nothing was done: this needs you at a terminal, to type the repository\'s name (no option skips it)');
     return false;
   }
   const said = await ui.ask(`  Type ${plan.name} to ${plan.github ? '' : 'confirm that it is private and to '}go ahead: `);
-  if (said === null || String(said).trim() !== plan.name) {
+  if (!typedMatches(said, plan.name)) {
     ui.line('info', 'nothing was done: what was typed is not the repository\'s name');
     return false;
   }

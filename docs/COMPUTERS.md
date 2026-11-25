@@ -142,6 +142,15 @@ stops. It works only from a browser on the computer the dashboard runs on; from 
 says so, and what to do. For a computer linked without SSH (by address or by the link it opened itself) the page says
 in one sentence that this dashboard cannot reach that page, and to open it in a browser on that computer.
 
+The link under a running gateway on the Providers page (its steps in Add provider) and on Settings → Add-ons (**Open
+its dashboard**) follows the same rule. Opened on a loopback name, the page links under a loopback name you are not
+signed in under; signed in under both, it says to sign out under one first. Opened by the computer's name or the
+public link, it shows no link but one sentence: the gateway's own page opens only in a browser on the computer the
+dashboard runs on, at its `127.0.0.1` address. On another computer's page it says that page opens only on that
+computer itself, and that for a computer added by SSH **Open its page** under that computer's Health opens it in a
+browser on the computer this dashboard runs on. The dashboard passes no request on to a gateway's own page: only
+Claude's API (`/gateway/<id>/v1/…`) goes through it, with a gateway key made here and while sharing is on.
+
 **A first password.** A gateway of your own can name a word of the line where it prints its first password (Add a
 gateway → More → *Its first password's line*, or `hoprig gateways add … --first-password <word>`). Then a start shows
 what it printed first on the page once (with Start's answer, or **Show what it printed first** when it was started

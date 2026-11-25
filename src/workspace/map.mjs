@@ -318,7 +318,7 @@ export function forget(name, dir = workspaceDir()) {
  *   unmapped  here, not in the map ("add it": workspace map)
  * → { exists, file, map, errors?, entries: [{ kind, label, url, path, state }], counts }
  */
-export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(), run = capture } = {}) {
+export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(), run = capture, blind } = {}) {
   const cur = readMap(dir);
   const base = { exists: cur.exists, file: mapFile(dir), map: cur.map };
   if (cur.errors) return { ...base, errors: cur.errors, entries: [], counts: {} };
@@ -409,7 +409,9 @@ export async function mapStatus({ dir = workspaceDir(), projects = projectsIn(),
   const duplicates = cur.exists ? onePlace(cur.map).map((d) => ({ entries: [d.a, d.b], fix: `hoprig workspace forget ${d.b}` })) : [];
   // A folder here left out of the map (leaveOutNew): named with what to do.
   const leftOut = kept.left.map((l) => ({ entry: l.ref, why: l.why, fix: 'rename or move one of the folders' }));
-  return { ...base, entries, counts, links, mylinks, blocked, duplicates, ...(leftOut.length ? { leftOut } : {}), groups: cur.exists ? await groupChecks(cur.map, dir, run) : [], saved: await mapSaved({ dir, run }) };
+  // A folder whose name differs from its entry only in letter case (caseOnly), and what can be undone here (mapcase.mjs).
+  const extras = await (await import('./mapcase.mjs')).statusExtras({ dir, projects, map: cur.exists ? cur.map : null, entries, blind });
+  return { ...base, entries, counts, links, mylinks, blocked, duplicates, ...(leftOut.length ? { leftOut } : {}), ...extras, groups: cur.exists ? await groupChecks(cur.map, dir, run) : [], saved: await mapSaved({ dir, run }) };
 }
 
 const writable = (d) => {

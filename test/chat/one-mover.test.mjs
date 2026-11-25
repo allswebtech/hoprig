@@ -115,6 +115,8 @@ const KNOWN = {
   'src/chat/engines/claude.mjs': { why: 'starts Claude Code on a conversation', not: [/fs\.rmSync\(this\.settingsFile, \{ force: true \}\)/, /^\s*rename\(title\) \{/, /\brename: true\b/] }, // its per-process settings file; the conversation's name told to the tool
   'src/chat/engines/claude-transcript.mjs': { why: 'reads a transcript' },
   'src/menu.mjs': { why: 'lists the conversations to continue' },
+  'src/work/sessionlog.mjs': { why: 'reads a session\'s conversation for its title, for the history; it moves and removes nothing there', not: [/fs\.renameSync\(tmp, file\)/] }, // its own log, written whole
+  'src/demo/work.mjs': { why: 'the demo: writes one made-up conversation with its helpers\' records under the demo\'s own home (who did what); it moves and removes nothing' },
   'src/work/pulsefiles.mjs': { why: 'reads the coding tool\'s workflow records beside a conversation, for progress; it moves and removes nothing' },
   'src/models/parts.mjs': { why: 'reads the helpers\' records beside a Lead chat\'s conversation, for who did what; it moves and removes nothing' },
   'src/codetools/stores.mjs': { why: 'reads each coding tool\'s conversations' },

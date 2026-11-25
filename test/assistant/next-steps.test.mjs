@@ -12,6 +12,7 @@ import { NEXT } from '../../src/assistant/next.mjs';
 import { Skills } from '../../src/assistant/skills.mjs';
 import { TOOLS } from '../../src/assistant/tools.mjs';
 import { FakeOps, baseState } from './fake-dashboard.mjs';
+import { withPlan } from './fake-work.mjs';
 
 const BUILTIN = new URL('../../skills', import.meta.url).pathname;
 const CID = '55555555-5555-4555-8555-555555555501';
@@ -22,6 +23,15 @@ const NONE = {};
 
 // An input that works for each act; `before`: the calls that show its ids first (ids come only from tool results);
 // `world`: a change to the stand-in's state for that act alone (not `state`: finish_job has a field of that name).
+// A mission of the shop with one task that waits in his review.
+const withMission = (s) => {
+  s.work.missions = [{ id: 'm-20261117-abc123', goal: 'Make the shop faster', project: 'shop', state: 'waits', why: null, total: { cost: 0.12, tokens: 9000, minutes: 7 },
+    tasks: [{ id: 'fix-the-cart-total', title: 'Fix the cart total', role: 'developer', state: 'review', why: null, tokens: 9000, minutes: 7, firstPass: true }], line: [] }];
+};
+// One "went wrong twice" line of Home that can make a draft (src/field/learn.mjs twiceLines).
+const withTwice = (s) => {
+  s.twice = [{ key: 'get:git-auth', kind: 'get', class: 'git-auth', count: 2, last: '2026-11-20T10:00:00.000Z', kindWords: 'hoprig get', words: 'git was not let into a repository', help: 'Sign in to the git server, then run it again.', command: 'hoprig pc setup', doc: null, draft: true }];
+};
 const SAMPLES = {
   list_sessions: {}, read_session: { session: 'api-fix' }, list_projects: {}, get_computer_status: { computer: 'this' },
   read_attention: {}, read_brain: {},
@@ -45,6 +55,7 @@ const SAMPLES = {
   // The add-on's id is the stand-in dashboard's own (no product's name in this test).
   'manage_computer addon': { addon: baseState().addons[0].id, addon_action: 'start' }, 'manage_computer public_link': { turn: 'off' },
   'manage_computer reboot': {}, 'manage_computer power_off': {},
+  'manage_computer restart_dashboard': { world: (s) => { s.updates.items.find((x) => x.id === 'hoprig').last = { ok: true, version: '0.9.1', restart: true }; } },
   'manage_project new': { name: 'blog' }, 'manage_project get': { spec: 'blog' }, 'manage_project sync': { project: 'shop' },
   'manage_project add_repository': { project: 'shop', repo: 'docs' },
   'manage_project install': { project: 'shop' }, 'manage_project create_folders': {},
@@ -64,10 +75,21 @@ const SAMPLES = {
   'manage_skills check_updates': {}, 'manage_skills review': { spec: 'pdf-tools' }, 'manage_skills update_review': { skill: 'tdd' },
   'manage_skills install': { review: 'r1', before: [['manage_skills', { action: 'review', spec: 'pdf-tools' }]] },
   'manage_skills remove': { skill: 'tdd' },
+  'manage_skills cancel_review': { review: 'r1', before: [['manage_skills', { action: 'review', spec: 'pdf-tools' }]] },
+  'manage_skills undo_update': { skill: 'tdd', world: (s) => { s.skills.user.skills[0].canUndo = true; } },
+  'manage_skills twice': { world: withTwice },
+  'manage_skills twice_dismiss': { line: 'get:git-auth', world: withTwice, before: [['manage_skills', { action: 'twice' }]] },
+  'manage_skills twice_draft': { line: 'get:git-auth', world: withTwice, before: [['manage_skills', { action: 'twice' }]] },
   'manage_work today': {}, 'manage_work list': {}, 'manage_work task': { task: 'renew-the-domain' }, 'manage_work mission': {},
   'manage_work goal': { goal: 'Make the shop site load faster.', project: 'shop' },
+  'manage_work fix_ids': { world: (s) => { s.work.items.push({ ...s.work.items[0] }); } },
+  'manage_work tidy': { world: (s) => { s.work.tidy = { alters: [{ kind: 'order', text: 'The keys of 2 tasks are put in their usual order.' }], diff: '-  "b": 1,\n+  "a": 1,', hash: 'c'.repeat(32) }; } },
+  'manage_work mission_stop': { mission: 'm-20261117-abc123', world: withMission },
+  'manage_work mission_add': { mission: 'm-20261117-abc123', task: 'call-the-bank', world: withMission },
+  'manage_work mission_tests': { mission: 'm-20261117-abc123', task: 'fix-the-cart-total', world: withMission, before: [['manage_work', { action: 'mission', mission: 'm-20261117-abc123' }]] },
   'manage_work run': { run: '20261117-101500-abcdef12', before: [['manage_work', { action: 'task', task: 'update-the-readme' }]] },
   'manage_work progress': {},
+  'manage_work plans': { world: withPlan }, 'manage_work plan': { plan: 'launch-the-shop', world: withPlan, before: [['manage_work', { action: 'plans' }]] },
   'manage_work add': { title: 'Write the release notes' }, 'manage_work edit': { task: 'renew-the-domain', title: 'Renew the domain today' },
   'manage_work done': { task: 'renew-the-domain' },
   'manage_work reopen': { task: 'renew-the-domain', before: [['manage_work', { action: 'done', task: 'renew-the-domain' }]] },

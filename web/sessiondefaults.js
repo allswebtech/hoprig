@@ -5,6 +5,7 @@ import { api, confirmSheet, fill, h, toast } from './lib.js';
 import { registerSettingsPage } from './registry.js';
 import { field, fold, panel, saveBar } from './shell.js';
 import { MODE } from './chat/words.js';
+import { helpParts } from './helpline.js';
 import { modelPicker } from './modelpicker.js';
 import { leadSwitch } from './leadswitch.js';
 import { store } from './store.js';
@@ -88,7 +89,9 @@ export function bypassPanel(state, changed) {
     h('label.toggle-line', box, h('span', 'Allow bypass permissions mode ', h('span.muted', '(it never asks you)'))),
     // A terminal started in bypass keeps its process until it ends; its next start (a move, a restore) is without it.
     !state.allow && state.terminals ? h('p.hint.bypass-terminals', `${state.terminals === 1 ? '1 terminal session still runs' : `${state.terminals} terminal sessions still run`} in bypass: it stays so until you end ${state.terminals === 1 ? 'it' : 'them'}; started again, ${state.terminals === 1 ? 'it starts' : 'they start'} without bypass.`) : null,
-    h('p.hint', 'Lets you choose Bypass permissions, where Claude Code runs commands and changes files without asking. Use it only for folders you could lose. (The Claude Code desktop app has this switch under Settings > Code.)'));
+    // The warning stands in the one line; the rest is under "More" (helpline.js).
+    ...helpParts({ line: 'Claude Code then runs commands and changes files without asking: use it only for folders you could lose.',
+      more: 'It lets you choose Bypass permissions as a session\'s mode. The Claude Code desktop app has this switch under Settings > Code.' }, { tag: 'p.hint' }));
 }
 
 /**
@@ -109,7 +112,8 @@ export function titlesPanel(settings) {
   } });
   return panel({ icon: 'text', title: 'Session names', desc: 'How a new App session gets its name.' },
     h('label.toggle-line', box, h('span', 'Name sessions with a short title')),
-    h('p.hint', 'After its first reply, a session asks its own provider for a short title, as Claude Code does in a terminal: one small request. Off, a session keeps its first words as its name until you rename it.'));
+    ...helpParts({ line: 'After its first reply, a session asks its own provider for a short title: one small request.',
+      more: 'Claude Code does the same in a terminal. Off, a session keeps its first words as its name until you rename it.' }, { tag: 'p.hint' }));
 }
 
 /** The query of an address such as "#/settings/new-sessions?show=folders". */

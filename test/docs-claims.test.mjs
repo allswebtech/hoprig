@@ -251,10 +251,11 @@ test('the Operator line: one recommended step, nothing without a tap unless a ru
   assert.doesNotMatch(what, /your own part/);
 });
 
-test('Work, what is not there yet: every run that ends by itself gets a branch; the OKs are on the dashboard', async () => {
-  // A run that ends by itself works on a branch of its own (alone.mjs), never the default branch.
+test('Work, what is not there yet: Do it has a branch of its own now; the OKs are on the dashboard', async () => {
+  // A run of Do it, like a run that ends by itself, works on a branch of its own (alone.mjs branchOf), never the default branch.
   const { branchOf } = await import('../src/work/alone.mjs');
   assert.equal(branchOf('T-12 fix login'), 'work/t-12-fix-login');
+  assert.match(read('src/work/doit.mjs'), /const asked = branchOf\(id\);/);
   // A session that waits for an OK is an item of the Operator; Today's view of the task list has no sessions in it
   // (the page adds them), and `hoprig tasks` prints that view.
   const { detectAsks } = await import('../src/operator/detect/asks.mjs');
@@ -266,7 +267,7 @@ test('Work, what is not there yet: every run that ends by itself gets a branch; 
   assert.match(read('web/work.js'), /const list = store\.all\.flatMap\(\(m\) => m\.sessions \|\| \[\]\)\.filter\(needsYou\)/);
   const item = flat(/- \*\*Work, what is not there yet\*\*[\s\S]*?(?=\n- \*\*)/.exec(section('Not built, or not proven yet'))[0]);
   assert.doesNotMatch(item, /\(only a run/);
-  assert.match(item, /not on a branch of its own\. A run that ends by itself \(a task run by AI at a set time, or a schedule's AI run\) gets a branch of its own\./);
+  assert.doesNotMatch(item, /not on a branch of its own/);
   assert.match(item, /The sessions that need an OK are shown on the dashboard \(Today, Home, the Operator\), not in `hoprig tasks`\./);
 });
 
@@ -795,10 +796,15 @@ test('the README says dragging between two Files windows is not built, and the F
   assert.doesNotMatch(files, /dragstart|draggable|setData\(/);
 });
 
-// README.md:788-791 Ctrl+C before the start line is read: the unused start file goes after ten minutes
-test('the README says an unused start file is removed after ten minutes', () => {
-  assert.match(notBuilt(), /its unused start file is removed after ten minutes/);
-  assert.match(read('src/launchfile.mjs'), /^const LEFT_MS = 10 \* 60_000;$/m);
+// A Ctrl+C before the coding tool ran is mended (src/server/deck.mjs #stopped, test/server/startstopped.test.mjs): the
+// list says it no more. A launcher killed hard: its record lives by the launcher's pid alone, and a hook writes no gone record.
+test('the README no longer lists a stopped start as running, and says what a launcher killed hard leaves', () => {
+  assert.doesNotMatch(notBuilt(), /Ctrl\+C|start line|unused start file/);
+  assert.match(read('src/server/deck.mjs'), /if \(!note\.launch \|\| !t \|\| !atPrompt\(t\.pid\)\) return void \(note\.front = 0\);/);
+  assert.match(notBuilt(), /- \*\*A `hop` launcher that is killed hard while its coding tool goes on\*\*: Hoprig keeps a terminal session's record while its launcher runs, so after a `kill -9` of the launcher that terminal reads as a plain terminal, what the coding tool does and asks is not shown, and its conversation counts as free: Hoprig does not stop the App or another terminal from starting a second process on it\./);
+  assert.match(read('src/runs.mjs'), /^\/\/ {3}pid {8}the launcher's process id \(the file is stale once this process is gone\)$/m);
+  assert.match(read('src/procid.mjs'), /const live = list\.map\(\(\{ run \}\) => Number\.isInteger\(run\.pid\) && alive\(run\.pid\)\);/);
+  assert.match(read('src/runfile.mjs'), /const run = readRun\(file\);\n\s+if \(!run\) return null;/);
 });
 
 // README.md:792-793 on Windows a second temporary address without a process identity is ended by hand

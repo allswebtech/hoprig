@@ -10,6 +10,7 @@ model-unknown: opus/high
 allow: Read,Glob,Grep,Edit,Write
 deny: NotebookEdit,Bash,WebFetch,WebSearch,Task
 never: push, merge, delete or move a branch other than its own, weaken a test to make it pass, ask the owner directly
+runs: tests,build,scripts
 check: tests
 readonly: no
 ---

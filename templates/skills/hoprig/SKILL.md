@@ -3,7 +3,7 @@ name: hoprig
 description: "Use Hoprig on this computer: check the setup, see sessions, providers and usage limits, continue a session on another provider after a limit, keep the user's tasks, get projects into the workspace, manage other computers and skills. Use when the user mentions Hoprig or hop, a usage limit, another provider or account, continuing a session elsewhere, the dashboard, their tasks, or setting up this computer or a project, and whenever a file, a note or a command line names hop or hoprig commands."
 license: Apache-2.0
 metadata:
-  version: "0.3.3"
+  version: "0.3.4"
   generated-by: "tools/build-skill.mjs in the Hoprig repository"
 ---
 
@@ -13,6 +13,8 @@ Hoprig runs coding tools (Claude Code, OpenCode) under several providers (Claude
 gateways) with one shared session store, continues a session on another provider when one reaches its usage limit,
 keeps a workspace of git repositories, and has a web dashboard that also shows other computers.
 The command is `hoprig`, or `hop` for short.
+
+If a skill named hoprig-learned is installed, read it too: it holds what was learned about using Hoprig on this computer.
 
 ## What it can do for your own work here
 
@@ -74,7 +76,7 @@ Skills → Learned and installs or discards; nothing is used before that, and th
 
 ## Every command and option
 
-This skill is Hoprig 0.3.3's. The commands: `hop profiles`, `hop add`, `hop rm`, `hop auto`, `hop chat`, `hop opencode`, `hop setup`, `hop doctor`, `hop claude`, `hop update`, `hop tools`, `hop pc`, `hop get`, `hop project`, `hop drop`, `hop adopt`, `hop sessions`, `hop workspace`, `hop sync`, `hop tasks`, `hop ship`, `hop skills`, `hop addons`, `hop gateways`, `hop public`, `hop link`, `hop pair`, `hop tokens`, `hop machines`, `hop join`, `hop serve`, `hop passwd`, `hop service`, `hop mcp`, `hop field`, `hop move-to-user`, `hop box`, `hop demo`.
+This skill is Hoprig 0.3.4's. The commands: `hop profiles`, `hop add`, `hop rm`, `hop auto`, `hop chat`, `hop opencode`, `hop setup`, `hop doctor`, `hop claude`, `hop update`, `hop tools`, `hop pc`, `hop get`, `hop project`, `hop drop`, `hop adopt`, `hop sessions`, `hop workspace`, `hop sync`, `hop tasks`, `hop ship`, `hop skills`, `hop addons`, `hop gateways`, `hop public`, `hop link`, `hop pair`, `hop tokens`, `hop machines`, `hop join`, `hop serve`, `hop passwd`, `hop service`, `hop mcp`, `hop field`, `hop move-to-user`, `hop box`, `hop demo`.
 Read [references/commands.md](references/commands.md) before you type a command you have not used here, when a
 command answers with "usage", or when the user asks what an option does: it is every command's own help as this
 version prints it. On this computer `hop help`, and `hop <command> --help` for each command above, print the same.

@@ -134,7 +134,10 @@ test('setup --yes: profile, password file, network access, no questions; a secon
   assert.equal(loadConfig().server.host, '0.0.0.0', 'the default answer: devices on my network');
   assert.doesNotMatch(first.rec.text, new RegExp(fs.readFileSync(pwFile, 'utf8').trim()), 'the password itself is never printed');
   assert.match(first.rec.text, /Password, if asked: in .*dashboard-password\.txt/);
-  assert.match(first.rec.text, /Add another provider: hoprig add/);
+  // The dashboard's press first, in the page's own names; the command only as the other way.
+  assert.match(first.rec.text, /^ {2}Add another provider: on the dashboard, Providers → Add provider \(or: hoprig add\)$/m);
+  assert.match(first.rec.text, /^ {2}Check everything: on the dashboard, Computers → this computer → Health \(or: hoprig doctor\)$/m);
+  assert.doesNotMatch(first.rec.text, /Check everything: hoprig doctor|Add another provider: hoprig add/);
   assert.ok(first.rec.text.split('\n').length < 60, 'fits on one screen');
 
   // Plain setup, interactive, everything decided: not one question.
@@ -192,7 +195,7 @@ test('not logged in: one line, and setup goes on', async () => {
   const end = rec.text.slice(rec.text.indexOf('Still yours to do:'));
   assert.ok(rec.text.indexOf('Still yours to do:') > rec.text.indexOf('is ready'), 'after everything else');
   // (A first run in this home also lists the new terminal: set-up just put ~/.local/bin on PATH in its start files.)
-  assert.deepEqual(end.trim().split('\n').slice(1).map((l) => l.trim()).filter((l) => !l.startsWith('· A new terminal')), ['· Sign in to Claude Code: run claude, then type /login']);
+  assert.deepEqual(end.trim().split('\n').slice(1).map((l) => l.trim()).filter((l) => !l.startsWith('· A new terminal')), ['· Sign in to Claude Code: On the dashboard: Home → Get started → Sign in to Claude. Or only here, on this computer: run claude, then type /login']);
   assert.equal(rec.text.split('type /login').length - 1, 1, `said once:\n${rec.text}`); // (the dashboard's own link has /login too)
 });
 
@@ -212,9 +215,9 @@ test('one closing list "Still yours to do": every step that leaves something add
   assert.equal(rec.text.split('Still yours to do:').length, 2, 'one list');
   const list = rec.text.slice(at).trim().split('\n').slice(1).map((l) => l.trim());
   assert.deepEqual(list, [
-    '· Your name and e-mail for commits: git config --global user.name "Your Name" && git config --global user.email you@example.com',
-    '· Sign in to GitHub: gh auth login',
-    '· Sign in to Claude Code: run claude, then type /login',
+    '· Your name and e-mail for commits: On the dashboard: Home → Get started → Set up git and GitHub. Or only here, on this computer: git config --global user.name "Your Name" && git config --global user.email you@example.com',
+    '· Sign in to GitHub: On the dashboard: Home → Get started → Set up git and GitHub. Or only here, on this computer: gh auth login',
+    '· Sign in to Claude Code: On the dashboard: Home → Get started → Sign in to Claude. Or only here, on this computer: run claude, then type /login',
     '· A new terminal, so every new program and the hoprig command are found: open a new terminal (or log in again)',
   ]);
   const before = rec.text.slice(0, at);

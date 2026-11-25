@@ -4,6 +4,8 @@
 // the brief without them back in the box. The kind is his hint (the AI's fit decides it from the brief); the scope is
 // the whole product or the set-up only. Both show once there is a brief: without one they mean nothing. The session's
 // choices are Work's "Do it" ones: the coding tool (when there is a choice), the provider, the model and the effort.
+// "Add the New Project skill" is ticked at first (every new project gets it); a project made from a brief keeps it.
+// "Add skills that fit its technology" is ticked at first too: the choice is kept per project (src/skillhub/fit.mjs).
 import { api, btn, fill, h, link } from './lib.js';
 import { radioCards } from './shell.js';
 
@@ -215,9 +217,48 @@ export function startLater(st, m, err = null) {
   return holder;
 }
 
-/** The lines "What it creates" adds for a brief: the skill and the brief (a project without a brief gets neither). */
-export const willLines = (st) => (!st.brief || !st.brief.trim() ? [] : [
-  h('li', 'The new-project skill (in .claude/skills), which every coding tool that opens the project finds: how to set a project up from a brief.'),
-  h('li', 'Your brief, kept exactly as you wrote it, as ', h('strong', 'docs/brief.md'), ', and in decisions.md ', st.kind ? `your hint for the kind ("${kindLabel(st.kind)}") and ` : '', `what the AI builds (${(SCOPES.find(([k]) => k === (st.scope || 'product')) || SCOPES[0])[1].replace(/^The /, '')}).`),
-]);
+const briefIn = (st) => Boolean(String(st.brief || '').trim());
+
+/**
+ * The lines "What it creates" adds: the skill (unless he unticked it, which only a project without a brief can) and,
+ * with a brief, the brief.
+ */
+export const willLines = (st) => [
+  briefIn(st) || st.skill !== false ? h('li', 'The New Project skill (in .claude/skills), which every coding tool that opens the project finds: how to set a project up from a brief', briefIn(st) ? '.' : ', for when you write one.') : null,
+  briefIn(st) ? h('li', 'Your brief, kept exactly as you wrote it, as ', h('strong', 'docs/brief.md'), ', and in decisions.md ', st.kind ? `your hint for the kind ("${kindLabel(st.kind)}") and ` : '', `what the AI builds (${(SCOPES.find(([k]) => k === (st.scope || 'product')) || SCOPES[0])[1].replace(/^The /, '')}).`) : null,
+].filter(Boolean);
+
+/** The fit's box, in the words that say what it does (a test holds them). */
+export const FIT_WORDS = 'Add skills that fit its technology: text-only skills from your own and from the reviewed catalog go in by themselves, with Undo; anything else waits for you.';
+
+/**
+ * The project's own choices in the first step: "Add the New Project skill", ticked at first. A project made from a brief
+ * is set up with it, so with a brief it stays ticked. st.skill: false once he unticked it. → the element, with sync():
+ * the box again after the brief changed, in place (the keyboard's focus stays where it is).
+ */
+export function optionsPart(st) {
+  const say = h('span');
+  const box = h('input', { type: 'checkbox', name: 'np-skill', onchange: (e) => (st.skill = e.target.checked) });
+  const sync = () => {
+    box.checked = briefIn(st) || st.skill !== false;
+    box.disabled = briefIn(st);
+    say.textContent = briefIn(st) ? ': a project made from a brief is set up with it.'
+      : ': how to set the project up from a brief, for when you write one. Every coding tool that opens the project finds it.';
+  };
+  sync();
+  const fitBox = h('input', { type: 'checkbox', name: 'np-fit', checked: st.fit !== false, onchange: (e) => (st.fit = e.target.checked) });
+  const [fitHead, fitRest] = FIT_WORDS.split(/: (.*)/s);
+  const el = h('div.np-options',
+    h('label.np-switch', box, h('span', h('strong', 'Add the New Project skill'), h('span.hint', say))),
+    h('label.np-switch', fitBox, h('span', h('strong', fitHead), h('span.hint', `: ${fitRest}`))));
+  el.sync = sync;
+  return el;
+}
+
+/** The preview's query after the name: what the project will get (the brief, the skill left out). */
+export const previewQuery = (st) => (briefIn(st) ? '&brief=1' : st.skill === false ? '&skill=0' : '');
+
+/** The body of POST /api/pcsetup/project/new; extra: the git name and e-mail when the page asked for them. */
+export const newBody = (st, extra = {}) => ({ name: st.name, github: st.github, ...extra, fit: st.fit !== false,
+  ...(briefIn(st) ? { brief: st.brief, scope: st.scope || 'product', ...(st.kind ? { kind: st.kind } : {}) } : st.skill === false ? { skill: false } : {}) });
 

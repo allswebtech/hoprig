@@ -14,8 +14,18 @@ export const MISSION_WORDS = { planning: 'Planning', running: 'Working', waiting
 export const TASK_WORDS = { queued: 'Waiting its turn', running: 'A session works on it', review: 'Ready for your review', done: 'Done', his: 'Yours to look at', failed: 'Failed', dropped: 'Dropped', stopped: 'Stopped' };
 const MISSION_ICONS = { planning: 'sparkle', running: 'play', waiting: 'clock', paused: 'power', done: 'check', waits: 'bell', failed: 'alert', stopped: 'stop' };
 const ROLE_WORDS = { developer: 'Developer', reviewer: 'Reviewer', tester: 'Tester', researcher: 'Researcher', writer: 'Writer', ops: 'Ops' };
-const ROLE_SUBS = { developer: 'writes the change and its tests', reviewer: 'reads another session\'s work and says pass or fix; it cannot write', tester: 'writes and repairs tests; it cannot run them', researcher: 'finds things out in the project and writes them down', writer: 'writes documents', ops: 'writes down what would have to be run, step by step; it cannot run it' };
+const ROLE_SUBS = { developer: 'writes the change and its tests', reviewer: 'reads another session\'s work and says pass or fix; it cannot write', tester: 'writes and repairs tests', researcher: 'finds things out in the project and writes them down', writer: 'writes documents', ops: 'writes down what would have to be run, step by step' };
+/** With no box on this computer, what the roles' run lines come to (the server's answer `box`). */
+export const noBoxWords = (box) => {
+  const why = String(box.why || '').replace(/^no box on this computer:?\s*/, '');
+  return `This computer has no box${why || box.step ? ` (${[why, box.step].filter(Boolean).join(': ')})` : ''}, so no role runs anything while it works; the check runs the tests where a box is.`;
+};
 export const NUMBERS_WORDS = 'Tokens: what the coding tool counted for every run of a task (the work, its reviews, its fixes). Minutes: time on the clock. First time: its check and its review passed with no fix. Cost: the coding tool\'s own cost line.';
+// Auto per project (src/mission/auto.mjs): what the switch will do, in plain words, said where he turns it on.
+export const AUTO_LABEL = 'Tia starts this project\'s ready tasks by herself';
+export const AUTO_ON_WORDS = 'On: a task of this project that is ready (for the AI or one of her roles, no run time of yours, its date has come, the tasks it waits for are done, not added by another program) is started by her as a mission of its own, one at a time, within your limits below. Each start is in Work \u2192 Activity; End on its mission stops it, and she never takes that task by herself again. Off while Tia is set to Ask me.';
+export const AUTO_OFF_WORDS = 'Off: she starts only the tasks of plans you accept.';
+export const END_WORDS = 'Its session is stopped now, and Tia never starts this task by herself again. The task stays open in Work for you.';
 const ORDER_WORDS = 'Tia uses only the providers you allow here, in this order, and moves to the next one at a usage limit. Gateways and API keys go first; a subscription is used only when you add it here, since a subscription is meant for a person at the keyboard.';
 
 const tokens = (n) => (Number(n) || 0).toLocaleString('en');
@@ -25,6 +35,7 @@ const RUN_WHO = { work: 'Its session', review: 'Its review', fix: 'Its fix' };
 const goingWords = (r) => `${RUN_WHO[r.kind] || 'Its session'} runs${r.startedAt ? ` for ${Math.max(0, Math.round((Date.now() - Date.parse(r.startedAt)) / 60_000))} min` : ''}${r.budget ? `, may spend up to ${money(r.budget)}` : ''}`;
 const firstWords = (v) => (v === true ? 'Yes' : v === false ? 'No, it needed a fix' : 'Not yet');
 const enc = encodeURIComponent;
+export const AUTO_BY = 'Started by Tia (Auto)';
 export const missionHref = (id) => `#/work/mission/${enc(id)}`;
 const badge = (state) => h(`span.badge.ms-badge.ms-${state}`, icon(MISSION_ICONS[state] || 'info', { size: 12 }), MISSION_WORDS[state] || state);
 
@@ -41,7 +52,7 @@ export function offBar(s, after, { steps = [], turnOn = null } = {}) {
         : h('a.btn.secondary.small', { href: '#/work/team' }, 'Her switches on Team'));
   }
   return h('div.banner.ok-box.ms-offbar', icon('zap', { size: 18 }),
-    h('span', h('strong', 'Tia is ON. '), 'She starts the tasks of plans you accept, in the projects you turned on, within your limits.'),
+    h('span', h('strong', 'Tia is ON. '), 'She starts the tasks of plans you accept, in the projects you turned on, and where you turned Auto on, their ready tasks, within your limits.'),
     btn('danger small', { icon: 'power', label: 'Tia OFF', dataset: { key: 'tia-off' }, onclick: async (e) => {
       e.currentTarget.disabled = true;
       try {
@@ -93,9 +104,9 @@ function missionRow(m) {
   const facts = [`${m.tasks.length} task${m.tasks.length === 1 ? '' : 's'}`, c.done ? `${c.done} done` : null, c.waits ? `${c.waits} wait${c.waits === 1 ? 's' : ''} for you` : null, c.failed ? `${c.failed} failed` : null, money(m.total.cost)].filter(Boolean).join(' · ');
   const face = m.face || m.state;
   // One name for the whole row, with its parts apart: a screen reader reads the parts' text joined with no space.
-  return h('a.row.ms-row', { href: missionHref(m.id), dataset: { key: `mission:${m.id}` }, 'aria-label': `${m.goal}, ${MISSION_WORDS[face] || face}, ${m.project}, ${facts}${m.why ? `. ${m.why}` : ''}` },
+  return h('a.row.ms-row', { href: missionHref(m.id), dataset: { key: `mission:${m.id}` }, 'aria-label': `${m.goal}, ${MISSION_WORDS[face] || face}, ${m.project}, ${facts}${m.auto ? `. ${AUTO_BY}` : ''}${m.why ? `. ${m.why}` : ''}` },
     h('span.row-icon', icon(MISSION_ICONS[m.face || m.state] || 'info')),
-    h('span.row-main', h('span.row-title.ms-goal', m.goal), h('span.row-sub', badge(m.face || m.state), h('span', `${m.project} · ${facts}`)), m.why ? h('span.row-sub.ms-why', m.why) : null),
+    h('span.row-main', h('span.row-title.ms-goal', m.goal), h('span.row-sub', badge(m.face || m.state), h('span', `${m.project} · ${facts}`)), m.auto ? h('span.row-sub.ms-auto-by', AUTO_BY) : null, m.why ? h('span.row-sub.ms-why', m.why) : null),
     h('span.row-end', icon('chevronRight', { size: 18 })));
 }
 
@@ -121,9 +132,11 @@ function teamPart(d) {
   const cell = (label, value) => h('div.ms-num', h('span.ms-num-v', value), h('span.ms-num-l', label));
   return h('section.wk-section', groupHead('The team', d.team.length),
     h('p.hint.ms-hint', 'Each task is done by one session with a role, and checked by a reviewer session that did not write it. ', NUMBERS_WORDS),
+    d.box && d.box.ok === false ? h('p.hint.ms-hint.ms-nobox', noBoxWords(d.box)) : null,
     h('div.ms-roles', d.team.map((r) => h(`div.card.ms-role${r.on ? '' : '.ms-off'}`,
       h('div.ms-role-head', h('strong', ROLE_WORDS[r.role] || r.role), h(`span.badge.soft${r.on ? '' : '.ms-offtag'}`, r.on ? 'On' : 'Off')),
       h('p.hint.ms-role-sub', ROLE_SUBS[r.role] || ''),
+      r.may ? h('p.hint.ms-role-may', r.may) : null,
       h('div.ms-nums',
         cell(r.role === 'reviewer' ? 'tasks looked at' : 'tasks', String(r.tasks)),
         r.role === 'reviewer' ? cell('reviews', String(r.runs)) : cell('first time', r.judged ? `${r.passedFirst} of ${r.judged}` : '—'),
@@ -145,12 +158,17 @@ function settingsPart(d, reload, open) {
     }
   };
   const projects = (d.projects || []).map((p, i) => {
-    const ps = s.projects[p] || { on: false, test: null };
+    const ps = s.projects[p] || { on: false, auto: false, test: null, build: null };
+    const words = (el) => (el.value.trim() ? el.value.trim().split(/\s+/) : null);
     const test = h('input.field.ms-test', { type: 'text', dataset: { key: `test:${p}` }, value: (ps.test || []).join(' '), placeholder: 'npm test', 'aria-label': `The test command of ${p}`, spellcheck: false });
+    const build = h('input.field.ms-test', { type: 'text', dataset: { key: `build:${p}` }, value: (ps.build || []).join(' '), placeholder: 'npm run build', 'aria-label': `The build command of ${p}`, spellcheck: false });
     return h('div.ms-project',
-      toggle(p, ps.on, (v) => save({ projects: { [p]: { on: v, test: ps.test } } }), ps.on ? 'Tia works on this by herself.' : 'Off: its goals are plans you start yourself.', { key: `project:${p}`, ...(i === 0 ? { step: 'project' } : {}) }),
+      toggle(p, ps.on, (v) => save({ projects: { [p]: { on: v, test: ps.test, build: ps.build || null } } }), ps.on ? 'Tia works on this by herself.' : 'Off: its goals are plans you start yourself.', { key: `project:${p}`, ...(i === 0 ? { step: 'project' } : {}) }),
+      // Auto: shown only where her switch for the project is on (off there, it is off too).
+      ps.on ? h('div.ms-auto', toggle(AUTO_LABEL, ps.auto === true, (v) => save({ projects: { [p]: { on: true, auto: v, test: ps.test } } }), ps.auto ? AUTO_ON_WORDS : AUTO_OFF_WORDS, { key: `auto:${p}` })) : null,
       h('div.ms-test-row', field('Its test command', test, 'A code task passes its check only when this ends well in its branch. Words split by spaces; no shell.'),
-        btn('small secondary', { label: 'Save', dataset: { key: `save:${p}` }, onclick: () => save({ projects: { [p]: { on: ps.on, test: test.value.trim() ? test.value.trim().split(/\s+/) : null } } }).then(() => toast('Saved')).catch(() => {}) })));
+        field('Its build command', build, 'What a role that may run the build runs, in the box. Empty: no build.'),
+        btn('small secondary', { label: 'Save', dataset: { key: `save:${p}` }, onclick: () => save({ projects: { [p]: { on: ps.on, test: words(test), build: words(build) } } }).then(() => toast('Saved')).catch(() => {}) })));
   });
   // The providers: the allowed ones in his order (with "up"), then the others.
   const known = d.providers || [];
@@ -346,8 +364,9 @@ export function viewMission(content, id) {
     if (key === drawn) return;
     drawn = key;
     // Only the dashboard that runs a mission can stop it: another's says where it is stopped.
-    const stop = ended || m.mine === false ? null : btn('secondary small', { icon: 'stop', label: 'Stop this mission', dataset: { key: 'stop' }, onclick: async () => {
-      if (!(await confirmSheet({ title: 'Stop this mission?', text: d.settings.offStops ? 'Nothing more of it starts, and its sessions that run are stopped.' : 'Nothing more of it starts; its sessions that run go to their end.', ok: 'Stop it', danger: true }))) return;
+    // A mission Tia started by herself (Auto) is ended: its session stops at once and Auto never takes its task again.
+    const stop = ended || m.mine === false ? null : btn('secondary small', { icon: 'stop', label: m.auto ? 'End' : 'Stop this mission', dataset: { key: 'stop' }, onclick: async () => {
+      if (!(await confirmSheet(m.auto ? { title: 'End this mission?', text: END_WORDS, ok: 'End it', danger: true } : { title: 'Stop this mission?', text: d.settings.offStops ? 'Nothing more of it starts, and its sessions that run are stopped.' : 'Nothing more of it starts; its sessions that run go to their end.', ok: 'Stop it', danger: true }))) return;
       try {
         await api(`/api/work/missions/${enc(id)}/stop`, {});
       } catch (e) {
@@ -359,6 +378,7 @@ export function viewMission(content, id) {
     const sum = h('div.card.ms-sum',
       h('div.ms-sum-head', badge(m.face || m.state), h('span.ms-sum-project', m.project), stop),
       h('h2.ms-title', m.goal),
+      m.auto ? h('p.hint.ms-auto-by', `${AUTO_BY}: it was a ready task of ${m.project}. End stops it, and she never takes this task by herself again.`) : null,
       !ended && m.mine === false ? h('p.hint.ms-elsewhere', 'Started by another dashboard on this computer; stop it there.') : null,
       // Why it waits or stopped; a mission that waits for him says so in its lines below already.
       m.why && m.state !== 'waits' ? h('p.ms-why-line', m.why) : null,

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "about": "Public repositories whose skill folders the weekly look reads for new skills that fit your projects. A hub's skill is only offered (\"Worth adding\" on the Skills page): it is reviewed in full and added only when you press Add. Only skills are taken from a hub, never its tools or code.",
+  "hubs": [
+    {
+      "id": "hermes-agent",
+      "name": "Hermes Agent",
+      "repo": "NousResearch/hermes-agent",
+      "url": "https://github.com/NousResearch/hermes-agent",
+      "folders": ["skills", "optional-skills"],
+      "license": "MIT",
+      "notice": "Copyright (c) 2025 Nous Research"
+    }
+  ]
+}

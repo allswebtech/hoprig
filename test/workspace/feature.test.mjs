@@ -33,7 +33,7 @@ test('routes: login needed, setup, index, one item; ids only; secrets masked', a
     const st = await get('/api/workspace');
     assert.equal(st.status, 200);
     assert.equal(st.body.exists, false);
-    assert.equal(st.body.folders.length, 7);
+    assert.equal(st.body.folders.length, 8);
 
     assert.equal((await post('/api/workspace/setup', {}, 'http://evil.example')).status, 403);
     assert.equal((await post('/api/workspace/setup', { dryRun: 'yes' })).status, 400);

@@ -62,7 +62,7 @@ const links = (n) => (n instanceof FakeText ? [] : [...(n.attrs && n.attrs.href 
 
 const { machine } = await import('../../web/lib.js');
 const { canDoIt, runLineKind } = await import('../../web/workitems.js');
-const { RUN_WORDS, keepFocus, runCard, sessionLink, usableFilter } = await import('../../web/workdo.js');
+const { RUN_WORDS, keepFocus, runCard, sessionLink } = await import('../../web/workdo.js');
 const { unsavedText, watching } = await import('../../web/work.js');
 
 const run = (x = {}) => ({
@@ -112,12 +112,6 @@ test('a run of another computer: no session to open here; a session link keeps t
     machine.set(null);
   }
   assert.equal(sessionLink('abc'), '#/chat/abc');
-});
-
-test('Activity\'s filter: a project or day no run has any more is let go, so the runs show again', () => {
-  const runs = [run({ project: 'shop', day: '2026-11-17' }), run({ project: 'blog', day: '2026-11-16' })];
-  assert.deepEqual(usableFilter({ project: 'oldshop', day: '2026-01-01' }, runs), { project: '', day: '' });
-  assert.deepEqual(usableFilter({ project: 'blog', day: '2026-11-17' }, runs), { project: 'blog', day: '2026-11-17' });
 });
 
 test('the page looks again by itself only while a session of this computer works', () => {
@@ -281,11 +275,11 @@ test('a schedule that runs by itself offers editing files in its own copy betwee
   assert.match(src, /\['acceptEdits', 'Edit files in its own copy'\]/);
 });
 
-test('Work → Activity shows what the automations did also before Work has its folder', () => {
+test('Work → Activity shows the history (what the automations did among it) also before Work has its folder', () => {
   const src = fs.readFileSync(new URL('../../web/work.js', import.meta.url), 'utf8');
   const problem = src.slice(src.indexOf('if (data.problem) {'), src.indexOf("} else if (tab === 'today')"));
-  assert.match(problem, /tab === 'activity' \? h\('section\.wk-section', logSlot\)/);
-  assert.match(problem, /if \(tab === 'activity'\) activityPart\(logSlot, \(\) => alive\)/);
+  assert.match(problem, /tab === 'activity' \? h\('section\.wk-section', historySlot\)/);
+  assert.match(problem, /if \(tab === 'activity'\) activity = paintHistory\(historySlot, \{ prefs, isAlive: \(\) => alive \}\)/);
 });
 
 test('a task another program added: a plain tag with a key on its row (no link look), and the Do it sheet says it in words', async () => {
@@ -328,4 +322,111 @@ test('the Do it button names its task to a screen reader, beside its title', () 
   assert.match(line, /'aria-label': `Do it with a session: \$\{it\.title\}`/, 'an aria-label, not only a title');
   const lib = fs.readFileSync(new URL('../../web/lib.js', import.meta.url), 'utf8');
   assert.match(lib, /'aria-label': label \? null : title \|\| name, onclick, disabled, \.\.\.rest \}/, 'btn() lets a given aria-label stand');
+});
+
+// ---------- Activity: the one history (web/workhistory.js) ----------
+
+const historyPage = (x = {}) => ({ lines: [], more: false, before: null, projects: [], days: [], ...x });
+const hline = (x) => ({ at: '2026-11-20T10:00:00.000Z', day: '2026-11-20', project: 'shop', who: null, text: 'x', detail: '', ...x });
+const settle = () => new Promise((r) => setTimeout(r, 0));
+const memPrefs = () => {
+  const m = new Map();
+  return { get: (k, d) => (m.has(k) ? m.get(k) : d), set: (k, v) => m.set(k, v), m };
+};
+const findAll = (n, ok) => (n instanceof FakeElement ? [...(ok(n) ? [n] : []), ...n.children.flatMap((c) => findAll(c, ok))] : []);
+
+test('Activity paints the history: a mark of each kind, the project, who and the line; a run opens its task, an open App session its chat', async () => {
+  const { paintHistory } = await import('../../web/workhistory.js');
+  const asked = [];
+  globalThis.fetch = async (u) => {
+    asked.push(u);
+    return { ok: true, status: 200, json: async () => historyPage({ projects: ['blog', 'shop'], days: ['2026-11-20'], lines: [
+      hline({ kind: 'session', who: 'tia', text: 'Look at the styles', detail: 'A terminal session · Claude Code on team · ended with an error', project: 'blog' }),
+      hline({ kind: 'session', who: 'owner', text: 'Fix the cart', chat: 'c1', open: true, detail: 'An App session · Claude Code on max · is open in the App' }),
+      hline({ kind: 'run', who: 'schedule', text: 'Check the deps', item: 'deps', run: '20261120-100000-aaaaaaaa', state: 'done' }),
+      hline({ kind: 'commit', text: 'Write the notes', detail: 'shop · abc1234' }),
+      hline({ kind: 'save', text: 'Saved the Work list' }),
+      hline({ kind: 'error', who: 'owner', text: '"Add a test" failed: the tests did not pass' }),
+    ] }) };
+  };
+  const slot = new FakeElement('div');
+  const opened = [];
+  paintHistory(slot, { prefs: memPrefs(), today: '2026-11-20', onRun: (l) => opened.push(l.run) });
+  await settle();
+  assert.deepEqual(asked, ['/api/work/history']);
+  const words = texts(slot).join(' | ');
+  for (const w of ['Session', 'Run', 'Commit', 'Save', 'Error', 'Today', 'Look at the styles', 'Tia', 'You', 'A schedule', 'blog', 'Saved the Work list', 'ended with an error']) assert.ok(words.includes(w), `"${w}" in ${words}`);
+  assert.ok(links(slot).includes('#/chat/c1'), 'the open App session is a link to it');
+  const runRow = findAll(slot, (n) => n.tag === 'button' && texts(n).includes('Check the deps'))[0];
+  assert.ok(runRow, 'a run line is a button');
+  runRow.fire('click');
+  assert.deepEqual(opened, ['20261120-100000-aaaaaaaa'], 'a run line opens that run');
+  const commitRow = findAll(slot, (n) => n.dataset && n.dataset.kind === 'commit')[0];
+  assert.equal(texts(commitRow).filter((x) => x.includes('shop')).join(' ').match(/shop/g).length, 1, 'the project is said once on a commit line');
+  const selects = findAll(slot, (n) => n.tag === 'select').map((n) => n.dataset.key);
+  assert.deepEqual(selects, ['history-project', 'history-day', 'history-who']);
+});
+
+test('Activity with nothing yet: the first-use hint says what will show and that sessions show from this version on', async () => {
+  const { paintHistory, FIRST_USE } = await import('../../web/workhistory.js');
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => historyPage() });
+  const slot = new FakeElement('div');
+  paintHistory(slot, { prefs: memPrefs() });
+  await settle();
+  const words = texts(slot).join(' ');
+  assert.ok(words.includes(FIRST_USE), words);
+  assert.match(FIRST_USE, /Sessions show from this version of Hoprig on/);
+  assert.equal(findAll(slot, (n) => n.tag === 'select').length, 0, 'no filters over an empty history');
+});
+
+test('a filter asks the server with it and is kept; one that matches nothing says so and offers everything again; Show more asks for older lines', async () => {
+  const { paintHistory } = await import('../../web/workhistory.js');
+  const asked = [];
+  globalThis.fetch = async (u) => {
+    asked.push(u);
+    if (u.includes('who=tia')) return { ok: true, status: 200, json: async () => historyPage({ projects: ['shop'], days: ['2026-11-20'] }) };
+    if (u.includes('before=')) return { ok: true, status: 200, json: async () => historyPage({ projects: ['shop'], days: ['2026-11-20'], lines: [hline({ kind: 'commit', text: 'Older one', at: '2026-11-19T10:00:00.000Z', day: '2026-11-19' })] }) };
+    return { ok: true, status: 200, json: async () => historyPage({ projects: ['shop'], days: ['2026-11-20'], more: true, before: '2026-11-20T10:00:00.000Z', lines: [hline({ kind: 'commit', text: 'Newer one' })] }) };
+  };
+  const prefs = memPrefs();
+  const slot = new FakeElement('div');
+  paintHistory(slot, { prefs, today: '2026-11-20' });
+  await settle();
+  const more = findAll(slot, (n) => n.dataset && n.dataset.key === 'history-more')[0];
+  assert.ok(more, 'Show more is there');
+  more.fire('click');
+  await settle();
+  assert.equal(asked[1], '/api/work/history?before=2026-11-20T10%3A00%3A00.000Z');
+  const w1 = texts(slot).join(' ');
+  assert.ok(w1.includes('Newer one') && w1.includes('Older one'), 'the older lines are added below');
+  const who = findAll(slot, (n) => n.tag === 'select' && n.dataset.key === 'history-who')[0];
+  for (const fn of who.listeners.change) fn({ target: { value: 'tia' } });
+  await settle();
+  assert.equal(asked[asked.length - 1], '/api/work/history?who=tia');
+  assert.equal(prefs.m.get('work.history.who'), 'tia', 'kept per device');
+  assert.match(texts(slot).join(' '), /Nothing matches this filter/);
+  const clear = findAll(slot, (n) => n.dataset && n.dataset.key === 'history-clear')[0];
+  clear.fire('click');
+  await settle();
+  assert.equal(asked[asked.length - 1], '/api/work/history');
+  assert.equal(prefs.m.get('work.history.who'), '');
+});
+
+test('a run line\'s sheet is the run\'s own card: a schedule\'s run that ended here offers Done with it, which asks the release route', async () => {
+  const { runSheet } = await import('../../web/workhistory.js');
+  document.body ??= new FakeElement('body');
+  const asked = [];
+  globalThis.fetch = async (u, o) => {
+    asked.push([u, o && o.method]);
+    if (u.startsWith('/api/work/runs')) return { ok: true, status: 200, json: async () => ({ runs: [run({ state: 'done', session: null, item: 'quiet1', schedule: 'quiet1', branch: 'work/quiet1', here: true })] }) };
+    return { ok: true, status: 200, json: async () => ({ removed: true }) };
+  };
+  runSheet('20261117-100000-aaaaaaaa', 'Renew');
+  await settle();
+  assert.deepEqual(asked[0], ['/api/work/runs?id=20261117-100000-aaaaaaaa', 'GET']);
+  const done = findAll(document.body, (n) => n.tag === 'button' && texts(n).join('').includes('Done with it'))[0];
+  assert.ok(done, 'Done with it is offered');
+  done.fire('click');
+  await settle();
+  assert.deepEqual(asked[1], ['/api/work/alone/release', 'POST']);
 });

@@ -101,6 +101,8 @@ export function addonsFeature(sctx, opts = {}) {
       // The owner's definitions that config.json holds but that do not pass the check (a hand edit, a port given to
       // another gateway since): { id, error } each, so the page can say why one is missing.
       skipped: opts.addons ? [] : definedGateways().skipped.map(({ id, error }) => ({ id, error })),
+      // The loopback names the owner is signed in under: a gateway's page link takes another (web/gateways.js).
+      signedIn: typeof sctx.signedInHosts === 'function' ? sctx.signedInHosts() : [],
       addons: await Promise.all(list().map(async (a) => {
         const st = await Promise.resolve(a.status()).catch(() => ({ installed: false, running: false }));
         const job = jobs.get(a.id);

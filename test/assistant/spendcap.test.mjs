@@ -368,10 +368,12 @@ test('a part\'s budget of $1 with $0.40 measured while it runs counts $1; ended,
   assert.deepEqual(l.today(), { spent: 0.4, held: 0.6 }, '$1 in all while it runs, never $1.40');
   l.measure('this|chat:part-one', 1.3, false);
   assert.deepEqual(l.today(), { spent: 1.3, held: 0 }, 'past its budget: what it cost');
-  l.measure('this|chat:part-one', 0.4, false); // the same chat, a lower figure (a test of the sum only)
+  // The same chat, a lower figure: a new conversation in it (its running cost starts again), which adds to what ran.
+  l.measure('this|chat:part-one', 0.4, false);
+  assert.deepEqual(l.today(), { spent: 1.7, held: 0 }, 'a lower figure never lowers the sum');
   assert.equal(l.settleParts('this|chat:part-one'), 1);
-  assert.deepEqual(l.today(), { spent: 0.4, held: 0 }, 'ended: what it cost, the rest of its budget is free again');
-  assert.equal(l.left(3), 2.6);
+  assert.deepEqual(l.today(), { spent: 1.7, held: 0 }, 'ended: what it cost, nothing of its budget held any more');
+  assert.equal(l.left(3), 1.3);
   assert.equal(l.settleParts('this|chat:part-one'), 0, 'twice: nothing more');
   assert.equal(l.settleParts(), 0);
 });

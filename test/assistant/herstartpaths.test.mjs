@@ -62,10 +62,15 @@ test('every hers-start path goes through startAsHers', () => {
 test('markHers and herSignedEnv have no caller in src but startAsHers: a new path cannot do one half by hand', () => {
   const entry = 'assistant/hersignin.mjs'; // where startAsHers joins the two halves (and defines herSignedEnv)
   const def = 'hermark.mjs'; // where markHers is defined
+  // The demo's made-up history writes records of sessions that never ran, one of them Tia's: it marks that record so
+  // the history shows whose it was. It starts no process (its only program is git, for the made-up commits).
+  const demo = 'demo/history.mjs';
+  assert.ok(!/\bstartAsHers\b|\bspawn\w*\s*\(/.test(read(demo)), 'the demo history starts nothing');
+  assert.deepEqual(read(demo).match(/\bexecFile\w*\(\s*'[^']*'/g), ["execFileSync('git'"], 'git is its only program');
   for (const rel of allSources()) {
     if (rel === entry || rel === def) continue;
     const src = read(rel);
-    assert.ok(!/\bmarkHers\s*\(/.test(src), `${rel} calls markHers by hand: start the session through startAsHers instead`);
+    assert.ok(rel === demo || !/\bmarkHers\s*\(/.test(src), `${rel} calls markHers by hand: start the session through startAsHers instead`);
     assert.ok(!/\bherSignedEnv\s*\(/.test(src), `${rel} calls herSignedEnv by hand: start the session through startAsHers instead`);
   }
 });

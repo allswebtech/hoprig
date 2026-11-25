@@ -7,6 +7,7 @@ import { api, btn, fill, h, link } from './lib.js';
 import { registerPage } from './registry.js';
 import { emptyState, errorBox, okBox, panel, stepHeader } from './shell.js';
 import { commandLine } from './workspace.js';
+import { RETIRE_LABEL, retireSheet } from './adoptretire.js';
 
 const STEPS = ['Look', 'Suggest', 'Arrange'];
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -32,7 +33,7 @@ export function repoLine(r) {
 function viewAdopt({ frame }) {
   const box = h('div.adopt');
   frame({ title: 'Projects found on this computer', page: 'adopt', back: link('#/workspace'), backLabel: 'Workspace',
-    intro: 'Bring projects you already have on this computer into your workspace. Nothing is looked at before you choose the folders, and your old folders are copied, never moved or changed.', body: [box] });
+    intro: 'Bring projects you already have on this computer into your workspace. Nothing is looked at before you press Find or choose the folders, and your old folders are copied, never moved or changed.', body: [box] });
   let alive = true;
   let state = null; // GET /api/adopt
 
@@ -63,7 +64,7 @@ function viewAdopt({ frame }) {
     const typed = h('input.field', { placeholder: '~/code or D:\\work', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Another folder to look in' });
     const err = h('p.form-error', { role: 'alert' }, error);
     const go = btn('primary', { icon: 'search', label: 'Look in these folders', type: 'submit' });
-    fill(box, stepHeader(STEPS, 0), h('form.adopt-form', { onsubmit: async (e) => {
+    fill(box, stepHeader(STEPS, 0), homePanel(), h('form.adopt-form', { onsubmit: async (e) => {
       e.preventDefault();
       const places = [...ticks.filter((t) => t.input.checked).map((t) => t.input.value), ...typed.value.split('\n').map((s) => s.trim()).filter(Boolean)];
       if (!places.length) return void (err.textContent = 'Tick a folder or type one: nothing is looked at until you do.');
@@ -71,7 +72,7 @@ function viewAdopt({ frame }) {
       fill(go, h('div.spinner.small', { 'aria-hidden': 'true' }), h('span', 'Looking…'));
       try {
         const r = await api('/api/adopt/scan', { places });
-        state = { ...state, ...r };
+        state = { ...state, home: null, ...r };
         if (alive) found(state);
       } catch (x) {
         if (alive) look(x.message);
@@ -84,12 +85,48 @@ function viewAdopt({ frame }) {
     (ticks[0] ? ticks[0].input : typed).focus();
   }
 
+  // ---- Find the projects of the home folder: one press, a look with a budget (src/adopt/home.mjs) ----
+  function homePanel() {
+    const err = h('p.form-error', { role: 'alert' });
+    const go = btn('primary', { icon: 'search', label: 'Find the projects on this computer' });
+    go.onclick = async () => {
+      go.disabled = true;
+      err.textContent = '';
+      fill(go, h('div.spinner.small', { 'aria-hidden': 'true' }), h('span', 'Looking through your home folder…'));
+      try {
+        const r = await api('/api/adopt/home', {});
+        state = { ...state, ...r };
+        if (alive) found(state);
+      } catch (x) {
+        if (!alive) return;
+        err.textContent = x.message;
+        go.disabled = false;
+        fill(go, icon('search', { size: 18 }), h('span', 'Find the projects on this computer'));
+      }
+    };
+    return panel({ icon: 'search', title: 'Find them for me', desc: 'Hoprig looks through your home folder, 4 levels down, for at most 20 seconds. It reads only folder names and whether a folder holds .git or a file such as package.json: it opens no file and changes nothing. It never goes into hidden folders, private folders (no-ai, ignore), installed packages, your workspace or the system\'s own folders, and never follows a link.' },
+      err, h('div.pj-next', go));
+  }
+
+  /** What the look over the home did, in plain words (null after a look in named folders). */
+  function homeSummary(x) {
+    if (!x) return null;
+    const bits = [
+      x.inWorkspace ? `${plural(x.inWorkspace, 'project')} already in your workspace (not listed)` : '',
+      x.links.length ? `${plural(x.links.length, 'link')} not followed: ${x.links.join(', ')}` : '',
+      x.privates ? `${plural(x.privates, 'private folder')} never looked into` : '',
+      x.unreadable ? `${plural(x.unreadable, 'folder')} it could not read` : '',
+    ].filter(Boolean);
+    return h('div.adopt-home', h('p.hint', x.words), bits.length ? h('p.hint', `${bits.join(' · ')}.`) : null);
+  }
+
   // ---- what was found ----
   /** `from`: the project you came back from (its card gets the focus), else the list's banner does. */
   function found(s, from = null) {
     const cards = s.projects.map((p) => h('section.card.adopt-project', { 'aria-label': p.name },
       h('div.card-top', h('span.card-name', p.name), p.arranged ? h('span.badge.ok', 'arranged') : p.layout ? h('span.badge.soft', 'already in the layout') : null),
-      p.arranged ? h('p.hint', 'Arranged into ', h('span.mono', p.arrangedTo), '. Its old folder stays until you remove it on a terminal: ', h('span.mono', `hoprig adopt retire ${p.name}`)) : null,
+      p.arranged ? h('p.hint', 'Arranged into ', h('span.mono', p.arrangedTo), '. Its old folder stays until you remove it (here, or on a terminal: ', h('span.mono', `hoprig adopt retire ${p.name}`), ').') : null,
+      p.arranged ? h('div.btnrow', { style: { marginTop: '8px' } }, btn('small danger', { icon: 'trash', label: RETIRE_LABEL, onclick: async () => ((await retireSheet(p.name)) ? load(p.name) : null) })) : null,
       h('div.card-meta', h('span.card-path.mono', p.dir)),
       h('ul.adopt-repos', p.repos.map((r) => {
         const l = repoLine(r);
@@ -102,7 +139,9 @@ function viewAdopt({ frame }) {
         ? h('a.btn.primary', { href: link(`#/workspace/project/${encodeURIComponent(p.name)}`) }, icon('folder', { size: 18 }), h('span', 'Open the project'))
         : btn('primary', { icon: 'sparkle', label: p.planned ? 'See its plan again' : 'Suggest a plan', onclick: () => suggest(p) }))));
     fill(box, stepHeader(STEPS, 0),
-      okBox(`Looked in ${s.places.filter((x) => x.ok).map((x) => x.dir).join(', ')}: ${plural(s.projects.length, 'project')} found. Nothing was changed and nothing was fetched.`),
+      s.home ? okBox(`Looked through your home folder (${plural(s.home.folders, 'folder')}): ${plural(s.projects.length, 'project')} found. Nothing was opened, changed or fetched, and nothing is planned until you choose.`)
+        : okBox(`Looked in ${s.places.filter((x) => x.ok).map((x) => x.dir).join(', ')}: ${plural(s.projects.length, 'project')} found. Nothing was changed and nothing was fetched.`),
+      homeSummary(s.home),
       ...s.places.filter((x) => !x.ok).map((x) => errorBox(`${x.dir}: ${x.error}`)),
       s.projects.length ? h('div.ws-list.adopt-list', cards) : emptyState('folder', 'No project was found there: a project is a folder with a git repository or a file such as package.json.'),
       h('div.pj-next', btn('secondary', { icon: 'search', label: 'Look in other folders', onclick: () => look() })));
@@ -195,7 +234,8 @@ function viewAdopt({ frame }) {
     fill(box, stepHeader(STEPS, 2), head,
       r.needs && r.needs.length ? panel({ icon: 'alert', title: 'What still needs you', desc: 'Nothing of this was changed by itself.' }, h('ul.adopt-plan', r.needs.map((n) => h('li', h('b', `${n.kind}: `), n.words)))) : null,
       panel({ icon: 'checkAll', title: r.dryRun ? 'The steps' : 'Each step and its proof' }, proof),
-      r.ok && !r.dryRun ? panel({ icon: 'trash', title: 'Your old folders', desc: 'They stay until you remove them. When you are sure, this removes them, on a terminal, with the project\'s name typed. Before anything goes it compares each old folder with its copy again (commits, branches, tags, stashes, worktrees, every file), and removes nothing if the copy lacks anything:' }, commandLine(`hoprig adopt retire ${plan.name}`)) : null,
+      r.ok && !r.dryRun ? panel({ icon: 'trash', title: 'Your old folders', desc: 'They stay until you remove them. When you are sure, remove them here with the project\'s name typed, or on a terminal with the command below. Before anything goes it compares each old folder with its copy again (commits, branches, tags, stashes, worktrees, every file), and removes nothing if the copy lacks anything.' },
+        h('div.btnrow', btn('danger', { icon: 'trash', label: RETIRE_LABEL, onclick: async () => ((await retireSheet(plan.name)) ? load(plan.name) : null) })), commandLine(`hoprig adopt retire ${plan.name}`)) : null,
       h('div.pj-next',
         r.dryRun ? btn('primary', { icon: 'check', label: `Arrange ${plan.name}`, onclick: () => run(plan, identity) }) : null,
         r.ok && !r.dryRun ? h('a.btn.primary', { href: link(`#/workspace/project/${encodeURIComponent(plan.name)}`) }, icon('folder', { size: 18 }), h('span', 'Open the project')) : null,

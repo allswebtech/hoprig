@@ -138,7 +138,8 @@ export async function verifyProject(name, { projects }) {
 export async function retirePlan(name, { projects }) {
   const done = readDone(name);
   const plan = readPlan(name, { projects });
-  const changed = (await fingerprint(plan.from, plan.repos)) !== done.fingerprint;
+  const now = await fingerprint(plan.from, plan.repos); // as it is now: the page's sheet is bound to it
+  const changed = now !== done.fingerprint;
   const cs = copies(plan);
   const go = cs.filter((c) => c.kind !== 'private').map((c) => c.from);
   const keep = Object.fromEntries(go.map((g) => [g, privatesBelow(g)]).filter(([, k]) => k.length));
@@ -149,36 +150,52 @@ export async function retirePlan(name, { projects }) {
   ];
   // A parent in the layout that is a repository: its own history was not copied, so it stays.
   if (!plan.repos.some((r) => r.from === plan.from) && fs.existsSync(path.join(plan.from, '.git'))) stay.push({ path: path.join(plan.from, '.git'), why: 'the old folder\'s own git history: the new project has a history of its own, so this one stays' });
-  for (const c of cs) if (!fs.existsSync(c.to)) return { go: [], keep: {}, stay, changed, missing: c.to, plan };
+  for (const c of cs) if (!fs.existsSync(c.to)) return { go: [], keep: {}, stay, changed, fingerprint: now, missing: c.to, plan };
   // A copy that borrows objects from a store outside the new folder breaks when that store goes.
   const inNew = (b) => b === plan.to || b.startsWith(plan.to + path.sep);
   for (const c of cs.filter((x) => x.kind === 'repo')) {
     const out = borrowedStores(c.to).find((b) => !inNew(b));
-    if (out) return { go: [], keep: {}, stay, changed, borrows: { copy: c.to, store: out }, plan };
+    if (out) return { go: [], keep: {}, stay, changed, fingerprint: now, borrows: { copy: c.to, store: out }, plan };
   }
   // Another project's repository that borrows from an original's store (a clone --shared of it) breaks when it goes.
   const stores = cs.filter((x) => x.kind === 'repo').map((x) => commonDir(x.from)).filter(Boolean).map((d) => path.join(d, 'objects'));
   const borrowedBy = borrowersIn(path.dirname(plan.from), plan.from, stores);
-  if (borrowedBy.length) return { go: [], keep: {}, stay, changed, borrowedBy, plan };
-  return { go, keep, stay, changed, plan };
+  if (borrowedBy.length) return { go: [], keep: {}, stay, changed, fingerprint: now, borrowedBy, plan };
+  return { go, keep, stay, changed, fingerprint: now, plan };
+}
+
+export const COMPARES = 'Before anything goes, Hoprig compares each of them with its copy again: every commit, branch, tag, stash entry, worktree and working file.';
+
+/** Why retire removes nothing for plan `r` of project `name`, in its own words, or null. */
+export function refusalWords(name, r) {
+  if (r.missing) return `${r.missing} (its copy) is not there: nothing is removed`;
+  if (r.borrows) return `${r.borrows.copy} borrows objects from ${r.borrows.store}, outside the project: its history would break without it, so nothing is removed`;
+  if (r.borrowedBy) return `${r.borrowedBy[0].repo} borrows objects from ${r.borrowedBy[0].store}, an original that would go: its history would break, so nothing is removed. In it, run git repack -a -d, then remove its .git/objects/info/alternates, and retire again`;
+  if (r.changed) return `${r.plan.from} changed since it was copied (a file, a commit or a branch), so its copy may not hold everything: nothing is removed. Look with hoprig adopt verify ${name}`;
+  return null;
+}
+
+/** What retire says before the name is typed: what goes and what stays (the terminal's lines, the page's sheet). */
+export function retireLines(r) {
+  const out = ['These originals would be removed (their copies are in the project):'];
+  for (const g of r.go) out.push(`  ${g}${r.keep[g] ? `  (all but the private folder${r.keep[g].length === 1 ? '' : 's'} in it)` : ''}`);
+  out.push(SHARED_WORDS, COMPARES);
+  if (r.stay.length) out.push('These stay:');
+  for (const s of r.stay) out.push(`  ${s.path}: ${s.why}`);
+  return out;
 }
 
 /**
- * Retire: `ask(question)` is the terminal's (null without one: refused). → { ok, removed: [path], words }.
+ * Retire: `ask(question)` is the terminal's, or the page's typed name (null without either: refused). `checked(r)`:
+ * the page's sheet is still what retire finds now (else nothing is asked or removed). → { ok, removed: [path], words }.
  */
-export async function retireProject(name, { projects, ask = null, say = () => {} }) {
+export async function retireProject(name, { projects, ask = null, say = () => {}, checked = null }) {
   if (!ask) return { ok: false, refused: true, removed: [], words: NO_TERMINAL };
   const r = await retirePlan(name, { projects });
-  if (r.missing) return { ok: false, removed: [], words: `${r.missing} (its copy) is not there: nothing is removed` };
-  if (r.borrows) return { ok: false, removed: [], words: `${r.borrows.copy} borrows objects from ${r.borrows.store}, outside the project: its history would break without it, so nothing is removed` };
-  if (r.borrowedBy) return { ok: false, removed: [], words: `${r.borrowedBy[0].repo} borrows objects from ${r.borrowedBy[0].store}, an original that would go: its history would break, so nothing is removed. In it, run git repack -a -d, then remove its .git/objects/info/alternates, and retire again` };
-  if (r.changed) return { ok: false, removed: [], words: `${r.plan.from} changed since it was copied (a file, a commit or a branch), so its copy may not hold everything: nothing is removed. Look with hoprig adopt verify ${name}` };
-  say('These originals would be removed (their copies are in the project):');
-  for (const g of r.go) say(`  ${g}${r.keep[g] ? `  (all but the private folder${r.keep[g].length === 1 ? '' : 's'} in it)` : ''}`);
-  say(SHARED_WORDS);
-  say('Before anything goes, Hoprig compares each of them with its copy again: every commit, branch, tag, stash entry, worktree and working file.');
-  if (r.stay.length) say('These stay:');
-  for (const s of r.stay) say(`  ${s.path}: ${s.why}`);
+  const no = refusalWords(name, r);
+  if (no) return { ok: false, removed: [], words: no };
+  if (checked && !checked(r)) return { ok: false, removed: [], stale: true, words: 'what retire finds now is not what the sheet showed: nothing is removed' };
+  for (const l of retireLines(r)) say(l);
   const a = await ask(`Type the project's name (${name}) to remove them, or press Enter to stop: `);
   if (a === null || a.trim() !== name) return { ok: false, removed: [], words: a && a.trim() ? `"${a.trim()}" is not ${name}: nothing is removed` : 'stopped: nothing is removed' };
   // Its own check, right before anything goes: nothing said before (the plan, apply's proof) is trusted.

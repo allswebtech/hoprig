@@ -30,7 +30,7 @@ test('a new install: everything missing, nothing created by status, projects def
   assert.equal(st.dir, t.ws);
   assert.equal(st.source, 'default');
   assert.equal(st.exists, false);
-  assert.deepEqual(st.folders.map((f) => f.rel), ['ai_brain', 'projects', 'credentials', 'development', 'git', 'database/postgresql', 'backups']);
+  assert.deepEqual(st.folders.map((f) => f.rel), ['ai_brain', 'projects', 'credentials', 'development', 'git', 'database/postgresql', 'database/mysql', 'backups']);
   assert.ok(st.folders.every((f) => !f.exists && f.purpose.length > 10));
   assert.equal(st.projectsDir, path.join(t.ws, 'projects'));
   assert.equal(projectsDir(), path.join(t.ws, 'projects'));

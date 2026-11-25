@@ -27,6 +27,12 @@ export const QUESTION = {
   confirm: (name) => `Type the project's name (${name}) to delete them with it, or press Enter to stop`,
   // The page's sheet is no terminal: Enter does nothing there, so its ending names what does.
   confirmPage: (name) => `Type the project's name (${name}) to delete them with it; leave it empty and press Cancel to stop`,
+  // Another project here names it in "needs" (asked first, before any fetch or other question).
+  neededWho: (ref, by) => `${by.join(', ')} ${by.length === 1 ? 'needs' : 'need'} ${ref}`,
+  neededRead: (by) => `${by.length === 1 ? 'it names' : 'they name'} it in "needs" and ${by.length === 1 ? 'its sessions read' : 'their sessions read'} it.`,
+  neededWhy: (ref, by) => `${QUESTION.neededWho(ref, by)}: ${QUESTION.neededRead(by)}`,
+  neededLater: (ref, by) => `Without it here, ${by.length === 1 ? 'a session there' : 'their sessions'} cannot read it until  hoprig get ${ref}  brings it back.`,
+  needed: (ref) => `Drop ${ref} all the same?`,
 };
 
 /** The questions, asked on the terminal (`ui.ask`); never answered by a flag. */
@@ -37,9 +43,9 @@ export function terminalAsk(ui) {
   };
   return {
     needed: async (ref, by) => {
-      ui.out(`\n  ${bold(`${by.join(', ')} ${by.length === 1 ? 'needs' : 'need'} ${ref}`)}: ${by.length === 1 ? 'it names' : 'they name'} it in "needs" and ${by.length === 1 ? 'its sessions read' : 'their sessions read'} it.`);
-      ui.out(`  ${dim(`Without it here, ${by.length === 1 ? 'a session there' : 'their sessions'} cannot read it until  hoprig get ${ref}  brings it back.`)}`);
-      return yes(`Drop ${ref} all the same?`);
+      ui.out(`\n  ${bold(QUESTION.neededWho(ref, by))}: ${QUESTION.neededRead(by)}`);
+      ui.out(`  ${dim(QUESTION.neededLater(ref, by))}`);
+      return yes(QUESTION.needed(ref));
     },
     work: async (checks) => {
       ui.out(`\n  ${bold('Work that is not committed')} (it would be lost with the folder):`);

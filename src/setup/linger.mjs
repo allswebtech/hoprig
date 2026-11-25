@@ -55,6 +55,7 @@ export async function lingerOutcome(ui, sys, { manual = null } = {}) {
   }
   const cmd = manual || showCommand(lingerArgv(sys));
   // Inside set-up: the mark now, the command in its closing list.
-  yours(ui, 'warn', 'The dashboard stops when you log out: lingering is off', 'linger', { step: cmd, alone: `The dashboard stops when you log out: lingering is off. Turn it on once: ${cmd}` });
+  // Health's press runs it through sudo: without sudo here (manual, "as root: …") there is no page way to name.
+  yours(ui, 'warn', 'The dashboard stops when you log out: lingering is off', 'linger', { step: cmd, page: manual ? null : undefined, alone:`The dashboard stops when you log out: lingering is off. Turn it on once: ${cmd}` });
   return false;
 }

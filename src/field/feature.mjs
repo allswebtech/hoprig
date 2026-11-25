@@ -3,12 +3,14 @@
 //   GET  /api/field                                  settings, this computer's reports (each whole), the Home lines
 //   POST /api/field/settings { sendTo?, choice?, ownNetwork?, copyDir? }
 //   POST /api/field/report/<id>/send | dont-send     "ask each time": the owner's answer for one report
+//   GET  /api/field/twice                            the "went wrong twice" lines alone (the product's own words)
 //   POST /api/field/twice/<kind>:<class>/dismiss | draft   the "went wrong twice" line: hide it, or make a skill draft
 //
 // The owner's own page only: Tia's token, the server's own requests on her behalf and another computer's token are
-// refused (a send, a setting and a draft are his presses alone). Nothing here runs by itself but one thing: with
-// "always", a report made after his choice is sent at the next tick (and what failed before goes with it). With any
-// other choice, or no address, the tick reads nothing.
+// refused (a send and a setting are his presses alone). One exception, for the "went wrong twice" lines: Tia's door
+// reads them, and hides one or makes its draft only as the act of her card that he confirmed for exactly that line.
+// Nothing here runs by itself but one thing: with "always", a report made after his choice is sent at the next tick
+// (and what failed before goes with it). With any other choice, or no address, the tick reads nothing.
 import { readFieldSettings, readFieldState, changeFieldState, madeAfterChoice, sendChoice, writeFieldSettings } from './settings.mjs';
 import { listReports } from './report.mjs';
 import { KIND_WORDS, keyOf, knownFor, twiceLines } from './learn.mjs';
@@ -24,6 +26,17 @@ export function fieldFeature(sctx, opts = {}) {
   const ownerOnly = (req) => {
     if (/^Bearer\s/i.test(String((req.headers && req.headers.authorization) || ''))) throw fail(403, 'field reports are the owner\'s own page only');
     if (sctx.caller && sctx.caller(req) !== 'page') throw fail(403, 'field reports are changed and sent by the owner\'s own press only');
+  };
+  // The twice lines: his page, or Tia's door (no token). A change through her door only on his confirmed card for it.
+  const twiceGate = (req, key = null, act = null) => {
+    if (/^Bearer\s/i.test(String((req.headers && req.headers.authorization) || ''))) throw fail(403, 'field reports are the owner\'s own page only');
+    const who = sctx.caller ? sctx.caller(req) : 'page';
+    if (who === 'page') return;
+    if (who !== 'self') throw fail(403, 'the "went wrong twice" lines are changed on this computer\'s own page only');
+    if (!act) return;
+    const c = sctx.ownerCard ? sctx.ownerCard(req) : null;
+    const mine = c && c.tool === 'manage_skills' && c.input && c.input.action === `twice_${act}` && c.input.line === key && (!c.input.computer || c.input.computer === 'this');
+    if (!mine) throw fail(403, 'this line is hidden or drafted by your own press, or by her card you confirmed for it', 'owner-only');
   };
   const net = { ...(opts.lookup ? { lookup: opts.lookup } : {}), ...(opts.ca ? { ca: opts.ca } : {}) };
 
@@ -102,8 +115,12 @@ export function fieldFeature(sctx, opts = {}) {
       const mine = r.find((x) => x.id === id);
       return { ...view(), sent: mine ? { ok: mine.ok, status: mine.status } : null };
     }],
+    ['GET', /^\/api\/field\/twice$/, async (req) => {
+      twiceGate(req);
+      return { twice: twiceLines() };
+    }],
     ['POST', /^\/api\/field\/twice\/([a-z-]+:[a-z-]+)\/(dismiss|draft)$/, async (req, m) => {
-      ownerOnly(req);
+      twiceGate(req, m[1], m[2]);
       await sctx.readJson(req);
       const { kind, cls } = parseKey(m[1]);
       const line = twiceLines().find((x) => x.key === keyOf(kind, cls));

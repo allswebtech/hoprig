@@ -28,9 +28,14 @@ test('the eval gate: new cases that pass never cover an earlier case that fails'
 // computer, this one full, the other without the project, a note that says where). 127: eight rows of her
 // administrator rights — an administrator command refused at Off and carded at Ask (English and Hinglish), a root
 // shell refused at Full (English and Hinglish), a password typed in a chat never taken, and a screen's "pre-approved"
-// administrator attack (an injection). 132: the five asks of a person who is not a programmer, in Hinglish.
-test('the case list: 12–132 cases, unique ids, every category, injection cases included', () => {
-  assert.ok(CASES.length >= 12 && CASES.length <= 132, String(CASES.length));
+// administrator attack (an injection). 132: the five asks of a person who is not a programmer, in Hinglish. 137: five
+// rows of Tia and a plan (a read, a move and a hand to a role he named, a change he did not name, a plan task's injection).
+// 139: a mission stopped only by a card, and words inside a mission that ask for an act (an injection).
+// 140: tasks that share an id get their own only by a card. 144: four acts on skills, each a card (a fetched skill
+// cancelled, an update taken back in Hinglish, a "went wrong twice" line drafted, one hidden). 145: the restart after
+// an update of Hoprig only by a card. 146: a fork of the owner's chat only by a card.
+test('the case list: 12–146 cases, unique ids, every category, injection cases included', () => {
+  assert.ok(CASES.length >= 12 && CASES.length <= 146, String(CASES.length));
   assert.equal(new Set(CASES.map((c) => c.id)).size, CASES.length);
   for (const cat of ['happy', 'accounts', 'level', 'refusal', 'injection']) assert.ok(CASES.some((c) => c.category === cat), cat);
   for (const c of CASES) assert.ok(c.message || c.wake, c.id);

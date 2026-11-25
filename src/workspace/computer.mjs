@@ -26,7 +26,8 @@ import { MACHINE_RE } from '../machines/names.mjs';
 import { gitIn, kindAt, leaves, leavesWords, mkdirIn, readIn, writeIn } from './inside.mjs';
 import { gitRead } from '../gitread.mjs';
 import { capture } from '../setup/system.mjs';
-import { isDir, isGitRepo, isLinkedWorktree, projectsIn, remoteOf, workspaceDir } from './layout.mjs';
+import { DEV_TMP_PREFIX, isDir, isGitRepo, isLinkedWorktree, projectsIn, remoteOf, workspaceDir } from './layout.mjs';
+import { devTools } from '../pcsetup/devplaces.mjs';
 import { mapTargets } from './groups.mjs';
 import { readMap, sameUrl } from './map.mjs';
 
@@ -40,6 +41,13 @@ const PLAIN = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$/;
 const MAX_ITEMS = 100;
 // A file that looks like a credential (a key, a keystore, a token or password file, an .env) is counted, not named.
 const KEYISH = /^id_(rsa|dsa|ecdsa|ed25519)|\.(pem|key|p12|pfx|keystore|jks|kdbx|env)$|secret|token|passw|credential|\bauth\b/i;
+// The owner's marks of the whole-computer check (leavemarks.mjs), key "leave": folders of the home by a home-relative
+// name ("~/.toolx", never a path of this computer), and the database engines that hold test data only.
+export const LEAVE_LISTS = ['keep', 'ignore', 'outside'];
+export const LEAVE_ENGINES = ['postgresql', 'mysql', 'mariadb'];
+export const LEAVE_MAX = 500;
+/** This computer's host name as a file of the brain must never hold it (the part before the first dot, lower case). */
+export const hostWord = () => String(hostName() || '').split('.')[0].toLowerCase();
 const fail = (status, message, code) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
 
 /** A label as typed: trimmed and in lower case, then the computers list's own rule. → the label, or null. */
@@ -105,14 +113,47 @@ export const relFileOf = (label) => `${COMPUTERS}/${label}.json`;
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-/** The strict check of one computer's file. A key a later Hoprig adds is kept, never a refusal. → { ok, file?, why? } */
-export function checkComputerFile(raw, label) {
+/** Why a name of a home folder may not be a mark, in one sentence; null when it may. */
+export function leaveNameWhy(name, host = hostWord()) {
+  if (typeof name !== 'string' || !name.startsWith('~/') || name.length > 300) return 'a folder is named from the home folder, starting with "~/"';
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(name)) return 'a folder\'s name may not hold a control character';
+  if (name.slice(2).split('/').some((p) => p === '..' || p === '.' || p === '')) return 'a folder\'s name may not hold ".", ".." or an empty part';
+  if (host && host.length >= 3 && name.toLowerCase().includes(host)) return 'a folder\'s name may not hold this computer\'s host name (the file is shared through the brain)';
+  return null;
+}
+
+function leaveWhy(v, host) {
+  if (!isObj(v) || Object.keys(v).some((k) => ![...LEAVE_LISTS, 'testData'].includes(k))) return '"leave" holds other things than keep, ignore, outside and testData';
+  for (const k of LEAVE_LISTS) {
+    const l = v[k];
+    if (l !== undefined && (!Array.isArray(l) || l.length > LEAVE_MAX || l.some((n) => leaveNameWhy(n, host)))) return `"leave.${k}" is not a list of at most ${LEAVE_MAX} folders of the home ("~/…")`;
+  }
+  if (v.testData !== undefined && (!Array.isArray(v.testData) || v.testData.some((e) => !LEAVE_ENGINES.includes(e)))) return `"leave.testData" names an engine other than ${LEAVE_ENGINES.join(', ')}`;
+  return null;
+}
+
+/** The marks as the file keeps them: each list sorted, without repeats; empty lists left out; null when none. */
+export function leaveOf(v) {
+  if (!isObj(v)) return null;
+  const out = {};
+  for (const k of [...LEAVE_LISTS, 'testData']) if (Array.isArray(v[k]) && v[k].length) out[k] = [...new Set(v[k])].sort();
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * The strict check of one computer's file. A key a later Hoprig adds is kept, never a refusal. `host`: this computer's
+ * host name, handed in for its OWN file only (another computer's mark that happens to hold it is that computer's word,
+ * and must not make its whole file unreadable here). → { ok, file?, why? }
+ */
+export function checkComputerFile(raw, label, host = null) {
   if (!isObj(raw)) return { ok: false, why: 'it is not a JSON object' };
   if (raw.label !== label) return { ok: false, why: 'its label is not its file name' };
   if (!ID_RE.test(raw.id || '')) return { ok: false, why: 'its id is not 32 hexadecimal digits' };
   if (raw.hoprig !== undefined && (typeof raw.hoprig !== 'string' || !VERSION_RE.test(raw.hoprig))) return { ok: false, why: 'its Hoprig version is not a version' };
   if (!Array.isArray(raw.here) || raw.here.length > 5000 || raw.here.some((x) => typeof x !== 'string' || !ENTRY_RE.test(x) || x.split('/').includes('..'))) return { ok: false, why: '"here" is not a list of names of the map' };
   if (raw.folders !== undefined && (!isObj(raw.folders) || Object.keys(raw.folders).some((k) => !DESCRIBED.includes(k)))) return { ok: false, why: '"folders" describes other folders than development, git, database and backups' };
+  const lw = raw.leave === undefined ? null : leaveWhy(raw.leave, host);
+  if (lw) return { ok: false, why: lw };
   return { ok: true, file: raw };
 }
 
@@ -124,6 +165,7 @@ export function computersHere(dir = workspaceDir()) {
   const brain = path.join(dir, 'ai_brain');
   const folder = folderOf(dir);
   const out = { files: [], refused: [] };
+  const mine = thisComputer().label;
   if (kindAt(folder) === 'none') return out;
   const b = leaves(brain, folder, { dir }, { below: true });
   if (b || kindAt(folder) !== 'other') return { ...out, folderWhy: b ? `${leavesWords(b)}: not read` : `ai_brain/${COMPUTERS} is not a folder: not read` };
@@ -151,10 +193,12 @@ export function computersHere(dir = workspaceDir()) {
       out.refused.push({ name, why: 'it is not valid JSON' });
       continue;
     }
+    // The host name is checked when a mark is written (leavemarks.mjs), not here: a host renamed later must not make
+    // this computer's own file unreadable (readMarks leaves such a mark out instead).
     const c = checkComputerFile(raw, label);
     // A refused file still says which Hoprig wrote it, when it does (the version gate reads it, mapupgrade.mjs).
     if (!c.ok) out.refused.push({ name, why: c.why, ...(isObj(raw) && typeof raw.hoprig === 'string' && VERSION_RE.test(raw.hoprig) ? { hoprig: raw.hoprig } : {}) });
-    else out.files.push({ label, id: raw.id, hoprig: raw.hoprig || null, here: [...raw.here], folders: raw.folders || {} });
+    else out.files.push({ label, id: raw.id, hoprig: raw.hoprig || null, here: [...raw.here], folders: raw.folders || {}, ...(leaveOf(raw.leave) ? { leave: leaveOf(raw.leave) } : {}) });
   }
   return out;
 }
@@ -195,6 +239,8 @@ export function describeFolder(dir, rel, host = hostName().split('.')[0].toLower
   const items = [];
   let unnamed = 0;
   for (const name of names) {
+    // A download that is still running (or one a crash left) is Hoprig's own, not the owner's: not described.
+    if (rel === 'development' && name.startsWith(DEV_TMP_PREFIX)) continue;
     if (!nameable(name, host) || items.length >= MAX_ITEMS) {
       unnamed++;
       continue;
@@ -232,18 +278,19 @@ export async function hereOnThisComputer(map, { dir = workspaceDir(), projects =
 }
 
 /** The file's content for this computer (sorted keys, so its git history shows real changes only). */
-export function fileContent({ label, id, here, folders }) {
+export function fileContent({ label, id, here, folders, leave = null }) {
   const sorted = (o) => (Array.isArray(o) ? o.map(sorted) : isObj(o) ? Object.fromEntries(Object.keys(o).sort().map((k) => [k, sorted(o[k])])) : o);
-  return JSON.stringify(sorted({ folders, here, hoprig: VERSION, id, label }), null, 2) + '\n';
+  const marks = leaveOf(leave); // a file without marks keeps its old form
+  return JSON.stringify(sorted({ folders, here, hoprig: VERSION, id, label, ...(marks ? { leave: marks } : {}) }), null, 2) + '\n';
 }
 
 /**
  * Write this computer's own file, only when something in it changed. Never asks, never guesses a label. A file under
  * this label with another computer's id is never written, unless `again` (set-up: the owner said this computer IS
  * that one, set up again). → { written, file?, why? } (why: the reason nothing was written, for status and the
- * upkeep's line).
+ * upkeep's line). `leave`: the owner's new marks (leavemarks.mjs); left out, the marks the file holds are kept.
  */
-export async function writeOwnFile({ dir = workspaceDir(), projects = projectsIn(), dryRun = false, again = false } = {}) {
+export async function writeOwnFile({ dir = workspaceDir(), projects = projectsIn(), dryRun = false, again = false, leave } = {}) {
   const me = thisComputer();
   if (!me.label || !me.id) return { written: false, why: `this computer has no label in the workspace yet:  hoprig workspace label <name>` };
   const brain = path.join(dir, 'ai_brain');
@@ -264,7 +311,12 @@ export async function writeOwnFile({ dir = workspaceDir(), projects = projectsIn
   // A label coming back after a format: its file starts again with nothing here (never what the old disk had).
   const here = again ? [] : await hereOnThisComputer(m.map, { dir, projects });
   const folders = Object.fromEntries(DESCRIBED.map((f) => [f, describeFolder(dir, f)]));
-  const text = fileContent({ label: me.label, id: me.id, here, folders });
+  // The toolchains at development/'s places (pcsetup/devplaces.mjs), by name and version only: never a path.
+  const tools = folders.development.there && !folders.development.link ? devTools(dir) : [];
+  if (tools.length) folders.development.tools = tools;
+  // The marks stay as they are unless new ones are handed in; a label taken over after a format starts without them.
+  const marks = again ? null : leave !== undefined ? leave : now ? now.leave || null : null;
+  const text = fileContent({ label: me.label, id: me.id, here, folders, leave: marks });
   if (old && old.toString('utf8') === text) {
     if (!me.wrote.length) rememberWrote(text); // a computer from before this check: what is there is its own
     return { written: false, file, same: true };

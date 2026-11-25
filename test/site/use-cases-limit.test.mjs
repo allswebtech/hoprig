@@ -29,7 +29,8 @@ test('a provider is a subscription, an API key or a gateway; Hoprig keeps each i
   assert.match(profiles, /fs\.writeFileSync\(tmp, lines\.join\('\\n'\) \+ '\\n', \{ mode: 0o600 \}\);/, 'the file is the owner\'s alone');
   const page = flat(read(PAGE));
   assert.doesNotMatch(page, /A provider is a small file of settings/);
-  assert.match(page, /`hop add` adds a provider: another Claude subscription, an API key or a gateway \(a service that passes your requests on to an AI and bills you for each use\)\. Hoprig keeps each one in a small settings file that only you can read\./);
+  assert.match(read('web/accounts.js'), /label: 'Add provider'/);
+  assert.match(page, /On the \*\*Providers\*\* page, press \*\*Add provider\*\* to add a provider: another Claude subscription, an API key or a gateway \(a service that passes your requests on to an AI and bills you for each use\)\. Hoprig keeps each one in a small settings file that only you can read\./);
 });
 
 test('Auto mode\'s order names "sub" as the Claude login and says to put your own API key\'s name in place of "api"', () => {

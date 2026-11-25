@@ -145,7 +145,7 @@ const act = (l, c, hold, message) => {
 };
 const ends = (l) => l.memory.filter((e) => e.kind === 'ended').map((e) => [e.hold, e.back ? 'back' : e.cost]);
 
-test('(8) after a new conversation in the chat, a turn that began below the chat\'s base ends without dropping its hold', (t) => {
+test('(8) after a new conversation in the chat, a turn that began below the chat\'s base is measured once: its own end settles its hold', (t) => {
   const c = newChat({ costTotal: 1.0 });
   const l = ledger();
   c.turn = { messageId: 'm1', auto: false, at: 0 };
@@ -161,12 +161,118 @@ test('(8) after a new conversation in the chat, a turn that began below the chat
   act(l, c, 'act-2', 'm2'); // bound at 0.9; the chat's base stays 1.0 (its first bind)
   c.turn = { messageId: 'm2', auto: false, at: 0 };
   tick(l, [c]);
-  end(c, 1.2); // her second message's turn: 0.3, but the measured figure holds only 0.2 of the day (1.2 - 1.0)
+  end(c, 1.2); // her second message's turn: 0.3, from 0.9 to 1.2 (the new conversation's running cost adds whole)
   tick(l, [c]);
   const d = l.detail();
   t.diagnostic(`detail=${JSON.stringify(d)} ends=${JSON.stringify(ends(l))}`);
-  assert.ok(d.spent + d.held + 1e-9 >= 0.3, `act-2's turn cost 0.3 is not held: ${JSON.stringify(d)}`);
-  assert.deepEqual(ends(l), [['act-1', 0.5], ['act-2', null]], 'act-2 ends without its cost: its hold stays for the day');
+  // What ran: 0.5 of hers, 0.9 of his in the new conversation, 0.3 of hers: all of it measured, nothing held again.
+  assert.ok(near(d.spent, 1.7) && d.held === 0, `act-2's turn cost 0.3 is measured once: ${JSON.stringify(d)}`);
+  assert.deepEqual(ends(l), [['act-1', 0.5], ['act-2', 0.3]], 'act-2 ends with its cost: the measured figure holds it');
+});
+
+test('(10) a new conversation, her turn below the base, then a dashboard restart: the kept end settles her hold once', async (t) => {
+  const { loadConfig } = await import('../../src/config.mjs');
+  const { chatFeature } = await import('../../src/chat/feature.mjs');
+  const { rememberTurn } = await import('../../src/chat/turns.mjs');
+  const proj = path.join(box.root, 'proj', 'shop');
+  fs.mkdirSync(proj, { recursive: true });
+  const file = path.join(box.root, 'restart', 'chats.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const turnsDir = path.join(path.dirname(file), 'chat-turns');
+  const id = crypto.randomUUID();
+  const conv2 = crypto.randomUUID(); // the new conversation
+  const key = `this|chat:${id}`;
+  const l = ledger();
+  const card = (costTotal) => [{ kind: 'chat', name: `chat:${id}`, chatId: id, costTotal, status: 'waiting' }];
+  // act-1 at base 1.0, its turn 0.5, settled by its own end.
+  assert.equal(l.take(5, { id: 'act-1' }), null);
+  l.bind('act-1', key, 1.0, false, 'm1');
+  measureChats(l, card(1.5), (x, m) => (m === 'm1' ? { ended: true, cost: 0.5, total: 1.5 } : null));
+  // A new conversation: his turn to 0.6 (below the base; its running cost adds whole to the measured figure); act-2 bound at 0.6.
+  measureChats(l, card(0.6), () => null);
+  assert.equal(l.take(5, { id: 'act-2' }), null);
+  l.bind('act-2', key, 0.6, false, 'm2');
+  // Her turn, 0.6 -> 0.9, heard by the chat before the restart: its end is kept beside the chats.
+  const c = newChat({ id, conversationId: conv2, costTotal: 0.6, turnsDir });
+  c.turn = { messageId: 'm2', auto: false, at: 0 };
+  end(c, 0.9);
+  // A turn end kept by an earlier version: no total of the chat.
+  rememberTurn(turnsDir, conv2, 'm0', { kind: 'turn-end', ok: true, subtype: 'success', turnCostUsd: 0.1 });
+  // The dashboard restarts before a tick saw her end; his next turn then brings the chat to 1.5.
+  fs.writeFileSync(file, JSON.stringify([{ id, conversationId: conv2, cwd: proj, profile: 'p', title: 'shop', openedAt: 1, costTotal: 1.5 }]));
+  class HttpError extends Error {
+    constructor(status, message) {
+      super(message);
+      this.status = status;
+    }
+  }
+  const f = chatFeature({ HttpError, config: () => loadConfig(), readJson: async () => ({}) }, { file });
+  t.after(() => f.close());
+  const seen = f.messageEnd(id, 'm2');
+  measureChats(l, card(1.5), (x, m) => f.messageEnd(x, m));
+  const d = l.detail();
+  t.diagnostic(`fallback=${JSON.stringify(seen)} detail=${JSON.stringify(d)} ends=${JSON.stringify(ends(l))}`);
+  // Her 0.3 ran from 0.6 to 0.9, below the base, and his next turn to 1.5: the measured figure holds 0.5 + 0.6 + 0.9,
+  // so her hold goes by its kept end (its total, 0.9, is under the card's 1.5), and nothing is counted twice.
+  assert.ok(near(d.spent, 2) && d.held === 0, `all that ran is measured once: ${JSON.stringify(d)}`);
+  assert.ok(seen && near(seen.cost, 0.3) && near(seen.total, 0.9), `the kept end says the chat's total after her turn: ${JSON.stringify(seen)}`);
+  assert.deepEqual(ends(l), [['act-1', 0.5], ['act-2', 0.3]]);
+  assert.deepEqual(f.messageEnd(id, 'm0'), { ended: true, cost: 0.1, total: null }, 'no total kept: not known (its hold stays)');
+});
+
+test('(11) Stop: a queued message the coding tool refused to give back (it took it) keeps its hold when the process ends', async (t) => {
+  for (const heard of [false, true]) {
+    const c = newChat({ costTotal: 1, stopGraceMs: 10 });
+    const l = ledger();
+    c.turn = { messageId: 'his', auto: false, at: 0 };
+    queued(c, 'hers');
+    act(l, c, 'act-1', 'hers');
+    c.queue.items.push({ id: 'held-one', text: 'text of held-one', attachments: [], state: 'held', at: 0 });
+    act(l, c, 'act-2', 'held-one');
+    c.session = { cancel: async () => false, send() {}, interrupt() {}, close: async () => {}, hold: null };
+    const back = await c.takeBack(); // the Stop route: hers is refused (already taken), the held one comes back
+    assert.equal(back.length, 1, 'the held one is taken back');
+    if (heard) hear(c, { kind: 'queue-state', state: 'started', messageId: 'hers' });
+    assert.equal(c.interrupt(), true);
+    await new Promise((r) => setTimeout(r, 60)); // the grace: the coding tool did not end the turn, the process is stopped
+    tick(l, [c]);
+    t.diagnostic(`startedHeard=${heard} hers=${JSON.stringify(c.messageEnd('hers'))} detail=${JSON.stringify(l.detail())} ends=${JSON.stringify(ends(l))}`);
+    // Hers was started by the coding tool, then stopped: no cost, its hold stays for the day.
+    assert.deepEqual(c.messageEnd('hers'), { ended: true, cost: null, total: 1 }, `startedHeard=${heard}`);
+    assert.deepEqual(c.messageEnd('held-one'), { back: true });
+    assert.deepEqual(ends(l).sort(), [['act-1', null], ['act-2', 'back']]);
+    assert.ok(l.detail().held >= 0.5 - 1e-9, 'act-1 keeps its $0.50');
+  }
+});
+
+test('(12) a take-back whose cancel fails (an error, not a no): never said taken, and its hold stays when the process ends', async (t) => {
+  const c = newChat({ costTotal: 1, stopGraceMs: 10 });
+  const l = ledger();
+  c.turn = { messageId: 'his', auto: false, at: 0 };
+  queued(c, 'hers');
+  act(l, c, 'act-1', 'hers');
+  c.session = { cancel: async () => { throw new Error('the process is going'); }, send() {}, interrupt() {}, close: async () => {}, hold: null };
+  // The answer says what is true: the cancel failed and the message may still run, not that the tool took it.
+  await assert.rejects(c.unqueue('hers'), (e) => {
+    assert.equal(e.status, 409);
+    assert.doesNotMatch(e.message, /has already taken/);
+    assert.match(e.message, /could not take that message back/);
+    assert.match(e.message, /may still run/);
+    return true;
+  });
+  const q = c.queue.find('hers');
+  assert.ok(q, 'it still waits in the queue');
+  assert.notEqual(q.taken, true, 'only a no from the coding tool marks it taken');
+  assert.equal(c.messageEnd('hers'), null, 'not given back: it may still run');
+  assert.equal((await c.takeBack()).length, 0, 'Stop does not hand it back to the composer either');
+  assert.equal(c.interrupt(), true);
+  await new Promise((r) => setTimeout(r, 60)); // the grace: the process is stopped with the message in it
+  tick(l, [c]);
+  t.diagnostic(`hers=${JSON.stringify(c.messageEnd('hers'))} detail=${JSON.stringify(l.detail())} ends=${JSON.stringify(ends(l))}`);
+  // Not known whether the tool had it: the safe side, its hold stays for the day.
+  assert.deepEqual(c.messageEnd('hers'), { ended: true, cost: null, total: 1 });
+  assert.deepEqual(ends(l), [['act-1', null]]);
+  assert.ok(l.detail().held >= 0.5 - 1e-9, 'act-1 keeps its $0.50');
 });
 
 test('(9) Stop while the chat starts: the running message ends without a cost, the queued ones are given back', (t) => {

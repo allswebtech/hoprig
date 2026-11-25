@@ -211,6 +211,18 @@ test('runPcSetup: shows what is there, ONE confirmation, runs the plan, says wha
   assert.equal(ran.length, 3); // nothing ran again
 });
 
+test('the page\'s setup job hears Ctrl-C and a kill of the dashboard, so a download it runs removes its half download', async () => {
+  const { pcsetupFeature: feature } = await import('../../src/pcsetup/feature.mjs');
+  const checks = [{ group: 'kit:extras', id: 'extras.tmux', label: 'tmux', status: 'fail', detail: 'missing', fix: 'sudo apt-get install -y tmux', fixKit: 'extras' }];
+  let heard = null;
+  const f = feature({ readJson: async (req) => req.body || {}, caller: () => 'page', ownerCard: () => null, backend: { list: async () => [] }, deck: { launcher: () => ['node', 'hoprig'] } },
+    { computer: () => 'box2', sys: { platform: 'linux', pm: 'apt', root: false, user: 'dev', arch: 'x64', tmp: '/tmp', home: process.env.HOME, env: {}, has: () => false, exists: () => false, clt: true, run: async () => ({ ok: false, code: 1, stdout: '', stderr: '' }) }, status: async () => checks, projectsDir: () => '/nowhere', runPcSetup: async (o) => ((heard = o.stopOn), { ok: true, missing: [] }), sudoNeedsPassword: async () => false });
+  const [, re, fn] = f.routes.find(([m, r]) => m === 'POST' && r.test('/api/pcsetup/fix'));
+  assert.deepEqual(await fn(Object.assign(Readable.from([]), { body: { id: 'extras.tmux', confirm: 'box2' } }), re.exec('/api/pcsetup/fix')), { started: true });
+  for (let i = 0; i < 50 && heard === null; i++) await new Promise((ok) => setTimeout(ok, 10));
+  assert.deepEqual(heard, ['SIGINT', 'SIGTERM']);
+});
+
 test('a Fix is the owner\'s press: without the confirmation that names this computer, or from Tia on her own, nothing runs', async () => {
   const { pcsetupFeature: feature } = await import('../../src/pcsetup/feature.mjs');
   const checks = [{ group: 'kit:extras', id: 'extras.tmux', label: 'tmux', status: 'fail', detail: 'missing', fix: 'sudo apt-get install -y tmux', fixKit: 'extras' }];

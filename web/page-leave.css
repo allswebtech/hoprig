@@ -1,0 +1,9 @@
+/* Computers → Before you format this computer (web/leave.js). Colours from the kit's own names only; narrow first. */
+.leave-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 14px; }
+.leave-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 10px 12px; min-width: 0; overflow-wrap: anywhere; }
+.leave-item p { margin: 4px 0; }
+.leave-where { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.leave-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.leave-cmd { display: flex; align-items: center; gap: 8px; margin-top: 6px; background: var(--surface-2); border-radius: var(--r); padding: 6px 8px; min-width: 0; }
+.leave-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: pre; font-size: var(--fs-sm); color: var(--text); }
+.leave-last { margin: 12px 0 4px; color: var(--text); }

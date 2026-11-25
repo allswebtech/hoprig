@@ -224,6 +224,13 @@ export class FakeOps {
     this.s.sessions.push({ computer: a.computer, name: `chat:${id}`, kind: 'chat', ...(a.tool && a.tool !== 'claude' ? { tool: a.tool } : {}), chatId: id, byTia: !a.sessionId /* as openChat: an earlier conversation is never hers */, status: a.text ? 'working' : 'waiting', profile: { name: a.profile, label: a.profile, kind: 'subscription' }, cwd: a.folder, title: a.text ? a.text.slice(0, 60) : '', lastMessage: '', note: '', limit: null, sessionId: id, statusAt: Date.now(), created: this.#made() });
     return { id };
   }
+  async forkChat(a) {
+    this.#write('forkChat', a);
+    const c = this.#session(a.computer, `chat:${a.id}`);
+    const id = `66666666-6666-4666-8666-6666666666${String(this.s.sessions.length % 100).padStart(2, '0')}`;
+    this.s.sessions.push({ ...clone(c), name: `chat:${id}`, chatId: id, byTia: false, status: 'waiting', ask: null, note: '', sessionId: id, created: this.#made() });
+    return { id };
+  }
   async sendToChat(a) {
     this.#write('sendToChat', a);
     const c = this.#session(a.computer, `chat:${a.id}`);
@@ -336,6 +343,10 @@ export class FakeOps {
   async checkUpdates({ computer }) {
     this.#read('checkUpdates', { computer });
     return clone(this.s.updates);
+  }
+  async restartDashboard(a) {
+    this.#write('restartDashboard', a);
+    return { ok: true, restarting: true };
   }
   async runUpdate(a) {
     this.#write('runUpdate', a);
@@ -528,6 +539,31 @@ export class FakeOps {
   async skillRemove(a) {
     this.#write('skillRemove', a);
     return { ok: true };
+  }
+  async skillCancel(a) {
+    this.#write('skillCancel', a);
+    return { ok: true };
+  }
+  async skillUndo(a) {
+    this.#write('skillUndo', a);
+    const s = (this.s.skills.user.skills || []).find((x) => x.name === a.name);
+    if (!s || !s.canUndo) throw Object.assign(new Error(`nothing to undo for "${a.name}"`), { status: 404 });
+    return { ok: true };
+  }
+  // The "went wrong twice" lines of Home (src/field/feature.mjs): `this.s.twice`, in the product's own words.
+  async fieldTwice(a) {
+    this.#read('fieldTwice', a);
+    return { twice: clone(this.s.twice || []) };
+  }
+  async fieldTwiceAct(a) {
+    this.#write('fieldTwiceAct', a);
+    const l = (this.s.twice || []).find((x) => x.key === a.line);
+    if (!l) throw Object.assign(new Error('that line is not shown now'), { status: 409 });
+    if (a.act === 'dismiss') {
+      this.s.twice = this.s.twice.filter((x) => x !== l);
+      return { twice: clone(this.s.twice) };
+    }
+    return { twice: clone(this.s.twice), draft: 'd'.repeat(24) };
   }
   async projectsFolder(a) {
     this.#write('projectsFolder', a);

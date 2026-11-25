@@ -21,6 +21,9 @@ word | - | src/handsoff.mjs
 word | - | src/wall.mjs
 word | - | src/work/alone.mjs
 word | - | run_tests
+word | - | runs
+word | - | run_build
+word | - | run_script
 word | - | launcher
 
 held | plain | sudo

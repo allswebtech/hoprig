@@ -10,6 +10,7 @@ model-unknown: opus/high
 allow: Read,Glob,Grep,Edit,Write
 deny: NotebookEdit,Bash,WebFetch,WebSearch,Task
 never: use sudo, install anything globally, restart a service, push, merge, send anything out, ask the owner directly
+runs: tests,build,scripts
 check: diff
 readonly: no
 ---

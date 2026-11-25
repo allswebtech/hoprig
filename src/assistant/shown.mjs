@@ -17,10 +17,12 @@ export const FIRST_CALL = {
   schedule: 'manage_automation action list',
   review: 'manage_skills action review (or update_review)',
   skill: 'manage_skills action installed',
+  twice: 'manage_skills action twice',
   mapped: 'list_projects with view "map"',
   address: 'list_projects with view "map" or "git" (or the owner writes the address himself)',
   task: 'manage_work action today or list',
   run: 'manage_work action task',
+  plan: 'manage_work action plans',
 };
 
 /** The local computer is always known: tools default to it. */

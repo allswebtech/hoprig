@@ -20,6 +20,7 @@ import { sessionRow } from './sessionitem.js';
 import { projectBrain } from './brain.js';
 import { commandLine, freshFork, missingCard, workspaceStrip } from './workspace.js';
 import { asOfWords, computersPanel, dropSheet, groupSheet, lastHereWords, removeGroup } from './wsplaces.js';
+import { groupTools } from './workspacetool.js';
 import { registerPage } from './registry.js';
 import { emptyState, errorBox, fold, groupHead, listRow, okBox, radioCards, skeletonRows as skeleton, stepHeader } from './shell.js';
 import { store } from './store.js';
@@ -27,7 +28,8 @@ import { canDeleteConversation, deleteConversation } from './chat/deletes.js';
 import { editorButton } from './editor/index.js';
 import { openNewSession } from './newsession-popup.js';
 import { needsBlock } from './projectneeds.js';
-import { aiReady, briefFields, markCards, startLater, startPart, startSession, willLines } from './newproject.js';
+import { needsAfterGet } from './getneeds.js';
+import { aiReady, briefFields, markCards, newBody, optionsPart, previewQuery, startLater, startPart, startSession, willLines } from './newproject.js';
 import { projectOutSwitch } from './operator-tia.js';
 import { projectNoteBox } from './operator-decide.js';
 
@@ -499,6 +501,7 @@ function groupsLine(d, map, reload) {
     groups.length ? h('div.rows', groups.map((g) => h('div.row.static', h('span.row-icon', icon('folder')),
       h('span.row-main', h('span.row-title', g), h('span.row-sub', ((map.map.groups || []).find((x) => x.dir === g) || {}).url || 'a folder of projects')),
       btn('small ghost', { icon: 'minus', label: 'Take out of the map', title: `Take ${g} out of the map; its folder stays`, onclick: () => removeGroup(g, reload) })))) : null,
+    groups.length ? groupTools() : null,
     h('div.btnrow', btn('small secondary', { icon: 'plus', label: 'Add a group', onclick: () => groupSheet({}, reload) }),
       btn('small ghost', { icon: 'text', label: 'Text for coding sessions', title: 'The short text about this workspace that your coding tools read: shown first, written on your yes', onclick: () => rulesSheet() })));
 }
@@ -838,7 +841,7 @@ const stepper = (i, names = STEPS) => stepHeader(names, i);
 export const jobOutcome = (r) => (r && r.data && r.data.fix ? 'needs-you' : r && (r.ok || (r.data && r.data.made)) ? 'done' : 'failed');
 
 /** The step pages' last step: the job's output while it runs, then the result with what to do next. */
-async function finish(box, { path, body, doing, done, alive, back, plainError = (e) => e, refused = () => false, then = null }) {
+async function finish(box, { path, body, doing, done, alive, back, plainError = (e) => e, refused = () => false, then = null, extra = null }) {
   const log = logBox();
   fill(box, stepper(2), busy(doing), fold('project-steps', 'Details', log));
   let r;
@@ -867,6 +870,8 @@ async function finish(box, { path, body, doing, done, alive, back, plainError = 
         h('div.pj-next', btn('secondary', { icon: 'back', label: 'Back', onclick: back }))]
       : outcome === 'done'
       ? [okBox(done(where)), r.ok ? null : h('p.hint', `Some of it did not work: ${r.error || 'see the details below'}.`), after,
+        // Get: what the project needs that is not here, offered as the terminal offers it (getneeds.js).
+        extra ? extra(r) : null,
         // One main button: what follows the project's start (after) has its own, then this one is a plain choice.
         h('div.pj-next', newSessionButton(where, id || String(where).split(/[\\/]/).pop(), { cls: after ? 'secondary' : 'primary', label: 'Start a session' }), h('a.btn.secondary', { href: link(`#/workspace/project/${enc(id)}`) }, icon('folder', { size: 18 }), h('span', 'Open the project')))]
       : [errorBox(plainError(r.error || 'That did not work.')), h('div.pj-next', btn('secondary', { icon: 'back', label: 'Back', onclick: back }))],
@@ -887,11 +892,13 @@ function viewNewProject({ frame, sub }) {
     body: [named ? h('p.banner.info.pj-from', icon('folder', { size: 18 }), h('span', `Named after the folder you picked. The project is made new in your projects folder; that folder stays where it is: move its files into the project, or ask in a session there.`)) : null, box] });
   let alive = true;
   // brief, kind: as typed (newproject.js); start: "Start with AI"; choices and v: the session's choices and his picks.
-  const st = { name: named, github: false, preview: null, brief: '', kind: '', scope: 'product', start: true, choices: null, v: {} };
+  const st = { name: named, github: false, preview: null, brief: '', kind: '', scope: 'product', skill: true, fit: true, start: true, choices: null, v: {} };
   let briefRefused = null; // the server's refusal of the brief, said under it when the first step is drawn again
 
   function stepName(error = '') {
     const brief = briefFields(st);
+    const options = optionsPart(st);
+    brief.el.addEventListener('input', () => options.sync()); // a brief keeps the skill ticked
     const refused = briefRefused;
     if (refused) brief.problem(refused.message, refused.clean);
     briefRefused = null;
@@ -914,7 +921,7 @@ function viewNewProject({ frame, sub }) {
       next.disabled = true;
       next.textContent = 'Checking…';
       try {
-        const pv = await api(`/api/pcsetup/project/preview?name=${enc(v)}${st.brief.trim() ? '&brief=1' : ''}`);
+        const pv = await api(`/api/pcsetup/project/preview?name=${enc(v)}${previewQuery(st)}`);
         if (pv.exists) throw new Error(`There is already a folder called ${v} in the projects folder: pick another name.`);
         if (st.name !== v) Object.assign(st, { choices: null, v: {} }); // the provider is the new folder's own
         Object.assign(st, { name: v, preview: pv });
@@ -928,6 +935,7 @@ function viewNewProject({ frame, sub }) {
     h('label.fieldrow', h('span.field-label', 'Project name'), input, folderHint),
     err,
     brief.el,
+    options,
     h('div.pj-next', next)));
     // After a refused brief the brief is what changes (its reason and "Take them out" stand under it), else the name.
     if (refused) brief.focus();
@@ -946,7 +954,7 @@ function viewNewProject({ frame, sub }) {
       : h('p.hint', 'It stays on this computer. To also put it on GitHub, ', signInLink(async () => {
         // Signed in: the step asks again (its GitHub part), keeping the name and the brief he typed.
         try {
-          st.preview = await api(`/api/pcsetup/project/preview?name=${enc(st.name)}${st.brief.trim() ? '&brief=1' : ''}`);
+          st.preview = await api(`/api/pcsetup/project/preview?name=${enc(st.name)}${previewQuery(st)}`);
         } catch {
           /* the step as it was */
         }
@@ -978,7 +986,7 @@ function viewNewProject({ frame, sub }) {
     const later = async () => startLater(st, machine.current);
     // The button says what it will do; a choice of "Start with AI" changes it in place (the focus stays on the choice).
     const createButton = () => btn('primary', { icon: starts() ? 'play' : 'check', label: starts() ? 'Create and start with AI' : 'Create project', onclick: () => finish(box, {
-      path: '/api/pcsetup/project/new', body: { name: st.name, github: st.github, ...who(), ...(hasBrief ? { brief: st.brief, scope: st.scope || 'product', ...(st.kind ? { kind: st.kind } : {}) } : {}) }, doing: `Creating ${st.name}…`, alive: () => alive,
+      path: '/api/pcsetup/project/new', body: newBody(st, who()), doing: `Creating ${st.name}…`, alive: () => alive,
       done: (dir) => `${st.name} is ready in ${tildePath(dir, pv.home)}.${st.github ? ' It is on GitHub too.' : ''}`,
       back: stepCheck,
       plainError: (e) => (/git does not know your name/.test(e) ? 'git needs your name and e-mail before it can save anything: go Back, type them in the two fields, then create the project again.' : e),
@@ -1008,6 +1016,7 @@ function viewNewProject({ frame, sub }) {
             ? h('li', 'A small set of starting files: the rules your coding tools read (AGENTS.md), a place for the AI memory and notes (ai_brain), docs and decisions, and a code folder for the project\'s code repositories.')
             : h('li', 'The files of your own project template.'),
           ...willLines(st),
+          st.fit !== false ? h('li', 'Skills that fit its technology: Hoprig looks now and once more when it first has code. Text-only ones go in by themselves, with Undo, on the project\'s Skills page; anything else waits for you there.') : null,
           h('li', 'A first save in git, so every later change can be seen and undone.'),
           st.github ? h('li', 'A private GitHub repository, with the project uploaded to it.') : null),
         pv.files ? fold('new-files', `All ${pv.files.length} files`, h('ul.pj-files.mono', pv.files.map((f) => h('li', f)))) : null)),
@@ -1084,6 +1093,7 @@ function viewGetProject({ frame, sub }) {
           path: '/api/pcsetup/project/clone', body: { spec }, doing: `Downloading ${name}…`, alive: () => alive,
           done: (dir) => `${String(dir).split(/[\\/]/).pop() || name} is on this computer now, in ${folder ? tildePath(dir, folder.home) : dir}.`,
           back: stepCheck,
+          extra: (r) => (r.data && r.data.name ? needsAfterGet(r.data.place ? `${r.data.place}/${r.data.name}` : r.data.name, { alive: () => alive }) : null),
           plainError: (e) => (/clone failed|no repository|needs the GitHub sign-in/.test(e)
             ? `${name} could not be downloaded. Check its name; a private project needs the GitHub sign-in first (Computers → this computer → Setup). The details below say what git answered.`
             : e),

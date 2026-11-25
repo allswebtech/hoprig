@@ -3,7 +3,8 @@
 //   GET  /api/work/plans                         the plans with their progress and next date: { plans, unreadable }
 //   POST /api/work/plans { title, goal, projects?, milestones? }        a plan made by hand
 //   GET  /api/work/plans/<id>                    one plan: its goal, note, milestones with their tasks, the timeline,
-//                                                and `hash` (what a change names as seen)
+//                                                `hash` (what a change names as seen), and `parts` (who did what: its
+//                                                tasks' runs per tier and per task, only when a run had helpers)
 //   POST /api/work/plans/<id> { seen, title?, goal?, projects?, milestones?, status? }   change it, mark it done or dropped
 //   POST /api/work/items/<id>/plan { at, plan (an id or null), milestone?, after? }       a task into a plan, or out
 //   GET  /api/work/propose?project=&tool=        what Plan would start: projects, tools, providers, models, the defaults
@@ -22,6 +23,7 @@ import { listPlans, readNote, readPlan } from './plans.mjs';
 import { planHash, createPlan, editPlan, setTaskPlan } from './planstore.mjs';
 import { planRow, planView, withWaits } from './planview.mjs';
 import { RUN_ID_RE } from './runs.mjs';
+import { planParts } from './pulse.mjs';
 import { cleanChoices } from './dofeature.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -43,9 +45,10 @@ const idOf = (m, re = ID_RE, what = 'a plan') => {
 
 /**
  * o: { place(), store() (store.mjs workStore), ctx() ({ today, ownerId, projects, now }), planner (planai.mjs, or null
- * without the chat feature), readJson, refOf, ownerOnly, resume } → [[method, re, fn]].
+ * without the chat feature), readJson, refOf, ownerOnly, resume, partsByItem (pulse.mjs: the runs' who did what by
+ * task, or null) } → [[method, re, fn]].
  */
-export function planRoutes({ place, store, ctx, planner, readJson, refOf, ownerOnly, resume, corrected = null }) {
+export function planRoutes({ place, store, ctx, planner, readJson, refOf, ownerOnly, resume, corrected = null, partsByItem = null }) {
   const items = () => withWaits(store().list().items);
   const routes = [
     ['GET', /^\/api\/work\/plans$/, async (req) => {
@@ -70,7 +73,12 @@ export function planRoutes({ place, store, ctx, planner, readJson, refOf, ownerO
       const p = place();
       const plan = readPlan(p, id);
       if (!plan) throw fail(404, `there is no plan "${id}" (or its file does not read as one)`);
-      return { today: ctx().today, plan: planView(plan, items(), ctx().today), note: readNote(p, plan), hash: planHash(plan) };
+      const view = planView(plan, items(), ctx().today);
+      // Who did what (Lead model): read through workUnits (pulse.mjs), the same reader as a run's card; none without a helper.
+      const tasks = [...view.milestones.flatMap((x) => x.tasks), ...view.loose];
+      const byItem = partsByItem && tasks.length ? await partsByItem().catch(() => new Map()) : new Map();
+      const parts = planParts(tasks, byItem);
+      return { today: ctx().today, plan: view, note: readNote(p, plan), hash: planHash(plan), ...(parts ? { parts } : {}) };
     }],
     ['POST', /^\/api\/work\/plans\/([^/]+)$/, async (req, m) => {
       ownerOnly(req);

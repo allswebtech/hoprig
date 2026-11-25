@@ -75,15 +75,34 @@ test('a brief is kept byte for byte, the skill and its record come in, the kind\
   assert.match(r.text, /hoprig project start shop --kind cli --scope setup/);
 });
 
-test('without a brief the project is as before: no skill, no docs/brief.md and no decision', async () => {
+test('without a brief the project gets the skill and its record all the same, and no docs/brief.md and no decision', async () => {
   const r = await run(['plain', '--no-github']);
   assert.equal(r.code, 0, r.text);
   const root = path.join(projects, 'plain');
-  assert.ok(!fs.existsSync(path.join(root, '.claude/skills')), 'the skill comes with a brief only');
-  assert.doesNotMatch(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), /Every session/, 'and AGENTS.md names no skill');
+  assert.deepEqual(hashFolder(path.join(root, '.claude/skills/new-project')), hashFolder(bundledDir(catalogEntry('new-project'))), 'the skill is on by default');
+  const listed = listInstalled(scopeOf({ project: root })).find((s) => s.name === 'new-project');
+  assert.ok(listed && listed.managed && listed.source.type === 'bundled', 'with its record: the skills list knows it as bundled');
+  const agents = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
+  assert.ok(agents.endsWith(np.NO_BRIEF_YET), 'AGENTS.md says what to do while there is no brief');
+  assert.doesNotMatch(agents, /^## Every session/m, 'and has no "Every session" part: that comes with a brief');
+  assert.match(np.NO_BRIEF_YET, /docs\/brief\.md/);
   assert.ok(!fs.existsSync(path.join(root, 'docs/brief.md')));
   assert.doesNotMatch(fs.readFileSync(path.join(root, 'decisions.md'), 'utf8'), /how the project starts/);
+  assert.equal(git(root, 'status', '--porcelain'), '', 'everything is in the first commit');
   assert.match(r.text, /hoprig project add plain <stack>/);
+});
+
+test('--no-skill leaves the skill out (a project as before), and goes only without a brief', async () => {
+  const r = await run(['bare', '--no-skill', '--no-github']);
+  assert.equal(r.code, 0, r.text);
+  const root = path.join(projects, 'bare');
+  assert.ok(!fs.existsSync(path.join(root, '.claude/skills')), 'no skill and no record');
+  assert.doesNotMatch(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), /Every session|No brief yet|new-project/);
+  const both = await run(['bare2', '--no-skill', '--brief', briefFile('nb.txt', 'A shop.'), '--no-github']);
+  assert.equal(both.code, 1, both.text);
+  assert.match(both.text, /--no-skill goes without a brief/);
+  assert.ok(!fs.existsSync(path.join(projects, 'bare2')), 'refused before anything is written');
+  assert.match((await import('../../src/pcsetup/project.mjs')).NEW_USAGE, /\[--no-skill\]/);
 });
 
 test('refusals come before anything is written: hidden characters, a control character, not UTF-8, too big, a bad kind, --start without a brief', async () => {
@@ -413,7 +432,10 @@ test('docs/PC-SETUP.md names everything a brief adds: the brief, the skill, the 
   const doc = fs.readFileSync(new URL('../../docs/PC-SETUP.md', import.meta.url), 'utf8');
   const part = doc.slice(doc.indexOf('### A new project from a brief'), doc.indexOf('What the AI does then'));
   assert.match(part, /kept byte for byte as `docs\/brief\.md`/);
-  assert.match(part, /\*\*The `new-project` skill\*\* comes with the brief/);
+  assert.match(part, /\*\*The `new-project` skill\*\* comes with every new project, with a brief or without one/);
+  assert.match(part, /\*\*`--no-skill`\*\* leaves the\s+skill out \(only without a brief\)/);
+  assert.match(part, /the box \*\*Add the New Project skill\*\*, ticked at first/);
+  assert.match(part, /`AGENTS\.md` gets a part "No brief yet"/);
   assert.match(part, /\*\*`AGENTS\.md`\*\* gets a part "Every session"/);
   assert.match(part, /`decisions\.md`, as its entry "how the project\s+starts"/);
 });

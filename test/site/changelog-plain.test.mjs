@@ -10,9 +10,12 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const text = read('site/content/changelog.md').replace(/\r\n?/g, '\n');
-const at = text.indexOf('\n## 0.3.3 ');
-const block = text.slice(at, text.indexOf('\n## ', at + 1));
-const update = block.slice(block.indexOf('### What changes when you update'), block.indexOf('\n### ', block.indexOf('### What changes when you update') + 1));
+// The unreleased block (from "## 0.3.4") and the released 0.3.3 block after it: an entry is read where it stands now.
+const at = text.indexOf('\n## 0.3.4 ');
+const mid = text.indexOf('\n## ', at + 1);
+assert.ok(at >= 0 && text.startsWith('\n## 0.3.3 (24 November 2026)\n', mid), 'the unreleased block, then the released 0.3.3');
+const section = (b) => b.slice(b.indexOf('### What changes when you update'), b.indexOf('\n### ', b.indexOf('### What changes when you update') + 1));
+const update = section(text.slice(at, mid)) + section(text.slice(mid, text.indexOf('\n## ', mid + 1)));
 
 test('a word of the update section is said in plain words where it first stands', () => {
   const PLAIN = {

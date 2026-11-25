@@ -213,6 +213,7 @@
 .np-count { font-variant-numeric: tabular-nums; }
 .np-count.over { color: var(--danger); font-weight: 650; }
 .np-start { display: grid; gap: 10px; }
+.np-options { display: grid; gap: 14px; margin-top: 4px; }
 .np-switch { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; line-height: 1.45; }
 .np-switch input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; }
 .np-choices > .fieldrow { margin-top: 0; }
@@ -234,6 +235,7 @@
 .pp-text { margin: 4px 0 0; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 var(--mono); }
 .pp-issue { max-height: 220px; }
 @media (max-width: 640px) { .pp-texts { grid-template-columns: 1fr; } }
+.pp-box .row-sub { white-space: normal; overflow-wrap: anywhere; } /* "no longer applies" is read whole on a phone */
 
 /* The workspace without a terminal (wsplaces.js): groups, which computer has what, the drop sheet's check and questions. */
 .ws-groups, .ws-computers { margin-top: 28px; }
@@ -263,3 +265,11 @@
 .ns-choices-body { padding: 4px 14px 10px; border-top: 1px solid var(--border); }
 /* A project row's own action, in words: Start (a new session there); Continue beside it opens what runs. */
 .ns-startword { display: flex; align-items: center; gap: 4px; color: var(--accent); font-size: var(--fs-sm); font-weight: 600; }
+/* A group's own command (workspacetool.js): its sentences wrap; on a phone its buttons go under them. */
+.ws-tool { align-items: flex-start; }
+.ws-tool .row-sub { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .ws-tool { flex-wrap: wrap; }
+  .ws-tool .row-main { flex-basis: calc(100% - 52px); }
+  .ws-tool .mrow-actions { flex-basis: 100%; }
+}

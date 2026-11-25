@@ -446,3 +446,100 @@ test('while the box is being checked the line leaves out a reason that says ther
   const other = testsLine({ testsNotRun: true, notRunWhy: 'the project names no test command' }, { checking: true });
   assert.equal(other, 'The tests were not run: the project names no test command. Checking whether this computer has a box (a safe place to run tests, with no network)…', 'another reason stays');
 });
+
+/** The overview as the server gives it, with the box's answer (feature.mjs overview). */
+function serveTeam(cfg, box) {
+  serve([], cfg);
+  const was = answers['/api/work/missions'];
+  answers['/api/work/missions'] = () => ({ ...was(), box });
+}
+
+test('Work → Team says per role what it may run, in plain words; with no box it says that nothing runs while they work', async () => {
+  const content = new FakeElement('div');
+  serveTeam(ON, { ok: true });
+  const p = paintTeam(content, { onGoal: () => {} });
+  await settle();
+  const card = (role) => content.all().find((x) => /\bms-role\b/.test(x.className) && x.textContent.startsWith(role));
+  assert.match(card('Developer').textContent, /May run: the project's tests, its build and its scripts, in a box: no network, only its own folder\./);
+  assert.match(card('Tester').textContent, /May run: the project's tests, its build and its scripts, in a box/);
+  assert.match(card('Writer').textContent, /Runs nothing: it has the file tools only\./);
+  assert.match(card('Reviewer').textContent, /Runs nothing/);
+  assert.doesNotMatch(card('Tester').textContent, /cannot run them/, 'no word that is not true any more');
+  assert.doesNotMatch(content.textContent, /This computer has no box/);
+  serveTeam(ON, { ok: false, why: 'no box on this computer: bubblewrap is not installed', step: 'install bubblewrap' });
+  await p.refresh();
+  assert.match(content.textContent, /This computer has no box \(bubblewrap is not installed: install bubblewrap\), so no role runs anything while it works; the check runs the tests where a box is\./);
+  p.stop();
+});
+
+test('a project\'s build command stands beside its test command and is saved with it', async () => {
+  const content = new FakeElement('div');
+  serveTeam({ ...ON, projects: { shop: { on: true, test: ['npm', 'test'], build: ['npm', 'run', 'build'] } } }, { ok: true });
+  const p = paintTeam(content, { onGoal: () => {} });
+  await settle();
+  const build = content.all().find((x) => x.dataset.key === 'build:shop');
+  assert.ok(build, 'the build command\'s field');
+  assert.equal(build.value, 'npm run build');
+  assert.equal(build.getAttribute('aria-label'), 'The build command of shop');
+  build.value = 'make all';
+  posted.length = 0;
+  content.all().find((x) => x.dataset.key === 'save:shop').fire('click');
+  await settle();
+  assert.deepEqual(posted, [['/api/work/missions/settings', { projects: { shop: { on: true, test: ['npm', 'test'], build: ['make', 'all'] } } }]]);
+  p.stop();
+});
+
+test('Auto: shown only beside her switch for a project that is on, off on a fresh home, its sentence says what she starts', async () => {
+  const content = new FakeElement('div');
+  serve([], { ...ON, projects: { shop: { on: false } } });
+  const p = paintTeam(content, { onGoal: () => {} });
+  await settle();
+  assert.equal(content.all().find((x) => x.dataset.key === 'auto:shop'), undefined, 'her switch for shop is off: no Auto switch');
+  serve([], ON);
+  await p.refresh();
+  await settle();
+  const sw = content.all().find((x) => x.dataset.key === 'auto:shop');
+  assert.ok(sw, 'beside her switch for shop');
+  assert.equal(sw.getAttribute('checked'), null, 'off until he turns it on');
+  assert.match(sw.parent.textContent, /Tia starts this project's ready tasks by herself/);
+  assert.match(sw.parent.textContent, /Off: she starts only the tasks of plans you accept\./);
+  posted.splice(0);
+  sw.checked = true;
+  sw.fire('change');
+  await settle();
+  assert.deepEqual(posted.find(([u]) => u === '/api/work/missions/settings')[1], { projects: { shop: { on: true, auto: true, test: null } } });
+  serve([], { ...ON, projects: { shop: { on: true, auto: true, test: null } } });
+  await p.refresh();
+  await settle();
+  const on = content.all().find((x) => x.dataset.key === 'auto:shop');
+  assert.equal(on.getAttribute('checked'), '', 'on');
+  assert.match(on.parent.textContent, /is started by her as a mission of its own, one at a time, within your limits below\. Each start is in Work → Activity; End on its mission stops it, and she never takes that task by herself again\./);
+  p.stop();
+});
+
+test('a mission Tia started by herself says so on its row and its screen, and offers End', async () => {
+  const content = new FakeElement('div');
+  const m = missionOf({ auto: true, plan: null, goal: 'Add the cart', tasks: [taskOf({ state: 'running', run: RUN })] });
+  serve([m]);
+  const p = paintTeam(content, { onGoal: () => {} });
+  await settle();
+  const row = content.querySelector('a.ms-row');
+  assert.match(row.textContent, /Started by Tia \(Auto\)/);
+  assert.match(row.getAttribute('aria-label'), /\. Started by Tia \(Auto\)/);
+  p.stop();
+  const screen = new FakeElement('div');
+  const v = viewMission(screen, m.id);
+  await settle();
+  assert.match(screen.textContent, /Started by Tia \(Auto\): it was a ready task of shop\. End stops it, and she never takes this task by herself again\./);
+  const end = screen.all().find((x) => x.dataset.key === 'stop');
+  assert.equal(end.textContent.trim(), 'End');
+  assert.doesNotMatch(screen.textContent, /Stop this mission/);
+  v.stop();
+  const plain = new FakeElement('div');
+  serve([missionOf({ tasks: [taskOf({ state: 'running', run: RUN })] })]);
+  const w = viewMission(plain, 'm-20261119-abcdef');
+  await settle();
+  assert.doesNotMatch(plain.textContent, /Started by Tia \(Auto\)/, 'a mission of a plan he accepted is not marked');
+  assert.match(plain.textContent, /Stop this mission/);
+  w.stop();
+});

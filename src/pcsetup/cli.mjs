@@ -3,6 +3,7 @@
 //   pc setup  [--yes] [--dry-run] [--kits a,b] [--recipe <file|https>] [--no-projects]
 //   pc recipe save [file] [--with-email]                  "make my next computer like this one"
 //   pc clone <repo>...                                    clone into the projects folder (+ dependency install)
+//   pc leave --check [--also <folder>]… [--json]          what exists only here, before a format (leavecli.mjs)
 //   project …                                             project workspaces (project.mjs)
 //   get <name>…                                           = project clone (getproject.mjs)
 import fs from 'node:fs';
@@ -23,6 +24,7 @@ export const USAGE = `usage:
   hoprig pc setup [--yes] [--dry-run] [--kits ${KITS.map((k) => k.id).join(',')}] [--recipe <file|https address>]
   hoprig pc recipe save [file] [--with-email]  write a recipe to set up another computer like this one
   hoprig pc clone <git address | owner/repo>…  clone into the projects folder
+  hoprig pc leave --check [--also <folder>]… [--json]  what exists only on this computer, before a format (reads only)
   hoprig project new|add|clone|status|sync|link …   project workspaces (docs/PC-SETUP.md)
   hoprig get <name | owner/name | git address>…     get projects (= project clone)`;
 
@@ -120,6 +122,8 @@ export async function main(command, args = []) {
       const r = await projectsStep(ui, sys, { recipe: { repos } });
       return r.failed.length ? 1 : 0;
     }
+    case 'leave':
+      return (await import('../workspace/leavecli.mjs')).leaveMain(rest, { write });
     default:
       write(`${USAGE}\n`);
       return sub ? 2 : 0;

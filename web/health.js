@@ -9,8 +9,14 @@ import { MACHINE_STATE, add, ago, api, btn, bytes, confirmSheet, fill, h, link, 
 import { errorBox, groupHead, okBox } from './shell.js';
 import { startSetup } from './setupjob.js';
 import { busy, cmdLine } from './joinlink.js';
+import { claudeLoginButton } from './claudelogin.js';
 
 const MARK = { ok: 'check', fail: 'x', warn: 'alert', info: 'info' };
+// The parts of the page a check names as the place it is done (src/machines/health.mjs ASKED and DONE_ON).
+const PLACES = { 'Setup → Git and GitHub': '#/computer/setup', 'Settings → Runs as root': '#/settings/root', Providers: '#/providers', Skills: '#/skills' };
+// Why a line with administrator rights is his to type: the page never takes the computer's password.
+export const ADMIN_WHY = 'It needs administrator rights, so the computer asks for your password, which only you type.';
+export const ENTER_HINT = 'Press Enter in the terminal to run it.';
 const row = (ic, title, sub, end = null) => h('div.row.static', h('span.row-icon', icon(ic)), h('span.row-main', h('span.row-title', title), sub ? h('span.row-sub', sub) : null), end);
 const local = () => ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(location.hostname);
 /**
@@ -88,6 +94,32 @@ export function healthSection(ctx) {
   let computerName = null; // the name that computer gives itself (its health answer): a Fix's confirmation sends it
   let signedIn = []; // the loopback names the owner is signed in under here (GET /api/gatewayhost)
 
+  // Health's "Open a terminal with this line": only the check's id goes; that computer types its own line, no Enter.
+  async function lineTerminal(c) {
+    try {
+      const r = await api('/api/health/line', { id: c.id, confirm: computerName });
+      location.hash = link(`#/s/${encodeURIComponent(r.session)}`);
+      toast(ENTER_HINT, { ms: 8000 });
+    } catch (e) {
+      fill(msg, errorBox(e));
+    }
+  }
+
+  // What a check that is not fine offers: a press where the page does it, else its line (and for a line that needs
+  // administrator rights, why, and a terminal with the line typed in it where that computer can open one).
+  function fixOf(c, line) {
+    if (c.where) return h('a.btn.small.secondary', { href: link(PLACES[c.where] || '#/computer/setup') }, `Set it under ${c.where}`);
+    if (c.fixId) return btn('small primary', { label: 'Fix', onclick: () => fix(c) });
+    const signIn = c.action === 'claude-login' ? claudeLoginButton(() => load()) : null;
+    if (signIn) return signIn;
+    if (!c.fix) return null;
+    if (!c.admin) return h('div.cp-fixline', h('span.hint', `Type this in a terminal on ${ctx.label()}:`), cmdLine(c.fix));
+    return h('div.cp-fixline',
+      h('span.hint', `${ADMIN_WHY} ${line ? 'Open a terminal with this line, then press Enter there:' : `Open a terminal on ${ctx.label()} and type this line:`}`),
+      cmdLine(c.fix),
+      line ? h('div', btn('small secondary', { icon: 'terminal', label: 'Open a terminal with this line', onclick: () => lineTerminal(c) })) : null);
+  }
+
   async function fix(c) {
     // Always asked first, with what it runs there (its kit's plan, as that computer read it).
     if (!(await confirmSheet({ title: `Fix "${c.label}" on ${ctx.label()}?`, text: fixText(c, ctx.label()), ok: `Run it on ${ctx.label()}` }))) return;
@@ -105,7 +137,7 @@ export function healthSection(ctx) {
     load();
   }
 
-  function checks(all) {
+  function checks(all, line = false) {
     // The service is shown once, at the top ("Runs as a service"), not again as a check.
     const list = all.filter((c) => c.id !== 'service');
     const bad = list.filter((c) => c.status === 'fail' || c.status === 'warn');
@@ -114,10 +146,7 @@ export function healthSection(ctx) {
       groupHead('Checks', list.length),
       bad.length ? null : okBox(`All ${list.length} checks are fine.`),
       // A check's reason wraps: cut to one line it hid what to do (the root line at desktop width).
-      h('div.rows.check-rows', bad.map((c) => row(MARK[c.status], c.label, c.detail,
-        c.where ? h('a.btn.small.secondary', { href: link('#/computer/setup') }, `Set it under ${c.where}`)
-          : c.fixId ? btn('small primary', { label: 'Fix', onclick: () => fix(c) })
-          : c.fix ? h('div.cp-fixline', h('span.hint', `${c.admin ? 'Needs administrator rights. ' : ''}Type this in a terminal on ${ctx.label()}:`), cmdLine(c.fix)) : null))),
+      h('div.rows.check-rows', bad.map((c) => row(MARK[c.status], c.label, c.detail, fixOf(c, line)))),
       bad.length && fine ? h('p.hint', `${fine} other check${fine === 1 ? ' is' : 's are'} fine.`) : null,
     ];
   }
@@ -150,7 +179,7 @@ export function healthSection(ctx) {
         row(hl.service && hl.service.status === 'ok' ? 'check' : 'alert', 'Runs as a service', hl.service ? hl.service.detail : 'unknown'),
         hl.listens ? row('lock', 'Listens on', `${hl.listens.host}:${hl.listens.port}${hl.listens.host === '127.0.0.1' ? ' (this computer only)' : ''}`) : null,
         ...figures(hl).map(([k, val]) => row('monitor', k, val))),
-      ...checks(hl.checks));
+      ...checks(hl.checks, hl.line === true));
     gateways();
   }
 

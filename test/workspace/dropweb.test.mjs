@@ -119,7 +119,13 @@ test('one implementation: no file outside the drop modules decides what a drop m
   // Callers that only finish a cut-off drop (get) or name a leftover (status): the drop modules' own functions.
   // And one that removes nothing: the commit of a run that has no git (work/alonecommit.mjs) is made the way a drop
   // makes its own (the exact bytes, on an index of its own), so that there is ONE such way, not two.
-  const allowed = new Set(['workspace/drop.mjs', 'workspace/dropcheck.mjs', 'workspace/dropsilent.mjs', 'workspace/dropfind.mjs', 'workspace/dropacts.mjs', 'workspace/dropcli.mjs', 'pcsetup/getproject.mjs', 'workspace/cli.mjs', 'work/alonecommit.mjs']);
+  const allowed = new Set(['workspace/drop.mjs', 'workspace/dropcheck.mjs', 'workspace/dropsilent.mjs', 'workspace/dropfind.mjs', 'workspace/dropacts.mjs', 'workspace/dropcli.mjs', 'pcsetup/getproject.mjs', 'workspace/cli.mjs', 'work/alonecommit.mjs',
+    // The whole-computer check's walk asks dropsilent.mjs what a build makes again (so it keeps no second list) and
+    // prints sizes with dropfind.mjs's words; it removes nothing.
+    'workspace/leavewalk.mjs',
+    // The whole-computer check puts every repository through drop's own check (lookAt, checkRepo) so that it names
+    // exactly what a drop would refuse, with drop's words; it only reads and removes nothing.
+    'workspace/leave.mjs', 'workspace/leaveitems.mjs']);
   const bad = [];
   for (const e of fs.readdirSync(src, { recursive: true, withFileTypes: true })) {
     if (!e.isFile() || !e.name.endsWith('.mjs')) continue;

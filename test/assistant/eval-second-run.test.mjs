@@ -120,13 +120,48 @@ let k = 0;
 function run(args, env = {}) {
   const log = path.join(box, `engine-${++k}.log`);
   const r = spawnSync(process.execPath, [RUN, '--profile', 'none', '--concurrency', '1', ...args], { encoding: 'utf8', env: { ...process.env, HOPRIG_EVAL_ENGINE: ENGINE, FAKE_EVAL_LOG: log, ...env }, timeout: 120_000 });
-  return { ...r, started: fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).length : 0 };
+  const starts = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : [];
+  return { ...r, started: starts.length, starts };
 }
 const caseFile = (c) => {
   const f = path.join(box, `cases-${++k}.jsonl`);
   fs.writeFileSync(f, `${JSON.stringify(c)}\n`);
   return f;
 };
+
+test('the runner: --max-usd is the whole budget of a run: no case starts past it, and the cases left out are named', () => {
+  const cases = path.join(box, `budget-${++k}.jsonl`);
+  fs.writeFileSync(cases, ['one', 'two', 'three'].map((n) => JSON.stringify({ id: `budget-${n}`, input: { message: 'What do you know about syncing?' }, expect: { must_say: [{ contains: 'TOOL:' }] } })).join('\n'));
+  const r = run(['--jsonl', '--max-usd', '0.003', '--cases', '-', '--case-file', cases], { FAKE_EVAL_COST: '0.002' });
+  assert.equal(r.status, 0, r.stderr);
+  const rows = r.stdout.trim().split('\n').map((l) => JSON.parse(l));
+  const sum = rows.at(-1);
+  assert.deepEqual(rows.slice(0, -1).map((l) => [l.id, l.pass]), [['budget-one', true]], 'a case its limit cut short is no result');
+  assert.deepEqual(sum.not_run, ['budget-two', 'budget-three']);
+  const limits = r.starts.map((l) => Number(l.split(' ')[1]));
+  assert.deepEqual(limits, [0.003, 0.001], 'each case started with what was left as its own limit; the third did not start');
+  assert.ok(sum.cost <= 0.003 + 1e-9, `the run cost $${sum.cost}`);
+  assert.match(r.stderr, /^NOT RUN budget-three: the budget of the run is used up$/m);
+  // Without --max-usd each case keeps its own limit, as before.
+  const free = run(['--jsonl', '--cases', '-', '--case-file', cases]);
+  assert.deepEqual(free.starts, ['started 0.5', 'started 0.5', 'started 0.5']);
+  assert.equal(JSON.parse(free.stdout.trim().split('\n').at(-1)).not_run, undefined);
+});
+
+test('the budget of a run: what is handed out and spent never passes it, also with cases at once', async () => {
+  const b = new G.Budget(0.1, 3);
+  const seen = [];
+  const cases = Array.from({ length: 20 }, (_, i) => ({ id: `case-${i}`, category: 'happy' }));
+  const res = await G.pool(cases, 3, (c, i) => G.withBudget(b, c, async (usd) => {
+    seen.push(b.held + b.spent);
+    await new Promise((ok) => setTimeout(ok, 5 + (i % 3) * 5));
+    const cost = i % 4 === 0 ? usd : usd / 3;
+    return { id: c.id, category: c.category, pass: cost < usd, costUsd: cost };
+  }));
+  assert.ok(seen.every((v) => v <= 0.1 + 1e-9), `at most $0.10 held and spent at once: ${Math.max(...seen)}`);
+  assert.ok(b.spent <= 0.1 + 1e-9, `spent $${b.spent}`);
+  assert.ok(res.some((r) => r.skipped) && res.some((r) => r.pass), 'some ran, the rest were left out');
+});
 
 test('the runner: a case that slips once passes on its second run and the run exits 0', () => {
   const cases = caseFile({ id: 'slip-once', input: { message: 'What do you know about syncing?' }, expect: { must_say: [{ contains: 'TOOL:' }] } });

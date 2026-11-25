@@ -90,6 +90,89 @@ test('Work: the page names every tab of Work, and repeating work and saving miss
   assert.match(flat(part(WORK, 'Commands')), /The command does not list the sessions that need an OK: they are on Work → Today, on Home and on the Operator page\./);
 });
 
+test('Work: Activity is one history of 30 days, filtered by who as the page lists it; its session file keeps 30 days and 256 KB', () => {
+  const page = flat(part(WORK, 'The page'));
+  const hist = read('web/workhistory.js');
+  // The page's own choices of who, in its order.
+  const who = /const WHO_CHOICES = (\[\[.*?\]\]);/.exec(hist);
+  assert.ok(who, 'web/workhistory.js has its list of who');
+  const words = JSON.parse(who[1].replace(/'/g, '"')).map((x) => x[1]);
+  assert.ok(page.includes(`Filter it by **Project**, by **Day** and by **Who** (${words.join(', ')})`), words.join(', '));
+  for (const [, label] of Object.entries({ session: 'Session', run: 'Run', commit: 'Commit', save: 'Save', automation: 'Automation', error: 'Error' })) {
+    assert.ok(hist.includes(`'${label}'],`), `the kind mark ${label}`);
+    assert.ok(page.includes(`**${label}**`), `the page names the mark ${label}`);
+  }
+  assert.ok(page.includes('It covers the last 30 days, read from this computer, and only reads: it starts no model and writes nothing into a project.'));
+  assert.ok(hist.includes("'The last 30 days, read from this computer."));
+  assert.ok(page.includes('in Hoprig\'s state folder (`work-history/sessions.jsonl`)'));
+  assert.ok(page.includes('That file keeps 30 days and at most 256 KB.'));
+  // A Do it run of hers (written by "owner") is Tia's by its chat's mark (history.mjs herChats).
+  assert.ok(page.includes('A Do it run Tia started for you shows under Tia, as her chat does.'));
+  assert.match(read('src/work/history.mjs'), /r\.by === 'owner' \? \(r\.session && herChats\.has\(r\.session\) \? 'tia' : 'owner'\)/);
+  const log = read('src/work/sessionlog.mjs');
+  assert.match(log, /export const logFile = \(\) => path\.join\(stateDir\(\), 'work-history', 'sessions\.jsonl'\);/);
+  assert.match(log, /export const KEEP_MS = 30 \* 24 \* 3_600_000;/);
+  assert.match(log, /export const LOG_MAX = 256 \* 1024;/);
+  assert.match(read('src/work/history.mjs'), /import \{ KEEP_MS, projectOf, readSessions \} from '\.\/sessionlog\.mjs';/);
+  // An open App session is listed from the App's own list (history.mjs reads chats.json for it).
+  assert.ok(page.includes('An App session that is still open shows from the App\'s own list of open chats, as open in the App.'));
+  assert.match(read('src/work/history.mjs'), /readJson\(path\.join\(st, 'chats\.json'\), \[\]\)/);
+});
+
+test('Work: Do it works on a branch of its own only for a git repository whose worktree may open; Tia\'s drop removes no branch', () => {
+  const doit = part(WORK, 'Do it: a session does a task');
+  const page = flat(doit);
+  assert.ok(page.includes('**On a branch of its own** (`work/<task id>`, the default) or **In the project\'s folder itself**'));
+  assert.ok(page.includes('A project or folder that is not a git repository runs in its own folder, and so does every run while Hoprig\'s state folder is not inside the allowed folders (`server.roots`)'));
+  assert.ok(page.includes('a drop Tia makes for you removes no branch.'));
+  assert.ok(page.includes('a branch with a commit no other branch holds, or a copy with files not committed, is kept'));
+  // The page's choices, word for word.
+  const sheet = read('web/workdo.js');
+  assert.ok(sheet.includes("[['branch', `On a branch of its own, ${p.branch.name}`], ['folder', 'In the project\\'s folder itself']]"));
+  // The code values: not git, or the state folder outside the allowed folders: no branch.
+  const code = read('src/work/doit.mjs');
+  assert.match(code, /if \(!top\) return \{ why: 'not-git' \};/);
+  assert.match(code, /if \(!resolveRoots\(\(cfg\(\)\.server \|\| \{\}\)\.roots\)\.some\(\(r\) => within\(base, r\)\)\) return \{ why: 'outside' \};/);
+  // A drop removes the branch only from his own page, by dropRunBranch's rules (a commit only there keeps it).
+  assert.match(read('src/work/feature.mjs'), /if \(runs && b\.status === 'dropped' && !fromHerDoor\(sctx, req\)\) \{/);
+  assert.match(read('src/work/alonegit.mjs'), /if \(count > 0\) return \{ removed: false, why: `its branch \$\{t\.branch\} has \$\{count\} commit/);
+  // Removing a branch is not hers: her door has no route for it.
+  assert.doesNotMatch(read('src/assistant/door.mjs'), /remove-branch/);
+});
+
+test('Work: Tia changes a plan at once only on his own named words and never at "Ask me" or in a wake; the rest is not built', () => {
+  const tia = flat(part(WORK, 'Tia and Work'));
+  assert.ok(tia.includes('A change of a plan, or of a task in a plan, runs at once only when your own message in that turn names the plan or the task, and only when her level is not **Ask me**; otherwise you get a card that shows each change as before → after, and she never changes a plan by herself while a job wakes her.'));
+  const tool = read('src/assistant/worktool.mjs');
+  assert.match(tool, /if \(tia\.level === 'ask'\) return \{ level: 'L2', why: 'the owner set "Ask me": every change of a plan needs his OK' \};/);
+  assert.match(tool, /if \(!x\.owner\) return \{ level: 'L2',/);
+  assert.match(tool, /if \(!x\.named\) return \{ level: 'L2',/);
+  assert.match(tool, /const last = !ctx\.woken && typeof ctx\.heLast === 'string'/);
+  // A plan's own words stay his: her door takes only a task's plan, milestone and what it waits for.
+  assert.ok(tia.includes('So do making a plan and changing a plan\'s own title, goal, milestones or status'));
+  const door = read('src/assistant/door.mjs');
+  assert.match(door, /r\('POST', `\/api\/work\/items\/\$\{SEG\}\/plan`, 'manage_work add, edit, undo', \(b\) => onlyKeys\(\['at', 'plan', 'milestone', 'after'\]\)\(b\) \|\| atOk\(b\)\),/);
+  assert.doesNotMatch(door, /r\('POST', '\/api\/work\/plans/);
+  const nb = flat(part(WORK, 'Not built yet'));
+  assert.doesNotMatch(nb, /Tia's tools to read or change a plan/);
+  assert.match(nb, /Tia carrying a Work run of hers on to another provider by herself after a usage limit/);
+  assert.match(nb, /Tia answering the OKs of a session of hers that no job follows, Hoprig writing a note into a session to take the option it recommends/);
+});
+
+test('Work: her Work-run OKs are hers only with the switch on (off at first), never at "Ask me", paid only at "Hands off"', () => {
+  const tia = flat(part(WORK, 'Tia and Work'));
+  assert.ok(tia.includes('unless you turned on **She answers the OKs of her Work runs** (Settings → Tia, under how far she may go; off at first, saved at once, so one press stops it).'));
+  assert.ok(tia.includes('never at **Ask me**, and on a provider billed by use only at **Hands off**.'));
+  assert.ok(tia.includes('and so do text typed into the run, "do not ask again" and a stop.'));
+  assert.match(read('src/assistant/tia.mjs'), /export const DEFAULTS = Object\.freeze\(\{[^}]*answersHers: false \}\);/);
+  assert.match(read('web/tia.js'), /toggle\('She answers the OKs of her Work runs', s\.answersHers === true,/);
+  const pol = read('src/assistant/policy.mjs');
+  // Only an allow of send_to_chat, with the switch on: a deny, text, keys, allow_always, continue and a stop stay his.
+  assert.match(pol, /const herWork = f\.work && f\.herWork === true && tia\.answersHers === true && name === 'send_to_chat' && a\.answer === 'allow';/);
+  assert.match(pol, /if \(tia\.level === 'ask'\) return \{ level: 'L2', why: 'the owner set "Ask me": every OK in a Work run is his' \};/);
+  assert.match(pol, /if \(f\.session && f\.session\.paid && tia\.level !== 'handsoff'\) return \{ level: 'L2',/);
+});
+
 test('Workspace: the page names the commands that take no --json or no --dry-run, as the command reads its flags', () => {
   const cli = read('src/workspace/cli.mjs');
   // setup and link take only --dry-run and --yes (their flagsOk lists); git takes no word at all (cli-git.mjs).

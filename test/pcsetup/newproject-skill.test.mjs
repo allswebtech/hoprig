@@ -213,6 +213,17 @@ test('a brief that contradicts itself is named and asked about, never resolved s
   assert.match(ask, /Two lines of the brief that\s+cannot both hold: quote both, and ask which holds, with your recommended answer\. Never pick one silently\./);
 });
 
+test('no brief yet: the skill says what to do, by the same part name Hoprig writes into AGENTS.md', async () => {
+  const { NO_BRIEF_YET } = await import('../../src/pcsetup/newproject.mjs');
+  assert.match(NO_BRIEF_YET, /^## No brief yet\n/);
+  const step = skillMd.slice(skillMd.indexOf('- No brief yet:'), skillMd.indexOf('## Read first'));
+  assert.ok(step.length > 20, 'the skill has a step "No brief yet"');
+  assert.match(step, /Hoprig adds this skill to every new project/);
+  assert.match(step, /write it unchanged\s+into `docs\/brief\.md`/);
+  assert.match(step, /Replace the part "No brief yet" of `AGENTS\.md` with "Every session"/);
+  assert.doesNotMatch(skillMd, /No brief at all: ask the owner for it and do nothing else/, 'the old line is gone');
+});
+
 test('a hint for the kind is quoted only when the first message gives one', () => {
   assert.match(skillMd, /3\. The fit: the kind \(and, only when the first message names a hint and the fit differs from it, that it differs\s+and why; a first message with no kind gives no hint to quote\)/);
   assert.doesNotMatch(skillMd, /when it differs from his hint/);

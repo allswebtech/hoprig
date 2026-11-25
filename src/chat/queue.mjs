@@ -7,7 +7,7 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 
 export class MessageQueue {
   constructor(onChange) {
-    this.items = []; // { id, text, images, attachments, state: held | sent, at }
+    this.items = []; // { id, text, images, attachments, state: held | sent, at, taken (the coding tool refused to give it back), unsure (a take-back's cancel failed) }
     this.onChange = onChange;
   }
 
@@ -63,7 +63,21 @@ export class MessageQueue {
   async remove(id, session, label) {
     const q = this.find(id);
     if (!q) throw fail(409, 'that message is not waiting any more: it was read, or taken back already');
-    if (q.state === 'sent' && session && !(await session.cancel(id).catch(() => false))) throw fail(409, `${label} has already taken that message`);
+    if (q.state === 'sent' && session) {
+      let back;
+      try {
+        back = await session.cancel(id);
+      } catch {
+        // The cancel failed (an error, not a no): whether the coding tool has it is not known, so it is not given
+        // back when the process goes either (hear.mjs lostWork), and the answer says only what is known.
+        q.unsure = true;
+        throw fail(409, `${label} could not take that message back (the cancel failed): it may still run`);
+      }
+      if (!back) {
+        q.taken = true; // the coding tool has it: it is not given back when the process goes (hear.mjs lostWork)
+        throw fail(409, `${label} has already taken that message`);
+      }
+    }
     this.take(id);
   }
 

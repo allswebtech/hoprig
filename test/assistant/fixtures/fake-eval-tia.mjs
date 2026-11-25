@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 // A stand-in for Claude Code as the eval's engine (no model, no provider): it starts the MCP server named in
 // --mcp-config as Claude Code would, reads the tool list and the system prompt it was given, and answers each turn
-// with what a model would have read: the description of manage_project and the procedures line of get-coding-done.
+// with what a model would have read: the description of manage_project, the procedures line of get-coding-done and
+// the first line of the prompt's Style section.
 // When the message says "cart" it also stages the Work start card for the cart task. FAKE_EVAL_LOG: one line per start.
+// FAKE_EVAL_COST: what each turn costs (default 0.001); above the turn's --max-budget-usd it ends at that limit
+// unfinished, as Claude Code does.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import readline from 'node:readline';
 
 const argv = process.argv.slice(2);
-if (process.env.FAKE_EVAL_LOG) fs.appendFileSync(process.env.FAKE_EVAL_LOG, 'started\n');
+// One line per start; with the turn's own limit when it was given one (--max-budget-usd).
+if (process.env.FAKE_EVAL_LOG) fs.appendFileSync(process.env.FAKE_EVAL_LOG, `started${argv.includes('--max-budget-usd') ? ` ${argv[argv.indexOf('--max-budget-usd') + 1]}` : ''}\n`);
 const system = argv[argv.indexOf('--system-prompt') + 1] || '';
 const cfg = JSON.parse(fs.readFileSync(argv[argv.indexOf('--mcp-config') + 1], 'utf8'));
 const srv = cfg.mcpServers.hoprig;
@@ -61,8 +65,14 @@ async function turn(text) {
   else await call('list_sessions', {});
   const desc = (tools.find((t) => t.name === 'manage_project') || {}).description || '';
   const proc = (system.split('\n').find((l) => l.startsWith('- get-coding-done:')) || '').slice(0, 300);
-  out({ type: 'assistant', message: { content: [{ type: 'text', text: `TOOL: ${desc.slice(0, 300)}\nSKILL: ${proc}` }] } });
-  out({ type: 'result', subtype: 'success', is_error: false, result: 'ok', session_id: sessionId, total_cost_usd: 0.001, num_turns: 1, usage: { input_tokens: 100, output_tokens: 10 } });
+  // The first line of the prompt's Style section, and whether the safety section is there as shipped.
+  const lines = system.split('\n');
+  const style = (lines[lines.indexOf('## Style') + 1] || '').slice(0, 300);
+  out({ type: 'assistant', message: { content: [{ type: 'text', text: `TOOL: ${desc.slice(0, 300)}\nSKILL: ${proc}\nSTYLE: ${style}` }] } });
+  const cost = Number(process.env.FAKE_EVAL_COST || 0.001);
+  const limit = argv.includes('--max-budget-usd') ? Number(argv[argv.indexOf('--max-budget-usd') + 1]) : Infinity;
+  if (cost > limit) return out({ type: 'result', subtype: 'error_max_budget_usd', is_error: true, result: '', session_id: sessionId, total_cost_usd: limit, num_turns: 1, usage: { input_tokens: 100, output_tokens: 10 } });
+  out({ type: 'result', subtype: 'success', is_error: false, result: 'ok', session_id: sessionId, total_cost_usd: cost, num_turns: 1, usage: { input_tokens: 100, output_tokens: 10 } });
 }
 const queue = [];
 let busy = false;

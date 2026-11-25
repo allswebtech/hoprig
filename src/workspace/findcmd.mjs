@@ -9,6 +9,7 @@
 //
 // The look-up asks `gh` for the repositories of the signed-in account and its organisations. Nothing is guessed: a
 // name that does not fit exactly is listed with why, and only the owner says where it goes.
+import crypto from 'node:crypto';
 import { NAME_RE, githubOwners } from '../pcsetup/workspace.mjs';
 import { flags } from '../pcsetup/project.mjs';
 import { capture } from '../setup/system.mjs';
@@ -21,6 +22,9 @@ import { codeFit, folderWords, ruleOf, sortRepos } from './findrule.mjs';
 
 const fail = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 const full = (r) => `${r.owner}/${r.name}`;
+/** The short id of a plan (what a dry run showed): the real call sends it back and is refused when it differs now. */
+export const planId = (v) => crypto.createHash('sha256').update(JSON.stringify(v)).digest('hex');
+export const CHANGED = 'This changed since you looked: look again.';
 
 /** The map (version 2) and the rule of a place in it. Throws { status } with what to do. */
 export function placeRule(placeTyped, { dir = workspaceDir(), projects = projectsIn(), map = null } = {}) {
@@ -47,7 +51,8 @@ export function placeRule(placeTyped, { dir = workspaceDir(), projects = project
  */
 export async function siteRepos(gh = capture) {
   const all = await githubOwners(gh);
-  if (!all.length) throw fail(401, 'the look-up needs the GitHub sign-in (gh auth login)');
+  // 409, not 401: a 401 is the dashboard's own login, and the page would go to its login page.
+  if (!all.length) throw fail(409, 'the look-up needs the GitHub sign-in (gh auth login)', { details: { code: 'gh-signin' } });
   const out = [];
   const owners = [];
   const unlisted = [];
@@ -161,8 +166,11 @@ async function renamedEntries(map, place, repos, gh) {
   return out;
 }
 
-/** Write found projects into the map, nothing cloned. → { added: [ref], dryRun } */
-export async function addFound(placeTyped, { dir = workspaceDir(), projects = projectsIn(), gh = capture, dryRun = false, site = null } = {}) {
+/**
+ * Write found projects into the map, nothing cloned. → { added: [ref], entries, seen, dryRun }. `seen`: the id of the
+ * plan the owner saw (a dry run's `seen`): refused, nothing written, when the plan made now is another.
+ */
+export async function addFound(placeTyped, { dir = workspaceDir(), projects = projectsIn(), gh = capture, dryRun = false, site = null, seen } = {}) {
   const f = await findInPlace(placeTyped, { dir, projects, gh, site });
   const fresh = f.projects.filter((p) => f.found.some((x) => x.folder === p.folder && x.url === p.parent.url));
   // Two parents that would make one folder: neither is guessed into it.
@@ -170,8 +178,10 @@ export async function addFound(placeTyped, { dir = workspaceDir(), projects = pr
   const add = fresh.filter((p) => !twice.includes(p));
   const notAdded = twice.map((p) => ({ repo: full(p.parent), why: `another parent makes the same folder ${p.folder}` }));
   const entries = add.map((p) => entryOf(p, f.place, f.map, notAdded));
+  const plan = planId({ place: f.place, entries, notAdded });
+  if (seen !== undefined && seen !== plan) throw fail(409, CHANGED);
   if (!dryRun && add.length) writeMap({ ...f.map, projects: [...f.map.projects, ...entries] }, dir);
-  return { place: f.place, added: add.map((p) => `${f.place}/${p.folder}`), ...(notAdded.length ? { notAdded } : {}), misfits: f.misfits, dryRun, ...(f.unlisted ? { unlisted: f.unlisted } : {}) };
+  return { place: f.place, added: add.map((p) => `${f.place}/${p.folder}`), entries, seen: plan, ...(notAdded.length ? { notAdded } : {}), misfits: f.misfits, dryRun, ...(f.unlisted ? { unlisted: f.unlisted } : {}) };
 }
 
 /**

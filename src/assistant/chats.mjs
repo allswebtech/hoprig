@@ -10,7 +10,7 @@
 // A chat is "chat:<id>" among the sessions (list_sessions); a terminal session stays start_session's and
 // send_to_session's.
 import { PERMISSION_MODES } from '../config.mjs';
-import { bool, obj, str } from './schema.mjs';
+import { bool, obj, ref, str } from './schema.mjs';
 import { ASSISTANT_NAME } from './tia.mjs';
 import { LOCAL } from './shown.mjs';
 import { UUID, account, codingTool, comp, computer, conversation, folder, job, said, session, short, providerNote, sessKey, startOf, statusOf, tool, toolError, toolName, aTool } from './toolkit.mjs';
@@ -37,7 +37,7 @@ export const start_chat = tool({
   level: 'L1',
   card: 'maybe',
   pickAccount: true,
-  description: `Start a chat in a folder: the way the owner codes in the dashboard (he follows it on Home and answers it in the page); the first choice for any coding work. It runs Claude Code unless coding_tool names another one the owner asked for. Optionally a first message (the task) and a goal (makes it a job that ${ASSISTANT_NAME} watches until done). conversation continues an earlier Claude Code conversation (id from list_projects with folder). Without account, the provider is ${ASSISTANT_NAME}'s pick among the allowed ones that serve that coding tool; the result says which and why. For a terminal session use start_session.`,
+  description: `Start a chat in a folder: the way the owner codes in the dashboard (he follows it on Home and answers it in the page); the first choice for any coding work. It runs Claude Code unless coding_tool names another one the owner asked for. Optionally a first message (the task) and a goal (makes it a job that ${ASSISTANT_NAME} watches until done). conversation continues an earlier Claude Code conversation (id from list_projects with folder). Without account, the provider is ${ASSISTANT_NAME}'s pick among the allowed ones that serve that coding tool; the result says which and why. fork_of (a chat from list_sessions): a new chat goes on from a copy of its conversation, in its folder and on its provider; always a card. For a terminal session use start_session.`,
   input: obj({
     folder,
     account,
@@ -46,13 +46,40 @@ export const start_chat = tool({
     goal: str({ max: 500, desc: 'What "done" means; creates a job and watches the chat.' }),
     job,
     conversation,
+    fork_of: ref('session', str({ max: 41, pattern: CHAT, desc: 'A chat (chat:<id>) from list_sessions to fork: give its folder too.' })),
     computer,
   }, { required: ['folder'] }),
   check(a) {
+    if (a.fork_of && ['conversation', 'message', 'goal', 'job', 'coding_tool'].some((k) => a[k] !== undefined)) throw toolError('a fork takes only its chat, its folder and the computer', 'leave conversation, message, goal, job and coding_tool out; send_to_chat writes the first message once the owner said yes');
     if (a.goal && a.job) throw toolError('give goal (a new job) or job (an existing one), not both', 'leave one out');
     if (a.conversation && a.coding_tool && a.coding_tool !== 'claude') throw toolError(`an earlier conversation is continued here only in Claude Code, not in ${toolName(a.coding_tool)}`, `leave conversation out for a new ${toolName(a.coding_tool)} chat, or show the owner his project (open_screen "workspace") to continue it there`);
   },
+  // A fork runs on its chat's own provider: filled in here, before the provider is checked as for any start.
+  async facts(ops, a) {
+    if (!a.fork_of) return null;
+    const c = await findChat(ops, { session: a.fork_of, computer: a.computer });
+    if (c.tool && c.tool !== 'claude') throw toolError(`only a Claude Code chat can be forked, not ${aTool(c.tool)} chat`, 'tell the owner');
+    const p = c.profile && typeof c.profile.name === 'string' ? c.profile.name : null;
+    if (!p) throw toolError(`the computer did not say which provider ${a.fork_of} runs on`, 'call list_sessions again');
+    if (a.account && a.account !== p) throw toolError(`a fork runs on the provider of its chat (${p})`, 'leave account out');
+    a.account = p;
+    if (a.folder !== c.cwd) throw toolError(`${a.fork_of} runs in another folder`, `give folder as list_sessions showed it: ${c.cwd}`);
+    return null;
+  },
+  // A fork copies the owner's conversation into a new chat: his yes first, at every level of hers.
+  policy: (a) => (a.fork_of ? { level: 'L2', why: 'a fork copies a conversation of the owner\'s into a new chat' } : null),
   async run(ops, a, ctx) {
+    if (a.fork_of) {
+      const r = await ops.forkChat({ computer: comp(a), id: chatIdOf(a.fork_of) });
+      if (!UUID.test(String(r && r.id))) throw toolError('the computer answered without a chat id this dashboard can use', 'list_sessions shows whether a chat was opened; tell the owner');
+      const name = `chat:${r.id}`;
+      return {
+        summary: `Forked ${a.fork_of} into the new chat ${name} on ${comp(a)} under ${a.account}: it goes on from a copy of that conversation with its settings; the original stays as it was. Nothing runs in it until a message is sent (send_to_chat). It holds the owner's conversation, so every OK it asks for is his.`,
+        data: { session: name, computer: comp(a), fork_of: a.fork_of, account: a.account },
+        shown: { session: [sessKey(comp(a), name)] },
+        audit: { fork_of: a.fork_of, session: name },
+      };
+    }
     const tool = a.coding_tool || 'claude';
     // "Lead model" as Settings → Tia has it, for a new Claude Code chat of hers (never one on an earlier conversation).
     const tiaNow = tool === 'claude' && !a.conversation && ctx.tia ? await ctx.tia(comp(a)) : null;
@@ -106,13 +133,22 @@ export const start_chat = tool({
       shown: { session: [sessKey(comp(a), name)], ...(j ? { job: [j.id] } : {}) },
     };
   },
-  cardLines: (a, b) => [
+  cardLines: (a, b) => (a.fork_of ? [
+    `Fork the chat "${b.title}" (${a.fork_of}) in ${a.folder} on ${comp(a)} under ${a.account}${b.kind === 'api' ? ' (paid API provider)' : ''}: a new chat goes on from a copy of its conversation, with its model, effort and permission mode; the original stays as it is`,
+    'Nothing runs in it until a message is sent to it; it holds your conversation, so its OKs stay yours',
+  ] : [
     `Start ${aTool(a.coding_tool || 'claude')} chat in ${a.folder} on ${comp(a)} under ${a.account}${b.kind === 'api' ? ' (paid API provider)' : ''}, as Settings → New-session defaults say`,
     ...(a.conversation ? [`Continuing conversation ${a.conversation}`] : []),
     ...(a.message ? [`First message: ${a.message}`] : []),
     ...(a.goal ? [`Goal: ${a.goal}`] : []),
-  ],
-  before: async (ops, a, ctx) => ({ account: a.account, kind: ctx.accountKind || null, tool: a.coding_tool || 'claude' }),
+  ]),
+  before: async (ops, a, ctx) => {
+    if (!a.fork_of) return { account: a.account, kind: ctx.accountKind || null, tool: a.coding_tool || 'claude' };
+    // Read fresh for the card and again at his tap: a chat that moved provider or folder makes the card stale.
+    const c = await findChat(ops, { session: a.fork_of, computer: a.computer });
+    if (!c.profile || c.profile.name !== a.account || c.cwd !== a.folder) throw toolError(`${a.fork_of} moved to another provider or folder`, 'call list_sessions and propose the fork again');
+    return { account: a.account, kind: ctx.accountKind || null, tool: 'claude', title: short(c.display || c.title || 'New session', 80) };
+  },
 });
 
 const ANSWERS = ['allow', 'allow_always', 'deny'];

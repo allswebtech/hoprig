@@ -106,6 +106,8 @@
 @media (max-width: 640px) { .cp-health .row-title, .cp-health .row-sub { white-space: normal; overflow-wrap: anywhere; } .cp-health .row { flex-wrap: wrap; } }
 /* A check's button ("Set it under Setup → Git and GitHub") goes under its name at phone width, never beside a name squeezed to one word a line. */
 @media (max-width: 640px) { .cp-health .row > .row-main { flex: 1 1 200px; } .cp-health .row > a.btn, .cp-health .row > button.btn { margin-left: 44px; } }
+/* Overview's row with one press (Install Claude Code): the same on a phone, the sentence whole, the button under it. */
+@media (max-width: 640px) { .cp-press { flex-wrap: wrap; } .cp-press > .row-main { flex: 1 1 200px; } .cp-press > button.btn { margin-left: 44px; } }
 
 /* Health's banners (services after a restart): the text takes the line, the button goes under it on a phone. */
 .cp-health .banner { flex-wrap: wrap; align-items: center; }

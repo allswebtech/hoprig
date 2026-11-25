@@ -28,6 +28,11 @@ const REBUILT = ['node_modules', 'vendor', '.next', '.nuxt', '.svelte-kit', '.tu
 /** The files a system makes by itself in any folder (macOS, Windows): only as a plain file of that exact name. */
 const SYSTEM_FILES = ['.DS_Store', 'Thumbs.db'];
 
+/** Whether a folder of this name is made again by a build or an install (for a walk outside git: pc leave's sizes). */
+export const isRebuiltName = (name) => REBUILT.includes(name);
+/** Whether a plain file of this name is one a system makes by itself. */
+export const isSystemFile = (name) => SYSTEM_FILES.includes(name);
+
 const inside = (p, top) => p.startsWith(top.endsWith(path.sep) ? top : top + path.sep);
 
 /** The repository of `repos` that holds `abs` (the nearest one above it), or null. */

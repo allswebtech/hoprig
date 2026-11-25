@@ -26,16 +26,38 @@ hand or proposed by a session that researched the goal ("Plan with AI"). It also
 - **Plans**: the plans with their progress (done of all that are not dropped) and next date, the proposals that wait
   for you, **New plan** and **Plan with AI** (see "Plans" below). One plan's screen has its goal, its milestones with
   their tasks in order, a **timeline** (tasks and milestones by date, week by week, the weeks with nothing counted,
-  what waits for what said in words) and its research note. **Change**, **Put a task in it**, **Mark done**, **Drop**
-  (and **Active again**); a task's **⋯ → Put it in a plan / Its plan** moves it to a plan and milestone or takes it out.
+  what waits for what said in words), **Who did what** once a run of one of its tasks had helpers (its tasks' runs of
+  the last 30 days summed per tier, and one line per task with the models that worked on it and its count of runs; a
+  plan without such a run shows nothing there) and its research note. **Change**, **Put a task in it**, **Mark done**,
+  **Drop** (and **Active again**); a task's **⋯ → Put it in a plan / Its plan** moves it to a plan and milestone or takes it out.
 - **Schedules**: the schedules of this computer and the repeating tasks in one list, each with what it does, on which
   computer, and when it runs next on this computer's clock; **Add schedule**; the queued messages of the sessions below
   (see "Schedules and repeating tasks").
-- **Activity**: the runs of every task (see "Do it" below), newest first and grouped by day; filter them by project and
-  by day. Under them, what the automations did (a schedule ran, waited or was missed, the queue sent a message, a
-  session came back after a restart), in one sentence each.
-  A run whose session led with **Lead model** says under it who did what: one line per tier with its parts, tokens and
-  models, read from Claude Code's own records (the same lines in a task's runs).
+- **Activity**: one history of the workspace, newest first and grouped by day: the sessions you, Tia and a schedule
+  started (their title, coding tool, provider and how each ended: ended, at a usage limit, with an error), the runs of
+  "Do it" (see "Do it" below), the commits and saves of the projects, what the automations did (a schedule ran, waited
+  or was missed, the queue sent a message, a session came back after a restart), and errors (a failed run, an
+  automation that failed or was missed, an Operator action that did not work), each line marked **Session**, **Run**,
+  **Commit**, **Save**, **Automation** or **Error**. Filter it by **Project**, by **Day** and by **Who** (Everyone,
+  You, Tia, A schedule); **Show more** gives older lines. A Do it run Tia started for you shows under Tia, as her chat
+  does. A commit shows who made it only when a run of Work made it; any other commit shows under Everyone and is
+  hidden when a who is chosen. A run's line opens its run (its session,
+  all runs of the task, and for a schedule's run "Done with it"). It covers the last 30 days, read from this computer,
+  and only reads: it starts no model and writes nothing into a project. Sessions are noted from this version of Hoprig
+  on (earlier ones are not in Activity), in Hoprig's state folder (`work-history/sessions.jsonl`): when a terminal
+  session starts and when a session ends, its project's name, the coding tool, the provider, its title, who started
+  it and how it ended; never a folder's full path, a prompt or an answer. That file keeps 30 days and at most 256 KB.
+  An App session that is still open shows from the App's own list of open chats, as open in the App.
+  A run whose session led with **Lead model** has **Who did what** under it, the chat page's own card: the lead, each
+  part with its kind, model and tokens (new, written and read from the cache, apart), and one total per tier, read
+  from Claude Code's own records (the same card in a task's runs). It is open on a wide screen and closed on a phone,
+  and stays as you left it while the page refreshes.
+  Beside it, one line says what the run **used** (its minutes, the tokens of the lead and of each tier of helpers, the
+  models, and the cost only where a provider billed by use reported one) and what it **saved**: the tokens done by a
+  smaller model than the lead's, and in money only on a provider billed by use where Hoprig has a list price for every
+  model ("at the lead's list price they would have cost $X, they cost $Y"). Activity starts with the same sums for
+  today and for the last 7 days. Every figure is read from the run's own records; one they do not hold says
+  "not measured" and why (a subscription has no price per token, so its saving is said in tokens only).
 - **Go live**: finished task branches put together, checked, and made live on your tap ([GO-LIVE.md](GO-LIVE.md)).
 - **Team**: Tia's missions and the roles of her sessions (see "Missions" below).
 - **Save**: when the list has changes that are not committed, a bar says so ("2 changes not saved in git yet").
@@ -60,8 +82,19 @@ lets you change it first:
   The task's project is the default; a task without a project asks for one;
 - the **provider** (the folder's own, as New session picks it), the **model** and the **effort** (Settings →
   New-session defaults), and the coding tool when more than one is on;
-- one line: "A session starts in <folder> with this brief. It changes files there as you allow in that session;
-  nothing is pushed or merged by this."
+- **Where it works**, for a project that is a git repository: **On a branch of its own** (`work/<task id>`, the
+  default) or **In the project's folder itself**, with one line that says which;
+- one line: "A session starts in <folder> (or its own copy of <folder>, on a branch of its own) with this brief. It
+  changes files there as you allow in that session; nothing is pushed or merged by this."
+
+**On a branch of its own**, the session works in its own copy of the project (a linked worktree of the repository) in
+Hoprig's state folder, made from the checkout's current commit, on the branch `work/<task id>`; your own folder and the
+branch it stands on are not changed. A task started again after **Send back** goes on in the same copy and on the same
+branch, where the last run left it. **In the project's folder itself**, the session works in your checkout on whatever
+branch it stands on. A project or folder that is not a git repository runs in its own folder, and so does every run
+while Hoprig's state folder is not inside the allowed folders (`server.roots`), where a session may open: the sheet says
+why. While a run that ends by itself (a mission's, a schedule's) works on the task, Do it waits: never two sessions on
+one branch.
 
 **Start** opens an App session (the same kind a schedule starts) whose first message is the brief and one sentence
 asking for a short report at the end: what was done, what was checked, what is left. The task is **doing** while it
@@ -73,15 +106,20 @@ selectors, a blank filler); when it does, the sheet offers **Take them out**, an
 the task when it starts. A session that works on the task on another computer is said in the sheet and does not stop
 a start here; its run is shown, with no session to open on this computer.
 
-When the session's turn ends well, the task goes to **review**, with the session's last answer, the commits made in
-the folder's repositories since the start and the files it left changed and not committed (a file that was changed
-before it started and holds the same is not counted). **Accept** makes the task done; **Send back** opens it again,
-and what you write is added to its brief for the next run (the task's own text and the newest of what you sent
-back, the oldest left out when they no longer fit together). A task in review is not started again before Accept or
-Send back. A turn that ends in an error, at a usage limit with no other provider going on with it, or because you
-stopped it puts the task back to **open** (or **waiting**, when it was waiting for you), with the reason. A
-dashboard restart while a session works leaves the run working; when the dashboard is back it is settled from the
-session's own record of how its turn ended, or marked stopped when the session is gone for good. In a planning
+When the session's turn ends well, the task goes to **review**, with the session's last answer, the commits made in the
+folder's repositories since the start (on a branch of its own, the commits on its branch) and the files it left changed
+and not committed (a file that was changed before it started and holds the same is not counted). **Accept** makes the
+task done; for a run on a branch of its own the branch stays, not merged and not pushed, for Go live
+([GO-LIVE.md](GO-LIVE.md)) to put together, and its copy is removed when nothing is left uncommitted in it. **Send
+back** opens the task again, and what you write is added to its brief for the next run (the task's own text and the
+newest of what you sent back, the oldest left out when they no longer fit together). A task in review is not started
+again before Accept or Send back. Once a task is done or dropped, **Runs of this task → Remove the branch** removes its
+branch and its copy; a branch with a commit no other branch holds, or a copy with files not committed, is kept, and the
+answer says why. When you drop a task yourself, the branch of its Do it runs is removed too, by the same rules; a drop
+Tia makes for you removes no branch. A turn that ends in an error, at a usage limit with no other provider going on with
+it, or because you stopped it puts the task back to **open** (or **waiting**, when it was waiting for you), with the
+reason. A dashboard restart while a session works leaves the run working; when the dashboard is back it is settled from
+the session's own record of how its turn ended, or marked stopped when the session is gone for good. In a planning
 tool's file doing and review are written as `status: "open"` with Work's `state`, as for the other statuses.
 
 **A run** is the record of one such session for one task: a file of its own beside the list, `runs/<run id>.json` (the
@@ -104,10 +142,15 @@ Tia (README, "Tia") works with Work through one tool, `manage_work`, whose every
 the dashboard checks her as it checks the page:
 
 - **Reading** runs at once: Today (what needs you, what is to review, this week), the list (by project, who does it,
-  status), one task with its runs, and what a run left (its answer, commits and files).
+  status), one task with its runs, what a run left (its answer, commits and files), your plans, and one plan with its
+  milestones and its tasks in the plan's own order, each with its state, date, who does it and what it waits for.
 - **Acting** runs at once and she says it in her reply: add a task, change its title, date, project, who does it and
-  its note, mark it done or open it again. **Undo** takes her last act of that conversation back, only while the task
-  is still as she left it (what anyone changed since is never overwritten).
+  its note, mark it done or open it again. She can also put a task into a plan and milestone, move a task to another
+  milestone, and change what it waits for. A change of a plan, or of a task in a plan, runs at once only when your own
+  message in that turn names the plan or the task, and only when her level is not **Ask me**; otherwise you get a
+  card that shows each change as before → after, and she never changes a plan by herself while a job wakes her.
+  **Undo** takes her last act of that conversation back, a move in a plan too, only while the task is still as she
+  left it (what anyone changed since is never overwritten).
 - **A card first**: starting work on a task, accepting a result, sending it back with your words, dropping and
   removing a task, and giving her a goal for a project (see Missions below). She reads her missions without a card. A task in review or one a session works on is never marked done or opened again by her.
 
@@ -118,11 +161,19 @@ say: mechanical work on the fast model at low effort, code on the strong one at 
 known on the strongest at high. The provider is one she may use (Settings → Tia), as for any session she starts.
 One card shows the task, the project and folder, the brief as it will be sent, the provider, the model and the
 effort; your yes starts exactly that (the "Do it" start above, with that brief kept on the task), and a task that
-changed after the card was made starts nothing. The session is yours, not hers: every OK it asks for comes to you.
+changed after the card was made starts nothing. The session is yours, not hers: every OK it asks for comes to you,
+unless you turned on **She answers the OKs of her Work runs** (Settings → Tia, under how far she may go; off at
+first, saved at once, so one press stops it). Then an OK in the session of a Work task she started is hers to answer
+while she follows it, by the same rules as in any session of hers: she allows by herself only looking inside the
+project and its own checks, never at **Ask me**, and on a provider billed by use only at **Hands off**. Every other
+OK stays your card (changing files, money, a sign-in, a push or merge into a main branch, a release, anything sent
+out, a delete outside the project, administrator rights), and so do text typed into the run, "do not ask again" and
+a stop. Each answer she gives is a line in her Activity ("answered an OK in …: allowed …", with why).
 She follows it as a job; when its turn ends she reads the run and tells you in two lines what was done and what
 waits for you. She does not accept a result and starts no second session by herself. Text from a task, a brief, a
 session's answer, a commit's subject or a file's name is data to her, never an instruction. Save, Tidy, the doubles,
-where Work lives and the command's route stay yours: her door refuses them.
+where Work lives and the command's route stay yours: her door refuses them. So do making a plan and changing a plan's
+own title, goal, milestones or status, which stay yours on the Plans part, and removing a task's branch.
 
 ## Plans
 
@@ -459,8 +510,24 @@ either off, a goal you give becomes a plain proposal of Plan with AI, and its ta
 
 **What runs by itself.** With everything off: nothing of missions. A look at the missions reads their folder and, when
 there is no mission of this dashboard that is still going, stops there: no file is written, no session started. With
-one project on: still nothing until you give a goal for it and accept its plan; then only that plan's tasks start, one
-after another within your limits.
+one project on and its Auto off: still nothing until you give a goal for it and accept its plan; then only that plan's
+tasks start, one after another within your limits.
+
+**Auto: Tia starts a project's ready tasks by herself.** A third switch per project, "Tia starts this project's ready
+tasks by herself", shown on Work → Team only under her switch for that project and off until you turn it on (turning
+her switch for the project off turns it off too). With it on, each look (every 15 seconds) takes at most one task of
+your list that is **ready** and starts it as a mission of that one task, with no plan. A task is ready when all of
+these hold: its project is that project by name; who does it is "ai" or one of her roles that is on (never you, never
+the reviewer); it is a task (not a deadline, a gate or an opportunity) and open (not done, dropped, in review, being
+done or waiting); it has no run time of yours (a task you set to run at a time runs then, by your schedule); its date
+has come, or it has none; every task it waits for (`after`) is done; no other program added it with a Work token; no
+run of it goes on; no mission ever had it; and you never ended it under Auto. A start obeys the same limits as any (the
+master switch, your working hours, sessions at once, this computer's load, the spend cap per day), and none is made
+while an Auto mission still waits for its first session. While Tia is set to "Ask me" Auto starts nothing, since every
+start of hers is then yours to OK first. Each start is a line in **Work →
+Activity** ("Tia (Auto) started …") and the first line of its mission, "Started by Tia (Auto)". Its mission has
+**End** where another has Stop: its session is stopped at once, and Tia never takes that task by herself again (the
+task stays open in Work for you). With Auto off nothing of it reads the list or writes anything.
 
 **Giving a goal**: **Give Tia a goal** on Work → Plans or Work → Team (the goal and its project; the sheet says
 whether Tia will work on it or it will be your plan to start), or ask Tia; her card says the same before your yes.
@@ -486,8 +553,8 @@ project's default branch (your checkout must stand on it), in the mode that asks
   allowed words: the session is started in Claude Code's own restricted mode with exactly those tools, it is not
   started at all where the installed Claude Code does not know that mode (the mission says so, and that an update
   of Claude Code helps), and a session whose own first line names any other tool is ended at once. A role file that
-  names another tool is refused. So a session cannot run a command or the tests, cannot push and cannot read your
-  other files. It cannot commit either: when a session that writes has ended, **the dashboard itself makes the one
+  names another tool is refused. So a session runs no command of its own (what its role may run goes only through
+  the box's tools, below), cannot push and cannot read your other files. It cannot commit either: when a session that writes has ended, **the dashboard itself makes the one
   commit** of what it changed, on the task's own branch, named by the task: exactly the bytes in the folder, with
   no hook, filter or other program of the repository started for it. A reviewer reads what the branch changed
   from a file the dashboard writes for it (the list of files and the diff, outside the worktree). **A branch that
@@ -569,8 +636,26 @@ in Hoprig's state folder (`mission-box-runs.jsonl`, and `.1` before it: which ta
 card says how often the session ran the tests itself and how its last run ended. **It is not the check**: the
 check still runs the tests in the box after the session ends, waits for a run of the session's that is still going,
 and "Accept by itself" follows the check's own run alone. With missions off, no box, no test command, a review, or a
-role whose check is not its tests (a writer, a researcher, an ops session), the session starts as before, with the
+role whose role file names nothing it runs (a writer, a researcher, a reviewer), the session starts as before, with the
 file tools only.
+
+**What a role may run is a closed list in its role file** (`runs:`, some of `tests`, `build` and `scripts`, or
+nothing), read as strictly as every other key; a role that may not write runs nothing. The developer, the tester and
+ops may run the project's tests, its build and its scripts; the writer, the researcher and the reviewer run nothing.
+Work → Team shows each role's list in plain words ("May run: the project's tests, its build and its scripts, in a
+box: no network, only its own folder"), and says so when this computer has no box, since then nothing of it runs.
+Each kind is one tool of the same server, with the same token, the same limits (12 runs and 30 minutes of runs per
+session for all kinds together, one run of a worktree at a time) and one audit line per run that says what ran:
+`run_tests` as above; `run_build`, which runs **your build command** for the project (set beside its test command on
+Work → Team, words split by spaces, no shell; with none set it is refused in one line); and `run_script`, which takes
+one name of a script that your checkout's `package.json` names and the task's branch has too (lowercase letters,
+digits and `: . _ -`, at most 50) and runs `npm run <name>`. **Hoprig's wall reads every command first**, a script
+also by the text it runs: where npm, pnpm or yarn runs a script (`npm test`, `npm run build`, a named script), the
+wall reads that script's text and its pre and post scripts as the task's branch has them, and what Hoprig cannot
+read there with certainty (no `package.json`, one that does not parse, a name from an option or a variable, another
+form of the command) is held. One the wall holds (a deploy, a release, administrator rights, a push to the main branch,
+a delete outside the folder, and the rest of its kinds) is not run, and the tool says why in one line. A session has
+no shell for any of this: the dashboard builds each command as a list of words.
 
 **Your limits, checked before every session starts** (each dashboard counts its own missions): both switches; your working hours, if set; how many of her
 sessions at once (never more than "runs by themselves at once" of this computer, and never two in one project: those
@@ -826,6 +911,7 @@ sessions that need an OK: they are on Work → Today, on Home and on the Operato
 
 ## Not built yet
 
-Tia's tools to read or change a plan (she can only propose one, by a goal), Tia acting by herself on what
-waits about her sessions (an OK, a limit), a token that starts a run or accepts a result, a webhook for all tasks, deliveries kept over a restart, a run that ends by itself with another coding tool than Claude
+Tia carrying a Work run of hers on to another provider by herself after a usage limit (the Operator's limit rule
+does it for sessions when you turn it on), Tia answering the OKs of a session of hers that no job follows, Hoprig
+writing a note into a session to take the option it recommends, a token that starts a run or accepts a result, a webhook for all tasks, deliveries kept over a restart, a run that ends by itself with another coding tool than Claude
 Code. Plans are made and accepted on the dashboard; the command shows them.

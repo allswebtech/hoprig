@@ -87,3 +87,43 @@ test('after a refused brief the focus can go to the brief, the field to change',
   assert.equal(document.activeElement, all(f.el, (n) => n.tag === 'textarea')[0]);
   f.el.remove();
 });
+
+const h0 = (list) => ({ children: list, tag: 'div', attrs: {} });
+// h() sets a property the element has, else an attribute (the fake DOM's elements have neither property): either way.
+const on = (n, k) => n[k] === true || n.attrs[k] === '' || n.attrs[k] === true;
+
+test('"Add the New Project skill" is ticked at first; unticked, the request says so; with a brief it stays on', () => {
+  const st = { name: 'p', brief: '', kind: '', scope: 'product', skill: true };
+  const part = np.optionsPart(st);
+  const box = all(part, (n) => n.tag === 'input' && n.attrs.type === 'checkbox' && n.attrs.name === 'np-skill')[0];
+  assert.ok(box, 'the checkbox');
+  assert.equal(on(box, 'checked'), true, 'ticked by default');
+  assert.match(texts(part).join(''), /Add the New Project skill/);
+  assert.equal(np.newBody(st).skill, undefined, 'ticked: the server\'s default, nothing to say');
+  box.listeners.change({ target: { checked: false } });
+  assert.equal(st.skill, false);
+  assert.equal(np.newBody(st).skill, false, 'unticked: the route is told');
+  assert.equal(np.willLines(st).length, 0, 'and "What exactly" lists no skill');
+  st.skill = true;
+  assert.match(texts(h0(np.willLines(st))).join(''), /The New Project skill/);
+  const withBrief = { name: 'p', brief: 'A shop.', kind: '', scope: 'product', skill: false };
+  const b2 = all(np.optionsPart(withBrief), (n) => n.tag === 'input' && n.attrs.name === 'np-skill')[0];
+  assert.equal(on(b2, 'checked'), true, 'a brief is set up with the skill');
+  assert.equal(on(b2, 'disabled'), true);
+  assert.equal(np.newBody(withBrief).skill, undefined);
+  assert.equal(np.newBody(withBrief).brief, 'A shop.');
+});
+
+test('"Add skills that fit its technology" is ticked at first, says what it does, and the request carries the choice', () => {
+  const st = { name: 'p', brief: '', kind: '', scope: 'product', skill: true };
+  const part = np.optionsPart(st);
+  const box = all(part, (n) => n.tag === 'input' && n.attrs.name === 'np-fit')[0];
+  assert.ok(box, 'the checkbox');
+  assert.equal(on(box, 'checked'), true, 'ticked by default');
+  assert.ok(texts(part).join('').includes(np.FIT_WORDS));
+  assert.equal(np.FIT_WORDS, 'Add skills that fit its technology: text-only skills from your own and from the reviewed catalog go in by themselves, with Undo; anything else waits for you.');
+  assert.equal(np.newBody(st).fit, true);
+  box.listeners.change({ target: { checked: false } });
+  assert.equal(np.newBody(st).fit, false, 'unticked: the route is told');
+  assert.equal(np.newBody({ ...st, brief: 'A shop.', fit: false }).fit, false, 'with a brief too');
+});

@@ -22,7 +22,7 @@ import { gitIn } from '../workspace/inside.mjs';
 import { brainDir, isGitRepo } from '../workspace/layout.mjs';
 import { folderDiff } from './diff.mjs';
 import { parseFrontMatter } from './frontmatter.mjs';
-import { addDeclined, learnDir } from './learnset.mjs';
+import { HOPRIG_LEARNED, addDeclined, learnDir } from './learnset.mjs';
 import { scanDraft } from './learnscan.mjs';
 import { readManifest, safeName, sha256 } from './store.mjs';
 
@@ -107,6 +107,26 @@ export async function ownSkills(o = {}) {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Where a lesson about using Hoprig goes (learnlook.mjs lessonOf): null when the brain is not a git repository (no
+ * learned skill can be saved), { body: null } when hoprig-learned is not there yet, { body } when it is one of `own`
+ * (ownSkills(): kept in git, no change waiting), else { blocked: true }.
+ */
+export function hoprigLearnedPlace(own, o = {}) {
+  const brain = brainOf(o);
+  if (!isGitRepo(brain)) return null;
+  let dir;
+  try {
+    dir = skillsDirOf(brain);
+  } catch {
+    return null;
+  }
+  const folder = path.join(dir, HOPRIG_LEARNED);
+  if (!lstat(folder)) return { body: null };
+  if (!own.some((s) => s.name === HOPRIG_LEARNED)) return { blocked: true };
+  return { body: parseFrontMatter(fs.readFileSync(path.join(folder, 'SKILL.md'), 'utf8')).body.trim() };
+}
+
 // ---------- drafts ----------
 
 function writeDraft(d) {
@@ -163,6 +183,7 @@ export function makeDraft(p, { source, cost = null, brain = brainDir(), now = Da
     why: p.why, body: p.body, source, skillMd, sha: sha256(Buffer.from(skillMd)), before, beforeSha: before === null ? null : sha256(Buffer.from(before)),
     diff: folderDiff(before === null ? {} : entry(before), entry(skillMd)), ...scan,
     tests: p.tests.map((prompt) => ({ prompt, without: null, with: null })), cost, installed: null, undone: null,
+    ...(typeof p.lesson === 'string' ? { lesson: p.lesson } : {}), // a lesson about Hoprig: its idea when discarded
   };
   writeDraft(d); // counted for the week's drafts by the look that made it (learnset.mjs settleLook)
   prune();

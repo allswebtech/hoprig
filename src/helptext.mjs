@@ -96,6 +96,7 @@ const COMMAND = {
 /** Subcommands whose module has a usage of their own, fuller than the lines of the command's help. */
 const OWN = {
   'pc setup': async () => (await import('./pcsetup/setup.mjs')).SETUP_USAGE,
+  'pc leave': async () => (await import('./workspace/leavecli.mjs')).LEAVE_USAGE,
   'project new': async () => (await import('./pcsetup/project.mjs')).NEW_USAGE,
   'project add': async () => (await import('./pcsetup/project.mjs')).ADD_USAGE,
   'project start': async () => (await import('./pcsetup/project.mjs')).START_USAGE,

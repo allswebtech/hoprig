@@ -12,7 +12,11 @@ A release is one tag on a commit of main. Everything else follows from it in `.g
 2. `node tools/build-skill.mjs`: the Hoprig skill carries the version, and the `hoprig-skill` package gets the same
    version. The tests fail until this is done. Commit all of it, push main, and wait until the `test` workflow
    has passed on that commit.
-3. Tag that commit of main and push the tag:
+3. `node tools/test.mjs test/workspace/lostcomputer.test.mjs`: the proof that a lost computer costs nothing. It
+   builds a workspace with work in progress on a temporary home, runs the upkeep and a drop, deletes that home,
+   restores on a second one from a stand-in git server on disk, and compares every repository. Read its last line:
+   every result must have arrived, with no test failed. Do not tag when it fails.
+4. Tag that commit of main and push the tag:
 
    ```sh
    git tag v0.3.3 && git push origin v0.3.3

@@ -26,10 +26,55 @@ export const REASON_MAX = 80;
 // One formatter for every count: toLocaleString makes a new one at each call, which over thousands of units held the
 // thread for tens of milliseconds.
 const NUMBER = new Intl.NumberFormat('en-US');
+/** partsOf's answer with only what the card shows (no helper's agent name, no file, no path). */
+const cardOf = (got) => ({
+  lead: got.lead ? { model: got.lead.model, tokens: got.lead.tokens, use: got.lead.use } : null,
+  parts: got.parts.map(({ kind, tier, model, tokens, use, cacheWrite, byModel }) => ({ kind, tier, model, tokens, use, cacheWrite, byModel })),
+  tiers: got.tiers.map(({ tier, models, tokens, use, parts }) => ({ tier, models, tokens, use, parts })),
+  span: got.span || null, // when its messages were written (runuse.mjs: only within the run are they the run's)
+});
 /** Who did what of each Work run that had helpers, by run id, from workUnits (the one reader). */
 export async function partsByRun(o = {}) {
   const w = await workUnits(o);
   return new Map(w.units.filter((u) => u.type === 'run' && u.parts).map((u) => [u.run, u.parts]));
+}
+/** Who did what of each task, by item id: the cards of its runs that had helpers (newest first), from workUnits. */
+export async function partsByItem(o = {}) {
+  const w = await workUnits(o);
+  const m = new Map();
+  for (const u of w.units) if (u.type === 'run' && u.parts && u.item) (m.get(u.item) || m.set(u.item, []).get(u.item)).push(u.parts);
+  return m;
+}
+
+const TIER_ORDER = ['fast', 'strong', 'strongest', 'other'];
+/**
+ * A plan's "Who did what": its tasks' runs summed per tier, and per task the models that worked on it (the lead's
+ * first). `tasks`: the plan's tasks in its order ([{ id, title }]); `byItem`: partsByItem's map. → { lead: null,
+ * parts: [], tiers, tasks: [{ id, title, models, runs }] } (the chat page's shape, so its card draws it), or null
+ * when no run of the plan had a helper.
+ */
+export function planParts(tasks, byItem) {
+  const tiers = [];
+  const rows = [];
+  for (const t of tasks) {
+    const cards = byItem.get(t.id) || [];
+    if (!cards.length) continue;
+    const models = [];
+    for (const c of cards) {
+      for (const m of [c.lead && c.lead.model, ...c.parts.map((p) => p.model)]) if (m && !models.includes(m)) models.push(m);
+      for (const x of c.tiers) {
+        let s = tiers.find((y) => y.tier === x.tier);
+        if (!s) tiers.push((s = { tier: x.tier, models: [], tokens: 0, use: { in: 0, out: 0, cached: 0 }, parts: 0 }));
+        for (const m of x.models) if (!s.models.includes(m)) s.models.push(m);
+        s.tokens += x.tokens;
+        s.parts += x.parts;
+        for (const k of ['in', 'out', 'cached']) s.use[k] += (x.use && x.use[k]) || 0;
+      }
+    }
+    rows.push({ id: t.id, title: t.title, models, runs: cards.length });
+  }
+  const rank = (x) => (TIER_ORDER.includes(x.tier) ? TIER_ORDER.indexOf(x.tier) : TIER_ORDER.length);
+  return rows.length ? { lead: null, parts: [], tiers: tiers.sort((a, b) => rank(a) - rank(b)), tasks: rows } : null;
 }
 export const SINCE_MS = 24 * 3_600_000; // "done" and "failed" count from this long ago, unless asked for another time
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -151,7 +196,8 @@ export async function workUnits({ place = null, cfg = {}, alive, since = -Infini
         const pdir = byName.get(r.project);
         const dir = pdir ? (r.folder && r.folder !== '.' ? path.join(pdir, r.folder) : pdir) : null;
         const got = dir ? partsOf(realOr(dir), r.conversation) : null;
-        if (got && got.parts.length) units[units.length - 1].parts = { parts: got.parts.map(({ kind, tier, model, tokens }) => ({ kind, tier, model, tokens })), tiers: got.tiers.map(({ tier, models, tokens, parts }) => ({ tier, models, tokens, parts })) };
+        // The chat page's shape (partsOf): the lead, each part, the tiers, each with its tokens new/written/cached.
+        if (got && got.parts.length) units[units.length - 1].parts = cardOf(got);
       }
     }
   }

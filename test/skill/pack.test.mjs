@@ -17,15 +17,23 @@ function packed(dir) {
 
 const NEVER = /(^|\/)(test|tests|__tests__|fixtures|node_modules|dist|_site|coverage|\.github|\.git)\/|\.test\.mjs$|(^|\/)\.env|\.(pem|key|p12|tgz|log)$|(^|\/)(credentials|secrets?)(\.(json|txt|ya?ml)|\/)/i;
 
-test('the hoprig package: tracked files only, no tests, no site, no second package, the skill inside', () => {
+// Tia's eval ships with the package: "Improve Tia" runs it from an installed Hoprig, which has no git checkout.
+// Exactly these files under test/ (the runner, its cases, its fake dashboard), never a test file.
+const EVAL = [
+  'test/assistant/eval/baseline.json', 'test/assistant/eval/candidate.mjs', 'test/assistant/eval/cases.mjs', 'test/assistant/eval/gate.mjs', 'test/assistant/eval/lines.mjs',
+  'test/assistant/eval/mcp-candidate.mjs', 'test/assistant/eval/run.mjs', 'test/assistant/fake-dashboard.mjs', 'test/assistant/fake-work.mjs',
+];
+
+test('the hoprig package: tracked files only, no tests, no site, no second package, the skill and the eval inside', () => {
   const { info, files } = packed('.');
   assert.equal(info.name, 'hoprig');
   for (const f of files) {
     assert.ok(tracked.has(f), `${f} is not in git (made by a build or a test?)`);
+    if (EVAL.includes(f)) continue;
     assert.doesNotMatch(f, NEVER, f);
     assert.doesNotMatch(f, /^(site|packages|tools|test)\//, f);
   }
-  for (const want of ['bin/hoprig.mjs', 'templates/skills/hoprig/SKILL.md', 'templates/skills/hoprig/references/commands.md', 'LICENSE', 'NOTICE']) assert.ok(files.includes(want), want);
+  for (const want of ['bin/hoprig.mjs', 'templates/skills/hoprig/SKILL.md', 'templates/skills/hoprig/references/commands.md', 'LICENSE', 'NOTICE', ...EVAL]) assert.ok(files.includes(want), want);
 });
 
 test('the hoprig-skill package: exactly its program, the generated skill, README and LICENSE', () => {

@@ -1285,6 +1285,32 @@ test('a slow window first gets lean moving frames and one sharp frame at rest, a
   assert.match(scene, /onSlow \}\);/, 'the lean frames slow too: the still story');
 });
 
+test('a scroll that stops in the middle of a change finishes the turn: the ring never stands half turned and blurred', async () => {
+  // Seen 24 Nov 2026 at 1440x900, light: a scroll that stopped in step 1's first change left the ring at 0.775 for as
+  // long as the page rested, drawn at full resolution, the screen in front turned and blurred all over.
+  const { ringRest } = await import('../../site/app/(site)/story-motion/ring.mjs');
+  const aim = ringRest();
+  assert.equal(aim(0, false), 0);
+  assert.equal(aim(0.2, false), 0.2, 'while the visitor scrolls, the ring follows the scroll');
+  assert.equal(aim(0.2, true), 1, 'at rest in a change: the turn the visitor was making is finished');
+  assert.equal(aim(0.3, false), 1, 'scrolling on toward that screen keeps it: no turn back');
+  assert.equal(aim(1, false), 1, 'and the held screen takes over');
+  assert.equal(aim(1.2, false), 1.2, 'the next change follows the scroll again');
+  const back = ringRest();
+  assert.equal(back(1.6, false), 1.6);
+  assert.equal(back(1.5, false), 1.5);
+  assert.equal(back(1.5, true), 1, 'scrolling back: the turn back is finished');
+  assert.equal(back(1.55, false), 1.55, 'scrolling the other way gives the ring back to the scroll');
+  assert.equal(ringRest()(0.3, true), 0, 'no way known yet (a page opened scrolled): the nearest screen');
+  assert.equal(ringRest()(0.7, true), 1);
+  assert.equal(ringRest()(2, true), 2, 'a held screen is its own rest');
+  const scene = siteFile('app/(site)/story-motion/scene.mjs');
+  assert.match(scene, /const aim = s\.rest\(target, time - scrolledAt > REST\);/, 'each step aims its ring through it');
+  assert.match(scene, /s\.t = s\.t < 0 \? aim : s\.t \+ \(aim - s\.t\) \* 0\.25;/, 'and eases toward that aim');
+  assert.match(scene, /const poke = \(\) => \{ scrolledAt = performance\.now\(\); wake\(\); \};/, 'a scroll marks the time');
+  assert.match(scene, /return turning \|\| thin \|\| drew \|\| restless;/, 'the loop stays awake until the rest is seen');
+});
+
 test('the first turn of the ring is not drawn in slow full frames: a software renderer starts lean, the others are judged over 3', async () => {
   // Measured 20 Nov 2026 on software WebGL (SwiftShader) at 1440x900 and 390x844: every page load drew six full frames
   // of 67 to 117 ms before the ladder went lean, 0.3 to 0.7 s at 9 to 15 frames a second on the first turn.
@@ -1399,7 +1425,7 @@ test('the moving story draws nothing while the page rests: its frame loop sleeps
   assert.equal(pending.size, 0, 'a stopped loop is not woken');
   const scene = siteFile('app/(site)/story-motion/scene.mjs');
   assert.match(scene, /if \(sig === s\.sig\) continue;/, 'a step whose ring stands is not drawn again');
-  assert.match(scene, /return turning \|\| thin \|\| drew;/, 'a frame with nothing new draws nothing, and the loop sleeps');
+  assert.match(scene, /return turning \|\| thin \|\| drew \|\| restless;/, 'a frame with nothing new draws nothing, and the loop sleeps (once a scroll has rested)');
   for (const ev of ['scroll', 'resize']) assert.match(scene, new RegExp(`addEventListener\\('${ev}', poke`), `woken by a ${ev}`);
 });
 

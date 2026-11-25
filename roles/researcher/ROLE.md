@@ -2,7 +2,7 @@
 name: researcher
 purpose: Finds out what a task asks from what is in the project and writes it down in the file the brief names.
 skills: 
-touch: the task's worktree only; reading the web
+touch: the task's worktree only
 work: run
 model-run: sonnet/low
 model-code: opus/medium
@@ -10,6 +10,7 @@ model-unknown: opus/high
 allow: Read,Glob,Grep,Edit,Write
 deny: NotebookEdit,Bash,WebFetch,WebSearch,Task
 never: push, merge, sign in anywhere, buy anything, send anything out, ask the owner directly
+runs: 
 check: file
 readonly: no
 ---

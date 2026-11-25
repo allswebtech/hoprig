@@ -11,6 +11,7 @@
 //   errorBox, okBox, steps, stepHeader, skeletonRows   a result, numbered steps, a step header, rows while loading
 import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
+import { helpParts } from './helpline.js';
 import { BARE, MACHINE_STATE, applyPageTheme, errorWords, fill, h, link, machine, prefs, wayLink } from './lib.js';
 import { navPages, pageById, registeredHeadTools } from './registry.js';
 import { store } from './store.js';
@@ -271,19 +272,23 @@ export function savedMark() {
  * A switch with its label and one sentence. `onchange(value)` may return a Promise: "Saved" shows next to the switch
  * once it settles without an error. A switch kept only in this browser shows it at once.
  */
-/** `data`: the switch's data attributes (data-key: a page that draws again finds it by that and keeps the focus on it). */
+/**
+ * `hint`: a string or nodes (one line), or { line, more }: one line and the rest under a closed "More" (helpline.js).
+ * `data`: the switch's data attributes (data-key: a page that draws again finds it by that and keeps the focus on it).
+ */
 export function toggle(label, checked, onchange, hint, data) {
   const mark = savedMark();
+  const input = h('input.switch', { type: 'checkbox', role: 'switch', checked, dataset: data, onchange: async (e) => {
+    try {
+      const r = await onchange(e.target.checked);
+      if (r !== false) mark.show();
+    } catch {
+      /* the caller said why */
+    }
+  } });
   return h('label.switchrow',
-    h('span.switchrow-text', h('span.switchrow-label', label, mark), hint ? h('span.hint', hint) : null),
-    h('input.switch', { type: 'checkbox', role: 'switch', checked, dataset: data, onchange: async (e) => {
-      try {
-        const r = await onchange(e.target.checked);
-        if (r !== false) mark.show();
-      } catch {
-        /* the caller said why */
-      }
-    } }));
+    h('span.switchrow-text', h('span.switchrow-label', label, mark), ...helpParts(hint, { input, label })),
+    input);
 }
 
 /** A labelled input with one sentence under it. */

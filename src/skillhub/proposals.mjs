@@ -1,17 +1,41 @@
-// Skills → proposals: a proposal file of an outside improvement loop, for one of Tia's skills or tool descriptions.
-// The loop runs elsewhere and makes no request through Hoprig; it leaves one file per proposal in
+// Skills → proposals: a proposal file of an improvement loop, for one of Tia's skills, tool descriptions or sections
+// of her system prompt. The loop makes no request through Hoprig; it leaves one file per proposal in
 // <state>/proposals/<id>.json. The page shows what would change, why, and the numbers the loop measured with
 // Hoprig's own eval; the owner decides.
 //
+// The shape of a proposal file (JSON, at most 256 KiB):
+//   { format: 1,
+//     id:      "<YYYYMMDD>-<HHMMSS>-<kind>-<name>"   the file's own name without .json
+//     target:  { kind: "skill" | "tool" | "prompt", name }
+//              skill:  a skill's name (a-z, 0-9, "-")
+//              tool:   a tool's name (a-z, 0-9, "_")
+//              prompt: a section's id of her system prompt: opening, providers, out-of-scope, getting-work-done,
+//                      work or style (src/assistant/prompt.mjs SECTION_IDS). The safety sections untrusted-text,
+//                      how-far and owner-only (PROTECTED) are never a target: such a file is refused whole.
+//     before:  the text it was measured against (a skill's SKILL.md, a tool's description, a section's text)
+//     after:   the proposed text (a tool's description 40 to 1024 characters; a section at most 16 KiB)
+//     why:     [up to 10 plain sentences], created: ISO time,
+//     numbers: { whole: { before: { passed, cases }, after: {…} }, heldout: {…}, tokens_per_turn: { before, after },
+//                fresh: { cases, live: [n…], candidate: [n…] },
+//                cost: { requests, proposer_tokens, eval_runs: { whole, single_case }, dollars } },
+//     gates:   [{ name, ok, why }] (shown; the verdict is made here from the numbers),
+//     issue:   optional text for a coding session, for a change to code (shown, never applied) }
+//
+// Accept for a skill puts its text in Tia's own skills folder; for a tool or a prompt section it writes an accepted
+// text into <state>/assistant/accepted/ (src/assistant/accepted.mjs), which applies only while Hoprig's own text
+// still has the hash it was measured against.
+//
 //   GET  /api/skills/proposals                     the waiting ones, the accepted ones, how many files did not read
 //   POST /api/skills/proposals/<id>/accept         a skill: its new text goes in place (Tia's own skills folder), the
-//                                                  text before is kept, Undo brings it back
-//   POST /api/skills/proposals/<id>/undo           an accepted one, back to the text before it
+//                                                  text before is kept, Undo brings it back; a tool's description or
+//                                                  a prompt section: an accepted text in Hoprig's state
+//   POST /api/skills/proposals/<id>/undo           an accepted one, back to the text before it (also Remove, for an
+//                                                  accepted text that no longer applies)
 //   POST /api/skills/proposals/<id>/later          "Not now": put away, listed under "Put away"
 //   POST /api/skills/proposals/<id>/again          a put-away one waits again
 //
-// A tool's description is part of Hoprig's code: it is never accepted here, its proposal carries an issue text for
-// a coding session. A proposal file is untrusted data: it is read with limits, checked field by field, and its
+// Code is never changed here: a proposal's issue text, for a change to code, is shown for a coding session and never
+// applied. A proposal file is untrusted data: it is read with limits, checked field by field, and its
 // text is shown as text. A skill's new text is checked as a learned draft is (the loader, the draft scan) before it
 // goes in place, and only over the very text it was measured against.
 import fs from 'node:fs';
@@ -19,6 +43,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { ownerSkillsDir, parseSkill, Skills } from '../assistant/skills.mjs';
 import { byName, TOOL_NAMES } from '../assistant/tools.mjs';
+import { PROTECTED, SECTION_NAMES, shippedSection } from '../assistant/prompt.mjs';
+import { acceptedTextOnDisk, acceptedTextProblems, readAccepted, removeAccepted, sha256, writeAccepted } from '../assistant/accepted.mjs';
 import { stateDir } from '../paths.mjs';
 import { lineDiff } from './diff.mjs';
 import { foldLooks, PATTERNS, RISKY, scanDraft } from './learnscan.mjs';
@@ -26,8 +52,9 @@ import { scanText } from './scan.mjs';
 import { placeSkill, removeSkill, undoSkill } from './store.mjs';
 import { noteCorrection } from '../operator/corrections.mjs';
 
-export const ID_RE = /^[0-9]{8}-[0-9]{6}-(skill|tool)-[a-z0-9_-]{1,64}$/;
-const NAME = { skill: /^[a-z0-9]+(-[a-z0-9]+)*$/, tool: /^[a-z][a-z0-9_]{1,63}$/ };
+export const ID_RE = /^[0-9]{8}-[0-9]{6}-(skill|tool|prompt)-[a-z0-9_-]{1,64}$/;
+const NAME = { skill: /^[a-z0-9]+(-[a-z0-9]+)*$/, tool: /^[a-z][a-z0-9_]{1,63}$/, prompt: /^[a-z]+(-[a-z]+)*$/ };
+const KIND_WORD = { skill: 'skill', tool: 'tool', prompt: 'prompt section' };
 const MAX_FILE = 256 * 1024;
 const MAX_TEXT = 64 * 1024;
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -52,9 +79,11 @@ function writeDecisions(d) {
   fs.renameSync(tmp, decisionsFile());
 }
 
-/** The text Tia uses now for a part, or null when she has no such part. */
+/** The text Tia uses now for a part, or null when she has no such part. A tool's description and a prompt section:
+ * Hoprig's own text, the one an accepted text is measured against (a safety section is never a part). */
 export function liveText(kind, name) {
   if (kind === 'tool') return byName.has(name) ? byName.get(name).description : null;
+  if (kind === 'prompt') return PROTECTED.has(name) ? null : shippedSection(name);
   const s = new Skills().get(name);
   return s ? fs.readFileSync(s.file, 'utf8') : null;
 }
@@ -92,12 +121,13 @@ export function readProposal(id) {
     throw fail(400, 'the proposal file is not valid JSON');
   }
   const t = p && p.target;
-  if (!p || p.format !== 1 || p.id !== id || !t || !['skill', 'tool'].includes(t.kind) || !NAME[t.kind].test(String(t.name || '')) || id.split('-')[2] !== t.kind) throw fail(400, 'the proposal file does not have the shape of a proposal');
+  if (!p || p.format !== 1 || p.id !== id || !t || !['skill', 'tool', 'prompt'].includes(t.kind) || !NAME[t.kind].test(String(t.name || '')) || id.split('-')[2] !== t.kind) throw fail(400, 'the proposal file does not have the shape of a proposal');
+  if (t.kind === 'prompt' && PROTECTED.has(t.name)) throw fail(400, `the prompt section "${t.name}" holds her safety rules: it is never a target`);
   const before = str(p.before, MAX_TEXT);
   const after = str(p.after, MAX_TEXT);
   if (!before || !after || before === after) throw fail(400, 'the proposal has no before and after text');
   const live = liveText(t.kind, t.name);
-  if (live === null) throw fail(400, `Tia has no ${t.kind === 'skill' ? 'skill' : 'tool'} "${t.name}"`);
+  if (live === null) throw fail(400, `Tia has no ${KIND_WORD[t.kind]} "${t.name}"`);
   const n = p.numbers || {};
   const c = n.cost || {};
   return {
@@ -108,7 +138,7 @@ export function readProposal(id) {
       cost: { requests: nonNeg(c.requests), tokens: nonNeg(c.proposer_tokens), whole: nonNeg(c.eval_runs && c.eval_runs.whole), single: nonNeg(c.eval_runs && c.eval_runs.single_case), dollars: nonNeg(c.dollars) },
     },
     gates: (Array.isArray(p.gates) ? p.gates : []).slice(0, 10).filter((g) => g && typeof g.name === 'string').map((g) => ({ name: g.name.slice(0, 20), ok: g.ok === true, why: str(g.why, 300) || '' })),
-    issue: t.kind === 'tool' ? str(p.issue, 20_000) : null,
+    issue: t.kind === 'skill' ? null : str(p.issue, 20_000),
     created: typeof p.created === 'string' && !Number.isNaN(Date.parse(p.created)) ? p.created : null,
   };
 }
@@ -134,16 +164,29 @@ export function verdictOf(numbers) {
 // A clause's own punctuation (the ";" before it, the ")" that closes a list) stays off the clause's line, so one clause
 // added before a closing parenthesis shows as one added line, not as a removed and an added one.
 const clauses = (s) => String(s).replace(/; (?=\S)/g, '\n; ').replace(/\)(?=[.,;]?(?:\s|$))/g, '\n)').replace(/\. (?=\S)/g, '.\n');
-function forPage(p, decision) {
+const PATH = { skill: 'SKILL.md', tool: 'description', prompt: 'section' };
+function forPage(p, decision, accepted) {
   const hunks = p.kind === 'tool' ? lineDiff(clauses(p.live), clauses(p.after)) : lineDiff(p.live, p.after);
+  // An accepted tool description or prompt section: does it apply now (the hash of Hoprig's own text it was measured
+  // against still holds, and its file is the one this proposal wrote)?
+  let applies = null;
+  let notApplying = null;
+  if (p.kind !== 'skill' && decision && decision.state === 'accepted') {
+    const e = accepted.find((x) => x.kind === p.kind && x.name === p.name && x.proposalId === p.id);
+    applies = Boolean(e && e.applies);
+    notApplying = applies ? null : e ? e.why : 'its accepted text is no longer in the folder';
+  }
   const verdict = verdictOf(p.numbers);
   // The held-out check as the numbers say, whatever the file says of it.
   const gates = p.gates.map((g) => (g.name === 'heldout' && verdict.heldout === 'worse' ? { ...g, ok: false, why: 'fewer held-out cases passed after than before' } : g));
   return {
-    id: p.id, kind: p.kind, name: p.name, why: p.why, numbers: p.numbers, gates, verdict, issue: p.issue, created: p.created, stale: p.stale,
-    // A tool's description that is now the proposed text: a coding session made the change.
-    done: p.kind === 'tool' && p.live === p.after,
-    before: p.live, after: p.after, diff: { removed: [], added: [], changed: [{ path: p.kind === 'skill' ? 'SKILL.md' : 'description', hunks }] },
+    id: p.id, kind: p.kind, name: p.name, label: p.kind === 'prompt' ? SECTION_NAMES[p.name] : p.name, why: p.why, numbers: p.numbers, gates, verdict, issue: p.issue, created: p.created, stale: p.stale,
+    // A tool's description or a section that is now the proposed text in Hoprig's own code: a coding session made it.
+    done: p.kind !== 'skill' && p.live === p.after && !(decision && decision.state === 'accepted'),
+    // Why Accept would refuse the new text itself (its size, the scan), worked out here: the page says it first.
+    refusal: p.kind === 'skill' ? null : (acceptedTextProblems(p.kind, p.name, p.after)[0] || null),
+    applies, notApplying,
+    before: p.live, after: p.after, diff: { removed: [], added: [], changed: [{ path: PATH[p.kind], hunks }] },
     state: decision ? decision.state : 'waiting', at: decision ? decision.at : null,
   };
 }
@@ -156,6 +199,7 @@ export function listProposals() {
     return { waiting: [], accepted: [], put: [], unreadable: 0, unreadableFiles: [] };
   }
   const d = readDecisions();
+  const acc = readAccepted();
   const waiting = [];
   const accepted = [];
   const put = [];
@@ -171,12 +215,19 @@ export function listProposals() {
       continue;
     }
     const dec = d[id];
-    const one = forPage(p, dec);
+    const one = forPage(p, dec, acc.entries);
     if ((dec && dec.state === 'accepted') || one.done) accepted.push(one);
     else if (dec && dec.state === 'later') put.push(one);
     else waiting.push(one);
   }
-  return { waiting: waiting.slice(0, 20), accepted: accepted.slice(0, 20), put: put.slice(0, 20), unreadable: unreadableFiles.length, unreadableFiles: unreadableFiles.slice(0, 20) };
+  // Accepted texts in the folder that no accepted proposal here stands for and that do not apply: named with the reason.
+  const shown = new Set(accepted.map((x) => `${x.kind}/${x.name}/${x.id}`));
+  const skipped = acc.entries.filter((e) => !e.applies && !shown.has(`${e.kind}/${e.name}/${e.proposalId}`)).slice(0, 20)
+    // Remove is offered where one of his accepted proposals wrote it (Undo works from its record); a file put there by
+    // hand is only named.
+    .map((e) => ({ kind: e.kind, name: e.name, label: e.kind === 'prompt' ? (SECTION_NAMES[e.name] || e.name) : e.name, why: e.why,
+      id: e.proposalId && d[e.proposalId] && d[e.proposalId].state === 'accepted' && d[e.proposalId].kind === e.kind ? e.proposalId : null }));
+  return { waiting: waiting.slice(0, 20), accepted: accepted.slice(0, 20), put: put.slice(0, 20), unreadable: unreadableFiles.length, unreadableFiles: unreadableFiles.slice(0, 20), skippedTexts: skipped };
 }
 
 const FRONT_KEYS = new Set(['name', 'description', 'allowed-tools']);
@@ -228,12 +279,30 @@ export function frontMatterProblems(before, after) {
   return [...new Set(out)];
 }
 
-/** Accept a skill's proposal: checked as a learned draft is, then put in place with the text before kept. */
+/**
+ * Accept a tool description's or a prompt section's proposal: its text goes into the accepted texts (checked again
+ * there: the size, the scan, the protected sections), measured against Hoprig's own text as it is now. Code is never
+ * changed. One accepted text per target: another one is undone first.
+ */
+function acceptText(p, d, reload) {
+  if (p.stale) throw fail(409, `Hoprig's own text of "${p.name}" changed since this was proposed, so it was not measured against the text it would replace`);
+  const blocked = verdictOf(p.numbers).blocked;
+  if (blocked) throw fail(409, `not accepted: ${blocked}`);
+  const other = Object.entries(d).find(([k, v]) => k !== p.id && v && v.state === 'accepted' && v.kind === p.kind && v.name === p.name);
+  if (other || acceptedTextOnDisk(p.kind, p.name) !== null) throw fail(409, `another accepted text of "${p.name}" is in place: undo or remove it first`);
+  writeAccepted(p.kind, p.name, p.after, { proposalId: p.id });
+  d[p.id] = { state: 'accepted', at: new Date().toISOString(), kind: p.kind, name: p.name, sha256: sha256(p.after.trim()) };
+  writeDecisions(d);
+  reload();
+  return { ok: true, name: p.name };
+}
+
+/** Accept a proposal: a skill's text is checked as a learned draft is, then put in place with the text before kept. */
 export function accept(id, { reload = () => {} } = {}) {
   const p = readProposal(id);
-  if (p.kind !== 'skill') throw fail(409, 'a tool\'s description is part of Hoprig\'s code: give the issue text to a coding session instead');
   const d = readDecisions();
   if (d[id] && d[id].state === 'accepted') throw fail(409, 'that proposal is accepted already');
+  if (p.kind !== 'skill') return acceptText(p, d, reload);
   if (p.stale) throw fail(409, `the skill "${p.name}" was changed since this was proposed, so it was not measured against the text it would replace`);
   const blocked = verdictOf(p.numbers).blocked;
   if (blocked) throw fail(409, `not accepted: ${blocked}`);
@@ -263,11 +332,29 @@ export function accept(id, { reload = () => {} } = {}) {
   return { ok: true, name: p.name };
 }
 
+/**
+ * Undo (or Remove) an accepted tool description or prompt section: its accepted text goes, Hoprig's own is hers again.
+ * It works from the decision's record, so also when the proposal file no longer reads (Hoprig's text changed).
+ */
+function undoText(id, d, reload) {
+  const { kind, name } = d[id];
+  const now = acceptedTextOnDisk(kind, name);
+  if (now !== null && sha256(now) !== d[id].sha256) throw fail(409, `the accepted text of "${name}" was changed since you accepted it; nothing was undone`);
+  if (now !== null) removeAccepted(kind, name);
+  d[id] = { state: 'undone', at: new Date().toISOString() };
+  writeDecisions(d);
+  reload();
+  return { ok: true, name };
+}
+
 /** Undo an accepted proposal: the text before comes back (the new one is kept, so accepting again is possible). */
 export function undo(id, { reload = () => {} } = {}) {
-  const p = readProposal(id);
+  if (!ID_RE.test(String(id || ''))) throw fail(400, 'that is not a proposal');
   const d = readDecisions();
   if (!d[id] || d[id].state !== 'accepted') throw fail(409, 'that proposal is not accepted');
+  if ((d[id].kind === 'tool' || d[id].kind === 'prompt') && NAME[d[id].kind].test(String(d[id].name || '')) && id.split('-')[2] === d[id].kind) return undoText(id, d, reload);
+  const p = readProposal(id);
+  if (p.kind !== 'skill') throw fail(409, 'that proposal is not accepted');
   const file = path.join(ownerSkillsDir(), p.name, 'SKILL.md');
   let now = null;
   try {
@@ -320,14 +407,14 @@ export function proposalsFeature(ctx, opts = {}) {
       ownerOnly(req);
       return listProposals();
     }],
-    ['POST', /^\/api\/skills\/proposals\/([0-9]{8}-[0-9]{6}-(?:skill|tool)-[a-z0-9_-]{1,64})\/(accept|undo|later|again)$/, async (req, m) => {
+    ['POST', /^\/api\/skills\/proposals\/([0-9]{8}-[0-9]{6}-(?:skill|tool|prompt)-[a-z0-9_-]{1,64})\/(accept|undo|later|again)$/, async (req, m) => {
       ownerOnly(req);
       await ctx.readJson(req);
       if (m[2] === 'accept') return accept(m[1], { reload });
       if (m[2] === 'undo') {
         const r = undo(m[1], { reload });
-        // He took back a skill's text he had accepted: one correction of that skill (a tool's text is never accepted by
-        // a tap, so only a skill's Undo is one). Nothing changes by itself from it (src/operator/corrections.mjs).
+        // He took back a skill's text he had accepted: one correction of that skill (only a skill's Undo is one: the
+        // corrections are about skills). Nothing changes by itself from it (src/operator/corrections.mjs).
         if (m[1].includes('-skill-')) noteCorrection(ctx.config ? ctx.config() : {}, { kind: 'undo', about: { skill: r.name } });
         return r;
       }

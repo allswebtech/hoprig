@@ -155,47 +155,59 @@ function verdict(r, { top, cmd, sub }) {
   return why.join('; ');
 }
 
-test('every help form after every command and subcommand prints that help and does nothing else', async () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'helpwalk-')));
-  try {
-    const preload = path.join(root, 'preload.cjs');
-    fs.writeFileSync(preload, PRELOAD);
-    const top = (await run(root, preload, ['help'])).out;
-    assert.match(top, /^Hoprig — /, 'the top help');
-    const commands = dispatched();
-    assert.ok(commands.length > 40 && commands.includes('service') && commands.includes('hook'), commands.join(' '));
+// One test per command. The whole walk is about 900 children and five minutes of CPU time: as one test it needs two
+// CPUs of its own to end within one test's time limit (tools/test.mjs, 180 s on Linux), and it ran out when two
+// suites shared the computer (pinned to one CPU it ran out at 180 s). One command's cases are at most a few dozen
+// children, well within the limit on a loaded computer, and every case is still checked.
+const commands = dispatched();
+const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'helpwalk-')));
+const preload = path.join(root, 'preload.cjs');
+fs.writeFileSync(preload, PRELOAD);
+test.after(() => fs.rmSync(root, { recursive: true, force: true }));
+let top = null;
+const subsFound = {};
+let walked = 0;
 
+test('the top help is Hoprig\'s, and the dispatch has every command', async () => {
+  top = (await run(root, preload, ['help'])).out;
+  assert.match(top, /^Hoprig — /, 'the top help');
+  assert.ok(commands.length > 40 && commands.includes('service') && commands.includes('hook'), commands.join(' '));
+});
+
+for (const c of commands) {
+  test(`every help form after "hoprig ${c}" and each of its subcommands prints that help and does nothing else`, async () => {
+    assert.ok(top, 'the top help was read first');
     // The bare forms first: they are also where the subcommands are read from.
-    const bare = commands.flatMap((c) => WORDS.map((w) => [c, w]));
+    const bare = WORDS.map((w) => [c, w]);
     const bareResults = await some(bare.map((args) => () => run(root, preload, args)));
-    const cases = bare.map((args, i) => ({ args, cmd: args[0], r: bareResults[i] }));
-    const subsFound = {};
+    const cases = bare.map((args, i) => ({ args, cmd: c, r: bareResults[i] }));
+    const passed = Object.hasOwn(PASSED_ON, c);
+    const text = bareResults[WORDS.indexOf('--help')].out;
+    const subs = subsOf(c, text).filter((s) => !passed || PASSED_ON[c].includes(s));
+    subsFound[c] = subs;
     const more = [];
-    for (const c of commands) {
-      const passed = Object.hasOwn(PASSED_ON, c);
-      const text = bareResults[bare.findIndex(([x, w]) => x === c && w === '--help')].out;
-      const subs = subsOf(c, text).filter((s) => !passed || PASSED_ON[c].includes(s));
-      subsFound[c] = subs;
-      // A made-up value after the command: its words are read as the command reads them.
-      if (!passed) for (const w of WORDS) more.push({ args: [c, VALUE, w], cmd: c });
-      for (const s of subs) {
-        const value = VALUE_PLACES.some(([vc, vs]) => vc === c && vs === s);
-        for (const w of WORDS) {
-          if (w === 'help' && value) continue; // there "help" is a value (a task's title, a word to search for)
-          more.push({ args: [c, s, w], cmd: c, sub: s });
-          more.push({ args: [c, s, VALUE, w], cmd: c, sub: s });
-        }
+    // A made-up value after the command: its words are read as the command reads them.
+    if (!passed) for (const w of WORDS) more.push({ args: [c, VALUE, w], cmd: c });
+    for (const s of subs) {
+      const value = VALUE_PLACES.some(([vc, vs]) => vc === c && vs === s);
+      for (const w of WORDS) {
+        if (w === 'help' && value) continue; // there "help" is a value (a task's title, a word to search for)
+        more.push({ args: [c, s, w], cmd: c, sub: s });
+        more.push({ args: [c, s, VALUE, w], cmd: c, sub: s });
       }
     }
     const moreResults = await some(more.map((m) => () => run(root, preload, m.args)));
     more.forEach((m, i) => cases.push({ ...m, r: moreResults[i] }));
+    walked += cases.length;
 
     // A subcommand's help is its own where the command's help has lines for it.
     const bad = cases.map((k) => [k.args.join(' '), verdict(k.r, { top, cmd: k.cmd, sub: k.sub })]).filter(([, v]) => v);
-    assert.ok(Object.values(subsFound).flat().length > 60, `subcommands found: ${JSON.stringify(subsFound)}`);
-    assert.ok(cases.length > 500, `${cases.length} cases`);
     assert.equal(bad.length, 0, `${bad.length} of ${cases.length} help requests did more than print help:\n${bad.map(([a, v]) => `  hoprig ${a}: ${v}`).join('\n')}`);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+  });
+}
+
+test('the walk reached every command, more than 60 subcommands and more than 500 help requests', () => {
+  assert.deepEqual(Object.keys(subsFound), commands, 'every command was walked');
+  assert.ok(Object.values(subsFound).flat().length > 60, `subcommands found: ${JSON.stringify(subsFound)}`);
+  assert.ok(walked > 500, `${walked} cases`);
 });

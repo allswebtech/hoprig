@@ -25,7 +25,12 @@
 // repository in a round, which branches it has (git ls-remote --heads): a branch whose server copy known here is no
 // longer there, or stands at another commit than the one last seen here (moved from elsewhere), is said and not
 // pushed. When the server cannot be asked, nothing of that repository is pushed in that round, said once. A repository
-// whose default branch is not known here is left alone, with the command that sets it.
+// whose default branch is not known here is left alone, with the command that sets it. The same ask also reads which
+// branch the server itself calls its default (ls-remote --symref): when that is not the one known here (the default
+// was changed on the server after the clone, and a fetch never moves origin/HEAD), nothing of that repository is
+// pushed, so the server's real default branch can never be taken for "another branch". Only branches that follow a
+// branch of origin are pushed: one that follows another remote is said, never pushed (that remote's default branch is
+// not known here).
 import { gitRead } from '../gitread.mjs';
 import { capture, showCommand } from '../setup/system.mjs';
 import { gitIn } from './inside.mjs';
@@ -49,8 +54,10 @@ async function branchesOf(dir, run) {
   });
 }
 
-/** What `git ls-remote --heads` printed: Map('refs/heads/<name>' → commit). */
-const headsOf = (text) => new Map(text.split('\n').map((l) => l.trim().split(/\s+/)).filter((p) => p.length === 2).map(([c, ref]) => [ref, c]));
+/** What `git ls-remote --symref` printed: Map('refs/heads/<name>' → commit). */
+const headsOf = (text) => new Map(text.split('\n').map((l) => l.trim().split(/\s+/)).filter((p) => p.length === 2 && p[1].startsWith('refs/heads/')).map(([c, ref]) => [ref, c]));
+/** The branch the server calls its default ("ref: refs/heads/main	HEAD"), or ''. */
+const serverDefaultOf = (text) => (/^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(text) || [])[1] || '';
 
 /**
  * One round. `on`: the place keys whose switch is on. → { repos: [{ label, pushed: [branch], todo: [{ why, command }] }] }
@@ -93,6 +100,10 @@ export async function pushBranches({ dir = workspaceDir(), projects = projectsIn
       }
       if (b.upstream) {
         if (b.merge === def || !b.ahead) continue; // never into the default branch; nothing new
+        if (b.remote !== 'origin') {
+          e.todo.push({ why: `${b.name} follows a branch of another git server (${b.remote}), so it is not pushed by itself`, command: git('push', b.remote, `${b.name}:${b.merge}`) });
+          continue;
+        }
         if (b.behind) {
           e.todo.push({ why: `${b.name} and its upstream have both moved: not pushed`, command: git('status') });
           continue;
@@ -117,18 +128,21 @@ export async function pushBranches({ dir = workspaceDir(), projects = projectsIn
       plan.push({ name: b.name, remote: 'origin', to: ['origin', `refs/heads/${b.name}:refs/heads/${b.name}`], server: `refs/heads/${b.name}`, seen: there, track: true });
     }
     if (plan.length) {
-      // The server is asked once which branches it has (once per remote: in practice origin alone).
+      // The server is asked once which branches it has and which one it calls its default (every plan goes to origin).
       const heads = new Map();
       let cannot = null;
-      for (const remote of new Set(plan.map((p) => p.remote))) {
-        const r = await gitIn(at, t.dir, ['ls-remote', '--heads', '--', remote], run, { env });
-        if (!r.ok) {
-          cannot = { remote, r };
-          break;
+      const r = await gitIn(at, t.dir, ['ls-remote', '--symref', '--', 'origin'], run, { env });
+      if (!r.ok) {
+        cannot = true;
+        e.todo.push({ why: `its git server could not be asked which branches it has (${last(r)}), so no branch of it is pushed in this round`, command: git('ls-remote', '--heads', 'origin') });
+      } else {
+        const theirs = serverDefaultOf(r.stdout || '');
+        heads.set('origin', headsOf(r.stdout || ''));
+        if (theirs !== def) {
+          cannot = true;
+          e.todo.push({ why: `its git server calls ${theirs || 'no branch'} its default branch, and this computer knows ${def}, so no branch of it is pushed by itself until this computer knows the server's default`, command: git('remote', 'set-head', 'origin', '--auto') });
         }
-        heads.set(remote, headsOf(r.stdout || ''));
       }
-      if (cannot) e.todo.push({ why: `its git server could not be asked which branches it has (${last(cannot.r)}), so no branch of it is pushed in this round`, command: git('ls-remote', '--heads', cannot.remote) });
       for (const p of cannot ? [] : plan) {
         const now = p.server ? heads.get(p.remote).get(p.server) : '';
         if (p.server && !now) {

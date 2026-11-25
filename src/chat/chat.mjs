@@ -308,6 +308,14 @@ export class Chat extends Timeline {
     if (id && !this.messageEnds.has(id)) this.#endOf(id, { back: true });
   }
 
+  /**
+   * The owner's message `id` was taken by the coding tool (it refused to give it back), and its process went before a
+   * turn of it was heard: it ended without a reported cost, so its hold stays for the day.
+   */
+  endedWithoutCost(id) {
+    if (id && !this.messageEnds.has(id)) this.#endOf(id, { ended: true, cost: null, total: this.costTotal });
+  }
+
   #endOf(id, end) {
     this.messageEnds.delete(id);
     this.messageEnds.set(id, end);

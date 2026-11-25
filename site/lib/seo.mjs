@@ -92,6 +92,17 @@ export function jsonLd(page, { version }) {
 
 const md = (p) => `${SITE}${p.mdUrl}`;
 
+/**
+ * The list "What you get" of the use-cases page, as llms.txt lines: each a question with its one-line answer and a link
+ * to the page section that tells it (the HTML address, where the section's anchor is). One source: that page.
+ */
+export function benefits(pages) {
+  const list = pages.find((p) => p.url === '/use-cases/');
+  const part = list && /^## What you get\n\n((?:- .*\n)+)/m.exec(list.markdown);
+  if (!part) return [];
+  return part[1].trim().split('\n').map((l) => l.replace(/\]\((\/[^)]*)\)/, (_, href) => `](${SITE}${href})`));
+}
+
 // What Hoprig does not do, each from the README or the docs (the section named after each), so that an answer about
 // Hoprig does not promise more than it does.
 export const NOT_DONE = [
@@ -130,6 +141,10 @@ export function llmsTxt(pages, { version }) {
     `- Platforms: ${PLATFORMS} Needs Node.js 22.11 or newer (the installer adds it).`,
     '- It runs the official, unmodified Claude Code and OpenCode. Not affiliated with Anthropic or with OpenCode\'s makers.',
     '- The dashboard works in any browser, also on a phone. There is no phone app.',
+    '',
+    '## What you get',
+    '',
+    ...benefits(pages),
     '',
     '## What it does not do',
     '',

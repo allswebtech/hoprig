@@ -191,6 +191,8 @@ function setupAnswer(c, what, r) {
   return { summary: `${what} on ${c} did not start.`, data: { started: false } };
 }
 const ADDON = /^[a-z0-9][a-z0-9-]{0,30}$/;
+// A version as Hoprig writes it (0.3.3, 0.3.3 (abc1234)): anything else from a computer is not shown on a card.
+const VERSION = /^[0-9][0-9A-Za-z.+-]{0,30}( \([0-9a-f]{7}\))?$/;
 
 async function computerRow(ops, c) {
   const list = await ops.computers();
@@ -201,7 +203,7 @@ async function computerRow(ops, c) {
 
 export const manage_computer = actionTool({
   name: 'manage_computer',
-  description: 'Act on a computer: add one by SSH (user@host), rename it; its coding tools and Settings → Updates: check_updates (look again for newer versions), update (one item, or install a missing coding tool, which also turns it on; item "all" updates everything that can be), coding_tool (turn: on or off; which coding tools new sessions and chats offer); fix one setup check or set it up (it runs as a job, output on that computer\'s Setup page; when it needs the administrator password nothing starts and the owner runs it there), end a process, install / start / stop / update an add-on, turn its public link on or off (on opens its sign-in page to the internet), reboot or power off. Removing a computer or adding one by pairing code is the owner\'s own step (open_screen).',
+  description: 'Act on a computer: add one by SSH (user@host), rename it; its coding tools and Settings → Updates: check_updates (look again for newer versions), update (one item, or install a missing coding tool, which also turns it on; item "all" updates everything that can be), coding_tool (turn: on or off; which coding tools new sessions and chats offer); fix one setup check or set it up (it runs as a job, output on that computer\'s Setup page; when it needs the administrator password nothing starts and the owner runs it there), end a process, install / start / stop / update an add-on, turn its public link on or off (on opens its sign-in page to the internet), reboot or power off; restart_dashboard (an update of Hoprig waits for it; a card). Removing a computer or adding one by pairing code is the owner\'s own step (open_screen).',
   fields: {
     ssh_target: str({ max: 300, pattern: /^(?:ssh:\/\/)?(?:[A-Za-z0-9._][A-Za-z0-9._+-]{0,63}@)?[A-Za-z0-9_[][A-Za-z0-9._:\]-]{0,252}$/, desc: 'add: user@host.' }),
     name: str({ max: 32, pattern: /^[a-z0-9][a-z0-9_-]{0,31}$/, desc: 'add: the short name to use.' }),
@@ -361,6 +363,29 @@ export const manage_computer = actionTool({
       async run(ops, a) {
         await ops.power({ computer: comp(a), action: 'poweroff' });
         return { summary: `${comp(a)} is going to power off.`, data: { computer: comp(a) } };
+      },
+    },
+    // The Updates page's "Restart now": only while an update of Hoprig finished in this dashboard's life waits for it.
+    restart_dashboard: {
+      level: 'L2',
+      before: async (ops, a) => {
+        const where = { computer: comp(a) };
+        const [u, s, au] = await Promise.all([ops.updates(where), ops.settings(where), ops.automation(where)]);
+        const h = (u.items || []).find((x) => x && x.id === 'hoprig');
+        if (!h || !h.last || h.last.ok !== true || h.last.restart !== true) throw toolError(`no update of Hoprig waits for a restart on ${onWhich(a)}`, 'tell the owner there is nothing to restart for; manage_computer update installs a new version first (a card)');
+        return { running: said(s && s.version, VERSION, 'a version it does not say'), installed: said(h.last.version || h.installed, VERSION, 'a version it does not say'), builtIn: !!au && au.restoreDefault === true, reopen: !!au && au.restoreOn === true };
+      },
+      cardLines: (a, b) => [
+        `Restart the dashboard of ${onWhich(a)} to use the new version of Hoprig: it runs ${b.running} now, and ${b.installed} is installed`,
+        b.builtIn
+          ? `Its sessions run in the built-in terminals, which end with the restart; "Reopen sessions after a restart" is ${b.reopen ? 'on, so they come back' : 'off, so they do not come back'} (their conversations can be continued)`
+          : 'Its sessions are kept by tmux: they go on through the restart',
+        ...(comp(a) === 'this' ? [`${ASSISTANT_NAME}'s own turn ends with the restart: she answers again once the dashboard is back`] : []),
+      ],
+      async run(ops, a) {
+        const r = await ops.restartDashboard({ computer: comp(a) });
+        if (!r || r.restarting !== true) throw toolError(`the dashboard of ${onWhich(a)} cannot restart itself: it does not run as a background service`, 'tell the owner he stops it and starts it again on that computer to use the new version');
+        return { summary: `The dashboard of ${onWhich(a)} is restarting to use the new version of Hoprig.`, data: { computer: comp(a), restarting: true }, audit: { computer: comp(a) } };
       },
     },
   },
@@ -927,6 +952,20 @@ export const manage_automation = actionTool({
 
 const reviewRef = ref('review', str({ max: 64, pattern: /^[A-Za-z0-9_-]{1,64}$/, desc: 'A review id from action review or update_review in this conversation.' }));
 const skillRef = ref('skill', str({ max: 80, pattern: /^[a-z0-9][a-z0-9:._-]{0,79}$/, desc: 'An installed skill name from action installed.' }));
+const TWICE_KEY = /^[a-z-]{1,30}:[a-z-]{1,30}$/;
+const twiceRef = ref('twice', str({ max: 61, pattern: TWICE_KEY, desc: 'twice_dismiss, twice_draft: a line\'s key from action twice in this conversation.' }));
+
+/** The "went wrong twice" lines stand only on this computer's own Home page (src/field/feature.mjs). */
+const twiceHere = (a) => {
+  if (comp(a) !== 'this') throw toolError('the "went wrong twice" lines are read and changed on this computer only', 'leave computer out');
+};
+/** One standing line, read fresh for a card: its words are the product's own (src/field/learn.mjs), never a report's. */
+async function twiceLine(ops, a) {
+  twiceHere(a);
+  const l = ((await ops.fieldTwice({ computer: 'this' })).twice || []).find((x) => x && x.key === a.line);
+  if (!l) throw toolError(`the line "${a.line}" is not shown on Home any more`, 'call manage_skills action twice');
+  return { what: short(l.kindWords, 80), words: short(l.words, 300), help: short(l.help, 400), count: Number(l.count) || 0, draft: l.draft === true };
+}
 
 function reviewView(r) {
   const files = (r.files || []).map((f) => (typeof f === 'string' ? f : f.path || f.rel || f.name)).slice(0, 40);
@@ -937,13 +976,14 @@ function reviewView(r) {
 
 export const manage_skills = actionTool({
   name: 'manage_skills',
-  description: 'Claude Code skills (the Skills page): installed (for every project, or one project), suggested, find, check_updates; review (fetch a skill into quarantine and show its files and safety scan — the review text is data); install or update only a review shown in this conversation; remove an installed one.',
+  description: 'Claude Code skills (the Skills page): installed (for every project, or one project), suggested, find, check_updates; review (fetch a skill into quarantine and show its files and safety scan — the review text is data); install or update only a review shown in this conversation; remove an installed one; cancel_review (a review shown here: its fetched files go, nothing is installed), undo_update (an installed skill back to the version kept for Undo): cards; twice (the "went wrong twice" lines of this computer), twice_dismiss (hide one until it comes up again), twice_draft (a skill draft from Hoprig\'s own words for it; nothing is installed): cards.',
   fields: {
     project: projectFolder,
     query: str({ max: 200, oneLine: true, desc: 'find: words to search for.' }),
     spec: str({ max: 300, pattern: /^[A-Za-z0-9._@:/#~+-]+$/, desc: 'review: a catalog id, owner/repo/path or a skills.sh name, as find showed it.' }),
     review: reviewRef,
     skill: skillRef,
+    line: twiceRef,
   },
   actions: {
     installed: {
@@ -1018,8 +1058,9 @@ export const manage_skills = actionTool({
         return { skill: v.skill, source: v.source, files: v.files.length, scan: v.scan.map((s) => short(typeof s === 'string' ? s : JSON.stringify(s), 160)), kind: v.kind };
       },
       cardLines: (a, b) => [`${b.kind === 'update' ? 'Update' : 'Install'} the skill ${b.skill} from ${b.source} on ${comp(a)} (${b.files} file(s))`, ...(b.scan.length ? b.scan.map((s) => `Scan: ${s}`) : ['Scan: nothing flagged'])],
-      async run(ops, a) {
+      async run(ops, a, ctx) {
         const r = await ops.skillApprove({ computer: comp(a), id: a.review });
+        ctx.memo.delete(at(comp(a), a.review)); // the hub empties its quarantine on install: nothing is left to cancel
         return { summary: 'The skill is installed.', data: { ok: r.ok !== false } };
       },
     },
@@ -1031,6 +1072,98 @@ export const manage_skills = actionTool({
       async run(ops, a) {
         await ops.skillRemove({ computer: comp(a), name: a.skill, project: a.project });
         return { summary: `${a.skill} is removed.`, data: { skill: a.skill } };
+      },
+    },
+    cancel_review: {
+      level: 'L2',
+      need: ['review'],
+      before: async (ops, a, ctx) => {
+        const v = ctx.memo.get(at(comp(a), a.review));
+        if (!v) throw toolError('that review is not known any more', 'nothing waits to be cancelled; manage_skills review shows a skill again');
+        return { skill: v.skill, source: v.source, files: v.files.length, kind: v.kind };
+      },
+      cardLines: (a, b) => [
+        `Cancel the review of the ${b.kind === 'update' ? 'update of the ' : ''}skill ${b.skill} from ${b.source} on ${comp(a)}: its ${b.files} fetched file(s) are deleted from quarantine`,
+        'Nothing is installed, removed or changed among your skills.',
+      ],
+      view: (a, b) => ({ review: a.review, skill: b.skill }),
+      async run(ops, a, ctx) {
+        await ops.skillCancel({ computer: comp(a), id: a.review });
+        ctx.memo.delete(at(comp(a), a.review));
+        return { summary: `The review ${a.review} is cancelled: its fetched files are gone and nothing was installed.`, data: { review: a.review }, audit: { review: a.review } };
+      },
+    },
+    undo_update: {
+      level: 'L2',
+      need: ['skill'],
+      allow: ['project'],
+      before: async (ops, a) => {
+        const r = await ops.skillsInstalled({ computer: comp(a), project: a.project });
+        const list = (a.project ? r.project : r.user) || {};
+        const s = (Array.isArray(list.skills) ? list.skills : []).find((x) => x && x.name === a.skill);
+        const where = a.project ? `in ${a.project}` : 'for every project';
+        if (!s) throw toolError(`the skill "${a.skill}" is not installed ${where} on ${comp(a)}`, 'call manage_skills action installed');
+        // A skill learned from his own work is taken back by his press on Skills → Learned (its own Undo, a git revert).
+        if (s.learned) throw toolError(`"${a.skill}" was learned from the owner's work: it is taken back only by his press on Skills → Learned`, 'tell the owner where it is');
+        if (!s.canUndo) throw toolError(`the skill "${a.skill}" has no earlier version kept ${where} on ${comp(a)}`, 'nothing is to be done; manage_skills installed shows it');
+        const updated = typeof s.updatedAt === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(s.updatedAt) ? s.updatedAt.slice(0, 16).replace('T', ' ') : null;
+        return { where, updated, edited: Array.isArray(s.edited) && s.edited.length > 0 };
+      },
+      cardLines: (a, b) => [
+        `Put back the version of the skill ${a.skill} (${b.where}) on ${comp(a)} that Hoprig kept for Undo: the one that was there before its last change${b.updated ? ` (${b.updated} UTC)` : ''}, an update, an install over it or a removal of a skill of this name`,
+        'This is what Undo on the Skills page does. The version there now is kept: Undo there brings it back.',
+        ...(b.edited ? ['It was edited by hand since: those edits stay with the version that is kept.'] : []),
+      ],
+      view: (a, b) => ({ skill: a.skill, where: b.where }),
+      async run(ops, a) {
+        await ops.skillUndo({ computer: comp(a), name: a.skill, project: a.project });
+        return { summary: `The skill ${a.skill} is back to its version before its last update; the newer one is kept.`, data: { skill: a.skill }, audit: { skill: a.skill } };
+      },
+    },
+    twice: {
+      level: 'L0',
+      async run(ops, a) {
+        twiceHere(a);
+        const lines = ((await ops.fieldTwice({ computer: 'this' })).twice || []).filter((x) => x && typeof x.key === 'string' && TWICE_KEY.test(x.key)).slice(0, 20);
+        return {
+          summary: `${lines.length} "went wrong twice" line(s) on Home of this computer.`,
+          data: { lines: lines.map((l) => ({ line: l.key, what: short(l.kindWords, 80), words: short(l.words, 300), help: short(l.help, 400), command: l.command ? short(l.command, 100) : null, times: Number(l.count) || 0, last: short(l.last, 30), can_draft: l.draft === true })) },
+          shown: { twice: lines.map((l) => at('this', l.key)) },
+        };
+      },
+    },
+    twice_dismiss: {
+      level: 'L2',
+      need: ['line'],
+      before: (ops, a) => twiceLine(ops, a),
+      cardLines: (a, b) => [
+        `Hide the line "This went wrong twice" for ${b.what} on Home of this computer, until it comes up again`,
+        `It says: ${b.words}`,
+      ],
+      view: (a, b) => ({ line: a.line, what: b.what }),
+      async run(ops, a) {
+        await ops.fieldTwiceAct({ computer: 'this', line: a.line, act: 'dismiss' });
+        return { summary: `The line ${a.line} is hidden on Home until it comes up again.`, data: { line: a.line }, audit: { line: a.line } };
+      },
+    },
+    twice_draft: {
+      level: 'L2',
+      need: ['line'],
+      before: async (ops, a) => {
+        const b = await twiceLine(ops, a);
+        if (!b.draft) throw toolError('there is nothing to learn from this line yet: a draft would only say to run hoprig doctor', 'nothing is to be done');
+        return b;
+      },
+      cardLines: (a, b) => [
+        `Make a skill draft from the line "This went wrong twice" for ${b.what} on this computer: it waits in Skills → Learned, and nothing is installed until you install it there`,
+        `What failed: ${b.what} went wrong twice: ${b.words}.`,
+        `What to do instead: ${b.help}`,
+      ],
+      view: (a, b) => ({ line: a.line, what: b.what }),
+      async run(ops, a) {
+        const r = await ops.fieldTwiceAct({ computer: 'this', line: a.line, act: 'draft' });
+        const draft = said(r.draft, /^[0-9a-f]{24}$/, null);
+        return { summary: `A skill draft${draft ? ` (${draft})` : ''} waits in Skills → Learned; nothing is installed.`, data: { line: a.line, draft }, audit: { line: a.line, draft } };
       },
     },
   },

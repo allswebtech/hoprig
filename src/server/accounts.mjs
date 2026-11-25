@@ -455,6 +455,8 @@ export function accountsFeature(ctx, opts = {}) {
         },
         ...old,
         gateways: gws,
+        // The loopback names the owner is signed in under: a gateway's page link takes another (web/gateways.js).
+        signedIn: typeof ctx.signedInHosts === 'function' ? ctx.signedInHosts() : [],
         signin: signinState(),
         // An address in Claude Code's own settings file, which wins over every profile: what it is and the lines a
         // press would take out (a key's value never: ownsettings.mjs).

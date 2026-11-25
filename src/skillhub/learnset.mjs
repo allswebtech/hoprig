@@ -28,6 +28,9 @@ const file = (n) => path.join(learnDir(), n);
 /** A skill name as the Agent Skills specification allows it: lowercase letters, digits, single hyphens, 1-64. */
 export const specName = (n) => typeof n === 'string' && n.length <= 64 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(n);
 
+/** The learned skill beside the generated `hoprig` one: what was learned about using Hoprig on this computer. */
+export const HOPRIG_LEARNED = 'hoprig-learned';
+
 function readJson(n, dflt) {
   try {
     return JSON.parse(fs.readFileSync(file(n), 'utf8'));
@@ -148,10 +151,17 @@ const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').tr
 /** The skill a draft is about: a parsed look names a patch's skill `target`, a stored draft keeps it as `name`. */
 const skillOf = (d) => (d.kind === 'new' ? d.name : d.target || d.name);
 
+// hoprig-learned grows one lesson at a time, and each of its drafts holds every lesson before it: an idea of it is its
+// lesson alone, so one lesson he discarded never stops the next one.
+const isLesson = (d) => skillOf(d) === HOPRIG_LEARNED && typeof d.lesson === 'string';
+const ideaText = (d) => (isLesson(d) ? d.lesson : d.body);
+const hashOf = (s) => crypto.createHash('sha256').update(norm(s)).digest('hex').slice(0, 24);
+
 /** The key of a draft's idea: a new skill by its name, a change of a skill by the skill and the new text. */
 export function ideaKey(d) {
+  if (isLesson(d)) return `${d.kind}:${HOPRIG_LEARNED}:${hashOf(d.lesson)}`;
   if (d.kind === 'new') return `new:${d.name}`;
-  return `patch:${skillOf(d)}:${crypto.createHash('sha256').update(norm(d.body)).digest('hex').slice(0, 24)}`;
+  return `patch:${skillOf(d)}:${hashOf(d.body)}`;
 }
 
 /**
@@ -190,15 +200,17 @@ export function readDeclined() {
  */
 export function declinedLike(d) {
   const key = ideaKey(d);
-  const words = wordPrints(d.body);
-  const steps = d.kind === 'new' ? wordPrints(stepsOf(d.body)) : [];
+  const words = wordPrints(ideaText(d));
+  const steps = d.kind === 'new' && !isLesson(d) ? wordPrints(stepsOf(d.body)) : [];
   const like = (a, b) => a.length > 0 && likeness(a, b) >= SAME_IDEA;
-  return readDeclined().some((x) => x.key === key || (x.key.startsWith(d.kind === 'new' ? 'new:' : `patch:${skillOf(d)}:`)
+  // A lesson about Hoprig is held against the lessons he discarded, made as a new skill or as a change alike.
+  const near = (x) => (isLesson(d) ? x.name === HOPRIG_LEARNED : x.key.startsWith(d.kind === 'new' ? 'new:' : `patch:${skillOf(d)}:`));
+  return readDeclined().some((x) => x.key === key || (near(x)
     && (like(x.words, words) || (steps.length >= STEPS_MIN && x.steps.length >= STEPS_MIN && like(x.steps, steps)))));
 }
 
 export function addDeclined(d, now = Date.now()) {
   const list = readDeclined().filter((x) => x.key !== ideaKey(d));
-  list.push({ key: ideaKey(d), name: skillOf(d), words: wordPrints(d.body), ...(d.kind === 'new' ? { steps: wordPrints(stepsOf(d.body)) } : {}), at: now });
+  list.push({ key: ideaKey(d), name: skillOf(d), words: wordPrints(ideaText(d)), ...(d.kind === 'new' && !isLesson(d) ? { steps: wordPrints(stepsOf(d.body)) } : {}), at: now });
   writeJson('declined.json', list.slice(-DECLINED_MAX));
 }

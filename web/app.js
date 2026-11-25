@@ -16,6 +16,7 @@ import './projects.js';
 import './work.js';
 import './accounts.js';
 import './computers.js';
+import './leave.js';
 import './pc.js';
 import './automation.js';
 import './sessiondefaults.js';

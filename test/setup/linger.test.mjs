@@ -104,8 +104,10 @@ test('set-up lists lingering among the sudo steps ("Will run") and runs it under
 test('not done: one plain line with the one command (refused, no sudo); a dry run only lists it', async () => {
   reset();
   const refuse = fakeBin(path.join(s.tmp, 'bin-refuse'), { claude: fakeClaude(), loginctl: 'echo Linger=no', sudo: 'echo "sorry, try again" >&2; exit 1', systemctl });
-  // Inside set-up: the mark where it happens, the command in the closing list ("Still yours to do").
-  for (const [dir, line] of [[refuse, /^ {2}! The dashboard stops when you log out: lingering is off\n(?:.*\n)*? {2}Still yours to do:\n(?:.*\n)*? {4}· Keep the dashboard running after you log out \(lingering\): sudo loginctl enable-linger alex$/m], [noSudo, /^ {2}! The dashboard stops when you log out: lingering is off\n(?:.*\n)*? {2}Still yours to do:\n(?:.*\n)*? {4}· Keep the dashboard running after you log out \(lingering\): as root: loginctl enable-linger alex$/m]]) {
+  // Inside set-up: the mark where it happens, the command in the closing list ("Still yours to do"). With sudo here,
+  // Health's one press (web/health.js "Let them start after a restart") comes first; without sudo it cannot work, so
+  // the list names only the command for root.
+  for (const [dir, line] of [[refuse, /^ {2}! The dashboard stops when you log out: lingering is off\n(?:.*\n)*? {2}Still yours to do:\n(?:.*\n)*? {4}· Keep the dashboard running after you log out \(lingering\): On the dashboard: Computers → this computer → Health → Let them start after a restart\. Or only here, on this computer: sudo loginctl enable-linger alex$/m], [noSudo, /^ {2}! The dashboard stops when you log out: lingering is off\n(?:.*\n)*? {2}Still yours to do:\n(?:.*\n)*? {4}· Keep the dashboard running after you log out \(lingering\): as root: loginctl enable-linger alex$/m]]) {
     const { ui: u, rec } = ui({ yes: true });
     const S = sys(dir);
     S.probe = async () => 200;

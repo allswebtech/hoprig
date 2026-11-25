@@ -39,7 +39,10 @@
 .ms-h3 { margin: 0; font-size: var(--fs); font-weight: 650; }
 .ms-project { display: grid; gap: 6px; padding: 8px 0; border-top: 1px solid var(--border); }
 .ms-project:first-of-type { border-top: 0; }
-.ms-test-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.ms-auto { margin-left: 16px; padding-left: 12px; border-left: 2px solid var(--border); }
+.ms-auto-by { color: var(--muted); }
+.ms-test-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.ms-test-row > .btn { align-self: flex-end; }
 .ms-test-row .fieldrow { flex: 1 1 240px; min-width: 0; }
 .ms-test { font-family: var(--mono, monospace); }
 .ms-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 16px; align-items: start; }

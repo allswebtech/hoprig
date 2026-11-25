@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { bypassInArgs, gateCarry, ROOT_BYPASS_LINE, runsAsRoot } from '../bypassgate.mjs';
 import { dedupeFlags, moveArgs } from '../launch.mjs';
-import { binFile, runsDir, tilde } from '../paths.mjs';
+import { binFile, runsDir, stateDir, tilde } from '../paths.mjs';
 import { isMarkedHers } from '../hermark.mjs';
 import { saveConfig as saveConfigFile, sessionArgs } from '../config.mjs';
 import { readRun } from '../runfile.mjs';
@@ -13,6 +13,7 @@ import { dropMark, newMark, sweepMarks } from './marks.mjs';
 import { dropStartFailure, keepReason, noReasonWords, noteOfTerminal, reasonFrom, startFailures, sweepStartFailures } from '../startfail.mjs';
 import { RUN_ID_RE, carryOf, dropLaunch } from '../launchfile.mjs';
 import { assertFolder, startCommand } from './startline.mjs';
+import { atPrompt } from './backends/front.mjs';
 import { ENTER_PAUSE_MS, keyToTool, sendToTool } from './typing.mjs';
 import { assertServes, publicProfile, readProfile } from '../profiles.mjs';
 import { listRuns } from '../runs.mjs';
@@ -99,6 +100,21 @@ function toolArgv(launcher, { tool, profile, mode, sessionId, carryArgs, prompt,
  */
 const isPtyId = (id) => typeof id === 'string' && id.startsWith('pty-');
 
+const lineKey = (t) => `${t.id}@${Number(t.created) || ''}`;
+const lineReadyFile = () => path.join(stateDir(), 'line-ready.json');
+function readLineReady() {
+  try {
+    const ids = JSON.parse(fs.readFileSync(lineReadyFile(), 'utf8'));
+    return Array.isArray(ids) ? ids.filter((x) => typeof x === 'string').slice(-200) : [];
+  } catch {
+    return []; // none marked yet
+  }
+}
+function writeLineReady(ids) {
+  fs.mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(lineReadyFile(), JSON.stringify(ids), { mode: 0o600 });
+}
+
 export function matchRuns(terms, runs, parentOf = procParent) {
   const byId = new Map();
   for (const t of terms) {
@@ -149,6 +165,12 @@ const askKey = (run) => `${runKey(run)}|${run.askAt || 0}`;
 // What a terminal session's coding tool can be asking (the run record's askType, src/asking.mjs).
 const ASK_TYPES = ['permission', 'question', 'plan'];
 
+// A start whose shell waits at its prompt (backends/front.mjs atPrompt) with no record written for this long, look
+// after look, was stopped before its launcher ran or wrote its record (a Ctrl+C): see #stopped.
+// A shell still in its start files runs a program of theirs or its own commands, and reads the line the moment they
+// are done, so a start that goes on is never this long at its prompt with its file unread.
+export const STOP_MS = 3000;
+
 // The terminal that stands for a session: the one with a Claude run in it, else the active one.
 const pick = (terms, byId) => terms.find((t) => byId.has(t.id)) || terms.find((t) => t.active) || terms[0];
 
@@ -167,12 +189,17 @@ export class Deck {
     this.idle = new Map(); // session name → { key, since, last }: how long its screen has looked idle (see #shown)
     this.shown = new Map(); // session name → { key, status, at }: a card that differs from its run record, and since when
     this.refused = new Map(); // session name → the key of the run state whose question the owner refused from the page
-    this.launches = new Map(); // `${tool}:${conversation}` → { name, at, mark }: see noteLaunch
+    this.launches = new Map(); // `${tool}:${conversation}` → { name, at, mark, launch }: see noteLaunch
+    this.stopped = new Map(); // session name → the launch file of its start that was stopped before its line was read
     // The conversation's own queue (handoff.mjs claim, move): one start, take-over or move at a time.
     this.serial = queue();
     this.movedFrom = new Map(); // terminal id → the run record it was last moved away from: a move of that record is late
     this.handed = new Map(); // run id a move chose for its new record → when (#handOver): its switch entry waits for it
     this.forwards = new Map(); // old run id → { to, at }: a move was made while the old record was still there (#handOver)
+    // Terminal ids of Health's line-ready sessions (src/machines/healthline.mjs): a line stands typed there for the
+    // owner to press Enter on. Nobody but his own page and keys types into them (./lineready.mjs).
+    // Kept in a file too: a tmux session outlives the dashboard, and its mark must outlive it as well.
+    this.lineReady = new Set(readLineReady());
     sweepMarks();
     sweepStartFailures();
     this.#clearStaleMoving();
@@ -203,13 +230,15 @@ export class Deck {
    * shell (handoff.mjs terminalOf reads it): a restart in place (a move) ends the old launcher and its record before
    * the new one has written its own.
    */
-  noteLaunch(name, id, tool = 'claude', at = Date.now(), mark = null) {
+  noteLaunch(name, id, tool = 'claude', at = Date.now(), mark = null, launch = null) {
     if (!id || !name) return void dropMark(mark);
     const key = `${tool}:${id}`;
     const was = this.launches.get(key);
     if (was && was.mark !== mark) dropMark(was.mark);
     this.launches.delete(key);
-    this.launches.set(key, { name, at, mark });
+    this.launches.set(key, { name, at, mark, launch });
+    if (this.stopped.has(name)) dropLaunch(this.stopped.get(name)); // its shell was restarted: that line is gone
+    this.stopped.delete(name);
     if (this.launches.size > 200) {
       const [oldest, n] = this.launches.entries().next().value;
       this.launches.delete(oldest);
@@ -219,7 +248,21 @@ export class Deck {
 
   /** The terminal of `note` is back at its own shell: its launcher ended (whether it wrote a record or not) or never ran. */
   launchEnded(note) {
-    return !!(note && note.mark) && !fs.existsSync(note.mark);
+    return !!(note && note.mark) && (!!note.stopped || !fs.existsSync(note.mark));
+  }
+
+  /**
+   * Whether the start of `note` was stopped by a Ctrl+C before its launcher wrote its record. The line ends with the
+   * mark's removal (backends/shell.mjs shellLine), and the mark stays in two ways: a Ctrl+C while the shell still reads
+   * its own start files throws the whole typed line away (the launch file stays unread), and one that ends the launcher
+   * in its first moment makes the shell drop the rest of the line. Seen as: the terminal's shell `t` waits at its prompt
+   * (atPrompt: no launcher runs under it) and no record was written since, on every look over at least STOP_MS. An
+   * unread launch file stays while its terminal lives (it goes with it, or with the terminal's next start).
+   */
+  #stopped(note, t, now) {
+    if (!note.launch || !t || !atPrompt(t.pid)) return void (note.front = 0);
+    note.front ||= now;
+    return now - note.front >= STOP_MS;
   }
 
   /**
@@ -233,6 +276,11 @@ export class Deck {
       if (!ts.length || this.launchEnded(note) || matchRuns(ts, runs.filter((r) => r.startedAt >= note.at), parentOf).size) {
         this.launches.delete(key);
         dropMark(note.mark);
+      } else if (this.#stopped(note, ts[0], Date.now())) {
+        note.stopped = true; // a terminalOf holding this note sees it ended too (launchEnded)
+        this.launches.delete(key);
+        dropMark(note.mark);
+        this.stopped.set(note.name, note.launch);
       }
     }
   }
@@ -328,6 +376,8 @@ export class Deck {
         command: t.command,
       };
       if (run) card.tool = run.tool || 'claude';
+      // Its start was stopped before the coding tool ran (#stopped): the page says so until the terminal starts again.
+      if (!run && this.stopped.has(name)) card.startStopped = true;
       // The coding tool ended at its start and the terminal is back at its shell (../startfail.mjs): the card says so,
       // with what the tool printed last, and never reads as a quiet terminal.
       const fail = run ? null : failed.find((n) => noteOfTerminal(n, t));
@@ -438,7 +488,8 @@ export class Deck {
       }
       out.push(card);
     }
-    for (const m of [this.idle, this.shown, this.refused]) for (const k of m.keys()) if (!groups.has(k)) m.delete(k);
+    for (const [k, file] of this.stopped) if (!groups.has(k)) dropLaunch(file); // it holds a first message: it goes with its terminal
+    for (const m of [this.idle, this.shown, this.refused, this.stopped]) for (const k of m.keys()) if (!groups.has(k)) m.delete(k);
     for (const k of this.movedFrom.keys()) if (!terms.some((t) => t.id === k)) this.movedFrom.delete(k);
     return out.sort((a, b) => (b.statusAt || b.activity || 0) - (a.statusAt || a.activity || 0));
   }
@@ -515,13 +566,14 @@ export class Deck {
     const at = Date.now(); // the clock of the launcher's record (startedAt)
     const mark = conversation ? newMark() : null;
     let name;
+    let launch;
     try {
-      ({ name } = await this.terminal({ name: await this.#newName(base), dir, argv, mark, hand, hers }));
+      ({ name, launch } = await this.terminal({ name: await this.#newName(base), dir, argv, mark, hand, hers }));
     } catch (e) {
       dropMark(mark);
       throw e;
     }
-    if (conversation) this.noteLaunch(name, conversation, tool, at, mark);
+    if (conversation) this.noteLaunch(name, conversation, tool, at, mark, launch);
     return name;
   }
 
@@ -557,7 +609,7 @@ export class Deck {
   async terminal({ name, dir, argv = null, mark = null, hand = null, hers = false }) {
     const cmd = this.#command(dir, argv, mark, hand, hers);
     try {
-      return await this.backend.create({ name, dir, argv: cmd.argv, ...(mark ? { mark } : {}) });
+      return { ...(await this.backend.create({ name, dir, argv: cmd.argv, ...(mark ? { mark } : {}) })), launch: cmd.file };
     } catch (e) {
       dropLaunch(cmd.file);
       throw e;
@@ -578,6 +630,7 @@ export class Deck {
       dropLaunch(cmd.file);
       throw e;
     }
+    return cmd.file;
   }
 
   /** A terminal that runs the launcher with `words` (e.g. Codex's own sign-in), named after `base`. Returns its name. */
@@ -611,13 +664,40 @@ export class Deck {
    * (the queue, the continue prompt, the assistant, another computer): only while the tool is in front, never a control
    * byte (./typing.mjs). 409 "not_in_front" when nothing was typed, "typed_not_sent" when the Enter did not follow.
    */
-  sendToTool(name, text, o) {
+  async sendToTool(name, text, o) {
+    await this.#notLineReady(name);
     return this.#inTurn(name, () => sendToTool(this, name, text, o));
   }
 
   /** One key for the coding tool of session `name`, for anyone but the owner: the same rule (./typing.mjs). */
-  keyToTool(name, key) {
+  async keyToTool(name, key) {
+    await this.#notLineReady(name);
     return this.#inTurn(name, () => keyToTool(this, name, key));
+  }
+
+  /**
+   * Terminal `id` holds a line typed for the owner to run himself (Health's "Open a terminal with this line"). Kept
+   * with the terminal's start time: tmux hands out its pane ids again after a restart, and a later session that gets
+   * the same id is not marked. Marks of terminals that are gone are dropped here.
+   */
+  async markLineReady(id) {
+    const terms = await this.backend.list();
+    const t = terms.find((x) => String(x.id) === String(id));
+    const live = new Set(terms.map(lineKey));
+    this.lineReady = new Set([...this.lineReady].filter((k) => live.has(k)));
+    this.lineReady.add(t ? lineKey(t) : `${id}@`);
+    writeLineReady([...this.lineReady].slice(-200));
+  }
+
+  /** Whether session `name` (any of its terminals) is one of those. */
+  async isLineReady(name) {
+    if (!this.lineReady.size) return false;
+    return (await this.backend.list()).some((t) => t.session === name && this.lineReady.has(lineKey(t)));
+  }
+
+  // 409, nothing typed: the line there is his to run, so text or a key from anyone else never reaches it.
+  async #notLineReady(name) {
+    if (await this.isLineReady(name)) throw Object.assign(new Error(`Nothing was typed: session "${name}" holds a line for you to run yourself. Only you type there, in the terminal`), { status: 409, code: 'line_ready', details: { code: 'line_ready' } });
   }
 
   /**
@@ -659,7 +739,9 @@ export class Deck {
       try {
         over = this.#handOver(run);
         // The old launcher holds the conversation until its coding tool has saved and ended: the new one would refuse it.
-        await this.respawn(term.id, run.cwd, argv, { mark, hold: Number.isInteger(run.pid) ? run.pid : null, hand: over && over.hand, hers });
+        const launch = await this.respawn(term.id, run.cwd, argv, { mark, hold: Number.isInteger(run.pid) ? run.pid : null, hand: over && over.hand, hers });
+        const note = this.launchOf(run.sessionId, tool);
+        if (note && note.mark === mark) note.launch = launch;
         // Every move, whoever asked for it: the Operator's limit rule never moves a session back within the hour.
         noteMove({ session: term.session, from: run.profile || null, to: target.name });
       } catch (e) {

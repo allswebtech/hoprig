@@ -206,7 +206,9 @@ export function rejectUpgrade(socket, status, text, body = '') {
 export function relayUpgrade(req, socket, head, ep, { machine, path, token, timeoutMs = 15_000 }) {
   return new Promise((resolve) => {
     const headers = pick(req.headers, PASS_WS_REQ);
-    Object.assign(headers, { connection: 'Upgrade', upgrade: 'websocket', authorization: `Bearer ${token}` });
+    // Only the hub's own signed-in page opens a terminal here (index.mjs checks its login and Origin first), so the
+    // relayed upgrade carries the page's mark: a session that holds a line for the owner takes keys only with it.
+    Object.assign(headers, { connection: 'Upgrade', upgrade: 'websocket', authorization: `Bearer ${token}`, [OWNER_PAGE_HEADER]: '1' });
     const out = mod(ep).request({ protocol: ep.protocol, hostname: ep.hostname, port: ep.port, method: 'GET', path: `${ep.basePath || ''}${path}`, headers, agent: false });
     const timer = setTimeout(() => out.destroy(Object.assign(new Error('timeout'), { code: 'timeout' })), timeoutMs);
     const refuse = (e) => {

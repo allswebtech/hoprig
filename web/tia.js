@@ -12,6 +12,7 @@ import { navChanged, registerHeadTool, registerPage, registerSessionAction, regi
 import { fold, saveBar, tabBar, toggle } from './shell.js';
 import { modelPicker } from './modelpicker.js';
 import { leadSwitch } from './leadswitch.js';
+import { splitHelp } from './helpline.js';
 import { store } from './store.js';
 import { knownChatTools } from './chat/start.js';
 import { keepTabIn } from './tabwrap.js';
@@ -1147,7 +1148,18 @@ function tiaSettings({ isAlive }) {
         paint();
         return false;
       }
-    }, v.help.enabled);
+    }, splitHelp(v.help.enabled)); // the server's two sentences: the first under the switch, the rest under "More"
+    // "She answers the OKs of her Work runs" (assistant.answersHers, off at first): kept at once, as on or off is, so one
+    // press stops it. Its sentence says what she then answers by herself and what stays his card.
+    const answersHers = v.help.answersHers ? toggle('She answers the OKs of her Work runs', s.answersHers === true, async (on) => {
+      try {
+        await api(`${A}/settings`, { answersHers: on });
+      } catch (e) {
+        toast(e.message, { kind: 'error', ms: 6000 });
+        paint();
+        return false;
+      }
+    }, v.help.answersHers, { key: 'tia-answers-hers' }) : null;
     const levelWords = { ask: ['Ask me', v.help.levelAsk], work: ['Do the work', v.help.levelWork], handsoff: ['Hands off', v.help.levelHandsoff] };
     // What each level means in one short line; the full text of the chosen one under a closed "More".
     const short = v.help.levelShort || {};
@@ -1232,6 +1244,7 @@ function tiaSettings({ isAlive }) {
       acts,
       s.enabled ? [
         h('div.fieldrow', h('span.field-label', 'How far she may go'), levelSeg, levelLines, fold('tia-level-more', 'What each level means', levelHelp)),
+        answersHers,
         // The field, its Save when he was sent here, what is used today; the long text of what counts under "More".
         h('div.fieldrow', h('label.field-label', { for: 'tia-daily-cap' }, 'Daily limit for paid use (US $)'), cap, capSave, backSlot, spentLine, fold('tia-cap-more', 'What counts against the limit', h('p.hint', v.help.dailyCapUsd))),
         h('div.fieldrow', h('span.field-label', 'Providers she may use'), checks, h('span.hint', v.help.accounts + (s.accountsDefault ? ' Now: the default — Auto mode when it is on, and every subscription; no API provider.' : ''))),
@@ -1270,13 +1283,14 @@ function tiaSettings({ isAlive }) {
   }
   paint();
   // What she has used and her tools for your own Claude Code: looked at rarely, so closed until opened.
-  return [box, tiaRights({ isAlive }), fold('tia-usage', 'Usage, and her tools in your own Claude Code', usageBox, clientBox)];
+  return [box, tiaRights({ isAlive }), ((slot) => (import('./tiaimprove.js').then((m) => m.improveTia(slot, { isAlive })), slot))(h('div.tia-improve')), fold('tia-usage', 'Usage, and her tools in your own Claude Code', usageBox, clientBox)];
 }
 
 /**
- * The cap card's sentence: what was spent today, what is counted for acts on a paid provider whose cost Hoprig could
- * not measure: $0.50 each until the day ends; and what he can do (raise the daily limit for paid use or wait for
- * tomorrow). Never "work under way": such an act stays counted after its session ended. "Reached" only when it is.
+ * The sentence of the card of the daily limit for paid use: what was spent today, what is counted for acts on a
+ * provider billed by use whose cost Hoprig could not measure: $0.50 each until the day ends; and what he can do
+ * (raise the daily limit for paid use or wait for tomorrow). Never "work under way": such an act stays counted after
+ * its session ended. "Reached" only when it is.
  */
 export function spentWords(sp) {
   const t = (sp && sp.today) || { spent: 0, held: 0, unmeasured: 0 };
@@ -1337,7 +1351,7 @@ export const endsNotice = (e) => !!e && (e.kind === 'owner' || e.kind === 'text'
 /** What "Use …" on notice `e` sends again: his message that brought it; nothing for a job's wake-up. */
 export const resendText = (e, last) => (e && e.origin === 'owner' && typeof last === 'string' ? last : '');
 
-/** The cap field's own Save is drawn when the page was opened at it (#/settings/tia?show=tia-daily-cap). */
+/** The own Save of the field of the daily limit for paid use is drawn when the page was opened at it (#/settings/tia?show=tia-daily-cap). */
 export const capSaveWanted = (hash) => /[?&]show=tia-daily-cap(?:&|$)/.test(String(hash || ''));
 
 /**
@@ -1353,7 +1367,7 @@ export const bannerLink = (ready) => (ready && ready.code === 'subs-limited'
 export const saidInChat = (root, code) => !!(root && typeof root.querySelector === 'function' && root.querySelector(`.tia-notice[data-code="${code}"]`));
 
 /**
- * The cap link of a notice his message brought: it names the conversation and the notice (`back`: "<id>.<number>"),
+ * The link to the daily limit for paid use of a notice his message brought: it names the conversation and the notice (`back`: "<id>.<number>"),
  * so the Save under the field can offer the way back. Without it the plain link.
  */
 export const capLinkFor = (back) => (typeof back === 'string' && BACK_RE.test(back) ? `${CAP_LINK}&back=${back}` : CAP_LINK);
@@ -1398,7 +1412,7 @@ const backButton = (back) => btn('primary', { icon: 'send', label: `Back to ${NA
 /** Where "Choose another provider for Tia" leads: Settings → Tia at "Tia runs on". It only opens the place. */
 export const RUNS_LINK = '#/settings/tia?show=tia-runs-on';
 
-/** Where "Set a daily limit for paid use" leads: Settings → Tia, the cap field in the middle of the window. */
+/** Where "Set a daily limit for paid use" leads: Settings → Tia, the field of that limit in the middle of the window. */
 export const CAP_LINK = '#/settings/tia?show=tia-daily-cap';
 
 /**
@@ -1413,7 +1427,7 @@ export async function useAndResend(name, text, { save, send }) {
 /**
  * A notice in her chat. One with a `code` (paid-no-cap, cap-reached, chosen-limited) carries no way in words: the
  * buttons are drawn here. "Use <label> (included in your plan)" when a subscription can answer (`e.use`), which calls
- * `resend(name)` once; and "Set a daily limit for paid use", which opens the cap field (for chosen-limited, where
+ * `resend(name)` once; and "Set a daily limit for paid use", which opens the field of that limit (for chosen-limited, where
  * nothing is paid: "Open Settings → Tia").
  */
 export function noticeView(e, { resend = null, back = null } = {}) {

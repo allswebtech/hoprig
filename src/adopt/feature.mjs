@@ -5,11 +5,15 @@
 //   GET  /api/adopt                 the usual places that are there (only stat'ed, none entered), the places of the
 //                                   last look, its projects, and the plans there are
 //   POST /api/adopt/scan { places } look in these folders (the owner's yes): each an absolute folder, not a disk's root
+//   POST /api/adopt/home {}         find the projects of the home folder (his press): a look with a budget, then the
+//                                   same look as above in the folders it found (src/adopt/home.mjs)
 //   POST /api/adopt/plan { dir }    the plan of a project the last look found (no other folder is taken)
 //   GET  /api/adopt/plan?name=<n>   a plan, as the page shows it
 //   POST /api/adopt/apply { name, dryRun?, identity? }   apply it (dryRun: what it would do, nothing written)
-//
-// retire is not here: removing an original needs the project's name typed on a terminal.
+//   POST /api/adopt/retire/check { name }   retire's own look: what goes, what stays and why, and a one-use ticket
+//                                   bound to it for ten minutes (retireweb.mjs)
+//   POST /api/adopt/retire { ticket, typed }   the old folders removed by retire itself, only when `typed` is the
+//                                   project's name and retire finds now what the sheet showed; there is no undo
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,12 +21,15 @@ import { capture } from '../setup/system.mjs';
 import { tildeText } from '../pcsetup/feature.mjs';
 import { projectsDir } from '../pcsetup/projects.mjs';
 import { NAME_RE } from '../pcsetup/workspace.mjs';
-import { claudeDir } from '../paths.mjs';
+import { claudeDir, hoprigOwnDirs } from '../paths.mjs';
 import { workspaceDir } from '../workspace/layout.mjs';
 import { scanPlaces } from './scan.mjs';
 import { makePlan, planFile, readPlan, writePlan } from './plan.mjs';
 import { applyPlan, busyIn, doneFile } from './apply.mjs';
 import { usualPlaces } from './cli.mjs';
+import { pageRetire } from './retireweb.mjs';
+import { ownerPageOnly } from '../workspace/whomay.mjs';
+import { tokenIdOf } from '../machines/index.mjs';
 
 // The code goes in `details`, which the server's errorBody sends, so the page can offer the right next step.
 const fail = (status, message, code) => Object.assign(new Error(message), { status, ...(code ? { code, details: { code } } : {}) });
@@ -44,10 +51,18 @@ export function adoptFeature(ctx, opts = {}) {
   const t = (s) => tildeText(s, home());
   let last = null; // the last look: { places, projects } (absolute paths, kept here only)
   let running = false;
+  let looking = false; // a look over the home runs
+  let retiring = false; // a retire runs
+  const retirer = pageRetire({ projects: () => where().projects, tilde: (x) => t(x) });
 
   const ownPage = (req) => {
     const auth = String((req.headers && req.headers.authorization) || '');
     if (auth || (ctx.caller && ctx.caller(req) !== 'page')) throw fail(403, 'projects on this computer are arranged only from your own signed-in page here, not by Tia, a token or another computer', 'owner-page');
+  };
+  /** Removing old folders: the workspace's own rule of the owner's page (whomay.mjs), then this page's own. */
+  const ownRetire = async (req) => {
+    await ownerPageOnly(req, ctx, 'removing the old folders of a project', { tokenId: tokenIdOf });
+    ownPage(req);
   };
 
   /** A folder the owner named: absolute, a real folder, not a disk's root. → its resolved path. */
@@ -95,7 +110,8 @@ export function adoptFeature(ctx, opts = {}) {
   const routes = [
     ['GET', /^\/api\/adopt$/, async (req) => {
       ownPage(req);
-      return { usual: usualPlaces(home()).map(t), places: last ? last.places.map((x) => ({ ...x, dir: t(x.dir) })) : [], projects: last ? shown(last.projects) : [], workspace: t(where().projects) };
+      return { usual: usualPlaces(home()).map(t), places: last ? last.places.map((x) => ({ ...x, dir: t(x.dir) })) : [], projects: last ? shown(last.projects) : [], workspace: t(where().projects),
+        home: last && last.home ? { ...last.home, links: last.home.links.map(t) } : null }; // what the look over the home did
     }],
     ['POST', /^\/api\/adopt\/scan$/, async (req) => {
       ownPage(req);
@@ -107,6 +123,26 @@ export function adoptFeature(ctx, opts = {}) {
       for (const p of r.projects) for (const x of p.repos) x.busy = (await busyIn([x.dir])) || 0;
       last = r;
       return { places: r.places.map((x) => ({ ...x, dir: t(x.dir) })), projects: shown(r.projects), privates: r.privates };
+    }],
+    // His press "Find the projects on this computer": a look over the home with a budget (src/adopt/home.mjs), then
+    // the same scan as above of what it found. It answers within the budget; a second press while one runs is refused.
+    ['POST', /^\/api\/adopt\/home$/, async (req) => {
+      ownPage(req);
+      keys(await ctx.readJson(req), []);
+      if (looking) throw fail(409, 'Hoprig is already looking through your home folder: wait until it ends.');
+      looking = true;
+      try {
+        const { findHome } = await import('./home.mjs');
+        const w = where();
+        const skip = [w.workspace, w.projects, w.claude, ...hoprigOwnDirs()];
+        const r = await findHome({ home: home(), skip, projects: w.projects, usual: usualPlaces(home()), ...(opts.homeLook || {}) });
+        for (const p of r.projects) for (const x of p.repos) x.busy = (await busyIn([x.dir])) || 0;
+        last = r;
+        const h = r.home;
+        return { places: r.places.map((x) => ({ ...x, dir: t(x.dir) })), projects: shown(r.projects), privates: r.privates, home: { ...h, links: h.links.map(t) } };
+      } finally {
+        looking = false;
+      }
     }],
     ['POST', /^\/api\/adopt\/plan$/, async (req) => {
       ownPage(req);
@@ -157,6 +193,37 @@ export function adoptFeature(ctx, opts = {}) {
         throw e;
       } finally {
         running = false;
+      }
+    }],
+    // After Arrange: the old folders removed from the page, as `hoprig adopt retire` does (retireweb.mjs). His own
+    // page only, before anything is read; the name typed is compared here; retire checks everything again.
+    ['POST', /^\/api\/adopt\/retire\/check$/, async (req) => {
+      await ownRetire(req);
+      const b = await ctx.readJson(req);
+      keys(b, ['name']);
+      if (typeof b.name !== 'string' || !NAME_RE.test(b.name)) throw fail(400, 'name: a project name');
+      try {
+        return await retirer.check(b.name);
+      } catch (e) {
+        throw fail(e.code === 'ENOTDONE' || e.code === 'EPLAN' ? 404 : 500, t(e.message), e.code);
+      }
+    }],
+    ['POST', /^\/api\/adopt\/retire$/, async (req) => {
+      await ownRetire(req);
+      const b = await ctx.readJson(req);
+      keys(b, ['ticket', 'typed']);
+      if (b.typed !== undefined && (typeof b.typed !== 'string' || b.typed.length > 200)) throw fail(400, 'typed is the project\'s name as you typed it');
+      if (retiring) throw fail(409, 'old folders are being removed: wait until it ends');
+      retiring = true;
+      const startedAt = Date.now();
+      try {
+        const r = await retirer.retire(b.ticket, b.typed);
+        if (r.result === 'removed' || r.result === 'refused') await (await import('../field/wire.mjs')).reportRetire(r, startedAt); // a field report, as the command makes
+        // Its old folder is gone: the last look no longer lists it as a project found here.
+        if (r.result === 'removed' && last) last.projects = last.projects.filter((p) => safeName(p.name) !== r.name);
+        return r;
+      } finally {
+        retiring = false;
       }
     }],
   ];

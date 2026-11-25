@@ -68,7 +68,7 @@ test('SKILLS: the bundled skills the guide counts are the catalog\'s bundled ent
 
 test('SKILLS: the weekly update check is off at first and tells only by a notification', async () => {
   const page = read('web/skillhub.js');
-  assert.match(page, /toggle\('Check for updates once a week', data\.settings\.weekly/, 'its switch on the Skills page');
+  assert.match(page, /toggle\('Look for updates and new skills once a week', data\.settings\.weekly/, 'its switch on the Skills page');
   const feat = read('src/skillhub/feature.mjs');
   assert.match(feat, /weekly: s\.weekly === true/, 'off unless turned on');
   assert.match(feat, /sctx\.notify\(\{ title: `Skill updates/, 'it tells by a notification');

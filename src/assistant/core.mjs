@@ -281,13 +281,16 @@ export function createAssistantCore({
 
   /** The facts policy.mjs needs, looked up by the dashboard (never taken from the model). */
   async function facts(tool, args) {
-    const f = { session: null, mine: false, account: null, work: false };
+    const f = { session: null, mine: false, account: null, work: false, herWork: false };
     if (args.session && baseLevel(tool, args) !== 'L0') {
       const list = await ops.listSessions({ computer: args.computer || LOCAL });
       const c = list.find((x) => x.name === args.session && (x.computer || LOCAL) === (args.computer || LOCAL));
       // The session of a Work run (manage_work start) is the owner's: the Work route opened it, and its result is his.
       // By the session itself, not by an active job: the job ends with the run (or at its usage limit), the chat stays.
       f.work = jobs.workSession(args.computer || LOCAL, args.session, c ? c.created : null);
+      // The run of a Work task she started (her manage_work start), by its name and when it was made: its OK is hers only
+      // while the owner's switch is on (policy.mjs).
+      f.herWork = f.work && !!c && jobs.herWorkRun(args.computer || LOCAL, args.session, c.created);
       // codingTool: the session's coding tool (a provider that moves it must serve it); tool, below: the call an OK is about.
       // Its provider is judged by the accounts as the dashboard lists them (paidName), as a start is: a session under Auto
       // spends by use when Auto's order holds a provider billed by use, and one on a stored sign-in when the sign-in
@@ -431,7 +434,10 @@ export function createAssistantCore({
     if (!SESSION_TOOLS.has(tool.name)) return level === 'L2' ? null : [`during a job wake-up ${ASSISTANT_NAME} may only act on that job's sessions`, 'notify_owner with what you suggest'];
     // A job that follows a Work run only reads and reports: the run's session is the owner's, and a turn typed into it
     // after the run was settled is in no run record.
-    if (job && job.work) return [`the session of a Work run is the owner's: ${ASSISTANT_NAME} does not act on it`, 'read the run (manage_work action run) and tell the owner'];
+    // With the owner's switch on, a wake for the run's OK (mode "answer") may allow it, nothing else; policy.mjs judges
+    // that answer again.
+    const herAnswer = job && job.work && turn.mode === 'answer' && tool.name === 'send_to_chat' && args.answer === 'allow';
+    if (job && job.work && !herAnswer) return [`the session of a Work run is the owner's: ${ASSISTANT_NAME} does not act on it`, 'read the run (manage_work action run) and tell the owner'];
     if (!inJob) return [`during this wake-up you may only act on the sessions of job ${turn.job}`, 'notify_owner about anything else'];
     if (turn.mode !== 'answer') return [`job ${turn.job} used all its answers`, 'notify_owner with the question and your suggested answer'];
     if (level !== 'L2' && !jobs.step(turn.job)) return [`job ${turn.job} used all its ${job.maxSteps} answers`, 'notify_owner and let the owner decide'];
@@ -504,7 +510,8 @@ export function createAssistantCore({
       }
       const f = await facts(tool, args);
       // What only the dashboard knows for this call (a project's unpublished commits …), for policy.mjs.
-      if (tool.facts) f.extra = await tool.facts(ops, args, ctxFor(conversation));
+      // heLast: his message of this turn (none in a job's turn), for a rule that asks whether he named what is changed.
+      if (tool.facts) f.extra = await tool.facts(ops, args, ctxFor(conversation, { heLast: turns.get(conversation)?.origin === 'owner' ? turns.get(conversation).text : null }));
       const accountWhy = picks(tool, args) ? await pickAccount(tool, args, f, tia) : null;
       // undoOf: Undo from a card takes back the act that card names and no other (worktool.mjs checks it right before it acts).
       // heLast: his message of the turn this call is made in (none in a job's turn or at his tap on a card).
@@ -574,7 +581,11 @@ export function createAssistantCore({
           result.summary = `${result.summary} Where: ${where.place}, because ${where.why}; say so to the owner in one clause, with the computer's name as written here.`;
           result.data = { ...(result.data || {}), where_why: where.why, where_computer: args.computer || LOCAL };
         }
-        log('done', { level: d.level, ...(where ? { result: { ...(result.audit || {}), computer: args.computer || LOCAL, where: where.why } } : result.audit ? { result: result.audit } : {}) });
+        // An answer of hers in the run of a Work task she started (the owner's switch): Activity says so, with what it
+        // asked, in the dashboard's own words (shortText masks paths and secrets).
+        const herOk = f.herWork && name === 'send_to_chat' && args.answer && f.session ? { herWork: true, asked: shortText(f.session.screen, 200) } : null;
+        const audited = herOk ? { ...(result.audit || {}), ...herOk } : result.audit;
+        log('done', { level: d.level, ...(where ? { result: { ...(audited || {}), computer: args.computer || LOCAL, where: where.why } } : audited ? { result: audited } : {}) });
         const view = viewOf(name, args, result, conversation, undoBefore);
         const text = `${render(result, name, args)}${door.changed ? `\n${HIDDEN_TOLD}` : ''}${view ? `\n${viewLine(view)}` : ''}`;
         settle?.(text);
@@ -895,7 +906,7 @@ export function createAssistantCore({
     const tia = await tiaFor(LOCAL);
     if (!tia.enabled) return [];
     const out = [];
-    for (const ev of jobs.tick(sessionCards)) {
+    for (const ev of jobs.tick(sessionCards, { answersHers: tia.answersHers === true })) {
       const conv = ev.job.conversation;
       if (ev.entry) shown.add(conv, { session: [`${ev.entry.computer}|${ev.entry.session}`], computer: [ev.entry.computer], job: [ev.job.id] });
       // A job that follows a Work run: its task and its run are hers to read (the wake names them).
@@ -919,7 +930,7 @@ export function createAssistantCore({
           /* not known: the rule then says what to do either way */
         }
       }
-      out.push({ conversation: conv, job: ev.job.id, reason: ev.reason, mode: ev.mode, message: wakeMessage({ ...ev, run }, ev.mode, screen) });
+      out.push({ conversation: conv, job: ev.job.id, reason: ev.reason, mode: ev.mode, message: wakeMessage({ ...ev, run, answersHers: tia.answersHers === true }, ev.mode, screen) });
     }
     return out;
   }

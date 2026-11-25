@@ -103,6 +103,40 @@ test('a part whose end Hoprig did not see (the dashboard stopped while it ran): 
   assert.match(l.take(1.6), /\$0\.50 counted for the rest of the budget of a part that stopped before it reported what its last turn cost, .*, \$0\.70 counted for the rest of the budget of a part whose end Hoprig did not see \(the dashboard stopped while it ran\)/);
 });
 
+// A budget hold an earlier run of the dashboard wrote (its mark is not this run's): the dashboard stopped while that
+// part ran, and its process is not this dashboard's. It stays counted for the day (or until its chat starts again,
+// which settles it with the same reason: test/models/partbudget.test.mjs), never as a part that runs now.
+function restarted(clock) {
+  const l = new SpendLedger({ file: null, now: () => clock.t });
+  l.memory.push({ at: clock.t, kind: 'hold', id: 'part-old', usd: 1, run: 'earlier-run' });
+  l.bind('part-old', KEY, 0, true);
+  l.measure(KEY, 0.3, true);
+  return l;
+}
+
+test('after a restart of the dashboard: a part held by an earlier run is said as one whose end Hoprig did not see, all day', (t) => {
+  const clock = { t: new Date(2026, 10, 18, 9, 0).getTime() };
+  const l = restarted(clock);
+  clock.t = new Date(2026, 10, 18, 23, 59).getTime();
+  const d = l.detail();
+  const s = words(l);
+  t.diagnostic(`FIG restarted detail=${JSON.stringify(d)} words=${s}`);
+  assert.deepEqual(d, { spent: 0.3, held: 0.7, unmeasured: 0, tapped: 0, unseen: 1, unseenHeld: 0.7 }, 'at 23:59 still counted, not as running');
+  assert.doesNotMatch(s, /runs now/);
+  assert.match(s, /\$0\.70 is counted for a part whose end Hoprig did not see \(the dashboard stopped while it ran\)/);
+  // The refusals say the same, and never "wait until a part ends": no part of this dashboard runs.
+  assert.doesNotMatch(l.take(1.2), /runs now/);
+  const short = l.take(1.05, { id: 'part-new', amount: () => 0.001 }); // less than a cent: too little
+  assert.match(short, /a part whose end Hoprig did not see/);
+  assert.match(short, /or wait for tomorrow$/);
+  // A share for a new part counts no running part beside it: all that is free (2 allowed at once, none running).
+  assert.equal(l.take(3, { id: 'part-new', amount: (x) => Math.floor(((3 - x.spent - x.held) / Math.max(1, 2 - (x.parts || 0))) * 100) / 100 }), null);
+  assert.equal(l.heldFor('part-new'), 1);
+  // The next day: nothing of it.
+  clock.t = new Date(2026, 10, 19, 0, 1).getTime();
+  assert.deepEqual(l.detail(), { spent: 0, held: 0, unmeasured: 0, tapped: 0 });
+});
+
 test('the limit\'s refusals name a cut part\'s rest apart from what was spent', () => {
   const l = running();
   l.settleParts(KEY, { cut: true });

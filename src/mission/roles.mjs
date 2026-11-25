@@ -16,7 +16,10 @@ export const ROLES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)),
 export const ROLE_NAMES = Object.freeze(['developer', 'reviewer', 'tester', 'researcher', 'writer', 'ops']);
 export const CHECKS = Object.freeze(['tests', 'file', 'diff', 'verdict']);
 export const WORKS = Object.freeze(['code', 'run']);
-const KEYS = ['name', 'purpose', 'skills', 'touch', 'work', 'model-run', 'model-code', 'model-unknown', 'allow', 'deny', 'never', 'check', 'readonly'];
+// What a role's session may run, a closed set, each only through the product's own tool server in the box (boxtool.mjs),
+// never through a shell: the project's tests, its build (the owner's command per project) and a named script of it.
+export const RUNS = Object.freeze(['tests', 'build', 'scripts']);
+const KEYS = ['name', 'purpose', 'skills', 'touch', 'work', 'model-run', 'model-code', 'model-unknown', 'allow', 'deny', 'never', 'runs', 'check', 'readonly'];
 const TOOL_RE = /^[A-Za-z][A-Za-z0-9_]*(\([^()\r\n,]{1,80}\))?$/;
 // The tools a mission's session may have: the coding tool's file tools, and nothing else. A session has no shell, no
 // git and nothing that reaches the network (alone.mjs starts it in the coding tool's restricted mode with exactly
@@ -61,9 +64,14 @@ export function parseRole(text, name) {
   // A role that may not write is denied every writing tool, whatever its file says it allows.
   if (readonly && allow.some((x) => /^(Edit|Write)$/.test(x))) throw bad(name, 'may not write and still allows a writing tool');
   if (readonly && !['Edit', 'Write'].every((x) => deny.includes(x))) throw bad(name, 'may not write and does not deny Edit and Write');
+  // runs: empty for none, else names of the closed set, each once, in any order (kept in the set's own order).
+  const runs = fm.runs ? fm.runs.split(',').map((x) => x.trim()) : [];
+  if (runs.some((x) => !RUNS.includes(x)) || new Set(runs).size !== runs.length) throw bad(name, `has a bad "runs" (none, or some of ${RUNS.join(', ')})`);
+  // A build or a script writes into the folder: a role that may not write runs nothing.
+  if (readonly && runs.length) throw bad(name, 'may not write and still runs something');
   const body = m[2].trim();
   if (!body || body.length > 4000) throw bad(name, 'has no text, or too long a text');
-  return { name, purpose: fm.purpose, skills: fm.skills ? fm.skills.split(',').map((x) => x.trim()) : [], touch: fm.touch, work: fm.work, models, allow, deny, never: fm.never, check: fm.check, readonly, text: body };
+  return { name, purpose: fm.purpose, skills: fm.skills ? fm.skills.split(',').map((x) => x.trim()) : [], touch: fm.touch, work: fm.work, models, allow, deny, never: fm.never, runs: RUNS.filter((x) => runs.includes(x)), check: fm.check, readonly, text: body };
 }
 
 let cache = null;
@@ -98,6 +106,15 @@ export function takeOf(who) {
  * dashboard makes the commit (src/work/alonecommit.mjs). A reviewer gets the branch's diff in its brief.
  */
 export const toolsFor = (role) => [...role.allow];
+
+const RUN_WORDS = { tests: 'the project\'s tests', build: 'its build', scripts: 'its scripts' };
+/** What a role may run, in the Team tab's plain words. */
+export function runsWords(runs) {
+  const w = RUNS.filter((x) => runs.includes(x)).map((x) => RUN_WORDS[x]);
+  if (!w.length) return 'Runs nothing: it has the file tools only.';
+  const list = w.length === 1 ? w[0] : `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}`;
+  return `May run: ${list}, in a box: no network, only its own folder.`;
+}
 
 /** The model and effort for a role's work: the fast model runs and records, the strong one writes and reviews code. */
 export const choiceOf = (role) => role.models[role.work];

@@ -29,6 +29,18 @@ import { cleanPatch, missionSettings, stepsOf, worksOn } from './settings.mjs';
 import { boxTools, toolDoor } from './boxtool.mjs';
 import { box as seamBox } from './seam.mjs';
 import { fromHerDoor } from '../server/herdoor.mjs';
+import path from 'node:path';
+import { createActivityLog } from '../automation/store.mjs';
+import { stateDir } from '../paths.mjs';
+
+/** One line in Work → Activity (the automation log, as tokenaudit.mjs and the hook write theirs). Never throws. */
+export const activityLine = (e) => {
+  try {
+    createActivityLog(path.join(stateDir(), 'automation.log')).add(e);
+  } catch {
+    /* the log is a convenience */
+  }
+};
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -66,7 +78,7 @@ export function missionPart(o) {
     tools, ...(o.sctx && typeof o.sctx.listening === 'function' ? { address: () => o.sctx.listening() } : {}),
     config: o.cfg, places: o.places, runner: o.runner, planner: o.planner, providers: o.providers || claudeProviders, slots,
     accept: o.accept, door: o.door, reopen: (id) => o.store().status(id, 'open'), ...(o.now ? { now: o.now } : {}), ...(o.run ? { run: o.run } : {}),
-    log: o.log, ...(o.engine || {}),
+    log: o.log, activity: activityLine, ...(o.engine || {}),
   });
   // Plan with AI's Accept, as the page and Tia press it: a planning mission of that proposal takes the tasks it made.
   const planner = o.planner ? {
@@ -101,6 +113,12 @@ export function missionPart(o) {
     }
     return {
       settings: s, providers: (o.providers || claudeProviders)(), slots: slots(), projects: o.projects ? o.projects() : [], missions: missions.map((m) => ({ ...shown(m, s), line: m.line.slice(-3) })), broken, steps: stepsOf(s),
+      // box: whether a role can run anything here while it works (never waited for: what is known now, or null). Only
+      // while Tia works by herself: with her off, the page asks the box nothing.
+      box: (() => {
+        const b = s.on ? engine.boxSeen() : null;
+        return b ? { ok: b.ok, ...(b.ok ? {} : { why: b.why, ...(b.step ? { step: b.step } : {}) }) } : null;
+      })(),
       team: teamView(missions, s.rolesOff), corrected: correctionCounts(now().getTime()).week.role, brief: morningBrief(missions, { from: addDays(day, -1) }), today: day, // corrected: his corrections per role this week (shown only)
     };
   }
@@ -175,7 +193,7 @@ export function missionPart(o) {
       const b = await o.sctx.readJson(req);
       keys(b, ['task']);
       if (typeof b.task !== 'string') throw fail(400, 'name the task');
-      const x = await engine.add(idOf(m), b.task);
+      const x = await engine.add(idOf(m), b.task, { hers: fromHerDoor(o.sctx, req) });
       return { mission: { id: x.id, state: x.state, tasks: x.tasks.length } };
     }],
     ['POST', /^\/api\/work\/missions\/(m-[^/]+)\/tasks\/([a-z0-9][a-z0-9-]{0,79})\/run-tests$/, async (req, m) => {

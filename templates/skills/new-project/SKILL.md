@@ -21,7 +21,10 @@ when it applies and what its light form is.
 - Not for an existing product with code already in `code/`: there, follow its own `AGENTS.md`. A project set up with
   this skill is the exception (its `AGENTS.md` names this skill in "Every session"): every later session follows its
   rules, and an instruction that changes the project is fitted again first (step 4, the last part).
-- No brief at all: ask the owner for it and do nothing else.
+- No brief yet: Hoprig adds this skill to every new project, so `docs/brief.md` may be missing (its `AGENTS.md`
+  then has a part "No brief yet"). Ask the owner for the brief, or take it from his message, and write it unchanged
+  into `docs/brief.md`. Replace the part "No brief yet" of `AGENTS.md` with "Every session"
+  ([structure](references/structure.md), rule 6), then start at step 1. Until he gives one, do only what he asks.
 
 ## Read first
 

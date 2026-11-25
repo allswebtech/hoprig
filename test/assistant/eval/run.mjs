@@ -5,13 +5,21 @@
 //
 //   node test/assistant/eval/run.mjs --profile api --model haiku [--cases a,b] [--concurrency 3] [--record]
 //   … --jsonl [--candidate <folder>] [--case-file <file.jsonl>]     for an outside improvement loop (below)
-//   node test/assistant/eval/run.mjs --text skills/<name> | tools/<tool>       prints the shipped text, runs nothing
+//   … --max-usd <dollars> [--end-with-stdin]                         for a round of Improve Tia (below)
+//   node test/assistant/eval/run.mjs --text skills/<name> | tools/<tool> | prompt/<section>    prints the shipped text, runs nothing
 //
 // --jsonl prints, on standard output and nothing else, one line per case { id, pass, score, feedback, tokens, ms }
 // and a summary line last, and exits 0 when it ran (2 when it could not: a bad option, a candidate it cannot place,
-// a case it cannot grade). --candidate takes skills/<name>/SKILL.md or tools/<tool>.description.txt from that folder
-// in place of the shipped text, for this run only (candidate.mjs). --case-file adds cases in the loop's case shape
+// a case it cannot grade). --candidate takes skills/<name>/SKILL.md, tools/<tool>.description.txt or
+// prompt/<section>.md (never a safety section) from that folder in place of the shipped text, for this run only
+// (candidate.mjs). --case-file adds cases in the loop's case shape
 // (lines.mjs). --cases - runs none of the cases here (only the case file's).
+//
+// --max-usd is the whole budget of the run (gate.mjs Budget): a case starts only with its share of what is left, as its
+// turn's own limit, so the run never spends more than that (Claude Code may pass a turn's limit a little). The cases
+// it could not run are left out of the case lines; the summary names them (not_run) and says what the run cost (cost).
+// --end-with-stdin: the run ends, with every program it started, when its standard input closes (the dashboard that
+// started it is gone).
 //
 // A case that fails is run once more at the end of the run. One that passes then is a slip of the model: its line
 // and its row say "passed on the second run", the summary counts it apart, and it is not a regression. Only a case
@@ -33,7 +41,7 @@ import { CASES, setupState } from './cases.mjs';
 import { TOOL_NAMES } from '../../../src/assistant/tools.mjs';
 import { liveText, prepare, readCandidate } from './candidate.mjs';
 import { caseLine, readCaseFile, summaryLine } from './lines.mjs';
-import { baselineOf, counts, engineProblems, gate, recordNote, regressions, runTwice, summaryText, tableRow } from './gate.mjs';
+import { Budget, CASE_USD, baselineOf, counts, endWithStdin, engineProblems, gate, recordNote, regressions, runTwice, summaryText, tableRow, withBudget } from './gate.mjs';
 
 export { counts, regressions };
 
@@ -41,7 +49,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BASELINE = path.join(HERE, 'baseline.json');
 
 function opts(argv) {
-  const o = { profile: '', model: '', cases: null, concurrency: 3, record: false, out: '', jsonl: false, candidate: null, caseFile: null, text: null };
+  const o = { profile: '', model: '', cases: null, concurrency: 3, record: false, out: '', jsonl: false, candidate: null, caseFile: null, text: null, maxUsd: null, endWithStdin: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--record') o.record = true;
@@ -55,6 +63,10 @@ function opts(argv) {
     else if (a === '--case-file') o.caseFile = argv[++i];
     else if (a === '--text') o.text = argv[++i];
     else if (a === '--tools') o.tools = true;
+    else if (a === '--max-usd') {
+      o.maxUsd = Number(argv[++i]);
+      if (!Number.isFinite(o.maxUsd) || o.maxUsd <= 0) throw new Error('--max-usd is an amount of US dollars above 0');
+    } else if (a === '--end-with-stdin') o.endWithStdin = true;
     else throw new Error(`unknown option ${a}`);
   }
   for (const k of ['cases', 'candidate', 'caseFile', 'text', 'out', 'profile', 'model']) if (o[k] === undefined) throw new Error('an option is missing its value');
@@ -64,7 +76,7 @@ function opts(argv) {
   return o;
 }
 
-async function runCase(c, o, i, attempt = 1) {
+async function runCase(c, o, i, attempt = 1, usd = CASE_USD) {
   const ops = new FakeOps(setupState(c));
   // The real model knows the real time: the fake progress of this case is read now (to the minute), as on a real
   // dashboard, so its "as of" and her clock agree. Kept per case: four run at once.
@@ -77,8 +89,8 @@ async function runCase(c, o, i, attempt = 1) {
   const tokenFile = path.join(tokenDir, 'assistant-token');
   fs.writeFileSync(tokenFile, dash.token, { mode: 0o600 });
   const engine = new Engine({
-    profile: o.profile, model: o.model || null, maxBudgetUsd: 0.5,
-    systemPrompt: systemPrompt(dash.core.skills.index()), url: dash.url, tokenFile, conversation,
+    profile: o.profile, model: o.model || null, maxBudgetUsd: usd,
+    systemPrompt: systemPrompt(dash.core.skills.index(), o.prep.prompt), url: dash.url, tokenFile, conversation,
     dir: path.join(tokenDir, 'conv'),
     ...(o.prep.mcpCommand ? { mcpCommand: o.prep.mcpCommand } : {}),
     // Tests only: a stand-in for Claude Code (no model, no provider), given as a script to run with node.
@@ -142,6 +154,7 @@ async function runCase(c, o, i, attempt = 1) {
 
 async function main() {
   const o = opts(process.argv.slice(2));
+  if (o.endWithStdin) endWithStdin();
   if (o.text) {
     process.stdout.write(liveText(o.text));
     return 0;
@@ -161,15 +174,20 @@ async function main() {
   if (!cases.length) throw new Error('no case to run');
   const cand = o.candidate ? readCandidate(path.resolve(o.candidate)) : null;
   o.prep = prepare(cand);
+  const budget = o.maxUsd ? new Budget(o.maxUsd, o.concurrency) : null;
+  const one = (c, i, attempt) => (budget ? withBudget(budget, c, (usd) => runCase(c, o, i, attempt, usd)) : runCase(c, o, i, attempt));
   let results;
   try {
-    results = await runTwice(cases, o.concurrency, (c, i, attempt) => runCase(c, o, i, attempt), (line) => console.error(line), { once: o.jsonl });
+    results = await runTwice(cases, o.concurrency, one, (line) => console.error(line), { once: o.jsonl });
   } finally {
     o.prep.cleanup();
   }
   if (o.jsonl) {
-    const lines = results.map(caseLine);
-    const text = `${[...lines, summaryLine(lines, cand ? cand.parts : null, results)].map((l) => JSON.stringify(l)).join('\n')}\n`;
+    const ran = results.filter((r) => !r.skipped);
+    const lines = ran.map(caseLine);
+    const spent = { not_run: results.filter((r) => r.skipped).map((r) => r.id), cost: Math.round(results.reduce((n, r) => n + (Number.isFinite(r.costUsd) ? r.costUsd : 0), 0) * 1e6) / 1e6 };
+    const summary = { ...summaryLine(lines, cand ? cand.parts : null, ran), ...(budget ? spent : {}) };
+    const text = `${[...lines, summary].map((l) => JSON.stringify(l)).join('\n')}\n`;
     process.stdout.write(text);
     if (o.out) fs.writeFileSync(o.out, text);
     return 0;

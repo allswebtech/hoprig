@@ -255,16 +255,40 @@ test('a part\'s chat moved to a subscription starts with no --max-budget-usd, an
   assert.deepEqual([d.spent, d.held, d.unseen, d.unseenHeld, d.cuts], [0.01, 0.99, 1, 0.99, undefined], 'its turn\'s $0.01 spent, the rest of its $1 counted as a part whose end was not seen');
 });
 
-test('the dashboard\'s start settles nothing: a hold an earlier run left counts for the day until its chat starts again', async (t) => {
+test('after a restart of the dashboard a hold an earlier run left counts for the day, said as a part whose end Hoprig did not see', async (t) => {
   const { ledger } = await import('../../src/operator/money.mjs');
   fs.rmSync(spendFile(), { force: true });
-  assert.equal(ledger().take(2, { id: 'part-older', amount: 1 }), null);
+  // Written by an earlier run of the dashboard (its own mark, not this run's), then bound to the part's chat.
+  fs.mkdirSync(path.dirname(spendFile()), { recursive: true });
+  fs.appendFileSync(spendFile(), JSON.stringify({ at: Date.now(), kind: 'hold', id: 'part-older', usd: 1, run: 'earlier-run' }) + '\n');
   ledger().bind('part-older', 'this|chat:made-up-chat', 0, true);
   const { make } = chatFeatureFor('boot');
   const f = make();
   t.after(() => f.close());
   f.start();
-  assert.deepEqual(ledger().today(), { spent: 0, held: 1 }, 'still held: its process may still run');
+  assert.deepEqual(ledger().today(), { spent: 0, held: 1 }, 'still counted: its process may still run a turn, which its budget bounds');
+  const d = ledger().detail();
+  t.diagnostic(`FIG restart detail=${JSON.stringify(d)}`);
+  assert.deepEqual([d.parts, d.unseen, d.unseenHeld], [undefined, 1, 1], 'not a part that runs now: one whose end was not seen');
+  assert.ok(!ledgerLines().some((e) => e.kind === 'spent' && e.hold === 'part-older'), 'not settled: a later measure of its chat still lowers it');
+});
+
+// The mark names the dashboard's process by its pid and, on Linux, by when it started: a pid the system gave to
+// another process since is not that dashboard.
+test('a hold marked by a dashboard whose pid now belongs to another live process is a part whose end was not seen', { skip: process.platform !== 'linux' && 'the start time is read on Linux only' }, async () => {
+  const { SpendLedger } = await import('../../src/assistant/spend.mjs');
+  const stat = fs.readFileSync(`/proc/${process.ppid}/stat`, 'utf8');
+  const start = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+  const sum = (run) => {
+    const l = new SpendLedger({ file: null, now: () => new Date(2026, 10, 18, 12, 0).getTime() });
+    l.memory.push({ at: l.now(), kind: 'hold', id: 'part-mark', usd: 1, run });
+    l.bind('part-mark', 'this|chat:made-up-mark', 0, true);
+    const d = l.detail();
+    return [d.parts, d.unseen];
+  };
+  assert.deepEqual(sum(`${process.ppid}-deadbeef-${Number(start) + 1}`), [undefined, 1], 'a live pid with another start time: not that dashboard');
+  assert.deepEqual(sum(`${process.ppid}-deadbeef-${start}`), [1, undefined], 'the same pid and start time: that dashboard runs');
+  assert.deepEqual(sum(`${process.ppid}-deadbeef`), [1, undefined], 'a mark written before the start time was: read by its pid as before');
 });
 
 test('a dashboard killed inside a part\'s turn: at the chat\'s next start the rest of that budget counts, and the new share is what is left beside it', async (t) => {

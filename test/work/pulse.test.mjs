@@ -284,19 +284,35 @@ test('who did what on a Work run: its helpers\' records read through workUnits, 
   const line = (agent, id, model, i, o) => JSON.stringify({ type: 'assistant', attributionAgent: agent, isSidechain: true, message: { id, model, usage: { input_tokens: i, output_tokens: o, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, content: [{ type: 'text', text: 'done' }] } });
   fs.writeFileSync(path.join(sub, 'agent-a1.jsonl'), `${line('hoprig-runner', 'h1', 'claude-haiku-5-5', 100, 20)}\n`);
   fs.writeFileSync(path.join(sub, 'agent-a2.jsonl'), `${line('hoprig-coder', 'h2', 'claude-sonnet-5-5', 300, 90)}\n`);
+  // The Lead's own conversation, with cache reads: kept apart as the chat page's card shows them.
+  const leadLine = JSON.stringify({ type: 'assistant', message: { id: 'l1', model: 'claude-opus-5-5', usage: { input_tokens: 40, output_tokens: 60, cache_read_input_tokens: 9000, cache_creation_input_tokens: 10 }, content: [{ type: 'text', text: 'ok' }] } });
+  fs.writeFileSync(path.join(projectDir(fs.realpathSync(history.cwd)), `${conv}.jsonl`), `${leadLine}\n`);
   try {
     const w = await workUnits({ place, cfg: {} });
     const u = w.units.find((x) => x.run === r.id);
     assert.ok(u && u.parts, 'the run has its parts');
     assert.deepEqual(u.parts.tiers.map((t) => [t.tier, t.parts, t.tokens, t.models]), [['fast', 1, 120, ['claude-haiku-5-5']], ['strong', 1, 390, ['claude-sonnet-5-5']]]);
+    // The same shape as the chat page's route (models/parts.mjs partsOf): the lead, each part with its kind, model and
+    // tokens new/written/cached, and the tiers with theirs.
+    assert.deepEqual(u.parts.lead, { model: 'claude-opus-5-5', tokens: 110, use: { in: 50, out: 60, cached: 9000 } });
+    assert.deepEqual(u.parts.parts.map((p) => [p.kind, p.tier, p.model, p.tokens, p.use]), [
+      ['Running and recording', 'fast', 'claude-haiku-5-5', 120, { in: 100, out: 20, cached: 0 }],
+      ['Writing and reviewing code', 'strong', 'claude-sonnet-5-5', 390, { in: 300, out: 90, cached: 0 }],
+    ]);
+    assert.deepEqual(u.parts.tiers.map((t) => t.use), [{ in: 100, out: 20, cached: 0 }, { in: 300, out: 90, cached: 0 }]);
     assert.equal(w.units.find((x) => x.run === running.id)?.parts, undefined, 'a run without helpers has none');
     // The runs route (Activity, a task's runs) takes them from the same reader.
     const route = doRoutes({ runs: { list: () => [{ id: r.id }, { id: 'other' }] }, readJson: async () => ({}), refOf: () => null, ownerOnly: () => {}, resume: async () => {}, partsByRun: () => partsByRun({ place, cfg: {} }) })
       .find(([m, re]) => m === 'GET' && re.test('/api/work/runs'));
     const got = await route[2]({}, [], new URLSearchParams());
     assert.equal(got.runs[0].parts.tiers.length, 2);
+    assert.deepEqual(got.runs[0].parts, u.parts, 'the route hands on the whole card');
     assert.equal(got.runs[1].parts, undefined);
+    // Never a path: neither the home, nor the coding tool's records, nor the project folder.
+    const said = JSON.stringify(got);
+    for (const p of [t.root, fs.realpathSync(history.cwd), projectDir(fs.realpathSync(history.cwd)), 'subagents', '.jsonl']) assert.equal(said.includes(p), false, p);
   } finally {
+    fs.rmSync(path.join(projectDir(fs.realpathSync(history.cwd)), `${conv}.jsonl`), { force: true });
     fs.rmSync(path.join(projectDir(fs.realpathSync(history.cwd)), conv), { recursive: true, force: true });
     fs.rmSync(path.join(place.folder, 'runs', `${r.id}.json`));
   }

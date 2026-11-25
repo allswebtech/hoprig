@@ -111,14 +111,15 @@ export function engineArgs({ systemPrompt, mcpConfigFile, sessionId = null, resu
  * (read on every call, so a rotated token is picked up; the token itself is never in this config) and the
  * conversation.
  */
-export function mcpConfig({ url, tokenFile, conversation, command = process.execPath, args = [binFile(), 'mcp'] }) {
+// accepted: the dashboard's own Tia, whose tool list takes the descriptions the owner accepted (src/assistant/accepted.mjs).
+export function mcpConfig({ url, tokenFile, conversation, accepted = false, command = process.execPath, args = [binFile(), 'mcp'] }) {
   // Without its own address `hoprig mcp` would fall back to the default port, where another dashboard may listen.
   if (typeof url !== 'string' || !/^https?:\/\/[^/]+/.test(url)) throw new Error('the dashboard\'s own address is not known');
   return {
     mcpServers: {
       [SERVER_NAME]: {
         type: 'stdio', command, args,
-        env: { HOPRIG_DASHBOARD_URL: url, HOPRIG_ASSISTANT_TOKEN_FILE: tokenFile, HOPRIG_ASSISTANT_CONVERSATION: conversation },
+        env: { HOPRIG_DASHBOARD_URL: url, HOPRIG_ASSISTANT_TOKEN_FILE: tokenFile, HOPRIG_ASSISTANT_CONVERSATION: conversation, ...(accepted ? { HOPRIG_ASSISTANT_ACCEPTED: '1' } : {}) },
       },
     },
   };
@@ -170,7 +171,8 @@ export function parseEvents(line) {
 /**
  * A running conversation. o: { profile ("api", "auto", …), systemPrompt, url, tokenFile, conversation, model,
  * maxBudgetUsd, dir, sessionId (an existing conversation to resume), resolveEnv (tests), spawnImpl (tests),
- * command (tests: { command, args } instead of claude), mcpCommand }.
+ * command (tests: { command, args } instead of claude), mcpCommand, accepted (her tool list with the owner's accepted
+ * descriptions) }.
  * Emits "event" for every parsed event and "exit". send(text) resolves with { events, done } for that turn.
  */
 export class Engine extends EventEmitter {
@@ -187,7 +189,7 @@ export class Engine extends EventEmitter {
   async #spawn() {
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const cfgFile = path.join(this.dir, 'mcp.json');
-    fs.writeFileSync(cfgFile, JSON.stringify(mcpConfig({ url: this.o.url, tokenFile: this.o.tokenFile, conversation: this.o.conversation, ...(this.o.mcpCommand || {}) })), { mode: 0o600 });
+    fs.writeFileSync(cfgFile, JSON.stringify(mcpConfig({ url: this.o.url, tokenFile: this.o.tokenFile, conversation: this.o.conversation, accepted: this.o.accepted === true, ...(this.o.mcpCommand || {}) })), { mode: 0o600 });
     const args = engineArgs({ systemPrompt: this.o.systemPrompt, mcpConfigFile: cfgFile, sessionId: this.sessionId, resume: this.started, model: this.o.model, maxBudgetUsd: this.o.maxBudgetUsd });
     const env = await (this.o.resolveEnv || engineEnv)(this.o.profile);
     // An empty working folder of her own: no project's CLAUDE.md, settings or .mcp.json is near it.

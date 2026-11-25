@@ -79,6 +79,7 @@ async function reviewSheet(r) {
         s.commit ? h('span.sk-mono', `Commit: ${s.commit}`) : null,
         h('span', `License: ${r.license}`),
         r.catalog && r.catalog.notes ? h('span.hint', r.catalog.notes) : null,
+        hubLine(r),
         r.from ? h('span.sk-mono', `From ${String(r.from.commit || r.from.version).slice(0, 12)} to ${String(s.commit || s.version).slice(0, 12)}`) : null)),
       r.diff ? [h('h3.sk-h3', 'What changed'), diffView(r.diff)] : null,
       h('h3.sk-h3', 'What the scan found'),
@@ -139,6 +140,7 @@ function viewSkills({ frame, sub }) {
   });
 
   if (!project) paintProposals(proposalsBox, { diffView, tag });
+  if (!project) paintWorth(proposalsBox, { startReview });
 
   const scopeName = () => (project ? (projects.find((p) => p.path === project) || {}).name || project.split(/[\\/]/).pop() : '');
   const installedCount = () => (data ? data.user.skills.length + (data.project ? data.project.skills.length : 0) : 0);
@@ -242,14 +244,16 @@ function viewSkills({ frame, sub }) {
     const banner = notice ? h('div.banner.ok-box.sk-notice', { role: 'status' }, icon('check', { size: 18 }), h('span', notice.text), undo) : null;
     if (!here.length && !mine.length) {
       return fill(partBox, banner, emptyState('book', project ? `No skills for ${scopeName()} yet. Suggested shows the ones that fit it.` : 'No skills yet. Suggested shows the ones that fit you.',
-        btn('primary', { icon: 'sparkle', label: 'See suggested', onclick: () => show('suggested') })));
+        btn('primary', { icon: 'sparkle', label: 'See suggested', onclick: () => show('suggested') })),
+        project ? fitPart(project, { review: startReview, reload: load }) : null);
     }
     fill(partBox, banner,
       h('div.sk-head', h('p.hint', project ? `Used in ${scopeName()}.` : 'Used in every project.'), checkButton()),
       project ? [h('p.field-label', `In this project (${here.length})`), here.length ? h('div.rows', here.map((s) => skillRow(s, 'project'))) : h('p.hint', 'None yet: Suggested shows the ones that fit it.')] : null,
       project ? h('p.field-label', `For you, in every project (${mine.length})`) : null,
       mine.length ? h('div.rows', mine.map((s) => skillRow(s, 'user'))) : project ? h('p.hint', 'None.') : null,
-      project ? null : h('p.hint.sk-where', `Kept in ${tildePath(data.user.dir, data.home)}.`));
+      project ? null : h('p.hint.sk-where', `Kept in ${tildePath(data.user.dir, data.home)}.`),
+      project ? fitPart(project, { review: startReview, reload: load }) : null);
   }
 
   // ---------- Suggested ----------
@@ -289,6 +293,7 @@ function viewSkills({ frame, sub }) {
       const r = found.r;
       fill(out,
         r.catalog.length ? [h('p.field-label', 'From the catalog (reviewed)'), h('div.rows', r.catalog.map((c) => item(c.name, c.for, `${c.source} · ${c.license}`, c.add)))] : null,
+        hubFound(r.hubs, (body, b) => startReview({ ...body, ...(project ? { project, scope: 'project' } : { scope: 'user' }) }, b)),
         h('p.field-label', 'From skills.sh'),
         r.error ? h('p.hint', r.error) : null,
         r.online.length ? h('div.rows', r.online.map((o) => item(o.name, null, `${o.source} · ${o.installs.toLocaleString()} installs${o.license ? ` · ${o.license}` : ''}`, o.add))) : h('p.hint', 'Nothing found there.'),
@@ -351,10 +356,10 @@ function viewSkills({ frame, sub }) {
       corrected = {}; // another computer, or an older one: nothing to show
     }
     if (!part) part = installedCount() ? 'installed' : 'suggested';
-    fill(weeklyBox, toggle('Check for updates once a week', data.settings.weekly, (v) => api('/api/skillhub/settings', { weekly: v }).catch((er) => {
+    fill(weeklyBox, toggle('Look for updates and new skills once a week', data.settings.weekly, (v) => api('/api/skillhub/settings', { weekly: v }).catch((er) => {
       toast(er.message, { kind: 'error' });
       throw er;
-    }), `It only tells you (a notification and a mark here); it never installs.${data.settings.lastCheck ? ` Last check: ${new Date(data.settings.lastCheck).toLocaleDateString()}.` : ''}`));
+    }), `Once a week, look for updates of your skills and for new skills from the reviewed hubs that fit your projects. It only tells you; nothing is added without you.${data.settings.lastCheck ? ` Last check: ${new Date(data.settings.lastCheck).toLocaleDateString()}.` : ''}`));
     paintTabs();
     paintPart();
     try {
@@ -445,3 +450,99 @@ function viewSkills({ frame, sub }) {
 }
 
 registerPage({ id: 'skills', title: 'Skills', icon: 'book', group: 'more', order: 20, perComputer: true, render: viewSkills });
+
+// ---------- Worth adding: skills from the reviewed hubs that fit your projects (src/skillhub/hubs.mjs) ----------
+
+/** The review request of a hub skill: the hub, its folder and the commit the weekly look read. */
+const hubBody = (x, project) => ({ hub: x.hub, path: x.path, commit: x.commit, ...(project ? { project, scope: 'project' } : { scope: 'user' }) });
+
+/** "Worth adding" on the top Skills page, put right after `before`: each card names the skill, its hub and why it fits. */
+function paintWorth(before, { startReview }) {
+  const box = h('div.sk-worth');
+  before.after(box);
+  const load = async () => {
+    let w;
+    try {
+      w = await api('/api/skillhub/worth');
+    } catch {
+      return fill(box); // another computer, or an older one: nothing to show
+    }
+    if (!box.isConnected) return;
+    if (!w.results.length && !w.lines.length) return fill(box);
+    fill(box, panel({ icon: 'sparkle', title: 'Worth adding', desc: 'New skills from the reviewed hubs that fit your projects, found by the weekly look. Nothing is added until you review one and install it.' },
+      w.results.length ? h('div.rows', w.results.map((x) => h('div.row.static.col.mrow.sk-row',
+        h('div.mrow-top', h('span.row-icon', icon('sparkle')),
+          h('span.row-main',
+            h('span.row-title', x.name, h('span.badge.soft', `from ${x.hubName}`)),
+            x.description ? h('span.row-sub.sk-wrap', x.description) : null,
+            h('span.row-sub.sk-wrap.sk-why', `Why: ${x.why.join('; ')}`)),
+          h('span.sk-act', btn('small primary', { icon: 'download', label: 'Review', onclick: (e) => startReview(hubBody(x, x.project), e.currentTarget).then(load) }))))))
+        : null,
+      w.lines.length ? h('p.hint.sk-wrap', `Not read this time: ${w.lines.join('; ')}`) : null,
+      h('p.hint', `Only skills are taken from a hub, never its tools or code.${w.at ? ` Last look: ${new Date(w.at).toLocaleDateString()}.` : ''}`)));
+  };
+  load();
+}
+
+/** The hub skills a search found among the ones the last weekly look read, each with Review. */
+function hubFound(list, review) {
+  if (!list || !list.length) return null;
+  return [h('p.field-label', 'From the reviewed hubs'), h('div.rows', list.map((x) => h('div.row.static.col.mrow.sk-row',
+    h('div.mrow-top', h('span.row-icon', icon('book')),
+      h('span.row-main', h('span.row-title', x.name), x.description ? h('span.row-sub.sk-wrap', x.description) : null,
+        h('span.row-sub.sk-wrap.sk-mono', `${x.hubName} · ${x.path} · the hub's licence: ${x.license}`)),
+      h('span.sk-act', btn('small secondary', { icon: 'download', label: 'Review', onclick: (e) => review(hubBody(x, null), e.currentTarget) }))))))];
+}
+
+/** In the review sheet of a hub skill: the hub, its licence, and the skill's own licence or the NOTICE it gets. */
+function hubLine(r) {
+  if (!r.hub) return null;
+  return h('span', `From the hub ${r.hub.name}, whose licence is ${r.hub.license}. ${r.hub.own ? `The skill's own licence: ${r.hub.own}.` : 'The skill has no licence of its own, so a NOTICE file with the hub\'s licence is added to it.'}`);
+}
+
+/**
+ * A project's "Fits its technology" (src/skillhub/fit.mjs): the switch "Add skills that fit this project's technology"
+ * (his choice for the project, kept in Hoprig's state) and the last fit's three lists: already yours (nothing copied),
+ * added by itself (Undo takes it out, kept for undo; Put back brings it again), waiting for you (Review shows every
+ * file, then Install). review(body, button): the page's review sheet; reload(): the page again. → the element.
+ */
+export function fitPart(project, { review, reload, call = api } = {}) {
+  const el = h('section.card.panel.sk-fit', h('h2.panel-title', 'Fits its technology'), h('p.hint', 'Looking…'));
+  const row = (x, sub, act) => h('div.row.static.col.mrow.sk-row',
+    h('div.mrow-top', h('span.row-icon', icon(x.here ? 'check' : 'sparkle')),
+      h('span.row-main', h('span.row-title', x.name), sub ? h('span.row-sub.sk-wrap', sub) : null,
+        x.why && x.why.length ? h('span.row-sub.sk-wrap.sk-why', `Why: ${x.why.join('; ')}`) : null),
+      act ? h('span.sk-act', act) : null));
+  const press = (label, ic, path, x, kind = 'secondary') => btn(`small ${kind}`, { icon: ic, label, onclick: async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      await call(path, { name: x.name, project });
+      await reload();
+    } catch (er) {
+      toast(er, { kind: 'error' });
+      paint();
+    }
+  } });
+  const list = (title, items, draw) => [h('p.field-label', `${title} (${items.length})`), items.length ? h('div.rows', items.map(draw)) : h('p.hint', 'None.')];
+  let d = null;
+  function paint(err = null) {
+    if (err) return fill(el, h('h2.panel-title', 'Fits its technology'), errorBox(err));
+    const sw = toggle('Add skills that fit this project\'s technology', d.fit, async (v) => {
+      d = await call('/api/skillhub/fit/choice', { project, fit: v });
+      paint();
+    }, 'Text-only skills from your own and from the reviewed catalog go in by themselves, with Undo; anything else waits for you. Hoprig looks when the project is made and once more when it first has code.');
+    const seen = d.at || d.mine.length || d.added.length || d.waiting.length;
+    fill(el, h('h2.panel-title', 'Fits its technology'), sw,
+      !seen ? h('p.hint', d.fit ? 'Nothing looked for yet: Hoprig looks once the project has code.' : 'Nothing looked for: the switch is off.') : [
+        ...list('Already yours', d.mine, (x) => row(x, 'One of your own skills, used in every project: nothing was copied.')),
+        ...list('Added by itself', d.added, (x) => row(x, x.here ? x.for : `${x.for} Taken out.`, x.here ? press('Undo', 'refresh', '/api/skillhub/remove', x) : press('Put back', 'refresh', '/api/skillhub/undo', x))),
+        ...list('Waiting for you', d.waiting, (x) => row(x, [x.for, x.reasons && x.reasons.length ? ` Not added by itself: ${x.reasons.join('; ')}.` : ''].join(''), x.here ? h('span.badge.sk-done', 'Installed')
+          : btn('small primary', { icon: 'download', label: 'Review', onclick: (e) => review({ spec: x.id, project, scope: 'project' }, e.currentTarget) }))),
+      ]);
+  }
+  call(`/api/skillhub/fit?project=${enc(project)}`).then((r) => {
+    d = r;
+    paint();
+  }, (e) => paint(e));
+  return el;
+}

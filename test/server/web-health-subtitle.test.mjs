@@ -16,5 +16,6 @@ test('Health\'s line says a Fix stands where one can run, not on each check', ()
   assert.doesNotMatch(text, /Fix for each/);
   assert.match(text, /Fix where one can run/);
   // What makes it true: a check gets a Fix button only when it has a fixId.
-  assert.match(health, /c\.fixId \? btn\('small primary', \{ label: 'Fix'/);
+  assert.match(health, /if \(c\.fixId\) return btn\('small primary', \{ label: 'Fix'/);
+  assert.equal(health.split("label: 'Fix'").length, 2, 'the one Fix button of the page');
 });

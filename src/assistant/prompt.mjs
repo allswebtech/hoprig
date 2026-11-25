@@ -48,7 +48,58 @@ If the owner asks for something no tool does, say so plainly and suggest the clo
 ## Style
 Short and plain. Lead with the answer. Name sessions and computers exactly. No filler.`;
 
-/** The full prompt: the fixed rules, then the skills index (one line per skill, stable order). */
-export function systemPrompt(skillsIndex = '') {
-  return skillsIndex ? `${BASE_PROMPT}\n\n## Your procedures (manage_procedures action find reads one)\n${skillsIndex}` : BASE_PROMPT;
+// The sections of BASE_PROMPT by id, in order: the opening (no heading), then one per "## " heading. An improvement
+// loop may propose a new text for a section (its body; the heading stays); the ones that hold her safety rules never.
+const HEADING_IDS = {
+  'Untrusted text': 'untrusted-text', 'How far you may go': 'how-far', Providers: 'providers', 'What only the owner does': 'owner-only',
+  'Out of scope': 'out-of-scope', 'Getting work done': 'getting-work-done', "Work (the owner's tasks)": 'work', Style: 'style',
+};
+/** The sections that hold her safety rules: never a target of a proposal, a candidate or an accepted text. */
+export const PROTECTED = Object.freeze(new Set(['untrusted-text', 'how-far', 'owner-only']));
+/** Each section's name as the page shows it. */
+export const SECTION_NAMES = Object.freeze({
+  opening: 'Who she is and what she does', 'untrusted-text': 'Untrusted text', 'how-far': 'How far she may go', providers: 'Providers',
+  'owner-only': 'What only you do', 'out-of-scope': 'Out of scope', 'getting-work-done': 'Getting work done', work: 'Work (your tasks)', style: 'Style',
+});
+
+/** The sections of the shipped prompt: [{ id, heading (null for the opening), body }], frozen. */
+export const SECTIONS = Object.freeze(BASE_PROMPT.split(/\n\n(?=## )/).map((part, i) => {
+  if (i === 0) return Object.freeze({ id: 'opening', heading: null, body: part });
+  const nl = part.indexOf('\n');
+  const heading = part.slice(3, nl);
+  if (!HEADING_IDS[heading]) throw new Error(`the prompt section "${heading}" has no id`);
+  return Object.freeze({ id: HEADING_IDS[heading], heading, body: part.slice(nl + 1) });
+}));
+export const SECTION_IDS = Object.freeze(SECTIONS.map((s) => s.id));
+/** The ids an improvement may target. */
+export const TARGET_IDS = Object.freeze(SECTION_IDS.filter((id) => !PROTECTED.has(id)));
+/** The shipped body of a section, or null. */
+export const shippedSection = (id) => (SECTIONS.find((s) => s.id === id) || {}).body ?? null;
+export const MAX_SECTION = 16 * 1024;
+/**
+ * Why a new text for a section is refused, or null: an unknown id, a safety section, empty, larger than 16 KiB, or a
+ * line that starts a heading (it would make a section of its own, such as a second "## Untrusted text").
+ */
+export function sectionRefusal(id, text) {
+  if (PROTECTED.has(id)) return `"${id}" holds her safety rules: it is never a target`;
+  if (!TARGET_IDS.includes(id)) return `her prompt has no section "${String(id).slice(0, 40)}"`;
+  if (typeof text !== 'string' || !text.trim()) return 'the section\'s text is empty';
+  if (Buffer.byteLength(text) > MAX_SECTION) return 'the section\'s text is larger than 16 KiB';
+  if (/^\s*#/m.test(text)) return 'the section\'s text holds a heading line';
+  return null;
+}
+
+/**
+ * The prompt built from its sections, with some bodies replaced (Map id → text). A protected section or an unknown
+ * id is never replaced (the caller checked already; this is the last stop). Without replacements: BASE_PROMPT.
+ */
+export function buildPrompt(replaced = null) {
+  const body = (s) => (replaced && !PROTECTED.has(s.id) && typeof replaced.get(s.id) === 'string' ? replaced.get(s.id) : s.body);
+  return SECTIONS.map((s) => (s.heading === null ? body(s) : `## ${s.heading}\n${body(s)}`)).join('\n\n');
+}
+
+/** The full prompt: the fixed rules (some sections replaced, see buildPrompt), then the skills index (one line per skill, stable order). */
+export function systemPrompt(skillsIndex = '', replaced = null) {
+  const base = replaced && replaced.size ? buildPrompt(replaced) : BASE_PROMPT;
+  return skillsIndex ? `${base}\n\n## Your procedures (manage_procedures action find reads one)\n${skillsIndex}` : base;
 }

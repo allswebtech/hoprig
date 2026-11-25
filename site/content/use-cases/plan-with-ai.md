@@ -25,7 +25,9 @@ People ask "how do I get Claude Code to plan a big feature and then do it step b
 5. A task is done by a session: **Do it with a session** on its row shows the brief the session gets, the provider, the model and the effort, and starts on **Start**. A task that waits for another one is not offered **Do it** until that one is done; **Stop waiting** in the task's menu ends the wait.
 6. When the run ends, the task waits for you: **Accept** marks it done, **Send back** opens it again with your words added to its brief. Nothing is pushed or merged by a run.
 
-In a terminal, the same plans:
+## In a terminal
+
+The same plans, in a terminal (the window where you type commands):
 
 ```sh nocopy
 hop tasks plans          # every plan, its progress and next date
@@ -36,7 +38,7 @@ hop tasks runs <id>      # what the sessions did: answers, commits, changed file
 
 ## What you need
 
-- The dashboard running on the computer, and a provider for the coding tool (`hop add`).
+- The dashboard running on the computer, and a provider for the coding tool (a Claude sign-in, an API key or a gateway it runs on): press **Add provider** on the **Providers** page, or in a terminal `hop add`.
 - A place for your Work data: **Settings → Work** (the AI brain's `work/` folder by default).
 
 ## What it does not do

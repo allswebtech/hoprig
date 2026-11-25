@@ -7,6 +7,7 @@ import { APP_NAME } from './brand.js';
 import { icon } from './icons.js';
 import { ago, api, btn, confirmSheet, copyText, fill, h, insecure, link, machinePill, openSheet, promptSheet, toast } from './lib.js';
 import { errorBox, field, fold, panel, skeletonRows, steps, toggle } from './shell.js';
+import { plainHost } from './health.js';
 
 const G = (p) => `~/api/gateways${p}`;
 const busy = (text) => h('div.empty.compact', h('div.spinner', { 'aria-hidden': 'true' }), h('p', text));
@@ -36,6 +37,41 @@ export function programFacts(title, view) {
   const why = view && WAITS[view.needsConfirm];
   const first = why || `${title} is defined on this computer, but its program was not found.`;
   return [runs ? `${first} Hoprig starts it with:` : `${first} Install its program on this computer, then try again.`, runs];
+}
+
+const LOOPBACK = ['localhost', '127.0.0.1', '[::1]', '::1'];
+
+/**
+ * A gateway's own page as this browser can open it. `page` is its address as its computer says it
+ * (http://localhost:<port>/…; it listens on that computer only), `pageHost` the host name this dashboard page is open
+ * under, `signedIn` the loopback names the owner is signed in under (when known), `other` true for another computer's
+ * gateway. → { href } on a loopback name: a link under the loopback name the page is not on (a browser sends a host's
+ * sign-in cookie to every port of it); else { text }: the one sentence of where it opens, never a dead localhost link.
+ * The dashboard never passes a gateway's page through (its scripts would run on the dashboard's address as the owner).
+ */
+export function gatewayPageLink(page, { title = 'The gateway', pageHost = '', signedIn = [], other = false } = {}) {
+  if (!page) return null;
+  if (other) return { text: `${title}'s own page opens only in a browser on that computer itself. For a computer added by SSH, Open its page under that computer's Health opens it in a browser on the computer this dashboard runs on.` };
+  const u = new URL(page);
+  const own = String(pageHost).toLowerCase();
+  if (!LOOPBACK.includes(own)) {
+    u.hostname = '127.0.0.1';
+    return { text: `${title}'s own page opens only in a browser on the computer this dashboard runs on, at ${u.href}` };
+  }
+  const host = plainHost(own, signedIn);
+  if (!host) return { text: `You are signed in to this dashboard under both localhost and 127.0.0.1, so a link to ${title} would hand it your sign-in. Sign out under one of them (Settings → About → This device) to get its link.` };
+  u.hostname = host;
+  return { href: u.href };
+}
+
+/**
+ * The warning under a gateway's address for another computer, or null. An address on a loopback name reaches only the
+ * computer it is used on; the computer's name works only where the dashboard was opened to the network (by default
+ * it listens on this computer only), the public link from anywhere.
+ */
+export function addressWarning(address) {
+  if (!/^http:\/\/(localhost|127\.|\[::1\])/.test(address)) return null;
+  return 'This address works only on this computer. To get one that works on another computer, open this page by its public link (Settings → Public link), or by this computer\'s name on your network if the dashboard is open to your network (Settings → Security and sign-in → Network), and make the key there.';
 }
 
 /** The one line under a gateway: whether it runs, its version, and whether it is shared or used here. */
@@ -103,7 +139,7 @@ async function keySheet(g, done) {
   }
   done();
   const address = `${r.publicUrl || location.origin}${r.path}`;
-  const local = /^http:\/\/(localhost|127\.|\[::1\])/.test(address);
+  const local = addressWarning(address);
   const copyRow = (value, what) => h('div.btnrow', h('input.field.mono', { value, readonly: true, onfocus: (e) => e.target.select() }),
     btn('secondary', { icon: 'copy', label: 'Copy', onclick: async () => toast((await copyText(value)) ? `${what} copied` : 'Copy did not work') }));
   await openSheet({ title: `${g.title} for ${name.trim()}`, subtitle: 'The key is shown only now' }, (close) => h('div.wizard',
@@ -111,7 +147,7 @@ async function keySheet(g, done) {
       [h('p', 'On the other computer, open Providers and press "Add a shared gateway".')],
       [h('p', 'Paste this address:'), copyRow(address, 'Address')],
       [h('p', 'Paste this key:'), copyRow(r.key, 'Key')]),
-    local ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', 'This address works only on this computer. Open this page by the computer\'s name on your network or by its public link, and make the key there, to get an address that works elsewhere.')) : null,
+    local ? h('div.banner.warn', icon('alert', { size: 18 }), h('span', local)) : null,
     !local && address.startsWith('http:') ? h('div.banner.warn', icon('lock', { size: 18 }), h('span', 'This address is not encrypted: requests and the key travel in plain text. Use it only on a network you trust, or use the public link.')) : null,
     h('div.sheet-actions', h('button.btn.primary', { type: 'button', onclick: () => close() }, 'Done'))));
 }

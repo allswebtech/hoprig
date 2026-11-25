@@ -1,4 +1,4 @@
-# Hoprig 0.3.3: every command
+# Hoprig 0.3.4: every command
 
 Each command's own help, as the program prints it (`hoprig` and `hop` are the same command). Made by
 tools/build-skill.mjs at every build of the skill, so it matches this version.
@@ -181,9 +181,10 @@ usage:
 ```text
 usage:
   hoprig pc status [--json] [--offline]       what this computer has, what is missing, what needs attention
-  hoprig pc setup [--yes] [--dry-run] [--kits basics,node,python,github,extras,docker,php,fvm] [--recipe <file|https address>]
+  hoprig pc setup [--yes] [--dry-run] [--kits basics,node,python,github,extras,docker,php,fvm,flutter] [--recipe <file|https address>]
   hoprig pc recipe save [file] [--with-email]  write a recipe to set up another computer like this one
   hoprig pc clone <git address | owner/repo>…  clone into the projects folder
+  hoprig pc leave --check [--also <folder>]… [--json]  what exists only on this computer, before a format (reads only)
 ```
 
 ## hoprig pc setup
@@ -191,7 +192,22 @@ usage:
 `hoprig pc setup --help` prints:
 
 ```text
-usage: hoprig pc setup [--yes] [--dry-run] [--kits basics,node,python,github,extras,docker,php,fvm] [--recipe <file or https address>] [--no-projects] [--rules | --remove-rules]
+usage: hoprig pc setup [--yes] [--dry-run] [--kits basics,node,python,github,extras,docker,php,fvm,flutter] [--recipe <file or https address>] [--no-projects] [--rules | --remove-rules]
+```
+
+## hoprig pc leave
+
+`hoprig pc leave --help` prints:
+
+```text
+usage:
+  hoprig pc leave --check [--also <folder>]… [--json]   what exists only on this computer, before a format (reads only)
+       exit 0: nothing is only here; 1: something is (the list says what to do with each); 2: a word not understood
+       --also <folder>   an older layout outside the workspace: its repositories and folders in no git too
+  hoprig pc leave --outside <folder>… | --keep <dot-folder>… | --ignore <dot-folder>… | --test-data <engine>… | --unmark <name>…
+       marks kept in this computer's own file: a folder you keep your own way, a dot-folder you back up or that does
+       not matter, a database engine that holds test data only; --unmark takes a mark away
+  hoprig pc leave help | --help | -h                     this help (reads nothing)
 ```
 
 ## hoprig get, project clone
@@ -255,7 +271,7 @@ usage: hoprig project new|add|start|clone|status|sync|link|setup …   (see docs
 `hoprig project new` prints:
 
 ```text
-a name is needed — usage: hoprig project new <name> [--in <group>] [--template <folder|git address>] [--github [--repo-name <name>] | --remote <address>] [--brief <file> | --brief -] [--kind <kind>] [--scope product|setup] [--git-name <name> --git-email <e-mail>] [--start] [--dry-run]
+a name is needed — usage: hoprig project new <name> [--in <group>] [--template <folder|git address>] [--github [--repo-name <name>] | --remote <address>] [--brief <file> | --brief -] [--kind <kind>] [--scope product|setup] [--no-skill] [--git-name <name> --git-email <e-mail>] [--start] [--dry-run]
 ```
 
 ## hoprig project add
@@ -325,6 +341,13 @@ usage:
   hoprig workspace map --upgrade [--dry-run] [--yes] [--json]
                                                the map to version 2 (needed for groups); says first which
                                                computers need a newer Hoprig
+  hoprig workspace map --undo [--dry-run] [--json]
+                                               the old map back after an upgrade on this computer, while the map
+                                               has not changed since (the Workspace page has the same button)
+  hoprig workspace map --fix-case [--undo] [--dry-run] [--yes] [--json]
+                                               give a folder whose name differs from its map entry only in
+                                               letter case the map's name (Shop → shop), through a temporary
+                                               name; --undo: the old names back
   hoprig workspace restore <brain address> [--with-projects] [--dry-run] [--yes] [--json]
                                                a fresh computer: clone the brain, the credentials and groups'
                                                repositories and the others its map names; no project unless

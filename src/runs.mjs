@@ -63,6 +63,7 @@ import { stillOwned, system } from './procid.mjs';
 import { rememberUsage, usageForgotten } from './routerstate.mjs';
 import { changeRun, readRun, watchFile, writeRun as write } from './runfile.mjs';
 import { RUN_ID_RE } from './launchfile.mjs';
+import { noteEnd, noteStart } from './work/sessionlog.mjs';
 
 export { readRun };
 
@@ -165,6 +166,7 @@ export function createRun({ profile, cwd, carryArgs = [], tool = 'claude', conve
   if (!again && !run.handsOffStop && hand && hand.reset === true) run.handsOffStop = 'reset';
   fs.mkdirSync(runsDir(), { recursive: true, mode: 0o700 });
   write(file, run);
+  noteStart(file, run); // Work's history (never throws)
   return { file, run };
 }
 
@@ -270,7 +272,9 @@ export function updateRun(file, patch) {
 }
 
 export function removeRun(file) {
-  noteEnded(readRun(file));
+  const ending = readRun(file);
+  noteEnded(ending);
+  noteEnd(file, ending); // Work's history, before Tia's mark goes (never throws)
   // The settings Hoprig handed the run's coding tool (launch.mjs, a chat's: claude.mjs) go with its record, and so
   // does the mark that said the session was Tia's (hermark.mjs: the hold it fed must not outlive the session).
   for (const f of [file, usageFile(file), watchFile(file), `${file}.lock`, path.join(hookSettingsDir(), path.basename(file)), herMarkFile(file)]) {
